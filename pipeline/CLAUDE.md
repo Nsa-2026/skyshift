@@ -18,6 +18,9 @@ highpm, score, suspects; `all` runs them in order.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
 - `known` doesn't need `dots`: run it at the same time in a second process.
+- `known --known-source mpc` (needs `uv sync --extra mpc`): MPC orbits propagated with kete from SPHEREx's own position
+  (IMAGE header X_SC.., geocentric equatorial km, at MJD-AVG) instead of SkyBoT; cache/mpc/<zone>/ with exact per-photo
+  positions, orbit snapshot cache/mpc/orbits/mpcorb_<date>.parquet. Default stays SkyBoT until contracts/api.md lists "mpc".
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
@@ -39,7 +42,7 @@ highpm, score, suspects; `all` runs them in order.
 - macOS: uv may mark the editable .pth files hidden (Python then skips them); pytest adds ../core/src itself.
 - ESA Gaia TAP: async jobs stalled for minutes (14 Nov), sync answers a 1° tile in ~2 s. IRSA: ~35 s (Gaia, 2MASS) to
   ~60 s (CatWISE, ~35k rows/deg²) per 1° tile, sync or async alike.
-- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test.
+- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test and kete vs SkyBoT (mpc extra).
 
 ## Spectral science: what the outputs mean (for the web)
 - `classes.parquet` → `class`: star, galaxy or unsure. SPHEREx's 6″ pixels and 7.5″ PSF leave most galaxies

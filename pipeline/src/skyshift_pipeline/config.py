@@ -6,6 +6,7 @@ Tune after the pilot: change the numbers here, rerun `link`, `score` and `suspec
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -66,6 +67,21 @@ SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
 SKYBOT_MAX_IN_FLIGHT = 4
 SKYBOT_PAD_DEG = 0.05
 SKYBOT_TIMEOUT_S = 300
+
+# --- known (MPC orbits with kete) ------------------------------------------------------------
+# KNOWN_SOURCE picks where `known` gets its objects: "skybot" (the default above) or "mpc" (known_mpc.py:
+# MPC orbits moved with kete to each photo's MJD-AVG, seen from SPHEREx's header position). The CLI
+# flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
+# cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
+KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "skybot")
+KNOWN_SOURCES = ("skybot", "mpc")
+MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
+MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<YYYY-MM-DD>.parquet: one dated snapshot, used by every machine
+MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
+MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
+MPC_HEADER_WORKERS = 8               # parallel IMAGE header reads (SPHEREx position, one per exposure)
+MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
+MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly
 
 # --- link ----------------------------------------------------------------------------------
 FIXED_LINK_ARCSEC = 4.0       # friends-of-friends radius for fixed sources
