@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from importlib import resources
+from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
@@ -23,7 +24,21 @@ from .server import _json, app, client
 
 # ---------------------------------------------------------------- package data
 
+# Bundled copy → the repo file it mirrors. Run from a checkout (uv run --project mcp), the repo
+# file wins, so a contract or targets change shows up without refreshing the copy; an installed
+# package falls back to the copy. tests/test_reference.py warns when a copy is stale.
+SOURCES = {
+    ("targets.json",): ("web", "src", "data", "targets.json"),
+    ("contracts", "api.md"): ("contracts", "api.md"),
+    ("contracts", "flags.md"): ("contracts", "flags.md"),
+}
+_REPO = Path(__file__).resolve().parents[3]
+
+
 def _data_text(*parts: str) -> str:
+    src = SOURCES.get(parts)
+    if src and (_REPO / "mcp" / "pyproject.toml").is_file() and _REPO.joinpath(*src).is_file():
+        return _REPO.joinpath(*src).read_text(encoding="utf-8")
     return resources.files("skyshift_mcp").joinpath("data", *parts).read_text(encoding="utf-8")
 
 
