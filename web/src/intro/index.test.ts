@@ -4,6 +4,21 @@ import type { OpeningEnv } from "./rules";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+/** Node 26 shadows jsdom's localStorage with an undefined getter: install a small one per test. */
+function memoryStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    get length() {
+      return m.size;
+    },
+    clear: () => m.clear(),
+    getItem: (k) => (m.has(k) ? m.get(k)! : null),
+    setItem: (k, v) => void m.set(k, String(v)),
+    removeItem: (k) => void m.delete(k),
+    key: (i) => [...m.keys()][i] ?? null,
+  };
+}
+
 describe("mountOpening", () => {
   let app: HTMLElement;
   const playOpening = vi.fn((_app: HTMLElement, opts: { onClose?(r: string): void }) => {
@@ -15,6 +30,8 @@ describe("mountOpening", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const store = memoryStorage();
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => store });
     app = document.createElement("div");
     app.innerHTML = `<footer class="foot"><p class="foot-links"><a href="#/about">About</a></p></footer>`;
     document.body.append(app);
@@ -24,7 +41,6 @@ describe("mountOpening", () => {
     document.body.replaceChildren();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    window.localStorage.removeItem("skyshift.opening.v1");
     history.replaceState(null, "", "/");
   });
 
@@ -57,9 +73,9 @@ describe("mountOpening", () => {
     history.replaceState(null, "", "/");
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     window.localStorage.setItem("skyshift.opening.v1", "1");
-    const read = vi.spyOn(Storage.prototype, "getItem");
-    const write = vi.spyOn(Storage.prototype, "setItem");
-    const remove = vi.spyOn(Storage.prototype, "removeItem");
+    const read = vi.spyOn(window.localStorage, "getItem");
+    const write = vi.spyOn(window.localStorage, "setItem");
+    const remove = vi.spyOn(window.localStorage, "removeItem");
     expect(mountOpening(app, undefined, load)).toBe(true);
     await flush();
     expect(playOpening).toHaveBeenCalledTimes(1);

@@ -49,7 +49,7 @@ from . import config as C
 from . import log
 from .refcat import refcat_rel
 from .sky import Footprint, SkyTree, angsep, cell_of, chord, fof_groups, offset_radec, radec_to_xyz, sessions_covering
-from .store import Store, dots_rel, photolist_rel, results_rel
+from .store import Store, dots_dir, dots_rel, photolist_rel, results_rel
 
 L = log.get("link")
 
@@ -907,4 +907,5 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     store.write_parquet(results_rel(zone.name, FREEDOTS_NAME), freedots)
     if free is not None:
         store.write_parquet(results_rel(zone.name, NONFIXED_DOTS_NAME), free)
-    return {**stats, "photos_missing_dots": int(missing), "wall_s": round(time.time() - t0, 1)}
+    # the folder members.dot_row points into: later steps, candidates and the server read the dots from it
+    return {**stats, "photos_missing_dots": int(missing), "dots_dir": dots_dir(), "wall_s": round(time.time() - t0, 1)}

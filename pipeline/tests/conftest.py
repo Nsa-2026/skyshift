@@ -40,6 +40,14 @@ def _offline_deep_gaia(monkeypatch):
     monkeypatch.setattr(highpm, "deep_gaia_tap", offline)
 
 
+@pytest.fixture(autouse=True)
+def _dots_dir_env(monkeypatch):
+    """The CLI and candidates set the dot-file folder in the environment (store.use_dots_dir): every test starts on
+    dots/ and nothing a test sets leaks into the next."""
+    from skyshift_pipeline.store import DOTS_DIR_ENV
+    monkeypatch.setenv(DOTS_DIR_ENV, "dots")
+
+
 def t(session: int, exposure: int = 0) -> float:
     return T0 + session * SESSION_STEP + exposure * EXPOSURE_STEP
 
