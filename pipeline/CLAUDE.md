@@ -171,8 +171,13 @@ The step never raises (errors go to its stats).
   movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure), edge
   (6 px), masked_peak, sharp_outlier (√(a·b) < 0.7 × stellar at that S/N with OUTLIER; OUTLIER alone never: 52% of real
   asteroids), flux_ratio (> 4× within a detector), red_photo (qa_photos.parquet, if present), 2mass (refcat, 6″).
-  C = any reason (kept in the file), B = none, A = motion ≥ 5σ over ≥ 2 sessions (no multi-session linker: never).
-  Gates run on the suspects only, never before pairing: recall is unchanged.
+  C = any reason (kept in the file), B = none, A = candidate mover: on a track over ≥2 sessions with motion ≥5σ, no
+  catalogue or known match (suspects.track_grades after vet: B, and its tracklets.parquet row, joined on suspect id =
+  mover_id, has tracklet_id ≥ 0, n_sessions ≥ VET_A_MIN_SESSIONS, rate_snr ≥ VET_MOTION_SIGMA). Suspects on a track
+  carry its n_sessions, rate_arcsec_h, pa_deg, rate_sigma (suspects.json; null off a track); a missing or unreadable
+  tracklets.parquet changes nothing (stats vetting.tracklets). candidates.py lists A first and names the track in `why`.
+  Gates run on the suspects only, never before pairing: recall is unchanged. completeness' vs_recall compares the
+  synthetic movers with recall.json `recall_movers` (movers alone) when present.
 
 ## Facts
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.

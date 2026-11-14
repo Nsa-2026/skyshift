@@ -18,6 +18,8 @@ listed again (the pilot lies inside the hunt zone and was redone with the same p
 Movers carry three zone-level "check first" codes: outlier_flag, detector_excess, repeat_position.
 Movers also carry the suspects' vetting (vet.py): `grade` (A/B/C; null for other kinds and ungraded zones) and the failed
 gates as reason codes; grade C scores × MOVER_GRADE_C and the list puts movers in grade order, so C never leads.
+Grade A (suspects.py: on a tracklets track over >= 2 sessions at >= 5σ) leads; its `why` names the track and it never
+gets motion_not_significant (its own one-session dots may not show the motion; the track does).
 `score` (0-1, higher = more promising) is defined per kind in mover_score, highpm_score and
 spectral_score (formulas also in contracts/api.md). frames_url is set for candidates whose static frames
 exist next to the output (cand/<id>/frames.json, written by scripts/candidates/frames.py).
@@ -416,8 +418,21 @@ def _fmt_days(d: float) -> str:
     return f"{d * 24:.0f} hours" if d < 1.0 else f"{d:.1f} days"
 
 
+def mover_track(r) -> tuple[int, float, float] | None:
+    """(sessions, rate ″/h, rate / σ) of the tracklets track a grade A suspect is on (suspects.parquet's track columns);
+    None for other grades or without them."""
+    if getattr(r, "grade", None) != "A":
+        return None
+    n, rate, sig = getattr(r, "n_sessions", None), getattr(r, "rate_arcsec_h", None), getattr(r, "rate_sigma", None)
+    if n is None or rate is None or pd.isna(n) or pd.isna(rate):
+        return None
+    snr = float(rate) / float(sig) if sig is not None and pd.notna(sig) and float(sig) > 0 else math.inf
+    return int(n), float(rate), snr
+
+
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
-              no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None) -> str:
+              no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
+              track: tuple[int, float, float] | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -426,6 +441,10 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         if rate is not None:
             seen += (f", moving about {rate:.0f}″ an hour" if not no_motion
                      else f" (about {rate:.0f}″ an hour, not clearly more than its position errors)")
+    if track is not None:
+        n, trate, snr = track
+        sig = f", {snr:.0f}σ" if math.isfinite(snr) else ""
+        seen += f"; followed over {n} sessions of its visit at {trate:.1f}″ an hour{sig}"
     if nearest_known is None or not math.isfinite(nearest_known):
         known = "no known asteroid or comet was predicted within 10′"
     else:
@@ -449,7 +468,8 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             dots = match_mover(r.ra, r.dec, r.mjd, int(r.n_dots), near[near["sid"] == i])
         mo = motion(dots) if dots is not None else None
         rate, rate_err, pa = mo if mo else (None, None, None)
-        no_motion = bool(mo is not None and rate < RATE_SIGMA_MIN * rate_err)
+        track = mover_track(r)  # grade A: its motion is shown over sessions, whatever its own dots say
+        no_motion = bool(track is None and mo is not None and rate < RATE_SIGMA_MIN * rate_err)
         span_min = float((dots["mjd"].max() - dots["mjd"].min()) * 1440.0) if dots is not None else None
         nk = float(r.nearest_known_arcsec) if pd.notna(r.nearest_known_arcsec) else None
         f = int(r.flags) & 0xFFFFFFFF
@@ -483,7 +503,7 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             "zone": zone, "zones": [zone], "score": score, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
-            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_),
+            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track),
             "flags": record_flag_names(f), "_dets": dets,
         })
     return out
