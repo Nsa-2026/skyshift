@@ -348,6 +348,7 @@ def test_spectrum_points_counts_saturated_drops(world, monkeypatch):
     nan.flux_ujy[:] = np.nan
     monkeypatch.setattr(obj, "aperture_photometry", lambda *a, **k: nan)  # no good pixels anywhere
     monkeypatch.setattr(obj, "is_saturated_core", lambda flags, x, y: True)
+    monkeypatch.setattr(obj, "wing_photometry", lambda *a, **k: None)  # and no usable wings either
     dropped = Counter()
     assert obj.spectrum_points(images, l2s, None, STAR_RA, STAR_DEC, dropped=dropped) == []
     assert dropped == Counter(saturated=6)
