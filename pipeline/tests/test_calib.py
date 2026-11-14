@@ -275,3 +275,4 @@ def test_detector_scale_from_anchors_and_stitching(rng):
     lnf, res = CB.solve_factors(anc, sti)
     assert np.allclose(np.exp(lnf), 1 / np.array(gain), rtol=3e-3)  # D1 and D5 from stitching alone
     assert max(abs(r["residual"]) for r in res) < 3e-3
+    # without stitching, D1 and D5 have no constraint: they take their arm neighbours' factor in fit_fluxes

@@ -15,6 +15,10 @@ extended_score = mean of the available (ratio − 1) / tolerance terms: ~0 for a
 Class: Gaia parallax/error >= CLASSIFY_PLX_SNR_STAR → star; extended_score >= CLASSIFY_EXT_GALAXY → galaxy;
 extended_score <= CLASSIFY_EXT_STAR with a Gaia match → star; everything else (including point-like without
 Gaia: compact galaxies, quasars, brown dwarfs) → unsure.
+
+Band labels (`label_*`, `labels`): an index's sig alone fires on the wrong objects (pilot: "water ice" on
+M dwarfs and galaxies, "methane" on Gaia stars), so the web shows these booleans instead; band_labels()
+has the guards, config LABEL_* the thresholds.
 """
 
 from __future__ import annotations
@@ -304,7 +308,67 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame) -
     names = np.array(list(ev))
     bits = np.stack([ev[k] for k in names], 1)
     out["bd_evidence"] = [",".join(names[b]) for b in bits]
+    lab = band_labels(out, sat)
+    for k, v in lab.items():
+        out[k] = v
+    lnames = np.array(LABELS)
+    lbits = np.stack([lab[f"label_{k}"] for k in LABELS], 1)
+    out["labels"] = [",".join(lnames[b]) for b in lbits]
     return out
+
+
+LABELS = ("h2o_ice", "co2_ice", "co_ice", "ch4", "h2o_vapour", "co_23", "pah_33")
+
+
+def band_labels(out: pd.DataFrame, saturated: np.ndarray) -> dict[str, np.ndarray]:
+    """{label_<name>: bool} from the index columns, class and Gaia columns of a classes frame.
+
+    Every label: the band at sig >= INDEX_SIG with depth (excess) >= LABEL_MIN_DEPTH, source not saturated.
+    - ices (H2O 3.05, CO2 4.27, CO 4.67 µm): not a galaxy, point-like; no Gaia or Gaia BP − RP <
+      LABEL_ICE_MAX_BP_RP (cool M dwarfs' water vapour absorbs at 2.7–3.2 µm); no water vapour at 1.4 / 1.9 µm
+      (sig < LABEL_SUPPORT_SIG); reddened by the cloud (J − [4.6] AB >= LABEL_ICE_MIN_J_M46); CO ice also
+      without the CO 2.3 µm bandhead (cool-star CO gas lands at 4.67 µm too).
+    - methane (CH4 3.3 or 1.6 µm): only T/Y brown dwarfs, invisible to Gaia: no Gaia or G > LABEL_CH4_MIN_G,
+      not a galaxy, red (J − [4.6] AB > BD_MIN_J_M46_AB), and a second band agreeing (the other CH4 band
+      or H2O 1.4 / 1.9 µm at sig >= LABEL_SUPPORT_SIG).
+    - water vapour (H2O 1.4 or 1.9 µm, in M/L dwarfs and cool giants) and the CO 2.3 µm bandhead: not a galaxy.
+    - PAH 3.3 µm emission: not a star (galaxy or unsure).
+    """
+    def col(name):
+        return out[name].to_numpy(np.float64) if name in out else np.full(len(out), np.nan)
+
+    def fires(name):
+        kind = C.INDEX_WINDOWS[name][0]
+        v = col(f"{name}_{'depth' if kind == 'abs' else 'excess'}")
+        with np.errstate(invalid="ignore"):
+            return (col(f"{name}_sig") >= C.INDEX_SIG) & (v >= C.LABEL_MIN_DEPTH[name]) & ~saturated
+
+    def sig(name, at=C.LABEL_SUPPORT_SIG):
+        with np.errstate(invalid="ignore"):
+            return col(f"{name}_sig") >= at
+
+    cls = out["class"].to_numpy()
+    galaxy, star = cls == "galaxy", cls == "star"
+    g, bp_rp, jm46, ext = col("gaia_g"), col("gaia_bp_rp"), col("j_m46_ab"), col("extended_score")
+    has_gaia = np.isfinite(col("gaia_sep_arcsec")) | np.isfinite(g)
+    vapour_any = sig("h2o_14") | sig("h2o_19")
+    with np.errstate(invalid="ignore"):
+        point = ~(ext > C.LABEL_ICE_MAX_EXT)
+        not_cool = ~has_gaia | (bp_rp < C.LABEL_ICE_MAX_BP_RP)
+        ice_ok = ~galaxy & point & not_cool & ~vapour_any & (jm46 >= C.LABEL_ICE_MIN_J_M46)
+        no_gaia_or_faint = ~has_gaia | (g > C.LABEL_CH4_MIN_G)
+        red = jm46 > C.BD_MIN_J_M46_AB
+    ch4_ok = no_gaia_or_faint & ~galaxy & red
+    return {
+        "label_h2o_ice": fires("h2o_ice_305") & ice_ok,
+        "label_co2_ice": fires("co2_ice_427") & ice_ok,
+        "label_co_ice": fires("co_ice_467") & ice_ok & ~sig("co_23"),
+        "label_ch4": ch4_ok & ((fires("ch4_33") & (sig("ch4_16") | vapour_any))
+                               | (fires("ch4_16") & (sig("ch4_33") | vapour_any))),
+        "label_h2o_vapour": (fires("h2o_14") | fires("h2o_19")) & ~galaxy,
+        "label_co_23": fires("co_23") & ~galaxy,
+        "label_pah_33": fires("pah_33") & ~star,
+    }
 
 
 def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
@@ -332,6 +396,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
         "gaia_from": origin, "gaia_matched": int(np.isfinite(out["gaia_g"]).sum()),
         "shape_inputs": shape_cols, "shape_dots": 0 if dots is None else int(len(dots)),
         **{f"n_{k[:-4]}": int((out[k] >= C.INDEX_SIG).sum()) for k in out.columns if k.endswith("_sig")},
+        **{k: int(out[k].sum()) for k in out.columns if k.startswith("label_")},
         "classes_bytes": int(nbytes),
         "load_s": round(t2 - t0, 1), "compute_s": round(t3 - t2, 1), "wall_s": round(time.time() - t0, 1),
     }

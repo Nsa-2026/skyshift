@@ -8,6 +8,7 @@ import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountVote } from "../vote";
 import { formatRaDec } from "./astro";
+import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
 import type { BlinkHandle, CardHandle, SkyHandle, View, VoteHandle } from "./modules";
 import { TARGETS, isEmbed, readView, targetBySlug, viewForTarget, writeView } from "./state";
@@ -48,7 +49,7 @@ export function startApp(root: HTMLElement): void {
     </main>
     <main class="page page-score" data-page="score" hidden><div id="score"></div></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
-      <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids: MPC, IMCCE SkyBoT.</p>
+      <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids: MPC, IMCCE SkyBoT. Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
 
@@ -109,6 +110,11 @@ export function startApp(root: HTMLElement): void {
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
 
+    if (moved) {
+      // Don't hand the card or sky the previous spot's data while the new one loads.
+      object = null;
+      frames = null;
+    }
     if (moved || objectToo) {
       objectCtl?.abort();
       objectCtl = new AbortController();
@@ -160,7 +166,11 @@ export function startApp(root: HTMLElement): void {
     const pos = parseCoords(q);
     const clock = view?.clock ?? "months";
     const base = { clock, fov: view?.fov ?? (clock === "months" ? 5 : 20), det: view?.det ?? 2 } as const;
-    if (pos) return go({ ...base, ...pos, slug: null, name: null });
+    if (pos) {
+      // Static first: coordinates inside a featured target's field open its prepared frames.
+      const near = featuredNear(pos);
+      return go(near ? viewForTarget(near) : { ...base, ...pos, slug: null, name: null });
+    }
     const local = TARGETS.find((t) =>
       [t.name, t.short, t.slug].some((n) => n.toLowerCase().replace(/\W/g, "") === q.toLowerCase().replace(/\W/g, "")),
     );
@@ -198,6 +208,16 @@ export function startApp(root: HTMLElement): void {
   }
   addEventListener("hashchange", route);
   route();
+
+  // Votes' "Show" re-centres the blink on a candidate.
+  addEventListener("skyshift:goto", (ev) => {
+    const d = (ev as CustomEvent<{ ra: number; dec: number; clock?: View["clock"] }>).detail;
+    if (!d || !Number.isFinite(d.ra) || !Number.isFinite(d.dec)) return;
+    const clock = d.clock ?? view?.clock ?? "months";
+    const fov = view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20;
+    if (location.hash.startsWith("#/score")) location.hash = "#/";
+    go({ ra: d.ra, dec: d.dec, clock, fov, det: view?.det ?? 2, slug: null, name: null });
+  });
 
   addEventListener("popstate", () => {
     const v = readView();

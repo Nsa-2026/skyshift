@@ -45,3 +45,14 @@ describe("astro", () => {
     expect(sepArcsec(gaiaAt(star, 57388.5), gaiaAt(star, 57388.5 + 365.25))).toBeCloseTo(10.39, 1);
   });
 });
+
+import { featuredNear } from "./state";
+describe("featuredNear", () => {
+  it("sends the challenge's own string to WISE 0855's prepared frames", () => {
+    expect(featuredNear(parseCoords("08h55m10.831s -7d14m42.53s")!)?.slug).toBe("wise0855");
+  });
+  it("leaves empty sky and moving-object fields alone", () => {
+    expect(featuredNear({ ra: 10, dec: 10 })).toBeUndefined();
+    expect(featuredNear({ ra: 166.97483, dec: 5.22757 })).toBeUndefined(); // 3I/ATLAS frames follow the comet
+  });
+});

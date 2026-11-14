@@ -814,9 +814,20 @@ def fit_fluxes(d: pd.DataFrame, crossids: pd.DataFrame, spec: pd.DataFrame | Non
     if not anc:
         return fp, ap
     lnf, res = solve_factors(anc, sti)
+    constrained = sorted({a["detector"] for a in anc} | {b for s_ in sti if "ln_upper_over_lower" in s_ for b in s_["boundary"]})
+    # a detector nothing constrains: the mean of its constrained neighbours in the same arm (SWIR 1–3, MWIR 4–6), else 1
+    interp = []
+    for k in range(1, 7):
+        if k in constrained:
+            continue
+        arm = range(1, 4) if k <= 3 else range(4, 7)
+        nb = [j for j in (k - 1, k + 1) if j in arm and j in constrained]
+        lnf[k - 1] = float(np.mean([lnf[j - 1] for j in nb])) if nb else 0.0
+        interp.append(k)
     ap["factor_ap"] = {str(k + 1): round(float(np.exp(lnf[k])), 4) for k in range(6)}
     ap["residuals"] = res
-    ap["constrained"] = sorted({a["detector"] for a in anc} | {b for s_ in sti if "ln_upper_over_lower" in s_ for b in s_["boundary"]})
+    ap["constrained"] = constrained
+    ap["interpolated"] = interp
     psf_over = {}
     for k in range(1, 7):
         m = (det == k) & ~sat & (snr >= C.CALIB_FLUX_MIN_SNR) & np.isfinite(fps) & (fps > 0) & np.isfinite(fap)
