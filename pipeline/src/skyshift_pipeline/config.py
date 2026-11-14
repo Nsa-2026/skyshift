@@ -120,3 +120,16 @@ SOURCE_PHOTO_MAX_FRAC = 0.9    # a photo with SOURCE at the peak of more than th
                                # (seen: 99.98% on 2025W42_2A_0111_1D1) carries no information: ignore it there
 CATALOG_BATCH = 50
 EVIDENCE_RANK = {"two_exposures": 0, "two_detectors": 1}
+
+# --- refcat (Gaia DR3, CatWISE2020, 2MASS PSC) -----------------------------------------------
+REFCAT_MARGIN_DEG = 0.1        # around the zone box
+REFCAT_TILE_DEG = 1.0          # one async TAP query per catalogue per tile; each tile cached
+REFCAT_WORKERS = 6             # queries in flight
+REFCAT_MAXREC = 2_000_000      # a tile that returns this many rows is an error (truncated)
+REFCAT_GAIA_G_MAX = 20.0
+# forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
+FORCED_GAIA_G_MAX = 19.0
+FORCED_CATWISE_W1_MAX = 16.0   # CatWISE-only (no Gaia within FORCED_DEDUP_ARCSEC): red/cold objects
+FORCED_DEDUP_ARCSEC = 2.0
+FORCED_MAX_PER_PHOTO = 30_000  # in a 3.5° x 3.5° photo-sized box inside the zone
+PHOTO_SIDE_DEG = 3.5
