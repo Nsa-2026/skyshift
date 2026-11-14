@@ -60,3 +60,49 @@ The plate's square edge is `min(available column width, 100vh − 220px)` so the
 visible without scrolling at 1440×900 and 1280×720.
 Phone: find → names (scroll sideways) → plate full width → strip and primary controls → card →
 votes → sky (collapsed).
+
+## Product: a community discovery tool (added 14 Nov, 15:30)
+SkyShift exists so that many people can find new things in SPHEREx: asteroids and comets no one
+has catalogued, nearby stars and brown dwarfs that move, sources with odd spectra. The pipeline
+proposes candidates; people blink them, vote, and together decide what goes to astronomers.
+Professional (numbers with units, honest limits, citations), and welcoming (plain words, a
+practice round, nothing requires an account).
+
+### Pages (hash routes; old links keep working)
+| Route | Page | Owner folder |
+|---|---|---|
+| `#/` | **Discover**: intro band (one sentence, live counts, Start reviewing), smart filters, candidate list, sky map | `src/discover` |
+| `#/review` | **Review queue**: one candidate at a time, big plate, vote with keys 1–4, skip, progress; practice round first time | `src/review` |
+| `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, why it's listed, cautions, measurements, votes and consensus, share/embed, next steps | `src/review` |
+| `#/explore` | **Explore**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
+| `#/results` | **Results**: validation checks and what the pipeline found (`#/score` redirects here) | `src/score` |
+| `#/community` | **Community**: what people have reviewed, consensus results, the list going to astronomers, how it works | `src/community` |
+| `#/about` | **About**: the challenge, method, data, limits, credits, FAQ | `src/community` |
+Deep links `?t=<slug>` and `?ra=&dec=` open Explore.
+
+### Candidates (data: `/data/candidates.json`, type `CandidatesResponse` in `src/api/types.ts`)
+Three kinds, each with its own colour-free icon and plain name:
+- **mover** "Fast mover": moves within hours; could be an uncatalogued asteroid or comet. Clock: Hours.
+- **high_pm** "Moving star": moves between visits; could be a nearby star or brown dwarf. Clock: Months.
+- **spectral** "Odd spectrum": molecule bands or colours worth a look (methane, water ice, CO₂).
+Each has `why` (one sentence), `reasons` (codes → plain-language chips), `score` (pipeline promise),
+`flags` (artefact cautions) and `frames_url` (static blink) or null (live API).
+
+### Smart filters (Discover)
+- **Presets** first, as a short row of choices: "Most promising", "Needs your vote" (fewest votes),
+  "Possible brown dwarfs" (high_pm, red or methane, no Gaia match), "Unknown fast movers" (mover,
+  no known object within 60″), "Community says real" (consensus mover/changing).
+- **Facets**: kind; zone; detector; labels (molecules, red); evidence; caution flags (hide artefacts);
+  catalogue match (none / Gaia / CatWISE); review state (unreviewed / in review / consensus).
+- **Ranges**: score, S/N, brightness (µJy), motion (″/h or mas/yr), motion significance (pm/err),
+  distance to nearest known object, galactic latitude |b| (hide the crowded plane).
+- **Sort**: most promising, fewest votes, most votes, brightest, fastest, newest.
+- Every filter lives in the URL (shareable, embeddable). Counts update live ("38 of 194").
+- The sky map (Aitoff, galactic or equatorial) shows the same filtered set; hover links to the list.
+
+### Votes and consensus (Firestore `votes`, candidate_id = the candidate's id)
+Answers: mover / changing / junk / unsure. A candidate reaches **consensus** with ≥ 5 votes and
+≥ 70 % agreeing on one answer. Consensus movers and changing sources form the **list for
+astronomers** (Community page, CSV and JSON export, with the Backyard Worlds forum and the MPC as
+next steps). No accounts: a random voter id in the browser; never names or emails.
+Pages import vote logic from `src/vote` (store, model) and never edit it.
