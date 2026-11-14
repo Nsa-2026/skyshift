@@ -1,182 +1,87 @@
-/* Blink player (P4). Tokens only: colours, type and space come from styles/tokens.css.
-   The image and the epoch timeline are the loud parts; controls stay quiet around them. */
+/* Blink player (P4), "Lightbox" (web/DESIGN.md). Tokens only: styles/tokens.css and base.css.
+   The plate is the hero: a square negative on a sheet mat, labelled on its edges like a glass
+   plate. The time strip sits right under it; one row of primary controls follows; everything
+   else waits behind Adjust. */
 
 .bk {
   --det: var(--d2);
+  --mat: 12px; /* the mat's side margin around the plate */
   container-type: inline-size;
-  display: grid;
-  gap: var(--s3);
+  font-variant-numeric: tabular-nums;
 }
 .bk [hidden] {
   display: none !important;
 }
 
-/* ---- top bar: clock, field, detector ramp ------------------------------------------------ */
-.bk-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: var(--s2) var(--s3);
+/* The column is exactly as wide as the mat, so the strip and the controls line up with the plate.
+   Plate edge: min(column, 100vh − 236px): under the page header, the mat's two printed edges and
+   the strip still fit in the first screen (DESIGN.md's 220 px plus the strip's own height). */
+.bk-col {
+  position: relative;
+  width: min(100%, calc(max(300px, 100svh - 236px) + 2 * var(--mat)));
 }
 
-.bk-seg {
-  display: inline-flex;
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-ctl);
-  overflow: hidden;
-  background: var(--plate-2);
-}
-.bk-seg.bk-wide {
-  display: flex;
-}
-.bk-seg .bk-btn {
-  flex: 1;
-  border: 0;
-  border-radius: 0;
-  min-height: 36px;
-  padding: 0 var(--s3);
-  background: transparent;
-}
-.bk-seg .bk-btn + .bk-btn {
-  border-left: 1px solid var(--rule-strong);
+/* ---- the mat and the plate ------------------------------------------------------------- */
+.bk-mat {
+  container: mat / inline-size;
+  padding: 0 var(--mat);
+  background: var(--sheet);
+  border-radius: var(--radius-plate);
+  box-shadow: var(--shadow-plate);
 }
 
-.bk-btn {
-  display: inline-flex;
+/* Printed on the plate's top edge: when, which, detector. */
+.bk-label {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--s2);
-  min-height: 36px;
-  padding: 0 var(--s3);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-ctl);
-  background: var(--plate-2);
-  color: var(--emulsion);
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: var(--step-0);
-}
-.bk-btn:hover:not(:disabled) {
-  background: var(--plate-3);
-}
-.bk-btn[aria-pressed="true"] {
-  background: var(--emulsion);
-  color: var(--plate);
-  font-weight: 600;
-}
-.bk-btn[aria-pressed="true"]:hover:not(:disabled) {
-  background: #fff;
-}
-.bk-btn:disabled {
-  color: var(--faint);
-  cursor: not-allowed;
-}
-
-/* The detector ramp: six steps of the spectrum, 0.75 → 5.0 µm, on one continuous band. */
-.bk-ramp {
-  position: relative;
-  flex: 1 1 360px;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  padding-bottom: 5px;
-  min-width: 0;
-}
-.bk-ramp::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--d1), var(--d2), var(--d3), var(--d4), var(--d5), var(--d6));
-  opacity: 0.55;
-}
-.bk-det {
-  position: relative;
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  gap: 0;
-  min-height: 44px;
-  padding: 2px var(--s2) 4px;
-  border: 0;
-  border-left: 1px solid var(--rule);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  text-align: left;
-  line-height: 1.15;
-}
-.bk-det:first-child {
-  border-left: 0;
-}
-.bk-det::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -5px;
-  height: 3px;
-  background: var(--det);
-  opacity: 0;
-  z-index: 1;
-}
-.bk-det-name {
-  font-weight: 600;
-  color: var(--emulsion);
-  font-variation-settings: "wdth" 90;
-}
-.bk-det-um {
-  font-size: var(--step--1);
-  font-variation-settings: "wdth" 80;
-  white-space: nowrap;
-}
-.bk-det:hover:not(:disabled) {
-  background: var(--plate-2);
-}
-.bk-det[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--det) 18%, var(--plate));
-  color: var(--emulsion);
-}
-.bk-det[aria-pressed="true"]::after {
-  opacity: 1;
-  height: 5px;
-  bottom: -6px;
-  border-radius: 2px;
-}
-.bk-det[aria-pressed="true"] .bk-det-name {
-  color: var(--det);
-}
-.bk-det:disabled {
-  cursor: not-allowed;
-  color: var(--faint);
-  background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--rule) 60%, transparent) 5px 6px);
-}
-.bk-det:disabled .bk-det-name {
-  color: var(--faint);
-}
-
-/* ---- body: stage and control rail -------------------------------------------------------- */
-.bk-body {
-  display: grid;
+  justify-content: space-between;
   gap: var(--s4);
-  align-items: start;
+  height: 28px;
+  max-width: none;
+  margin: 0;
+  font-size: var(--step--1);
+  line-height: 1;
+  color: var(--ink-2);
+  font-variation-settings: "wdth" 88;
+  white-space: nowrap;
 }
-@container (min-width: 760px) {
-  .bk-body {
-    grid-template-columns: minmax(0, max(400px, calc(100svh - 370px))) minmax(216px, 264px);
-    justify-content: start;
-  }
+.bk-when {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bk-when-main {
+  color: var(--ink);
+  font-weight: 650;
+  margin-right: 6px;
+}
+.bk-when-main:empty {
+  margin: 0;
+}
+.bk-det-label {
+  flex: none;
+  color: var(--ink);
+  font-weight: 650;
+}
+.bk-det-label span {
+  color: var(--ink-2);
+  font-weight: 450;
+  margin-left: 2px;
+}
+.bk-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  background: var(--det);
+  vertical-align: 0;
 }
 
-.bk-stage {
+.bk-plate {
   position: relative;
-  width: 100%;
   aspect-ratio: 1;
-  background: var(--plate);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-panel);
+  background: var(--glass);
   overflow: hidden;
 }
 .bk-canvas {
@@ -187,6 +92,7 @@
   image-rendering: pixelated;
   cursor: crosshair;
   touch-action: pan-y pinch-zoom;
+  transition: opacity 200ms ease;
 }
 .bk-canvas.is-zoomed {
   touch-action: none;
@@ -195,564 +101,644 @@
 .bk-canvas.is-panning {
   cursor: grabbing;
 }
-
-.bk-loupe {
-  position: absolute;
-  top: var(--s3);
-  right: var(--s3);
-  width: 136px;
-  height: 136px;
-  image-rendering: pixelated;
-  border: 1px solid var(--emulsion);
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(15, 26, 44, 0.8);
-  pointer-events: none;
-}
-.bk-loupe.is-left {
-  right: auto;
-  left: var(--s3);
+.bk-plate.is-dim .bk-canvas {
+  opacity: 0.4;
 }
 
-.bk-tag {
-  position: absolute;
-  top: var(--s3);
-  left: var(--s3);
-  max-width: calc(100% - 2 * var(--s3));
-  padding: 2px var(--s2);
-  border-radius: var(--radius-panel);
-  background: rgba(15, 26, 44, 0.82);
-  font-size: var(--step--1);
-  font-weight: 500;
-  pointer-events: none;
-}
-.bk[data-mode="subtract"] .bk-tag {
-  border-left: 3px solid var(--mover);
-}
-
-.bk-veil {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: var(--s5);
-  background: rgba(15, 26, 44, 0.78);
-  backdrop-filter: blur(2px);
-}
-.bk-veil-box {
-  display: grid;
-  gap: var(--s3);
-  justify-items: center;
-  max-width: 34ch;
-  text-align: center;
-}
-.bk-veil[data-kind="error"] .bk-veil-box {
-  justify-items: start;
-  text-align: left;
-  padding-left: var(--s3);
-  border-left: 3px solid var(--sat);
-}
-.bk-veil-msg {
-  font-size: var(--step-0);
-}
-.bk-veil-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  justify-content: center;
-}
-.bk-veil-actions:empty {
-  display: none;
-}
-.bk-veil-det {
-  border-bottom: 3px solid var(--det);
-}
+/* Loading: a calm line along the plate's top edge. */
 .bk-progress {
   --p: 0;
-  position: relative;
-  width: min(220px, 60vw);
-  height: 3px;
-  background: var(--rule);
-  border-radius: 2px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
   overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  z-index: 2;
 }
 .bk-progress i {
   position: absolute;
   inset: 0 auto 0 0;
   width: calc(var(--p) * 100%);
-  background: var(--det);
-  transition: width 120ms linear;
+  background: var(--ink);
+  transition: width 160ms linear;
 }
 .bk-progress.is-indeterminate i {
-  width: 30%;
-  animation: bk-slide 1.1s ease-in-out infinite;
+  width: 28%;
+  animation: bk-slide 1.6s ease-in-out infinite;
 }
 @keyframes bk-slide {
   from {
     transform: translateX(-100%);
   }
   to {
-    transform: translateX(340%);
+    transform: translateX(360%);
   }
 }
 
-/* Rail */
-.bk-rail {
+/* Errors and empty states: one sentence centred on the glass, and what to do. */
+.bk-msg {
+  position: absolute;
+  inset: 0;
   display: grid;
+  place-content: center;
+  justify-items: center;
   gap: var(--s4);
-  align-content: start;
-  align-items: start;
+  padding: var(--s6);
+  text-align: center;
+  background: var(--glass);
+  z-index: 1;
 }
-.bk-group {
-  display: grid;
-  gap: var(--s2);
-  min-width: 0;
+.bk-msg-text {
+  max-width: 34ch;
+  color: var(--ink);
+  font-size: var(--step-0);
+  text-wrap: balance;
 }
-.bk-h {
-  font-size: var(--step--1);
-  font-weight: 500;
-  color: var(--muted);
+.bk-msg[data-kind="error"] .bk-msg-text::before {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 2px;
+  margin: 0 auto var(--s3);
+  border-radius: 1px;
+  background: var(--pencil-red);
 }
-.bk-hint,
-.bk-keys {
-  font-size: var(--step--1);
-  color: var(--muted);
-  line-height: 1.35;
-}
-.bk-keys {
-  color: var(--faint);
-}
-.bk-select {
-  min-height: 36px;
-  padding: 0 var(--s2);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-ctl);
-  background: var(--plate);
-  color: var(--emulsion);
-  width: 100%;
-  min-width: 0;
-}
-.bk-hold[aria-pressed="true"] {
-  background: var(--d2);
-  border-color: var(--d2);
-  color: var(--plate);
-}
-.bk-range {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--s3);
-  font-size: var(--step--1);
-  color: var(--muted);
-}
-.bk-range input {
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  accent-color: var(--emulsion);
-}
-.bk-toggles {
+.bk-msg-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--s2);
 }
-.bk-tog {
+.bk-msg-actions:empty {
+  display: none;
+}
+
+/* Printed on the plate's bottom edge: what this mode shows, or the pixel under the pointer. */
+.bk-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  min-height: 28px;
+  padding: 5px 0;
+  font-size: var(--step--1);
+  line-height: 1.3;
+  color: var(--ink-2);
+}
+.bk-say {
+  min-width: 0;
+  max-width: none;
+}
+.bk-pos {
+  color: var(--ink);
+  font-weight: 550;
+  font-variation-settings: "wdth" 88;
+  margin-right: 8px;
+}
+.bk-val {
+  font-variation-settings: "wdth" 88;
+}
+.bk-key {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--rule-strong);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: var(--step--1);
-}
-.bk-tog:hover {
-  background: var(--plate-2);
-}
-.bk-tog[aria-pressed="true"] {
-  color: var(--emulsion);
-  border-color: var(--emulsion);
-  background: var(--plate-2);
-}
-.bk-tog[aria-pressed="false"] .sw {
-  opacity: 0.35;
-}
-
-.sw {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid var(--emulsion);
-  flex: none;
-}
-.sw-gaia {
-  border-color: var(--gaia);
-}
-.sw-known {
-  border-color: var(--known);
-  border-radius: 1px;
-  transform: rotate(45deg) scale(0.85);
-}
-.sw-mover {
-  border-color: var(--mover);
-  border-radius: 0;
-  border-width: 0 2px;
-  width: 8px;
-}
-.sw-guide {
-  border-width: 0 0 2px 2px;
-  border-radius: 0;
-}
-.sw-det {
-  border: 0;
-  background: var(--det);
-  margin-right: 6px;
-  width: 9px;
-  height: 9px;
-  vertical-align: baseline;
-}
-
-.bk-read {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0 var(--s4);
-  margin-top: var(--s2);
-  min-height: 1.4em;
-  font-size: var(--step--1);
-  font-variation-settings: "wdth" 85;
-  color: var(--emulsion);
-}
-.bk-read-val {
-  color: var(--muted);
-}
-
-/* ---- time: transport, legend and the epoch timeline -------------------------------------- */
-.bk-time {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas:
-    "transport legend"
-    "axis axis";
-  gap: var(--s3) var(--s5);
-  align-items: center;
-  padding: var(--s4) var(--s4) var(--s3);
-  background: var(--plate-2);
-  border: 1px solid var(--rule);
-  border-top: 2px solid var(--det);
-  border-radius: var(--radius-panel);
-}
-.bk-transport {
-  grid-area: transport;
-  display: flex;
-  align-items: center;
   gap: var(--s2);
+  max-width: none;
+  color: var(--ink);
+  font-weight: 600;
+  font-variation-settings: "wdth" 88;
 }
-.bk-icon {
-  display: inline-grid;
-  place-items: center;
+.bk-key:empty {
+  display: none;
+}
+.bk-keybar {
+  width: 56px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--pencil-blue), var(--glass) 50%, var(--pencil-red));
+  box-shadow: inset 0 0 0 1px rgba(24, 32, 46, 0.1);
+}
+.bk-hint {
+  color: var(--ink-3);
+  font-weight: 450;
+}
+.bk-warn {
+  color: var(--warn);
+}
+
+/* ---- the time strip: the signature element ------------------------------------------- */
+.bk-strip {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 0 var(--s4);
+  margin-top: var(--s3);
+  padding-right: var(--mat);
+}
+.bk .bk-play {
   width: 40px;
+  min-height: 40px;
   height: 40px;
   padding: 0;
-  border: 1px solid var(--rule-strong);
   border-radius: 50%;
-  background: transparent;
-  color: var(--emulsion);
-  cursor: pointer;
 }
-.bk-icon svg {
+.bk-play svg {
   width: 18px;
   height: 18px;
   fill: currentColor;
 }
-.bk-icon:hover:not(:disabled) {
-  background: var(--plate-3);
+.bk-play[aria-pressed="false"] svg {
+  margin-left: 2px;
 }
-.bk-icon:disabled {
-  color: var(--faint);
-  cursor: not-allowed;
-}
-.bk-play {
-  width: 52px;
-  height: 52px;
-  background: var(--emulsion);
-  border-color: var(--emulsion);
-  color: var(--plate);
-}
-.bk-play:hover:not(:disabled) {
-  background: #fff;
-}
-.bk-play:disabled {
-  background: var(--plate-3);
-  border-color: var(--rule-strong);
-}
-.bk-play svg {
-  width: 22px;
-  height: 22px;
-}
-.bk-speed {
-  display: grid;
-  gap: 0;
-  margin-left: var(--s2);
-  font-size: var(--step--1);
-  color: var(--muted);
-}
-.bk-speed .bk-select {
-  min-height: 32px;
-  width: auto;
+.bk .bk-play:disabled {
+  background: var(--sheet-2);
+  color: var(--ink-3);
 }
 
-.bk-legend {
-  grid-area: legend;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas:
-    "which facts"
-    "when facts";
-  column-gap: var(--s5);
-  align-items: end;
-  min-width: 0;
-}
-.bk-which {
-  grid-area: which;
-  font-size: var(--step--1);
-  color: var(--muted);
-}
-.bk-when {
-  grid-area: when;
-  display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-  white-space: nowrap;
-}
-.bk-date {
-  font-size: var(--step-2);
-  font-weight: 650;
-  font-variation-settings: "wdth" 82;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-}
-.bk-clocktime {
-  color: var(--muted);
-  font-variation-settings: "wdth" 85;
-}
-.bk-facts {
-  grid-area: facts;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--s1) var(--s4);
-  margin: 0;
-}
-.bk-facts div {
-  display: grid;
-}
-.bk-facts dt {
-  font-size: var(--step--1);
-  color: var(--faint);
-}
-.bk-facts dd {
-  margin: 0;
-  font-variation-settings: "wdth" 85;
-  white-space: nowrap;
-}
-.bk-um {
-  color: var(--muted);
-}
-
-/* The timeline: marks on a real time axis. */
 .bk-axis {
-  grid-area: axis;
   position: relative;
-  padding: 0 var(--s2);
+  padding: 0 2px;
+  border-radius: 4px;
   cursor: pointer;
   touch-action: none;
   user-select: none;
-  border-radius: var(--radius-ctl);
+  -webkit-user-select: none;
 }
-.bk-axis-track {
+.bk-axis[aria-disabled="true"] {
+  cursor: default;
+}
+.bk-track {
   position: relative;
-  height: 78px;
+  height: 26px;
 }
-.bk-axis-labels {
-  position: relative;
-  height: 18px;
-  font-size: var(--step--1);
-  color: var(--muted);
-  font-variation-settings: "wdth" 85;
-}
-.bk-axis.is-gaps .bk-axis-labels {
-  height: 36px;
-}
-.bk-baseline {
+.bk-base {
   position: absolute;
   left: 0;
   right: 0;
-  top: 64px;
+  top: 18px;
   height: 1px;
-  background: var(--rule-strong);
+  background: var(--hair-strong);
 }
 .bk-tick {
   position: absolute;
-  top: 65px;
+  top: 19px;
   width: 1px;
-  height: 4px;
-  background: var(--rule-strong);
+  height: 3px;
+  background: var(--hair-strong);
 }
 .bk-tick.is-major {
-  height: 9px;
-  background: var(--faint);
+  height: 5px;
+  background: var(--ink-3);
 }
-.bk-band {
+/* Months: each visit a short bar spanning its weeks, sitting on the baseline. */
+.bk-span {
   position: absolute;
-  top: 57px;
+  top: 11px;
   height: 7px;
   border-radius: 2px 2px 0 0;
-  background: color-mix(in srgb, var(--det) 45%, transparent);
+  background: var(--ink-3);
+  opacity: 0.75;
 }
-.bk-mark {
+/* Hours: each exposure a tick. */
+.bk-exp {
   position: absolute;
-  top: 36px;
-  width: 2px;
-  height: 28px;
-  margin-left: -1px;
-  background: color-mix(in srgb, var(--det) 80%, var(--plate-2));
+  top: 9px;
+  width: 1.5px;
+  height: 9px;
+  margin-left: -0.75px;
   border-radius: 1px 1px 0 0;
-  transition: height 120ms ease, top 120ms ease;
+  background: var(--ink-3);
+  opacity: 0.6;
 }
-.bk-mark.is-current {
-  top: 24px;
-  height: 40px;
-  width: 3px;
-  margin-left: -1.5px;
-  background: var(--emulsion);
-  box-shadow: 0 0 0 1px var(--plate-2);
+.bk-ep.is-on {
+  background: var(--ink-2);
+  opacity: 1;
+}
+.bk-ep.is-ref {
+  background: var(--pencil-blue);
+  opacity: 1;
+}
+/* Hours: a long gap, cut out of the axis. */
+.bk-break {
+  position: absolute;
+  top: 13px;
+  width: 6px;
+  height: 11px;
+  margin-left: -3px;
+  background: var(--glass);
+  border-left: 1px solid var(--ink-3);
+  border-right: 1px solid var(--ink-3);
+  transform: skewX(-24deg);
+}
+/* The red pencil mark: the epoch on the plate. */
+.bk-now {
+  position: absolute;
+  top: 1px;
+  width: 2.5px;
+  height: 24px;
+  margin-left: -1.25px;
+  border-radius: 2px;
+  background: var(--pencil-red);
+  opacity: 0.92;
   z-index: 2;
 }
-.bk-mark.is-ref:not(.is-current) {
-  background: var(--d2);
+.bk-ghost {
+  position: absolute;
+  top: 3px;
+  width: 2px;
+  height: 20px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--ink-3);
+  opacity: 0.6;
+  pointer-events: none;
 }
 .bk-refmark {
   position: absolute;
-  top: 69px;
-  transform: translateX(-50%);
-  font-size: 11px;
-  line-height: 1;
-  font-weight: 600;
-  color: var(--d2);
-  pointer-events: none;
+  top: 5px;
+  width: 2px;
+  height: 18px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--pencil-blue);
+  opacity: 0.85;
+  z-index: 1;
 }
-.bk-break {
+.bk-all {
   position: absolute;
-  top: 58px;
-  width: 7px;
-  height: 11px;
-  margin-left: -3.5px;
-  background: var(--plate-2);
-  border-left: 1px solid var(--faint);
-  border-right: 1px solid var(--faint);
-  transform: skewX(-20deg);
+  top: 15px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--pencil-red);
+  opacity: 0.9;
+  z-index: 2;
 }
-.bk-flag {
+.bk-tls {
+  position: relative;
+  height: 16px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ink-3);
+  font-variation-settings: "wdth" 88;
+}
+.bk-tl,
+.bk-nowl {
   position: absolute;
   top: 0;
-  transform: translateX(var(--shift, -50%));
-  padding: 1px 7px;
-  border-radius: 3px;
-  background: var(--emulsion);
-  color: var(--plate);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  /* Measured right after moving (strip.ts thins colliding labels): never animate them. */
+  transition-property: none;
+}
+.bk-gl {
+  color: var(--ink-2);
+}
+.bk-nowl {
+  color: var(--pencil-red);
+  font-weight: 650;
+  font-size: var(--step--1);
+}
+
+/* ---- primary controls: one row under the strip ---------------------------------------- */
+.bk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s4);
+  margin-top: var(--s4);
+}
+.bk-how {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+.bk .bk-adjust-btn {
+  margin-left: auto;
+  min-height: 36px;
+  padding: 0 var(--s3) 0 var(--s4);
+  gap: 6px;
+}
+.bk-adjust-btn svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 120ms ease;
+}
+.bk-adjust-btn[aria-expanded="true"] {
+  background: var(--sheet);
+  border-color: var(--ink-3);
+}
+.bk-adjust-btn[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.bk .seg > button:disabled {
+  color: var(--ink-3);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.bk .seg.seg-sm > button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--step--1);
+}
+.bk-fov > button {
+  font-variation-settings: "wdth" 88;
+}
+
+/* The detector ramp: a thin spectrum, 0.75 → 5.0 µm, cut into six detectors. */
+/* It takes the rest of its line: when the row wraps under a narrow plate, the first line still
+   ends flush with the plate's right edge. */
+.bk-ramp {
+  flex: 1 1 210px;
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+.bk-det {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 5px;
+  height: 36px;
+  padding: 4px 5px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
   font-size: var(--step--1);
   font-weight: 600;
-  font-variation-settings: "wdth" 85;
-  white-space: nowrap;
-  pointer-events: none;
-  transition: left 140ms ease, transform 140ms ease;
+  font-variation-settings: "wdth" 88;
+  line-height: 1;
+  cursor: pointer;
 }
-.bk-tlabel,
-.bk-gap {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  white-space: nowrap;
+.bk-det::after {
+  content: "";
+  height: 3px;
+  border-radius: 2px;
+  background: var(--det);
+  opacity: 0.6;
 }
-.bk-axis.is-gaps .bk-tlabel {
-  top: 18px;
-  color: var(--emulsion);
+.bk-det:hover:not(:disabled) {
+  color: var(--ink);
 }
-.bk-gap {
-  color: var(--faint);
+.bk-det:hover:not(:disabled)::after {
+  opacity: 1;
 }
-.bk-axis:focus-visible {
-  box-shadow: var(--focus);
+.bk-det[aria-pressed="true"] {
+  background: var(--sheet);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(24, 32, 46, 0.18), 0 0 0 1px rgba(24, 32, 46, 0.04);
+}
+.bk-det[aria-pressed="true"]::after {
+  height: 4px;
+  margin-bottom: -1px;
+  opacity: 1;
+}
+.bk-det:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
 }
 
-/* Below the two-column layout the timeline sits right under the image, controls after it. */
-@container (max-width: 759px) {
-  .bk-body {
+/* ---- Adjust: popover beside the plate on desktop, an inline sheet on a phone ---------- */
+.bk-adjust {
+  position: absolute;
+  z-index: 30;
+  width: 364px;
+  display: grid;
+  gap: 14px;
+  padding: var(--s4) 18px;
+  background: var(--sheet);
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px rgba(24, 32, 46, 0.06),
+    0 18px 44px -14px rgba(24, 32, 46, 0.38);
+  font-size: var(--step--1);
+}
+.bk-adjust.is-right {
+  left: calc(100% + 20px);
+  bottom: 0;
+}
+.bk-adjust.is-up {
+  right: 0;
+}
+.bk-adjust.is-sheet {
+  position: static;
+  width: auto;
+  margin-top: var(--s4);
+  box-shadow: 0 0 0 1px var(--hair);
+}
+.bk-adj-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px var(--s3);
+}
+.bk-adj-row > .bk-switch,
+.bk-adj-row > .seg {
+  justify-self: start;
+}
+.bk-adj-k {
+  color: var(--ink-2);
+  font-weight: 550;
+}
+.bk-adj-note {
+  grid-column: 2;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+.bk-adj-pair {
+  display: flex;
+  gap: var(--s2);
+  min-width: 0;
+}
+.bk-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--hair-strong);
+  border-radius: 6px;
+  background: var(--sheet);
+  color: var(--ink);
+  font-size: var(--step--1);
+}
+.bk .bk-hold {
+  flex: none;
+  min-height: 32px;
+  padding: 0 var(--s3);
+  font-size: var(--step--1);
+}
+.bk-contrast {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.bk-adj-keys {
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+  color: var(--ink-3);
+}
+
+/* A switch: a real button with aria-pressed. */
+.bk-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--hair-strong);
+  cursor: pointer;
+}
+.bk-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgba(24, 32, 46, 0.3);
+  transition: transform 120ms ease;
+}
+.bk-switch[aria-pressed="true"] {
+  background: var(--ink);
+}
+.bk-switch[aria-pressed="true"] i {
+  transform: translateX(14px);
+}
+
+/* Mark toggles, each with its pencil swatch. */
+.bk-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 2px;
+}
+.bk-mk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-weight: 550;
+  cursor: pointer;
+}
+.bk-mk[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--sheet-2);
+}
+.bk-mk[aria-pressed="false"] .sw {
+  opacity: 0.35;
+}
+.sw {
+  flex: none;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+}
+.sw-gaia {
+  border-color: var(--pencil-blue);
+}
+.sw-known {
+  border-color: var(--pencil-violet);
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.8);
+}
+.sw-target {
+  border-color: var(--pencil-red);
+  border-radius: 0;
+  border-width: 0 1.5px;
+  width: 9px;
+}
+.sw-guide {
+  border-width: 0 1.5px 1.5px 0;
+  border-radius: 0;
+}
+
+/* ---- phone: plate full width, the controls in two lines, Adjust inline ---------------- */
+@container (max-width: 600px) {
+  .bk {
+    --mat: 8px;
+  }
+  .bk-col {
+    width: 100%;
+  }
+  .bk-label {
+    height: 28px;
+    font-size: 12px;
+  }
+  .bk-caption {
+    font-size: 12px;
+  }
+  .bk-strip {
+    gap: 0 var(--s3);
+  }
+  .bk-row {
+    gap: var(--s3) var(--s2);
+  }
+  /* Line 1: clock, field, Adjust. Line 2: view and detector. */
+  .bk-how {
     display: contents;
   }
-  .bk-stage-wrap {
+  .bk-clock {
     order: 1;
   }
-  .bk-time {
+  .bk-fov {
     order: 2;
   }
-  .bk-rail {
+  .bk .bk-adjust-btn {
     order: 3;
+  }
+  .bk-row::after {
+    content: "";
+    order: 4;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .bk-modes {
+    order: 5;
+  }
+  .bk-ramp {
+    order: 6;
+    flex: 1 1 0;
+    max-width: none;
+  }
+  .bk .seg > button {
+    padding: 0 10px;
+  }
+  .bk-det {
+    padding: 4px 3px 6px;
   }
 }
 
-/* ---- narrow: phone ---------------------------------------------------------------------- */
-@container (max-width: 620px) {
-  .bk-ramp {
-    flex-basis: 100%;
+/* A smaller plate (short screens): the printed edges get smaller so they stay on one line. */
+@container mat (max-width: 640px) {
+  .bk-label,
+  .bk-caption {
+    font-size: 12px;
   }
-  .bk-det {
-    padding: 2px 4px 4px;
-  }
-  .bk-time {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "legend" "axis" "transport";
-    padding: var(--s3);
-  }
-  .bk-legend {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "which" "when" "facts";
-  }
-  .bk-facts {
-    justify-content: flex-start;
-    margin-top: var(--s2);
-  }
-  .bk-transport {
-    justify-content: center;
-  }
-  .bk-rail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--s4) var(--s3);
-  }
-  .bk-rail .bk-group:nth-child(1),
-  .bk-rail .bk-group:nth-child(2),
-  .bk-rail .bk-group:nth-child(5),
-  .bk-keys {
-    grid-column: 1 / -1;
-  }
-  .bk-rail .bk-group:nth-child(2) {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .bk-rail .bk-group:nth-child(2) .bk-h {
-    grid-column: 1 / -1;
-  }
-  .bk-loupe {
+  .bk-hint {
     display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bk-flag,
-  .bk-mark {
-    transition: none;
+  .bk-progress.is-indeterminate i {
+    animation: none;
+    width: 100%;
+    opacity: 0.35;
   }
 }
