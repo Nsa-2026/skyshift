@@ -112,7 +112,9 @@
 /* ---- the blink page ---- */
 .page-blink {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  /* The stage column is as wide as the plate's mat (blink.css), so no gap opens between the
+     plate and the card when the plate is limited by the viewport height. */
+  grid-template-columns: minmax(0, calc(max(300px, 100svh - 236px) + 24px)) minmax(340px, 1fr);
   grid-template-areas:
     "stage card"
     "below below";
@@ -130,6 +132,7 @@
 .side-card {
   grid-area: card;
   min-width: 0;
+  max-width: 620px;
 }
 .below {
   grid-area: below;
