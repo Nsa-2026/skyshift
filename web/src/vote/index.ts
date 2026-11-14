@@ -83,6 +83,7 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
   let justVoted: string | null = null;
   let busy = false;
   let loadToken = 0;
+  let viewToken = 0;
   let loadTimer: ReturnType<typeof setTimeout> | null = null;
   let loading = false;
 
@@ -254,19 +255,22 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
   async function flag() {
     if (!pending || busy) return;
     const p = pending;
+    const token = viewToken;
     busy = true;
     renderPick();
     try {
       const s = await ready;
+      if (token !== viewToken) return;
       const c = await s.flag(candidateDoc(p));
       memory.rememberFlag(c.id);
+      if (token !== viewToken) return;
       pending = null;
       open = c.id;
       justVoted = null;
       if (!list.some((x) => x.id === c.id)) list = [c, ...list];
       say("Flagged. Now say what you think it is.", "ok");
     } catch (e) {
-      say(toVoteError(e).message, "error");
+      if (token === viewToken) say(toVoteError(e).message, "error");
     } finally {
       busy = false;
       render();
@@ -399,8 +403,22 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
     },
     view(v: View) {
       const moved = !view || view.ra !== v.ra || view.dec !== v.dec || view.fov !== v.fov;
+      const changed = moved || view?.clock !== v.clock || view?.det !== v.det;
       view = v;
+      if (changed) {
+        viewToken++;
+        pending = null;
+        say("");
+        renderPick();
+      }
       if (!moved) return;
+      loadToken++; // Invalidate the old field before the debounced request starts.
+      list = [];
+      counts = new Map();
+      open = null;
+      justVoted = null;
+      loading = true;
+      renderList();
       if (loadTimer) clearTimeout(loadTimer);
       loadTimer = setTimeout(() => void load(), 250);
     },

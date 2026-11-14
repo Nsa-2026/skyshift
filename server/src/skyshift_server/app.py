@@ -11,6 +11,8 @@ Endpoints: /api/frames, /api/object, /api/gaia, /api/known, /api/resolve, /api/h
 - Real responses are cached whole by request in `Cache` (SKYSHIFT_CACHE; gs://nasa-glazing-data/cache
   on Cloud Run): api/<endpoint>/<key>.json, and frames/<key>/frames.json + frames/<key>/<blob>.
   Bump ENGINE_VERSION to invalidate everything after an engine change.
+- Partial catalogue lookups keep the images usable, send X-SkyShift-Notice tokens and no-store,
+  and are not cached as complete frames responses. The JSON body retains the v2 contract.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ from .errors import ApiError, NotFoundError, UpstreamError, bad_request
 log = logging.getLogger("skyshift.api")
 
 VERSION = "0.1.0"
-ENGINE_VERSION = "4"  # part of every cache key
+ENGINE_VERSION = "5"  # invalidate responses that silently cached failed catalogue lookups
 FOV_ALLOWED = {"months": (5.0, 15.0), "hours": (20.0, 60.0)}
 FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2
@@ -283,8 +285,15 @@ def frames(ra: float, dec: float, fov: float | None = None, clock: str = "months
     for name, data in result.blobs.items():  # blobs first: frames.json existing means all is there
         _check_blob_name(name)
         cache.put(f"frames/{key}/{name}", data)
-    _cache_put_json(f"frames/{key}/frames.json", meta)
-    return _json(meta)
+    # Preserve the JSON contract while exposing partial catalogue coverage to clients.
+    # Such responses must be retried, not cached as successful empty catalogue results.
+    notices = result.notices
+    if not notices:
+        _cache_put_json(f"frames/{key}/frames.json", meta)
+    response = _json(meta, CACHE_NONE if notices else CACHE_REAL)
+    if notices:
+        response.headers["X-SkyShift-Notice"] = ",".join(notices)
+    return response
 
 
 _BLOB_NAME = re.compile(r"^[A-Za-z0-9_.\-]+(/[A-Za-z0-9_.\-]+)*$")

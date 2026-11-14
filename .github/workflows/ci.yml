@@ -69,3 +69,7 @@ jobs:
       - name: npm test
         if: hashFiles('web/package.json') != ''
         run: npm test
+
+      - name: Production build and type check
+        if: hashFiles('web/package.json') != ''
+        run: npm run build

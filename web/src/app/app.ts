@@ -113,7 +113,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl?.abort();
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
-    blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
+    blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx; the first request can take a minute or more…");
 
     if (moved) {
       // Don't hand the card or sky the previous spot's data while the new one loads.
@@ -145,6 +145,13 @@ export function startApp(root: HTMLElement): void {
       sky.goto(next, frames);
       card.show(next, object, frames);
       await blink.show(next, loaded.frames, loaded.jsonUrl);
+      if (!fsig.aborted && loaded.notices?.length) {
+        const unavailable = [
+          loaded.notices.includes("known_lookup_failed") ? "known-object" : "",
+          loaded.notices.includes("gaia_lookup_failed") ? "Gaia" : "",
+        ].filter(Boolean).join(" and ");
+        if (unavailable) say(`Images loaded, but the ${unavailable} lookup is incomplete. Missing markers do not mean there are no catalogue matches. Try loading again.`);
+      }
     } catch (e) {
       if (fsig.aborted) return;
       frames = null;

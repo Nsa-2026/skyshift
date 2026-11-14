@@ -13,7 +13,7 @@ from skyshift_core import open_level2
 
 from skyshift_server import blink, cutouts, gaia, known, obj, search, stack
 from skyshift_server.cache import Cache
-from skyshift_server.errors import ApiError, NotFoundError
+from skyshift_server.errors import ApiError, NotFoundError, UpstreamError
 
 from conftest import FIXTURE_CUTOUT, sia_row
 
@@ -156,6 +156,25 @@ def test_hours_60_is_binned(world):
     img = _decode(fr, fr.meta["epochs"][0])
     y, x = np.unravel_index(np.nanargmax(img[143:150, 143:150]), (7, 7))
     assert abs(x - 3) <= 1 and abs(y - 3) <= 1
+
+
+def test_frames_survive_catalogue_outage_with_explicit_notices(world, monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise UpstreamError("temporary catalogue outage")
+
+    monkeypatch.setattr(known, "cone", unavailable)
+    monkeypatch.setattr(gaia, "cone", unavailable)
+    result = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"])
+    assert result.meta["epochs"] and result.blobs
+    assert result.meta["known"] == [] and result.meta["gaia"] == []
+    assert result.notices == ["known_lookup_failed", "gaia_lookup_failed"]
+
+
+def test_failed_lookup_for_discarded_epoch_does_not_taint_response(tmp_path):
+    failed = ["d2-v2"]
+    planned = [{"id": "d2-v1", "mjd_mid": 61000}, {"id": "d2-v2", "mjd_mid": 61200}]
+    blink.reconcile_known([], planned, planned[:1], 1, 2, 5, Cache(str(tmp_path)), failed_epochs=failed)
+    assert failed == []
 
 
 def test_bad_arguments_and_no_data(world):

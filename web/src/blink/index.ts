@@ -587,31 +587,32 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           title="${f} arcminute field">${f}′</button>`,
       )
       .join("");
-    const have = F ? detectorsIn(F) : [];
     $$<HTMLButtonElement>("[data-det]").forEach((b) => {
       const d = Number(b.dataset.det) as Det;
       b.setAttribute("aria-pressed", String(d === view!.det));
-      b.disabled = !!F && !have.includes(d);
+      // A live response contains only the requested detector. Other detectors may still
+      // be available through another API request, even when they were not precomputed.
+      b.disabled = false;
     });
     root.style.setProperty("--det", `var(--d${view.det})`);
     markAvailable();
   }
 
-  /** Featured targets: disable the clocks and fields that have no precomputed frames. */
+  /** Missing precomputed sets use the live API; they are not unavailable observations. */
   async function markAvailable() {
+    $$<HTMLButtonElement>("[data-clock], [data-fov]").forEach((b) => { b.disabled = false; });
     const v = view;
     if (!v?.slug) return;
     const idx = await targetIndex(v.slug);
     if (!idx || view !== v) return;
     $$<HTMLButtonElement>("[data-clock]").forEach((b) => {
       const ok = idx.frames.some((f) => f.clock === b.dataset.clock);
-      b.disabled = !ok && b.dataset.clock !== v.clock;
       b.dataset.tip ??= b.title;
-      b.title = ok ? b.dataset.tip : `No ${b.dataset.clock} frames are prepared for ${idx.name}.`;
+      b.title = ok ? b.dataset.tip : `Load ${b.dataset.clock} frames for ${idx.name} from the live service.`;
     });
     $$<HTMLButtonElement>("[data-fov]").forEach((b) => {
       const ok = idx.frames.some((f) => f.clock === v.clock && f.fov === Number(b.dataset.fov));
-      b.disabled = !ok && Number(b.dataset.fov) !== v.fov;
+      b.title = ok ? `${b.dataset.fov} arcminute field` : "Load this field from the live service.";
     });
   }
 

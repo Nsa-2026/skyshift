@@ -173,6 +173,33 @@ def test_frames_real_cached_and_served(client, cache, monkeypatch):
     assert len(calls) == 2
 
 
+def test_partial_catalogue_response_warns_and_is_retried(client, monkeypatch):
+    calls = []
+
+    def build(*args, cache=None):
+        calls.append(args)
+        result = _frames_result()
+        if len(calls) < 3:
+            result.notices = ["known_lookup_failed", "gaia_lookup_failed"]
+        return result
+
+    monkeypatch.setattr(blink, "build_frames", build)
+    params = {"ra": 10, "dec": 20}
+    for _ in range(2):
+        response = client.get("/api/frames", params=params)
+        assert response.status_code == 200
+        assert set(response.json()) == FRAMES_KEYS
+        assert response.headers["X-SkyShift-Notice"] == "known_lookup_failed,gaia_lookup_failed"
+        assert response.headers["cache-control"] == "no-store"
+        assert client.get(response.json()["epochs"][0]["data_url"]).status_code == 200
+    assert len(calls) == 2
+    recovered = client.get("/api/frames", params=params)
+    assert "X-SkyShift-Notice" not in recovered.headers
+    assert recovered.headers["cache-control"].startswith("public")
+    client.get("/api/frames", params=params)
+    assert len(calls) == 3
+
+
 def test_frames_defaults(client, monkeypatch):
     seen = []
     monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None: seen.append(a) or _frames_result())

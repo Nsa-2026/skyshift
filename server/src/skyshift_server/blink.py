@@ -50,6 +50,7 @@ class Frames:
 
     meta: dict[str, Any]
     blobs: dict[str, bytes] = field(default_factory=dict)
+    notices: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -205,7 +206,8 @@ def visit_epochs(stacks: list[Stacked], det: int, prefix: str) -> tuple[list[dic
     return epochs, blobs
 
 
-def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cache: Cache) -> list[dict]:
+def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cache: Cache,
+                     *, failed_epochs: list[str] | None = None) -> list[dict]:
     """One SkyBoT cone per epoch (at its own centre if it has one). A SkyBoT failure leaves that
     epoch without known objects and is logged; it never fails the frames."""
     r = fov / 2.0 * 2**0.5
@@ -216,6 +218,8 @@ def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cach
             found = known.cone(c["ra"], c["dec"], r, ep["mjd_mid"], cache=cache)
         except ApiError as e:
             log.warning("SkyBoT failed for %s: %s", ep["id"], e)
+            if failed_epochs is not None:
+                failed_epochs.append(ep["id"])
             return []
         return [{"name": k["name"], "epoch_id": ep["id"], "ra": k["ra"], "dec": k["dec"],
                  "v": k["v"], "source": k["source"]} for k in found]
@@ -243,13 +247,16 @@ KNOWN_MJD_TOLERANCE = 0.001  # days (86 s): a main-belt asteroid moves well unde
 
 
 def reconcile_known(found: list[dict], planned: list[dict], epochs: list[dict], ra: float, dec: float,
-                    fov: float, cache: Cache) -> list[dict]:
+                    fov: float, cache: Cache, *, failed_epochs: list[str] | None = None) -> list[dict]:
     """Known objects asked at the planned times -> those of the epochs that were built. An epoch
     whose mjd_mid moved (an exposure at the start or end of a visit had no pixels) is asked again."""
     plan = {p["id"]: p["mjd_mid"] for p in planned}
     ok = {e["id"] for e in epochs if e["id"] in plan and abs(plan[e["id"]] - e["mjd_mid"]) <= KNOWN_MJD_TOLERANCE}
     again = [e for e in epochs if e["id"] not in ok]
-    return [k for k in found if k["epoch_id"] in ok] + known_for_epochs(again, ra, dec, fov, cache)
+    if failed_epochs is not None:
+        failed_epochs[:] = [i for i in failed_epochs if i in ok]
+    return [k for k in found if k["epoch_id"] in ok] + known_for_epochs(
+        again, ra, dec, fov, cache, failed_epochs=failed_epochs)
 
 
 def frames_meta(clock: str, grid: stack.Grid, epochs: list[dict], stars: list[dict], known_: list[dict],
@@ -282,9 +289,11 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     prefix = f"{clock[0]}{fov_i}"
     chosen = pick_months_images(images, per_visit) if clock == "months" else pick_hours_images(images)
     planned = planned_epochs(chosen, det, clock)
+    failed_known: list[str] = []
+    notices: list[str] = []
     with ThreadPoolExecutor(2) as side:  # Gaia and SkyBoT run while the cutouts download
         stars_f = side.submit(gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)
-        known_f = side.submit(known_for_epochs, planned, ra, dec, fov, cache)
+        known_f = side.submit(known_for_epochs, planned, ra, dec, fov, cache, failed_epochs=failed_known)
         if clock == "months":
             grid, _ = stack.grid_for(ra, dec, clock, fov)
             stacks = visit_stacks(chosen, grid, cutouts.tier_for_field(fov), cache)
@@ -293,13 +302,17 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
             epochs, blobs, grid = exposure_epochs(chosen, ra, dec, fov, cache, prefix)
         if not epochs:
             raise NotFoundError("no usable SPHEREx pixels at this position")
-        known_ = reconcile_known(known_f.result(), planned, epochs, ra, dec, fov, cache)
+        known_ = reconcile_known(known_f.result(), planned, epochs, ra, dec, fov, cache,
+                                 failed_epochs=failed_known)
+        if failed_known:
+            notices.append("known_lookup_failed")
         try:
             stars = stars_f.result()
         except ApiError as e:
             log.warning("Gaia failed: %s", e)
             stars = []
-    return Frames(frames_meta(clock, grid, epochs, stars, known_, found.archive_checked), blobs)
+            notices.append("gaia_lookup_failed")
+    return Frames(frames_meta(clock, grid, epochs, stars, known_, found.archive_checked), blobs, notices)
 
 
 def build_object(ra: float, dec: float, *, cache: Cache | None = None) -> dict[str, Any]:

@@ -173,4 +173,6 @@ export interface LoadedFrames {
   jsonUrl: string;
   /** Where it came from: static file of a featured target, or the live API. */
   origin: "static" | "api";
+  /** Partial upstream lookups, reported by the live API response header. */
+  notices?: string[];
 }

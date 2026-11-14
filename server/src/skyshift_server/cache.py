@@ -7,6 +7,7 @@ laptops). Default: ~/.cache/skyshift. Keys are relative paths such as "cutouts/<
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 
@@ -38,6 +39,14 @@ class Cache:
             return
         p = Path(self.root) / key
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_bytes(data)
-        tmp.replace(p)  # atomic: a half-written file never counts as cached
+        with tempfile.NamedTemporaryFile(dir=p.parent, prefix=p.name + ".", suffix=".tmp", delete=False) as f:
+            tmp = Path(f.name)
+            try:
+                f.write(data)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+        try:
+            tmp.replace(p)  # unique per writer; readers see one complete value
+        finally:
+            tmp.unlink(missing_ok=True)

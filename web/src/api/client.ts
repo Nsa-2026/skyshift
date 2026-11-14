@@ -25,7 +25,7 @@ export class ApiFailure extends Error {
 
 const base = (): string => (typeof location !== "undefined" ? location.href : "http://localhost/");
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function getJson<T>(url: string, signal?: AbortSignal, headers?: (h: Headers) => void): Promise<T> {
   const res = await fetch(url, { signal });
   if (!res.ok) {
     let code = "internal";
@@ -41,6 +41,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     }
     throw new ApiFailure(message, res.status, code);
   }
+  headers?.(res.headers);
   return (await res.json()) as T;
 }
 
@@ -77,13 +78,14 @@ export async function loadFrames(q: FramesQuery, signal?: AbortSignal): Promise<
     const idx = await loadTargetIndex(q.slug, signal);
     const file =
       idx?.frames.find((f) => f.clock === q.clock && f.fov === fov && (!q.det || f.dets.includes(q.det)))?.file ??
-      idx?.frames.find((f) => f.clock === q.clock && f.fov === fov)?.file ??
       (idx ? null : "frames.json");
     if (file) {
       const jsonUrl = new URL(`/data/${q.slug}/${file}`, base()).href;
       try {
         const frames = await getJson<FramesResponse>(jsonUrl, signal);
-        if (frames.clock === q.clock) return { frames, jsonUrl, origin: "static" };
+        const field = frames.size[0] * frames.pixel_arcsec / 60;
+        if (frames.clock === q.clock && Math.abs(field - fov) <= frames.pixel_arcsec / 60 &&
+            (!q.det || epochsFor(frames, q.det).length > 0)) return { frames, jsonUrl, origin: "static" };
       } catch (e) {
         if ((e as Error).name === "AbortError") throw e;
       }
@@ -92,8 +94,11 @@ export async function loadFrames(q: FramesQuery, signal?: AbortSignal): Promise<
   const p = new URLSearchParams({ ra: String(q.ra), dec: String(q.dec), clock: q.clock, fov: String(fov) });
   if (q.det) p.set("det", String(q.det));
   const jsonUrl = new URL(`/api/frames?${p}`, base()).href;
-  const frames = await getJson<FramesResponse>(jsonUrl, signal);
-  return { frames, jsonUrl, origin: "api" };
+  let notices: string[] = [];
+  const frames = await getJson<FramesResponse>(jsonUrl, signal, (h) => {
+    notices = (h.get("X-SkyShift-Notice") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  });
+  return { frames, jsonUrl, origin: "api", notices };
 }
 
 export function epochsFor(frames: FramesResponse, det: Det): Epoch[] {
