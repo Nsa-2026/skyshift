@@ -92,17 +92,17 @@
         {
           "slug": "epsindib",
           "measured": true,
-          "shift_arcsec": 6.05,
-          "predicted_arcsec": 6.49,
-          "sigma_arcsec": 0.42,
-          "pa_deg": 125.7,
+          "shift_arcsec": 6.12,
+          "predicted_arcsec": 6.46,
+          "sigma_arcsec": 0.49,
+          "pa_deg": 122.7,
           "predicted_pa_deg": 121.8,
-          "dt_yr": 1.418,
-          "rate_arcsec_yr": 4.27,
-          "n_ref_stars": 51,
-          "dev_sigma": 1.0,
-          "shift_error_pct": -6.7,
-          "pa_error_deg": 4.0
+          "dt_yr": 1.407,
+          "rate_arcsec_yr": 4.35,
+          "n_ref_stars": 58,
+          "dev_sigma": 0.7,
+          "shift_error_pct": -5.2,
+          "pa_error_deg": 1.0
         },
         {
           "slug": "wise0855",
@@ -170,10 +170,10 @@
         },
         {
           "slug": "epsindib",
-          "sigma_arcsec": 0.42,
-          "n_ref_stars": 51,
-          "dt_yr": 1.418,
-          "min_rate_3sigma_arcsec_yr": 0.89
+          "sigma_arcsec": 0.49,
+          "n_ref_stars": 58,
+          "dt_yr": 1.407,
+          "min_rate_3sigma_arcsec_yr": 1.04
         },
         {
           "slug": "wise0855",
@@ -1015,12 +1015,12 @@
     {
       "id": "V8",
       "claim": "Spectra and speed",
-      "status": "fail",
-      "headline": "SPHEREx / catalogue flux, Ks 0.993 (scatter 2.9%, 25,696 stars); W1 1.029 (scatter 1.9%, 27,860 stars) (hunt zone, 10-13 mag; pilot zone Ks 0.993, W1 1.026); live speed: only 2 of 20 requests answered (8.1-28.7 s to first frame), the rest 14 HTTP 429, 4 no answer within the timeout (2026-11-14 13:37 UTC)",
+      "status": "pass",
+      "headline": "SPHEREx / catalogue flux, Ks 0.993 (scatter 2.9%, 25,696 stars); W1 1.029 (scatter 1.9%, 27,860 stars) (hunt zone, 10-13 mag; pilot zone Ks 0.993, W1 1.026); median time to first frame 7.9 s over 20 live requests (20 ok) (2026-11-14 13:54 UTC)",
       "value": 0.9925,
       "unit": "ratio",
       "expected": "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
-      "note": "Spectra: every star of the zone matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py); fainter than 13 mag the scatter grows to 4.2-10.3%. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): Ks 0.993 (scatter 2.9%, 25,696 stars), W1 1.029 (scatter 1.9%, 27,860 stars) of 303,045 sources. Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): Ks 0.993 (scatter 2.9%, 3,918 stars), W1 1.026 (scatter 1.8%, 4,240 stars) of 45,189 sources. Speed measured 2026-11-14T13:37:32+00:00 against https://skyshift.web.app/api: 10 random coordinates (uniform on the sphere, seed 297754), each on both clocks, timed from the /api/frames request to the first frame received; a failed request counts as slower than any success. 1 ok request(s) took over 15 s. 18 request(s) failed (14 HTTP 429, 4 no answer within the timeout). The API was being sped up while this ran, so the number can change. For comparison, the 8 featured targets, served as static files, showed their first frame in 0.04-0.53 s. Rows: part=spectra (zone, band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
+      "note": "Spectra: every star of the zone matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py); fainter than 13 mag the scatter grows to 4.2-10.3%. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): Ks 0.993 (scatter 2.9%, 25,696 stars), W1 1.029 (scatter 1.9%, 27,860 stars) of 303,045 sources. Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): Ks 0.993 (scatter 2.9%, 3,918 stars), W1 1.026 (scatter 1.8%, 4,240 stars) of 45,189 sources. Speed measured 2026-11-14T13:54:11+00:00 against https://skyshift.web.app/api: 10 random coordinates (uniform on the sphere, seed 228060), each on both clocks, timed from the /api/frames request to the first frame received; a failed request counts as slower than any success. Median months 6.7 s. Median hours 8.7 s. 1 ok request(s) took over 15 s. The API was being sped up while this ran, so the number can change. For comparison, the 8 featured targets, served as static files, showed their first frame in 0.02-0.06 s. Rows: part=spectra (zone, band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
       "rows": [
         {
           "part": "spectra",
@@ -1264,163 +1264,163 @@
         },
         {
           "part": "speed",
-          "ra": 287.28225,
-          "dec": 22.35893,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 287.28225,
-          "dec": 22.35893,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 66.43818,
-          "dec": 49.54755,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 66.43818,
-          "dec": 49.54755,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 80.64572,
-          "dec": -0.12732,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 80.64572,
-          "dec": -0.12732,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 207.55661,
-          "dec": 4.38897,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 207.55661,
-          "dec": 4.38897,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 274.88215,
-          "dec": -29.4587,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 274.88215,
-          "dec": -29.4587,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 104.33301,
-          "dec": 20.05369,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 104.33301,
-          "dec": 20.05369,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 301.07547,
-          "dec": -22.78313,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 301.07547,
-          "dec": -22.78313,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 99.58044,
-          "dec": -42.30001,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 99.58044,
-          "dec": -42.30001,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 243.22286,
-          "dec": 0.72513,
-          "clock": "months",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 243.22286,
-          "dec": 0.72513,
-          "clock": "hours",
-          "ok": false,
-          "first_frame_s": null
-        },
-        {
-          "part": "speed",
-          "ra": 24.93211,
-          "dec": -34.33268,
+          "ra": 299.52243,
+          "dec": 78.85003,
           "clock": "months",
           "ok": true,
-          "first_frame_s": 28.669
+          "first_frame_s": 7.779
         },
         {
           "part": "speed",
-          "ra": 24.93211,
-          "dec": -34.33268,
+          "ra": 299.52243,
+          "dec": 78.85003,
           "clock": "hours",
           "ok": true,
-          "first_frame_s": 8.113
+          "first_frame_s": 8.521
+        },
+        {
+          "part": "speed",
+          "ra": 84.3889,
+          "dec": -4.69312,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 8.85
+        },
+        {
+          "part": "speed",
+          "ra": 84.3889,
+          "dec": -4.69312,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.082
+        },
+        {
+          "part": "speed",
+          "ra": 251.65714,
+          "dec": 48.66971,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 5.95
+        },
+        {
+          "part": "speed",
+          "ra": 251.65714,
+          "dec": 48.66971,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.629
+        },
+        {
+          "part": "speed",
+          "ra": 270.07862,
+          "dec": -32.91696,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.947
+        },
+        {
+          "part": "speed",
+          "ra": 270.07862,
+          "dec": -32.91696,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 8.957
+        },
+        {
+          "part": "speed",
+          "ra": 240.60998,
+          "dec": -52.80406,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 5.811
+        },
+        {
+          "part": "speed",
+          "ra": 240.60998,
+          "dec": -52.80406,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 11.063
+        },
+        {
+          "part": "speed",
+          "ra": 264.16498,
+          "dec": 67.59903,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 16.651
+        },
+        {
+          "part": "speed",
+          "ra": 264.16498,
+          "dec": 67.59903,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 10.398
+        },
+        {
+          "part": "speed",
+          "ra": 204.36374,
+          "dec": -29.69409,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 7.998
+        },
+        {
+          "part": "speed",
+          "ra": 204.36374,
+          "dec": -29.69409,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.994
+        },
+        {
+          "part": "speed",
+          "ra": 61.79257,
+          "dec": -20.0874,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.251
+        },
+        {
+          "part": "speed",
+          "ra": 61.79257,
+          "dec": -20.0874,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.577
+        },
+        {
+          "part": "speed",
+          "ra": 154.56017,
+          "dec": -17.98259,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.433
+        },
+        {
+          "part": "speed",
+          "ra": 154.56017,
+          "dec": -17.98259,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 9.263
+        },
+        {
+          "part": "speed",
+          "ra": 250.14924,
+          "dec": 15.50787,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.098
+        },
+        {
+          "part": "speed",
+          "ra": 250.14924,
+          "dec": 15.50787,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 11.055
         }
       ]
     },
