@@ -25,7 +25,10 @@ describe("legacyHash", () => {
     expect(legacyHash("#/research/live")).toBe("#/live");
     expect(legacyHash("#/research/results")).toBe("#/results");
     expect(legacyHash("#/research/tools")).toBe("#/tools");
-    expect(legacyHash("#/research")).toBe("#/tools");
-    expect(legacyHash("#/research/validation")).toBe("#/tools");
+    expect(legacyHash("#/research")).toBe("#/tools/methods");
+    expect(legacyHash("#/research/data")).toBe("#/tools/methods");
+    expect(legacyHash("#/research/processing")).toBe("#/tools/methods");
+    expect(legacyHash("#/research/validation")).toBe("#/results");
+    expect(legacyHash("#/research/export")).toBe("#/tools");
   });
 });

@@ -427,8 +427,9 @@ def _load_tables(st: Store, zone: Zone) -> Tables:
 
 
 def _load_fragments(st: Store, base: str) -> dict[int, tuple[str, str | None, list[str] | None]] | None:
-    """The pipeline's `fragments` tags (contracts/dots.md): bright_fragment and blend rows, or None without the file
-    (or unreadable: the layer then reads as before)."""
+    """The pipeline's `fragments` tags (contracts/dots.md): bright_fragment, duplicate and blend rows, or None without
+    the file (or unreadable: the layer then reads as before). A duplicate (a second source of one star) is read as a
+    bright_fragment whose parent is that star, so the site draws the star once (no new API reason)."""
     try:
         f = st.read_table(f"{base}/fragments.parquet", ["source_id", "tag"], ["parent_gaia_id", "blend_ids"])
     except Exception:  # noqa: BLE001
@@ -438,9 +439,9 @@ def _load_fragments(st: Store, base: str) -> dict[int, tuple[str, str | None, li
         return None
     out: dict[int, tuple[str, str | None, list[str] | None]] = {}
     for i, tag in enumerate(f["tag"]):
-        if tag == "bright_fragment":
+        if tag in ("bright_fragment", "duplicate"):
             p = int(f["parent_gaia_id"][i]) if "parent_gaia_id" in f else -1
-            out[int(f["source_id"][i])] = (tag, str(p) if p >= 0 else None, None)
+            out[int(f["source_id"][i])] = ("bright_fragment", str(p) if p >= 0 else None, None)
         elif tag == "blend":
             ids = [str(int(x)) for x in (f["blend_ids"][i] or [])] if "blend_ids" in f else []
             out[int(f["source_id"][i])] = (tag, None, ids or None)

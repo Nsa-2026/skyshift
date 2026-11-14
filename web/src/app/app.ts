@@ -8,6 +8,7 @@ import { withExtras } from "../extras";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountFilters } from "../colour";
+import { mountPlateLayers } from "../layers";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
 import { mountAtlas } from "../atlas";
@@ -17,6 +18,7 @@ import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
+import { mountOpening } from "../intro";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -117,7 +119,8 @@ export function startApp(root: HTMLElement): void {
   let frameCtl: AbortController | null = null;
   let objectCtl: AbortController | null = null;
 
-  const blink: BlinkHandle = mountBlink($("#blink"), {
+  // Plate layers (src/layers) mount the player and pick what its plate shows: observed or derived.
+  const blink: BlinkHandle = mountPlateLayers($("#blink"), mountBlink, {
     onViewChange(change) {
       if (!view) return;
       go({ ...view, ...change }, { objectToo: false });
@@ -364,4 +367,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
+  // The opening (src/intro): every visit to the home page itself, over the Sky map as it loads.
+  if (!embed) mountOpening(root);
 }
