@@ -12,8 +12,8 @@ Under every blink it measures how far the object moved and compares that with Ga
 and with known asteroid positions. It also builds a spectrum on the fly, coloured by visit.
 Anyone can flag a dot and vote on whether it is real.
 
-> **Status:** being built during the hackathon, 14–15 November 2026. Links to the live site and
-> the video will be added here when they exist.
+> **Status:** being built during the hackathon, 14–15 November 2026.
+> Site: **https://skyshift.web.app** (live after the first deploy). The video link will be added here.
 
 ## Try these targets
 
