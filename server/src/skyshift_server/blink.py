@@ -10,7 +10,9 @@ Hours clock: single exposures of one detector in time order. A position has 50-8
 detector over all visits, so the hours clock shows ONE visit: the one with the most exposures in
 that detector (the latest on a tie), at most HOURS_MAX_FRAMES frames (whole sessions from its
 start). `known` is asked from SkyBoT once per epoch (months: at the visit's mjd_mid, where it
-only tells which asteroids crossed the field around then; the median removes them).
+only tells which asteroids crossed the field around then; the median removes them), at the times
+the search gives, while the cutouts download (reconcile_known re-asks an epoch whose time moved).
+The live months clock stacks at most LIVE_PER_VISIT exposures a visit; precompute stacks all.
 """
 
 from __future__ import annotations
@@ -33,8 +35,10 @@ log = logging.getLogger(__name__)
 
 HOURS_MAX_FRAMES = 48
 # Live path (GET /api/frames): at most this many exposures per visit go into a months stack, so a
-# cold request stays well inside Cloud Run's 60 s. scripts/precompute passes per_visit=None.
-LIVE_PER_VISIT = 8
+# cold request stays well inside Cloud Run's 60 s. Measured on a laptop line (14 Nov, months 15'
+# D2, IRSA mostly busy so S3 reads): every exposure (19 a visit) 84 s cold; 8 a visit 40 s; 6 a
+# visit 24-27 s, warm 0.5 s. scripts/precompute passes per_visit=None (full stacks).
+LIVE_PER_VISIT = 6
 
 
 @dataclass
@@ -222,6 +226,32 @@ def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cach
         return [k for part in ex.map(one, epochs) for k in part]
 
 
+def planned_epochs(images: list[Image], det: int, clock: str) -> list[dict]:
+    """The epochs build_frames expects, from the search times alone ({id, mjd_mid}), so SkyBoT
+    can be asked while the cutouts download. Search times are the middle of t_min and t_max,
+    which is MJD-AVG to within a second."""
+    if clock == "hours":
+        return [{"id": f"d{det}-{im.obs_id}", "mjd_mid": im.mjd} for im in images]
+    out = []
+    for v in sorted({im.visit for im in images}):
+        t = [im.mjd for im in images if im.visit == v]
+        out.append({"id": f"d{det}-v{v}", "mjd_mid": (min(t) + max(t)) / 2.0})
+    return out
+
+
+KNOWN_MJD_TOLERANCE = 0.001  # days (86 s): a main-belt asteroid moves well under 1" in that time
+
+
+def reconcile_known(found: list[dict], planned: list[dict], epochs: list[dict], ra: float, dec: float,
+                    fov: float, cache: Cache) -> list[dict]:
+    """Known objects asked at the planned times -> those of the epochs that were built. An epoch
+    whose mjd_mid moved (an exposure at the start or end of a visit had no pixels) is asked again."""
+    plan = {p["id"]: p["mjd_mid"] for p in planned}
+    ok = {e["id"] for e in epochs if e["id"] in plan and abs(plan[e["id"]] - e["mjd_mid"]) <= KNOWN_MJD_TOLERANCE}
+    again = [e for e in epochs if e["id"] not in ok]
+    return [k for k in found if k["epoch_id"] in ok] + known_for_epochs(again, ra, dec, fov, cache)
+
+
 def frames_meta(clock: str, grid: stack.Grid, epochs: list[dict], stars: list[dict], known_: list[dict],
                 archive_checked: str) -> dict[str, Any]:
     return {
@@ -250,17 +280,20 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         raise NotFoundError(f"no SPHEREx images of detector {det} at this position"
                             if found.images else "no SPHEREx images at this position")
     prefix = f"{clock[0]}{fov_i}"
-    with ThreadPoolExecutor(1) as side:  # Gaia runs while the cutouts download
+    chosen = pick_months_images(images, per_visit) if clock == "months" else pick_hours_images(images)
+    planned = planned_epochs(chosen, det, clock)
+    with ThreadPoolExecutor(2) as side:  # Gaia and SkyBoT run while the cutouts download
         stars_f = side.submit(gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)
+        known_f = side.submit(known_for_epochs, planned, ra, dec, fov, cache)
         if clock == "months":
             grid, _ = stack.grid_for(ra, dec, clock, fov)
-            stacks = visit_stacks(pick_months_images(images, per_visit), grid, cutouts.tier_for_field(fov), cache)
+            stacks = visit_stacks(chosen, grid, cutouts.tier_for_field(fov), cache)
             epochs, blobs = visit_epochs(stacks, det, prefix)
         else:
-            epochs, blobs, grid = exposure_epochs(pick_hours_images(images), ra, dec, fov, cache, prefix)
+            epochs, blobs, grid = exposure_epochs(chosen, ra, dec, fov, cache, prefix)
         if not epochs:
             raise NotFoundError("no usable SPHEREx pixels at this position")
-        known_ = known_for_epochs(epochs, ra, dec, fov, cache)
+        known_ = reconcile_known(known_f.result(), planned, epochs, ra, dec, fov, cache)
         try:
             stars = stars_f.result()
         except ApiError as e:

@@ -254,3 +254,24 @@ def test_pick_detector_best_signal_unless_the_target_says_otherwise():
     assert obj.pick_detector(spectrum, images, obj.MEASURE_DETECTORS["wise0855"]) == (5, 1, 2)
     saturated = [dict(p, saturated=p["det"] in (1, 2)) for p in spectrum]
     assert obj.pick_detector(saturated, images)[0] == 5  # Barnard's Star: not where it saturates
+
+
+def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_path, monkeypatch):
+    asked = []
+    monkeypatch.setattr(known, "cone", lambda ra, dec, r, mjd, cache=None: asked.append(round(mjd, 4)) or
+                        [{"name": "(4) Vesta", "ra": 1.0, "dec": 2.0, "v": 7.1, "source": "skybot"}])
+    rows = [sia_row("A1", 2, 60900.0), sia_row("A2", 2, 60910.0), sia_row("B1", 2, 61100.0), sia_row("B2", 2, 61104.0)]
+    images = search.rows_to_images(rows)
+    planned = blink.planned_epochs(images, 2, "months")
+    assert planned == [{"id": "d2-v1", "mjd_mid": pytest.approx(60905.0)}, {"id": "d2-v2", "mjd_mid": pytest.approx(61102.0)}]
+    assert [p["id"] for p in blink.planned_epochs(images, 2, "hours")] == ["d2-A1", "d2-A2", "d2-B1", "d2-B2"]
+    c = Cache(str(tmp_path))
+    found = blink.known_for_epochs(planned, 1.0, 2.0, 5, c)
+    # v1 as planned; v2 lost its last exposure (no pixels), so its mjd_mid moved to 61100
+    epochs = [{"id": "d2-v1", "mjd_mid": 60905.0}, {"id": "d2-v2", "mjd_mid": 61100.0}]
+    asked.clear()
+    got = blink.reconcile_known(found, planned, epochs, 1.0, 2.0, 5, c)
+    assert asked == [61100.0]  # only the moved epoch is asked again
+    assert sorted(k["epoch_id"] for k in got) == ["d2-v1", "d2-v2"]
+    # an epoch that was planned but not built drops its known objects
+    assert [k["epoch_id"] for k in blink.reconcile_known(found, planned, epochs[:1], 1.0, 2.0, 5, c)] == ["d2-v1"]
