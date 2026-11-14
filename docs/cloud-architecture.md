@@ -40,7 +40,7 @@ us nothing.
 | Prefix | Written by | Holds | Format | Size (estimate) |
 |---|---|---|---|---|
 | `photolists/targets/` | scripts/validate | IRSA search results per featured target | Parquet + CSV | < 1 MB each |
-| `photolists/zones/` | pipeline `photolist` | Photos covering the pilot and the hunt zone, with footprint, time, detector, S3 key, session and visit per 0.25° tile | Parquet | < 5 MB |
+| `photolists/zones/` | pipeline `photolist` | Photos covering the pilot and the hunt zone, with footprint, time, detector, S3 key, session and visit | Parquet | < 5 MB |
 | `dots/` | pipeline `dots` | One file per photo: every detected point (contracts/dots.md) | Parquet, `dots/<obs_id>D<det>.parquet` | ~1 MB per photo, a few GB for the hunt zone |
 | `cache/skybot/` | pipeline `known` | Known asteroids predicted in each photo | JSON per photo | small |
 | `cache/` (rest) | server | Live API cutouts and frames | as the API needs | grows with use |
@@ -65,41 +65,50 @@ the other sessions.
 
 Run as `uv run skyshift-pipeline <step> --zone pilot|hunt` from `pipeline/`; `all` runs them in
 order. Each step reads the previous step's files from the bucket (or from `--root <local dir>`).
+(Revised 14 Nov after an independent review that measured the real cadence: see "Why these numbers".)
 
-1. **`photolist`**: ask IRSA (TAP, `spherex.obscore`) for every Level 2 photo whose footprint
-   touches the zone, DR1 and QR3, no `*_deep`. One row per photo (obs_id + detector), duplicates
-   removed (DR1 preferred). Cut the zone into 0.25° tiles; for each tile, take the times of
-   the photos covering its centre and run the visit rule (`core.sessions`, `core.visits`), so
-   every (tile, photo) pair gets its session and visit. Also count how many sessions cover each
-   tile.
-2. **`dots`** (the heavy step, one process per core): for each photo, stream IMAGE, FLAGS,
-   VARIANCE and WCS-WAVE from Amazon; mask bad pixels (contracts/flags.md: SOURCE is never
-   masked); detect every point at 5σ (`core.detect`); turn each into sky position, wavelength,
-   brightness in µJy and the flag bits under it; add session and visit from its tile and its
-   6″ sky `cell`. Write `dots/<obs_id>D<det>.parquet`. Nothing else from the photo is kept.
-3. **`known`**: ask SkyBoT which numbered and named asteroids and comets were inside each photo
-   at its time (`-loc=500`, a few requests at a time, cached in `cache/skybot/`).
-4. **`link`**: group all dots by cell, merging each cell with its 8 neighbours so an edge doesn't
-   split a source.
-   - **fixed**: seen in 3 or more sessions (stars, galaxies).
-   - **mover**: seen in exactly one session there, *and* either in 2 photos of that session
-     or in 2 detectors exposed at the same moment (D1+D4, D2+D5, D3+D6); *and* the tile was
-     covered by at least 3 sessions, so "absent elsewhere" means something.
-   - Single dots with neither are junk and are dropped.
-5. **`score`** (gate G2): take the known asteroids brighter than V 16 that fell inside a photo
-   (at least 10 px from the edge). **Recall** = the share with a mover within 12″ in that session.
-   Also report the share with any dot there (detection versus linking), recall by magnitude
-   (V5's chart), and a **control**: the same match with every predicted position moved 2′ in a
-   random direction, which gives the chance-match rate. Writes `results/<zone>/recall.json`.
-   **G2 passes if pilot recall at V < 16 is 50% or more.**
-6. **`suspects`**: movers with no known object within 30″, no GHOST, CROSSTALK, HALO or BLOOM bit,
-   not within 6″ of a Gaia star (faint stars near our limit can flicker in and out) and not within
-   30″ of a bright fixed star. Ranked by evidence and signal-to-noise. Exported in the
-   `suspects.json` shape (contracts/api.md); P1 reviews them before they go to Firestore
-   `candidates` with `source: "pipeline"`.
+1. **`photolist`**: every Level 2 photo whose footprint touches the zone (IRSA, DR1 and QR3, no
+   `*_deep`), one row per photo (obs_id + detector) with its footprint, time and S3 key. A
+   **session** is a run of the zone's exposure times with gaps under 10 minutes (one value per
+   photo); visits come from `core.visits` on the same times.
+2. **`dots`** (the heavy step, one process per core): for each photo, stream IMAGE, FLAGS, VARIANCE
+   and WCS-WAVE from Amazon (skip photos whose astrometry flag `FINAST` isn't 0); mask bad pixels
+   (SOURCE and OUTLIER are never masked); detect at `thresh=2.0` and keep dots with S/N ≥ 5;
+   re-fit the centre of saturated dots on their wings; record position and its error, wavelength
+   and bandwidth, brightness in µJy, shape, and the flag bits around and at the peak. Write
+   `dots/<obs_id>D<det>.parquet`. Nothing else from the photo is kept.
+3. **`known`**: one SkyBoT cone per session (not per photo: one cone takes 13–23 s), each object
+   moved to every photo's time with SkyBoT's rates. Cached in `cache/skybot/`.
+4. **`link`**, on dots inside the zone only:
+   - **fixed**: dots within 4″ of each other in 3 or more sessions (stars, galaxies).
+   - **mover**: a dot not within 6″ of a fixed source, paired inside one session with another
+     dot no further than 3″ + 1″ per minute between the exposures, or with the simultaneous
+     detector (D1+D4, D2+D5, D3+D6); and the position was covered by at least 3 sessions.
+     Only fixed sources veto a mover; a stray dot elsewhere doesn't. Streaks (elongation > 3)
+     never pair.
+5. **`score`** (gate G2): known asteroids brighter than V 16 inside a photo (10 px from the edge),
+   counted per (asteroid, session with 2 or more exposures) and per asteroid. **Recall** = the share
+   found as movers within 12″. Also: the share with any dot there, V < 12 (saturated) apart from
+   12–16, recall by magnitude (V5's chart), and a **control** with every prediction moved 2′
+   (the chance-match rate). Counts are printed with every rate: the pilot holds only about 9
+   known asteroids brighter than V 16. **G2 passes if recall at V < 16 is 50% or more.**
+6. **`suspects`**: movers with no known object within 30″; no SOURCE bit at the peak; no ghost,
+   crosstalk, halo or bloom bit; not within 6″ of a Gaia star or a CatWISE source; not within
+   30″ of a bright fixed source. Ranked by evidence and signal-to-noise; exported in the
+   `suspects.json` shape. P1 reviews them before they go to Firestore `candidates`.
 
-Time estimate (to be measured on the pilot): about 5–10 s per photo, mostly download. Pilot
-(~230 photos) about 5 minutes on 8 cores; hunt zone (~3,400 photos) under 30 minutes on 64.
+### Why these numbers (measured 14 Nov)
+- A spot is seen in sets of up to 4 exposures 2.15 min apart, with the pointing stepped by 11.8′
+  each time: same detector, different pixels, next wavelength channel. A pilot position gets
+  about 113 exposures in 38 sessions over two visits; 78.5% of sessions have 2 or more, so pairs
+  inside a session really happen. D1+D4 etc. see the same sky at the same instant.
+- `thresh=5` with a 3-pixel minimum area only finds sources at S/N ~22 on SPHEREx's sharp PSF;
+  `thresh=2.0` reaches S/N ~9 with no false detections on an empty frame. A V 16 asteroid is
+  about S/N 14–22 in D1–D4.
+- 2MASS has 3,100 stars/deg² brighter than J 16.5 here, so a coarse 18″ veto box would throw
+  away about 8% of asteroids; hence the 4″ fixed / 6″ exclusion.
+- Pilot: 990 photos (352 exposures); hunt zone: 3,686. About 45 MB read per photo. Pilot `dots`
+  about 10–20 minutes on 8 cores; hunt zone well under an hour on 64.
 
 ## Machines
 

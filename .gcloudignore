@@ -1,0 +1,24 @@
+# Upload for `gcloud run deploy --source .` (infra/run/deploy.sh). Only what the root Dockerfile uses.
+.gcloudignore
+.git
+.gitignore
+.claude/
+**/.venv/
+**/__pycache__/
+**/node_modules/
+.env
+.env.*
+*-key.json
+service-account*.json
+web/
+docs/
+pitch/
+pipeline/
+infra/
+fixtures/fits/
+**/*.fits
+**/*.parquet
+scripts/precompute/
+scripts/validate/*.py
+scripts/validate/data/photolists/
+scripts/validate/data/most_*

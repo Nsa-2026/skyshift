@@ -1,7 +1,8 @@
 # pipeline/CLAUDE.md
 Owner: P1. Imports core/ for the visit rule, masks and measurement. Design: docs/cloud-architecture.md,
-with the review changes listed in PR #10 (they override the design doc where they differ).
+after review (PR #11); dot columns and derived-table rules: contracts/dots.md.
 Reads IMAGE, FLAGS, VARIANCE, WCS-WAVE from s3://nasa-irsa-spherex over HTTPS (anonymous).
+Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt zone (3,692 photos) on skyshift-worker after G2.
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`

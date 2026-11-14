@@ -24,8 +24,9 @@ skip it on restart. No job list, no locks, no tiles.
 | wavelength_um | float32 | µm | Wavelength at that pixel, from WCS-WAVE |
 | bandwidth_um | float32 | µm | Bandwidth at that pixel, from WCS-WAVE (one of the 102 channels' width) |
 | elong | float32 | | Elongation a/b of the detected shape (sep). Near 1 for stars; large for trails, streaks and cosmic-ray hits |
-| snr | float32 | | Signal-to-noise |
-| flags | int32 | | OR of the flag bits under the dot, including recorded ones (contracts/flags.md) |
+| snr | float32 | | Signal-to-noise. Detection runs at `thresh=2.0` (about S/N 9 for a point source); only dots with snr ≥ 5 are kept |
+| flags | int32 | | OR of the flag bits in the 3×3 pixels around the dot, including recorded ones (contracts/flags.md) |
+| flags_peak | int32 | | Flag bits at the dot's peak pixel. SOURCE here means a catalogued star or compact galaxy (to AB 19); used only to filter suspects |
 | cell | int64 | | 6″ sky cell, used to group dots by position |
 
 **One dot = one wavelength.** SPHEREx's filter changes wavelength across each detector, so a
@@ -35,8 +36,10 @@ its 102-channel spectrum (wavelength_um, bandwidth_um, flux_ujy). Brightness is 
 (AB magnitude = 23.9 − 2.5 log10 flux_ujy); luminosity needs a distance, so it is computed only
 where Gaia gives a parallax, never stored per dot.
 
-Session and visit come from `core.sessions()` and `core.visits()` on the exposure times that
-cover the position, taken from the saved photo lists (`photolists/`).
+Session and visit are one value per photo, from the zone's photo list: a session is a run of the
+zone's exposure times with gaps under 10 minutes (`core.sessions`), a visit comes from `core.visits`
+on the same times. How many sessions covered a position is counted from the photos' footprints
+when a candidate is checked. (Changed 14 Nov after review: per-tile sessions left 3.4% of dots without one.)
 
 **Proposal for `cell`:** `band = floor((dec + 90) × 600)`, `col = floor(ra × cos(dec_band_centre) × 600)`,
 `cell = band × 10_000_000 + col` (600 = 3600″ / 6″). Group with the neighbouring cells too, so a
@@ -46,9 +49,9 @@ dot on a cell edge isn't split.
 
 | table | rule |
 |---|---|
-| fixed | Cell seen in 3 or more sessions |
-| movers | Seen in one session only, in 2 exposures or in 2 detectors exposed at the same moment (D1+D4, D2+D5, D3+D6) |
-| suspects | Movers with no SkyBoT match. Exported to `web/public/data/suspects.json` (contracts/api.md) and the candidate list |
+| fixed | Dots within 4″ of each other seen in 3 or more sessions (stars, galaxies) |
+| movers | Not within 6″ of a fixed source; paired inside one session (≤ 3″ + 1″/min × Δt between exposures) or by 2 detectors exposed at the same moment (D1+D4, D2+D5, D3+D6); position covered by ≥ 3 sessions. Only fixed sources veto; a stray single dot elsewhere doesn't |
+| suspects | Movers with no SkyBoT match within 30″, no SOURCE bit at the peak, no ghost/crosstalk/halo/bloom bits, not near a Gaia star (6″) or CatWISE source (6″). Exported to `web/public/data/suspects.json` (contracts/api.md) and the candidate list |
 
 We measure motion only where people look. No linking of every dot across visits.
 Dropped from v1: the pass rule, the `objects` table, HEALPix tiles, batches and locks.

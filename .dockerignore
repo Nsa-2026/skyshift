@@ -1,0 +1,24 @@
+# Build context for the root Dockerfile (server/ + core/). Keep it small.
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/node_modules
+.git
+.claude
+.env
+.env.*
+*-key.json
+service-account*.json
+web/
+docs/
+pitch/
+pipeline/
+infra/
+fixtures/fits/
+scripts/
+!scripts/validate/data/targets.json
+**/*.fits
+**/*.parquet
+core/tests/
+server/tests/
