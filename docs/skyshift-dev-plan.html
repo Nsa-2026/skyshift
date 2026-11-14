@@ -863,7 +863,7 @@ uv run pytest</pre></div>
       <div class="two">
         <ol class="ssteps">
           <li class="sstep"><div class="sstep-head"><h3>Reference catalogue</h3></div><p class="small"><span class="mono">refcat --zone pilot</span>, if not already in <span class="mono">refcat/</span> (both zones are already there, built from a laptop; the step skips them).</p></li>
-          <li class="sstep"><div class="sstep-head"><h3>Start the pilot</h3></div><p class="small">First delete the one-photo test file in <span class="mono">dots/</span> (old columns; <span class="mono">dots</span> would skip it). Then <span class="mono">vm.sh run test 'cd pipeline &amp;&amp; uv sync -q &amp;&amp; (uv run skyshift-pipeline known --zone pilot &amp; uv run skyshift-pipeline dots --zone pilot --workers 8; wait) &amp;&amp; uv run skyshift-pipeline all --zone pilot --workers 8'</span>: <span class="mono">known</span> runs beside <span class="mono">dots</span>, then <span class="mono">all</span> skips what exists and runs the rest. Before it, every step ran end to end on 30 real photos on a laptop.</p></li>
+          <li class="sstep"><div class="sstep-head"><h3>Start the pilot</h3></div><p class="small">First delete the one-photo test file in <span class="mono">dots/</span> (old columns; <span class="mono">dots</span> would skip it). Then <span class="mono">vm.sh run test 'cd pipeline &amp;&amp; uv sync -q &amp;&amp; (uv run skyshift-pipeline known --zone pilot &amp; uv run skyshift-pipeline dots --zone pilot --workers 8; wait) &amp;&amp; uv run skyshift-pipeline all --zone pilot --workers 8'</span>: <span class="mono">known</span> runs beside <span class="mono">dots</span>, then <span class="mono">all</span> skips what exists and runs the rest. Before it, every step ran end to end on 30 real photos on a laptop; that smoke test found the slow <span class="mono">suspects</span> web queries (fixed in #28).</p></li>
           <li class="sstep"><div class="sstep-head"><h3>Watch it</h3></div><p class="small"><span class="mono">vm.sh log test</span> and <span class="mono">logs/skyshift-test/latest-status.txt</span>. Count files in <span class="mono">dots/</span> against the 990 photos. Read <span class="mono">read_s</span> and <span class="mono">detect_s</span> in a few photos' metadata.</p></li>
           <li class="sstep"><div class="sstep-head"><h3>Gate G2, right after</h3></div><p class="small">From <span class="mono">recall.json</span>. Pass: <span class="mono">vm.sh run worker '… all --zone hunt'</span>. Fail: 30 minutes on the time keyword, the OUTLIER mask and the match radius, then stop S1.</p></li>
         </ol>
@@ -1190,7 +1190,7 @@ gcloud storage rm -r gs://nasa-glazing-data/dots/</pre></div></li>
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">PR log · Sat 14 Nov</p>
         <h2>What landed on main, PR by PR</h2>
-        <p class="muted">PRs #1–#26 as of this update. #13 (blink engine) is still open; the dots speed-up and the MPC known-objects step are being built on their own branches.</p>
+        <p class="muted">PRs #1–#28 as of this update. #13 (blink engine) is still open; the dots speed-up and the MPC known-objects step are being built on their own branches.</p>
       </div>
       <div class="tablewrap"><table>
         <thead><tr><th>PR</th><th>Area</th><th>What</th><th>State</th></tr></thead>
@@ -1221,6 +1221,8 @@ gcloud storage rm -r gs://nasa-glazing-data/dots/</pre></div></li>
           <tr><td class="m">#24</td><td>P1 docs</td><td>Both plan pages updated to the built system</td><td><span class="chip good">merged</span></td></tr>
           <tr><td class="m">#25</td><td>P1 docs</td><td>Known objects: MPC orbits with kete replace SkyBoT (plan)</td><td><span class="chip good">merged</span> with #24</td></tr>
           <tr><td class="m">#26</td><td>P1 science</td><td><span class="mono">scripts/science/</span>: asteroid sizes (NEATM) and 3I/ATLAS gas (Haser)</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#27</td><td>P1 pipeline</td><td>Pilot-ready: <span class="mono">refcat --force</span>, saturation levels, docs</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#28</td><td>P1 pipeline</td><td><span class="mono">suspects</span> checks Gaia and CatWISE against <span class="mono">refcat/</span> locally: 6 s instead of 30+ min of web queries (found by the smoke test)</td><td><span class="chip good">merged</span></td></tr>
         </tbody></table></div>
     </div>
   </section>
