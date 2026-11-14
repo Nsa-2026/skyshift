@@ -82,18 +82,22 @@ def detect(
     aperture_r: float = APERTURE_R_PX,
     window_sigma: float = WINDOW_SIGMA_PX,
     deblend_cont: float = 0.005,
+    bkg: Background | None = None,
 ) -> NDArray[np.void]:
     """Detect sources on a cutout.
 
     data: IMAGE (MJy/sr). flags: FLAGS; the bad-pixel mask is applied (SOURCE is never masked).
     variance: VARIANCE; the noise is max(sqrt(VARIANCE), background rms map).
     thresh: detection threshold in sigma per pixel.
+    bkg: optional precomputed background(d, m, box=box) of this same data and mask (d = data with
+    the bad pixels zeroed), to skip computing it twice; the result is identical.
     Returns a structured array with DETECTION_DTYPE, sorted by flux, brightest first.
     """
     m = build_mask(data, flags, mask)
     d = _native(data)
     d = np.where(m, 0.0, d)
-    bkg = background(d, m, box=box)
+    if bkg is None:
+        bkg = background(d, m, box=box)
     sub = np.ascontiguousarray(d - bkg.level)
     sub[m] = 0.0
     # Noise per pixel = max(sqrt(VARIANCE), background rms). VARIANCE is the instrumental noise;

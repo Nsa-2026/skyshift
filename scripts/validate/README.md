@@ -95,12 +95,14 @@ D4 (4) and D5 (2), while D1–D3 find it in the same visits (not yet looked into
 S/N 9–10, 0.2–0.6 px); its first visit has only 8 D5 and 3 D6 photos. In D1–D4 a background star lies
 1–2 px from WISE 0855; those stacks are not counted (WISE 0855 is expected only in D5–D6).
 
-**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 274 of 300 photos (5 per
-asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 6 of 300 photos (2.0%),
-5 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 26
-photos not counted, 22 have a source in the reference stack at the asteroid's spot (a static star
-there, so the detection can't be told apart) and 4 have no detection. The control hits are all in
-D3, four of six in 2026 W09–W12 (not yet looked into).
+**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 249 of 300 photos (5 per
+asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 3 of 300 photos (1.0%),
+3 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 51
+photos not counted, 48 have a source within 3 px of the spot in the reference stack (a static star
+there, so the detection can't be told apart) and 3 more have no detection.
+"Absent from the stack" means nothing within 3 px, not 2: with 2 px the control hit 6 of 300, five
+of them real static stars at 1.4–2.0 px in the photo that the resampled stack put just beyond 2 px
+(S/N 12–97, no artefact flags).
 
 **V8, spectra: SPHEREx fluxes agree with 2MASS Ks to 1% and WISE W1 to 0.6%.** Pilot stars of
 10–13 mag matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable: SPHEREx/Ks
