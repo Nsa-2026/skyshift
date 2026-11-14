@@ -21,6 +21,7 @@ their rows (an LRU cache keeps recent partitions, photos come in time order so n
 from __future__ import annotations
 
 import argparse
+import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -199,7 +200,8 @@ def build(store: Store, workers: int = C.FORCED_SKY_WORKERS, pixels=None, g_max:
 
 
 def write_manifest(store: Store, nside: int = C.FORCED_SKY_NSIDE, g_max: float = C.FORCED_GAIA_G_MAX,
-                   max_per_deg2: float | None = C.FORCED_SKY_MAX_PER_DEG2, root_dir: str = C.FORCED_SKY_DIR) -> dict:
+                   max_per_deg2: float | None = C.FORCED_SKY_MAX_PER_DEG2, root_dir: str = C.FORCED_SKY_DIR,
+                   catalogues: list[str] | None = None) -> dict:
     """Check every partition exists, count rows (Parquet footers only) and write the manifest."""
     import pyarrow.parquet as pq
 
@@ -215,13 +217,149 @@ def write_manifest(store: Store, nside: int = C.FORCED_SKY_NSIDE, g_max: float =
 
     with ThreadPoolExecutor(32) as ex:
         counts = np.array(list(ex.map(nrows, range(npix(nside)))), np.int64)
-    man = {"nside": nside, "order": "nested", "partition": "gaia source_id >> 49 (level-12 HEALPix in source_id)",
+    man = {"nside": nside, "order": "nested", "partition": ("position (ra, dec)" if catalogues and "gaia_dr3" not in catalogues
+                         else "gaia source_id >> 49 (level-12 HEALPix in source_id)"),
            "gaia_g_max": g_max, "max_per_deg2": max_per_deg2, "cap_per_partition": cap,
-           "catalogues": ["gaia_dr3"], "rows": int(counts.sum()),
+           "catalogues": catalogues or ["gaia_dr3"], "rows": int(counts.sum()),
            "capped_partitions": int((counts >= cap).sum()) if cap else 0,
            "rows_per_partition": counts.tolist(), "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     store.write_json(manifest_rel(root_dir), man)
     return {k: v for k, v in man.items() if k != "rows_per_partition"}
+
+
+# --- CatWISE-only red objects (second list, refcat/sky/forced_cw_n32) ---------------------------
+# CatWISE2020 W1 < FORCED_CATWISE_W1_MAX and W1 - W2 >= FORCED_CATWISE_W1_W2_MIN with no Gaia target of the Gaia sky
+# list within FORCED_DEDUP_ARCSEC (the zone list dedups against every Gaia G < 20; measured in 6 zones, the G < 17.5
+# dedup keeps 4-12% more: objects with a faint Gaia counterpart, which are not forced targets either way).
+# One IRSA TAP query per nside-FORCED_SKY_CW_QUERY_NSIDE pixel (its RA/Dec bounding box, the colour cut done by IRSA),
+# split into that pixel's nside-32 children. Needs the Gaia list complete (for the dedup).
+CW_QUERY_NSIDE = C.FORCED_SKY_CW_QUERY_NSIDE
+
+
+def cw_boxes(pix8: int, pad_deg: float = 0.01) -> list[tuple[float, float, float, float]]:
+    """RA/Dec boxes (ra0, ra1, dec0, dec1), degrees, covering nested pixel `pix8` at CW_QUERY_NSIDE (1 or 2 boxes)."""
+    import astropy.units as u
+    from astropy_healpix import HEALPix
+
+    h = HEALPix(nside=CW_QUERY_NSIDE, order="nested")
+    lon, lat = h.boundaries_lonlat([pix8], step=32)
+    lon, lat = lon.to_value(u.deg)[0], lat.to_value(u.deg)[0]
+    clon = h.healpix_to_lonlat([pix8])[0].to_value(u.deg)[0]
+    d0, d1 = max(lat.min() - pad_deg, -90.0), min(lat.max() + pad_deg, 90.0)
+    for pole in (90.0, -90.0):
+        if int(pixel_of(0.0, pole, CW_QUERY_NSIDE)) == pix8:
+            return [(0.0, 360.0, min(d0, pole), max(d1, pole))]
+    rel = (lon - clon + 180.0) % 360.0 - 180.0
+    cosd = np.cos(np.deg2rad(min(max(abs(d0), abs(d1)), 89.0)))
+    r0, r1 = clon + rel.min() - pad_deg / cosd, clon + rel.max() + pad_deg / cosd
+    if r1 - r0 >= 360.0:
+        return [(0.0, 360.0, d0, d1)]
+    if r0 < 0:
+        return [(r0 + 360.0, 360.0, d0, d1), (0.0, r1, d0, d1)]
+    if r1 > 360:
+        return [(r0, 360.0, d0, d1), (0.0, r1 - 360.0, d0, d1)]
+    return [(r0, r1, d0, d1)]
+
+
+def cw_adql(box) -> str:
+    from .refcat import CATWISE_SELECT
+    r0, r1, d0, d1 = box
+    return (f"SELECT {CATWISE_SELECT} FROM catwise_2020 WHERE ra >= {r0:.6f} AND ra < {r1:.6f} AND dec >= {d0:.6f} "
+            f"AND dec < {d1:.6f} AND w1mpro < {C.FORCED_CATWISE_W1_MAX} AND (w1mpro - w2mpro) >= {C.FORCED_CATWISE_W1_W2_MIN}")
+
+
+def cw_children(pix8: int, nside: int = C.FORCED_SKY_NSIDE) -> list[int]:
+    k = (nside // CW_QUERY_NSIDE) ** 2
+    return list(range(pix8 * k, (pix8 + 1) * k))
+
+
+def cw_neighbourhood(pix: int, nside: int = C.FORCED_SKY_NSIDE) -> list[int]:
+    from astropy_healpix import HEALPix
+
+    nb = HEALPix(nside=nside, order="nested").neighbours([pix])[:, 0]
+    return sorted({int(pix)} | {int(p) for p in nb if p >= 0})
+
+
+def cw_fetch(pix8: int, tap=_tap) -> pd.DataFrame:
+    """CatWISE red objects in nested pixel pix8 at CW_QUERY_NSIDE as refcat rows; NET_RETRIES tries per box."""
+    from .refcat import IRSA_TAP, parse_catwise
+
+    parts = []
+    for box in cw_boxes(pix8):
+        for attempt in range(1, C.NET_RETRIES + 1):
+            try:
+                t = tap(IRSA_TAP, cw_adql(box))
+                if len(t) >= C.REFCAT_MAXREC:
+                    raise RuntimeError(f"{len(t)} rows hit maxrec")
+                parts.append(parse_catwise(t))
+                break
+            except Exception as e:  # noqa: BLE001
+                L.warning("CatWISE pix8 %d box %s try %d: %s", pix8, box, attempt, str(e)[:200])
+                if attempt == C.NET_RETRIES:
+                    raise
+                time.sleep(5 * attempt)
+    df = pd.concat(parts, ignore_index=True).drop_duplicates("ref_id")
+    keep = pixel_of(df["ra"], df["dec"], CW_QUERY_NSIDE) == pix8
+    return df[keep].reset_index(drop=True)
+
+
+def cw_build(store: Store, workers: int = C.FORCED_SKY_CW_WORKERS, pixels8=None,
+             max_per_deg2: float | None = C.FORCED_SKY_CW_MAX_PER_DEG2, nside: int = C.FORCED_SKY_NSIDE,
+             gaia_dir: str = C.FORCED_SKY_DIR, root_dir: str = C.FORCED_SKY_CW_DIR, tap=_tap,
+             limit: int | None = None) -> dict:
+    """Fetch every query pixel (CW_QUERY_NSIDE) whose nside-32 children are not all written; dedup each child against the Gaia
+    list (its partition and 8 neighbours); keep the brightest-in-W1 cap per child; manifest when complete."""
+    from .refcat import catwise_without_gaia
+
+    t0 = time.time()
+    gaia = SkyList(store, gaia_dir, cache=64)
+    if pixels8 is None and not gaia.available:
+        raise RuntimeError(f"forced_sky catwise: the Gaia list {gaia_dir} is not complete (needed for the dedup)")
+    cap = cap_per_partition(max_per_deg2, nside)
+    all8 = range(12 * CW_QUERY_NSIDE ** 2) if pixels8 is None else [int(p) for p in pixels8]
+    have = set(store.listdir(root_dir))
+    todo = [p for p in all8 if not all(f"p{c:05d}.parquet" in have for c in cw_children(p, nside))]
+    if limit is not None:
+        todo = todo[:limit]
+    L.info("forced_sky catwise: %d nside-%d pixels to fetch, cap %s per partition, %d workers",
+           len(todo), CW_QUERY_NSIDE, cap, workers)
+
+    def job(p8):
+        df = cw_fetch(p8, tap)
+        pix = pixel_of(df["ra"], df["dec"], nside)
+        n = 0
+        for c in cw_children(p8, nside):
+            d = df[pix == c]
+            if len(d):
+                g = gaia.frame([q for q in cw_neighbourhood(c, nside) if store.exists(partition_rel(q, gaia_dir))])
+                d = d[catwise_without_gaia(d, g)]
+            d = d.sort_values(["w1_mag", "ref_id"], kind="stable")
+            if cap is not None:
+                d = d.head(cap)
+            store.write_parquet(partition_rel(c, root_dir), d[list(FORCED_COLUMNS)].astype(FORCED_COLUMNS).reset_index(drop=True))
+            n += len(d)
+        return n
+
+    failed, rows = [], 0
+    with ThreadPoolExecutor(max(1, workers)) as ex:
+        futs = {ex.submit(job, p): p for p in todo}
+        for i, f in enumerate(as_completed(futs), 1):
+            try:
+                rows += f.result()
+                if i % 20 == 0 or i == len(todo):
+                    L.info("forced_sky catwise [%d/%d] %d rows, %.0f s", i, len(todo), rows, time.time() - t0)
+            except Exception as e:  # noqa: BLE001
+                failed.append(futs[f])
+                L.error("forced_sky catwise pix8 %d failed: %s", futs[f], str(e)[:300])
+    have = set(store.listdir(root_dir))
+    out = {"fetched": len(todo) - len(failed), "rows": rows, "failed": failed, "wall_s": round(time.time() - t0, 1),
+           "missing": sum(f"p{p:05d}.parquet" not in have for p in range(npix(nside)))}
+    if pixels8 is None and not failed and out["missing"] == 0:
+        out["manifest"] = write_manifest(store, nside, C.FORCED_GAIA_G_MAX, max_per_deg2, root_dir,
+                                         catalogues=["catwise2020"])
+    if failed:
+        raise RuntimeError(f"forced_sky catwise: {len(failed)} pixels failed ({failed[:5]}...); rerun to retry them")
+    return out
 
 
 # --- read ----------------------------------------------------------------------------------------
@@ -233,6 +371,7 @@ class SkyList:
         self.root_dir = root_dir
         self.cache_size = cache
         self._parts: OrderedDict[int, pd.DataFrame] = OrderedDict()
+        self._lock = threading.Lock()
         self.manifest: dict | None = None
         if store.exists(manifest_rel(root_dir)):
             self.manifest = store.read_json(manifest_rel(root_dir))
@@ -247,13 +386,15 @@ class SkyList:
 
     def partition(self, pix: int) -> pd.DataFrame:
         pix = int(pix)
-        if pix in self._parts:
-            self._parts.move_to_end(pix)
-            return self._parts[pix]
+        with self._lock:
+            if pix in self._parts:
+                self._parts.move_to_end(pix)
+                return self._parts[pix]
         df = self.store.read_parquet(partition_rel(pix, self.root_dir))
-        self._parts[pix] = df
-        while len(self._parts) > self.cache_size:
-            self._parts.popitem(last=False)
+        with self._lock:
+            self._parts[pix] = df
+            while len(self._parts) > self.cache_size:
+                self._parts.popitem(last=False)
         return df
 
     def frame(self, pixels) -> pd.DataFrame:
@@ -273,13 +414,25 @@ def main(argv=None) -> None:
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--workers", type=int, default=C.FORCED_SKY_WORKERS)
     ap.add_argument("--limit", type=int, default=None, help="fetch at most this many partitions (a test run)")
-    ap.add_argument("--pixels", default=None, help="comma list of nside-32 nested pixels (a test run; no manifest)")
+    ap.add_argument("--pixels", default=None,
+                    help="comma list of nested pixels, nside 32 (FORCED_SKY_CW_QUERY_NSIDE with --catwise): a test run, no manifest")
     ap.add_argument("--no-cap", action="store_true", help="every G < limit target (no per-partition cap)")
     ap.add_argument("--manifest-only", action="store_true", help="only (re)write the manifest")
+    ap.add_argument("--catwise", action="store_true",
+                    help="build the CatWISE-only red list (refcat/sky/forced_cw_n32) instead; needs the Gaia list complete")
     a = ap.parse_args(argv)
     log.setup()
     store = Store(a.root)
     cap = None if a.no_cap else C.FORCED_SKY_MAX_PER_DEG2
+    if a.catwise:
+        cap = None if a.no_cap else C.FORCED_SKY_CW_MAX_PER_DEG2
+        if a.manifest_only:
+            print(write_manifest(store, max_per_deg2=cap, root_dir=C.FORCED_SKY_CW_DIR, catalogues=["catwise2020"]))
+            return
+        px = [int(p) for p in a.pixels.split(",")] if a.pixels else None
+        print(cw_build(store, a.workers if a.workers != C.FORCED_SKY_WORKERS else C.FORCED_SKY_CW_WORKERS,
+                       pixels8=px, max_per_deg2=cap, limit=a.limit))
+        return
     if a.manifest_only:
         print(write_manifest(store, max_per_deg2=cap))
         return

@@ -21,6 +21,9 @@ highpm, score, suspects; `all` runs them in order.
   builds the sky-wide forced list refcat/sky/forced_n32/p<pixel>.parquet (Gaia DR3 G<17.5, HEALPix nside 32 by source_id,
   ESA TAP sync, brightest 8,221 per partition) and _complete.json last; resumable. dots uses it for every photo's whole
   footprint once _complete.json exists, else refcat/<zone>_forced.parquet (SKYSHIFT_FORCED_SKY=off forces the zone list).
+  `--catwise` (after the Gaia list is complete) adds refcat/sky/forced_cw_n32 (CatWISE W1<16, W1−W2≥0.4, no Gaia G<17.5
+  target within 2″; one IRSA query per nside-16 pixel, ~65 s each; 100 deg² boxes broke IRSA's connection). dots adds it
+  once its own _complete.json exists.
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - calib (after crossid; `all` reruns spectra after it): from the raw member dots, per detector the pixel-phase centroid
   bias (Fourier in φ = x − round(x)), per photo a distortion polynomial vs Gaia (order by cross-validation), pos_err =

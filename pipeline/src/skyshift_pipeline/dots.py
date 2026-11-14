@@ -716,6 +716,7 @@ def _store(root: str) -> Store:
 
 
 _SKY: dict[str, "forced_sky.SkyList"] = {}
+_SKY_CW: dict[str, "forced_sky.SkyList"] = {}  # the CatWISE-only red list, used with the Gaia one when complete
 _SKY_REF: dict[tuple, RefCat] = {}  # the last photo's partition set -> RefCat (neighbouring photos share it)
 
 
@@ -728,6 +729,9 @@ def sky_list(store: Store) -> "forced_sky.SkyList | None":
         _SKY[store.root] = forced_sky.SkyList(store)
         if _SKY[store.root].available:
             L.info("dots: forced targets from the sky list %s/%s", store.root, C.FORCED_SKY_DIR)
+        _SKY_CW[store.root] = forced_sky.SkyList(store, C.FORCED_SKY_CW_DIR)
+        if _SKY[store.root].available and _SKY_CW[store.root].available:
+            L.info("dots: + CatWISE-only targets from %s/%s", store.root, C.FORCED_SKY_CW_DIR)
     sk = _SKY[store.root]
     return sk if sk.available else None
 
@@ -739,7 +743,11 @@ def _sky_refcat(sk: "forced_sky.SkyList", l2) -> RefCat:
     key = (sk.store.root, pix)
     if key not in _SKY_REF:
         _SKY_REF.clear()
-        _SKY_REF[key] = RefCat.from_frame(sk.frame(pix))
+        cw = _SKY_CW.get(sk.store.root)
+        df = sk.frame(pix)
+        if cw is not None and cw.available:
+            df = pd.concat([df, cw.frame(pix)], ignore_index=True)
+        _SKY_REF[key] = RefCat.from_frame(df)
     return _SKY_REF[key]
 
 
