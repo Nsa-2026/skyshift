@@ -145,6 +145,15 @@
   min-width: 0;
 }
 
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  margin-bottom: var(--s3);
+}
+.foot-links a {
+  color: var(--ink-2);
+}
 .foot {
   margin-top: var(--s8);
   padding-top: var(--s4);

@@ -71,13 +71,17 @@ practice round, nothing requires an account).
 ### Pages (hash routes; old links keep working)
 | Route | Page | Owner folder |
 |---|---|---|
-| `#/` | **Discover**: intro band (one sentence, live counts, Start reviewing), smart filters, candidate list, sky map | `src/discover` |
+| `#/` (and `#/sky/<state>`) | **Sky** (the home page): the whole SPHEREx sky as a zoomable globe, candidates as a heat map that resolves into single signals as you zoom, click one to preview its blink | `src/atlas` |
+| `#/candidates` | **Candidates**: smart filters, candidate list, small sky map (was "Discover" at `#/`) | `src/discover` |
 | `#/review` | **Review queue**: one candidate at a time, big plate, vote with keys 1–4, skip, progress; practice round first time | `src/review` |
-| `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, why it's listed, cautions, measurements, votes and consensus, share/embed, next steps | `src/review` |
-| `#/explore` | **Explore**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
+| `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, the check assistant, measurements, votes and consensus, report and share | `src/review` (+ `src/assist`) |
+| `#/explore` | **Blink**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
+| `#/community` | **Community**: what people have reviewed, consensus results, the list going to astronomers | `src/community` |
 | `#/results` | **Results**: validation checks and what the pipeline found (`#/score` redirects here) | `src/score` |
-| `#/community` | **Community**: what people have reviewed, consensus results, the list going to astronomers, how it works | `src/community` |
+| `#/learn` | **Learn**: short lessons with real SPHEREx examples, glossary, the practice round's teaching | `src/learn` |
+| `#/tools` | **Tools and data**: downloads, batch coordinates, API, citation (for professionals) | `src/tools` |
 | `#/about` | **About**: the challenge, method, data, limits, credits, FAQ | `src/community` |
+Nav: Sky, Candidates, Review, Blink, Community, Results, Learn. Footer: About, Learn, Tools and data, Results.
 Deep links `?t=<slug>` and `?ra=&dec=` open Explore.
 
 ### Candidates (data: `/data/candidates.json`, type `CandidatesResponse` in `src/api/types.ts`)
@@ -106,3 +110,50 @@ Answers: mover / changing / junk / unsure. A candidate reaches **consensus** wit
 astronomers** (Community page, CSV and JSON export, with the Backyard Worlds forum and the MPC as
 next steps). No accounts: a random voter id in the browser; never names or emails.
 Pages import vote logic from `src/vote` (store, model) and never edit it.
+
+## Sky: the home page (added 14 Nov, 16:00)
+The first thing anyone sees is the sky itself, not a list. Aladin Lite 3.8.2 fills the page under the
+header (min(100vh − header, 900 px) tall on desktop, 70vh on phone) on a `--sheet` mat. IRSA HiPS only.
+
+**Semantic zoom: one gesture from the whole sky to a single blinking dot.**
+| Field of view | What you see |
+|---|---|
+| > 60° (whole sky) | Globe. SPHEREx coverage as the base; candidates as a **heat map** of HEALPix cells (order 3, ~7°) filled in a single-hue ramp of `--pencil-red` by count; the searched zones outlined in ink with their names; a one-line count "412 candidates in 2 zones" |
+| 8°–60° | Finer heat cells (order 5, ~1.8°); cells with ≥ 1 candidate show their count; featured targets labelled |
+| 0.5°–8° | **Single signals**: each candidate a pencil mark by kind (fast mover: red open circle with a short tick pointing along its motion; moving star: red ring with a motion arrow scaled ×100 per yr; odd spectrum: violet diamond). Known Gaia stars off. Hover shows a one-line tooltip |
+| < 0.5° | The same marks plus each mover's track (dots at each epoch) and Gaia rings on request |
+Click a signal → a **preview drawer** (right on desktop, bottom sheet on phone): name/kind, `why`, the key
+number, a **live mini blink** (the candidate's static frames alternating at 2 Hz, or a "Load the blink"
+button when it would call /api), votes so far, and three actions: **Review it** (`#/c/<id>`),
+**Blink here** (Explore at that spot), **Next nearby**.
+Click empty sky → a small pin with "Blink here" (Explore) and the coordinates (copy).
+
+**Controls (quiet row over the map, `.seg`):** Globe | Whole sky (SIN vs Mollweide projection) ·
+Equatorial | Galactic · Layers ("Adjust": SPHEREx, 2MASS, AllWISE backgrounds; heat map on/off; zones;
+Gaia rings) · kind chips (Fast movers, Moving stars, Odd spectra) · search box (same parser as Blink).
+State lives in the hash: `#/sky/<ra>,<dec>,<fov>[,gal][,kinds]` so every view can be shared.
+**Fallback without WebGL2 or tiles:** a static Aitoff SVG of the same heat map and signals (no background
+image), with the same drawer. Never a blank page.
+**First visit:** a three-step hint over the map (Zoom into a red patch → Click a signal → Review it),
+dismissible, remembered in localStorage.
+
+## Two audiences, one tool
+- **Curious public and hobbyists:** plain words first, Learn lessons, glossary terms underlined with a
+  dotted line (hover or tap for one sentence), the practice round, "What to look for" on every target.
+- **Professionals (teachers, astronomers):** a **Details** switch (header, remembered) that shows the
+  dense numbers: MJDs, rates with errors, flag bit names, pipeline scores, raw IDs. Tools and data page:
+  CSV / JSON / VOTable downloads of any filtered list, batch coordinates (paste up to 200, get a table with
+  blink links), API examples (curl, Python astroquery-style), citation (BibTeX) and acknowledgements.
+
+## The check assistant (`src/assist`, used on `#/c/<id>`)
+A short checklist that walks anyone through vetting one candidate, each step answered by the data where
+it can be and by the person where it can't:
+1. **Does it move in a straight line at a steady rate?** (from the measured positions; pass/caution)
+2. **Is it already known?** Gaia / CatWISE match, nearest known asteroid (MPC/SkyBoT) and its distance.
+3. **Could it be an artefact?** flags at its position (ghost, crosstalk, persistence, edge), in plain words.
+4. **Is it the same object in every frame?** brightness steady within errors, same detector only.
+5. **What does its colour say?** red / methane / water hints from the spectrum, when there is one.
+6. **Your call:** vote mover / changing / junk / unsure.
+Then **What next**: for consensus movers, a draft MPC observation report (ADES PSV, clearly marked
+"draft, not submitted"); for moving stars, a Backyard Worlds forum post draft; for anything, a citation
+and a permalink. Copy buttons, never auto-submit.

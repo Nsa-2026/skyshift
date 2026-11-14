@@ -130,7 +130,7 @@ export const mountCard: MountCard = (el) => {
         html:
           `The core is saturated in ${where} (${sat.n} of ${sat.total} spectrum points)` +
           (object.measure && satQualifiesShift(object) ? ", so the shift is measured on the wings." : ".") +
-          " Saturated points are hollow in the charts and their flux reads low.",
+          " Saturated points are hollow in the charts; their flux is an estimate good to about ±50%.",
       });
     }
     if (object.measure || object.gaia) {

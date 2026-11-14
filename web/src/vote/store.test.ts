@@ -163,11 +163,16 @@ describe("vote API for other pages (voteApi, getVoteStore)", () => {
   });
 
   it("getVoteStore is one shared, local-mode API without a Firebase config", async () => {
+    // A developer's web/.env may hold the real config: blank it so the test never opens Firestore.
+    vi.stubEnv("VITE_FIREBASE_API_KEY", "");
+    vi.stubEnv("VITE_FIREBASE_PROJECT_ID", "");
+    vi.resetModules();
     const { getVoteStore } = await import("./store");
     const a = await getVoteStore();
     expect(await getVoteStore()).toBe(a);
     expect(a.mode).toBe("local");
     expect(a.notice).toBeNull();
+    vi.unstubAllEnvs();
   });
 
   it("openStore picks Firestore when configured", async () => {
