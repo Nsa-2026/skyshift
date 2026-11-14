@@ -3,8 +3,8 @@
 import { ApiFailure, epochsFor, loadCandidates, loadFrames } from "../api/client";
 import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames } from "../api/types";
 import type { View } from "../app/modules";
-import { BrowserMemory, safeStorage, type KV } from "../vote/model";
-import { LocalStore, firebaseConfig, type VoteStore } from "../vote/store";
+import { safeStorage, type KV } from "../vote/model";
+import { getVoteStore, type VoteApi } from "../vote/store";
 
 // ---- the candidate list ------------------------------------------------------------------------
 
@@ -201,28 +201,16 @@ export function preload(c: Candidate): void {
 // ---- votes -------------------------------------------------------------------------------------
 
 export interface Votes {
-  store: VoteStore;
-  memory: BrowserMemory;
+  /** src/vote's API: Firestore when configured, else this browser only (mode "local"). */
+  api: VoteApi;
+  /** This browser's storage, for the practice round's "done" mark. */
   kv: KV;
 }
 
 let votesPromise: Promise<Votes> | null = null;
 
-/** The vote store (Firestore when configured, else this browser only), shared by both pages. */
+/** The vote API and browser storage, shared by both pages. Never rejects. */
 export function votes(): Promise<Votes> {
-  votesPromise ??= (async () => {
-    const kv = safeStorage();
-    const memory = new BrowserMemory(kv);
-    const config = firebaseConfig();
-    if (config) {
-      try {
-        const { FirestoreStore } = await import("../vote/firestore");
-        return { store: new FirestoreStore(config), memory, kv };
-      } catch {
-        /* fall through to local mode */
-      }
-    }
-    return { store: new LocalStore(kv), memory, kv };
-  })();
+  votesPromise ??= getVoteStore().then((api) => ({ api, kv: safeStorage() }));
   return votesPromise;
 }

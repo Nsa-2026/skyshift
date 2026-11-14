@@ -5,6 +5,10 @@ import type { KV } from "../vote/model";
 
 export interface PracticeItem {
   slug: string;
+  /** The card's question. */
+  title: string;
+  /** Short name for the recap after the round, e.g. "Asteroid (59) Elpis". */
+  name: string;
   /** What we ask the person to watch. Never gives the answer away. */
   prompt: string;
   answer: Answer;
@@ -15,6 +19,8 @@ export interface PracticeItem {
 export const PRACTICE: PracticeItem[] = [
   {
     slug: "elpis",
+    title: "What do you see in this field?",
+    name: "Asteroid (59) Elpis",
     prompt: "Exposures from one day, a few minutes to hours apart. Watch the whole field, not only the centre.",
     answer: "mover",
     feedback: {
@@ -30,6 +36,8 @@ export const PRACTICE: PracticeItem[] = [
   },
   {
     slug: "barnard",
+    title: "What's in the red reticle?",
+    name: "Barnard's Star",
     prompt: "Visits months apart. Watch the dark blot in the red reticle closely: the change is small.",
     answer: "mover",
     feedback: {
@@ -45,6 +53,8 @@ export const PRACTICE: PracticeItem[] = [
   },
   {
     slug: "rwaur",
+    title: "What does this star do?",
+    name: "RW Aurigae",
     prompt: "Visits months apart. Watch the star in the red reticle: does it move, change, or neither?",
     answer: "changing",
     feedback: {

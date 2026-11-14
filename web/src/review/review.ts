@@ -10,7 +10,7 @@ import { lastDiscoverHash, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, factsHtml, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
 import { PRACTICE, judge, markPracticeDone, practiceDone, practiceSummary, type PracticeResult } from "./practice";
-import { esc } from "./text";
+import { answerLabel, esc } from "./text";
 
 const html = String.raw;
 const SESSION_KEY = "skyshift.review.session";
@@ -21,6 +21,18 @@ const LEGEND = html`<ul class="rq-legend" aria-label="Marks on the plate">
   <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z" fill="none" stroke="var(--pencil-violet)" stroke-width="1.5"/></svg>Known asteroid, predicted</li>
   <li><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="var(--pencil-blue)" stroke-width="1.3"/></svg>Star Gaia already knows</li>
 </ul>`;
+
+/** The three practice plates: what each was and what the person said. */
+function recapHtml(results: PracticeResult[]): string {
+  if (!results.length) return "";
+  const rows = results.map((r) => {
+    const item = PRACTICE.find((p) => p.slug === r.slug);
+    if (!item) return "";
+    const said = r.correct ? `You said ${answerLabel(r.answer)}.` : `You said ${answerLabel(r.answer)}; it was ${answerLabel(item.answer)}.`;
+    return html`<li class="${r.correct ? "is-right" : "is-off"}"><b>${esc(item.name)}</b><span>${esc(said)}</span></li>`;
+  });
+  return html`<ul class="rq-recap" aria-label="Your answers">${rows.join("")}</ul>`;
+}
 
 function readSession(): number {
   try {
@@ -64,6 +76,7 @@ export const mountReview: MountPage = (el) => {
     </div>
   `;
   const $ = <T extends Element>(s: string) => el.querySelector(s) as T;
+  const rootEl = $<HTMLElement>(".rq");
   const sampleEl = $<HTMLElement>(".rv-sample");
   const titleEl = $<HTMLElement>(".rq-title");
   const progressEl = $<HTMLElement>(".rq-progress");
@@ -112,7 +125,7 @@ export const mountReview: MountPage = (el) => {
   // ---- shared -------------------------------------------------------------------------------
   function setMode(m: Mode) {
     mode = m;
-    el.dataset.mode = m;
+    rootEl.dataset.mode = m;
     const onPlate = m === "practice" || m === "queue";
     mainEl.hidden = !onPlate && m !== "summary";
     endEl.hidden = m !== "end" && m !== "empty";
@@ -151,7 +164,7 @@ export const mountReview: MountPage = (el) => {
         saving,
         waiting: !plateReady && !mine,
         error,
-        local: v?.store.mode === "local",
+        local: v?.api.mode === "local",
         kind: current.kind,
       });
     }
@@ -173,7 +186,7 @@ export const mountReview: MountPage = (el) => {
     progressEl.textContent = `Plate ${pi + 1} of ${PRACTICE.length}. We know the answer to these three, so you'll see how you did.`;
     toolsEl.innerHTML = html`<button class="btn btn-ghost" type="button" data-act="skip-practice">Skip practice</button>`;
     cardEl.innerHTML = html`
-      <h2 class="rq-card-title">What's in the red reticle?</h2>
+      <h2 class="rq-card-title">${esc(item.title)}</h2>
       <p class="rv-why">${esc(item.prompt)}</p>
       ${LEGEND}
     `;
@@ -216,7 +229,8 @@ export const mountReview: MountPage = (el) => {
     cardEl.innerHTML = html`
       <h2 class="rq-card-title">You got ${s.right} of ${s.of}</h2>
       <p class="rv-why">${esc(s.line.replace(/^\d+ of \d+\. /, ""))}</p>
-      <p class="rq-note">Real candidates have no answer key: the community's votes decide. When 5 people have voted and 70% agree, the candidate is settled.</p>
+      ${recapHtml(results)}
+      <p class="rq-note">Real candidates have no answer key: the community's votes decide. When 5 people have voted and 70% agree, the candidate is settled. Short lessons with more examples are on <a href="#/learn">Learn</a>.</p>
       <div class="rq-after"><button class="btn btn-primary" type="button" data-act="start">Start reviewing</button></div>
     `;
     ballotEl.innerHTML = "";
@@ -239,11 +253,11 @@ export const mountReview: MountPage = (el) => {
     if (!order.length) {
       progressEl.textContent = "Loading votes…";
       try {
-        countsAll = await v!.store.counts(set.candidates.map((c) => c.id));
+        countsAll = await v!.api.countsFor(set.candidates.map((c) => c.id));
       } catch {
         countsAll = new Map();
       }
-      order = queueOrder(set.candidates, countsAll, (id) => v!.memory.votedFor(id));
+      order = queueOrder(set.candidates, countsAll, (id) => v!.api.myVote(id));
       // Already-voted candidates stay reachable with ← only if seen this session.
       byId = new Map(set.candidates.map((c) => [c.id, c]));
     }
@@ -253,7 +267,7 @@ export const mountReview: MountPage = (el) => {
 
   function fresh(): Candidate | null {
     const seen = new Set(history);
-    return order.find((c) => !seen.has(c.id) && !v!.memory.votedFor(c.id)) ?? null;
+    return order.find((c) => !seen.has(c.id) && !v!.api.myVote(c.id)) ?? null;
   }
 
   function upcoming(): Candidate | null {
@@ -262,7 +276,7 @@ export const mountReview: MountPage = (el) => {
   }
 
   function remaining(): number {
-    return order.filter((c) => !v!.memory.votedFor(c.id)).length;
+    return order.filter((c) => !v!.api.myVote(c.id)).length;
   }
 
   function advance() {
@@ -293,7 +307,7 @@ export const mountReview: MountPage = (el) => {
     if (!c || !v) return showEnd();
     setMode("queue");
     current = c;
-    mine = v.memory.votedFor(c.id);
+    mine = v.api.myVote(c.id);
     justNow = votedNow.has(c.id);
     saving = null;
     error = null;
@@ -320,8 +334,8 @@ export const mountReview: MountPage = (el) => {
     const up = upcoming();
     if (up) preload(up);
     // Others may have voted since the queue was built.
-    v.store
-      .counts([c.id])
+    v.api
+      .countsFor([c.id])
       .then((m) => {
         if (current !== c || saving || justNow) return;
         counts = m.get(c.id) ?? emptyCounts();
@@ -361,7 +375,7 @@ export const mountReview: MountPage = (el) => {
   }
 
   function skippedCount(): number {
-    return history.filter((id) => !v?.memory.votedFor(id)).length;
+    return history.filter((id) => !v?.api.myVote(id)).length;
   }
 
   function showEnd() {
@@ -393,7 +407,7 @@ export const mountReview: MountPage = (el) => {
   }
 
   function revisit() {
-    const keep = history.filter((id) => v?.memory.votedFor(id));
+    const keep = history.filter((id) => v?.api.myVote(id));
     history.length = 0;
     history.push(...keep);
     pos = history.length - 1;
@@ -411,7 +425,7 @@ export const mountReview: MountPage = (el) => {
       <p class="rq-note">Meanwhile, warm up on three plates where the answer is known, or blink a featured target yourself.</p>
       <div class="rv-actions">
         <button class="btn btn-primary" type="button" data-act="practice">Try the practice round</button>
-        <a class="btn btn-ghost" href="#/explore">Open Explore</a>
+        <a class="btn btn-ghost" href="#/explore">Open Blink</a>
       </div>
     `;
   }

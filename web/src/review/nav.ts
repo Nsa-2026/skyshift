@@ -1,14 +1,14 @@
 // Remembers the last Discover URL (its filter lives there), so a candidate page can step through
 // the same list and link back to it. Kept in sessionStorage: one tab, one browsing session.
-import { discoverQuery, isDiscoverUrl } from "./model";
+import { LIST_HASH, discoverQuery, isDiscoverUrl } from "./model";
 
 const KEY = "skyshift.discover.last";
 let memo: { hash: string; search: string } | null = null;
 
 function record(): void {
   if (typeof location === "undefined") return;
-  if (!isDiscoverUrl(location.hash, location.search)) return;
-  memo = { hash: location.hash || "#/", search: location.search };
+  if (!isDiscoverUrl(location.hash)) return;
+  memo = { hash: location.hash, search: location.search };
   try {
     sessionStorage.setItem(KEY, JSON.stringify(memo));
   } catch {
@@ -42,8 +42,8 @@ export function lastDiscoverQuery(): string {
   return d ? discoverQuery(d.hash, d.search) : "";
 }
 
-/** The hash to go back to the list: the last Discover URL, else Discover's home. */
+/** The hash to go back to the list: the last list URL (with its filter), else the list. */
 export function lastDiscoverHash(): string {
   const d = read();
-  return d?.hash && d.hash !== "#" ? d.hash : "#/";
+  return d?.hash && isDiscoverUrl(d.hash) ? d.hash : LIST_HASH;
 }

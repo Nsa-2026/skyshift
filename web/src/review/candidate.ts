@@ -3,9 +3,12 @@
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
+import { VOTED_EVENT, type VotedDetail } from "../vote/store";
+import { AssistSlot, detailsOn, loadAssist, votesSummary } from "./assist";
 import { Ballot } from "./ballot";
 import { candidateSet, votes, type CandidateSet, type Votes } from "./data";
-import { applyFilter, keyAction, neighbours, parseCandidateParam, parseFilter } from "./model";
+import { LIST_HASH, keyAction, neighbours, parseCandidateParam, withVote } from "./model";
+import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, copyWithFeedback, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
@@ -47,7 +50,7 @@ export function embedCode(c: Candidate): string {
     det: String(c.det),
     embed: "1",
   });
-  return `<iframe src="${SITE}/?${p}" width="760" height="820" style="border:0" loading="lazy" title="SkyShift: ${kindName(c.kind).toLowerCase()} ${c.id}"></iframe>`;
+  return `<iframe src="${SITE}/?${p}" width="760" height="820" style="border:0" loading="lazy" title="${esc(`SkyShift: ${kindName(c.kind).toLowerCase()} ${c.id}`)}"></iframe>`;
 }
 
 function measurementsHtml(c: Candidate): string {
@@ -100,20 +103,22 @@ function cataloguesHtml(c: Candidate): string {
 const dl = (rows: [string, string][]) =>
   html`<dl class="rv-dl">${rows.map(([k, v]) => html`<div${k ? "" : ` class="rv-dl-cont"`}><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
 
-function reasonsHtml(c: Candidate): string {
+/** Reasons as chips. Each chip is a button: it opens one plain sentence on what the reason means. */
+export function reasonsHtml(c: Candidate): string {
   if (!c.reasons.length) return html`<p class="rv-soft">The pipeline gave no extra reasons.</p>`;
+  const toneWord = { for: "supports it", doubt: "a reason for doubt", info: "context" } as const;
   return html`<ul class="rv-chips">
     ${c.reasons
-      .map((code) => {
+      .map((code, i) => {
         const r = reasonText(code);
-        return html`<li class="rv-chip" data-tone="${r.tone}" title="${esc(r.tip)}">
-          <span class="rv-chip-mark" aria-hidden="true">${r.tone === "for" ? "+" : r.tone === "doubt" ? "?" : "i"}</span>${esc(r.chip)}
-          <span class="visually-hidden">: ${esc(r.tip)}</span>
-        </li>`;
+        return html`<li><button class="rv-chip" type="button" data-tone="${r.tone}" data-tip="${esc(r.tip)}"
+          aria-expanded="false" aria-controls="rv-chip-tip" id="rv-chip-${i}">
+          <span class="rv-chip-mark" aria-hidden="true">${r.tone === "for" ? "+" : r.tone === "doubt" ? "?" : "i"}</span>${esc(r.chip)}<span class="visually-hidden">, ${toneWord[r.tone]}</span>
+        </button></li>`;
       })
       .join("")}
   </ul>
-  <p class="rv-chip-key rv-soft">+ supports it. ? is a reason for doubt. Hover or tap a chip for more.</p>`;
+  <p class="rv-chip-tip" id="rv-chip-tip" aria-live="polite">Tap a reason to read what it means.</p>`;
 }
 
 function cautionsHtml(c: Candidate): string {
@@ -127,15 +132,19 @@ export const mountCandidate: MountPage = (el, ctx) => {
     <div class="rv cd">
       <p class="rv-sample" hidden></p>
       <nav class="cd-nav" aria-label="Candidate list">
-        <a class="cd-back" href="#/">${CHEVRON.left}All candidates</a>
+        <a class="cd-back" href="${LIST_HASH}">${CHEVRON.left}All candidates</a>
         <p class="cd-count" aria-live="polite"></p>
         <div class="cd-step">
-          <a class="btn btn-ghost cd-prev" href="#/" aria-disabled="true">${CHEVRON.left}Previous</a>
-          <a class="btn btn-ghost cd-next" href="#/" aria-disabled="true">Next${CHEVRON.right}</a>
+          <a class="btn btn-ghost cd-prev" href="${LIST_HASH}" aria-disabled="true">${CHEVRON.left}Previous</a>
+          <a class="btn btn-ghost cd-next" href="${LIST_HASH}" aria-disabled="true">Next${CHEVRON.right}</a>
         </div>
       </nav>
       <div class="cd-main">
-        <section class="cd-plate" aria-label="Frames at this spot"></section>
+        <div class="cd-left">
+          <section class="cd-plate" aria-label="Frames at this spot"></section>
+          <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
+          <section class="cand-check" aria-label="Check this candidate" hidden></section>
+        </div>
         <div class="cd-side"></div>
       </div>
       <div class="cd-empty" hidden></div>
@@ -151,6 +160,8 @@ export const mountCandidate: MountPage = (el, ctx) => {
   const countEl = $<HTMLElement>(".cd-count");
   const prevEl = $<HTMLAnchorElement>(".cd-prev");
   const nextEl = $<HTMLAnchorElement>(".cd-next");
+  const checkSlot = new AssistSlot($<HTMLElement>(".cand-check"));
+  let nextSlot: AssistSlot | null = null;
 
   const plate = new Plate($(".cd-plate"), {
     onReady(ready) {
@@ -180,9 +191,35 @@ export const mountCandidate: MountPage = (el, ctx) => {
       saving,
       waiting: !plateReady && !mine,
       error,
-      local: v?.store.mode === "local",
+      local: v?.api.mode === "local",
       kind: cand.kind,
     });
+    updateWhatNext();
+  }
+
+  // ---- the check assistant's slots (src/assist, optional) -------------------------------------
+  async function mountAssist(c: Candidate) {
+    const mod = await loadAssist();
+    if (!mod || cand !== c) return;
+    checkSlot.mount(mod.mountChecklist && ((slot) => mod.mountChecklist!(slot, c, { details: detailsOn() })));
+    mountWhatNext(c);
+  }
+  function mountWhatNext(c: Candidate) {
+    loadAssist().then((mod) => {
+      if (!mod?.mountWhatNext || cand !== c || !nextSlot) return;
+      const ok = nextSlot.mount((slot) => mod.mountWhatNext!(slot, c, votesSummary(counts ?? emptyCounts(), mine)));
+      // The assistant writes the next steps: the ballot keeps only the short line.
+      ballot?.setFull(!ok);
+    });
+  }
+  let lastSummary = "";
+  function updateWhatNext() {
+    if (!cand || !nextSlot) return;
+    const sum = votesSummary(counts ?? emptyCounts(), mine);
+    const key = JSON.stringify(sum);
+    if (key === lastSummary) return;
+    lastSummary = key;
+    if (!nextSlot.update(sum)) mountWhatNext(cand);
   }
 
   async function vote(a: Answer) {
@@ -210,6 +247,8 @@ export const mountCandidate: MountPage = (el, ctx) => {
       ${headHtml(c, "h1", id)}
       ${motionHtml(c)}
       <div class="cd-ballot"></div>
+      <!-- Slot: src/assist mountWhatNext (report drafts, citation), mounted only if src/assist exists. -->
+      <section class="cand-next" aria-label="What next" hidden></section>
       <section class="rv-sec" aria-labelledby="cd-why-h">
         <h2 class="rv-h" id="cd-why-h">Why it's listed</h2>
         ${reasonsHtml(c)}
@@ -232,7 +271,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
           <span class="rv-soft">${c.ra.toFixed(5)}°, ${c.dec >= 0 ? "+" : "−"}${Math.abs(c.dec).toFixed(5)}°</span></p>
         <div class="rv-actions">
           <button class="btn" type="button" data-act="copy-pos">Copy coordinates</button>
-          <button class="btn" type="button" data-act="explore">Open in Explore</button>
+          <button class="btn" type="button" data-act="explore">Open in Blink</button>
         </div>
       </section>
       <section class="rv-sec" aria-labelledby="cd-s-h">
@@ -248,11 +287,25 @@ export const mountCandidate: MountPage = (el, ctx) => {
         </details>
       </section>
     `;
+    nextSlot?.clear();
+    nextSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-next")!);
+    lastSummary = "";
     ballot = new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true });
     renderBallot();
   }
 
   sideEl.addEventListener("click", (ev) => {
+    const chip = (ev.target as Element).closest<HTMLButtonElement>("button.rv-chip");
+    if (chip) {
+      const open = chip.getAttribute("aria-expanded") !== "true";
+      sideEl.querySelectorAll<HTMLButtonElement>("button.rv-chip").forEach((b) => b.setAttribute("aria-expanded", String(b === chip && open)));
+      const tip = sideEl.querySelector<HTMLElement>(".rv-chip-tip");
+      if (tip) {
+        tip.textContent = open ? chip.dataset.tip ?? "" : "Tap a reason to read what it means.";
+        tip.dataset.open = String(open);
+      }
+      return;
+    }
     const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-act]");
     if (!b || !cand) return;
     const c = cand;
@@ -264,27 +317,29 @@ export const mountCandidate: MountPage = (el, ctx) => {
 
   async function renderNav(c: Candidate, query: string) {
     const q = query || lastDiscoverQuery();
-    const f = parseFilter(q);
-    const needCounts = f.sort === "fewest" || f.sort === "most" || f.preset === "community-real";
     let all = new Map<string, Counts>();
-    if (needCounts && v && set) {
+    if (queryNeedsCounts(q) && v && set) {
       try {
-        all = await v.store.counts(set.candidates.map((x) => x.id));
+        all = await v.api.countsFor(set.candidates.map((x) => x.id));
       } catch {
         all = new Map();
       }
     }
-    if (cand !== c || !set) return;
-    let items = applyFilter(set.candidates, f, all);
+    if (cand !== c || !set || !v) return;
+    const api = v.api;
+    // This candidate stays in its list after a vote, even when the list hides "mine".
+    const votedFor = (id: string) => (id === c.id ? null : api.myVote(id));
+    let items = await listFor(set.candidates, q, all, votedFor);
     let inList = true;
     if (!items.some((x) => x.id === c.id)) {
-      items = applyFilter(set.candidates, parseFilter(""), all);
+      items = await listFor(set.candidates, "", all, votedFor);
       inList = false;
     }
+    if (cand !== c) return;
     const { prev, next, index } = neighbours(items, c.id);
     const suffix = query ? `?${query}` : "";
     const link = (a: HTMLAnchorElement, to: Candidate | null) => {
-      a.href = to ? `#/c/${encodeURIComponent(to.id)}${suffix}` : "#/";
+      a.href = to ? `#/c/${encodeURIComponent(to.id)}${suffix}` : lastDiscoverHash();
       a.setAttribute("aria-disabled", String(!to));
       a.tabIndex = to ? 0 : -1;
       a.title = to ? `${kindName(to.kind)} ${to.id}` : "";
@@ -292,7 +347,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     link(prevEl, prev);
     link(nextEl, next);
     countEl.textContent =
-      index >= 0 ? `${index + 1} of ${items.length} ${inList && q ? "in your Discover list" : "by pipeline score"}` : "";
+      index >= 0 ? `${index + 1} of ${items.length} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
     backEl.href = lastDiscoverHash();
   }
 
@@ -307,6 +362,8 @@ export const mountCandidate: MountPage = (el, ctx) => {
     }
     emptyEl.innerHTML = html`<h1 class="rv-empty-title">${title}</h1>${body}`;
     plate.clear();
+    checkSlot.clear();
+    nextSlot?.clear();
   }
 
   async function show(param: string | null) {
@@ -325,7 +382,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (!set || !set.candidates.length) {
       showEmpty(
         "No candidates are published yet",
-        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets on <a href="#/explore">Explore</a> work now.</p>`,
+        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets on <a href="#/explore">Blink</a> work now.</p>`,
       );
       return;
     }
@@ -341,18 +398,20 @@ export const mountCandidate: MountPage = (el, ctx) => {
     cand = c;
     mainEl.hidden = false;
     emptyEl.hidden = true;
-    mine = v.memory.votedFor(c.id);
+    mine = v.api.myVote(c.id);
     justNow = false;
     saving = null;
     error = null;
     counts = null;
     plateReady = false;
     document.title = `${kindName(c.kind)} ${c.id}: SkyShift`;
+    checkSlot.clear();
     renderSide(c);
     renderNav(c, query);
     if (visibleNow) plate.showCandidate(c);
+    mountAssist(c);
     try {
-      const all = await v.store.counts([c.id]);
+      const all = await v.api.countsFor([c.id]);
       if (cand !== c) return;
       counts = all.get(c.id) ?? emptyCounts();
     } catch {
@@ -371,6 +430,17 @@ export const mountCandidate: MountPage = (el, ctx) => {
     }
   };
   document.addEventListener("keydown", onKey);
+
+  // A vote cast elsewhere on this page's candidate (the review queue, the assistant's step 6).
+  const onVoted = (ev: Event) => {
+    const d = (ev as CustomEvent<VotedDetail>).detail;
+    if (!d || !cand || d.candidateId !== cand.id || mine || saving) return;
+    mine = d.answer;
+    counts = withVote(counts ?? undefined, d.answer);
+    justNow = true;
+    renderBallot();
+  };
+  window.addEventListener(VOTED_EVENT, onVoted);
 
   // Disabled step links don't navigate.
   for (const a of [prevEl, nextEl])
@@ -393,6 +463,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
     },
     destroy() {
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener(VOTED_EVENT, onVoted);
+      checkSlot.clear();
+      nextSlot?.clear();
       plate.unmount();
       el.innerHTML = "";
     },

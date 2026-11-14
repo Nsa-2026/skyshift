@@ -208,6 +208,9 @@
   padding: 0;
   list-style: none;
 }
+.rv-chips li {
+  display: flex;
+}
 .rv-chip {
   display: inline-flex;
   align-items: center;
@@ -217,9 +220,17 @@
   border: 1px solid transparent;
   border-radius: var(--radius-ctl);
   background: var(--sheet-2);
+  color: var(--ink);
+  font: inherit;
   font-size: var(--step--1);
   font-weight: 550;
-  cursor: help;
+  cursor: pointer;
+}
+.rv-chip:hover {
+  border-color: var(--hair-strong);
+}
+.rv-chip[aria-expanded="true"] {
+  border-color: var(--ink);
 }
 .rv-chip[data-tone="doubt"] {
   background: transparent;
@@ -244,8 +255,13 @@
 .rv-chip[data-tone="doubt"] .rv-chip-mark {
   background: var(--sheet-2);
 }
-.rv-chip-key {
+.rv-chip-tip {
+  min-height: 1.5em;
+  color: var(--ink-3);
   font-size: var(--step--1);
+}
+.rv-chip-tip[data-open="true"] {
+  color: var(--ink);
 }
 
 .rv-notes {
@@ -277,7 +293,7 @@
   grid-template-areas: "key label" "key meaning";
   align-items: start;
   gap: 2px var(--s3);
-  min-height: 72px;
+  min-height: 64px;
   padding: var(--s3) var(--s4) var(--s3) var(--s3);
   border: 1px solid var(--hair);
   border-radius: var(--radius-panel);
@@ -444,7 +460,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--s2) var(--s4);
-  padding: var(--s2) 0 var(--s5);
+  padding: 0 0 var(--s3);
 }
 .cd-back {
   display: inline-flex;
@@ -488,6 +504,7 @@
   gap: var(--s6) var(--s7);
   align-items: start;
 }
+.cd-left,
 .cd-side {
   display: grid;
   gap: var(--s6);
@@ -572,6 +589,29 @@
   display: grid;
   gap: var(--s4);
 }
+.rq-recap {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s2);
+}
+.rq-recap li {
+  display: grid;
+  gap: 2px;
+  padding-left: var(--s4);
+  border-left: 3px solid var(--partial);
+}
+.rq-recap li.is-right {
+  border-left-color: var(--pass);
+}
+.rq-recap b {
+  font-weight: 600;
+}
+.rq-recap span {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
 .rq-note {
   color: var(--ink-2);
 }
@@ -645,14 +685,41 @@
   grid-template-columns: minmax(0, 680px);
 }
 
+/* One column: what it is first, then the plate, then the check, the choices and the details. */
 @media (max-width: 1100px) {
   .cd-main,
   .rq-main {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
   }
+  .cd-main {
+    gap: var(--s6);
+  }
+  .rq-main {
+    gap: var(--s5);
+  }
+  .cd-left,
   .cd-side,
   .rq-side {
+    display: contents;
+  }
+  .cd-side > *,
+  .rq-side > * {
     max-width: 680px;
+    order: 3;
+  }
+  .cd-side > .rv-head,
+  .cd-side > .rv-motion,
+  .rq-card {
+    order: 0;
+  }
+  .cd-plate,
+  .rq-plate {
+    order: 1;
+  }
+  .cand-check {
+    order: 2;
   }
 }
 

@@ -1,15 +1,15 @@
 // Review and Candidate pages: the pure parts. Consensus (DESIGN.md "Votes and consensus"), the
 // review queue's order, the Discover filter read from its URL, keyboard mapping and URL parsing.
 // No DOM, no Firebase, so tests are cheap.
-import type { Candidate, CandidateKind, Det } from "../api/types";
-import { ANSWERS, emptyCounts, total, type Answer, type Counts } from "../vote/model";
+import type { Candidate } from "../api/types";
+import { ANSWERS, CONSENSUS, consensus as agreed, emptyCounts, total, type Answer, type Counts } from "../vote/model";
 
 // ---- consensus ---------------------------------------------------------------------------------
 
-/** A candidate reaches consensus with at least this many votes… */
-export const CONSENSUS_MIN_VOTES = 5;
+/** A candidate reaches consensus with at least this many votes (src/vote's rule, DESIGN.md)… */
+export const CONSENSUS_MIN_VOTES = CONSENSUS.minVotes;
 /** …and at least this share agreeing on one answer (70 %). */
-export const CONSENSUS_PERCENT = 70;
+export const CONSENSUS_PERCENT = Math.round(CONSENSUS.share * 100);
 
 export interface Consensus {
   /** none: no votes; forming: under 5 votes; split: 5+ but no answer at 70 %; reached: consensus. */
@@ -24,6 +24,7 @@ export interface Consensus {
   answer: Answer | null;
 }
 
+/** Where the votes stand: src/vote's consensus rule, plus the states before it (none, forming, split). */
 export function consensus(c: Counts): Consensus {
   const n = total(c);
   let top: Answer | null = null;
@@ -37,8 +38,8 @@ export function consensus(c: Counts): Consensus {
   const share = n ? topCount / n : 0;
   if (n === 0) return { state: "none", total: 0, top: null, topCount: 0, share: 0, answer: null };
   if (n < CONSENSUS_MIN_VOTES) return { state: "forming", total: n, top, topCount, share, answer: null };
-  // Integer test, so 7 of 10 is exactly 70 %.
-  if (topCount * 100 >= n * CONSENSUS_PERCENT) return { state: "reached", total: n, top, topCount, share, answer: top };
+  const a = agreed(c);
+  if (a) return { state: "reached", total: n, top: a.answer, topCount: c[a.answer], share: a.share, answer: a.answer };
   return { state: "split", total: n, top, topCount, share, answer: null };
 }
 
@@ -101,107 +102,72 @@ export function queueOrder(
     });
 }
 
-// ---- Discover's filter, read from its URL ----------------------------------------------------
+// ---- the Candidates page's filter, read from its URL ------------------------------------------
+// The same keys and meaning as src/discover (DESIGN.md "Smart filters"): #/candidates/<query>, e.g.
+// "kind=mover&known=60-&sort=fewest". Lists are comma-separated (OR inside a key, AND between
+// keys); ranges are "min-max" with either side open; gaia/catwise are yes/no; doubts, cautions and
+// mine take "hide". Tolerant: unknown keys and bad values are ignored.
 
-export type Preset = "promising" | "needs-votes" | "brown-dwarfs" | "unknown-movers" | "community-real";
 export type Sort = "promising" | "fewest" | "most" | "brightest" | "fastest" | "newest";
+const SORTS: Sort[] = ["promising", "fewest", "most", "brightest", "fastest", "newest"];
+
+export interface Range {
+  min: number | null;
+  max: number | null;
+}
+const RANGE_KEYS = ["score", "sig", "pm", "rate", "snr", "flux", "known", "b"] as const;
+type RangeKey = (typeof RANGE_KEYS)[number];
+const LIST_KEYS = ["kind", "review", "verdict", "label", "reason", "det", "zone"] as const;
+type ListKey = (typeof LIST_KEYS)[number];
+type Tri = "any" | "yes" | "no";
 
 export interface ListFilter {
-  preset: Preset | null;
-  kinds: CandidateKind[];
-  zones: string[];
-  dets: Det[];
-  labels: string[];
-  match: "none" | "gaia" | "catwise" | null;
-  hideFlagged: boolean;
-  minScore: number | null;
-  minSnr: number | null;
-  minAbsB: number | null;
+  lists: Record<ListKey, string[]>;
+  gaia: Tri;
+  catwise: Tri;
+  hideDoubts: boolean;
+  hideCautions: boolean;
+  hideMine: boolean;
+  ranges: Partial<Record<RangeKey, Range>>;
   sort: Sort;
-  q: string;
 }
 
-const PRESETS: Record<string, Preset> = {
-  promising: "promising",
-  "most-promising": "promising",
-  "needs-votes": "needs-votes",
-  "needs-your-vote": "needs-votes",
-  "brown-dwarfs": "brown-dwarfs",
-  "possible-brown-dwarfs": "brown-dwarfs",
-  "unknown-movers": "unknown-movers",
-  "unknown-fast-movers": "unknown-movers",
-  "community-real": "community-real",
-  "community-says-real": "community-real",
-};
-const SORTS: Record<string, Sort> = {
-  promising: "promising",
-  score: "promising",
-  "most-promising": "promising",
-  fewest: "fewest",
-  "fewest-votes": "fewest",
-  "votes-asc": "fewest",
-  most: "most",
-  "most-votes": "most",
-  "votes-desc": "most",
-  votes: "most",
-  brightest: "brightest",
-  bright: "brightest",
-  flux: "brightest",
-  fastest: "fastest",
-  fast: "fastest",
-  motion: "fastest",
-  newest: "newest",
-  new: "newest",
-  date: "newest",
-};
-const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral"];
-const slug = (s: string) => s.trim().toLowerCase().replace(/[\s_]+/g, "-");
-const list = (p: URLSearchParams, ...keys: string[]) =>
-  keys
-    .flatMap((k) => p.getAll(k))
-    .flatMap((v) => v.split(","))
-    .map((v) => v.trim())
-    .filter(Boolean);
-const num = (p: URLSearchParams, ...keys: string[]): number | null => {
-  for (const k of keys) {
-    const v = p.get(k);
-    if (v != null && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
-  }
-  return null;
-};
+function parseRange(v: string): Range | null {
+  const m = /^\s*([0-9.eE+]*)\s*-\s*([0-9.eE+]*)\s*$/.exec(v);
+  if (!m) return null;
+  const n = (x: string) => (x === "" ? null : Number.isFinite(Number(x)) ? Number(x) : NaN);
+  let min = n(m[1]);
+  let max = n(m[2]);
+  if (Number.isNaN(min) || Number.isNaN(max)) return null;
+  if (min != null && max != null && min > max) [min, max] = [max, min];
+  return min == null && max == null ? null : { min, max };
+}
 
-/**
- * Read Discover's filter from a query string ("kind=mover&sort=fewest", with or without "?").
- * Tolerant: unknown keys and values are ignored, several spellings are accepted, and an empty
- * query means "every candidate, most promising first".
- */
+/** Read the Candidates page's filter from its query ("kind=mover&sort=fewest", "?…" or "/…"). */
 export function parseFilter(query: string): ListFilter {
-  const p = new URLSearchParams(query.replace(/^[?#]/, ""));
-  const preset = PRESETS[slug(p.get("preset") ?? p.get("p") ?? "")] ?? null;
-  const kinds = list(p, "kind", "kinds")
-    .map((k) => slug(k).replace(/-/g, "_"))
-    .map((k) => (k === "pm" || k === "highpm" || k === "moving_star" ? "high_pm" : k === "fast_mover" ? "mover" : k))
-    .filter((k): k is CandidateKind => (KINDS as string[]).includes(k));
-  const dets = list(p, "det", "dets", "detector")
-    .map((d) => Number(d.replace(/^d/i, "")))
-    .filter((d): d is Det => Number.isInteger(d) && d >= 1 && d <= 6);
-  const m = slug(p.get("match") ?? p.get("catalog") ?? p.get("catalogue") ?? "");
-  const hide = slug(p.get("flags") ?? p.get("cautions") ?? p.get("hide_flagged") ?? p.get("clean") ?? "");
-  let sort = SORTS[slug(p.get("sort") ?? "")] ?? null;
-  if (!sort) sort = preset === "needs-votes" ? "fewest" : "promising";
+  const p = new URLSearchParams(query.replace(/^[#/?]+/, ""));
+  const lists = Object.fromEntries(
+    LIST_KEYS.map((k) => [
+      k,
+      [...new Set((p.get(k) ?? "").split(",").map((x) => x.trim()).filter((x) => /^[A-Za-z0-9_.-]{1,64}$/.test(x)))],
+    ]),
+  ) as Record<ListKey, string[]>;
+  const tri = (v: string | null): Tri => (v === "yes" || v === "no" ? v : "any");
+  const ranges: Partial<Record<RangeKey, Range>> = {};
+  for (const k of RANGE_KEYS) {
+    const r = parseRange(p.get(k) ?? "");
+    if (r) ranges[k] = r;
+  }
+  const sort = p.get("sort") as Sort | null;
   return {
-    preset,
-    kinds,
-    zones: list(p, "zone", "zones"),
-    dets,
-    labels: list(p, "label", "labels").map((l) => l.toLowerCase()),
-    match: m === "none" || m === "gaia" || m === "catwise" ? m : null,
-    hideFlagged: ["hide", "1", "true", "yes", "none", "clean"].includes(hide),
-    minScore: num(p, "min_score", "score_min", "score"),
-    minSnr: num(p, "min_snr", "snr_min", "snr"),
-    minAbsB: num(p, "min_b", "b_min", "abs_b", "b"),
-    sort,
-    q: (p.get("q") ?? "").trim().toLowerCase(),
+    lists,
+    gaia: tri(p.get("gaia")),
+    catwise: tri(p.get("catwise")),
+    hideDoubts: p.get("doubts") === "hide",
+    hideCautions: p.get("cautions") === "hide",
+    hideMine: p.get("mine") === "hide",
+    ranges,
+    sort: sort && SORTS.includes(sort) ? sort : "promising",
   };
 }
 
@@ -212,44 +178,85 @@ export function motionArcsecYr(c: Candidate): number | null {
   return null;
 }
 
-const BROWN_DWARF_LABELS = ["red", "ch4", "brown_dwarf_like"];
+/** Motion significance: proper motion over its 1σ error. */
+export function significance(c: Candidate): number | null {
+  return c.pm_mas_yr != null && c.pm_err_mas_yr != null && c.pm_err_mas_yr > 0 ? c.pm_mas_yr / c.pm_err_mas_yr : null;
+}
 
-/** The candidates Discover shows for this filter, in its order. */
-export function applyFilter(cands: Candidate[], f: ListFilter, counts: Map<string, Counts> = new Map()): Candidate[] {
-  const n = (c: Candidate) => total(counts.get(c.id) ?? emptyCounts());
+const RANGE_VALUE: Record<RangeKey, (c: Candidate) => number | null> = {
+  score: (c) => c.score,
+  sig: significance,
+  pm: (c) => c.pm_mas_yr,
+  rate: (c) => c.rate_arcsec_h,
+  snr: (c) => c.snr,
+  flux: (c) => c.flux_ujy,
+  // null = nothing known within the search radius: far.
+  known: (c) => c.nearest_known_arcsec ?? Infinity,
+  b: (c) => Math.abs(c.galactic_b),
+};
+
+/** Reason codes that weaken a candidate (the dashed chips). */
+export const DOUBT_CODES = ["few_dots", "bad_fit", "over_pm_cap", "at_control_level", "short_span"];
+
+/** none: no votes; some: votes but no agreement; consensus: agreed (src/vote's rule). */
+export function reviewState(k: Counts): "none" | "some" | "consensus" {
+  if (agreed(k)) return "consensus";
+  return total(k) > 0 ? "some" : "none";
+}
+
+/** Pipeline promise: score high to low, then motion significance, then S/N, then id (nulls last). */
+export function byPromiseList(a: Candidate, b: Candidate): number {
+  return desc(a.score, b.score) || desc(significance(a), significance(b)) || desc(a.snr, b.snr) || a.id.localeCompare(b.id);
+}
+
+/** The candidates the Candidates page shows for this filter, in its order. */
+export function applyFilter(
+  cands: Candidate[],
+  f: ListFilter,
+  counts: Map<string, Counts> = new Map(),
+  votedFor: (id: string) => Answer | null = () => null,
+): Candidate[] {
+  const k = (c: Candidate) => counts.get(c.id) ?? emptyCounts();
+  const has = (list: string[], v: string) => !list.length || list.includes(v);
+  const tri = (t: Tri, v: boolean) => t === "any" || (t === "yes") === v;
   const out = cands.filter((c) => {
-    if (f.kinds.length && !f.kinds.includes(c.kind)) return false;
-    if (f.zones.length && !f.zones.includes(c.zone)) return false;
-    if (f.dets.length && !f.dets.includes(c.det)) return false;
-    if (f.labels.length && !f.labels.some((l) => c.labels.includes(l))) return false;
-    if (f.match === "none" && (c.gaia_match || c.catwise_match)) return false;
-    if (f.match === "gaia" && !c.gaia_match) return false;
-    if (f.match === "catwise" && !c.catwise_match) return false;
-    if (f.hideFlagged && c.flags.length) return false;
-    if (f.minScore != null && (c.score == null || c.score < f.minScore)) return false;
-    if (f.minSnr != null && (c.snr == null || c.snr < f.minSnr)) return false;
-    if (f.minAbsB != null && Math.abs(c.galactic_b) < f.minAbsB) return false;
-    if (f.q && !`${c.id} ${c.why}`.toLowerCase().includes(f.q)) return false;
-    switch (f.preset) {
-      case "brown-dwarfs":
-        return c.kind === "high_pm" && !c.gaia_match && BROWN_DWARF_LABELS.some((l) => c.labels.includes(l));
-      case "unknown-movers":
-        return c.kind === "mover" && (c.nearest_known_arcsec == null || c.nearest_known_arcsec > 60);
-      case "community-real":
-        return forAstronomers(consensus(counts.get(c.id) ?? emptyCounts()));
-      default:
-        return true;
+    const L = f.lists;
+    if (!has(L.kind, c.kind) || !has(L.det, String(c.det)) || !has(L.zone, c.zone)) return false;
+    if (L.review.length && !L.review.includes(reviewState(k(c)))) return false;
+    if (L.verdict.length) {
+      const v = agreed(k(c))?.answer;
+      if (!v || !L.verdict.includes(v)) return false;
     }
+    if (L.label.length && !c.labels.some((l) => L.label.includes(l))) return false;
+    if (L.reason.length && !c.reasons.some((r) => L.reason.includes(r))) return false;
+    if (!tri(f.gaia, c.gaia_match) || !tri(f.catwise, c.catwise_match)) return false;
+    if (f.hideDoubts && c.reasons.some((r) => DOUBT_CODES.includes(r))) return false;
+    if (f.hideCautions && c.flags.length) return false;
+    if (f.hideMine && votedFor(c.id)) return false;
+    for (const key of RANGE_KEYS) {
+      const r = f.ranges[key];
+      if (!r) continue;
+      const v = RANGE_VALUE[key](c);
+      if (v == null || Number.isNaN(v)) return false;
+      if ((r.min != null && v < r.min) || (r.max != null && v > r.max)) return false;
+    }
+    return true;
   });
+  const n = (c: Candidate) => total(k(c));
   const by: Record<Sort, (a: Candidate, b: Candidate) => number> = {
-    promising: byPromise,
-    fewest: (a, b) => n(a) - n(b) || byPromise(a, b),
-    most: (a, b) => n(b) - n(a) || byPromise(a, b),
-    brightest: (a, b) => desc(a.flux_ujy, b.flux_ujy) || byPromise(a, b),
-    fastest: (a, b) => desc(motionArcsecYr(a), motionArcsecYr(b)) || byPromise(a, b),
-    newest: (a, b) => b.mjd - a.mjd || byPromise(a, b),
+    promising: byPromiseList,
+    fewest: (a, b) => n(a) - n(b) || byPromiseList(a, b),
+    most: (a, b) => n(b) - n(a) || byPromiseList(a, b),
+    brightest: (a, b) => desc(a.flux_ujy, b.flux_ujy) || byPromiseList(a, b),
+    fastest: (a, b) => desc(motionArcsecYr(a), motionArcsecYr(b)) || byPromiseList(a, b),
+    newest: (a, b) => b.mjd - a.mjd || byPromiseList(a, b),
   };
   return out.sort(by[f.sort]);
+}
+
+/** Does the filter need vote counts (review state, verdict, vote sorts)? */
+export function needsCounts(f: ListFilter): boolean {
+  return f.lists.review.length > 0 || f.lists.verdict.length > 0 || f.sort === "fewest" || f.sort === "most";
 }
 
 /** Previous and next candidate around id in an ordered list (null at the ends or when absent). */
@@ -272,22 +279,23 @@ export function parseCandidateParam(param: string | null): { id: string; query: 
 /** Explore deep-link keys (src/app/state.ts) that are not Discover filters. */
 const VIEW_KEYS = ["t", "ra", "dec", "clock", "fov", "det", "embed"];
 
-/** Is this URL the Discover page? Mirrors src/app/app.ts parseRoute: "", "#/", "#/?…". */
-export function isDiscoverUrl(hash: string, search: string): boolean {
-  const h = hash.replace(/^#\/?/, "");
-  const head = h.split(/[/?]/)[0];
-  if (head !== "" && head !== "discover") return false;
-  if (!h) {
-    const s = new URLSearchParams(search);
-    if (s.has("t") || s.has("ra")) return false; // deep link: opens Explore
-  }
-  return true;
+/** The candidate list's route (DESIGN.md "Pages"; "#/discover" is its old name). */
+export const LIST_HASH = "#/candidates";
+
+/** Is this URL the candidate list? Mirrors src/app/app.ts parseRoute: "#/candidates…", "#/discover…". */
+export function isDiscoverUrl(hash: string): boolean {
+  const head = hash.replace(/^#\/?/, "").split(/[/?]/)[0];
+  return head === "candidates" || head === "discover";
 }
 
-/** Discover's filter query from its URL: the hash's query, else the page query minus view keys. */
+/**
+ * The list's filter query from its URL: what follows the route in the hash
+ * ("#/candidates/kind=mover", "#/candidates/?kind=mover", "#/candidates?kind=mover"),
+ * else the page query minus the Explore view keys.
+ */
 export function discoverQuery(hash: string, search: string): string {
-  const i = hash.indexOf("?");
-  if (i >= 0) return hash.slice(i + 1);
+  const rest = hash.replace(/^#\/?(candidates|discover)/, "").replace(/^[/?]+/, "");
+  if (rest) return rest;
   const s = new URLSearchParams(search);
   for (const k of VIEW_KEYS) s.delete(k);
   return s.toString();

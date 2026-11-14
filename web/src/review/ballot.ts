@@ -39,6 +39,7 @@ export class Ballot {
   private statusEl: HTMLElement;
   private resultEl: HTMLElement;
   private localEl: HTMLElement;
+  private section: HTMLElement;
 
   constructor(
     readonly el: HTMLElement,
@@ -67,11 +68,19 @@ export class Ballot {
     this.statusEl = el.querySelector(".rv-ballot-status")!;
     this.resultEl = el.querySelector(".rv-result")!;
     this.localEl = el.querySelector(".rv-local")!;
+    this.section = el.querySelector(".rv-ballot")!;
     this.choicesEl.addEventListener("click", (ev) => {
       const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-answer]");
       if (!b || b.disabled) return;
       this.opts.onVote(b.dataset.answer as Answer);
     });
+  }
+
+  /** Full "what happens next" (false when another part of the page writes it). */
+  setFull(full: boolean): void {
+    if (this.opts.full === full) return;
+    this.opts = { ...this.opts, full };
+    if (this.state) this.set(this.state);
   }
 
   /** Can a vote be cast right now? */
@@ -84,7 +93,7 @@ export class Ballot {
     this.state = s;
     this.localEl.hidden = !s.local || !!s.practice;
     const chosen = s.practice?.answer ?? s.mine ?? s.saving;
-    this.el.dataset.state = s.practice ? "practice" : s.mine ? "voted" : s.saving ? "saving" : s.waiting ? "waiting" : "open";
+    this.section.dataset.state = s.practice ? "practice" : s.mine ? "voted" : s.saving ? "saving" : s.waiting ? "waiting" : "open";
     this.choicesEl.querySelectorAll<HTMLButtonElement>("button[data-answer]").forEach((b) => {
       const a = b.dataset.answer as Answer;
       b.setAttribute("aria-pressed", String(a === chosen));
@@ -172,7 +181,7 @@ export function nextStepsHtml(c: ReturnType<typeof consensus>, kind: CandidateKi
     </div>`;
   }
   if (c.state === "reached") {
-    return html`<div class="rv-next"><p>The community set it aside. It stays listed with its votes, so the pipeline can learn from it.</p></div>`;
+    return html`<div class="rv-next"><p>The community set it aside. It stays listed with its votes, so anyone can see why.</p></div>`;
   }
   return html`<div class="rv-next">
     <p>When at least 5 people have voted and 70% agree it's a mover or changing, it joins the

@@ -3,10 +3,10 @@
 import type { Candidate } from "../api/types";
 import { formatRaDec } from "../app/astro";
 import type { Answer, Counts } from "../vote/model";
-import { toVoteError } from "../vote/store";
+import { VoteError } from "../vote/model";
 import type { Votes } from "./data";
 import { withVote } from "./model";
-import { KIND_ICON, abMag, detText, esc, kindName, motion, ujy } from "./text";
+import { KIND_ICON, abMag, esc, kindName, motion, ujy } from "./text";
 
 const html = String.raw;
 
@@ -42,7 +42,8 @@ export function factsHtml(c: Candidate): string {
   const rows: [string, string][] = [];
   if (c.snr != null) rows.push(["Signal to noise", sig(c.snr)]);
   if (c.flux_ujy != null && c.flux_ujy > 0) rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">AB ${abMag(c.flux_ujy).toFixed(1)}</span>`]);
-  rows.push(["Detector", esc(detText(c.det))]);
+  // The detector is on the plate's tabs already.
+  if (!rows.length) return "";
   return html`<dl class="rv-facts">${rows.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
 }
 
@@ -95,11 +96,10 @@ export async function castVote(
   counts: Counts | null,
 ): Promise<{ ok: true; counts: Counts } | { ok: false; message: string; already: boolean }> {
   try {
-    await v.store.vote(c.id, a, v.memory.voter);
-    v.memory.rememberVote(c.id, a);
+    await v.api.castVote(c.id, a);
     return { ok: true, counts: withVote(counts ?? undefined, a) };
   } catch (e) {
-    const err = toVoteError(e);
+    const err = e instanceof VoteError ? e : new VoteError("Something went wrong saving the vote. Try again.");
     return { ok: false, message: err.message, already: err.kind === "already" };
   }
 }
