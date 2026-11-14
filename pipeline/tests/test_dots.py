@@ -88,3 +88,47 @@ def test_or3x3_and_finast():
     o = or3x3(f)
     assert o[1, 1] == 1 and o[2, 2] == 0 and o[3, 3] == 8 and o[0, 0] == 1
     assert not bad_finast(0) and not bad_finast(None) and bad_finast(3) and bad_finast("x")
+
+
+def _table_bits(path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    t = pq.read_table(path)
+    meta = photo_meta(str(path))
+    for k in ("read_s", "detect_s", "forced_s", "write_s", "stages_s"):
+        meta.pop(k, None)
+    cols = {}
+    for name in t.column_names:
+        a = t[name].combine_chunks()
+        if pa.types.is_fixed_size_list(a.type):
+            a = a.flatten()
+        v = a.to_numpy(zero_copy_only=False)
+        cols[name] = v.view(np.uint32 if v.dtype == np.float32 else np.uint64) if v.dtype.kind == "f" else v
+    return cols, meta
+
+
+@pytest.mark.parametrize("prefetch", [True, False])
+def test_process_photos_same_files_as_process_photo(tmp_path, prefetch):
+    from skyshift_pipeline.dots import process_photos
+    one, many = tmp_path / "one", tmp_path / "many"
+    photos = [("2025W18_1B_0074_2", 1, str(CUTOUT), 7, 2), ("2025W18_1B_0074_9", 1, str(CUTOUT), 8, 2)]
+    for obs, det, url, s, v in photos:
+        assert process_photo(str(one), obs, det, url, s, v)["status"] == "done"
+    sts = process_photos(str(many), photos, prefetch=prefetch)
+    assert [s["status"] for s in sts] == ["done", "done"]
+    for obs, det, *_ in photos:
+        a, ma = _table_bits(one / dots_rel(obs, det))
+        b, mb = _table_bits(many / dots_rel(obs, det))
+        assert a.keys() == b.keys() and ma == mb
+        for c in a:
+            assert np.array_equal(a[c], b[c]), c  # bitwise, NaN included
+    # a rerun skips both; a missing photo fails alone without stopping the others
+    assert {s["status"] for s in process_photos(str(many), photos, prefetch=prefetch)} == {"skipped"}
+
+
+def test_process_photos_failed_read_does_not_stop_the_task(tmp_path, monkeypatch):
+    from skyshift_pipeline.dots import process_photos
+    monkeypatch.setattr("skyshift_pipeline.config.NET_RETRIES", 1)
+    photos = [("X", 1, str(tmp_path / "missing.fits"), 0, 0), ("2025W18_1B_0074_2", 1, str(CUTOUT), 7, 2)]
+    sts = process_photos(str(tmp_path), photos, prefetch=True)
+    assert sts[0]["status"] == "failed" and sts[0]["error"] and sts[1]["status"] == "done"
