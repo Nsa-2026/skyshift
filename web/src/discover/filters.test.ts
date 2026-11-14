@@ -15,8 +15,11 @@ import {
   domainOf,
   FACET_VALUES,
   filterRows,
+  gradeOf,
   inRange,
   isCautioned,
+  isDoubted,
+  isGradedList,
   leading,
   motionArcsecYr,
   presetState,
@@ -248,6 +251,69 @@ describe("sorting", () => {
   it("sorts by brightness with unknowns last", () => expect(ids("brightest")).toEqual(["m", "a", "n", "b"]));
   it("sorts movers and moving stars on one motion scale", () => expect(ids("fastest")).toEqual(["m", "a", "b", "n"]));
   it("sorts newest first", () => expect(ids("newest")).toEqual(["b", "m", "a", "n"]));
+});
+
+describe("vetting grades", () => {
+  // Hand-made: a graded zone (A, B, C movers), a mover from an ungraded zone, a moving star.
+  const graded = [
+    c({ id: "a", kind: "mover", grade: "A", score: 0.4, reasons: ["two_exposures"] }),
+    c({ id: "b", kind: "mover", grade: "B", score: 0.9, reasons: ["two_exposures"] }),
+    c({ id: "c", kind: "mover", grade: "C", score: 0.09, reasons: ["two_exposures", "hot_pixel", "edge"] }),
+    c({ id: "c2", kind: "mover", grade: "C", score: 0.08, reasons: ["two_exposures", "2mass"] }),
+    c({ id: "u", kind: "mover", grade: null, score: 0.5, reasons: ["two_exposures"] }),
+    c({ id: "s", kind: "high_pm", grade: null, score: 0.7, reasons: ["pm_fit", "vetted"] }),
+  ];
+  const rows = toRows(graded, new Map());
+  const ids = (s: Partial<FilterState>) => filterRows(rows, st(s)).rows.map((r) => r.c.id);
+
+  it("reads the grade, and a missing or unknown one as ungraded, never as B", () => {
+    expect(gradeOf(c({ kind: "mover", grade: "B" }))).toBe("B");
+    expect(gradeOf(c({ kind: "mover", grade: null }))).toBeNull();
+    expect(gradeOf(c({ kind: "mover" }))).toBeNull(); // a file written before the vetting
+    expect(gradeOf(c({ kind: "mover", grade: "b" as never }))).toBeNull();
+    expect(isGradedList(graded)).toBe(true);
+    expect(isGradedList(all)).toBe(false); // the pilot sample predates the grades
+    expect(isGradedList([c({ kind: "mover", grade: null })])).toBe(false);
+  });
+
+  it("filters movers by grade, an ungraded mover as 'none', other kinds never", () => {
+    expect(ids({ grade: ["B"] })).toEqual(["b"]);
+    expect(ids({ grade: ["A", "B"] })).toEqual(["a", "b"]);
+    expect(ids({ grade: ["none"] })).toEqual(["u"]);
+    const f = filterRows(rows, st({ grade: ["C"] }));
+    expect(f.rows.map((r) => r.c.id)).toEqual(["c", "c2"]);
+    const n = countBy(f.without("grade"), FACET_VALUES.grade);
+    expect(Object.fromEntries(n)).toEqual({ A: 1, B: 1, C: 2, none: 1 });
+  });
+
+  it("counts grade C as a pipeline doubt, so 'Most promising' leaves it out whatever its reasons", () => {
+    expect(isDoubted(graded[2])).toBe(true);
+    expect(isDoubted(c({ kind: "mover", grade: "C", reasons: [] }))).toBe(true); // even with no gate named
+    expect(isDoubted(graded[1])).toBe(false);
+    const promising = presetState(PRESETS.find((p) => p.id === "promising")!);
+    const shown = sortRows(filterRows(rows, promising).rows, promising.sort).map((r) => r.c.id);
+    expect(shown).not.toContain("c");
+    expect(shown).not.toContain("c2");
+    expect(shown).toEqual(["a", "b", "s", "u"]);
+    // 'Check first' still offers the artefact gates (hot pixel, edge) as cautions to settle.
+    const check = presetState(PRESETS.find((p) => p.id === "check-first")!);
+    expect(filterRows(rows, check).rows.map((r) => r.c.id)).toEqual(["c"]);
+  });
+
+  it("puts grade A first in 'Pipeline score' and grade C after the rest, never hidden", () => {
+    const order = sortRows(rows, "promising").map((r) => r.c.id);
+    expect(order[0]).toBe("a");
+    expect(order.slice(-2).sort()).toEqual(["c", "c2"]);
+    expect(order).toHaveLength(6);
+  });
+
+  it("keeps the grade in the URL", () => {
+    const s = st({ kind: ["mover"], grade: ["B", "none"] });
+    expect(stateToQuery(s)).toBe("kind=mover&grade=B,none");
+    expect(queryToState("grade=B,none")).toEqual(st({ grade: ["B", "none"] }));
+    expect(activeCount(s)).toBe(2);
+    expect(withoutTest(s, "grade").grade).toEqual([]);
+  });
 });
 
 describe("the URL", () => {

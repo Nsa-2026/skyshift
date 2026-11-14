@@ -738,6 +738,70 @@
   line-height: 1.42;
   text-wrap: pretty;
 }
+/* A fast mover's vetting grade, under its name (contracts/api.md, candidates.json `grade`). The
+   grade is written out ("Grade B"), so the mark's fill is never the only cue: A solid red pencil,
+   B an ink outline, C a dashed grey outline on a greyed row. */
+.dv-grade {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin-top: 4px;
+  font-size: var(--step--1);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.grade-mark {
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 650;
+  font-variation-settings: "wdth" 92;
+  white-space: nowrap;
+}
+.dv-grade.is-a .grade-mark {
+  background: var(--pencil-red);
+  border-color: var(--pencil-red);
+  color: #fff;
+}
+.dv-grade.is-b .grade-mark {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.dv-grade.is-c .grade-mark {
+  border: 1px dashed var(--ink-3);
+  color: var(--ink-2);
+}
+.dv-grade.is-none {
+  color: var(--ink-3);
+}
+.dv-grade-words {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Grade C: kept on the list, greyed, still readable (AA) with its failed checks named. */
+.dv-row.is-greyed .dv-link,
+.dv-row.is-greyed .dv-why {
+  color: var(--ink-2);
+}
+.dv-row.is-greyed .dv-name {
+  font-weight: 550;
+}
+.dv-row.is-greyed .dv-link .kind-glyph,
+.dv-row.is-greyed .dv-thumb {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+.dv-row.is-greyed .dv-score-n {
+  color: var(--ink-3);
+}
+.dv-row.is-greyed .dv-bar > span {
+  background: var(--hair-strong);
+}
+
 .dv-tags {
   list-style: none;
   display: flex;
@@ -1147,6 +1211,10 @@
 }
 .sm-tip-why {
   margin-top: 4px;
+}
+.sm-tip-grade {
+  margin-top: 4px;
+  font-weight: 600;
 }
 .sm-tip-note {
   margin-top: 4px;

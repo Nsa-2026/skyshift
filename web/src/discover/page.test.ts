@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/api/candidates.json";
 import type { CandidatesResponse } from "../api/types";
@@ -128,6 +130,123 @@ describe("the Candidates page", () => {
     expect(el.querySelector('.dv-state a[href="#/explore"]')).not.toBeNull();
     expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
     expect(el.querySelector<HTMLElement>(".dv-filters")!.hidden).toBe(true);
+  });
+
+  // ---- vetting grades (hand-made from the pilot sample; public/data is never written) ----------
+
+  /** The pilot sample with its movers graded: the first B, the second C (hot pixel, 2MASS), the
+   *  rest B, and `ungraded` of them left without a grade (a zone run before the vetting). */
+  function gradedData(ungraded: string[] = []) {
+    const d = structuredClone(data);
+    const movers = d.candidates.filter((c) => c.kind === "mover");
+    for (const m of movers) m.grade = "B";
+    movers[1].grade = "C";
+    movers[1].reasons = [...movers[1].reasons, "hot_pixel", "2mass"];
+    for (const m of movers) if (ungraded.includes(m.id)) m.grade = null;
+    for (const c of d.candidates) if (c.kind !== "mover") c.grade = null;
+    return { d, movers };
+  }
+  const rowOf = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`.dv-row[data-id="${id}"]`)!;
+  /** No grade anywhere: rows, filters, active chips, the doubts toggle's hint. */
+  function expectNoGradeUi(el: HTMLElement) {
+    expect(el.querySelectorAll(".dv-grade, [data-grade], .dv-row.is-greyed")).toHaveLength(0);
+    expect(el.querySelector('[data-facet="grade"]')).toBeNull();
+    expect(el.querySelector(".dv-filters")?.textContent).not.toMatch(/grade|vetted/i);
+    expect(el.querySelector(".dv-results")?.textContent).not.toMatch(/grade [ABC]|not vetted/i);
+    const titles = [...el.querySelectorAll("[title]")].map((t) => t.getAttribute("title")).join("|");
+    expect(titles).not.toMatch(/grade [ABC]|\(grade C\)|not vetted/i);
+  }
+
+  it("shows a graded mover's grade in words, greys grade C with its failed checks, never hides it", async () => {
+    const { d, movers } = gradedData();
+    loadCandidates.mockResolvedValue(d);
+    const { el } = await mount("#/candidates/kind=mover");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 objects");
+
+    const b = rowOf(el, movers[0].id);
+    expect(b.dataset.grade).toBe("B");
+    expect(b.classList.contains("is-greyed")).toBe(false);
+    expect(b.querySelector(".dv-grade")?.textContent).toBe("Grade B. Passed every check, motion not shown yet");
+    expect(b.querySelector(".grade-mark")?.textContent).toBe("Grade B"); // the letter in words, not a colour
+
+    const sorted = [...el.querySelectorAll<HTMLElement>(".dv-row")].map((r) => r.dataset.id);
+    expect(sorted).toHaveLength(27);
+    expect(sorted[sorted.length - 1]).toBe(movers[1].id); // a doubt: last in 'Pipeline score', still listed
+    const c = rowOf(el, movers[1].id);
+    expect(c.dataset.grade).toBe("C");
+    expect(c.classList.contains("is-greyed")).toBe(true);
+    expect(c.querySelector(".dv-grade")?.textContent).toBe("Grade C. Failed: hot pixel, 2MASS source here");
+    expect(c.querySelector(".dv-grade")?.getAttribute("title")).toContain("hot_pixel");
+    // Named once, on the grade line, not again as chips; its other reasons stay chips.
+    const tags = [...c.querySelectorAll(".dv-tags li")].map((t) => t.textContent);
+    expect(tags.join("|")).not.toMatch(/Hot pixel|2MASS/);
+    expect(tags).toContain("Seen in two exposures");
+  });
+
+  it("filters by grade, and 'Most promising' leaves grade C out", async () => {
+    const { d, movers } = gradedData();
+    loadCandidates.mockResolvedValue(d);
+    const { el } = await mount();
+    const optC = el.querySelector<HTMLInputElement>('[data-facet="grade"] input[value="C"]')!;
+    expect(optC.closest("fieldset")?.querySelector("legend")?.textContent).toBe("Vetting grade (fast movers)");
+    expect(optC.closest("label")?.textContent).toBe("Grade C: failed a check1");
+    expect(el.querySelector('[data-facet="grade"] input[value="none"]')).toBeNull(); // every mover is graded
+    optC.checked = true;
+    optC.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(location.hash).toBe("#/candidates/grade=C");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("1 of 194 objects");
+    expect([...el.querySelectorAll(".achip")].map((x) => x.textContent)).toEqual(["Grade C"]);
+
+    el.querySelector<HTMLButtonElement>('[data-preset="promising"]')!.click();
+    expect(el.querySelector('[data-preset="promising"]')?.getAttribute("aria-pressed")).toBe("true");
+    const ids = [...el.querySelectorAll<HTMLElement>(".dv-row")].map((r) => r.dataset.id);
+    expect(ids).toContain(movers[0].id);
+    expect(ids).not.toContain(movers[1].id);
+    expect(el.querySelector("[data-show-n]")?.textContent).toBe("Show 34 objects"); // 35 before the grades, less the C
+  });
+
+  it("in a list with grades, says quietly that a mover without one isn't vetted", async () => {
+    const { d, movers } = gradedData([data.candidates.find((c) => c.kind === "mover")!.id]);
+    loadCandidates.mockResolvedValue(d);
+    const { el } = await mount("#/candidates/kind=mover");
+    const u = rowOf(el, movers[0].id);
+    expect(u.dataset.grade).toBeUndefined();
+    expect(u.querySelector(".dv-grade")?.textContent).toBe("Not vetted yet");
+    expect(u.querySelector(".dv-grade")?.classList.contains("is-none")).toBe(true);
+    expect(u.querySelector(".grade-mark")).toBeNull();
+    expect(el.querySelector('[data-facet="grade"] input[value="none"]')?.closest("label")?.textContent).toBe("Not vetted yet1");
+    // Moving stars carry no grade and get no grade line.
+    const box = el.querySelector<HTMLInputElement>('.fx input[value="high_pm"]')!;
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    const star = el.querySelector<HTMLElement>('.dv-row[data-id^="pilot-pm-"]')!;
+    expect(star.querySelector(".dv-grade")).toBeNull();
+  });
+
+  it("shows no grade at all for a list exported before the grades", async () => {
+    const { el } = await mount();
+    expect(el.querySelectorAll(".dv-row")).toHaveLength(50);
+    expectNoGradeUi(el);
+    const { el: movers } = await mount("#/candidates/kind=mover");
+    expectNoGradeUi(movers);
+  });
+
+  it("renders the published list: no grade anywhere while it has none (until the re-export), grades once it has", async () => {
+    const published = JSON.parse(readFileSync(join(__dirname, "../../public/data/candidates.json"), "utf8")) as CandidatesResponse;
+    const hasGrades = published.candidates.some((c) => c.grade != null);
+    loadCandidates.mockResolvedValue(published);
+    const { el } = await mount();
+    expect(el.querySelector(".dv-count")?.textContent).toBe(`${published.candidates.length.toLocaleString("en-GB")} objects`);
+    const { el: movers } = await mount("#/candidates/kind=mover");
+    expect(movers.querySelectorAll(".dv-row").length).toBeGreaterThan(0);
+    if (!hasGrades) {
+      // Today's file (0 of 1,333 rows graded): the page looks exactly as before the grades.
+      expectNoGradeUi(el);
+      expectNoGradeUi(movers);
+    } else {
+      // After the re-export every mover row says its grade, or that it isn't vetted.
+      for (const r of movers.querySelectorAll(".dv-row")) expect(r.querySelector(".dv-grade"), r.getAttribute("data-id")!).not.toBeNull();
+    }
   });
 
   it("in dev without a published list, uses the pilot sample and says so", async () => {

@@ -13,6 +13,25 @@ const cand: Candidate = {
   why: 'Moves 0.50″ per year, but "Gaia" lists a different motion, here.', frames_url: null,
 };
 
+/** Split one CSV line into its cells (RFC 4180 quotes). */
+function cells(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') (cur += '"'), i++;
+      else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") out.push(cur), (cur = "");
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
 describe("CSV cells", () => {
   it("quotes commas, quotes and line breaks (RFC 4180)", () => {
     expect(csvCell("plain")).toBe("plain");
@@ -47,7 +66,7 @@ describe("exports", () => {
     expect(lines[0]).toBe(CSV_COLUMNS.join(","));
     expect(lines).toHaveLength(2);
     expect(lines[1].startsWith("pilot-pm-0001,high_pm,123.641863,15.015899,61061.198342,")).toBe(true);
-    expect(lines[1]).toContain(",red;ch4,gaia_pm_disagrees,,");
+    expect(lines[1]).toContain(",red;ch4,,gaia_pm_disagrees,,"); // labels, grade (none: not a mover), reasons, flags
     expect(lines[1]).toContain('"Moves 0.50″ per year, but ""Gaia"" lists a different motion, here."');
     expect(lines[1].endsWith(",6,5,0,1,0,mover,https://skyshift.web.app/#/c/pilot-pm-0001")).toBe(true);
     expect(csv.endsWith("\r\n")).toBe(true);
@@ -60,6 +79,22 @@ describe("exports", () => {
     expect(j.candidates[0].id).toBe("pilot-pm-0001");
     expect(j.candidates[0].pm_mas_yr).toBe(501.44);
     expect(j.candidates[0].votes).toEqual({ mover: 5, changing: 0, junk: 1, unsure: 0, total: 6, verdict: "mover" });
+  });
+
+  it("writes each mover's vetting grade, and an empty grade for a file written before the grades", () => {
+    const mover = (id: string, grade: Candidate["grade"], reasons: string[] = ["two_exposures"]): Candidate => ({
+      ...cand, id, kind: "mover", clock: "hours", pm_mas_yr: null, pm_err_mas_yr: null, labels: [], reasons, grade,
+    });
+    const old: Partial<Candidate> = mover("old", null);
+    delete old.grade; // an ungraded export has no `grade` key at all
+    const graded = toRows([mover("b", "B"), mover("c", "C", ["two_exposures", "hot_pixel", "edge"]), mover("u", null), old as Candidate], new Map());
+    const csv = toCsv(graded, "https://x").trimEnd().split("\r\n");
+    const col = CSV_COLUMNS.indexOf("grade");
+    expect(col).toBe(CSV_COLUMNS.indexOf("labels") + 1); // the contract's order: labels, grade, reasons
+    expect(csv.slice(1).map((l) => cells(l)[col])).toEqual(["B", "C", "", ""]);
+    expect(cells(csv[2])[col + 1]).toBe("two_exposures;hot_pixel;edge"); // a C keeps its failed checks in reasons
+    const j = JSON.parse(toJson(graded, { generated: "g", data_release: "d", query_url: "u", exported: "e" }));
+    expect(j.candidates.map((x: { grade: unknown }) => x.grade)).toEqual(["B", "C", null, null]);
   });
 
   it("links each candidate by its id", () => {

@@ -80,6 +80,85 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   not_vetted: { label: "Not vetted", tone: "doubt", detail: "There was no pixel data to run the artefact checks on, so nothing was ruled out." },
 };
 
+/** The suspects' vetting gates (contracts/api.md, suspects.json `reasons`): a grade C mover lists the
+ *  ones it failed among its reasons. */
+export const VET_GATES = [
+  "not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp",
+  "flux_ratio", "red_photo", "2mass", "allwise",
+] as const;
+const VET_GATE_SET = new Set<string>(VET_GATES);
+export const isVetGate = (code: string): boolean => VET_GATE_SET.has(code);
+
+// ---- vetting grades (movers; contracts/api.md candidates.json `grade`) ----------------------------
+
+export type Grade = "A" | "B" | "C";
+export const GRADES: Grade[] = ["A", "B", "C"];
+
+export interface GradeText {
+  /** "Grade B". */
+  label: string;
+  /** A few plain words, shown next to the label on a row. */
+  short: string;
+  /** Fewer words, for the filter option. */
+  option: string;
+  /** One or two sentences for title attributes. */
+  detail: string;
+}
+
+export const GRADE_TEXT: Record<Grade, GradeText> = {
+  A: {
+    label: "Grade A",
+    short: "Moves along a track",
+    option: "moves along a track",
+    detail: "Passed every check and moves along one track over two or more sessions, at 5σ or more, with nothing known there: a candidate mover.",
+  },
+  B: {
+    label: "Grade B",
+    short: "Passed every check, motion not shown yet",
+    option: "passed every check",
+    detail: "Passed every check, but its motion isn't shown yet: most are two detections in one session, too close to measure a step. An unexplained one-session source.",
+  },
+  C: {
+    label: "Grade C",
+    short: "Failed a check",
+    option: "failed a check",
+    detail: "Failed at least one check, so it is most likely an artefact or a catalogued source. Kept on the list, greyed, with the checks it failed.",
+  },
+};
+
+/** A mover without a grade in a list where other movers have one: its zone ran before the vetting. */
+export const UNGRADED_TEXT: GradeText = {
+  label: "Not vetted yet",
+  short: "Not vetted yet",
+  option: "not vetted yet",
+  detail: "Its zone was searched before the checks existed, so it has no grade: nothing has been ruled out.",
+};
+
+/** Lower-case the first word unless it is an acronym or a name ("2MASS", "AllWISE", "CatWISE"). */
+export function lcFirst(s: string): string {
+  return /^[A-Z][a-z]*([\s:,.]|$)/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
+}
+
+/** A grade C mover's failed checks in words: "hot pixel, at the detector edge". "" when none are named. */
+export function failedChecks(reasons: string[]): string {
+  return reasons
+    .filter(isVetGate)
+    .map((code) => lcFirst(reasonText(code).label))
+    .join(", ");
+}
+
+/** The words next to a grade: "Passed every check, motion not shown yet", "Failed: hot pixel, at the detector edge". */
+export function gradeWords(grade: Grade, reasons: string[]): string {
+  const failed = grade === "C" ? failedChecks(reasons) : "";
+  return failed ? `Failed: ${failed}` : GRADE_TEXT[grade].short;
+}
+
+/** One sentence: "Grade B: passed every check, motion not shown yet." "Grade C, failed: hot pixel." */
+export function gradeSentence(grade: Grade, reasons: string[]): string {
+  const words = lcFirst(gradeWords(grade, reasons));
+  return `${GRADE_TEXT[grade].label}${words.startsWith("failed:") ? "," : ":"} ${words}.`;
+}
+
 /** Codes the exporter may use for the same two cautions (exact names still settling). */
 const CAUTION_CODE = /outlier|repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary|persist|ghost|halo|crosstalk|bloom|artefact|artifact/i;
 

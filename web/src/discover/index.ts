@@ -25,6 +25,8 @@ import {
   filterRows,
   FACET_VALUES,
   candidatesHash,
+  gradeOf,
+  isGradedList,
   leading,
   routeQuery,
   isActiveRange,
@@ -50,7 +52,23 @@ import {
   type Tri,
 } from "./filters";
 import { glyphSvg, mountSkyMap } from "./skymap";
-import { KIND_TEXT, KINDS, REVIEW_TEXT, flagText, labelText, reasonText, zonesPhrase, type ReviewState } from "./text";
+import {
+  GRADE_TEXT,
+  GRADES,
+  KIND_TEXT,
+  KINDS,
+  REVIEW_TEXT,
+  UNGRADED_TEXT,
+  failedChecks,
+  flagText,
+  gradeWords,
+  isVetGate,
+  labelText,
+  reasonText,
+  zonesPhrase,
+  type Grade,
+  type ReviewState,
+} from "./text";
 import { thumbLoader } from "./thumb";
 import { onVoted, openVoteReader, type VoteReader } from "./votes";
 
@@ -151,6 +169,9 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const stateEl = $<HTMLDivElement>(".dv-state");
 
   let data: CandidatesResponse | null = null;
+  /** The list carries vetting grades. Until it does (files exported before 14 Nov evening), the page
+   *  shows no grade anywhere. */
+  let graded = false;
   let sample = false;
   let loading = true;
   let byId = new Map<string, Candidate>();
@@ -201,6 +222,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       return;
     }
     byId = new Map(data.candidates.map((c) => [c.id, c]));
+    graded = isGradedList(data.candidates);
     rows = toRows(data.candidates, counts);
     for (const n of [presetsEl, mapAside, filtersEl, toolbar]) n.hidden = false;
     map.setData(data.candidates);
@@ -325,7 +347,15 @@ export const mountDiscover: MountPage = (el, ctx) => {
     );
     toggle(g2, "hideMine", "mine", "Hide ones I voted on", (r) => r.mine, "From this browser's memory; nothing leaves your device.");
 
-    const g3 = group("Evidence", ["reason", "doubts", "cautions", "gaia", "catwise", "known"]);
+    const g3 = group("Evidence", ["grade", "reason", "doubts", "cautions", "gaia", "catwise", "known"]);
+    // Only once the list carries grades: an older file shows no grade control at all.
+    if (graded)
+      checkList(g3, "grade", "Vetting grade (fast movers)", () => {
+        const opts: Opt[] = GRADES.map((g) => ({ v: g, label: `${GRADE_TEXT[g].label}: ${GRADE_TEXT[g].option}`, title: `grade ${g}: ${GRADE_TEXT[g].detail}` }));
+        if (cands.some((c) => c.kind === "mover" && gradeOf(c) == null) || state.grade.includes("none"))
+          opts.push({ v: "none", label: UNGRADED_TEXT.label, title: `grade null: ${UNGRADED_TEXT.detail}` });
+        return opts;
+      });
     chipList(
       g3,
       "reason",
@@ -336,7 +366,16 @@ export const mountDiscover: MountPage = (el, ctx) => {
           .map((v) => ({ v, label: reasonText(v).label, title: `${v}: ${reasonText(v).detail}`, tone: reasonText(v).tone })),
       "No reason codes in this set.",
     );
-    toggle(g3, "hideDoubts", "doubts", "Hide ones the pipeline doubts", (r) => isDoubted(r.c), "Any reason marked with a ring: a catalogue disagrees, a poor fit, few detections, or chance pairs.");
+    toggle(
+      g3,
+      "hideDoubts",
+      "doubts",
+      "Hide ones the pipeline doubts",
+      (r) => isDoubted(r.c),
+      graded
+        ? "Any reason marked with a ring (a catalogue disagrees, a poor fit, few detections, or chance pairs), or a fast mover that failed a check (grade C)."
+        : "Any reason marked with a ring: a catalogue disagrees, a poor fit, few detections, or chance pairs.",
+    );
     tri(g3, "cautions", "Artefact cautions", "Flags near it (outlier pixels, ghosts, halos, crosstalk, bloom) or the same spot seen days apart. Many of these are junk.", isCautioned, ["With", "Without"]);
     tri(g3, "gaia", "In Gaia", "gaia_match", (c) => c.gaia_match);
     tri(g3, "catwise", "In CatWISE", "catwise_match", (c) => c.catwise_match);
@@ -395,6 +434,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   function checkList(parent: HTMLElement, key: ListKey, title: string, options: () => Opt[], o: { emptyText?: string; hideWhenEmpty?: boolean } = {}) {
     const fs = document.createElement("fieldset");
     fs.className = "fx";
+    fs.dataset.facet = key;
     parent.append(fs);
     let sig = "";
     fs.addEventListener("change", () => {
@@ -721,6 +761,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const out: { label: string; remove(): FilterState }[] = [];
     const drop = (key: ListKey, v: string) => () => ({ ...s, [key]: s[key].filter((x) => x !== v) });
     for (const v of s.kind) out.push({ label: KIND_TEXT[v as keyof typeof KIND_TEXT]?.name ?? v, remove: drop("kind", v) });
+    for (const v of s.grade) out.push({ label: v === "none" ? UNGRADED_TEXT.label : GRADE_TEXT[v as Grade]?.label ?? `Grade ${v}`, remove: drop("grade", v) });
     for (const v of s.review) out.push({ label: REVIEW_TEXT[v as ReviewState] ?? v, remove: drop("review", v) });
     for (const v of s.verdict) out.push({ label: `Verdict: ${ANSWER_TEXT[v as Answer]?.label ?? v}`, remove: drop("verdict", v) });
     for (const v of s.label) out.push({ label: labelText(v), remove: drop("label", v) });
@@ -826,10 +867,13 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const kind = KIND_TEXT[c.kind] ?? { name: c.kind, plural: c.kind, gist: "" };
     const pos = formatRaDec(c);
     const href = `#/c/${encodeURIComponent(c.id)}`;
+    const grade = graded ? gradeOf(c) : null;
+    // A grade C row names its failed checks on its grade line, so they aren't repeated as chips.
+    const reasons = grade === "C" && failedChecks(c.reasons) ? c.reasons.filter((x) => !isVetGate(x)) : c.reasons;
     const chips: string[] = [];
     for (const l of c.labels) chips.push(html`<li class="tag tag-label" title="${esc(l)}">${esc(labelText(l))}</li>`);
-    const doubts = c.reasons.filter(isDoubtCode);
-    for (const code of c.reasons.filter((x) => reasonText(x).tone === "support")) {
+    const doubts = reasons.filter(isDoubtCode);
+    for (const code of reasons.filter((x) => reasonText(x).tone === "support")) {
       const t = reasonText(code);
       chips.push(html`<li class="tag tag-support" title="${esc(code)}: ${esc(t.detail)}">${esc(t.label)}</li>`);
     }
@@ -848,17 +892,18 @@ export const mountDiscover: MountPage = (el, ctx) => {
     // Cautions: artefact flags and caution reasons (outlier pixels, the same spot days apart), once each.
     const cautions = new Map<string, string>();
     for (const fl of c.flags) cautions.set(flagText(fl), fl);
-    for (const code of c.reasons.filter(isCautionCode)) {
+    for (const code of reasons.filter(isCautionCode)) {
       const t = reasonText(code);
       cautions.set(t.label, cautions.has(t.label) ? `${cautions.get(t.label)}, ${code}` : `${code}: ${t.detail}`);
     }
     for (const [label, title] of cautions)
       chips.push(html`<li class="tag tag-caution" title="${esc(title)}"><span class="caution-mark" aria-hidden="true"></span>${esc(label)}<span class="visually-hidden"> (caution)</span></li>`);
     const det = DETECTORS[c.det];
-    return html`<li class="dv-row" data-id="${esc(c.id)}">
+    return html`<li class="dv-row${grade === "C" ? " is-greyed" : ""}" data-id="${esc(c.id)}"${grade ? ` data-grade="${grade}"` : ""}>
       <div class="dv-thumb" data-thumb="${esc(c.id)}" aria-hidden="true">${emptyPlate()}</div>
       <div class="dv-main">
         <h3 class="dv-name"><a class="dv-link" href="${href}" title="${esc(c.id)}">${glyphSvg(c.kind, 12)}<span class="dv-kind">${esc(kind.name)}</span><span class="dv-pos">${esc(pos)}</span></a></h3>
+        ${gradeHtml(c)}
         <p class="dv-why">${esc(c.why)}</p>
         ${chips.length ? html`<ul class="dv-tags" aria-label="Labels and reasons">${chips.join("")}</ul>` : ""}
       </div>
@@ -866,6 +911,22 @@ export const mountDiscover: MountPage = (el, ctx) => {
       <div class="dv-score">${scoreHtml(c.score)}</div>
       <div class="dv-votes">${votesHtml(r)}</div>
     </li>`;
+  }
+
+  /** The vetting grade under the name: "Grade B  Passed every check, motion not shown yet", or for
+   *  grade C the checks it failed. A mover without a grade says "Not vetted yet", quietly. Nothing at
+   *  all until the list carries grades. The letter is in words, so colour is never the only cue. */
+  function gradeHtml(c: Candidate): string {
+    if (!graded) return "";
+    const g = gradeOf(c);
+    if (!g)
+      return c.kind === "mover"
+        ? html`<p class="dv-grade is-none" title="${esc(UNGRADED_TEXT.detail)}">${esc(UNGRADED_TEXT.label)}</p>`
+        : "";
+    const t = GRADE_TEXT[g];
+    const gates = g === "C" ? c.reasons.filter(isVetGate).map((code) => `${reasonText(code).label} (${code}): ${reasonText(code).detail}`) : [];
+    const title = [t.detail, ...gates].join(" ");
+    return html`<p class="dv-grade is-${g.toLowerCase()}" title="${esc(title)}"><span class="grade-mark">${esc(t.label)}</span><span class="visually-hidden">. </span><span class="dv-grade-words">${esc(gradeWords(g, c.reasons))}</span></p>`;
   }
 
   function measured(c: Candidate): string {

@@ -107,6 +107,29 @@ describe("the map", () => {
     el.remove();
   });
 
+  it("names a mover's grade in its tip once the list has grades, and nothing before", () => {
+    const tipFor = (cands: Candidate[], id: string) => {
+      const el = document.createElement("div");
+      document.body.append(el);
+      const map = mountSkyMap(el, { onOpen: () => {} });
+      map.setData(cands);
+      map.setFiltered([id]);
+      el.querySelector<HTMLElement>(".skymap-plot")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+      const tip = el.querySelector(".skymap-tip");
+      const out = { grade: tip?.querySelector(".sm-tip-grade")?.textContent ?? null, live: el.querySelector("[aria-live]")?.textContent ?? "" };
+      map.destroy();
+      el.remove();
+      return out;
+    };
+    const m = (id: string, grade: Candidate["grade"], reasons: string[] = []) => ({ ...cand(id, 122, 16, "mover"), grade, reasons });
+    const graded = [m("b", "B"), m("c", "C", ["two_exposures", "edge", "allwise"]), m("u", null), cand("s", 123, 17)];
+    expect(tipFor(graded, "b").grade).toBe("Grade B: passed every check, motion not shown yet.");
+    expect(tipFor(graded, "c").grade).toBe("Grade C, failed: at the detector edge, AllWISE source here.");
+    expect(tipFor(graded, "u").grade).toBe("Not vetted yet.");
+    expect(tipFor(graded, "s").grade).toBeNull(); // moving stars have no grade
+    expect(tipFor([m("u", null), cand("s", 123, 17)], "u").grade).toBeNull(); // an ungraded list says nothing
+  });
+
   it("offers one close-up per zone when there are several", () => {
     const el = document.createElement("div");
     const map = mountSkyMap(el, { onOpen: () => {} });

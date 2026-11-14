@@ -332,6 +332,11 @@ export interface Candidate {
   galactic_b: number;
   /** Short machine labels for filters: "red", "ch4", "h2o_ice", "co2_ice", "co_ice", "h2o_vapour", "brown_dwarf_like", … */
   labels: string[];
+  /** Movers: the suspects' vetting grade. A: on a track over ≥ 2 sessions at ≥ 5σ; B: passes every
+   *  gate, motion not shown; C: failed a gate (its gates are in `reasons`). null for high_pm,
+   *  spectral and movers of zones run before the vetting. Absent from files exported before
+   *  14 Nov evening: read absent as ungraded (unvetted), never as B. */
+  grade?: "A" | "B" | "C" | null;
   /** Pipeline reason codes, e.g. "two_exposures", "gaia_pm_disagrees", "few_dots", "bad_fit". */
   reasons: string[];
   /** One plain sentence: why this is on the list. */

@@ -4,7 +4,15 @@
 // the list highlight the same point.
 import type { Candidate, CandidateKind } from "../api/types";
 import { formatRaDec } from "../app/astro";
-import { KIND_TEXT, KINDS } from "./text";
+import { gradeOf, isGradedList } from "./filters";
+import { KIND_TEXT, KINDS, UNGRADED_TEXT, gradeSentence } from "./text";
+
+/** A mover's grade in one sentence for a list that carries grades; "" for other kinds. */
+export function gradeLine(c: Candidate): string {
+  const g = gradeOf(c);
+  if (g) return gradeSentence(g, c.reasons);
+  return c.kind === "mover" ? `${UNGRADED_TEXT.label}.` : "";
+}
 
 const D2R = Math.PI / 180;
 const html = String.raw;
@@ -154,6 +162,8 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   let pts: Pt[] = [];
   let byId = new Map<string, Pt>();
   let byIdAll = new Map<string, Candidate>();
+  /** The list carries vetting grades: then the tip names a mover's grade. */
+  let graded = false;
   let hot: string | null = null;
   let hotFrom: "map" | "list" | null = null;
   /** Close up fits one pipeline zone at a time; null = the zone with the most filtered candidates. */
@@ -435,7 +445,15 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const why = document.createElement("p");
     why.className = "sm-tip-why";
     why.textContent = p.c.why;
-    tip.append(head, pos, why);
+    tip.append(head, pos);
+    const grade = graded ? gradeLine(p.c) : "";
+    if (grade) {
+      const g = document.createElement("p");
+      g.className = "sm-tip-grade";
+      g.textContent = grade;
+      tip.append(g);
+    }
+    tip.append(why);
     const outside = p.sx < 0 || p.sx > W || p.sy < 0 || p.sy > H;
     if (outside) {
       const n = document.createElement("p");
@@ -465,7 +483,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     else [left, top] = [clampX(p.sx - tw / 2), Math.max(4, p.sy - gap - th)];
     tip.style.left = `${left}px`;
     tip.style.top = `${top}px`;
-    if (hotFrom === "map") live.textContent = `${name}, ${formatRaDec(p.c)}. ${p.c.why}`;
+    if (hotFrom === "map") live.textContent = `${name}, ${formatRaDec(p.c)}. ${grade ? `${grade} ` : ""}${p.c.why}`;
   }
 
   function setHot(id: string | null, from: "map" | "list" | null) {
@@ -558,6 +576,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     setData(next) {
       all = next;
       byIdAll = new Map(next.map((c) => [c.id, c]));
+      graded = isGradedList(next);
       zones = [...new Set(next.map((c) => c.zone))].sort();
       render();
     },

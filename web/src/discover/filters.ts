@@ -9,7 +9,7 @@
 //   const link = candidatesHash(state);                // shareable link to the same list
 import type { Candidate, CandidateKind } from "../api/types";
 import { consensus as voteConsensus, type Answer, type Counts } from "../vote/model";
-import { reasonText, type ReviewState } from "./text";
+import { GRADES, reasonText, type Grade, type ReviewState } from "./text";
 
 export type Tri = "any" | "yes" | "no";
 export type SortKey = "promising" | "fewest" | "most" | "brightest" | "fastest" | "newest";
@@ -39,11 +39,13 @@ export const RANGE_KEYS = ["score", "sig", "pm", "rate", "snr", "flux", "known",
 export type RangeKey = (typeof RANGE_KEYS)[number];
 
 /** Multi-choice facets (OR within a facet, AND between facets). Values are strings, as in the URL. */
-export const LIST_KEYS = ["kind", "review", "verdict", "label", "reason", "det", "zone"] as const;
+export const LIST_KEYS = ["kind", "grade", "review", "verdict", "label", "reason", "det", "zone"] as const;
 export type ListKey = (typeof LIST_KEYS)[number];
 
 export interface FilterState {
   kind: string[];
+  /** Vetting grades of fast movers: "A", "B", "C", or "none" for a mover without a grade. */
+  grade: string[];
   review: string[];
   verdict: string[];
   label: string[];
@@ -66,6 +68,7 @@ export interface FilterState {
 export function defaultState(): FilterState {
   return {
     kind: [],
+    grade: [],
     review: [],
     verdict: [],
     label: [],
@@ -118,6 +121,25 @@ export function toRows(cands: Candidate[], counts: Map<string, Counts>, votedOn:
     const verdict = verdictOf(votes);
     return { c, votes, total, verdict, review: verdict ? "consensus" : total > 0 ? "some" : "none", mine: votedOn(c.id) };
   });
+}
+
+// ---- vetting grades ----------------------------------------------------------------------------
+
+/** A candidate's vetting grade, or null (not a mover, or its zone ran before the vetting). A file
+ *  written before the grades has no `grade` at all: that reads as null too, never as B. */
+export function gradeOf(c: Candidate): Grade | null {
+  return GRADES.includes(c.grade as Grade) ? (c.grade as Grade) : null;
+}
+
+/** The list carries vetting grades: at least one candidate has one. Until then the page shows no
+ *  grade at all; after, a mover without one says it isn't vetted. */
+export function isGradedList(cands: Candidate[]): boolean {
+  return cands.some((c) => gradeOf(c) != null);
+}
+
+/** The grade facet's value: the grade, "none" for a mover without one, nothing for other kinds. */
+export function gradeKey(c: Candidate): string | null {
+  return gradeOf(c) ?? (c.kind === "mover" ? "none" : null);
 }
 
 // ---- measured values ---------------------------------------------------------------------------
@@ -226,8 +248,10 @@ export function isCautioned(c: Candidate): boolean {
   return c.flags.length > 0 || c.reasons.some(isCautionCode);
 }
 
+/** The pipeline doubts it: a doubt among its reasons, or a failed vetting check (grade C), so
+ *  "Most promising" and "Hide ones the pipeline doubts" leave grade C out. */
 export function isDoubted(c: Candidate, doubts: (code: string) => boolean = isDoubtCode): boolean {
-  return c.reasons.some(doubts);
+  return gradeOf(c) === "C" || c.reasons.some(doubts);
 }
 
 /** Keys of the independent tests: facet counts leave their own key out. */
@@ -244,6 +268,7 @@ const triPass = (t: Tri, v: boolean) => t === "any" || (t === "yes") === v;
 function tests(s: FilterState, doubts: (code: string) => boolean): Test[] {
   const out: Test[] = [];
   if (s.kind.length) out.push({ key: "kind", pass: (r) => has(s.kind, r.c.kind) });
+  if (s.grade.length) out.push({ key: "grade", pass: (r) => has(s.grade, gradeKey(r.c) ?? "") });
   if (s.review.length) out.push({ key: "review", pass: (r) => has(s.review, r.review) });
   if (s.verdict.length) out.push({ key: "verdict", pass: (r) => r.verdict != null && has(s.verdict, r.verdict) });
   if (s.label.length) out.push({ key: "label", pass: (r) => r.c.labels.some((l) => has(s.label, l)) });
@@ -301,6 +326,10 @@ export function countBy(rows: Row[], valuesOf: (r: Row) => string[]): Map<string
 
 export const FACET_VALUES: Record<ListKey, (r: Row) => string[]> = {
   kind: (r) => [r.c.kind],
+  grade: (r) => {
+    const g = gradeKey(r.c);
+    return g ? [g] : [];
+  },
   review: (r) => [r.review],
   verdict: (r) => (r.verdict ? [r.verdict] : []),
   label: (r) => r.c.labels,
@@ -327,10 +356,12 @@ export function activeCount(s: FilterState): number {
 /** Descending with nulls last. */
 const desc = (a: number | null, b: number | null) => (a == null ? (b == null ? 0 : 1) : b == null ? -1 : b - a);
 
-/** The "Pipeline score" order: anything an artefact may be behind goes last, then the pipeline's
- *  doubts; then the score, how sure the motion is, and S/N. */
+/** The "Pipeline score" order: grade A movers first (contracts/api.md: "show A first"); anything an
+ *  artefact may be behind goes last, then the pipeline's doubts (grade C among them); then the
+ *  score, how sure the motion is, and S/N. */
 function promising(a: Row, b: Row): number {
   return (
+    Number(gradeOf(b.c) === "A") - Number(gradeOf(a.c) === "A") ||
     Number(isCautioned(a.c)) - Number(isCautioned(b.c)) ||
     Number(isDoubted(a.c)) - Number(isDoubted(b.c)) ||
     desc(a.c.score, b.c.score) ||
