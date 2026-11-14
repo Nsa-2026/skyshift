@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "precompute"))
 import precompute  # noqa: E402
+from skyshift_server import known  # noqa: E402
 
 
 def _row(det: int, mjd: float, ra: float = 10.0, dec: float = 5.0):
@@ -45,3 +46,33 @@ def test_comet_rows_come_from_the_irsa_table():
     assert {r["image"].det for r in rows} == {1, 2, 3, 4, 5, 6}
     seq = [r for r in rows if precompute.COMET_MJD[0] < r["image"].mjd < precompute.COMET_MJD[1]]
     assert 30 < len(seq) < 80 and all(r["image"].visit == 2 for r in seq)
+
+
+def test_refresh_known_rewrites_only_known(tmp_path, monkeypatch):
+    import json
+
+    folder = tmp_path / "star"
+    frames = {"clock": "months", "center": {"ra": 10.0, "dec": 5.0}, "pixel_arcsec": 2.05, "size": [146, 146],
+              "epochs": [{"id": "d2-v1", "mjd_mid": 60900.5, "det": 2}, {"id": "d2-v2", "mjd_mid": 61090.5, "det": 2}],
+              "gaia": [], "known": [{"name": "Old entry", "epoch_id": "d2-v1", "ra": 10.0, "dec": 5.0, "v": 7.0,
+                                     "source": "mpc"}], "data_release": "DR1+QR3", "archive_checked": "2026-11-14"}
+    n = precompute.write_json(folder / "frames_months_5.json", frames, compact=True)
+    precompute.write_json(folder / "index.json", {"slug": "star", "frames": [
+        {"file": "frames_months_5.json", "clock": "months", "fov": 5, "dets": [2], "epochs": 2, "bytes": n + 1000}],
+        "own": "frames_months_5.json"})
+    calls = []
+
+    def fake_near(ra, dec, r, mjds, *, epoch_ids=None, cache=None):
+        calls.append((ra, dec, r, list(mjds), list(epoch_ids)))
+        return [{"name": "Vesta", "epoch_id": epoch_ids[1], "ra": ra, "dec": dec, "v": 7.1, "source": "mpc"}]
+
+    monkeypatch.setattr(precompute, "OUT", tmp_path)
+    monkeypatch.setattr(known, "near", fake_near)
+    precompute.refresh_known("star", cache=None)
+    assert calls == [(10.0, 5.0, pytest.approx(5 / 2 * 2**0.5), [60900.5, 61090.5], ["d2-v1", "d2-v2"])]
+    out = json.loads((folder / "frames_months_5.json").read_text())
+    assert out == {**frames, "known": [{"name": "Vesta", "epoch_id": "d2-v2", "ra": 10.0, "dec": 5.0, "v": 7.1,
+                                        "source": "mpc"}]}
+    assert (folder / "frames.json").read_bytes() == (folder / "frames_months_5.json").read_bytes()
+    entry = json.loads((folder / "index.json").read_text())["frames"][0]
+    assert entry["bytes"] == (folder / "frames_months_5.json").stat().st_size + 1000  # frame files unchanged
