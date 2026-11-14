@@ -1,86 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { SEEN_KEY, claimOpening, isBareHome, isOpeningPreview, type OpeningEnv, type SeenStore } from "./rules";
+import { openingMode, isBareHome, isOpeningPreview, type OpeningEnv } from "./rules";
 
-function memory(): SeenStore & { values: Map<string, string> } {
-  const values = new Map<string, string>();
-  return {
-    values,
-    getItem: (k) => values.get(k) ?? null,
-    setItem: (k, v) => void values.set(k, v),
-  };
-}
-
-function env(over: Partial<OpeningEnv> = {}, store: SeenStore | null = memory()): OpeningEnv {
-  return { hash: "", search: "", reducedMotion: false, store: () => store, ...over };
+function env(over: Partial<OpeningEnv> = {}): OpeningEnv {
+  return { hash: "", search: "", reducedMotion: false, ...over };
 }
 
 describe("the opening plays", () => {
-  it.each(["", "#", "#/"])("on a first visit to the bare home URL (hash %j), once", (hash) => {
-    const store = memory();
-    expect(claimOpening(env({ hash }, store))).toBe(true);
-    expect(store.values.get(SEEN_KEY)).toBe("1");
-    // Second visit, a reload or another tab: never again.
-    expect(claimOpening(env({ hash }, store))).toBe(false);
+  it.each(["", "#", "#/"])("on every visit to the home URL (hash %j)", hash => {
+    expect(openingMode(env({ hash }))).toBe("play");
+    expect(openingMode(env({ hash }))).toBe("play");
+  });
+  it.each(["?utm_source=mail&utm_campaign=sky", "?fbclid=x", "?gclid=x&msclkid=y", "?UTM_SOURCE=link"])("with attribution tags %s", search => {
+    expect(openingMode(env({ search }))).toBe("play");
+  });
+  it("uses a still title for reduced motion on every home visit", () => {
+    expect(openingMode(env({ reducedMotion: true }))).toBe("still");
+    expect(openingMode(env({ reducedMotion: true }))).toBe("still");
   });
 });
 
 describe("the opening stays away", () => {
-  it.each(["#/explore", "#/sky/266,-29,50", "#/c/abc", "#/candidates", "#/about", "#/review"])(
-    "for the deep link %s, and doesn't use up the first visit",
-    (hash) => {
-      const store = memory();
-      expect(claimOpening(env({ hash }, store))).toBe(false);
-      expect(store.values.size).toBe(0);
-    },
-  );
-  it.each(["?t=barnard", "?ra=269.45&dec=4.69", "?embed=1", "?target=wise0855"])("for the query link %s", (search) => {
-    const store = memory();
-    expect(claimOpening(env({ search }, store))).toBe(false);
-    expect(store.values.size).toBe(0);
+  it.each(["#/explore", "#/sky", "#/sky/266,-29,50", "#/c/abc", "#/candidates", "#/about", "#/review", "#/research/data"])("for the deep link %s", hash => {
+    expect(openingMode(env({ hash }))).toBeNull();
   });
-  it("when it has been seen", () => {
-    const store = memory();
-    store.setItem(SEEN_KEY, "1");
-    expect(claimOpening(env({}, store))).toBe(false);
-  });
-  it("with reduced motion, and leaves the first visit unused", () => {
-    const store = memory();
-    expect(claimOpening(env({ reducedMotion: true }, store))).toBe(false);
-    expect(store.values.size).toBe(0);
-  });
-  it("when the browser denies storage", () => {
-    expect(claimOpening({ ...env(), store: () => { throw new DOMException("denied", "SecurityError"); } })).toBe(false);
-  });
-  it("when reading storage throws", () => {
-    const store = { getItem: () => { throw new Error("denied"); }, setItem: () => {} };
-    expect(claimOpening(env({}, store))).toBe(false);
-  });
-  it("when writing storage throws (quota, Safari private mode)", () => {
-    const store = { getItem: () => null, setItem: () => { throw new Error("QuotaExceededError"); } };
-    expect(claimOpening(env({}, store))).toBe(false);
-  });
-  it("when storage silently drops the write", () => {
-    const store = { getItem: () => null, setItem: () => {} };
-    expect(claimOpening(env({}, store))).toBe(false);
-  });
-  it("when there is no storage at all", () => {
-    expect(claimOpening(env({}, null))).toBe(false);
+  it.each(["?t=barnard", "?ra=269.45&dec=4.69", "?embed=1", "?target=wise0855", "?utm_source=x&t=barnard"])("for the query link %s", search => {
+    expect(openingMode(env({ search }))).toBeNull();
   });
 });
 
 describe("isBareHome", () => {
-  it("accepts only the home itself", () => {
+  it("accepts the home itself and tracking tags, but no observation state", () => {
     expect(isBareHome("", "")).toBe(true);
     expect(isBareHome("#/", "?")).toBe(true);
+    expect(isBareHome("", "?utm_source=x")).toBe(true);
     expect(isBareHome("#/sky", "")).toBe(false);
-    expect(isBareHome("", "?utm_source=x")).toBe(false);
+    expect(isBareHome("", "?utm_source=x&embed=1")).toBe(false);
   });
 });
 
-it('offers an explicit opening preview without intercepting observation, embed or area links',()=>{
-  expect(isOpeningPreview('', '?intro=1')).toBe(true);
-  expect(isOpeningPreview('#/sky/125.6315,19.2541,360,mol', '?intro=1')).toBe(true);
-  for(const search of ['?intro=0','?intro=1&t=barnard','?intro=1&ra=10&dec=20','?intro=1&embed=1'])
-    expect(isOpeningPreview('', search)).toBe(false);
-  expect(isOpeningPreview('#/research/data', '?intro=1')).toBe(false);
+it("offers an explicit preview without intercepting observation, embed or area links", () => {
+  expect(isOpeningPreview("", "?intro=1")).toBe(true);
+  expect(isOpeningPreview("#/sky/125.6315,19.2541,360,mol", "?intro=1")).toBe(true);
+  expect(isOpeningPreview("#/sky", "?intro=1&utm_source=review")).toBe(true);
+  for (const search of ["?intro=0", "?intro=1&t=barnard", "?intro=1&ra=10&dec=20", "?intro=1&embed=1"])
+    expect(isOpeningPreview("", search)).toBe(false);
+  expect(isOpeningPreview("#/research/data", "?intro=1")).toBe(false);
 });

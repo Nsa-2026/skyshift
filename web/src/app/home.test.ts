@@ -2,6 +2,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 const atlas = vi.hoisted(() => ({ show: vi.fn(), ctx: null as null | import("./modules").PageContext }));
+const opening = vi.hoisted(() => ({ mount:vi.fn() }));
+vi.mock('../intro',()=>({mountOpening:opening.mount}));
 vi.mock("../atlas", () => ({
   mountAtlas: (_el: HTMLElement, ctx: import("./modules").PageContext) => {
     atlas.ctx = ctx;
@@ -31,6 +33,7 @@ const visible = (root: HTMLElement) =>
 afterEach(() => {
   document.body.replaceChildren();
   vi.mocked(loadFrames).mockClear();
+  opening.mount.mockClear();
 });
 
 it("opens on the Sky with the four screens one click away, and loads no frames", () => {
@@ -61,6 +64,14 @@ it("opens the Viewer for a target deep link without a hash", () => {
   expect(root.querySelector(".nav [aria-current]")!.textContent).toBe("Viewer");
   expect(loadFrames).toHaveBeenCalledTimes(1);
   expect(vi.mocked(loadFrames).mock.calls[0][0]).toMatchObject({ slug: "wise0855" });
+});
+
+it('keeps the original home entry when the atlas rewrites the URL during startup',()=>{
+  history.replaceState(null,'','/?utm_source=entry-test');
+  atlas.show.mockImplementationOnce(()=>history.replaceState(null,'','#/sky/42,10,360,mol'));
+  const root=document.createElement('div');document.body.append(root);startApp(root);
+  expect(location.hash).toBe('#/sky/42,10,360,mol');
+  expect(opening.mount).toHaveBeenCalledWith(root,expect.objectContaining({hash:'',search:'?utm_source=entry-test'}));
 });
 
 it("from the whole-sky view (nothing picked), Viewer opens a featured target, not the map centre", async () => {
