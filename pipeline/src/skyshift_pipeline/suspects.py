@@ -16,8 +16,11 @@ A mover becomes a suspect when:
   instead, read from IRSA's HEALPix Parquet on AWS S3: only the partitions around the remaining movers
   (config SUSPECTS_ALLWISE, ALLWISE_*). catwise_checked then means "checked against AllWISE" and the
   summary's catwise_source says which catalogue it was.
-Ranked by evidence (two_exposures first), then snr. Written as results/<zone>/suspects.parquet
-and results/<zone>/suspects.json in the contracts/api.md suspects.json shape.
+Then the vetting gates (vet.py: hot pixel, bad column, detector edge, masked bit at the peak, sharp + OUTLIER, flux
+ratio, red photo, 2MASS within 6″) grade every suspect: C fails one (kept, with `reasons`), B passes all (motion not
+shown), A (motion >= 5σ over >= 2 sessions) needs a multi-session linker and is never given yet.
+Ranked by grade, then snr. Written as results/<zone>/suspects.parquet and results/<zone>/suspects.json in the
+contracts/api.md suspects.json shape (+ grade, reasons, near_source_arcsec; zone-level vetoes, provisional, grades).
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import pandas as pd
 
 from . import config as C
 from . import log
+from . import vet as V
 from .known import load_predictions
 from .sky import SkyTree, angsep, offset_radec
 from .store import Store, photolist_rel, results_rel
@@ -135,16 +139,40 @@ def catalog_near(ra: np.ndarray, dec: np.ndarray, radius_arcsec: float, sources=
     return hit, ""
 
 
-def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
-                mjd: np.ndarray) -> tuple[np.ndarray, np.ndarray | None] | None:
-    """(gaia hit, catwise hit) from refcat/<zone>.parquet, each catalogue moved by proper motion to the
-    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing;
-    catwise hit None when the file has no CatWISE rows (a Gaia-only refcat: nothing was checked)."""
-    from .refcat import move_to_epoch, refcat_rel
+def load_refcat(store: Store, zone: C.Zone) -> pd.DataFrame | None:
+    """refcat/<zone>.parquet's cat, ra, dec, epoch_mjd, pmra, pmdec; None if the file is missing."""
+    from .refcat import refcat_rel
     rel = refcat_rel(zone.name)
     if not store.exists(rel):
         return None
-    r = store.read_parquet(rel, columns=["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec"])
+    return store.read_parquet(rel, columns=["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec"])
+
+
+def refcat_seps(r: pd.DataFrame | None, ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray) -> dict[str, np.ndarray]:
+    """Nearest separation (arcsec, inf if none) per catalogue in the refcat (gaia, catwise, tmass, ...), each moved by
+    proper motion to the movers' median time."""
+    from .refcat import move_to_epoch
+    out: dict[str, np.ndarray] = {}
+    if r is None or len(ra) == 0:
+        return out
+    t = float(np.median(mjd))
+    for cat, c in r.groupby("cat"):
+        cra, cdec = move_to_epoch(c, t)
+        sep, _ = SkyTree(np.asarray(cra, np.float64), np.asarray(cdec, np.float64)).nearest(ra, dec)
+        out[str(cat)] = np.where(np.isfinite(sep), sep, np.inf)
+    return out
+
+
+def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
+                mjd: np.ndarray, ref: pd.DataFrame | None = None) -> tuple[np.ndarray, np.ndarray | None] | None:
+    """(gaia hit, catwise hit) from refcat/<zone>.parquet, each catalogue moved by proper motion to the
+    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing;
+    catwise hit None when the file has no CatWISE rows (a Gaia-only refcat: nothing was checked).
+    ref: the refcat when already loaded (load_refcat)."""
+    from .refcat import move_to_epoch
+    r = ref if ref is not None else load_refcat(store, zone)
+    if r is None:
+        return None
     t = float(np.median(mjd)) if len(mjd) else 0.0
     hits = []
     for cat, arcsec in (("gaia", C.GAIA_ARCSEC), ("catwise", C.CATWISE_ARCSEC)):
@@ -301,27 +329,65 @@ def select(movers: pd.DataFrame, fixed: pd.DataFrame, pred: pd.DataFrame) -> tup
 
 
 def rank(s: pd.DataFrame) -> pd.DataFrame:
+    """By grade (A, B, C) when graded, else by evidence (two_exposures first); then snr, highest first."""
     if len(s) == 0:
         return s
-    s = s.assign(_ev=s["evidence"].map(C.EVIDENCE_RANK).fillna(9))
-    return s.sort_values(["_ev", "snr"], ascending=[True, False]).drop(columns="_ev").reset_index(drop=True)
+    if "grade" in s:
+        s = s.assign(_ev=s["grade"].map(C.VET_GRADE_RANK).fillna(9))
+    else:
+        s = s.assign(_ev=s["evidence"].map(C.EVIDENCE_RANK).fillna(9))
+    return s.sort_values(["_ev", "snr"], ascending=[True, False], kind="stable").drop(columns="_ev").reset_index(drop=True)
 
 
-def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str) -> dict:
+def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str, vetting: dict | None = None) -> dict:
+    """vetting: the zone-level fields (vetoes, provisional, grades, gates) when the suspects were graded."""
     def num(x, nd):
         return None if x is None or not np.isfinite(x) else round(float(x), nd)
 
-    return {
+    graded = "grade" in s.columns
+    out = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "data_release": data_release,
         "zone": zone.name,
+        **(vetting or {}),
         "suspects": [{
             "id": r.id, "ra": round(float(r.ra), 6), "dec": round(float(r.dec), 6), "mjd": round(float(r.mjd), 6),
             "clock": "hours", "det": int(r.det), "evidence": r.evidence, "n_dots": int(r.n_dots),
             "snr": round(float(r.snr), 1), "flux_ujy": round(float(r.flux_ujy), 1), "cell": int(r.cell),
             "nearest_known_arcsec": num(r.nearest_known_arcsec, 1),
+            **({"grade": r.grade, "reasons": [str(x) for x in r.reasons],
+                "near_source_arcsec": num(getattr(r, "near_source_arcsec", np.nan), 1)} if graded else {}),
         } for r in s.itertuples()],
     }
+    return out
+
+
+def near_source(seps: dict[str, np.ndarray], fixed: pd.DataFrame, ra: np.ndarray, dec: np.ndarray) -> np.ndarray:
+    """Nearest refcat (any catalogue) or fixed source within VET_NEAR_SOURCE_ARCSEC (arcsec; NaN beyond)."""
+    best = np.full(len(ra), np.inf)
+    for v in seps.values():
+        best = np.minimum(best, v)
+    if len(fixed) and len(ra):
+        sep, _ = SkyTree(fixed["ra"].to_numpy(np.float64), fixed["dec"].to_numpy(np.float64)).nearest(ra, dec)
+        best = np.minimum(best, np.where(np.isfinite(sep), sep, np.inf))
+    return np.where(best <= C.VET_NEAR_SOURCE_ARCSEC, best, np.nan)
+
+
+def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fixed: pd.DataFrame,
+          ref: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
+    """vet.vet on the suspects s, with the 2MASS (6″) check and near_source_arcsec from the refcat and fixed sources."""
+    t0 = time.time()
+    ra, dec, mjd = s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64), s["mjd"].to_numpy(np.float64)
+    seps = refcat_seps(ref, ra, dec, mjd)
+    tmass = seps["tmass"] <= C.VET_CATALOG_ARCSEC + 0.01 if "tmass" in seps else None
+    free = V.load_free(store, zone) if len(s) else None
+    red = V.load_red(store, zone)
+    s, st = V.vet(s, movers, free, red, tmass)
+    s["near_source_arcsec"] = near_source(seps, fixed, ra, dec)
+    st["tmass_checked"] = tmass is not None
+    st["near_source"] = int(np.isfinite(s["near_source_arcsec"].to_numpy(np.float64)).sum())
+    st["wall_s"] = round(time.time() - t0, 1)
+    return s, st
 
 
 def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
@@ -334,8 +400,9 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
         pred = load_predictions(store, photos, zone)
     s, st = select(movers, fixed, pred)
     st["predictions"] = int(len(pred))
+    ref = load_refcat(store, zone)
     local = refcat_near(store, zone, s["ra"].to_numpy(float), s["dec"].to_numpy(float),
-                        s["mjd"].to_numpy(float)) if len(s) else None
+                        s["mjd"].to_numpy(float), ref=ref) if len(s) and ref is not None else None
     if local is not None:
         gaia, source = local[0], f"refcat/{zone.name}.parquet (Gaia DR3 G < {C.REFCAT_GAIA_G_MAX:g})"
     else:
@@ -352,6 +419,12 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     st["cut_catwise"] = int(wise.sum())
     s = s[~wise].reset_index(drop=True)
     s["catwise_checked"] = bool(wsource)
+    s, vst = grade(store, zone, s, movers, fixed, ref)
+    st["vetting"] = vst
+    wcat = "catwise" if "CatWISE" in wsource else "allwise" if "AllWISE" in wsource else ""
+    vetting = {"vetoes": ["mpc", *(["gaia"] if source else []), *([wcat] if wcat else [])],
+               # Gaia-only refcat with no WISE veto (or Gaia unreachable): red WISE-only sources may still be in the list
+               "provisional": not (source and wsource), "grades": vst["grades"], "gates": vst["gates"]}
     s = rank(s)
     if len(s):
         s.insert(0, "id", [f"{zone.name}-{int(c)}-{int(round(m * 1440))}" for c, m in zip(s["cell"], s["mjd"])])
@@ -360,7 +433,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     collections = sorted(set(photos["collection"]))
     release = "+".join(c.replace("spherex_", "").upper() for c in collections)
     store.write_parquet(results_rel(zone.name, "suspects.parquet"), s)
-    store.write_json(results_rel(zone.name, "suspects.json"), to_json(s, zone, release))
+    store.write_json(results_rel(zone.name, "suspects.json"), to_json(s, zone, release, vetting))
     st.update({"suspects": int(len(s)), "data_release": release, "wall_s": round(time.time() - t0, 1)})
     if not source:
         L.warning("suspects %s: Gaia unreachable; suspects are NOT checked against Gaia (gaia_checked=false)", zone.name)

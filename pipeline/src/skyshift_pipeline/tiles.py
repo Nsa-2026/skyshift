@@ -49,6 +49,7 @@ import pyarrow.parquet as pq
 
 from . import config as C
 from . import log
+from .link import FREEDOTS_NAME
 from .sky import parse_polygon
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -424,6 +425,10 @@ def pass1(ctx: dict, tile: Tile) -> dict:
     if len(mv):
         mv = mv[tile.core.contains(mv["ra"].to_numpy(np.float64), mv["dec"].to_numpy(np.float64))]
     own.write_parquet("movers.parquet", mv)
+    frel = results_rel(tz.name, link.FREEDOTS_NAME)
+    if ts.exists(frel):  # free dots (suspects' hot-pixel and column maps), owned by position like the movers
+        fd = ts.read_parquet(frel)
+        own.write_parquet(link.FREEDOTS_NAME, fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))])
     src = pq.read_table(io.BytesIO(ts.read_bytes(results_rel(tz.name, "sources.parquet"))))
     own.write_table("sources.parquet", src.filter(pa.array(np.isin(src.column("source_id").to_numpy(), owned))))
     xid = ts.read_parquet(results_rel(tz.name, "crossids.parquet"))
@@ -978,6 +983,8 @@ class Run:
                                  # a source's members all come from one tile, already sorted by obs_id, detector, dot_row
                                  _concat(_read_parts(w, T, "members.parquet"), ["source_id"], ("obs_id",))),
                "movers": _write(self.store, z, "movers.parquet", _concat(_read_parts(w, T, "movers.parquet"), ["session", "mjd", "ra", "dec"])),
+               "freedots": _write(self.store, z, FREEDOTS_NAME, _concat(_read_parts(w, T, FREEDOTS_NAME),
+                                                                         ["obs_id", "detector", "x", "y"], ("obs_id",))),
                "sources": _write(self.store, z, "sources.parquet", _concat(_read_parts(w, T, "sources.parquet"), ["source_id"])),
                "crossids": _write(self.store, z, "crossids.parquet", _concat(_read_parts(w, T, "crossids.parquet"), ["source_id"])),
                "cells_with_2_or_more_sources": int((cells > 1).sum()), "max_sources_per_cell": int(cells.max()) if len(cells) else 0}

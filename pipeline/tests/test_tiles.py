@@ -217,7 +217,7 @@ def run_untiled(store: Store, zone: C.Zone) -> None:
 
 
 KEYS = {"fixed": ["source_id"], "members": ["source_id", "obs_id", "detector", "dot_row"], "movers": ["session", "mjd", "ra", "dec"],
-        "sources": ["source_id"], "crossids": ["source_id"], "classes": ["source_id"], "photoz": ["source_id"],
+        "freedots": ["obs_id", "detector", "x", "y"], "sources": ["source_id"], "crossids": ["source_id"], "classes": ["source_id"], "photoz": ["source_id"],
         "colours": ["source_id", "pair"], "lightcurves": ["source_id", "ref_id", "origin", "detector", "mjd", "flux_ujy"],
         "lightcurves_summary": ["source_id", "ref_id", "detector", "origin"], "astrometry": ["source_id"],
         "highpm_candidates": ["method", "source_id", "source_id_b"], "suspects": ["id"], "recall_units": ["unit"],
@@ -248,8 +248,9 @@ def assert_same_results(a: Store, b: Store, zone: C.Zone, rtol: float = 1e-9) ->
             u, v = x[c].to_numpy(), y[c].to_numpy()
             if len(u) and isinstance(u[0], (list, np.ndarray)):
                 assert [len(q) for q in u] == [len(q) for q in v], f"{name}.{c}"
-                u = np.concatenate([np.asarray(q, float) for q in u])
-                v = np.concatenate([np.asarray(q, float) for q in v])
+                strs = any(np.asarray(q).dtype.kind in "OUS" for q in u)  # dot_obs, reasons
+                u = np.concatenate([np.asarray(q).astype(str if strs else float) for q in u])
+                v = np.concatenate([np.asarray(q).astype(str if strs else float) for q in v])
             if u.dtype.kind in "fc" or v.dtype.kind in "fc":
                 np.testing.assert_allclose(u.astype(float), v.astype(float), rtol=rtol, atol=1e-12, equal_nan=True, err_msg=f"{name}.{c}")
             else:

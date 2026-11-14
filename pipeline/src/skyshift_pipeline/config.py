@@ -521,3 +521,44 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # from a sample of the files, plus as much again for the tiles' own files); otherwise the tiles
                                # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
+
+# --- vetting: gates, grades and reasons on the suspects (vet.py, suspects.py) ---------------------
+# Run on the suspects only (after the MPC/flag/bright/SOURCE cuts and the Gaia/WISE vetoes), never before link's pairing,
+# so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in suspects.json with grade C and its
+# reasons. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
+# masked bit at the peak 13, one D6 column 2; ~4 unexplained. link carries each mover's dots as lists (dot_obs, dot_det,
+# dot_x, dot_y, dot_mjd, dot_flux, dot_snr, dot_size, dot_chi2, dot_fpk, dot_row) and writes freedots.parquet (every
+# free dot: obs_id, detector, x, y, ra, dec) for the zone-level hot-pixel and column maps.
+VET_DETECTOR_PX = 2040
+VET_EDGE_PX = 6.0              # a dot within 6 px of the detector edge (x or y < 6 or > 2033)
+VET_HOT_PX = 1.0               # same detector pixel: |Δx| and |Δy| <= 1 px
+VET_HOT_MIN_EXP_MOVERS = 3     # hot pixel: the zone's movers' dots on that pixel in >= 3 exposures ...
+VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free dots per detector, 0.29 per 3×3 px: >= 3 would
+                               # hit 3.4% of real dots by chance, >= 5 0.01%; the five worst pixels made 10–14 suspects each)
+VET_COLUMN_PX = 0.5            # bad column: free dots of one exposure and detector within ±0.5 px in x ...
+VET_COLUMN_MIN_DOTS = 3        # ... at least this many (hunt: ~216 free dots per photo, 0.1 per column: 0.5% by chance)
+# sharp: √(a·b) below VET_SHARP_FRAC × the detector's stellar √(a·b) at that S/N, together with OUTLIER (19) at the peak.
+# OUTLIER alone is set at the peak of 52% of MPC-matched movers, so it never vetoes on its own.
+VET_SHARP_FRAC = 0.7
+VET_OUTLIER_BIT = 1 << 19
+# median √(a_arcsec·b_arcsec) of unflagged dots per detector in S/N bins [5,7,10,15,20,30,50,100,∞) (94 hunt photos, 1.87 M dots)
+VET_STAR_SNR_EDGES = (5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0)
+VET_STAR_SIZE_ARCSEC = {
+    1: (4.65, 4.40, 4.08, 3.83, 3.63, 3.45, 3.32, 3.26),
+    2: (4.64, 4.42, 4.14, 3.90, 3.70, 3.52, 3.37, 3.29),
+    3: (4.72, 4.51, 4.22, 3.99, 3.80, 3.61, 3.47, 3.39),
+    4: (4.97, 4.81, 4.54, 4.31, 4.13, 3.97, 3.87, 3.86),
+    5: (4.99, 4.79, 4.51, 4.24, 4.09, 3.96, 3.89, 3.89),
+    6: (5.04, 4.88, 4.60, 4.36, 4.22, 4.12, 4.08, 4.13),
+}
+# masked bit at the peak of any dot: MASK_BITS (contracts/flags.md) without OVERFLOW/NONLINEAR (saturation is no defect)
+VET_PEAK_BITS = 0x0A02CEC7 & ~0x00008002
+VET_FLUX_RATIO_MAX = 4.0       # brightest / faintest dot within one detector (cosmic ray + a 5–20× fainter partner)
+VET_QA_NAME = "qa_photos.parquet"  # results/<zone>/qa_photos.parquet (qa.py): obs_id, detector, grade green|amber|red, reasons
+VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalogued (`2mass`), grade C
+VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
+                               # near_source_arcsec, a blend/wing warning (not a gate)
+VET_MOTION_SIGMA = 5.0         # grade A: motion >= 5σ over >= 2 sessions; needs a multi-session linker (none yet: no A)
+VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
+# reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
+VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "flux_ratio", "red_photo", "2mass")
