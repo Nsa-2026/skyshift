@@ -292,6 +292,7 @@ def suspects():
     out = []
     for i in range(3):
         ra, dec = rng.uniform(125.0, 126.0), rng.uniform(5.0, 6.0)
+        # cell: integer id of the 6″ sky cell, exactly contracts/dots.md (pipeline sky.cell_of); never a string
         band = math.floor((dec + 90) * 600)
         cos_c = math.cos(math.radians((band + 0.5) / 600 - 90))
         cell = band * 10_000_000 + math.floor(ra * cos_c * 600)

@@ -61,11 +61,16 @@ export function monthTicks(mjd0: number, mjd1: number): number[] {
   return ticks;
 }
 
-export function renderLightCurve(spectrum: SpectrumPoint[], det: Det, opts: { width: number; id: string }): string {
-  const W = Math.max(280, Math.min(opts.width, 720));
-  const H = Math.round(Math.max(170, Math.min(W * 0.5, 240)));
-  const pad = { left: 44, right: 14, top: 12, bottom: 28 };
-  const box = { left: pad.left, top: pad.top, right: W - pad.right, bottom: H - pad.bottom };
+export interface LightCurveChart {
+  svg: string;
+  /** Per-visit medians as drawn, for hover and keyboard reading. */
+  points: { x: number; y: number; v: VisitFlux }[];
+}
+
+export function renderLightCurve(spectrum: SpectrumPoint[], det: Det, opts: { width: number; id: string }): LightCurveChart {
+  const W = Math.round(Math.max(280, Math.min(opts.width, 720)));
+  const H = Math.round(Math.max(170, Math.min(W * 0.48, 220)));
+  const box = { left: 40, top: 10, right: W - 10, bottom: H - 26 };
   const curve = lightCurve(spectrum, det);
   const raw = spectrum.filter((p) => p.det === det && !isUpperLimit(p));
   const mjds = raw.map((p) => p.mjd);
@@ -81,45 +86,56 @@ export function renderLightCurve(spectrum: SpectrumPoint[], det: Det, opts: { wi
 
   for (const t of yt.ticks) {
     const y = yOf(t);
-    out.push(`<line x1="${box.left}" x2="${box.right}" y1="${r1(y)}" y2="${r1(y)}" stroke="var(--rule)"/>`);
-    out.push(`<text x="${box.left - 5}" y="${r1(y + 3.5)}" class="cd-ax" text-anchor="end">${compactUjy(t)}</text>`);
+    out.push(`<line x1="${box.left}" x2="${box.right}" y1="${r1(y)}" y2="${r1(y)}" stroke="var(--hair)"/>`);
+    out.push(`<text x="${box.left - 6}" y="${r1(y + 3.5)}" class="cd-ax" text-anchor="end">${compactUjy(t)}</text>`);
   }
   for (const t of monthTicks(t0, t1)) {
     const x = xOf(t);
-    if (x < box.left + 10 || x > box.right - 10) continue;
+    if (x < box.left + 16 || x > box.right - 16) continue;
     const d = mjdToDate(t);
     const label = `${d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" })} ${d.getUTCFullYear()}`;
-    out.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${box.bottom}" y2="${box.bottom + 4}" stroke="var(--rule-strong)"/>`);
-    out.push(`<text x="${r1(x)}" y="${box.bottom + 16}" class="cd-ax" text-anchor="middle">${label}</text>`);
+    out.push(`<text x="${r1(x)}" y="${box.bottom + 18}" class="cd-ax" text-anchor="middle">${label}</text>`);
   }
-  out.push(`<line x1="${box.left}" x2="${box.right}" y1="${box.bottom}" y2="${box.bottom}" stroke="var(--rule-strong)"/>`);
 
   // Every point of the detector, faint: the spread inside a visit is the spectrum's slope.
   out.push(
-    `<g opacity="0.35">${raw
-      .map((p) => `<circle cx="${r1(xOf(p.mjd))}" cy="${r1(yOf(p.flux_ujy))}" r="1.6" fill="${p.saturated ? "none" : colour}" stroke="${colour}" stroke-width="${p.saturated ? 0.8 : 0}"/>`)
+    `<g opacity="0.4">${raw
+      .map((p) =>
+        p.saturated
+          ? `<circle cx="${r1(xOf(p.mjd))}" cy="${r1(yOf(p.flux_ujy))}" r="1.7" fill="none" stroke="${colour}" stroke-width="0.8"/>`
+          : `<circle cx="${r1(xOf(p.mjd))}" cy="${r1(yOf(p.flux_ujy))}" r="1.7" fill="${colour}"/>`,
+      )
       .join("")}</g>`,
   );
-  // Medians joined.
+  // Medians joined, with ±1σ bars.
   const path = curve.map((c, i) => `${i ? "L" : "M"}${r1(xOf(c.mjd))} ${r1(yOf(c.flux))}`).join("");
-  out.push(`<path d="${path}" fill="none" stroke="var(--emulsion)" stroke-width="2" stroke-linejoin="round" opacity="0.85"/>`);
+  out.push(`<path d="${path}" fill="none" stroke="var(--ink)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.7"/>`);
+  const points: LightCurveChart["points"] = [];
   for (const c of curve) {
     const x = xOf(c.mjd);
-    out.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${r1(yOf(c.flux + c.err))}" y2="${r1(yOf(c.flux - c.err))}" stroke="var(--emulsion)" stroke-width="1.5"/>`);
-    out.push(`<g><title>${esc(`Visit ${c.visit}, ${formatMjd(c.mjd)}: ${Math.round(c.flux).toLocaleString("en-US")} ± ${Math.round(c.err).toLocaleString("en-US")} µJy, median of ${c.n} points${c.saturated ? ", mostly saturated" : ""}`)}</title>`);
-    out.push(marker("circle", x, yOf(c.flux), 4.5, colour, c.saturated) + `</g>`);
+    const y = yOf(c.flux);
+    out.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${r1(yOf(c.flux + c.err))}" y2="${r1(yOf(c.flux - c.err))}" stroke="var(--ink)" stroke-width="1" stroke-linecap="round"/>`);
+    out.push(marker("circle", x, y, 4.5, colour, c.saturated, "", c.saturated ? 1.6 : 2));
+    points.push({ x, y, v: c });
   }
+  out.push(`<circle class="cd-hover" r="8" cx="0" cy="0" visibility="hidden" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`);
 
   const r = DETECTORS[det];
   const first = curve[0];
   const last = curve[curve.length - 1];
   const change = last.flux / first.flux;
-  const title = `Light curve, D${det} (${r.min}–${r.max} µm)`;
+  const title = `Brightness by visit, D${det} (${r.min}–${r.max} µm)`;
   const desc = `Median flux per visit in D${det}: ${curve
     .map((c) => `visit ${c.visit} ${formatMjd(c.mjd)} ${Math.round(c.flux).toLocaleString("en-US")} µJy`)
     .join("; ")}. Last visit is ${change.toFixed(2)} times the first.`;
-  return (
-    `<svg class="cd-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="${opts.id}-t ${opts.id}-d">` +
-    `<title id="${opts.id}-t">${esc(title)}</title><desc id="${opts.id}-d">${esc(desc)}</desc>${out.join("")}</svg>`
-  );
+  const svg =
+    `<svg class="cd-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="${opts.id}-t ${opts.id}-d" tabindex="0">` +
+    `<title id="${opts.id}-t">${esc(title)}</title><desc id="${opts.id}-d">${esc(desc)}</desc>${out.join("")}</svg>`;
+  return { svg, points };
+}
+
+/** One line for a visit median, for the readout under the chart. */
+export function describeVisit(v: VisitFlux, det: Det): string {
+  const n = (x: number) => Math.round(x).toLocaleString("en-US");
+  return `Visit ${v.visit}, ${formatMjd(v.mjd)}: ${n(v.flux)} ± ${n(v.err)} µJy in D${det}, median of ${v.n} points${v.saturated ? ", mostly saturated" : ""}`;
 }

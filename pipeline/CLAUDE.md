@@ -32,8 +32,13 @@ highpm, score, suspects; `all` runs them in order.
   cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. `--known-source skybot` (or SKYSHIFT_KNOWN_SOURCE=skybot) uses the
   SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″ (SkyBoT was 4.5′ off).
 - minorplanetcenter.net times out from GCP machines (14 Nov). The newest snapshot in cache/mpc/orbits/ is always reused,
-  so make it from a laptop: `uv run python -c "from skyshift_pipeline.store import Store; from skyshift_pipeline import
-  known_mpc; known_mpc.orbit_table(Store('gs://nasa-glazing-data'))"` (~1 min; the newest snapshot wins, so delete a stale one first).
+  so refresh it from a laptop: `uv run skyshift-pipeline mpc-orbits --root gs://nasa-glazing-data [--force]` (~1 min, gcloud
+  login; not part of `all`, no --zone). It writes today's mpcorb_/cometels_<date>.parquet, which then win; old ones stay.
+  Without --force a snapshot already made today is kept. Sessions already in cache/mpc/<zone>/ keep their old positions:
+  delete those run_*.json files to recompute them with the new orbits.
+- Pilot score, MPC vs SkyBoT (docs/research/2026-11-14-mpc-vs-skybot-score.md): same recall on every common unit;
+  MPC's positions sit 0.5″ from our dots vs SkyBoT's 1.4″ (V < 16). SkyBoT gives V = 0.0 to comets without a magnitude
+  (98P, P/2026 B1, 278P… in the hunt zone), which then count as missed "V < 12" asteroids: don't score the hunt with SkyBoT.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)

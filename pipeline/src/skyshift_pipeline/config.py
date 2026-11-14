@@ -32,6 +32,37 @@ ZONES: dict[str, Zone] = {
     "pilot": Zone("pilot", 120.5, 124.1, 14.4, 17.9),   # 12 deg², the hunt zone's corner
 }
 
+# Sky run (14 Nov): 10° x 10° zones stacked along the ecliptic, aligned on the hunt zone. Column k covers
+# RA 0.5 + 10k .. 10.5 + 10k (k = 0..35; column 36 is the RA 0-0.5 strip); its row 0 is centred on the
+# ecliptic's Dec at the column's middle RA (rounded to 0.1°, as the hunt zone), rows ±1, ±2, ... are the
+# 10° boxes above/below. Names: ecl<kk> (row 0), ecl<kk>n<r> / ecl<kk>s<r>. Column 12 row 0 IS "hunt".
+ECLIPTIC_OBLIQUITY_DEG = 23.4393
+ECLIPTIC_MAX_ROW = 4
+
+
+def _ecliptic_dec(ra_deg: float) -> float:
+    import math
+    return math.degrees(math.atan(math.sin(math.radians(ra_deg)) * math.tan(math.radians(ECLIPTIC_OBLIQUITY_DEG))))
+
+
+def ecliptic_zones(max_row: int = ECLIPTIC_MAX_ROW) -> dict[str, Zone]:
+    out: dict[str, Zone] = {}
+    cols = [(k, 0.5 + 10.0 * k, min(10.5 + 10.0 * k, 360.0)) for k in range(36)] + [(36, 0.0, 0.5)]
+    for k, r0, r1 in cols:
+        c = round(_ecliptic_dec((r0 + r1) / 2.0), 1)
+        for row in range(-max_row, max_row + 1):
+            if (k, row) == (12, 0):
+                continue  # the hunt zone
+            d0, d1 = round(c - 5.0 + 10.0 * row, 1), round(c + 5.0 + 10.0 * row, 1)
+            if d1 <= -90.0 or d0 >= 90.0:
+                continue
+            name = f"ecl{k:02d}" + ("" if row == 0 else ("n" if row > 0 else "s") + str(abs(row)))
+            out[name] = Zone(name, r0, r1, max(d0, -90.0), min(d1, 90.0))
+    return out
+
+
+ZONES.update(ecliptic_zones())
+
 # --- photo search ----------------------------------------------------------------------------
 COLLECTIONS = ("spherex_dr1", "spherex_qr3")  # in order of preference on duplicates; *_deep skipped
 PHOTO_HALF_DIAG_DEG = 2.6  # a 3.5° photo reaches ~2.5° from its centre
@@ -280,6 +311,10 @@ REFCAT_TILE_DEG = 1.0          # one async TAP query per catalogue per tile; eac
 REFCAT_WORKERS = 8             # queries in flight
 REFCAT_MAXREC = 2_000_000      # a tile that returns this many rows is an error (truncated)
 REFCAT_GAIA_G_MAX = 20.0
+# Catalogues refcat fetches (env SKYSHIFT_REFCAT_CATALOGS, comma list). "gaia" alone: only the forced list
+# refcat/<zone>_forced.parquet is written (Gaia part), so extraction can start fast; a later normal
+# refcat run sees the full refcat missing, reuses the cached Gaia tiles and adds CatWISE + 2MASS.
+REFCAT_CATALOGS = tuple(c.strip() for c in os.environ.get("SKYSHIFT_REFCAT_CATALOGS", "gaia,catwise,2mass").split(",") if c.strip())
 # forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
 # Asked for G < 19 and W1 < 16: that gave 5,400 targets/deg² (66,000 per photo) in the pilot (3,870 Gaia,
 # 1,540 CatWISE-only, mostly galaxies), over the 30,000 budget. Tightened (14 Nov) to G < 17.5 (2,110/deg²)
