@@ -202,7 +202,6 @@ export function startApp(root: HTMLElement): void {
     $<HTMLDetailsElement>('.workspace-vote').open=true;
     requestAnimationFrame(()=>$<HTMLElement>('#vote').scrollIntoView({block:'start'}));
   });
-  let score: { destroy(): void } | null = null;
 
   function say(text: string, kind: "info" | "error" = "info") {
     msg.textContent = text;
@@ -402,6 +401,8 @@ export function startApp(root: HTMLElement): void {
     learn: loadCultureStories(mountLearn),
     tools: mountTools,
     live: mountLive,
+    // Results in sections: show("<section>[/<part>]") opens and scrolls; hide() stops the live polling.
+    results: mountScore,
     review: mountReview,
     candidate: mountCandidate,
     community: mountCommunity,
@@ -456,7 +457,6 @@ export function startApp(root: HTMLElement): void {
     document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
-    if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
       if(!practicing){

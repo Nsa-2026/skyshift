@@ -49,8 +49,15 @@ describe('four screens',()=>{
 
 describe('old links',()=>{
   it('leave the site\'s own hashes alone',()=>{
-    for(const h of ['','#/','#/sky/1,2,3','#/explore','#/explore/spectrum','#/c/hunt-1','#/candidates/kind=mover','#/candidates/one=1','#/community','#/results','#/learn/stories','#/tools','#/live'])
+    for(const h of ['','#/','#/sky/1,2,3','#/explore','#/explore/spectrum','#/c/hunt-1','#/candidates/kind=mover','#/candidates/one=1','#/community','#/results','#/results/progress/hunt','#/results/tools/api','#/learn/stories'])
       expect(legacyHash(h)).toBeNull();
+  });
+  it('land Live search and Tools on their Results sections',()=>{
+    expect(legacyHash('#/live')).toEqual({hash:'#/results/progress'});
+    expect(legacyHash('#/live/hunt')).toEqual({hash:'#/results/progress/hunt'});
+    expect(resolve('#/live/ecl22')).toMatchObject({page:'results',param:'progress/ecl22',screen:'results'});
+    expect(legacyHash('#/tools')).toEqual({hash:'#/results/tools',advanced:true});
+    expect(resolve('#/tools/batch')).toMatchObject({page:'results',param:'tools/batch',screen:'results'});
   });
   it('map the area-first Explore links',()=>{
     expect(resolve('#/explore/sky/154.4,23.1,360,mol')).toMatchObject({page:'atlas',param:'154.4,23.1,360,mol'});
@@ -71,9 +78,10 @@ describe('old links',()=>{
     expect(legacyHash('#/explore/science')).toEqual({hash:'#/explore/processing',advanced:true});
   });
   it('map Research to Results with Advanced on',()=>{
-    expect(resolve('#/research/live/zone-2')).toMatchObject({page:'live',param:'zone-2',screen:'results'});
+    expect(resolve('#/research/live/zone-2')).toMatchObject({page:'results',param:'progress/zone-2',screen:'results'});
+    expect(resolve('#/research/live')).toMatchObject({page:'results',param:'progress',screen:'results'});
     expect(resolve('#/research/results')).toMatchObject({page:'results'});
-    expect(legacyHash('#/research/tools/api')).toEqual({hash:'#/tools/api',advanced:true});
+    expect(legacyHash('#/research/tools/api')).toEqual({hash:'#/results/tools/api',advanced:true});
     expect(legacyHash('#/research/export')).toEqual({hash:'#/explore/export',advanced:true});
     expect(legacyHash('#/research')).toEqual({hash:'#/explore/data',advanced:true});
   });
