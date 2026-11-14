@@ -317,7 +317,7 @@ def data(key: str, name: str) -> Response:
 @app.get("/api/object")
 def object_(ra: float, dec: float) -> JSONResponse:
     ra, dec = _check_pos(ra, dec)
-    key = f"api/object/{_key('object', ra=ra, dec=dec)}.json"
+    key = f"api/object/{_key('object', ra=ra, dec=dec, source_version=1)}.json"
     cached = _cache_get_json(key)
     if cached is not None:
         return _json(cached)

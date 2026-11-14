@@ -196,6 +196,17 @@ def test_object_real_and_cached(client, monkeypatch):
     assert len(n) == 1
 
 
+def test_object_source_survives_transport_and_old_cache_is_not_reused(client, cache, monkeypatch):
+    legacy = {"name": None, "gaia": None, "known_ucd": None, "spectrum": [], "measure": None}
+    old_key = f"api/object/{app_mod._key('object', ra=5.0, dec=5.0)}.json"
+    cache.put(old_key, json.dumps(legacy).encode())
+    current = json.loads((FIX / "object_barnard.json").read_text())
+    monkeypatch.setattr(blink, "build_object", lambda *a, **k: current)
+    response = client.get("/api/object", params={"ra": 5, "dec": 5})
+    assert response.status_code == 200
+    assert response.json()["measure"]["source"] == current["measure"]["source"]
+
+
 def test_gaia_and_known_real(client, monkeypatch):
     _fake_module(monkeypatch, "gaia", cone=lambda ra, dec, r, cache=None: [
         {"id": 4472832130942575872, "ra": ra, "dec": dec, "pmra": 1.0, "pmdec": 2.0,

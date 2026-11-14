@@ -1,5 +1,5 @@
 // Pure helpers for the object card: numbers, wording and axis maths. No DOM here, so tests are cheap.
-import type { Det, FramesResponse, GaiaStar, Measure, ObjectResponse, SpectrumPoint } from "../api/types";
+import type { Det, FramesResponse, GaiaStar, Measure, MeasurementSource, ObjectResponse, SpectrumPoint } from "../api/types";
 import { sepArcsec } from "../app/astro";
 
 export const LY_PER_PC = 3.26156;
@@ -32,6 +32,22 @@ export function sigmaDiff(m: Measure): number | null {
 /** 3σ: the slowest shift the measurement can see. */
 export function detectionLimit(m: Measure): number {
   return 3 * m.sigma_arcsec;
+}
+
+/** Only show explicit, internally consistent provenance; never infer it from player frames. */
+export function measurementSource(m: Measure): MeasurementSource | null {
+  const s = m.source;
+  if (!s || !Number.isInteger(s.det) || s.det < 1 || s.det > 6) return null;
+  const pair = (a: unknown): a is number[] => Array.isArray(a) && a.length === 2 &&
+    a.every((x) => typeof x === "number" && Number.isFinite(x));
+  if (!pair(s.visits) || s.visits.some((v) => !Number.isInteger(v) || v < 1) || s.visits[1] <= s.visits[0] ||
+      !pair(s.mjd) || s.mjd[1] <= s.mjd[0] ||
+      !pair(s.n_exposures) || s.n_exposures.some((n) => !Number.isInteger(n) || n < 1) ||
+      !Number.isFinite(s.fov) || s.fov <= 0 || !Number.isFinite(s.pixel_arcsec) || s.pixel_arcsec <= 0 ||
+      !Array.isArray(s.core_filled) || s.core_filled.length !== 2 ||
+      !s.core_filled.every((v) => typeof v === "boolean") ||
+      Math.abs((s.mjd[1] - s.mjd[0]) / 365.25 - m.dt_yr) > 0.0001) return null;
+  return s;
 }
 
 export function isDetectedMotion(m: Measure): boolean {

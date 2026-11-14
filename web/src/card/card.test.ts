@@ -74,6 +74,34 @@ describe("every real object.json", () => {
 });
 
 describe("states", () => {
+  it("identifies measurement inputs independently of the selected detector and clock", () => {
+    const obj = load("barnard");
+    const m = obj.measure!;
+    m.source = {
+      det: 2, visits: [1, 3], mjd: [61000, 61000 + m.dt_yr * 365.25],
+      n_exposures: [19, 20], fov: 15, pixel_arcsec: 6.15, core_filled: [false, true],
+    };
+    const el = document.createElement("section");
+    const card = mountCard(el);
+    const v = { ...viewFor("barnard"), det: 6 as const };
+    card.show(v, obj, null);
+    expect(el.querySelector(".cd-measure-source")?.textContent).toContain("player shows D6");
+    expect(el.querySelector(".cd-measure-source")?.textContent).toContain("measurement uses D2");
+    expect(el.textContent).toContain("D2, visits 1 and 3");
+    expect(el.textContent).toContain("19 and 20 exposures");
+    expect(el.textContent).toContain("15′ at 6.15″/pixel");
+    card.show({ ...v, clock: "hours", fov: 20 }, obj, null);
+    expect(el.querySelector(".cd-measure-source")?.textContent).toContain("individual exposures");
+    expect(el.querySelector(".cd-big-n")?.textContent).toBe(`${m.shift_arcsec.toFixed(2)}″`);
+  });
+
+  it("does not infer the source of legacy measurements from the selected view", () => {
+    const el = document.createElement("section");
+    mountCard(el).show(viewFor("barnard"), load("barnard"), null);
+    expect(el.querySelector(".cd-measure-source")?.textContent).toContain("no verified detector or visit source");
+    expect(el.querySelector(".cd-big-n")?.textContent).toBe("10.83″");
+  });
+
   it("shows an empty spot with a generic hint", () => {
     const el = document.createElement("section");
     mountCard(el).show(spot, null, null);

@@ -17,6 +17,7 @@ import {
   isUpperLimit,
   listDets,
   median,
+  measurementSource,
   noMeasureReason,
   paVector,
   paWord,
@@ -134,6 +135,7 @@ export const mountCard: MountCard = (el) => {
     }
     const pmDir = pmPa(s.object?.gaia ?? null);
     const days = Math.round(m.dt_yr * 365.25);
+    const source = measurementSource(m);
     const stats: [string, string][] = [
       ["Rate", `${m.rate_arcsec_yr.toFixed(2)}″/yr`],
       ["Direction", seen ? `${m.pa_deg.toFixed(1)}°, ${paWord(m.pa_deg)}` : `<span class="cd-dim">none above the noise</span>`],
@@ -141,6 +143,19 @@ export const mountCard: MountCard = (el) => {
       ["Reference stars", String(m.n_ref_stars)],
       ["Slowest visible", `${arcsec(limit)} <span class="cd-dim">(3σ)</span>`],
     ];
+    if (source) stats.push(
+      ["Measured in", `D${source.det}, visits ${source.visits[0]} and ${source.visits[1]}`],
+      ["Fit times (UTC)", `${formatMjd(source.mjd[0], true)} to ${formatMjd(source.mjd[1], true)}`],
+      ["Stack inputs", `${source.n_exposures[0]} and ${source.n_exposures[1]} exposures`],
+      ["Measurement field", `${source.fov}′ at ${source.pixel_arcsec}″/pixel`],
+    );
+    const sourceNote = source
+      ? s.view.clock === "hours"
+        ? `The player shows individual exposures. This measurement compares visit stacks in D${source.det}.`
+        : s.view.det !== source.det
+          ? `The player shows D${s.view.det}. This measurement uses D${source.det}.`
+          : "This measurement uses its own visit stacks. Changing the player controls does not recompute it."
+      : "This stored measurement has no verified detector or visit source. Its inputs cannot be identified from the current player.";
     return html`<section class="cd-sec cd-measure" aria-labelledby="${id}-m">
       <h3 class="cd-h" id="${id}-m">${seen ? "Measured shift between visits" : "No shift between visits"}</h3>
       <div class="cd-hero">
@@ -151,6 +166,8 @@ export const mountCard: MountCard = (el) => {
       </div>
       ${seen ? "" : `<p class="cd-compare">Below the ${arcsec(limit)} we can see (3σ): it stays put.</p>`}
       ${compare}
+      <p class="cd-note cd-measure-source">${sourceNote}</p>
+      ${source?.core_filled.some(Boolean) ? '<p class="cd-note">A model filled the saturated core in the measurement images.</p>' : ""}
       <dl class="cd-stats">${stats.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
     </section>`;
   }

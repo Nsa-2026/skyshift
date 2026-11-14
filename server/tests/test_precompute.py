@@ -1,6 +1,7 @@
 """scripts/precompute helpers (no network)."""
 
 import sys
+import json
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,14 @@ def _row(det: int, mjd: float, ra: float = 10.0, dec: float = 5.0):
 def test_clean_makes_strict_json():
     out = precompute.clean({"a": float("nan"), "b": [np.float32(1.5), np.int64(3), float("inf")], "c": None})
     assert out == {"a": None, "b": [1.5, 3, None], "c": None}
+
+
+def test_static_export_preserves_explicit_measurement_source(tmp_path):
+    fixture = Path(__file__).resolve().parents[2] / "fixtures/api/object_barnard.json"
+    obj = json.loads(fixture.read_text())
+    destination = tmp_path / "object.json"
+    precompute.write_json(destination, precompute.clean(obj), compact=True)
+    assert json.loads(destination.read_text())["measure"]["source"] == obj["measure"]["source"]
 
 
 def test_star_targets_are_centred_near_the_middle_of_the_data():
