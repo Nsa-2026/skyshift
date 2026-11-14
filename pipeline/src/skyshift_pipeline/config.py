@@ -195,6 +195,16 @@ ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
 ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
                                # √max(1, χ²_ν) for every source inflated errors 1.5× at ~7 dots (pm pulls 0.85)
+# session-robust errors (15 Nov, hunt tail): dots of one session share errors, so pm errors also come from the scatter of
+# session means (cluster-robust sandwich over source x session), whichever is larger; sources with fewer sessions: x sqrt(max(1, chi2_nu))
+# dots left out of motion fits: a masked (not saturated) peak, and all but the nearest of several dots of one photo
+ASTRO_CLEAN_DOTS = True
+ASTRO_SESSION_ROBUST = True
+ASTRO_ROBUST_MIN_SESSIONS = 6  # sessions needed for the session-robust error
+# ... and detectors that disagree within a visit: sandwich over visit x detector clusters where beyond this chi2 quantile
+ASTRO_DETECTOR_ROBUST = True
+ASTRO_DETECTOR_ZEROPOINTS = True  # a position zero point per source x detector: pm only from changes within a detector
+ASTRO_DETECTOR_ROBUST_P = 0.95
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
