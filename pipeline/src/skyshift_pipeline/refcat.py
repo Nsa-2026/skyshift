@@ -1,7 +1,7 @@
 """Step `refcat`: the reference catalogue of a zone (Gaia DR3, CatWISE2020, 2MASS PSC).
 
-Over the zone box + REFCAT_MARGIN_DEG, in REFCAT_TILE_DEG tiles, one async TAP query per
-(catalogue, tile), REFCAT_WORKERS at a time, NET_RETRIES tries each. Every finished tile is cached
+Over the zone box + REFCAT_MARGIN_DEG, in REFCAT_TILE_DEG tiles, one TAP query per
+(catalogue, tile) (async at IRSA, sync at ESA), REFCAT_WORKERS at a time, NET_RETRIES tries each. Every finished tile is cached
 as cache/refcat/<zone>/<cat>_<tile>.parquet, so a rerun only asks for the tiles still missing.
 
 - Gaia DR3, G < REFCAT_GAIA_G_MAX: ESA's gaiadr3.gaia_source, IRSA's gaia_dr3_source if ESA fails.
@@ -196,9 +196,13 @@ PARSERS = {"gaia": parse_gaia, "catwise": parse_catwise, "2mass": parse_2mass}
 
 
 def _tap(url: str, adql: str):
+    """Async TAP at IRSA. ESA's async jobs sat queued for minutes (14 Nov) while its sync endpoint
+    answered a 6,000-row 1° tile in 2 s, so ESA is asked synchronously (tiles stay far below its limit)."""
     import pyvo
 
-    return pyvo.dal.TAPService(url).run_async(adql, maxrec=C.REFCAT_MAXREC).to_table()
+    svc = pyvo.dal.TAPService(url)
+    run = svc.run_sync if url == ESA_TAP else svc.run_async
+    return run(adql, maxrec=C.REFCAT_MAXREC).to_table()
 
 
 def fetch_tile(cat: str, tile: Tile, tap=_tap) -> tuple[pd.DataFrame, str]:

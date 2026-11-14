@@ -124,7 +124,7 @@ EVIDENCE_RANK = {"two_exposures": 0, "two_detectors": 1}
 # --- refcat (Gaia DR3, CatWISE2020, 2MASS PSC) -----------------------------------------------
 REFCAT_MARGIN_DEG = 0.1        # around the zone box
 REFCAT_TILE_DEG = 1.0          # one async TAP query per catalogue per tile; each tile cached
-REFCAT_WORKERS = 6             # queries in flight
+REFCAT_WORKERS = 8             # queries in flight
 REFCAT_MAXREC = 2_000_000      # a tile that returns this many rows is an error (truncated)
 REFCAT_GAIA_G_MAX = 20.0
 # forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
