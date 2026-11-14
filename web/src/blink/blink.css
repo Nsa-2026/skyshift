@@ -678,6 +678,231 @@
   border-radius: 0;
 }
 
+.sw-measured {
+  border-color: var(--m-suspect);
+  border-width: 2px;
+  box-shadow: 0 0 0 2px var(--sheet-2), 0 0 0 3.5px var(--m-star);
+  transform: scale(0.75);
+}
+
+/* ---- What SkyShift measured: quiet ink under the controls, no box ---------------------- */
+.bk-meas {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s5);
+  padding: 0 var(--mat);
+  font-size: var(--step--1);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.bk-meas p {
+  max-width: 72ch;
+}
+.bk-meas-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+.bk-meas-title {
+  font-size: var(--step-0);
+  font-weight: 650;
+  color: var(--ink);
+}
+.bk-meas-stage {
+  padding: 1px 8px;
+  border-radius: var(--radius-ctl);
+  background: var(--sheet-2);
+  color: var(--ink-2);
+  font-weight: 600;
+  font-variation-settings: "wdth" 88;
+}
+.bk-meas-stage[data-stage="provisional"] {
+  background: color-mix(in srgb, var(--partial) 14%, var(--glass));
+  color: var(--partial);
+}
+/* A real button: the knob's position (not only its colour) says on or off. */
+.bk-meas-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+  padding: 0 var(--s2);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-weight: 550;
+  cursor: pointer;
+}
+.bk-meas-toggle:hover {
+  color: var(--ink);
+}
+.bk-meas-knob {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--hair-strong);
+}
+.bk-meas-knob i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgba(24, 32, 46, 0.3);
+}
+.bk-meas-toggle[aria-pressed="true"] .bk-meas-knob {
+  background: var(--ink);
+}
+.bk-meas-toggle[aria-pressed="true"] .bk-meas-knob i {
+  transform: translateX(12px);
+}
+.bk-meas-lead {
+  font-size: var(--step-0);
+  line-height: 1.45;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.bk-meas-lead b {
+  font-weight: 650;
+}
+.bk-meas-lead a {
+  font-weight: 550;
+}
+.bk .bk-meas-retry {
+  min-height: 30px;
+  margin-left: var(--s2);
+  padding: 0 var(--s3);
+  font-size: var(--step--1);
+  vertical-align: 1px;
+}
+
+/* The legend: each class's mark and name. */
+.bk-meas-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--s4);
+  margin: var(--s1) 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink);
+  font-weight: 550;
+}
+.bk-meas-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+.bk-mg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.bk-mg[data-cls="star"],
+.bk-mtag[data-cls="star"] {
+  color: var(--m-star);
+}
+.bk-mg[data-cls="known"],
+.bk-mtag[data-cls="known"] {
+  color: var(--m-known);
+}
+.bk-mg[data-cls="mover"],
+.bk-mtag[data-cls="mover"] {
+  color: var(--m-mover);
+}
+.bk-mg[data-cls="suspect"],
+.bk-mtag[data-cls="suspect"] {
+  color: var(--m-suspect);
+}
+.bk-mg[data-cls="artifact"],
+.bk-mtag[data-cls="artifact"] {
+  color: var(--m-artifact);
+}
+/* As text the grey and the amber need more contrast than as a stroke (4.5:1 on glass). */
+.bk-mtag[data-cls="artifact"] {
+  color: var(--ink-2);
+}
+.bk-mtag[data-cls="mover"] {
+  color: color-mix(in srgb, var(--m-mover) 80%, var(--ink));
+}
+.bk-mg[data-cls="other"],
+.bk-mtag[data-cls="other"] {
+  color: var(--m-other);
+}
+.bk-mtag {
+  font-weight: 650;
+  margin-right: 4px;
+}
+.bk-meas-how,
+.bk-meas-notes,
+.bk-meas-pro {
+  color: var(--ink-3);
+}
+
+/* The list: movers (hours) or shifts (months), each a button that rings it on the plate. */
+.bk-meas-items {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.bk-meas-lh {
+  color: var(--ink);
+  font-weight: 650;
+}
+.bk-meas-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bk-mi {
+  display: grid;
+  grid-template-columns: 18px minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px var(--s2);
+  width: 100%;
+  min-height: 32px;
+  padding: 5px var(--s2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--step--1);
+  text-align: left;
+  cursor: pointer;
+}
+.bk-mi .bk-mg {
+  align-self: center;
+}
+.bk-mi:hover {
+  background: var(--sheet-2);
+}
+.bk-mi[aria-pressed="true"] {
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.bk-mi-t {
+  font-weight: 600;
+}
+.bk-mi-n {
+  color: var(--ink-2);
+  font-variation-settings: "wdth" 88;
+}
+.bk .bk-meas-all {
+  justify-self: start;
+  min-height: 30px;
+  padding: 0 var(--s3);
+  font-size: var(--step--1);
+}
+
 /* ---- phone: plate full width, the controls in two lines, Adjust inline ---------------- */
 @container (max-width: 600px) {
   .bk {
@@ -731,6 +956,13 @@
   }
   .bk-det {
     padding: 4px 3px 6px;
+  }
+  /* A list entry wraps its numbers under its name. */
+  .bk-mi {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .bk-mi-n {
+    grid-column: 2;
   }
 }
 

@@ -56,6 +56,88 @@ export function flagMark(ctx: Ctx, x: number, y: number, r: number): void {
   ctx.lineTo(x + Math.cos(a) * (r + 10), y + Math.sin(a) * (r + 10));
 }
 
+// ---- What SkyShift measured: one circle per detection, its shape telling the class -------------
+// (colour is never the only cue). Catalogue marks are rings and diamonds around where a star or
+// asteroid should be; ours sit tighter, on what the pipeline found, so agreement reads as a circle
+// inside a ring or diamond.
+
+export type MeasuredShape = "star" | "known" | "mover" | "suspect" | "artifact" | "other";
+
+/** Stroke per class: width, alpha, and a dash (dots for `other`). */
+export const MEASURED_STROKE: Record<MeasuredShape, { width: number; alpha: number; dash: number[] }> = {
+  star: { width: 1.25, alpha: 0.8, dash: [] },
+  other: { width: 1.6, alpha: 0.85, dash: [0.01, 3] },
+  known: { width: 1.4, alpha: 0.9, dash: [] },
+  mover: { width: 1.6, alpha: 0.9, dash: [] },
+  suspect: { width: 2.4, alpha: 0.95, dash: [] },
+  artifact: { width: 1.25, alpha: 0.7, dash: [] },
+};
+
+/** The path of a measured mark: a circle, doubled for known, side ticks for a mover, struck through for an artefact. */
+export function measuredPath(ctx: Ctx, cls: MeasuredShape, x: number, y: number, r: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (cls === "known") {
+    ctx.moveTo(x + r + 3, y);
+    ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+  } else if (cls === "mover") {
+    ctx.moveTo(x - r - 2, y);
+    ctx.lineTo(x - r - 6, y);
+    ctx.moveTo(x + r + 2, y);
+    ctx.lineTo(x + r + 6, y);
+  } else if (cls === "artifact") {
+    const k = r * Math.SQRT1_2;
+    ctx.moveTo(x - k, y + k);
+    ctx.lineTo(x + k, y - k);
+  }
+}
+
+/** Draw a measured mark: a halo in the plate colour under the pencil, so it reads on a dark core. */
+export function measuredMark(ctx: Ctx, cls: MeasuredShape, x: number, y: number, r: number, color: string, halo: string): void {
+  const s = MEASURED_STROKE[cls];
+  measuredPath(ctx, cls, x, y, r);
+  ctx.save();
+  ctx.setLineDash(s.dash);
+  pencil(ctx, halo, s.width + 2, 0.5);
+  pencil(ctx, color, s.width, s.alpha);
+  ctx.restore();
+}
+
+/**
+ * A motion arrow through screen points in time order, the head on the last. Nothing is drawn
+ * shorter than 1.5 px. `broken` adds two short strokes across the middle: the arrow was shortened.
+ */
+export function arrowPath(ctx: Ctx, pts: { X: number; Y: number }[], head = 6, broken = false): boolean {
+  if (pts.length < 2) return false;
+  const a = pts[pts.length - 2];
+  const b = pts[pts.length - 1];
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].X - pts[i - 1].X, pts[i].Y - pts[i - 1].Y);
+  if (len < 1.5) return false;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.X, p.Y) : ctx.moveTo(p.X, p.Y)));
+  const ang = Math.atan2(b.Y - a.Y, b.X - a.X);
+  const h = Math.min(head, len * 0.6);
+  for (const s of [-1, 1]) {
+    ctx.moveTo(b.X, b.Y);
+    ctx.lineTo(b.X - h * Math.cos(ang + s * 0.45), b.Y - h * Math.sin(ang + s * 0.45));
+  }
+  if (broken) {
+    const f = pts[0];
+    const mx = (f.X + b.X) / 2;
+    const my = (f.Y + b.Y) / 2;
+    const nx = -Math.sin(ang);
+    const ny = Math.cos(ang);
+    for (const o of [-2, 2]) {
+      const cx = mx + o * Math.cos(ang);
+      const cy = my + o * Math.sin(ang);
+      ctx.moveTo(cx - 4 * nx + 1.5 * Math.cos(ang), cy - 4 * ny + 1.5 * Math.sin(ang));
+      ctx.lineTo(cx + 4 * nx - 1.5 * Math.cos(ang), cy + 4 * ny - 1.5 * Math.sin(ang));
+    }
+  }
+  return true;
+}
+
 /** Small text with a halo in the plate colour, so it reads over stars. */
 export function label(ctx: Ctx, text: string, x: number, y: number, color: string, halo: string): void {
   ctx.save();
