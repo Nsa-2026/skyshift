@@ -37,14 +37,19 @@ export function legacyHash(hash: string): LegacyRoute | null {
     return {hash:'#/explore', advanced:true};
   }
   if (head === 'research') {
-    if (feature === 'live') return {hash:at('live')};
+    // The live status is Results' Search progress section, with its open zone after it.
+    if (feature === 'live') return {hash:at('results/progress')};
     if (feature === 'results') return {hash:'#/results'};
-    if (feature === 'tools') return {hash:at('tools'), advanced:true};
+    if (feature === 'tools') return {hash:at('results/tools'), advanced:true};
     if (METHODS.includes(feature)) return {hash:`#/explore/${feature}`, advanced:true};
     return {hash:'#/explore/data', advanced:true};
   }
   // The review queue is To check's "One at a time" view now.
   if (head === 'review') return {hash:ONE_AT_A_TIME};
+  // Live search and Tools are sections of Results now (Tools needs Advanced).
+  const after = [feature, ...tail].filter(Boolean).join('/');
+  if (head === 'live') return {hash:at('results/progress', after)};
+  if (head === 'tools') return {hash:at('results/tools', after), advanced:true};
   if (head === 'score') return {hash:'#/results'};
   return null;
 }
