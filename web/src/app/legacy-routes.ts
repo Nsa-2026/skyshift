@@ -2,14 +2,11 @@
 // (#/explore/…, #/analyze/…, #/research/…) and by earlier pages map to the new place.
 // `advanced` asks the shell to turn the Advanced switch on (the section needs it).
 // Returns null when the hash is already one of ours.
-import {PRESETS, candidatesHash, presetState} from '../discover/filters';
-
 export interface LegacyRoute {hash: string; advanced?: boolean}
 
-/** "To check" with the "Community says real" filter: the consensus list. */
+/** The Community page, including the welcome note and consensus list. */
 export function communityHash(): string {
-  const preset = PRESETS.find(p => p.id === 'community-real');
-  return preset ? candidatesHash(presetState(preset)) : '#/candidates';
+  return '#/community';
 }
 
 /** To check with "One at a time" on (discover's view key, not a filter). */
@@ -48,7 +45,6 @@ export function legacyHash(hash: string): LegacyRoute | null {
   }
   // The review queue is To check's "One at a time" view now.
   if (head === 'review') return {hash:ONE_AT_A_TIME};
-  if (head === 'community') return {hash:communityHash()};
   if (head === 'score') return {hash:'#/results'};
   return null;
 }

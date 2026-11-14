@@ -113,7 +113,7 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-tools" data-page="tools" hidden></main>
     <main class="page page-live" data-page="live" hidden></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
-      <p class="foot-links"><a href="#/learn">Learn</a> <a href="#/about">About</a></p>
+      <p class="foot-links"><a href="#/community">Community</a> <a href="#/learn">Learn</a> <a href="#/about">About</a></p>
       <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids and comets: Minor Planet Center orbits, computed with kete (Dar Dahlen, first written at Caltech/IPAC, BSD-3-Clause). Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
