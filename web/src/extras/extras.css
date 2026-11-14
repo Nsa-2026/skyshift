@@ -1,0 +1,286 @@
+/* Evidence extras under the object card (web/DESIGN.md, "Lightbox"): three quiet disclosures,
+   closed by default. Hairlines between them, no boxes; the two plates sit on a sheet mat. */
+.ex {
+  display: grid;
+  min-width: 0;
+  margin-top: var(--s6);
+}
+.ex:empty {
+  display: none;
+}
+
+.ex-sec {
+  border-top: 1px solid var(--hair);
+  min-width: 0;
+}
+.ex-sec:last-child {
+  border-bottom: 1px solid var(--hair);
+}
+.ex-sum {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--s3);
+  padding: var(--s3) 2px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 2px;
+}
+.ex-sum::-webkit-details-marker {
+  display: none;
+}
+.ex-sum::after {
+  content: "";
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 1.5px solid var(--ink-2);
+  border-bottom: 1.5px solid var(--ink-2);
+  transform: rotate(45deg) translate(-2px, -2px);
+}
+.ex-sec[open] > .ex-sum::after {
+  transform: rotate(-135deg) translate(-2px, -2px);
+}
+.ex-sum:focus-visible {
+  box-shadow: var(--focus);
+}
+.ex-title {
+  grid-column: 1;
+  font-size: var(--step-1);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.ex-hint {
+  grid-column: 1;
+  font-size: var(--step--1);
+  line-height: 1.45;
+  color: var(--ink-2);
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.ex-sum:hover .ex-title {
+  text-decoration: underline;
+  text-decoration-color: var(--hair-strong);
+  text-underline-offset: 4px;
+}
+
+.ex-body {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+  padding: var(--s2) 0 var(--s5);
+}
+.ex-body:empty {
+  display: none;
+}
+.ex-p {
+  line-height: 1.5;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.ex-p b {
+  font-weight: 600;
+}
+.ex-status,
+.ex-note {
+  font-size: var(--step--1);
+  line-height: 1.45;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+.ex-status:empty {
+  display: none;
+}
+.ex-warn {
+  color: var(--warn);
+}
+.ex-body .btn {
+  justify-self: start;
+  min-height: 32px;
+  font-size: var(--step--1);
+}
+
+/* sub-sections of a section: a heading and its answer */
+.ex-sub {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  min-width: 0;
+}
+.ex-h {
+  font-size: var(--step-0);
+  font-weight: 600;
+  margin-top: var(--s2);
+}
+.ex-list {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: var(--s1);
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+.ex-list b {
+  font-weight: 600;
+}
+
+/* ---- D3 beside D6 ---- */
+.ex-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+.ex-label {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.ex-select {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 0 var(--s3);
+  font-size: var(--step--1);
+  font-variant-numeric: tabular-nums;
+}
+.ex-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3);
+  padding: var(--s2);
+  background: var(--sheet);
+  border-radius: var(--radius-plate);
+  box-shadow: var(--shadow-plate);
+}
+.ex-fig {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+.ex-fig-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--step--1);
+  font-weight: 600;
+  font-variation-settings: "wdth" 92;
+}
+.ex-det-dot,
+.ex-key-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--det);
+}
+.ex-plate {
+  position: relative;
+  aspect-ratio: 1;
+  /* no data: a flat sheet with a fine diagonal hatch, never a checkerboard */
+  background: repeating-linear-gradient(135deg, var(--hair) 0 1px, var(--sheet-2) 1px 6px);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ex-plate canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.ex-mark {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.ex-fig-cap {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "wdth" 92;
+}
+
+/* ---- catalogue answers ---- */
+.ex-table-wrap {
+  overflow-x: auto;
+  min-width: 0;
+}
+.ex-table {
+  border-collapse: collapse;
+  font-size: var(--step--1);
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "wdth" 92;
+}
+.ex-table th,
+.ex-table td {
+  padding: 4px var(--s3) 4px 0;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--hair);
+}
+.ex-table th {
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.ex-table td.pro-only,
+.ex-table th.pro-only {
+  text-align: left;
+}
+.ex-chart {
+  display: block;
+  width: 100%;
+  max-width: 620px;
+  height: auto;
+  overflow: visible;
+}
+.ex-ax {
+  font: 10.5px var(--font);
+  fill: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ex-keys {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--s4);
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.ex-keys li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ex-key-shape {
+  font-size: 0.7rem;
+  color: var(--ink-2);
+}
+
+/* ---- downloads ---- */
+.ex-dl {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+}
+.ex-dl li {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.ex-dl-about {
+  font-size: var(--step--1);
+  line-height: 1.45;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+a.ex-dl-btn {
+  color: var(--ink);
+  text-decoration: none;
+}

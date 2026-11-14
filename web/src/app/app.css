@@ -129,10 +129,14 @@
   grid-area: stage;
   min-width: 0;
 }
-.side-card {
+/* The card's column: the object card, then its evidence extras (src/extras). */
+.side-col {
   grid-area: card;
   min-width: 0;
   max-width: 620px;
+}
+.side-card {
+  min-width: 0;
 }
 .below {
   grid-area: below;
