@@ -13,17 +13,27 @@ more stretched than a single star's, along the line between the two. The test wo
 3. The noise of r per detector and S/N comes from the reference stars too. A source's mean residual r̄ (weighted)
    and its error give a significance s = |r̄| / σ (Rayleigh: under the null P(> s) = e^(−s²/2)), the excess
    ellipticity |r̄| and the sky PA of the stretch, ½ atan2(r̄₂, r̄₁). Random noise points anywhere and averages
-   away; a second object stays at one PA on the sky in every photo, although the detector turns ~180° between
-   visits and the source lands on different pixels and wavelengths each time.
-4. The same per visit: `steady_pa` when two visits each show it (s ≥ 2) along the same PA (≤ 30°); `one_visit`
-   when one visit shows it (s ≥ 3) and the others don't (s < 1.5): something that passed by.
+   away; a second object stays at one PA on the sky in every photo, and the source lands on different pixels and
+   wavelengths each time. The detector turning ~180° between visits does NOT test the PSF: an ellipse turned by
+   180° is the same ellipse, so a stretch fixed to the detector repeats in every visit too.
+4. `steady_pa`: the short-wavelength (D1–D3) and the long-wavelength (D4–D6) detectors each show it (s ≥ 2) along
+   the same PA (≤ 30°): two arrays behind a dichroic with their own optics and PSFs agree, which a PSF or detector
+   stretch would not do. `one_visit` per visit: one visit shows it (s ≥ 3) and the others don't (s < 1.5): something
+   that passed by.
 
 What is kept (select): s ≥ SHAPE_SIG_MIN, excess ≥ SHAPE_E_MIN, consistent PA, ≥ SHAPE_MIN_DOTS clean dots; no second
-catalogue object within SHAPE_NEIGHBOUR_ARCSEC (any Gaia G < 20 or CatWISE entry other than the object's own) and none
-within SHAPE_WIDE_ARCSEC less than SHAPE_WIDE_DMAG fainter than the object (the moments' annulus reaches 34″); not
-saturated; no artefact flags on ≥ 25% of its dots; not within SHAPE_BRIGHT_ARCSEC of a Gaia G < SHAPE_BRIGHT_G star;
-not a galaxy (classify); the SHAPE_CAP most significant. The checks (shape_report.json): the rate at which held-out
-single Gaia stars fire and the recall and PA on Gaia pairs 3–10″ apart, at the rule's and at the list's threshold.
+catalogue object within SHAPE_NEIGHBOUR_ARCSEC (any Gaia G < 20, CatWISE or 2MASS entry other than the object's own)
+and none within SHAPE_WIDE_ARCSEC less than SHAPE_WIDE_DMAG fainter than the object (the moments' annulus reaches 34″);
+the catalogued neighbours within SHAPE_NEIGHBOUR_FAR_ARCSEC, weighted by flux ratio and the share of their light inside
+the moments' window (neighbour_ellipticity) and summed as a vector (2 × their PA), predict along the measured stretch
+less than SHAPE_NEIGHBOUR_E_FRAC of its excess (a perpendicular neighbour would stretch it the other way); not saturated; no artefact
+flags on ≥ 25% of its dots; not within SHAPE_BRIGHT_ARCSEC of a Gaia G < SHAPE_BRIGHT_G star; not a galaxy:
+classify's galaxy, Gaia's galaxy_or_qso, a good photo-z, or without a Gaia primary an extended profile
+(extended_score > SHAPE_GALAXY_EXT or size_ratio > SHAPE_GALAXY_SIZE; with a Gaia star a pair is extended too, so
+not there); the SHAPE_CAP most significant. Review (15 Nov) of the first 49: 34 galaxy-like with no Gaia star and
+10 with a catalogued neighbour along the stretch (2MASS at 7–13″, Gaia or CatWISE at 15–25″); 5 left.
+The checks (shape_report.json): the rate at which held-out single Gaia stars fire and the recall and PA on Gaia pairs
+3–10″ apart, at the rule's and at the list's threshold.
 
 Honest limit (hunt, 14 Nov): the stretch is real signal, but faint uncatalogued neighbours are common in this
 field, so isolated single Gaia stars fire too (4% at s ≥ 6 against 77% of Gaia pairs; 0.17% at s ≥ 20 against 21%).
@@ -59,6 +69,18 @@ SHAPE_NEIGHBOUR_DMAG = float("inf")  # any catalogued neighbour explains it (wit
 SHAPE_WIDE_ARCSEC = 35.0       # the moments' window (15″) and background annulus (21–34″) feel neighbours this far out:
 SHAPE_WIDE_DMAG = 2.5          # one within this of the primary's magnitude (or brighter) explains a stretch (hunt: the
 SHAPE_WIDE_NO_PRIMARY = (16.0, 13.0)  # first try's top 4 had a Gaia star at 15.2–15.5″); no primary: G, W1 brighter than these
+# catalogued neighbours to SHAPE_NEIGHBOUR_FAR_ARCSEC weighted by their light inside the moments' window (dots.py
+# shape_moments: pixels within 2.5 px, a star's trace a² + b² ≈ 2 × 0.6² px²): a neighbour of flux ratio f at r
+# adds ≈ f × Φ((R − r) / σ_psf) × min(r, R)² to the trace along its direction (neighbour_ellipticity)
+SHAPE_NEIGHBOUR_FAR_ARCSEC = 20.0
+SHAPE_NEIGHBOUR_E_MAX = 0.02   # no measured stretch (catalogue context alone): predicted ellipticity that would explain one
+SHAPE_NEIGHBOUR_E_FRAC = 0.25  # predicted along the measured PA ≥ this share of the excess: the neighbours explain it
+                               # (review rows #13, #25, #29 kept: 0.08 or perpendicular; #35, #38, #41: 1.5–2.1, dropped)
+SHAPE_MOMENT_R_ARCSEC = 2.5 * 6.152
+SHAPE_PSF_SIGMA_ARCSEC = 7.53 / 2.355
+SHAPE_STAR_TRACE_ARCSEC2 = 2 * (0.6 * 6.152) ** 2
+SHAPE_GALAXY_EXT = 1.0         # no Gaia primary and classify's extended_score above this: a galaxy (review: 34 of 49)
+SHAPE_GALAXY_SIZE = 1.12       # ... or size_ratio above this
 SHAPE_BRIGHT_G = 9.0
 SHAPE_BRIGHT_ARCSEC = 60.0
 SHAPE_FLAG_SHARE = 0.25        # artefact flags (ghost, bloom, halo, crosstalk) on this share of the dots: dropped
@@ -195,10 +217,13 @@ def _mean_vec(r1, r2, w):
     return m1, m2, sig
 
 
+ARMS = {"swir": (1, 2, 3), "mwir": (4, 5, 6)}  # D1–D3 and D4–D6: separate arrays behind the dichroic
+
+
 def source_shapes(d: pd.DataFrame) -> pd.DataFrame:
-    """Per source (d: usable dots with source_id, r1, r2, sigma, visit): n_dots, e1, e2 (mean residual), err,
-    sig (|r̄| / err), excess (|r̄|), pa_deg, and per visit v: n_v<v>, sig_v<v>, pa_v<v>; then n_visits_shown,
-    pa_ok, steady_pa, one_visit."""
+    """Per source (d: usable dots with source_id, r1, r2, sigma, visit, det): n_dots, e1, e2 (mean residual), err,
+    sig (|r̄| / err), excess (|r̄|), pa_deg; per visit v: n_v<v>, sig_v<v>, pa_v<v>; per arm (ARMS): n_<arm>,
+    sig_<arm>, pa_<arm>; then n_visits_shown, pa_ok, steady_pa (both arms show it along one PA), one_visit."""
     d = d[np.isfinite(d["sigma"]) & (d["sigma"] > 0) & np.isfinite(d["r1"]) & np.isfinite(d["r2"])]
     visits = sorted(int(v) for v in d["visit"].dropna().unique())
     rows = []
@@ -207,12 +232,20 @@ def source_shapes(d: pd.DataFrame) -> pd.DataFrame:
     r1, r2 = d["r1"].to_numpy()[order], d["r2"].to_numpy()[order]
     w = 1.0 / d["sigma"].to_numpy()[order] ** 2
     vis = d["visit"].to_numpy()[order]
+    det = d["det"].to_numpy(np.int64)[order] if "det" in d else np.zeros(len(order), np.int64)
     cuts = np.flatnonzero(np.diff(sid)) + 1
     for idx in np.split(np.arange(len(sid)), cuts):
         if len(idx) == 0:
             continue
         m1, m2, err = _mean_vec(r1[idx], r2[idx], w[idx])
         row = {"source_id": int(sid[idx[0]]), "n_dots": len(idx), "e1": m1, "e2": m2, "err": err}
+        for arm, dets in ARMS.items():
+            k = idx[np.isin(det[idx], dets)]
+            if len(k) >= SHAPE_VISIT_MIN_DOTS:
+                a1, a2, ev = _mean_vec(r1[k], r2[k], w[k])
+                row[f"n_{arm}"], row[f"sig_{arm}"], row[f"pa_{arm}"] = len(k), math.hypot(a1, a2) / ev, float(pa_of(a1, a2))
+            else:
+                row[f"n_{arm}"], row[f"sig_{arm}"], row[f"pa_{arm}"] = len(k), np.nan, np.nan
         for v in visits:
             k = idx[vis[idx] == v]
             if len(k) >= SHAPE_VISIT_MIN_DOTS:
@@ -233,7 +266,10 @@ def source_shapes(d: pd.DataFrame) -> pd.DataFrame:
     bad_pa = shown & (pa_diff(pas, s["pa_deg"].to_numpy()[:, None]) > SHAPE_PA_TOL_DEG)
     s["n_visits_shown"] = shown.sum(axis=1)
     s["pa_ok"] = ~bad_pa.any(axis=1)
-    s["steady_pa"] = (s["n_visits_shown"] >= 2) & s["pa_ok"]
+    arms_show = (np.nan_to_num(s["sig_swir"].to_numpy(np.float64), nan=0.0) >= SHAPE_VISIT_SIG) & \
+        (np.nan_to_num(s["sig_mwir"].to_numpy(np.float64), nan=0.0) >= SHAPE_VISIT_SIG)
+    arms_agree = pa_diff(s["pa_swir"].to_numpy(np.float64), s["pa_mwir"].to_numpy(np.float64)) <= SHAPE_PA_TOL_DEG
+    s["steady_pa"] = arms_show & arms_agree & s["pa_ok"].to_numpy(bool)
     strong = np.nan_to_num(sigs, nan=0.0) >= SHAPE_VISIT_ONE
     quiet = np.where(np.isfinite(sigs), sigs < SHAPE_VISIT_NONE, True)
     s["one_visit"] = (strong.sum(axis=1) == 1) & (strong | quiet).all(axis=1) & (np.isfinite(sigs).sum(axis=1) >= 2) & s["pa_ok"]
@@ -249,17 +285,41 @@ def fires(s: pd.DataFrame, sig_min: float | None = None, e_min: float | None = N
 
 
 # --- catalogue neighbours --------------------------------------------------------------------------
+def neighbour_ellipticity(flux_ratio, sep_arcsec) -> np.ndarray:
+    """The ellipticity a catalogued neighbour (flux ratio f to the object, r arcsec away) adds to the object's moments:
+    f Φ((R − r) / σ) min(r, R)² over a star's trace (SHAPE_MOMENT_R_ARCSEC, SHAPE_PSF_SIGMA_ARCSEC,
+    SHAPE_STAR_TRACE_ARCSEC2). A 3 mag fainter star at 10″ gives ~0.24, at 20″ ~0.04; 5 mag at 20″ ~0.006."""
+    from scipy.special import ndtr
+
+    f, r = np.asarray(flux_ratio, np.float64), np.asarray(sep_arcsec, np.float64)
+    c = f * ndtr((SHAPE_MOMENT_R_ARCSEC - r) / SHAPE_PSF_SIGMA_ARCSEC) * np.minimum(r, SHAPE_MOMENT_R_ARCSEC) ** 2
+    return c / SHAPE_STAR_TRACE_ARCSEC2
+
+
+def _at_epoch(ra, dec, pmra, pmdec, dt_yr):
+    """Positions moved by their proper motion (mas/yr, pmra × cos dec; NaN = none) over dt_yr years."""
+    cosd = np.cos(np.deg2rad(dec))
+    return (ra + np.nan_to_num(pmra) * dt_yr / 3.6e6 / cosd, dec + np.nan_to_num(pmdec) * dt_yr / 3.6e6)
+
+
 def catalogue_context(ra: np.ndarray, dec: np.ndarray, refcat: pd.DataFrame) -> pd.DataFrame:
     """Per position: the primary Gaia (brightest G within SHAPE_PRIMARY_ARCSEC) and CatWISE (brightest W1) entries,
     and how many other entries within SHAPE_NEIGHBOUR_ARCSEC could explain a stretch: Gaia within
     SHAPE_NEIGHBOUR_DMAG of the primary in G (any Gaia when there is no Gaia primary, unless it is the CatWISE
     primary's own counterpart), CatWISE likewise in W1 (one within SHAPE_SAME_ARCSEC of the Gaia primary is the
-    same object). Also n_gaia_any (all Gaia within the radius, G < 20), ruwe and galaxy_or_qso of the Gaia primary,
-    a Gaia G < SHAPE_BRIGHT_G within SHAPE_BRIGHT_ARCSEC (bright_near) and the pair PA of the two brightest Gaia."""
+    same object), any 2MASS entry that is not the primary's own (n_tm_explain; 2MASS's epoch ~2000: the primary is
+    moved there with its proper motion before the SHAPE_SAME_ARCSEC test). e_neighbours: the largest, over the three
+    catalogues, of the summed neighbour_ellipticity of the entries within SHAPE_NEIGHBOUR_FAR_ARCSEC as a vector
+    (angle 2 × the neighbour's PA; e_neighbours_pa its PA) with the flux ratio against the primary in that catalogue's
+    band (1 for a neighbour without one; a catalogue where the primary has no magnitude adds nothing). Also n_gaia_any (all Gaia within
+    SHAPE_NEIGHBOUR_ARCSEC, G < 20), ruwe and galaxy_or_qso of the Gaia primary, a Gaia G < SHAPE_BRIGHT_G within
+    SHAPE_BRIGHT_ARCSEC (bright_near) and the pair PA of the two brightest Gaia."""
     from .sky import SkyTree, angsep  # noqa: F401
     from skyshift_core import tangent_offset_arcsec
 
-    out = {k: np.zeros(len(ra), np.int64) for k in ("n_gaia_any", "n_gaia_explain", "n_cw_explain", "n_wide_explain")}
+    out = {k: np.zeros(len(ra), np.int64) for k in ("n_gaia_any", "n_gaia_explain", "n_cw_explain", "n_wide_explain", "n_tm_explain")}
+    e_nb = np.zeros(len(ra))
+    e_nb_pa = np.full(len(ra), np.nan)
     gprim = np.full(len(ra), np.nan)
     gsep = np.full(len(ra), np.nan)
     ruwe = np.full(len(ra), np.nan)
@@ -270,19 +330,49 @@ def catalogue_context(ra: np.ndarray, dec: np.ndarray, refcat: pd.DataFrame) -> 
     pair_dg = np.full(len(ra), np.nan)
     g = refcat[refcat["cat"] == "gaia"].reset_index(drop=True)
     w = refcat[refcat["cat"] == "catwise"].reset_index(drop=True)
+    t = refcat[refcat["cat"].isin(["2mass", "tmass"])].reset_index(drop=True)
     gt, wt = SkyTree(g["ra"].to_numpy(), g["dec"].to_numpy()), SkyTree(w["ra"].to_numpy(), w["dec"].to_numpy())
-    gh = gt.query_radius(ra, dec, SHAPE_NEIGHBOUR_ARCSEC)
-    wh = wt.query_radius(ra, dec, SHAPE_NEIGHBOUR_ARCSEC)
+    tt = SkyTree(t["ra"].to_numpy(), t["dec"].to_numpy())
+    far = max(SHAPE_NEIGHBOUR_ARCSEC, SHAPE_NEIGHBOUR_FAR_ARCSEC)
+    gh = gt.query_radius(ra, dec, far)
+    wh = wt.query_radius(ra, dec, far)
+    th = tt.query_radius(ra, dec, far)
     gw = gt.query_radius(ra, dec, SHAPE_WIDE_ARCSEC)
     ww = wt.query_radius(ra, dec, SHAPE_WIDE_ARCSEC)
     gG, gra, gdec = g["g_mag"].to_numpy(np.float64), g["ra"].to_numpy(), g["dec"].to_numpy()
     wW, wra, wdec = w["w1_mag"].to_numpy(np.float64), w["ra"].to_numpy(), w["dec"].to_numpy()
+    tJ, tra, tdec = (t["j_mag"].to_numpy(np.float64) if "j_mag" in t else np.full(len(t), np.nan)), t["ra"].to_numpy(), t["dec"].to_numpy()
+
+    def col(df, c, fill=np.nan):
+        return pd.to_numeric(df[c], errors="coerce").to_numpy(np.float64) if c in df else np.full(len(df), fill)
+
+    gpm, wpm = (col(g, "pmra"), col(g, "pmdec"), col(g, "epoch_mjd", 57388.5)), (col(w, "pmra"), col(w, "pmdec"), col(w, "epoch_mjd", 57170.0))
+    tep = col(t, "epoch_mjd", 51544.5)
     gru = g["ruwe"].to_numpy(np.float64) if "ruwe" in g else np.full(len(g), np.nan)
     gqso = g["galaxy_or_qso"].to_numpy(bool) if "galaxy_or_qso" in g else np.zeros(len(g), bool)
+
+    def flux_ratio(mag, mag_p):
+        if not np.isfinite(mag_p):
+            return np.zeros(len(mag))  # the primary has no magnitude in this band: no ratio to weigh with
+        with np.errstate(invalid="ignore", over="ignore"):
+            f = 10 ** (-0.4 * (mag - mag_p))
+        return np.where(np.isfinite(f), f, 1.0)  # a neighbour without a magnitude: as bright as the object
+
+    def vec(i, f, r, nra, ndec):
+        e = neighbour_ellipticity(f, r)
+        if len(e) == 0:
+            return 0.0, 0.0
+        de, dn = tangent_offset_arcsec(ra[i], dec[i], nra, ndec)
+        ang = 2 * np.arctan2(de, dn)
+        return float(np.sum(e * np.cos(ang))), float(np.sum(e * np.sin(ang)))
+
     for i in range(len(ra)):
-        gi, wi = np.asarray(gh[i], np.int64), np.asarray(wh[i], np.int64)
-        gs = _sep(ra[i], dec[i], gra[gi], gdec[gi])
-        ws = _sep(ra[i], dec[i], wra[wi], wdec[wi])
+        gi20, wi20, ti20 = np.asarray(gh[i], np.int64), np.asarray(wh[i], np.int64), np.asarray(th[i], np.int64)
+        gs20 = _sep(ra[i], dec[i], gra[gi20], gdec[gi20])
+        ws20 = _sep(ra[i], dec[i], wra[wi20], wdec[wi20])
+        ts20 = _sep(ra[i], dec[i], tra[ti20], tdec[ti20])
+        gi, gs = gi20[gs20 <= SHAPE_NEIGHBOUR_ARCSEC], gs20[gs20 <= SHAPE_NEIGHBOUR_ARCSEC]
+        wi, ws = wi20[ws20 <= SHAPE_NEIGHBOUR_ARCSEC], ws20[ws20 <= SHAPE_NEIGHBOUR_ARCSEC]
         out["n_gaia_any"][i] = len(gi)
         gp = gi[gs <= SHAPE_PRIMARY_ARCSEC]
         p = gp[np.argmin(np.nan_to_num(gG[gp], nan=99.0))] if len(gp) else -1
@@ -316,6 +406,30 @@ def catalogue_context(ra: np.ndarray, dec: np.ndarray, refcat: pd.DataFrame) -> 
         glim = gG[p] + SHAPE_WIDE_DMAG if p >= 0 else SHAPE_WIDE_NO_PRIMARY[0]
         wlim = wW[q] + SHAPE_WIDE_DMAG if q >= 0 and np.isfinite(wW[q]) else SHAPE_WIDE_NO_PRIMARY[1]
         out["n_wide_explain"][i] = int(np.sum(gG[ga] <= glim) + np.sum(wW[wa] <= wlim))
+        # 2MASS: the primary's own entry (Gaia or CatWISE primary moved to the 2MASS epoch) is not a neighbour
+        same_t = np.zeros(len(ti20), bool)
+        for prim, (pra, pdec, pm) in ((p, (gra, gdec, gpm)), (q, (wra, wdec, wpm))):
+            if prim >= 0 and len(ti20):
+                dt = (tep[ti20] - pm[2][prim]) / 365.25
+                a, b = _at_epoch(pra[prim], pdec[prim], pm[0][prim], pm[1][prim], dt)
+                same_t |= _sep(a, b, tra[ti20], tdec[ti20]) <= SHAPE_SAME_ARCSEC
+        tp = ti20[same_t][np.argmin(np.nan_to_num(tJ[ti20[same_t]], nan=99.0))] if same_t.any() else -1
+        tn, tns = ti20[~same_t], ts20[~same_t]
+        out["n_tm_explain"][i] = int(np.sum(tns <= SHAPE_NEIGHBOUR_ARCSEC))
+        # every catalogued neighbour to SHAPE_NEIGHBOUR_FAR_ARCSEC, weighted by its light inside the window
+        gn = gi20 != p
+        if p < 0 and q >= 0 and len(gi20):
+            gn &= _sep(wra[q], wdec[q], gra[gi20], gdec[gi20]) > SHAPE_SAME_ARCSEC
+        wn = wi20 != q
+        if p >= 0 and len(wi20):
+            wn &= _sep(gra[p], gdec[p], wra[wi20], wdec[wi20]) > SHAPE_SAME_ARCSEC
+        vs = [vec(i, flux_ratio(gG[gi20[gn]], gG[p] if p >= 0 else np.nan), gs20[gn], gra[gi20[gn]], gdec[gi20[gn]]),
+              vec(i, flux_ratio(wW[wi20[wn]], wW[q] if q >= 0 else np.nan), ws20[wn], wra[wi20[wn]], wdec[wi20[wn]]),
+              vec(i, flux_ratio(tJ[tn], tJ[tp] if tp >= 0 else np.nan), tns, tra[tn], tdec[tn])]
+        k = int(np.argmax([np.hypot(*v) for v in vs]))
+        e_nb[i] = float(np.hypot(*vs[k]))
+        if e_nb[i] > 0:
+            e_nb_pa[i] = float(np.mod(np.degrees(np.arctan2(vs[k][1], vs[k][0])) / 2, 180.0))
         if len(gi) >= 2:
             two = gi[np.argsort(np.nan_to_num(gG[gi], nan=99.0))[:2]]
             e, n = tangent_offset_arcsec(gra[two[0]], gdec[two[0]], gra[two[1]], gdec[two[1]])
@@ -325,7 +439,7 @@ def catalogue_context(ra: np.ndarray, dec: np.ndarray, refcat: pd.DataFrame) -> 
     bright = g[g["g_mag"] < SHAPE_BRIGHT_G]
     bt = SkyTree(bright["ra"].to_numpy(), bright["dec"].to_numpy())
     bsep, _ = bt.nearest(ra, dec)
-    return pd.DataFrame({**out, "gaia_g": gprim, "gaia_sep_arcsec": gsep, "ruwe": ruwe, "galaxy_or_qso": gq,
+    return pd.DataFrame({**out, "e_neighbours": e_nb, "e_neighbours_pa": e_nb_pa, "gaia_g": gprim, "gaia_sep_arcsec": gsep, "ruwe": ruwe, "galaxy_or_qso": gq,
                          "catwise_match": has_cw, "bright_near": bsep <= SHAPE_BRIGHT_ARCSEC,
                          "pair_pa_deg": pair_pa, "pair_sep_arcsec": pair_sep, "pair_dg": pair_dg})
 
@@ -337,10 +451,25 @@ def _sep(ra0, dec0, ra, dec) -> np.ndarray:
     return np.asarray(angsep(ra0, dec0, ra, dec), np.float64) * 3600.0  # arcsec
 
 
+def neighbours_explain(t: pd.DataFrame) -> np.ndarray:
+    """The catalogued neighbours' predicted ellipticity explains the stretch: projected on the measured PA (cos 2ΔPA)
+    ≥ SHAPE_NEIGHBOUR_E_FRAC × excess; without a measured stretch (pa_deg, excess) its size ≥ SHAPE_NEIGHBOUR_E_MAX."""
+    if "e_neighbours" not in t:
+        return np.zeros(len(t), bool)
+    e = t["e_neighbours"].to_numpy(np.float64)
+    if {"pa_deg", "excess", "e_neighbours_pa"} <= set(t.columns):
+        d = np.deg2rad(t["e_neighbours_pa"].to_numpy(np.float64) - t["pa_deg"].to_numpy(np.float64))
+        along = np.where(e > 0, e * np.cos(2 * d), 0.0)
+        return np.nan_to_num(along) >= SHAPE_NEIGHBOUR_E_FRAC * t["excess"].to_numpy(np.float64)
+    return e >= SHAPE_NEIGHBOUR_E_MAX
+
+
 def one_object(ctx: pd.DataFrame) -> np.ndarray:
     """The catalogues list exactly one object here (a Gaia or CatWISE primary, no neighbour that could explain a stretch)."""
+    tm = ctx["n_tm_explain"].to_numpy() == 0 if "n_tm_explain" in ctx else True
+    enb = ~neighbours_explain(ctx)
     return ((np.isfinite(ctx["gaia_g"]) | ctx["catwise_match"]) & (ctx["n_gaia_explain"] == 0)
-            & (ctx["n_cw_explain"] == 0) & (ctx["n_wide_explain"] == 0)).to_numpy(bool)
+            & (ctx["n_cw_explain"] == 0) & (ctx["n_wide_explain"] == 0)).to_numpy(bool) & tm & enb
 
 
 # --- candidates -----------------------------------------------------------------------------------
@@ -365,11 +494,10 @@ def shape_why(row) -> str:
     pa = float(row["pa_deg"])
     head = (f"Looks like two objects here but the catalogues list one: the image is stretched along PA {pa:.0f}° "
             f"({row['sig']:.1f}σ over {int(row['n_dots'])} detections)")
-    if row.get("steady_pa"):
-        return head + ", the same way in both visits; worth a look."
+    arms = ", the same way in the short- and long-wavelength detectors" if row.get("steady_pa") else ""
     if row.get("one_visit"):
-        return head + " in one visit only, as if something passed by; worth a look."
-    return head + "; worth a look."
+        return head + " in one visit only, as if something passed by" + arms + "; worth a look."
+    return head + arms + "; worth a look."
 
 
 # --- the run -----------------------------------------------------------------------------------------
@@ -459,6 +587,9 @@ def measure(d: pd.DataFrame, photos: pd.DataFrame, sources: pd.DataFrame, refcat
     ctx.insert(0, "source_id", ids)
     ctx = ctx.merge(sources[["source_id", "ra", "dec", "saturated"]], on="source_id")
     ctx["class"] = ctx["source_id"].map(classes.set_index("source_id")["class"]) if classes is not None and len(classes) else None
+    for c in ("extended_score", "size_ratio", "photoz_good"):  # galaxy_like (main() joins photoz's `good` as photoz_good)
+        if classes is not None and c in classes:
+            ctx[c] = ctx["source_id"].map(classes.drop_duplicates("source_id").set_index("source_id")[c])
     ctx = ctx.merge(per, left_on="source_id", right_index=True, how="left")
     single = single_stars(ctx)
     sid = ctx["source_id"].to_numpy()
@@ -505,11 +636,26 @@ def checks(t: pd.DataFrame, sig_min: float | None = None) -> dict:
     return out
 
 
+def galaxy_like(t: pd.DataFrame) -> np.ndarray:
+    """classify's galaxy, Gaia's galaxy_or_qso, a good photo-z (photoz_good), or no Gaia primary and an extended
+    profile (extended_score > SHAPE_GALAXY_EXT or size_ratio > SHAPE_GALAXY_SIZE; NaN passes)."""
+    def col(c, fill=np.nan):
+        return pd.to_numeric(t[c], errors="coerce").to_numpy(np.float64) if c in t else np.full(len(t), fill)
+
+    no_gaia = ~np.isfinite(col("gaia_g"))
+    with np.errstate(invalid="ignore"):
+        extended = (col("extended_score") > SHAPE_GALAXY_EXT) | (col("size_ratio") > SHAPE_GALAXY_SIZE)
+    good_z = t["photoz_good"].fillna(False).astype(bool).to_numpy() if "photoz_good" in t else np.zeros(len(t), bool)
+    return ((t["class"] == "galaxy").to_numpy() | t["galaxy_or_qso"].astype(bool).to_numpy() | good_z
+            | (no_gaia & extended))
+
+
 def select(t: pd.DataFrame, cap: int = SHAPE_CAP) -> tuple[pd.DataFrame, dict]:
-    """The candidates: the shape test fires, one catalogue object, clean, not a galaxy; the `cap` most significant."""
+    """The candidates: the shape test fires, one catalogue object, clean, not a galaxy (galaxy_like); the `cap` most
+    significant."""
     f = fires(t)
     one = one_object(t) & clean_sources(t)
-    gal = (t["class"] == "galaxy").to_numpy() | t["galaxy_or_qso"].astype(bool).to_numpy()
+    gal = galaxy_like(t)
     keep = f & one & ~gal
     c = t[keep].sort_values("sig", ascending=False).head(cap).copy()
     info = {"one_object_clean": int(one.sum()), "fire": int((one & f).sum()), "galaxies_dropped": int((one & f & gal).sum()),
@@ -642,11 +788,17 @@ def main(argv: list[str] | None = None) -> int:
         del members
     sources = table("sources.parquet", results_rel(a.zone, "sources.parquet"), ["source_id", "ra", "dec", "saturated", "flux_ujy", "err_ujy"])
     refcat = pd.read_parquet(Path(a.tables) / f"refcat_{a.zone}.parquet") if a.tables else store.read_parquet(f"refcat/{a.zone}.parquet")
-    refcat = refcat[refcat["cat"].astype(str).isin(["gaia", "catwise"])].assign(cat=lambda r: r["cat"].astype(str))
+    refcat = refcat[refcat["cat"].astype(str).isin(["gaia", "catwise", "2mass", "tmass"])].assign(cat=lambda r: r["cat"].astype(str))
     try:
-        classes = table("classes.parquet", results_rel(a.zone, "classes.parquet"), ["source_id", "class"])
+        classes = table("classes.parquet", results_rel(a.zone, "classes.parquet"), ["source_id", "class", "extended_score", "size_ratio"])
     except Exception:  # noqa: BLE001
         classes = None
+    try:  # a good photo-z makes it a galaxy (galaxy_like)
+        pz = table("photoz.parquet", results_rel(a.zone, "photoz.parquet"), ["source_id", "good"])
+        if classes is not None:
+            classes = classes.merge(pz.rename(columns={"good": "photoz_good"}), on="source_id", how="left")
+    except Exception:  # noqa: BLE001
+        pass
     t, info = measure(d, photos, sources, refcat, classes)
     if a.keep and a.out:
         t.to_parquet(Path(a.out) / "shape_all.parquet", index=False)

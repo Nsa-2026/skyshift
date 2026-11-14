@@ -362,6 +362,48 @@ def test_shape_candidates(tmp_path):
     assert list(out) == list(K.FIELDS) and out["pa_deg"] == 37.2 and out["gaia_match"] is True and out["rate_arcsec_h"] is None
 
 
+def test_clean_labels_pah_ice_and_m_dwarfs():
+    c = _classes()
+    c["gaia_bp_rp"] = [np.nan, 2.9, 1.0, np.nan, np.nan]   # 2: an M dwarf at 25 pc with water vapour
+    c.loc[4, ["labels", "label_h2o_ice"]] = ["h2o_ice", True]
+    pz = pd.DataFrame({"source_id": [4, 5], "z_best": [0.015, 0.2], "good": [True, True], "label_pah_33_z": [False, False]})
+    out = K.clean_labels(c, pz)
+    assert out["labels"].tolist() == ["ch4", "", "co_23", "pah_33", ""]  # vapour expected; ice on a galaxy at z 0.2
+    pz.loc[0, "z_best"] = 0.1  # PAH at z ≈ 0 in a galaxy at z = 0.1: wrong place
+    assert K.clean_labels(c, pz)["labels"].tolist()[3] == ""
+    pz.loc[0, "label_pah_33_z"] = True  # photoz found it at the galaxy's redshift
+    assert K.clean_labels(c, pz)["labels"].tolist()[3] == "pah_33"
+    assert K.clean_labels(c, None)["labels"].tolist()[3] == ""  # no photo-z: no PAH
+    s = K.select_spectral(out)
+    assert s["source_id"].tolist() == [1, 4]  # 2 lost its only label; 5 its ice
+
+
+def test_gaia_blend_counts_as_gaia(tmp_path):
+    store = Store(str(tmp_path))
+    mjd = 61000.0
+    src = pd.DataFrame({"source_id": [1, 2, 3], "ra": [125.0, 125.1, 125.2], "dec": [20.0, 20.0, 20.0]})
+    _write(store, results_rel("hunt", "sources.parquet"), src)
+    _write(store, results_rel("hunt", "crossids.parquet"), src[["source_id"]].assign(epoch_mjd=mjd))
+    dt = (mjd - 57388.5) / 365.25
+    ra_pm = 125.1 - 500.0 * dt / 3.6e6 / np.cos(np.deg2rad(20.0)) + 4.0 / 3600 / np.cos(np.deg2rad(20.0))
+    _write(store, "refcat/hunt.parquet", pd.DataFrame({
+        "ref_id": ["a", "b", "c", "d"], "cat": ["gaia", "gaia", "gaia", "catwise"],
+        "ra": [125.0 + 4.5 / 3600 / np.cos(np.deg2rad(20.0)), ra_pm, 125.2 + 3 / 3600, 125.2],
+        "dec": [20.0, 20.0, 20.0, 20.0], "epoch_mjd": [57388.5] * 3 + [57170.0],
+        "pmra": [0.0, 500.0, 0.0, 0.0], "pmdec": [0.0] * 4, "g_mag": [18.0, 19.0, 20.5, np.nan]}))
+    # 1: a G 18 star 4.5″ away; 2: a fast star 4″ away at the source's epoch (4.8″ + 7.6″ at 2016); 3: G 20.5 only
+    assert K.gaia_blends(store, "hunt", np.array([1, 2, 3])).tolist() == [1, 2]
+
+
+def test_pah_only_rows_are_capped():
+    n = K.SPECTRAL_PAH_ONLY_CAP + 5
+    c = pd.DataFrame({"source_id": np.arange(n + 1), "labels": ["pah_33"] * n + ["h2o_vapour"],
+                      "brown_dwarf_like": [False] * (n + 1), "label_pah_33": [True] * n + [False],
+                      "label_h2o_vapour": [False] * n + [True], "gaia_g": np.nan, "gaia_sep_arcsec": np.nan})
+    s = K.select_spectral(c)
+    assert (s["labels"] == "pah_33").sum() == K.SPECTRAL_PAH_ONLY_CAP and (s["labels"] == "h2o_vapour").sum() == 1
+
+
 def test_motion_significance_uses_scaled_errors():
     """36″/h over 2.1 min with 0.25″ raw pos_err: 3.6σ on the raw errors, 2.2σ once they are × 1.6 (not significant)."""
     d = _mover_dots()
