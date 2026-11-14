@@ -50,11 +50,19 @@ def handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404, json={"error": {"code": "not_found", "message": p}})
 
 
-@pytest.fixture
-def offline(monkeypatch):
-    c = Client(BASE, http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+def make_offline(monkeypatch, extra=None) -> Client:
+    """Install an offline client. `extra(request)` may answer a request first (return an
+    httpx.Response) or return None to fall through to the shared routes above."""
+    def route(request: httpx.Request) -> httpx.Response:
+        return (extra(request) if extra else None) or handler(request)
+    c = Client(BASE, http=httpx.AsyncClient(transport=httpx.MockTransport(route)))
     monkeypatch.setattr(server, "_client", c)
     return c
+
+
+@pytest.fixture
+def offline(monkeypatch):
+    return make_offline(monkeypatch)
 
 
 @pytest.fixture
