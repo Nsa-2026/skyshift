@@ -43,6 +43,19 @@ class Cache:
         p = Path(self.root) / key
         return p.read_bytes() if p.exists() else None
 
+    def keys(self, prefix: str) -> list[str]:
+        """Every key that starts with `prefix` (e.g. "search/"), relative to the cache root."""
+        if self._bucket is not None:
+            full = f"{self._prefix}/{prefix}" if self._prefix else prefix
+            cut = len(self._prefix) + 1 if self._prefix else 0
+            return [b.name[cut:] for b in self._bucket.list_blobs(prefix=full)]
+        root = Path(self.root)
+        start = root / prefix.rstrip("/")
+        if not start.is_dir():
+            return []
+        return sorted(p.relative_to(root).as_posix() for p in start.rglob("*")
+                      if p.is_file() and not p.name.endswith(".tmp"))
+
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         if self._bucket is not None:
             self._blob(key).upload_from_string(data, content_type=content_type)
