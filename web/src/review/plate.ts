@@ -93,6 +93,11 @@ export class Plate {
     return this.reload();
   }
 
+  /** Switch the player between a plain blink and Difference (the practice hints). */
+  display(mode: "blink" | "difference"): void {
+    this.blink?.display?.(mode);
+  }
+
   /** Clear the plate (end state). */
   clear(): void {
     this.gen++;
