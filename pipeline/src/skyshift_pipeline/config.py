@@ -521,3 +521,54 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # from a sample of the files, plus as much again for the tiles' own files); otherwise the tiles
                                # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
+
+# --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
+# NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
+# the zone's other photos of its detector, from the dot files' footers (contracts/dots.md photo metadata), calib's
+# per-photo scatter and, where the dot files are local, 5 dot columns. A reason fires at amber or red; the grade is the
+# worst. Numbers measured on 14 Nov (hunt calib_photos; 1,209 ecl15 photos' footers; 216 photos' bright dots).
+QA_FOOTER_TAIL_BYTES = 72 * 1024  # one ranged read per dot file (footers ~65 KB with the grids); a longer footer: a second
+QA_THREADS = 32                # footer / dot-column reads in parallel
+QA_SHAPES = os.environ.get("SKYSHIFT_QA_SHAPES", "auto")  # dot columns for the sharp-artefact share: auto = only when the
+                               # dot files are on local disk (tiled run's slim mirror, local root), on, off
+QA_MIN_PHOTOS = 5              # a detector (or detector-and-visit) median needs this many photos, else the defaults below
+QA_MIN_BRIGHT = 20             # bright dots (unsaturated, S/N > CALIB_PSF_MIN_SNR) a photo needs for its PSF numbers
+QA_FWHM_REF_ARCSEC = {1: 7.8, 2: 7.8, 3: 8.0, 4: 9.1, 5: 9.1, 6: 9.5}  # stellar FWHM from second moments (ecl15 medians;
+                               # used only when the zone has too few photos of the detector)
+QA_PSF_AP_REF = 1.035          # median PSF / r = 2 px aperture flux of stars (ePSF aperture correction 1.033)
+# dots per photo / median of the same detector and visit (ecl15: p1 0.89, p99 1.18; SAA: D6 3.5× at 1.2°, D5 1.6–1.9×
+# within 2°, D5 1.45× at 70°). Red needs less near the SAA, where the extra dots are particle hits.
+QA_DOTS_RATIO_RED = 2.0
+QA_DOTS_RATIO_RED_SAA = 1.5
+QA_DOTS_RATIO_AMBER = 1.35
+QA_DOTS_RATIO_LOW = 0.5        # amber below (part of the photo empty)
+QA_SAA_DEG = 2.0               # header SGT_MIN_GCD2SAA below this: amber, and the lower red threshold above
+QA_SATSTRKS_AMBER = 15         # header `L2 SATSTRKS` (ecl15: median 1, p99 11, 34 on the SAA photo)
+# PSF of bright dots / the detector's median (ecl15 FWHM: p1 0.96, p99 1.04; PSF/aperture: p1 0.88, p99 1.03).
+# Visit-3 D6 artefact photos: FWHM 0.40–0.49, PSF/aperture 0.49–0.57 (more than half the bright dots are artefacts,
+# so the medians flip); 0.66–0.76 where it's nearly half.
+QA_FWHM_RATIO_RED = (0.7, 1.4)
+QA_FWHM_RATIO_AMBER = (0.9, 1.15)
+QA_PSF_AP_RATIO_RED = (0.8, 1.25)
+QA_PSF_AP_RATIO_AMBER = (0.9, 1.1)
+# Sharp artefacts (dot columns): share of bright dots with FWHM < QA_SHARP_FWHM_FRAC × the detector's stellar FWHM.
+# 216 sampled photos: D1–D3 ≤ 0.4%; MWIR grows with time: D4 0.2% → 1% → 7%, D5 0% → 3% → 7%, D6 1% → 24% → 44%
+# (visits 1 → 3, Sep 2025 → May 2026), 73% of the sharp ones with OUTLIER at the peak. Red: the photo's PSF medians flip
+# (≥ half); amber: the visit-3 D6 level. The share is a photo number: the sharp dots themselves are the artefacts.
+QA_SHARP_FWHM_FRAC = 0.7
+QA_SHARP_FRAC_RED = 0.5
+QA_SHARP_FRAC_AMBER = 0.3
+QA_SHARP_OUTLIER_MIN = 0.3     # red also needs this share of the sharp dots with OUTLIER at the peak (OUTLIER alone is
+                               # never a reason: MPC asteroids carry it on 52% of their dots)
+# Astrometry against Gaia. calib's per-photo scatter after the distortion fit / the detector's median (hunt: 0.99″ = 5.6×
+# on D4 and 0.74″ = 5.3× on D6, the next 2.9×; D3's median is 0.26″, the others' 0.14–0.18″), the worse of centroid and
+# ePSF; without a calib row (≥ QA_MIN_GAIA stars) the dot file's raw scatter against forced Gaia targets. Red also needs
+# QA_SCATTER_MIN_RED_ARCSEC. Offset: the dot file's raw median offset minus the detector's median offset.
+QA_MIN_GAIA = 20               # fewer matches: not checked (`astrometry_checked` false; hunt calib: 6% of photos, zone edges)
+QA_SCATTER_RATIO_RED = 3.5
+QA_SCATTER_MIN_RED_ARCSEC = 0.5
+QA_SCATTER_RATIO_AMBER = 2.0
+QA_OFFSET_RED_ARCSEC = 1.5     # ecl15 raw offsets: median 0.11″, p99 0.39″, max 1.09″ (D6); calib removes offsets anyway
+QA_OFFSET_AMBER_ARCSEC = 0.6
+QA_LIGHTCURVES = True          # lightcurves: red photos' points get photo_ok false (as its own bad photos)
+QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
