@@ -25,7 +25,13 @@ from .detect import APERTURE_R_PX, _native, build_mask
 
 DEG2_TO_SR = (np.pi / 180.0) ** 2
 MJY_SR_TO_UJY_PER_SR = 1e12  # 1 MJy = 1e12 uJy
-APERTURE_CORRECTION = 1.033  # r = 2 px only; see the module docstring
+APERTURE_CORRECTION = 1.033  # for r = APERTURE_R_PX (2 px) only; see the module docstring
+
+
+def aperture_correction(r: float) -> float:
+    """Total-flux correction for a circular aperture of radius r px: 1.033 at 2 px (measured on
+    NASA's ePSF), 1.0 for any other radius (not measured; larger radii hold nearly all the light)."""
+    return APERTURE_CORRECTION if abs(float(r) - APERTURE_R_PX) < 1e-9 else 1.0
 
 
 def pixel_solid_angle_sr(wcs: WCS, x: float | None = None, y: float | None = None) -> float:
@@ -100,8 +106,9 @@ def aperture_photometry(
         v = _native(variance)
         var = np.ascontiguousarray(np.where(np.isfinite(v) & ~m, v, 0.0))
     flux, ferr, flag = sep.sum_circle(d, xs, ys, r, var=var, mask=m, bkgann=bkg_annulus, subpix=5)
-    flux = np.asarray(flux, dtype=np.float64) * APERTURE_CORRECTION
-    ferr = np.asarray(ferr, dtype=np.float64) * APERTURE_CORRECTION
+    corr = aperture_correction(r)
+    flux = np.asarray(flux, dtype=np.float64) * corr
+    ferr = np.asarray(ferr, dtype=np.float64) * corr
     if local_area:
         conv = np.array([ujy_per_mjysr(wcs, xi, yi) for xi, yi in zip(xs, ys)])
     else:

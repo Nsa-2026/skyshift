@@ -138,7 +138,9 @@ def test_run_writes_both_files_and_skips_cached_tiles(tmp_path):
     assert set(full["cat"]) == {"gaia", "catwise", "2mass"} and full["ref_id"].is_unique
     assert list(forced.columns) == list(R.FORCED_COLUMNS)
     st2 = R.run(store, z, workers=2, tap=fake_tap)
-    assert st2["fetched"] == 0 and len(calls) == 3 * n_tiles
+    assert st2.get("skipped") and len(calls) == 3 * n_tiles
+    st3 = R.run(store, z, workers=2, tap=fake_tap, force=True)
+    assert st3["fetched"] == 0 and len(calls) == 3 * n_tiles
 
 
 def test_esa_failure_falls_back_to_irsa(monkeypatch):

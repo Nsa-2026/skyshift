@@ -7,7 +7,7 @@ Cloud scripts for Google Cloud project nasa-glazing (us-east4, zone us-east4-a).
              (create, run, log, status, stop). Logic and storage: docs/cloud-architecture.md.
 - run/       P2. Cloud Run service skyshift-api, 0–2 instances. Deploy from the repo root with
              --source . (the root Dockerfile copies core/ and server/).
-- firebase/  P2. Hosting (second site, e.g. skyshift-sky), public dir web/dist, rewrite /api/** to
+- firebase/  P2. Hosting site skyshift (https://skyshift.web.app), public dir web/dist, rewrite /api/** to
              skyshift-api. Firestore rules for candidates and votes: create-only (contracts/api.md).
 
 - Bucket gs://nasa-glazing-data: photolists/, dots/, results/, cache/, logs/.

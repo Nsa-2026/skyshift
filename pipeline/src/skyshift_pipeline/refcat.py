@@ -329,7 +329,10 @@ def per_photo_counts(ra: np.ndarray, dec: np.ndarray, zone: C.Zone, side: float 
 
 
 # --- step ----------------------------------------------------------------------------------------
-def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap) -> dict:
+def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap, force: bool = False) -> dict:
+    if not force and store.exists(refcat_rel(zone.name)) and store.exists(refcat_rel(zone.name, forced=True)):
+        L.info("refcat %s: both files exist, skipping (delete them or pass force=True to rebuild)", zone.name)
+        return {"skipped": True, "fetched": 0}
     t0 = time.time()
     cats, st = fetch_all(store, zone, workers, tap)
     allrows = pd.concat([cats["gaia"], cats["catwise"], cats["2mass"]], ignore_index=True).astype(REFCAT_COLUMNS)
