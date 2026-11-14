@@ -123,11 +123,13 @@ exposures than the static files. The static twins (scripts/precompute) use all o
 
 | clock | live `/api/frames` | static `/data/<slug>/` |
 |---|---|---|
-| months | at most **6 exposures per visit** in each stack, spread evenly over the visit (first and last included) | every exposure of the visit |
-| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions with 2 or more exposures preferred) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
+| months | at most **6 exposures per visit** in each stack, spread evenly over the visit's exposures that cover at least 90% of the field (from the search footprints; when too few, those plus the ones that fill most of the still-empty field) | every exposure of the visit |
+| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions whose exposures cover at least 90% of the field preferred, then sessions with 2 or more exposures) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
 
-The hours clock shows one visit: the one with the most exposures of that detector (the latest on
-a tie). `n_exposures` always reports the exposures really in the frame: a capped months stack of
+The hours clock shows one visit: the one with the most exposures of that detector covering at least half the
+field (from the search footprints; then the most covering 90%, then the most exposures, the latest on a tie).
+An exposure covering under half the field is left out when its session has better ones. Pixels with raw 0 are
+no data (the field's edge in that photo), never sky. `n_exposures` always reports the exposures really in the frame: a capped months stack of
 a 19-exposure visit says 6; an hours frame says 1.
 
 Response fields:
