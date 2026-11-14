@@ -1221,10 +1221,12 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "astropy", specifier = ">=6.1" },
     { name = "fsspec", specifier = ">=2024.6" },
+    { name = "kete", marker = "extra == 'known'", specifier = "==3.3.0" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "sep", specifier = ">=1.4" },
 ]
+provides-extras = ["known"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]
