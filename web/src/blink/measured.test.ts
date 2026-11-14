@@ -90,6 +90,12 @@ describe("hours summary", () => {
     expect(known[0].numbers).toMatch(/^3 dots in 2 sessions/);
     expect(known[0].epochs).toEqual(["d2-2025W42_2A_0213_1", "d2-2025W42_2A_0213_2", "d2-2025W42_2A_0213_3"]);
   });
+  it("mentions a lone dot where a known asteroid should be (no mover paired it)", () => {
+    const m: Measured = { ...H, tracks: [], detections: H.detections.map((d) => ({ ...d, track_id: null })) };
+    expect(summarize(m).rest).toBe(
+      "4 dots match Gaia stars, 2 sit where (433) Eros should be, 2 have no Gaia match and 1 looks like an artefact.",
+    );
+  });
   it("lists several grades and ungraded suspects", () => {
     const t = H.tracks[0];
     const m: Measured = {
@@ -185,7 +191,7 @@ describe("the list under the summary", () => {
       "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
       "Source without Gaia moved 0.39″ ± 0.11″ in 1.0 yr",
     ]);
-    expect(items[2].numbers).toBe("10391 ± 90 mas/yr, 115.4σ, towards 356° east of north");
+    expect(items[2].numbers).toBe("10,391 ± 90 mas/yr, 115.4σ, towards 356° east of north");
     expect(items[1].numbers).toBe("In 1 visit. S/N 9.4, 380 µJy, from 3 dots");
   });
 });

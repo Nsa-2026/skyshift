@@ -260,6 +260,13 @@ export function summarize(m: Measured): Summary {
       : ", and no movers.";
     const r: string[] = [];
     if (m.counts.star) r.push(`${plural(m.counts.star, "dot")} ${m.counts.star === 1 ? "matches a Gaia star" : "match Gaia stars"}`);
+    // A lone dot where a known asteroid should be (no mover paired it): known dots always survive the cap.
+    const loneKnown = m.detections.filter((d) => d.class === "known" && !d.track_id);
+    if (loneKnown.length) {
+      const names = [...new Set(loneKnown.map((d) => d.known_name).filter((x): x is string => !!x))];
+      const who = names.length === 1 ? names[0] : names.length ? "known asteroids" : "a known asteroid";
+      r.push(`${loneKnown.length} ${loneKnown.length === 1 ? "sits" : "sit"} where ${who} should be`);
+    }
     if (m.counts.other) r.push(`${m.counts.other.toLocaleString("en-GB")} ${m.counts.other === 1 ? "has" : "have"} no Gaia match`);
     if (m.counts.artifact) r.push(`${m.counts.artifact.toLocaleString("en-GB")} ${m.counts.artifact === 1 ? "looks" : "look"} like ${m.counts.artifact === 1 ? "an artefact" : "artefacts"}`);
     if (r.length) rest = `${listJoin(r)}.`;
@@ -333,7 +340,9 @@ export function notableAt(m: Measured, epochId: string): MeasuredDetection[] {
     .sort((a, b) => NOTABLE.indexOf(a.class) - NOTABLE.indexOf(b.class) || b.snr - a.snr);
 }
 
-const num = (x: number, d = 0) => (Number.isFinite(x) ? x.toFixed(d) : "?");
+/** Fixed decimals, with thousands separators like the rest of the site (48,159 µJy). */
+const num = (x: number, d = 0) =>
+  Number.isFinite(x) ? x.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }) : "?";
 const arcsec = (x: number) => `${num(x, x >= 10 ? 1 : 2)}″`;
 
 /** "Suspect, grade B", "Artefact: ghost, halo", "Known: (433) Eros". */
