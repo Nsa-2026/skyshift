@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from skyshift_core import centroid, detect, open_level2
+from skyshift_core.detect import detection_snr, no_data_near
 from skyshift_core.flags import OVERFLOW, SOURCE
 
 from conftest import gaussian_image
@@ -64,3 +65,32 @@ def test_centroid_on_wings_when_core_saturated():
     c = centroid(img, 30, 30, flags=flags)
     assert c is not None
     assert np.hypot(c[0] - x0, c[1] - y0) < 0.25
+
+
+def test_detection_snr_star_versus_noise():
+    rng = np.random.default_rng(3)
+    img = gaussian_image((81, 81), [40.0, 20.0], [40.0, 60.0], [1.0, 0.3], PSF_SIGMA) + rng.normal(0, 0.02, (81, 81))
+    assert detection_snr(img, 40.0, 40.0) > 15
+    assert 5 < detection_snr(img, 20.0, 60.0) < 15
+    noise = [detection_snr(img, x, 15.0) for x in range(10, 75, 8)]  # empty sky
+    assert max(noise) < 4.0
+
+
+def test_detection_snr_reads_a_saturated_core_on_its_wings():
+    rng = np.random.default_rng(4)
+    img = gaussian_image((81, 81), [40.0], [40.0], [50.0], 1.5) + rng.normal(0, 0.02, (81, 81))
+    img[38:43, 38:43] = np.nan  # the core masked in every exposure
+    assert detection_snr(img, 40.0, 40.0) > 20
+
+
+def test_no_data_near_edge_but_not_a_saturated_hole():
+    img = np.ones((81, 81))
+    img[:, 60:] = np.nan  # past the detector's edge
+    img[39:42, 19:22] = np.nan  # a saturated core
+    assert no_data_near(img, 57.0, 40.0, 4.0)
+    assert not no_data_near(img, 50.0, 40.0, 4.0)
+    assert not no_data_near(img, 20.0, 40.0, 4.0)
+    assert no_data_near(img, 100.0, 40.0, 4.0)  # off the frame
+    big = np.ones((81, 81))
+    big[20:40, 20:40] = np.nan  # 400 px masked inside the frame: missing sky too
+    assert no_data_near(big, 42.0, 30.0, 4.0)

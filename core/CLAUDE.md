@@ -18,8 +18,14 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
 - visits: visits(mjds), sessions(mjds), summarize_visits(mjds).
 - detect: detect(data, flags, variance=) -> structured array (x, y, flux MJy/sr summed, flux_err, snr, ...);
   centroid(data, x, y, flags=, method="auto"|"window"|"fit"). Noise = max(sqrt(VARIANCE), background rms).
+  detection_snr(data, x, y) (PSF-matched S/N, noise measured on the frame), no_data_near(data, x, y, r)
+  (missing sky, not a saturated core's hole).
 - astrometry: pixel_to_sky, sky_to_pixel, propagate (Gaia J2016.0 -> MJD, optional parallax),
   select_reference_stars, measure_shift (V2 + V3) -> ShiftResult.to_measure() = api `measure`.
+  measure_shift's detection guard raises ShiftError(reason) unless one source is clearly seen in both
+  stacks: S/N >= 5 in each, no missing sky within 4 px, centroids within max(FWHM 7.53", 12"/yr x dt)
+  + 3 sigma of each other (or of the predicted motion). Reasons: not_found, not_detected, edge,
+  different_sources.
 - photometry: pixel_solid_angle_sr, ujy_per_mjysr (from the WCS, ~889.7), aperture_photometry -> uJy.
 - known_index: known asteroids and comets near (ra, dec, r) at given MJDs, fast (live API). load_index(npz) is
   numpy only; candidates() = two-body coarse cut with per-object margins; known_near() = kete n-body on the

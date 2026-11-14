@@ -21,7 +21,11 @@ A point that can't be measured honestly (a masked but unsaturated core, a neighb
 5" to a source Gaia doesn't see) is left out rather than shown wrong.
 
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
-native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. The detector is the
+native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. Its detection guard
+gives a shift only for one source clearly seen in both stacks (PSF-matched S/N >= 5 in each, no
+missing sky within 4 px, the two centroids within max(FWHM, 12"/yr x dt) + 3 sigma of each other,
+or of the predicted motion); otherwise `measure` is null and details["measure_reason"] says why.
+Before it, a random spot with nothing on it "moved" 30" (RA 125.5, Dec 19.4: two noise peaks). The detector is the
 one with the best signal that is not saturated; if every detector saturates, the least saturated
 (a built-in target seen only in some detectors is measured in those: its `dets` in targets.json,
 else MEASURE_DETECTORS).
@@ -509,10 +513,11 @@ def fill_saturated_core(image: np.ndarray, x: float, y: float, *, radius: float 
 def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[search.Image],
             det: int, v1: int, v2: int, cache: Cache, *, budget: Budget | None = None,
             per_visit: int | None = None, ref_stars: Future | None = None,
-            max_ref: int | None = None) -> dict[str, Any] | None:
+            max_ref: int | None = None, reasons: list[str] | None = None) -> dict[str, Any] | None:
     """per_visit: at most this many exposures of each visit (blink.pick_months_images; None: all).
     ref_stars: the 15' Gaia cone, already asked (else asked here).
-    max_ref: at most this many reference stars, the nearest to the position (None: all)."""
+    max_ref: at most this many reference stars, the nearest to the position (None: all).
+    reasons: receives the guard's code (core ShiftError.reason) when the shift is refused."""
     grid = stack.Grid(ra, dec, MEASURE_PIXEL, int(round(MEASURE_FOV * 60 / MEASURE_PIXEL)) | 1)
     mine = blink.pick_months_images([im for im in images if im.det == det and im.visit in (v1, v2)], per_visit)
     stacks = blink.visit_stacks(mine, grid, cutouts.tier_for_field(MEASURE_FOV), cache,
@@ -563,8 +568,10 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             ref_ra=col("ra")[ref] if stars else (), ref_dec=col("dec")[ref] if stars else (),
             ref_pmra=col("pmra")[ref] if stars else None, ref_pmdec=col("pmdec")[ref] if stars else None,
             search_r=search_r, method="fit", **kw)
-    except ShiftError as e:
-        log.info("no measurement: %s", e)
+    except ShiftError as e:  # the detection guard (core.measure_shift): no honest shift here
+        log.info("no measurement (%s): %s", e.reason, e)
+        if reasons is not None:
+            reasons.append(e.reason)
         return None
     out = res.to_measure()
     for k in ("shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec", "predicted_arcsec"):
@@ -572,7 +579,9 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             out[k] = round(out[k], 4)
     return out, {"det": det, "visits": [v1, v2], "d_east_arcsec": res.d_east_arcsec, "d_north_arcsec": res.d_north_arcsec,
                  "frame_offset_arcsec": res.frame_offset_arcsec, "n_exposures": [s1.n_exposures, s2.n_exposures],
-                 "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled}
+                 "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled,
+                 "target_snr": [round(float(v), 1) for v in res.target_snr],
+                 "match_r_arcsec": round(float(res.match_r_arcsec), 2)}
 
 
 def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: dict | None = None,
@@ -608,8 +617,9 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     pick = pick_detector(spectrum, images, measure_detectors(model))
     if pick is not None and not (budget is not None and budget.expired(OBJECT_RESERVE_S)):
         t = time.monotonic()
+        reasons: list[str] = []
         kw = dict(budget=budget, per_visit=blink.LIVE_PER_VISIT if live else None, ref_stars=ref_f,
-                  max_ref=MAX_REF_LIVE if live else None)
+                  max_ref=MAX_REF_LIVE if live else None, reasons=reasons)
         if live:  # the fits are CPU work the budget cannot stop half-way: wait only until the deadline
             fut = _measure_pool.submit(measure, ra, dec, model, images, *pick, cache, **kw)
             try:
@@ -625,6 +635,8 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
             result, extra = got
             if details is not None:
                 details.update(extra)
+        elif details is not None and reasons:
+            details["measure_reason"] = reasons[0]
     elif pick is not None and budget is not None:
         budget.cut("no time left for the measurement")
     if budget is not None and budget.partial and not spectrum and result is None:
