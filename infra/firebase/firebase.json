@@ -1,0 +1,29 @@
+{
+  "hosting": {
+    "site": "skyshift-sky",
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*"],
+    "cleanUrls": true,
+    "rewrites": [
+      { "source": "/api/**", "run": { "serviceId": "skyshift-api", "region": "us-east4" } },
+      { "source": "**", "destination": "/index.html" }
+    ],
+    "headers": [
+      {
+        "source": "/data/**/*.bin",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400, s-maxage=31536000" }]
+      },
+      {
+        "source": "/assets/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      },
+      {
+        "source": "/data/**/*.json",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=300" }]
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}
