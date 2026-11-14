@@ -16,6 +16,8 @@ Zones are listed in the order given (hunt first). An object already listed from 
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
 Movers carry three zone-level "check first" codes: outlier_flag, detector_excess, repeat_position.
+Movers also carry the suspects' vetting (vet.py): `grade` (A/B/C; null for other kinds and ungraded zones) and the failed
+gates as reason codes; grade C scores × MOVER_GRADE_C and the list puts movers in grade order, so C never leads.
 `score` (0-1, higher = more promising) is defined per kind in mover_score, highpm_score and
 spectral_score (formulas also in contracts/api.md). frames_url is set for candidates whose static frames
 exist next to the output (cand/<id>/frames.json, written by scripts/candidates/frames.py).
@@ -80,6 +82,8 @@ MOVER_EXCESS = 0.6             # detector_excess
 MOVER_REPEAT = 0.3             # repeat_position
 MOVER_BAD_PIXELS = 0.8
 MOVER_NO_MOTION = 0.85
+MOVER_GRADE_C = 0.1            # the suspects' vetting graded it C (a failed gate or a catalogue source within 6″)
+GRADE_RANK = {"A": 0, "B": 1, "C": 2}  # list order inside each zone and kind; null (other kinds, ungraded) sorts with B
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
@@ -109,12 +113,13 @@ LABEL_TEXT = {"ch4": "methane", "h2o_ice": "water ice", "co2_ice": "CO₂ ice", 
 RECORD_FLAG_NAMES = {b: n.lower() for b, n in BIT_NAMES.items() if RECORD_BITS & (1 << b)}
 REASONS = {
     "mover": ("two_exposures", "two_detectors", "known_object_near", "motion_not_significant", "bad_pixels_near",
-              "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked"),
+              "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked",
+              *C.VET_GATES),  # the suspects' failed vetting gates (vet.py, contracts/api.md suspects.json)
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
                 "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
 }
-FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "snr", "flux_ujy", "rate_arcsec_h",
+FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
           "galactic_b", "labels", "reasons", "why", "flags", "frames_url")
 
@@ -467,11 +472,15 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             reasons.append("gaia_unchecked")
         if not getattr(r, "catwise_checked", True):
             reasons.append("catwise_unchecked")
+        grade = getattr(r, "grade", None)
+        grade = grade if isinstance(grade, str) and grade else None
+        vet_reasons = getattr(r, "reasons", None)
+        reasons += [str(x) for x in (vet_reasons if vet_reasons is not None and not isinstance(vet_reasons, float) else [])]
         score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion],
-                                  [excess], [rep_ is not None])[0])
+                                  [excess], [rep_ is not None])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
         out.append({
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
-            "zone": zone, "zones": [zone], "score": score, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
+            "zone": zone, "zones": [zone], "score": score, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
             "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_),
@@ -822,7 +831,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     for c, b_ in zip(kept, gb):
         c["galactic_b"] = float(b_)
     order = {z: i for i, z in enumerate(used_zones)}
-    kept.sort(key=lambda c: (order[c["zone"]], KINDS.index(c["kind"]), -c["score"], c["id"]))
+    kept.sort(key=lambda c: (order[c["zone"]], KINDS.index(c["kind"]), GRADE_RANK.get(c.get("grade"), 1), -c["score"], c["id"]))
     ids = [c["id"] for c in kept]
     if len(set(ids)) != len(ids):
         raise ValueError("candidate ids are not unique")

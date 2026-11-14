@@ -529,6 +529,60 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
 
+# --- vetting: gates, grades and reasons on the suspects (vet.py, suspects.py) ---------------------
+# Run on the suspects only (after the MPC/flag/bright/SOURCE cuts and the Gaia/WISE vetoes), never before link's pairing,
+# so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in suspects.json with grade C and its
+# reasons. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
+# masked bit at the peak 13, one D6 column 2; ~4 unexplained. link carries each mover's dots as lists (dot_obs, dot_det,
+# dot_x, dot_y, dot_mjd, dot_flux, dot_snr, dot_size, dot_chi2, dot_fpk, dot_row) and writes freedots.parquet (every
+# free dot: obs_id, detector, x, y, ra, dec) for the zone-level hot-pixel and column maps.
+VET_DETECTOR_PX = 2040
+VET_EDGE_PX = 6.0              # a dot within 6 px of the detector edge (x or y < 6 or > 2033)
+VET_HOT_PX = 1.0               # same detector pixel: |Δx| and |Δy| <= 1 px
+VET_HOT_MIN_EXP_MOVERS = 3     # hot pixel: the zone's movers' dots on that pixel in >= 3 exposures ...
+VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free dots per detector, 0.29 per 3×3 px: >= 3 would
+                               # hit 3.4% of real dots by chance, >= 5 0.01%; the five worst pixels made 10–14 suspects each)
+VET_COLUMN_PX = 0.5            # bad column: free dots of one exposure and detector within ±0.5 px in x ...
+VET_COLUMN_MIN_DOTS = 3        # ... at least this many (hunt: ~216 free dots per photo, 0.1 per column: 0.5% by chance)
+# sharp: √(a·b) below VET_SHARP_FRAC[det] × the detector's stellar √(a·b) at that S/N, with OUTLIER (19) at the peak.
+# OUTLIER alone is set at the peak of 52–69% of MPC-matched movers' dots, so it never vetoes on its own. 150 MPC-matched
+# hunt movers (643 dots): ratio p1 0.69, p5 0.78; with OUTLIER, 10 dots at 0.62–0.69, all in D1–D3, none below 0.6. The
+# sharp MWIR artefacts grow over the mission (QA: bright D6 dots under 0.7× stellar 1% → 44% from visit 1 to 3), so
+# D4–D6 keep 0.7 and D1–D3 take 0.6: no real asteroid of the sample is gated, 3 fewer hunt suspects than 0.7 everywhere.
+VET_SHARP_FRAC = {1: 0.6, 2: 0.6, 3: 0.6, 4: 0.7, 5: 0.7, 6: 0.7}
+VET_OUTLIER_BIT = 1 << 19
+# very_sharp: √(a·b) below 0.4 × the stellar value at S/N >= 15, OUTLIER or not: no point source is that sharp (a star's
+# 5th percentile is ~0.8×). Hunt: suspect #3, a 1.0″ dot at S/N 85 (35,000 µJy) paired with a 500 µJy partner in D6.
+VET_VERY_SHARP_FRAC = 0.4
+VET_VERY_SHARP_MIN_SNR = 15.0
+# median √(a_arcsec·b_arcsec) of unflagged dots per detector in S/N bins [5,7,10,15,20,30,50,100,∞) (94 hunt photos, 1.87 M dots)
+VET_STAR_SNR_EDGES = (5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0)
+VET_STAR_SIZE_ARCSEC = {
+    1: (4.65, 4.40, 4.08, 3.83, 3.63, 3.45, 3.32, 3.26),
+    2: (4.64, 4.42, 4.14, 3.90, 3.70, 3.52, 3.37, 3.29),
+    3: (4.72, 4.51, 4.22, 3.99, 3.80, 3.61, 3.47, 3.39),
+    4: (4.97, 4.81, 4.54, 4.31, 4.13, 3.97, 3.87, 3.86),
+    5: (4.99, 4.79, 4.51, 4.24, 4.09, 3.96, 3.89, 3.89),
+    6: (5.04, 4.88, 4.60, 4.36, 4.22, 4.12, 4.08, 4.13),
+}
+# masked bit at the peak of any dot: MASK_BITS (contracts/flags.md) without OVERFLOW/NONLINEAR (saturation is no defect)
+VET_PEAK_BITS = 0x0A02CEC7 & ~0x00008002
+VET_FLUX_RATIO_MAX = 4.0       # brightest / faintest dot within one detector (cosmic ray + a 5–20× fainter partner)
+VET_QA_NAME = "qa_photos.parquet"  # results/<zone>/qa_photos.parquet (qa.py): obs_id, detector, grade green|amber|red, reasons
+VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalogued (`2mass`), grade C
+# AllWISE within 6″ (`allwise`, grade C) where CatWISE2020 was the zone's WISE veto (where AllWISE was the veto they are
+# gone already): hunt, 5 of the 28 suspects that pass every gate have one. Read from S3 as suspects' AllWISE veto does
+# (cache/allwise/k5 at the root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
+VET_ALLWISE = os.environ.get("SKYSHIFT_VET_ALLWISE", "1") != "0"
+VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
+                               # near_source_arcsec, a blend/wing warning (not a gate)
+VET_MOTION_SIGMA = 5.0         # grade A: motion >= 5σ over >= 2 sessions; needs a multi-session linker (none yet: no A)
+VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
+# reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
+VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
+             "red_photo", "2mass", "allwise")
+VET_CATALOGS = ("2mass", "allwise")  # the catalogue reasons among VET_GATES
+
 # --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
 # NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
 # the zone's other photos of its detector, from the dot files' footers (contracts/dots.md photo metadata), calib's

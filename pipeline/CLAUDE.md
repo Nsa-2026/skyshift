@@ -147,6 +147,14 @@ The step never raises (errors go to its stats).
 - suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
   no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″ (from refcat/<zone>.parquet;
   the services only if that file is missing: 50-circle ESA batches took 30+ min for 30k movers).
+- Vetting (vet.py, 14 Nov; config VET_*): after those cuts every suspect gets `grade` and `reasons`. Gates on its own dots
+  (link carries each mover's dots as lists dot_obs, dot_det, dot_x, dot_y, dot_flux, dot_snr, dot_size, dot_fpk, …) and on
+  zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y; tiles merge it): hot_pixel (±1 px with
+  movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure), edge
+  (6 px), masked_peak, sharp_outlier (√(a·b) < 0.7 × stellar at that S/N with OUTLIER; OUTLIER alone never: 52% of real
+  asteroids), flux_ratio (> 4× within a detector), red_photo (qa_photos.parquet, if present), 2mass (refcat, 6″).
+  C = any reason (kept in the file), B = none, A = motion ≥ 5σ over ≥ 2 sessions (no multi-session linker: never).
+  Gates run on the suspects only, never before pairing: recall is unchanged.
 
 ## Facts
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.

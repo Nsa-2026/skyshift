@@ -279,3 +279,17 @@ def test_zone_boxes_order():
     # the hunt box contains the pilot box: hunt first
     h, p = ZONES["hunt"], ZONES["pilot"]
     assert h.ra_min <= p.ra_min and h.ra_max >= p.ra_max and h.dec_min <= p.dec_min and h.dec_max >= p.dec_max
+
+
+def test_movers_carry_the_suspects_grade():
+    """grade and the failed gates come from suspects.parquet; grade C scores x MOVER_GRADE_C; ungraded zones give null."""
+    s = _suspects([{"id": "a", "ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1,
+                    "grade": "B", "reasons": np.array([], dtype=object)},
+                   {"id": "b", "ra": 125.1, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1,
+                    "grade": "C", "reasons": np.array(["hot_pixel", "edge"], dtype=object)}])
+    a, b = K.movers(s, "hunt", None)
+    assert a["grade"] == "B" and b["grade"] == "C" and b["reasons"][-2:] == ["hot_pixel", "edge"]
+    assert b["score"] == pytest.approx(a["score"] * K.MOVER_GRADE_C)
+    assert set(b["reasons"]) <= set(K.REASONS["mover"])
+    old = K.movers(s.drop(columns=["grade", "reasons"]), "hunt", None)
+    assert old[0]["grade"] is None and old[1]["score"] == pytest.approx(a["score"])
