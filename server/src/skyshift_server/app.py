@@ -64,7 +64,9 @@ ENGINE_VERSION = "4"  # part of every cache key
 # (core.measure_shift, 14 Nov) gave shifts for spots with nothing on them (RA 125.5, Dec 19.4:
 # "30.15" in 0.45 years", two noise peaks); a new rule must not serve them again. Frames keep theirs.
 # detect-guard-2 (contracts/api.md v3.2): answers carry measure_reason and measure_hint.
-OBJECT_RULE = "detect-guard-2"
+# sky-median-3 (14 Nov): the aperture's sky is a clipped median (#198: Barnard's Star's old position
+# read 5-12 sigma below zero) and predicted_arcsec is null without Gaia (#201: WISE 0855).
+OBJECT_RULE = "sky-median-3"
 FOV_ALLOWED = {"months": (5.0, 15.0), "hours": (20.0, 60.0)}
 FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2

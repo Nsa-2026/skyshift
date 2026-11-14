@@ -68,6 +68,13 @@ def test_crossid_moves_gaia_with_pm_and_picks_the_right_star(tmp_path):
     assert a["catwise_name"] == "J082912.00+160600.0" and a["catwise_sep_arcsec"] < 0.2 and a["w2"] == 8.5
     assert b["gaia_id"] == 4000000000000000003 and b["tmass_ref_id"] == "tm1" and b["j"] == 10.0
     assert a["tmass_ref_id"] == ""
+    # 2MASS (epoch 2000.0) has no motion: the source is moved back with its Gaia pm, 2.2″/yr × 26 yr = 57″
+    dtt = (mjd - 51544.0) / 365.25
+    t0 = tangent_deproject(*STAR, -pmra * dtt / 1000, -pmdec * dtt / 1000)
+    ref2 = pd.concat([ref, pd.DataFrame([dict(ref_id="tm2", cat="tmass", ra=float(t0[0]), dec=float(t0[1]), epoch_mjd=51544.0,
+                                              j=8.0, h=7.6, k=7.4)])], ignore_index=True)
+    a2 = XI.compute(src, np.array([mjd, mjd]), ref2).iloc[0]
+    assert a2["tmass_ref_id"] == "tm2" and a2["tmass_sep_arcsec"] < 0.1 and a2["k"] == 7.4
     # without the proper motion the moving star is 22″ away and the decoy would win
     still = ref.assign(pmra=0.0, pmdec=0.0, parallax=np.nan)
     assert XI.compute(src, np.array([mjd, mjd]), still).iloc[0]["gaia_id"] == 4000000000000000002

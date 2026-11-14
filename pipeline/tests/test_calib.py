@@ -183,7 +183,7 @@ def test_spectra_loader_uses_calib_and_is_unchanged_without(tmp_path, rng):
     assert sa["calib_applied"] is False
     m = a.merge(d[["source_id", "ra", "dec"]], on="source_id", suffixes=("", "_file"))
     assert (m["ra"] == m["ra_file"]).all() and (m["dec"] == m["dec_file"]).all()
-    assert list(a.columns) == ["source_id", "detector", "session", "visit", *SP.DOT_COLUMNS]
+    assert list(a.columns) == ["source_id", "detector", "session", "visit", *SP.DOT_COLUMNS, "reject"]
     assert main(["calib", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
     b, sb = SP.load_members(store, ZONE, workers=2)
     assert sb["calib_applied"] is True and sb["calib_phase_corrected_dots"] == len(d) - 3 * 20

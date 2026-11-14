@@ -122,8 +122,33 @@ def test_ice_label_guards():
     ])
     sat = np.zeros(len(df), bool)
     sat[8] = True
-    lab = CL.band_labels(df, sat)["label_h2o_ice"]
+    n = len(df)
+    reddened = {"jh": np.full(n, 1.6), "hk": np.full(n, 0.9), "w1w2": np.full(n, 0.1)}  # A_V ~ 14 behind a cloud
+    lab = CL.band_labels(df, sat, colours=reddened)["label_h2o_ice"]
     assert lab.tolist() == [True, False, False, False, False, False, False, True, False]
+    assert not CL.band_labels(df, sat)["label_h2o_ice"].any()  # colours unknown: no ice
+
+
+def test_ice_needs_a_reddened_stars_colours_and_two_visits():
+    ice = {"h2o_ice_305_depth": 0.3, "h2o_ice_305_sig": 8.0}
+    df = labels_frame([ice] * 6)
+    col = {"jh": np.array([1.6, 0.8, 1.2, 1.6, 1.6, 1.6]),   # 1 J − H too blue (galaxy-like)
+           "hk": np.array([0.9, 0.9, 0.9, 0.5, 0.9, 0.9]),   # 2 below the reddening line (infrared excess), 3 H − K small
+           "w1w2": np.array([0.1, 0.1, 0.1, 0.1, 0.9, np.nan])}  # 4 quasar-red W1 − W2; 5 no W1 − W2: passes
+    lab = CL.band_labels(df, np.zeros(6, bool), colours=col)["label_h2o_ice"]
+    assert lab.tolist() == [True, False, False, False, False, True]
+    vis = {name: np.array([2, 1, 2, 2, 2, 2]) for name in C.INDEX_WINDOWS}  # 1: the band seen in one visit only
+    lab = CL.band_labels(df, np.zeros(6, bool), vis, col)["label_h2o_ice"]
+    assert lab.tolist() == [True, False, False, False, False, True]
+
+
+def test_vega_colours_prefer_the_catalogues():
+    out = pd.DataFrame({"mag_ab_j": [15.0, 15.0], "mag_ab_h": [14.0, 14.0], "mag_ab_k": [13.0, 13.0],
+                        "mag_ab_m34": [12.0, 12.0], "mag_ab_m46": [12.0, 12.0]})
+    phot = pd.DataFrame({"j": [12.0, np.nan], "h": [11.0, np.nan], "k": [10.5, np.nan], "w1": [9.0, np.nan], "w2": [8.9, np.nan]})
+    c = CL.vega_colours(out, phot)
+    assert np.allclose(c["jh"], [1.0, 1.0 - 0.91 + 1.39]) and np.allclose(c["hk"], [0.5, 1.0 - 1.39 + 1.85])
+    assert np.allclose(c["w1w2"], [0.1, 0.64])
 
 
 def test_methane_label_needs_no_gaia_red_and_a_second_band():
@@ -149,11 +174,12 @@ def test_vapour_co_and_pah_labels():
         {"co_23_depth": 0.1, "co_23_sig": 7.0, "class": "star"},
         {"pah_33_excess": 0.3, "pah_33_sig": 6.0, "class": "star", "gaia_g": 12.0},
         {"pah_33_excess": 0.3, "pah_33_sig": 6.0, "class": "galaxy"},
+        {"pah_33_excess": 0.3, "pah_33_sig": 6.0, "class": "unsure", "h2o_ice_305_sig": 4.0},  # ice dip, not PAH
     ])
     lab = CL.band_labels(df, np.zeros(len(df), bool))
-    assert lab["label_h2o_vapour"].tolist() == [True, False, False, False, False]
-    assert lab["label_co_23"].tolist() == [False, False, True, False, False]
-    assert lab["label_pah_33"].tolist() == [False, False, False, False, True]
+    assert lab["label_h2o_vapour"].tolist() == [True, False, False, False, False, False]
+    assert lab["label_co_23"].tolist() == [False, False, True, False, False, False]
+    assert lab["label_pah_33"].tolist() == [False, False, False, False, True, False]
     assert not lab["label_h2o_ice"].any() and not lab["label_ch4"].any()
 
 

@@ -9,13 +9,20 @@ Channels (ours, not NASA's official ones): 17 per detector, log-spaced over the 
 (config.SPECTRA_DETECTOR_UM). A dot goes to a channel of its own detector; outside the range it goes
 to the nearest end channel.
 
-Per (source, channel): dots with a MASK bit in their 3×3 flags are left out; then the median and
-MAD scatter, clip dots further than SPECTRA_CLIP_SIGMA × max(dot error, scatter) AND further than
+Per (source, channel): dots with a MASK bit in their 3×3 flags are left out, and so are single bad dots (15 Nov):
+an aperture flux over SPECTRA_AP_PSF_MAX × the ePSF flux, or √(a·b) under SPECTRA_SHARP_FRAC × a star's at that
+S/N (reject_dots, from the raw dot columns when the dots have them). Each dot's error becomes
+σ' = √((k σ)² + (floor × |channel median|)²) (SPECTRA_ERR_K, SPECTRA_ERR_FLOOR per detector: the quoted errors are
+~3× too small for bright stars). A dot further than SPECTRA_SPIKE_SIGMA × σ' and SPECTRA_SPIKE_FRAC × |ref| from ref,
+the median of the source's ±2 neighbouring channels of the same detector, is a spike and left out, unless the
+channel's deviating dots come from >= SPECTRA_SPIKE_KEEP_VISITS visits (a real narrow feature repeats). Then the
+median and MAD scatter, clip dots further than SPECTRA_CLIP_SIGMA × max(σ', scatter) AND further than
 SPECTRA_CLIP_MIN_FRAC × |median| (gross outliers only, so a variable star keeps both states; channels
 with at least SPECTRA_CLIP_MIN_N dots), repeat; the value is the inverse-variance weighted mean of the
-kept dots, its error 1/sqrt(Σw) × sqrt(max(1, χ²/(n−1))).
+kept dots, its error 1/sqrt(Σw) × sqrt(max(1, χ²/(n−1))); `visit_bits` per channel: bit (visit − 1) mod
+SPECTRA_VISIT_BITS for each visit of its kept dots (classify: a band label needs its window seen in two visits).
 Per source: median position and scatter/sqrt(n) error, counts, `saturated` (>= SPECTRA_SAT_MIN_DOTS
-dots with OVERFLOW/NONLINEAR in their 3×3), `chi2_nu` of the kept dots against their channel values,
+dots with OVERFLOW/NONLINEAR in their 3×3), `chi2_nu` of the kept dots against their channel values (with σ'),
 `visit_flux_ratio` (per detector: median of flux/channel value in the source's last visit over its
 first visit; median over detectors), and `variable` (both indicators past their thresholds).
 Everything is vectorised over all dots (sorts and bincounts); there is no loop per source.
@@ -47,6 +54,7 @@ NCH = NDET * NCH_DET
 DOT_COLUMNS = ["ra", "dec", "flux_ujy", "flux_err_ujy", "wavelength_um", "flags"]
 CALIB_COLUMNS = ["x", "y", "snr", "flags_peak", "pos_err_arcsec"]  # read too when calib.json exists
 PSF_COLUMNS = ["ra_psf", "dec_psf", "psf_pos_ok"]  # dots v4: the ePSF position, used where psf_pos_ok
+REJECT_COLUMNS = ["flux_psf_ujy", "a_arcsec", "b_arcsec", "snr"]  # reject_dots, read when the dot files have them
 
 
 # --- channels --------------------------------------------------------------------------------
@@ -100,10 +108,74 @@ def count_distinct(codes: np.ndarray, x: np.ndarray, n_groups: int) -> np.ndarra
     return np.bincount(k >> 32, minlength=n_groups)
 
 
+def visit_bit(visit) -> np.ndarray:
+    """The visit's bit in `visit_bits`: (visit − 1) mod SPECTRA_VISIT_BITS (visit < 1: bit 0)."""
+    return np.mod(np.maximum(np.asarray(visit, np.int64) - 1, 0), C.SPECTRA_VISIT_BITS)
+
+
+def popcount(bits) -> np.ndarray:
+    """Number of set bits (visits) of non-negative ints (< 2**16)."""
+    b = np.asarray(bits, np.int64)
+    return sum(((b >> i) & 1) for i in range(16)).astype(np.int64) if b.size else np.zeros(b.shape, np.int64)
+
+
+# --- single bad dots, the error model, spikes -------------------------------------------------------
+def reject_dots(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """(ap_psf, sharp) per dot, from the raw dot columns when present (else all False): the aperture flux over
+    SPECTRA_AP_PSF_MAX × the ePSF flux; √(a·b) under SPECTRA_SHARP_FRAC × the detector's stellar size at the dot's S/N."""
+    from .vet import star_size
+
+    n = len(d)
+    ap_psf, sharp = np.zeros(n, bool), np.zeros(n, bool)
+    if n and "flux_psf_ujy" in d and "flux_ujy" in d:
+        f, p = d["flux_ujy"].to_numpy(np.float64), d["flux_psf_ujy"].to_numpy(np.float64)
+        with np.errstate(invalid="ignore"):
+            ap_psf = np.isfinite(f) & np.isfinite(p) & (p > 0) & (f > C.SPECTRA_AP_PSF_MAX * p)
+    if n and {"a_arcsec", "b_arcsec", "snr", "detector"} <= set(d.columns):
+        with np.errstate(invalid="ignore"):
+            size = np.sqrt(d["a_arcsec"].to_numpy(np.float64) * d["b_arcsec"].to_numpy(np.float64))
+            star = star_size(d["detector"].to_numpy(np.int64), d["snr"].to_numpy(np.float64))
+            sharp = np.isfinite(size) & np.isfinite(star) & (size < C.SPECTRA_SHARP_FRAC * star)
+    return ap_psf, sharp
+
+
+def model_errors(det: np.ndarray, err: np.ndarray, level: np.ndarray) -> np.ndarray:
+    """σ' = √((k σ)² + (floor × |level|)²) with the detector's SPECTRA_ERR_K, SPECTRA_ERR_FLOOR (1, 0 elsewhere)."""
+    k = np.ones(det.size)
+    fl = np.zeros(det.size)
+    for dd in range(1, NDET + 1):
+        m = det == dd
+        k[m], fl[m] = C.SPECTRA_ERR_K.get(dd, 1.0), C.SPECTRA_ERR_FLOOR.get(dd, 0.0)
+    lv = np.where(np.isfinite(level), np.abs(level), 0.0)
+    return np.sqrt((k * err) ** 2 + (fl * lv) ** 2)
+
+
+def neighbour_median(src: np.ndarray, chan: np.ndarray, val: np.ndarray, n_src: int) -> np.ndarray:
+    """For each (source, channel) value: the median of the source's values in channels ±1, ±2 of the same detector
+    (NaN with fewer than two of them)."""
+    grid = np.full(n_src * NCH, np.nan)
+    grid[src * NCH + chan] = val
+    idx = chan % NCH_DET
+    nb = np.full((val.size, 4), np.nan)
+    for j, o in enumerate((-2, -1, 1, 2)):
+        ok = (idx + o >= 0) & (idx + o < NCH_DET)
+        nb[ok, j] = grid[src[ok] * NCH + chan[ok] + o]
+    nb.sort(axis=1)  # NaNs last
+    cnt = np.isfinite(nb).sum(1)
+    out = np.full(val.size, np.nan)
+    r = np.arange(val.size)
+    for c in (2, 3, 4):
+        m = cnt == c
+        lo, hi = (c - 1) // 2, c // 2
+        out[m] = 0.5 * (nb[r[m], lo] + nb[r[m], hi])
+    return out
+
+
 # --- the computation -------------------------------------------------------------------------
-def compute(d: pd.DataFrame) -> pd.DataFrame:
+def compute(d: pd.DataFrame, stats: dict | None = None) -> pd.DataFrame:
     """Member dots -> one row per source. `d` needs source_id, detector, session, visit, ra, dec,
-    flux_ujy, flux_err_ujy, wavelength_um, flags. The list columns hold (102,) arrays."""
+    flux_ujy, flux_err_ujy, wavelength_um, flags; `reject` (bool, load_members) or the raw REJECT_COLUMNS for
+    reject_dots when present. The list columns hold (102,) arrays. `stats`: filled with the left-out dot counts."""
     sid_u, s = np.unique(d["source_id"].to_numpy(np.int64), return_inverse=True)
     s = s.ravel()
     N = sid_u.size
@@ -135,12 +207,39 @@ def compute(d: pd.DataFrame) -> pd.DataFrame:
     f = d["flux_ujy"].to_numpy(np.float64)
     e = d["flux_err_ujy"].to_numpy(np.float64)
     ch = channel_of(det, d["wavelength_um"].to_numpy())
-    good = ((flags & MASK_BITS) == 0) & np.isfinite(f) & np.isfinite(e) & (e > 0) & (ch >= 0)
+    visit = d["visit"].to_numpy(np.int64)
+    if "reject" in d:
+        rej = d["reject"].to_numpy(bool)
+        n_ap = n_sharp = None
+    else:
+        ap_psf, sharp = reject_dots(d)
+        rej = ap_psf | sharp
+        n_ap, n_sharp = int(ap_psf.sum()), int(sharp.sum())
+    good = ((flags & MASK_BITS) == 0) & np.isfinite(f) & np.isfinite(e) & (e > 0) & (ch >= 0) & ~rej
     gi = np.flatnonzero(good)
     uk, g = np.unique(s[gi].astype(np.int64) * NCH + ch[gi], return_inverse=True)
     g = g.ravel()
+    # the error model, then spikes against the neighbouring channels
+    eg = model_errors(det[gi], e[gi], group_median(g, f[gi], uk.size)[g])
+    w0 = 1.0 / (eg * eg)
+    mu0 = np.bincount(g, w0 * f[gi], uk.size) / np.bincount(g, w0, uk.size)
+    ref = neighbour_median(uk // NCH, uk % NCH, mu0, N)[g]
+    with np.errstate(invalid="ignore"):
+        dev = np.abs(f[gi] - ref)
+        spike = np.isfinite(ref) & (dev > C.SPECTRA_SPIKE_SIGMA * eg) & (dev > C.SPECTRA_SPIKE_FRAC * np.abs(ref))
+    if spike.any():  # a deviation repeated in several visits is a real narrow feature: kept
+        nv = count_distinct(g[spike], visit[gi][spike], uk.size)
+        spike &= nv[g] < C.SPECTRA_SPIKE_KEEP_VISITS
+    if spike.any():
+        keep = ~spike
+        gi, eg = gi[keep], eg[keep]
+        uk, g = np.unique(s[gi].astype(np.int64) * NCH + ch[gi], return_inverse=True)
+        g = g.ravel()
+    if stats is not None:
+        stats.update({"dots_left_out_ap_psf": n_ap, "dots_left_out_sharp": n_sharp, "dots_left_out_reject": int(rej.sum()),
+                      "dots_left_out_spike": int(spike.sum())})
     G = uk.size
-    fg, eg = f[gi], e[gi]
+    fg = f[gi]
     kept = np.ones(gi.size, bool)
     for _ in range(C.SPECTRA_CLIP_ITER):
         med = group_median(g[kept], fg[kept], G)
@@ -159,13 +258,18 @@ def compute(d: pd.DataFrame) -> pd.DataFrame:
     nk = np.bincount(g[kept], minlength=G)
     err = np.sqrt(1.0 / sw) * np.sqrt(np.maximum(1.0, chi / np.maximum(nk - 1, 1)))
 
+    vb_u = np.unique(g[kept].astype(np.int64) * 16 + visit_bit(visit[gi][kept]))
+    vbits = np.bincount(vb_u // 16, weights=(1 << (vb_u % 16)).astype(np.float64), minlength=G).astype(np.int64)
+
     gs, gc = uk // NCH, uk % NCH
     flux = np.full((N, NCH), np.nan, np.float32)
     ferr = np.full((N, NCH), np.nan, np.float32)
     nch = np.zeros((N, NCH), np.int16)
+    vbit = np.zeros((N, NCH), np.int16)
     flux[gs, gc] = mu
     ferr[gs, gc] = err
     nch[gs, gc] = np.minimum(nk, np.iinfo(np.int16).max)
+    vbit[gs, gc] = vbits
 
     # variability
     chi_s = np.bincount(gs, chi, N)
@@ -204,6 +308,7 @@ def compute(d: pd.DataFrame) -> pd.DataFrame:
         "flux_ujy": list(flux),
         "err_ujy": list(ferr),
         "n": list(nch),
+        "visit_bits": list(vbit),
         "chi2_nu": chi2_nu.astype(np.float32),
         "visit_flux_ratio": ratio.astype(np.float32),
         "variable": variable,
@@ -214,8 +319,8 @@ def to_arrow(src: pd.DataFrame) -> pa.Table:
     """sources DataFrame -> Arrow table with fixed_size_list<…>[102] spectrum columns."""
     cols, fields = [], []
     for c in src.columns:
-        if c in ("flux_ujy", "err_ujy", "n"):
-            typ = pa.int16() if c == "n" else pa.float32()
+        if c in ("flux_ujy", "err_ujy", "n", "visit_bits"):
+            typ = pa.int16() if c in ("n", "visit_bits") else pa.float32()
             flat = np.concatenate(src[c].to_list()) if len(src) else np.zeros(0)
             arr = pa.FixedSizeListArray.from_arrays(pa.array(flat.astype(typ.to_pandas_dtype())), NCH)
         else:
@@ -244,6 +349,7 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
         calibrate = cal is not None and set(CALIB_COLUMNS) <= have  # a dot file without x, y: positions stay raw
         v4 = set(PSF_COLUMNS) <= have
         want = [*DOT_COLUMNS, *(CALIB_COLUMNS if calibrate else []), *(PSF_COLUMNS if v4 else [])]
+        want += [c for c in REJECT_COLUMNS if c in have and c not in want]
         df = pd.read_parquet(io.BytesIO(raw), columns=want)
         rows = row_all[idx]
         ok = rows < len(df)
@@ -251,6 +357,7 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
         corrected = 0
         part = df.iloc[rows[ok]].reset_index(drop=True)
         dd = np.full(len(part), int(det))
+        ap_psf, sharp = reject_dots(part.assign(detector=dd))  # raw columns, before any calibration
         psf = calib.use_psf(cal, dd, part["psf_pos_ok"].to_numpy(bool) if v4 else None,
                             part["ra_psf"] if v4 else None, part["dec_psf"] if v4 else None,
                             part["snr"] if (v4 and calibrate) else None)
@@ -283,18 +390,21 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
         part["detector"] = np.int8(det)
         part["session"] = np.int32(se)
         part["visit"] = np.int16(vi)
-        return part, bad_rows, corrected, n_psf
+        part["reject"] = ap_psf | sharp
+        return part, bad_rows, corrected, n_psf, int(ap_psf.sum()), int(sharp.sum())
 
     with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
         results = list(ex.map(one, groups.items()))
     # Reduce worker-local counts after loading. NumPy reductions can release the
     # GIL, so shared += counters can silently lose an entire photo's contribution.
     parts = [result[0] for result in results]
-    cols = ["source_id", "detector", "session", "visit", *DOT_COLUMNS]
+    cols = ["source_id", "detector", "session", "visit", *DOT_COLUMNS, "reject"]
     d = pd.concat(parts, ignore_index=True)[cols] if parts else pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
     st = {"member_dots": int(len(members)), "member_rows_missing": sum(result[1] for result in results),
           "calib_applied": cal is not None, "calib_phase_corrected_dots": sum(result[2] for result in results),
-          "pos_psf_dots": sum(result[3] for result in results)}
+          "pos_psf_dots": sum(result[3] for result in results),
+          "dots_left_out_ap_psf": sum(result[4] for result in results),
+          "dots_left_out_sharp": sum(result[5] for result in results)}
 
     # a dot file rewritten after `link` would make dot_row point elsewhere: drop far members
     fixed = store.read_parquet(results_rel(zone.name, "fixed.parquet"), columns=["source_id", "ra", "dec"])
@@ -317,7 +427,9 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     d, st = load_members(store, zone, workers)
     t1 = time.time()
     L.info("spectra %s: %d member dots loaded in %.0f s", zone.name, len(d), t1 - t0)
-    src = compute(d)
+    cst: dict = {}
+    src = compute(d, cst)
+    st.update({k: v for k, v in cst.items() if v is not None})
     t2 = time.time()
     nbytes = store.write_table(results_rel(zone.name, "sources.parquet"), to_arrow(src))
     store.write_json(results_rel(zone.name, "channels.json"), channels())
