@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--zone", required=True, choices=sorted(C.ZONES))
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
-    ap.add_argument("--limit", type=int, default=None, help="dots/known: do at most N photos (testing)")
+    ap.add_argument("--limit", type=int, default=None, help="testing: dots does at most N photos, known at most N sessions")
     ap.add_argument("--force", action="store_true", help="photolist: query IRSA again even if the list exists")
     args = ap.parse_args(argv)
     log.setup()
