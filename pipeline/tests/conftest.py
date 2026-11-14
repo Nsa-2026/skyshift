@@ -26,6 +26,20 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _offline_deep_gaia(monkeypatch):
+    """highpm's deep Gaia check (ESA TAP) never goes online in tests: it sees a failing service unless a test gives
+    its own `tap` (or SKYSHIFT_NETWORK=1)."""
+    if os.environ.get("SKYSHIFT_NETWORK") == "1":
+        return
+
+    def offline(adql: str):
+        raise ConnectionError("offline test: no ESA TAP")
+
+    from skyshift_pipeline import highpm
+    monkeypatch.setattr(highpm, "deep_gaia_tap", offline)
+
+
 def t(session: int, exposure: int = 0) -> float:
     return T0 + session * SESSION_STEP + exposure * EXPOSURE_STEP
 
