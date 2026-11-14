@@ -161,7 +161,7 @@ def v4() -> dict:
     rows = [{k: a[k] for k in ("number", "name", "vmag_median", "photos", "found_photos", "found", "median_offset_px",
                                "control_photos", "control_found")} for a in d["rows"]]
     note = (f"MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is "
-            f"absent (4 sigma) from a reference stack of the same sky 0.25-12 days away. Control = the same test 3' away. "
+            f"absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. "
             f"Per photo: {d['photos_found']}/{d['photos_measured']} found, control {d['photos_control_found']}/{d['photos_measured']}; "
             f"per asteroid control {d['asteroids_control_found']}/{tot}. Rows: number, name, vmag_median, photos, found_photos, "
             f"found, median_offset_px, control_photos, control_found.")
