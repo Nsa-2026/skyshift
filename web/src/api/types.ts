@@ -301,7 +301,8 @@ export interface TargetIndex {
   name: string;
   center: SkyPos;
   own: string;
-  follows_object?: string;
+  /** True when the frames follow a moving object (3I/ATLAS), each epoch with its own `center`. */
+  follows_object?: boolean;
   frames: { file: string; clock: Clock; fov: number; dets: Det[]; epochs: number; bytes: number }[];
 }
 

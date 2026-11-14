@@ -16,7 +16,7 @@ from pydantic import Field
 
 from . import candidates as cands
 from .client import Client, SkyShiftError
-from .server import _frames_source, _json, app, client
+from .server import _frames_source, _json, _session_note, app, client, resolve_name
 from .tools_reference import targets
 
 # ---------------------------------------------------------------- measured layer (contracts/api.md v3.3)
@@ -91,6 +91,9 @@ async def measured_dots(
     c = client()
     data = await (c.api("/api/frames", **params) if params else c.get_json(url))
     source = "live /api/frames" if params else "static " + url
+    session = _session_note(note.get("candidate"), data, None, live=True) if params else None
+    if session:  # a candidate without static frames: the live visit may not hold its session
+        note["find_session"] = session
     if not params and "measured" not in data:
         # Static file written before v3.3: "not computed". Ask the live API for the same field,
         # unless the frames follow a moving object (no fixed field to measure).
@@ -245,7 +248,7 @@ async def batch_check(
             return {**row, "error": "empty line"}
         async with sem:
             try:
-                r = await c.resolve(text.strip())
+                r = await resolve_name(text.strip())
             except SkyShiftError as e:
                 return {**row, "error": str(e)}
         return {**row, "name": r.get("name"), "ra": r["ra"], "dec": r["dec"],
