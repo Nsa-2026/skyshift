@@ -27,25 +27,25 @@ const K = (jk: number) => ab(jk, 1.85);
 const W2 = (jw: number) => ab(jw, 3.34);
 
 const COMMON: KeyEntry[] = [
-  { rgb: null, swatch: "grey", label: "Grey", examples: "too faint to give a colour: no window reaches 3σ (full colour from 5σ)" },
-  { rgb: null, swatch: "none", label: "Hatched", examples: "NASA's map has no data there" },
-  { rgb: null, swatch: "saturated", label: "Red squares", examples: "too bright: SPHEREx saturated, so the colour there isn't reliable" },
+  { rgb: null, swatch: "grey", label: "Grey", examples: "too faint to tell the colour" },
+  { rgb: null, swatch: "none", label: "Striped", examples: "no data here" },
+  { rgb: null, swatch: "saturated", label: "Red squares", examples: "too bright to measure, so the colour there is wrong" },
 ];
 
 export const KEYS: Record<PresetId, KeyEntry[]> = {
   cold: [
-    { rgb: [W2(0.4), K(0.36), J], swatch: "colour", label: "Blue", examples: "hot and Sun-like stars: much fainter at 4.6 µm than at 1.2 µm" },
-    { rgb: [W2(1.05), K(0.85), J], swatch: "colour", label: "Cyan", examples: "cool red dwarfs (M type)" },
-    { rgb: [1.0, 0.9, 1.0], swatch: "colour", label: "White", examples: "about equally bright in all three: early T brown dwarfs, such as Epsilon Indi B (measured here)" },
-    { rgb: [W2(3.0), K(-0.1), J], swatch: "colour", label: "Magenta", examples: "later T brown dwarfs: methane dims 2.2 µm, 4.6 µm stays bright" },
-    { rgb: [1, 0.02, 0.005], swatch: "colour", label: "Red", examples: "seen only at 4.6 µm: the coldest (Y) brown dwarfs, dusty galaxies, stars behind thick dust" },
+    { rgb: [W2(0.4), K(0.36), J], swatch: "colour", label: "Blue", examples: "ordinary stars, like the Sun" },
+    { rgb: [W2(1.05), K(0.85), J], swatch: "colour", label: "Light blue", examples: "small, cool red stars" },
+    { rgb: [1.0, 0.9, 1.0], swatch: "colour", label: "White", examples: "warmer brown dwarfs (\"failed stars\"), such as Epsilon Indi B" },
+    { rgb: [W2(3.0), K(-0.1), J], swatch: "colour", label: "Pink", examples: "cooler brown dwarfs: methane gas makes them shine most in the reddest light" },
+    { rgb: [1, 0.02, 0.005], swatch: "colour", label: "Red", examples: "seen only in the reddest light: the coldest brown dwarfs, dusty galaxies, or stars hidden behind dust" },
     ...COMMON,
   ],
   nir: [
-    { rgb: [K(0), H(0), J], swatch: "colour", label: "Blue", examples: "hot stars, and methane T brown dwarfs (they look alike here: use Cold bodies to tell them apart)" },
-    { rgb: [K(0.36), H(0.3), J], swatch: "colour", label: "Pale blue", examples: "Sun-like stars" },
-    { rgb: [K(0.85), H(0.6), J], swatch: "colour", label: "White", examples: "cool red dwarfs (M type)" },
-    { rgb: [K(1.7), H(1.0), J], swatch: "colour", label: "Orange", examples: "L brown dwarfs, stars reddened by dust, cool giants" },
+    { rgb: [K(0), H(0), J], swatch: "colour", label: "Blue", examples: "hot stars, and also cold brown dwarfs, which look the same here (use Find cold objects to tell them apart)" },
+    { rgb: [K(0.36), H(0.3), J], swatch: "colour", label: "Pale blue", examples: "stars like the Sun" },
+    { rgb: [K(0.85), H(0.6), J], swatch: "colour", label: "White", examples: "small, cool red stars" },
+    { rgb: [K(1.7), H(1.0), J], swatch: "colour", label: "Orange", examples: "warm brown dwarfs, and stars reddened by dust" },
     ...COMMON,
   ],
 };

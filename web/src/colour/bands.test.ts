@@ -6,9 +6,9 @@ import { KEYS, swatchColour } from "./legend";
 
 describe("single-wavelength filter (layer A1)", () => {
   it("names wavelength, detector, channel and any feature", () => {
-    expect(frameText(0)).toBe("0.75 µm · D1 channel 1");
-    expect(frameText(62)).toMatch(/^3\.29 µm · D4 channel 12 · methane/);
-    expect(frameText(80)).toMatch(/CO₂/);
+    expect(frameText(0)).toBe("0.75 micrometres");
+    expect(frameText(62)).toMatch(/^3\.29 micrometres: methane gas.+The coldest brown dwarfs go dark/);
+    expect(frameText(80)).toMatch(/carbon dioxide/);
   });
   it("steps over the blank dichroic frames in the direction of travel", () => {
     expect(skipBlank(50, 49)).toBe(52);
@@ -67,5 +67,18 @@ describe("checks at the target", () => {
     long[13] = 10;
     long[12] = 9.5;
     expect(blendPeaks(ch(short), ch(long), n, 2)).toBe(false);
+  });
+});
+
+import { filterField, level } from "./index";
+describe("filter field and plain words", () => {
+  it("shows a wider area than the blink so the map's coarse pixels don't look like a zoom", () => {
+    expect(filterField(5)).toBe(15);
+    expect(filterField(15)).toBe(45);
+    expect(filterField(20)).toBe(60);
+    expect(filterField(60)).toBe(60);
+  });
+  it("says signal in words", () => {
+    expect([1, 5, 50, 500, NaN].map(level)).toEqual(["none", "faint", "clear", "bright", "no data"]);
   });
 });

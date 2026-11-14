@@ -37,28 +37,27 @@ export interface Reason {
 const day = (d: string | null) => (d ? d.slice(0, 10) : "?");
 
 export function whyUnreliable(c: TargetCheck): Reason[] {
-  const who = c.name ?? "The object at the centre";
+  const who = c.name ?? "The object in the middle";
   const out: Reason[] = [];
   if (c.saturated) {
-    out.push({ key: "saturated", title: "Too bright for SPHEREx", text: saturationText(who, c.kept) });
+    out.push({ key: "saturated", title: "Too bright to measure", text: saturationText(who, c.kept) });
   } else if ((c.holes ?? 0) > 0) {
     out.push({
       key: "hole",
-      title: "Too bright for SPHEREx",
+      title: "Too bright to measure",
       text:
-        `At this wavelength NASA's map has no data at the core of ${who} (the hatched pixels), though it has ` +
-        `data all around it. That is what happens when an object is so bright that it overfilled SPHEREx's ` +
-        `detector pixels (they saturated): the map leaves those readings out.`,
+        `In this colour of light the map has nothing at the centre of ${who} (the striped spot), even though ` +
+        `it has data all around it. That happens when a star is too bright: its light overflowed the camera's ` +
+        `pixels, and NASA's map throws those readings away.`,
     });
   }
   if (c.blend) {
     out.push({
       key: "blend",
-      title: "Blended with a neighbour",
+      title: "Mixed with a neighbour",
       text:
-        `Around ${who}, the light at ${c.blend.shortUm.toFixed(2)} µm and the light at ${c.blend.longUm.toFixed(2)} µm ` +
-        `peak in different pixels. These pixels are about 13″ wide, so two objects share them and the colour ` +
-        `at the centre mixes both. The blink's own frames are sharper and can separate them.`,
+        `${who} sits right next to another object. In this blurry map the two share the same pixels, so the ` +
+        `colour here mixes both of them. The normal view (Remove filter) is sharper and shows them apart.`,
     });
   }
   if (c.kind && /variable/i.test(c.kind)) {
@@ -66,8 +65,8 @@ export function whyUnreliable(c: TargetCheck): Reason[] {
       key: "variable",
       title: "Its brightness changes",
       text:
-        `${who} is a variable star. Each wavelength of the map was observed on a different date between ` +
-        `${day(c.dates.beg)} and ${day(c.dates.end)}, so its colour mixes the star at different brightnesses.`,
+        `${who} changes brightness over time. Each colour in this picture was taken on a different day ` +
+        `(between ${day(c.dates.beg)} and ${day(c.dates.end)}), so the colours mix brighter and fainter moments.`,
     });
   }
   if (c.moving) {
@@ -75,51 +74,47 @@ export function whyUnreliable(c: TargetCheck): Reason[] {
       key: "moving",
       title: "It moves",
       text:
-        `${who} moves across the sky, and each wavelength of the map was observed on a different date, so it ` +
-        `sits in different places at different wavelengths, or is missing. The picture shows the fixed sky at ` +
-        `the plate's centre; this object's colour can't be read from it.`,
+        `${who} moves across the sky. Each colour in this picture was taken on a different day, so it lands in ` +
+        `a different place in each colour, or is missing. This picture shows the background sky instead.`,
     });
   }
   return out;
 }
 
 /** Plain words for one saturated pixel in the readout. */
-export const SATURATED_READOUT =
-  "colour not reliable: too bright, SPHEREx saturated here and NASA's map left those readings out";
+export const SATURATED_READOUT = "too bright to measure here, so this colour is wrong";
 
 const pct = (x: number) => `${Math.round(100 * x)}%`;
-const um = (x: number) => `${x.toFixed(2)} µm`;
 
-/** Which way the colour is biased, from how much each window lost. Says only what the numbers show. */
+/** Colour names of the windows, shortest wavelength first. */
+function names(n: number): string[] {
+  return n === 3 ? ["blue", "green", "red"] : n === 2 ? ["blue", "red"] : Array.from({ length: n }, (_, i) => `colour ${i + 1}`);
+}
+
+/** Which way the colour is off, from how much each window lost. Says only what the numbers show. */
 export function saturationText(who: string, kept: { um: number; share: number }[]): string {
   const start =
-    `${who} is so bright that it overfilled SPHEREx's detector pixels (they saturated). NASA's all-sky map ` +
-    `leaves those overfilled readings out, so the star's core is built from fewer exposures than the sky ` +
-    `around it, or none.`;
+    `${who} is too bright for SPHEREx. Its light overflowed the camera's pixels, and NASA's map throws ` +
+    `those readings away, so the middle of the star is missing some or all of its light.`;
   if (kept.length < 2) return start;
-  const parts = kept.map((k, i) => `${pct(k.share)}${i === 0 ? " of the usual exposures" : ""} at ${um(k.um)}`);
-  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  const nm = names(kept.length);
+  const parts = kept.map((k, i) => `${pct(k.share)} in ${nm[i]} light`);
+  const list = `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
   const blue = kept[0];
   const red = kept[kept.length - 1];
   let effect: string;
   if (kept.every((k) => k.share < 0.1)) {
     effect =
-      "Its core is missing at every wavelength, so the colour you see comes only from the edge of the star, " +
-      "where the wavelengths lost different amounts. It says little about the star itself.";
+      "Almost nothing is left in any colour, so what you see is only the edge of the star. It doesn't tell us the star's real colour.";
   } else if (blue.share < 0.5 * red.share) {
-    effect =
-      `The short wavelengths lost far more, so what is left of the core is too faint at ${um(blue.um)} ` +
-      `compared with ${um(red.um)}, and the star looks redder than it really is.`;
+    effect = "It lost much more blue light than red light, so it looks redder than it really is.";
   } else if (red.share < 0.5 * blue.share) {
-    effect =
-      `The long wavelengths lost far more, so the core is too faint at ${um(red.um)} compared with ` +
-      `${um(blue.um)}, and the star looks bluer than it really is.`;
+    effect = "It lost much more red light than blue light, so it looks bluer than it really is.";
   } else {
-    effect = "The wavelengths lost similar amounts, but the core is still incomplete, so its colour can go either way.";
+    effect = "Every colour lost some light, so its colour could be off either way.";
   }
   return (
-    `${start} At the centre the map kept ${list}. ${effect} The red squares mark the ` +
-    `pixels affected. This map's pixels are too coarse to rebuild the colour from the light around the core; ` +
-    `the original SPHEREx images might allow it (docs/colour-layers.md).`
+    `${start} In the middle of the star the map kept only ${list} of its usual readings. ${effect} The red ` +
+    `squares show the affected spots. It might be possible to fix this with NASA's original, sharper pictures.`
   );
 }

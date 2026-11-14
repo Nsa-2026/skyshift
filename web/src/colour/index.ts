@@ -33,9 +33,13 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
 }
 
-function fmt(v: number): string {
-  const a = Math.abs(v);
-  return a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(2) : v.toPrecision(2);
+/** Plain words for a signal-to-noise ratio. */
+export function level(snr: number): string {
+  if (!Number.isFinite(snr)) return "no data";
+  if (snr < 3) return "none";
+  if (snr < 10) return "faint";
+  if (snr < 100) return "clear";
+  return "bright";
 }
 
 /** Step over the blank dichroic frames in the direction of travel. */
@@ -109,6 +113,15 @@ export function blendPeaks(short: Channel, long: Channel, n: number, mid: number
   return short.values[pl] <= 0.5 * s0 || long.values[ps] <= 0.5 * l0;
 }
 
+/**
+ * Field of a filter picture, arcmin. The map's pixels are 12.9″, so the blink's 5′ field would be
+ * only 23 pixels across and look like a huge zoom. Show three times the blink's field, at least 15′
+ * (70 pixels, stars as dots) and at most 60′; the blink's own field is drawn as a dashed square.
+ */
+export function filterField(plateArcmin: number): number {
+  return Math.min(60, Math.max(15, 3 * plateArcmin));
+}
+
 /** The cube frame whose wavelength is closest to `um`. */
 function nearestFrame(um: number): number {
   let best = 0;
@@ -137,38 +150,41 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       <button class="flt-off" type="button">Remove filter</button>
     </span>
     <div class="flt-menu" id="flt-menu" role="group" aria-label="Filters" hidden>
-      <p class="flt-h">Show the plate as</p>
+      <p class="flt-h">Show the picture as</p>
       <div class="flt-opts">
         <button type="button" data-mode="none" aria-pressed="true"><b>No filter</b>
-          <span>The blink, as it was</span></button>
-        <button type="button" data-mode="cold" aria-pressed="false"><b>Cold bodies</b>
-          <span>4.6, 2.2 and 1.2 µm as red, green and blue. Cold brown dwarfs stand out red or magenta.</span></button>
-        <button type="button" data-mode="nir" aria-pressed="false"><b>2MASS-like</b>
-          <span>2.2, 1.65 and 1.2 µm, the bands of the 2MASS survey, for comparison.</span></button>
-        <button type="button" data-mode="wave" aria-pressed="false"><b>Single wavelength</b>
-          <span>Any of SPHEREx's 102 wavelengths: see where molecules absorb.</span></button>
+          <span>The normal view, where you watch things move.</span></button>
+        <button type="button" data-mode="cold" aria-pressed="false"><b>Find cold objects</b>
+          <span>Colours show how hot or cold things are. Ordinary stars look blue; very cold objects, like
+            brown dwarfs, look pink or red.</span></button>
+        <button type="button" data-mode="nir" aria-pressed="false"><b>Compare with 2MASS</b>
+          <span>The same colours as 2MASS, an older and well-known map of the sky, so you can compare the two.</span></button>
+        <button type="button" data-mode="wave" aria-pressed="false"><b>One colour of light</b>
+          <span>See the sky in just one of SPHEREx's 102 colours of infrared light. Slide to find where gases
+            like water or methane block the light.</span></button>
       </div>
       <div class="flt-wave" hidden>
         <input class="flt-frame" type="range" min="0" max="${CUBE_UM.length - 1}" step="1" value="${DEFAULT_FRAME}"
-          aria-label="Wavelength, all 102 SPHEREx frames" />
+          aria-label="Colour of light: slide through SPHEREx's 102 colours" />
         <div class="flt-ticks" aria-hidden="true">
           ${FEATURES.map(
             (f) => html`<span class="flt-tick" style="left:${(100 * nearestFrame(f.um)) / (CUBE_UM.length - 1)}%"
-              title="${f.um} µm ${f.name}: ${f.what}"></span>`,
+              title="${f.um} micrometres, ${f.name}: ${f.what}"></span>`,
           ).join("")}
           <span class="flt-tick flt-tick-gap" style="left:${(100 * 50.5) / (CUBE_UM.length - 1)}%"
-            title="2.40–2.45 µm: no data (dichroic)"></span>
+            title="2.40–2.45 micrometres: no data"></span>
         </div>
         <p class="flt-wave-text" aria-live="polite"></p>
       </div>
       <div class="flt-row">
-        <button class="flt-switch" type="button" data-sat aria-pressed="true">Mark saturated stars</button>
-        <label class="flt-range"><span>Stretch</span>
+        <button class="flt-switch" type="button" data-sat aria-pressed="true">Mark stars too bright to measure</button>
+        <label class="flt-range"><span>Brightness</span>
           <input type="range" min="-1" max="1.3" step="0.05" value="0" data-knee
-            aria-label="Stretch: where brightness turns from linear to compressed" /></label>
+            aria-label="Brightness: show fainter things more or less" /></label>
       </div>
-      <p class="flt-src">Filters use NASA's SPHEREx all-sky map (DR1): 12.9″ pixels, coarser than the blink,
-        with all dates merged into one picture.</p>
+      <p class="flt-src">These pictures come from NASA's SPHEREx map of the whole sky. It is blurrier than
+        the normal view and combines about a year of photos into one, so it shows a wider area around the
+        target: the dashed square is the normal view's area.</p>
     </div>
   `;
   col.insertBefore(bar, mat);
@@ -218,11 +234,12 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     | { kind: "wave"; pic: WavelengthPicture; check: TargetCheck };
   let picture: Shown | null = null;
   let ctl: AbortController | null = null;
-  let readout = "Point at the picture to read its values.";
+  let readout = "Point at the picture to see how much light is there in each colour.";
   const infos = new Map<number, Promise<TileInfo>>();
 
   const centre = (): SkyPos => frames?.center ?? (view ? { ra: view.ra, dec: view.dec } : { ra: 0, dec: 0 });
-  const field = (): number => (view ? blinkFieldArcmin(view, frames) : 5);
+  const plateField = (): number => (view ? blinkFieldArcmin(view, frames) : 5);
+  const field = (): number => filterField(plateField());
 
   function say(text: string | null, kind: "info" | "fail" = "info") {
     note.hidden = text == null;
@@ -236,7 +253,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   }
 
   function modeName(): string {
-    if (mode === "wave") return `${CUBE_UM[frame].toFixed(2)} µm`;
+    if (mode === "wave") return `one colour of light, ${CUBE_UM[frame].toFixed(2)} micrometres`;
     return PRESETS.find((p) => p.id === mode)?.label ?? "";
   }
 
@@ -359,7 +376,11 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       if (d) parts.push(`<path class="ov-sat" d="${d}" />`);
     }
     const mid = n / 2;
-    const t = Math.max(1.2, n / 30);
+    const side = (plateField() * 60) / picture.pic.plan.pixelArcsec;
+    if (side < n - 1) {
+      parts.push(`<rect class="ov-box" fill="none" x="${mid - side / 2}" y="${mid - side / 2}" width="${side}" height="${side}" />`);
+    }
+    const t = Math.max(1.2, n / 40);
     const gap = t * 0.6;
     parts.push(
       `<path class="ov-target" d="M${mid - gap - t},${mid}h${t}M${mid + gap},${mid}h${t}M${mid},${mid - gap - t}v${t}M${mid},${mid + gap}v${t}" />`,
@@ -376,13 +397,14 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     let entries = "";
     if (mode === "wave") {
       title = esc(frameText(frame));
-      entries = html`<li><i class="sw sw-ramp"></i><b>White to black</b><span>bright to faint at this wavelength.
-        The brightness scale is fixed for this field (set at 2.0–2.3 µm), so a star that gets fainter as you move
-        the slider really is fainter there: a dark spot at 3.3 µm can be methane.</span></li>
-        <li><i class="sw sw-none"></i><b>Hatched</b><span>NASA's map has no data there</span></li>`;
+      entries = html`<li><i class="sw sw-ramp"></i><b>White to black</b><span>bright to faint in this colour of
+        light. If a star fades as you move the slider, it really is fainter there: a star that goes dark near
+        3.3 micrometres may contain methane gas.</span></li>
+        <li><i class="sw sw-none"></i><b>Striped</b><span>no data here</span></li>
+        <li><i class="sw sw-box"></i><b>Dashed square</b><span>the area of the normal view</span></li>`;
     } else if (mode !== "none") {
       const preset = PRESETS.find((x) => x.id === mode)!;
-      title = `${esc(preset.label)}: red ${esc(preset.red.name)}, green ${esc(preset.green.name)}, blue ${esc(preset.blue.name)}`;
+      title = `${esc(preset.label)}: red, green and blue show three colours of infrared light, invisible to our eyes (${esc(preset.red.plain)}, ${esc(preset.green.plain)} and ${esc(preset.blue.plain)})`;
       entries = KEYS[mode]
         .map((e) => {
           const sw =
@@ -392,6 +414,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
           return `<li>${sw}<b>${esc(e.label)}</b><span>${esc(e.examples)}</span></li>`;
         })
         .join("");
+      entries += `<li><i class="sw sw-box"></i><b>Dashed square</b><span>the area of the normal view</span></li>`;
     }
     key.innerHTML = html`
       <p class="flt-key-title">${title}</p>
@@ -399,19 +422,18 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       <p class="flt-readout" aria-live="polite">${esc(readout)}</p>
       ${reasons.length
         ? html`<section class="flt-why" role="note">
-            <h3>${p?.kind === "wave" ? `Why this picture of ${who} isn't reliable here` : `Why the colour of ${who} isn't reliable here`}</h3>
+            <h3>${p?.kind === "wave" ? `Why this picture of ${who} can't be trusted` : `Why the colour of ${who} can't be trusted`}</h3>
             ${reasons.map((x) => `<p><strong>${esc(x.title)}.</strong> ${esc(x.text)}</p>`).join("")}
           </section>`
         : ""}
       <details class="flt-how">
         <summary>How this picture is made</summary>
-        <p>From NASA's SPHEREx all-sky map (DR1), read live from NASA IRSA. Pixels are
-          ${p ? p.pic.plan.pixelArcsec.toFixed(1) : "13"}″, coarser than the blink, so close stars blend. Each
-          wavelength was observed on a different date between ${date(p?.pic.dates.beg ?? null)} and
-          ${date(p?.pic.dates.end ?? null)}, so the colours of things that move or change brightness are not
-          reliable. Each colour is the median of the map's frames in its window, which removes single-frame
-          glitches, and a pixel gets colour only when one window is clearly detected. The picture shows the
-          whole field: the blink's zoom doesn't apply. The method and the checks behind it are in
+        <p>It comes from NASA's SPHEREx map of the whole sky, downloaded live from NASA's archive. SPHEREx
+          photographs the sky in 102 colours of infrared light, which our eyes can't see. This map is blurrier
+          than the normal view, so objects close together can merge. Its colours were taken on different days
+          between ${date(p?.pic.dates.beg ?? null)} and ${date(p?.pic.dates.end ?? null)}, so the colours of
+          things that move or change brightness can be wrong. A spot only gets a colour when it is clearly
+          brighter than the background; otherwise it stays grey. The method and the tests behind it are in
           docs/colour-layers.md.</p>
       </details>
     `;
@@ -426,15 +448,15 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     if (i < 0 || j < 0 || i >= n || j >= n) return;
     const k = j * n + i;
     const pos = formatRaDec(pixelToSky({ x: i, y: j }, { pixel_arcsec: pixelArcsec, size: [n, n] }, centre()));
-    const part = (name: string, c: Channel) =>
-      Number.isFinite(c.values[k]) ? `${name} ${fmt(c.values[k])} MJy/sr (${(c.values[k] / c.stats.sigma).toFixed(1)}σ)` : `${name} no data`;
+    const part = (name: string, c: Channel) => `${name} ${level(c.values[k] / c.stats.sigma)}`;
     if (picture.kind === "colour") {
       const { r, g, b, saturated } = picture.pic;
-      readout = `${pos} · ${part("R", r)} · ${part("G", g)} · ${part("B", b)}${saturated[k] ? ` · ${SATURATED_READOUT}` : ""}`;
+      readout = `Here: ${part("red light", r)}, ${part("green", g)}, ${part("blue", b)}${saturated[k] ? `. ${SATURATED_READOUT}` : ""}.`;
     } else {
       const v = picture.pic.values[k];
-      readout = Number.isFinite(v) ? `${pos} · ${fmt(v)} MJy/sr` : `${pos} · no data`;
+      readout = Number.isFinite(v) ? `Here: ${level(v / picture.pic.scale.sigma)} in this colour of light.` : "Here: no data.";
     }
+    canvas.title = `${pos}`;
     const el = key.querySelector(".flt-readout");
     if (el) el.textContent = readout;
   }
@@ -451,7 +473,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       const next = b.dataset.mode as Mode;
       if (next !== mode) {
         mode = next;
-        readout = "Point at the picture to read its values.";
+        readout = "Point at the picture to see how much light is there in each colour.";
         press();
         if (mode === "none") ctl?.abort();
         else void render();

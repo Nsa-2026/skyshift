@@ -225,6 +225,14 @@
   stroke-width: 1.5px;
   vector-effect: non-scaling-stroke;
 }
+.flt-overlay .ov-box {
+  fill: none;
+  stroke: #fff;
+  stroke-opacity: 0.8;
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
 .flt-overlay .ov-target {
   fill: none;
   stroke: #fff;
@@ -324,6 +332,7 @@
 .flt-key .sw-none { background: repeating-linear-gradient(45deg, #2a3140 0 2px, #1b212c 2px 4px); }
 .flt-key .sw-saturated { border: 2px solid #ff3b4e; background: #1b212c; }
 .flt-key .sw-ramp { background: linear-gradient(90deg, #000, #fff); }
+.flt-key .sw-box { border: 1.5px dashed #4f5867; background: transparent; box-shadow: none; }
 .flt-readout {
   min-height: 1.5em;
   color: var(--ink-2);

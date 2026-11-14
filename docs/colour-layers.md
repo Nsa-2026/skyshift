@@ -3,10 +3,15 @@
 Owner: Alexandra. Code: `web/src/colour/`. Written 14 Nov 2026.
 
 **Where they are on the site.** An "Add filters" button sits just above the main image (the blink
-plate). Its menu offers No filter, Cold bodies, 2MASS-like and Single wavelength (with a slider
-over all 102 wavelengths), plus "Mark saturated stars" and Stretch. The chosen filter replaces the
-picture on the plate, over the plate's own field and orientation (north up, east left), and a key
-under the plate says what each colour means. While a filter is on, the blink's date, caption and
+plate). Its menu offers No filter, Find cold objects, Compare with 2MASS and One colour of light
+(with a slider over all 102 wavelengths), plus "Mark stars too bright to measure" and Brightness.
+The chosen filter replaces the picture on the plate, centred on the same spot and oriented the same
+way (north up, east left), and a key under the plate says what each colour means. All visitor-facing
+text is in plain words; the technical terms stay in this document.
+
+The filter picture covers three times the blink's field, at least 15′ and at most 60′, with the
+blink's field drawn as a dashed square (`filterField`). Showing only the blink's 5′ field made the
+map's 12.9″ pixels 23 across the plate, which looked like a huge zoom. While a filter is on, the blink's date, caption and
 time strip are dimmed: the filtered picture merges all dates. "Remove filter" brings the blink
 back. Nothing is downloaded until a filter is chosen. The module adds its button, layer and key
 around the blink's plate from outside (`mountFilters` in `web/src/colour/index.ts`, mounted in
@@ -42,7 +47,7 @@ IRSA's HiPS cube `spherex_allsky_cube` (release 1 Nov 2026), FITS cube tiles at 
   and astropy_healpix on 35 positions from real tile headers, including both poles, the RA 0/360
   seam and tile corners, to 10⁻⁴ pixel (`web/src/colour/hpx.test.ts`, `make_hpx_ref.py`).
 
-## A1. Single wavelength
+## A1. One colour of light (single wavelength)
 
 The plate's field at one of the 102 wavelengths, white on black.
 
@@ -67,8 +72,8 @@ The plate's spot as a picture from three wavelength windows. The windows are the
 
 | Set | Red | Green | Blue |
 |---|---|---|---|
-| Cold bodies | 4.40–4.80 µm (12 frames) | K 2.00–2.30 (6) | J 1.15–1.33 (6) |
-| 2MASS-like | K 2.00–2.30 | H 1.50–1.78 | J 1.15–1.33 |
+| Find cold objects ("Cold bodies") | 4.40–4.80 µm (12 frames) | K 2.00–2.30 (6) | J 1.15–1.33 (6) |
+| Compare with 2MASS | K 2.00–2.30 | H 1.50–1.78 | J 1.15–1.33 |
 
 Steps (`web/src/colour/rgb.ts`):
 
@@ -103,8 +108,8 @@ algorithm from what that kind of object looks like in the three windows: publish
 (A0, Sun-like, M4, L5 and T6 dwarfs) converted to brightness per unit frequency, plus Epsilon Indi
 B as measured here. So the key can't drift from the picture. A named example must look like its
 swatch on its own plate: Barnard's Star (saturated) and WISE 0855 (blended) don't, so they aren't
-named. In 2MASS-like, methane T dwarfs come out blue like hot stars, and the key says to use Cold
-bodies to tell them apart.
+named. In Compare with 2MASS, methane T dwarfs come out blue like hot stars, and the key says to use
+Find cold objects to tell them apart.
 
 **Why a colour isn't reliable** (`web/src/colour/why.ts`). When the target itself is affected, a
 box under the picture says why, in plain words and with the numbers measured for that star:
