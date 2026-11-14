@@ -267,7 +267,8 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
                 pe, pn = calib.poly_offsets(ce[0], cn[0], part["x"].to_numpy()[psf], part["y"].to_numpy()[psf])
                 ra[psf], dec[psf], _ = calib.apply_psf(cal, dd[psf], part["ra_psf"].to_numpy()[psf],
                                                        part["dec_psf"].to_numpy()[psf], part["snr"].to_numpy()[psf],
-                                                       np.full(int(psf.sum()), np.nan), pe, pn)
+                                                       np.full(int(psf.sum()), np.nan), pe, pn,
+                                                       J, part["y"].to_numpy()[psf])
                 okc[psf] = False
             f = calib.flux_factor(cal, dd, part["x"], part["y"], "ap")
             part = part[DOT_COLUMNS].assign(ra=ra, dec=dec, flux_ujy=(part["flux_ujy"] * f).astype(np.float32),
