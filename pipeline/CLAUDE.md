@@ -52,6 +52,11 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
 - highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
   asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
   status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.
+- Fit cut (14 Nov night): astrometry writes a fit only with >= ASTRO_MIN_MOTION_DOF (8) degrees of freedom left for the
+  motion after the detector zero points (detectors seen in both visits; astrometry.motion_dof): hunt 287,695 → 277,276
+  fits, Gaia stars with a fake pm 214 → 149, no fast Gaia star lost. highpm: unconfirmed fits from 4.5σ (fp_control
+  0.30 expected new fakes; 4.25σ 0.91, 4.0σ 2.1), a fast motion Gaia confirms from 3σ, CatWISE (its own pm fast and
+  ≥ 3σ) from 3.5σ: fast Gaia stars counted 63 → 77 of 106 detected, raw-table fakes 211 → 146, fp_control 1 → 1.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, tracklets, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
