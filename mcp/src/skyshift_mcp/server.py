@@ -64,8 +64,8 @@ async def _position(target: str | None, ra: float | None, dec: float | None) -> 
 
 @app.tool()
 async def top_candidates(
-    kind: Annotated[Literal["mover", "high_pm", "spectral"] | None,
-                    Field(description="mover = moves within hours (asteroid or comet?); high_pm = moves between visits (nearby star or brown dwarf?); spectral = odd spectrum. Omit for all")] = None,
+    kind: Annotated[Literal["mover", "high_pm", "spectral", "shape"] | None,
+                    Field(description="mover = moves within hours (asteroid or comet?); high_pm = moves between visits (nearby star or brown dwarf?); spectral = odd spectrum; shape = stretched like two objects where catalogues list one. Omit for all")] = None,
     limit: Annotated[int, Field(ge=1, le=100)] = 10,
     sort: Literal["score", "snr", "rate"] = "score",
     min_score: Annotated[float | None, Field(ge=0, le=1)] = None,
@@ -98,7 +98,7 @@ async def candidates_near(
     ra: float | None = None,
     dec: float | None = None,
     radius_arcmin: Annotated[float, Field(gt=0, le=600)] = 30.0,
-    kind: Literal["mover", "high_pm", "spectral"] | None = None,
+    kind: Literal["mover", "high_pm", "spectral", "shape"] | None = None,
     limit: Annotated[int, Field(ge=1, le=100)] = 20,
 ) -> str:
     """SkyShift candidates within a radius of a position, nearest first (cone search)."""
