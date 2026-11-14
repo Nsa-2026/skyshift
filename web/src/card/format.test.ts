@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { Measure, ObjectResponse, SpectrumPoint } from "../api/types";
+import type { Measure, MeasureSource, ObjectResponse, SpectrumPoint } from "../api/types";
 import {
   aboutSentence,
   agreement,
   compactUjy,
   framesFollow,
   measureSentence,
+  measureSource,
+  measuredIn,
   proseLy,
   detectionLimit,
   distancePc,
@@ -170,6 +172,33 @@ describe("sentences", () => {
       "An ultracool dwarf of spectral type T8, 6 light-years away.",
     );
     expect(aboutSentence({ slug: null, kind: null, object: null, where: "00h40m00.0s +10°00′00″" })).toBe("The sky at 00h40m00.0s +10°00′00″.");
+  });
+  it("reads measure.source only when it hangs together, never from elsewhere", () => {
+    // Barnard's Star, as precompute writes it (contracts/api.md v3.9)
+    const src: MeasureSource = {
+      det: 2, visits: [1, 3], mjd: [60913.498113, 61273.649984], n_exposures: [18, 25],
+      fov: 15, pixel_arcsec: 6.15, core_filled: [true, true],
+    };
+    expect(measureSource({ ...barnard, source: src })).toEqual(src);
+    expect(measureSource(barnard)).toBeNull(); // files from before v3.9
+    expect(measureSource({ ...barnard, source: null })).toBeNull();
+    const broken = [
+      { visits: [3, 1] }, { visits: [1] }, { det: 9 }, { det: 0 }, { n_exposures: [0, 25] },
+      { mjd: [61273.649984, 60913.498113] }, { mjd: [60913.5, 61400] }, { mjd: null },
+    ];
+    for (const bad of broken) {
+      expect(measureSource({ ...barnard, source: { ...src, ...bad } as unknown as MeasureSource })).toBeNull();
+    }
+  });
+  it("says what the shift was measured on, and the player's detector when it differs", () => {
+    const src: MeasureSource = {
+      det: 5, visits: [2, 4], mjd: [61000, 61360], n_exposures: [8, 15], fov: 15, pixel_arcsec: 6.15, core_filled: [false, false],
+    };
+    expect(measuredIn(src, 5)).toBe("D5, visits 2 and 4 (8 and 15 exposures)");
+    expect(measuredIn(src, 6)).toBe("D5, visits 2 and 4 (8 and 15 exposures), not the D6 the player shows");
+    // a measured pair need not start at visit 1: a visit with under 3 exposures in that detector is skipped
+    const said = measureSentence({ ...barnard, predicted_arcsec: null }, { visits: [2, 4], who: "Gaia" });
+    expect(said.startsWith("moved between visits 2 and 4 (0.99 years).")).toBe(true);
   });
   it("words the measurement against the prediction", () => {
     expect(measureSentence(barnard, { visits: 3, who: "Gaia" })).toBe(

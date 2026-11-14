@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.8)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.9)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -7,7 +7,8 @@ targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the communi
 v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
 v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows only;
 v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json;
-v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental).
+v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
+v3.9: `measure.source`, which detector, visits and exposures the shift was measured in).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -35,7 +36,8 @@ GET /api/object?ra=&dec=
     spectrum:[{ um, flux_ujy, err_ujy, det, mjd, visit, saturated }],
     spectrum_reason?,                                # why spectrum is empty, else null
     measure:{ shift_arcsec, pa_deg, dt_yr, rate_arcsec_yr, sigma_arcsec,
-              n_ref_stars, predicted_arcsec|null },
+              n_ref_stars, predicted_arcsec|null,
+              source?:{ det, visits, mjd, n_exposures, fov, pixel_arcsec, core_filled }|null },
     measure_reason?,                                 # why measure is null, else null
     measure_hint?:{ name, ra, dec, mjd } }           # moved_away only: where the star is
 GET /api/gaia?ra=&dec=&r=
@@ -317,11 +319,18 @@ The object nearest a position (search radius 6″).
 | spectrum_reason | **Optional.** Why `spectrum` is empty: `"saturated"` (a star saturated so deeply that no exposure had a usable aperture and background annulus, e.g. R Draconis) or `"no_data"`; `null` when there are points. Files without it: read as `null` |
 | measure | Motion between the first and last visit stack, or null with fewer than two visits or when no single source stands out clearly in both stacks (`measure_reason` says why). The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
 | measure.shift_arcsec, pa_deg | Size and direction of the shift; position angle east of north |
-| measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks, years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
+| measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks (`source.mjd`), years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
 | measure.rate_arcsec_yr | shift_arcsec / dt_yr |
 | measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
 | measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
+| measure.source | **Optional** (v3.9). What the shift was measured on, below. The server picks its own detector and visit pair, whatever the player shows: changing the player's detector, clock or field doesn't change `measure`. Files and answers without it, and `null`: unknown. Readers then say less (no detector, the visits as "first and last") and never take the detector or visits from the frames on screen |
+| measure.source.det | Detector 1–6 of both stacks |
+| measure.source.visits | `[first, last]`: the two visit numbers compared, as in the frames' epoch ids (`d<det>-v<visit>`). Not always 1 and the last visit: a visit with fewer than 3 exposures in that detector is skipped |
+| measure.source.mjd | `[first, last]`: the median MJD-AVG (UTC) of each stack's exposures, the times the fit uses. `dt_yr` = (mjd[1] − mjd[0]) / 365.25. They can differ from the epochs' `mjd_mid` (above) |
+| measure.source.n_exposures | `[first, last]`: exposures in each stack. A live answer may use fewer than the visit has (the months live cap above: at most 6 per visit) |
+| measure.source.fov, pixel_arcsec | The measurement's own grid: field in arcmin (15) and sampling in arcsec per pixel (6.15, native). Not the player's field |
+| measure.source.core_filled | `[first, last]`: true when the star had a hole in that stack (saturated in every exposure) and a round profile fitted to its wings filled it before the centroid (Barnard's Star). Real pixels are never changed |
 | measure_reason | **Optional.** Why `measure` is null: one of the codes below. When it is set, `measure` is null; with a measure it is null. Files and answers without it: read as `null` (the site then gives its general sentence) |
 | measure_hint | **Optional.** `{ name, ra, dec, mjd }` with `measure_reason` `moved_away`, else null: the fast star that was catalogued here and its position (degrees) at `mjd`, the middle of SPHEREx's first and last exposures at this position, so the site can open it where it is. `name`: the built-in name or `Gaia DR3 <id>` |
 
@@ -553,7 +562,7 @@ codes (show them as cautions): `known_object_near`, `motion_not_significant`, `b
 
 | kind | score |
 |---|---|
-| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.1 with `grade` C |
+| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.5 with a dot within 6 px of the detector edge (reason `edge`, added by the exporter too when the vetting didn't run) × 0.1 with `grade` C. "Motion not significant" uses the dots' pos_err × 1.6 |
 | high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
 | shape | (1 − e^(−s/15)) × 0.8 with `one_visit`; s = significance of the stretch (\|mean excess ellipticity\| / its error; Rayleigh, P(> s) = e^(−s²/2) for noise) |
@@ -906,3 +915,12 @@ single-process server only (scripts/run-local.sh).
   Cloud Run). Additive: no existing endpoint, file or field changes; nothing here is scored.
 - A missing engine now answers 404; the fixture examples (`"synthetic": true`) are served only with
   `SKYSHIFT_ALLOW_SYNTHETIC=1` (tests). Every engine is real, so no live answer changes.
+
+## Changes in v3.9 (14 Nov 2026): where the measured shift comes from
+
+- `/api/object` and `object.json`: optional `measure.source = { det, visits:[first,last], mjd:[first,last],
+  n_exposures:[first,last], fov, pixel_arcsec, core_filled:[first,last] }`, the detector, visit pair,
+  median times and exposure counts of the two stacks the shift was measured on. Additive: no existing
+  field or number changes. Files and answers without it (the static `object.json` files until the next
+  precompute, cached live answers) read as `null`: unknown, never guessed from the player's frames.
+  Proposed by 春。 (PR #66), adapted to v3.8.

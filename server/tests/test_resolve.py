@@ -1,11 +1,35 @@
+import json
+import math
+import statistics
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+from skyshift_server import known, resolve as resolve_mod
 from skyshift_server.errors import ApiError
-from skyshift_server.resolve import builtins, parse_coords, position_now, resolve
+from skyshift_server.resolve import MOVING, builtins, parse_coords, position_now, resolve
 
 WISE_RA, WISE_DEC = 133.7951292, -7.2451472  # 08h55m10.831s -7d14m42.53s
+REPO = Path(__file__).resolve().parents[2]
+# kete's MPC positions at MOVING's times (14 Nov index, run by hand): 1-3" from the frame centres
+MPC_AT_FRAMES = {"3I/ATLAS": (166.97415159, 5.22794356), "Elpis": (88.71172217, 14.48579347),
+                 "Euphrosyne": (210.13915365, -24.84641866)}
+
+
+@pytest.fixture(autouse=True)
+def fake_mpc(monkeypatch):
+    """known.position needs the MPC index and kete's kernels (not in tests): canned answers."""
+    calls = []
+
+    def position(name, mjd, *, cache=None):
+        calls.append((name, mjd))
+        return MPC_AT_FRAMES[name]
+
+    monkeypatch.setattr(known, "position", position)
+    resolve_mod.moving_position.cache_clear()
+    yield calls
+    resolve_mod.moving_position.cache_clear()
 
 
 @pytest.mark.parametrize("q", [
@@ -95,6 +119,9 @@ def test_unknown_name_is_404(q):
     ("R Draconis", "rdra"), ("R Dra", "rdra"),
     ("3I/ATLAS", "3i-atlas"), ("3I", "3i-atlas"), ("3i atlas", "3i-atlas"),
     ("C/2025 N1", "3i-atlas"), ("C/2025 N1 (ATLAS)", "3i-atlas"), ("3i-atlas", "3i-atlas"),
+    ("Comet 3I/ATLAS", "3i-atlas"),
+    ("Elpis", "elpis"), ("(59) Elpis", "elpis"), ("59 Elpis", "elpis"), ("elpis", "elpis"),
+    ("Euphrosyne", "euphrosyne"), ("(31) Euphrosyne", "euphrosyne"), ("31 euphrosyne", "euphrosyne"),
 ])
 def test_builtin_names(q, slug):
     r = resolve(q)
@@ -104,7 +131,16 @@ def test_builtin_names(q, slug):
 
 
 def test_builtins_cover_targets_and_comet():
-    assert set(builtins()) == {"barnard", "epsindib", "wise0855", "rwaur", "rdra", "3i-atlas"}
+    assert set(builtins()) == {"barnard", "epsindib", "wise0855", "rwaur", "rdra", "3i-atlas", "elpis", "euphrosyne"}
+
+
+def test_every_featured_chip_resolves():
+    """14 Nov site review: /api/resolve gave 404 for Elpis and Euphrosyne, two of the site's chips."""
+    chips = json.loads((REPO / "web/src/data/targets.json").read_text())["targets"]
+    assert {t["slug"] for t in chips} <= set(builtins())
+    for t in chips:
+        r = resolve(t["name"])
+        assert r["slug"] == t["slug"] and r["source"] == "builtin"
 
 
 def test_barnard_moved_to_present():
@@ -118,9 +154,34 @@ def test_barnard_moved_to_present():
     assert dec0 == pytest.approx(t["dec"], abs=1e-6)
 
 
-def test_comet_has_fixed_position():
-    r = resolve("3I/ATLAS")
-    assert r["ra"] == pytest.approx(166.83, abs=0.05) and r["dec"] == pytest.approx(5.28, abs=0.05)
+def test_moving_targets_are_where_their_frames_are_from_mpc_orbits(fake_mpc):
+    """3I/ATLAS, Elpis and Euphrosyne: the MPC position (known.position, kete) at the median exposure
+    time of their featured frames, which is where the frames are centred. Before: the comet came
+    from NASA's list, 9.4' from the frame centre, and the asteroids were unknown names (404)."""
+    for slug, name in (("3i-atlas", "3I/ATLAS"), ("elpis", "Elpis"), ("euphrosyne", "Euphrosyne")):
+        r = resolve(slug)
+        assert (r["name"], r["slug"], r["source"]) == (MOVING[slug]["name"], slug, "builtin")
+        assert (r["ra"], r["dec"]) == pytest.approx(MPC_AT_FRAMES[name], abs=1e-6)
+        assert fake_mpc[-1] == (name, MOVING[slug]["mjd"])
+        frames = json.loads((REPO / f"web/public/data/{slug}/frames.json").read_text())
+        assert MOVING[slug]["mjd"] == pytest.approx(statistics.median(e["mjd_mid"] for e in frames["epochs"]), abs=1e-5)
+        centre = json.loads((REPO / f"web/public/data/{slug}/index.json").read_text())["center"]
+        d = 3600 * math.hypot((r["ra"] - centre["ra"]) * math.cos(math.radians(centre["dec"])), r["dec"] - centre["dec"])
+        assert d < 5.0  # arcsec (kete vs NASA's per-image positions: 1-3")
+    n = len(fake_mpc)
+    resolve("Elpis")
+    assert len(fake_mpc) == n  # computed once per instance
+
+
+def test_moving_target_without_mpc_is_502_not_a_guess(monkeypatch):
+    def broken(name, mjd, *, cache=None):
+        raise KeyError(name)
+
+    monkeypatch.setattr(known, "position", broken)
+    with pytest.raises(ApiError) as e:
+        resolve("Euphrosyne")
+    assert e.value.status == 502 and e.value.code == "upstream"
+    assert resolve("Barnard's Star")["slug"] == "barnard"  # the stars don't need the index
 
 
 def test_matches_fixture_coords():

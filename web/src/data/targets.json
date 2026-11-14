@@ -50,7 +50,7 @@
    "fov": 5,
    "det": 2,
    "kind": "variable star",
-   "look_for": "A young star that stays put while its brightness and spectrum change between visits. May saturate in the short bands.",
+   "look_for": "A young star that stays put while its brightness and spectrum change between visits. It saturates: the core is saturated in 303 of its 321 spectrum points (all of D2–D6), so read its brightness with care.",
    "expected": "Brightness changes, no motion."
   },
   {

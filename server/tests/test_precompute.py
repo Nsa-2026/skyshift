@@ -41,6 +41,51 @@ def test_densest_window_and_image():
     assert precompute.densest_window(rows, 3, 1.0) == []
 
 
+def _rwaur_images():
+    """RW Aurigae's exposures (search of 14 Nov) in D2 and D5: D2 has 19 in visit 2 and 18 in visit 3,
+    D5 19 and 19, so the hours clock's own rule picks visit 2 for D2 and visit 3 for D5."""
+    from skyshift_server import search
+
+    out = []
+    for det, counts in ((2, {1: 18, 2: 19, 3: 18}), (5, {1: 18, 2: 19, 3: 19})):
+        for v, n in counts.items():
+            out += [search.Image("spherex_dr1", f"V{v}_{k}", det, 0.0, 0.0, 60920.0 + 180 * v + k, "", None,
+                                 visit=v) for k in range(n)]
+    return out
+
+
+def test_hours_files_show_one_visit_for_every_detector(tmp_path, monkeypatch):
+    """D2+D5 are exposed at the same moment: an hours file shows the same visit in both (14 Nov site
+    review: RW Aurigae's frames_hours_20.json had D2 from visit 2 and D5 from visit 3)."""
+    from skyshift_server import blink, search
+
+    images = _rwaur_images()
+    assert blink.best_hours_visit([im for im in images if im.det == 2]) == 2
+    assert blink.best_hours_visit([im for im in images if im.det == 5]) == 3  # the bug, per detector
+    monkeypatch.setattr(search, "search", lambda ra, dec, cache=None: search.SearchResult(ra, dec, "2026-11-14", images))
+    t = {"slug": "rwaur", "name": "RW Aurigae", "ra": 76.95609, "dec": 30.40113}
+    assert precompute.set_visit(t, "hours", [2, 5], cache=None) == 2
+    assert precompute.set_visit(t, "hours", [5, 2], cache=None) == 3  # the file's first detector leads
+    assert precompute.set_visit(t, "hours", [1, 2], cache=None) == 2  # ... the first one seen here
+    assert precompute.set_visit(t, "months", [2, 5], cache=None) is None  # every visit
+
+    calls = []
+
+    def fake_build_frames(ra, dec, fov, clock, det, *, visit=None, **kw):
+        calls.append((clock, det, visit))
+        ep = {"id": f"d{det}-V{visit}_0", "mjd_mid": 61000.0 + det, "det": det}
+        return blink.Frames({"clock": clock, "center": {"ra": ra, "dec": dec}, "epochs": [ep], "known": [],
+                             "gaia": []}, {}, [], {ep["id"]: []})
+
+    monkeypatch.setattr(blink, "build_frames", fake_build_frames)
+    monkeypatch.setattr(precompute, "OUT", tmp_path)
+    entry = precompute.build_set(t, "hours:20", [2, 5], cache=None)
+    assert calls == [("hours", 2, 2), ("hours", 5, 2)] and entry["dets"] == [2, 5]
+    calls.clear()
+    precompute.build_set(t, "months:5", [2, 5], cache=None)
+    assert calls == [("months", 2, None), ("months", 5, None)]
+
+
 def test_comet_rows_come_from_the_irsa_table():
     rows = precompute.comet_rows()
     assert len(rows) == 258  # 259 images, one in neither DR1 nor QR3

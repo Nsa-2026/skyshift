@@ -190,6 +190,21 @@ export interface Measure {
   sigma_arcsec: number;
   n_ref_stars: number;
   predicted_arcsec: number | null;
+  /** v3.9, optional: what the shift was measured on. Absent or null: unknown (older files and answers). */
+  source?: MeasureSource | null;
+}
+
+/** contracts/api.md v3.9 `measure.source`: the two visit stacks the server measured, [first, last]. */
+export interface MeasureSource {
+  det: Det;
+  visits: [number, number];
+  /** Median MJD-AVG of each stack's exposures: the times dt_yr comes from. */
+  mjd: [number, number];
+  n_exposures: [number, number];
+  /** The measurement's own grid (arcmin, arcsec per pixel), not the player's field. */
+  fov: number;
+  pixel_arcsec: number;
+  core_filled: [boolean, boolean];
 }
 
 export interface KnownUcd {
@@ -301,7 +316,8 @@ export interface TargetIndex {
   name: string;
   center: SkyPos;
   own: string;
-  follows_object?: string;
+  /** True when the frames follow a moving object (3I/ATLAS), each epoch with its own `center`. */
+  follows_object?: boolean;
   frames: { file: string; clock: Clock; fov: number; dets: Det[]; epochs: number; bytes: number }[];
 }
 
