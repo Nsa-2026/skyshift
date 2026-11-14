@@ -391,7 +391,7 @@ export function visitTimesFromSpectrum(spectrum: SpectrumPoint[]): Map<number, n
 }
 
 /**
- * What the shift was measured on (contracts/api.md v3.8), when the answer says so and it hangs
+ * What the shift was measured on (contracts/api.md v3.9), when the answer says so and it hangs
  * together (dt_yr is the gap between its two median times). Null otherwise: older files and cached
  * answers have none, and the card never takes it from the player's frames instead.
  */

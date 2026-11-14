@@ -190,11 +190,11 @@ export interface Measure {
   sigma_arcsec: number;
   n_ref_stars: number;
   predicted_arcsec: number | null;
-  /** v3.8, optional: what the shift was measured on. Absent or null: unknown (older files and answers). */
+  /** v3.9, optional: what the shift was measured on. Absent or null: unknown (older files and answers). */
   source?: MeasureSource | null;
 }
 
-/** contracts/api.md v3.8 `measure.source`: the two visit stacks the server measured, [first, last]. */
+/** contracts/api.md v3.9 `measure.source`: the two visit stacks the server measured, [first, last]. */
 export interface MeasureSource {
   det: Det;
   visits: [number, number];

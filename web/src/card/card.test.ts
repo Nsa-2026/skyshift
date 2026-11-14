@@ -84,7 +84,7 @@ describe("every real object.json", () => {
     const row = (el: HTMLElement) =>
       [...el.querySelectorAll(".cd-dl > div")].find((d) => d.querySelector("dt")?.textContent === "Measured in")?.querySelector("dd")?.textContent;
     const obj = load("barnard");
-    expect(obj.measure?.source?.det).toBe(2); // precompute wrote it (contracts/api.md v3.8)
+    expect(obj.measure?.source?.det).toBe(2); // precompute wrote it (contracts/api.md v3.9)
     const el = document.createElement("section");
     const card = mountCard(el);
     card.show({ ...viewFor("barnard"), det: 2 }, obj, null);

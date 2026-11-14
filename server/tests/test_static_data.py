@@ -87,7 +87,7 @@ def test_object_json_shape(slug):
     assert um == sorted(um)
     for p in o["spectrum"]:
         assert set(p) == {"um", "flux_ujy", "err_ujy", "det", "mjd", "visit", "saturated"}
-    src = (o["measure"] or {}).get("source")  # v3.8, optional: files from before it have none
+    src = (o["measure"] or {}).get("source")  # v3.9, optional: files from before it have none
     if src is not None:
         assert set(src) == {"det", "visits", "mjd", "n_exposures", "fov", "pixel_arcsec", "core_filled"}
         assert 1 <= src["det"] <= 6 and src["visits"][0] < src["visits"][1]

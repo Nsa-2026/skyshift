@@ -272,7 +272,7 @@ def test_object_spectrum_and_zero_shift(world):
     assert m["n_ref_stars"] >= 3 and m["sigma_arcsec"] < 0.05
     assert m["predicted_arcsec"] is not None and m["predicted_arcsec"] < 0.05  # a slow star
     assert details["det"] == 1 and details["visits"] == [1, 2]
-    # contracts/api.md v3.8: the same detector, visits and times the fit used
+    # contracts/api.md v3.9: the same detector, visits and times the fit used
     src = m["source"]
     assert src == {"det": 1, "visits": [1, 2], "mjd": pytest.approx(details["mjd"], abs=1e-6),
                    "n_exposures": details["n_exposures"], "fov": 15, "pixel_arcsec": 6.15,

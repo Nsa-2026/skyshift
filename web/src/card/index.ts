@@ -181,7 +181,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
   function measureHtml(s: Shown, notes: Note[]): string {
     const object = s.object;
     const m = object?.measure ?? null;
-    const src = m ? measureSource(m) : null; // v3.8; absent in older files: then we don't name it
+    const src = m ? measureSource(m) : null; // v3.9; absent in older files: then we don't name it
     const g = object?.gaia ?? null;
     const pc = distancePc(g?.parallax);
     const items: [string, string][] = [];

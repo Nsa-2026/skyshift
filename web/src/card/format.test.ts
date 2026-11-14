@@ -174,13 +174,13 @@ describe("sentences", () => {
     expect(aboutSentence({ slug: null, kind: null, object: null, where: "00h40m00.0s +10°00′00″" })).toBe("The sky at 00h40m00.0s +10°00′00″.");
   });
   it("reads measure.source only when it hangs together, never from elsewhere", () => {
-    // Barnard's Star, as precompute writes it (contracts/api.md v3.8)
+    // Barnard's Star, as precompute writes it (contracts/api.md v3.9)
     const src: MeasureSource = {
       det: 2, visits: [1, 3], mjd: [60913.498113, 61273.649984], n_exposures: [18, 25],
       fov: 15, pixel_arcsec: 6.15, core_filled: [true, true],
     };
     expect(measureSource({ ...barnard, source: src })).toEqual(src);
-    expect(measureSource(barnard)).toBeNull(); // files from before v3.8
+    expect(measureSource(barnard)).toBeNull(); // files from before v3.9
     expect(measureSource({ ...barnard, source: null })).toBeNull();
     const broken = [
       { visits: [3, 1] }, { visits: [1] }, { det: 9 }, { det: 0 }, { n_exposures: [0, 25] },
