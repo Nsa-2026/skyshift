@@ -4,6 +4,8 @@ The current entry/Explore shell follows the latest light dashboard reference and
 scroll opening using the user-specified Egyptian goddess drawing from `src/opening/goddess.ts`.
 See [the opening implementation and verification](scroll-intro.md) for current routes, real-sky
 provenance and the latest local checks. The character swap retains the original intro controller.
+The space scenery now includes a detailed spherical Earth and three code-drawn foreground
+planets (Saturn, Jupiter and Mars); measured sky/player data remain separate.
 
 The integration baseline documented below is the earlier black observatory screenshot:
 upper-left target card, right Details inspector and bottom playback strip. These live scientific

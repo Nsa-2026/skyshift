@@ -1,45 +1,6 @@
 import { sceneAt, smooth, type SceneState } from './model';
 import { drawPortrait, portraitCamera, PORTRAIT_EYE } from './portrait';
-
-// Authored vector scenery, not astronomical imagery. The only sky pixels come from SPHEREx.
-const land = [
-  'M-70 -40 L-52 -68 -24 -62 -12 -41 -27 -28 -21 -10 -39 5 -48 -9 -65 -17Z',
-  'M-30 4 L-12 10 -5 29 -17 63 -30 80 -34 48 -43 25Z',
-  'M3 -46 L25 -64 53 -58 76 -34 56 -19 35 -28 24 -9 14 -22 -1 -19Z',
-  'M6 -13 L28 -14 39 6 28 39 14 49 3 22 -4 2Z',
-  'M52 39 L75 32 89 45 80 63 59 58Z',
-];
-function fillPath(c: CanvasRenderingContext2D, path: string, color: string) {
-  c.fillStyle = color; c.fill(new Path2D(path));
-}
-
-function earth(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) {
-  if (!s.earth) return;
-  const d = s.descent;
-  const r = Math.min(w, h) * .17 * Math.exp(d * 2.9);
-  const x = w * (.74 - .24 * d), y = h * (.86 + .34 * d);
-  c.save(); c.globalAlpha = s.earth;
-  const glow = c.createRadialGradient(x, y, r * .94, x, y, r * 1.09);
-  glow.addColorStop(0, '#7abce666'); glow.addColorStop(.52, '#61b3ee22'); glow.addColorStop(1, '#346cab00');
-  c.fillStyle = glow; c.beginPath(); c.arc(x, y, r * 1.09, 0, Math.PI * 2); c.fill();
-  c.save(); c.translate(x, y); c.scale(r / 100, r / 100);
-  c.beginPath(); c.arc(0, 0, 100, 0, Math.PI * 2); c.clip();
-  const ocean = c.createRadialGradient(-60, -65, 8, 10, 15, 150);
-  ocean.addColorStop(0, '#558cac'); ocean.addColorStop(.35, '#244c65'); ocean.addColorStop(.7, '#102130'); ocean.addColorStop(1, '#03080d');
-  c.fillStyle = ocean; c.fillRect(-100, -100, 200, 200);
-  c.save(); c.rotate(-.25 + d * .18);
-  land.forEach(path => fillPath(c, path, '#436168'));
-  c.strokeStyle = '#d1e0e847'; c.lineWidth = 1.5;
-  for (let i = 0; i < 6; i++) {
-    c.beginPath(); c.moveTo(-88 + i * 8, -68 + i * 23);
-    c.bezierCurveTo(-52, -77 + i * 23, -32, -46 + i * 19, 10 + i * 10, -60 + i * 21); c.stroke();
-  }
-  c.restore();
-  const night = c.createLinearGradient(-70, -60, 60, 25);
-  night.addColorStop(0, '#02081200'); night.addColorStop(.45, '#02081233'); night.addColorStop(1, '#02060bf5');
-  c.fillStyle = night; c.fillRect(-100, -100, 200, 200);
-  c.restore(); c.restore();
-}
+import { paintPlanetaryOpening } from './planets';
 
 function horizon(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) {
   if (!s.ground) return;
@@ -101,5 +62,5 @@ export function paintScene(canvas: HTMLCanvasElement, progress: number): void {
   if (!c) return;
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
   const s = sceneAt(progress);
-  earth(c, w, h, s); horizon(c, w, h, s); girl(c, w, h, s); clouds(c, w, h, s);
+  paintPlanetaryOpening(c, w, h, s); horizon(c, w, h, s); girl(c, w, h, s); clouds(c, w, h, s);
 }

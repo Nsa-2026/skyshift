@@ -16,6 +16,13 @@ No other part of the separate opening prototype is loaded by this integration. T
 video files or AI-generated visual assets.
 The same live dashboard emerges at the end and becomes interactive at `#/explore`.
 
+The space opening now uses a spherical Earth with Natural Earth coastline vectors, procedural
+ocean/land/cloud materials, a curved terminator, ocean glint and atmosphere. Saturn (occluded
+rings), Jupiter (bands/red storm) and Mars (rust surface/polar caps) surround the title and
+retreat before cloud entry. These are illustrative foreground objects over the real SPHEREx
+background. `intro/planets.ts` owns their composition and materials; `intro/spheres.ts` owns
+projection and lighting. Phone framing keeps the first Earth inside the viewport.
+
 Entry/Explore-only styles live in `src/intro/intro.css`: persistent search/navigation, five target
 cards, the existing player and real candidate signals. The light shell leaves the sky visible
 between panels. On phones panels stack, target cards scroll horizontally and the original

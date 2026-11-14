@@ -14,7 +14,7 @@ export function mountIntro(root: HTMLElement, opts: {
     <div class="entry-hero"><p class="entry-kicker"><i></i> A journey through the infrared sky</p><h1>The sky is<br>never <em>still.</em></h1><p class="entry-hero-copy">每一次仰望，都是探索的开始。</p><div class="entry-scroll-hint"><span>向下滑动进入</span><span aria-hidden="true">↓</span></div></div>
     <div class="entry-chapter" aria-hidden="true"><span class="entry-chapter-no"></span><p></p></div>
     <div class="entry-progress" aria-hidden="true"><span></span></div>
-    <p class="entry-art-credit">SPHEREx 真实红外星空 · 地球与人物为代码绘制</p>`;
+    <p class="entry-art-credit">SPHEREx 真实红外星空 · 地球、行星与人物为代码绘制</p>`;
   root.append(el);
   const canvas = el.querySelector<HTMLCanvasElement>('canvas')!;
   const hero = el.querySelector<HTMLElement>('.entry-hero')!;
