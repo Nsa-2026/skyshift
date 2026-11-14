@@ -2,8 +2,9 @@
 
 Units: one known object in one session (the zone's time runs) where it was predicted inside
 >= SCORE_MIN_EXPOSURES exposures, at least SCORE_EDGE_PX from the edge and inside the zone.
-- recall: a mover of that session within MATCH_ARCSEC of the prediction moved (the object's rates) to
-  the mover's time;
+- recall: a mover of that session, or a dot `tracklets` recovered on a track's predicted path in that session
+  (tracklet_dots.parquet), within MATCH_ARCSEC of the prediction moved (the object's rates) to its time;
+  recall_movers: movers alone (the measure before tracklets);
 - dot share: any dot within MATCH_ARCSEC in one of the unit's photos (detection vs linking);
 - control: the same with each unit moved CONTROL_OFFSET_ARCSEC in a random direction (fixed seed),
   the chance-match rate.
@@ -97,12 +98,21 @@ def control_shift(p: pd.DataFrame, seed: int = C.CONTROL_SEED, offset: float = C
 
 
 def summarize_units(p: pd.DataFrame, mover_hit: np.ndarray, dot_hit: np.ndarray,
-                    ctl_mover_hit: np.ndarray, ctl_dot_hit: np.ndarray) -> pd.DataFrame:
+                    ctl_mover_hit: np.ndarray, ctl_dot_hit: np.ndarray,
+                    rec_hit: np.ndarray | None = None, ctl_rec_hit: np.ndarray | None = None) -> pd.DataFrame:
+    """Per unit: mover (a mover matched), recovered (a tracklets-recovered dot matched), found = either; ctl_* the same
+    for the control; dot = any dot."""
     q = p[["unit", "name", "number", "v", "mjd", "session"]].copy()
     q["mover"], q["dot"], q["ctl_mover"], q["ctl_dot"] = mover_hit, dot_hit, ctl_mover_hit, ctl_dot_hit
-    return q.groupby("unit").agg(name=("name", "first"), number=("number", "first"), v=("v", "min"),
-                                 session=("session", "first"), mjd=("mjd", "mean"), n_photos=("mjd", "size"), mover=("mover", "any"),
-                                 dot=("dot", "any"), ctl_mover=("ctl_mover", "any"), ctl_dot=("ctl_dot", "any")).reset_index()
+    q["recovered"] = rec_hit if rec_hit is not None else False
+    q["ctl_recovered"] = ctl_rec_hit if ctl_rec_hit is not None else False
+    u = q.groupby("unit").agg(name=("name", "first"), number=("number", "first"), v=("v", "min"),
+                              session=("session", "first"), mjd=("mjd", "mean"), n_photos=("mjd", "size"), mover=("mover", "any"),
+                              dot=("dot", "any"), ctl_mover=("ctl_mover", "any"), ctl_dot=("ctl_dot", "any"),
+                              recovered=("recovered", "any"), ctl_recovered=("ctl_recovered", "any")).reset_index()
+    u["found"] = u["mover"] | u["recovered"]
+    u["ctl_found"] = u["ctl_mover"] | u["ctl_recovered"]
+    return u
 
 
 def _share(x) -> float | None:
@@ -110,8 +120,12 @@ def _share(x) -> float | None:
 
 
 def _rates(u: pd.DataFrame) -> dict:
-    return {"n": int(len(u)), "found": int(u["mover"].sum()), "recall": _share(u["mover"]),
-            "dot_share": _share(u["dot"]), "control_recall": _share(u["ctl_mover"]),
+    """found / recall: a mover or a tracklets-recovered dot; *_movers: movers alone (the measure before tracklets)."""
+    f = u["found"] if "found" in u else u["mover"]
+    cf = u["ctl_found"] if "ctl_found" in u else u["ctl_mover"]
+    return {"n": int(len(u)), "found": int(f.sum()), "recall": _share(f),
+            "found_movers": int(u["mover"].sum()), "recall_movers": _share(u["mover"]),
+            "dot_share": _share(u["dot"]), "control_recall": _share(cf), "control_recall_movers": _share(u["ctl_mover"]),
             "control_dot_share": _share(u["ctl_dot"])}
 
 
@@ -121,14 +135,16 @@ def recall_report(units: pd.DataFrame, v_max: float = C.SCORE_V_MAX) -> dict:
     for lo, hi in zip(C.V_BINS[:-1], C.V_BINS[1:]):
         u = units[(units["v"] >= lo) & (units["v"] < hi)]
         by_v.append({"v_min": None if lo < -50 else lo, "v_max": hi, **_rates(u)})
-    obj = main.groupby("name").agg(mover=("mover", "any"), dot=("dot", "any"), ctl_mover=("ctl_mover", "any"),
-                                   ctl_dot=("ctl_dot", "any")) if len(main) else main
+    cols = [c for c in ("mover", "dot", "ctl_mover", "ctl_dot", "found", "ctl_found") if c in main]
+    obj = main.groupby("name").agg(**{c: (c, "any") for c in cols}) if len(main) else main
     unsat = main[main["v"] >= C.SCORE_V_SATURATED]
     sat = main[main["v"] < C.SCORE_V_SATURATED]
     r = _rates(main)
     return {
         "v_max": v_max, "n_known": r["n"], "n_found": r["found"], "recall": r["recall"],
-        "dot_share": r["dot_share"], "control_recall": r["control_recall"], "control_dot_share": r["control_dot_share"],
+        "n_found_movers": r["found_movers"], "recall_movers": r["recall_movers"],
+        "dot_share": r["dot_share"], "control_recall": r["control_recall"], "control_recall_movers": r["control_recall_movers"],
+        "control_dot_share": r["control_dot_share"],
         "per_object": _rates(obj) if len(obj) else {"n": 0},
         f"v_{C.SCORE_V_SATURATED:g}_to_{v_max:g}": _rates(unsat),
         f"v_lt_{C.SCORE_V_SATURATED:g}_saturated": _rates(sat),
@@ -136,6 +152,15 @@ def recall_report(units: pd.DataFrame, v_max: float = C.SCORE_V_MAX) -> dict:
         "g2_pass": bool(r["recall"] is not None and r["recall"] >= C.G2_RECALL_MIN),
         "by_v": by_v,
     }
+
+
+def recovered_dots(store: Store, zone: C.Zone) -> pd.DataFrame:
+    """tracklets' recovered dots (ra, dec, mjd, session); empty when the step hasn't run."""
+    rel = results_rel(zone.name, "tracklet_dots.parquet")
+    cols = ["ra", "dec", "mjd", "session"]
+    if not store.exists(rel):
+        return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
+    return store.read_parquet(rel, columns=cols)
 
 
 def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
@@ -159,18 +184,21 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     have = np.array([(o, int(d)) in trees for o, d in zip(p["obs_id"], p["detector"])], dtype=bool)
     p = p[have].reset_index(drop=True)  # only photos that have been through `dots`
     ctl = control_shift(p)
+    rec = recovered_dots(store, zone)
     units = summarize_units(p, match_movers(p, movers), match_dots(p, trees),
-                            match_movers(ctl, movers), match_dots(ctl, trees))
+                            match_movers(ctl, movers), match_dots(ctl, trees),
+                            match_movers(p, rec), match_movers(ctl, rec))
     rep = recall_report(units)
     out = {"zone": zone.name, "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "match_arcsec": C.MATCH_ARCSEC, "edge_px": C.SCORE_EDGE_PX, "control_offset_arcsec": C.CONTROL_OFFSET_ARCSEC,
            "control_seed": C.CONTROL_SEED, "unit": f"one known object in one session with >= {C.SCORE_MIN_EXPOSURES} exposures covering it",
-           "photos_with_predictions": int(len(trees)), **rep}
+           "found": "a mover, or a dot tracklets recovered on a track's predicted path (recall_movers: movers alone)",
+           "recovered_dots": int(len(rec)), "photos_with_predictions": int(len(trees)), **rep}
     store.write_json(results_rel(zone.name, "recall.json"), out)
     store.write_parquet(results_rel(zone.name, "recall_units.parquet"), units)
-    L.info("score %s: recall %s (%d of %d object-sessions) at V<%.0f; per object %s; dots %s; control %s -> G2 %s",
-           zone.name, rep["recall"], rep["n_found"], rep["n_known"], C.SCORE_V_MAX, rep["per_object"],
-           rep["dot_share"], rep["control_recall"], "PASS" if rep["g2_pass"] else "FAIL")
+    L.info("score %s: recall %s (%d of %d object-sessions; movers alone %s) at V<%.0f; per object %s; dots %s; control %s "
+           "-> G2 %s", zone.name, rep["recall"], rep["n_found"], rep["n_known"], rep["recall_movers"], C.SCORE_V_MAX,
+           rep["per_object"], rep["dot_share"], rep["control_recall"], "PASS" if rep["g2_pass"] else "FAIL")
     for b in rep["by_v"]:
         L.info("score %s:   V %s-%s: %s", zone.name, b["v_min"], b["v_max"], b)
     return {k: v for k, v in out.items() if k != "by_v"} | {"wall_s": round(time.time() - t0, 1)}

@@ -709,3 +709,45 @@ INJECT_DET_FIT_SNR = (12.0, 35.0)
 INJECT_DET_MIN_DOTS = 2000
 INJECT_DET_SNR50 = 5.7
 INJECT_DET_WIDTH = 0.7
+
+# --- tracklets: movers linked across the sessions of a visit, missed sightings recovered (tracklets.py) -------------
+# link's movers live inside one session (2-5 exposures over minutes): too short to show main-belt motion at S/N 7-9.
+# tracklets links movers of different sessions of one visit into tracks (positions on a local tangent plane, linear
+# motion, quadratic once a local fit spans >= TRACK_QUAD_MIN_SPAN_H with >= 4 members), measures each mover's rate
+# from the track, then looks in the visit's other sessions at the predicted positions for link's unpaired dots
+# (results/<zone>/free_dots.parquet) and keeps them as recovered detections. score counts a known sighting found when
+# a mover or a recovered dot matches it. Hunt (known asteroids' predicted session positions, V < 18): linear fits leave
+# <= 1.9″ (99%) over 1 day, 14″ over 3 days; quadratic <= 1.9″ over 3 days (SPHEREx's orbital parallax included).
+TRACK_RATE_MIN_ARCSEC_H = 0.5    # slower: not linked (stars, galaxies, fixed junk)
+TRACK_RATE_MAX_ARCSEC_H = 150.0  # link's pair rule allows ~146″/h (3″ + 1″/min over 2.1 min)
+TRACK_SEED_MAX_GAP_H = 36.0      # seed pairs: movers of two sessions at most this far apart
+TRACK_TRIPLET_WINDOW_H = 36.0    # a seed is tested in sessions up to this far outside its two times
+TRACK_MAX_GAP_H = 60.0           # a track grows across gaps up to this long (no detection in between)
+TRACK_FIT_WINDOW_H = 48.0        # local fits use the members within this of the time they predict (at least 2)
+TRACK_QUAD_MIN_SPAN_H = 24.0     # a local fit with >= 4 members spanning this long is quadratic, else linear
+TRACK_ACCEL_ARCSEC_H2 = 0.04     # first pass: curvature allowance of a linear prediction, ½ a |(t-t1)(t-t2)| (hunt:
+                                 # known asteroids' apparent acceleration 0.028″/h² median, 0.039 at 99%)
+TRACK_ACCEL_MIN_SESSIONS = 5     # second pass: the visit's median acceleration vector from first-pass tracks this long
+TRACK_ACCEL_MIN_SPAN_H = 36.0    # ... over at least this many hours (a quadratic fit within this window)
+TRACK_ACCEL_MIN_TRACKS = 5       # ... at least this many of them, else the first pass stands
+TRACK_ACCEL_TOL_ARCSEC_H2 = 0.016  # ... and the allowance around it (hunt: 99% of known asteroids within 0.016)
+TRACK_JERK_ARCSEC_H3 = 0.0005    # allowance of a quadratic prediction: j dt³ / 6
+TRACK_SYS_ARCSEC = 0.8           # per-axis systematic added to every mover's error (parallax, model; hunt residuals)
+TRACK_POS_K = 2.2                # mover per-axis error: sqrt((K × PSF σ / snr)² + floor²) / sqrt(n_dots): the raw
+TRACK_POS_FLOOR_ARCSEC = 0.43    # pos_err is 1.4-1.8× too small; single-dot floor ~0.43″ against Gaia
+TRACK_NSIGMA = 4.0               # match radius = NSIGMA × prediction σ + curvature allowance, within the limits below
+TRACK_R_MIN_ARCSEC = 3.0
+TRACK_R_MAX_ARCSEC = 30.0
+TRACK_MIN_SESSIONS = 3           # a tracklet: movers in >= 3 sessions (2 sessions alone are any pair in the rate range)
+TRACK_SHORT_MAX_SPAN_H = 36.0    # ... and with exactly 3, over at most this long (hunt control: chance 3-session tracks
+                                 # all spanned 37-72 h, their third mover far out on the extrapolated path)
+TRACK_MAX_CHI2_NU = 9.0          # local-fit chi2 per degree of freedom above this: the worst member is dropped
+# recovery: link's unpaired dots (results/<zone>/free_dots.parquet: not in a fixed group, elong <= MOVER_MAX_ELONG).
+# Hunt (V < 16, free dots rebuilt from the missed units' photos): recall 90.4% (movers) → 93.0% with 24 h and no
+# near-fixed dots, 94.7% with the settings below; control 0; the dots moved 120″ gave 3 chance track-sessions vs 56.
+# Most of the rest pass within 4″ of a star: their dot is in the star's fixed group, not a free dot.
+TRACK_RECOVER = True
+TRACK_RECOVER_EXT_H = 60.0       # sessions up to this far before the first / after the last member are searched too
+TRACK_RECOVER_R_MIN_ARCSEC = 3.0
+TRACK_RECOVER_R_MAX_ARCSEC = 8.0
+TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
