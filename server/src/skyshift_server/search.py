@@ -7,15 +7,22 @@ all detectors together, so a visit number means the same thing in every detector
 
 Results are cached per position and per day ("search/<ra>_<dec>/<YYYY-MM-DD>.json"): IRSA ingests
 weekly, and `archive_checked` in the frames response is the date of the search that was used.
+
+When IRSA fails (an error or a 5xx after the retries) or does not answer within SIA_WAIT_S, the
+photos come from SkyShift's own photo lists and saved searches (search_fallback.py). Such a result
+carries a `note`; the engine marks the answer partial with it, so it is never cached as complete,
+and it is not saved as the day's search. After a failure IRSA is asked once, without retries and
+for at most SIA_WAIT_DOWN_S, for the next SIA_DOWN_S seconds.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -31,6 +38,11 @@ log = logging.getLogger(__name__)
 COLLECTIONS = ("spherex_dr1", "spherex_qr3")  # DR1 first: it wins duplicates
 DATA_RELEASE = "DR1+QR3"
 SEARCH_RADIUS_ARCSEC = 1.0
+SIA_TRIES = 3
+SIA_WAIT_S = float(os.environ.get("SKYSHIFT_SIA_WAIT_S", "20"))  # longest wait for IRSA's answer
+SIA_WAIT_DOWN_S = 6.0  # ... while IRSA is down (it failed less than SIA_DOWN_S ago)
+SIA_DOWN_S = 120.0
+FALLBACK_SHARE_S = 60.0  # a fallback result is reused this long (frames and object at one spot)
 
 
 @dataclass
@@ -59,6 +71,7 @@ class SearchResult:
     dec: float
     archive_checked: str  # YYYY-MM-DD
     images: list[Image]
+    note: str | None = None  # set when the photos did not come from IRSA at this position: the answer is partial
 
     def of_detector(self, det: int) -> list[Image]:
         return [im for im in self.images if im.det == det]
@@ -119,14 +132,15 @@ def _query_sia(ra: float, dec: float, collection: str) -> list[dict[str, Any]]:
 
     pos = SkyCoord(ra * u.deg, dec * u.deg, frame="icrs")
     last: Exception | None = None
-    for attempt in range(3):
+    tries = 1 if _sia.down() else SIA_TRIES
+    for attempt in range(tries):
         try:
             t = Irsa.query_sia(pos=(pos, SEARCH_RADIUS_ARCSEC * u.arcsec), collection=collection)
             break
         except Exception as e:  # noqa: BLE001 - network: retry, then give up loudly
             last = e
-            log.warning("SIA %s failed (%s), attempt %d", collection, e, attempt + 1)
-            if attempt < 2:  # no sleep after the last try
+            log.warning("SIA %s failed (%s), attempt %d", collection, str(e)[:200], attempt + 1)
+            if attempt < tries - 1:  # no sleep after the last try
                 time.sleep(3 * (attempt + 1))
     else:
         raise UpstreamError(f"IRSA SIA search failed for {collection}: {last}")
@@ -140,6 +154,29 @@ def _query_sia(ra: float, dec: float, collection: str) -> list[dict[str, Any]]:
             d[c] = None if np.ma.is_masked(v) else (float(v) if c in ("t_min", "t_max") else str(v))
         out.append(d)
     return out
+
+
+class _Health:
+    """Whether IRSA's search failed in the last SIA_DOWN_S seconds."""
+
+    def __init__(self) -> None:
+        self.until = 0.0
+
+    def down(self) -> bool:
+        return time.monotonic() < self.until
+
+    def record(self, ok: bool) -> None:
+        self.until = 0.0 if ok else time.monotonic() + SIA_DOWN_S
+
+
+_sia = _Health()
+_sia_pool = ThreadPoolExecutor(16, thread_name_prefix="sia")  # a search left behind finishes into the cache
+_recent: dict[str, tuple[float, SearchResult]] = {}  # fallback results by cache key, FALLBACK_SHARE_S
+_recent_lock = threading.Lock()
+
+
+def fallback_enabled() -> bool:
+    return os.environ.get("SKYSHIFT_SEARCH_FALLBACK", "1") != "0"
 
 
 _key_locks: dict[str, threading.Lock] = {}
@@ -168,6 +205,37 @@ def _search(ra: float, dec: float, cache: Cache, day: str, key: str, refresh: bo
     if raw is not None:
         d = json.loads(raw)
         return SearchResult(d["ra"], d["dec"], d["archive_checked"], [Image(**im) for im in d["images"]])
+    if not fallback_enabled():
+        return _irsa(ra, dec, cache, day, key)
+    with _recent_lock:
+        hit = _recent.get(key)
+    if hit is not None and not refresh and time.monotonic() - hit[0] < FALLBACK_SHARE_S:
+        return hit[1]
+    wait = SIA_WAIT_DOWN_S if _sia.down() else SIA_WAIT_S
+    fut = _sia_pool.submit(_irsa, ra, dec, cache, day, key)
+    fut.add_done_callback(lambda f: _sia.record(not f.cancelled() and f.exception() is None))
+    try:
+        return fut.result(timeout=wait)
+    except FutureTimeout:
+        why = f"no answer in {wait:.0f} s"
+        _sia.record(False)
+    except Exception as e:  # noqa: BLE001 - UpstreamError after the retries, or a malformed answer
+        why = str(e)[:300]
+    log.warning("IRSA search failed at (%.5f, %.5f): %s; trying SkyShift's photo lists", ra, dec, why)
+    from . import search_fallback
+
+    got = search_fallback.find(ra, dec, cache)
+    if got is None:
+        raise UpstreamError(search_fallback.IRSA_DOWN)
+    with _recent_lock:
+        if len(_recent) > 1000:
+            _recent.clear()
+        _recent[key] = (time.monotonic(), got)
+    return got
+
+
+def _irsa(ra: float, dec: float, cache: Cache, day: str, key: str) -> SearchResult:
+    """IRSA's answer for both collections, saved as the day's search."""
     with ThreadPoolExecutor(len(COLLECTIONS)) as ex:
         parts = list(ex.map(lambda c: _query_sia(ra, dec, c), COLLECTIONS))
     images = rows_to_images([r for p in parts for r in p])

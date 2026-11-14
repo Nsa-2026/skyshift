@@ -445,6 +445,8 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         stars = []
         if budget is not None:
             budget.cut("Gaia failed")
+    if found.note and budget is not None:  # photos not from IRSA (search_fallback.py): never cached
+        budget.cut(found.note)
     meta = frames_meta(clock, grid, epochs, stars, known_, found.archive_checked)
     epoch_keys = {e["id"]: epoch_keys.get(e["id"], []) for e in epochs}
     if measured_f is not None:

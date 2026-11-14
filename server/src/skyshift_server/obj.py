@@ -710,6 +710,8 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     if budget is not None and budget.partial and not spectrum and result is None:
         raise BudgetError("the SPHEREx archive did not deliver in time "
                           f"({budget.elapsed():.0f} s); try again in a minute: what arrived is kept")
+    if found.note and budget is not None:  # photos not from IRSA (search_fallback.py): never cached
+        budget.cut(found.note)
     return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum,
             "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result,
             "measure_reason": reason, "measure_hint": hint}
