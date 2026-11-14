@@ -5,6 +5,11 @@ from pathlib import Path
 
 from .errors import NotFoundError
 
+# A request matches a published field within one SPHEREx pixel of its centre. The products' centres
+# are rounded to 1e-4 deg, so the site's own target positions (web/src/data/targets.json) sit up to
+# 2.3" away (Epsilon Indi B); the five fields are degrees apart, so nothing else can match.
+MATCH_ARCSEC = 6.15
+
 
 def field(ra: float, dec: float) -> Path | None:
     from .app import _repo_root
@@ -14,7 +19,7 @@ def field(ra: float, dec: float) -> Path | None:
     for path in sorted(root.glob('*/frames.json')):
         center = json.loads(path.read_text())['center']
         dx, dy = tangent_offset_arcsec(ra, dec, center['ra'], center['dec'])
-        if math.hypot(float(dx), float(dy)) <= 2:
+        if math.hypot(float(dx), float(dy)) <= MATCH_ARCSEC:
             return path.parent
     return None
 
