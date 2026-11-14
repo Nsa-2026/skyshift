@@ -1,9 +1,9 @@
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {afterEach,expect,it,vi} from 'vitest';
-import type {BlinkOptions} from './modules';
-const engine=vi.hoisted(()=>({show:vi.fn(async()=>{}),pick:vi.fn(),atlas:vi.fn(),discover:vi.fn(),options:null as BlinkOptions|null}));
-vi.mock('../atlas',()=>({mountAtlas:()=>({show:engine.atlas,hide:vi.fn(),destroy:vi.fn()})}));
+import type {BlinkOptions,PageContext} from './modules';
+const engine=vi.hoisted(()=>({show:vi.fn(async()=>{}),pick:vi.fn(),atlas:vi.fn(),discover:vi.fn(),options:null as BlinkOptions|null,atlasContext:null as PageContext|null}));
+vi.mock('../atlas',()=>({mountAtlas:(_el:HTMLElement,ctx:PageContext)=>{engine.atlasContext=ctx;return {show:engine.atlas,hide:vi.fn(),destroy:vi.fn()};}}));
 vi.mock('../discover',()=>({mountDiscover:()=>({show:engine.discover,hide:vi.fn(),destroy:vi.fn()})}));
 vi.mock('../blink',()=>({mountBlink:(_host:HTMLElement,options:BlinkOptions)=>{
   engine.options=options;
@@ -17,6 +17,7 @@ vi.mock('../api/client',async original=>{
 });
 import {loadFrames,loadObject} from '../api/client';
 import {startApp} from './app';
+import {targetBySlug} from './state';
 const settled=()=>new Promise(resolve=>setTimeout(resolve,20));
 afterEach(()=>vi.unstubAllGlobals());
 it('keeps the observation, selected signal and player instance through level and section changes',async()=>{
@@ -28,8 +29,16 @@ it('keeps the observation, selected signal and player instance through level and
   vi.mocked(loadObject).mockResolvedValue(object);
   const fetcher=vi.fn(async(input:RequestInfo|URL)=>new Response(JSON.stringify(String(input).includes('capabilities')?{analysis_jobs:false}:science),{headers:{'Content-Type':'application/json'}}));
   vi.stubGlobal('fetch',fetcher);
+  vi.stubGlobal('scrollTo',vi.fn());
   history.replaceState(null,'','/');
   const root=document.createElement('div');document.body.append(root);startApp(root);await settled();
+  expect(engine.show).not.toHaveBeenCalled();
+  expect(engine.atlas).toHaveBeenLastCalledWith(null);
+  expect(root.querySelector('.nav [aria-current]')).toBeNull();
+  expect(root.querySelector<HTMLElement>('.area-features')!.hidden).toBe(true);
+  const starter=targetBySlug('barnard')!;
+  engine.atlasContext!.skySelection?.(starter,'#/sky/269.4521,4.6934,12');
+  root.querySelector<HTMLAnchorElement>('[data-level="explore"]')!.click();await settled();
   expect(engine.show).toHaveBeenCalledTimes(1);
   expect(fetcher).not.toHaveBeenCalled();
   expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Explore','Analyze','Research']);
@@ -78,8 +87,20 @@ it('keeps the observation, selected signal and player instance through level and
   expect(root.querySelector<HTMLFormElement>('.find')!.hidden).toBe(true);
   await change('#/sky/154.4122,23.0921,360,mol');
   expect(engine.atlas).toHaveBeenLastCalledWith('154.4122,23.0921,360,mol');
-  expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Explore');
-  expect(root.querySelector('.feature-nav [aria-current]')!.textContent).toBe('Sky map');
+  expect(root.querySelector('.nav [aria-current]')).toBeNull();
+  expect(root.querySelector<HTMLElement>('.area-features')!.hidden).toBe(true);
   expect(engine.show).toHaveBeenCalledTimes(practiceLoads);
+  engine.atlasContext!.skySelection?.({ra:123.456789123,dec:-23.456789123,clock:'hours',det:6},'#/sky/123.4568,-23.4568,36');
+  root.querySelector<HTMLAnchorElement>('[data-level="research"]')!.click();await settled();
+  expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Research');
+  expect(vi.mocked(loadFrames).mock.lastCall![0]).toMatchObject({ra:123.456789123,dec:-23.456789123,clock:'hours',det:6,fov:20});
+  root.querySelector<HTMLAnchorElement>('.wordmark')!.click();await settled();
+  expect(engine.atlas).toHaveBeenLastCalledWith('123.4568,-23.4568,36');
+  root.querySelector<HTMLAnchorElement>('[data-level="analyze"]')!.click();await settled();
+  expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Analyze');
+  expect(vi.mocked(loadFrames).mock.lastCall![0]).toMatchObject({ra:123.456789123,dec:-23.456789123,clock:'hours',det:6,fov:20});
+  const selectedLoads=engine.show.mock.calls.length;
+  dispatchEvent(new PopStateEvent('popstate'));await settled();
+  expect(engine.show).toHaveBeenCalledTimes(selectedLoads);
   root.remove();
 });

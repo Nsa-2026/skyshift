@@ -10,16 +10,34 @@ The user resumed publication on 14 November 2026, requesting the three workspace
 - Started from upstream `8522cd7`, incorporated `84b0f1c`, and subsequently merged `6ad0394` (including the measured image overlays, candidate vetting, moved-away target navigation, updated pipeline and MCP server). Merge resolutions retain both the canonical measured-layer cache version and the separate derived science view key, both server dependencies, and the card's navigation and scientific sections.
 - Imported the user's scientific work from `9b1c775`, retaining its history. The original prototype and working copies were not changed.
 - Preserved main's Lightbox UI, sky atlas, original blink observations, object measurements, review, live search, courses, votes and tools.
-- Replaced the long Science disclosure with three task-based workspace views: Explore, Analyze and Research. They share one player and canonical measurements. The view switcher uses task names without audience labels or numbered ranks. The home page opens Explore; the atlas remains at `#/sky`.
+- Replaced the long Science disclosure with three task-based workspace views: Explore, Analyze and Research. They share one player and canonical measurements. The view switcher uses task names without audience labels or numbered ranks. The latest home page opens the common sky map at the root or `#/sky`.
 - Included motion and cold-source checks, D3/D6 comparison, DR1 reference spectrum, synthetic W1/W2 and experimental halo light curves, spectral audio, sensitivity estimates, catalogue checks, cultural modules and exports.
 - The retained preview uses English throughout, including scientific messages, accessibility labels, historical sky charts, guest-star captions and planet events. English cultural displays use the existing English names and records; scientific data and the bilingual source records are preserved.
 - Guided practice is now integrated at `#/explore/play` using the same player and actual prepared SPHEREx observations. It replaces the proposed schematic with real images; the prototype's separate game and API inspector are not imported.
 
 The change spans core (legacy analysis adapter), server, web, precompute scripts and container packaging. Repeated wavelengths now use the weighted-mean fallback when the polynomial normal matrix is rank deficient; a regression test also checks that full-rank spectra retain their polynomial fit. The first remote Linux CI run exposed a pre-existing race in spectra loader statistics: shared counter updates occasionally omitted a photo. Workers now return their own counts for serial aggregation. A barrier-based regression reproduces the loss before the fix (10 instead of 40) and passes after it. No new formal contract fields are introduced by this integration.
 
+## Sky map entry
+
+The common entry now opens the existing interactive atlas across the first viewport.
+No area or observation player is selected or loaded in advance. Search, Fly, zoom and
+a short instruction stay visible; projection, coordinate frames and display layers
+are in Adjust. Tonight's search overlay is available there and starts off. The
+overview uses real 2MASS colour imagery with SPHEREx signal markers, explicitly
+labelled. SPHEREx and AllWISE backgrounds remain available in Adjust, along with
+negative plate display. Observation workspaces still use SPHEREx data.
+
+Explore, Analyze and Research are optional next steps in the header and below the
+map. No timer, unlock or forced tutorial gates them. Choosing one carries the selected
+target, point or map centre into the shared observation workspace. Static featured
+targets use their prepared observations; arbitrary points use a supported 5′ Months
+or 20′ Hours field. Atlas degrees are never passed as observation arcminutes.
+The logo returns to the saved atlas centre, zoom and projection during this session.
+Existing sky-coordinate links and embedded observation links remain supported.
+
 ## Task-based workspace views
 
-The latest navigation revision makes Explore, Analyze and Research the global first
+After the common sky map, Explore, Analyze and Research are the first navigation
 level. The second row contains only functions from the selected area: Explore has
 Watch/Sky map/Practice/Learn/Community; Analyze has Measurements/Candidates/Review;
 Research has Data & methods/Live search/Results/Tools & API. The separate Workspace
@@ -57,6 +75,14 @@ Arbitrary-field background analysis is local-only by default. `SKYSHIFT_ENABLE_S
 
 ## Verification
 
+The sky-entry revision incorporated main through `3cfc1c8` and passed 1,656 tests:
+web 855, server 312, core 61, pipeline 292, MCP 77, scientific helpers 19 and validation
+utilities 40; eight optional tests were skipped. TypeScript and the production build
+passed. Tests cover the neutral default route, compatible embed entry, prepared
+featured targets, Hours/Months field units, and map-to-workspace handoff including
+precise coordinates and hash-only history navigation. Browser checks and captures
+are in `docs/previews/workspace/sky-home-*`.
+
 The area-first navigation revision incorporated main through `ae150dc` and passed
 1,654 tests: web 853, server 312, core 61, pipeline 292, MCP 77, scientific helpers 19,
 and validation utilities 40; eight optional tests were skipped. TypeScript and the
@@ -82,14 +108,16 @@ Docker is installed but its daemon was not running, so an actual Linux image bui
 
 No deployment or traffic change has been performed. The user completed Google Cloud login, but the active account was denied `run.services.get` on `nasa-glazing/skyshift-api`. Firebase CLI still reports no authorized account: the login helper stopped at the project-access check. A project-authorized deployment account or administrator-granted access is required. The current public site remains unchanged by this work; another team release occurred during verification and still had no Science workbench markers in its bundle.
 
-Local production-like preview: `http://127.0.0.1:8092/?t=epsindib&clock=months&fov=5&det=2#/explore`. It has background jobs disabled and no native analysis cache. Local credentials and downloaded tools are ignored and excluded from Docker and Cloud Build uploads.
+Local production-like preview: `http://127.0.0.1:8092/`. It opens the sky map, has background jobs disabled and no native analysis cache. Local credentials and downloaded tools are ignored and excluded from Docker and Cloud Build uploads.
 
-After a project-authorized Google account is available:
+The active release scope is frontend Hosting against the existing API. Earlier API
+rollout proposals above are historical; this revision does not authorize backend,
+Cloud Run or database-rule changes. After a project-authorized Firebase account is available:
 
-1. Capture the current Cloud Run revision/traffic and Firebase release/version for rollback. Recheck the production release has not changed during review.
-2. Build the API image and deploy a tagged revision with no production traffic. Preserve service account, capacity and environment settings; keep `SKYSHIFT_ENABLE_SCIENCE_JOBS=0`.
-3. Smoke-test the tagged API: health, canonical raw/object requests, all published science products, binary images, exports and external catalogue error handling. Validate a Firebase preview channel against that tagged API, not the old production API.
-4. Only after these checks pass, promote the tested API revision and matching hosting build. Do not redeploy Firestore rules as part of this change.
-5. Check the public science entry and an original sky URL. On failure, restore the captured API traffic and hosting version.
+1. Capture the current Hosting release/version for rollback and recheck the public release.
+2. Build the frontend and test a Hosting preview against the existing API. Check the sky map, original coordinate links, all three areas, practice, supported scientific products and exports, and unavailable states for unsupported capabilities.
+3. Publish only the tested Hosting build with `infra/firebase/deploy.sh hosting`.
+4. Verify public routes and restore the captured Hosting version if those checks fail.
 
-Publication is requested again. Project access, cloud build and matching hosted preview verification remain outstanding; do not treat a source push as a verified production release. The current account still receives `run.services.get` denied and Firebase Hosting reports that login is required.
+Source publication is authorized. Firebase authentication and hosted preview checks
+remain outstanding; a source push is not a verified production release.

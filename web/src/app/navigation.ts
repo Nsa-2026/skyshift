@@ -26,7 +26,7 @@ export const AREA_LABELS:Record<WorkspaceMode,string>={explore:'Explore',analyze
 export interface AreaRoute {
   page:string;
   param:string|null;
-  mode:WorkspaceMode;
+  mode:WorkspaceMode|null;
   feature:string;
   workspace?:WorkspaceState;
 }
@@ -37,7 +37,7 @@ const PAGE_AREA:Record<string,[WorkspaceMode,string]>={
   live:['research','live'],results:['research','results'],tools:['research','tools'],
 };
 function pageRoute(page:string,param:string|null):AreaRoute {
-  const [mode,feature]=PAGE_AREA[page];return {page,param,mode,feature};
+  const [mode,feature]=PAGE_AREA[page];return {page,param,mode:page==='atlas'?null:mode,feature};
 }
 function observationRoute(param:string|null):AreaRoute {
   const workspace=workspaceState(param);
@@ -47,7 +47,8 @@ function observationRoute(param:string|null):AreaRoute {
 function candidateId(value:string):string {try{return decodeURIComponent(value);}catch{return value;}}
 
 /** Area-first links and existing shared URLs resolve to the same page controllers. */
-export function areaRoute(hash:string):AreaRoute {
+export function areaRoute(hash:string,embed=false):AreaRoute {
+  if(embed&&(!hash||hash==='#/'))return observationRoute(null);
   const [head,...parts]=hash.replace(/^#\/?/,'').split('/');
   const param=parts.join('/')||null;
   const [feature,...tail]=parts;
@@ -75,5 +76,5 @@ export function areaRoute(hash:string):AreaRoute {
   if(head==='candidates'||head==='discover')return pageRoute('discover',param);
   if(head==='sky')return pageRoute('atlas',param);
   if(['review','community','about','learn','tools','live'].includes(head))return pageRoute(head,param);
-  return observationRoute(null);
+  return pageRoute('atlas',null);
 }

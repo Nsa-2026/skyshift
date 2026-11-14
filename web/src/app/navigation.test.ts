@@ -6,9 +6,11 @@ import {routeQuery} from '../discover/filters';
 describe('area-first navigation',()=>{
   it('places every feature under its area and resolves every navigation entry',()=>{
     for(const [mode,features] of Object.entries(AREA_FEATURES))for(const feature of features){
-      expect(areaRoute(feature.href)).toMatchObject({mode,feature:feature.id});
+      expect(areaRoute(feature.href)).toMatchObject({mode:feature.id==='sky'?null:mode,feature:feature.id});
     }
-    expect(areaRoute('#/')).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
+    expect(areaRoute('#/')).toMatchObject({page:'atlas',mode:null,feature:'sky'});
+    expect(areaRoute('')).toMatchObject({page:'atlas',mode:null});
+    expect(areaRoute('',true)).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
     expect(areaRoute('#/analyze/spectrum')).toMatchObject({page:'explore',mode:'analyze',workspace:{tab:'spectrum'}});
     expect(areaRoute('#/research/export')).toMatchObject({page:'explore',mode:'research',workspace:{tab:'export'}});
   });

@@ -1,11 +1,11 @@
-# SkyShift: scientific workspace and guided practice
+# SkyShift: sky map, scientific workspace and guided practice
 
 An English-language guide to the integrated SkyShift workspace, its observation game,
 scientific features, and release status.
 
 **Branch:** `codex/science-production-integration`
 
-**Latest local checks:** 1,654 tests passed; eight optional tests skipped; production build passed.
+**Latest local checks:** 1,656 tests passed; eight optional tests skipped; production build passed.
 See [branch CI](https://github.com/cucuradu/skyshift/actions?query=branch%3Acodex%2Fscience-production-integration)
 for remote checks of each pushed commit.
 
@@ -17,13 +17,30 @@ merged into `main` or deployed to the public site. A source push does not update
 
 SkyShift connects real NASA SPHEREx observations with tools for watching changes,
 measuring evidence, and inspecting how results were produced. This branch incorporates
-upstream `main` through `ae150dc`, including measured image overlays, candidate vetting,
+upstream `main` through `3cfc1c8`, including measured image overlays, candidate vetting,
 and MCP support, alongside the integrated scientific products.
 
-The website starts with three areas: **Explore**, **Analyze**, and **Research**.
-Choose an area first; the next navigation row shows only its functions. The former
-global list of functions and the view switcher inside Workspace have been replaced
-by this single hierarchy. All areas remain freely accessible.
+The website opens on a large, interactive **sky map**, with no area preselected.
+Drag, zoom, search for a featured name, or pick a point. Search, Fly and zoom remain
+visible; projection, coordinates, display layers and search-run overlays live in **Adjust**.
+The overview starts with real 2MASS colour imagery and SPHEREx signal markers, labelled
+on the map. SPHEREx and AllWISE backgrounds are available in Adjust. The search-run
+overlay starts off so the map is easier to read.
+
+When ready, choose **Explore**, **Analyze**, or **Research** from the header or the
+three paths immediately below the map. There is no timer or required introductory
+task. The chosen point, featured object, or map centre carries into the observation
+workspace. Clicking the SkyShift logo returns to the previous sky view in this session.
+The map uses degrees; observation fields use the supported 5′ Months or 20′ Hours
+selection, rather than reusing the atlas's wide field of view.
+
+Inside each area, the next navigation row shows only its functions. All areas remain
+freely accessible, and guided practice remains an optional Explore activity.
+
+![Large interactive sky map at the common entry](docs/previews/workspace/sky-home-desktop.jpg)
+
+[Mobile sky map](docs/previews/workspace/sky-home-mobile.jpg) ·
+[The three paths below the map](docs/previews/workspace/sky-home-paths.jpg)
 
 | Area | Functions in its navigation |
 | --- | --- |
@@ -43,10 +60,12 @@ Switching between the three observation views preserves the target, detector,
 clock, current frame, and selected position. Analyze and Research remember their last
 selected section during the session. Changing the target clears stale scientific results.
 
-The root entry opens Explore → Watch. New area-first links include `#/explore/sky`,
+The root entry and `#/sky` open the common sky map. Direct area links include `#/explore/sky`,
 `#/explore/learn`, `#/analyze/candidates`, `#/analyze/review`, `#/research/live`,
 `#/research/results`, and `#/research/tools`. Existing sky-coordinate, candidate,
-filtered-list, lesson, and scientific links remain usable and select their parent area.
+filtered-list, lesson, and scientific links remain usable. Sky links open the neutral
+map; other feature links select their parent area. Embedded observation links retain
+their original player entry.
 The former `#/explore/science` link opens Research → Data & methods → Processing.
 
 ## Guided observation game
@@ -143,7 +162,7 @@ uv sync --project server --locked
 SKYSHIFT_ENABLE_SCIENCE_JOBS=0 PORT=8083 bash scripts/run-local.sh
 ```
 
-Open [Explore](http://127.0.0.1:8083/#/explore) or
+Open the [sky map](http://127.0.0.1:8083/), [Explore](http://127.0.0.1:8083/#/explore) or
 [guided practice](http://127.0.0.1:8083/#/explore/play).
 The local server serves the production build and API from the same origin.
 
@@ -157,11 +176,11 @@ require Firebase authentication.
 
 ## Validation
 
-The area-first navigation revision passed **1,654 tests locally**, with eight optional skips:
+The sky-entry revision passed **1,656 tests locally**, with eight optional skips:
 
 | Suite | Passed |
 | --- | ---: |
-| Web | 853 |
+| Web | 855 |
 | Server | 312 |
 | Core | 61 |
 | Pipeline | 292 |
@@ -179,6 +198,9 @@ Research. All three areas were checked at 320px without horizontal overflow, and
 390px practice layout retains the task before the image. Regression tests cover the
 observation readiness gate, wrong-target handling, progress recovery, shared player,
 area selection for legacy links, and returning to a filtered candidate list.
+The sky-entry checks additionally cover the neutral root, saved map return, selected
+target/point handoff, precise-coordinate history and degree/arcminute field handling.
+The sky map fits desktop, 390px and 320px widths without horizontal overflow.
 
 To run the checks:
 
@@ -195,20 +217,20 @@ substitute for independent scientific confirmation or a cloud deployment smoke t
 ## Publication and handoff
 
 The integration is pushed to GitHub. **It is not yet merged into `main` or published
-to the production site.** The last access check was blocked by missing project-authorized
-Cloud Run access and incomplete Firebase authentication. A successful cloud image build
-and a matching hosted preview are still required.
+to the production site.** Firebase authentication for the existing project remains
+outstanding. The current change is a frontend release and uses the existing API.
+Scientific views that depend on additional backend capabilities need availability
+checks against that API before Hosting promotion.
 
 The release owner should:
 
 1. Use an account authorized for the existing `nasa-glazing` project and `skyshift` site.
-2. Capture the current Cloud Run traffic and Firebase release for rollback.
-3. Build and test a tagged API revision without production traffic, with background
-   science jobs disabled.
-4. Test a matching Hosting preview against that API, including the original sky route,
-   all three views, practice, scientific products, image bytes, and supported exports.
-5. Promote the tested API revision and Hosting build, verify the public routes, and
-   roll back if those checks fail. This change does not require publishing Firestore rules.
+2. Capture the current Firebase Hosting release for rollback.
+3. Test a Hosting preview against the existing API, including the original sky route,
+   all three areas, practice, supported scientific products and exports, and clear
+   unavailable states for unsupported backend features.
+4. Publish the tested frontend with `infra/firebase/deploy.sh hosting`, verify the
+   public routes, and restore the prior Hosting version if those checks fail.
 
 See the [integration and release record](docs/science-production-integration.md) for
 coverage, earlier checks, and release gates; [API contracts](contracts/api.md) for data

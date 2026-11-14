@@ -20,6 +20,7 @@ import {MODES, workspaceState, workspaceHref} from "../product/workspace-state";
 import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
 import {AREA_FEATURES,AREA_LABELS,areaRoute} from './navigation';
+import {observationForSky,type SkySelection} from './sky-entry';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
@@ -45,7 +46,7 @@ export function startApp(root: HTMLElement): void {
   root.innerHTML = html`
     <header class="top" ${embed ? "hidden" : ""}>
       <div class="brand">
-        <a class="wordmark" href="./" aria-label="SkyShift home">SkyShift</a>
+        <a class="wordmark" href="#/sky" aria-label="SkyShift sky map">SkyShift</a>
         <p class="lede">Find what moves in NASA's SPHEREx sky, together.</p>
       </div>
       <nav class="nav" aria-label="Workspace view">
@@ -120,6 +121,8 @@ export function startApp(root: HTMLElement): void {
   let layer: Layer = 'raw';
   let epochMjd = 0;
   let selectedSignal: {ra:number;dec:number;pmra_arcsec_yr?:number;pmdec_arcsec_yr?:number;mjd_ref?:number} | null = null;
+  let selectedSky:SkySelection|null=null;
+  let returnSkyHash='#/sky';
   function highlightSelected() {
     if(!selectedSignal){blink.highlight?.(null);return;}
     const dt=selectedSignal.mjd_ref?(epochMjd-selectedSignal.mjd_ref)/365.25:0;
@@ -197,7 +200,7 @@ export function startApp(root: HTMLElement): void {
     const { push = true, objectToo = true } = opts;
     if (current !== "explore") {
       exploreStarted = true;
-      const mode=parseRoute().mode;
+      const mode=parseRoute().mode??'explore';
       history.replaceState(null, "", `${location.pathname}${location.search}${workspaceHref(mode,lastTabs[mode]??'')}`);
       route();
     }
@@ -333,7 +336,12 @@ export function startApp(root: HTMLElement): void {
   // Routes (DESIGN.md "Pages"). Pages mount on first visit; Explore loads frames only when opened.
   const ctx: PageContext = {
     currentView:()=>view,
+    skySelection(at,returnHash){
+      selectedSky=at;returnSkyHash=returnHash;
+      $<HTMLAnchorElement>('.wordmark').href=returnHash;
+    },
     navigate(hash) {
+      if(current==='atlas'&&selectedSky&&areaRoute(hash).page==='explore'){enterSkyArea(hash);return;}
       location.hash = hash;
     },
     explore(at) {
@@ -361,7 +369,24 @@ export function startApp(root: HTMLElement): void {
   const lastTabs:Record<string,string>={analyze:'motion',research:'data'};
   let exploreStarted = false;
 
-  function parseRoute() {return areaRoute(location.hash);}
+  function parseRoute() {return areaRoute(location.hash,embed);}
+
+  function enterSkyArea(hash:string) {
+    if(!selectedSky){location.hash=hash;return;}
+    const picked={ra:selectedSky.ra,dec:selectedSky.dec};
+    const next=observationForSky(selectedSky);
+    exploreStarted=true;
+    history.pushState(null,'',`${location.pathname}${location.search}${hash}`);
+    route();
+    void go(next,{push:false}).then(()=>{if(view===next)selectSignal(picked);});writeView(next,true);
+  }
+
+  root.addEventListener('click',event=>{
+    const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-level],a[data-enter-area]');
+    if(!link||current!=='atlas'||!selectedSky||event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+    event.preventDefault();
+    enterSkyArea(link.hash);
+  });
 
   function route() {
     const { page, param, mode, feature } = parseRoute();
@@ -399,14 +424,16 @@ export function startApp(root: HTMLElement): void {
       if(practicing)practice.show();
     }
     root.querySelectorAll<HTMLAnchorElement>('[data-level]').forEach(a=>{
-      const area=a.dataset.level as typeof mode;
+      const area=a.dataset.level as 'explore'|'analyze'|'research';
       a.href=workspaceHref(area,lastTabs[area]??'');
       if(area===mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
     });
-    root.dataset.area=mode;
+    root.dataset.area=mode??'sky';
+    $<HTMLElement>('.area-features').hidden=embed||mode===null;
+    $<HTMLAnchorElement>('.wordmark').href=returnSkyHash;
     const featureNav=$<HTMLElement>('.feature-nav');
-    featureNav.setAttribute('aria-label',`${AREA_LABELS[mode]} features`);
-    featureNav.innerHTML=AREA_FEATURES[mode].map(item=>{
+    featureNav.setAttribute('aria-label',mode?`${AREA_LABELS[mode]} features`:'Sky map');
+    featureNav.innerHTML=(mode?AREA_FEATURES[mode]:[]).map(item=>{
       const href=item.id==='measurements'?workspaceHref('analyze',lastTabs.analyze):item.id==='methods'?workspaceHref('research',lastTabs.research):item.href;
       return `<a href="${href}" data-feature="${item.id}" ${item.id===feature?'aria-current="page"':''}>${item.label}</a>`;
     }).join('');
@@ -445,7 +472,9 @@ export function startApp(root: HTMLElement): void {
 
   addEventListener("popstate", () => {
     const v = readView();
-    if (v && parseRoute().page === "explore" && (!view || (["ra","dec","clock","det","fov","slug"] as const).some(k=>v[k]!==view![k]))) void go(v, { push: false });
+    // Coordinates in the shared URL use five decimals; a hash-only navigation must
+    // retain the higher-precision map selection and the current image frame.
+    if (v && parseRoute().page === "explore" && (!view || v.ra.toFixed(5)!==view.ra.toFixed(5) || v.dec.toFixed(5)!==view.dec.toFixed(5) || (["clock","det","fov","slug"] as const).some(k=>v[k]!==view![k]))) void go(v, { push: false });
   });
 
   route();

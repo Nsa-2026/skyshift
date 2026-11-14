@@ -2,7 +2,7 @@
 
 **Blink NASA's SPHEREx infrared sky, measure what moved, and check it against Gaia.**
 
-**Workspace integration:** [Three views, guided practice, local setup and release status](README-WORKSPACE.md).
+**Workspace integration:** [Sky map entry, three areas, guided practice and release status](README-WORKSPACE.md).
 This branch includes the integrated workspace and game; deployment to the public site is still pending.
 
 SkyShift is a web tool built for the NASA Space Apps Challenge 2026, challenge "Planet X and SPHEREx".
@@ -19,6 +19,11 @@ lets anyone flag a dot and vote on what it is. Everything shown is real SPHEREx 
 ![Barnard's Star on the Months clock, with the measured shift against Gaia](pitch/screens/barnard-months.png)
 
 ## How to use it
+
+In this integration branch, start with the large interactive sky map: drag, zoom or
+pick a point, then enter Explore, Analyze or Research with that sky selection. The
+overview labels its 2MASS imagery and SPHEREx signals; observation tools use SPHEREx.
+The following controls are available inside the observation workspace.
 
 1. **Paste coordinates** in the box at the top and press **Blink**. It accepts the challenge's own
    format (`08h55m10.831s -7d14m42.53s`) and decimal degrees (`133.7597 -7.2422`). Or click one of
