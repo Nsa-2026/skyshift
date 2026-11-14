@@ -433,10 +433,10 @@ def pass1(ctx: dict, tile: Tile) -> dict:
     if ts.exists(frel):  # free dots (suspects' hot-pixel and column maps), owned by position like the movers
         fd = ts.read_parquet(frel)
         own.write_parquet(link.FREEDOTS_NAME, fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))])
-    fd = ts.read_parquet(results_rel(tz.name, link.NONFIXED_DOTS_NAME))  # tracklets' recovery: owned by the dot's position
-    if len(fd):
-        fd = fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))]
-    own.write_parquet(link.NONFIXED_DOTS_NAME, fd)
+    nrel = results_rel(tz.name, link.NONFIXED_DOTS_NAME)
+    if ts.exists(nrel):  # tracklets' recovery: owned by the dot's position
+        fd = ts.read_parquet(nrel)
+        own.write_parquet(link.NONFIXED_DOTS_NAME, fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))])
     src = pq.read_table(io.BytesIO(ts.read_bytes(results_rel(tz.name, "sources.parquet"))))
     own.write_table("sources.parquet", src.filter(pa.array(np.isin(src.column("source_id").to_numpy(), owned))))
     xid = ts.read_parquet(results_rel(tz.name, "crossids.parquet"))

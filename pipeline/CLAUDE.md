@@ -159,6 +159,8 @@ The step never raises (errors go to its stats).
   Hunt: 124 tracks (all known asteroids, none mixed), 1245 of 6143 movers; control (each session's movers moved
   0.5–1.5°) 0 tracks in 4 runs; recall at V < 16 90.4% → 94.7% (433/457), control 0; 0 of 228 suspects on a track.
   The rest of the misses: no dot (12), or a dot inside a star's fixed group (≤ 4″, not a free dot).
+  Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
+  stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over free_dots.
 - suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
   no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″ (from refcat/<zone>.parquet;
   the services only if that file is missing: 50-circle ESA batches took 30+ min for 30k movers).

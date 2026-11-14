@@ -382,7 +382,12 @@ def link_visit(t: np.ndarray, ra: np.ndarray, dec: np.ndarray, sig: np.ndarray, 
     span = dict(zip(s[starts].tolist(), zip(starts.tolist(), np.r_[starts[1:], s.size].tolist())))
     used = np.zeros(t.size, bool)
     n = 0
-    for sd in order:
+    t_end = time.time() + C.TRACK_VISIT_MAX_S
+    for q, sd in enumerate(order):
+        if q % 256 == 0 and time.time() > t_end:  # best seeds first: a crowded visit keeps its strongest tracks
+            st["seeds_skipped_time"] = int(order.size - q)
+            L.warning("tracklets: visit over %.0f s, %d weakest seeds skipped", C.TRACK_VISIT_MAX_S, order.size - q)
+            break
         if used[a[sd]] or used[b[sd]]:
             continue
         lo, hi = span[int(sd)]
@@ -658,13 +663,21 @@ def build(movers: pd.DataFrame, photos: pd.DataFrame, zone: C.Zone, fd: pd.DataF
 
 
 def run(store: Store, zone: C.Zone) -> dict:
+    """The step. A failure is logged and returned as {"error": ...} with empty tables written (score then counts movers
+    only), so a zone's run goes on."""
     t0 = time.time()
-    photos = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector", "mjd", "session", "visit"])
-    movers = store.read_parquet(results_rel(zone.name, "movers.parquet"))
-    fd = load_free_dots(store, zone) if C.TRACK_RECOVER else None
-    if C.TRACK_RECOVER and fd is None:
-        L.warning("tracklets %s: no %s (link from before tracklets): tracks only, no recovered dots", zone.name, FREE_DOTS)
-    tr, rec, st = build(movers, photos, zone, fd)
+    try:
+        photos = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector", "mjd", "session", "visit"])
+        movers = store.read_parquet(results_rel(zone.name, "movers.parquet"))
+        fd = load_free_dots(store, zone) if C.TRACK_RECOVER else None
+        if C.TRACK_RECOVER and fd is None:
+            L.warning("tracklets %s: no %s (link from before tracklets): tracks only, no recovered dots", zone.name, FREE_DOTS)
+        tr, rec, st = build(movers, photos, zone, fd)
+    except Exception as e:  # noqa: BLE001
+        L.exception("tracklets %s failed; empty tables written, the zone's run goes on", zone.name)
+        tr = pd.DataFrame({c: pd.Series(dtype="float64") for c in TRACK_COLUMNS})
+        rec = pd.DataFrame({c: pd.Series(dtype="float64") for c in DOT_COLUMNS})
+        st = {"error": repr(e)[:300]}
     store.write_parquet(results_rel(zone.name, "tracklets.parquet"), tr)
     store.write_parquet(results_rel(zone.name, "tracklet_dots.parquet"), rec)
     st["wall_s"] = round(time.time() - t0, 1)
