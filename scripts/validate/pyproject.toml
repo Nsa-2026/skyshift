@@ -1,0 +1,15 @@
+[project]
+name = "skyshift-validate"
+version = "0.1.0"
+description = "SkyShift validation data gathering (V1-V8 inputs): targets, SPHEREx photo lists, MOST"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "astropy>=6.1",
+    "astroquery>=0.4.10",
+    "pyvo>=1.6",
+    "requests>=2.32",
+    "numpy>=2.0",
+]
+
+[tool.uv]
+package = false
