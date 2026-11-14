@@ -360,7 +360,7 @@ def distant():
         "searched": {"distance_au": [70.0, 1000.0], "sep_arcsec": [300.0, 7200.0], "rate_arcsec_h": [0.0, 1.0],
                      "pair_min_p": 0.01},
         "counts": {"single_visit_sources": 5000, "uncatalogued": 800, "covered": 790, "orphans": 450,
-                   "dropped": {"bright_fragment": 310, "zone_edge": 30, "saturated": 5}, "drift_ok": 440,
+                   "dropped": {"bright_fragment": 310, "zone_edge": 30, "saturated": 5, "blend": 12}, "drift_ok": 440,
                    "pairs_tested": 900, "pairs": 1, "known_orphans": 0, "open_orphans": 100},
         "pairs": [{"source_id_a": 64900007030800, "source_id_b": 64940007013300, "visit_a": 1, "visit_b": 2,
                    "ra_a": 123.33, "dec_a": 18.17, "mjd_a": 60975.29, "ra_b": 123.07, "dec_b": 18.23, "mjd_b": 61145.0,

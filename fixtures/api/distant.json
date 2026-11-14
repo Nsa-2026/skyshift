@@ -38,7 +38,8 @@
     "dropped": {
       "bright_fragment": 310,
       "zone_edge": 30,
-      "saturated": 5
+      "saturated": 5,
+      "blend": 12
     },
     "drift_ok": 440,
     "pairs_tested": 900,
