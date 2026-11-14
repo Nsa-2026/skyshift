@@ -8,8 +8,9 @@ A zone is finished when results/<zone>/suspects.parquet exists (`suspects` is th
 Three kinds:
 - mover     results/<zone>/suspects.parquet (movers no catalogue explains), clock hours. The rate and
             direction come from the mover's own dots, re-read from dots/ for the exposures it was seen in.
-- high_pm   results/<zone>/highpm_candidates.parquet, every row, clock months. The pipeline's vetting
-            reasons are kept as reason codes; nothing is dropped.
+- high_pm   results/<zone>/highpm_candidates.parquet, the `vetted` rows (highpm_leads), clock months: known
+            Gaia stars whose motion we confirm, and new ones that passed the catalogue checks. Unvetted rows
+            (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
@@ -481,6 +482,16 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
 
 
 # --- high proper motion ----------------------------------------------------------------------------
+def highpm_leads(h: pd.DataFrame) -> pd.DataFrame:
+    """The highpm rows worth a person's time: `vetted` only. The others are proven or likely fakes: a Gaia star
+    whose own motion (with its parallax) is not ours, a CatWISE motion that isn't ours, pairs at the chance level,
+    too few sessions, nothing to check an under-10σ motion against (highpm.py). Hunt, 14 Nov tables: 997 rows,
+    748 of them gaia_pm_disagrees; Gaia still stars with Gaia hidden show what the unvetted rows are."""
+    if not len(h) or "vetted" not in h:
+        return h
+    return h[h["vetted"].fillna(False).to_numpy(bool)].reset_index(drop=True)
+
+
 def highpm_reasons(r) -> list[str]:
     out = ["pm_pair" if r.method == "pair" else "pm_fit"]
     if bool(r.vetted):
@@ -691,7 +702,7 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
     """Everything cheap for one zone: suspects, highpm rows, the spectral selection, the zone's data release."""
     susp = store.read_parquet(results_rel(zone, "suspects.parquet"))
     hrel = results_rel(zone, "highpm_candidates.parquet")
-    h = store.read_parquet(hrel) if store.exists(hrel) else pd.DataFrame()
+    h = highpm_leads(store.read_parquet(hrel)) if store.exists(hrel) else pd.DataFrame()
     crel = results_rel(zone, "classes.parquet")
     cls = read_columns(store, crel, CLASS_COLUMNS) if store.exists(crel) else pd.DataFrame(columns=CLASS_COLUMNS)
     spec = select_spectral(cls, spectral_cap) if len(cls) else cls

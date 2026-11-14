@@ -206,7 +206,9 @@ HIGHPM_FLUX_RATIO_MAX = 2.0    # same-detector flux ratio within this factor (ei
 HIGHPM_SHAPE_MAX = 0.25        # rms of ln(flux ratio) across shared detectors (spectrum shape)
 HIGHPM_MIN_COVER_PHOTOS = 2    # the other visit must have this many photos covering each position
 HIGHPM_FIT_MIN_MAS_YR = 150.0  # fitted proper motion this fast ...
-HIGHPM_FIT_MIN_SNR = 5.0       # ... and this significant also makes a candidate (method "fit")
+HIGHPM_FIT_MIN_SNR = 4.5       # ... and this significant also makes a candidate (method "fit"). Hunt (Gaia as truth):
+                               # 5σ found 55 of the 104 detected fast Gaia stars; 4.5σ with the catalogue checks below 55
+                               # (46 of the 49 misses are precision-limited: Gaia's motion / our pm_err < 5)
 HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in the zone
 HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
 HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)
@@ -434,6 +436,24 @@ HIGHPM_FIT_MAX_CHI2_NU = 5.0   # fit: astrometric chi2_nu above this is a blend 
 HIGHPM_FIT_MAX_PM_MAS_YR = 10_500.0  # fit: faster than Barnard's Star (10.4″/yr, the fastest known star) is not a star
 HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees when |Δpm| > max(this × pm_err,
                                # HIGHPM_CATWISE_PM_TOL × pm, 100 mas/yr): the counterpart is a slow star, ours is an artefact
+# Parallax-aware checks (hunt, 14 Nov tables, Gaia DR3 as truth). Two visits half a year apart make parallax and proper
+# motion one thing: the fit's pm = true pm + ϖ·(k_e, k_n), k = cov(t, parallax factor) / var(t) over the source's
+# dots (hunt k_e ≈ −4.1, k_n ≈ +1.0 per mas). Gaia's motion is compared as pm + ϖ·k (real nearby stars were
+# "gaia_pm_disagrees" before: 16 of the 55 recovered fast stars). Gaia-5p stars: the blind 4.5σ selection's tail is
+# not Gaussian (pm_snr ≥ 5 on 584 of 211,690 still stars vs 0.8 expected): saturated stars (pmra ≈ −200…−300 mas/yr),
+# one-session visits and coherent ~0.5″ shifts with chi2_nu ≈ 1. Table-level cuts (chi2_nu, n_dots, neighbours) remove
+# < 30% of it; CatWISE's own 10-yr motion removes 95% (it agrees with Gaia for 100 of 101 fast stars).
+HIGHPM_FIT_MIN_SESSIONS = 3    # fit: at least this many sessions in each visit it is seen in (one-session visits
+                               # gave 6–12-dot fits at 5–10″/yr on Gaia still stars)
+HIGHPM_NOCAT_MIN_SNR = 10.0    # fit with no Gaia or CatWISE motion to check it against: this significant (the still
+                               # stars' tail without the CatWISE check: 1.9 per 100k at 10σ vs 276 per 100k at 5σ)
+HIGHPM_CW_PLX_PER_PM = 0.25    # CatWISE check: our pm may exceed CatWISE's by a parallax leak ϖ·k with 0 ≤ ϖ ≤ this ×
+                               # CatWISE's |pm| (tangential velocity ≥ 19 km/s); kept 140 of 143 Gaia-confirmed movers
+HIGHPM_CW_PLX_PER_PM_SAT = 0.1 # ... for saturated sources (their centroid bias runs along RA like the leak): 27 Gaia
+                               # fakes pass the blind route instead of 58, at the same 55 of 104 fast stars
+HIGHPM_CW_REL_TOL = 0.2        # CatWISE agrees when the residual <= max(3σ (ours ⊕ CatWISE), this × |pm_cw|, 100 mas/yr)
+HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
+HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
 HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
 HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls
