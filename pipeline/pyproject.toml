@@ -15,7 +15,8 @@ dependencies = [
     "pyvo>=1.5",
     "requests>=2.31",
     "scipy>=1.11",
-    "kete==3.3.0",  # known: MPC orbits (the default known source)
+    "kete==3.3.0",  # known: MPC orbits
+    "astropy-healpix>=1.0",
 ]
 
 [project.scripts]

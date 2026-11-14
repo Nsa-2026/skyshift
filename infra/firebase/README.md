@@ -25,9 +25,11 @@ Firestore must already exist in us-east4 (it does, per CLAUDE.md).
 
 ## Rules: what was checked (by reading; no emulator test)
 
-- `candidates` create: exactly `ra, dec, mjd, clock, source`; `ra` number 0–360, `dec` −90–90,
+- `candidates` create: exactly `ra, dec, mjd, clock, source, created`; `ra` number 0–360, `dec` −90–90,
   `mjd` number 60000–80000, `clock` `months`|`hours`, `source` must be `user` (pipeline suspects
-  are written with the Admin SDK, which bypasses rules, so browsers cannot pose as the pipeline).
+  are written with the Admin SDK, which bypasses rules, so browsers cannot pose as the pipeline),
+  `created == request.time` (the browser must send `serverTimestamp()`; contracts/api.md v2.1).
+  Deploy the rules together with a site that sends `created`, or flagging is refused.
 - `votes` create: exactly `candidate_id, answer, ts, voter`; `candidate_id` string 1–128 chars,
   `answer` `mover`|`changing`|`junk`|`unsure`, `ts == request.time` (the browser must send
   `serverTimestamp()`), `voter` a random id `[A-Za-z0-9_-]{8,64}` (never a name or email).

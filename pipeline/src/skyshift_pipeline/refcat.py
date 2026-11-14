@@ -240,13 +240,24 @@ def refcat_rel(zone: str, forced: bool = False) -> str:
     return f"refcat/{zone}{'_forced' if forced else ''}.parquet"
 
 
+def catalogs_rel(zone: str) -> str:
+    return f"refcat/{zone}_catalogs.json"
+
+
+def catalogs_in(store: Store, zone: str) -> list[str] | None:
+    """The catalogues refcat/<zone>.parquet was built from (None: no marker, i.e. built before 14 Nov 15:00 with all)."""
+    rel = catalogs_rel(zone)
+    return list(store.read_json(rel).get("catalogs", [])) if store.exists(rel) else None
+
+
 def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap) -> tuple[dict[str, pd.DataFrame], dict]:
     box = query_box(zone)
     ts = tiles(*box)
-    jobs = [(cat, t) for cat in SOURCES for t in ts]
+    cats = [c for c in SOURCES if c in C.REFCAT_CATALOGS]
+    jobs = [(cat, t) for cat in cats for t in ts]
     todo = [(c, t) for c, t in jobs if not store.exists(tile_rel(zone.name, c, t))]
-    L.info("refcat %s: box ra %.3f-%.3f dec %.3f-%.3f, %d tiles x %d catalogues, %d to fetch",
-           zone.name, *box, len(ts), len(SOURCES), len(todo))
+    L.info("refcat %s: box ra %.3f-%.3f dec %.3f-%.3f, %d tiles x %d catalogues (%s), %d to fetch",
+           zone.name, *box, len(ts), len(cats), ",".join(cats), len(todo))
     seconds = {c: 0.0 for c in SOURCES}
     services: dict[str, set] = {c: set() for c in SOURCES}
     failed = []
@@ -271,7 +282,8 @@ def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_
                 L.error("refcat %s %s %s failed: %s", zone.name, c, t.key, str(e)[:300])
     if failed:
         raise RuntimeError(f"refcat {zone.name}: {len(failed)} tiles failed ({failed[:5]}...); rerun to retry them")
-    out = {c: pd.concat([store.read_parquet(tile_rel(zone.name, c, t)) for t in ts], ignore_index=True).astype(REFCAT_COLUMNS)
+    out = {c: (pd.concat([store.read_parquet(tile_rel(zone.name, c, t)) for t in ts], ignore_index=True) if c in cats
+               else pd.DataFrame({k: pd.Series(dtype=v) for k, v in REFCAT_COLUMNS.items()})).astype(REFCAT_COLUMNS)
            for c in SOURCES}
     st = {"tiles": len(ts), "fetched": len(todo),
           "query_seconds": {c: round(s, 1) for c, s in seconds.items()},
@@ -338,20 +350,28 @@ def per_photo_counts(ra: np.ndarray, dec: np.ndarray, zone: C.Zone, side: float 
 
 # --- step ----------------------------------------------------------------------------------------
 def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap, force: bool = False) -> dict:
-    if not force and store.exists(refcat_rel(zone.name)) and store.exists(refcat_rel(zone.name, forced=True)):
-        L.info("refcat %s: both files exist, skipping (delete them or pass force=True to rebuild)", zone.name)
+    partial = bool(set(SOURCES) - set(C.REFCAT_CATALOGS))  # e.g. SKYSHIFT_REFCAT_CATALOGS=gaia
+    have = store.exists(refcat_rel(zone.name)) and store.exists(refcat_rel(zone.name, forced=True))
+    made = catalogs_in(store, zone.name)  # None: written before the marker existed (all catalogues)
+    if not force and have and (partial or made is None or set(SOURCES) <= set(made)):
+        L.info("refcat %s: both files exist (catalogues %s), skipping (delete them or pass force=True to rebuild)",
+               zone.name, ",".join(made) if made else "all")
         return {"skipped": True, "fetched": 0}
     t0 = time.time()
     cats, st = fetch_all(store, zone, workers, tap)
     allrows = pd.concat([cats["gaia"], cats["catwise"], cats["2mass"]], ignore_index=True).astype(REFCAT_COLUMNS)
     allrows = allrows.drop_duplicates("ref_id").reset_index(drop=True)
     size = store.write_parquet(refcat_rel(zone.name), allrows)
+    store.write_json(catalogs_rel(zone.name), {"catalogs": [c for c in SOURCES if c in C.REFCAT_CATALOGS]})
+    if partial:
+        L.info("refcat %s: catalogues %s only (a later full run adds the rest, reusing the cached tiles)", zone.name,
+               ",".join(C.REFCAT_CATALOGS))
     forced = forced_list(cats["gaia"], cats["catwise"])
     fsize = store.write_parquet(refcat_rel(zone.name, forced=True), forced)
     n_cw = int(forced["ref_id"].str.startswith("catwise:").sum())
     photo = per_photo_counts(forced["ra"].to_numpy(float), forced["dec"].to_numpy(float), zone)
     st.update({
-        "rows": {c: int((allrows["cat"] == c).sum()) for c in SOURCES},
+        "rows": {c: int(len(cats[c])) for c in SOURCES}, "catalogues": list(C.REFCAT_CATALOGS),
         "refcat_bytes": size, "forced_rows": int(len(forced)), "forced_gaia": int(len(forced) - n_cw),
         "forced_catwise_only": n_cw, "forced_bytes": fsize, "forced_per_photo": photo,
         "limits": {"gaia_g_max": C.FORCED_GAIA_G_MAX, "catwise_w1_max": C.FORCED_CATWISE_W1_MAX,
