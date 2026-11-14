@@ -120,6 +120,8 @@ class Stats:
     irsa: int = 0  # cutouts from IRSA's cutout service
     s3: int = 0  # cutouts read from S3
     zodi: int = 0  # ZODI models read from S3 (sampled rows)
+    zodi_subtracted: int = 0  # exposures whose ZODI model was taken off (cached or not)
+    zodi_missing: int = 0  # exposures asked to be zodi-subtracted that had no model (used as they are)
     cached: int = 0
     bytes: int = 0  # downloaded: exact for IRSA, estimated for S3 region reads
     retries: int = 0
@@ -532,6 +534,9 @@ def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cach
                 model = zodi_model(im, l2, cache)
                 if model is not None:
                     l2.data = (l2.data - model).astype(np.float32)
+                    STATS.add(zodi_subtracted=1)
+                else:
+                    STATS.add(zodi_missing=1)
                 l2.header["ZODISUB"] = (model is not None, "SkyShift: ZODI model subtracted")
             return l2
         except Exception as e:  # noqa: BLE001

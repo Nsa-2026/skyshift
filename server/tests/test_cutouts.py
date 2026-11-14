@@ -242,9 +242,12 @@ def test_fetch_many_subtracts_zodi_only_when_asked(tmp_path, monkeypatch, cutout
     monkeypatch.setattr(cutouts, "zodi_model", lambda im, l2, cache: np.full(l2.data.shape, 0.25, dtype=np.float32))
     c = Cache(str(tmp_path))
     plain = cutouts.fetch_many([_im()], RA, DEC, 0.12, c)[0]
+    n_sub, n_missing = cutouts.STATS.zodi_subtracted, cutouts.STATS.zodi_missing
     sub = cutouts.fetch_many([_im()], RA, DEC, 0.12, c, zodi=True)[0]
+    assert (cutouts.STATS.zodi_subtracted, cutouts.STATS.zodi_missing) == (n_sub + 1, n_missing)
     assert np.allclose(plain.data - sub.data, 0.25, atol=1e-5, equal_nan=True)
     assert sub.header["ZODISUB"] is True and "ZODISUB" not in plain.header
     monkeypatch.setattr(cutouts, "zodi_model", lambda im, l2, cache: None)
     kept = cutouts.fetch_many([_im()], RA, DEC, 0.12, c, zodi=True)[0]
+    assert cutouts.STATS.zodi_missing == n_missing + 1  # counted, so precompute can report it
     assert np.array_equal(kept.data, plain.data, equal_nan=True) and kept.header["ZODISUB"] is False
