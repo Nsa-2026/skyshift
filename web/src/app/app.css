@@ -11,7 +11,7 @@
 /* ---- top: wordmark + one-line lede, the find box, the scoreboard link ---- */
 .top {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--s3) var(--s6);
   padding: var(--s4) 0 var(--s3);
@@ -175,9 +175,14 @@
   }
 }
 
-@media (max-width: 1180px) {
+.details-slot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1480px) {
   .top {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
   .nav {
     grid-column: 1 / -1;
@@ -198,7 +203,11 @@
     padding: 0 var(--s4) var(--s6);
   }
   .top {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .details-slot {
+    grid-row: 1;
+    grid-column: 2;
   }
   .lede {
     display: none;
