@@ -9,8 +9,10 @@ Inputs (results/<zone>/ unless noted); only sources.parquet is required:
 Output: classes.parquet (one row per source; schema in contracts/dots.md, meaning in pipeline/CLAUDE.md).
 
 Shape: per detector, each dot's size √(a·b), PSF-fit χ²_ν, aperture/PSF flux ratio and large/small aperture
-ratio are divided by the stellar locus (median over dots with S/N >= CLASSIFY_LOCUS_MIN_SNR; Gaia stars with a
-parallax when there are enough of them); per source the median over its dots with S/N >= CLASSIFY_SHAPE_MIN_SNR.
+ratio are divided by the stellar locus at the dot's S/N (bins CLASSIFY_LOCUS_SNR_EDGES: a star's measured size is
+~1.2× its S/N >= 20 value at S/N 8–12, which made faint stars "extended"; median over the bin's dots of Gaia stars
+with a parallax when there are enough of them, else all its dots, else the S/N >= CLASSIFY_LOCUS_MIN_SNR locus);
+per source the median over its dots with S/N >= CLASSIFY_SHAPE_MIN_SNR.
 extended_score = mean of the available (ratio − 1) / tolerance terms: ~0 for a star, >= 2 clearly extended.
 Class: Gaia parallax/error >= CLASSIFY_PLX_SNR_STAR → star; extended_score >= CLASSIFY_EXT_GALAXY → galaxy;
 extended_score <= CLASSIFY_EXT_STAR with a Gaia match → star; everything else (including point-like without
@@ -18,7 +20,9 @@ Gaia: compact galaxies, quasars, brown dwarfs) → unsure.
 
 Band labels (`label_*`, `labels`): an index's sig alone fires on the wrong objects (pilot: "water ice" on
 M dwarfs and galaxies, "methane" on Gaia stars), so the web shows these booleans instead; band_labels()
-has the guards, config LABEL_* the thresholds.
+has the guards, config LABEL_* the thresholds. Every label (and brown_dwarf_like's evidence) also needs its band
+window measured in >= LABEL_MIN_VISITS visits (sources.parquet `visit_bits`; skipped for older tables without it):
+one visit's glitch can't make a band.
 """
 
 from __future__ import annotations
@@ -97,11 +101,17 @@ def dot_shape_ratios(d: pd.DataFrame) -> dict[str, np.ndarray]:
     return out
 
 
+def snr_bin(snr) -> np.ndarray:
+    """The locus S/N bin of each dot: 0 .. len(CLASSIFY_LOCUS_SNR_EDGES) − 1 (below the first edge: −1)."""
+    return np.searchsorted(np.asarray(C.CLASSIFY_LOCUS_SNR_EDGES, np.float64), np.asarray(snr, np.float64), side="right") - 1
+
+
 def locus_values(d: pd.DataFrame | None, gaia_star_ids: np.ndarray | None = None) -> pd.DataFrame:
-    """The dots that can define the stellar locus (S/N >= CLASSIFY_LOCUS_MIN_SNR, finite positive value): quantity,
-    detector, value, gaia (a Gaia star with a parallax). tiles.py collects them from every tile for one zone-wide locus."""
+    """The dots that can define the stellar locus (S/N >= CLASSIFY_SHAPE_MIN_SNR, finite positive value): quantity,
+    detector, value, gaia (a Gaia star with a parallax), b (snr_bin), bright (S/N >= CLASSIFY_LOCUS_MIN_SNR).
+    tiles.py collects them from every tile for one zone-wide locus."""
     cols = {"q": pd.Series(dtype=str), "detector": pd.Series(dtype=np.int64), "v": pd.Series(dtype=np.float64),
-            "gaia": pd.Series(dtype=bool)}
+            "gaia": pd.Series(dtype=bool), "b": pd.Series(dtype=np.int64), "bright": pd.Series(dtype=bool)}
     if d is None or not len(d):
         return pd.DataFrame(cols)
     raw = dot_shape_ratios(d)
@@ -109,23 +119,36 @@ def locus_values(d: pd.DataFrame | None, gaia_star_ids: np.ndarray | None = None
     det = d["detector"].to_numpy(np.int64)
     sid = d["source_id"].to_numpy(np.int64)
     is_gaia = np.isin(sid, gaia_star_ids) if gaia_star_ids is not None and len(gaia_star_ids) else np.zeros(len(d), bool)
+    use = snr >= min(C.CLASSIFY_SHAPE_MIN_SNR, C.CLASSIFY_LOCUS_MIN_SNR)
+    b = snr_bin(snr)
     bright = snr >= C.CLASSIFY_LOCUS_MIN_SNR
     parts = [pd.DataFrame(cols)]
     for k, v in raw.items():
-        m = np.isfinite(v) & (v > 0) & bright
-        parts.append(pd.DataFrame({"q": k, "detector": det[m], "v": v[m], "gaia": is_gaia[m]}))
+        m = np.isfinite(v) & (v > 0) & use
+        parts.append(pd.DataFrame({"q": k, "detector": det[m], "v": v[m], "gaia": is_gaia[m], "b": b[m], "bright": bright[m]}))
     return pd.concat(parts, ignore_index=True)
 
 
-def stellar_locus(vals: pd.DataFrame) -> dict[tuple[str, int], float]:
-    """Per (quantity, detector): the median over Gaia stars' dots (CLASSIFY_LOCUS_MIN_DOTS of them), else over all."""
-    out: dict[tuple[str, int], float] = {}
-    for (k, dd), g in vals.groupby(["q", "detector"], sort=True):
-        ref = g["v"].to_numpy(np.float64)[g["gaia"].to_numpy(bool)]
-        if ref.size < C.CLASSIFY_LOCUS_MIN_DOTS:
-            ref = g["v"].to_numpy(np.float64)
-        if ref.size:
-            out[(str(k), int(dd))] = float(np.median(ref))
+def _locus_median(g: pd.DataFrame) -> float | None:
+    ref = g["v"].to_numpy(np.float64)[g["gaia"].to_numpy(bool)]
+    if ref.size < C.CLASSIFY_LOCUS_MIN_DOTS:
+        ref = g["v"].to_numpy(np.float64)
+    return float(np.median(ref)) if ref.size else None
+
+
+def stellar_locus(vals: pd.DataFrame) -> dict[tuple, float]:
+    """(quantity, detector): the median over Gaia stars' bright dots (CLASSIFY_LOCUS_MIN_DOTS of them), else over all
+    bright dots; (quantity, detector, S/N bin): the same over the bin's dots (bins with >= CLASSIFY_LOCUS_MIN_DOTS dots)."""
+    out: dict[tuple, float] = {}
+    if "bright" not in vals:  # older locus_values: bright dots only
+        vals = vals.assign(bright=True, b=-1)
+    for (k, dd), g in vals[vals["bright"].to_numpy(bool)].groupby(["q", "detector"], sort=True):
+        v = _locus_median(g)
+        if v is not None:
+            out[(str(k), int(dd))] = v
+    for (k, dd, b), g in vals[vals["b"].to_numpy(np.int64) >= 0].groupby(["q", "detector", "b"], sort=True):
+        if len(g) >= C.CLASSIFY_LOCUS_MIN_DOTS:
+            out[(str(k), int(dd), int(b))] = _locus_median(g)
     return out
 
 
@@ -137,7 +160,7 @@ def gaia_star_ids(gaia: pd.DataFrame, sids: np.ndarray) -> np.ndarray:
 
 
 def shape_features(d: pd.DataFrame | None, sources: np.ndarray, gaia_star_ids: np.ndarray | None = None,
-                   locus: dict[tuple[str, int], float] | None = None) -> pd.DataFrame:
+                   locus: dict[tuple, float] | None = None) -> pd.DataFrame:
     """Per source: size_ratio, psf_chi2_ratio, cog_ratio (each / the stellar locus), n_shape_dots, extended_score.
     locus: stellar_locus fitted elsewhere (the whole zone, tiles.py); else from these dots."""
     N = sources.size
@@ -161,13 +184,18 @@ def shape_features(d: pd.DataFrame | None, sources: np.ndarray, gaia_star_ids: n
         locus = stellar_locus(locus_values(d, gaia_star_ids))
 
     norm = {}
+    sb = snr_bin(snr)
     for k, v in raw.items():
         r = np.full(v.size, np.nan)
         for dd in np.unique(det):
             if (k, int(dd)) not in locus:
                 continue
             m = (det == dd) & np.isfinite(v) & (v > 0)
-            r[m] = v[m] / locus[(k, int(dd))]
+            div = np.full(v.size, locus[(k, int(dd))])
+            for b in np.unique(sb[m]):
+                if (k, int(dd), int(b)) in locus:
+                    div[sb == b] = locus[(k, int(dd), int(b))]
+            r[m] = v[m] / div[m]
         norm[k] = r
 
     def per_source(r):
@@ -295,10 +323,46 @@ def load_gaia(store: Store, zone: C.Zone, src: pd.DataFrame) -> tuple[pd.DataFra
     return out, origin
 
 
+PHOT_COLS = ("j", "h", "k", "w1", "w2")  # crossids: 2MASS J, H, Ks and CatWISE W1, W2 (Vega)
+
+
+def load_photometry(store: Store, zone: C.Zone, src: pd.DataFrame) -> pd.DataFrame:
+    """2MASS and CatWISE magnitudes aligned with src (NaN where unmatched or without crossids.parquet)."""
+    out = pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64)})
+    rel = results_rel(zone.name, "crossids.parquet")
+    x = store.read_parquet(rel) if store.exists(rel) else pd.DataFrame()
+    have = [c for c in PHOT_COLS if c in x.columns]
+    if have and "source_id" in x:
+        out = out.merge(x[["source_id", *have]].drop_duplicates("source_id"), on="source_id", how="left")
+    for c in PHOT_COLS:
+        if c not in have:
+            out[c] = np.nan
+    return out
+
+
+def vega_colours(out: pd.DataFrame, phot: pd.DataFrame | None) -> dict[str, np.ndarray]:
+    """J − H, H − K, W1 − W2 (Vega) per source: the catalogues' (crossids) where both magnitudes exist, else from
+    our own spectrum's windows (mag_ab_* + config AB_TO_VEGA)."""
+    def col(df, c):
+        return df[c].to_numpy(np.float64) if df is not None and c in df else np.full(len(out), np.nan)
+
+    o = {b: col(out, f"mag_ab_{b}") + C.AB_TO_VEGA[b] for b in ("j", "h", "k")}
+    with np.errstate(invalid="ignore"):
+        syn = {"jh": o["j"] - o["h"], "hk": o["h"] - o["k"],
+               "w1w2": col(out, "mag_ab_m34") - col(out, "mag_ab_m46") + C.AB_TO_VEGA["w1_w2"]}
+        cat = {"jh": col(phot, "j") - col(phot, "h"), "hk": col(phot, "h") - col(phot, "k"),
+               "w1w2": col(phot, "w1") - col(phot, "w2")}
+    return {k: np.where(np.isfinite(cat[k]), cat[k], syn[k]) for k in syn}
+
+
 # --- classification --------------------------------------------------------------------------
-def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame) -> pd.DataFrame:
-    """All arrays aligned on src's rows. Returns classes (one row per source)."""
+def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame,
+                   phot: pd.DataFrame | None = None) -> pd.DataFrame:
+    """All arrays aligned on src's rows (phot: load_photometry, optional). Returns classes (one row per source)."""
     flux, err = IX.stack(src["flux_ujy"]), IX.stack(src["err_ujy"])
+    visits = None
+    if "visit_bits" in src and len(src):
+        visits = IX.band_visits(np.stack([np.asarray(v, np.int64) for v in src["visit_bits"]]))
     out = pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64)})
     mags = IX.magnitudes(flux, err)
     for k, v in mags.items():
@@ -328,8 +392,9 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame) -
     # brown-dwarf-like
     def det(name, min_depth):
         v, s = out[f"{name}_depth"].to_numpy(np.float64), out[f"{name}_sig"].to_numpy(np.float64)
+        seen = visits[name] >= C.LABEL_MIN_VISITS if visits is not None else True
         with np.errstate(invalid="ignore"):
-            return (s >= C.INDEX_SIG) & (v >= min_depth)
+            return (s >= C.INDEX_SIG) & (v >= min_depth) & seen
 
     ev = {
         "ch4_33": det("ch4_33", C.BD_CH4_33_MIN_DEPTH),
@@ -346,7 +411,7 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame) -
     names = np.array(list(ev))
     bits = np.stack([ev[k] for k in names], 1)
     out["bd_evidence"] = [",".join(names[b]) for b in bits]
-    lab = band_labels(out, sat)
+    lab = band_labels(out, sat, visits, vega_colours(out, phot))
     for k, v in lab.items():
         out[k] = v
     lnames = np.array(LABELS)
@@ -358,19 +423,26 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame) -
 LABELS = ("h2o_ice", "co2_ice", "co_ice", "ch4", "h2o_vapour", "co_23", "pah_33")
 
 
-def band_labels(out: pd.DataFrame, saturated: np.ndarray) -> dict[str, np.ndarray]:
+def band_labels(out: pd.DataFrame, saturated: np.ndarray, visits: dict[str, np.ndarray] | None = None,
+                colours: dict[str, np.ndarray] | None = None) -> dict[str, np.ndarray]:
     """{label_<name>: bool} from the index columns, class and Gaia columns of a classes frame.
+    visits: IX.band_visits of the sources (None: not checked); colours: vega_colours (None: no ice).
 
-    Every label: the band at sig >= INDEX_SIG with depth (excess) >= LABEL_MIN_DEPTH, source not saturated.
+    Every label: the band at sig >= INDEX_SIG with depth (excess) >= LABEL_MIN_DEPTH, its band window measured
+    in >= LABEL_MIN_VISITS visits, source not saturated.
     - ices (H2O 3.05, CO2 4.27, CO 4.67 µm): not a galaxy, point-like; no Gaia or Gaia BP − RP <
       LABEL_ICE_MAX_BP_RP (cool M dwarfs' water vapour absorbs at 2.7–3.2 µm); no water vapour at 1.4 / 1.9 µm
-      (sig < LABEL_SUPPORT_SIG); reddened by the cloud (J − [4.6] AB >= LABEL_ICE_MIN_J_M46); CO ice also
-      without the CO 2.3 µm bandhead (cool-star CO gas lands at 4.67 µm too).
+      (sig < LABEL_SUPPORT_SIG); reddened by the cloud (J − [4.6] AB >= LABEL_ICE_MIN_J_M46) and a reddened
+      star's colours (Vega H − K >= LABEL_ICE_MIN_HK, J − H >= LABEL_ICE_MIN_JH, on or above the reddening line
+      LABEL_ICE_REDDENING, W1 − W2 < LABEL_ICE_MAX_W1W2); CO ice also without the CO 2.3 µm bandhead (cool-star
+      CO gas lands at 4.67 µm too). candidates.py also drops ice on a good photo-z galaxy (photoz runs later).
     - methane (CH4 3.3 or 1.6 µm): only T/Y brown dwarfs, invisible to Gaia: no Gaia or G > LABEL_CH4_MIN_G,
       not a galaxy, red (J − [4.6] AB > BD_MIN_J_M46_AB), and a second band agreeing (the other CH4 band
       or H2O 1.4 / 1.9 µm at sig >= LABEL_SUPPORT_SIG).
     - water vapour (H2O 1.4 or 1.9 µm, in M/L dwarfs and cool giants) and the CO 2.3 µm bandhead: not a galaxy.
-    - PAH 3.3 µm emission: not a star (galaxy or unsure).
+    - PAH 3.3 µm emission (at z ≈ 0): not a star (galaxy or unsure), and no water-ice dip (sig < LABEL_SUPPORT_SIG:
+      ice depresses PAH's 3.00–3.15 µm continuum window, so ice and PAH never share a source). photoz repeats it at
+      the galaxy's redshift (label_pah_33_z); candidates.py lists that one.
     """
     def col(name):
         return out[name].to_numpy(np.float64) if name in out else np.full(len(out), np.nan)
@@ -378,8 +450,9 @@ def band_labels(out: pd.DataFrame, saturated: np.ndarray) -> dict[str, np.ndarra
     def fires(name):
         kind = C.INDEX_WINDOWS[name][0]
         v = col(f"{name}_{'depth' if kind == 'abs' else 'excess'}")
+        seen = visits[name] >= C.LABEL_MIN_VISITS if visits is not None else True
         with np.errstate(invalid="ignore"):
-            return (col(f"{name}_sig") >= C.INDEX_SIG) & (v >= C.LABEL_MIN_DEPTH[name]) & ~saturated
+            return (col(f"{name}_sig") >= C.INDEX_SIG) & (v >= C.LABEL_MIN_DEPTH[name]) & ~saturated & seen
 
     def sig(name, at=C.LABEL_SUPPORT_SIG):
         with np.errstate(invalid="ignore"):
@@ -390,10 +463,15 @@ def band_labels(out: pd.DataFrame, saturated: np.ndarray) -> dict[str, np.ndarra
     g, bp_rp, jm46, ext = col("gaia_g"), col("gaia_bp_rp"), col("j_m46_ab"), col("extended_score")
     has_gaia = np.isfinite(col("gaia_sep_arcsec")) | np.isfinite(g)
     vapour_any = sig("h2o_14") | sig("h2o_19")
+    nan = np.full(len(out), np.nan)
+    jh, hk, w1w2 = ((colours or {}).get(k, nan) for k in ("jh", "hk", "w1w2"))
+    slope, icpt = C.LABEL_ICE_REDDENING
     with np.errstate(invalid="ignore"):
         point = ~(ext > C.LABEL_ICE_MAX_EXT)
         not_cool = ~has_gaia | (bp_rp < C.LABEL_ICE_MAX_BP_RP)
-        ice_ok = ~galaxy & point & not_cool & ~vapour_any & (jm46 >= C.LABEL_ICE_MIN_J_M46)
+        reddened = ((hk >= C.LABEL_ICE_MIN_HK) & (jh >= C.LABEL_ICE_MIN_JH) & (jh >= slope * hk + icpt)
+                    & ~(w1w2 >= C.LABEL_ICE_MAX_W1W2))
+        ice_ok = ~galaxy & point & not_cool & ~vapour_any & (jm46 >= C.LABEL_ICE_MIN_J_M46) & reddened
         no_gaia_or_faint = ~has_gaia | (g > C.LABEL_CH4_MIN_G)
         red = jm46 > C.BD_MIN_J_M46_AB
     ch4_ok = no_gaia_or_faint & ~galaxy & red
@@ -405,7 +483,7 @@ def band_labels(out: pd.DataFrame, saturated: np.ndarray) -> dict[str, np.ndarra
                                | (fires("ch4_16") & (sig("ch4_33") | vapour_any))),
         "label_h2o_vapour": (fires("h2o_14") | fires("h2o_19")) & ~galaxy,
         "label_co_23": fires("co_23") & ~galaxy,
-        "label_pah_33": fires("pah_33") & ~star,
+        "label_pah_33": fires("pah_33") & ~star & ~sig("h2o_ice_305"),
     }
 
 
@@ -417,6 +495,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None
     src = src.sort_values("source_id").reset_index(drop=True)
     sids = src["source_id"].to_numpy(np.int64)
     gaia, origin = load_gaia(store, zone, src)
+    phot = load_photometry(store, zone, src)
     gaia_stars = gaia_star_ids(gaia, sids)
     t1 = time.time()
     if dots is None:
@@ -424,7 +503,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None
     shape_cols = sorted(set(dot_shape_ratios(dots)) if dots is not None else [])
     t2 = time.time()
     shape = shape_features(dots, sids, gaia_stars, locus)
-    out = classify_frame(src, shape, gaia)
+    out = classify_frame(src, shape, gaia, phot)
     t3 = time.time()
     nbytes = store.write_parquet(results_rel(zone.name, "classes.parquet"), out)
     vc = out["class"].value_counts()

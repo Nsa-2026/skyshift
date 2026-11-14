@@ -7,8 +7,9 @@ or one with `d`/`°`, is in degrees. Dec is always degrees. Commas, degree signs
 Unicode minus are accepted.
 
 Names: the five targets in scripts/validate/data/targets.json (moved from Gaia's epoch 2016.0 to
-the present with their proper motion) and comet 3I/ATLAS (position at the middle of its SPHEREx
-sequence of 14 Dec 2025), each with a few aliases.
+the present with their proper motion), and the site's moving targets, comet 3I/ATLAS and the
+asteroids (59) Elpis and (31) Euphrosyne (MOVING: where SPHEREx saw them in their featured Hours
+frames, from MPC orbits moved with kete), each with a few aliases.
 """
 
 from __future__ import annotations
@@ -23,15 +24,22 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .errors import ApiError
+from . import known
+from .errors import ApiError, UpstreamError
 
 REF_JYEAR = 2016.0  # Gaia DR3 epoch of targets.json
 
-# Comet 3I/ATLAS: mid-point of NASA's per-exposure comet_ra/comet_dec over SPHEREx's 14 Dec 2025
-# sequence (MJD 61023.19-61024.00, scripts/validate/data/photolists/3i-atlas.csv). It moves
-# ~176"/h, so this is where the Hours blink is, not where the comet is today.
-COMET = {"slug": "3i-atlas", "name": "3I/ATLAS", "ra": 166.82745, "dec": 5.27872,
-         "pmra": None, "pmdec": None}
+# The site's moving targets (web/src/data/targets.json): their position at `mjd`, the median
+# exposure time of their featured Hours frames (web/public/data/<slug>/frames.json, written by
+# scripts/precompute), where those frames are centred. Computed from the MPC orbit of `mpc` (the
+# known-object index's name) with kete, as known[] is: 1-3" from the frame centres, which are NASA's
+# own positions (14 Nov). Not where they are today: the comet moves ~176"/h, an asteroid a few
+# arcmin a day, and the site shows them where SPHEREx saw them.
+MOVING: dict[str, dict[str, Any]] = {
+    "3i-atlas": {"name": "3I/ATLAS", "mpc": "3I/ATLAS", "mjd": 61023.461049},  # 14 Dec 2025
+    "elpis": {"name": "(59) Elpis", "mpc": "Elpis", "mjd": 61302.303997},  # 19 Sep 2026
+    "euphrosyne": {"name": "(31) Euphrosyne", "mpc": "Euphrosyne", "mjd": 60863.952207},  # 7 Jul 2025
+}
 
 ALIASES: dict[str, list[str]] = {
     "barnard": ["Barnard", "Barnard's Star", "Barnards Star", "Barnard Star", "GJ 699", "Gl 699",
@@ -43,7 +51,9 @@ ALIASES: dict[str, list[str]] = {
     "rwaur": ["RW Aurigae", "RW Aur", "RW Aur A"],
     "rdra": ["R Draconis", "R Dra"],
     "3i-atlas": ["3I/ATLAS", "3I", "3I ATLAS", "ATLAS", "C/2025 N1", "C/2025 N1 (ATLAS)",
-                 "3I/2025 N1", "interstellar comet"],
+                 "3I/2025 N1", "interstellar comet", "Comet 3I/ATLAS"],
+    "elpis": ["Elpis", "(59) Elpis", "59 Elpis", "asteroid Elpis"],
+    "euphrosyne": ["Euphrosyne", "(31) Euphrosyne", "31 Euphrosyne", "asteroid Euphrosyne"],
 }
 
 _MINUS = "−‒–—‐‑﹣－"
@@ -66,12 +76,27 @@ def norm_name(s: str) -> str:
 
 @lru_cache(maxsize=1)
 def builtins() -> dict[str, dict[str, Any]]:
-    """slug -> {slug, name, ra, dec, pmra, pmdec} at epoch 2016.0 (comet: fixed position)."""
+    """slug -> {slug, name, ra, dec, pmra, pmdec} at epoch 2016.0; moving targets: {slug, name, mpc,
+    mjd} (their position comes from moving_position)."""
     out: dict[str, dict[str, Any]] = {}
     for t in json.loads(_targets_path().read_text())["targets"]:
         out[t["slug"]] = {k: t.get(k) for k in ("slug", "name", "ra", "dec", "pmra", "pmdec")}
-    out[COMET["slug"]] = dict(COMET)
+    for slug, m in MOVING.items():
+        out[slug] = {"slug": slug, **m}
     return out
+
+
+@lru_cache(maxsize=None)
+def moving_position(slug: str) -> tuple[float, float]:
+    """(ra, dec) of a moving target at its MOVING mjd, from its MPC orbit (known.position: kete).
+    MPC only, no other source: if the known-object index or kete fails, UpstreamError (502)."""
+    m = MOVING[slug]
+    try:
+        return known.position(m["mpc"], m["mjd"])
+    except UpstreamError:
+        raise
+    except Exception as e:  # noqa: BLE001 - not in the index, outside its time range, kete
+        raise UpstreamError(f"no MPC position for {m['name']}: {e}") from e
 
 
 @lru_cache(maxsize=1)
@@ -243,7 +268,7 @@ def resolve(q: str | None, now: datetime | None = None) -> dict[str, Any]:
     slug = alias_index().get(norm_name(q))
     if slug:
         t = builtins()[slug]
-        ra, dec = position_now(t, now)
+        ra, dec = moving_position(slug) if slug in MOVING else position_now(t, now)
         return {"q": q, "name": t["name"], "ra": round(ra, 7), "dec": round(dec, 7),
                 "slug": slug, "source": "builtin"}
     try:

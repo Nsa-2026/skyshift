@@ -201,3 +201,58 @@ def test_spectrum_points_brings_back_a_builtin_target_4_arcsec_from_a_gaia_star(
     assert obj.spectrum_points([im], [l2c], _builtin(), T_RA, T_DEC, stars=[_gaia_star(c_ra, c_dec)],
                                dropped=dropped) == []
     assert dropped == Counter(other=1)
+
+
+# --- the aperture's sky: a clipped median, not the annulus mean ------------------------------------
+
+def _sky_case(seed: int, amp: float, contaminated: bool, noise: float = 0.03):
+    """A 61 x 61 fake cutout, flat sky 0.45 MJy/sr + noise, at (30.3, 29.6) a source of `amp` (all its
+    light inside r = 2 px); contaminated: a very bright star's halo, centred 16.5 px north (as Barnard's
+    Star at its 2016.0 position, 16-18 px away), and a neighbour inside the 4-7 px annulus. Returns
+    (l2, x, y, true flux in uJy)."""
+    n, (x, y) = 61, (30.3, 29.6)
+    w = WCS(naxis=2)
+    w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    w.wcs.crval, w.wcs.crpix = [269.45, 4.74], [31.0, 31.0]
+    w.wcs.cdelt = [-PIX / 3600, PIX / 3600]
+    sigma = obj.BLEND_PSF[2][0]
+    yy, xx = np.mgrid[:n, :n]
+    data = 0.45 + amp * obj._gauss_psf(n, n, x, y, sigma)
+    if contaminated:
+        data = data + 100.0 * (1.0 + (np.hypot(xx - x, yy - (y + 16.5)) / 1.5) ** 2) ** -1.5
+        data = data + 8.0 * obj._gauss_psf(n, n, x + 5.2, y - 1.5, sigma)
+    data = data + np.random.default_rng(seed).normal(0.0, noise, data.shape)
+    l2 = SimpleNamespace(data=data.astype(np.float32), flags=np.zeros((n, n), np.int32),
+                         variance=np.full((n, n), noise**2, np.float32), wcs=w, detector=2)
+    return l2, x, y, amp * APERTURE_CORRECTION * ujy_per_mjysr(w, x, y)
+
+
+def test_aperture_sky_ignores_a_bright_stars_halo_and_a_neighbour_in_the_annulus():
+    """14 Nov site review: at Barnard's Star's 2016.0 position (`moved_away`) 58 of 61 points were
+    5-12 sigma negative, the annulus mean pulled up by the star 16-18 px away. The clipped median
+    gives unbiased fluxes and honest errors there, for an empty spot and for a faint source."""
+    from skyshift_core import aperture_photometry
+
+    for amp, contaminated in ((0.0, True), (3.0, True), (0.0, False), (3.0, False)):
+        new, old = [], []
+        for seed in range(100):
+            l2, x, y, truth = _sky_case(seed, amp, contaminated)
+            flux, err = obj.point_photometry(l2, x, y, [], False)
+            new.append((flux - truth) / err)
+            ph = aperture_photometry(l2.data, x, y, l2.wcs, flags=l2.flags, variance=l2.variance)  # annulus mean
+            old.append((ph.flux_ujy[0] - truth) / ph.err_ujy[0])
+        assert abs(np.mean(new)) < 0.3 and 0.8 < np.std(new) < 1.2, (amp, contaminated)
+        if contaminated:
+            assert np.mean(old) < -8  # what the annulus mean did: many sigma below the truth
+        else:
+            assert abs(np.mean(old)) < 0.3  # on a clean sky both agree
+
+
+def test_local_sky_needs_good_pixels():
+    l2, x, y, _ = _sky_case(0, 0.0, False)
+    sky, err = obj.local_sky(l2.data, l2.flags, x, y)
+    assert sky == pytest.approx(0.45, abs=0.01) and 0 < err < 0.01
+    yy, xx = np.mgrid[:61, :61]
+    l2.flags[np.hypot(xx - x, yy - y) > 3.5] |= 1 << 6  # NONFUNC: the annulus is masked, the aperture is not
+    assert obj.local_sky(l2.data, l2.flags, x, y) is None
+    assert obj.point_photometry(l2, x, y, [], False) is None
