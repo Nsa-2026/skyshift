@@ -1,0 +1,14 @@
+/* "Replay the opening" sits in the footer and reads like the links beside it. */
+.foot-replay {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+html.op-open {
+  overflow: hidden;
+}
