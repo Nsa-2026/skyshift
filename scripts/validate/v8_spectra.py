@@ -1,6 +1,6 @@
-"""V8, spectra half: SPHEREx spectra of pilot-zone stars against 2MASS Ks and CatWISE W1.
+"""V8, spectra half: SPHEREx spectra of a pipeline zone's stars against 2MASS Ks and CatWISE W1.
 
-The plan asked for two unsaturated stars; the pilot zone gives thousands. For every source with a
+The plan asked for two unsaturated stars; one zone gives thousands. For every source with a
 102-channel spectrum (pipeline `spectra` step, results/<zone>/sources.parquet) matched one-to-one to
 Gaia (< 1"), 2MASS (< 1.5") and, for W1, CatWISE (< 1.5") in results/<zone>/crossids.parquet, and
 not flagged saturated or variable:
@@ -14,10 +14,11 @@ not flagged saturated or variable:
 
 No colour corrections: for stars they are a few percent at most.
 
-Output: data/v8_spectra.json.
+Output: data/v8_spectra_<zone>.json, one per zone (build_validation.py reads them, the first zone as headline).
 
-  uv run python v8_spectra.py                # fetches the zone's tables with gcloud (~30 MB)
-  uv run python v8_spectra.py --zone hunt --local DIR   # DIR holds sources.parquet, crossids.parquet, channels.json
+  uv run python v8_spectra.py                # hunt and pilot; fetches tables not cached yet (~180 + 30 MB, gcloud)
+  uv run python v8_spectra.py --zones pilot --local DIR   # DIR holds sources.parquet, crossids.parquet, channels.json
+  uv run python v8_spectra.py --zones hunt --out /tmp/x.json   # one zone, written elsewhere
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ import pandas as pd
 
 from _common import BUCKET, CACHE, DATA, today, write_json
 
-OUT = DATA / "v8_spectra.json"
+ZONES = ("hunt", "pilot")
 BANDS = {
     "Ks": {"um": (1.99, 2.31), "zp_jy": 666.7, "mag": "k", "match": ("tmass_sep_arcsec", "tmass_n"),
            "ref": "2MASS Ks, zero point 666.7 Jy (Cohen et al. 2003)"},
@@ -76,13 +77,12 @@ def stats(r: np.ndarray) -> dict:
     return {"n": int(r.size), "median": round(med, 4), "scatter": round(float(1.4826 * np.median(np.abs(r - med))), 4)}
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--zone", default="pilot")
-    ap.add_argument("--local", type=Path, help="folder with the zone's sources.parquet, crossids.parquet, channels.json")
-    args = ap.parse_args()
-    src_dir = args.local or fetch(args.zone)
+def out_path(zone: str) -> Path:
+    return DATA / f"v8_spectra_{zone}.json"
 
+
+def run(zone: str, src_dir: Path, out: Path) -> dict:
+    """V8 spectra of one zone's tables in `src_dir`, written to `out`."""
     s = pd.read_parquet(src_dir / "sources.parquet")
     x = pd.read_parquet(src_dir / "crossids.parquet")
     ch = pd.DataFrame(json.loads((src_dir / "channels.json").read_text())).sort_values("channel")  # global 0-101; "index" is per detector
@@ -91,6 +91,7 @@ def main() -> None:
     m = s[["source_id", "ra", "dec", "saturated", "variable"]].merge(x[cols], on="source_id", how="left")
     star = (m["gaia_sep_arcsec"] < 1.0) & (m["gaia_n"] == 1) & ~m["saturated"] & ~m["variable"]
 
+    print(f"--- {zone}: {len(s):,} sources")
     out_bands = {}
     for name, b in BANDS.items():
         sp, nch = band_flux(F, ch, *b["um"])
@@ -109,12 +110,26 @@ def main() -> None:
             print(f"   {r_['mag_min']}-{r_['mag_max']}: n={r_['n']:5d} median {r_['median']} scatter {r_['scatter']}")
 
     ok = all(b["clean"]["median"] is not None and abs(b["clean"]["median"] - 1) <= 0.2 for b in out_bands.values())
-    write_json(OUT, {
-        "generated": today(), "check": "V8", "part": "spectra", "zone": args.zone,
-        "method": __doc__.split("Output:")[0].strip(),
-        "sources": int(len(s)), "pass": ok, "bands": out_bands,
-    })
-    print(f"V8 spectra: {'pass' if ok else 'fail'}  -> {OUT.name}")
+    res = {"generated": today(), "check": "V8", "part": "spectra", "zone": zone,
+           "method": __doc__.split("Output:")[0].strip(),
+           "sources": int(len(s)), "pass": ok, "bands": out_bands}
+    write_json(out, res)
+    print(f"V8 spectra {zone}: {'pass' if ok else 'fail'}  -> {out}")
+    return res
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--zones", default=",".join(ZONES), help="pipeline zones, comma-separated (default hunt,pilot)")
+    ap.add_argument("--zone", help="one zone only (same as --zones ZONE)")
+    ap.add_argument("--local", type=Path, help="folder with one zone's sources.parquet, crossids.parquet, channels.json")
+    ap.add_argument("--out", type=Path, help="output file for one zone (default data/v8_spectra_<zone>.json)")
+    args = ap.parse_args()
+    zones = [z.strip() for z in (args.zone or args.zones).split(",") if z.strip()]
+    if (args.local or args.out) and len(zones) != 1:
+        raise SystemExit("--local and --out take one zone: add --zones <zone>")
+    for z in zones:
+        run(z, args.local or fetch(z), args.out or out_path(z))
 
 
 if __name__ == "__main__":
