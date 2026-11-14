@@ -4,7 +4,8 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
 1. fixed: friends-of-friends within FIXED_LINK_ARCSEC over all dots; a group seen in
    >= FIXED_MIN_SESSIONS sessions is a fixed source (stars, galaxies). Each gets a `source_id`
    (source_id_of: cell × SOURCE_ID_PER_CELL + rank in the cell) and its dots are listed in
-   members.parquet (source_id, obs_id, detector, dot_row) for `spectra`.
+   members.parquet (source_id, obs_id, detector, dot_row) for `spectra`, less those member_mask leaves out
+   (a masked core at the peak; a second dot in one photo). Those still belong to the group for the veto.
 2. Dots in a fixed group or within FIXED_VETO_ARCSEC of a fixed source are dropped. Nothing else
    vetoes a candidate: a stray single dot in another session doesn't.
 3. The rest (elong <= MOVER_MAX_ELONG) are paired inside each session:
@@ -27,6 +28,8 @@ import numpy as np
 import pandas as pd
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
+
+from skyshift_core import MASK_BITS, SAT_BITS
 
 from . import config as C
 from . import log
@@ -142,10 +145,58 @@ def find_fixed(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
     return fixed, dot_sid >= 0
 
 
-def members_table(dots: pd.DataFrame, dot_sid: np.ndarray, photos: pd.DataFrame) -> pd.DataFrame:
+def member_mask(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame) -> tuple[np.ndarray, dict]:
+    """Which dots of fixed groups are measured (members.parquet), and counts of those left out.
+
+    The group itself (dot_sid, fixed, the mover veto) is unchanged; only the measurement set is cleaned:
+    - FIXED_MEMBER_DROP_MASKED_PEAK: a MASK bit other than saturation at the dot's peak pixel (unless the dot is
+      saturated there). detect masks those pixels, so the centroid lands on the remaining wings, 1.5–5″ off
+      (hunt: ~1.8% of member dots, up to 20% of one star's dots in one visit → fake proper motions).
+      A source whose every dot is so flagged keeps them all.
+    - FIXED_MEMBER_ONE_PER_PHOTO: at most one dot per (source, photo): the nearest to the group's position. The rest
+      are wing fragments of a bright star or a neighbour chained into the group (hunt: 12.7% of the fake fast
+      Gaia stars had > 10% of their photos with two or more dots, 0.2% of quiet Gaia stars).
+    `dots` needs `photo` and `flags_peak`; `fixed` is fixed_groups' table (source_id sorted, ra, dec)."""
+    keep = dot_sid >= 0
+    st = {"member_dots_masked_peak": 0, "member_dots_second_in_photo": 0}
+    if not keep.any():
+        return keep, st
+    if C.FIXED_MEMBER_DROP_MASKED_PEAK and "flags_peak" in dots:
+        fp = dots["flags_peak"].to_numpy(np.int64) & 0xFFFFFFFF
+        bad = keep & ((fp & (MASK_BITS & ~SAT_BITS)) != 0) & ((fp & SAT_BITS) == 0)
+        if bad.any():
+            # never empty a source: one whose every dot is flagged keeps them
+            u, inv = np.unique(dot_sid[keep], return_inverse=True)
+            inv = inv.ravel()
+            n_all = np.bincount(inv, minlength=u.size)
+            n_bad = np.bincount(inv, weights=bad[keep].astype(np.float64), minlength=u.size)
+            spare = np.isin(dot_sid, u[n_bad >= n_all])
+            bad &= ~spare
+            keep &= ~bad
+            st["member_dots_masked_peak"] = int(bad.sum())
+    if C.FIXED_MEMBER_ONE_PER_PHOTO and "photo" in dots:
+        idx = np.flatnonzero(keep)
+        sid = dot_sid[idx]
+        photo = dots["photo"].to_numpy(np.int64)[idx]
+        fs = fixed["source_id"].to_numpy(np.int64)
+        order_f = np.argsort(fs, kind="stable")
+        k = order_f[np.searchsorted(fs, sid, sorter=order_f)]
+        sep = angsep(dots["ra"].to_numpy(np.float64)[idx], dots["dec"].to_numpy(np.float64)[idx],
+                     fixed["ra"].to_numpy(np.float64)[k], fixed["dec"].to_numpy(np.float64)[k])
+        o = np.lexsort((sep, photo, sid))
+        first = np.r_[True, (np.diff(sid[o]) != 0) | (np.diff(photo[o]) != 0)]
+        drop = idx[o[~first]]
+        keep[drop] = False
+        st["member_dots_second_in_photo"] = int(drop.size)
+    return keep, st
+
+
+def members_table(dots: pd.DataFrame, dot_sid: np.ndarray, photos: pd.DataFrame,
+                  keep: np.ndarray | None = None) -> pd.DataFrame:
     """members.parquet: one row per dot of a fixed source, sorted by source_id, obs_id, detector, dot_row.
-    `dots` needs `photo` (row in the photo list) and `dot_row` (row in that photo's dot file)."""
-    m = dot_sid >= 0
+    `dots` needs `photo` (row in the photo list) and `dot_row` (row in that photo's dot file).
+    keep: member_mask's selection (default: every dot of every fixed group)."""
+    m = dot_sid >= 0 if keep is None else (dot_sid >= 0) & keep
     # `photo` is the photo list's index label (load_dots); positions via get_indexer
     pos = photos.index.get_indexer(dots["photo"].to_numpy()[m])
     obs = pd.Categorical(photos["obs_id"].astype(str))
@@ -341,11 +392,13 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     free_out: dict = {}
     fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result,
                                     free_out=free_out)
-    members = members_table(dots, fixed_result[1], photos)
+    measured, mst = member_mask(dots, fixed_result[1], fixed_result[0])
+    members = members_table(dots, fixed_result[1], photos, keep=measured)
     freedots = freedots_table(free_out.get("free", dots.iloc[:0]), photos)
     if keep is not None:
         keep.update(dots=dots, dot_sid=fixed_result[1])
     stats["fixed_member_dots"] = int(len(members))
+    stats.update(mst)
     try:  # tracklets' input; never worth failing link for
         free = nonfixed_dots_table(dots, fixed_result[1], fixed, photos)
         stats["nonfixed_dots_written"] = int(len(free))
