@@ -255,17 +255,25 @@ A reader shows every check the file holds, in file order; an id missing from the
 
 ```
 { generated, data_release, zone,
+  vetoes:[…], provisional, grades:{A,B,C}, gates:{<gate>:n},          # added 14 Nov (vetting)
   suspects:[{ id, ra, dec, mjd, clock:"hours", det, evidence:"two_exposures"|"two_detectors",
-              n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null }] }
+              n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null,
+              grade:"A"|"B"|"C", reasons:[<gate>…], near_source_arcsec|null }] }   # added 14 Nov
 ```
 
 Movers with no known-object match from MPC (contracts/dots.md). Written by the pipeline's
 `suspects` step (`results/<zone>/suspects.json`, copied to `web/public/data/suspects.json`).
 They are also written to Firestore `candidates` with `source: "pipeline"`.
+Ranked by `grade` (A, B, C), then `snr` (highest first). A file without `grade` (written before 14 Nov evening) is
+ungraded: show its suspects as unvetted, not as B.
 
 | field | type | meaning |
 |---|---|---|
 | zone | string | Pipeline zone, `pilot` or `hunt` |
+| vetoes | string[] | Zone-level checks every listed suspect passed: `mpc` (no known object within 30″), `gaia` (no Gaia DR3 within 6″), and `catwise` (CatWISE2020, 6″) or `allwise` (AllWISE, 6″: zones with a Gaia-only refcat). A catalogue missing here was not checked |
+| provisional | bool | true when Gaia or every WISE catalogue could not be checked (e.g. a Gaia-only refcat with AllWISE unreachable): very red WISE-only sources may still be listed. Say so next to the zone's suspects |
+| grades | object | Count of suspects per grade, `{ "A": n, "B": n, "C": n }` |
+| gates | object | Per gate name (below), the suspects failing it; a suspect can fail several |
 | id | string | Unique in the file. The pipeline writes `<zone>-<cell>-<minute>` (minute = round(mjd × 1440)); treat it as opaque |
 | ra, dec | float, deg | Mean position of the mover's dots |
 | mjd | float, MJD | Mean MJD-AVG of the mover's dots |
@@ -274,6 +282,9 @@ They are also written to Firestore `candidates` with `source: "pipeline"`.
 | n_dots, snr, flux_ujy | int, float, float µJy | Dots in the mover, their highest S/N and median brightness |
 | cell | integer, no unit | The 6″ sky cell of (`ra`, `dec`), exactly contracts/dots.md's `cell` (`band × 10 000 000 + col`). An id for grouping, not a quantity: neighbouring cells are not neighbouring numbers. At most ~1.08 × 10¹², so a JSON number is exact in JavaScript (below 2⁵³); never a string |
 | nearest_known_arcsec | float, arcsec, or null | Distance to the nearest known object predicted in the same session, moved to `mjd`; null if none within 600″. Suspects have none within 30″ |
+| grade | string | `C`: fails a gate or is catalogued (`reasons` says which); kept in the file, shown greyed with its reasons. `B`: passes every gate; its motion is not shown (most suspects are 2 dots of one session, and at S/N 7–9 the position error exceeds the motion between exposures): an "unexplained one-session source". `A`: B and motion ≥ 5σ over ≥ 2 sessions. A needs a multi-session linker the pipeline doesn't have yet: no suspect is graded A |
+| reasons | string[] | The gates it fails, in this order (empty for A and B): `not_vetted` (no dot data to vet: an old movers table, or a dot without a pixel position), `hot_pixel` (a dot on a detector pixel, ±1 px, where the zone's movers have dots in ≥ 3 exposures or its free dots in ≥ 5: hot pixels NASA's HOT bit misses), `bad_column` (≥ 3 free dots of that exposure and detector within ±0.5 px in x), `edge` (a dot within 6 px of the detector edge), `masked_peak` (a mask bit of contracts/flags.md at a dot's peak, OVERFLOW/NONLINEAR aside), `sharp_outlier` (a dot sharper than a star: √(a·b) < 0.7 × the detector's stellar value at its S/N, with OUTLIER at the peak; OUTLIER alone never counts), `flux_ratio` (brightest dot > 4× the faintest within one detector), `red_photo` (every dot from a photo graded red by the photo QA), `2mass` (a 2MASS PSC source within 6″). Thresholds: pipeline config `VET_*` |
+| near_source_arcsec | float, arcsec, or null | Nearest catalogue (Gaia, CatWISE, 2MASS) or fixed source within 10″: a possible blend or PSF wing. A warning, not a gate; null if none within 10″ |
 
 ### candidates.json
 

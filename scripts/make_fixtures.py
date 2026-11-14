@@ -300,9 +300,17 @@ def suspects():
                     "mjd": r(rng.uniform(60968.1, 60968.3), 6), "clock": "hours", "det": rng.choice([1, 2, 3]),
                     "evidence": ["two_exposures", "two_detectors"][i % 2], "n_dots": 2,
                     "snr": r(rng.uniform(6, 15), 1), "flux_ujy": r(rng.uniform(40, 300), 1), "cell": cell,
-                    "nearest_known_arcsec": None if i == 0 else r(rng.uniform(40, 200), 1)})
+                    "nearest_known_arcsec": None if i == 0 else r(rng.uniform(40, 200), 1),
+                    # vetting (14 Nov): one B, two C with their reasons; near_source_arcsec a warning only
+                    "grade": "B" if i == 0 else "C", "reasons": [[], ["hot_pixel", "edge"], ["2mass"]][i],
+                    "near_source_arcsec": [8.4, None, 4.1][i]})
     write_json("suspects.json", {"synthetic": True, "note": NOTE, "generated": "2026-11-14T09:30:00Z",
-                                 "data_release": RELEASE, "zone": "hunt zone (synthetic)", "suspects": out})
+                                 "data_release": RELEASE, "zone": "hunt zone (synthetic)",
+                                 "vetoes": ["mpc", "gaia", "catwise"], "provisional": False,
+                                 "grades": {"A": 0, "B": 1, "C": 2},
+                                 "gates": {"not_vetted": 0, "hot_pixel": 1, "bad_column": 0, "edge": 1, "masked_peak": 0,
+                                           "sharp_outlier": 0, "flux_ratio": 0, "red_photo": 0, "2mass": 1},
+                                 "suspects": out})
 
 
 def main():
