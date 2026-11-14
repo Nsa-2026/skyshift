@@ -195,7 +195,7 @@ def object_barnard(mids):
         "measure": {"shift_arcsec": r(shift, 3), "pa_deg": 356.1, "dt_yr": r(dt_yr, 4),
                     "rate_arcsec_yr": r(shift / dt_yr, 3), "sigma_arcsec": 0.9, "n_ref_stars": 12,
                     "predicted_arcsec": r(pm_total * dt_yr, 3),
-                    # v3.8: what the shift was measured on (D2 stacks of visits 1 and 3, cores filled)
+                    # v3.9: what the shift was measured on (D2 stacks of visits 1 and 3, cores filled)
                     "source": {"det": 2, "visits": [1, 3], "mjd": [r(mids[0], 5), r(mids[-1], 5)],
                                "n_exposures": [BARNARD_VISITS[0][2], BARNARD_VISITS[-1][2]],
                                "fov": 15, "pixel_arcsec": NATIVE_PIX, "core_filled": [True, True]}},
