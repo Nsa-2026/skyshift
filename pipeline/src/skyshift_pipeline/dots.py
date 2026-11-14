@@ -7,7 +7,9 @@ aperture snr >= DOT_MIN_SNR; saturated dots (OVERFLOW/NONLINEAR under them) are 
 wings (core.centroid method="fit"); then sky position, µJy, wavelength, bandwidth, the flag bits in the
 3×3 pixels under the dot (`flags`) and at its peak pixel (`flags_peak`), the photo's session and visit,
 the 6″ cell, the ZODI model, the background detection subtracted, the peak, the second-moment shape
-(elong, a, b, theta), an ePSF fit (flux_psf_*, psf.py) and five aperture fluxes (flux_ap_*).
+(elong, a, b, theta), an ePSF fit (flux_psf_*, psf.py), an ePSF position fit (x_psf, y_psf, ra_psf, dec_psf,
+pos_err_psf_arcsec, psf_pos_ok; config DOTS_PSF_POSITION; not for saturated dots), sep's flags and five
+aperture fluxes (flux_ap_*).
 Forced photometry: when refcat/<zone>_forced.parquet exists, every reference target in the photo
 (moved to MJD-AVG) gets the same ePSF fit at its fixed position and the r = 2 px aperture, detected
 or not, in forced/<obs_id>D<det>.parquet, written before the dot file.

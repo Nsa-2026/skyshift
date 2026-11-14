@@ -16,8 +16,11 @@ King 2000): the windowed centroid is pulled toward pixel centres (an S-curve in 
 ±0.09 px on the pilot), the ePSF already holds the pixel response, so its best-fit position is not.
 Gauss–Newton from the windowed centroid on the same stamp, weights, mask and model term; F and B are
 re-solved in closed form at each position, so each step only moves (x, y) (the Schur complement of
-the 4 × 4 normal equations); derivatives come from the ePSF spline (EPSF.evaluate_grad). Steps are
-capped at max_step and the fit fails if it wanders more than max_shift from the start.
+the 4 × 4 normal equations); derivatives come from the ePSF spline (EPSF.stamps_at, one evaluation per
+step). Steps are capped at max_step; a step that reverses the last one without shrinking (faint dots
+oscillate) halves the following ones; the fit fails if it wanders more than max_shift from the start.
+F, B, χ² and the errors are those of the last evaluation (within one step < tol of the returned x, y).
+On 6 pilot photos: median 3 steps, 98–99% of unsaturated dots converge, ~27 µs per dot (Apple M-series).
 """
 
 from __future__ import annotations
