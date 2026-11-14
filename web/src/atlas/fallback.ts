@@ -2,6 +2,7 @@
 // featured targets and signals, with no background image. The whole sky is an Aitoff map; click
 // a red cell (or zoom) and it becomes a tangent-plane close-up where single signals show.
 // Same callbacks as the globe, so the drawer, pin and list work the same.
+// Tonight's search is drawn under the heat map, its fills from SVG patterns.
 import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
 import { ang2pixNest } from "./healpix";
@@ -9,6 +10,8 @@ import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor
 import { zoneName } from "./kinds";
 import type { MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, diamond, moverTick, nearestHit, paToScreen, starArrow, MARK_R, type Vec } from "./marks";
+import { suspectAlpha } from "./search";
+import { zoneLook } from "./searchdraw";
 import { aitoff, aitoffInverse, fromGalactic, gnomonic, gnomonicInverse, lonLat, offsetPa, wrap360 } from "./sphere";
 import { LABEL_MIN_PX, LEVEL_FOV, WHOLE_FOV, cellPx, heatOrder, levelFor, showsHeat, showsSignals } from "./zoom";
 
@@ -205,6 +208,44 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       parts.push(`<rect class="atl-svg-glass" x="0" y="0" width="${w}" height="${h}"/>`);
     }
 
+    if (model?.search && model.layers.search && showsHeat(level)) {
+      const layer = model.search;
+      const fills: Record<string, string> = {
+        hatch: "url(#atl-srch-hatch)",
+        "hatch-dense": "url(#atl-srch-dense)",
+        stipple: "url(#atl-srch-stipple)",
+      };
+      let g = "";
+      for (const z of layer.zones) {
+        const look = zoneLook(z.state);
+        for (const ring of z.rings) {
+          const d = path(ring, true, p, maxJump);
+          if (!d) continue;
+          // Inline styles: they win over the stylesheet's `fill: none`.
+          const fill =
+            look.fill === "wash"
+              ? ` style="fill-opacity:${suspectAlpha(z.suspects, layer.maxSuspects).toFixed(3)}"`
+              : look.fill !== "none"
+                ? ` style="fill:${fills[look.fill]}"`
+                : "";
+          g += `<path class="atl-svg-search is-${z.state}" d="${d}"${fill}/>`;
+          if (look.cross) {
+            const pts = ring.map(([ra, dec]) => p.project({ ra, dec })).filter((q): q is Vec => !!q);
+            const xs = pts.map((q) => q.x);
+            const ys = pts.map((q) => q.y);
+            const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+            g += `<path class="atl-svg-search-cross" d="M${f1(x0)} ${f1(y0)}L${f1(x1)} ${f1(y1)}M${f1(x1)} ${f1(y0)}L${f1(x0)} ${f1(y1)}"/>`;
+          }
+        }
+      }
+      parts.push(
+        `<defs><pattern id="atl-srch-hatch" width="8" height="8" patternUnits="userSpaceOnUse"><path class="atl-svg-hatch" d="M0 8L8 0"/></pattern>` +
+          `<pattern id="atl-srch-dense" width="5" height="5" patternUnits="userSpaceOnUse"><path class="atl-svg-hatch" d="M0 5L5 0"/></pattern>` +
+          `<pattern id="atl-srch-stipple" width="5" height="5" patternUnits="userSpaceOnUse"><rect class="atl-svg-stipple" x="1" y="1" width="1.2" height="1.2"/></pattern></defs>`,
+        `<g class="atl-svg-searchlayer" aria-hidden="true">${g}</g>`,
+      );
+    }
+
     if (model) {
       if (showsHeat(level) && model.layers.heat) {
         const cells = model.cellsAt(order);
@@ -261,6 +302,16 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           if (!q || q.x < -30 || q.y < -30 || q.x > w + 30 || q.y > h + 30) continue;
           parts.push(markSvg(c, q, p, model.selectedId === c.id));
         }
+      }
+      // Provisional suspects: hollow dashed rings, never a pencil mark (they are not candidates).
+      if (showsSignals(level) && model.layers.provisional && model.provisional) {
+        let g = "";
+        for (const x of model.provisional.suspects) {
+          const q = p.project(x);
+          if (!q || q.x < -10 || q.y < -10 || q.x > w + 10 || q.y > h + 10) continue;
+          g += `<circle cx="${f1(q.x)}" cy="${f1(q.y)}" r="6"/>`;
+        }
+        if (g) parts.push(`<g class="atl-svg-provisional" aria-hidden="true">${g}</g>`);
       }
     }
     parts.push(...labels);

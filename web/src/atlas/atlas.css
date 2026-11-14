@@ -689,6 +689,60 @@
   stroke-width: 1.25;
   pointer-events: none;
 }
+/* Tonight's search on the flat map: faint, under the heat map (fills come inline). */
+.atl-svg-searchlayer {
+  pointer-events: none;
+}
+.atl-svg-search {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.28;
+  stroke-width: 0.5;
+}
+.atl-svg-search.is-extracted {
+  stroke-width: 0.75;
+}
+.atl-svg-search.is-extracting,
+.atl-svg-search.is-combining {
+  stroke: var(--pencil-blue);
+  stroke-opacity: 0.7;
+  stroke-width: 1;
+}
+.atl-svg-search.is-combined {
+  fill: var(--pencil-red);
+  stroke: var(--pencil-red);
+  stroke-opacity: 0.35;
+  stroke-width: 1;
+}
+.atl-svg-search.is-deferred {
+  stroke: var(--ink-3);
+  stroke-opacity: 0.55;
+  stroke-width: 0.75;
+}
+.atl-svg-search.is-failed,
+.atl-svg-search-cross {
+  fill: none;
+  stroke: var(--warn);
+  stroke-opacity: 0.8;
+  stroke-width: 1;
+}
+.atl-svg-hatch {
+  stroke: var(--pencil-blue);
+  stroke-opacity: 0.45;
+  stroke-width: 1;
+}
+.atl-svg-stipple {
+  fill: var(--ink-3);
+  fill-opacity: 0.6;
+}
+.atl-svg-provisional {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.85;
+  pointer-events: none;
+}
 .atl-svg-zone-label,
 .atl-svg-target text {
   fill: var(--ink);
@@ -775,6 +829,89 @@
   vertical-align: -1px;
   border: 1.25px solid var(--ink);
   opacity: 0.75;
+}
+.atl-key-group {
+  display: block;
+}
+.atl-key-group a {
+  color: var(--ink);
+}
+/* Swatches for tonight's search, drawn as on the map. */
+.atl-key-search {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  margin: 0 4px 0 2px;
+  vertical-align: -1px;
+  border: 1px solid rgba(24, 32, 46, 0.35);
+}
+.atl-key-search.is-extracting {
+  border-color: var(--pencil-blue);
+  background: repeating-linear-gradient(-45deg, transparent 0 3px, rgba(37, 86, 200, 0.5) 3px 4px);
+}
+.atl-key-search.is-combined {
+  border-color: rgba(207, 35, 56, 0.6);
+  background: rgba(207, 35, 56, 0.2);
+}
+.atl-key-search.is-deferred {
+  border-color: var(--ink-3);
+  background: radial-gradient(circle, rgba(120, 129, 143, 0.8) 0.7px, transparent 1px) 0 0 / 4px 4px;
+}
+.atl-key-search.is-failed {
+  border-color: var(--warn);
+  background:
+    linear-gradient(to top right, transparent 46%, var(--warn) 46% 54%, transparent 54%),
+    linear-gradient(to bottom right, transparent 46%, var(--warn) 46% 54%, transparent 54%);
+}
+.atl-key-prov {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin: 0 5px 0 2px;
+  vertical-align: -2px;
+  border: 1.5px dashed var(--ink-2);
+  border-radius: 50%;
+}
+
+/* The live line under the count, linking to the Live search page. */
+.atl-count-box {
+  display: grid;
+  gap: 2px;
+}
+.atl-live {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-weight: 550;
+  font-variation-settings: "wdth" 92;
+  text-decoration: underline;
+  text-decoration-color: var(--hair-strong);
+  text-underline-offset: 3px;
+}
+.atl-live::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--pencil-blue);
+}
+.atl-live:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+.atl-live[hidden] {
+  display: none;
+}
+
+/* The globe's canvas for tonight's search: over the survey, under Aladin's marks. */
+.atl-searchcanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .atl-list-toggle {
   justify-self: start;

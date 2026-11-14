@@ -218,3 +218,12 @@ export function countSentence(n: number, zones: number): string {
 export function plural(n: number, one: string, many: string): string {
   return `${new Intl.NumberFormat("en-GB").format(n)} ${n === 1 ? one : many}`;
 }
+
+/**
+ * The whole-sky caption: what the map shows, and, when likely mismatches are hidden, why that's
+ * fewer than the total in the intro: "1,250 shown; 83 likely mismatches hidden."
+ */
+export function shownSentence(shown: number, hidden: number, zones: number): string {
+  if (!(hidden > 0)) return `${countSentence(shown, zones)}.`;
+  return `${new Intl.NumberFormat("en-GB").format(shown)} shown; ${plural(hidden, "likely mismatch", "likely mismatches")} hidden.`;
+}
