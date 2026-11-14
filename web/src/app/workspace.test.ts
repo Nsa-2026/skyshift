@@ -26,7 +26,7 @@ it('keeps the observation, selected signal and player instance through level and
   vi.mocked(loadObject).mockResolvedValue(object);
   const fetcher=vi.fn(async(input:RequestInfo|URL)=>new Response(JSON.stringify(String(input).includes('capabilities')?{analysis_jobs:false}:science),{headers:{'Content-Type':'application/json'}}));
   vi.stubGlobal('fetch',fetcher);
-  history.replaceState(null,'','/');
+  history.replaceState(null,'','/#/explore');
   const root=document.createElement('div');document.body.append(root);startApp(root);await settled();
   expect(engine.show).toHaveBeenCalledTimes(1);
   expect(fetcher).not.toHaveBeenCalled();

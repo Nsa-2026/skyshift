@@ -15,6 +15,9 @@ web/*
 web/public/*
 !web/public/data/
 !web/public/science-data/
+# The server reads only the featured fields' index/frames/object files (exports.py); not the
+# candidate cutouts.
+web/public/data/cand/
 docs/
 pitch/
 pipeline/

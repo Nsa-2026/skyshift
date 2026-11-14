@@ -1,11 +1,12 @@
 import './workbench.css';
 import type {Epoch, FramesResponse, ObjectResponse} from '../api/types';
 import type {CardHandle, View} from '../app/modules';
-import {json, loadAnalysis, type Target, type Candidate} from '../api/science-client';
+import {json, loadAnalysis, hasScience, type Target, type Candidate} from '../api/science-client';
 import {mountScience} from '../card/science';
 import {mountComparison} from './comparison';
 import {renderFindings, renderCalibration, renderFrameQuality} from './findings';
 import {MODES, workspaceHref, type WorkspaceState} from './workspace-state';
+import {targetBySlug} from '../app/state';
 
 export type Layer = 'raw' | 'model' | 'resid' | 'refdiff';
 export const targetFor = (view: View): Target => ({
@@ -76,7 +77,10 @@ export function mountWorkbench(host:HTMLElement, opts:{
     } catch(error) {
       if(signal.aborted)return;
       findingsLoaded=false;
-      $('.wb-findings-body').textContent=`No analysis has been published for this detector. Try the target’s default detector. ${(error as Error).message}`;
+      const home=hasScience(selected.slug)?targetBySlug(selected.slug)?.det:undefined;
+      $('.wb-findings-body').textContent=home&&home!==selected.det
+        ?`Signals for this target are published for D${home} only. Switch the player to D${home} to see them.`
+        :`No signal analysis has been published for this position and detector. ${(error as Error).message}`;
     }
   }
   function load(){
@@ -152,8 +156,10 @@ export function mountWorkbench(host:HTMLElement, opts:{
         if(!view||view.ra!==next.ra||view.dec!==next.dec)comparison.setTarget(targetFor(next));
       }
       view=next;layer.value=selectedLayer;build.disabled=false;
-      $<HTMLAnchorElement>('.wb-science-json').href=`/api/science?ra=${next.ra}&dec=${next.dec}`;
-      $<HTMLAnchorElement>('.wb-analysis-json').href=`/api/analysis?ra=${next.ra}&dec=${next.dec}&det=${next.det}`;
+      // Static first: a featured field's products are files; elsewhere the API answers (or says why not).
+      const published=hasScience(next.slug);
+      $<HTMLAnchorElement>('.wb-science-json').href=published?`/science-data/${next.slug}/science.json`:`/api/science?ra=${next.ra}&dec=${next.dec}`;
+      $<HTMLAnchorElement>('.wb-analysis-json').href=published?`/science-data/${next.slug}/analysis.json`:`/api/analysis?ra=${next.ra}&dec=${next.dec}&det=${next.det}`;
       $('.wb-context').textContent=`${next.name??'Selected sky'} · D${next.det} · ${next.clock==='months'?'Months':'Hours'} · ${next.fov}′ field`;
       metadata();load();
     },

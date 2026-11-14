@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {falseAlarm,quality,matchedCandidate,motionDirection,spectralColour,separation} from './evidence';
 import {bandPairs} from './observations';
-import type {Analysis,ObjectData,Target} from '../api/science-client';
+import type {Analysis} from '../api/science-client';
 import type {Epoch} from '../api/types';
 
 describe('scientific evidence shown to beginners',()=>{

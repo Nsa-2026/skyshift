@@ -31,13 +31,20 @@ const html = String.raw;
 const PAGE_TITLES: Record<string, string> = {
   discover: "Candidates",
   review: "Review",
-  explore: "Blink",
+  explore: "Workspace",
   live: "Live search",
   community: "Community",
   results: "Results",
   learn: "Learn",
   tools: "Tools and data",
   about: "About",
+};
+/** How the Workspace names each image source (Research → Processing). */
+const LAYER_LABELS: Record<Layer, string> = {
+  raw: "SPHEREx observations",
+  model: "Static sky model",
+  resid: "Model residual",
+  refdiff: "DR1 reference difference",
 };
 /** Flip to true when src/atlas replaces its placeholder. */
 const ATLAS_READY = true;
@@ -57,7 +64,7 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/sky" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
+        <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
         <a href="#/candidates" data-route="discover">To check</a>
         <a href="#/review" data-route="review">Review</a>
         <a href="#/explore" data-route="explore">Workspace</a>
@@ -216,7 +223,7 @@ export function startApp(root: HTMLElement): void {
     workbench.select(next, layer);
     const layerCaption = $<HTMLElement>('.science-layer-caption');
     layerCaption.hidden = layer === 'raw';
-    $<HTMLElement>('[data-layer-description]').textContent = ({raw:'',model:'Static sky model',resid:'Model residual',refdiff:'DR1 reference difference'})[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
+    $<HTMLElement>('[data-layer-description]').textContent = LAYER_LABELS[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
     if (push) writeView(next);
     blinkName = next.name ?? formatRaDec(next);
     $<HTMLHeadingElement>("#blink-h1").textContent = MODES[workspaceState(parseRoute().param).mode].title;
@@ -284,7 +291,7 @@ export function startApp(root: HTMLElement): void {
         const failed = layer;
         layer = 'raw';
         await go(next, { push: false, objectToo: false });
-        if (view === next) workbench.message(`${failed} is unavailable for this field, detector, clock or field of view. Showing the original observations.`);
+        if (view === next) workbench.message(`The ${LAYER_LABELS[failed].toLowerCase()} is unavailable for this field, detector, clock or field of view. Showing the original observations.`);
       } else blink.status("error", errorText(e));
     }
   }
@@ -377,8 +384,11 @@ export function startApp(root: HTMLElement): void {
     if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
     if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
     if (["review", "explore", "community", "about", "learn", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
-    // The first workspace level is the default entry. The atlas keeps its explicit /sky route.
-    return { page: "explore", param: null };
+    // No hash: deep links to a target or coordinates open the Workspace (Explore); otherwise the
+    // home page is the Sky globe (#119). The Workspace is in the nav and behind every target link.
+    if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
+      return { page: "explore", param: null };
+    return { page: ATLAS_READY ? "atlas" : "live", param: null };
   }
 
   function route() {

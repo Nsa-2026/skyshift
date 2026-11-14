@@ -1,5 +1,5 @@
 import {it,expect,vi,afterEach} from 'vitest';
-import {loadFrames} from './client';
+import {loadFrames,loadObject,loadValidation} from './client';
 afterEach(()=>vi.unstubAllGlobals());
 it('falls back to the API when a published field lacks the requested detector',async()=>{
  const calls:string[]=[];
@@ -12,4 +12,10 @@ it('falls back to the API when a published field lacks the requested detector',a
  const result=await loadFrames({ra:10,dec:20,slug:'field',clock:'months',fov:15,det:6});
  expect(result.origin).toBe('api');
  expect(calls.at(-1)).toContain('det=6');
+});
+it('never shows a synthetic example as a real observation, but still hands labelled examples to Results',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({synthetic:true,clock:'months',epochs:[],checks:[]})})));
+ await expect(loadFrames({ra:10,dec:20,slug:null,clock:'months',fov:5,det:2})).rejects.toMatchObject({code:'upstream'});
+ await expect(loadObject({ra:10,dec:20})).rejects.toMatchObject({code:'upstream'});
+ expect(await loadValidation()).toMatchObject({synthetic:true});
 });

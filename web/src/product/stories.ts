@@ -1,6 +1,6 @@
 import type {MountPage, PageHandle, View} from '../app/modules';
 import {TARGETS, viewForTarget} from '../app/state';
-import {json} from '../api/science-client';
+import {loadScience} from '../api/science-client';
 import {loadCulture, culture, englishCultureText} from './culture';
 import {escapeHtml as esc, dateLabel} from './evidence';
 
@@ -59,7 +59,7 @@ const mountStories:MountPage=(el,ctx)=>{
         card.setAttribute('date',new Date().toISOString().slice(0,10));card.setAttribute('source','Sky coordinates · cultural interpretation');
         content.querySelector('.story-asterism')!.append(card);
         try {
-          const data=await json<{frames:{mjd:number}[];target_motion:null|{pmra:number;pmdec:number}}>(view.slug?`/science-data/${view.slug}/science.json`:`/api/science?ra=${view.ra}&dec=${view.dec}`,signal);
+          const data=await loadScience<{frames:{mjd:number}[];target_motion:null|{pmra:number;pmdec:number}}>(view,signal);
           if(signal.aborted)return;
           if(data.frames.length)card.setAttribute('date',dateLabel(Math.max(...data.frames.map(f=>f.mjd))));
           if(data.target_motion){card.setAttribute('pmra',String(data.target_motion.pmra*1000));card.setAttribute('pmdec',String(data.target_motion.pmdec*1000));card.setAttribute('years','1000');}
