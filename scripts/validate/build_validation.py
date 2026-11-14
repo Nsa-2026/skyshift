@@ -54,6 +54,59 @@ def r(x, n=2):
     return None if x is None or (isinstance(x, float) and not math.isfinite(x)) else round(float(x), n)
 
 
+# --- status rules (pure, tested in tests/test_build_validation.py) ----------------------------
+# A poor number is printed with "partial" or "fail"; nothing is rounded up to a pass.
+
+def v1_status(found: int, tested: int) -> str:
+    return "pass" if found == tested == 5 else ("partial" if found >= 3 else "fail")
+
+
+def v2_status(shift_error_pct: float | None, pa_error_deg: float | None) -> str:
+    """Barnard's Star within 15% and 10 deg of Gaia."""
+    if shift_error_pct is None or pa_error_deg is None:
+        return "pending"
+    return "pass" if abs(shift_error_pct) <= 15 and pa_error_deg <= 10 else "fail"
+
+
+def v3_status(n_ref_stars: int | None) -> str:
+    return "pass" if (n_ref_stars or 0) >= 10 else "partial"
+
+
+def v4_status(found: int, tested: int, median_offset_px: float | None, control_rate: float | None) -> str:
+    ok = median_offset_px is not None and median_offset_px < 1.0 and control_rate is not None and control_rate < 0.05
+    return "pass" if ok and found >= 0.8 * tested else ("partial" if found > 0 else "fail")
+
+
+def v5_status(recall: float | None, control_recall: float | None, threshold: float = 0.5) -> str:
+    """Gate G2: recall of known asteroids at V < 16 within 12" >= 50%, control near 0 (< 5%)."""
+    if recall is None:
+        return "pending"
+    if recall >= threshold and (control_recall or 0) < 0.05:
+        return "pass"
+    return "partial" if recall > 0 else "fail"
+
+
+def v8_status(spectra_pass: bool | None, median_first_frame_s: float | None, speed_measured: bool) -> str:
+    """Both halves must pass for "pass"; one half missing is "partial"; any failed half is "fail"."""
+    halves = []
+    if spectra_pass is not None:
+        halves.append("pass" if spectra_pass else "fail")
+    if speed_measured:  # a run where half or more requests failed has no median: that is a fail
+        halves.append("pass" if median_first_frame_s is not None and median_first_frame_s < 15 else "fail")
+    if not halves:
+        return "pending"
+    if "fail" in halves:
+        return "fail"
+    return "pass" if len(halves) == 2 else "partial"
+
+
+def dev_sigma(shift: float | None, predicted: float | None, sigma: float | None) -> float | None:
+    """|measured - predicted| shift in units of the shift's error bar."""
+    if shift is None or predicted is None or not sigma:
+        return None
+    return abs(shift - predicted) / sigma
+
+
 # --- V1 ---------------------------------------------------------------------------------------
 
 def v1() -> dict:
@@ -70,16 +123,22 @@ def v1() -> dict:
     missed = [t["slug"] for t in d["targets"] if not t["recovered"]]
     nv, nv_ok = sum(t["visits"] for t in d["targets"]), sum(t["visits_recovered"] for t in d["targets"])
     offs = sorted(t["median_offset_px"] for t in d["targets"] if t["median_offset_px"] is not None)
-    status = "pass" if n == tot == 5 else ("partial" if n >= 3 else "fail")
+    status = v1_status(n, tot)
     note = ("Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the "
             "visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos of one visit and one "
-            "expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core. Rows: slug, "
-            "recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, median_offset_px.")
+            "expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core "
+            "(scripts/validate/v1_targets.py, 41 px boxes read from NASA's S3 copy).")
     w = next((t for t in d["targets"] if t["slug"] == "wise0855"), None)
     if w:
         note += (f" WISE 0855-0714 (D5-D6 only, every photo of a visit stacked): {w['visits_recovered']} of {w['visits']} visits; "
                  "its first visit has only 8 D5 and 3 D6 photos. In D1-D4 a background star lies 1-2 px from it: those stacks "
                  "are not counted.")
+    rd = next((t for t in d["targets"] if t["slug"] == "rdra"), None)
+    if rd and rd["stacks_recovered"] < rd["stacks_expected"]:
+        note += (f" R Draconis is found in {rd['stacks_recovered']} of {rd['stacks_expected']} stacks; the misses are in D4-D5 "
+                 "while D1-D3 find it in the same visits (not yet explained).")
+    note += (" Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, "
+             "median_offset_px.")
     return check("V1", claim, status,
                  f"{n} of {tot} test objects found where predicted, in {nv_ok} of {nv} visits"
                  + (f"; median offset {offs[len(offs) // 2]} px" if offs else "")
@@ -113,26 +172,40 @@ def v2_v3(site: Path) -> tuple[dict, dict]:
                      "sigma_arcsec": r(m.get("sigma_arcsec")), "pa_deg": r(m.get("pa_deg"), 1),
                      "predicted_pa_deg": r(pred_pa, 1), "dt_yr": r(m.get("dt_yr"), 3),
                      "rate_arcsec_yr": r(m.get("rate_arcsec_yr")), "n_ref_stars": m.get("n_ref_stars"),
+                     "dev_sigma": r(dev_sigma(shift, pred, m.get("sigma_arcsec")), 1),
                      # % and PA errors only mean something for a target that moves (> 1")
                      "shift_error_pct": r(100 * (shift - pred) / pred, 1) if shift and pred and pred > 1 else None,
                      "pa_error_deg": r(_pa_diff(m["pa_deg"], pred_pa), 1) if pred and pred > 1 and pred_pa is not None and m.get("pa_deg") is not None else None})
     b = next((x for x in rows if x["slug"] == "barnard" and x["measured"]), None)
     claim2, exp2 = "Motion matches Gaia", "Barnard's Star within 15% and 10 deg of Gaia (10.39\"/yr)"
-    note2 = ("Shift = position in the last visit stack minus the first, against reference stars in the same cutouts; "
-             "predicted = Gaia DR3 proper motion and parallax over the same dates (WISE 0855: published astrometry). "
-             "Rows: slug, shift_arcsec, predicted_arcsec, sigma_arcsec, pa_deg, predicted_pa_deg, dt_yr, shift_error_pct, pa_error_deg.")
+    meas = [x for x in rows if x["measured"]]
+    within = [x for x in meas if x["dev_sigma"] is not None and x["dev_sigma"] <= 3]
+    worst = max((x for x in meas if x["dev_sigma"] is not None), key=lambda x: x["dev_sigma"], default=None)
+    note2 = ("Shift = the target's position in the last visit stack minus the first, measured against reference stars in "
+             "the same cutouts (site data <slug>/object.json, field measure); predicted = Gaia DR3 proper motion and "
+             "parallax over the same dates (WISE 0855: published astrometry). dev_sigma = |shift - predicted| / sigma_arcsec. "
+             "The pass rule is set on Barnard's Star; RW Aurigae and R Draconis barely move, so for them only dev_sigma "
+             "means anything."
+             + ((f" {len(within)} of {len(meas)} measured targets agree with the prediction within 3 sigma"
+                 + (f" (largest: {worst['slug']} at {worst['dev_sigma']} sigma)." if worst else ".")) if meas else "")
+             + " Rows: slug, measured, shift_arcsec, predicted_arcsec, sigma_arcsec, dev_sigma, pa_deg, predicted_pa_deg, "
+               "dt_yr, rate_arcsec_yr, n_ref_stars, shift_error_pct, pa_error_deg.")
     if b is None:
         c2 = check("V2", claim2, "pending", "Barnard's Star not measured yet", expected=exp2, note=note2, rows=rows)
     else:
-        ok = abs(b["shift_error_pct"]) <= 15 and b["pa_error_deg"] <= 10
-        c2 = check("V2", claim2, "pass" if ok else "fail",
+        c2 = check("V2", claim2, v2_status(b["shift_error_pct"], b["pa_error_deg"]),
                    f"Barnard's Star moved {b['shift_arcsec']}\" ± {b['sigma_arcsec']}\" at PA {b['pa_deg']}° in {b['dt_yr']} yr; "
-                   f"Gaia predicts {b['predicted_arcsec']}\" ({b['shift_error_pct']:+.1f}%, {b['pa_error_deg']}°)",
+                   f"Gaia predicts {b['predicted_arcsec']}\" ({b['shift_error_pct']:+.1f}%, {b['pa_error_deg']}°, "
+                   f"{b['dev_sigma']} sigma); {len(within)} of {len(meas)} targets within 3 sigma",
                    value=b["shift_arcsec"], unit="arcsec", expected=exp2, note=note2, rows=rows)
     claim3, exp3 = "Position error floor", "Floor ~0.25\" (first photo); 10 or more reference stars"
-    note3 = ("sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, < 20 mas/yr) in the "
-             "same cutouts; it is V2's error bar. Slowest motion visible at 3 sigma = 3 sigma / dt. Rows: slug, sigma_arcsec, "
-             "n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.")
+    sig = sorted(x["sigma_arcsec"] for x in rows if x["measured"] and x.get("sigma_arcsec") is not None)
+    note3 = ("sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, under 20 mas/yr) in "
+             "the same cutouts as the target; it is V2's error bar. The slowest motion visible at 3 sigma is 3 sigma / dt. "
+             "The headline is Barnard's Star's field"
+             + (f"; across the {len(sig)} measured fields sigma runs {sig[0]}-{sig[-1]}\" (fewer reference stars or a "
+                "fainter target give a larger error)." if sig else ".")
+             + " Rows: slug, sigma_arcsec, n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.")
     rows3 = [{"slug": x["slug"], "sigma_arcsec": x["sigma_arcsec"], "n_ref_stars": x["n_ref_stars"], "dt_yr": x["dt_yr"],
               "min_rate_3sigma_arcsec_yr": r(3 * x["sigma_arcsec"] / x["dt_yr"]) if x.get("sigma_arcsec") and x.get("dt_yr") else None}
              for x in rows if x["measured"]]
@@ -140,7 +213,7 @@ def v2_v3(site: Path) -> tuple[dict, dict]:
         c3 = check("V3", claim3, "pending", "Not measured yet", unit="arcsec", expected=exp3, note=note3, rows=rows3)
     else:
         b3 = next(x for x in rows3 if x["slug"] == "barnard")
-        c3 = check("V3", claim3, "pass" if (b3["n_ref_stars"] or 0) >= 10 else "partial",
+        c3 = check("V3", claim3, v3_status(b3["n_ref_stars"]),
                    f"Position error {b3['sigma_arcsec']}\" from {b3['n_ref_stars']} reference stars: motions above "
                    f"{b3['min_rate_3sigma_arcsec_yr']}\"/yr are seen at 3 sigma in one year",
                    value=b3["sigma_arcsec"], unit="arcsec", expected=exp3, note=note3, rows=rows3)
@@ -156,14 +229,15 @@ def v4() -> dict:
         return check("V4", claim, "pending", "Not run yet", expected=exp)
     n, tot = d["asteroids_found"], d["asteroids_tested"]
     ctrl_rate, off = d["photo_control_rate"], d["median_offset_px"]
-    ok = off is not None and off < 1.0 and ctrl_rate is not None and ctrl_rate < 0.05
-    status = "pass" if ok and n >= 0.8 * tot else ("partial" if n > 0 else "fail")
+    status = v4_status(n, tot, off, ctrl_rate)
     rows = [{k: a[k] for k in ("number", "name", "vmag_median", "photos", "found_photos", "found", "median_offset_px",
                                "control_photos", "control_found")} for a in d["rows"]]
-    note = (f"MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is "
+    note = (f"Asteroids numbered 1-60 at IRSA MOST's predicted position in up to 5 photos each (D2-D3, 81 px boxes read from "
+            f"NASA's S3 copy). Found = a 5 sigma detection within 2 px that is "
             f"absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. "
             f"Per photo: {d['photos_found']}/{d['photos_measured']} found, control {d['photos_control_found']}/{d['photos_measured']}; "
-            f"per asteroid control {d['asteroids_control_found']}/{tot}. Rows: number, name, vmag_median, photos, found_photos, "
+            f"per asteroid control {d['asteroids_control_found']}/{tot}. Photos not counted mostly have a static star within "
+            f"3 px in the reference stack, so a detection there can't be told apart. Rows: number, name, vmag_median, photos, found_photos, "
             f"found, median_offset_px, control_photos, control_found.")
     return check("V4", claim, status,
                  f"Re-found {n} of {tot} asteroids where NASA predicted them; median offset {off} px "
@@ -183,13 +257,21 @@ def v5(res: Path | None, zone: str) -> dict:
              "recall": r(b.get("recall"), 3), "control_recall": r(b.get("control_recall"), 3)} for b in d.get("by_v", [])]
     rec, ctl = d.get("recall"), d.get("control_recall")
     po = d.get("per_object") or {}
-    return check("V5", claim, "pass" if d.get("g2_pass") else "fail",
+    v12 = d.get("v_12_to_16") or {}
+    return check("V5", claim, v5_status(rec, ctl, d.get("g2_threshold") or 0.5),
                  f"{zone}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {d.get('v_max'):g} found "
                  f"as movers ({100 * (rec or 0):.0f}%); control {100 * (ctl or 0):.0f}%"
                  + (f"; {po.get('found')} of {po.get('n')} objects" if po.get("n") else ""),
                  value=r(rec, 3), unit="recall", expected=exp,
-                 note=f"Zone {zone}. A known object counts as found when a mover lies within the match radius of its prediction "
-                      "at the photo's MJD-AVG; control: every prediction moved 2'. Rows: v_min, v_max, n, found, recall, control_recall.",
+                 note=f"Zone {zone} ({d.get('photos_with_predictions')} photos with predictions; pipeline report of "
+                      f"{d.get('generated')}). Unit: {d.get('unit')}. Known asteroids from SkyBoT, moved to each photo's MJD-AVG; "
+                      f"one counts as found when a blind-search mover lies within {d.get('match_arcsec'):g}\" of the prediction; "
+                      f"control: every prediction moved {(d.get('control_offset_arcsec') or 120) / 60:g}'. Gate G2 is recall "
+                      f">= {100 * (d.get('g2_threshold') or 0.5):.0f}% at V < {d.get('v_max'):g}"
+                      + (f"; V 12-16 alone: {v12.get('found')} of {v12.get('n')}" if v12.get("n") else "")
+                      + ". Objects brighter than V 12 saturate but are still counted. "
+                      + ("The hunt zone is not finished; these are pilot numbers. " if zone == "pilot" else "")
+                      + "Rows: v_min, v_max, n, found, recall, control_recall.",
                  rows=rows)
 
 
@@ -235,36 +317,72 @@ def v10(res: Path | None, zone: str) -> dict:
 
 # --- V8, V11 ----------------------------------------------------------------------------------
 
+def _failure_causes(rows: list[dict]) -> str:
+    """'12 HTTP 429, 8 no answer within the timeout' for the failed demo_check requests."""
+    causes: dict[str, int] = {}
+    for x in rows:
+        if x.get("ok"):
+            continue
+        err = str(x.get("error") or "")
+        key = (f"HTTP {x['status']}" if x.get("status") else
+               "no answer within the timeout" if "timeout" in err else "no response")
+        causes[key] = causes.get(key, 0) + 1
+    return ", ".join(f"{n} {k}" for k, n in sorted(causes.items(), key=lambda kv: -kv[1]))
+
+
 def v8(demo: Path | None) -> dict:
     claim, exp = "Spectra and speed", "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s"
     sp = load(DATA / "v8_spectra.json")
     d = load(demo)
     med = (d or {}).get("median_first_frame_s")
-    if not sp and med is None:
+    speed_measured = bool(d and d.get("n_random"))
+    if not sp and not speed_measured:
         return check("V8", claim, "pending", "Not measured yet", unit="ratio", expected=exp)
-    parts, rows, status = [], [], []
+    parts, rows = [], []
     if sp:
         for name, b in sp["bands"].items():
             c = b["clean"]
             parts.append(f"{name} {c['median']:.3f} (scatter {100 * c['scatter']:.1f}%, {c['n']:,} stars)")
             rows += [{"part": "spectra", **r_} for r_ in b["by_mag"]]
-        status.append("pass" if sp["pass"] else "fail")
     head = ("SPHEREx / catalogue flux, " + "; ".join(parts) + f" ({sp['zone']}, 10-13 mag)") if sp else "Spectra not measured yet"
-    if med is not None:
+    speed_note = ""
+    if speed_measured:
         rnd = d.get("random", [])
         n_ok = sum(1 for x in rnd if x.get("ok"))
-        head += f"; median time to first frame {med:.1f} s over {n_ok} random coordinates"
+        n_pts = len({(x.get("ra"), x.get("dec")) for x in rnd})
+        n_slow = sum(1 for x in rnd if x.get("ok") and (x.get("first_frame_s") or 0) > 15)
+        byc = d.get("median_first_frame_s_by_clock") or {}
+        ok_t = sorted(x["first_frame_s"] for x in rnd if x.get("ok") and x.get("first_frame_s") is not None)
+        if med is not None:
+            head += f"; median time to first frame {med:.1f} s over {len(rnd)} live requests ({n_ok} ok)"
+        else:
+            head += (f"; live speed: only {n_ok} of {len(rnd)} requests answered"
+                     + (f" ({ok_t[0]:.1f}-{ok_t[-1]:.1f} s to first frame)" if ok_t else "")
+                     + f", the rest {_failure_causes(rnd)}")
+        if d.get("generated"):
+            head += f" ({d['generated'][:16].replace('T', ' ')} UTC)"
         rows += [{"part": "speed", "ra": x.get("ra"), "dec": x.get("dec"), "clock": x.get("clock"), "ok": x.get("ok"),
                   "first_frame_s": x.get("first_frame_s")} for x in rnd]
-        status.append("pass" if med < 15 else "fail")
+        speed_note = (f" Speed measured {d.get('generated')} against {d.get('api_base')}/api: {n_pts} random coordinates "
+                      f"(uniform on the sphere, seed {d.get('seed')}), each on both clocks, timed from the /api/frames request to "
+                      f"the first frame received; a failed request counts as slower than any success. "
+                      + "".join(f"Median {c} {v:.1f} s. " for c, v in byc.items() if v is not None)
+                      + (f"{n_slow} ok request(s) took over 15 s. " if n_slow else "")
+                      + (f"{len(rnd) - n_ok} request(s) failed ({_failure_causes(rnd)}). " if n_ok < len(rnd) else "")
+                      + "The API was being sped up while this ran, so the number can change.")
+        st_t = sorted(t["first_frame_s"] for t in d.get("targets", []) if t.get("ok") and t.get("first_frame_s") is not None)
+        if st_t:
+            speed_note += (f" For comparison, the {len(st_t)} featured targets, served as static files, showed their first "
+                           f"frame in {st_t[0]:.2f}-{st_t[-1]:.2f} s.")
     else:
-        head += "; speed pending (site not deployed)"
-    st = "fail" if "fail" in status else ("pass" if len(status) == 2 else "partial")
+        head += "; speed not measured yet (needs scripts/demo_check.py on the live site)"
+    st = v8_status(sp["pass"] if sp else None, med, speed_measured)
     value = sp["bands"]["Ks"]["clean"]["median"] if sp else None
     note = ("Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx "
             "channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and "
-            "309.54 Jy), no colour terms (scripts/validate/v8_spectra.py). Speed: scripts/demo_check.py, random coordinates "
-            "through /api/frames. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed "
+            "309.54 Jy), no colour terms (scripts/validate/v8_spectra.py); fainter than 13 mag the scatter grows to 6-12%."
+            + speed_note
+            + " Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed "
             "(ra, dec, clock, ok, first_frame_s).")
     return check("V8", claim, st, head, value=value, unit="ratio", expected=exp, note=note, rows=rows)
 
@@ -294,12 +412,23 @@ def v11() -> dict:
                  rows=rows)
 
 
+SUSPECT_KEYS = {"id", "ra", "dec", "mjd", "clock", "det", "evidence", "n_dots", "snr", "flux_ujy", "cell",
+                "nearest_known_arcsec"}
+
+
+def valid_suspects(d: dict) -> bool:
+    """The pipeline's suspects.json has the contracts/api.md shape and is not a synthetic example."""
+    return (isinstance(d.get("suspects"), list) and not d.get("synthetic")
+            and all(SUSPECT_KEYS <= set(s) and s.get("evidence") in ("two_exposures", "two_detectors")
+                    for s in d["suspects"]))
+
+
 def fetch_results(zone: str, dest: Path) -> None:
     gcloud = shutil.which("gcloud")
     if not gcloud:
         raise SystemExit("gcloud not on PATH: copy the reports by hand into " + str(dest / zone))
     (dest / zone).mkdir(parents=True, exist_ok=True)
-    for name in ("recall.json", "astrometry_report.json", "photoz_report.json"):
+    for name in ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json"):
         subprocess.run([gcloud, "storage", "cp", f"{BUCKET}/results/{zone}/{name}", str(dest / zone / name)], check=False)
 
 
@@ -311,6 +440,8 @@ def main() -> None:
     ap.add_argument("--fetch-results", metavar="ZONE", help="gcloud storage cp the zone's reports into --results first")
     ap.add_argument("--demo-check", type=Path, help="JSON written by scripts/demo_check.py --json (V8)")
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
+                    help="copy the zone's real suspects.json here when the pipeline wrote one (default web/public/data)")
     args = ap.parse_args()
 
     if args.fetch_results:
@@ -328,6 +459,12 @@ def main() -> None:
     for c in checks:
         print(f"{c['id']:4s} {c['status']:8s} {c['headline']}")
     print(f"-> {args.out}")
+    sus = load(args.results / args.zone / "suspects.json")
+    if sus and valid_suspects(sus):
+        write_json(args.suspects_out, sus)
+        print(f"-> {args.suspects_out} ({len(sus['suspects'])} suspects, zone {sus.get('zone')})")
+    elif sus:
+        print(f"suspects.json for {args.zone} does not match contracts/api.md; not copied")
 
 
 if __name__ == "__main__":
