@@ -1,0 +1,4 @@
+.cache/
+.venv/
+# MOST table is ~8 MB: it lives in gs://nasa-glazing-data/results/most_1_60.csv
+data/most_1_60.csv

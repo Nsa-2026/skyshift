@@ -1,0 +1,735 @@
+{
+  "targets": {
+    "barnard": {
+      "images": 358,
+      "exposures": 181,
+      "visits": 5,
+      "sessions": 73,
+      "date_start": "2025-08-15 20:46",
+      "date_end": "2026-09-22 15:05",
+      "detectors": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "images_per_detector": {
+        "1": 60,
+        "2": 61,
+        "3": 59,
+        "4": 59,
+        "5": 61,
+        "6": 58
+      },
+      "collections": {
+        "spherex_dr1": 239,
+        "spherex_qr3": 119
+      },
+      "min_edge_px": 9.7,
+      "images_obj_outside": 0,
+      "per_visit": [
+        {
+          "visit": 1,
+          "mjd_start": 60902.865381,
+          "mjd_end": 60923.1078695,
+          "date_start": "2025-08-15 20:46",
+          "date_end": "2025-09-05 02:35",
+          "images": 108,
+          "exposures": 55,
+          "sessions": 19,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 2,
+          "mjd_start": 60948.5860055,
+          "mjd_end": 60949.2665805,
+          "date_start": "2025-09-30 14:03",
+          "date_end": "2025-10-01 06:23",
+          "images": 10,
+          "exposures": 5,
+          "sessions": 5,
+          "detectors": [
+            1,
+            4
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 3,
+          "mjd_start": 61110.092069,
+          "mjd_end": 61140.030727,
+          "date_start": "2026-03-11 02:12",
+          "date_end": "2026-04-10 00:44",
+          "images": 113,
+          "exposures": 57,
+          "sessions": 20,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 4,
+          "mjd_start": 61164.1338,
+          "mjd_end": 61165.083638,
+          "date_start": "2026-05-04 03:12",
+          "date_end": "2026-05-05 02:00",
+          "images": 8,
+          "exposures": 4,
+          "sessions": 4,
+          "detectors": [
+            3,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 5,
+          "mjd_start": 61268.631478,
+          "mjd_end": 61305.628687,
+          "date_start": "2026-08-16 15:09",
+          "date_end": "2026-09-22 15:05",
+          "images": 119,
+          "exposures": 60,
+          "sessions": 25,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_qr3"
+          ]
+        }
+      ]
+    },
+    "3i-atlas": {
+      "images": 259,
+      "exposures": 133,
+      "visits": 2,
+      "sessions": 45,
+      "date_start": "2025-08-01 08:01",
+      "date_end": "2025-12-15 00:00",
+      "detectors": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "images_per_detector": {
+        "1": 46,
+        "2": 44,
+        "3": 41,
+        "4": 48,
+        "5": 44,
+        "6": 36
+      },
+      "collections": {
+        "spherex_dr1": 258,
+        "spherex_qr2": 1
+      },
+      "min_edge_px": 8.4,
+      "images_obj_outside": 0,
+      "per_visit": [
+        {
+          "visit": 1,
+          "mjd_start": 60888.334106,
+          "mjd_end": 60902.530405,
+          "date_start": "2025-08-01 08:01",
+          "date_end": "2025-08-15 12:43",
+          "images": 161,
+          "exposures": 81,
+          "sessions": 30,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1",
+            "spherex_qr2"
+          ]
+        },
+        {
+          "visit": 2,
+          "mjd_start": 61017.005164,
+          "mjd_end": 61024.0000725,
+          "date_start": "2025-12-08 00:07",
+          "date_end": "2025-12-15 00:00",
+          "images": 98,
+          "exposures": 52,
+          "sessions": 15,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        }
+      ]
+    },
+    "epsindib": {
+      "images": 458,
+      "exposures": 238,
+      "visits": 5,
+      "sessions": 119,
+      "date_start": "2025-04-24 20:32",
+      "date_end": "2026-10-02 11:29",
+      "detectors": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "images_per_detector": {
+        "1": 46,
+        "2": 93,
+        "3": 96,
+        "4": 46,
+        "5": 84,
+        "6": 93
+      },
+      "collections": {
+        "spherex_dr1": 338,
+        "spherex_qr3": 120
+      },
+      "min_edge_px": 12.6,
+      "images_obj_outside": 0,
+      "per_visit": [
+        {
+          "visit": 1,
+          "mjd_start": 60789.856188,
+          "mjd_end": 60815.1318685,
+          "date_start": "2025-04-24 20:32",
+          "date_end": "2025-05-20 03:09",
+          "images": 87,
+          "exposures": 45,
+          "sessions": 19,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 2,
+          "mjd_start": 60832.6520785,
+          "mjd_end": 60836.190478,
+          "date_start": "2025-06-06 15:38",
+          "date_end": "2025-06-10 04:34",
+          "images": 31,
+          "exposures": 16,
+          "sessions": 5,
+          "detectors": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 3,
+          "mjd_start": 60946.9647775,
+          "mjd_end": 60991.8582365,
+          "date_start": "2025-09-28 23:09",
+          "date_end": "2025-11-12 20:35",
+          "images": 146,
+          "exposures": 78,
+          "sessions": 48,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 4,
+          "mjd_start": 61148.845456,
+          "mjd_end": 61164.117616,
+          "date_start": "2026-04-18 20:17",
+          "date_end": "2026-05-04 02:49",
+          "images": 74,
+          "exposures": 39,
+          "sessions": 21,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 5,
+          "mjd_start": 61305.227572,
+          "mjd_end": 61315.478742,
+          "date_start": "2026-09-22 05:27",
+          "date_end": "2026-10-02 11:29",
+          "images": 120,
+          "exposures": 60,
+          "sessions": 26,
+          "detectors": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_qr3"
+          ]
+        }
+      ]
+    },
+    "wise0855": {
+      "images": 258,
+      "exposures": 129,
+      "visits": 3,
+      "sessions": 61,
+      "date_start": "2025-05-05 16:49",
+      "date_end": "2026-05-14 06:54",
+      "detectors": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "images_per_detector": {
+        "1": 36,
+        "2": 48,
+        "3": 45,
+        "4": 36,
+        "5": 48,
+        "6": 45
+      },
+      "collections": {
+        "spherex_dr1": 258
+      },
+      "min_edge_px": 22.1,
+      "images_obj_outside": 0,
+      "per_visit": [
+        {
+          "visit": 1,
+          "mjd_start": 60800.7006945,
+          "mjd_end": 60801.51932,
+          "date_start": "2025-05-05 16:49",
+          "date_end": "2025-05-06 12:27",
+          "images": 30,
+          "exposures": 15,
+          "sessions": 5,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 2,
+          "mjd_start": 60979.7233435,
+          "mjd_end": 61022.3687715,
+          "date_start": "2025-10-31 17:21",
+          "date_end": "2025-12-13 08:51",
+          "images": 128,
+          "exposures": 64,
+          "sessions": 28,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 3,
+          "mjd_start": 61151.1985995,
+          "mjd_end": 61174.287884,
+          "date_start": "2026-04-21 04:45",
+          "date_end": "2026-05-14 06:54",
+          "images": 100,
+          "exposures": 50,
+          "sessions": 28,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        }
+      ]
+    },
+    "rwaur": {
+      "images": 335,
+      "exposures": 168,
+      "visits": 3,
+      "sessions": 57,
+      "date_start": "2025-09-01 10:05",
+      "date_end": "2026-09-16 21:31",
+      "detectors": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "images_per_detector": {
+        "1": 56,
+        "2": 55,
+        "3": 56,
+        "4": 56,
+        "5": 56,
+        "6": 56
+      },
+      "collections": {
+        "spherex_dr1": 226,
+        "spherex_qr3": 109
+      },
+      "min_edge_px": 3.5,
+      "images_obj_outside": 0,
+      "per_visit": [
+        {
+          "visit": 1,
+          "mjd_start": 60919.420313,
+          "mjd_end": 60938.232724,
+          "date_start": "2025-09-01 10:05",
+          "date_end": "2025-09-20 05:35",
+          "images": 112,
+          "exposures": 56,
+          "sessions": 20,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 2,
+          "mjd_start": 61091.720282,
+          "mjd_end": 61111.002753,
+          "date_start": "2026-02-20 17:17",
+          "date_end": "2026-03-12 00:03",
+          "images": 114,
+          "exposures": 57,
+          "sessions": 18,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 3,
+          "mjd_start": 61285.0978355,
+          "mjd_end": 61299.896563,
+          "date_start": "2026-09-02 02:20",
+          "date_end": "2026-09-16 21:31",
+          "images": 109,
+          "exposures": 55,
+          "sessions": 19,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_qr3"
+          ]
+        }
+      ]
+    },
+    "rdra": {
+      "images": 539,
+      "exposures": 273,
+      "visits": 9,
+      "sessions": 103,
+      "date_start": "2025-05-16 22:57",
+      "date_end": "2026-07-16 20:58",
+      "detectors": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "images_per_detector": {
+        "1": 91,
+        "2": 89,
+        "3": 91,
+        "4": 88,
+        "5": 89,
+        "6": 91
+      },
+      "collections": {
+        "spherex_dr1": 413,
+        "spherex_qr3": 126
+      },
+      "min_edge_px": 1.0,
+      "images_obj_outside": 0,
+      "per_visit": [
+        {
+          "visit": 1,
+          "mjd_start": 60811.9564955,
+          "mjd_end": 60841.451009,
+          "date_start": "2025-05-16 22:57",
+          "date_end": "2025-06-15 10:49",
+          "images": 85,
+          "exposures": 43,
+          "sessions": 15,
+          "detectors": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 2,
+          "mjd_start": 60848.649213,
+          "mjd_end": 60870.7311835,
+          "date_start": "2025-06-22 15:34",
+          "date_end": "2025-07-14 17:32",
+          "images": 48,
+          "exposures": 25,
+          "sessions": 12,
+          "detectors": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 3,
+          "mjd_start": 60873.4444405,
+          "mjd_end": 60878.6088855,
+          "date_start": "2025-07-17 10:39",
+          "date_end": "2025-07-22 14:36",
+          "images": 20,
+          "exposures": 10,
+          "sessions": 5,
+          "detectors": [
+            1,
+            4
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 4,
+          "mjd_start": 60965.615174,
+          "mjd_end": 60995.35912,
+          "date_start": "2025-10-17 14:45",
+          "date_end": "2025-11-16 08:37",
+          "images": 87,
+          "exposures": 44,
+          "sessions": 16,
+          "detectors": [
+            1,
+            4
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 5,
+          "mjd_start": 60997.733404,
+          "mjd_end": 61023.7392655,
+          "date_start": "2025-11-18 17:36",
+          "date_end": "2025-12-14 17:44",
+          "images": 77,
+          "exposures": 39,
+          "sessions": 14,
+          "detectors": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 6,
+          "mjd_start": 61035.218719,
+          "mjd_end": 61053.415292,
+          "date_start": "2025-12-26 05:14",
+          "date_end": "2026-01-13 09:58",
+          "images": 48,
+          "exposures": 24,
+          "sessions": 8,
+          "detectors": [
+            3,
+            6
+          ],
+          "collections": [
+            "spherex_dr1"
+          ]
+        },
+        {
+          "visit": 7,
+          "mjd_start": 61152.331718,
+          "mjd_end": 61182.137696,
+          "date_start": "2026-04-22 07:57",
+          "date_end": "2026-05-22 03:18",
+          "images": 64,
+          "exposures": 32,
+          "sessions": 12,
+          "detectors": [
+            3,
+            6
+          ],
+          "collections": [
+            "spherex_dr1",
+            "spherex_qr3"
+          ]
+        },
+        {
+          "visit": 8,
+          "mjd_start": 61183.491171,
+          "mjd_end": 61212.1475655,
+          "date_start": "2026-05-23 11:47",
+          "date_end": "2026-06-21 03:32",
+          "images": 33,
+          "exposures": 17,
+          "sessions": 5,
+          "detectors": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "collections": [
+            "spherex_qr3"
+          ]
+        },
+        {
+          "visit": 9,
+          "mjd_start": 61212.6189405,
+          "mjd_end": 61237.8739,
+          "date_start": "2026-06-21 14:51",
+          "date_end": "2026-07-16 20:58",
+          "images": 77,
+          "exposures": 39,
+          "sessions": 16,
+          "detectors": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "collections": [
+            "spherex_qr3"
+          ]
+        }
+      ]
+    }
+  },
+  "generated": "2026-11-14",
+  "collections": [
+    "spherex_dr1",
+    "spherex_qr3"
+  ],
+  "search_epoch": 2025.8,
+  "visit_rule": "local copy in _common.py; replace with skyshift_core.visits after p1/core merges"
+}
