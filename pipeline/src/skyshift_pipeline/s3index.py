@@ -13,7 +13,9 @@ makes from TAP (photolist.py), with TAP's values:
     size_bytes  the object size (S3 listing)
     detector    IMAGE DETECTOR (int8), s3_key, mjd = (t_min + t_max) / 2, url = S3 HTTPS + key
 Checked against photolists/zones/pilot.parquet (TAP, 990 photos): every value equal, except that a third of the
-s_region strings differ in a last digit (TAP's vertices are 1 ulp off ours: <= 2.1e-14 deg).
+s_region strings differ in a last digit (TAP's vertices are 1 ulp off ours: <= 2.8e-14 deg).
+The fallback on the pilot (index of the pilot photos, every other detector of their exposures and the exposures
+just before and after: 6,161 files) selects exactly the 990 TAP photos, same order, session and visit.
 S3 holds 1,628,230 Level 2 files (14 Nov: dr1 1,179,406 in 110 periods, qr3 448,824 in 41; ~10,800 per period).
 A period's '_retry' version directory holds other exposures, never a second copy (checked on every period).
 
