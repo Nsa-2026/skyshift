@@ -60,6 +60,8 @@ def test_gates_grades_and_reasons():
         clean(8, obs=("R1", "R2")),                                       # both dots from red photos
         clean(9, obs=("R1", "E2")),                                       # one red photo: B
         clean(10),                                                        # 2MASS within 6″
+        mover(11, [("E1", 4, 1200, 1000, 300.0, 20.0, 1.2, SOURCE), ("E2", 4, 1203, 885, 320.0, 20.0, 4.0, SOURCE)]),  # very sharp
+        mover(12, [("E1", 4, 1300, 1000, 300.0, 12.0, 1.2, SOURCE), ("E2", 4, 1303, 885, 320.0, 12.0, 4.0, SOURCE)]),  # S/N < 15: B
     ]
     s = pd.DataFrame(rows)
     # a hot pixel: three other movers' dots on the pixel of mover 0's first dot... in 3 exposures
@@ -73,9 +75,9 @@ def test_gates_grades_and_reasons():
     assert g[0] == ["hot_pixel"]  # E1 + H0 + H1 on (1000, 1000) of D4
     assert g[1] == ["edge"] and g[2] == ["masked_peak"] and g[3] == ["sharp_outlier"]
     assert g[4] == [] and g[5] == [] and g[6] == ["flux_ratio"] and g[7] == []
-    assert g[8] == ["red_photo"] and g[9] == [] and g[10] == ["2mass"]
+    assert g[8] == ["red_photo"] and g[9] == [] and g[10] == ["2mass"] and g[11] == ["very_sharp"] and g[12] == []
     assert dict(zip(out["cell"], out["grade"])) == {k: ("B" if not g[k] else "C") for k in g}
-    assert st["grades"] == {"A": 0, "B": 4, "C": 7} and st["gates"]["hot_pixel"] == 1 and st["first_reason"]["edge"] == 1
+    assert st["grades"] == {"A": 0, "B": 5, "C": 8} and st["gates"]["hot_pixel"] == 1 and st["first_reason"]["edge"] == 1
     assert out["gate_edge"].sum() == 1
 
 

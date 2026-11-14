@@ -537,10 +537,17 @@ VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free d
                                # hit 3.4% of real dots by chance, >= 5 0.01%; the five worst pixels made 10–14 suspects each)
 VET_COLUMN_PX = 0.5            # bad column: free dots of one exposure and detector within ±0.5 px in x ...
 VET_COLUMN_MIN_DOTS = 3        # ... at least this many (hunt: ~216 free dots per photo, 0.1 per column: 0.5% by chance)
-# sharp: √(a·b) below VET_SHARP_FRAC × the detector's stellar √(a·b) at that S/N, together with OUTLIER (19) at the peak.
-# OUTLIER alone is set at the peak of 52% of MPC-matched movers, so it never vetoes on its own.
-VET_SHARP_FRAC = 0.7
+# sharp: √(a·b) below VET_SHARP_FRAC[det] × the detector's stellar √(a·b) at that S/N, with OUTLIER (19) at the peak.
+# OUTLIER alone is set at the peak of 52–69% of MPC-matched movers' dots, so it never vetoes on its own. 150 MPC-matched
+# hunt movers (643 dots): ratio p1 0.69, p5 0.78; with OUTLIER, 10 dots at 0.62–0.69, all in D1–D3, none below 0.6. The
+# sharp MWIR artefacts grow over the mission (QA: bright D6 dots under 0.7× stellar 1% → 44% from visit 1 to 3), so
+# D4–D6 keep 0.7 and D1–D3 take 0.6: no real asteroid of the sample is gated, 3 fewer hunt suspects than 0.7 everywhere.
+VET_SHARP_FRAC = {1: 0.6, 2: 0.6, 3: 0.6, 4: 0.7, 5: 0.7, 6: 0.7}
 VET_OUTLIER_BIT = 1 << 19
+# very_sharp: √(a·b) below 0.4 × the stellar value at S/N >= 15, OUTLIER or not: no point source is that sharp (a star's
+# 5th percentile is ~0.8×). Hunt: suspect #3, a 1.0″ dot at S/N 85 (35,000 µJy) paired with a 500 µJy partner in D6.
+VET_VERY_SHARP_FRAC = 0.4
+VET_VERY_SHARP_MIN_SNR = 15.0
 # median √(a_arcsec·b_arcsec) of unflagged dots per detector in S/N bins [5,7,10,15,20,30,50,100,∞) (94 hunt photos, 1.87 M dots)
 VET_STAR_SNR_EDGES = (5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0)
 VET_STAR_SIZE_ARCSEC = {
@@ -565,6 +572,6 @@ VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed so
 VET_MOTION_SIGMA = 5.0         # grade A: motion >= 5σ over >= 2 sessions; needs a multi-session linker (none yet: no A)
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
-VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "flux_ratio", "red_photo", "2mass",
-             "allwise")
+VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
+             "red_photo", "2mass", "allwise")
 VET_CATALOGS = ("2mass", "allwise")  # the catalogue reasons among VET_GATES

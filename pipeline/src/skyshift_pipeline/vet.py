@@ -8,10 +8,11 @@ lists in movers.parquet) or at zone-level maps:
                 (freedots.parquet: every dot movers are paired from) in >= 5. Hot pixels NASA's HOT bit misses pair up
                 with another such pixel one to three exposure steps (~115 px in y) away and make "movers".
 - bad_column    a dot on a column (±0.5 px in x) holding >= 3 free dots of the same exposure and detector.
-- edge          a dot within 6 px of the detector edge.
+- edge          a dot within 6 px of the detector edge (hunt's former #1 candidate sat at x 0.6–0.7, half off the frame).
 - masked_peak   a mask bit (contracts/flags.md, saturation aside) at a dot's peak: TRANSIENT, PERSIST, SUR_ERROR, ...
-- sharp_outlier a dot sharper than a star (√(a·b) < 0.7 × the detector's stellar size at its S/N) with OUTLIER at the
-                peak: cosmic-ray-like. OUTLIER alone is set on half the real asteroids' dots, so it never vetoes alone.
+- sharp_outlier a dot sharper than a star (√(a·b) < 0.7 × (D1–D3: 0.6 ×) the detector's stellar size at its S/N) with
+                OUTLIER at the peak: cosmic-ray-like. OUTLIER alone is set on half the real asteroids' dots: never alone.
+- very_sharp    a dot under 0.4 × the stellar size at S/N >= 15, with or without OUTLIER: no point source is that sharp.
 - flux_ratio    the brightest dot > 4× the faintest within one detector (a hit with a faint partner).
 - red_photo     every dot from a photo that qa.py graded red (results/<zone>/qa_photos.parquet; skipped without it).
 - 2mass         a 2MASS PSC source within 6″ (refcat): catalogued after all.
@@ -151,8 +152,10 @@ def dot_gates(d: pd.DataFrame, movers_dots: pd.DataFrame, free: pd.DataFrame | N
     g["hot_pixel"] = hot
     fpk = d["fpk"].to_numpy(np.int64)
     g["masked_peak"] = (fpk & C.VET_PEAK_BITS) != 0
-    sharp = d["size"].to_numpy(np.float64) < C.VET_SHARP_FRAC * star_size(d["det"].to_numpy(), d["snr"].to_numpy())
-    g["sharp_outlier"] = sharp & ((fpk & C.VET_OUTLIER_BIT) != 0)
+    size, star = d["size"].to_numpy(np.float64), star_size(d["det"].to_numpy(), d["snr"].to_numpy())
+    frac = np.array([C.VET_SHARP_FRAC.get(int(k), 0.7) for k in d["det"].to_numpy()], np.float64)
+    g["sharp_outlier"] = (size < frac * star) & ((fpk & C.VET_OUTLIER_BIT) != 0)
+    g["very_sharp"] = (size < C.VET_VERY_SHARP_FRAC * star) & (d["snr"].to_numpy(np.float64) >= C.VET_VERY_SHARP_MIN_SNR)
     g["red"] = (np.array([(o, int(k)) in red for o, k in zip(d["obs"], d["det"])], bool)
                 if red is not None and len(d) else np.zeros(len(d), bool))
     return g
@@ -187,7 +190,7 @@ def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: s
         g = dot_gates(d, md, free, red)
         i = d["i"].to_numpy()
         for name, col in (("hot_pixel", "hot_pixel"), ("bad_column", "bad_column"), ("edge", "edge"),
-                          ("masked_peak", "masked_peak"), ("sharp_outlier", "sharp_outlier")):
+                          ("masked_peak", "masked_peak"), ("sharp_outlier", "sharp_outlier"), ("very_sharp", "very_sharp")):
             fail[name] = np.bincount(i, weights=g[col].to_numpy(float), minlength=n) > 0
         fail["not_vetted"] = np.bincount(i, weights=nan_xy.astype(float), minlength=n) > 0  # no pixel position for a dot
         fr = flux_ratio_fail(d)
