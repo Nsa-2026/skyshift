@@ -426,5 +426,6 @@ FORCED_SKY_DIR = "refcat/sky/forced_n32"           # p<pixel:05d>.parquet, FORCE
 FORCED_SKY_MANIFEST = "_complete.json"             # written last: the list is complete
 FORCED_SKY_MAX_PER_DEG2: float | None = FORCED_MAX_PER_PHOTO / PHOTO_SIDE_DEG ** 2   # 2,449/deg² -> 8,222 per partition
 FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in flight (16 measured fine, 14 Nov)
+FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
 FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
 FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)

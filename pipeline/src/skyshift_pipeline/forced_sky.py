@@ -30,7 +30,7 @@ import pandas as pd
 
 from . import config as C
 from . import log
-from .refcat import ESA_TAP, FORCED_COLUMNS, GAIA_SELECT, IRSA_TAP, _tap, parse_gaia
+from .refcat import ESA_TAP, FORCED_COLUMNS, GAIA_SELECT, IRSA_TAP, parse_gaia
 from .store import Store
 
 L = log.get("forced_sky")
@@ -104,6 +104,22 @@ def gaia_adql(pix: int, table: str, g_max: float = C.FORCED_GAIA_G_MAX, cap: int
     order = " ORDER BY phot_g_mean_mag, source_id" if cap else ""
     return (f"SELECT {top}{GAIA_SELECT} FROM {table} WHERE source_id >= {lo} AND source_id < {hi} "
             f"AND phot_g_mean_mag < {g_max}{order}")
+
+
+def _tap(url: str, adql: str):
+    """refcat._tap with a per-request timeout (C.FORCED_SKY_TIMEOUT_S), so one hung query of 12,288 is
+    retried instead of blocking a worker forever: ESA sync, IRSA async."""
+    import pyvo
+    import requests
+
+    class _Session(requests.Session):
+        def request(self, *a, **k):
+            k.setdefault("timeout", C.FORCED_SKY_TIMEOUT_S)
+            return super().request(*a, **k)
+
+    svc = pyvo.dal.TAPService(url, session=_Session())
+    run = svc.run_sync if url == ESA_TAP else svc.run_async
+    return run(adql, maxrec=C.REFCAT_MAXREC).to_table()
 
 
 GAIA_TABLES = [("ESA Gaia", ESA_TAP, "gaiadr3.gaia_source"), ("IRSA Gaia", IRSA_TAP, "gaia_dr3_source")]
