@@ -874,19 +874,19 @@
       "id": "V5",
       "claim": "Asteroids re-found, blind (S1)",
       "status": "pass",
-      "headline": "Hunt zone: 413 of 457 known asteroid sessions at V < 16 found as movers (90%); control 0%; 30 of 30 objects. Pilot zone (gate G2): 83 of 90 (92%), control 0%, 8 of 8 objects",
-      "value": 0.904,
+      "headline": "Hunt zone: 427 of 457 known asteroid sessions at V < 16 found (as movers or recovered on a track) (93%); control 0%; 30 of 30 objects. Pilot zone (gate G2): 83 of 90 (92%), control 0%, 8 of 8 objects",
+      "value": 0.934,
       "unit": "recall",
       "expected": "Recall at V < 16 >= 50% (gate G2); control near 0",
-      "note": "Unit: one known object in one session with >= 2 exposures covering it. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as seen from SPHEREx. One counts as found when a blind-search mover lies within 12\" of its predicted position; control: every prediction moved 2'. Gate G2 is recall >= 50% at V < 16, decided on the pilot zone before the hunt ran. Objects brighter than V 12 saturate but are still counted. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): 2,628 photos with predictions, pipeline report of 2026-11-14T13:39:27Z; V 12-16 alone: 373 of 416. Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): 629 photos with predictions, pipeline report of 2026-11-14T13:12:08Z, MPC orbit snapshot mpcorb_2026-11-14.parquet + cometels_2026-11-14.parquet; V 12-16 alone: 66 of 72. Rows: zone, v_min, v_max, n, found, recall, control_recall.",
+      "note": "Unit: one known object in one session with >= 2 exposures covering it. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as seen from SPHEREx. One counts as found when a blind-search mover, or a dot recovered on a mover track's predicted path in that session, lies within 12\" of its predicted position; control: every prediction moved 2'. Gate G2 is recall >= 50% at V < 16, decided on the pilot zone before the hunt ran. Objects brighter than V 12 saturate but are still counted. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): 2,628 photos with predictions, pipeline report of 2026-11-14T18:49:30Z; V 12-16 alone: 386 of 416; movers alone: 416 of 457 (91%). Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): 629 photos with predictions, pipeline report of 2026-11-14T13:12:08Z, MPC orbit snapshot mpcorb_2026-11-14.parquet + cometels_2026-11-14.parquet; V 12-16 alone: 66 of 72. Rows: zone, v_min, v_max, n, found, recall, control_recall.",
       "rows": [
         {
           "zone": "hunt",
           "v_min": null,
           "v_max": 12.0,
           "n": 41,
-          "found": 40,
-          "recall": 0.976,
+          "found": 41,
+          "recall": 1.0,
           "control_recall": 0.0
         },
         {
@@ -894,8 +894,8 @@
           "v_min": 12.0,
           "v_max": 14.0,
           "n": 56,
-          "found": 52,
-          "recall": 0.929,
+          "found": 53,
+          "recall": 0.946,
           "control_recall": 0.0
         },
         {
@@ -903,8 +903,8 @@
           "v_min": 14.0,
           "v_max": 15.0,
           "n": 102,
-          "found": 93,
-          "recall": 0.912,
+          "found": 95,
+          "recall": 0.931,
           "control_recall": 0.0
         },
         {
@@ -912,8 +912,8 @@
           "v_min": 15.0,
           "v_max": 16.0,
           "n": 258,
-          "found": 228,
-          "recall": 0.884,
+          "found": 238,
+          "recall": 0.922,
           "control_recall": 0.0
         },
         {
@@ -921,8 +921,8 @@
           "v_min": 16.0,
           "v_max": 17.0,
           "n": 349,
-          "found": 291,
-          "recall": 0.834,
+          "found": 304,
+          "recall": 0.871,
           "control_recall": 0.0
         },
         {
@@ -930,8 +930,8 @@
           "v_min": 17.0,
           "v_max": 18.0,
           "n": 1359,
-          "found": 574,
-          "recall": 0.422,
+          "found": 522,
+          "recall": 0.384,
           "control_recall": 0.0
         },
         {
@@ -1428,8 +1428,8 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "211,326 stars vs Gaia (hunt zone): proper-motion bias 2 (RA) and -7 (Dec) mas/yr, scatter 146 and 144 mas/yr; pull scatter 0.97, 0.96 (1 = honest error bars). Pilot zone: 32,446 stars, bias 3 (RA) and -6 (Dec) mas/yr, scatter 147 and 145 mas/yr, pull scatter 0.98, 0.96",
-      "value": 145.807,
+      "headline": "215,412 stars vs Gaia (hunt zone): proper-motion bias -3 (RA) and -2 (Dec) mas/yr, scatter 141 and 142 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 32,446 stars, bias 3 (RA) and -6 (Dec) mas/yr, scatter 147 and 145 mas/yr, pull scatter 0.98, 0.96",
+      "value": 140.691,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
       "note": "Proper motions fitted over all dots with SPHEREx's own position as the observer, against Gaia DR3. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass when both pull scatters are 0.7-1.5 in every zone. Rows: zone, axis, n, bias, scatter, pull_scatter (mas/yr).",
@@ -1437,18 +1437,18 @@
         {
           "zone": "hunt",
           "axis": "pmra",
-          "n": 211326,
-          "bias": 2.464,
-          "scatter": 145.807,
-          "pull_scatter": 0.968
+          "n": 215412,
+          "bias": -2.924,
+          "scatter": 140.691,
+          "pull_scatter": 0.944
         },
         {
           "zone": "hunt",
           "axis": "pmdec",
-          "n": 211326,
-          "bias": -6.598,
-          "scatter": 144.414,
-          "pull_scatter": 0.964
+          "n": 215412,
+          "bias": -2.37,
+          "scatter": 142.429,
+          "pull_scatter": 0.942
         },
         {
           "zone": "pilot",
@@ -1472,8 +1472,8 @@
       "id": "V10",
       "claim": "Galaxy distances match SDSS",
       "status": "pass",
-      "headline": "8,552 bright galaxies (hunt zone): sigma_NMAD 0.023, outliers 3%. Pilot zone: 1,211, sigma_NMAD 0.021, outliers 2%",
-      "value": 0.0228,
+      "headline": "8,634 bright galaxies (hunt zone): sigma_NMAD 0.023, outliers 3%. Pilot zone: 1,211, sigma_NMAD 0.021, outliers 2%",
+      "value": 0.0234,
       "unit": "dz/(1+z)",
       "expected": "sigma_NMAD ~0.02 for bright galaxies (AB < 17)",
       "note": "EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts; bright = K_AB < 17. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass <= 0.05, partial <= 0.1, in every zone. Rows: zone, sample, n, sigma_nmad, outlier_frac, bias.",
@@ -1481,58 +1481,58 @@
         {
           "zone": "hunt",
           "sample": "all",
-          "n": 10328,
-          "sigma_nmad": 0.0256,
-          "outlier_frac": 0.056,
-          "bias": 0.0059
+          "n": 10466,
+          "sigma_nmad": 0.0259,
+          "outlier_frac": 0.054,
+          "bias": 0.0058
         },
         {
           "zone": "hunt",
           "sample": "good",
-          "n": 7432,
-          "sigma_nmad": 0.0216,
-          "outlier_frac": 0.0132,
+          "n": 7482,
+          "sigma_nmad": 0.0221,
+          "outlier_frac": 0.0111,
           "bias": 0.0036
         },
         {
           "zone": "hunt",
           "sample": "k_ab_lt_17",
-          "n": 8552,
-          "sigma_nmad": 0.0228,
-          "outlier_frac": 0.027,
+          "n": 8634,
+          "sigma_nmad": 0.0234,
+          "outlier_frac": 0.0252,
           "bias": 0.0042
         },
         {
           "zone": "hunt",
           "sample": "K_AB -99..15",
-          "n": 798,
-          "sigma_nmad": 0.0174,
-          "outlier_frac": 0.0288,
-          "bias": -0.0025
+          "n": 804,
+          "sigma_nmad": 0.0182,
+          "outlier_frac": 0.0299,
+          "bias": -0.0032
         },
         {
           "zone": "hunt",
           "sample": "K_AB 15..16",
-          "n": 3180,
-          "sigma_nmad": 0.0214,
-          "outlier_frac": 0.016,
-          "bias": 0.0005
+          "n": 3220,
+          "sigma_nmad": 0.0224,
+          "outlier_frac": 0.0143,
+          "bias": 0.0006
         },
         {
           "zone": "hunt",
           "sample": "K_AB 16..17",
-          "n": 4574,
-          "sigma_nmad": 0.0236,
-          "outlier_frac": 0.0343,
+          "n": 4610,
+          "sigma_nmad": 0.0231,
+          "outlier_frac": 0.0321,
           "bias": 0.0084
         },
         {
           "zone": "hunt",
           "sample": "K_AB 17..18",
-          "n": 1627,
-          "sigma_nmad": 0.0594,
-          "outlier_frac": 0.1991,
-          "bias": 0.0184
+          "n": 1637,
+          "sigma_nmad": 0.0581,
+          "outlier_frac": 0.1949,
+          "bias": 0.0174
         },
         {
           "zone": "hunt",
