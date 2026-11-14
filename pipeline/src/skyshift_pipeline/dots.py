@@ -18,7 +18,9 @@ Photos with FINAST != 0 (bad astrometry) get an empty dot file (with metadata) a
 Row order is stable (brightest aperture flux first, as core.detect returns it): link's members.parquet
 points at rows by index.
 One process per core; a photo whose dot file exists is skipped; a photo that keeps failing is logged
-and skipped.
+and skipped. Each worker task is C.DOTS_TASK_PHOTOS photos (process_photos): while one photo is
+measured, the next is read in a background thread (C.DOTS_PREFETCH), so a core doesn't wait for
+the network. The files are the same either way.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ import json
 import multiprocessing as mp
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import numpy as np
@@ -220,14 +222,29 @@ class PhotoContext:
     conv: float            # µJy per MJy/sr in one pixel
     sub: np.ndarray        # IMAGE minus the background map, bad pixels 0: what core.detect measures on
     timing: dict
+    background: object = None   # the core.detect Background these maps come from (passed back to detect)
+    _noise0: np.ndarray | None = None
+
+    @property
+    def noise0(self) -> np.ndarray:
+        """ctx.noise with non-finite values 0, C-contiguous (sep's err= for apertures)."""
+        if self._noise0 is None:
+            self._noise0 = np.ascontiguousarray(np.where(np.isfinite(self.noise), self.noise, 0.0))
+        return self._noise0
 
 
 def detection_background(l2) -> tuple[np.ndarray, np.ndarray]:
     """(level, rms) maps of the background core.detect subtracts: same mask, same sep settings."""
+    b, _, _ = _detection_background(l2)
+    return b.level, b.rms
+
+
+def _detection_background(l2):
+    """(Background, bad-pixel mask, IMAGE as float64 with bad pixels 0): exactly what core.detect
+    computes first, so photo_context can hand the Background to detect instead of recomputing it."""
     m = build_mask(l2.data, l2.flags)
     d = np.where(m, 0.0, np.asarray(l2.data, dtype=np.float64))
-    b = background(d, m, box=32)
-    return b.level, b.rms
+    return background(d, m, box=32), m, d
 
 
 def psf_noise(l2, bkg_rms: np.ndarray) -> np.ndarray:
@@ -243,13 +260,13 @@ def psf_noise(l2, bkg_rms: np.ndarray) -> np.ndarray:
 
 def photo_context(l2, timing: dict | None = None) -> PhotoContext:
     t0 = time.perf_counter()
-    bad = build_mask(l2.data, l2.flags)
-    level, rms = detection_background(l2)
-    sub = np.where(bad, 0.0, np.asarray(l2.data, dtype=np.float64)) - level
+    b, bad, masked = _detection_background(l2)
+    level, rms = b.level, b.rms
+    sub = masked - level
     sub[bad] = 0.0
     ctx = PhotoContext(bad=bad, f3=or3x3(l2.flags), bkg_level=level, bkg_rms=rms,
                        noise=psf_noise(l2, rms), conv=ujy_per_mjysr(l2.wcs), sub=np.ascontiguousarray(sub),
-                       timing={} if timing is None else timing)
+                       timing={} if timing is None else timing, background=b)
     ctx.timing["context_s"] = time.perf_counter() - t0
     return ctx
 
@@ -259,7 +276,7 @@ def aperture_fluxes(l2, ctx: PhotoContext, x: np.ndarray, y: np.ndarray,
     """(N, len(radii)) fluxes and errors in µJy: sep circular apertures on IMAGE (bad pixels out),
     local background = mean of the annulus (r_in, r_out) px, noise = ctx.noise."""
     d = np.ascontiguousarray(np.where(ctx.bad, 0.0, np.asarray(l2.data, dtype=np.float64)))
-    err = np.ascontiguousarray(np.where(np.isfinite(ctx.noise), ctx.noise, 0.0))
+    err = ctx.noise0
     m = np.ascontiguousarray(ctx.bad)
     f = np.full((x.size, len(radii)), np.nan)
     e = np.full((x.size, len(radii)), np.nan)
@@ -278,7 +295,8 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
     (else those columns are NaN). `timing`, if given, receives seconds per stage."""
     timing = {} if timing is None else timing
     t0 = time.perf_counter()
-    det = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh)
+    det = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh,
+                 bkg=None if ctx is None else ctx.background)
     det = det[det["snr"] >= min_snr]  # keeps detect's order (brightest first): members.parquet relies on it
     timing["detect_s"] = time.perf_counter() - t0
     if len(det) == 0:
@@ -438,8 +456,7 @@ def forced_table(l2, ctx: PhotoContext, obs_id: str, detector: int, ref: RefCat,
     if getattr(l2, "epsf", None) is not None:
         ph = psf_photometry(np.asarray(l2.data), x, y, l2.epsf, noise=ctx.noise, bad=ctx.bad)
         psf_flux, psf_err, psf_chi2 = ph.flux * ctx.conv, ph.flux_err * ctx.conv, ph.chi2_nu
-    err = np.ascontiguousarray(np.where(np.isfinite(ctx.noise), ctx.noise, 0.0))
-    f2, e2, _ = sep.sum_circle(ctx.sub, x, y, 2.0, err=err, mask=np.ascontiguousarray(ctx.bad), subpix=5)
+    f2, e2, _ = sep.sum_circle(ctx.sub, x, y, 2.0, err=ctx.noise0, mask=np.ascontiguousarray(ctx.bad), subpix=5)
     ix, iy = pixel_of(x, y, l2.data.shape)
     if l2.wave is not None:
         wl, bw = l2.wave.wavelength(x, y), l2.wave.bandwidth(x, y)
@@ -696,32 +713,43 @@ def load_photo(url: str):
     return l2
 
 
-def process_photo(root: str, obs_id: str, detector: int, url: str, session: int = 0, visit: int = 0,
-                  zone: str | None = None) -> dict:
-    """Do one photo: forced/<...>.parquet (if the zone has a refcat), then dots/<...>.parquet with the
-    photo metadata. Returns a stats dict; never raises."""
-    store = _store(root)
-    rel = dots_rel(obs_id, detector)
-    st = {"obs_id": obs_id, "detector": int(detector), "status": "", "n_dots": 0, "n_forced": 0, "read_s": 0.0,
-          "detect_s": 0.0, "forced_s": 0.0, "write_s": 0.0, "bytes": 0, "forced_bytes": 0, "error": ""}
+def _new_stats(obs_id: str, detector: int) -> dict:
+    return {"obs_id": obs_id, "detector": int(detector), "status": "", "n_dots": 0, "n_forced": 0, "read_s": 0.0,
+            "detect_s": 0.0, "forced_s": 0.0, "write_s": 0.0, "bytes": 0, "forced_bytes": 0, "error": ""}
+
+
+def _already_done(store: Store, rel: str, st: dict) -> bool:
+    """True (status "skipped") if the dot file exists; an exists-check error is noted and ignored."""
     try:
         if store.exists(rel):
             st["status"] = "skipped"
-            return st
+            return True
     except Exception as e:  # noqa: BLE001
         st["error"] = f"exists check: {e}"
+    return False
+
+
+def _load_retrying(url: str, st: dict):
+    """load_photo with C.NET_RETRIES attempts. Returns the photo, or None with st status "failed"."""
     for attempt in range(1, C.NET_RETRIES + 1):
         try:
             t0 = time.time()
             l2 = load_photo(url)
             st["read_s"] = round(time.time() - t0, 2)
-            break
+            return l2
         except Exception as e:  # noqa: BLE001 - network or decode errors: retry, then skip
             st["error"] = f"{type(e).__name__}: {e}"[:300]
             if attempt == C.NET_RETRIES:
                 st["status"] = "failed"
-                return st
+                return None
             time.sleep(5 * attempt)
+    return None
+
+
+def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: int, visit: int,
+                       zone: str | None, st: dict) -> dict:
+    """Everything after the read: dots, forced photometry, metadata, files. Never raises."""
+    rel = dots_rel(obs_id, detector)
     try:
         if int(l2.detector) != int(detector):
             raise ValueError(f"header DETECTOR {l2.detector} != photo list {detector}")
@@ -760,6 +788,54 @@ def process_photo(root: str, obs_id: str, detector: int, url: str, session: int 
     return st
 
 
+def process_photo(root: str, obs_id: str, detector: int, url: str, session: int = 0, visit: int = 0,
+                  zone: str | None = None) -> dict:
+    """Do one photo: forced/<...>.parquet (if the zone has a refcat), then dots/<...>.parquet with the
+    photo metadata. Returns a stats dict; never raises."""
+    store = _store(root)
+    st = _new_stats(obs_id, detector)
+    if _already_done(store, dots_rel(obs_id, detector), st):
+        return st
+    l2 = _load_retrying(url, st)
+    if l2 is None:
+        return st
+    return _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st)
+
+
+def process_photos(root: str, photos: list[tuple], zone: str | None = None,
+                   prefetch: bool | None = None) -> list[dict]:
+    """process_photo for several photos (obs_id, detector, url, session, visit) in one worker, in order.
+    With prefetch (default C.DOTS_PREFETCH), photo k + 1 is read in a background thread while photo k
+    is measured, so the core doesn't sit idle waiting for the network. Same functions per photo, so
+    the files are the same as process_photo's; at most two photos are in memory at once.
+    Returns one stats dict per photo (in order); never raises."""
+    prefetch = C.DOTS_PREFETCH if prefetch is None else prefetch
+    store = _store(root)
+    out: list[dict] = []
+    jobs = []
+    for obs_id, detector, url, session, visit in photos:
+        st = _new_stats(obs_id, detector)
+        if _already_done(store, dots_rel(obs_id, detector), st):
+            out.append(st)
+        else:
+            jobs.append((obs_id, int(detector), url, int(session), int(visit), st))
+    if not prefetch or len(jobs) < 2:
+        for obs_id, detector, url, session, visit, st in jobs:
+            l2 = _load_retrying(url, st)
+            out.append(st if l2 is None else _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st))
+        return out
+    with ThreadPoolExecutor(max_workers=1) as reader:
+        nxt = reader.submit(_load_retrying, jobs[0][2], jobs[0][5])
+        for k, (obs_id, detector, url, session, visit, st) in enumerate(jobs):
+            t0 = time.time()
+            l2 = nxt.result()  # _load_retrying never raises
+            st["wait_s"] = round(time.time() - t0, 2)  # time this core waited for the read
+            nxt = reader.submit(_load_retrying, jobs[k + 1][2], jobs[k + 1][5]) if k + 1 < len(jobs) else None
+            out.append(st if l2 is None else _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st))
+            del l2
+    return out
+
+
 def _retry(fn):
     for attempt in range(1, C.NET_RETRIES + 1):
         try:
@@ -783,18 +859,23 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
     if todo:
         ctx = mp.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max(1, workers), mp_context=ctx, initializer=log.setup) as ex:
-            futs = [ex.submit(process_photo, store.root, r.obs_id, int(r.detector), r.url,
-                              int(r.session), int(r.visit), zone.name) for r in todo]
-            for k, f in enumerate(as_completed(futs), 1):
-                st = f.result()
-                stats.append(st)
-                if st["status"] == "failed":
-                    L.warning("[%d/%d] %sD%d FAILED: %s", k, len(todo), st["obs_id"], st["detector"], st["error"])
-                else:
-                    L.info("[%d/%d] %sD%d %s: %d dots, %d forced, read %.1f s, detect %.1f s, forced %.1f s, "
-                           "write %.1f s, %.0f KB", k, len(todo), st["obs_id"], st["detector"], st["status"],
-                           st["n_dots"], st["n_forced"], st["read_s"], st["detect_s"], st["forced_s"],
-                           st["write_s"], st["bytes"] / 1e3)
+            n = max(1, C.DOTS_TASK_PHOTOS)
+            groups = [todo[i:i + n] for i in range(0, len(todo), n)]
+            futs = [ex.submit(process_photos, store.root,
+                              [(r.obs_id, int(r.detector), r.url, int(r.session), int(r.visit)) for r in g],
+                              zone.name) for g in groups]
+            k = 0
+            for f in as_completed(futs):
+                for st in f.result():
+                    k += 1
+                    stats.append(st)
+                    if st["status"] == "failed":
+                        L.warning("[%d/%d] %sD%d FAILED: %s", k, len(todo), st["obs_id"], st["detector"], st["error"])
+                    else:
+                        L.info("[%d/%d] %sD%d %s: %d dots, %d forced, read %.1f s, waited %.1f s, detect %.1f s, "
+                               "forced %.1f s, write %.1f s, %.0f KB", k, len(todo), st["obs_id"], st["detector"],
+                               st["status"], st["n_dots"], st["n_forced"], st["read_s"], st.get("wait_s", st["read_s"]),
+                               st["detect_s"], st["forced_s"], st["write_s"], st["bytes"] / 1e3)
     done_now = [s for s in stats if s["status"] == "done"]
     finast = [s for s in stats if s["status"] == "done_finast"]
     failed = [s for s in stats if s["status"] == "failed"]
@@ -812,6 +893,7 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
             "dots_per_photo_median": float(a["n_dots"].median()),
             "dots_total_now": int(a["n_dots"].sum()),
             "read_s_median": float(a["read_s"].median()),
+            "wait_s_median": float(a["wait_s"].median()) if "wait_s" in a else None,  # core idle for the read
             "detect_s_median": float(a["detect_s"].median()),
             "forced_s_median": float(a["forced_s"].median()),
             "forced_per_photo_median": float(a["n_forced"].median()),

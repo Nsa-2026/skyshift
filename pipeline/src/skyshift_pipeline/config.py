@@ -53,6 +53,8 @@ PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
 FINAST_OK = 0                  # IMAGE header FINAST != 0 means bad astrometry: skip the photo
+DOTS_TASK_PHOTOS = 4           # photos per worker task (one process per core); the run order is unchanged
+DOTS_PREFETCH = True           # read the next photo of a task while this one is measured (same results)
 # pos_err_arcsec = sqrt((POS_ERR_K * PSF_SIGMA_ARCSEC / snr)^2 + POS_ERR_FLOOR_ARCSEC^2)  (contracts/dots.md)
 POS_ERR_K = 1.4
 PSF_SIGMA_ARCSEC = 3.2
