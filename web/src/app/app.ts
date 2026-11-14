@@ -7,54 +7,87 @@ import { mountCard } from "../card";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountVote } from "../vote";
+import { mountDiscover } from "../discover";
+import { mountAtlas } from "../atlas";
+import { mountLearn } from "../learn";
+import { mountTools } from "../tools";
+import { mountLive } from "../live";
+import { mountDetailsSwitch } from "../prefs/details";
+import { mountCandidate, mountReview } from "../review";
+import { mountAbout, mountCommunity } from "../community";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
-import type { BlinkHandle, CardHandle, SkyHandle, View, VoteHandle } from "./modules";
+import type { BlinkHandle, CardHandle, MountPage, PageContext, PageHandle, SkyHandle, View, VoteHandle } from "./modules";
 import { TARGETS, isEmbed, readView, targetBySlug, viewForTarget, writeView } from "./state";
 
 const html = String.raw;
+/** Flip to true when src/atlas replaces its placeholder. */
+const ATLAS_READY = false;
 
 export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
   root.innerHTML = html`
     <header class="top" ${embed ? "hidden" : ""}>
-      <a class="wordmark" href="./" aria-label="SkyShift home">SkyShift</a>
+      <div class="brand">
+        <a class="wordmark" href="./" aria-label="SkyShift home">SkyShift</a>
+        <p class="lede">Find what moves in NASA's SPHEREx sky, together.</p>
+      </div>
       <form class="find" role="search">
         <label class="visually-hidden" for="q">Coordinates or a featured name</label>
         <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
           placeholder="Paste coordinates, e.g. 08h55m10.831s -7d14m42.53s" />
-        <button class="btn find-go" type="submit">Blink</button>
+        <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="blink">Blink</a>
-        <a href="#/score" data-route="score">Scoreboard</a>
+        <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
+        <a href="#/candidates" data-route="discover">Candidates</a>
+        <a href="#/review" data-route="review">Review</a>
+        <a href="#/explore" data-route="explore">Blink</a>
+        <a href="#/live" data-route="live">Live search</a>
+        <a href="#/community" data-route="community">Community</a>
+        <a href="#/results" data-route="results">Results</a>
+        <a href="#/learn" data-route="learn">Learn</a>
       </nav>
+      <div class="details-slot"></div>
     </header>
-    <div class="chips" role="list" aria-label="Featured targets" ${embed ? "hidden" : ""}>
-      ${TARGETS.map(
-        (t) => html`<button class="chip" role="listitem" type="button" data-slug="${t.slug}" aria-pressed="false">
-          <span class="chip-name">${t.short}</span><span class="chip-kind">${t.kind}</span>
-        </button>`,
-      ).join("")}
+    <div class="featured" data-only="explore" ${embed ? "hidden" : ""}>
+      <span class="featured-label" id="featured-label">Try</span>
+      <div class="featured-list" role="group" aria-labelledby="featured-label" style="display:contents">
+        ${TARGETS.map(
+          (t) => html`<button class="chip" type="button" data-slug="${t.slug}" aria-pressed="false"
+            title="${t.name}, ${t.kind}">${t.short}<span class="chip-kind">, ${t.kind}</span></button>`,
+        ).join("")}
+      </div>
     </div>
     <p class="find-msg" role="status" aria-live="polite"></p>
-    <main class="page page-blink" data-page="blink">
+    <main class="page page-atlas" data-page="atlas" hidden></main>
+    <main class="page page-discover" data-page="discover" hidden></main>
+    <main class="page page-review" data-page="review" hidden></main>
+    <main class="page page-candidate" data-page="candidate" hidden></main>
+    <main class="page page-blink" data-page="explore" hidden>
       <section class="stage" aria-label="Blink"><div id="blink"></div></section>
-      <aside class="side">
-        <section id="card" class="panel side-card" aria-label="Object"></section>
-        <section id="vote" class="panel side-vote" aria-label="Flag and vote"></section>
-      </aside>
-      <section id="sky" class="panel sky" aria-label="Sky view"></section>
+      <section id="card" class="side-card" aria-label="Object"></section>
+      <div class="below">
+        <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
+        <section id="sky" class="sky" aria-label="Sky around this spot"></section>
+      </div>
     </main>
-    <main class="page page-score" data-page="score" hidden><div id="score"></div></main>
+    <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
+    <main class="page page-community" data-page="community" hidden></main>
+    <main class="page page-about" data-page="about" hidden></main>
+    <main class="page page-learn" data-page="learn" hidden></main>
+    <main class="page page-tools" data-page="tools" hidden></main>
+    <main class="page page-live" data-page="live" hidden></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
-      <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids: MPC, IMCCE SkyBoT. Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
+      <p class="foot-links"><a href="#/about">About</a> <a href="#/learn">Learn</a> <a href="#/tools">Tools and data</a> <a href="#/results">How we know it works</a></p>
+      <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids and comets: Minor Planet Center orbits, computed with kete (Dar Dahlen, first written at Caltech/IPAC, BSD-3-Clause). Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
 
   const $ = <T extends Element>(sel: string) => root.querySelector(sel) as T;
   const msg = $<HTMLParagraphElement>(".find-msg");
+  mountDetailsSwitch($<HTMLElement>(".details-slot"));
   const input = $<HTMLInputElement>("#q");
 
   let view: View | null = null;
@@ -97,6 +130,11 @@ export function startApp(root: HTMLElement): void {
 
   async function go(next: View, opts: { push?: boolean; objectToo?: boolean } = {}) {
     const { push = true, objectToo = true } = opts;
+    if (current !== "explore") {
+      exploreStarted = true;
+      history.replaceState(null, "", `${location.pathname}${location.search}#/explore`);
+      route();
+    }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
     view = next;
     if (push) writeView(next);
@@ -197,17 +235,79 @@ export function startApp(root: HTMLElement): void {
     }),
   );
 
-  // Routes: #/ blink, #/score scoreboard.
+  // Routes (DESIGN.md "Pages"). Pages mount on first visit; Explore loads frames only when opened.
+  const ctx: PageContext = {
+    navigate(hash) {
+      location.hash = hash;
+    },
+    explore(at) {
+      // Static first: a spot inside a featured target's field opens its prepared frames.
+      const near = featuredNear(at);
+      if (near && (!at.clock || at.clock === near.clock)) return void go(viewForTarget(near));
+      const clock = at.clock ?? view?.clock ?? "months";
+      const fov = at.fov ?? (view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20);
+      go({ ra: at.ra, dec: at.dec, clock, fov, det: at.det ?? view?.det ?? 2, slug: null, name: null });
+    },
+  };
+  const pageMounts: Record<string, MountPage> = {
+    atlas: mountAtlas,
+    discover: mountDiscover,
+    learn: mountLearn,
+    tools: mountTools,
+    live: mountLive,
+    review: mountReview,
+    candidate: mountCandidate,
+    community: mountCommunity,
+    about: mountAbout,
+  };
+  const pages = new Map<string, PageHandle>();
+  let current = "";
+  let exploreStarted = false;
+
+  function parseRoute(): { page: string; param: string | null } {
+    const h = location.hash.replace(/^#\/?/, "");
+    const [head, ...rest] = h.split("/");
+    if (head === "c" && rest.length) return { page: "candidate", param: decodeURIComponent(rest.join("/")) };
+    if (head === "score" || head === "results") return { page: "results", param: null };
+    if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
+    if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
+    if (["review", "explore", "community", "about", "learn", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
+    // No hash: deep links to a target or coordinates open Explore; otherwise the sky (atlas).
+    if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
+      return { page: "explore", param: null };
+    // Until the Sky globe lands, the home page shows tonight's live search.
+    return { page: ATLAS_READY ? "atlas" : "live", param: null };
+  }
+
   function route() {
-    const page = location.hash.startsWith("#/score") ? "score" : "blink";
+    const { page, param } = parseRoute();
+    if (current && current !== page) pages.get(current)?.hide?.();
+    current = page;
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
+    root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
+    const navKey = page === "candidate" ? "review" : page;
     root.querySelectorAll<HTMLAnchorElement>(".nav a").forEach((a) =>
-      a.dataset.route === page ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
+      a.dataset.route === navKey ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
     );
-    if (page === "score" && !score) score = mountScore($("#score"));
+    if (page === "results" && !score) score = mountScore($("#score"));
+    if (page === "explore" && !exploreStarted) {
+      exploreStarted = true;
+      const first = readView() ?? viewForTarget(TARGETS[0]);
+      go(first, { push: false });
+      writeView(first, true);
+    }
+    const mount = pageMounts[page];
+    if (mount) {
+      let handle = pages.get(page);
+      if (!handle) {
+        handle = mount(root.querySelector<HTMLElement>(`.page[data-page="${page}"]`)!, ctx);
+        pages.set(page, handle);
+      }
+      handle.show(param);
+    }
+    if (page !== "explore") window.scrollTo({ top: 0 });
   }
   addEventListener("hashchange", route);
-  route();
 
   // Votes' "Show" re-centres the blink on a candidate.
   addEventListener("skyshift:goto", (ev) => {
@@ -215,7 +315,6 @@ export function startApp(root: HTMLElement): void {
     if (!d || !Number.isFinite(d.ra) || !Number.isFinite(d.dec)) return;
     const clock = d.clock ?? view?.clock ?? "months";
     const fov = view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20;
-    if (location.hash.startsWith("#/score")) location.hash = "#/";
     go({ ra: d.ra, dec: d.dec, clock, fov, det: view?.det ?? 2, slug: null, name: null });
   });
 
@@ -224,7 +323,5 @@ export function startApp(root: HTMLElement): void {
     if (v) go(v, { push: false });
   });
 
-  const first = readView() ?? viewForTarget(TARGETS[0]);
-  go(first, { push: false });
-  writeView(first, true);
+  route();
 }

@@ -6,11 +6,11 @@
       "id": "V1",
       "claim": "Five test objects recovered",
       "status": "pass",
-      "headline": "5 of 5 test objects found where predicted, in 19 of 20 visits; median offset 0.207 px",
+      "headline": "5 of 5 test objects found where predicted, in 20 of 20 visits; median offset 0.191 px",
       "value": 5,
       "unit": "targets",
       "expected": "5 of 5; WISE 0855 only in D5-D6",
-      "note": "Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos of one visit and one expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core. Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, median_offset_px. WISE 0855-0714 (D5-D6 only, every photo of a visit stacked): 2 of 3 visits; its first visit has only 8 D5 and 3 D6 photos. In D1-D4 a background star lies 1-2 px from it: those stacks are not counted.",
+      "note": "Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos (every photo for WISE 0855) of one visit and one expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core (scripts/validate/v1_targets.py, 41 px boxes read from NASA's S3 copy). WISE 0855-0714 (expected in D5-D6): found in 5 of 6 stacks, 3 of 3 visits; missed in visit 1 D6 (3 photos); also found in D1-D4, not counted (a background star lies 1-2 px from it). Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, median_offset_px.",
       "rows": [
         {
           "slug": "barnard",
@@ -20,7 +20,7 @@
           "stacks_expected": 18,
           "stacks_recovered": 18,
           "detectors": "D1,D2,D3,D4,D5,D6",
-          "median_offset_px": 0.191
+          "median_offset_px": 0.177
         },
         {
           "slug": "epsindib",
@@ -30,17 +30,17 @@
           "stacks_expected": 22,
           "stacks_recovered": 22,
           "detectors": "D1,D2,D3,D4,D5,D6",
-          "median_offset_px": 0.154
+          "median_offset_px": 0.153
         },
         {
           "slug": "wise0855",
           "recovered": true,
           "visits": 3,
-          "visits_recovered": 2,
+          "visits_recovered": 3,
           "stacks_expected": 6,
-          "stacks_recovered": 3,
+          "stacks_recovered": 5,
           "detectors": "D1,D2,D3,D4,D5,D6",
-          "median_offset_px": 0.207
+          "median_offset_px": 0.237
         },
         {
           "slug": "rwaur",
@@ -50,7 +50,7 @@
           "stacks_expected": 18,
           "stacks_recovered": 18,
           "detectors": "D1,D2,D3,D4,D5,D6",
-          "median_offset_px": 0.212
+          "median_offset_px": 0.253
         },
         {
           "slug": "rdra",
@@ -58,9 +58,9 @@
           "visits": 7,
           "visits_recovered": 7,
           "stacks_expected": 22,
-          "stacks_recovered": 16,
-          "detectors": "D1,D2,D3,D5,D6",
-          "median_offset_px": 0.31
+          "stacks_recovered": 22,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.191
         }
       ]
     },
@@ -68,11 +68,11 @@
       "id": "V2",
       "claim": "Motion matches Gaia",
       "status": "pass",
-      "headline": "Barnard's Star moved 10.83\" ± 0.36\" at PA 357.8° in 0.986 yr; Gaia predicts 10.27\" (+5.5%, 2.2°)",
+      "headline": "Barnard's Star moved 10.83\" ± 0.36\" at PA 357.8° in 0.986 yr; Gaia predicts 10.27\" (+5.5%, 2.2°, 1.6 sigma); 5 of 5 targets within 3 sigma",
       "value": 10.83,
       "unit": "arcsec",
       "expected": "Barnard's Star within 15% and 10 deg of Gaia (10.39\"/yr)",
-      "note": "Shift = position in the last visit stack minus the first, against reference stars in the same cutouts; predicted = Gaia DR3 proper motion and parallax over the same dates (WISE 0855: published astrometry). Rows: slug, shift_arcsec, predicted_arcsec, sigma_arcsec, pa_deg, predicted_pa_deg, dt_yr, shift_error_pct, pa_error_deg.",
+      "note": "Shift = the target's position in the last visit stack minus the first, measured against reference stars in the same cutouts (site data <slug>/object.json, field measure); predicted = Gaia DR3 proper motion and parallax over the same dates (WISE 0855: published astrometry). dev_sigma = |shift - predicted| / sigma_arcsec. The pass rule is set on Barnard's Star; RW Aurigae and R Draconis barely move, so for them only dev_sigma means anything. 5 of 5 measured targets agree with the prediction within 3 sigma (largest: barnard at 1.6 sigma). Rows: slug, measured, shift_arcsec, predicted_arcsec, sigma_arcsec, dev_sigma, pa_deg, predicted_pa_deg, dt_yr, rate_arcsec_yr, n_ref_stars, shift_error_pct, pa_error_deg.",
       "rows": [
         {
           "slug": "barnard",
@@ -85,22 +85,24 @@
           "dt_yr": 0.986,
           "rate_arcsec_yr": 10.99,
           "n_ref_stars": 344,
+          "dev_sigma": 1.6,
           "shift_error_pct": 5.5,
           "pa_error_deg": 2.2
         },
         {
           "slug": "epsindib",
           "measured": true,
-          "shift_arcsec": 6.05,
-          "predicted_arcsec": 6.49,
-          "sigma_arcsec": 0.42,
-          "pa_deg": 125.7,
+          "shift_arcsec": 6.12,
+          "predicted_arcsec": 6.46,
+          "sigma_arcsec": 0.49,
+          "pa_deg": 122.7,
           "predicted_pa_deg": 121.8,
-          "dt_yr": 1.418,
-          "rate_arcsec_yr": 4.27,
-          "n_ref_stars": 51,
-          "shift_error_pct": -6.7,
-          "pa_error_deg": 4.0
+          "dt_yr": 1.407,
+          "rate_arcsec_yr": 4.35,
+          "n_ref_stars": 58,
+          "dev_sigma": 0.7,
+          "shift_error_pct": -5.2,
+          "pa_error_deg": 1.0
         },
         {
           "slug": "wise0855",
@@ -113,6 +115,7 @@
           "dt_yr": 0.99,
           "rate_arcsec_yr": 7.12,
           "n_ref_stars": 87,
+          "dev_sigma": 1.1,
           "shift_error_pct": -12.6,
           "pa_error_deg": 3.4
         },
@@ -127,6 +130,7 @@
           "dt_yr": 1.012,
           "rate_arcsec_yr": 0.31,
           "n_ref_stars": 255,
+          "dev_sigma": 0.6,
           "shift_error_pct": null,
           "pa_error_deg": null
         },
@@ -141,6 +145,7 @@
           "dt_yr": 0.997,
           "rate_arcsec_yr": 0.04,
           "n_ref_stars": 37,
+          "dev_sigma": 0.1,
           "shift_error_pct": null,
           "pa_error_deg": null
         }
@@ -154,7 +159,7 @@
       "value": 0.36,
       "unit": "arcsec",
       "expected": "Floor ~0.25\" (first photo); 10 or more reference stars",
-      "note": "sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, < 20 mas/yr) in the same cutouts; it is V2's error bar. Slowest motion visible at 3 sigma = 3 sigma / dt. Rows: slug, sigma_arcsec, n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.",
+      "note": "sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, under 20 mas/yr) in the same cutouts as the target; it is V2's error bar. The slowest motion visible at 3 sigma is 3 sigma / dt. The headline is Barnard's Star's field; across the 5 measured fields sigma runs 0.36-0.9\" (fewer reference stars or a fainter target give a larger error). Rows: slug, sigma_arcsec, n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.",
       "rows": [
         {
           "slug": "barnard",
@@ -165,10 +170,10 @@
         },
         {
           "slug": "epsindib",
-          "sigma_arcsec": 0.42,
-          "n_ref_stars": 51,
-          "dt_yr": 1.418,
-          "min_rate_3sigma_arcsec_yr": 0.89
+          "sigma_arcsec": 0.49,
+          "n_ref_stars": 58,
+          "dt_yr": 1.407,
+          "min_rate_3sigma_arcsec_yr": 1.04
         },
         {
           "slug": "wise0855",
@@ -197,11 +202,11 @@
       "id": "V4",
       "claim": "Asteroids re-found, targeted",
       "status": "pass",
-      "headline": "Re-found 60 of 60 asteroids where NASA predicted them; median offset 0.125 px (0.77\"); control 3' away: 1.0% of photos, 3 of 60 asteroids",
+      "headline": "Re-found 60 of 60 asteroids where NASA predicted them; median offset 0.125 px (0.77\"); control 3' away: 0.7% of photos, 2 of 60 asteroids",
       "value": 60,
       "unit": "asteroids",
       "expected": "N of 60; median offset under 1 px; control under 5%",
-      "note": "MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. Per photo: 249/300 found, control 3/300; per asteroid control 3/60. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
+      "note": "Asteroids numbered 1-60 at IRSA MOST's predicted position in up to 5 photos each (D2-D3, 81 px boxes read from NASA's S3 copy). Found = a 5 sigma detection within 2 px that is absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. Per photo: 246/300 found, control 2/300; per asteroid control 2/60. Photos not counted mostly have a static star within 3 px in the reference stack, so a detection there can't be told apart. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
       "rows": [
         {
           "number": 1,
@@ -285,9 +290,9 @@
           "name": "8 Flora (A847 UA)",
           "vmag_median": 11.04,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.193,
+          "median_offset_px": 0.106,
           "control_photos": 0,
           "control_found": false
         },
@@ -574,8 +579,8 @@
           "found_photos": 5,
           "found": true,
           "median_offset_px": 0.108,
-          "control_photos": 1,
-          "control_found": true
+          "control_photos": 0,
+          "control_found": false
         },
         {
           "number": 35,
@@ -659,9 +664,9 @@
           "name": "42 Isis (A856 KB)",
           "vmag_median": 12.96,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.123,
+          "median_offset_px": 0.171,
           "control_photos": 0,
           "control_found": false
         },
@@ -758,9 +763,9 @@
           "name": "51 Nemausa (A858 BA)",
           "vmag_median": 12.09,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.236,
+          "median_offset_px": 0.143,
           "control_photos": 0,
           "control_found": false
         },
@@ -869,13 +874,68 @@
       "id": "V5",
       "claim": "Asteroids re-found, blind (S1)",
       "status": "pass",
-      "headline": "pilot: 63 of 68 known asteroid sessions at V < 16 found as movers (93%); control 0%; 7 of 7 objects",
-      "value": 0.926,
+      "headline": "Hunt zone: 413 of 457 known asteroid sessions at V < 16 found as movers (90%); control 0%; 30 of 30 objects. Pilot zone (gate G2): 83 of 90 (92%), control 0%, 8 of 8 objects",
+      "value": 0.904,
       "unit": "recall",
       "expected": "Recall at V < 16 >= 50% (gate G2); control near 0",
-      "note": "Zone pilot. A known object counts as found when a mover lies within the match radius of its prediction at the photo's MJD-AVG; control: every prediction moved 2'. Rows: v_min, v_max, n, found, recall, control_recall.",
+      "note": "Unit: one known object in one session with >= 2 exposures covering it. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as seen from SPHEREx. One counts as found when a blind-search mover lies within 12\" of its predicted position; control: every prediction moved 2'. Gate G2 is recall >= 50% at V < 16, decided on the pilot zone before the hunt ran. Objects brighter than V 12 saturate but are still counted. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): 2,628 photos with predictions, pipeline report of 2026-11-14T13:39:27Z; V 12-16 alone: 373 of 416. Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): 629 photos with predictions, pipeline report of 2026-11-14T13:12:08Z, MPC orbit snapshot mpcorb_2026-11-14.parquet + cometels_2026-11-14.parquet; V 12-16 alone: 66 of 72. Rows: zone, v_min, v_max, n, found, recall, control_recall.",
       "rows": [
         {
+          "zone": "hunt",
+          "v_min": null,
+          "v_max": 12.0,
+          "n": 41,
+          "found": 40,
+          "recall": 0.976,
+          "control_recall": 0.0
+        },
+        {
+          "zone": "hunt",
+          "v_min": 12.0,
+          "v_max": 14.0,
+          "n": 56,
+          "found": 52,
+          "recall": 0.929,
+          "control_recall": 0.0
+        },
+        {
+          "zone": "hunt",
+          "v_min": 14.0,
+          "v_max": 15.0,
+          "n": 102,
+          "found": 93,
+          "recall": 0.912,
+          "control_recall": 0.0
+        },
+        {
+          "zone": "hunt",
+          "v_min": 15.0,
+          "v_max": 16.0,
+          "n": 258,
+          "found": 228,
+          "recall": 0.884,
+          "control_recall": 0.0
+        },
+        {
+          "zone": "hunt",
+          "v_min": 16.0,
+          "v_max": 17.0,
+          "n": 349,
+          "found": 291,
+          "recall": 0.834,
+          "control_recall": 0.0
+        },
+        {
+          "zone": "hunt",
+          "v_min": 17.0,
+          "v_max": 18.0,
+          "n": 1359,
+          "found": 574,
+          "recall": 0.422,
+          "control_recall": 0.0
+        },
+        {
+          "zone": "pilot",
           "v_min": null,
           "v_max": 12.0,
           "n": 18,
@@ -884,6 +944,7 @@
           "control_recall": 0.0
         },
         {
+          "zone": "pilot",
           "v_min": 12.0,
           "v_max": 14.0,
           "n": 5,
@@ -892,35 +953,39 @@
           "control_recall": 0.0
         },
         {
+          "zone": "pilot",
           "v_min": 14.0,
           "v_max": 15.0,
-          "n": 23,
-          "found": 21,
-          "recall": 0.913,
+          "n": 28,
+          "found": 25,
+          "recall": 0.893,
           "control_recall": 0.0
         },
         {
+          "zone": "pilot",
           "v_min": 15.0,
           "v_max": 16.0,
-          "n": 22,
-          "found": 20,
-          "recall": 0.909,
+          "n": 39,
+          "found": 36,
+          "recall": 0.923,
           "control_recall": 0.0
         },
         {
+          "zone": "pilot",
           "v_min": 16.0,
           "v_max": 17.0,
-          "n": 96,
-          "found": 80,
-          "recall": 0.833,
+          "n": 70,
+          "found": 58,
+          "recall": 0.829,
           "control_recall": 0.0
         },
         {
+          "zone": "pilot",
           "v_min": 17.0,
           "v_max": 18.0,
-          "n": 123,
-          "found": 54,
-          "recall": 0.439,
+          "n": 149,
+          "found": 59,
+          "recall": 0.396,
           "control_recall": 0.0
         }
       ]
@@ -950,120 +1015,412 @@
     {
       "id": "V8",
       "claim": "Spectra and speed",
-      "status": "partial",
-      "headline": "SPHEREx / catalogue flux, Ks 1.010 (scatter 3.0%, 3,918 stars); W1 0.994 (scatter 1.8%, 4,240 stars) (pilot, 10-13 mag); speed pending (site not deployed)",
-      "value": 1.0103,
+      "status": "pass",
+      "headline": "SPHEREx / catalogue flux, Ks 0.993 (scatter 2.9%, 25,696 stars); W1 1.029 (scatter 1.9%, 27,860 stars) (hunt zone, 10-13 mag; pilot zone Ks 0.993, W1 1.026); median time to first frame 7.9 s over 20 live requests (20 ok) (2026-11-14 13:54 UTC)",
+      "value": 0.9925,
       "unit": "ratio",
       "expected": "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
-      "note": "Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py). Speed: scripts/demo_check.py, random coordinates through /api/frames. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
+      "note": "Spectra: every star of the zone matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py); fainter than 13 mag the scatter grows to 4.2-10.3%. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): Ks 0.993 (scatter 2.9%, 25,696 stars), W1 1.029 (scatter 1.9%, 27,860 stars) of 303,045 sources. Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): Ks 0.993 (scatter 2.9%, 3,918 stars), W1 1.026 (scatter 1.8%, 4,240 stars) of 45,189 sources. Speed measured 2026-11-14T13:54:11+00:00 against https://skyshift.web.app/api: 10 random coordinates (uniform on the sphere, seed 228060), each on both clocks, timed from the /api/frames request to the first frame received; a failed request counts as slower than any success. Median months 6.7 s. Median hours 8.7 s. 1 ok request(s) took over 15 s. The API was being sped up while this ran, so the number can change. For comparison, the 8 featured targets, served as static files, showed their first frame in 0.02-0.06 s. Rows: part=spectra (zone, band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
       "rows": [
         {
           "part": "spectra",
+          "zone": "hunt",
+          "band": "Ks",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 80,
+          "median": 0.9773,
+          "scatter": 0.0187
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "Ks",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 3099,
+          "median": 0.9845,
+          "scatter": 0.0205
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "Ks",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 6985,
+          "median": 0.9911,
+          "scatter": 0.0239
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "Ks",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 15612,
+          "median": 0.9955,
+          "scatter": 0.033
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "Ks",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 31732,
+          "median": 0.9979,
+          "scatter": 0.054
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "Ks",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 52069,
+          "median": 0.9939,
+          "scatter": 0.1028
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "W1",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 177,
+          "median": 1.0277,
+          "scatter": 0.0126
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "W1",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 3457,
+          "median": 1.0265,
+          "scatter": 0.0132
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "W1",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 7628,
+          "median": 1.0279,
+          "scatter": 0.0159
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "W1",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 16775,
+          "median": 1.0308,
+          "scatter": 0.0219
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "W1",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 32999,
+          "median": 1.0376,
+          "scatter": 0.0423
+        },
+        {
+          "part": "spectra",
+          "zone": "hunt",
+          "band": "W1",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 52328,
+          "median": 1.0737,
+          "scatter": 0.0939
+        },
+        {
+          "part": "spectra",
+          "zone": "pilot",
           "band": "Ks",
           "mag_min": 9,
           "mag_max": 10,
           "n": 15,
-          "median": 0.9938,
-          "scatter": 0.0251
+          "median": 0.9775,
+          "scatter": 0.0273
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "Ks",
           "mag_min": 10,
           "mag_max": 11,
           "n": 451,
-          "median": 1.0008,
-          "scatter": 0.02
+          "median": 0.9836,
+          "scatter": 0.0195
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "Ks",
           "mag_min": 11,
           "mag_max": 12,
           "n": 1142,
-          "median": 1.0081,
-          "scatter": 0.0253
+          "median": 0.9912,
+          "scatter": 0.0248
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "Ks",
           "mag_min": 12,
           "mag_max": 13,
           "n": 2325,
-          "median": 1.0141,
-          "scatter": 0.0349
+          "median": 0.9971,
+          "scatter": 0.0343
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "Ks",
           "mag_min": 13,
           "mag_max": 14,
           "n": 4865,
-          "median": 1.0207,
-          "scatter": 0.0609
+          "median": 1.0034,
+          "scatter": 0.0596
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "Ks",
           "mag_min": 14,
           "mag_max": 15,
           "n": 7936,
-          "median": 1.0141,
-          "scatter": 0.1206
+          "median": 0.997,
+          "scatter": 0.1187
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "W1",
           "mag_min": 9,
           "mag_max": 10,
           "n": 31,
-          "median": 0.9945,
-          "scatter": 0.0202
+          "median": 1.0272,
+          "scatter": 0.0212
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "W1",
           "mag_min": 10,
           "mag_max": 11,
           "n": 507,
-          "median": 0.9903,
-          "scatter": 0.0117
+          "median": 1.0227,
+          "scatter": 0.0121
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "W1",
           "mag_min": 11,
           "mag_max": 12,
           "n": 1200,
-          "median": 0.993,
-          "scatter": 0.0155
+          "median": 1.0254,
+          "scatter": 0.0159
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "W1",
           "mag_min": 12,
           "mag_max": 13,
           "n": 2533,
-          "median": 0.9961,
-          "scatter": 0.0211
+          "median": 1.0287,
+          "scatter": 0.0218
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "W1",
           "mag_min": 13,
           "mag_max": 14,
           "n": 5000,
-          "median": 1.0029,
-          "scatter": 0.044
+          "median": 1.0357,
+          "scatter": 0.0454
         },
         {
           "part": "spectra",
+          "zone": "pilot",
           "band": "W1",
           "mag_min": 14,
           "mag_max": 15,
           "n": 7916,
-          "median": 1.0382,
-          "scatter": 0.0966
+          "median": 1.072,
+          "scatter": 0.0997
+        },
+        {
+          "part": "speed",
+          "ra": 299.52243,
+          "dec": 78.85003,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 7.779
+        },
+        {
+          "part": "speed",
+          "ra": 299.52243,
+          "dec": 78.85003,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 8.521
+        },
+        {
+          "part": "speed",
+          "ra": 84.3889,
+          "dec": -4.69312,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 8.85
+        },
+        {
+          "part": "speed",
+          "ra": 84.3889,
+          "dec": -4.69312,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.082
+        },
+        {
+          "part": "speed",
+          "ra": 251.65714,
+          "dec": 48.66971,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 5.95
+        },
+        {
+          "part": "speed",
+          "ra": 251.65714,
+          "dec": 48.66971,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.629
+        },
+        {
+          "part": "speed",
+          "ra": 270.07862,
+          "dec": -32.91696,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.947
+        },
+        {
+          "part": "speed",
+          "ra": 270.07862,
+          "dec": -32.91696,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 8.957
+        },
+        {
+          "part": "speed",
+          "ra": 240.60998,
+          "dec": -52.80406,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 5.811
+        },
+        {
+          "part": "speed",
+          "ra": 240.60998,
+          "dec": -52.80406,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 11.063
+        },
+        {
+          "part": "speed",
+          "ra": 264.16498,
+          "dec": 67.59903,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 16.651
+        },
+        {
+          "part": "speed",
+          "ra": 264.16498,
+          "dec": 67.59903,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 10.398
+        },
+        {
+          "part": "speed",
+          "ra": 204.36374,
+          "dec": -29.69409,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 7.998
+        },
+        {
+          "part": "speed",
+          "ra": 204.36374,
+          "dec": -29.69409,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.994
+        },
+        {
+          "part": "speed",
+          "ra": 61.79257,
+          "dec": -20.0874,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.251
+        },
+        {
+          "part": "speed",
+          "ra": 61.79257,
+          "dec": -20.0874,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 7.577
+        },
+        {
+          "part": "speed",
+          "ra": 154.56017,
+          "dec": -17.98259,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.433
+        },
+        {
+          "part": "speed",
+          "ra": 154.56017,
+          "dec": -17.98259,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 9.263
+        },
+        {
+          "part": "speed",
+          "ra": 250.14924,
+          "dec": 15.50787,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 6.098
+        },
+        {
+          "part": "speed",
+          "ra": 250.14924,
+          "dec": 15.50787,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 11.055
         }
       ]
     },
@@ -1071,25 +1428,43 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "32,446 stars vs Gaia: proper-motion bias 20 (RA) and 0 (Dec) mas/yr, scatter 216 and 240 mas/yr; pull scatter 0.96, 1.07 (1 = honest error bars)",
-      "value": 216.072,
+      "headline": "211,326 stars vs Gaia (hunt zone): proper-motion bias 2 (RA) and -7 (Dec) mas/yr, scatter 146 and 144 mas/yr; pull scatter 0.97, 0.96 (1 = honest error bars). Pilot zone: 32,446 stars, bias 3 (RA) and -6 (Dec) mas/yr, scatter 147 and 145 mas/yr, pull scatter 0.98, 0.96",
+      "value": 145.807,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
-      "note": "Zone pilot; proper motions fitted over all dots with SPHEREx's own position as the observer. Pass when both pull scatters are 0.7-1.5. Rows: axis, n, bias, scatter, pull_scatter (mas/yr).",
+      "note": "Proper motions fitted over all dots with SPHEREx's own position as the observer, against Gaia DR3. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass when both pull scatters are 0.7-1.5 in every zone. Rows: zone, axis, n, bias, scatter, pull_scatter (mas/yr).",
       "rows": [
         {
+          "zone": "hunt",
           "axis": "pmra",
-          "n": 32446,
-          "bias": 19.559,
-          "scatter": 216.072,
-          "pull_scatter": 0.963
+          "n": 211326,
+          "bias": 2.464,
+          "scatter": 145.807,
+          "pull_scatter": 0.968
         },
         {
+          "zone": "hunt",
+          "axis": "pmdec",
+          "n": 211326,
+          "bias": -6.598,
+          "scatter": 144.414,
+          "pull_scatter": 0.964
+        },
+        {
+          "zone": "pilot",
+          "axis": "pmra",
+          "n": 32446,
+          "bias": 3.194,
+          "scatter": 147.447,
+          "pull_scatter": 0.979
+        },
+        {
+          "zone": "pilot",
           "axis": "pmdec",
           "n": 32446,
-          "bias": 0.15,
-          "scatter": 239.838,
-          "pull_scatter": 1.066
+          "bias": -6.219,
+          "scatter": 145.401,
+          "pull_scatter": 0.962
         }
       ]
     },
@@ -1097,62 +1472,134 @@
       "id": "V10",
       "claim": "Galaxy distances match SDSS",
       "status": "pass",
-      "headline": "1227 bright galaxies: sigma_NMAD 0.023, outliers 2%",
-      "value": 0.0229,
+      "headline": "8,552 bright galaxies (hunt zone): sigma_NMAD 0.023, outliers 3%. Pilot zone: 1,211, sigma_NMAD 0.021, outliers 2%",
+      "value": 0.0228,
       "unit": "dz/(1+z)",
       "expected": "sigma_NMAD ~0.02 for bright galaxies (AB < 17)",
-      "note": "Zone pilot; EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts. Pass <= 0.05, partial <= 0.1. Rows: sample, n, sigma_nmad, outlier_frac, bias.",
+      "note": "EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts; bright = K_AB < 17. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass <= 0.05, partial <= 0.1, in every zone. Rows: zone, sample, n, sigma_nmad, outlier_frac, bias.",
       "rows": [
         {
+          "zone": "hunt",
           "sample": "all",
-          "n": 1413,
-          "sigma_nmad": 0.0246,
-          "outlier_frac": 0.0368,
-          "bias": 0.0071
+          "n": 10328,
+          "sigma_nmad": 0.0256,
+          "outlier_frac": 0.056,
+          "bias": 0.0059
         },
         {
+          "zone": "hunt",
           "sample": "good",
-          "n": 1054,
-          "sigma_nmad": 0.0224,
-          "outlier_frac": 0.0066,
-          "bias": 0.0066
+          "n": 7432,
+          "sigma_nmad": 0.0216,
+          "outlier_frac": 0.0132,
+          "bias": 0.0036
         },
         {
+          "zone": "hunt",
           "sample": "k_ab_lt_17",
-          "n": 1227,
-          "sigma_nmad": 0.0229,
-          "outlier_frac": 0.0171,
-          "bias": 0.006
+          "n": 8552,
+          "sigma_nmad": 0.0228,
+          "outlier_frac": 0.027,
+          "bias": 0.0042
         },
         {
+          "zone": "hunt",
           "sample": "K_AB -99..15",
-          "n": 133,
-          "sigma_nmad": 0.0334,
-          "outlier_frac": 0.0075,
-          "bias": 0.013
+          "n": 798,
+          "sigma_nmad": 0.0174,
+          "outlier_frac": 0.0288,
+          "bias": -0.0025
         },
         {
+          "zone": "hunt",
           "sample": "K_AB 15..16",
-          "n": 506,
-          "sigma_nmad": 0.0245,
-          "outlier_frac": 0.0138,
-          "bias": 0.0061
+          "n": 3180,
+          "sigma_nmad": 0.0214,
+          "outlier_frac": 0.016,
+          "bias": 0.0005
         },
         {
+          "zone": "hunt",
           "sample": "K_AB 16..17",
-          "n": 588,
-          "sigma_nmad": 0.0197,
-          "outlier_frac": 0.0221,
-          "bias": 0.0057
+          "n": 4574,
+          "sigma_nmad": 0.0236,
+          "outlier_frac": 0.0343,
+          "bias": 0.0084
         },
         {
+          "zone": "hunt",
           "sample": "K_AB 17..18",
-          "n": 163,
-          "sigma_nmad": 0.0634,
-          "outlier_frac": 0.184,
+          "n": 1627,
+          "sigma_nmad": 0.0594,
+          "outlier_frac": 0.1991,
           "bias": 0.0184
         },
         {
+          "zone": "hunt",
+          "sample": "K_AB 18..99",
+          "n": 0,
+          "sigma_nmad": null,
+          "outlier_frac": null,
+          "bias": null
+        },
+        {
+          "zone": "pilot",
+          "sample": "all",
+          "n": 1415,
+          "sigma_nmad": 0.0239,
+          "outlier_frac": 0.0417,
+          "bias": 0.005
+        },
+        {
+          "zone": "pilot",
+          "sample": "good",
+          "n": 1058,
+          "sigma_nmad": 0.0198,
+          "outlier_frac": 0.0113,
+          "bias": 0.0026
+        },
+        {
+          "zone": "pilot",
+          "sample": "k_ab_lt_17",
+          "n": 1211,
+          "sigma_nmad": 0.0209,
+          "outlier_frac": 0.0223,
+          "bias": 0.003
+        },
+        {
+          "zone": "pilot",
+          "sample": "K_AB -99..15",
+          "n": 128,
+          "sigma_nmad": 0.0172,
+          "outlier_frac": 0.0078,
+          "bias": -0.005
+        },
+        {
+          "zone": "pilot",
+          "sample": "K_AB 15..16",
+          "n": 500,
+          "sigma_nmad": 0.0201,
+          "outlier_frac": 0.022,
+          "bias": 0.0004
+        },
+        {
+          "zone": "pilot",
+          "sample": "K_AB 16..17",
+          "n": 583,
+          "sigma_nmad": 0.0228,
+          "outlier_frac": 0.0257,
+          "bias": 0.0078
+        },
+        {
+          "zone": "pilot",
+          "sample": "K_AB 17..18",
+          "n": 181,
+          "sigma_nmad": 0.055,
+          "outlier_frac": 0.1713,
+          "bias": 0.0164
+        },
+        {
+          "zone": "pilot",
           "sample": "K_AB 18..99",
           "n": 0,
           "sigma_nmad": null,

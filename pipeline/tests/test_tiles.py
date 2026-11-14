@@ -101,7 +101,7 @@ def _dot_frame(obs, det, mjd, session, visit, ra, dec, flux, err, ph, rng) -> pd
 
 
 def make_root(path) -> Store:
-    """The synthetic root (see the module docstring); C.KNOWN_SOURCE must be 'skybot'."""
+    """The synthetic root (see the module docstring)."""
     from skyshift_pipeline import known, score
     rng = np.random.default_rng(11)
     store = Store(str(path))
@@ -132,15 +132,20 @@ def make_root(path) -> Store:
     del probe
     # the object sits so that it and its control position straddle the RA = 121.0 / Dec = 15.5 core edges
     k_ra, k_dec = 121.0 - se / 2 / 3600 / math.cos(math.radians(15.5)), 15.5 - sn / 2 / 3600
+    dt_h = (s1["mjd"].to_numpy() - float(p0["mjd"])) * 24.0
+    per_photo = {"obs_id": s1["obs_id"].tolist(), "detector": s1["detector"].astype(int).tolist(), "name": ["2000 AA"] * len(s1),
+                 "ra": (k_ra + rate[0] * dt_h / 3600 / math.cos(math.radians(k_dec))).tolist(),
+                 "dec": (k_dec + rate[1] * dt_h / 3600).tolist()}
     cache = {"zone": ZONE.name, "session": 1, "obs_ids": sorted(set(s1["obs_id"])), "mjd": float(p0["mjd"]),
              "objects": {"name": ["2000 AA"], "number": [99999], "ra": [k_ra], "dec": [k_dec], "v": [15.0],
-                         "dra_arcsec_h": [rate[0]], "ddec_arcsec_h": [rate[1]], "class": ["MB"]}}
+                         "dra_arcsec_h": [rate[0]], "ddec_arcsec_h": [rate[1]], "class": ["MB"]}, "per_photo": per_photo}
     store.write_json(known.run_rel(ZONE, s1), cache)
     for sess, gs in photos.groupby("session"):  # the other sessions: no known objects (so `known` has nothing to fetch)
         if sess != 1:
             store.write_json(known.run_rel(ZONE, gs), {**cache, "session": int(sess), "obs_ids": sorted(set(gs["obs_id"])),
                                                        "mjd": float(gs["mjd"].iloc[0]),
-                                                      "objects": {k: [] for k in cache["objects"]}})
+                                                       "objects": {k: [] for k in cache["objects"]},
+                                                       "per_photo": {k: [] for k in per_photo}})
     pred = known.load_predictions(store, photos, ZONE)
     units = score.score_units(pred, ZONE, 18.0)
     ctl = score.control_shift(units)
@@ -261,12 +266,6 @@ def assert_same_results(a: Store, b: Store, zone: C.Zone, rtol: float = 1e-9) ->
             assert json.dumps(ja, sort_keys=True) == json.dumps(jb, sort_keys=True), name
 
 
-@pytest.fixture
-def skybot(monkeypatch):
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "skybot")
-    monkeypatch.setenv("SKYSHIFT_KNOWN_SOURCE", "skybot")
-
-
 # --- grid and store -------------------------------------------------------------------------------------------
 def test_cores_partition_the_zone_and_borders_hold_them():
     ts = tiles.plan(ZONE, TILE_DEG, 120.0, edge_margin=False)
@@ -283,7 +282,9 @@ def test_cores_partition_the_zone_and_borders_hold_them():
             assert (t.core.ra_min - t.ext.ra_min) * math.cos(math.radians(t.ext.dec_max)) * 3600 >= 120.0 - 1e-6
     te = tiles.plan(ZONE, TILE_DEG, 120.0, edge_margin=True)
     assert te[0].ext.ra_min < ZONE.ra_min and te[0].ext.dec_min < ZONE.dec_min  # zone edges are tile edges too
-    assert (tiles.owner_of([120.49, 121.6], [15.1, 16.2], te, ZONE) == [0, 15]).all()  # just outside: the edge tile
+    out_ra, out_dec = np.array([120.49, 121.6]), np.array([15.1, 16.2])  # just outside the zone
+    assert not any(tiles.owns(t, ZONE, out_ra, out_dec, True).any() for t in te)  # border: the zone next door's
+    assert tiles.owns(ts[0], ZONE, out_ra[:1], out_dec[:1], False).all() and tiles.owns(ts[15], ZONE, out_ra[1:], out_dec[1:], False).all()
 
 
 def test_choose_tiling():
@@ -303,7 +304,7 @@ def test_choose_tiling():
 def test_tilestore_routes(tmp_path):
     base = Store(str(tmp_path / "base"))
     t = tiles.plan(ZONE, TILE_DEG, 120.0, edge_margin=False)[5]
-    ts = tiles.TileStore(base.root, str(tmp_path / "work"), ZONE, t, slim=True, forced_mirror=False, zone_calib=False, edge_margin=False)
+    ts = tiles.TileStore(base.root, str(tmp_path / "work"), ZONE, t, slim=True, forced_mirror=False, zone_calib=False, edge_margin=True)
     n = t.name
     assert ts.route(photolist_rel(n)) == (ts.work, f"tiles/{n}/photolist.parquet")
     assert ts.route(results_rel(n, "fixed.parquet")) == (ts.work, f"tiles/{n}/results/fixed.parquet")
@@ -312,17 +313,18 @@ def test_tilestore_routes(tmp_path):
     assert ts.route(results_rel(n, "calib.json")) == (ts.base, results_rel(ZONE.name, "calib.json"))
     assert ts.route(f"refcat/{n}.parquet") == (ts.work, f"tiles/{n}/refcat/{n}.parquet")
     assert ts.route("dots/a.parquet") == (ts.work, "dots/a.parquet")
-    assert ts.route(f"cache/skybot/{n}/run_x.json") == (ts.base, f"cache/skybot/{ZONE.name}/run_x.json")
+    assert ts.route(f"cache/mpc/{n}/run_x.json") == (ts.base, f"cache/mpc/{ZONE.name}/run_x.json")
     assert ts.route(f"cache/sdss/{n}.parquet") == (ts.base, f"cache/sdss/{ZONE.name}.parquet")
     base.write_parquet("forced/x.parquet", pd.DataFrame({"ref_id": ["in", "out"], "ra": [t.core.centre[0], 100.0],
-                                                         "dec": [t.core.centre[1], 15.5]}))
+                                                         "dec": [t.core.centre[1], 15.5], "mjd": [61000.0, 61000.0]}))
     assert ts.read_parquet("forced/x.parquet")["ref_id"].tolist() == ["in"]
+    assert tiles.forced_owned(ts.forced_seen, t, ZONE, True).tolist() == ["in"]
     assert ts.read_parquet("forced/x.parquet", columns=["ref_id"]).columns.tolist() == ["ref_id"]
     ts.write_json(results_rel(n, "a.json"), {"k": 1})
     assert ts.fs.info(ts.path(results_rel(n, "a.json")))["size"] > 0
 
 
-def test_slim_mirror_keeps_rows_and_metadata(tmp_path, skybot):
+def test_slim_mirror_keeps_rows_and_metadata(tmp_path):
     store = make_root(tmp_path / "root")
     ph = store.read_parquet(photolist_rel(ZONE.name)).iloc[0]
     name = f"{ph.obs_id}D{int(ph.detector)}.parquet"
@@ -338,7 +340,7 @@ def test_slim_mirror_keeps_rows_and_metadata(tmp_path, skybot):
 
 
 # --- tiled == untiled -----------------------------------------------------------------------------------------
-def test_tiled_equals_untiled(tmp_path, skybot):
+def test_tiled_equals_untiled(tmp_path):
     """Same sources, members, movers, classes, light curves, astrometry and every report, bit for bit or to float noise,
     with 16 tiles over 1° (a border of 2′ and the zone box clipped, as untiled)."""
     from skyshift_pipeline import motion_io
@@ -364,7 +366,7 @@ def test_tiled_equals_untiled(tmp_path, skybot):
     assert (lc["ref_id"].astype(str) == "gaia:999").sum() == 2
 
 
-def test_tiled_in_processes_and_border_retry(tmp_path, skybot):
+def test_tiled_in_processes_and_border_retry(tmp_path):
     """Two worker processes; a 2″ border is too narrow for link, so tiles are found and redone with a wider one."""
     t = make_root(tmp_path / "t")
     out = tiles.run(t, ZONE, 0.5, 2, margin_arcsec=2.0, edge_margin=False, work_dir=str(tmp_path / "work"))
@@ -373,7 +375,7 @@ def test_tiled_in_processes_and_border_retry(tmp_path, skybot):
     assert fixed["source_id"].is_unique and len(fixed) > 200
 
 
-def test_zone_edge_is_a_tile_edge(tmp_path, skybot):
+def test_zone_edge_is_a_tile_edge(tmp_path):
     """With TILE_ZONE_EDGE_MARGIN a star on the zone's edge keeps the dots that fall just outside the zone box."""
     u = make_root(tmp_path / "u")
     t = make_root(tmp_path / "t")
@@ -391,13 +393,13 @@ def test_zone_edge_is_a_tile_edge(tmp_path, skybot):
     assert n_dots(t) >= 28        # ~0.95 × 32 photos
 
 
-def test_all_runs_the_combining_steps_tiled(tmp_path, skybot, monkeypatch):
-    """`all --tile-deg` (photolist, refcat, dots and known find their files) → tiles.run → summary.json per step."""
+def test_all_runs_the_combining_steps_tiled(tmp_path, monkeypatch):
+    """`all --from link --tile-deg` → tiles.run → summary.json per step (offline: refcat would query the services)."""
     from skyshift_pipeline import cli
     store = make_root(tmp_path / "root")
     monkeypatch.setitem(C.ZONES, ZONE.name, ZONE)
-    assert cli.main(["all", "--zone", ZONE.name, "--root", store.root, "--workers", "1", "--tile-deg", "0.5",
-                     "--known-source", "skybot", "--zone-edge", "clip", "--tile-dir", str(tmp_path / "work")]) == 0
+    assert cli.main(["all", "--zone", ZONE.name, "--root", store.root, "--workers", "1", "--from", "link", "--tile-deg", "0.5",
+                     "--zone-edge", "clip", "--tile-dir", str(tmp_path / "work")]) == 0
     summ = store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]
     assert summ["tiles"]["grid"] == [2, 2] and summ["tiles"]["zone_edge_margin"] is False
     for step in ("link", "calib", "highpm", "score", "suspects"):
@@ -406,5 +408,5 @@ def test_all_runs_the_combining_steps_tiled(tmp_path, skybot, monkeypatch):
         assert store.exists(results_rel(ZONE.name, f"{name}.parquet")), name
     assert not list((tmp_path / "work").iterdir())  # the work dir is removed after a good run
     assert cli.main(["all", "--zone", ZONE.name, "--root", store.root, "--workers", "1", "--from", "link", "--tiles", "4",
-                     "--known-source", "skybot", "--tile-dir", str(tmp_path / "work")]) == 0
+                     "--tile-dir", str(tmp_path / "work")]) == 0
     assert store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]["tiles"]["zone_edge_margin"] is True

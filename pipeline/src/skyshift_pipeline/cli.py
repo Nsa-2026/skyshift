@@ -6,6 +6,10 @@ ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (config) runs link … suspects per sky tile in parallel processes
 and merges them into the same results/<zone>/ files (tiles.py); --tiles off|N and --tile-deg D override that.
+
+skyshift-pipeline mpc-orbits [--root ROOT] [--force]
+  Laptop only, not part of `all`: new dated MPC orbit snapshots in cache/mpc/orbits/ (the GCP machines
+  can't reach minorplanetcenter.net). Keeps a snapshot already made today unless --force.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "astrometry", "hig
 STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "classify", "photoz",
          "colours", "lightcurves", "astrometry", "highpm", "score", "suspects")
 TILED_STEPS = STEPS[STEPS.index("link"):]  # what `all` runs per tile (tiles.py) on a large zone
+TOOLS = ("mpc-orbits",)  # run by hand, never by `all`; no zone
 L = log.get("cli")
 
 
@@ -77,14 +82,13 @@ def _update_summary(store: Store, zone: C.Zone, step: str, out: dict, seconds: f
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="skyshift-pipeline", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=(*STEPS, "all"))
-    ap.add_argument("--zone", required=True, choices=sorted(C.ZONES))
+    ap.add_argument("step", choices=(*STEPS, "all", *TOOLS))
+    ap.add_argument("--zone", choices=sorted(C.ZONES), help="required for every step except mpc-orbits")
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--limit", type=int, default=None, help="testing: dots does at most N photos, known at most N sessions")
-    ap.add_argument("--force", action="store_true", help="photolist, refcat: query the services again even if the files exist")
-    ap.add_argument("--known-source", choices=C.KNOWN_SOURCES, default=C.KNOWN_SOURCE,
-                    help="known, score, suspects: MPC orbits with kete (default) or the SkyBoT service")
+    ap.add_argument("--force", action="store_true",
+                    help="photolist, refcat, mpc-orbits: query the services again even if the files exist")
     ap.add_argument("--from", dest="from_step", choices=STEPS, default=None,
                     help="all: start at this step (e.g. --from link: combine again without photolist, refcat, dots, known)")
     ap.add_argument("--tiles", default="auto",
@@ -95,10 +99,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--zone-edge", choices=("border", "clip"), default="border" if C.TILE_ZONE_EDGE_MARGIN else "clip",
                     help="all, tiled: load the 2′ border outside the zone box too (default), or clip there as untiled runs do")
     args = ap.parse_args(argv)
-    C.KNOWN_SOURCE = args.known_source
-    os.environ["SKYSHIFT_KNOWN_SOURCE"] = args.known_source  # worker processes read config afresh
+    if args.step not in TOOLS and args.zone is None:
+        ap.error(f"{args.step} needs --zone")
     log.setup()
     store = Store(args.root)
+    if args.step == "mpc-orbits":
+        from . import known_mpc
+        L.info("skyshift-pipeline mpc-orbits --root %s --force %s", store.root, args.force)
+        L.info("mpc-orbits: %s", known_mpc.refresh_orbits(store, force=args.force))
+        return 0
     zone = C.ZONES[args.zone]
     steps = (STEPS[STEPS.index(args.from_step):] if args.from_step else STEPS) if args.step == "all" else (args.step,)
     grid = None

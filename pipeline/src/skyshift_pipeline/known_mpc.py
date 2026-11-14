@@ -1,11 +1,13 @@
-"""Step 3, `known --known-source mpc`: the known asteroids and comets each photo saw, from the Minor
-Planet Center's orbits propagated with kete (Caltech/IPAC, BSD-3) instead of the SkyBoT web service.
+"""Step 3, `known`: the known asteroids and comets each photo saw, from the Minor Planet Center's
+orbits propagated with kete (Caltech/IPAC, BSD-3). The only source of known objects.
+History: #64 compared MPC with SkyBoT on the pilot (docs/research/2026-11-14-mpc-vs-skybot-score.md).
 
 - Orbits: MPC mpcorb_extended.json.gz (~1.6 million asteroids) and cometels.json.gz (~1,000 comets;
   no interstellar objects, no non-gravitational terms). The first run keeps dated copies in
   cache/mpc/orbits/{mpcorb,cometels}_<YYYY-MM-DD>.parquet; every run uses the newest of each, so all
-  machines and reruns use the same orbits. Comets have no V (the MPC comet file's magnitudes aren't kept
-  by kete): they count for the suspects' known-object cut and stay out of score's V cuts, as SkyBoT's.
+  machines and reruns use the same orbits. `skyshift-pipeline mpc-orbits` (refresh_orbits) adds newer
+  snapshots, from a laptop: the GCP machines can't reach the MPC. Comets have no V (the MPC comet file's magnitudes aren't kept
+  by kete): they count for the suspects' known-object cut and stay out of score's V cuts.
 - Observer: SPHEREx itself. IMAGE header X_SC, Y_SC, Z_SC (km) and VX_SC, VY_SC, VZ_SC (km/s) are
   geocentric, equatorial J2000, at MJD-AVG (UTC). On one D2 photo this put the 8 known asteroids
   brighter than V 17 on their dots with a median offset of 1.0″ (1.7″ from the Earth's centre).
@@ -16,13 +18,13 @@ Planet Center's orbits propagated with kete (Caltech/IPAC, BSD-3) instead of the
   object once with n-body physics across all that visit's photos and corrects for light time.
 - V from H and G (MPC_G_DEFAULT when missing) with kete's H-G model; fainter than MPC_V_MAX is dropped.
 
-Cache per session, cache/mpc/<zone>/run_<first obs_id>.json, in the SkyBoT shape (known.py) so score
-and suspects read it unchanged, plus two keys:
+Cache per session, cache/mpc/<zone>/run_<first obs_id>.json, in the shape known.py describes, which
+score and suspects read through known.load_predictions:
   per_photo: {obs_id, detector, name, ra, dec} (columns), each object at that photo's own time;
-             load_predictions uses these instead of moving `objects` with the rates.
+             load_predictions takes the positions from these.
   observers: {obs_id: {mjd_avg, X_SC, ..., VZ_SC, observer: "spacecraft" | "geocentre"}}.
 `objects` lists each object once, moved with its rates from the first photo that saw it to the
-session mid-time. Rates are on-sky (dRA·cos dec), arcsec per hour, as SkyBoT's.
+session mid-time. Rates are on-sky (dRA·cos dec), arcsec per hour.
 """
 
 from __future__ import annotations
@@ -56,27 +58,58 @@ def _kete():
 
 # ---------------------------------------------------------------- orbits
 
-def _snapshot(store: Store, prefix: str, fetch) -> tuple[pd.DataFrame, str]:
-    """The newest <prefix>_<date>.parquet in MPC_ORBITS_DIR; fetched and saved on first use."""
+def _snapshot_name(prefix: str) -> str:
+    return f"{prefix}_{time.strftime('%Y-%m-%d', time.gmtime())}.parquet"
+
+
+def _snapshot(store: Store, prefix: str, fetch, refresh: bool = False) -> tuple[pd.DataFrame, str]:
+    """The newest <prefix>_<date>.parquet in MPC_ORBITS_DIR; fetched and saved on first use.
+    refresh=True fetches anyway and saves today's snapshot (replacing one already made today)."""
     names = sorted(n for n in store.listdir(C.MPC_ORBITS_DIR) if n.startswith(prefix + "_") and n.endswith(".parquet"))
-    if names:
+    if names and not refresh:
         tab = store.read_parquet(f"{C.MPC_ORBITS_DIR}/{names[-1]}")
         L.info("MPC orbits: %s (%d objects)", names[-1], len(tab))
         return tab, names[-1]
     t0 = time.time()
     tab = fetch()
     tab["desig"] = tab["desig"].astype(str)  # numbered asteroids come as int, the rest as str
-    name = f"{prefix}_{time.strftime('%Y-%m-%d', time.gmtime())}.parquet"
+    name = _snapshot_name(prefix)
     store.write_parquet(f"{C.MPC_ORBITS_DIR}/{name}", tab)
     L.info("MPC orbits downloaded in %.0f s: %d objects, saved as %s", time.time() - t0, len(tab), name)
     return tab, name
 
 
+def _fetch_asteroids() -> pd.DataFrame:
+    return _kete().mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL)
+
+
+def _fetch_comets() -> pd.DataFrame:
+    return _kete().mpc.fetch_known_comet_orbit_data()
+
+
 def orbit_table(store: Store) -> tuple[pd.DataFrame, str]:
     """Asteroids then comets, one row per object, and the snapshot names ("mpcorb_… + cometels_…")."""
-    ast, a = _snapshot(store, "mpcorb", lambda: _kete().mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL))
-    com, c = _snapshot(store, "cometels", lambda: _kete().mpc.fetch_known_comet_orbit_data())
+    ast, a = _snapshot(store, "mpcorb", _fetch_asteroids)
+    com, c = _snapshot(store, "cometels", _fetch_comets)
     return pd.concat([ast, com], ignore_index=True), f"{a} + {c}"
+
+
+def refresh_orbits(store: Store, force: bool = False, fetchers: dict | None = None) -> dict:
+    """`skyshift-pipeline mpc-orbits`: new dated snapshots of both orbit files, which every later `known`
+    run then uses (the newest wins). Run it from a laptop: minorplanetcenter.net timed out from the GCP
+    machines (14 Nov). A file whose snapshot for today exists is kept unless force. Sessions already in
+    cache/mpc/<zone>/ keep their old positions; delete those files to recompute them."""
+    fetchers = fetchers or {"mpcorb": _fetch_asteroids, "cometels": _fetch_comets}
+    out: dict = {}
+    for prefix, fetch in fetchers.items():
+        today = _snapshot_name(prefix)
+        if not force and store.exists(f"{C.MPC_ORBITS_DIR}/{today}"):
+            L.info("MPC orbits: %s exists, kept (--force fetches it again)", today)
+            out[prefix] = {"snapshot": today, "fetched": False}
+            continue
+        tab, name = _snapshot(store, prefix, fetch, refresh=True)
+        out[prefix] = {"snapshot": name, "fetched": True, "objects": int(len(tab))}
+    return out
 
 
 def object_table(orb: pd.DataFrame) -> pd.DataFrame:

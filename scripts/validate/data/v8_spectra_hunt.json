@@ -1,0 +1,153 @@
+{
+  "generated": "2026-11-14",
+  "check": "V8",
+  "part": "spectra",
+  "zone": "hunt",
+  "method": "V8, spectra half: SPHEREx spectra of a pipeline zone's stars against 2MASS Ks and CatWISE W1.\n\nThe plan asked for two unsaturated stars; one zone gives thousands. For every source with a\n102-channel spectrum (pipeline `spectra` step, results/<zone>/sources.parquet) matched one-to-one to\nGaia (< 1\"), 2MASS (< 1.5\") and, for W1, CatWISE (< 1.5\") in results/<zone>/crossids.parquet, and\nnot flagged saturated or variable:\n\n  SPHEREx band flux = mean of the channel fluxes (uJy) with centres inside the band, weighted by\n                      channel width; at least 3 channels with data.\n  Ks band 1.99-2.31 um, zero point 666.7 Jy (Cohen et al. 2003);\n  W1 band 2.80-3.80 um, zero point 309.54 Jy (Jarrett et al. 2011), Vega magnitudes.\n  ratio = SPHEREx / catalogue, reported by catalogue magnitude. Pass: median within 20% of 1 in the\n  clean range (10-13 mag, bright enough to be precise, faint enough to be unsaturated).\n\nNo colour corrections: for stars they are a few percent at most.",
+  "sources": 303045,
+  "pass": true,
+  "bands": {
+    "Ks": {
+      "um": [
+        1.99,
+        2.31
+      ],
+      "reference": "2MASS Ks, zero point 666.7 Jy (Cohen et al. 2003)",
+      "clean_range_mag": [
+        10.0,
+        13.0
+      ],
+      "clean": {
+        "n": 25696,
+        "median": 0.9925,
+        "scatter": 0.0286
+      },
+      "all": {
+        "n": 156727,
+        "median": 0.9997,
+        "scatter": 0.0837
+      },
+      "by_mag": [
+        {
+          "band": "Ks",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 80,
+          "median": 0.9773,
+          "scatter": 0.0187
+        },
+        {
+          "band": "Ks",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 3099,
+          "median": 0.9845,
+          "scatter": 0.0205
+        },
+        {
+          "band": "Ks",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 6985,
+          "median": 0.9911,
+          "scatter": 0.0239
+        },
+        {
+          "band": "Ks",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 15612,
+          "median": 0.9955,
+          "scatter": 0.033
+        },
+        {
+          "band": "Ks",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 31732,
+          "median": 0.9979,
+          "scatter": 0.054
+        },
+        {
+          "band": "Ks",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 52069,
+          "median": 0.9939,
+          "scatter": 0.1028
+        }
+      ]
+    },
+    "W1": {
+      "um": [
+        2.8,
+        3.8
+      ],
+      "reference": "CatWISE2020 W1, zero point 309.54 Jy (Jarrett et al. 2011)",
+      "clean_range_mag": [
+        10.0,
+        13.0
+      ],
+      "clean": {
+        "n": 27860,
+        "median": 1.0291,
+        "scatter": 0.0188
+      },
+      "all": {
+        "n": 133140,
+        "median": 1.0539,
+        "scatter": 0.0696
+      },
+      "by_mag": [
+        {
+          "band": "W1",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 177,
+          "median": 1.0277,
+          "scatter": 0.0126
+        },
+        {
+          "band": "W1",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 3457,
+          "median": 1.0265,
+          "scatter": 0.0132
+        },
+        {
+          "band": "W1",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 7628,
+          "median": 1.0279,
+          "scatter": 0.0159
+        },
+        {
+          "band": "W1",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 16775,
+          "median": 1.0308,
+          "scatter": 0.0219
+        },
+        {
+          "band": "W1",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 32999,
+          "median": 1.0376,
+          "scatter": 0.0423
+        },
+        {
+          "band": "W1",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 52328,
+          "median": 1.0737,
+          "scatter": 0.0939
+        }
+      ]
+    }
+  }
+}

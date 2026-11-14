@@ -12,6 +12,10 @@ dependencies = [
     "sep>=1.4",
 ]
 
+[project.optional-dependencies]
+# known_index.known_near and build_index (MPC orbits moved with kete); reading the index needs numpy only.
+known = ["kete==3.3.0"]
+
 [build-system]
 requires = ["uv_build>=0.13.8,<0.14.0"]
 build-backend = "uv_build"

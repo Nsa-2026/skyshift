@@ -30,7 +30,47 @@ class Zone:
 ZONES: dict[str, Zone] = {
     "hunt": Zone("hunt", 120.5, 130.5, 14.4, 24.4),     # 100 deg² on the ecliptic
     "pilot": Zone("pilot", 120.5, 124.1, 14.4, 17.9),   # 12 deg², the hunt zone's corner
+    # All-sky test (14 Nov, docs/research/2026-11-14-allsky-test.md): 0.5° × 0.5° on the sky around sky types the
+    # pilot never saw; run photolist, refcat, dots --limit only (every photo covers the whole box).
+    "t_cygnus": Zone("t_cygnus", 304.674, 305.326, 39.75, 40.25),    # Galactic plane, Cygnus (b ≈ +2.5°)
+    "t_gc": Zone("t_gc", 265.714, 266.286, -29.25, -28.75),          # towards the Galactic centre (b ≈ −0.3°)
+    "t_lmc": Zone("t_lmc", 80.176, 81.624, -70.05, -69.55),          # Large Magellanic Cloud bar
+    "t_smc": Zone("t_smc", 12.355, 14.045, -73.05, -72.55),          # Small Magellanic Cloud
+    "t_nep": Zone("t_nep", 269.372, 270.628, 66.31, 66.81),          # north ecliptic pole
+    "t_sep": Zone("t_sep", 89.372, 90.628, -66.81, -66.31),          # south ecliptic pole
+    "t_ngp": Zone("t_ngp", 192.579, 193.141, 26.88, 27.38),          # north Galactic pole
 }
+
+# Sky run (14 Nov): 10° x 10° zones stacked along the ecliptic, aligned on the hunt zone. Column k covers
+# RA 0.5 + 10k .. 10.5 + 10k (k = 0..35; column 36 is the RA 0-0.5 strip); its row 0 is centred on the
+# ecliptic's Dec at the column's middle RA (rounded to 0.1°, as the hunt zone), rows ±1, ±2, ... are the
+# 10° boxes above/below. Names: ecl<kk> (row 0), ecl<kk>n<r> / ecl<kk>s<r>. Column 12 row 0 IS "hunt".
+ECLIPTIC_OBLIQUITY_DEG = 23.4393
+ECLIPTIC_MAX_ROW = 4
+
+
+def _ecliptic_dec(ra_deg: float) -> float:
+    import math
+    return math.degrees(math.atan(math.sin(math.radians(ra_deg)) * math.tan(math.radians(ECLIPTIC_OBLIQUITY_DEG))))
+
+
+def ecliptic_zones(max_row: int = ECLIPTIC_MAX_ROW) -> dict[str, Zone]:
+    out: dict[str, Zone] = {}
+    cols = [(k, 0.5 + 10.0 * k, min(10.5 + 10.0 * k, 360.0)) for k in range(36)] + [(36, 0.0, 0.5)]
+    for k, r0, r1 in cols:
+        c = round(_ecliptic_dec((r0 + r1) / 2.0), 1)
+        for row in range(-max_row, max_row + 1):
+            if (k, row) == (12, 0):
+                continue  # the hunt zone
+            d0, d1 = round(c - 5.0 + 10.0 * row, 1), round(c + 5.0 + 10.0 * row, 1)
+            if d1 <= -90.0 or d0 >= 90.0:
+                continue
+            name = f"ecl{k:02d}" + ("" if row == 0 else ("n" if row > 0 else "s") + str(abs(row)))
+            out[name] = Zone(name, r0, r1, max(d0, -90.0), min(d1, 90.0))
+    return out
+
+
+ZONES.update(ecliptic_zones())
 
 # --- photo search ----------------------------------------------------------------------------
 COLLECTIONS = ("spherex_dr1", "spherex_qr3")  # in order of preference on duplicates; *_deep skipped
@@ -62,21 +102,9 @@ POS_ERR_FLOOR_ARCSEC = 0.25    # measured on the first photo; V3 will replace it
 ELONG_R_PX = 2.5               # elong: second moments of the pixels within this radius
 ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 
-# --- known (SkyBoT) ------------------------------------------------------------------------
-# One cone per session (time run), covering that run's footprints inside the zone, at the run's
-# mid-time; each object is moved to each photo's mid-time with SkyBoT's rates.
-SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
-SKYBOT_MAX_IN_FLIGHT = 4
-SKYBOT_PAD_DEG = 0.05
-SKYBOT_TIMEOUT_S = 300
-
 # --- known (MPC orbits with kete) ------------------------------------------------------------
-# KNOWN_SOURCE picks where `known` gets its objects: "mpc" (default; known_mpc.py: MPC orbits moved with
-# kete to each photo's MJD-AVG, seen from SPHEREx's header position) or "skybot" (the IMCCE service above). The CLI
-# flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
-# cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
-KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "mpc")
-KNOWN_SOURCES = ("skybot", "mpc")
+# known_mpc.py: MPC orbits moved with kete to each photo's MJD-AVG, seen from SPHEREx's header position.
+# One cache file per session in cache/mpc/<zone>/; score and suspects read it.
 MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
 MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
@@ -158,6 +186,8 @@ LC_MIN_POINTS = 3              # summary rows need this many points
 ASTRO_MIN_DOTS = 6             # dots needed for a fit (position + proper motion)
 ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (two are degenerate with pm)
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
+ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
+                               # √max(1, χ²_ν) for every source inflated errors 1.5× at ~7 dots (pm pulls 0.85)
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
@@ -280,6 +310,13 @@ REFCAT_TILE_DEG = 1.0          # one async TAP query per catalogue per tile; eac
 REFCAT_WORKERS = 8             # queries in flight
 REFCAT_MAXREC = 2_000_000      # a tile that returns this many rows is an error (truncated)
 REFCAT_GAIA_G_MAX = 20.0
+# Catalogues refcat fetches (env SKYSHIFT_REFCAT_CATALOGS, comma list). "gaia" alone: only the forced list
+# refcat/<zone>_forced.parquet is written (Gaia part), so extraction can start fast; a later normal
+# refcat run sees the full refcat missing, reuses the cached Gaia tiles and adds CatWISE + 2MASS.
+REFCAT_CATALOGS = tuple(c.strip() for c in os.environ.get("SKYSHIFT_REFCAT_CATALOGS", "gaia,catwise,2mass").split(",") if c.strip())
+# Gaia DR3 synthetic photometry (GSPC z, y: calib's D1 anchors) joins the ESA Gaia query since 15 Nov. A full (not
+# partial) refcat run over a zone whose Gaia tiles were cached without it refetches those tiles only, best effort.
+REFCAT_GSPC_UPGRADE = os.environ.get("SKYSHIFT_REFCAT_GSPC_UPGRADE", "1") != "0"
 # forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
 # Asked for G < 19 and W1 < 16: that gave 5,400 targets/deg² (66,000 per photo) in the pilot (3,870 Gaia,
 # 1,540 CatWISE-only, mostly galaxies), over the 30,000 budget. Tightened (14 Nov) to G < 17.5 (2,110/deg²)
@@ -314,6 +351,18 @@ CALIB_CHECK_SNR_BINS = (10.0, 30.0, 60.0, 150.0, 1e9)  # report: phase amplitude
 CALIB_PHOTO_MAX_ORDER = 2       # 0 = offset only, 1 = affine, 2 = quadratic
 CALIB_PHOTO_MIN_GAIN = 0.01     # a higher order is used only if it lowers the held-out scatter by > 1%
 CALIB_PHOTO_MIN_STARS = (10, 30, 60)  # stars needed per photo for order 0, 1, 2 (fewer: the next lower order)
+CALIB_FIT_SIGMA = (5.0, 0.15)   # ″ (a, floor): weights of the distortion fit, σ = √((a/snr)² + floor²), windowed centroid
+# ePSF positions (dots v4, psf_pos_ok): no phase term; their own per-photo distortion and pos_err, fitted the same way.
+# Weights as measured on 36 pilot photos (14 Nov): about half the centroid's scatter at every S/N.
+CALIB_PSF_FIT_SIGMA = (2.5, 0.10)
+# With calib.json, a dot takes its ePSF position only where the ePSF model's calibrated pos_err is below the corrected
+# centroid's: ePSF a ≈ 2.9–3.9″ vs 4.4–6.0″, but floor 0.13–0.20″ vs 0.08–0.21″ (36 pilot photos), so the
+# centroid wins above S/N ≈ 30–50 in D1, D2, D4–D6. False: every psf_pos_ok dot takes its ePSF position.
+CALIB_PSF_CHOOSE_BY_ERROR = True
+CALIB_YMAP_BIN_PX = 64          # detector y-map: fixed Δy(y) per detector (the wavelength axis), median per bin ...
+CALIB_YMAP_MIN_DOTS = 30        # ... from at least this many dots (else 0)
+CALIB_YMAP_MIN_RMS_PX = 0.008   # applied only where its rms beats this (D3 pilot ~0.035 px, D2 ~0.01, others ≲ 0.004)
+CALIB_REL_MIN_DOTS = 3          # pos_err floor_rel (motion): stars with at least this many dots, residuals about their mean
 # flux pixel phase: ln(flux / the source's smooth spectrum) = Σ_k a_k cos(2πkφx) + b_k cos(2πkφy) + c cos(2πφx)cos(2πφy)
 CALIB_FLUX_K = 2
 CALIB_FLUX_MIN_SNR = 50.0       # dots used for the flux phase fit
@@ -321,9 +370,12 @@ CALIB_FLUX_REF_MIN_CHANNELS = 8 # the source's spectrum needs this many channels
 # aperture / detector scale: one factor per detector so r = 2 px fluxes become total fluxes, consistent across detectors.
 # Anchors: catalogue SED (log-log between bands) at dots within CALIB_AP_WINDOW_UM of a band centre; stitching:
 # the source spectra on either side of each detector boundary extrapolated to it. Weighted least squares.
-CALIB_AP_BANDS = {"J": (1.235, "j", 0.91), "H": (1.662, "h", 1.39), "Ks": (2.159, "k", 1.85),
-                  "W1": (3.368, "w1", 2.699), "W2": (4.618, "w2", 3.339)}  # µm, crossids column, AB − Vega
+CALIB_AP_BANDS = {"z": (0.8932, "gaia_z_ab", 0.0), "y": (0.9633, "gaia_y_ab", 0.0),
+                  "J": (1.235, "j", 0.91), "H": (1.662, "h", 1.39), "Ks": (2.159, "k", 1.85),
+                  "W1": (3.368, "w1", 2.699), "W2": (4.618, "w2", 3.339)}  # µm (pivot), crossids column, AB − Vega
+CALIB_AP_OPTIONAL_BANDS = ("z", "y")  # Gaia GSPC (G < 17.65, ESA refcat only): used where present, else skipped
 CALIB_AP_WINDOW_UM = 0.1
+CALIB_AP_WINDOW_BAND_UM = {"z": 0.035, "y": 0.035}  # narrower: z and y sit 0.07 µm apart, no long interpolation
 CALIB_AP_MIN_SNR = 30.0
 CALIB_AP_STAR_JK = (0.25, 0.75)  # 2MASS J − Ks (Vega): F–K stars, smooth spectra
 CALIB_AP_STAR_W12_MAX = 0.1      # |W1 − W2| (Vega): no excess, no strong CO
@@ -333,6 +385,10 @@ CALIB_AP_MIN_DOTS = 50           # per (band, detector) anchor
 CALIB_AP_ANCHOR_SIGMA = 0.02     # systematic per anchor (bandpass and stellar colour terms), ln units
 CALIB_AP_STITCH_SIGMA = 0.01     # per boundary
 CALIB_AP_STITCH_CHANNELS = 4     # channels on each side of a boundary
+# Stitch a boundary only if one side has no catalogue anchor. Pilot: the 1.1 µm stitch put D1 at 0.951 while Gaia GSPC
+# z and y (two bands, 0.89 and 0.96 µm) both give 1.024; D1 and D2 slope ~4–5% inside the detector, so edges mislead.
+CALIB_AP_STITCH_ANCHORED = False
+CALIB_FORCED_MAX_PHOTOS = 30    # forced photometry's own PSF level (calib.fit_forced): photos read per detector (~2,000 pairs each)
 CALIB_AP_PRIOR_SIGMA = 0.1       # weak prior ln factor = 0 (keeps a detector without constraints at 1)
 
 # --- pilot fixes (14 Nov): light-curve error model, band labels, fast-mover vetting ----------
@@ -374,6 +430,26 @@ HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
 HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
 HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls
+
+# --- forced-photometry sky list (forced_sky.py; contracts/dots.md, forced) ------------------------
+# One target list for the whole sky, HEALPix-partitioned (nested, nside FORCED_SKY_NSIDE: 12,288 partitions of
+# 3.36 deg²), so a photo reads only the ~9–12 partitions its footprint overlaps and gets every target in it,
+# whatever zone it was extracted under. Built by `python -m skyshift_pipeline.forced_sky` (resumable); dots uses it
+# only when FORCED_SKY_DIR/FORCED_SKY_MANIFEST exists (written once every partition is done), else falls back to
+# refcat/<zone>_forced.parquet exactly as before. SKYSHIFT_FORCED_SKY=off forces the zone list.
+# Gaia DR3 G < FORCED_GAIA_G_MAX is 221 M targets whole sky (Gaia random_index sample, 14 Nov); 45% of the sky is
+# denser than the 30,000-per-photo budget (2,449/deg²), up to ~250,000/deg² near the galactic centre (2.8 M per photo).
+# So each partition keeps at most its brightest FORCED_SKY_MAX_PER_DEG2 × area targets (a per-partition G limit,
+# recorded in the manifest): 71 M targets. None = no cap (221 M targets; plane photos up to ~2.8 M targets each).
+FORCED_SKY_MODE = os.environ.get("SKYSHIFT_FORCED_SKY", "auto")   # "auto" (use it if complete) or "off"
+FORCED_SKY_NSIDE = 32
+FORCED_SKY_DIR = "refcat/sky/forced_n32"           # p<pixel:05d>.parquet, FORCED_COLUMNS of refcat.py
+FORCED_SKY_MANIFEST = "_complete.json"             # written last: the list is complete
+FORCED_SKY_MAX_PER_DEG2: float | None = FORCED_MAX_PER_PHOTO / PHOTO_SIDE_DEG ** 2   # 2,449/deg² -> 8,222 per partition
+FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in flight (16 measured fine, 14 Nov)
+FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
+FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
+FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
 
 # --- tiles: the combining steps per sky tile, in parallel processes (tiles.py) -------------------------
 # `all` cuts zones larger than TILE_AUTO_MIN_DEG2 into tiles (CLI --tiles / --tile-deg override). A tile is a core box

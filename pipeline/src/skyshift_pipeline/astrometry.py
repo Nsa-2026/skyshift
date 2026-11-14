@@ -5,12 +5,15 @@ the source's median position:
     east_i  = x0 + pmra  · t_i + ϖ · Pe_i
     north_i = y0 + pmdec · t_i + ϖ · Pn_i
 t_i in Julian years from the source's weighted mean epoch (written as epoch_mjd, so position and
-motion are uncorrelated); weights 1 / pos_err_arcsec² per axis; Pe, Pn the parallax factors from the
+motion are uncorrelated); weights 1 / pos_err_rel_arcsec² per axis (calib's epoch-to-epoch error, without each
+star's constant offset from Gaia; pos_err_arcsec where absent), and that constant part, the mean of
+pos_err_arcsec² − pos_err_rel_arcsec² over the source's dots, added to ra_err/dec_err only; Pe, Pn the parallax factors from the
 observer's barycentric position: the Earth's (astropy's built-in ephemeris) plus SPHEREx's geocentric
 offset (X_SC, Y_SC, Z_SC in km, from the dot files or the photo list, when present; < 1e-4 AU, so it
 barely matters). Parallax is fitted only with >= ASTRO_PARALLAX_MIN_VISITS visits; with two visits six
 months apart it is degenerate with the proper motion. One refit without dots beyond ASTRO_CLIP_SIGMA.
-Errors are the formal ones × √max(1, χ²_ν). Vectorised: normal equations from bincounts, one batched
+Errors are the formal ones, × √χ²_ν where χ²_ν is beyond its ASTRO_CHI2_INFLATE_P quantile for the source's
+degrees of freedom (√max(1, χ²_ν) everywhere inflated small-ν sources by chance: pulls 0.85 against Gaia). Vectorised: normal equations from bincounts, one batched
 5×5 solve; no loop per source.
 
 Frame correction (ASTRO_FRAME_CORRECT): each photo's WCS can be off by a fraction of an arcsec as a
@@ -165,9 +168,14 @@ def _solve(s, N, w, t, east, north, Pe, Pn, use_plx):
     return par, cov
 
 
+def _rel_col(d: pd.DataFrame) -> str:
+    """calib's epoch-to-epoch error when present (without each star's constant offset from Gaia), else pos_err."""
+    return "pos_err_rel_arcsec" if "pos_err_rel_arcsec" in d else "pos_err_arcsec"
+
+
 def _setup(d: pd.DataFrame):
     """The usable dots and, per dot, its source's median position, tangent-plane offset and observer position."""
-    pe_ = d["pos_err_arcsec"].to_numpy(np.float64)
+    pe_ = d[_rel_col(d)].to_numpy(np.float64)
     ok = np.isfinite(pe_) & (pe_ > 0) & np.isfinite(d["mjd"].to_numpy(np.float64))
     d = d[ok]
     sid_u, s = np.unique(d["source_id"].to_numpy(np.int64), return_inverse=True)
@@ -222,7 +230,8 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
     d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
     n_dots = np.bincount(s, minlength=N)
     mjd = d["mjd"].to_numpy(np.float64)
-    err = d["pos_err_arcsec"].to_numpy(np.float64)
+    err = d[_rel_col(d)].to_numpy(np.float64)
+    const2 = np.maximum(d["pos_err_arcsec"].to_numpy(np.float64) ** 2 - err ** 2, 0.0)  # star-constant part (calib)
     st: dict = {"spacecraft_position_dots": int(np.isfinite(sc).all(axis=1).sum()) if sc is not None else 0}
     corrected = np.zeros(N, bool)
     if frame:
@@ -252,8 +261,14 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         if it == 0:
             infl = np.sqrt(np.maximum(1.0, chi2_nu))[s]
             keep = np.maximum(np.abs(re), np.abs(rn)) <= C.ASTRO_CLIP_SIGMA * err * infl
-    scale = np.sqrt(np.maximum(1.0, chi2_nu))
+    from scipy.stats import chi2 as chi2_dist
+    dof = np.maximum(2 * n_used - npar, 1)
+    excess = chi2_nu > chi2_dist.ppf(C.ASTRO_CHI2_INFLATE_P, dof) / dof
+    scale = np.where(excess, np.sqrt(np.maximum(1.0, chi2_nu)), 1.0)
     sig = np.sqrt(np.einsum("nii->ni", cov)) * scale[:, None]
+    extra = np.bincount(s, const2, N) / np.maximum(n_dots, 1)  # 0 without calib's floor_rel
+    for j in (0, 1):
+        sig[:, j] = np.where(extra > 0, np.sqrt(sig[:, j] ** 2 + extra), sig[:, j])
     mx = pd.Series(mjd).groupby(s).max().reindex(range(N)).to_numpy()
     mn = pd.Series(mjd).groupby(s).min().reindex(range(N)).to_numpy()
     span = (mx - mn) / DAYS_PER_JYEAR

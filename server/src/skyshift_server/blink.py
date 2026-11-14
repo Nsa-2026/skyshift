@@ -12,14 +12,22 @@ that detector (the latest on a tie), at most HOURS_MAX_FRAMES frames (whole sess
 start). `known` is asked from SkyBoT once per epoch (months: at the visit's mjd_mid, where it
 only tells which asteroids crossed the field around then; the median removes them), at the times
 the search gives, while the cutouts download (reconcile_known re-asks an epoch whose time moved).
-The live months clock stacks at most LIVE_PER_VISIT exposures a visit; precompute stacks all.
+The live months clock stacks at most LIVE_PER_VISIT exposures a visit, and the live hours clock
+shows at most LIVE_HOURS_FRAMES exposures (whole runs of a few sessions spread over the visit:
+pick_hours_live); precompute stacks all and keeps every hours frame (up to HOURS_MAX_FRAMES).
+
+Live builds carry a Budget (budget.py): cutouts are downloaded most useful first (months: every
+visit's first and last exposures before the ones between; hours: in time order), and what is not
+in by the deadline is left out. Gaia and SkyBoT are waited for until the deadline too.
+Frames.partial says what was cut; the app does not cache a partial answer.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -27,6 +35,7 @@ import numpy as np
 from skyshift_core import Level2
 
 from . import cutouts, gaia, known, search, stack
+from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import ApiError, NotFoundError, bad_request
 from .search import Image
@@ -39,6 +48,22 @@ HOURS_MAX_FRAMES = 48
 # D2, IRSA mostly busy so S3 reads): every exposure (19 a visit) 84 s cold; 8 a visit 37 s; 6 a
 # visit 24-27 s, warm 0.5 s. scripts/precompute passes per_visit=None (full stacks).
 LIVE_PER_VISIT = 6
+FRAMES_RESERVE_S = 6.0  # of the budget, kept for stacking, encoding and storing the frames
+SIDE_RESERVE_S = 4.0  # Gaia and SkyBoT are waited for until this long before the deadline
+
+_side = ThreadPoolExecutor(16, thread_name_prefix="side")  # Gaia cones and SkyBoT epoch lists
+_skybot = ThreadPoolExecutor(16, thread_name_prefix="skybot")  # single SkyBoT cones (leaves)
+# Live hours clock (GET /api/frames): at most this many exposures, at most LIVE_PER_SESSION from
+# each session, the sessions spread over the whole visit (pick_hours_live): three pairs 2 min
+# apart, at the visit's start, middle and end. At most MAX_IN_FLIGHT (8) cutouts, so one wave of downloads.
+# Measured on a laptop line of ~0.5-1 MB/s (14 Nov, hours 20' D2, fresh cache, IRSA half busy):
+# uncapped 26 frames 106 s cold (92 MB), 1.3 s warm; 12 frames 113 s; 8 frames 29-49 s;
+# 6 frames 25-54 s cold (11-23 MB), 0.4-0.5 s warm; 4 frames 25 s. Below ~8 frames the laptop's
+# cold time is set by one slow IRSA answer and the line, not the count; Cloud Run (us-east4, next
+# to S3 us-east-1) reads the same bytes many times faster.
+# scripts/precompute passes hours_frames=None (every frame, up to HOURS_MAX_FRAMES).
+LIVE_HOURS_FRAMES = 6
+LIVE_PER_SESSION = 2
 
 
 @dataclass
@@ -50,6 +75,7 @@ class Frames:
 
     meta: dict[str, Any]
     blobs: dict[str, bytes] = field(default_factory=dict)
+    partial: list[str] = field(default_factory=list)  # why some data is missing (empty: complete)
 
 
 @dataclass
@@ -85,13 +111,45 @@ def _r(v: float, digits: int) -> float | None:
     return round(float(v), digits) if v is not None and np.isfinite(v) else None
 
 
+def by_usefulness(images: list[Image]) -> list[Image]:
+    """Download order for visit stacks: round robin over the visits; within a visit its first
+    and last exposure, then the middle, then the quarters, ... so whatever arrives by a deadline
+    gives every visit a stack spread over its time."""
+    per_visit: dict[int, list[Image]] = {}
+    for im in sorted(images, key=lambda im: im.mjd):
+        per_visit.setdefault(im.visit, []).append(im)
+    queues = []
+    for v in sorted(per_visit):
+        part = per_visit[v]
+        order = sorted({0, len(part) - 1})
+        spans = [(0, len(part) - 1)]
+        while spans:
+            nxt = []
+            for a, b in spans:
+                if b - a > 1:
+                    m = (a + b) // 2
+                    order.append(m)
+                    nxt += [(a, m), (m, b)]
+            spans = nxt
+        queues.append([part[k] for k in order])
+    out: list[Image] = []
+    for i in range(max((len(q) for q in queues), default=0)):
+        out += [q[i] for q in queues if i < len(q)]
+    return out
+
+
 def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: Cache,
-                 visits_wanted: set[int] | None = None, zodi: bool = True) -> list[Stacked]:
+                 visits_wanted: set[int] | None = None, zodi: bool = True, *,
+                 budget: Budget | None = None, reserve: float = 0.0) -> list[Stacked]:
     """Median stack per visit of one detector's images on `grid` (sorted by time).
-    zodi: subtract NASA's zodiacal-light model from each exposure first."""
+    zodi: subtract NASA's zodiacal-light model from each exposure first.
+    budget, reserve: as cutouts.fetch_many; a stack is made of the exposures that arrived."""
     if visits_wanted is not None:
         images = [im for im in images if im.visit in visits_wanted]
-    l2s = cutouts.fetch_many(images, grid.ra, grid.dec, size_deg, cache, zodi=zodi)
+    images = by_usefulness(images)
+    l2s = cutouts.fetch_many(images, grid.ra, grid.dec, size_deg, cache, zodi=zodi,
+                             budget=budget, reserve=reserve)
+    t_stack = time.monotonic()
     sky = grid.sky()
     by_visit: dict[int, list[tuple[Level2, stack.Resampled]]] = {}
     for im, l2 in zip(images, l2s):
@@ -113,17 +171,24 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
             um_max=float(np.nanmax([rs.um_max for _, rs in parts])),
             mjd_median=float(np.median(mjds)),
         ))
+    if budget is not None:
+        budget.add("stack", time.monotonic() - t_stack)
     return out
+
+
+def hours_visit(images: list[Image]) -> list[Image]:
+    """The hours clock's visit: the one with the most exposures (latest on a tie), in time order."""
+    if not images:
+        return []
+    counts = Counter(im.visit for im in images)
+    best = max(counts, key=lambda v: (counts[v], v))
+    return sorted((im for im in images if im.visit == best), key=lambda im: im.mjd)
 
 
 def pick_hours_images(images: list[Image]) -> list[Image]:
     """The hours clock's exposures: the visit with the most exposures (latest on a tie),
     whole sessions from its start, at most HOURS_MAX_FRAMES."""
-    if not images:
-        return []
-    counts = Counter(im.visit for im in images)
-    best = max(counts, key=lambda v: (counts[v], v))
-    chosen = sorted((im for im in images if im.visit == best), key=lambda im: im.mjd)
+    chosen = hours_visit(images)
     if len(chosen) > HOURS_MAX_FRAMES:
         keep: list[Image] = []
         for s in sorted({im.session for im in chosen}):
@@ -133,6 +198,33 @@ def pick_hours_images(images: list[Image]) -> list[Image]:
             keep += part
         chosen = keep[:HOURS_MAX_FRAMES]
     return chosen
+
+
+def pick_hours_live(images: list[Image], max_frames: int = LIVE_HOURS_FRAMES,
+                    per_session: int = LIVE_PER_SESSION) -> list[Image]:
+    """The live hours clock: at most `max_frames` exposures of the hours clock's visit. The hours
+    blink compares exposures minutes apart inside one session, so runs are kept whole: the first
+    `per_session` exposures of as many sessions as fit, spread evenly over the visit's sessions
+    (its first and last included), using only sessions with at least two exposures when there are
+    any. A visit with a single session gives its first `max_frames` exposures. max_frames 0 or a
+    visit that fits: what pick_hours_images shows."""
+    chosen = hours_visit(images)
+    if not max_frames or len(chosen) <= max_frames:
+        return pick_hours_images(images)
+    per_session = max(1, min(per_session or max_frames, max_frames))
+    runs: dict[int, list[Image]] = {}
+    for im in chosen:
+        runs.setdefault(im.session, []).append(im)
+    order = sorted(runs.values(), key=lambda r: r[0].mjd)
+    pool = [r for r in order if len(r) >= 2] or order
+    best: list[list[Image]] = [pool[0][:max_frames]]
+    for k in range(2, len(pool) + 1):
+        idx = np.unique(np.rint(np.linspace(0, len(pool) - 1, k)).astype(int))
+        pick = [pool[i][:per_session] for i in idx]
+        if sum(len(r) for r in pick) > max_frames:
+            break
+        best = pick
+    return sorted((im for r in best for im in r), key=lambda im: im.mjd)
 
 
 def pick_months_images(images: list[Image], per_visit: int | None) -> list[Image]:
@@ -151,11 +243,14 @@ def pick_months_images(images: list[Image], per_visit: int | None) -> list[Image
 
 
 def exposure_epochs(images: list[Image], ra: float, dec: float, fov: float, cache: Cache, prefix: str,
-                    centers: list[tuple[float, float]] | None = None) -> tuple[list[dict], dict[str, bytes], stack.Grid]:
-    """Hours-clock epochs for the given images (one detector). centers: a centre per image, for
-    frames that follow a moving object; each such epoch carries its own `center`."""
+                    centers: list[tuple[float, float]] | None = None, *, budget: Budget | None = None,
+                    reserve: float = 0.0) -> tuple[list[dict], dict[str, bytes], stack.Grid]:
+    """Hours-clock epochs for the given images (one detector), downloaded in the order given.
+    centers: a centre per image, for frames that follow a moving object; each such epoch carries
+    its own `center`. budget, reserve: as cutouts.fetch_many (exposures not in time are left out)."""
     size_deg = cutouts.tier_for_field(fov)
-    l2s = cutouts.fetch_many(images, ra, dec, size_deg, cache, centers=centers, zodi=True)
+    l2s = cutouts.fetch_many(images, ra, dec, size_deg, cache, centers=centers, zodi=True,
+                             budget=budget, reserve=reserve)
     grid0, b = stack.grid_for(ra, dec, "hours", fov)
     sky0 = None if centers else grid0.sky()
     epochs, blobs = [], {}
@@ -205,9 +300,12 @@ def visit_epochs(stacks: list[Stacked], det: int, prefix: str) -> tuple[list[dic
     return epochs, blobs
 
 
-def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cache: Cache) -> list[dict]:
+def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cache: Cache,
+                     budget: Budget | None = None) -> list[dict]:
     """One SkyBoT cone per epoch (at its own centre if it has one). A SkyBoT failure leaves that
-    epoch without known objects and is logged; it never fails the frames."""
+    epoch without known objects and is logged; it never fails the frames. With a budget, epochs
+    SkyBoT has not answered by SIDE_RESERVE_S before the deadline are left out (budget marked
+    partial; those cones still finish into the cache)."""
     r = fov / 2.0 * 2**0.5
 
     def one(ep: dict) -> list[dict]:
@@ -222,8 +320,17 @@ def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cach
 
     if not epochs:
         return []
-    with ThreadPoolExecutor(4) as ex:
-        return [k for part in ex.map(one, epochs) for k in part]
+    futs = [_skybot.submit(one, ep) for ep in epochs]
+    out: list[dict] = []
+    missed = 0
+    for f in futs:
+        try:
+            out += f.result(timeout=budget.until(SIDE_RESERVE_S) if budget is not None else None)
+        except FutureTimeout:
+            missed += 1
+    if missed and budget is not None:
+        budget.cut(f"SkyBoT not in time for {missed} epochs")
+    return out
 
 
 def planned_epochs(images: list[Image], det: int, clock: str) -> list[dict]:
@@ -243,13 +350,13 @@ KNOWN_MJD_TOLERANCE = 0.001  # days (86 s): a main-belt asteroid moves well unde
 
 
 def reconcile_known(found: list[dict], planned: list[dict], epochs: list[dict], ra: float, dec: float,
-                    fov: float, cache: Cache) -> list[dict]:
+                    fov: float, cache: Cache, budget: Budget | None = None) -> list[dict]:
     """Known objects asked at the planned times -> those of the epochs that were built. An epoch
     whose mjd_mid moved (an exposure at the start or end of a visit had no pixels) is asked again."""
     plan = {p["id"]: p["mjd_mid"] for p in planned}
     ok = {e["id"] for e in epochs if e["id"] in plan and abs(plan[e["id"]] - e["mjd_mid"]) <= KNOWN_MJD_TOLERANCE}
     again = [e for e in epochs if e["id"] not in ok]
-    return [k for k in found if k["epoch_id"] in ok] + known_for_epochs(again, ra, dec, fov, cache)
+    return [k for k in found if k["epoch_id"] in ok] + known_for_epochs(again, ra, dec, fov, cache, budget)
 
 
 def frames_meta(clock: str, grid: stack.Grid, epochs: list[dict], stars: list[dict], known_: list[dict],
@@ -267,43 +374,79 @@ def frames_meta(clock: str, grid: stack.Grid, epochs: list[dict], stars: list[di
     }
 
 
+def _timed(budget: Budget | None, name: str, fn, *a, **k):
+    t = time.monotonic()
+    try:
+        return fn(*a, **k)
+    finally:
+        if budget is not None:
+            budget.add(name, time.monotonic() - t)
+
+
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
-                 *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT) -> Frames:
+                 *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
+                 hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None) -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
-    per_visit: months clock, at most this many exposures per visit stack (None: all of them)."""
+    per_visit: months clock, at most this many exposures per visit stack (None: all of them).
+    hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
+    The live API uses the defaults; scripts/precompute passes None for both.
+    budget: a live request's time budget (None: no limit). What did not fit is in Frames.partial;
+    BudgetError (503) if not one frame did."""
     _check(clock, fov, det)
     cache = cache or Cache()
     fov_i = int(round(fov))
-    found = search.search(ra, dec, cache=cache)
+    found = _timed(budget, "search", search.search, ra, dec, cache=cache)
     images = found.of_detector(det)
     if not images:
         raise NotFoundError(f"no SPHEREx images of detector {det} at this position"
                             if found.images else "no SPHEREx images at this position")
     prefix = f"{clock[0]}{fov_i}"
-    chosen = pick_months_images(images, per_visit) if clock == "months" else pick_hours_images(images)
+    chosen = (pick_months_images(images, per_visit) if clock == "months"
+              else pick_hours_live(images, hours_frames or 0))
     planned = planned_epochs(chosen, det, clock)
-    with ThreadPoolExecutor(2) as side:  # Gaia and SkyBoT run while the cutouts download
-        stars_f = side.submit(gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)
-        known_f = side.submit(known_for_epochs, planned, ra, dec, fov, cache)
-        if clock == "months":
-            grid, _ = stack.grid_for(ra, dec, clock, fov)
-            stacks = visit_stacks(chosen, grid, cutouts.tier_for_field(fov), cache)
-            epochs, blobs = visit_epochs(stacks, det, prefix)
-        else:
-            epochs, blobs, grid = exposure_epochs(chosen, ra, dec, fov, cache, prefix)
-        if not epochs:
-            raise NotFoundError("no usable SPHEREx pixels at this position")
-        known_ = reconcile_known(known_f.result(), planned, epochs, ra, dec, fov, cache)
-        try:
-            stars = stars_f.result()
-        except ApiError as e:
-            log.warning("Gaia failed: %s", e)
-            stars = []
-    return Frames(frames_meta(clock, grid, epochs, stars, known_, found.archive_checked), blobs)
+    # Gaia and SkyBoT run while the cutouts download
+    stars_f = _side.submit(_timed, budget, "gaia", gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)
+    known_f = _side.submit(_timed, budget, "known", known_for_epochs, planned, ra, dec, fov, cache, budget)
+    if clock == "months":
+        grid, _ = stack.grid_for(ra, dec, clock, fov)
+        stacks = visit_stacks(chosen, grid, cutouts.tier_for_field(fov), cache,
+                              budget=budget, reserve=FRAMES_RESERVE_S)
+        epochs, blobs = visit_epochs(stacks, det, prefix)
+    else:
+        epochs, blobs, grid = exposure_epochs(chosen, ra, dec, fov, cache, prefix,
+                                              budget=budget, reserve=FRAMES_RESERVE_S)
+    if not epochs:
+        if budget is not None and budget.partial:
+            raise BudgetError("the SPHEREx archive did not deliver one frame in time "
+                              f"({budget.elapsed():.0f} s); try again in a minute: what arrived is kept")
+        raise NotFoundError("no usable SPHEREx pixels at this position")
+    wait_side = budget.until(SIDE_RESERVE_S) if budget is not None else None
+    try:
+        known_ = reconcile_known(known_f.result(timeout=wait_side), planned, epochs, ra, dec, fov,
+                                 cache, budget)
+    except FutureTimeout:
+        known_ = []
+        if budget is not None:
+            budget.cut("SkyBoT not in time")
+    try:
+        stars = stars_f.result(timeout=budget.until(SIDE_RESERVE_S) if budget is not None else None)
+    except FutureTimeout:
+        stars = []
+        if budget is not None:
+            budget.cut("Gaia not in time")
+    except ApiError as e:
+        log.warning("Gaia failed: %s", e)
+        stars = []
+        if budget is not None:
+            budget.cut("Gaia failed")
+    return Frames(frames_meta(clock, grid, epochs, stars, known_, found.archive_checked), blobs,
+                  list(budget.partial) if budget is not None else [])
 
 
-def build_object(ra: float, dec: float, *, cache: Cache | None = None) -> dict[str, Any]:
-    """GET /api/object: name, gaia, known_ucd, spectrum[], measure (contracts/api.md)."""
+def build_object(ra: float, dec: float, *, cache: Cache | None = None, budget: Budget | None = None,
+                 details: dict | None = None) -> dict[str, Any]:
+    """GET /api/object: name, gaia, known_ucd, spectrum[], measure (contracts/api.md).
+    budget: a live request's time budget (None: no limit; budget.partial says what was cut)."""
     from .obj import build_object as _build
 
-    return _build(ra, dec, cache=cache)
+    return _build(ra, dec, cache=cache, budget=budget, details=details)

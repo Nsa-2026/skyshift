@@ -1,0 +1,473 @@
+/* Tools and data (web/DESIGN.md, "Lightbox"): a reference page that reads top to bottom.
+   Quiet ink on glass, sections separated by space; the sheet surface only under code and tables.
+   Code is set in Archivo at wdth 85 like the other dense text (the design has no monospace). */
+.tl {
+  display: grid;
+  grid-template-columns: minmax(0, 11.5rem) minmax(0, 1fr);
+  grid-template-areas:
+    "head head"
+    "toc main";
+  column-gap: var(--s7);
+  max-width: 1400px;
+  padding-top: var(--s6);
+}
+
+/* ---- head ---- */
+.tl-head {
+  grid-area: head;
+  display: grid;
+  gap: var(--s3);
+  padding-bottom: var(--s7);
+}
+.tl-title {
+  font-size: clamp(2.25rem, 1.6rem + 2vw, 3.25rem);
+  font-weight: 720;
+  font-variation-settings: "wdth" 108;
+  letter-spacing: -0.022em;
+  line-height: 1.02;
+}
+.tl-lede {
+  max-width: 58ch;
+  color: var(--ink-2);
+  font-size: var(--step-1);
+}
+
+/* ---- on this page ---- */
+.tl-toc {
+  grid-area: toc;
+}
+.tl-toc ul {
+  position: sticky;
+  top: var(--s5);
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tl-toc a {
+  color: var(--ink-2);
+  text-decoration: none;
+  font-weight: 550;
+}
+.tl-toc a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* ---- sections ---- */
+.tl-main {
+  grid-area: main;
+  display: grid;
+  gap: var(--s8);
+  min-width: 0;
+  max-width: 70rem;
+}
+.tl-sec {
+  display: grid;
+  gap: var(--s4);
+  align-content: start;
+  min-width: 0;
+}
+.tl-sec > *,
+.tl-dl > * {
+  min-width: 0;
+}
+.tl-dl {
+  display: grid;
+  gap: var(--s3);
+}
+.tl-sec > h2 {
+  font-size: var(--step-2);
+  font-weight: 680;
+  letter-spacing: -0.012em;
+  scroll-margin-top: var(--s5);
+}
+.tl-sec > h2:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+.tl-sec > p,
+.tl-ep > p {
+  color: var(--ink-2);
+}
+.tl-h3 {
+  margin-top: var(--s5);
+  font-size: var(--step-1);
+  font-weight: 650;
+}
+.tl-sum {
+  color: var(--ink);
+}
+.tl-note {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.tl-empty {
+  color: var(--ink-2);
+}
+.tl-warn {
+  color: var(--warn);
+}
+.tl-raw {
+  color: var(--ink-3);
+  font-variation-settings: "wdth" 85;
+}
+.tl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.tl-choose {
+  max-width: 100%;
+}
+.tl-kinds {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tl-kinds > button {
+  flex: none;
+}
+.tl-kinds > button:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+.tl-count {
+  color: var(--ink-3);
+  font-variation-settings: "wdth" 85;
+  margin-left: 2px;
+}
+[aria-pressed="true"] > .tl-count {
+  color: var(--ink-2);
+}
+
+/* ---- disclosures ---- */
+.tl-more > summary {
+  width: fit-content;
+  padding: var(--s1) 0;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.tl-more > summary:hover {
+  color: var(--ink);
+}
+.tl-more[open] > summary {
+  margin-bottom: var(--s3);
+}
+.tl-more > .tl-note {
+  margin-top: var(--s3);
+}
+
+/* ---- definition lists: params, fields, versions ---- */
+.tl-fields,
+.tl-params {
+  display: grid;
+  gap: var(--s3);
+  margin: 0;
+}
+.tl-fields > div,
+.tl-params > div {
+  display: grid;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+  gap: var(--s1) var(--s5);
+}
+.tl-fields dt,
+.tl-params dt {
+  font-weight: 600;
+  font-variation-settings: "wdth" 85;
+  overflow-wrap: anywhere;
+}
+.tl-fields dd,
+.tl-params dd {
+  margin: 0;
+  color: var(--ink-2);
+  max-width: 66ch;
+}
+.tl-static > div {
+  grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+}
+.tl-pname {
+  color: var(--ink);
+}
+.tl-punit {
+  color: var(--ink-2);
+  font-weight: 450;
+}
+.tl-pneed {
+  color: var(--ink);
+}
+.tl-list {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--ink-2);
+  max-width: 70ch;
+}
+.tl-refs {
+  color: var(--ink);
+}
+.tl-role {
+  color: var(--ink-2);
+}
+.tl-quiet {
+  margin-left: var(--s2);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  white-space: nowrap;
+}
+.tl-slug {
+  color: var(--ink);
+  font-weight: 600;
+  font-variation-settings: "wdth" 85;
+}
+.tl-example {
+  color: var(--ink-2);
+}
+.tl-example a {
+  font-variation-settings: "wdth" 85;
+  overflow-wrap: anywhere;
+}
+
+/* ---- code ---- */
+.tl-code {
+  position: relative;
+  min-width: 0;
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+}
+/* Archivo is proportional: a little extra word spacing keeps indentation and tokens readable. */
+.tl-code pre {
+  margin: 0;
+  padding: var(--s4) var(--s5);
+  padding-right: 6.5rem;
+  overflow-x: auto;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  font-variation-settings: "wdth" 85;
+  word-spacing: 0.14em;
+  white-space: pre;
+  tab-size: 4;
+  color: var(--ink);
+  border-radius: var(--radius-panel);
+}
+.tl-code code {
+  font: inherit;
+}
+.tl-copy {
+  position: absolute;
+  top: var(--s2);
+  right: var(--s2);
+  min-height: 30px;
+  padding: 0 var(--s3);
+  background: var(--sheet);
+}
+.tl-copy:hover {
+  background: var(--sheet-2);
+}
+
+/* ---- API endpoints ---- */
+.tl-lang {
+  justify-self: start;
+}
+.tl-ep {
+  display: grid;
+  gap: var(--s3);
+  padding-top: var(--s5);
+  margin-top: var(--s2);
+  border-top: 1px solid var(--hair);
+  min-width: 0;
+}
+.tl-ep-h {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 650;
+  font-variation-settings: "wdth" 85;
+  scroll-margin-top: var(--s5);
+}
+
+/* ---- batch ---- */
+.tl-label {
+  display: block;
+  margin-bottom: var(--s2);
+  font-weight: 600;
+}
+.tl-drop {
+  position: relative;
+  max-width: 48rem;
+}
+.tl-textarea {
+  display: block;
+  width: 100%;
+  min-height: 11rem;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+  color: var(--ink);
+  font: inherit;
+  font-variation-settings: "wdth" 85;
+  line-height: 1.6;
+  resize: vertical;
+}
+.tl-textarea::placeholder {
+  color: var(--ink-3);
+}
+.tl-drop-hint {
+  display: none;
+}
+.tl-drop.is-over .tl-textarea {
+  border-color: var(--pencil-blue);
+  box-shadow: inset 0 0 0 1px var(--pencil-blue);
+}
+.tl-drop.is-over .tl-drop-hint {
+  position: absolute;
+  inset: auto var(--s3) var(--s3) auto;
+  display: block;
+  padding: var(--s1) var(--s3);
+  border-radius: var(--radius-ctl);
+  background: var(--pencil-blue);
+  color: var(--glass);
+  font-size: var(--step--1);
+  font-weight: 600;
+  pointer-events: none;
+}
+.tl-status:empty {
+  display: none;
+}
+.tl-status {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.tl-result {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+/* ---- tables scroll inside their own sheet, never the page ---- */
+.tl-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+}
+.tl-table {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step--1);
+}
+.tl-table th {
+  padding: var(--s3) var(--s3) var(--s2);
+  border-bottom: 1px solid var(--hair-strong);
+  color: var(--ink-2);
+  font-weight: 600;
+  font-variation-settings: "wdth" 92;
+  text-align: left;
+  white-space: nowrap;
+}
+.tl-table td {
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--hair);
+  vertical-align: baseline;
+}
+.tl-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.tl-table td:nth-child(5) {
+  min-width: 13rem;
+}
+.tl-num {
+  font-variation-settings: "wdth" 85;
+  white-space: nowrap;
+}
+.tl-name {
+  min-width: 7rem;
+}
+.tl-input {
+  color: var(--ink-2);
+  font-variation-settings: "wdth" 85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tl-links {
+  white-space: nowrap;
+}
+.tl-links a + a {
+  margin-left: var(--s3);
+}
+.tl-cov {
+  min-width: 11rem;
+}
+.tl-check {
+  min-height: 30px;
+  padding: 0 var(--s3);
+}
+.tl-running {
+  color: var(--ink-2);
+}
+.tl-cov-text:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+
+/* ---- acknowledgements ---- */
+.tl-ack {
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+}
+.tl-ack p {
+  font-size: var(--step--1);
+  max-width: 80ch;
+  overflow-wrap: anywhere;
+}
+.tl-refs,
+.tl-sec > p,
+.tl-note {
+  overflow-wrap: break-word;
+}
+.tl-ack .btn {
+  justify-self: start;
+}
+
+/* ---- phone and narrow ---- */
+@media (max-width: 900px) {
+  .tl {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "toc" "main";
+    padding-top: var(--s5);
+  }
+  .tl-head {
+    padding-bottom: var(--s4);
+  }
+  .tl-toc {
+    padding-bottom: var(--s6);
+  }
+  .tl-toc ul {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s2) var(--s4);
+  }
+  .tl-main {
+    gap: var(--s7);
+  }
+}
+@media (max-width: 600px) {
+  .tl-fields > div,
+  .tl-params > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .tl-code pre {
+    padding: var(--s3) var(--s4);
+    padding-top: 2.75rem;
+  }
+  .tl-lede {
+    font-size: var(--step-0);
+  }
+}

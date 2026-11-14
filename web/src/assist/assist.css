@@ -1,0 +1,278 @@
+/* The check assistant (web/DESIGN.md, "Lightbox"). A quiet vertical checklist: ink on glass,
+   separated by space and one hairline per step. Status shows as a grease-pencil glyph AND a word;
+   the glyph colours follow the scoreboard (pass, partial, warn). Drafts sit on a sheet. */
+
+.as,
+.wn {
+  display: grid;
+  gap: var(--s5);
+  max-width: 720px;
+  min-width: 0;
+}
+.as p,
+.wn p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* ---- heading ---- */
+.as-head {
+  display: grid;
+  gap: var(--s2);
+}
+.as-title,
+.wn-title {
+  font-size: var(--step-1);
+}
+.as-sum,
+.wn-lede {
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+
+/* ---- the list ---- */
+.as-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.as-step {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  gap: var(--s4);
+  padding: var(--s4) 0 var(--s5);
+  border-top: 1px solid var(--hair);
+}
+.as-step:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* status: glyph over word */
+.as-state {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 2px;
+  padding-top: 1px;
+  color: var(--ink-2);
+}
+.as-glyph {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+.as-word {
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.25;
+  font-variation-settings: "wdth" 88;
+}
+.as-step[data-status="pass"] .as-state { color: var(--pass); }
+.as-step[data-status="caution"] .as-state { color: var(--partial); }
+.as-step[data-status="fail"] .as-state { color: var(--warn); }
+.as-step[data-status="unknown"] .as-state { color: var(--ink-3); }
+.as-step[data-status="ask"] .as-state,
+.as-step[data-status="voted"] .as-state { color: var(--ink); }
+.as-step[data-status="ask"] .as-glyph path { stroke-width: 3; }
+
+.as-body {
+  display: grid;
+  gap: var(--s2);
+  min-width: 0;
+  justify-items: start;
+}
+.as-q {
+  font-size: var(--step-0);
+  font-weight: 650;
+  line-height: 1.35;
+}
+.as-find {
+  color: var(--ink);
+  max-width: 62ch;
+}
+
+/* Details (professional mode): dense numbers, condensed, never monospace. */
+.as-details {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  font-variation-settings: "wdth" 85;
+  overflow-wrap: anywhere;
+  max-width: 70ch;
+}
+
+/* "Your check": the prompt and a yes / no / can't tell capsule */
+.as-ask {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  margin-top: var(--s1);
+}
+.as-prompt {
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+.as-seg {
+  flex-wrap: wrap;
+}
+.as-note {
+  font-size: var(--step--1);
+  color: var(--ink-3);
+}
+.as-act {
+  margin-top: var(--s1);
+}
+
+/* Disclosure: "How to check this yourself", a quiet text button with a caret */
+.as-how {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  font-size: var(--step--1);
+  cursor: pointer;
+}
+.as-how:hover {
+  color: var(--ink);
+}
+.as-caret {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.as-how[aria-expanded="true"] .as-caret {
+  transform: rotate(90deg);
+}
+.as-howto {
+  display: grid;
+  gap: var(--s2);
+  padding-left: 18px;
+  color: var(--ink-2);
+  max-width: 62ch;
+}
+.as-howto ol {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--s1);
+}
+
+/* ---- What next ---- */
+.wn-block {
+  display: grid;
+  gap: var(--s3);
+  justify-items: start;
+  min-width: 0;
+  padding-top: var(--s4);
+  border-top: 1px solid var(--hair);
+}
+.wn-h {
+  font-size: var(--step-0);
+  font-weight: 650;
+}
+.wn-p {
+  color: var(--ink-2);
+  max-width: 62ch;
+}
+.wn-draft {
+  display: grid;
+  gap: var(--s3);
+  justify-items: start;
+  width: 100%;
+  min-width: 0;
+}
+.wn-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--warn);
+}
+.wn-flag strong {
+  font-weight: 650;
+}
+.wn-check {
+  display: grid;
+  gap: var(--s1);
+  color: var(--ink-2);
+  max-width: 62ch;
+}
+.wn-check ul {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--s1);
+}
+
+/* The draft itself, on a sheet. The ADES report keeps its columns in monospace (the only place);
+   the forum post and citation use the body font. */
+.wn-pre {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 18rem;
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  overflow: auto;
+  border: 1px solid var(--hair);
+  font-family: var(--font);
+  font-size: var(--step--1);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.wn-pre.is-psv {
+  max-height: 30rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.wn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.wn-said {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.wn-link {
+  display: flex;
+  gap: var(--s2);
+  width: 100%;
+  max-width: 620px;
+}
+.wn-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 36px;
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 88;
+}
+
+@media (max-width: 520px) {
+  .as-step {
+    grid-template-columns: 4.25rem minmax(0, 1fr);
+    gap: var(--s3);
+  }
+  .wn-link {
+    flex-wrap: wrap;
+  }
+}

@@ -4,6 +4,7 @@ canned and every cutout comes from the cache (the real cutout in fixtures/fits/)
 import io
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -179,10 +180,66 @@ def test_pick_hours_images_caps_whole_sessions():
     assert picked[-1].obs_id == "S23_2"  # sessions are kept whole
 
 
+def _visit_rows(sizes, start=60900.0, step=1.5, det=2):
+    """One visit: session s has sizes[s] exposures 2.1 min apart, sessions `step` days apart."""
+    rows = []
+    for s, n in enumerate(sizes):
+        rows += [sia_row(f"S{s:02d}_{k}", det, start + s * step + k * 2.1 / 1440) for k in range(n)]
+    return rows
+
+
+def test_pick_hours_live_spreads_whole_runs_over_the_visit():
+    # 21 sessions over 30 days (52 exposures); sessions of 1 exposure in between
+    sizes = [4, 1, 3, 1, 2, 5, 1, 3, 2, 1, 4, 3, 1, 2, 5, 1, 3, 2, 1, 4, 3]
+    images = search.rows_to_images(_visit_rows(sizes))
+    assert len(images) == 52 and len(blink.pick_hours_images(images)) == 45  # sessions 0-17
+    picked = blink.pick_hours_live(images, 6, 2)
+    assert len(picked) == 6 and [im.mjd for im in picked] == sorted(im.mjd for im in picked)
+    by_session: dict[int, list] = {}
+    for im in picked:
+        by_session.setdefault(im.session, []).append(im.obs_id)
+    # three pairs: each the first two exposures of one session, spread over the visit's sessions
+    # with two or more exposures, the first and last included (past the 48 precompute shows)
+    assert list(by_session.values()) == [["S00_0", "S00_1"], ["S10_0", "S10_1"], ["S20_0", "S20_1"]]
+    # the default is the live cap, and it keeps at least two runs of two
+    live = blink.pick_hours_live(images)
+    assert len(live) <= blink.LIVE_HOURS_FRAMES and len({im.session for im in live}) >= 2
+    assert all(n >= 2 for n in Counter(im.session for im in live).values())
+    # no cap (precompute) and small visits: what pick_hours_images shows
+    assert blink.pick_hours_live(images, 0) == blink.pick_hours_images(images)
+    small = search.rows_to_images(_visit_rows([2, 1, 2]))
+    assert blink.pick_hours_live(small, 6) == blink.pick_hours_images(small)
+
+
+def test_pick_hours_live_edge_cases():
+    one = search.rows_to_images(_visit_rows([9]))  # a single long session: its first exposures
+    assert [im.obs_id for im in blink.pick_hours_live(one, 6, 2)] == [f"S00_{k}" for k in range(6)]
+    singles = search.rows_to_images(_visit_rows([1] * 12))  # no session has two: spread singles
+    got = blink.pick_hours_live(singles, 6, 2)
+    assert [im.obs_id for im in got] == ["S00_0", "S02_0", "S04_0", "S07_0", "S09_0", "S11_0"]
+
+
+def test_hours_live_cap_and_full_set(world, monkeypatch):
+    rows = _visit_rows([3, 1, 3, 3], start=MJD1, det=1)
+    monkeypatch.setattr(search, "_query_sia", lambda ra, dec, c: rows if c == "spherex_dr1" else [])
+    images = search.search(STAR_RA, STAR_DEC, cache=world["cache"], refresh=True).of_detector(1)
+    for im in images:
+        world["cache"].put(cutouts.cache_key(im, STAR_RA, STAR_DEC, cutouts.SIZE_TIERS_DEG[-1]), _cutout_at(im.mjd))
+    full = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None)
+    live = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=4)
+    assert len(full.meta["epochs"]) == 10
+    ids = [e["id"] for e in live.meta["epochs"]]
+    assert ids == ["d1-S00_0", "d1-S00_1", "d1-S03_0", "d1-S03_1"]
+    assert all(e["n_exposures"] == 1 for e in live.meta["epochs"])  # each frame is one real exposure
+    assert set(live.blobs) == {e["data_url"] for e in live.meta["epochs"]}
+    assert {k["epoch_id"] for k in live.meta["known"]} == set(ids)  # SkyBoT asked for the shown frames only
+
+
 def test_object_spectrum_and_zero_shift(world):
     details = {}
     o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], details=details)
-    assert set(o) == {"name", "gaia", "known_ucd", "spectrum", "measure"}
+    assert set(o) == {"name", "gaia", "known_ucd", "spectrum", "spectrum_reason", "measure"}
+    assert o["spectrum_reason"] is None
     assert o["name"] == f"Gaia DR3 {STAR_GAIA_ID}" and o["gaia"]["id"] == STAR_GAIA_ID
     assert o["known_ucd"] is None
     sp = o["spectrum"]
@@ -275,3 +332,97 @@ def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_p
     assert sorted(k["epoch_id"] for k in got) == ["d2-v1", "d2-v2"]
     # an epoch that was planned but not built drops its known objects
     assert [k["epoch_id"] for k in blink.reconcile_known(found, planned, epochs[:1], 1.0, 2.0, 5, c)] == ["d2-v1"]
+
+
+# ---------------------------------------------------------------- live time budget
+
+def test_by_usefulness_gives_every_visit_its_ends_first():
+    rows = [sia_row(f"A{s}", 2, 60900.0 + s) for s in range(5)] + [sia_row(f"B{s}", 2, 61100.0 + s) for s in range(3)]
+    order = [im.obs_id for im in blink.by_usefulness(search.rows_to_images(rows))]
+    assert order == ["A0", "B0", "A4", "B2", "A2", "B1", "A1", "A3"]
+
+
+def test_spectrum_images_take_detectors_in_turn_and_cap_each():
+    rows = [sia_row(f"E{k}", d, 60900.0 + k * 0.01) for k in range(4) for d in (1, 2, 5)]
+    order = obj.spectrum_images(search.rows_to_images(rows), 2)
+    assert [im.det for im in order] == [1, 2, 5, 1, 2, 5]
+    assert len(obj.spectrum_images(search.rows_to_images(rows), None)) == 12
+
+
+def test_months_frames_partial_when_cutouts_are_late(world, monkeypatch):
+    import time
+
+    from skyshift_server.budget import Budget
+
+    real = cutouts.fetch
+
+    def fetch(im, ra, dec, size, cache, variance=False, **kw):
+        if im.obs_id.endswith(("0001_1", "0004_1")):  # the middle exposure of each visit
+            time.sleep(1.5)
+        return real(im, ra, dec, size, cache, variance, **kw)
+
+    monkeypatch.setattr(cutouts, "fetch", fetch)
+    b = Budget(blink.FRAMES_RESERVE_S + 0.7)
+    t = time.monotonic()
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=b)
+    assert time.monotonic() - t < 1.4
+    assert [e["n_exposures"] for e in fr.meta["epochs"]] == [2, 2]  # each visit's first and last
+    assert fr.partial == ["2 of 6 cutouts not in time"]
+    assert len(fr.meta["gaia"]) > 0 and fr.meta["known"]  # Gaia and SkyBoT answered in time
+    full = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
+    assert full.partial == [] and [e["n_exposures"] for e in full.meta["epochs"]] == [3, 3]
+
+
+def test_nothing_in_time_is_a_503(world, monkeypatch):
+    from skyshift_server.budget import Budget, BudgetError
+
+    with pytest.raises(BudgetError) as e:
+        blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(0))
+    assert e.value.status == 503 and e.value.code == "upstream"
+    with pytest.raises(BudgetError):
+        obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=Budget(0))
+
+
+def test_object_with_a_budget_is_the_same_when_there_is_time(world):
+    from skyshift_server.budget import Budget
+
+    b = Budget(60)
+    live = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=b)
+    full = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert b.partial == [] and live == full
+
+
+def test_spectrum_reason():
+    assert obj.spectrum_reason([{"um": 1.0}], Counter(saturated=3)) is None
+    assert obj.spectrum_reason([], Counter(saturated=2, other=1)) == "saturated"  # R Draconis
+    assert obj.spectrum_reason([], Counter(other=1)) == "no_data"
+    assert obj.spectrum_reason([], Counter()) == "no_data"
+
+
+def test_spectrum_points_counts_saturated_drops(world, monkeypatch):
+    images = search.search(STAR_RA, STAR_DEC, cache=world["cache"]).of_detector(1)
+    l2s = cutouts.fetch_many(images, STAR_RA, STAR_DEC, cutouts.tier_for_field(5), world["cache"], variance=True)
+    nan = obj.aperture_photometry(l2s[0].data, 50.0, 50.0, l2s[0].wcs)
+    nan.flux_ujy[:] = np.nan
+    monkeypatch.setattr(obj, "aperture_photometry", lambda *a, **k: nan)  # no good pixels anywhere
+    monkeypatch.setattr(obj, "is_saturated_core", lambda flags, x, y: True)
+    monkeypatch.setattr(obj, "wing_photometry", lambda *a, **k: None)  # and no usable wings either
+    dropped = Counter()
+    assert obj.spectrum_points(images, l2s, None, STAR_RA, STAR_DEC, dropped=dropped) == []
+    assert dropped == Counter(saturated=6)
+    assert obj.spectrum_reason([], dropped) == "saturated"
+
+
+def test_measure_detectors_prefer_targets_json(tmp_path, monkeypatch):
+    targets = json.loads((REPO / "scripts/validate/data/targets.json").read_text())
+    for t in targets["targets"]:
+        if t["slug"] == "rdra":
+            t["dets"] = [3, 4]
+    path = tmp_path / "targets.json"
+    path.write_text(json.dumps(targets))
+    monkeypatch.setenv("SKYSHIFT_TARGETS", str(path))
+    by_slug = {m["slug"]: m for m in obj._builtin_targets()}
+    assert by_slug["rdra"]["dets"] == (3, 4) and obj.measure_detectors(by_slug["rdra"]) == (3, 4)
+    # no `dets`: obj.MEASURE_DETECTORS, else any detector
+    assert by_slug["wise0855"]["dets"] is None and obj.measure_detectors(by_slug["wise0855"]) == (5, 6)
+    assert obj.measure_detectors(by_slug["barnard"]) is None and obj.measure_detectors(None) is None

@@ -6,6 +6,7 @@ Run from server/ (it imports skyshift_server and skyshift_core):
     uv run python ../scripts/precompute/precompute.py --only barnard --sets months:15 --dets 2
     uv run python ../scripts/precompute/precompute.py --only 3i-atlas,elpis,euphrosyne
     uv run python ../scripts/precompute/precompute.py                 # everything (slow, cached)
+    uv run python ../scripts/precompute/precompute.py --sets none     # only object.json, every target (~2 min cached)
 
 Targets: barnard, epsindib, wise0855, rwaur, rdra (scripts/validate/data/targets.json), then
 comet 3i-atlas and the asteroids elpis (59) and euphrosyne (31), on the hours clock.
@@ -30,9 +31,10 @@ import logging
 import shutil
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
-from skyshift_core import GAIA_EPOCH_MJD, propagate, sessions
+from skyshift_core import GAIA_EPOCH_MJD, propagate
 from skyshift_server import blink, cutouts, gaia, obj, search
 from skyshift_server.cache import Cache
 from skyshift_server.search import Image
@@ -101,7 +103,8 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
     for det in dets:
         t0 = time.time()
         try:
-            fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache, per_visit=None)
+            fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache, per_visit=None,
+                                    hours_frames=None)
         except Exception as e:  # noqa: BLE001 - one detector must not stop the rest
             log.warning("%s %s d%d failed: %s", t["slug"], set_name, det, e)
             continue
@@ -181,8 +184,9 @@ def most_rows(number: int) -> tuple[str, list[dict]]:
         out.append({"image": _image(r["obs_id"], r["detector"], r["mjd_start"], r["mjd_end"], r["access_url"],
                                     r["s3_key"], "spherex_" + r["release"]),
                     "ra": round(r["ra_obj"], 5), "dec": round(r["dec_obj"], 5), "v": r["vmag"]})
-    for r, s in zip(out, sessions([r["image"].mjd for r in out])):
-        r["image"].session = int(s)
+    # Visit and session numbers by core's rule over the asteroid's own exposure times (contracts/api.md:
+    # `visit` = visit number, 1-based), as search.number_visits does for a fixed position.
+    search.number_visits(sorted((r["image"] for r in out), key=lambda im: im.mjd))
     return name, out
 
 
@@ -199,14 +203,19 @@ def densest_window(rows: list[dict], det: int, days: float) -> list[dict]:
 
 def build_moving(slug: str, name: str, rows: list[dict], dets: list[int], source: str, cache: Cache,
                  *, follow: bool, fov: float = 20.0, center: tuple[float, float] | None = None,
-                 spectrum_rows: list[dict] | None = None) -> None:
+                 spectrum_rows: list[dict] | None = None, object_only: bool = False) -> None:
     """frames (hours clock) + object.json for a solar-system object.
-    rows: [{image, ra, dec, v}] already limited to the exposures to show."""
+    rows: [{image, ra, dec, v}] already limited to the exposures to show.
+    object_only: rebuild only object.json (--sets none)."""
     folder = OUT / slug
     t0 = time.time()
     if center is None:
         mid = sorted(rows, key=lambda r: r["image"].mjd)[len(rows) // 2]
         center = (mid["ra"], mid["dec"])
+    if object_only:
+        n = write_moving_object(folder, name, spectrum_rows if spectrum_rows is not None else rows, center, cache)
+        log.info("%s object.json in %.0f s: %d spectrum points", slug, time.time() - t0, n)
+        return
     epochs, known_, n_bytes, built = [], [], 0, []
     grid = None
     for det in dets:
@@ -248,29 +257,38 @@ def build_moving(slug: str, name: str, rows: list[dict], dets: list[int], source
     n_bytes += write_json(folder / file, clean(meta), compact=True)
     shutil.copyfile(folder / file, folder / "frames.json")
 
-    # object.json: the spectrum at NASA's position in every image given; no visit-to-visit measure
-    srows = spectrum_rows if spectrum_rows is not None else rows
-    images = [r["image"] for r in srows]
-    pos = [(r["ra"], r["dec"]) for r in srows]
-    l2s = cutouts.fetch_many(images, center[0], center[1], cutouts.tier_for_field(5), cache, centers=pos, variance=True)
-    spectrum = obj.spectrum_points(images, l2s, None, center[0], center[1], positions=pos)
-    write_json(folder / "object.json", clean({"name": name, "gaia": None, "known_ucd": None,
-                                              "spectrum": spectrum, "measure": None}), compact=True)
+    n_points = write_moving_object(folder, name, spectrum_rows if spectrum_rows is not None else rows, center, cache)
     write_json(folder / "index.json", {
         "slug": slug, "name": name, "center": {"ra": center[0], "dec": center[1]}, "own": file,
         "follows_object": follow,
         "frames": [{"file": file, "clock": "hours", "fov": int(fov), "dets": built, "epochs": len(epochs), "bytes": n_bytes}]})
     log.info("%s done in %.0f s: %.2f MB on disk, %d spectrum points; downloads so far: %s", slug, time.time() - t0,
-             folder_bytes(folder) / 1e6, len(spectrum), cutouts.STATS)
+             folder_bytes(folder) / 1e6, n_points, cutouts.STATS)
 
 
-def build_comet(cache: Cache) -> None:
+def write_moving_object(folder: Path, name: str, srows: list[dict], center: tuple[float, float], cache: Cache) -> int:
+    """object.json for a solar-system object: the spectrum at NASA's position in every image given
+    (visit = the visit number of core's rule over the object's own exposure times); no
+    visit-to-visit measure. Returns the number of spectrum points."""
+    images = [r["image"] for r in srows]
+    pos = [(r["ra"], r["dec"]) for r in srows]
+    l2s = cutouts.fetch_many(images, center[0], center[1], cutouts.tier_for_field(5), cache, centers=pos, variance=True)
+    dropped: Counter = Counter()
+    spectrum = obj.spectrum_points(images, l2s, None, center[0], center[1], positions=pos, dropped=dropped)
+    write_json(folder / "object.json", clean({"name": name, "gaia": None, "known_ucd": None, "spectrum": spectrum,
+                                              "spectrum_reason": obj.spectrum_reason(spectrum, dropped),
+                                              "measure": None}), compact=True)
+    return len(spectrum)
+
+
+def build_comet(cache: Cache, object_only: bool = False) -> None:
     rows = comet_rows()
     show = [r for r in rows if COMET_MJD[0] < r["image"].mjd < COMET_MJD[1]]
-    build_moving("3i-atlas", "3I/ATLAS", show, COMET_DETS, "irsa-3i", cache, follow=True, spectrum_rows=rows)
+    build_moving("3i-atlas", "3I/ATLAS", show, COMET_DETS, "irsa-3i", cache, follow=True, spectrum_rows=rows,
+                 object_only=object_only)
 
 
-def build_asteroid(number: int, slug: str, cache: Cache) -> None:
+def build_asteroid(number: int, slug: str, cache: Cache, object_only: bool = False) -> None:
     import numpy as np
 
     name, rows = most_rows(number)
@@ -284,7 +302,8 @@ def build_asteroid(number: int, slug: str, cache: Cache) -> None:
     show = [r for r in rows if t_a - 1e-6 <= r["image"].mjd <= t_b + 1e-6]
     center = (round(float(np.median([r["ra"] for r in win])), 5), round(float(np.median([r["dec"] for r in win])), 5))
     build_moving(slug, label, show, ASTEROID_DETS, "most", cache, follow=False, center=center,
-                 spectrum_rows=[r for r in rows if abs(r["image"].mjd - (t_a + t_b) / 2) <= 15.0])
+                 spectrum_rows=[r for r in rows if abs(r["image"].mjd - (t_a + t_b) / 2) <= 15.0],
+                 object_only=object_only)
 
 
 def folder_bytes(folder: Path) -> int:
@@ -337,10 +356,10 @@ def main() -> int:
         log.info("%s done in %.0f s: %.2f MB on disk; downloads so far: %s", t["slug"], time.time() - t0,
                  folder_bytes(folder) / 1e6, cutouts.STATS)
     if not only or "3i-atlas" in only:
-        build_comet(cache)
+        build_comet(cache, object_only=not sets)
     for number, slug in ASTEROIDS.items():
         if not only or slug in only:
-            build_asteroid(number, slug, cache)
+            build_asteroid(number, slug, cache, object_only=not sets)
     return 0
 
 

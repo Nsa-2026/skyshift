@@ -221,28 +221,37 @@ def refcat_slice(cat: pd.DataFrame, reach: tuple[np.ndarray, np.ndarray, np.ndar
     return cat.iloc[keep].reset_index(drop=True)
 
 
-def forced_box(t: Tile, zone: C.Zone) -> C.Zone:
-    """Forced rows a tile loads: its core + border, and on the zone's own edges the strip forced targets may sit in
-    (FORCED_ZONE_MARGIN_DEG), so the edge tiles own them as the untiled run keeps them."""
+def forced_box(t: Tile, zone: C.Zone, edge_margin: bool) -> C.Zone:
+    """Forced rows a tile loads. Its core + border; clipped at the zone edge (`--zone-edge clip`, as untiled), an edge
+    tile also takes everything beyond the zone edge on its side: the untiled run keeps light curves of every forced
+    target in the zone's photos (with the sky-wide forced list, up to a photo's size outside the zone)."""
     e = t.ext
-    pad = C.FORCED_ZONE_MARGIN_DEG + 0.01
-    cosd = math.cos(math.radians(min(89.0, max(abs(e.dec_min), abs(e.dec_max)))))
-    r0 = min(e.ra_min, zone.ra_min - pad / cosd) if t.core.ra_min <= zone.ra_min else e.ra_min
-    r1 = max(e.ra_max, zone.ra_max + pad / cosd) if t.core.ra_max >= zone.ra_max else e.ra_max
-    d0 = min(e.dec_min, zone.dec_min - pad) if t.core.dec_min <= zone.dec_min else e.dec_min
-    d1 = max(e.dec_max, zone.dec_max + pad) if t.core.dec_max >= zone.dec_max else e.dec_max
-    return C.Zone(e.name, r0, r1, d0, d1)
+    if edge_margin:
+        return C.Zone(e.name, e.ra_min, e.ra_max, e.dec_min, e.dec_max)
+    far = 1e3
+    return C.Zone(e.name, -far if t.core.ra_min <= zone.ra_min else e.ra_min, far if t.core.ra_max >= zone.ra_max else e.ra_max,
+                  -far if t.core.dec_min <= zone.dec_min else e.dec_min, far if t.core.dec_max >= zone.dec_max else e.dec_max)
 
 
-def owner_of(ra, dec, tiles: list[Tile], zone: C.Zone) -> np.ndarray:
-    """Tile index whose core contains each position, after clamping into the zone box (forced targets just outside
-    the zone belong to the edge tile); -1 for NaN."""
-    ra = np.clip(np.asarray(ra, np.float64), zone.ra_min, np.nextafter(zone.ra_max, -np.inf))
-    dec = np.clip(np.asarray(dec, np.float64), zone.dec_min, np.nextafter(zone.dec_max, -np.inf))
-    out = np.full(ra.shape, -1, np.int64)
-    for t in tiles:
-        out[t.core.contains(ra, dec)] = t.index
-    return out
+def owns(t: Tile, zone: C.Zone, ra, dec, edge_margin: bool) -> np.ndarray:
+    """True where this tile's core holds the position; clipped at the zone edge, positions outside the zone are first
+    clamped into it (the edge tile keeps them, as untiled); with the border, they belong to the zone next door."""
+    ra, dec = np.asarray(ra, np.float64), np.asarray(dec, np.float64)
+    if not edge_margin:
+        ra = np.clip(ra, zone.ra_min, np.nextafter(zone.ra_max, -np.inf))
+        dec = np.clip(dec, zone.dec_min, np.nextafter(zone.dec_max, -np.inf))
+    return t.core.contains(ra, dec)
+
+
+def forced_owned(seen: list[pd.DataFrame], t: Tile, zone: C.Zone, edge_margin: bool) -> np.ndarray:
+    """ref_ids of the forced targets this tile owns: each target's position in its earliest row (every tile that could
+    own it sees all its rows, so they all pick the same one)."""
+    if not seen:
+        return np.zeros(0, dtype=object)
+    f = pd.concat(seen, ignore_index=True)
+    f = f.assign(ref_id=f["ref_id"].astype(str)).sort_values(["ref_id", "mjd", "ra", "dec"], kind="stable")
+    first = f.drop_duplicates("ref_id")
+    return first["ref_id"].to_numpy()[owns(t, zone, first["ra"].to_numpy(), first["dec"].to_numpy(), edge_margin)]
 
 
 # --- the store a tile's steps see ------------------------------------------------------------------------------
@@ -279,7 +288,8 @@ class TileStore:
         self.root = f"{self.base.root}#{tile.name}"  # cache keys (calib.load, motion_io) per tile
         self.local = self.work.local
         self.fs = _RouterFS(self)
-        self.fbox = forced_box(tile, zone)
+        self.fbox = forced_box(tile, zone, edge_margin)
+        self.forced_seen: list[pd.DataFrame] = []  # (ref_id, ra, dec, mjd) of every forced row read (forced_owned)
 
     def tile_dir(self, *parts: str) -> str:
         return "/".join(("tiles", self.tile.name, *parts))
@@ -337,6 +347,8 @@ class TileStore:
         df = s.read_parquet(r, cols)
         if "ra" in df and "dec" in df:
             df = df[self.fbox.contains(df["ra"].to_numpy(np.float64), df["dec"].to_numpy(np.float64))].reset_index(drop=True)
+            if {"ref_id", "mjd"} <= set(df.columns):
+                self.forced_seen.append(df[["ref_id", "ra", "dec", "mjd"]])
         return df if columns is None else df[[c for c in columns if c in df]]
 
     def write_json(self, rel: str, obj) -> None:
@@ -478,8 +490,9 @@ def pass2a(ctx: dict, tile: Tile) -> dict:
         mine = np.isin(sid, owned)
         nos = sid < 0
         if nos.any():
-            fo = own.read_parquet("forced_owned.parquet")["ref_id"].astype(str).to_numpy() if own.exists("forced_owned.parquet") else []
+            fo = forced_owned(ts.forced_seen, tile, ctx["zone"], ctx["edge_margin"])
             mine[nos] = np.isin(p["ref_id"].astype(str).to_numpy()[nos], fo)
+            st["lc_forced_targets_owned"] = int(len(fo))
         ref = lightcurves.reference_points(p, xid)
         p = p[mine].reset_index(drop=True)
         ref = ref[mine]
@@ -794,9 +807,6 @@ class Run:
             work.write_parquet(f"tiles/{t.name}/photolist.parquet", tp)
             for rel, cat in self.refcats.items():
                 work.write_parquet(f"tiles/{t.name}/refcat/{t.name}{rel}", refcat_slice(cat, self.reach[rel], t.ext))
-            own = Store(os.path.join(self.work, "tiles", t.name, "owned"))
-            if self.forced_owner is not None:
-                own.write_parquet("forced_owned.parquet", self.forced_owner[self.forced_owner["tile"] == t.index][["ref_id"]])
 
     def prepare(self, pool: _Pool) -> None:
         t0 = time.time()
@@ -814,11 +824,6 @@ class Run:
             if self.store.exists(rel):
                 self.refcats[suffix] = self.store.read_parquet(rel)
         self.reach = {k: refcat_reach(v, self.t_med, self.span_yr) for k, v in self.refcats.items()}
-        fr = self.refcats.get("_forced.parquet")
-        self.forced_owner = None
-        if fr is not None and len(fr):
-            ra, dec = moved(fr, self.t_med)
-            self.forced_owner = pd.DataFrame({"ref_id": fr["ref_id"].astype(str).to_numpy(), "tile": owner_of(ra, dec, self.tiles, z)})
         self._tile_inputs(self.tiles)
         # the zone's dot files, slimmed, into the work dir
         have = set(self.store.listdir("dots"))

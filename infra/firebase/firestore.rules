@@ -10,11 +10,11 @@ service cloud.firestore {
 
     function isNum(x) { return x is int || x is float; }
 
-    // candidates: { ra, dec, mjd, clock, source }
+    // candidates: { ra, dec, mjd, clock, source, created } (contracts/api.md v2.1)
     match /candidates/{id} {
       allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['ra', 'dec', 'mjd', 'clock', 'source'])
-        && request.resource.data.keys().hasAll(['ra', 'dec', 'mjd', 'clock', 'source'])
+      allow create: if request.resource.data.keys().hasOnly(['ra', 'dec', 'mjd', 'clock', 'source', 'created'])
+        && request.resource.data.keys().hasAll(['ra', 'dec', 'mjd', 'clock', 'source', 'created'])
         && isNum(request.resource.data.ra)
         && request.resource.data.ra >= 0 && request.resource.data.ra <= 360
         && isNum(request.resource.data.dec)
@@ -22,7 +22,8 @@ service cloud.firestore {
         && isNum(request.resource.data.mjd)
         && request.resource.data.mjd >= 60000 && request.resource.data.mjd <= 80000
         && request.resource.data.clock in ['months', 'hours']
-        && request.resource.data.source == 'user';
+        && request.resource.data.source == 'user'
+        && request.resource.data.created == request.time;   // serverTimestamp()
       allow update, delete: if false;
     }
 
