@@ -52,7 +52,7 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
+        <a href="#/sky" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
         <a href="#/candidates" data-route="discover">To check</a>
         <a href="#/review" data-route="review">Review</a>
         <a href="#/explore" data-route="explore">Blink</a>
@@ -144,9 +144,14 @@ export function startApp(root: HTMLElement): void {
     });
   }
 
-  async function go(next: View, opts: { push?: boolean; objectToo?: boolean } = {}) {
-    const { push = true, objectToo = true } = opts;
-    if (current !== "explore") {
+  /**
+   * `nav` means "the person asked for Blink": only then may go() take the page over. Without it a
+   * late callback (the player reporting its own view once frames land, a vote panel on the hidden
+   * Explore page) would pull someone off the page they are reading.
+   */
+  async function go(next: View, opts: { push?: boolean; objectToo?: boolean; nav?: boolean } = {}) {
+    const { push = true, objectToo = true, nav = false } = opts;
+    if (nav && current !== "explore") {
       exploreStarted = true;
       history.replaceState(null, "", `${location.pathname}${location.search}#/explore`);
       route();
@@ -226,17 +231,17 @@ export function startApp(root: HTMLElement): void {
     if (pos) {
       // Static first: coordinates inside a featured target's field open its prepared frames.
       const near = featuredNear(pos);
-      return go(near ? viewForTarget(near) : { ...base, ...pos, slug: null, name: null });
+      return go(near ? viewForTarget(near) : { ...base, ...pos, slug: null, name: null }, { nav: true });
     }
     const local = TARGETS.find((t) =>
       [t.name, t.short, t.slug].some((n) => n.toLowerCase().replace(/\W/g, "") === q.toLowerCase().replace(/\W/g, "")),
     );
-    if (local) return go(viewForTarget(local));
+    if (local) return go(viewForTarget(local), { nav: true });
     say("Looking up the name…");
     try {
       const r = await resolve(q);
       const t = targetBySlug(r.slug);
-      go(t ? viewForTarget(t) : { ...base, ra: r.ra, dec: r.dec, slug: null, name: r.name });
+      go(t ? viewForTarget(t) : { ...base, ra: r.ra, dec: r.dec, slug: null, name: r.name }, { nav: true });
     } catch (e) {
       say(
         e instanceof ApiFailure && e.status === 404
@@ -250,7 +255,7 @@ export function startApp(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) =>
     b.addEventListener("click", () => {
       const t = targetBySlug(b.dataset.slug);
-      if (t) go(viewForTarget(t));
+      if (t) go(viewForTarget(t), { nav: true });
     }),
   );
 
@@ -262,10 +267,10 @@ export function startApp(root: HTMLElement): void {
     explore(at) {
       // Static first: a spot inside a featured target's field opens its prepared frames.
       const near = featuredNear(at);
-      if (near && (!at.clock || at.clock === near.clock)) return void go(viewForTarget(near));
+      if (near && (!at.clock || at.clock === near.clock)) return void go(viewForTarget(near), { nav: true });
       const clock = at.clock ?? view?.clock ?? "months";
       const fov = at.fov ?? (view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20);
-      go({ ra: at.ra, dec: at.dec, clock, fov, det: at.det ?? view?.det ?? 2, slug: null, name: null });
+      go({ ra: at.ra, dec: at.dec, clock, fov, det: at.det ?? view?.det ?? 2, slug: null, name: null }, { nav: true });
     },
   };
   const pageMounts: Record<string, MountPage> = {
