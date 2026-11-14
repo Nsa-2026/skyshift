@@ -5,8 +5,10 @@ IMAGE is surface brightness in MJy/sr. A pixel's flux density is value x pixel s
 rather than hard-coding it, locally at (x, y) when given (SIP distortion changes it slightly
 across the frame).
 
-No aperture correction is applied yet (APERTURE_CORRECTION = 1.0): a 2 px radius holds most,
-not all, of a 1.22 px FWHM PSF. TODO(V8): measure it from the EPSF HDU or a catalogue star.
+Aperture correction (14 Nov, from NASA's ePSF in the EPSF HDU): a 2 px radius holds 96.8% (± 1.0%)
+of a point source's light, so APERTURE_CORRECTION = 1 / 0.968 = 1.033 for the default radius.
+It is only valid for r = 2 px (APERTURE_R_PX); other radii need their own value. The dot table's
+`flux_ujy` (from detect) stays uncorrected; `flux_psf_ujy` is already a total flux.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from .detect import APERTURE_R_PX, _native, build_mask
 
 DEG2_TO_SR = (np.pi / 180.0) ** 2
 MJY_SR_TO_UJY_PER_SR = 1e12  # 1 MJy = 1e12 uJy
-APERTURE_CORRECTION = 1.0
+APERTURE_CORRECTION = 1.033  # r = 2 px only; see the module docstring
 
 
 def pixel_solid_angle_sr(wcs: WCS, x: float | None = None, y: float | None = None) -> float:
