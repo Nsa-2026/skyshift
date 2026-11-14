@@ -2,7 +2,9 @@
 
 Only dots inside the zone box are used (most of a photo's dots fall outside it).
 1. fixed: friends-of-friends within FIXED_LINK_ARCSEC over all dots; a group seen in
-   >= FIXED_MIN_SESSIONS sessions is a fixed source (stars, galaxies). Each gets a `source_id`
+   >= FIXED_MIN_SESSIONS sessions is a fixed source (stars, galaxies). Its dots farther than
+   FIXED_RELEASE_ARCSEC from its median are first released and regrouped among themselves (an asteroid
+   track chained into a star by the FoF comes back out). Each fixed source gets a `source_id`
    (source_id_of: cell × SOURCE_ID_PER_CELL + rank in the cell) and its dots are listed in
    members.parquet (source_id, obs_id, detector, dot_row) for `spectra`, less those member_mask leaves out
    (a masked core at the peak; a second dot in one photo). Those still belong to the group for the veto.
@@ -11,9 +13,14 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
 3. The rest (elong <= MOVER_MAX_ELONG) are paired inside each session:
    - two exposures (different obs_id) separated by <= PAIR_BASE_ARCSEC + PAIR_RATE × Δt (minutes);
    - or a simultaneous detector pair (same obs_id, D1+D4 / D2+D5 / D3+D6) within
-     SIMULTANEOUS_PAIR_ARCSEC (the two footprints are offset ~71″ but see the same sky).
-   Pairs chain into one candidate (an asteroid seen in 3–5 exposures).
-4. A candidate is a mover if the sessions whose footprints contain it number >= MOVER_MIN_COVER_SESSIONS.
+     SIMULTANEOUS_PAIR_ARCSEC (the two footprints are offset ~71″ but see the same sky);
+   - two dots that both have a simultaneous partner also pair up to PAIR_CONFIRMED_RATE × Δt (fast movers).
+   Pairs chain into one candidate (an asteroid seen in 3–5 exposures); track_fit gives its straight-line
+   rate, direction, line residual and per-detector flux ratio.
+4. A candidate is a mover if the sessions whose footprints contain it number >= MOVER_MIN_COVER_SESSIONS
+   and it passes vet_reason (MOVER_VET): a dot in every exposure of its session that covers the track
+   (one miss allowed from 3 exposures on), at least two exposures (or its one exposure) away from the
+   frame edges, on a straight line, one flux per detector. Each rule counts in the stats (vetoed_<rule>).
 5. nonfixed_dots.parquet: every dot in no fixed group with elong <= MOVER_MAX_ELONG (near_fixed: within
    FIXED_VETO_ARCSEC of one), where `tracklets` looks for a track's missed sightings.
 Sessions are the zone's time runs (photolist); visit labels are never used here.
@@ -33,7 +40,7 @@ from skyshift_core import MASK_BITS, SAT_BITS
 
 from . import config as C
 from . import log
-from .sky import Footprint, SkyTree, angsep, cell_of, chord, fof_groups, radec_to_xyz, sessions_covering
+from .sky import Footprint, SkyTree, angsep, cell_of, chord, fof_groups, offset_radec, radec_to_xyz, sessions_covering
 from .store import Store, dots_rel, photolist_rel, results_rel
 
 L = log.get("link")
@@ -117,12 +124,39 @@ def source_id_of(ra: np.ndarray, dec: np.ndarray) -> np.ndarray:
     return out
 
 
+def release_far_members(dots: pd.DataFrame, lab: np.ndarray) -> np.ndarray:
+    """FoF labels with the far members of would-be fixed groups split off: in every group seen in
+    >= FIXED_MIN_SESSIONS sessions, dots farther than FIXED_RELEASE_ARCSEC from the group's median position
+    get new labels from a second FoF among themselves (a second star chained to the first stays a group; an
+    asteroid's one-session chain becomes free). Groups below the session count are left as they are."""
+    lab = np.asarray(lab, np.int64)
+    if lab.size == 0 or C.FIXED_RELEASE_ARCSEC is None:
+        return lab
+    ra, dec = dots["ra"].to_numpy(np.float64), dots["dec"].to_numpy(np.float64)
+    d = pd.DataFrame({"g": lab, "session": dots["session"].to_numpy(), "ra": ra, "dec": dec})
+    agg = d.groupby("g").agg(n_sessions=("session", "nunique"), ra=("ra", "median"), dec=("dec", "median"))
+    big = agg.index[agg["n_sessions"] >= C.FIXED_MIN_SESSIONS].to_numpy()
+    cand = np.isin(lab, big)
+    if not cand.any():
+        return lab
+    mra = agg["ra"].reindex(lab[cand]).to_numpy()
+    mdec = agg["dec"].reindex(lab[cand]).to_numpy()
+    far = np.zeros(lab.size, dtype=bool)
+    far[cand] = angsep(ra[cand], dec[cand], mra, mdec) * 3600.0 > C.FIXED_RELEASE_ARCSEC
+    if not far.any():
+        return lab
+    out = lab.copy()
+    out[far] = lab.max() + 1 + fof_groups(ra[far], dec[far], C.FIXED_LINK_ARCSEC, C.FIXED_SNAP_ARCSEC)
+    return out
+
+
 def fixed_groups(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
     """(fixed sources sorted by source_id, per-dot source_id; -1 where the dot is in no fixed group)."""
     if len(dots) == 0:
         return pd.DataFrame({c: pd.Series(dtype="int64" if c in ("source_id", "cell") else "float64")
                              for c in FIXED_COLUMNS}), np.zeros(0, np.int64)
     lab = fof_groups(dots["ra"].to_numpy(), dots["dec"].to_numpy(), C.FIXED_LINK_ARCSEC, C.FIXED_SNAP_ARCSEC)
+    lab = release_far_members(dots, lab)
     d = pd.DataFrame({"g": lab, "session": dots["session"].to_numpy(), "ra": dots["ra"].to_numpy(),
                       "dec": dots["dec"].to_numpy(), "snr": dots["snr"].to_numpy(),
                       "flux": dots["flux_ujy"].to_numpy(np.float64)})  # float64: pandas' median of float32 is float32 only sometimes
@@ -255,31 +289,177 @@ def nonfixed_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataF
 
 def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Valid pairs (i, j) of dots in one session (row positions in d) and their kind
-    (0 = two exposures, 1 = simultaneous detectors)."""
+    (0 = two exposures, 1 = simultaneous detectors). Two dots that each have a simultaneous partner
+    (a detector pair confirms each detection) also pair across exposures up to PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN:
+    fast movers (> ~140″/h) step too far between exposures for the plain rule."""
     n = len(d)
     if n < 2:
         return np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int8)
+    from scipy.spatial import cKDTree
     mjd = d["mjd"].to_numpy(np.float64)
     span_min = (mjd.max() - mjd.min()) * 1440.0
     rmax = max(C.PAIR_BASE_ARCSEC + C.PAIR_RATE_ARCSEC_PER_MIN * span_min, C.SIMULTANEOUS_PAIR_ARCSEC)
-    xyz = radec_to_xyz(d["ra"].to_numpy(), d["dec"].to_numpy())
-    from scipy.spatial import cKDTree
+    ra, dec = d["ra"].to_numpy(), d["dec"].to_numpy()
+    exp = d["exposure"].to_numpy()
+    det = d["detector"].to_numpy(np.int64)
+    xyz = radec_to_xyz(ra, dec)
+
+    def judge(pairs: np.ndarray, rate_per_min: float, confirmed: np.ndarray | None):
+        i, j = pairs[:, 0], pairs[:, 1]
+        sep = angsep(ra[i], dec[i], ra[j], dec[j]) * 3600.0
+        dt_min = np.abs(mjd[i] - mjd[j]) * 1440.0
+        two_exp = (exp[i] != exp[j]) & (sep <= C.PAIR_BASE_ARCSEC + rate_per_min * dt_min)
+        if confirmed is not None:
+            two_exp &= confirmed[i] & confirmed[j]
+        pair_ok = np.zeros(len(i), dtype=bool)
+        for a, b in C.SIMULTANEOUS_PAIRS:
+            pair_ok |= ((det[i] == a) & (det[j] == b)) | ((det[i] == b) & (det[j] == a))
+        simul = (exp[i] == exp[j]) & pair_ok & (sep <= C.SIMULTANEOUS_PAIR_ARCSEC)
+        return two_exp, simul
+
     pairs = cKDTree(xyz).query_pairs(chord(rmax), output_type="ndarray")
     if len(pairs) == 0:
         return np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int8)
-    i, j = pairs[:, 0], pairs[:, 1]
-    ra, dec = d["ra"].to_numpy(), d["dec"].to_numpy()
-    sep = angsep(ra[i], dec[i], ra[j], dec[j]) * 3600.0
-    exp = d["exposure"].to_numpy()
-    det = d["detector"].to_numpy(np.int64)
-    dt_min = np.abs(mjd[i] - mjd[j]) * 1440.0
-    two_exp = (exp[i] != exp[j]) & (sep <= C.PAIR_BASE_ARCSEC + C.PAIR_RATE_ARCSEC_PER_MIN * dt_min)
-    pair_ok = np.zeros(len(i), dtype=bool)
-    for a, b in C.SIMULTANEOUS_PAIRS:
-        pair_ok |= ((det[i] == a) & (det[j] == b)) | ((det[i] == b) & (det[j] == a))
-    simul = (exp[i] == exp[j]) & pair_ok & (sep <= C.SIMULTANEOUS_PAIR_ARCSEC)
+    two_exp, simul = judge(pairs, C.PAIR_RATE_ARCSEC_PER_MIN, None)
     keep = two_exp | simul
-    return pairs[keep], np.where(two_exp[keep], 0, 1).astype(np.int8)
+    out, kind = pairs[keep], np.where(two_exp[keep], 0, 1).astype(np.int8)
+    if C.PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN and simul.any():
+        confirmed = np.zeros(n, dtype=bool)
+        confirmed[pairs[simul].ravel()] = True
+        idx = np.flatnonzero(confirmed)
+        rfast = C.PAIR_BASE_ARCSEC + C.PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN * span_min
+        fp = cKDTree(xyz[idx]).query_pairs(chord(rfast), output_type="ndarray") if idx.size >= 2 else np.zeros((0, 2), np.int64)
+        if len(fp):
+            fp = np.sort(idx[fp], axis=1)
+            fast, _ = judge(fp, C.PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN, confirmed)
+            fp = fp[fast]
+            have = set(map(tuple, np.sort(out, axis=1).tolist()))
+            new = np.array([p for p in fp.tolist() if tuple(p) not in have], dtype=np.int64).reshape(-1, 2)
+            out = np.concatenate([out, new])
+            kind = np.concatenate([kind, np.zeros(len(new), np.int8)])
+    return out, kind
+
+
+def track_fit(ra, dec, mjd, exposure, detector, flux) -> dict:
+    """A candidate's straight-line motion from its dots: one position per exposure (mean of its dots), a
+    least-squares line in time. rate_arcsec_h / pa_deg (east of north) NaN with one exposure; line_resid_arcsec =
+    the largest distance of an exposure's position from the line (NaN under 3 exposures); flux_ratio = the
+    largest max/min flux among one detector's dots (1 if no detector has two); dup_dots = dots beyond one per
+    (exposure, detector). `_vx`, `_vy` (″/h east, north) and `_t0` (mean MJD) let classify place the track in
+    every photo of the session."""
+    ra = np.asarray(ra, np.float64)
+    dec = np.asarray(dec, np.float64)
+    mjd = np.asarray(mjd, np.float64)
+    ra0, dec0, t0 = float(ra.mean()), float(dec.mean()), float(mjd.mean())
+    x = ((ra - ra0 + 180.0) % 360.0 - 180.0) * np.cos(np.deg2rad(dec0)) * 3600.0
+    y = (dec - dec0) * 3600.0
+    th = (mjd - t0) * 24.0
+    ue, inv = np.unique(np.asarray(exposure), return_inverse=True)
+    cnt = np.bincount(inv).astype(np.float64)
+    xe, ye, te = (np.bincount(inv, v) / cnt for v in (x, y, th))
+    out = {"rate_arcsec_h": np.nan, "pa_deg": np.nan, "line_resid_arcsec": np.nan, "_vx": 0.0, "_vy": 0.0, "_t0": t0}
+    if ue.size >= 2 and np.ptp(te) > 0:
+        tm = te.mean()
+        vx = float(np.sum((te - tm) * (xe - xe.mean())) / np.sum((te - tm) ** 2))
+        vy = float(np.sum((te - tm) * (ye - ye.mean())) / np.sum((te - tm) ** 2))
+        out.update(rate_arcsec_h=float(np.hypot(vx, vy)), pa_deg=float(np.degrees(np.arctan2(vx, vy)) % 360.0), _vx=vx, _vy=vy)
+        if ue.size >= 3:
+            rx = xe - (xe.mean() + vx * (te - tm))
+            ry = ye - (ye.mean() + vy * (te - tm))
+            out["line_resid_arcsec"] = float(np.hypot(rx, ry).max())
+    det = np.asarray(detector, np.int64)
+    flux = np.asarray(flux, np.float64)
+    ratio = 1.0
+    for dd in np.unique(det):
+        f = flux[det == dd]
+        if f.size >= 2 and f.min() > 0:
+            ratio = max(ratio, float(f.max() / f.min()))
+        elif f.size >= 2:
+            ratio = np.inf
+    out["flux_ratio"] = ratio
+    out["dup_dots"] = int(len(det) - len(set(zip(np.asarray(exposure).tolist(), det.tolist()))))
+    return out
+
+
+def exposure_coverage(cand: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprint],
+                      fixed: pd.DataFrame | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(cover_exposures, missed_exposures, edge_exposures) per candidate, from the photos of its session with the
+    track moved along its fitted line to each photo's time:
+    - cover: exposures (distinct photo times) with a photo holding the track >= MOVER_COVER_EDGE_PX inside and the
+      track not within FIXED_VETO_ARCSEC + MOVER_COVER_FIXED_SLACK_ARCSEC of a fixed source (link drops dots there);
+    - missed: covering exposures with none of the candidate's dots;
+    - edge_exposures: exposures in which every dot of the candidate sits in a photo (same time and detector) that
+      holds the track less than MOVER_COVER_EDGE_PX inside: frame-edge dots (truncated stars, the outermost
+      columns) pair into fake movers.
+    A dot belongs to a photo when its time is within 5 s of the photo's and its detector is the photo's.
+    MOVER_COVER_FIXED_SLACK_ARCSEC None: no exclusion near fixed sources."""
+    n = len(cand)
+    cover = np.zeros(n, np.int64)
+    missed = np.zeros(n, np.int64)
+    edge = np.zeros(n, np.int64)
+    if n == 0:
+        return cover, missed, edge
+    ps = photos["session"].to_numpy(np.int64)
+    pm = photos["mjd"].to_numpy(np.float64)
+    pdet = photos["detector"].to_numpy(np.int64) if "detector" in photos else np.zeros(len(photos), np.int64)
+    edge_deg = C.MOVER_COVER_EDGE_PX * C.PIXEL_ARCSEC / 3600.0
+    use_fixed = fixed is not None and len(fixed) > 0 and C.MOVER_COVER_FIXED_SLACK_ARCSEC is not None
+    ftree = SkyTree(fixed["ra"].to_numpy(np.float64), fixed["dec"].to_numpy(np.float64)) if use_fixed else None
+    seen_td = cand["_seen"].to_numpy()
+    for s, ci in pd.Series(np.arange(n)).groupby(cand["session"].to_numpy(np.int64)):
+        ci = ci.to_numpy()
+        ks = np.flatnonzero(ps == s)
+        if ks.size == 0:
+            continue
+        times = np.unique(np.round(pm[ks] * 86400.0)) / 86400.0  # one per exposure (D1–D6 share MJD-AVG)
+        cov = np.zeros((ci.size, times.size), dtype=bool)
+        seen = np.zeros_like(cov)
+        clean = np.zeros_like(cov)
+        ra, dec = cand["ra"].to_numpy(np.float64)[ci], cand["dec"].to_numpy(np.float64)[ci]
+        vx, vy = cand["_vx"].to_numpy(np.float64)[ci], cand["_vy"].to_numpy(np.float64)[ci]
+        t0 = cand["_t0"].to_numpy(np.float64)[ci]
+        for k in ks:
+            j = int(np.argmin(np.abs(times - pm[k])))
+            h = (pm[k] - t0) * 24.0
+            r2, d2 = offset_radec(ra, dec, vx * h, vy * h)
+            inside = footprints[k].edge_distance_deg(r2, d2) >= edge_deg
+            here = np.array([any(abs(t - pm[k]) * 86400.0 <= 5.0 and dd == pdet[k] for t, dd in seen_td[i]) for i in ci])
+            seen[:, j] |= here
+            clean[:, j] |= here & inside
+            if ftree is not None and inside.any():
+                fsep, _ = ftree.nearest(r2, d2)
+                inside &= fsep > C.FIXED_VETO_ARCSEC + C.MOVER_COVER_FIXED_SLACK_ARCSEC
+            cov[:, j] |= inside
+        cover[ci] = cov.sum(axis=1)
+        missed[ci] = (cov & ~seen).sum(axis=1)
+        edge[ci] = (seen & ~clean).sum(axis=1)
+    return cover, missed, edge
+
+
+VET_RULES = ("edge", "line", "dup", "flux", "missed")
+
+
+def vet_reason(m: pd.DataFrame) -> np.ndarray:
+    """Why a candidate is not a mover ("" = it is): the first failing rule of VET_RULES.
+    edge (fewer than min(2, n_exposures) exposures with a dot away from the photo edges), line (>= 3 exposures off a
+    straight line by > MOVER_LINE_MAX_ARCSEC), dup (two dots of one exposure and detector), flux (one detector's
+    fluxes differ by more than MOVER_FLUX_RATIO_MAX), missed (exposures covering the track that show nothing:
+    > MOVER_MAX_MISSED_FEW with <= 2 exposures seen, > MOVER_MAX_MISSED with >= 3)."""
+    n = len(m)
+    out = np.full(n, "", dtype=object)
+    if n == 0:
+        return out
+    nexp = m["n_exposures"].to_numpy(np.int64)
+    allowed = np.where(nexp >= 3, C.MOVER_MAX_MISSED, C.MOVER_MAX_MISSED_FEW)
+    clean = nexp - (m["edge_exposures"].to_numpy(np.int64) if "edge_exposures" in m else 0)
+    bad = {"edge": clean < np.minimum(2, nexp),
+           "line": np.nan_to_num(m["line_resid_arcsec"].to_numpy(np.float64)) > C.MOVER_LINE_MAX_ARCSEC,
+           "dup": m["dup_dots"].to_numpy(np.int64) > 0,
+           "flux": m["flux_ratio"].to_numpy(np.float64) > C.MOVER_FLUX_RATIO_MAX,
+           "missed": m["missed_exposures"].to_numpy(np.int64) > allowed}
+    for name in VET_RULES[::-1]:
+        out[bad[name]] = name
+    return out
 
 
 def _dot_lists(d: pd.DataFrame, m: np.ndarray, A: dict, fp: np.ndarray) -> dict:
@@ -320,7 +500,8 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
         for m in np.split(idx, cuts):
             k = m[int(np.argmax(A["snr"][m]))]
             exps = sorted(set(A["exposure"][m].tolist()))
-            rows.append({
+            tr = track_fit(A["ra"][m], A["dec"][m], A["mjd"][m], A["exposure"][m], A["detector"][m], A["flux_ujy"][m])
+            rows.append({**tr,
                 "ra": float(A["ra"][m].mean()), "dec": float(A["dec"][m].mean()), "mjd": float(A["mjd"][m].mean()),
                 "session": int(sess), "visit": int(np.bincount(A["visit"][m].astype(np.int64)).argmax()),
                 "n_dots": int(m.size), "n_exposures": len(exps),
@@ -330,6 +511,7 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
                 "snr": float(A["snr"][m].max()), "flux_ujy": float(np.median(A["flux_ujy"][m])),
                 "flags": int(np.bitwise_or.reduce(fl[m])), "flags_peak_all": int(np.bitwise_and.reduce(fp[m])),
                 "exposures": exps, **_dot_lists(d, m, A, fp),
+                "_seen": sorted(set(zip(A["mjd"][m].astype(np.float64).tolist(), A["detector"][m].astype(np.int64).tolist()))),
             })
     return pd.DataFrame(rows)
 
@@ -364,6 +546,19 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     cand["cover_sessions"] = sessions_covering(cand["ra"].to_numpy(), cand["dec"].to_numpy(), footprints, photos["session"].to_numpy())
     movers = cand[cand["cover_sessions"] >= C.MOVER_MIN_COVER_SESSIONS].reset_index(drop=True)
     st["dropped_under_covered"] = int(len(cand) - len(movers))
+    cols = ["cover_exposures", "missed_exposures", "edge_exposures"]
+    if "mjd" in photos:
+        cover, missed, edge = exposure_coverage(movers, photos, footprints, fixed)
+    else:  # a photo list without times: nothing to say about missed exposures or edges
+        cover, missed, edge = movers["n_exposures"].to_numpy(np.int64), np.zeros(len(movers), np.int64), np.zeros(len(movers), np.int64)
+    for c, v in zip(cols, (cover, missed, edge)):
+        movers[c] = v
+    reason = vet_reason(movers)
+    for r in VET_RULES:
+        st[f"vetoed_{r}"] = int((reason == r).sum())
+    if C.MOVER_VET:
+        movers = movers[reason == ""].reset_index(drop=True)
+    movers = movers.drop(columns=["_vx", "_vy", "_t0", "_seen"])
     names = exposure_names
     movers["obs_ids"] = [",".join(names[i] if names else str(i) for i in ex) for ex in movers.pop("exposures")]
     movers["dot_obs"] = [[names[i] if names else str(i) for i in ex] for ex in movers.pop("dot_exp")]
