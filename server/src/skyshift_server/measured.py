@@ -61,6 +61,11 @@ SHIFT_MIN_SNR = 3.0
 MAX_SHIFTS = 300
 MONTHS_MAX_PHOTOS_PER_VISIT = 12  # dot files read per visit epoch (spread over the visit)
 ZONES_TTL_S = 300.0
+# Zones not in skyrun/progress.json, looked for by name (results/<name>/summary.json) in case the folder
+# listing misses them: the pilot, the test fields and the featured targets' zones (pipeline config.ZONES).
+# SKYSHIFT_EXTRA_ZONES (comma list) adds more.
+EXTRA_ZONES = ("pilot", "t_cygnus", "t_gc", "t_lmc", "t_smc", "t_nep", "t_sep", "t_ngp",
+               "t_barnard", "t_epsindib", "t_wise0855", "t_rwaur", "t_rdra")
 EXISTS_TTL_S = 600.0         # a dot file's presence (or absence) is remembered this long
 DOTS_ONLY_STAR_ARCSEC = 2.0  # dots only: a dot this close to a gaia[] star (moved to its time) is that star
 FOF_ARCSEC = 2.0             # dots only, months: a visit's dots are merged within this
@@ -89,6 +94,23 @@ def dots_only_enabled() -> bool:
 
 
 # --- storage ----------------------------------------------------------------------------------
+
+
+def _gcs_client():
+    from google.cloud import storage
+
+    try:
+        return storage.Client()
+    except OSError:  # no project in the environment (a laptop): listing needs none, any will do
+        return storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT") or "nasa-glazing")
+
+
+def gcs_prefixes(bucket: str, prefix: str) -> list[str]:
+    """Names of the "folders" right under gs://<bucket>/<prefix> (prefix ends with "/")."""
+    it = _gcs_client().list_blobs(bucket, prefix=prefix, delimiter="/")
+    for _ in it:  # the prefixes fill in as the pages are read
+        pass
+    return sorted(p[len(prefix):].strip("/") for p in it.prefixes if p[len(prefix):].strip("/"))
 
 
 class Store:
@@ -121,13 +143,22 @@ class Store:
         return self.fs.get_file_info(self.path(key)).type != pafs.FileType.NotFound
 
     def list_dirs(self, key: str) -> list[str]:
+        """Folder names directly under `key`. On GCS a "folder" is only a name prefix and pyarrow's
+        listing shows none (14 Nov: results/ gave just its two loose files), so gs:// roots ask the
+        storage client for prefixes with a "/" delimiter."""
         import pyarrow.fs as pafs
 
+        if self.root.startswith("gs://"):
+            try:
+                return gcs_prefixes(self.base, f"{key.strip('/')}/")
+            except Exception as e:  # noqa: BLE001 - fall back to pyarrow (and EXTRA_ZONES)
+                log.warning("measured: GCS prefix listing of %s failed: %r", key, e)
         try:
             infos = self.fs.get_file_info(pafs.FileSelector(self.path(key), recursive=False))
         except FileNotFoundError:
             return []
         return sorted(i.base_name for i in infos if i.type == pafs.FileType.Directory)
+
 
     def read_table(self, key: str, columns: list[str], optional: list[str] = ()) -> dict[str, np.ndarray] | None:
         """Columns of a Parquet file as numpy arrays (lists stay Python lists); None if missing.
@@ -232,13 +263,23 @@ def zones(st: Store) -> list[Zone]:
         except (KeyError, TypeError, ValueError, IndexError):
             continue
     listed = {z.name for z in out}
-    for name in st.list_dirs("results"):
-        if name in listed:
-            continue
-        s = st.read_json(f"results/{name}/summary.json")
-        z = _zone_from_summary(name, s) if isinstance(s, dict) else None
-        if z is not None:
-            out.append(z)
+    try:
+        found = st.list_dirs("results")
+    except Exception as e:  # noqa: BLE001 - the names below still get looked for
+        log.warning("measured: listing results/ failed: %r", e)
+        found = []
+    extra = [n.strip() for n in os.environ.get("SKYSHIFT_EXTRA_ZONES", "").split(",") if n.strip()]
+    names = [n for n in dict.fromkeys([*found, *EXTRA_ZONES, *extra]) if n not in listed]
+
+    def summary(name: str) -> Zone | None:
+        try:
+            s = st.read_json(f"results/{name}/summary.json")
+        except Exception as e:  # noqa: BLE001 - one unreadable summary skips that zone only
+            log.warning("measured: results/%s/summary.json unreadable: %r", name, e)
+            return None
+        return _zone_from_summary(name, s) if isinstance(s, dict) else None
+
+    out += [z for z in _io.map(summary, names) if z is not None]  # in parallel: ~15 small reads
     with _zones_lock:
         _zones_cache[st.root] = (now, out)
     return out
