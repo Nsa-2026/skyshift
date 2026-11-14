@@ -108,7 +108,7 @@ Response fields:
 | epochs[].flag_frac | Share of frame pixels hit by a mask bit (contracts/flags.md), 0–1 |
 | epochs[].sat_frac | Share of frame pixels with OVERFLOW or NONLINEAR, 0–1 |
 | epochs[].data_url, scale, zero | The frame data, see below |
-| gaia | Gaia DR3 stars in the frame at epoch 2016.0 (MJD 57388.0). The browser moves each one to an epoch's `mjd_mid` with `pmra`, `pmdec`. `parallax` and `g` may be null |
+| gaia | Gaia DR3 stars in the frame at epoch J2016.0 (MJD 57388.5). The browser moves each one to an epoch's `mjd_mid` with `pmra`, `pmdec`. `parallax` and `g` may be null |
 | known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null |
 | data_release | Collections searched, e.g. `"DR1+QR3"` |
 | archive_checked | Date of the IRSA search, `YYYY-MM-DD` |
@@ -146,9 +146,9 @@ The object nearest a position (search radius 6″).
 | measure.shift_arcsec, pa_deg | Size and direction of the shift; position angle east of north |
 | measure.dt_yr | Time between the two visits' `mjd_mid`, years |
 | measure.rate_arcsec_yr | shift_arcsec / dt_yr |
-| measure.sigma_arcsec | 1σ error from the reference stars (V3) |
+| measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
-| measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, or null without Gaia |
+| measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
 
 ## GET /api/gaia, GET /api/known
 
