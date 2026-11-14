@@ -1,0 +1,1167 @@
+{
+  "generated": "2026-11-14",
+  "data_release": "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)",
+  "checks": [
+    {
+      "id": "V1",
+      "claim": "Five test objects recovered",
+      "status": "pass",
+      "headline": "5 of 5 test objects found where predicted, in 19 of 20 visits; median offset 0.207 px",
+      "value": 5,
+      "unit": "targets",
+      "expected": "5 of 5; WISE 0855 only in D5-D6",
+      "note": "Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos of one visit and one expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core. Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, median_offset_px. WISE 0855-0714 (D5-D6 only, every photo of a visit stacked): 2 of 3 visits; its first visit has only 8 D5 and 3 D6 photos. In D1-D4 a background star lies 1-2 px from it: those stacks are not counted.",
+      "rows": [
+        {
+          "slug": "barnard",
+          "recovered": true,
+          "visits": 3,
+          "visits_recovered": 3,
+          "stacks_expected": 18,
+          "stacks_recovered": 18,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.191
+        },
+        {
+          "slug": "epsindib",
+          "recovered": true,
+          "visits": 4,
+          "visits_recovered": 4,
+          "stacks_expected": 22,
+          "stacks_recovered": 22,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.154
+        },
+        {
+          "slug": "wise0855",
+          "recovered": true,
+          "visits": 3,
+          "visits_recovered": 2,
+          "stacks_expected": 6,
+          "stacks_recovered": 3,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.207
+        },
+        {
+          "slug": "rwaur",
+          "recovered": true,
+          "visits": 3,
+          "visits_recovered": 3,
+          "stacks_expected": 18,
+          "stacks_recovered": 18,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.212
+        },
+        {
+          "slug": "rdra",
+          "recovered": true,
+          "visits": 7,
+          "visits_recovered": 7,
+          "stacks_expected": 22,
+          "stacks_recovered": 16,
+          "detectors": "D1,D2,D3,D5,D6",
+          "median_offset_px": 0.31
+        }
+      ]
+    },
+    {
+      "id": "V2",
+      "claim": "Motion matches Gaia",
+      "status": "pass",
+      "headline": "Barnard's Star moved 10.83\" ± 0.36\" at PA 357.8° in 0.986 yr; Gaia predicts 10.27\" (+5.5%, 2.2°)",
+      "value": 10.83,
+      "unit": "arcsec",
+      "expected": "Barnard's Star within 15% and 10 deg of Gaia (10.39\"/yr)",
+      "note": "Shift = position in the last visit stack minus the first, against reference stars in the same cutouts; predicted = Gaia DR3 proper motion and parallax over the same dates (WISE 0855: published astrometry). Rows: slug, shift_arcsec, predicted_arcsec, sigma_arcsec, pa_deg, predicted_pa_deg, dt_yr, shift_error_pct, pa_error_deg.",
+      "rows": [
+        {
+          "slug": "barnard",
+          "measured": true,
+          "shift_arcsec": 10.83,
+          "predicted_arcsec": 10.27,
+          "sigma_arcsec": 0.36,
+          "pa_deg": 357.8,
+          "predicted_pa_deg": 355.6,
+          "dt_yr": 0.986,
+          "rate_arcsec_yr": 10.99,
+          "n_ref_stars": 344,
+          "shift_error_pct": 5.5,
+          "pa_error_deg": 2.2
+        },
+        {
+          "slug": "epsindib",
+          "measured": true,
+          "shift_arcsec": 6.05,
+          "predicted_arcsec": 6.49,
+          "sigma_arcsec": 0.42,
+          "pa_deg": 125.7,
+          "predicted_pa_deg": 121.8,
+          "dt_yr": 1.418,
+          "rate_arcsec_yr": 4.27,
+          "n_ref_stars": 51,
+          "shift_error_pct": -6.7,
+          "pa_error_deg": 4.0
+        },
+        {
+          "slug": "wise0855",
+          "measured": true,
+          "shift_arcsec": 7.05,
+          "predicted_arcsec": 8.06,
+          "sigma_arcsec": 0.9,
+          "pa_deg": 278.2,
+          "predicted_pa_deg": 274.8,
+          "dt_yr": 0.99,
+          "rate_arcsec_yr": 7.12,
+          "n_ref_stars": 87,
+          "shift_error_pct": -12.6,
+          "pa_error_deg": 3.4
+        },
+        {
+          "slug": "rwaur",
+          "measured": true,
+          "shift_arcsec": 0.31,
+          "predicted_arcsec": 0.03,
+          "sigma_arcsec": 0.5,
+          "pa_deg": 89.6,
+          "predicted_pa_deg": 174.5,
+          "dt_yr": 1.012,
+          "rate_arcsec_yr": 0.31,
+          "n_ref_stars": 255,
+          "shift_error_pct": null,
+          "pa_error_deg": null
+        },
+        {
+          "slug": "rdra",
+          "measured": true,
+          "shift_arcsec": 0.04,
+          "predicted_arcsec": 0.02,
+          "sigma_arcsec": 0.36,
+          "pa_deg": 5.1,
+          "predicted_pa_deg": 286.6,
+          "dt_yr": 0.997,
+          "rate_arcsec_yr": 0.04,
+          "n_ref_stars": 37,
+          "shift_error_pct": null,
+          "pa_error_deg": null
+        }
+      ]
+    },
+    {
+      "id": "V3",
+      "claim": "Position error floor",
+      "status": "pass",
+      "headline": "Position error 0.36\" from 344 reference stars: motions above 1.1\"/yr are seen at 3 sigma in one year",
+      "value": 0.36,
+      "unit": "arcsec",
+      "expected": "Floor ~0.25\" (first photo); 10 or more reference stars",
+      "note": "sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, < 20 mas/yr) in the same cutouts; it is V2's error bar. Slowest motion visible at 3 sigma = 3 sigma / dt. Rows: slug, sigma_arcsec, n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.",
+      "rows": [
+        {
+          "slug": "barnard",
+          "sigma_arcsec": 0.36,
+          "n_ref_stars": 344,
+          "dt_yr": 0.986,
+          "min_rate_3sigma_arcsec_yr": 1.1
+        },
+        {
+          "slug": "epsindib",
+          "sigma_arcsec": 0.42,
+          "n_ref_stars": 51,
+          "dt_yr": 1.418,
+          "min_rate_3sigma_arcsec_yr": 0.89
+        },
+        {
+          "slug": "wise0855",
+          "sigma_arcsec": 0.9,
+          "n_ref_stars": 87,
+          "dt_yr": 0.99,
+          "min_rate_3sigma_arcsec_yr": 2.73
+        },
+        {
+          "slug": "rwaur",
+          "sigma_arcsec": 0.5,
+          "n_ref_stars": 255,
+          "dt_yr": 1.012,
+          "min_rate_3sigma_arcsec_yr": 1.48
+        },
+        {
+          "slug": "rdra",
+          "sigma_arcsec": 0.36,
+          "n_ref_stars": 37,
+          "dt_yr": 0.997,
+          "min_rate_3sigma_arcsec_yr": 1.08
+        }
+      ]
+    },
+    {
+      "id": "V4",
+      "claim": "Asteroids re-found, targeted",
+      "status": "pass",
+      "headline": "Re-found 60 of 60 asteroids where NASA predicted them; median offset 0.126 px (0.77\"); control 3' away: 2.0% of photos, 5 of 60 asteroids",
+      "value": 60,
+      "unit": "asteroids",
+      "expected": "N of 60; median offset under 1 px; control under 5%",
+      "note": "MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is absent (4 sigma) from a reference stack of the same sky 0.25-12 days away. Control = the same test 3' away. Per photo: 274/300 found, control 6/300; per asteroid control 5/60. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
+      "rows": [
+        {
+          "number": 1,
+          "name": "1 Ceres (A801 AA)",
+          "vmag_median": 9.08,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.09,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 2,
+          "name": "2 Pallas (A802 FA)",
+          "vmag_median": 10.2,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.124,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 3,
+          "name": "3 Juno (A804 RA)",
+          "vmag_median": 10.94,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.108,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 4,
+          "name": "4 Vesta (A807 FA)",
+          "vmag_median": 8.14,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.226,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 5,
+          "name": "5 Astraea (A845 XA)",
+          "vmag_median": 12.23,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.129,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 6,
+          "name": "6 Hebe (A847 NA)",
+          "vmag_median": 9.65,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 1.383,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 7,
+          "name": "7 Iris (A847 PA)",
+          "vmag_median": 10.52,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.126,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 8,
+          "name": "8 Flora (A847 UA)",
+          "vmag_median": 11.04,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.193,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 9,
+          "name": "9 Metis (A848 HA)",
+          "vmag_median": 11.31,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.117,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 10,
+          "name": "10 Hygiea (A849 GA)",
+          "vmag_median": 11.89,
+          "photos": 5,
+          "found_photos": 3,
+          "found": true,
+          "median_offset_px": 0.081,
+          "control_photos": 2,
+          "control_found": true
+        },
+        {
+          "number": 11,
+          "name": "11 Parthenope (A850 JA)",
+          "vmag_median": 12.0,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.117,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 12,
+          "name": "12 Victoria (A850 RA)",
+          "vmag_median": 11.73,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.161,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 13,
+          "name": "13 Egeria (A850 VA)",
+          "vmag_median": 11.94,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.146,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 14,
+          "name": "14 Irene (A851 KA)",
+          "vmag_median": 11.26,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.253,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 15,
+          "name": "15 Eunomia (A851 OA)",
+          "vmag_median": 11.22,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.126,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 16,
+          "name": "16 Psyche (A852 FA)",
+          "vmag_median": 11.51,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.13,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 17,
+          "name": "17 Thetis (A852 HA)",
+          "vmag_median": 13.48,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.171,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 18,
+          "name": "18 Melpomene (A852 MA)",
+          "vmag_median": 11.15,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.064,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 19,
+          "name": "19 Fortuna (A852 QA)",
+          "vmag_median": 12.71,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.23,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 20,
+          "name": "20 Massalia (A852 SA)",
+          "vmag_median": 11.05,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.187,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 21,
+          "name": "21 Lutetia (A852 VA)",
+          "vmag_median": 12.46,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.114,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 22,
+          "name": "22 Kalliope (A852 WA)",
+          "vmag_median": 12.33,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.131,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 23,
+          "name": "23 Thalia (A852 XA)",
+          "vmag_median": 12.93,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.176,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 24,
+          "name": "24 Themis (A853 GA)",
+          "vmag_median": 13.03,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.131,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 25,
+          "name": "25 Phocaea (A853 GB)",
+          "vmag_median": 12.74,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.218,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 26,
+          "name": "26 Proserpina (A853 JA)",
+          "vmag_median": 12.59,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.134,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 27,
+          "name": "27 Euterpe (A853 VA)",
+          "vmag_median": 12.42,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.15,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 28,
+          "name": "28 Bellona (A854 EA)",
+          "vmag_median": 12.74,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.134,
+          "control_photos": 1,
+          "control_found": true
+        },
+        {
+          "number": 29,
+          "name": "29 Amphitrite (A854 EB)",
+          "vmag_median": 11.1,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.078,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 30,
+          "name": "30 Urania (A854 OA)",
+          "vmag_median": 11.94,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.118,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 31,
+          "name": "31 Euphrosyne (A854 RA)",
+          "vmag_median": 13.32,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.153,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 32,
+          "name": "32 Pomona (A854 UA)",
+          "vmag_median": 13.05,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.115,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 33,
+          "name": "33 Polyhymnia (A854 UB)",
+          "vmag_median": 14.87,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.055,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 34,
+          "name": "34 Circe (A855 GA)",
+          "vmag_median": 14.0,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.108,
+          "control_photos": 1,
+          "control_found": true
+        },
+        {
+          "number": 35,
+          "name": "35 Leukothea (A855 HA)",
+          "vmag_median": 14.04,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.194,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 36,
+          "name": "36 Atalante (A855 TA)",
+          "vmag_median": 14.59,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.053,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 37,
+          "name": "37 Fides (A855 TB)",
+          "vmag_median": 12.67,
+          "photos": 5,
+          "found_photos": 3,
+          "found": true,
+          "median_offset_px": 0.124,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 38,
+          "name": "38 Leda (A856 AA)",
+          "vmag_median": 14.08,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.102,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 39,
+          "name": "39 Laetitia (A856 CA)",
+          "vmag_median": 11.59,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.099,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 40,
+          "name": "40 Harmonia (A856 FA)",
+          "vmag_median": 11.26,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.201,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 41,
+          "name": "41 Daphne (A856 KA)",
+          "vmag_median": 13.01,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.156,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 42,
+          "name": "42 Isis (A856 KB)",
+          "vmag_median": 12.96,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.075,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 43,
+          "name": "43 Ariadne (A857 GA)",
+          "vmag_median": 12.98,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.134,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 44,
+          "name": "44 Nysa (A857 KA)",
+          "vmag_median": 11.08,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.112,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 45,
+          "name": "45 Eugenia (A857 MA)",
+          "vmag_median": 13.46,
+          "photos": 5,
+          "found_photos": 3,
+          "found": true,
+          "median_offset_px": 0.09,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 46,
+          "name": "46 Hestia (A857 QA)",
+          "vmag_median": 13.01,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.155,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 47,
+          "name": "47 Aglaja (A857 RA)",
+          "vmag_median": 14.26,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.133,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 48,
+          "name": "48 Doris (A857 SA)",
+          "vmag_median": 12.86,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.143,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 49,
+          "name": "49 Pales (A857 SB)",
+          "vmag_median": 13.06,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.141,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 50,
+          "name": "50 Virginia (A857 TA)",
+          "vmag_median": 13.28,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.188,
+          "control_photos": 1,
+          "control_found": true
+        },
+        {
+          "number": 51,
+          "name": "51 Nemausa (A858 BA)",
+          "vmag_median": 12.09,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.236,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 52,
+          "name": "52 Europa (A858 CA)",
+          "vmag_median": 12.42,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.096,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 53,
+          "name": "53 Kalypso (A858 GA)",
+          "vmag_median": 14.27,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.122,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 54,
+          "name": "54 Alexandra (A858 RA)",
+          "vmag_median": 14.01,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.046,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 55,
+          "name": "55 Pandora (A858 RB)",
+          "vmag_median": 13.56,
+          "photos": 5,
+          "found_photos": 5,
+          "found": true,
+          "median_offset_px": 0.064,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 56,
+          "name": "56 Melete (A857 RB)",
+          "vmag_median": 13.71,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.13,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 57,
+          "name": "57 Mnemosyne (A859 SA)",
+          "vmag_median": 12.88,
+          "photos": 5,
+          "found_photos": 3,
+          "found": true,
+          "median_offset_px": 0.102,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 58,
+          "name": "58 Concordia (A860 FA)",
+          "vmag_median": 14.15,
+          "photos": 5,
+          "found_photos": 3,
+          "found": true,
+          "median_offset_px": 0.172,
+          "control_photos": 1,
+          "control_found": true
+        },
+        {
+          "number": 59,
+          "name": "59 Elpis (A860 RA)",
+          "vmag_median": 13.21,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.116,
+          "control_photos": 0,
+          "control_found": false
+        },
+        {
+          "number": 60,
+          "name": "60 Echo (A860 RB)",
+          "vmag_median": 13.75,
+          "photos": 5,
+          "found_photos": 4,
+          "found": true,
+          "median_offset_px": 0.091,
+          "control_photos": 0,
+          "control_found": false
+        }
+      ]
+    },
+    {
+      "id": "V5",
+      "claim": "Asteroids re-found, blind (S1)",
+      "status": "pass",
+      "headline": "pilot: 63 of 68 known asteroid sessions at V < 16 found as movers (93%); control 0%; 7 of 7 objects",
+      "value": 0.926,
+      "unit": "recall",
+      "expected": "Recall at V < 16 >= 50% (gate G2); control near 0",
+      "note": "Zone pilot. A known object counts as found when a mover lies within the match radius of its prediction at the photo's MJD-AVG; control: every prediction moved 2'. Rows: v_min, v_max, n, found, recall, control_recall.",
+      "rows": [
+        {
+          "v_min": null,
+          "v_max": 12.0,
+          "n": 18,
+          "found": 17,
+          "recall": 0.944,
+          "control_recall": 0.0
+        },
+        {
+          "v_min": 12.0,
+          "v_max": 14.0,
+          "n": 5,
+          "found": 5,
+          "recall": 1.0,
+          "control_recall": 0.0
+        },
+        {
+          "v_min": 14.0,
+          "v_max": 15.0,
+          "n": 23,
+          "found": 21,
+          "recall": 0.913,
+          "control_recall": 0.0
+        },
+        {
+          "v_min": 15.0,
+          "v_max": 16.0,
+          "n": 22,
+          "found": 20,
+          "recall": 0.909,
+          "control_recall": 0.0
+        },
+        {
+          "v_min": 16.0,
+          "v_max": 17.0,
+          "n": 96,
+          "found": 80,
+          "recall": 0.833,
+          "control_recall": 0.0
+        },
+        {
+          "v_min": 17.0,
+          "v_max": 18.0,
+          "n": 123,
+          "found": 54,
+          "recall": 0.439,
+          "control_recall": 0.0
+        }
+      ]
+    },
+    {
+      "id": "V6",
+      "claim": "Fast stars (S2)",
+      "status": "pending",
+      "headline": "Cut for the one-day build",
+      "value": null,
+      "unit": null,
+      "expected": "Slope near 1",
+      "note": "S2 was cut on Saturday; the pipeline's high-PM search (V9 data) covers fast stars in the zone.",
+      "rows": []
+    },
+    {
+      "id": "V7",
+      "claim": "Brown dwarfs (S3)",
+      "status": "pending",
+      "headline": "Cut for the one-day build",
+      "value": null,
+      "unit": null,
+      "expected": "A count",
+      "note": "S3 was cut on Saturday.",
+      "rows": []
+    },
+    {
+      "id": "V8",
+      "claim": "Spectra and speed",
+      "status": "pending",
+      "headline": "Not measured yet",
+      "value": null,
+      "unit": "s",
+      "expected": "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
+      "note": "Speed: scripts/demo_check.py, random sky coordinates through /api/frames. Spectra half: not built yet.",
+      "rows": []
+    },
+    {
+      "id": "V9",
+      "claim": "Astrometry matches Gaia",
+      "status": "pass",
+      "headline": "32,446 stars vs Gaia: proper-motion bias 20 (RA) and 0 (Dec) mas/yr, scatter 216 and 240 mas/yr; pull scatter 0.96, 1.07 (1 = honest error bars)",
+      "value": 216.072,
+      "unit": "mas/yr",
+      "expected": "Bias near zero; pull scatter near 1",
+      "note": "Zone pilot; proper motions fitted over all dots with SPHEREx's own position as the observer. Pass when both pull scatters are 0.7-1.5. Rows: axis, n, bias, scatter, pull_scatter (mas/yr).",
+      "rows": [
+        {
+          "axis": "pmra",
+          "n": 32446,
+          "bias": 19.559,
+          "scatter": 216.072,
+          "pull_scatter": 0.963
+        },
+        {
+          "axis": "pmdec",
+          "n": 32446,
+          "bias": 0.15,
+          "scatter": 239.838,
+          "pull_scatter": 1.066
+        }
+      ]
+    },
+    {
+      "id": "V10",
+      "claim": "Galaxy distances match SDSS",
+      "status": "pass",
+      "headline": "1227 bright galaxies: sigma_NMAD 0.023, outliers 2%",
+      "value": 0.0229,
+      "unit": "dz/(1+z)",
+      "expected": "sigma_NMAD ~0.02 for bright galaxies (AB < 17)",
+      "note": "Zone pilot; EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts. Pass <= 0.05, partial <= 0.1. Rows: sample, n, sigma_nmad, outlier_frac, bias.",
+      "rows": [
+        {
+          "sample": "all",
+          "n": 1413,
+          "sigma_nmad": 0.0246,
+          "outlier_frac": 0.0368,
+          "bias": 0.0071
+        },
+        {
+          "sample": "good",
+          "n": 1054,
+          "sigma_nmad": 0.0224,
+          "outlier_frac": 0.0066,
+          "bias": 0.0066
+        },
+        {
+          "sample": "k_ab_lt_17",
+          "n": 1227,
+          "sigma_nmad": 0.0229,
+          "outlier_frac": 0.0171,
+          "bias": 0.006
+        },
+        {
+          "sample": "K_AB -99..15",
+          "n": 133,
+          "sigma_nmad": 0.0334,
+          "outlier_frac": 0.0075,
+          "bias": 0.013
+        },
+        {
+          "sample": "K_AB 15..16",
+          "n": 506,
+          "sigma_nmad": 0.0245,
+          "outlier_frac": 0.0138,
+          "bias": 0.0061
+        },
+        {
+          "sample": "K_AB 16..17",
+          "n": 588,
+          "sigma_nmad": 0.0197,
+          "outlier_frac": 0.0221,
+          "bias": 0.0057
+        },
+        {
+          "sample": "K_AB 17..18",
+          "n": 163,
+          "sigma_nmad": 0.0634,
+          "outlier_frac": 0.184,
+          "bias": 0.0184
+        },
+        {
+          "sample": "K_AB 18..99",
+          "n": 0,
+          "sigma_nmad": null,
+          "outlier_frac": null,
+          "bias": null
+        }
+      ]
+    },
+    {
+      "id": "V11",
+      "claim": "Asteroid sizes match published values",
+      "status": "pass",
+      "headline": "11 asteroids: diameter 1.06x published (scatter 14%); albedo 0.71x (scatter 26%)",
+      "value": 1.056,
+      "unit": "ratio",
+      "expected": "Diameter ratio near 1",
+      "note": "scripts/science/asteroids.py: reflected light + NEATM fitted to D1-D6 cutouts at MOST's positions. Ceres saturates. Rows: number, name, n_points and the fitted vs published values present in the input.",
+      "rows": [
+        {
+          "number": 5,
+          "name": "5 Astraea (A845 XA)",
+          "n_points": 252,
+          "D_km": 123.17,
+          "ratio_D": 1.1543,
+          "pv": 0.19323,
+          "ratio_pv": 0.70521
+        },
+        {
+          "number": 10,
+          "name": "10 Hygiea (A849 GA)",
+          "n_points": 148,
+          "D_km": 391.67,
+          "ratio_D": 0.96205,
+          "pv": 0.063272,
+          "ratio_pv": 0.88245
+        },
+        {
+          "number": 12,
+          "name": "12 Victoria (A850 RA)",
+          "n_points": 166,
+          "D_km": 106.27,
+          "ratio_D": 0.9234,
+          "pv": 0.18803,
+          "ratio_pv": 1.1535
+        },
+        {
+          "number": 16,
+          "name": "16 Psyche (A852 FA)",
+          "n_points": 125,
+          "D_km": 229.96,
+          "ratio_D": 1.0358,
+          "pv": 0.1106,
+          "ratio_pv": 0.91938
+        },
+        {
+          "number": 21,
+          "name": "21 Lutetia (A852 VA)",
+          "n_points": 176,
+          "D_km": 137.77,
+          "ratio_D": 1.4058,
+          "pv": 0.09479,
+          "ratio_pv": 0.4989
+        },
+        {
+          "number": 22,
+          "name": "22 Kalliope (A852 WA)",
+          "n_points": 194,
+          "D_km": 184.08,
+          "ratio_D": 1.0987,
+          "pv": 0.10024,
+          "ratio_pv": 0.60387
+        },
+        {
+          "number": 24,
+          "name": "24 Themis (A853 GA)",
+          "n_points": 201,
+          "D_km": 149.79,
+          "ratio_D": 0.75653,
+          "pv": 0.10282,
+          "ratio_pv": 1.5346
+        },
+        {
+          "number": 41,
+          "name": "41 Daphne (A856 KA)",
+          "n_points": 199,
+          "D_km": 204.12,
+          "ratio_D": 0.99333,
+          "pv": 0.039379,
+          "ratio_pv": 0.66743
+        },
+        {
+          "number": 51,
+          "name": "51 Nemausa (A858 BA)",
+          "n_points": 159,
+          "D_km": 168.14,
+          "ratio_D": 1.217,
+          "pv": 0.051018,
+          "ratio_pv": 0.51018
+        },
+        {
+          "number": 52,
+          "name": "52 Europa (A858 CA)",
+          "n_points": 161,
+          "D_km": 348.3,
+          "ratio_D": 1.146,
+          "pv": 0.031852,
+          "ratio_pv": 0.5588
+        },
+        {
+          "number": 59,
+          "name": "59 Elpis (A860 RA)",
+          "n_points": 270,
+          "D_km": 174.42,
+          "ratio_D": 1.0563,
+          "pv": 0.034029,
+          "ratio_pv": 0.7734
+        }
+      ]
+    }
+  ]
+}

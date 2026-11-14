@@ -93,7 +93,12 @@ D4 (4) and D5 (2), while D1–D3 find it in the same visits (not yet looked into
 S/N 9–10, 0.2–0.6 px); its first visit has only 8 D5 and 3 D6 photos. In D1–D4 a background star lies
 1–2 px from WISE 0855; those stacks are not counted (WISE 0855 is expected only in D5–D6).
 
-**V4, asteroids 1–60:** see `data/v4_asteroids.json` (numbers below once the run is in).
+**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 274 of 300 photos (5 per
+asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 6 of 300 photos (2.0%),
+5 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 26
+photos not counted, 22 have a source in the reference stack at the asteroid's spot (a static star
+there, so the detection can't be told apart) and 4 have no detection. The control hits are all in
+D3, four of six in 2026 W09–W12 (not yet looked into).
 
 What we learned:
 - **Saturated cores bias sep's centroid by 1–2 px.** Barnard's Star in D6: sep put it 1.75 px

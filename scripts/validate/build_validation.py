@@ -167,7 +167,8 @@ def v4() -> dict:
             f"found, median_offset_px, control_photos, control_found.")
     return check("V4", claim, status,
                  f"Re-found {n} of {tot} asteroids where NASA predicted them; median offset {off} px "
-                 f"({d['median_offset_arcsec']}\"); control {100 * ctrl_rate:.1f}% of photos",
+                 f"({d['median_offset_arcsec']}\"); control 3' away: {100 * ctrl_rate:.1f}% of photos, "
+                 f"{d['asteroids_control_found']} of {tot} asteroids",
                  value=n, unit="asteroids", expected=exp, note=note, rows=rows)
 
 
@@ -203,8 +204,9 @@ def v9(res: Path | None, zone: str) -> dict:
     ok = pulls and all(0.7 <= p <= 1.5 for p in pulls)
     rows = [{"axis": k, **{kk: v.get(kk) for kk in ("n", "bias", "scatter", "pull_scatter")}} for k, v in (("pmra", pa), ("pmdec", pd_))]
     return check("V9", claim, "pass" if ok else "partial",
-                 f"{best.get('matched')} stars vs Gaia: pmRA bias {pa.get('bias')} ± {pa.get('scatter')} mas/yr, "
-                 f"pmDec bias {pd_.get('bias')} ± {pd_.get('scatter')} mas/yr; pull scatter {', '.join(map(str, pulls))}",
+                 f"{best.get('matched'):,} stars vs Gaia: proper-motion bias {r(pa.get('bias'), 0):g} (RA) and "
+                 f"{r(pd_.get('bias'), 0):g} (Dec) mas/yr, scatter {r(pa.get('scatter'), 0):g} and {r(pd_.get('scatter'), 0):g} mas/yr; "
+                 f"pull scatter {', '.join(f'{p:.2f}' for p in pulls)} (1 = honest error bars)",
                  value=pa.get("scatter"), unit="mas/yr", expected=exp,
                  note=f"Zone {zone}; proper motions fitted over all dots with SPHEREx's own position as the observer. "
                       "Pass when both pull scatters are 0.7-1.5. Rows: axis, n, bias, scatter, pull_scatter (mas/yr).",
@@ -214,6 +216,7 @@ def v9(res: Path | None, zone: str) -> dict:
 def v10(res: Path | None, zone: str) -> dict:
     claim, exp = "Galaxy distances match SDSS", "sigma_NMAD ~0.02 for bright galaxies (AB < 17)"
     d = load(res / zone / "photoz_report.json") if res else None
+    d = (d or {}).get("sdss_dr17") or d  # the pipeline nests the SDSS comparison
     if not d or not (d.get("all") or {}).get("n"):
         return check("V10", claim, "pending", "Numbers after the pilot", expected=exp)
     bright = next((v for k, v in d.items() if k.startswith("k_ab_lt_")), None) or d["all"]
