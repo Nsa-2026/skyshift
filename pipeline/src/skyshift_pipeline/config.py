@@ -450,3 +450,36 @@ FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in fli
 FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
 FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
 FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
+
+# --- final pass (15 Nov): zones with a Gaia-only refcat (SKYSHIFT_REFCAT_CATALOGS=gaia) -----------
+# suspects: the WISE veto. refcat/<zone>.parquet without CatWISE rows (Gaia-only) -> AllWISE from IRSA's HEALPix
+# Parquet on AWS S3 (anonymous): only the order-5 partitions (nside 32, nested, 3.36 deg²) the remaining movers' 6″
+# circles touch, columns ra and dec only (each file is ONE row group, so row-group predicate pushdown skips nothing:
+# the saving is the partition choice and the column projection, ~1 MB of a ~22 MB file). CatWISE2020 is not on S3
+# (s3://nasa-irsa-wise/ has wise/{allsky,allwise,cryo-3band,neowiser,postcryo} and unwise/neo7, 14 Nov).
+# AllWISE positions are the non-moving fit at ~2010.5 (MJD ~55400), no proper motion applied: a source moving
+# > ~400 mas/yr has left the 6″ circle by 2025 (Gaia, moved by its own pm, still vetoes those down to G < 20).
+# "auto": AllWISE when the refcat has no CatWISE rows; "always": also instead of the TAP services when the refcat is
+# missing; "off": never (a Gaia-only refcat then leaves catwise_checked false).
+SUSPECTS_ALLWISE = os.environ.get("SKYSHIFT_SUSPECTS_ALLWISE", "auto")
+ALLWISE_S3_BUCKET = "nasa-irsa-wise"
+ALLWISE_S3_REGION = "us-west-2"
+ALLWISE_S3_PREFIX = "wise/allwise/catalogs/p3as_psd/healpix_k5/wise-allwise.parquet"  # healpix_k0=<p//1024>/healpix_k5=<p>/part0.snappy.parquet
+ALLWISE_NSIDE = 32             # partition order k = 5, nested
+ALLWISE_ARCSEC = CATWISE_ARCSEC  # same veto radius as CatWISE
+ALLWISE_EPOCH_MJD = 55400.0    # ~2010.5: documentation only, positions are used as they are
+ALLWISE_COLUMNS = ("ra", "dec")
+ALLWISE_WORKERS = 8            # partitions read in parallel
+ALLWISE_TIMEOUT_S = 120.0      # per S3 request
+ALLWISE_CACHE_DIR = "cache/allwise/k5"  # p<pixel:05d>.parquet (ra, dec) at the store root: neighbouring zones and reruns reuse it
+ALLWISE_CACHE = os.environ.get("SKYSHIFT_ALLWISE_CACHE", "1") != "0"
+
+# calib: instrument-level terms borrowed from a reference zone's calib.json when the zone can't fit them itself.
+# SKYSHIFT_CALIB_BORROW: "auto" = borrow the total-flux scale (aperture factor_ap) when the zone's own catalogue anchors
+# constrain fewer than CALIB_BORROW_MIN_ANCHOR_DETS detectors (a Gaia-only refcat has none), and any per-detector table
+# (pixel phase, y-map, flux phase, forced) the zone could not fit; "always" = borrow factor_ap even with anchors (a check);
+# "off" = never. Per-photo distortion, pos_err, the ePSF section and ap_over_psf stay the zone's own (Gaia is enough).
+# calib.json `borrowed` records what came from where.
+CALIB_BORROW = os.environ.get("SKYSHIFT_CALIB_BORROW", "auto")
+CALIB_REF_ZONE = os.environ.get("SKYSHIFT_CALIB_REF", "hunt")   # results/<ref>/calib.json in the same root; "" = none
+CALIB_BORROW_MIN_ANCHOR_DETS = 3
