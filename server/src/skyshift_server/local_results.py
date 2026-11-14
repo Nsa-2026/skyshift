@@ -47,6 +47,8 @@ def target_for(job):
     from skyshift_core.astrometry import tangent_offset_arcsec
     choices = []
     for target in builtins().values():
+        if target.get('ra') is None:
+            continue  # moving targets (resolve.MOVING, MPC orbits) are never fixed science fields
         ra, dec = position_now(target)
         dx, dy = tangent_offset_arcsec(job['ra'], job['dec'], ra, dec)
         choices.append((float(np.hypot(dx, dy)), target))
