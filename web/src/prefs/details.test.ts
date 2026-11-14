@@ -101,7 +101,7 @@ describe("mountDetailsSwitch", () => {
     const sa = a.querySelector<HTMLButtonElement>("button")!;
     const sb = b.querySelector<HTMLButtonElement>("button")!;
     expect(sa.getAttribute("role")).toBe("switch");
-    expect(sa.textContent?.trim()).toBe("Details");
+    expect(sa.textContent?.trim()).toBe("Advanced");
     expect(sa.getAttribute("aria-checked")).toBe("false");
     sa.click();
     expect(getDetails()).toBe(true);

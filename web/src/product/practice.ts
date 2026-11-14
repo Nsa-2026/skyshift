@@ -52,12 +52,12 @@ export function mountGuidedPractice(task: HTMLElement, panel: HTMLElement, opts:
         <p>You compared movement and brightness in real NASA SPHEREx images.</p>
         <ol class="practice-recap">${results.map((r,i)=>`<li><strong>${esc(PRACTICE[i].name)}</strong><span>You chose ${LABELS[r.answer].toLowerCase()}. ${r.correct?'That matches the known example.':`The known example shows ${LABELS[PRACTICE[i].answer].toLowerCase()}.`}</span></li>`).join('')}</ol>
         <p class="practice-note">Real candidates have no answer key. Your review is an observation for follow-up, not a confirmed discovery. “Not sure” is always useful.</p>
-        <div class="practice-actions"><a class="btn btn-primary" href="#/analyze/review">Review real candidates →</a><a class="btn" href="#/analyze/motion">Analyze this target</a><button class="btn btn-ghost" type="button" data-practice="restart">Practice again</button></div>
+        <div class="practice-actions"><a class="btn btn-primary" href="#/candidates">Check real objects →</a><a class="btn" href="#/explore/motion">Measure this target</a><button class="btn btn-ghost" type="button" data-practice="restart">Practice again</button></div>
         <p class="practice-note">Practice progress stays in this browser. No practice answers are submitted as scientific votes.</p></div>`;
       return;
     }
     const item=PRACTICE[index];
-    task.innerHTML=`<div class="practice-task-top"><p class="practice-eyebrow">Guided practice · ${index+1} of ${PRACTICE.length}</p><a href="#/explore">Explore freely</a></div>
+    task.innerHTML=`<div class="practice-task-top"><p class="practice-eyebrow">Guided practice · ${index+1} of ${PRACTICE.length}</p><a href="#/explore">Open the Viewer</a></div>
       <h2>${esc(item.title)}</h2><p>${esc(item.prompt)}</p>
       <div class="practice-progress" role="progressbar" aria-label="Examples completed" aria-valuemin="0" aria-valuemax="3" aria-valuenow="${results.length}"><span style="width:${results.length/PRACTICE.length*100}%"></span></div>`;
     panel.innerHTML=`<div class="practice-content"><p class="practice-eyebrow">Real SPHEREx observations · ${item.slug==='elpis'?'Hours':'Months'} apart</p>
