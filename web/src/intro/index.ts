@@ -1,5 +1,5 @@
 // The opening's entry point, the only part in the main bundle: decide whether it plays (rules.ts),
-// add "Replay the opening" to the footer, and load the overlay itself only when it is shown.
+// add "Replay intro" to the footer, and load the overlay itself only when it is shown.
 import "./replay.css";
 import { browserEnv, claimOpening, isBareHome, type OpeningEnv } from "./rules";
 import type { OpeningOptions } from "./opening";
@@ -48,7 +48,7 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * Mount the opening: a "Replay the opening" button in the footer, and the opening itself on a
+ * Mount the opening: a "Replay intro" button in the footer, and the opening itself on a
  * first visit to the bare home URL. Returns whether it is starting now.
  */
 export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), load: Loader = loadOpening): boolean {
@@ -57,7 +57,7 @@ export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), l
     const replay = document.createElement("button");
     replay.type = "button";
     replay.className = "foot-replay";
-    replay.textContent = "Replay the opening";
+    replay.textContent = "Replay intro";
     replay.addEventListener("click", () => {
       void playOpeningLater(app, { still: prefersReducedMotion(), returnFocus: replay }, load);
     });

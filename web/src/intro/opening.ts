@@ -15,8 +15,9 @@ import { CHAPTERS, chapterAt, sceneAt, scrollProgress } from "./model";
 import { paintScene } from "./scene";
 
 export const SKY_URL = "/opening/spherex-sky.webp";
+// English wording: the author's own (1390d01 on codex/frontend-unified) wherever it exists.
 const CREDIT_SKY = "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).";
-const CREDIT_ART = "Earth and figure are drawn in code.";
+const CREDIT_ART = "Earth and figure drawn in code.";
 
 export type CloseReason = "skip" | "end" | "navigate";
 
@@ -43,7 +44,10 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   el.className = still ? "op is-still" : "op";
   el.setAttribute("role", "dialog");
   el.setAttribute("aria-modal", "true");
-  el.setAttribute("aria-labelledby", "op-title");
+  el.setAttribute(
+    "aria-label",
+    still ? "SkyShift opening, shown still for reduced motion." : "SkyShift opening. Scroll down to explore, or skip the intro.",
+  );
   el.setAttribute("aria-describedby", "op-how");
   el.tabIndex = -1;
   el.innerHTML = html`
@@ -51,21 +55,16 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     <canvas class="op-scene" aria-hidden="true"></canvas>
     <div class="op-bar">
       <p class="op-brand">SkyShift<span>The universe, in motion</span></p>
-      <button class="op-skip" type="button">
-        ${still ? "Enter" : html`Skip<span class="visually-hidden"> the opening</span>`}<span class="op-skip-arrow" aria-hidden="true">↗</span>
-      </button>
+      <button class="op-skip" type="button">${still ? "Enter" : "Skip intro"}<span class="op-skip-arrow" aria-hidden="true">↗</span></button>
     </div>
     <div class="op-hero">
+      <p class="op-kicker">A journey through the infrared sky</p>
       <h2 id="op-title">The sky is<br /> never <em>still.</em></h2>
-      <p class="op-sub">Every look up starts a search.</p>
-      <p class="op-hint" aria-hidden="true">Scroll to enter<span>↓</span></p>
+      <p class="op-sub">Every glance is a new beginning.</p>
+      <p class="op-hint" aria-hidden="true">Scroll to explore<span>↓</span></p>
     </div>
     <p class="op-chapter" aria-hidden="true"><span class="op-chapter-no"></span><span class="op-chapter-text"></span></p>
-    <p class="visually-hidden" id="op-how">
-      ${still
-        ? "SkyShift's opening, shown still because your system asks for reduced motion."
-        : "A short animation that plays as you scroll. Press Escape or Skip to go straight to the site."}
-    </p>
+    <p class="visually-hidden" id="op-how">${still ? "Enter goes to the site." : "Escape also skips the intro."}</p>
     <p class="op-credit"><span class="op-credit-sky">${CREDIT_SKY}</span> ${CREDIT_ART}</p>
     <div class="op-progress" aria-hidden="true"><span></span></div>
     <div class="op-track" aria-hidden="true"></div>
@@ -115,7 +114,7 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     const i = chapterAt(p);
     chapter.hidden = i < 0;
     if (i >= 0) {
-      chapterNo.textContent = `${i + 1} / ${CHAPTERS.length}`;
+      chapterNo.textContent = `0${i + 1} / 0${CHAPTERS.length}`;
       chapterText.textContent = CHAPTERS[i];
     }
     brand.style.opacity = credit.style.opacity = String(s.chrome);

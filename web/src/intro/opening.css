@@ -127,6 +127,13 @@
   padding: 100px 24px;
   pointer-events: none;
 }
+.op-kicker {
+  margin-bottom: 24px;
+  color: var(--op-ink-2);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 12px #000;
+}
 .op-hero h2 {
   margin: 0;
   font-size: clamp(52px, 8.2vw, 128px);

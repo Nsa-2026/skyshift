@@ -16,7 +16,7 @@ describe("the opening overlay", () => {
     vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
     app = document.createElement("div");
     app.id = "app";
-    app.innerHTML = `<p class="foot-links"><button id="replay">Replay the opening</button></p>`;
+    app.innerHTML = `<p class="foot-links"><button id="replay">Replay intro</button></p>`;
     document.body.append(app);
   });
   afterEach(() => {
@@ -47,13 +47,14 @@ describe("the opening overlay", () => {
     const el = open();
     expect(el.getAttribute("role")).toBe("dialog");
     expect(el.getAttribute("aria-modal")).toBe("true");
-    expect(document.getElementById(el.getAttribute("aria-labelledby")!)!.textContent).toMatch(/The sky is\s+never still\./);
+    expect(el.getAttribute("aria-label")).toBe("SkyShift opening. Scroll down to explore, or skip the intro.");
     expect(document.getElementById(el.getAttribute("aria-describedby")!)!.textContent).toMatch(/Escape/);
+    expect(el.querySelector("h2")!.textContent).toMatch(/The sky is\s+never still\./);
     expect(document.activeElement).toBe(el);
     expect(app.hasAttribute("inert")).toBe(true);
     expect(document.documentElement.classList.contains("op-open")).toBe(true);
     const skip = el.querySelector<HTMLButtonElement>(".op-skip")!;
-    expect(skip.textContent!.replace(/\s+/g, " ").trim()).toMatch(/^Skip the opening/);
+    expect(skip.textContent!.replace(/\s+/g, " ").trim()).toMatch(/^Skip intro/);
     expect(skip.tabIndex).toBe(0);
     expect(el.querySelector("canvas")!.getAttribute("aria-hidden")).toBe("true");
     expect(el.querySelector(".op-sky")!.getAttribute("aria-hidden")).toBe("true");

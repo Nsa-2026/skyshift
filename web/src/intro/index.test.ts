@@ -36,10 +36,10 @@ describe("mountOpening", () => {
     ...over,
   });
 
-  it("adds a Replay the opening button to the footer", () => {
+  it("adds a Replay intro button to the footer", () => {
     mountOpening(app, env({ hash: "#/about" }), load);
     const replay = app.querySelector<HTMLButtonElement>(".foot-links .foot-replay")!;
-    expect(replay.textContent).toBe("Replay the opening");
+    expect(replay.textContent).toBe("Replay intro");
     expect(replay.type).toBe("button");
   });
 

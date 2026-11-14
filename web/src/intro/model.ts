@@ -35,12 +35,12 @@ export function sceneAt(progress: number) {
 }
 export type SceneState = ReturnType<typeof sceneAt>;
 
-/** The four captions, by progress. Index into CHAPTERS, or -1 when none shows. */
+/** The four captions, by progress, in the author's English (1390d01). */
 export const CHAPTERS = [
-  "From the far sky, back to someone looking up.",
-  "It starts with one person on Earth.",
-  "Look closer. Closer still.",
-  "This is SPHEREx's sky. Help check what moves in it.",
+  "From the cosmos to a single gaze.",
+  "Every discovery begins with a look.",
+  "Look closer. Then closer still.",
+  "A universe of discoveries, in your eyes.",
 ] as const;
 
 export function chapterAt(p: number): number {
