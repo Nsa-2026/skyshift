@@ -7,6 +7,9 @@ all detectors together, so a visit number means the same thing in every detector
 
 Results are cached per position and per day ("search/<ra>_<dec>/<YYYY-MM-DD>.json"): IRSA ingests
 weekly, and `archive_checked` in the frames response is the date of the search that was used.
+Each image keeps its footprint (s_region), so the engine can tell how much of a field it covers
+before downloading anything (coverage.py). A search saved before footprints were kept (no
+"footprints" key) is asked again; if IRSA does not answer, it is used as it is.
 
 When IRSA fails (an error or a 5xx after the retries) or does not answer within SIA_WAIT_S, the
 photos come from SkyShift's own photo lists and saved searches (search_fallback.py). Such a result
@@ -59,6 +62,7 @@ class Image:
     s3_url: str | None  # https URL of NASA's public S3 copy, from cloud_access
     visit: int = 0
     session: int = 0
+    s_region: str | None = None  # footprint, 'POLYGON ICRS ra dec ...' (None: unknown)
 
     @property
     def key(self) -> str:
@@ -95,6 +99,22 @@ def s3_https(cloud_access: str | None) -> str | None:
         return None
 
 
+def region_text(v: Any) -> str | None:
+    """An s_region value as text: a string as it is, a flat array of numbers (a DALI polygon) as
+    'POLYGON ICRS ra dec ...'; None when missing or empty."""
+    if v is None or np.ma.is_masked(v):
+        return None
+    if isinstance(v, bytes):
+        v = v.decode("ascii", "replace")
+    if isinstance(v, str):
+        return v.strip() or None
+    try:
+        nums = [float(x) for x in np.asarray(v, dtype=np.float64).ravel()]
+    except (TypeError, ValueError):
+        return str(v).strip() or None
+    return ("POLYGON ICRS " + " ".join(repr(x) for x in nums)) if nums else None
+
+
 def rows_to_images(rows: list[dict[str, Any]]) -> list[Image]:
     """Plain SIA rows -> images: science images only, no *_deep, one per (obs_id, detector)
     (the first collection in COLLECTIONS wins), with visit and session numbers, sorted by time."""
@@ -110,7 +130,8 @@ def rows_to_images(rows: list[dict[str, Any]]) -> list[Image]:
         det = detector_from_bandpass(str(r["energy_bandpassname"]))
         t0, t1 = float(r["t_min"]), float(r["t_max"])
         im = Image(str(r["obs_collection"]), str(r["obs_id"]), det, t0, t1, (t0 + t1) / 2.0,
-                   str(r["access_url"]), s3_https(r.get("cloud_access")))
+                   str(r["access_url"]), s3_https(r.get("cloud_access")),
+                   s_region=region_text(r.get("s_region")))
         seen.setdefault((im.obs_id, im.det), im)
     images = sorted(seen.values(), key=lambda im: (im.mjd, im.det))
     return number_visits(images)
@@ -146,12 +167,14 @@ def _query_sia(ra: float, dec: float, collection: str) -> list[dict[str, Any]]:
         raise UpstreamError(f"IRSA SIA search failed for {collection}: {last}")
     cols = ("obs_collection", "obs_id", "energy_bandpassname", "t_min", "t_max", "access_url",
             "cloud_access", "dataproduct_type", "dataproduct_subtype")
+    has_region = "s_region" in t.colnames
     out = []
     for r in t:
         d = {}
         for c in cols:
             v = r[c]
             d[c] = None if np.ma.is_masked(v) else (float(v) if c in ("t_min", "t_max") else str(v))
+        d["s_region"] = region_text(r["s_region"]) if has_region else None
         out.append(d)
     return out
 
@@ -202,15 +225,27 @@ def search(ra: float, dec: float, *, cache: Cache | None = None, refresh: bool =
 
 def _search(ra: float, dec: float, cache: Cache, day: str, key: str, refresh: bool) -> SearchResult:
     raw = None if refresh else cache.get(key)
+    legacy = None  # today's search, saved without footprints: asked again, used if IRSA fails
     if raw is not None:
         d = json.loads(raw)
-        return SearchResult(d["ra"], d["dec"], d["archive_checked"], [Image(**im) for im in d["images"]])
+        res = SearchResult(d["ra"], d["dec"], d["archive_checked"], [Image(**im) for im in d["images"]])
+        if d.get("footprints") or not res.images:
+            return res
+        legacy = res
     if not fallback_enabled():
-        return _irsa(ra, dec, cache, day, key)
+        try:
+            return _irsa(ra, dec, cache, day, key)
+        except Exception:  # noqa: BLE001 - IRSA's own earlier answer beats an error
+            if legacy is None:
+                raise
+            log.warning("IRSA search failed at (%.5f, %.5f): today's saved search, without footprints", ra, dec)
+            return legacy
     with _recent_lock:
         hit = _recent.get(key)
     if hit is not None and not refresh and time.monotonic() - hit[0] < FALLBACK_SHARE_S:
         return hit[1]
+    if legacy is not None and _sia.down():  # no wait for an archive that just failed
+        return legacy
     wait = SIA_WAIT_DOWN_S if _sia.down() else SIA_WAIT_S
     fut = _sia_pool.submit(_irsa, ra, dec, cache, day, key)
     fut.add_done_callback(lambda f: _sia.record(not f.cancelled() and f.exception() is None))
@@ -221,6 +256,10 @@ def _search(ra: float, dec: float, cache: Cache, day: str, key: str, refresh: bo
         _sia.record(False)
     except Exception as e:  # noqa: BLE001 - UpstreamError after the retries, or a malformed answer
         why = str(e)[:300]
+    if legacy is not None:  # IRSA's own answer of today, without footprints: complete
+        log.warning("IRSA search failed at (%.5f, %.5f): %s; today's saved search, without footprints",
+                    ra, dec, why)
+        return legacy
     log.warning("IRSA search failed at (%.5f, %.5f): %s; trying SkyShift's photo lists", ra, dec, why)
     from . import search_fallback
 
@@ -240,6 +279,6 @@ def _irsa(ra: float, dec: float, cache: Cache, day: str, key: str) -> SearchResu
         parts = list(ex.map(lambda c: _query_sia(ra, dec, c), COLLECTIONS))
     images = rows_to_images([r for p in parts for r in p])
     res = SearchResult(ra, dec, day, images)
-    cache.put(key, json.dumps({"ra": ra, "dec": dec, "archive_checked": day,
+    cache.put(key, json.dumps({"ra": ra, "dec": dec, "archive_checked": day, "footprints": True,
                                "images": [asdict(im) for im in images]}).encode(), "application/json")
     return res

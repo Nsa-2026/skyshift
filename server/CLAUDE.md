@@ -1,7 +1,8 @@
 # server/CLAUDE.md
 Owner: P2. Also owns the root Dockerfile, scripts/precompute/ and web/public/data/<slug>/.
 FastAPI on Cloud Run (us-east4, 0–4 instances). Implements contracts/api.md exactly.
-- The engine is blink.build_frames(ra, dec, fov, clock, det) and blink.build_object(ra, dec), used by app.py and scripts/precompute/. Modules: search, cutouts, stack, blink, obj, gaia, known. It uses core/ for the visit rule, masks and measurement.
+- The engine is blink.build_frames(ra, dec, fov, clock, det) and blink.build_object(ra, dec), used by app.py and scripts/precompute/. Modules: search, cutouts, stack, blink, coverage, obj, gaia, known. It uses core/ for the visit rule, masks and measurement.
+- Coverage: each search image keeps its footprint (s_region). coverage.py gives the share of the field it covers before any download, and the selection prefers full frames (months: >= 90% first; hours: the visit with the most exposures covering >= 50%, sessions covering >= 90% first, exposures under 50% dropped when their session has better). No footprint (a search saved before 14 Nov evening): time alone, as before.
 - Search: astroquery Irsa.query_sia, collections spherex_dr1 and spherex_qr3 (skip *_deep). The TAP table name is unverified.
   When SIA fails or takes over 20 s (502 Proxy Error from 14 Nov 16:05 UTC), search_fallback.py answers from a saved
   search at this spot, else the pipeline's photolists/zones/<zone>.parquet of every zone whose box holds it, else a saved

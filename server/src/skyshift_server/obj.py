@@ -92,7 +92,7 @@ from skyshift_core.flags import SUR_ERROR, TRANSIENT
 from skyshift_core.detect import APERTURE_R_PX
 from skyshift_core.photometry import APERTURE_CORRECTION
 
-from . import blink, cutouts, gaia, resolve, search, stack
+from . import blink, coverage, cutouts, gaia, resolve, search, stack
 from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import ApiError, NotFoundError
@@ -635,7 +635,8 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
     max_ref: at most this many reference stars, the nearest to the position (None: all).
     reasons: receives the guard's code (core ShiftError.reason) when the shift is refused."""
     grid = stack.Grid(ra, dec, MEASURE_PIXEL, int(round(MEASURE_FOV * 60 / MEASURE_PIXEL)) | 1)
-    mine = blink.pick_months_images([im for im in images if im.det == det and im.visit in (v1, v2)], per_visit)
+    mine = [im for im in images if im.det == det and im.visit in (v1, v2)]
+    mine = blink.pick_months_images(mine, per_visit, coverage.of_images(mine, ra, dec, MEASURE_FOV / 60.0))
     stacks = blink.visit_stacks(mine, grid, cutouts.tier_for_field(MEASURE_FOV), cache,
                                 visits_wanted={v1, v2}, budget=budget, reserve=OBJECT_RESERVE_S)
     if len(stacks) < 2:
