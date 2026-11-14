@@ -9,17 +9,23 @@ Everything comes from stored tables; photos are never read again:
 - forced/<obs_id>D<det>.parquet: forced photometry at catalogue positions, non-detections included.
 
 `all` runs the five steps in one process: the member dots are read once and cached.
+When results/<zone>/calib.json exists (step `calib`), member_dots returns corrected ra/dec (pixel phase +
+per-photo distortion), calibrated pos_err_arcsec and corrected fluxes (flux_ujy, flux_psf_ujy and their errors:
+flux pixel phase + per-detector scale) and says so in its stats (`calib_applied`); without it, the dot
+files' values exactly. The dot files themselves are never rewritten.
 """
 
 from __future__ import annotations
 
 import io
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
 
+from . import calib
 from . import config as C
 from . import log
 from .sky import angsep
@@ -35,12 +41,13 @@ DOT_ALIASES: dict[str, tuple[str, ...]] = {
     "flux_psf_ujy": ("flux_psf_ujy", "psf_flux_ujy", "flux_psf"),
     "flux_psf_err_ujy": ("flux_psf_err_ujy", "psf_flux_err_ujy", "flux_psf_err"),
     "wavelength_um": ("wavelength_um",), "snr": ("snr",), "flags": ("flags",),
+    "x": ("x",), "y": ("y",), "flags_peak": ("flags_peak",),
     "x_sc_km": ("X_SC", "x_sc", "x_sc_km"), "y_sc_km": ("Y_SC", "y_sc", "y_sc_km"), "z_sc_km": ("Z_SC", "z_sc", "z_sc_km"),
 }
 FLOAT32 = {"pos_err_arcsec", "flux_ujy", "flux_err_ujy", "flux_psf_ujy", "flux_psf_err_ujy", "wavelength_um", "snr",
-           "x_sc_km", "y_sc_km", "z_sc_km"}
+           "x_sc_km", "y_sc_km", "z_sc_km", "x", "y"}
 
-_CACHE: dict[tuple[str, str, str], tuple[pd.DataFrame, dict]] = {}
+_CACHE: dict[tuple[str, str, str], tuple[pd.DataFrame, dict, np.ndarray]] = {}
 
 
 def pick(df: pd.DataFrame, names: tuple[str, ...] | list[str], default=np.nan) -> np.ndarray:
@@ -75,9 +82,44 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 
-def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame, dict]:
+def member_dots(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool = True) -> tuple[pd.DataFrame, dict]:
     """One row per member dot: source_id, obs_id, detector, session, visit, photo (row in the photo
-    list) + every DOT_ALIASES column (NaN where the dot files lack it). Cached per (root, zone)."""
+    list) + every DOT_ALIASES column (NaN where the dot files lack it). Cached per (root, zone).
+    With calib.json (and `calibrated`): ra, dec, pos_err_arcsec corrected (see module doc)."""
+    d, st, jac = member_dots_raw(store, zone, workers)
+    cal = calib.load(store, zone) if calibrated else None
+    if cal is None or not len(d):
+        return d, {**st, "calib_applied": False}
+    t0 = time.time()
+    p = d["photo"].to_numpy(np.int64)
+    k = (p >= 0) & (p < len(jac))
+    pk = np.where(k, p, 0)
+    J = np.where(k[:, None, None], jac[pk], np.float32(np.nan))
+    # per-photo distortion, by photo-list row
+    photos = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector"])
+    ce, cn = calib.photo_coefs(cal, photos["obs_id"].to_numpy(), photos["detector"].to_numpy())
+    ce, cn = np.where(k[:, None], ce[pk], np.nan), np.where(k[:, None], cn[pk], np.nan)
+    det, x, y = d["detector"].to_numpy(), d["x"].to_numpy(), d["y"].to_numpy()
+    pe, pn = calib.poly_offsets(ce, cn, x, y)
+    distorted = np.isfinite(ce).all(axis=1)
+    del ce, cn
+    ra, dec, err, ok = calib.apply(cal, det, x, y, d["ra"].to_numpy(), d["dec"].to_numpy(), d["snr"].to_numpy(),
+                                   d["flags_peak"].to_numpy(), d["pos_err_arcsec"].to_numpy(), J, pe, pn)
+    del J, pe, pn
+    out = d.copy(deep=False)  # the cached raw frame stays as it is
+    out["ra"], out["dec"], out["pos_err_arcsec"] = ra, dec, err.astype(np.float32)
+    for kind, cols in (("ap", ("flux_ujy", "flux_err_ujy")), ("psf", ("flux_psf_ujy", "flux_psf_err_ujy"))):
+        f = calib.flux_factor(cal, det, x, y, kind)
+        for c in cols:
+            out[c] = (d[c].to_numpy(np.float64) * f).astype(np.float32)
+    return out, {**st, "calib_applied": True, "calib_created": cal.get("created"),
+                 "calib_phase_corrected_dots": int(ok.sum()), "calib_distortion_corrected_dots": int(distorted.sum()),
+                 "calib_flux_factor_ap": (cal.get("aperture") or {}).get("factor_ap"), "calib_s": round(time.time() - t0, 1)}
+
+
+def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame, dict, np.ndarray]:
+    """member_dots with the dot files' own ra/dec/pos_err, plus each photo's Jacobian (P, 2, 2) in
+    arcsec per pixel (calib.photo_jacobian over all the photo's dots; NaN where not measurable)."""
     # a new members.parquet (link rerun) invalidates the cache
     info = store.fs.info(store.path(results_rel(zone.name, "members.parquet")))
     stamp = f"{info.get('size')}-{info.get('mtime', info.get('updated', info.get('generation')))}"
@@ -92,6 +134,7 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
     sid_all = members["source_id"].to_numpy(np.int64)
     row_all = members["dot_row"].to_numpy(np.int64)
     counts = {"rows_missing": 0, "files_missing": 0}
+    jac = np.full((len(photos), 2, 2), np.nan, np.float32)
 
     def one(item):
         (obs_id, det), idx = item
@@ -102,13 +145,15 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
             return None
         df = pd.read_parquet(io.BytesIO(raw))
         sc = spacecraft_km(raw)
+        p = pidx.get((str(obs_id), int(det)), -1)
+        if p >= 0 and {"x", "y", "ra", "dec"} <= set(df.columns):
+            jac[p] = calib.photo_jacobian(df["x"], df["y"], df["ra"], df["dec"])
         rows = row_all[idx]
         ok = rows < len(df)
         counts["rows_missing"] += int((~ok).sum())
         df = df.iloc[rows[ok]].reset_index(drop=True)
         out = {k: pick(df, v) for k, v in DOT_ALIASES.items()}
         part = pd.DataFrame(out)
-        p = pidx.get((str(obs_id), int(det)), -1)
         part.insert(0, "source_id", sid_all[idx[ok]])
         part.insert(1, "obs_id", str(obs_id))
         part.insert(2, "detector", np.int8(det))
@@ -144,6 +189,7 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
     for c in FLOAT32:
         d[c] = d[c].astype(np.float32)
     d["flags"] = pd.to_numeric(d["flags"], errors="coerce").fillna(0).astype(np.int64)
+    d["flags_peak"] = pd.to_numeric(d["flags_peak"], errors="coerce").fillna(0).astype(np.int64)
 
     # dots far from their source (a dot file rewritten after link) are stale: drop
     st = {"member_dots": int(len(members)), "member_files_missing": counts["files_missing"],
@@ -159,9 +205,10 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
         d = d[near].reset_index(drop=True)
     d = d.sort_values(["source_id", "mjd", "detector"], kind="stable").reset_index(drop=True)
     st["member_dots_used"] = int(len(d))
+    st["photos_with_jacobian"] = int(np.isfinite(jac).all(axis=(1, 2)).sum())
     _CACHE.clear()
-    _CACHE[key] = (d, st)
-    return d, st
+    _CACHE[key] = (d, st, jac)
+    return d, st, jac
 
 
 # --- reference catalogue ---------------------------------------------------------------------

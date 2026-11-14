@@ -291,6 +291,50 @@ FORCED_DEDUP_ARCSEC = 2.0
 FORCED_MAX_PER_PHOTO = 30_000  # in a 3.5° x 3.5° photo-sized box inside the zone
 PHOTO_SIDE_DEG = 3.5
 
+# --- calib: pixel-phase correction and position errors (calib.py) ------------------------------
+# Learned per zone from member dots of sources matched to one Gaia star; written to
+# results/<zone>/calib.json and applied wherever the combining steps load dots (motion_io, spectra).
+CALIB_REL = "calib.json"        # under results/<zone>/
+CALIB_FOURIER_K = 3             # Δ(φ) = Σ_k s_k sin(2πkφ) + c_k cos(2πkφ), k = 1..K, per detector and axis
+CALIB_PHASE_MIN_SNR = 30.0      # dots used for the phase fit
+CALIB_ERR_MIN_SNR = 5.0         # dots used for the pos_err fit (all kept dots)
+CALIB_SAT_BITS = 0x00008002     # OVERFLOW | NONLINEAR at the peak: saturated, no phase correction
+CALIB_MAX_PARALLAX_MAS = 10.0   # Gaia stars nearer than this are left out (parallax not modelled here)
+CALIB_FRAME_MIN_SNR = 20.0      # each photo's median offset against Gaia from dots this bright ...
+CALIB_FRAME_MIN_STARS = 10      # ... at least this many, else the photo's dots are left out of the fit
+CALIB_CLIP_SIGMA = 4.0          # phase fit: one refit without dots beyond this many robust sigma
+CALIB_MIN_STARS = 200           # dots needed to fit a detector (phase or pos_err); else left raw
+CALIB_JAC_MIN_DOTS = 50         # photo Jacobian (arcsec per pixel): affine fit of its dots' (ra, dec) on (x, y)
+CALIB_JAC_MIN_SPREAD_PX = 100.0 # ... the dots must spread at least this far (std) in x and in y
+CALIB_ERR_SNR_BINS = (5.0, 7.0, 10.0, 14.0, 20.0, 30.0, 50.0, 100.0, 200.0, 500.0, 1e9)
+CALIB_PHASE_BINS = 10           # report: median residual in this many phase bins from -0.5 to 0.5
+CALIB_CHECK_SNR_BINS = (10.0, 30.0, 60.0, 150.0, 1e9)  # report: phase amplitude by S/N (is one table enough?)
+# per-photo distortion (after the phase correction): polynomial in u = (x − 1020)/1020, v = (y − 1020)/1020 of the
+# residual against Gaia, per photo; the order is chosen per zone by cross-validation (stars split in two halves)
+CALIB_PHOTO_MAX_ORDER = 2       # 0 = offset only, 1 = affine, 2 = quadratic
+CALIB_PHOTO_MIN_GAIN = 0.01     # a higher order is used only if it lowers the held-out scatter by > 1%
+CALIB_PHOTO_MIN_STARS = (10, 30, 60)  # stars needed per photo for order 0, 1, 2 (fewer: the next lower order)
+# flux pixel phase: ln(flux / the source's smooth spectrum) = Σ_k a_k cos(2πkφx) + b_k cos(2πkφy) + c cos(2πφx)cos(2πφy)
+CALIB_FLUX_K = 2
+CALIB_FLUX_MIN_SNR = 50.0       # dots used for the flux phase fit
+CALIB_FLUX_REF_MIN_CHANNELS = 8 # the source's spectrum needs this many channels in the dot's detector
+# aperture / detector scale: one factor per detector so r = 2 px fluxes become total fluxes, consistent across detectors.
+# Anchors: catalogue SED (log-log between bands) at dots within CALIB_AP_WINDOW_UM of a band centre; stitching:
+# the source spectra on either side of each detector boundary extrapolated to it. Weighted least squares.
+CALIB_AP_BANDS = {"J": (1.235, "j", 0.91), "H": (1.662, "h", 1.39), "Ks": (2.159, "k", 1.85),
+                  "W1": (3.368, "w1", 2.699), "W2": (4.618, "w2", 3.339)}  # µm, crossids column, AB − Vega
+CALIB_AP_WINDOW_UM = 0.1
+CALIB_AP_MIN_SNR = 30.0
+CALIB_AP_STAR_JK = (0.25, 0.75)  # 2MASS J − Ks (Vega): F–K stars, smooth spectra
+CALIB_AP_STAR_W12_MAX = 0.1      # |W1 − W2| (Vega): no excess, no strong CO
+CALIB_AP_STAR_J = (9.0, 14.5)    # 2MASS J range (good photometry, not saturated in 2MASS)
+CALIB_AP_STAR_W1_MIN = 8.5       # CatWISE W1 brighter than this saturates
+CALIB_AP_MIN_DOTS = 50           # per (band, detector) anchor
+CALIB_AP_ANCHOR_SIGMA = 0.02     # systematic per anchor (bandpass and stellar colour terms), ln units
+CALIB_AP_STITCH_SIGMA = 0.01     # per boundary
+CALIB_AP_STITCH_CHANNELS = 4     # channels on each side of a boundary
+CALIB_AP_PRIOR_SIGMA = 0.1       # weak prior ln factor = 0 (keeps a detector without constraints at 1)
+
 # --- pilot fixes (14 Nov): light-curve error model, band labels, fast-mover vetting ----------
 # lightcurves: per (detector, origin) σ_cal² = (k σ)² + (floor · model)², fitted on the Gaia-matched light curves
 # (lightcurves.py docstring). Pilot: the quoted errors gave median chi2_nu 1.96 (dots) / 1.28 (forced).

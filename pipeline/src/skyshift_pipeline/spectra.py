@@ -31,6 +31,7 @@ import pandas as pd
 import pyarrow as pa
 from skyshift_core import MASK_BITS, SAT_BITS
 
+from . import calib
 from . import config as C
 from . import log
 from .sky import angsep, cell_of
@@ -42,6 +43,7 @@ NDET = 6
 NCH_DET = C.SPECTRA_CHANNELS_PER_DETECTOR
 NCH = NDET * NCH_DET
 DOT_COLUMNS = ["ra", "dec", "flux_ujy", "flux_err_ujy", "wavelength_um", "flags"]
+CALIB_COLUMNS = ["x", "y", "snr", "flags_peak", "pos_err_arcsec"]  # read too when calib.json exists
 
 
 # --- channels --------------------------------------------------------------------------------
@@ -230,14 +232,34 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
     sid_all = members["source_id"].to_numpy(np.int64)
     row_all = members["dot_row"].to_numpy(np.int64)
     bad_rows = [0]
+    cal = calib.load(store, zone)  # results/<zone>/calib.json from an earlier run: corrected positions
+    corrected = [0]
 
     def one(item):
         (obs_id, det), idx = item
-        df = store.read_parquet(dots_rel(obs_id, int(det)), columns=DOT_COLUMNS)
+        df = None
+        if cal is not None:
+            try:
+                df = store.read_parquet(dots_rel(obs_id, int(det)), columns=[*DOT_COLUMNS, *CALIB_COLUMNS])
+            except Exception:  # noqa: BLE001  (a dot file without x, y: positions stay raw)
+                df = None
+        if df is None:
+            df = store.read_parquet(dots_rel(obs_id, int(det)), columns=DOT_COLUMNS)
         rows = row_all[idx]
         ok = rows < len(df)
         bad_rows[0] += int((~ok).sum())
         part = df.iloc[rows[ok]].reset_index(drop=True)
+        if "x" in df.columns:
+            J = calib.photo_jacobian(df["x"], df["y"], df["ra"], df["dec"])
+            dd = np.full(len(part), int(det))
+            ce, cn = calib.photo_coefs(cal, [obs_id], [int(det)])
+            pe, pn = calib.poly_offsets(ce[0], cn[0], part["x"], part["y"])
+            ra, dec, _, okc = calib.apply(cal, dd, part["x"], part["y"], part["ra"], part["dec"],
+                                          part["snr"], part["flags_peak"], part["pos_err_arcsec"], J, pe, pn)
+            f = calib.flux_factor(cal, dd, part["x"], part["y"], "ap")
+            part = part[DOT_COLUMNS].assign(ra=ra, dec=dec, flux_ujy=(part["flux_ujy"] * f).astype(np.float32),
+                                            flux_err_ujy=(part["flux_err_ujy"] * f).astype(np.float32))
+            corrected[0] += int(okc.sum())
         se, vi = sv.get((str(obs_id), int(det)), (-1, -1))
         part["source_id"] = sid_all[idx[ok]]
         part["detector"] = np.int8(det)
@@ -249,7 +271,8 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
         parts = list(ex.map(one, groups.items()))
     cols = ["source_id", "detector", "session", "visit", *DOT_COLUMNS]
     d = pd.concat(parts, ignore_index=True)[cols] if parts else pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
-    st = {"member_dots": int(len(members)), "member_rows_missing": bad_rows[0]}
+    st = {"member_dots": int(len(members)), "member_rows_missing": bad_rows[0],
+          "calib_applied": cal is not None, "calib_phase_corrected_dots": corrected[0]}
 
     # a dot file rewritten after `link` would make dot_row point elsewhere: drop far members
     fixed = store.read_parquet(results_rel(zone.name, "fixed.parquet"), columns=["source_id", "ra", "dec"])

@@ -1,6 +1,6 @@
 """skyshift-pipeline <step> --zone pilot|hunt [--root ROOT] [--workers N] [--limit N]
 
-Steps: photolist, refcat, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves,
+Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves,
 astrometry, highpm, score, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
@@ -17,8 +17,8 @@ from . import config as C
 from . import log
 from .store import Store, results_rel
 
-MOTION_STEPS = ("crossid", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
-STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "classify", "photoz",
+MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
+STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "classify", "photoz",
          "colours", "lightcurves", "astrometry", "highpm", "score", "suspects")
 L = log.get("cli")
 
@@ -97,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
         dt = time.time() - t0
         _update_summary(store, zone, step, out, dt)
         L.info("=== %s done in %.1f s ===", step, dt)
+        if args.step == "all" and step == "calib" and store.exists(results_rel(zone.name, C.CALIB_REL)):
+            # sources.parquet feeds classify and photoz: rebuild it from the calibrated dots
+            t0 = time.time()
+            L.info("=== spectra again, with calib (%s) ===", zone.name)
+            out = _run_step("spectra", store, zone, args)
+            _update_summary(store, zone, "spectra", out, time.time() - t0)
     return 0
 
 

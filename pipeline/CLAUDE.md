@@ -7,7 +7,7 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, refcat, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves, astrometry,
+Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves, astrometry,
 highpm, score, suspects; `all` runs them in order.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
@@ -18,10 +18,18 @@ highpm, score, suspects; `all` runs them in order.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
 - `known` doesn't need `dots`: run it at the same time in a second process.
+- calib (after crossid; `all` reruns spectra after it): from the raw member dots, per detector the pixel-phase centroid
+  bias (Fourier in φ = x − round(x)), per photo a distortion polynomial vs Gaia (order by cross-validation), pos_err =
+  √((a/snr)² + floor²), a flux pixel-phase term (ap and PSF) and a per-detector total-flux scale (2MASS/CatWISE anchors +
+  detector-edge stitching) → results/<zone>/calib.json + calib_photos.parquet. motion_io.member_dots and spectra apply it
+  when present (stats `calib_applied`); dot files stay raw; link stays raw (4″ FoF ≫ 0.6″ bias). Rerun after crossid.
 - `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
   cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. `--known-source skybot` (or SKYSHIFT_KNOWN_SOURCE=skybot) uses the
-  SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms: C/2025 R2 was 4.5′ off SkyBoT a month after perihelion.
+  SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″ (SkyBoT was 4.5′ off).
+- minorplanetcenter.net times out from GCP machines (14 Nov). The newest snapshot in cache/mpc/orbits/ is always reused,
+  so make it from a laptop: `uv run python -c "from skyshift_pipeline.store import Store; from skyshift_pipeline import
+  known_mpc; known_mpc.orbit_table(Store('gs://nasa-glazing-data'))"` (~1 min; the newest snapshot wins, so delete a stale one first).
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
