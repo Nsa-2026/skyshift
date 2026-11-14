@@ -12,7 +12,9 @@ contracts/dots.md) detected in the photos of the response. Read-only, from the d
     results/<zone>/suspects.parquet   unexplained movers, with grade/reasons once vetted
     results/<zone>/astrometry.parquet fitted motions -> shifts (pm_snr >= 3 kept)
     results/<zone>/highpm_candidates.parquet  motions between visits -> months suspect/artifact
-    dots/<obs_id>D<det>.parquet       the dots of each photo in the response (a few columns)
+    dots/<obs_id>D<det>.parquet       the dots of each photo in the response (a few columns); a zone whose link
+                                      read another folder (summary.json steps.link.dots_dir, e.g. dots_deblend1e-4/
+                                      for the featured targets' finer deblending) is read from that folder
 
 Zone tables are kept in memory (TABLES_KEEP zones, only the columns used: the hunt zone's take
 ~25 MB); dot files are read per request, columns only, then cut to the field.
@@ -211,6 +213,7 @@ class Zone:
     usable: bool  # results are combined
     stage: str  # "final" | "provisional"
     listed: bool  # in skyrun/progress.json
+    dots_dir: str = "dots"  # the folder of dot files its link read (summary.json steps.link.dots_dir)
 
     def contains(self, ra: float, dec: float) -> bool:
         if not self.dec[0] <= dec <= self.dec[1]:
@@ -235,9 +238,11 @@ def _zone_from_summary(name: str, s: dict) -> Zone | None:
     if not z.get("ra") or not z.get("dec"):
         return None
     steps = s.get("steps") or {}
+    link = steps.get("link") if isinstance(steps.get("link"), dict) else {}
     return Zone(name, (float(z["ra"][0]), float(z["ra"][1])), (float(z["dec"][0]), float(z["dec"][1])),
                 usable="link" in steps and "crossid" in steps,
-                stage="final" if "calib" in steps else "provisional", listed=False)
+                stage="final" if "calib" in steps else "provisional", listed=False,
+                dots_dir=str(link.get("dots_dir") or "dots"))
 
 
 _zones_cache: dict[str, tuple[float, list[Zone]]] = {}
@@ -520,8 +525,8 @@ def _sep_mask(ra: np.ndarray, dec: np.ndarray, ra0: float, dec0: float, r_deg: f
     return dx * dx + (dec - dec0) ** 2 <= r_deg * r_deg
 
 
-def read_dots(st: Store, key: str, ra0: float, dec0: float, r_deg: float) -> Dots | None:
-    t = st.read_table(f"dots/{key}.parquet", DOT_COLS, DOT_V4)
+def read_dots(st: Store, key: str, ra0: float, dec0: float, r_deg: float, folder: str = "dots") -> Dots | None:
+    t = st.read_table(f"{folder}/{key}.parquet", DOT_COLS, DOT_V4)
     if t is None:
         return None
     ra, dec = np.asarray(t["ra"], float), np.asarray(t["dec"], float)
@@ -567,11 +572,12 @@ def dot_exists(st: Store, key: str) -> bool:
     return known
 
 
-def _read_dots_remembered(st: Store, key: str, ra: float, dec: float, r_deg: float) -> Dots | None:
-    if _known_presence(st, key) is False:
+def _read_dots_remembered(st: Store, key: str, ra: float, dec: float, r_deg: float, folder: str = "dots") -> Dots | None:
+    mkey = key if folder == "dots" else f"{folder}/{key}"  # presence is remembered per folder
+    if _known_presence(st, mkey) is False:
         return None  # missing a moment ago: no new request
-    d = read_dots(st, key, ra, dec, r_deg)
-    _remember(st, key, d is not None)
+    d = read_dots(st, key, ra, dec, r_deg, folder)
+    _remember(st, mkey, d is not None)
     return d
 
 
@@ -595,14 +601,15 @@ def load(ra: float, dec: float, radius_deg: float, keys: list[str], *, zone: str
         z, reason = find_zone(ra, dec, root=root, prefer=zone)
         if z is None and not dots_only_enabled():
             return Loaded(reason=reason)
-        dots_f = {k: _io.submit(_read_dots_remembered, st, k, ra, dec, radius_deg) for k in dict.fromkeys(keys)}
+        folder = z.dots_dir if z is not None else "dots"  # the folder the zone's link read
+        dots_f = {k: _io.submit(_read_dots_remembered, st, k, ra, dec, radius_deg, folder) for k in dict.fromkeys(keys)}
         tables = tables_for(st, z) if z is not None else None
         dots: dict[str, Dots | None] = {}
         for k, f in dots_f.items():
             try:
                 dots[k] = f.result()
             except Exception as e:  # noqa: BLE001 - one unreadable photo counts as missing
-                log.warning("measured: dots/%s.parquet unreadable: %r", k, e)
+                log.warning("measured: %s/%s.parquet unreadable: %r", folder, k, e)
                 dots[k] = None
         if z is None:
             return Loaded(reason=reason, dots=dots, dots_only=True, covering=covering_zone(ra, dec, root=root))

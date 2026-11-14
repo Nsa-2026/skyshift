@@ -59,6 +59,14 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   ≥ 3σ) from 3.5σ: fast Gaia stars counted 63 → 77 of 106 detected, raw-table fakes 211 → 146, fp_control 1 → 1.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, tracklets, score and suspects are cheap and always recompute from what is there.
+- Deblending (15 Nov): sep `deblend_cont` is config `DOTS_DEBLEND_CONT` (0.005, the sky run) except for the zones of
+  `DOTS_FINE_ZONES` (the five featured targets): `DOTS_FINE_DEBLEND_CONT` (1e-4) finds stars in a bright star's glow
+  (R Dra D4: 3 of 4 Gaia neighbours at 92–162″, none at 0.005). Their photos also lie in ecliptic zones and dot files are
+  never rewritten, so those zones write `dots_deblend1e-4/<obs_id>D<det>.parquet` (config.zone_dots; a new value gets a
+  new folder) and keep any existing forced/ file. `dots` and `link` use the zone's folder; link records it in
+  summary.json `steps.link.dots_dir`, and every later step, skyshift-candidates, shape and server measured.py read that
+  folder (store.dots_dir, set per step by the CLI), so members.dot_row always points into the files it was made from.
+  Each dot file's metadata says which setting made it (`detect`: thresh, min_snr, deblend_cont, dots_dir).
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
