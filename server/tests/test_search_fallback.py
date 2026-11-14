@@ -106,6 +106,7 @@ def test_failing_sia_falls_back_to_the_photo_list(world):
     assert im.mjd == pytest.approx(60800.0) and im.t_min == pytest.approx(60800.0 - HALF)
     key = "dr1/level2/2025W17_1A/l2b-v27/2/level2_2025W17_1A_0001_1D2_spx.fits"
     assert im.s3_url == S3 + key and im.access_url == IRSA + key
+    assert im.s_region == square(125.0, 20.0, 1.7)  # the footprint, for the frames' coverage
     assert [i.visit for i in res.images] == [1, 1, 1, 2] and [i.session for i in res.images] == [1, 1, 1, 2]
     expected = search.rows_to_images([sia_row(i.obs_id, i.det, i.mjd, collection=i.collection)
                                       for i in res.images])

@@ -59,7 +59,7 @@ from .errors import ApiError, NotFoundError, UpstreamError, bad_request
 log = logging.getLogger("skyshift.api")
 
 VERSION = "0.1.0"
-ENGINE_VERSION = "4"  # part of every cache key
+ENGINE_VERSION = "5"  # part of every cache key; 5: photos chosen by how much of the field they cover
 # Part of the /api/object key only. Answers cached before the measurement's detection guard
 # (core.measure_shift, 14 Nov) gave shifts for spots with nothing on them (RA 125.5, Dec 19.4:
 # "30.15" in 0.45 years", two noise peaks); a new rule must not serve them again. Frames keep theirs.
