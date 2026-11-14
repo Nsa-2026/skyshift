@@ -4,6 +4,7 @@ import { ApiFailure, loadFrames, loadObject, resolve } from "../api/client";
 import type { FramesResponse, ObjectResponse } from "../api/types";
 import { mountBlink } from "../blink";
 import { mountCard } from "../card";
+import { withExtras } from "../extras";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountFilters } from "../colour";
@@ -85,7 +86,10 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-blink" data-page="explore" hidden>
       <h1 class="visually-hidden" id="blink-h1">Blink</h1>
       <section class="stage" aria-label="Blink"><div id="blink"></div></section>
-      <section id="card" class="side-card" aria-label="Object"></section>
+      <div class="side-col">
+        <section id="card" class="side-card" aria-label="Object"></section>
+        <div id="extras" role="region" aria-label="More evidence"></div>
+      </div>
       <div class="below">
         <div id="field"></div>
         <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
@@ -135,7 +139,7 @@ export function startApp(root: HTMLElement): void {
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
   const filters = mountFilters($("#blink"));
   // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
-  const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
+  const card: CardHandle = withExtras(mountCard($("#card"), { onExplore: (at) => ctx.explore(at) }), $<HTMLElement>("#extras"));
   const vote: VoteHandle = mountVote($("#vote"));
   const sky: SkyHandle = mountSky($("#sky"), {
     onClick(pos) {

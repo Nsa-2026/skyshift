@@ -78,7 +78,23 @@ export function moleculeRows(xOf: (um: number) => number): number[] {
   return rows;
 }
 
-export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number; mode: SpectrumMode; id: string }): Chart {
+/** A DR1 reference point (contracts/api.md, science.json `reference.spectrum`): µm and µJy. */
+export interface ReferencePoint {
+  um: number;
+  flux_ujy: number;
+}
+
+/** Reference points that can be drawn: inside the chart's wavelengths, finite and above zero (log scale). */
+export function drawableReference(reference: ReferencePoint[] | null | undefined): ReferencePoint[] {
+  return (reference ?? []).filter(
+    (p) => Number.isFinite(p.um) && Number.isFinite(p.flux_ujy) && p.flux_ujy > 0 && p.um >= UM_MIN && p.um <= UM_MAX,
+  );
+}
+
+export function renderSpectrum(
+  spectrum: SpectrumPoint[],
+  opts: { width: number; mode: SpectrumMode; id: string; reference?: ReferencePoint[] | null },
+): Chart {
   const W = Math.round(Math.max(280, Math.min(opts.width, 720)));
   const H = Math.round(Math.max(220, Math.min(W * 0.66, 300)));
   const left = 36;
@@ -87,7 +103,12 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
   const rows = moleculeRows(xOf);
   const nRows = Math.max(...rows) + 1;
   const box = { left, top: 6 + nRows * 11 + 4, right, bottom: H - 44 };
-  const dom = spectrumDomain(spectrum);
+  const reference = drawableReference(opts.reference);
+  // The reference shares the flux axis, so the domain covers it too.
+  const dom = spectrumDomain([
+    ...spectrum,
+    ...reference.map((p) => ({ um: p.um, flux_ujy: p.flux_ujy, err_ujy: 0, det: 6 as const, mjd: 0, visit: 0, saturated: false })),
+  ]);
   const lmin = Math.log10(dom.min);
   const lmax = Math.log10(dom.max);
   const yOf = (v: number) => box.bottom - ((Math.log10(Math.max(v, dom.min)) - lmin) / (lmax - lmin)) * (box.bottom - box.top);
@@ -165,6 +186,24 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
     }
   }
 
+  // DR1 reference: a dashed ink line with small dots, over the measured points and on the same
+  // flux scale. Not rings: hollow marks already mean a saturated core.
+  if (reference.length) {
+    const pts = [...reference].sort((a, b) => a.um - b.um);
+    const d = pts.map((q, i) => `${i && q.um - pts[i - 1].um < GAP_UM ? "L" : "M"}${r1(xOf(q.um))} ${r1(yOf(q.flux_ujy))}`).join("");
+    const dots = pts
+      .map(
+        (p) =>
+          `<circle cx="${r1(xOf(p.um))}" cy="${r1(yOf(p.flux_ujy))}" r="1.6"><title>DR1 reference: ${p.um.toFixed(2)} µm, ${Math.round(p.flux_ujy).toLocaleString("en-US")} µJy</title></circle>`,
+      )
+      .join("");
+    out.push(
+      `<g class="cd-refpts"><path d="${d}" fill="none" stroke="var(--glass)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>` +
+        `<path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.25" stroke-dasharray="4 2.5" stroke-linejoin="round" stroke-linecap="round"/>` +
+        `<g fill="var(--ink)">${dots}</g></g>`,
+    );
+  }
+
   // Hover ring (moved by the card).
   out.push(`<circle class="cd-hover" r="6" cx="0" cy="0" visibility="hidden" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`);
 
@@ -174,7 +213,8 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
     `Flux in microjansky on a log scale against wavelength in micrometres, ${UM_MIN} to 5 µm. ` +
     `Detectors ${dets.map((d) => `D${d}`).join(", ")}; ${visits.length} visit${visits.length === 1 ? "" : "s"}. ` +
     `Flux range ${compactUjy(dom.min)} to ${compactUjy(dom.max)} µJy.` +
-    (byVisit ? " Shaded by visit, light to dark, with a median line per visit." : " Coloured by detector.");
+    (byVisit ? " Shaded by visit, light to dark, with a median line per visit." : " Coloured by detector.") +
+    (reference.length ? ` Dashed line: ${reference.length} points of the DR1 all-sky reference at this spot.` : "");
   const svg =
     `<svg class="cd-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="${opts.id}-t ${opts.id}-d" tabindex="0">` +
     `<title id="${opts.id}-t">${esc(title)}</title><desc id="${opts.id}-d">${esc(desc)}</desc>` +
