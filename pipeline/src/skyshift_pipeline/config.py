@@ -252,6 +252,7 @@ PSF_POS_MAX_STEP_PX = 0.3      # one step moves (x, y) at most this far
 PSF_POS_MAX_SHIFT_PX = 1.0     # a fit that ends further than this from the windowed centroid fails
 PSF_POS_TOL_PX = 0.002         # converged when a step is shorter than this ...
 PSF_POS_TOL_SIGMA = 0.05       # ... or than this × the fit's own 1σ (faint dots); reversing steps are halved
+PSF_POS_ERR_FLOOR_ARCSEC = 0.13 # added in quadrature to the fit's 1σ: pulls vs Gaia ≈ 1 at all S/N on 6 pilot photos (14 Nov)
 PHOTO_META_KEY = "skyshift_photo"  # Parquet key-value metadata of each dot file (JSON)
 PHOTO_META_HEADER_KEYS = (     # IMAGE header values copied into it as they are (missing keys -> null)
     "MJD-BEG", "MJD-AVG", "MJD-END", "XPOSURE", "TELAPSE",
