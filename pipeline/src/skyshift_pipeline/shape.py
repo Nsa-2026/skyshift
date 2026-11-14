@@ -560,6 +560,13 @@ def single_stars(t: pd.DataFrame) -> np.ndarray:
             & (t["class"] != "galaxy").to_numpy() & ~t["galaxy_or_qso"].astype(bool).to_numpy())
 
 
+def known_sources_only(d: pd.DataFrame, sources: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Member dots of sources that sources.parquet lists. A spectra rerun rewrites sources.parquet after link wrote
+    members.parquet and can leave a member source out (hunt, 14 Nov: 2 sources): their dots go, with the count."""
+    keep = d["source_id"].isin(sources["source_id"]).to_numpy()
+    return d[keep].reset_index(drop=True), int((~keep).sum())
+
+
 def measure(d: pd.DataFrame, photos: pd.DataFrame, sources: pd.DataFrame, refcat: pd.DataFrame,
             classes: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
     """Shapes of every source with >= SHAPE_MIN_DOTS usable dots, with its catalogue context, the reference split
@@ -567,6 +574,7 @@ def measure(d: pd.DataFrame, photos: pd.DataFrame, sources: pd.DataFrame, refcat
     from skyshift_core import tangent_offset_arcsec
 
     d = d.merge(photos[["photo", "detector", "mjd", "visit"]], on="photo", how="left").rename(columns={"detector": "det"})
+    d, n_orphan = known_sources_only(d, sources)
     pos = sources.set_index("source_id")
     sra, sdec = pos["ra"].reindex(d["source_id"]).to_numpy(), pos["dec"].reindex(d["source_id"]).to_numpy()
     cen = pd.DataFrame({"photo": d["photo"], "ra": sra, "dec": sdec}).groupby("photo")[["ra", "dec"]].median()
@@ -600,6 +608,7 @@ def measure(d: pd.DataFrame, photos: pd.DataFrame, sources: pd.DataFrame, refcat
     t = ctx.merge(source_shapes(du[du["source_id"].isin(ids)]), on="source_id", how="inner")
     scale = [float(np.sqrt(abs(np.linalg.det(m)))) for m in J.values()]
     info = {"photos_read": int(photos["photo"].nunique()), "photos_with_jacobian": len(J), "member_dots": len(d),
+            "dots_without_source": n_orphan,
             "usable_dots": len(du), "sources_measured": len(t),
             "pixel_scale_arcsec_median": float(np.median(scale)) if scale else None,
             "reference_stars": int((single & ~held_out(sid)).sum()), "test_stars": int((single & held_out(sid)).sum()),
