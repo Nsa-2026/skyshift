@@ -141,6 +141,9 @@ def test_build_and_known_near_match_kete():
                          neo_step_days=10.0, log=lambda *_: None)
     idx = K.KnownIndex(data)
     assert idx.name(0) == "Ceres" and int(idx.comet.sum()) == 1
+    nan_h = K.build_index({**ASTEROIDS, "h_mag": [3.34, 3.25, 10.39, np.nan]}, None, mjd_lo=61000.0,
+                          mjd_hi=61030.0, step_days=30.0, neo_step_days=0, log=lambda *_: None)
+    assert len(nan_h["q"]) == 4  # unknown H: kept, never cut by V
     assert "(443104)" not in [idx.name(k) for k in range(len(idx))]  # H 24.2: never brighter than V 21.5
     assert float(np.nanmax(data["err_deg"])) < 0.5  # main belt and Eros: two-body ≈ n-body
     mjd = 61030.0

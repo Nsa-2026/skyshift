@@ -16,8 +16,8 @@ call, too slow for /api/known and frames.json `known[]`. This module splits the 
    Times that are close together (within GROUP_DAYS) share one evaluation at the group's two ends: an
    object is kept when the arc between its two positions can reach the field (the nearer end within
    r + margin + half the arc + the bend of the path over the group, see `_group_cut`); each exact time
-   is then checked on that short list. Objects closer than NEAR_AU, flagged `always` at build time
-   (close approaches, two-body error over MAX_ERR_DEG) and all comets skip the cut.
+   is then checked on that short list. Objects closer than NEAR_AU at request time (close approaches),
+   `always` objects (two-body error over MAX_ERR_DEG) and all comets skip the cut.
 2. Exact positions with kete (`known_near`): the short list is moved with n-body physics to each time and
    checked against a cone of the requested radius, with light time, from the Earth's centre or from
    SPHEREx's own position (IMAGE header X_SC..VZ_SC), the same computation as the pipeline's.
@@ -54,8 +54,7 @@ NEO_STEP_DAYS = 2.0                  # ... and of NEO-like orbits (q < NEO_Q_AU)
 NEO_Q_AU = 1.3
 ERR_SAFETY = 1.25                    # measured two-body error × this (between samples it can grow a little)
 ERR_FLOOR_DEG = 0.005
-MAX_ERR_DEG = 2.0                    # above this an object is `always` sent to kete
-ALWAYS_NEAR_AU = 0.05                # ... and so is any object that comes this close to the Earth in the range
+MAX_ERR_DEG = 20.0                   # above this an object is `always` sent to kete (~100 orbits)
 NEAR_AU = 0.2                        # at request time, objects nearer than this skip the coarse cut
 OBSERVER_AU = 4.0e-4                 # SPHEREx 7,100 km + Moon 4,700 km + approximate Earth orbit (~3e-5 AU)
 MARGIN0_DEG = 0.02
@@ -205,7 +204,7 @@ class KnownIndex:
         a = self.ast_rows
         self.kep = Kepler.from_elements(d["q"][a], d["e"][a], d["inc"][a], d["node"][a], d["argp"][a], d["tp"][a])
         self.err_rad = np.radians(d["err_deg"][a].astype(np.float32))
-        self.always = d["always"][a].astype(bool)
+        self.always = d["err_deg"][a] > MAX_ERR_DEG
         self.mjd_lo, self.mjd_hi = float(d["mjd_lo"]), float(d["mjd_hi"])
 
     def __len__(self) -> int:
@@ -491,9 +490,9 @@ def build_index(asteroids: Any, comets: Any | None = None, *, snapshot: str = ""
 
     keep_ast = ~bad
     if v_keep is not None:
-        keep_ast &= ~(vmin > v_keep)  # unknown H (NaN) is kept
+        keep_ast &= ~(vmin > v_keep) | ~np.isfinite(h)  # unknown H is kept (np.fmin skipped its NaN V)
     err_deg = err * ERR_SAFETY + ERR_FLOOR_DEG
-    always = (err_deg > MAX_ERR_DEG) | (dmin < ALWAYS_NEAR_AU)
+    always = err_deg > MAX_ERR_DEG
     rows = np.sort(np.concatenate([ast[keep_ast], np.flatnonzero(el["comet"])]))
     full_err = np.full(n_all, np.nan, np.float32)
     full_err[ast] = err_deg
