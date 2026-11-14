@@ -1,44 +1,47 @@
-/* SkyShift design tokens. One dark "plate" surface (images need a dark surround), warm
-   emulsion text, and six detector colours that carry meaning everywhere they appear.
-   Bold element: the epoch timeline and the detector ramp. Everything else stays quiet. */
+/* SkyShift "Lightbox" design tokens (web/DESIGN.md).
+   Pluto was found by blinking photographic plates on a lightbox. The page is that lightbox:
+   cool glass-white, frames shown as plate negatives, marks in grease pencil.
+   Spend boldness on the plate. Everything around it is quiet ink on glass. */
 :root {
   /* surfaces */
-  --plate: #0f1a2c;        /* page */
-  --plate-2: #14223a;      /* raised panel */
-  --plate-3: #1b2c48;      /* control fill, hover */
-  --rule: #24314a;         /* borders, gridlines */
-  --rule-strong: #34456a;
+  --glass: #edf0ef;        /* page: the lightbox */
+  --sheet: #f8faf9;        /* raised: the panel a plate sits in */
+  --sheet-2: #e3e8e7;      /* control fill, hover */
+  --hair: #cdd3d6;         /* the few rules we keep */
+  --hair-strong: #a9b1b6;
 
-  /* text */
-  --emulsion: #e9e4d6;     /* main text */
-  --muted: #8b94a7;        /* secondary text */
-  --faint: #5d6880;        /* axis labels, disabled */
+  /* ink */
+  --ink: #18202e;          /* text, negative stars */
+  --ink-2: #4f5867;        /* secondary text */
+  --ink-3: #78818f;        /* axis labels, disabled (AA on --glass for ≥ 14px bold / large) */
 
-  /* meaning */
-  --gaia: #62c9e6;         /* rings: stars Gaia already knows */
-  --mover: #ff9b3d;        /* flagged dots, the target, measured motion */
-  --known: #c59cff;        /* predicted positions of known asteroids/comets */
-  --sat: #ff5c7a;          /* saturated cores, errors */
-  --ok: #7fd49b;           /* validation pass */
+  /* grease pencil: meaning on the plate */
+  --pencil-red: #cf2338;   /* the target, flagged dots, our measurement */
+  --pencil-blue: #2556c8;  /* stars Gaia already knows */
+  --pencil-violet: #7a3fc4;/* predicted positions of known asteroids and comets */
+  --warn: #b4232f;         /* saturated cores, errors */
+  --pass: #1f7a4d;         /* validation pass */
+  --partial: #a35f00;      /* validation partial */
 
-  /* detector ramp, D1 → D6 (0.75 → 5.0 µm) */
-  --d1: #8a7cf7;
-  --d2: #4b9ff2;
-  --d3: #2fc4a6;
-  --d4: #b9d548;
-  --d5: #f3b53f;
-  --d6: #ef5f4b;
+  /* detector ramp D1 → D6 (0.75 → 5.0 µm), dark enough to read on glass */
+  --d1: #6a4fe0;
+  --d2: #1f6fd1;
+  --d3: #0e8f75;
+  --d4: #6f8f0e;
+  --d5: #c27c00;
+  --d6: #d0432c;
 
-  /* type: Archivo only. Width axis does the work: wide for the wordmark, condensed for readouts. */
+  /* type: Archivo only; the width axis does the work */
   --font: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --step--1: 0.8125rem;    /* 13px: axis labels, captions */
-  --step-0: 0.9375rem;     /* 15px: body, controls */
-  --step-1: 1.125rem;      /* 18px: panel titles */
-  --step-2: 1.5rem;        /* 24px: object name */
-  --step-3: 2.25rem;       /* 36px: the measured number */
-  --lh: 1.45;
+  --step--1: 0.8125rem;   /* 13px captions, axis labels */
+  --step-0: 0.9375rem;    /* 15px body, controls */
+  --step-1: 1.125rem;     /* 18px section titles */
+  --step-2: 1.625rem;     /* 26px object name */
+  --step-3: 3rem;         /* 48px the measured number */
+  --step-4: 4rem;         /* 64px reserved: the scoreboard headline */
+  --lh: 1.5;
 
-  /* space and shape */
+  /* space */
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
@@ -46,7 +49,27 @@
   --s5: 24px;
   --s6: 32px;
   --s7: 48px;
-  --radius-ctl: 6px;       /* buttons, inputs */
-  --radius-panel: 2px;     /* panels are plates: nearly square */
-  --focus: 0 0 0 2px var(--plate), 0 0 0 4px var(--gaia);
+  --s8: 72px;
+
+  /* shape: controls are soft, plates and panels are glass (barely rounded) */
+  --radius-ctl: 999px;     /* segmented controls and buttons are capsules */
+  --radius-plate: 3px;
+  --radius-panel: 3px;
+  --shadow-plate: 0 1px 0 rgba(24, 32, 46, 0.06), 0 12px 32px -18px rgba(24, 32, 46, 0.35);
+  --focus: 0 0 0 2px var(--glass), 0 0 0 4px var(--pencil-blue);
+
+  /* ---- compatibility names (pre-Lightbox). Areas move to the names above as they are restyled. */
+  --plate: var(--glass);
+  --plate-2: var(--sheet);
+  --plate-3: var(--sheet-2);
+  --rule: var(--hair);
+  --rule-strong: var(--hair-strong);
+  --emulsion: var(--ink);
+  --muted: var(--ink-2);
+  --faint: var(--ink-3);
+  --mover: var(--pencil-red);
+  --gaia: var(--pencil-blue);
+  --known: var(--pencil-violet);
+  --sat: var(--warn);
+  --ok: var(--pass);
 }
