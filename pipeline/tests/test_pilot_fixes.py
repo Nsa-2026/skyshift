@@ -160,14 +160,14 @@ def test_vapour_co_and_pah_labels():
 # --- 3. fast movers: vetting ------------------------------------------------------------------
 def fit_rows(**over):
     base = dict(source_id=3, ra=STAR[0], dec=STAR[1], epoch_mjd=61091.0, pmra=6000.0, pmdec=0.0, pm=6000.0,
-                pm_snr=6.0, pmra_err=1000.0, pmdec_err=1000.0, n_visits=2, span_yr=0.5, chi2_nu=1.2, n_dots=200)
+                pm_snr=12.0, pmra_err=500.0, pmdec_err=500.0, n_visits=2, span_yr=0.5, chi2_nu=1.2, n_dots=200)
     return {**base, **over}
 
 
 def test_fit_candidates_are_vetted_not_deleted():
     src = hp_sources()
     ast = pd.DataFrame([
-        fit_rows(source_id=1),                                     # clean, no counterpart: vetted new
+        fit_rows(source_id=1),                                     # clean, no counterpart, 12σ: vetted new
         fit_rows(source_id=2, n_dots=8),                           # barely detected
         fit_rows(source_id=3, chi2_nu=40.0),                       # bad fit
         fit_rows(source_id=4, pm=11_000.0, pmra=11_000.0),         # faster than any star
@@ -175,6 +175,7 @@ def test_fit_candidates_are_vetted_not_deleted():
         fit_rows(source_id=6, pm=600.0, pmra=600.0, pmra_err=80.0, pmdec_err=80.0, pm_snr=7.5),  # Gaia says 10 mas/yr
         fit_rows(source_id=7, pm=550.0, pmra=0.0, pmdec=-550.0, pmra_err=95.0, pmdec_err=95.0, pm_snr=5.8),  # Gaia agrees
         fit_rows(source_id=8, span_yr=0.05, n_visits=1),           # one visit
+        fit_rows(source_id=9, pm_snr=6.0),                         # no counterpart to check a 6σ motion
     ])
     xid = pd.DataFrame({"source_id": [5, 6, 7], "gaia_ref_id": ["", "gaia:6", "gaia:7"], "gaia_id": [-1, 6, 7],
                         "gaia_pmra": [np.nan, 8.0, 10.0], "gaia_pmdec": [np.nan, 5.0, -500.0],
@@ -182,12 +183,13 @@ def test_fit_candidates_are_vetted_not_deleted():
                         "catwise_pmdec": [-10.0, np.nan, np.nan]})
     out = HP.compute(src, None, xid, ast)
     out = out[out["method"] == "fit"].set_index("source_id")
-    assert len(out) == 8  # nothing deleted
+    assert len(out) == 9  # nothing deleted
     reason = out["reason"].to_dict()
     assert reason[1] == "" and out.loc[1, "vetted"] and out.loc[1, "status"] == "new"
     assert reason[2] == "few_dots" and reason[3] == "bad_fit" and reason[4] == "over_pm_cap"
     assert reason[5] == "catwise_pm_disagrees" and reason[6] == "gaia_pm_disagrees" and reason[8] == "short_span"
     assert reason[7] == "" and out.loc[7, "status"] == "gaia"
+    assert reason[9] == "unchecked"
     # vetted first
     assert out["vetted"].tolist()[:2] == [True, True]
 
