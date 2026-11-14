@@ -140,6 +140,32 @@ describe("blink player", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
+  it("does not start playback when a pending load finishes on a hidden page", async () => {
+    let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(fetch).mockImplementation(async () => { await wait; return new Response(new Uint16Array(N * N).fill(1000).buffer); });
+    const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+    const loading = h.show(view, frames, "https://example.test/hidden/frames.json");
+    h.active?.(false);
+    release(); await loading;
+    expect(el.querySelector('.bk-play')?.getAttribute('aria-pressed')).toBe('false');
+    expect(el.querySelector('.bk')?.getAttribute('data-ready')).toBe('true');
+    h.destroy();
+  });
+
+  it("discards old pixel loads as soon as another view starts loading", async () => {
+    let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(fetch).mockImplementation(async () => { await wait; return new Response(new Uint16Array(N * N).fill(1000).buffer); });
+    const onEpoch = vi.fn(), h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn(), onEpoch });
+    const loading = h.show(view, frames, "https://example.test/stale/frames.json");
+    h.status('loading', 'Loading the next target');
+    release(); await loading;
+    expect(onEpoch).not.toHaveBeenCalled();
+    expect(el.querySelector('.bk')?.getAttribute('data-ready')).toBe('false');
+    h.destroy();
+  });
+
   it("offers the detectors that have frames when the chosen one has none", async () => {
     const onViewChange = vi.fn();
     const h = mountBlink(el, { onViewChange, onPick: vi.fn() });
@@ -154,6 +180,22 @@ describe("blink player", () => {
     expect(offers).toEqual(["2", "5"]);
     msg.querySelector<HTMLButtonElement>("[data-goto-det='5']")!.click();
     expect(onViewChange).toHaveBeenLastCalledWith({ det: 5 });
+    h.destroy();
+  });
+
+  it("keeps every detector requestable after a live answer, which holds only the one asked for", async () => {
+    // /api/frames?det=2 returns D2 epochs only; D6 at this spot is one more request away (#57).
+    const onViewChange = vi.fn();
+    const h = mountBlink(el, { onViewChange, onPick: vi.fn() });
+    const live = { ...frames, epochs: frames.epochs.filter((e) => e.det === 2) };
+    await h.show(view, live, "https://example.test/api/frames?ra=269.4462&dec=4.76883&clock=months&fov=5&det=2");
+    const off = [...el.querySelectorAll<HTMLButtonElement>("[data-det]")].filter((b) => b.disabled);
+    expect(off.map((b) => b.dataset.det)).toEqual([]);
+    el.querySelector<HTMLButtonElement>("[data-det='6']")!.click();
+    expect(onViewChange).toHaveBeenLastCalledWith({ det: 6 });
+    // A static file holds every detector prepared: the others stay off there.
+    await h.show(view, frames, "https://example.test/data/x/frames.json");
+    expect(el.querySelector<HTMLButtonElement>("[data-det='6']")!.disabled).toBe(true);
     h.destroy();
   });
 });

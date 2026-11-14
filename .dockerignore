@@ -10,7 +10,14 @@
 .env.*
 *-key.json
 service-account*.json
-web/
+web/*
+!web/public/
+web/public/*
+!web/public/data/
+!web/public/science-data/
+# The server reads only the featured fields' index/frames/object files (exports.py); not the
+# candidate cutouts.
+web/public/data/cand/
 docs/
 pitch/
 pipeline/
@@ -22,3 +29,6 @@ scripts/
 **/*.parquet
 core/tests/
 server/tests/
+
+# Local jobs, tool installs and release verification never enter the cloud build.
+.runtime/

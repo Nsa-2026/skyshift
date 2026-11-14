@@ -10,7 +10,9 @@ exposure's time (proper motion + parallax when we have them, else the position a
 Each point: wavelength of that pixel from WCS-WAVE, flux and error in uJy, detector, MJD-AVG,
 visit, saturated (OVERFLOW or NONLINEAR in the core). Three ways to measure, per point
 (docs/research/2026-11-14-target-data-check.md has the numbers):
-- the r = 2 px aperture of core.aperture_photometry, when its core is clean (most points);
+- the r = 2 px aperture of core.aperture_photometry, when its core is clean (most points), with
+  a clipped-median sky 4-7 px out (local_sky; not the annulus mean, which a bright neighbour's
+  halo pulls up: Barnard's Star's old position read 5-12 sigma below zero);
 - a saturated core: the flux from the PSF wings (wing_photometry), with a 50%
   systematic error. The aperture there leaves the core out and read 4-10x low (Barnard's Star);
   R Draconis's aperture is masked in every exposure, so it had no spectrum at all;
@@ -40,7 +42,8 @@ The two times are the MEDIAN exposure times of the two stacks: a per-pixel media
 moving star sits where the star was at the median time, not at mjd_mid (the middle of the first
 and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
 mjd_mid is 14.6 days (0.41") after the median. dt_yr is therefore the difference of the median
-times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax.
+times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax; it is null without a
+Gaia star (contracts/api.md), also for a built-in target with published astrometry (WISE 0855).
 
 spectrum_reason: why the spectrum is empty, or null. "saturated" when exposures were left out for
 a saturated core (OVERFLOW or NONLINEAR) and none remain, e.g. a star so bright that even its
@@ -86,9 +89,10 @@ from skyshift_core import (
 )
 from skyshift_core.astrometry import PSF_FWHM_ARCSEC
 from skyshift_core.flags import SUR_ERROR, TRANSIENT
+from skyshift_core.detect import APERTURE_R_PX
 from skyshift_core.photometry import APERTURE_CORRECTION
 
-from . import blink, cutouts, gaia, resolve, search, stack
+from . import blink, coverage, cutouts, gaia, resolve, search, stack
 from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import ApiError, NotFoundError
@@ -98,6 +102,10 @@ log = logging.getLogger(__name__)
 MATCH_ARCSEC = 6.0
 GAIA_CONE_ARCMIN = 3.5  # reaches a 19"/yr star 11 years from its 2016.0 position
 EDGE_PX = 8  # the aperture's sky annulus reaches 7 px
+# Sky for the r = 2 px aperture (local_sky): clipped median of the good pixels 4-7 px out
+SKY_ANNULUS_PX = (4.0, 7.0)
+SKY_CLIP_SIGMA = 3.0
+SKY_MIN_PIXELS = 10
 MEASURE_FOV = 15
 MEASURE_PIXEL = stack.NATIVE_ARCSEC
 MIN_VISIT_EXPOSURES = 3
@@ -419,6 +427,37 @@ def blend_min_arcsec(model: dict[str, Any] | None) -> float:
     return BLEND_MIN_ARCSEC
 
 
+def local_sky(data: np.ndarray, flags: np.ndarray, x: float, y: float) -> tuple[float, float] | None:
+    """(sky, its 1 sigma error) in MJy/sr for the r = 2 px aperture at (x, y): the median of the good
+    pixels SKY_ANNULUS_PX out, after SKY_CLIP_SIGMA clipping around the median (scale from the MAD),
+    and 1.2533 x scatter / sqrt(n) for the error. None with fewer than SKY_MIN_PIXELS good pixels.
+
+    Not the annulus mean (sep's bkgann, core.aperture_photometry's default): a bright star's halo
+    or a neighbour in part of the annulus pulls the mean up and the aperture then reads below zero.
+    Barnard's Star's 2016.0 position (`moved_away`): the star is 16-18 px away and 58 of 61 live
+    points were 5-12 sigma negative (-200 to -1000 uJy); with this sky the median point is +47 uJy
+    (+0.3 sigma). On blank spots of three target fields (12" from any Gaia star) the mean put the
+    median point at -1.2 to -11.5 sigma; this sky at -0.1 to +0.03 sigma (14 Nov)."""
+    ny, nx = data.shape
+    yy, xx = np.ogrid[:ny, :nx]
+    r2 = (xx - x) ** 2 + (yy - y) ** 2
+    ann = (r2 >= SKY_ANNULUS_PX[0] ** 2) & (r2 <= SKY_ANNULUS_PX[1] ** 2) & np.isfinite(data) & ~bad_pixel_mask(flags)
+    v = data[ann].astype(np.float64)
+    if v.size < SKY_MIN_PIXELS:
+        return None
+    keep = v
+    for _ in range(10):
+        med = float(np.median(keep))
+        mad = 1.4826 * float(np.median(np.abs(keep - med)))
+        new = v[np.abs(v - med) <= SKY_CLIP_SIGMA * mad] if mad > 0 else keep
+        if new.size == keep.size or new.size < SKY_MIN_PIXELS:
+            break
+        keep = new
+    med = float(np.median(keep))
+    scatter = 1.4826 * float(np.median(np.abs(keep - med)))
+    return med, 1.2533 * scatter / np.sqrt(keep.size)
+
+
 def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, float, float]],
                      target_in_gaia: bool, min_sep: float = BLEND_MIN_ARCSEC) -> tuple[float, float] | None:
     """(flux, error) in uJy for one spectrum point, or None when it can't be measured honestly.
@@ -445,11 +484,13 @@ def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, 
     if fit:  # (a Gaia target's companion closer than 5" stays in, as one blend: RW Aur A+B)
         others = [tuple(float(v) for v in sky_to_pixel(l2.wcs, n[1], n[2])) for n in fit]
         return blended_photometry(l2.data, l2.flags, l2.variance, x, y, others, det, conv)
-    try:
-        ph = aperture_photometry(l2.data, x, y, l2.wcs, flags=l2.flags, variance=l2.variance)
-    except ValueError:  # sep: the sky annulus is fully masked
+    sky = local_sky(l2.data, l2.flags, x, y)
+    if sky is None:  # the sky annulus is (almost) fully masked
         return None
-    return float(ph.flux_ujy[0]), float(ph.err_ujy[0])
+    ph = aperture_photometry(l2.data - np.float32(sky[0]), x, y, l2.wcs, flags=l2.flags, variance=l2.variance,
+                             bkg_annulus=None)
+    sky_err = np.pi * APERTURE_R_PX**2 * sky[1] * conv * APERTURE_CORRECTION  # the sky's error over the aperture
+    return float(ph.flux_ujy[0]), float(np.hypot(ph.err_ujy[0], sky_err))
 
 
 def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any] | None,
@@ -594,7 +635,8 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
     max_ref: at most this many reference stars, the nearest to the position (None: all).
     reasons: receives the guard's code (core ShiftError.reason) when the shift is refused."""
     grid = stack.Grid(ra, dec, MEASURE_PIXEL, int(round(MEASURE_FOV * 60 / MEASURE_PIXEL)) | 1)
-    mine = blink.pick_months_images([im for im in images if im.det == det and im.visit in (v1, v2)], per_visit)
+    mine = [im for im in images if im.det == det and im.visit in (v1, v2)]
+    mine = blink.pick_months_images(mine, per_visit, coverage.of_images(mine, ra, dec, MEASURE_FOV / 60.0))
     stacks = blink.visit_stacks(mine, grid, cutouts.tier_for_field(MEASURE_FOV), cache,
                                 visits_wanted={v1, v2}, budget=budget, reserve=OBJECT_RESERVE_S)
     if len(stacks) < 2:
@@ -649,9 +691,19 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             reasons.append(e.reason)
         return None
     out = res.to_measure()
+    if not (model and model.get("id")):
+        # contracts/api.md: Gaia's predicted shift, or null without Gaia. A built-in target Gaia
+        # doesn't see (WISE 0855: published astrometry) still guides the search and the guard above,
+        # but that prediction is not Gaia's.
+        out["predicted_arcsec"] = None
     for k in ("shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec", "predicted_arcsec"):
         if out.get(k) is not None:
             out[k] = round(out[k], 4)
+    # contracts/api.md v3.9: what the shift was measured on (the player may show another detector)
+    out["source"] = {"det": det, "visits": [s1.visit, s2.visit],
+                     "mjd": [round(s1.mjd_median, 6), round(s2.mjd_median, 6)],
+                     "n_exposures": [s1.n_exposures, s2.n_exposures],
+                     "fov": MEASURE_FOV, "pixel_arcsec": MEASURE_PIXEL, "core_filled": filled}
     return out, {"det": det, "visits": [v1, v2], "d_east_arcsec": res.d_east_arcsec, "d_north_arcsec": res.d_north_arcsec,
                  "frame_offset_arcsec": res.frame_offset_arcsec, "n_exposures": [s1.n_exposures, s2.n_exposures],
                  "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled,

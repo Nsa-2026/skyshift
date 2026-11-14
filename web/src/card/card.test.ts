@@ -80,6 +80,29 @@ describe("every real object.json", () => {
     expect(el.querySelector(".cd-dl")?.textContent).toMatch(/1\.83 pc/);
   });
 
+  it("names what Barnard's shift was measured on, whatever detector the player shows", () => {
+    const row = (el: HTMLElement) =>
+      [...el.querySelectorAll(".cd-dl > div")].find((d) => d.querySelector("dt")?.textContent === "Measured in")?.querySelector("dd")?.textContent;
+    const obj = load("barnard");
+    expect(obj.measure?.source?.det).toBe(2); // precompute wrote it (contracts/api.md v3.9)
+    const el = document.createElement("section");
+    const card = mountCard(el);
+    card.show({ ...viewFor("barnard"), det: 2 }, obj, null);
+    expect(row(el)).toBe("D2, visits 1 and 3 (18 and 25 exposures)");
+    card.show({ ...viewFor("barnard"), det: 6, clock: "hours", fov: 20 }, obj, null);
+    expect(row(el)).toBe("D2, visits 1 and 3 (18 and 25 exposures), not the D6 the player shows");
+    expect(el.querySelector(".cd-n")?.textContent).toBe("10.83″"); // the player doesn't change the measurement
+    // Without a source (older files, cached answers): no row, and nothing taken from the player.
+    const old = { ...obj, measure: { ...obj.measure!, source: undefined } };
+    card.show({ ...viewFor("barnard"), det: 6 }, old, null);
+    expect(row(el)).toBeUndefined();
+    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 3 \(0\.99 years\)/);
+    // The measured pair wins over the count guessed from the visits on screen.
+    const later = { ...obj, measure: { ...obj.measure!, source: { ...obj.measure!.source!, visits: [2, 3] as [number, number] } } };
+    card.show(viewFor("barnard"), later, null);
+    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 2 and 3 \(0\.99 years\)/);
+  });
+
   it("puts Barnard's saturation on the number as note 1 and the parallax on the distance as note 2", () => {
     const el = cardFor("barnard");
     const heroRef = el.querySelector(".cd-hero .cd-ref a");

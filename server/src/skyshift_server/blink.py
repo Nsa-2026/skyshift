@@ -19,6 +19,15 @@ The live months clock stacks at most LIVE_PER_VISIT exposures a visit, and the l
 shows at most LIVE_HOURS_FRAMES exposures (whole runs of a few sessions spread over the visit:
 pick_hours_live); precompute stacks all and keeps every hours frame (up to HOURS_MAX_FRAMES).
 
+Coverage (coverage.py): the search returns every image whose footprint holds the centre, so a
+centre near a detector's edge gives frames that are partly empty. Before downloading, each image's
+footprint (s_region) says how much of the field it covers, and the selection prefers full ones:
+months, each live stack takes exposures covering >= 90% of the field first (then the ones that
+fill the most of what is still empty); hours, the visit with the most exposures covering >= 50%,
+sessions whose exposures cover >= 90% first, and exposures under 50% left out when their session
+has better ones. When every photo is partial, partial frames are kept (and logged). Without
+footprints (a search saved before they were kept) the choice is the old one, by time alone.
+
 Live builds carry a Budget (budget.py): cutouts are downloaded most useful first (months: every
 visit's first and last exposures before the ones between; hours: in time order), and what is not
 in by the deadline is left out. Gaia and known objects are waited for until the deadline too.
@@ -37,9 +46,10 @@ from typing import Any, Literal
 import numpy as np
 from skyshift_core import Level2
 
-from . import cutouts, gaia, known, measured as measured_mod, search, stack
+from . import coverage, cutouts, gaia, known, measured as measured_mod, search, stack
 from .budget import Budget, BudgetError
 from .cache import Cache
+from .coverage import Coverage
 from .errors import ApiError, NotFoundError, bad_request
 from .search import Image
 
@@ -183,52 +193,87 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
     return out
 
 
-def best_hours_visit(images: list[Image]) -> int | None:
-    """The hours clock's visit number: the one with the most exposures (latest on a tie)."""
+def _frac(cover: Coverage | None, im: Image) -> float:
+    """Share of the field the image covers (coverage.py); 1 without coverage (unknown: as before)."""
+    return 1.0 if cover is None else cover.frac(im)
+
+
+def best_hours_visit(images: list[Image], cover: Coverage | None = None) -> int | None:
+    """The hours clock's visit number: the one with the most exposures, counting only those that
+    cover at least half the field (coverage.USABLE) when the footprints are known; then the one
+    with the most covering nearly all of it (coverage.FULL), then the most exposures, the latest on
+    a tie. Without coverage: the most exposures, the latest on a tie."""
     if not images:
         return None
-    counts = Counter(im.visit for im in images)
-    return max(counts, key=lambda v: (counts[v], v))
+    usable, full, total = Counter(), Counter(), Counter(im.visit for im in images)
+    for im in images:
+        f = _frac(cover, im)
+        usable[im.visit] += f >= coverage.USABLE
+        full[im.visit] += f >= coverage.FULL
+    return max(total, key=lambda v: (usable[v], full[v], total[v], v))
 
 
-def hours_visit(images: list[Image], visit: int | None = None) -> list[Image]:
+def hours_visit(images: list[Image], visit: int | None = None, cover: Coverage | None = None) -> list[Image]:
     """The hours clock's visit, in time order: `visit` when given (a static file shows one visit
-    for all its detectors), else the one with the most exposures (latest on a tie)."""
-    best = best_hours_visit(images) if visit is None else visit
+    for all its detectors), else best_hours_visit's."""
+    best = best_hours_visit(images, cover) if visit is None else visit
     return sorted((im for im in images if im.visit == best), key=lambda im: im.mjd)
 
 
-def pick_hours_images(images: list[Image], visit: int | None = None) -> list[Image]:
-    """The hours clock's exposures: the visit with the most exposures (latest on a tie; or
-    `visit`), whole sessions from its start, at most HOURS_MAX_FRAMES."""
-    chosen = hours_visit(images, visit)
-    if len(chosen) > HOURS_MAX_FRAMES:
-        keep: list[Image] = []
-        for s in sorted({im.session for im in chosen}):
-            part = [im for im in chosen if im.session == s]
-            if keep and len(keep) + len(part) > HOURS_MAX_FRAMES:
-                break
-            keep += part
-        chosen = keep[:HOURS_MAX_FRAMES]
-    return chosen
+def hours_runs(chosen: list[Image], cover: Coverage | None = None) -> list[list[Image]]:
+    """The visit's sessions in time order, each in time order. A session leaves out its exposures
+    covering less than coverage.USABLE of the field when it has one that covers more."""
+    runs: dict[int, list[Image]] = {}
+    for im in chosen:
+        runs.setdefault(im.session, []).append(im)
+    out = []
+    for r in sorted(runs.values(), key=lambda r: r[0].mjd):
+        good = [im for im in r if _frac(cover, im) >= coverage.USABLE]
+        out.append(good or r)
+    return out
+
+
+def pick_hours_images(images: list[Image], visit: int | None = None,
+                      cover: Coverage | None = None) -> list[Image]:
+    """The hours clock's exposures: best_hours_visit's visit (or `visit`), whole sessions from its
+    start, at most HOURS_MAX_FRAMES. With coverage (coverage.py): an exposure covering less than
+    half the field is left out when its session has a better one, and a session with none covering
+    half is left out when another session has one; when nothing covers half, all are kept."""
+    runs = hours_runs(hours_visit(images, visit, cover), cover)
+    best = [r for r in runs if max(_frac(cover, im) for im in r) >= coverage.USABLE]
+    keep: list[Image] = []
+    for part in best or runs:
+        if keep and len(keep) + len(part) > HOURS_MAX_FRAMES:
+            break
+        keep += part
+    return keep[:HOURS_MAX_FRAMES]
 
 
 def pick_hours_live(images: list[Image], max_frames: int = LIVE_HOURS_FRAMES,
-                    per_session: int = LIVE_PER_SESSION, visit: int | None = None) -> list[Image]:
+                    per_session: int = LIVE_PER_SESSION, visit: int | None = None,
+                    cover: Coverage | None = None) -> list[Image]:
     """The live hours clock: at most `max_frames` exposures of the hours clock's visit. The hours
     blink compares exposures minutes apart inside one session, so runs are kept whole: the first
     `per_session` exposures of as many sessions as fit, spread evenly over the visit's sessions
     (its first and last included), using only sessions with at least two exposures when there are
     any. A visit with a single session gives its first `max_frames` exposures. max_frames 0 or a
-    visit that fits: what pick_hours_images shows. visit: show this visit (as pick_hours_images)."""
-    chosen = hours_visit(images, visit)
+    visit that fits: what pick_hours_images shows. visit: show this visit (as pick_hours_images).
+    cover (coverage.py): the sessions come from the best level that has two or more of them:
+    exposures covering at least coverage.FULL of the field, else coverage.USABLE, else any (a
+    session keeps only its exposures at that level); without coverage every exposure is at the
+    first level, as before."""
+    chosen = hours_visit(images, visit, cover)
     if not max_frames or len(chosen) <= max_frames:
-        return pick_hours_images(images, visit)
+        return pick_hours_images(images, visit, cover)
     per_session = max(1, min(per_session or max_frames, max_frames))
-    runs: dict[int, list[Image]] = {}
-    for im in chosen:
-        runs.setdefault(im.session, []).append(im)
-    order = sorted(runs.values(), key=lambda r: r[0].mjd)
+    runs = hours_runs(chosen, cover)
+    order: list[list[Image]] = []
+    for level in (coverage.FULL, coverage.USABLE, 0.0):
+        at = [r2 for r2 in ([im for im in r if _frac(cover, im) >= level] for r in runs) if r2]
+        if len(at) >= 2:
+            order = at
+            break
+        order = order or at
     pool = [r for r in order if len(r) >= 2] or order
     best: list[list[Image]] = [pool[0][:max_frames]]
     for k in range(2, len(pool) + 1):
@@ -240,19 +285,62 @@ def pick_hours_live(images: list[Image], max_frames: int = LIVE_HOURS_FRAMES,
     return sorted((im for r in best for im in r), key=lambda im: im.mjd)
 
 
-def pick_months_images(images: list[Image], per_visit: int | None) -> list[Image]:
+def _spread(part: list[Image], n: int) -> list[Image]:
+    """n of the time-sorted images, evenly spread (first and last included)."""
+    idx = np.unique(np.rint(np.linspace(0, len(part) - 1, n)).astype(int))
+    return [part[i] for i in idx]
+
+
+def pick_months_images(images: list[Image], per_visit: int | None,
+                       cover: Coverage | None = None) -> list[Image]:
     """At most `per_visit` exposures of each visit, spread evenly in time over the visit (so the
-    median still sees several sessions and removes asteroids). None or 0: every exposure."""
+    median still sees several sessions and removes asteroids). None or 0: every exposure.
+    cover (coverage.py): the spread is over the visit's exposures covering at least coverage.FULL
+    of the field; when fewer than per_visit do, all of those, then one at a time the exposure that
+    adds the most of the field still empty (then the best covering, then the farthest in time
+    from those taken)."""
     if not per_visit:
         return images
     out: list[Image] = []
     for v in sorted({im.visit for im in images}):
         part = sorted((im for im in images if im.visit == v), key=lambda im: im.mjd)
         if len(part) > per_visit:
-            idx = np.unique(np.rint(np.linspace(0, len(part) - 1, per_visit)).astype(int))
-            part = [part[i] for i in idx]
+            full = [im for im in part if _frac(cover, im) >= coverage.FULL]
+            if len(full) >= per_visit or cover is None:
+                part = _spread(full, per_visit)
+            else:
+                take, rest = list(full), [im for im in part if _frac(cover, im) < coverage.FULL]
+                while len(take) < per_visit and rest:
+                    def score(im: Image) -> tuple[float, float, float]:
+                        dt = min((abs(im.mjd - t.mjd) for t in take), default=0.0)
+                        return (round(cover.gain(take, im), 3), round(cover.frac(im), 2), dt)
+
+                    nxt = max(rest, key=score)
+                    take.append(nxt)
+                    rest.remove(nxt)
+                part = sorted(take, key=lambda im: im.mjd)
         out += part
     return out
+
+
+def frame_cover(chosen: list[Image], cover: Coverage, clock: str) -> dict[str, float]:
+    """Share of the field each frame will cover, from the footprints: months, the union of a
+    visit's exposures (key "v<visit>"); hours, each exposure (key obs_id). Unknown: 1."""
+    if clock == "months":
+        return {f"v{v}": cover.union(im for im in chosen if im.visit == v) for v in sorted({im.visit for im in chosen})}
+    return {im.obs_id: cover.frac(im) for im in chosen}
+
+
+def log_partial_cover(chosen: list[Image], cover: Coverage, clock: str, fov: float, det: int,
+                      ra: float, dec: float) -> None:
+    """Log the frames that stay partly empty although the selection preferred full ones (the
+    position is near the detector's edge in every photo there). The contract has no field for it:
+    the frame's raw 0 pixels say where."""
+    part = {k: f for k, f in frame_cover(chosen, cover, clock).items() if f < coverage.FULL}
+    if part:
+        log.warning("frames %s %g' D%d (%.5f, %.5f): %d of %d frames cover only part of the field (%s)",
+                    clock, fov, det, ra, dec, len(part), len({im.visit for im in chosen}) if clock == "months"
+                    else len(chosen), ", ".join(f"{k} {f:.0%}" for k, f in part.items()))
 
 
 def exposure_epochs(images: list[Image], ra: float, dec: float, fov: float, cache: Cache, prefix: str,
@@ -390,7 +478,7 @@ def _timed(budget: Budget | None, name: str, fn, *a, **k):
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
                  hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None,
-                 measured: bool = True, visit: int | None = None) -> Frames:
+                 measured: bool = True, visit: int | None = None, view: str = "raw") -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
     hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
@@ -403,6 +491,21 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     (precompute: one visit for every detector of a file, so paired detectors show the same
     moments); NotFoundError when `det` has no exposure in it."""
     _check(clock, fov, det)
+    # Imported analysis fields remain available offline; all other raw fields use
+    # the team's canonical search/cutout/zodi/stack engine below.
+    if view != 'raw':
+        from .published_science import frames as published_frames
+        published = published_frames(ra,dec,fov,clock,det,view)
+        if published is not None:
+            return published
+        from .local_results import find_job
+        from . import cached_results
+        try:
+            find_job(ra,dec)
+        except NotFoundError:
+            raise NotFoundError("Model, residual and reference-difference images exist only for the five featured "
+                                "science targets, at 5' on the Months clock") from None
+        return cached_results.build_frames(ra,dec,fov,clock,det,cache=cache,view=view)
     cache = cache or Cache()
     fov_i = int(round(fov))
     found = _timed(budget, "search", search.search, ra, dec, cache=cache)
@@ -411,10 +514,12 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         raise NotFoundError(f"no SPHEREx images of detector {det} at this position"
                             if found.images else "no SPHEREx images at this position")
     prefix = f"{clock[0]}{fov_i}"
-    chosen = (pick_months_images(images, per_visit) if clock == "months"
-              else pick_hours_live(images, hours_frames or 0, visit=visit))
+    cover = coverage.for_frames(images, ra, dec, clock, fov)
+    chosen = (pick_months_images(images, per_visit, cover) if clock == "months"
+              else pick_hours_live(images, hours_frames or 0, visit=visit, cover=cover))
     if not chosen:
         raise NotFoundError(f"no SPHEREx images of detector {det} in visit {visit} at this position")
+    log_partial_cover(chosen, cover, clock, fov, det, ra, dec)
     planned = planned_epochs(chosen, det, clock)
     # Gaia and known objects run while the cutouts download
     stars_f = _side.submit(_timed, budget, "gaia", gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)

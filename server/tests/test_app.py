@@ -58,6 +58,7 @@ def _err(r, status, code):
 @pytest.fixture
 def no_engine(monkeypatch):
     """Engine absent: blink raises NotImplementedError, gaia/known modules don't exist."""
+    monkeypatch.setenv("SKYSHIFT_ALLOW_SYNTHETIC", "1")
     def not_ready(*a, **k):  # the real engine exists now and would go to the network
         raise NotImplementedError
 
@@ -103,7 +104,10 @@ def test_object_fixture_fallback(client, no_engine):
     assert body["synthetic"] is True
     assert {"name", "gaia", "known_ucd", "spectrum", "measure"} <= set(body)
     assert set(body["measure"]) == {"shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr",
-                                    "sigma_arcsec", "n_ref_stars", "predicted_arcsec"}
+                                    "sigma_arcsec", "n_ref_stars", "predicted_arcsec", "source"}
+    src = body["measure"]["source"]  # contracts/api.md v3.9
+    assert set(src) == {"det", "visits", "mjd", "n_exposures", "fov", "pixel_arcsec", "core_filled"}
+    assert body["measure"]["dt_yr"] == pytest.approx((src["mjd"][1] - src["mjd"][0]) / 365.25, abs=1e-4)
 
 
 def test_gaia_and_known_fixture_fallback(client, no_engine):

@@ -120,10 +120,13 @@ def write_json(name, obj):
 
 
 # ---------------------------------------------------------------- Months clock: Barnard's Star
+BARNARD_VISITS = [(60929.41, 60947.83, 19), (61111.18, 61129.62, 18), (61293.96, 61311.47, 20)]  # start, end, n
+
+
 def months_barnard():
     rng = random.Random(20261114)
     det, pix = 2, 2.05                        # months 5' field: 3x oversampled, 2.05"/px
-    visits = [(60929.41, 60947.83, 19), (61111.18, 61129.62, 18), (61293.96, 61311.47, 20)]
+    visits = BARNARD_VISITS
     mids = [(a + b) / 2 for a, b, _ in visits]
     grid = Grid(*move(BARNARD, mids[1]), pix)
     stars, field = field_stars(grid, rng, 7, sigma=1.56)
@@ -191,7 +194,11 @@ def object_barnard(mids):
         "name": "Barnard's Star", "gaia": BARNARD, "known_ucd": None, "spectrum": spectrum,
         "measure": {"shift_arcsec": r(shift, 3), "pa_deg": 356.1, "dt_yr": r(dt_yr, 4),
                     "rate_arcsec_yr": r(shift / dt_yr, 3), "sigma_arcsec": 0.9, "n_ref_stars": 12,
-                    "predicted_arcsec": r(pm_total * dt_yr, 3)},
+                    "predicted_arcsec": r(pm_total * dt_yr, 3),
+                    # v3.9: what the shift was measured on (D2 stacks of visits 1 and 3, cores filled)
+                    "source": {"det": 2, "visits": [1, 3], "mjd": [r(mids[0], 5), r(mids[-1], 5)],
+                               "n_exposures": [BARNARD_VISITS[0][2], BARNARD_VISITS[-1][2]],
+                               "fov": 15, "pixel_arcsec": NATIVE_PIX, "core_filled": [True, True]}},
         "measure_reason": None, "measure_hint": None,
     }
     write_json("object_barnard.json", obj)
@@ -353,7 +360,7 @@ def distant():
         "searched": {"distance_au": [70.0, 1000.0], "sep_arcsec": [300.0, 7200.0], "rate_arcsec_h": [0.0, 1.0],
                      "pair_min_p": 0.01},
         "counts": {"single_visit_sources": 5000, "uncatalogued": 800, "covered": 790, "orphans": 450,
-                   "dropped": {"bright_fragment": 310, "zone_edge": 30, "saturated": 5}, "drift_ok": 440,
+                   "dropped": {"bright_fragment": 310, "zone_edge": 30, "saturated": 5, "blend": 12}, "drift_ok": 440,
                    "pairs_tested": 900, "pairs": 1, "known_orphans": 0, "open_orphans": 100},
         "pairs": [{"source_id_a": 64900007030800, "source_id_b": 64940007013300, "visit_a": 1, "visit_b": 2,
                    "ra_a": 123.33, "dec_a": 18.17, "mjd_a": 60975.29, "ra_b": 123.07, "dec_b": 18.23, "mjd_b": 61145.0,

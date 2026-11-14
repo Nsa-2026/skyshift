@@ -13,8 +13,16 @@ optical wavelengths for Gaia, but bright at 3–5 µm, where SPHEREx sees. Two r
 2. "fit": astrometry.parquet's SPHEREx-only proper motion >= HIGHPM_FIT_MIN_MAS_YR at
    >= HIGHPM_FIT_MIN_SNR (slower movers that stay linked as one source).
 `status` = "new" when neither side matches Gaia (crossids), else "gaia". A CatWISE match whose proper
-motion agrees with ours (parallax-aware, below) is a bonus (`catwise_pm_agree`). `red_ratio` =
+motion agrees with ours (parallax-aware, below) is a bonus (`catwise_pm_agree`); CatWISE's motion of a saturated
+source brighter than W1 HIGHPM_CW_SAT_W1_MAX counts for nothing (neither checks nor disproves). `red_ratio` =
 D6 / D2 flux (4.4–5.0 µm over 1.1–1.6 µm): large for cold objects (methane, CO absorption bluewards).
+
+Deep checks (deep_check, HIGHPM_DEEP_CHECK) before a vetted row counts as "new": refcat stops at G 20 and crossid's
+2MASS match ignores motion. Gaia DR3 with no magnitude cut (ESA TAP sync, HIGHPM_DEEP_BATCH rows per query) around
+our position and around where our motion, less a parallax leak, puts us at 2016.0: a source whose own motion brings it
+to us is the counterpart (status "gaia", vetted unless its motion is not ours: gaia_pm_disagrees / gaia_slow). Else a
+2MASS source (refcat) where our motion puts us at its epoch makes it status "2mass". A failed query leaves the rows
+"new" (report deep_check.deep_gaia_checked false); nothing raises.
 
 Parallax: with two visits half a year apart a fit's pm is the true pm plus ϖ·(k_e, k_n), the parallax leak
 (visit_stats: k = cov(t, parallax factor) / var(t) over the source's dots; hunt k_e ≈ −4.1, k_n ≈ +1.0). So a
@@ -431,6 +439,11 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
                 cerr = np.nan_to_num(cw_err.reindex(r["catwise_ref_id"].astype(str).to_numpy()).to_numpy(np.float64))
             has, ok = catwise_check(out, r["catwise_pmra"].to_numpy(np.float64), r["catwise_pmdec"].to_numpy(np.float64),
                                     cerr, ke, kn, plx_per_pm)
+            # a saturated source brighter than W1 8: CatWISE's motion neither checks nor disproves ours
+            w1 = r["w1"].to_numpy(np.float64) if "w1" in r else np.full(n, np.nan)
+            with np.errstate(invalid="ignore"):
+                has &= ~(sat & (w1 < C.HIGHPM_CW_SAT_W1_MAX))
+            ok &= has
             agree |= ok
             cw_has |= has
             cw[(cw == "") & (nm != "")] = nm[(cw == "") & (nm != "")]
@@ -451,11 +464,14 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     # CatWISE judges only where Gaia has no motion to compare (Gaia: parallax known, far smaller errors)
     out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has,
               gaia_slow=g_slow & ~gaia_dis)
-    # vetted first, new before gaia, then pairs before fits, then best score
-    out["_r"] = ((~out["vetted"]).astype(int) * 4 + (out["status"] != "new").astype(int) * 2
-                 + (out["method"] != "pair").astype(int))
-    out = out.sort_values(["_r", "score"], kind="stable").reset_index(drop=True)
-    return out[COLUMNS]
+    return _ordered(out)
+
+
+def _ordered(out: pd.DataFrame) -> pd.DataFrame:
+    """COLUMNS; vetted first, new before catalogued, then pairs before fits, then best score."""
+    r = ((~out["vetted"].to_numpy(bool)).astype(int) * 4 + (out["status"] != "new").to_numpy().astype(int) * 2
+         + (out["method"] != "pair").to_numpy().astype(int))
+    return out.assign(_r=r).sort_values(["_r", "score"], kind="stable").reset_index(drop=True)[COLUMNS]
 
 
 def recall(cands: pd.DataFrame, crossids: pd.DataFrame | None, refcat: pd.DataFrame, zone: C.Zone, mjd_ref: float) -> dict:
@@ -542,7 +558,200 @@ def fp_control(src: pd.DataFrame, crossids: pd.DataFrame | None, ast: pd.DataFra
             "still_definition": {"pm_max_mas_yr": C.HIGHPM_STILL_PM_MAX, "parallax_max_mas": C.HIGHPM_STILL_PLX_MAX}}
 
 
-def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
+# --- deep checks before a vetted row counts as "new" ------------------------------------------------------------------
+def deep_gaia_tap(adql: str):
+    """ESA Gaia TAP, synchronous (its async jobs stalled for minutes, 14 Nov), HIGHPM_DEEP_TIMEOUT_S per request."""
+    import pyvo
+    import requests
+
+    from .refcat import ESA_TAP
+
+    class _Session(requests.Session):
+        def request(self, *a, **k):
+            k.setdefault("timeout", C.HIGHPM_DEEP_TIMEOUT_S)
+            return super().request(*a, **k)
+
+    return pyvo.dal.TAPService(ESA_TAP, session=_Session()).run_sync(adql, maxrec=C.REFCAT_MAXREC).to_table()
+
+
+def _leak(rows: pd.DataFrame, vstats: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray]:
+    """Each row's parallax leak k (fits: visit_stats; pairs: none, as compute)."""
+    ke, kn = np.zeros(len(rows)), np.zeros(len(rows))
+    if vstats is not None and len(vstats) and len(rows):
+        v = vstats.drop_duplicates("source_id").set_index("source_id").reindex(rows["source_id"].to_numpy(np.int64))
+        fit = (rows["method"] == "fit").to_numpy()
+        ke = np.where(fit, np.nan_to_num(v["k_e"].to_numpy(np.float64)), 0.0)
+        kn = np.where(fit, np.nan_to_num(v["k_n"].to_numpy(np.float64)), 0.0)
+    return ke, kn
+
+
+def _segment(rows: pd.DataFrame, ke, kn, mjd_to) -> tuple[np.ndarray, ...]:
+    """Our position moved to mjd_to with our pm (ra_a, dec_a) and with our pm less the largest parallax leak ϖ·k,
+    ϖ = HIGHPM_CW_PLX_PER_PM × |pm| (ra_b, dec_b): where a nearby object was then lies between the two."""
+    from .sky import offset_radec
+    dt = (np.asarray(mjd_to, np.float64) - rows["mjd"].to_numpy(np.float64)) / DAYS_PER_JYEAR / 1000.0  # yr, mas → ″
+    pmra, pmdec = rows["pmra"].to_numpy(np.float64), rows["pmdec"].to_numpy(np.float64)
+    plx = C.HIGHPM_CW_PLX_PER_PM * np.hypot(pmra, pmdec)
+    ra, dec = rows["ra"].to_numpy(np.float64), rows["dec"].to_numpy(np.float64)
+    ra_a, dec_a = offset_radec(ra, dec, pmra * dt, pmdec * dt)
+    ra_b, dec_b = offset_radec(ra, dec, (pmra - plx * ke) * dt, (pmdec - plx * kn) * dt)
+    return ra_a, dec_a, ra_b, dec_b
+
+
+def deep_gaia_query(rows: pd.DataFrame, ke, kn, tap=None) -> pd.DataFrame:
+    """Gaia DR3 sources of any G (refcat's columns, parse_gaia) within HIGHPM_DEEP_ARCSEC of each row's position or of
+    the segment its position moved back to 2016.0 takes (_segment): one ESA query per HIGHPM_DEEP_BATCH rows, two
+    circles a row. Raises when the service fails."""
+    from skyshift_core import GAIA_EPOCH_MJD
+
+    from .refcat import GAIA_SELECT, parse_gaia
+    from .sky import angsep
+    tap = tap or deep_gaia_tap
+    ra_a, dec_a, ra_b, dec_b = _segment(rows, ke, kn, GAIA_EPOCH_MJD)
+    # a circle through the segment's middle covering both ends (fine for ″-scale segments)
+    ra_m, dec_m = (ra_a + ra_b) / 2.0, (dec_a + dec_b) / 2.0
+    r_m = angsep(ra_a, dec_a, ra_b, dec_b) / 2.0 + C.HIGHPM_DEEP_ARCSEC / 3600.0
+    circles = [f"1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {a:.7f}, {d:.7f}, {r:.7f}))"
+               for i in range(len(rows))
+               for a, d, r in ((rows["ra"].iat[i], rows["dec"].iat[i], C.HIGHPM_DEEP_ARCSEC / 3600.0),
+                               (ra_m[i], dec_m[i], r_m[i]))]
+    step = 2 * C.HIGHPM_DEEP_BATCH
+    parts = [parse_gaia(tap(f"SELECT {GAIA_SELECT} FROM gaiadr3.gaia_source WHERE {' OR '.join(circles[i:i + step])}"))
+             for i in range(0, len(circles), step)]
+    g = pd.concat(parts, ignore_index=True) if parts else parse_gaia(pd.DataFrame({"source_id": []}))
+    return g.drop_duplicates("ref_id").reset_index(drop=True)
+
+
+def deep_gaia_match(rows: pd.DataFrame, ke, kn, gaia: pd.DataFrame) -> list[dict | None]:
+    """Per row, its deep Gaia counterpart: a source whose own motion (from 2016.0) puts it within
+    HIGHPM_DEEP_MATCH_ARCSEC of us at our epoch, one whose motion agrees with ours (gaia_check, parallax leak) first,
+    then the nearest; None without one."""
+    from skyshift_core import GAIA_EPOCH_MJD, propagate
+
+    from .sky import angsep
+    out: list[dict | None] = []
+    for i in range(len(rows)):
+        if not len(gaia):
+            out.append(None)
+            continue
+        r = rows.iloc[[i]]
+        pra, pde = propagate(gaia["ra"].to_numpy(), gaia["dec"].to_numpy(), gaia["pmra"].to_numpy(), gaia["pmdec"].to_numpy(),
+                             float(r["mjd"].iat[0]), epoch_mjd=GAIA_EPOCH_MJD)
+        sep = angsep(pra, pde, r["ra"].iat[0], r["dec"].iat[0]) * 3600.0
+        near = np.flatnonzero(sep <= C.HIGHPM_DEEP_MATCH_ARCSEC)
+        if not near.size:
+            out.append(None)
+            continue
+        g = gaia.iloc[near]
+        rr = pd.concat([r] * len(near), ignore_index=True)
+        has, dis, pred = gaia_check(rr, g["pmra"].to_numpy(np.float64), g["pmdec"].to_numpy(np.float64),
+                                    g["parallax"].to_numpy(np.float64), np.full(len(near), ke[i]), np.full(len(near), kn[i]),
+                                    predicted=True)
+        j = int(np.lexsort((sep[near], ~(has & ~dis)))[0])
+        out.append({"ref_id": str(g["ref_id"].iat[j]), "gaia_id": int(str(g["ref_id"].iat[j]).split(":")[-1]),
+                    "g": float(g["g_mag"].iat[j]), "pmra": float(g["pmra"].iat[j]), "pmdec": float(g["pmdec"].iat[j]),
+                    "parallax": float(g["parallax"].iat[j]), "sep_arcsec": float(sep[near][j]),
+                    "has_pm": bool(has[j]), "agrees": bool(has[j] and not dis[j]), "predicted_pm": float(pred[j])})
+    return out
+
+
+def deep_tmass_match(rows: pd.DataFrame, ke, kn, refcat: pd.DataFrame, d2_ab: np.ndarray) -> list[dict | None]:
+    """Per row, a 2MASS source (refcat) where our motion, less a parallax leak ϖ·k (0 <= ϖ <= HIGHPM_CW_PLX_PER_PM × |pm|,
+    the best one), puts us at its own epoch (within HIGHPM_DEEP_MATCH_ARCSEC), not at our own position, and with its J
+    (AB) within HIGHPM_DEEP_TMASS_MAX_DMAG of our D2 flux (AB) where both are known; None without one."""
+    from .sky import angsep
+    tm = refcat[(refcat["cat"].to_numpy() == "tmass") & np.isfinite(refcat["epoch_mjd"].to_numpy(np.float64))]
+    out: list[dict | None] = []
+    if not len(tm) or not len(rows):
+        return [None] * len(rows)
+    ra_a, dec_a, ra_b, dec_b = _segment(rows, ke, kn, 51544.5)  # J2000.0: 2MASS observed 1997.5–2001
+    tra, tde, tep = (tm[c].to_numpy(np.float64) for c in ("ra", "dec", "epoch_mjd"))
+    jab = tm["j"].to_numpy(np.float64) + 0.91 if "j" in tm else np.full(len(tm), np.nan)
+    for i in range(len(rows)):
+        r = rows.iloc[i]
+        reach = (angsep(ra_a[i], dec_a[i], ra_b[i], dec_b[i]) * 3600.0 + 3.0 * abs(r["pm"]) / 1000.0
+                 + C.HIGHPM_DEEP_ARCSEC)  # the segment, ± 1.5 yr of 2MASS epochs, the match radius
+        near = np.flatnonzero(angsep(tra, tde, (ra_a[i] + ra_b[i]) / 2.0, (dec_a[i] + dec_b[i]) / 2.0) * 3600.0 <= reach)
+        if not near.size:
+            out.append(None)
+            continue
+        e0, n0 = tangent_offset_arcsec(r["ra"], r["dec"], tra[near], tde[near])
+        dt = (tep[near] - r["mjd"]) / DAYS_PER_JYEAR
+        r0e, r0n = e0 - r["pmra"] * dt / 1000.0, n0 - r["pmdec"] * dt / 1000.0
+        ve, vn = ke[i] * dt / 1000.0, kn[i] * dt / 1000.0  # ″ per mas of parallax
+        vv = ve * ve + vn * vn
+        with np.errstate(invalid="ignore", divide="ignore"):
+            w = np.where(vv > 0, np.clip(-(r0e * ve + r0n * vn) / vv, 0.0, C.HIGHPM_CW_PLX_PER_PM * abs(r["pm"])), 0.0)
+        res = np.hypot(r0e + w * ve, r0n + w * vn)
+        dmag = np.abs(jab[near] - d2_ab[i])
+        ok = ((res <= C.HIGHPM_DEEP_MATCH_ARCSEC) & (np.hypot(e0, n0) > C.HIGHPM_DEEP_MATCH_ARCSEC)
+              & ~(np.nan_to_num(dmag, nan=0.0) > C.HIGHPM_DEEP_TMASS_MAX_DMAG))
+        if not ok.any():
+            out.append(None)
+            continue
+        j = int(np.flatnonzero(ok)[np.argmin(res[ok])])
+        out.append({"ref_id": str(tm["ref_id"].iat[near[j]]), "sep_arcsec": round(float(res[j]), 2),
+                    "offset_now_arcsec": round(float(np.hypot(e0[j], n0[j])), 1), "parallax_used_mas": round(float(w[j]), 1),
+                    "epoch_mjd": round(float(tep[near[j]]), 1),
+                    "j_ab": None if not np.isfinite(jab[near[j]]) else round(float(jab[near[j]]), 2)})
+    return out
+
+
+def deep_check(cands: pd.DataFrame, vstats: pd.DataFrame | None, refcat: pd.DataFrame, d2_ab: pd.Series | None = None,
+               tap=None) -> tuple[pd.DataFrame, dict]:
+    """Before a vetted row counts as `new`: Gaia DR3 with no magnitude cut (deep_gaia_query, deep_gaia_match) and
+    2MASS from refcat (deep_tmass_match), both following our motion back in time. A Gaia counterpart makes the row
+    status `gaia` (its gaia_ref_id, gaia_id), vetted only when Gaia's motion (with its parallax leak) agrees with ours or
+    Gaia has none (`gaia_pm_disagrees`, `gaia_slow` as compute); else a 2MASS one makes it status `2mass`. A failed
+    Gaia query keeps the rows `new` (deep_gaia_checked false); never raises. d2_ab: our D2 AB magnitude by source_id."""
+    v = cands["vetted"].to_numpy(bool) & (cands["status"] == "new").to_numpy() if len(cands) else np.zeros(0, bool)
+    idx = np.flatnonzero(v)
+    rep: dict = {"rows": int(idx.size), "deep_gaia_checked": True, "gaia_matched": 0, "gaia_agrees": 0,
+                 "gaia_disagrees": 0, "tmass_matched": 0, "matches": []}
+    if not idx.size:
+        return cands, rep
+    cands = cands.copy()
+    rows = cands.iloc[idx].reset_index(drop=True)
+    ke, kn = _leak(rows, vstats)
+    try:
+        gm = deep_gaia_match(rows, ke, kn, deep_gaia_query(rows, ke, kn, tap))
+    except Exception as e:  # noqa: BLE001 - the network: keep the rows new, say so
+        L.warning("highpm: deep Gaia check failed (%s): %d vetted rows stay new", e, idx.size)
+        rep.update({"deep_gaia_checked": False, "error": repr(e)[:200]})
+        gm = [None] * len(rows)
+    d2 = (d2_ab.reindex(rows["source_id"].to_numpy(np.int64)).to_numpy(np.float64) if d2_ab is not None
+          else np.full(len(rows), np.nan))
+    tmm = deep_tmass_match(rows, ke, kn, refcat, d2)
+    status, gref = np.array(cands["status"], dtype=object), np.array(cands["gaia_ref_id"], dtype=object)
+    gid, reason = np.array(cands["gaia_id"], dtype=np.int64), np.array(cands["reason"], dtype=object)
+    for i, k in enumerate(idx):
+        g, t = gm[i], tmm[i]
+        row = {"source_id": int(rows["source_id"].iat[i]), "method": str(rows["method"].iat[i]),
+               "pm": round(float(rows["pm"].iat[i]), 1), "gaia": g, "tmass": t}
+        rep["matches"].append(row)
+        if g is not None:
+            status[k], gref[k], gid[k] = "gaia", g["ref_id"], g["gaia_id"]
+            rep["gaia_matched"] += 1
+            if g["has_pm"] and not g["agrees"]:
+                reason[k] = "gaia_pm_disagrees"
+                rep["gaia_disagrees"] += 1
+            elif g["has_pm"]:
+                rep["gaia_agrees"] += 1
+                if g["predicted_pm"] < C.HIGHPM_FIT_MIN_MAS_YR:
+                    reason[k] = "gaia_slow"
+        elif t is not None:
+            status[k] = "2mass"
+            rep["tmass_matched"] += 1
+    cands["status"], cands["gaia_ref_id"], cands["gaia_id"], cands["reason"] = status, gref.astype(str), gid, reason
+    cands["vetted"] = cands["reason"].to_numpy(object) == ""
+    for m in rep["matches"]:
+        if m["gaia"] is not None:
+            m["gaia"] = {k: (round(v, 2) if isinstance(v, float) and np.isfinite(v) else (None if isinstance(v, float) else v))
+                         for k, v in m["gaia"].items()}
+    return _ordered(cands), rep
+
+
+def run(store: Store, zone: C.Zone, workers: int = 16, tap=None) -> dict:
     t0 = time.time()
     src = store.read_parquet(results_rel(zone.name, "sources.parquet"), columns=["source_id", "ra", "dec", "pos_err_arcsec", "flux_ujy"])
     try:
@@ -569,11 +778,20 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     cw_err = catwise_pm_err(store, zone)
     ctrl = control_separations(src, fps)
     spec = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64) if len(src) else np.zeros((0, NDET * NCH_DET))
-    real = pair_movers(src, detector_fluxes(spec), fps)
+    dflux = detector_fluxes(spec)
+    real = pair_movers(src, dflux, fps)
     bins = pair_vs_control(real["sep_arcsec"].to_numpy(np.float64) if len(real) else np.zeros(0), ctrl)
     cands = compute(src, fps, crossids, ast, bins, vstats, cw_err)
-    store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     refcat = load_refcat(store, zone)
+    deep: dict = {"enabled": False}
+    if C.HIGHPM_DEEP_CHECK:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            d2_ab = pd.Series(-2.5 * np.log10(dflux[:, 1] / 3631e6), index=src["source_id"].to_numpy(np.int64))
+        cands, deep = deep_check(cands, vstats, refcat, d2_ab, tap)
+        deep = {"enabled": True, **deep}
+    from . import fragments  # bright_fragment → reason `fragment` (never vetted); blend → not new (Gaia lists the stars)
+    cands, frag_st = fragments.apply_highpm(cands, fragments.load(store, zone))
+    store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     mjd_ref = float(np.nanmedian(src["mjd"])) if len(src) else 61000.0
     v, new = cands["vetted"].to_numpy(bool), (cands["status"] == "new").to_numpy()
     rep = {"zone": zone.name, "candidates": int(len(cands)), "vetted": int(v.sum()),
@@ -586,6 +804,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
            "control_offsets_arcsec": [list(o) for o in C.HIGHPM_CONTROL_OFFSETS],
            "pair_vs_control": bins,
            "fp_control": fp_control(src, crossids, ast, vstats, cw_err),
+           "deep_check": deep, "fragments": frag_st,
            "recall": recall(cands, crossids, refcat, zone, mjd_ref)}
     store.write_json(results_rel(zone.name, "highpm_report.json"), rep)
     st = {k: v for k, v in rep.items() if k != "recall"}
