@@ -147,3 +147,19 @@ def test_uncatalogued_saturated_motion_is_unchecked():
 
     assert fit(src.assign(saturated=False))["vetted"]
     assert fit(src.assign(saturated=True))["reason"] == "unchecked"
+
+
+def test_gaia_slow_star_within_errors_is_not_listed():
+    """A Gaia star our fit measures at 180 mas/yr, consistent within errors with Gaia's 80 mas/yr (ϖ 3 mas): Gaia
+    agrees, but it predicts less than HIGHPM_FIT_MIN_MAS_YR, so it is a known slow star (gaia_slow), not a mover.
+    A nearby star whose parallax leak lifts Gaia's prediction above the threshold stays listed."""
+    src = hp_sources()
+    ast = one_fit(pmra=-180.0, pmdec=0.0, pm=180.0, pmra_err=40.0, pmdec_err=40.0, pm_snr=4.6)
+    xid = pd.DataFrame({"source_id": [1], "gaia_ref_id": ["gaia:1"], "gaia_id": [1], "gaia_pmra": [-80.0],
+                        "gaia_pmdec": [0.0], "gaia_parallax": [3.0], "catwise_name": [""], "catwise_pmra": [np.nan],
+                        "catwise_pmdec": [np.nan]})
+    r = HP.compute(src, None, xid, ast, vstats=vstats([1])).query("method == 'fit'").iloc[0]
+    assert not r["vetted"] and r["reason"] == "gaia_slow"
+    xid["gaia_parallax"] = 25.0  # −80 + 25 × −4.1 = −182.5 mas/yr: Gaia itself predicts what we measured
+    r = HP.compute(src, None, xid, ast, vstats=vstats([1])).query("method == 'fit'").iloc[0]
+    assert r["vetted"] and r["reason"] == ""

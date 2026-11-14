@@ -68,7 +68,7 @@ COLUMNS = ["method", "status", "source_id", "source_id_b", "ra", "dec", "ra_b", 
            "sep_arcsec", "pmra", "pmdec", "pm", "pm_err", "flux_ratio", "shape_rms", "n_common_det", "red_ratio",
            "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason"]
 REASONS = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap", "gaia_pm_disagrees",
-           "catwise_pm_disagrees", "unchecked", "at_control_level")
+           "catwise_pm_disagrees", "unchecked", "at_control_level", "gaia_slow")
 QUALITY = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap")  # not applied to a Gaia-confirmed motion
 
 
@@ -130,9 +130,11 @@ def visit_stats(m: pd.DataFrame, p: pd.DataFrame, pos: pd.DataFrame, ids) -> pd.
         {"sessions_min": np.int64})
 
 
-def gaia_check(out: pd.DataFrame, gpmra, gpmdec, gplx, k_e, k_n) -> tuple[np.ndarray, np.ndarray]:
+def gaia_check(out: pd.DataFrame, gpmra, gpmdec, gplx, k_e, k_n,
+               predicted: bool = False) -> tuple[np.ndarray, ...]:
     """(has a Gaia pm, disagrees): Gaia's pm + its parallax × the leak k (what our fit should have measured)
-    against ours; disagrees beyond max(HIGHPM_PM_AGREE_SIGMA × pm_err, HIGHPM_CATWISE_PM_TOL × |predicted|, 100)."""
+    against ours; disagrees beyond max(HIGHPM_PM_AGREE_SIGMA × pm_err, HIGHPM_CATWISE_PM_TOL × |predicted|, 100).
+    predicted: also return |Gaia's pm + parallax × leak| (mas/yr), the motion Gaia says our fit should see."""
     plx = np.nan_to_num(np.asarray(gplx, np.float64), nan=0.0)
     pra = np.asarray(gpmra, np.float64) + plx * np.nan_to_num(k_e)
     pde = np.asarray(gpmdec, np.float64) + plx * np.nan_to_num(k_n)
@@ -140,6 +142,8 @@ def gaia_check(out: pd.DataFrame, gpmra, gpmdec, gplx, k_e, k_n) -> tuple[np.nda
     tol = np.maximum.reduce([C.HIGHPM_PM_AGREE_SIGMA * np.nan_to_num(out["pm_err"].to_numpy(np.float64)),
                              C.HIGHPM_CATWISE_PM_TOL * np.nan_to_num(np.hypot(pra, pde)), np.full(len(out), 100.0)])
     has = np.isfinite(d)
+    if predicted:
+        return has, has & (d > tol), np.hypot(pra, pde)
     return has, has & (d > tol)
 
 
@@ -329,10 +333,12 @@ def pm_disagrees(pmra_c, pmdec_c, out: pd.DataFrame) -> np.ndarray:
 
 
 def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: list[dict] | None,
-        confirmed: np.ndarray | None = None, checked: np.ndarray | None = None) -> pd.DataFrame:
+        confirmed: np.ndarray | None = None, checked: np.ndarray | None = None,
+        gaia_slow: np.ndarray | None = None) -> pd.DataFrame:
     """`vetted` and `reason` (module docstring). pair_bins None: pairs are not tested against the control.
     confirmed: Gaia confirms the motion (the QUALITY reasons don't apply); checked: a Gaia or CatWISE motion exists
-    to check it against (None: every row counts as checked)."""
+    to check it against (None: every row counts as checked); gaia_slow: Gaia agrees but predicts under
+    HIGHPM_FIT_MIN_MAS_YR (pm + parallax leak), so the row is a known slow star, not a mover to list."""
     n = len(out)
     fit = (out["method"] == "fit").to_numpy()
     col = lambda c: out[c].to_numpy(np.float64) if c in out else np.full(n, np.nan)  # noqa: E731
@@ -349,6 +355,7 @@ def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: 
             "catwise_pm_disagrees": np.asarray(cw_dis, bool),
             "unchecked": fit & ~chk & ((col("_pm_snr") < C.HIGHPM_NOCAT_MIN_SNR) | (col("_saturated") > 0)),
             "at_control_level": np.zeros(n, bool),
+            "gaia_slow": np.zeros(n, bool) if gaia_slow is None else np.asarray(gaia_slow, bool),
         }
     for k in QUALITY:
         bad[k] &= ~conf
@@ -406,6 +413,7 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     cw = np.full(n, "", dtype=object)
     agree = np.zeros(n, bool)
     g_has = np.zeros(n, bool)      # a Gaia counterpart with its own pm
+    g_slow = np.zeros(n, bool)     # ... whose pm + parallax leak is under HIGHPM_FIT_MIN_MAS_YR: a known slow star
     gaia_dis = np.zeros(n, bool)
     cw_has = np.zeros(n, bool)
     cw_dis = np.zeros(n, bool)
@@ -429,7 +437,9 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
             cw_dis |= (nm != "") & has & ~ok
             if "gaia_pmra" in r and "gaia_pmdec" in r:
                 plx = r["gaia_parallax"].to_numpy(np.float64) if "gaia_parallax" in r else np.zeros(n)
-                gh, gd = gaia_check(out, r["gaia_pmra"].to_numpy(np.float64), r["gaia_pmdec"].to_numpy(np.float64), plx, ke, kn)
+                gh, gd, gp = gaia_check(out, r["gaia_pmra"].to_numpy(np.float64), r["gaia_pmdec"].to_numpy(np.float64),
+                                        plx, ke, kn, predicted=True)
+                g_slow |= (g != "") & gh & (gp < C.HIGHPM_FIT_MIN_MAS_YR)
                 g_has |= (g != "") & gh
                 gaia_dis |= (g != "") & gd
     out["gaia_ref_id"] = gref.astype(str)
@@ -439,7 +449,8 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     out["status"] = np.where(out["gaia_ref_id"] == "", "new", "gaia")
     confirmed = g_has & ~gaia_dis
     # CatWISE judges only where Gaia has no motion to compare (Gaia: parallax known, far smaller errors)
-    out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has)
+    out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has,
+              gaia_slow=g_slow & ~gaia_dis)
     # vetted first, new before gaia, then pairs before fits, then best score
     out["_r"] = ((~out["vetted"]).astype(int) * 4 + (out["status"] != "new").astype(int) * 2
                  + (out["method"] != "pair").astype(int))
