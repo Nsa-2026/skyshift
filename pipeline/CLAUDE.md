@@ -7,8 +7,8 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves, astrometry,
-highpm, score, suspects; `all` runs them in order.
+Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
+astrometry, highpm, score, completeness, suspects; `all` runs them in order.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -41,6 +41,16 @@ highpm, score, suspects; `all` runs them in order.
   share, applied in motion_io.load_forced (aperture fluxes take the dots' factors).
   refcat: Gaia tiles cached before the GSPC join (15 Nov) are refetched by the next full (not partial) refcat run, best
   effort (a failed refetch keeps the old tile; marker refcat/<zone>_catalogs.json `gspc`). Without GSPC, D1 keeps the stitch.
+- qa (after calib, zone-wide; tiled: once, before suspects starts): a grade per photo, green/amber/red + reasons, because
+  NASA's header QA passes every photo. Each photo against the zone's photos of its detector: dots per photo (vs detector
+  and visit), FWHM and PSF/aperture flux of S/N > 50 dots, raw offset and scatter vs forced Gaia, SAA distance, SATSTRKS
+  (all from the dot files' footers: one ranged read each), calib_photos.parquet's per-photo scatter after the distortion
+  fit, and, where the dot files are local (tiled mirror, local root), the share of bright dots much sharper than the
+  stars with OUTLIER at the peak (never OUTLIER alone). → results/<zone>/qa_photos.parquet (obs_id, detector, grade,
+  reasons, metrics) + qa.json; lightcurves gives red photos photo_ok false; suspects reads the grades. Thresholds:
+  config QA_*. ecl15 sample (1,209 photos): 14 red (1.2%: 4 SAA passages, 9 visit-3 D6 artefact photos, 1 bad WCS);
+  hunt: the 2 bad-WCS photos (0.99″, 0.74″ after calib). MWIR sharp artefacts grow with time (D6: 1% → 24% → 44% of
+  bright dots in visits 1–3): every visit-3 D6 photo is at least amber. In `all` a failing qa is logged and skipped.
 - `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
   cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. MPC is the only source of known objects (no flag, no env var).
@@ -71,13 +81,31 @@ highpm, score, suspects; `all` runs them in order.
 - Zone edges are tile edges (TILE_ZONE_EDGE_MARGIN): edge tiles load the border outside the zone box from the zone's
   photos, so stars on the zone edge aren't cut (untiled clips at the box). Photos touching only that 2′ strip are missing.
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
-  Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), classify's stellar locus, the light-curve error model
-  and bad photos, astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
+  Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
+  light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
   highpm, score and suspects run once on the merged tables (their 15′/2′ controls need no border).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
   combining steps, 3/4 of a full read); each tile reads every photo it overlaps. No mirror when the disk lacks room
   (TILE_DISK_RESERVE_GB; hunt: ~6 GB slim dots + 1.9 GB forced): tiles then read the root, slower, same results.
 - Equality (tests/test_tiles.py; pilot photos with 0.3° tiles): tiled == untiled table by table and report by report.
+
+## Completeness (inject.py, step `completeness`): what "found nothing" means
+- Once per zone after score (a tiled `all` runs it after the tiles; env SKYSHIFT_COMPLETENESS=off skips it). A 1° × 1°
+  sub-area at the zone's centre (INJECT_*; smaller when it holds > 2 M real dots): its real dots from every photo that
+  overlaps it, plus synthetic dots of 8 × 400 objects on straight tracks (0.01–300″/h log-uniform, any direction, S/N 5–100
+  per dot in a median-noise photo of each detector) at the real exposure times, detectors and footprints. Flux from the
+  photo's own noise; kept with the zone's own detection probability (dot S/N counts against a power law: hunt 0.3 at
+  S/N 5.25, 0.7 at 6.75, ~1 from 9); position scatter 1.6 × pos_err; elong drawn from real dots, stretched by the trail.
+  Real + synthetic dots go through link.fixed_groups/classify unchanged; nothing is written but
+  results/<zone>/completeness.json (grid rate × S/N, by_rate, by_snr, limits, headline, vs_recall) and a summary entry.
+- Unit = score's (one object in one session, ≥ 2 exposures, ≥ 10 px inside); found = a mover within 12″ of the object at
+  the mover's time. Other outcomes: fixed (own fixed source: too slow), merged (joined a real star), undetected, vetoed,
+  unlinked; `fixed_single_visit` per object and visit (its own fixed source seen in that visit only: the slow route,
+  orphans). Hunt centre (1.0 deg², 445 photos, 329k real dots; 12 s, ~0.5 GB on a laptop from local files; a run on
+  the bucket adds the read of ~445 dot files): ≥ 50% found per session at 0.46–300″/h, ≥ 90% at 2.2–300″/h (S/N ≥ 20);
+  0.1–0.2″/h 7%, 0.2–0.5″/h 30% (these become single-visit fixed sources, 87–99%); 10–90″/h S/N ≥ 20 94% vs the
+  measured known-asteroid recall 90.4% (`vs_recall` ratio 0.96: missing dots, masks and artefacts aren't modelled).
+  Same S/N in every detector by default (INJECT_MWIR_SNR_FACTOR; asteroids are fainter in D4–D6: 0.3 → S/N 5–7 49%).
 
 ## Rules (summary)
 - Session = run of the zone's exposure times with gaps < 10 min (core.sessions over all photos), one per photo; visit = core.visits.

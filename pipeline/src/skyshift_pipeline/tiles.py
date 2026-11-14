@@ -12,6 +12,8 @@ spectra → classify → photoz → colours → lightcurves → astrometry → h
             near the core reaches the border's outer edge); else redo the tile with a doubled border
   merge 1   fixed, members, movers, sources, crossids → results/<zone>/ (source_id is sky-wide: no renumbering)
   calib     once, zone-wide: calib.run on the tiles' Gaia-matched and bright member dots (raw), the merged raw spectra
+  qa        once, zone-wide: qa.run, the dot files' footers and shape columns read from the local slim mirror →
+            results/<zone>/qa_photos.parquet before suspects starts; pass 2b's light curves leave its red photos out
   pass 2a   per tile, calib.json shared: spectra, colours; light-curve points with their models; the classify shape dots;
             the astrometry frame residuals of quiet Gaia stars
   reduce    zone-wide: the classify stellar locus, the light-curve error model and bad photos, per-photo frame offsets
@@ -517,8 +519,10 @@ def pass2a(ctx: dict, tile: Tile) -> dict:
     return st
 
 
-def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.DataFrame, offsets: pd.DataFrame | None) -> dict:
-    """classify (zone locus), photoz, light-curve errors (zone model) and summaries, astrometry (zone frame offsets)."""
+def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.DataFrame, offsets: pd.DataFrame | None,
+           qa_red: pd.DataFrame | None = None) -> dict:
+    """classify (zone locus), photoz, light-curve errors (zone model, bad photos and qa's red ones) and summaries,
+    astrometry (zone frame offsets)."""
     from . import astrometry, classify, lightcurves, photoz
     t0 = time.time()
     ts = _ctx_store(ctx, tile, zone_calib=True)
@@ -544,6 +548,7 @@ def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.Data
         bad = pd.MultiIndex.from_arrays([bad_keys["origin"].astype(str).to_numpy(), bad_keys["detector"].to_numpy(np.int64),
                                          bad_keys["mjd"].to_numpy(np.float64)]) if len(bad_keys) else None
         photo_ok = ~key.isin(bad) if bad is not None else np.ones(len(p), bool)
+        photo_ok &= ~lightcurves.qa_red_mask(p, qa_red)
         p, s = lightcurves.finish(p, cal, photo_ok)
         own.write_parquet("lightcurves.parquet", p[lightcurves.POINT_COLUMNS])
         own.write_parquet("lightcurves_summary.parquet", s)
@@ -846,6 +851,7 @@ class Run:
                     "forced_mirror": not store.local, "edge_margin": self.edge_margin,
                     "threads": max(C.TILE_THREADS, 1)}
         self.times: dict[str, float] = {}
+        self.qa_red: pd.DataFrame | None = None
         self.stats: dict = {"tiles": len(self.tiles), "grid": list(self.grid), "tile_deg": list(self.sides), "margin_arcsec": self.margin,
                             "zone_edge_margin": self.edge_margin, "workers": self.workers, "work_dir": self.work}
 
@@ -1021,6 +1027,17 @@ class Run:
         self._timed("calib", t0)
         return out
 
+    def qa(self) -> dict:
+        """qa.run once on the zone (after calib, which it reads), the dot files from the local slim mirror when there is
+        one (shape columns too, QA_SHAPES auto); a failure is logged and the run goes on."""
+        from . import qa
+        t0 = time.time()
+        out = qa.run_safe(self.store, self.zone, self.workers, dots_store=Store(self.work) if self.ctx["slim"] else None)
+        self.qa_red = qa.red_photos(self.store, self.zone)
+        self._timed("qa", t0)
+        out["step_seconds"] = self.times["qa"]
+        return out
+
     def reduce2(self, pool: _Pool) -> dict:
         """The zone-wide numbers of pass 2: stellar locus, light-curve error model and bad photos, frame offsets."""
         from . import astrometry, classify, lightcurves
@@ -1068,6 +1085,8 @@ class Run:
             rk = _df(_read_parts(w, T, "lc_ref_keys.parquet"))
             rep = lightcurves.error_report(rk, sdf, np.ones(len(rk), bool), self.lc_model)
             rep["bad_photos"] = self.bad_rows
+            if self.qa_red is not None:
+                rep["qa_red_photos"] = int(len(self.qa_red))
             s.write_json(results_rel(z.name, "lightcurves_report.json"), {"zone": z.name, **rep})
             out["lightcurves_variable_share"] = {o: rep[o]["variable_share"] for o in ("dot", "forced") if o in rep}
         # photoz report on the merged tables (SDSS DR17 once per zone)
@@ -1114,6 +1133,7 @@ class Run:
             steps["link"] = self.merge1()
             pred_futs = self.submit_predictions(pool)  # in the pool while calib runs here
             steps["calib"] = self.calib()
+            steps["qa"] = self.qa()  # before suspects starts: it reads qa_photos.parquet
             pred_path = self.collect_predictions(pred_futs)
             tail = {k: pool.submit(zone_step, k, s.root, z, pred_path) for k in ("score", "suspects")}
             t0 = time.time()
@@ -1121,7 +1141,8 @@ class Run:
             self._timed("pass2a", t0)
             steps["reduce"] = self.reduce2(pool)
             t0 = time.time()
-            self.pass2b_stats = pool.map(pass2b, [(self.ctx, t, self.locus, self.lc_model, self.bad_keys, self.offsets) for t in self.tiles])
+            self.pass2b_stats = pool.map(pass2b, [(self.ctx, t, self.locus, self.lc_model, self.bad_keys, self.offsets, self.qa_red)
+                                                   for t in self.tiles])
             self._timed("pass2b", t0)
             xid = s.read_parquet(results_rel(z.name, "crossids.parquet")) if s.exists(results_rel(z.name, "crossids.parquet")) else None
             steps["merge"] = self.merge2(xid)

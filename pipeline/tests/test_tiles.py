@@ -30,6 +30,7 @@ VISIT_T0 = (60950.0, 61130.0)
 GAIA_EPOCH = 57388.0       # J2016.0
 FAST = (120.75, 15.6, 2000.0)  # a 2″/yr star on the RA = 120.75 core edge (ra, dec, pmra mas/yr)
 EDGE_STAR = (121.1, 15.0 + 0.6 / 3600)  # 0.6″ inside the zone's south edge
+RED_PHOTO = ("2025W11_1A_0000_1", 4)  # its footer says PSF/aperture 0.5: qa grades it red, light curves leave it out
 
 
 def _photos() -> pd.DataFrame:
@@ -95,8 +96,11 @@ def _dot_frame(obs, det, mjd, session, visit, ra, dec, flux, err, ph, rng) -> pd
     ap = np.repeat(df["flux_ujy"].to_numpy(np.float32)[:, None], 5, axis=1)
     t = t.append_column("flux_ap_ujy", pa.FixedSizeListArray.from_arrays(pa.array(ap.ravel()), 5))
     t = t.append_column("flux_ap_err_ujy", pa.FixedSizeListArray.from_arrays(pa.array(ap.ravel() * 0.05), 5))
-    meta = {**(t.schema.metadata or {}), b"skyshift_photo": json.dumps({"schema": 1, "obs_id": obs, "detector": int(det),
-                                                                        "header": {"X_SC": 6000.0, "Y_SC": 1000.0, "Z_SC": 200.0}}).encode()}
+    pm = {"schema": 1, "obs_id": obs, "detector": int(det), "n_dots": n,
+          "header": {"X_SC": 6000.0, "Y_SC": 1000.0, "Z_SC": 200.0, "MJD-AVG": mjd}}
+    if (obs, int(det)) == RED_PHOTO:
+        pm["calibration"] = {"psf_over_aperture_flux": {"n": 50, "median": 0.5, "min_snr": 50.0}}
+    meta = {**(t.schema.metadata or {}), b"skyshift_photo": json.dumps(pm).encode()}
     return t.replace_schema_metadata(meta)
 
 
@@ -201,13 +205,15 @@ def make_root(path) -> Store:
 
 def run_untiled(store: Store, zone: C.Zone) -> None:
     """`all`'s combining steps, untiled."""
-    from skyshift_pipeline import astrometry, calib, classify, colours, crossid, highpm, lightcurves, link, photoz, score, spectra, suspects
+    from skyshift_pipeline import (astrometry, calib, classify, colours, crossid, highpm, lightcurves, link, photoz, qa, score,
+                                   spectra, suspects)
     link.run(store, zone, 4)
     spectra.run(store, zone, 4)
     crossid.run(store, zone, 4)
     calib.run(store, zone, 4)
     if store.exists(results_rel(zone.name, C.CALIB_REL)):
         spectra.run(store, zone, 4)
+    qa.run(store, zone, 4)
     classify.run(store, zone, 4)
     photoz.run(store, zone)
     for m in (colours, lightcurves, astrometry, highpm):
@@ -221,7 +227,7 @@ KEYS = {"fixed": ["source_id"], "members": ["source_id", "obs_id", "detector", "
         "colours": ["source_id", "pair"], "lightcurves": ["source_id", "ref_id", "origin", "detector", "mjd", "flux_ujy"],
         "lightcurves_summary": ["source_id", "ref_id", "detector", "origin"], "astrometry": ["source_id"],
         "highpm_candidates": ["method", "source_id", "source_id_b"], "suspects": ["id"], "recall_units": ["unit"],
-        "calib_photos": ["obs_id", "detector"]}
+        "calib_photos": ["obs_id", "detector"], "qa_photos": ["obs_id", "detector"]}
 
 
 def _norm(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
@@ -406,7 +412,7 @@ def test_all_runs_the_combining_steps_tiled(tmp_path, monkeypatch):
                      "--zone-edge", "clip", "--tile-dir", str(tmp_path / "work")]) == 0
     summ = store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]
     assert summ["tiles"]["grid"] == [2, 2] and summ["tiles"]["zone_edge_margin"] is False
-    for step in ("link", "calib", "highpm", "score", "suspects"):
+    for step in ("link", "calib", "qa", "highpm", "score", "suspects", "completeness"):  # completeness once, after the tiles
         assert step in summ
     for name in ("fixed", "members", "sources", "classes", "lightcurves", "astrometry", "suspects"):
         assert store.exists(results_rel(ZONE.name, f"{name}.parquet")), name
