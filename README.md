@@ -1,4 +1,17 @@
-# SkyShift
+# SkyShift × SPHEREx Time Machine
+
+合并后的单一应用：SkyShift 提供页面与接口，SPHEREx Time Machine 的科学计算在同一 Python 服务内运行。每项功能只有一个产品入口。完整功能归属、兼容规则和限制见 [合并说明](docs/merge.md)；运行和验证见 [HANDOFF](HANDOFF.md)。
+
+```bash
+./scripts/run-local.sh
+# http://127.0.0.1:8082
+```
+
+需要 Node 22+、pnpm、uv；Python 使用锁定的 3.12 环境。首次构建和依赖安装需要网络。更改前端后用 `SKYSHIFT_BUILD=1 ./scripts/run-local.sh`。不再需要启动旧的 Flask 应用。古星保留独立可复用组件，数据许可见 web/public/guxing/NOTICE.md。
+
+---
+
+## Original project context
 
 **Blink NASA's SPHEREx infrared sky, measure what moved, and check it against Gaia.**
 

@@ -10,7 +10,7 @@
 .env.*
 *-key.json
 service-account*.json
-web/
+web/dist/
 docs/
 pitch/
 pipeline/

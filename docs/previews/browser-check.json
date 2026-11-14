@@ -1,0 +1,54 @@
+{
+  "report": [
+    {
+      "slug": "barnard",
+      "ms": 213,
+      "pixels": 255,
+      "status": "✓ Barnard's Star 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "wise0855",
+      "ms": 179,
+      "pixels": 240,
+      "status": "✓ WISE 0855−0714 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "epsindib",
+      "ms": 200,
+      "pixels": 208,
+      "status": "✓ Epsilon Indi B 已就绪 · 4 帧 · 巡天叠加"
+    },
+    {
+      "slug": "rwaur",
+      "ms": 164,
+      "pixels": 224,
+      "status": "✓ RW Aurigae 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "rdra",
+      "ms": 200,
+      "pixels": 250,
+      "status": "✓ R Draconis 已就绪 · 5 帧 · 巡天叠加"
+    }
+  ],
+  "browserErrors": [],
+  "mobile": "390px: no overflow",
+  "checks": [
+    "five real targets",
+    "next frame",
+    "difference",
+    "play/pause",
+    "hours API",
+    "detector switch",
+    "coordinate error",
+    "name resolve",
+    "single player/spectrum",
+    "residual/model views",
+    "Guxing/history/planets",
+    "mocked Gaia overlay",
+    "mocked upstream failure recovery",
+    "real GIF export",
+    "DR1 reference difference",
+    "mocked new-coordinate job UI"
+  ]
+}
