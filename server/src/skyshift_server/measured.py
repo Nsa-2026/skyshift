@@ -19,6 +19,11 @@ Zone tables are kept in memory (TABLES_KEEP zones, only the columns used: the hu
 
 load() fetches (run it while the cutouts download), assemble() classifies once the epochs and
 known[] exist, build() does both. None of them raises: a failure gives (None, "unavailable").
+
+Dots only (stage "extracted"): where no zone has combined results yet but the photos' dot files exist
+(zones extracted overnight), the dots alone are returned: classed against gaia[] (2"), known[] (10")
+and the flag rules; on the months clock each visit's dots are merged within 2" first. No tracks, no
+shifts. SKYSHIFT_MEASURED_DOTS_ONLY=0 turns this off.
 """
 
 from __future__ import annotations
@@ -49,10 +54,16 @@ KNOWN_TRACK_ARCSEC = 30.0    # a mover this close to a known[] prediction is tha
 NEAR_GAIA_ARCSEC = 6.0
 ELONG_MAX = 3.0
 MAX_PER_EPOCH = 250
+# stage "extracted": the brightest this many dots an epoch, any class (~225 bytes each as compact JSON: a live
+# hours answer of 6 epochs ~0.55 MB, a static 20-epoch set ~1.8 MB raw, ~0.2-0.4 MB gzipped)
+EXTRACTED_MAX_PER_EPOCH = 400
 SHIFT_MIN_SNR = 3.0
 MAX_SHIFTS = 300
 MONTHS_MAX_PHOTOS_PER_VISIT = 12  # dot files read per visit epoch (spread over the visit)
 ZONES_TTL_S = 300.0
+EXISTS_TTL_S = 600.0         # a dot file's presence (or absence) is remembered this long
+DOTS_ONLY_STAR_ARCSEC = 2.0  # dots only: a dot this close to a gaia[] star (moved to its time) is that star
+FOF_ARCSEC = 2.0             # dots only, months: a visit's dots are merged within this
 TABLES_TTL_S = 1800.0
 TABLES_KEEP = 3
 IO_THREADS = 8
@@ -71,6 +82,10 @@ DOT_V4 = ["ra_psf", "dec_psf", "psf_pos_ok", "pos_err_psf_arcsec"]
 
 def enabled() -> bool:
     return os.environ.get("SKYSHIFT_MEASURED", "1") != "0"
+
+
+def dots_only_enabled() -> bool:
+    return os.environ.get("SKYSHIFT_MEASURED_DOTS_ONLY", "1") != "0"
 
 
 # --- storage ----------------------------------------------------------------------------------
@@ -249,10 +264,18 @@ def find_zone(ra: float, dec: float, *, root: str | None = None, prefer: str | N
     return usable[0], None
 
 
+def covering_zone(ra: float, dec: float, *, root: str | None = None) -> Zone | None:
+    """The best zone covering (ra, dec) whatever its state (for dots only: the zone being processed)."""
+    zs = sorted((z for z in zones(store(root)) if z.contains(ra, dec)), key=Zone.rank)
+    return zs[0] if zs else None
+
+
 def reset() -> None:
-    """For tests: forget cached zones, tables and stores."""
+    """For tests: forget cached zones, tables, stores and dot-file presence."""
     with _zones_lock:
         _zones_cache.clear()
+    with _exists_lock:
+        _exists.clear()
     with _tables_lock:
         _tables.clear()
     with _stores_lock:
@@ -430,6 +453,38 @@ def read_dots(st: Store, key: str, ra0: float, dec0: float, r_deg: float) -> Dot
 
 
 _io = ThreadPoolExecutor(IO_THREADS, thread_name_prefix="measured-io")
+_exists: dict[tuple[str, str], tuple[float, bool]] = {}
+_exists_lock = threading.Lock()
+
+
+def _known_presence(st: Store, key: str) -> bool | None:
+    with _exists_lock:
+        hit = _exists.get((st.root, key))
+    return hit[1] if hit and time.monotonic() - hit[0] < EXISTS_TTL_S else None
+
+
+def _remember(st: Store, key: str, present: bool) -> None:
+    with _exists_lock:
+        if len(_exists) > 100_000:
+            _exists.clear()
+        _exists[(st.root, key)] = (time.monotonic(), present)
+
+
+def dot_exists(st: Store, key: str) -> bool:
+    """Whether dots/<key>.parquet exists (one metadata request, remembered EXISTS_TTL_S)."""
+    known = _known_presence(st, key)
+    if known is None:
+        known = st.exists(f"dots/{key}.parquet")
+        _remember(st, key, known)
+    return known
+
+
+def _read_dots_remembered(st: Store, key: str, ra: float, dec: float, r_deg: float) -> Dots | None:
+    if _known_presence(st, key) is False:
+        return None  # missing a moment ago: no new request
+    d = read_dots(st, key, ra, dec, r_deg)
+    _remember(st, key, d is not None)
+    return d
 
 
 @dataclass
@@ -439,6 +494,8 @@ class Loaded:
     tables: Tables | None = None
     dots: dict[str, Dots | None] = field(default_factory=dict)
     error: bool = False  # a failure (not "nothing here"): live answers are then not cached
+    dots_only: bool = False  # no combined zone here: the dots alone (stage "extracted")
+    covering: Zone | None = None  # dots only: the zone being processed here, if any
 
 
 def load(ra: float, dec: float, radius_deg: float, keys: list[str], *, zone: str | None = None,
@@ -448,10 +505,10 @@ def load(ra: float, dec: float, radius_deg: float, keys: list[str], *, zone: str
     try:
         st = store(root)
         z, reason = find_zone(ra, dec, root=root, prefer=zone)
-        if z is None:
+        if z is None and not dots_only_enabled():
             return Loaded(reason=reason)
-        dots_f = {k: _io.submit(read_dots, st, k, ra, dec, radius_deg) for k in dict.fromkeys(keys)}
-        tables = tables_for(st, z)
+        dots_f = {k: _io.submit(_read_dots_remembered, st, k, ra, dec, radius_deg) for k in dict.fromkeys(keys)}
+        tables = tables_for(st, z) if z is not None else None
         dots: dict[str, Dots | None] = {}
         for k, f in dots_f.items():
             try:
@@ -459,6 +516,8 @@ def load(ra: float, dec: float, radius_deg: float, keys: list[str], *, zone: str
             except Exception as e:  # noqa: BLE001 - one unreadable photo counts as missing
                 log.warning("measured: dots/%s.parquet unreadable: %r", k, e)
                 dots[k] = None
+        if z is None:
+            return Loaded(reason=reason, dots=dots, dots_only=True, covering=covering_zone(ra, dec, root=root))
         return Loaded(zone=z, tables=tables, dots=dots)
     except Exception:  # noqa: BLE001 - the frames never fail because of this layer
         log.exception("measured: load failed at (%s, %s)", ra, dec)
@@ -563,6 +622,13 @@ def assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]] | None
     """(measured, measured_reason) for a frames response `meta` (epochs, known, gaia in place).
     epoch_keys: the photo keys (<obs_id>D<det>) of each epoch; hours epochs default to their id.
     Never raises."""
+    if loaded.dots_only:
+        try:
+            return _assemble_dots(loaded, meta, epoch_keys or {})
+        except Exception:  # noqa: BLE001
+            log.exception("measured: dots-only assemble failed")
+            loaded.error = True
+            return None, "unavailable"
     if loaded.zone is None or loaded.tables is None:
         return None, loaded.reason or "unavailable"
     try:
@@ -588,16 +654,7 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
                         + half * math.sqrt(2.0) + 1.0 / 60.0)
     F = _Field(T, ra0, dec0, reach)
 
-    photos: dict[str, list[str]] = {}
-    for ep in epochs:
-        keys = epoch_keys.get(ep["id"])
-        if keys is None and ep.get("kind") == "exposure":
-            k = _key_of_exposure(ep["id"])
-            keys = [k] if k else []
-        keys = list(keys or [])
-        if ep.get("kind") == "visit":
-            keys = _spread(keys, MONTHS_MAX_PHOTOS_PER_VISIT)
-        photos[ep["id"]] = keys
+    photos = _photos_of(meta, epoch_keys)
     all_keys = list(dict.fromkeys(k for ks in photos.values() for k in ks))
     have = [k for k in all_keys if loaded.dots.get(k) is not None]
     if not have:
@@ -610,7 +667,31 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
     else:
         dets = _months(loaded, meta, epochs, photos, F, T)
     shifts = _shifts(meta, epochs, F, T) if clock == "months" else []
+    return _finish(dets, tracks, shifts, zone=Z.name, stage=Z.stage, zone_box=Z.box(), clock=clock,
+                   n_have=len(have), n_all=len(all_keys)), None
 
+
+def _photos_of(meta: dict, epoch_keys: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Photo keys per epoch: as given, hours epochs from their id, at most MONTHS_MAX_PHOTOS_PER_VISIT
+    a visit (spread over it)."""
+    photos: dict[str, list[str]] = {}
+    for ep in meta.get("epochs") or []:
+        keys = epoch_keys.get(ep["id"])
+        if keys is None and ep.get("kind") == "exposure":
+            k = _key_of_exposure(ep["id"])
+            keys = [k] if k else []
+        keys = list(keys or [])
+        if ep.get("kind") == "visit":
+            keys = _spread(keys, MONTHS_MAX_PHOTOS_PER_VISIT)
+        photos[ep["id"]] = keys
+    return photos
+
+
+def _finish(dets: list[dict], tracks: list[dict], shifts: list[dict], *, zone: str | None, stage: str,
+            zone_box: dict | None, clock: str, n_have: int, n_all: int) -> dict:
+    """The `measured` object: counts before the cap, sorted by epoch id then S/N. Cap per epoch:
+    MAX_PER_EPOCH with the non-star classes first; stage "extracted": the EXTRACTED_MAX_PER_EPOCH
+    brightest (S/N) of every class, so the stars to compare with Gaia stay."""
     counts = {c: 0 for c in CLASSES}
     for d in dets:
         counts[d["class"]] += 1
@@ -618,17 +699,138 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
     for d in dets:
         by_epoch[d["epoch_id"]].append(d)
     kept, truncated = [], False
+    by_snr = stage == "extracted"
+    cap = EXTRACTED_MAX_PER_EPOCH if by_snr else MAX_PER_EPOCH
     for eid in sorted(by_epoch):
-        part = sorted(by_epoch[eid], key=lambda d: (d["class"] not in _KEEP_FIRST, -(d["snr"] or 0.0)))
-        if len(part) > MAX_PER_EPOCH:
+        part = sorted(by_epoch[eid], key=lambda d: (False if by_snr else d["class"] not in _KEEP_FIRST,
+                                                    -(d["snr"] or 0.0)))
+        if len(part) > cap:
             truncated = True
-            part = part[:MAX_PER_EPOCH]
+            part = part[:cap]
         kept += sorted(part, key=lambda d: -(d["snr"] or 0.0))
     return {
-        "zone": Z.name, "stage": Z.stage, "zone_box": Z.box(), "clock": clock,
-        "photos": len(have), "photos_missing": len(all_keys) - len(have), "truncated": truncated,
+        "zone": zone, "stage": stage, "zone_box": zone_box, "clock": clock,
+        "photos": n_have, "photos_missing": n_all - n_have, "truncated": truncated,
         "counts": counts, "detections": kept, "tracks": tracks, "shifts": shifts,
-    }, None
+    }
+
+
+def _nearest(pts_ra, pts_dec, ref_ra, ref_dec, ra0: float, dec0: float, r_arcsec: float) -> np.ndarray:
+    """Index of the nearest reference point within r_arcsec of each point, -1 if none."""
+    from scipy.spatial import cKDTree
+
+    n = len(pts_ra)
+    if n == 0 or len(ref_ra) == 0:
+        return np.full(n, -1, int)
+    d, i = cKDTree(_xy(ref_ra, ref_dec, ra0, dec0)).query(_xy(pts_ra, pts_dec, ra0, dec0),
+                                                          distance_upper_bound=r_arcsec)
+    return np.where(np.isfinite(d), i, -1)
+
+
+def _fof(ra: np.ndarray, dec: np.ndarray, ra0: float, dec0: float, r_arcsec: float) -> np.ndarray:
+    """Friends-of-friends group label of each point (linking length r_arcsec)."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    from scipy.spatial import cKDTree
+
+    n = len(ra)
+    if n == 0:
+        return np.zeros(0, int)
+    pairs = cKDTree(_xy(ra, dec, ra0, dec0)).query_pairs(r_arcsec, output_type="ndarray")
+    graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(n, n))
+    return connected_components(graph, directed=False)[1]
+
+
+def _assemble_dots(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> tuple[dict | None, str | None]:
+    """Stage "extracted": the dots alone, where no zone has combined them (module docstring)."""
+    clock = meta["clock"]
+    photos = _photos_of(meta, epoch_keys)
+    all_keys = list(dict.fromkeys(k for ks in photos.values() for k in ks))
+    have = [k for k in all_keys if loaded.dots.get(k) is not None]
+    if not have:
+        return None, loaded.reason or "not_processed"
+    gaia = [g for g in meta.get("gaia") or [] if g.get("ra") is not None and g.get("dec") is not None]
+    known_by_epoch: dict[str, list[dict]] = defaultdict(list)
+    for k in meta.get("known") or []:
+        if k.get("epoch_id") is not None and k.get("ra") is not None:
+            known_by_epoch[k["epoch_id"]].append(k)
+    out: list[dict] = []
+    for ep in meta.get("epochs") or []:
+        keys = [k for k in photos.get(ep["id"], []) if loaded.dots.get(k) is not None]
+        if not keys:
+            continue
+        era, edec, half = _epoch_square(ep, meta)
+        parts = []
+        for k in keys if ep.get("kind") == "visit" else keys[:1]:
+            d = loaded.dots[k]
+            sel = np.nonzero(_in_square(d.ra, d.dec, era, edec, half))[0]
+            why = [_art_reasons(int(d.flags[j]), int(d.fpk[j]), float(d.elong[j]), lone=True) for j in sel]
+            parts.append((d.ra[sel], d.dec[sel], d.pos_err[sel], d.snr[sel], d.flux[sel], why,
+                          d.mjd if math.isfinite(d.mjd) else float(ep.get("mjd_mid") or 0.0)))
+        if not parts:
+            continue
+        ra = np.concatenate([p[0] for p in parts])
+        dec = np.concatenate([p[1] for p in parts])
+        snr = np.concatenate([p[3] for p in parts])
+        flux = np.concatenate([p[4] for p in parts])
+        why = [w for p in parts for w in p[5]]
+        if ep.get("kind") == "visit":  # merge the visit's dots within FOF_ARCSEC
+            pe = np.concatenate([p[2] for p in parts])
+            lab = _fof(ra, dec, era, edec, FOF_ARCSEC)
+            n = int(lab.max()) + 1 if len(lab) else 0
+            cnt = np.bincount(lab, None, n)
+            keep = np.nonzero(cnt >= (2 if len(keys) >= 3 else 1))[0]  # a lone dot in a visit: noise or a mover
+            xy = _xy(ra, dec, era, edec)
+            w = 1.0 / np.maximum(pe, 0.01) ** 2
+            sw = np.bincount(lab, w, n)
+            gx, gy = np.bincount(lab, w * xy[:, 0], n) / np.maximum(sw, 1e-12), np.bincount(lab, w * xy[:, 1], n) / np.maximum(sw, 1e-12)
+            gdec = edec + gy / 3600.0
+            gra = (era + gx / 3600.0 / np.maximum(np.cos(np.radians(gdec)), 1e-6)) % 360.0
+            gsnr = np.sqrt(np.bincount(lab, snr * snr, n))
+            order = np.argsort(lab, kind="stable")
+            members = np.split(order, np.cumsum(cnt)[:-1])
+            pts = []
+            for gi in keep:
+                idx = members[gi]
+                flagged = [why[i] for i in idx]
+                reasons = list(dict.fromkeys(r for f in flagged for r in f)) if all(flagged) else []
+                pts.append((gra[gi], gdec[gi], gsnr[gi], float(np.median(flux[idx])), int(cnt[gi]), reasons))
+            mjd = float(ep.get("mjd_mid") or parts[0][6])
+        else:
+            pts = [(ra[i], dec[i], snr[i], flux[i], 1, why[i]) for i in range(len(ra))]
+            mjd = parts[0][6]
+        if not pts:
+            continue
+        pra = np.array([p[0] for p in pts], float)
+        pdec = np.array([p[1] for p in pts], float)
+        moved = [_gaia_at(g, mjd) for g in gaia]
+        star = _nearest(pra, pdec, [m[0] for m in moved], [m[1] for m in moved], era, edec, DOTS_ONLY_STAR_ARCSEC)
+        claimed: dict[int, str] = {}
+        if ep.get("kind") != "visit":
+            free = np.nonzero(star < 0)[0]
+            for k in known_by_epoch.get(ep["id"], ()):
+                cand = np.array([c for c in free if int(c) not in claimed], int)
+                if not len(cand):
+                    break
+                xy = _xy(pra[cand], pdec[cand], float(k["ra"]), float(k["dec"]))
+                dist = np.hypot(xy[:, 0], xy[:, 1])
+                b = int(np.argmin(dist))
+                if dist[b] <= KNOWN_DOT_ARCSEC:
+                    claimed[int(cand[b])] = str(k["name"])
+        for i, (pr, pd, ps, pf, pn, reasons) in enumerate(pts):
+            common = (ep["id"], pr, pd, ps, pf, pn)
+            if star[i] >= 0:
+                gid = gaia[int(star[i])].get("id")
+                out.append(_det(*common, "star", gaia_id=None if gid is None else str(gid)))
+            elif i in claimed:
+                out.append(_det(*common, "known", known_name=claimed[i]))
+            elif reasons:
+                out.append(_det(*common, "artifact", reasons=reasons))
+            else:
+                out.append(_det(*common, "other"))
+    cz = loaded.covering
+    return _finish(out, [], [], zone=cz.name if cz else None, stage="extracted", zone_box=cz.box() if cz else None,
+                   clock=clock, n_have=len(have), n_all=len(all_keys)), None
 
 
 def _epoch_square(ep: dict, meta: dict) -> tuple[float, float, float]:
@@ -907,5 +1109,14 @@ def stale(cached: dict, *, root: str | None = None) -> bool:
     except Exception:  # noqa: BLE001
         return False
     if m is None:
-        return z is not None
+        if z is not None:
+            return True
+        if dots_only_enabled() and cached.get("clock") == "hours":  # dots extracted here since?
+            keys = [k for k in (_key_of_exposure(str(e.get("id", ""))) for e in (cached.get("epochs") or [])[:2]) if k]
+            try:
+                st = store(root)
+                return any(dot_exists(st, k) for k in keys)
+            except Exception:  # noqa: BLE001
+                return False
+        return False
     return z is not None and (z.name, z.stage) != (m.get("zone"), m.get("stage"))
