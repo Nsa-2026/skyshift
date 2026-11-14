@@ -63,7 +63,7 @@ export function startApp(root: HTMLElement): void {
       </nav>
       <div class="details-slot"></div>
     </header>
-    <div class="featured" data-only="explore" ${embed ? "hidden" : ""}>
+    <section class="featured" data-only="explore" aria-label="Featured targets" ${embed ? "hidden" : ""}>
       <span class="featured-label" id="featured-label">Try</span>
       <div class="featured-list" role="group" aria-labelledby="featured-label" style="display:contents">
         ${TARGETS.map(
@@ -71,7 +71,7 @@ export function startApp(root: HTMLElement): void {
             title="${t.name}, ${t.kind}">${t.short}<span class="chip-kind">, ${t.kind}</span></button>`,
         ).join("")}
       </div>
-    </div>
+    </section>
     <p class="find-msg" role="status" aria-live="polite"></p>
     <main class="page page-atlas" data-page="atlas" hidden></main>
     <main class="page page-discover" data-page="discover" hidden></main>
