@@ -12,6 +12,7 @@ import { mountAtlas } from "../atlas";
 import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
+import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { formatRaDec } from "./astro";
@@ -46,6 +47,7 @@ export function startApp(root: HTMLElement): void {
         <a href="#/results" data-route="results">Results</a>
         <a href="#/learn" data-route="learn">Learn</a>
       </nav>
+      <div class="details-slot"></div>
     </header>
     <div class="featured" data-only="explore" ${embed ? "hidden" : ""}>
       <span class="featured-label" id="featured-label">Try</span>
@@ -83,6 +85,7 @@ export function startApp(root: HTMLElement): void {
 
   const $ = <T extends Element>(sel: string) => root.querySelector(sel) as T;
   const msg = $<HTMLParagraphElement>(".find-msg");
+  mountDetailsSwitch($<HTMLElement>(".details-slot"));
   const input = $<HTMLInputElement>("#q");
 
   let view: View | null = null;
