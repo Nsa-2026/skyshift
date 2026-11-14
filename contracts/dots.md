@@ -7,7 +7,7 @@ Units: degrees, arcsec, µm, µJy, MJD (UTC).
 
 One Parquet file per photo in `gs://nasa-glazing-data/dots/`. Its existence marks the photo done;
 skip it on restart. No job list, no locks, no tiles.
-**Proposal:** file name `dots/<obs_id>D<detector>.parquet`, e.g. `dots/2025W18_1B_0074_2D1.parquet`.
+File name `dots/<obs_id>D<detector>.parquet`, e.g. `dots/2025W18_1B_0074_2D1.parquet`.
 
 | column | type | unit | meaning |
 |---|---|---|---|
@@ -27,7 +27,7 @@ skip it on restart. No job list, no locks, no tiles.
 | snr | float32 | | Signal-to-noise. Detection runs at `thresh=2.0` (about S/N 9 for a point source); only dots with snr ≥ 5 are kept |
 | flags | int32 | | OR of the flag bits in the 3×3 pixels around the dot, including recorded ones (contracts/flags.md) |
 | flags_peak | int32 | | Flag bits at the dot's peak pixel. SOURCE here means a catalogued star or compact galaxy (to AB 19); used only to filter suspects |
-| cell | int64 | | 6″ sky cell, used to group dots by position |
+| cell | int64 | | 6″ sky cell id (no unit), used to group dots by position; rule below |
 | zodi_mjysr | float32 | MJy/sr | ZODI model (zodiacal light) at the dot's pixel. IMAGE is **not** zodi-subtracted (Expsupp 2.2, 3.2.11); NaN if the file has no ZODI |
 | bkg_mjysr | float32 | MJy/sr | Background map core.detect subtracted (sep, 32 px mesh) at the dot's pixel; includes zodi and any diffuse light |
 | peak_mjysr | float32 | MJy/sr | Peak pixel above that background (sep `peak`) |
@@ -80,9 +80,12 @@ zone's exposure times with gaps under 10 minutes (`core.sessions`), a visit come
 on the same times. How many sessions covered a position is counted from the photos' footprints
 when a candidate is checked. (Changed 14 Nov after review: per-tile sessions left 3.4% of dots without one.)
 
-**Proposal for `cell`:** `band = floor((dec + 90) × 600)`, `col = floor(ra × cos(dec_band_centre) × 600)`,
-`cell = band × 10_000_000 + col` (600 = 3600″ / 6″). Group with the neighbouring cells too, so a
-dot on a cell edge isn't split.
+**`cell`** (pipeline `sky.cell_of`): `band = floor((dec + 90) × 600)`, `col = floor(ra × cos(dec_band_centre) × 600)`,
+`cell = band × 10_000_000 + col` (600 = 3600″ / 6″; `dec_band_centre = (band + 0.5) / 600 − 90`).
+An id, not a quantity: the largest is ~1.08 × 10¹², below 2⁵³, so JSON exports (suspects.json) write it
+as a plain number. Group with the neighbouring cells too (`sky.neighbour_cells`), so a dot on a cell
+edge isn't split; adjacent bands' columns don't line up, so a neighbour in the next band comes from
+the position, not from the column number.
 
 ## forced: one row per reference target per photo, detected or not
 
