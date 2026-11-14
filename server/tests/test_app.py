@@ -211,7 +211,7 @@ def test_gaia_and_known_real(client, monkeypatch):
 
 
 def test_known_and_frames_cache_keys_follow_the_known_index(client, monkeypatch):
-    """Entries cached with another known-object source (SkyBoT before 14 Nov) are never served again."""
+    """Entries cached with an older known-object source or index are never served again."""
     n, f = [], []
     _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None: n.append(mjd) or [])
     monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: f.append(a) or _frames_result())

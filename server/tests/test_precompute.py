@@ -54,8 +54,8 @@ def test_refresh_known_rewrites_only_known(tmp_path, monkeypatch):
     folder = tmp_path / "star"
     frames = {"clock": "months", "center": {"ra": 10.0, "dec": 5.0}, "pixel_arcsec": 2.05, "size": [146, 146],
               "epochs": [{"id": "d2-v1", "mjd_mid": 60900.5, "det": 2}, {"id": "d2-v2", "mjd_mid": 61090.5, "det": 2}],
-              "gaia": [], "known": [{"name": "(4) Vesta", "epoch_id": "d2-v1", "ra": 10.0, "dec": 5.0, "v": 7.0,
-                                     "source": "skybot"}], "data_release": "DR1+QR3", "archive_checked": "2026-11-14"}
+              "gaia": [], "known": [{"name": "Old entry", "epoch_id": "d2-v1", "ra": 10.0, "dec": 5.0, "v": 7.0,
+                                     "source": "mpc"}], "data_release": "DR1+QR3", "archive_checked": "2026-11-14"}
     n = precompute.write_json(folder / "frames_months_5.json", frames, compact=True)
     precompute.write_json(folder / "index.json", {"slug": "star", "frames": [
         {"file": "frames_months_5.json", "clock": "months", "fov": 5, "dets": [2], "epochs": 2, "bytes": n + 1000}],
