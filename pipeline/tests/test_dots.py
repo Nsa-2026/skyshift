@@ -153,3 +153,16 @@ def test_spread_limit_covers_detectors_and_dates():
     assert max(r.mjd for r in pick) - min(r.mjd for r in pick) > 30  # not the first two exposures
     assert pick == sorted(pick, key=lambda r: (r.mjd, r.detector))
     assert spread_limit(todo, None) == todo and spread_limit(todo[:5], 10) == todo[:5]
+
+
+def test_aperture_with_fully_masked_annulus_is_nan_not_an_error():
+    from skyshift_pipeline.dots import _sum_circle_bkgann
+    d = np.ones((60, 60))
+    m = np.zeros((60, 60), bool)
+    m[15:45, 15:45] = True          # a big saturated blob: the annulus of a dot at its centre is all masked
+    m[29:32, 29:32] = False
+    x = np.array([30.0, 5.5, 50.0, 30.0])
+    y = np.array([30.0, 5.5, 50.0, 30.0])
+    f, e = _sum_circle_bkgann(d, x, y, 2.0, np.ones_like(d), m, (5.5, 8.0))
+    assert np.isnan(f[0]) and np.isnan(f[3]) and np.isnan(e[0])
+    assert np.allclose(f[1:3], 0.0, atol=1e-9) and np.all(e[1:3] > 0)  # flat image minus its local background
