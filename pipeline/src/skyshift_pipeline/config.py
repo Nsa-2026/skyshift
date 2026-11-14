@@ -106,6 +106,7 @@ DOTS_PREFETCH = True           # read the next photo of a task while this one is
 POS_ERR_K = 1.4
 PSF_SIGMA_ARCSEC = 3.2
 POS_ERR_FLOOR_ARCSEC = 0.25    # measured on the first photo; V3 will replace it
+POS_ERR_SCALE = 1.6            # pos_err_arcsec is 1.4–1.8× too small against Gaia (pilot): × this before use
 ELONG_R_PX = 2.5               # elong: second moments of the pixels within this radius
 ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 

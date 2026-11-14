@@ -10,6 +10,7 @@ import pytest
 from skyshift_core import tangent_deproject
 
 from skyshift_pipeline import candidates as K
+from skyshift_pipeline import config as C
 from skyshift_pipeline.config import ZONES
 from skyshift_pipeline.spectra import NCH_DET, NDET
 from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel
@@ -100,7 +101,7 @@ def test_motion_and_match():
     d = _mover_dots()
     rate, err, pa = K.motion(d)
     assert rate == pytest.approx(36.0, rel=1e-3) and pa == pytest.approx(60.0, abs=0.1)
-    assert err == pytest.approx(np.sqrt(2) * 0.1 / (2.1 / 60.0), rel=1e-3)
+    assert err == pytest.approx(np.sqrt(2) * 0.1 * C.POS_ERR_SCALE / (2.1 / 60.0), rel=1e-3)  # pos_err × 1.6
     assert K.motion(d.iloc[:1]) is None
     # the mover's dots among neighbours: one decoy per photo
     decoy = d.copy()
@@ -252,6 +253,7 @@ def test_build_end_to_end(tmp_path):
         assert set(c["reasons"]) <= set(K.REASONS[c["kind"]])
         assert set(c["labels"]) <= set(K.LABELS)
         assert 0.0 <= c["score"] <= 1.0
+    assert all(c["grade"] is None for c in cs if c["kind"] != "mover")  # every row has grade; null off movers
     m = cs[0]
     assert m["id"] == "hunt-1-2" and m["rate_arcsec_h"] == pytest.approx(36.0, abs=0.1) and m["pa_deg"] == 60.0
     assert m["zones"] == ["hunt", "pilot"] and m["reasons"] == ["two_exposures", "outlier_flag"]
@@ -355,3 +357,46 @@ def test_shape_candidates(tmp_path):
     c["galactic_b"] = 30.0
     out = K.finish(c)
     assert list(out) == list(K.FIELDS) and out["pa_deg"] == 37.2 and out["gaia_match"] is True and out["rate_arcsec_h"] is None
+
+
+def test_motion_significance_uses_scaled_errors():
+    """36″/h over 2.1 min with 0.25″ raw pos_err: 3.6σ on the raw errors, 2.2σ once they are × 1.6 (not significant)."""
+    d = _mover_dots()
+    d["pos_err_arcsec"] = 0.25
+    rate, err, _ = K.motion(d)
+    assert rate / (err / C.POS_ERR_SCALE) > K.RATE_SIGMA_MIN > rate / err
+
+
+def test_graded_c_movers_say_why_first():
+    """A grade C mover's `why` starts with the vetting's verdict in words; B and ungraded ones read as before."""
+    row = {"ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1}
+    s = _suspects([{**row, "id": "b", "grade": "B", "reasons": np.array([], dtype=object)},
+                   {**row, "id": "c", "ra": 125.1, "grade": "C", "reasons": np.array(["hot_pixel", "2mass", "new_gate"], dtype=object)},
+                   {**row, "id": "d", "ra": 125.2, "grade": "C", "reasons": np.array([], dtype=object)}])
+    b, c, d = K.movers(s, "hunt", None)
+    assert not b["why"].startswith("Failed")
+    assert c["why"].startswith("Failed the vetting, most likely an artefact or a catalogued source: a dot sits on a hot "
+                               "pixel; a 2MASS source lies within 6″; new gate. Seen at different places")
+    assert d["why"].startswith("Failed the vetting, most likely an artefact or a catalogued source. Seen")
+    assert c["why"].endswith(b["why"])
+
+
+def test_edge_dot_lowers_the_score():
+    """A dot within VET_EDGE_PX of the detector edge: reason edge (once) and score × MOVER_EDGE, graded or not."""
+    row = {"ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1}
+    s = _suspects([{**row, "id": "in", "dot_x": [500.0, 520.0], "dot_y": [800.0, 800.0]},
+                   {**row, "id": "x0", "ra": 125.1, "dot_x": [3.0, 20.0], "dot_y": [800.0, 800.0]},
+                   {**row, "id": "y1", "ra": 125.2, "dot_x": [500.0, 520.0], "dot_y": [800.0, 2036.0]},
+                   {**row, "id": "nan", "ra": 125.3, "dot_x": [np.nan, np.nan], "dot_y": [np.nan, np.nan]}])
+    a, x0, y1, nn = K.movers(s, "hunt", None)
+    assert "edge" not in a["reasons"] and "edge" not in nn["reasons"] and nn["score"] == pytest.approx(a["score"])
+    for m in (x0, y1):
+        assert m["reasons"].count("edge") == 1 and m["score"] == pytest.approx(a["score"] * K.MOVER_EDGE)
+        assert m["why"].startswith("Possibly an artefact: a dot is at the detector's edge. Seen")  # ungraded: no verdict
+    s["grade"] = ["B", "C", "B", "B"]
+    s["reasons"] = [np.array([], dtype=object), np.array(["edge"], dtype=object), np.array([], dtype=object),
+                    np.array([], dtype=object)]
+    a, x0, _, _ = K.movers(s, "hunt", None)
+    assert x0["reasons"].count("edge") == 1  # the vetting's own edge gate: not listed twice
+    assert x0["score"] == pytest.approx(a["score"] * K.MOVER_EDGE * K.MOVER_GRADE_C)
+    assert K.edge_dot(next(s.drop(columns=["dot_x", "dot_y"]).itertuples())) is False  # no dot lists: no penalty
