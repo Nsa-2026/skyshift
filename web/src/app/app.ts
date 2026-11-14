@@ -16,6 +16,8 @@ import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
+import {MODES, workspaceState, workspaceHref} from "../product/workspace-state";
+import {loadCultureStories} from "../product/stories";
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
@@ -54,11 +56,10 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
+        <a href="#/sky" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
         <a href="#/candidates" data-route="discover">To check</a>
         <a href="#/review" data-route="review">Review</a>
-        <a href="#/explore" data-route="explore">Blink</a>
-        <a href="#/explore/science" data-route="science">Science</a>
+        <a href="#/explore" data-route="explore">Workspace</a>
         <a href="#/live" data-route="live">Live search</a>
         <a href="#/community" data-route="community">Community</a>
         <a href="#/results" data-route="results">Results</a>
@@ -81,14 +82,22 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-review" data-page="review" hidden></main>
     <main class="page page-candidate" data-page="candidate" hidden></main>
     <main class="page page-blink" data-page="explore" hidden>
-      <h1 class="visually-hidden" id="blink-h1">Blink</h1>
-      <section class="stage" aria-label="Blink"><p class="science-layer-caption" role="status" hidden></p><div id="blink"></div></section>
+      <header class="workspace-head">
+        <div><p class="workspace-eyebrow">Your workspace</p><h1 id="blink-h1">Explore the sky</h1><p class="workspace-description"></p></div>
+        <nav class="workspace-levels" aria-label="Workspace level">
+          <a href="#/explore" data-level="explore"><span class="workspace-level-number">01</span><span>Explore<small>Amateur</small></span></a>
+          <a href="#/explore/analyze" data-level="analyze"><span class="workspace-level-number">02</span><span>Analyze<small>Professional</small></span></a>
+          <a href="#/explore/research" data-level="research"><span class="workspace-level-number">03</span><span>Research<small>Expert</small></span></a>
+        </nav>
+      </header>
+      <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
+      <section class="stage" aria-label="Blink"><div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div><div id="blink"></div></section>
       <section id="card" class="side-card" aria-label="Object"></section>
       <div class="below">
-        <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
+        <details class="workspace-vote"><summary>Flag what you notice</summary><section id="vote" class="side-vote" aria-label="Flag and vote"></section></details>
         <section id="sky" class="sky" aria-label="Sky around this spot"></section>
       </div>
-      <section id="science-workbench" aria-label="Extended science and cultural sky"></section>
+      <section id="science-workbench" aria-label="Workspace evidence"></section>
     </main>
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
     <main class="page page-community" data-page="community" hidden></main>
@@ -116,6 +125,17 @@ export function startApp(root: HTMLElement): void {
   let objectCtl: AbortController | null = null;
   let layer: Layer = 'raw';
   let epochMjd = 0;
+  let selectedSignal: {ra:number;dec:number;pmra_arcsec_yr?:number;pmdec_arcsec_yr?:number;mjd_ref?:number} | null = null;
+  function highlightSelected() {
+    if(!selectedSignal){blink.highlight?.(null);return;}
+    const dt=selectedSignal.mjd_ref?(epochMjd-selectedSignal.mjd_ref)/365.25:0;
+    blink.highlight?.({ra:selectedSignal.ra+(selectedSignal.pmra_arcsec_yr??0)*dt/(3600*Math.cos(selectedSignal.dec*Math.PI/180)),dec:selectedSignal.dec+(selectedSignal.pmdec_arcsec_yr??0)*dt/3600});
+  }
+  function selectSignal(value:typeof selectedSignal) {
+    selectedSignal=value;
+    $<HTMLElement>('.workspace-selection').hidden=value===null;
+    highlightSelected();
+  }
 
   const blink: BlinkHandle = mountBlink($("#blink"), {
     onViewChange(change) {
@@ -124,9 +144,11 @@ export function startApp(root: HTMLElement): void {
     },
     onPick(pick) {
       vote.pick(pick);
+      selectSignal(pick);
     },
     onEpoch(e) {
       epochMjd = e.mjd_mid;
+      highlightSelected();
       sky.epoch(e.mjd_mid);
       workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id));
     },
@@ -139,17 +161,23 @@ export function startApp(root: HTMLElement): void {
     },
   });
   const workbench = mountWorkbench($("#science-workbench"), {
+    card, cardElement: $("#card"),
     layer(next) { if (view) { layer = next; void go(view, { objectToo: false }); $('.stage').scrollIntoView({block:'start'}); } },
     reference(points) { card.reference?.(points); },
     locate(candidate) {
-      const dt = candidate.mjd_ref ? (epochMjd - candidate.mjd_ref) / 365.25 : 0;
-      blink.highlight?.({ ra: candidate.ra + (candidate.pmra_arcsec_yr ?? 0) * dt / (3600 * Math.cos(candidate.dec * Math.PI / 180)), dec: candidate.dec + (candidate.pmdec_arcsec_yr ?? 0) * dt / 3600 });
+      selectSignal(candidate);
       $("#blink").scrollIntoView({ block: 'start', behavior: 'auto' });
     },
     rebuilt(next) { layer = 'raw'; void go(next); },
   });
-  root.querySelector<HTMLAnchorElement>('.nav [data-route="science"]')!.addEventListener('click', () => {
-    if (current === 'explore') workbench.open();
+  $('[data-clear-selection]').addEventListener('click',()=>selectSignal(null));
+  $('[data-raw-source]').addEventListener('click',()=>{if(view){layer='raw';void go(view,{objectToo:false});}});
+  $('[data-flag-selection]').addEventListener('click',()=>{
+    if(!selectedSignal||!view)return;
+    vote.pick({...selectedSignal,mjd:epochMjd,det:view.det,clock:view.clock,epoch_id:frames?.epochs.find(e=>e.mjd_mid===epochMjd)?.id??''});
+    location.hash=workspaceHref('explore');
+    $<HTMLDetailsElement>('.workspace-vote').open=true;
+    requestAnimationFrame(()=>$<HTMLElement>('#vote').scrollIntoView({block:'start'}));
   });
   let score: { destroy(): void } | null = null;
 
@@ -172,15 +200,15 @@ export function startApp(root: HTMLElement): void {
       route();
     }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
-    if (moved) layer = 'raw';
+    if (moved) {layer = 'raw';selectSignal(null);}
     view = next;
     workbench.select(next, layer);
     const layerCaption = $<HTMLElement>('.science-layer-caption');
     layerCaption.hidden = layer === 'raw';
-    layerCaption.textContent = ({raw:'',model:'Static sky model',resid:'Model residual',refdiff:'DR1 reference difference'})[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
+    $<HTMLElement>('[data-layer-description]').textContent = ({raw:'',model:'Static sky model',resid:'Model residual',refdiff:'DR1 reference difference'})[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
     if (push) writeView(next);
     blinkName = next.name ?? formatRaDec(next);
-    $<HTMLHeadingElement>("#blink-h1").textContent = `Blink: ${blinkName}`;
+    $<HTMLHeadingElement>("#blink-h1").textContent = MODES[workspaceState(parseRoute().param).mode].title;
     if (current === "explore") document.title = `${blinkName}: SkyShift`;
     markChips(next.slug);
     input.value = next.name ?? formatRaDec(next);
@@ -193,7 +221,8 @@ export function startApp(root: HTMLElement): void {
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
 
     frames = null;
-    blink.highlight?.(null);
+    workbench.frames(null);
+    highlightSelected();
     if (moved) {
       // Don't hand the card or sky the previous spot's data while the new one loads.
       object = null;
@@ -227,20 +256,23 @@ export function startApp(root: HTMLElement): void {
       })();
       if (fsig.aborted) return;
       frames = loaded.frames;
+      workbench.frames(frames,loaded.jsonUrl);
       sky.goto(next, frames);
       card.show(next, object, frames);
       await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl);
       if (fsig.aborted) return;
       blink.status('idle');
+      highlightSelected();
     } catch (e) {
       if (fsig.aborted) return;
       frames = null;
+      workbench.frames(null);
       sky.goto(next, null);
       if (layer !== 'raw') {
         const failed = layer;
         layer = 'raw';
         await go(next, { push: false, objectToo: false });
-        if (view === next) workbench.message(`${failed} is unavailable here. Showing the original observations. Build an analysis to prepare the model and residual.`);
+        if (view === next) workbench.message(`${failed} is unavailable for this field, detector, clock or field of view. Showing the original observations.`);
       } else blink.status("error", errorText(e));
     }
   }
@@ -296,6 +328,7 @@ export function startApp(root: HTMLElement): void {
 
   // Routes (DESIGN.md "Pages"). Pages mount on first visit; Explore loads frames only when opened.
   const ctx: PageContext = {
+    currentView:()=>view,
     navigate(hash) {
       location.hash = hash;
     },
@@ -311,7 +344,7 @@ export function startApp(root: HTMLElement): void {
   const pageMounts: Record<string, MountPage> = {
     atlas: mountAtlas,
     discover: mountDiscover,
-    learn: mountLearn,
+    learn: loadCultureStories(mountLearn),
     tools: mountTools,
     live: mountLive,
     review: mountReview,
@@ -321,6 +354,7 @@ export function startApp(root: HTMLElement): void {
   };
   const pages = new Map<string, PageHandle>();
   let current = "";
+  const lastTabs:Record<string,string>={analyze:'motion',research:'data'};
   let exploreStarted = false;
 
   function parseRoute(): { page: string; param: string | null } {
@@ -331,11 +365,8 @@ export function startApp(root: HTMLElement): void {
     if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
     if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
     if (["review", "explore", "community", "about", "learn", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
-    // No hash: deep links to a target or coordinates open Explore; otherwise the sky (atlas).
-    if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
-      return { page: "explore", param: null };
-    // Until the Sky globe lands, the home page shows tonight's live search.
-    return { page: ATLAS_READY ? "atlas" : "live", param: null };
+    // The first workspace level is the default entry. The atlas keeps its explicit /sky route.
+    return { page: "explore", param: null };
   }
 
   function route() {
@@ -349,7 +380,7 @@ export function startApp(root: HTMLElement): void {
     document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
-    const navKey = page === "candidate" ? "review" : page === "explore" && param === "science" ? "science" : page;
+    const navKey = page === "candidate" ? "review" : page;
     root.querySelectorAll<HTMLAnchorElement>(".nav a").forEach((a) =>
       a.dataset.route === navKey ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
     );
@@ -357,12 +388,23 @@ export function startApp(root: HTMLElement): void {
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
       const first = readView() ?? viewForTarget(TARGETS[0]);
-      void go(first, { push: false }).then(() => {
-        if (current === 'explore' && parseRoute().param === 'science') workbench.open();
-      });
+      void go(first, { push: false });
       writeView(first, true);
     }
-    if (page === "explore" && param === "science") workbench.open();
+    if(page === 'explore'){
+      const state=workspaceState(param);
+      if(state.mode!=='explore')lastTabs[state.mode]=state.tab;
+      $<HTMLElement>('.page-blink').dataset.workspaceMode=state.mode;
+      $<HTMLElement>('.workspace-description').textContent=MODES[state.mode].description;
+      $<HTMLHeadingElement>('#blink-h1').textContent=MODES[state.mode].title;
+      root.querySelectorAll<HTMLAnchorElement>('[data-level]').forEach(a=>{
+        const mode=a.dataset.level as typeof state.mode;
+        a.href=workspaceHref(mode,lastTabs[mode]??'');
+        if(a.dataset.level===state.mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
+      });
+      workbench.mode(state);
+    }
+    $<HTMLElement>('.details-slot').hidden=page === 'explore';
     const mount = pageMounts[page];
     if (mount) {
       let handle = pages.get(page);
@@ -396,7 +438,7 @@ export function startApp(root: HTMLElement): void {
 
   addEventListener("popstate", () => {
     const v = readView();
-    if (v && parseRoute().page === "explore") go(v, { push: false });
+    if (v && parseRoute().page === "explore" && (!view || (["ra","dec","clock","det","fov","slug"] as const).some(k=>v[k]!==view![k]))) void go(v, { push: false });
   });
 
   route();

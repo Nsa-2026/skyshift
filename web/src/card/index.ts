@@ -63,6 +63,7 @@ interface Note {
 
 export const mountCard: MountCard = (el, options = {}) => {
   let reference: {um: number; flux_ujy: number}[] = [];
+  let section: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' = 'all';
   const id = `cd${++uid}`;
   el.classList.add("cd");
   let shown: Shown | null = null;
@@ -96,13 +97,17 @@ export const mountCard: MountCard = (el, options = {}) => {
       el.innerHTML = headHtml(view, null, true) + skeletonHtml(false) + lookForHtml(view);
       return;
     }
-    const notes = notesFor(object);
+    const notes = section === 'summary'
+      ? notesFor(object).filter(n=>n.key==='sat').map(n=>({...n,html:object&&satQualifiesShift(object)
+        ? 'The target core is saturated. Its motion is measured on the wings, outside the saturated core.'
+        : 'Some spectral measurements are saturated. Brightness estimates in those bands are approximate.'}))
+      : notesFor(object);
     el.innerHTML = [
       headHtml(view, object, false),
-      measureHtml(shown, notes),
-      options.plots === false ? "" : spectrumHtml(object, notes),
-      options.plots === false ? "" : lightCurveHtml(object),
-      lookForHtml(view),
+      ['all','summary','motion'].includes(section) ? measureHtml(shown, notes) : '',
+      options.plots === false || !['all','spectrum'].includes(section) ? "" : spectrumHtml(object, notes),
+      options.plots === false || !['all','lightcurve'].includes(section) ? "" : lightCurveHtml(object),
+      ['all','summary'].includes(section) ? lookForHtml(view) : '',
     ].join("");
     wire();
   }
@@ -199,7 +204,7 @@ export const mountCard: MountCard = (el, options = {}) => {
     }
     const u = object?.known_ucd;
     if (u) items.push(["Spectral type", `${esc(u.spt)} <span class="cd-dim">(${esc(u.ref)})</span>`]);
-    const dl = items.length
+    const dl = items.length && section !== 'summary'
       ? `<dl class="cd-dl">${items.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`
       : "";
 
@@ -525,6 +530,12 @@ export const mountCard: MountCard = (el, options = {}) => {
   }
 
   const handle: CardHandle = {
+    section(value) {
+      if(section === value) return;
+      section = value;
+      el.classList.toggle('cd-summary',value === 'summary');
+      if(shown) render();
+    },
     reference(points) { reference = points; if (shown) render(); },
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
