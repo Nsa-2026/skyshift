@@ -236,7 +236,87 @@ def test_zone_choice_and_reasons(root, tmp_path):
     # the layer carries the reason
     meta = _hours_meta()
     meta["center"] = {"ra": 50.0, "dec": 50.0}
+    meta["epochs"] = [{"id": "d2-OBS_404", "kind": "exposure", "mjd_mid": T1, "det": 2}]  # no dot file either
     assert M.build(meta, root=root) == (None, "not_processed")
+    meta["center"] = {"ra": 35.0, "dec": 5.0}
+    assert M.build(meta, root=root) == (None, "processing")
+    monkeypatch_env = pytest.MonkeyPatch()
+    monkeypatch_env.setenv("SKYSHIFT_MEASURED_DOTS_ONLY", "0")
+    try:  # dots only off: photos with dot files outside a combined zone say why, as before
+        meta["epochs"] = _hours_meta()["epochs"]
+        meta["center"] = {"ra": 50.0, "dec": 50.0}
+        assert M.build(meta, root=root) == (None, "not_processed")
+    finally:
+        monkeypatch_env.undo()
+
+
+@pytest.fixture
+def extracted(root):
+    """The same photos, but the zone is only extracted: dot files, no results/zz/."""
+    import shutil
+
+    progress = Path(root) / "skyrun" / "progress.json"
+    p = json.loads(progress.read_text())
+    p["zones"][0].update(state="extracted", stage="provisional", final=False, combined_at=None)
+    progress.write_text(json.dumps(p))
+    shutil.rmtree(Path(root) / "results" / "zz")
+    M.reset()
+    return root
+
+
+GAIA = [{"id": "4242424242424242424", "ra": S1[0] + 0.5 / 3600 / COS, "dec": S1[1], "pmra": 0.0, "pmdec": 0.0,
+         "parallax": None, "g": 12.0},
+        {"id": "999", "ra": off(30, 0, *S2)[0], "dec": S2[1], "pmra": None, "pmdec": None, "parallax": None, "g": 18.0}]
+
+
+def test_dots_only_hours_extracted(extracted):
+    meta = _hours_meta(KNOWN)
+    meta["gaia"] = GAIA
+    m, reason = M.build(meta, root=extracted)
+    assert reason is None
+    assert (m["zone"], m["stage"], m["zone_box"]) == ("zz", "extracted", {"ra": [9.0, 11.0], "dec": [19.0, 21.0]})
+    assert m["tracks"] == [] and m["shifts"] == [] and (m["photos"], m["photos_missing"]) == (2, 0)
+    star = _find(m, "d2-OBS_1", S1)
+    assert star["class"] == "star" and star["gaia_id"] == "4242424242424242424" and star["source_id"] is None
+    assert _find(m, "d2-OBS_1", S2)["class"] == "other"  # its Gaia neighbour is 30" away
+    lone = _find(m, "d2-OBS_1", LONE_KNOWN)
+    assert lone["class"] == "known" and lone["known_name"] == "(12345)"
+    assert _find(m, "d2-OBS_1", MOVER_K)["class"] == "other"  # Ceres predicted 16" away: beyond 10"
+    assert _find(m, "d2-OBS_1", LONE_GHOST)["class"] == "artifact"
+    ghosted = _find(m, "d2-OBS_2", MOVER_C)
+    assert ghosted["class"] == "artifact" and ghosted["reasons"] == ["ghost"]
+    # SOURCE at the peak and OUTLIER are not artefacts
+    assert _find(m, "d2-OBS_1", LONE_SOURCE_OUTLIER)["class"] == "other"
+    assert _find(m, "d2-OBS_1", MOVER_A)["class"] == "other"
+    assert all(d["n_dots"] == 1 and d["track_id"] is None for d in m["detections"])
+    assert sum(m["counts"].values()) == len(m["detections"]) == 15
+    json.dumps(m, allow_nan=False)
+
+
+def test_dots_only_months_merges_a_visit_within_2_arcsec(extracted):
+    meta = _months_meta()
+    meta["gaia"] = GAIA
+    keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
+    m, reason = M.build(meta, keys, root=extracted)
+    assert reason is None and m["stage"] == "extracted" and m["tracks"] == [] and m["shifts"] == []
+    s1 = _find(m, "d2-v1", S1)
+    assert s1["class"] == "star" and s1["n_dots"] == 2 and s1["snr"] == pytest.approx(math.hypot(300, 310), abs=0.1)
+    assert _find(m, "d2-v1", off(0.5, 0, *S1), tol=0.05)  # the weighted mean of its two dots
+    assert _find(m, "d2-v1", S3)["n_dots"] == 2 and _find(m, "d2-v2", S1)["n_dots"] == 1
+    # a ghost seen twice stays an artefact when every dot of the group is flagged
+    assert _find(m, "d2-v1", MOVER_C)["class"] == "artifact"
+
+
+def test_dots_only_no_dot_files_keeps_the_reason_and_stale_sees_new_dots(extracted):
+    meta = _hours_meta()
+    meta["epochs"] = [{"id": "d2-OBS_404", "kind": "exposure", "mjd_mid": T1, "det": 2}]
+    assert M.build(meta, root=extracted) == (None, "processing")
+    hit = {"clock": "hours", "center": {"ra": RA0, "dec": DEC0}, "epochs": meta["epochs"],
+           "measured": None, "measured_reason": "processing"}
+    assert not M.stale(hit, root=extracted)
+    assert M.stale({**hit, "epochs": _hours_meta()["epochs"]}, root=extracted)  # these photos have dots now
+    done = {**hit, "measured": {"zone": "zz", "stage": "extracted"}, "measured_reason": None}
+    assert not M.stale(done, root=extracted)
 
 
 def test_no_dots_and_failures_never_raise(root):
