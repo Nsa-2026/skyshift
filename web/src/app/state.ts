@@ -35,9 +35,10 @@ export function readView(search: string = location.search): View | null {
   const p = new URLSearchParams(search);
   const t = targetBySlug(p.get("t"));
   const base = t ? viewForTarget(t) : null;
+  if (['ra', 'dec'].some(key => p.has(key) && !p.get(key)!.trim())) return null;
   const ra = p.has("ra") ? Number(p.get("ra")) : base?.ra;
   const dec = p.has("dec") ? Number(p.get("dec")) : base?.dec;
-  if (ra == null || dec == null || !Number.isFinite(ra) || !Number.isFinite(dec)) return null;
+  if (ra == null || dec == null || !Number.isFinite(ra) || !Number.isFinite(dec) || ra < 0 || ra >= 360 || Math.abs(dec) > 90) return null;
   const clock: Clock = p.get("clock") === "hours" ? "hours" : p.get("clock") === "months" ? "months" : base?.clock ?? "months";
   const fovIn = Number(p.get("fov"));
   const fov = ALLOWED_FOV[clock].includes(fovIn) ? fovIn : base && base.clock === clock ? base.fov : DEFAULT_FOV[clock];
@@ -50,7 +51,9 @@ export function writeView(v: View, replace = false): void {
   const p = new URLSearchParams();
   if (v.slug) p.set("t", v.slug);
   else {
-    p.set("ra", v.ra.toFixed(5));
+    // Rounding just below 360° must wrap to 0°, keeping the shared link valid.
+    const ra = (((v.ra % 360) + 360) % 360);
+    p.set("ra", ((Math.round(ra * 1e5) / 1e5) % 360).toFixed(5));
     p.set("dec", v.dec.toFixed(5));
   }
   p.set("clock", v.clock);

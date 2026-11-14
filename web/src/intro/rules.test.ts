@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEEN_KEY, claimOpening, isBareHome, type OpeningEnv, type SeenStore } from "./rules";
+import { SEEN_KEY, claimOpening, isBareHome, isOpeningPreview, type OpeningEnv, type SeenStore } from "./rules";
 
 function memory(): SeenStore & { values: Map<string, string> } {
   const values = new Map<string, string>();
@@ -75,4 +75,12 @@ describe("isBareHome", () => {
     expect(isBareHome("#/sky", "")).toBe(false);
     expect(isBareHome("", "?utm_source=x")).toBe(false);
   });
+});
+
+it('offers an explicit opening preview without intercepting observation, embed or area links',()=>{
+  expect(isOpeningPreview('', '?intro=1')).toBe(true);
+  expect(isOpeningPreview('#/sky/125.6315,19.2541,360,mol', '?intro=1')).toBe(true);
+  for(const search of ['?intro=0','?intro=1&t=barnard','?intro=1&ra=10&dec=20','?intro=1&embed=1'])
+    expect(isOpeningPreview('', search)).toBe(false);
+  expect(isOpeningPreview('#/research/data', '?intro=1')).toBe(false);
 });

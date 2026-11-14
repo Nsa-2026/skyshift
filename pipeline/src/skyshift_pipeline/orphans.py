@@ -9,8 +9,8 @@ fragments). Six months later Earth is on the other side of the Sun: the planet s
 1. Orphans (orphans.parquet, one row per candidate, `reason` empty = kept): single-visit sources
    (highpm.source_visits) with no Gaia / CatWISE / 2MASS entry within crossid's radius (crossids `<cat>_n`), whose
    position another visit covered with >= ORPHANS_MIN_COVER_PHOTOS photos (the absence is real). Reasons:
-   bright_fragment (another source with S/N >= ORPHANS_BRIGHT_SNR within ORPHANS_BRIGHT_ARCSEC), zone_edge (within
-   ORPHANS_EDGE_ARCSEC of the zone box's edge), saturated.
+   bright_fragment (another source with S/N >= ORPHANS_BRIGHT_SNR within ORPHANS_BRIGHT_ARCSEC, or the fragments step's
+   bright_fragment or duplicate tag), zone_edge (within ORPHANS_EDGE_ARCSEC of the zone box's edge), saturated, blend (fragments: >= 2 Gaia within 8″).
 2. Drift (kept orphans): a weighted straight line east/north vs time through the member dots (dot files read once,
    only the columns needed; ePSF positions where psf_pos_ok; raw, calib not applied), per-dot error
    √((ORPHANS_POS_ERR_SCALE · pos_err)² + ORPHANS_POS_FLOOR_ARCSEC²), errors × √χ²_ν when above 1, one refit without
@@ -65,7 +65,7 @@ EPS = np.deg2rad(C.ECLIPTIC_OBLIQUITY_DEG)
 ECL_POLE = np.array([0.0, -np.sin(EPS), np.cos(EPS)])  # ICRS unit vector of the north ecliptic pole
 DOT_COLUMNS = ("mjd", "ra", "dec", "pos_err_arcsec", "snr", "flux_ujy", "ra_psf", "dec_psf", "pos_err_psf_arcsec",
                "psf_pos_ok")
-REASONS = ("bright_fragment", "zone_edge", "saturated")
+REASONS = ("bright_fragment", "zone_edge", "saturated", "blend")
 PLANETS = {"neptune": 3.88, "super_earth_2re": 2.0, "earth": 1.0}  # radius in Earth radii (reach table)
 EARTH_RADIUS_KM = 6371.0
 
@@ -566,9 +566,14 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
     snr = fixed.set_index("source_id")["snr"].reindex(csid).to_numpy(np.float64)
     cand["snr_max"] = snr.astype(np.float32)
     cand["edge_arcsec"] = edge_distance_arcsec(ra, dec, zone).astype(np.float32)
-    bad = {"bright_fragment": bright_neighbour(ra, dec, csid, fixed),
+    from . import fragments  # the fragments step's tags, when it ran: bright_fragment, duplicate and blend are dropped too
+    tg = fragments.load(store, zone)
+    ftag = fragments.tag_of(tg, csid)
+    st["fragments_tags"] = tg is not None
+    bad = {"bright_fragment": bright_neighbour(ra, dec, csid, fixed) | np.isin(ftag, fragments.DROPPED),
            "zone_edge": cand["edge_arcsec"].to_numpy() < C.ORPHANS_EDGE_ARCSEC,
-           "saturated": cand["saturated"].fillna(False).to_numpy(bool) if "saturated" in cand else np.zeros(len(cand), bool)}
+           "saturated": cand["saturated"].fillna(False).to_numpy(bool) if "saturated" in cand else np.zeros(len(cand), bool),
+           "blend": ftag == "blend"}
     bits = np.stack([bad[k] for k in REASONS], 1) if len(cand) else np.zeros((0, len(REASONS)), bool)
     cand["reason"] = [",".join(np.array(REASONS)[b]) for b in bits]
     clean = cand["reason"].to_numpy() == ""

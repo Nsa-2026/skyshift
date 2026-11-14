@@ -13,8 +13,16 @@ Four kinds:
             (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
+            Labels first pass clean_labels (photoz.parquet, 15 Nov review): PAH 3.3 µm only from photoz's
+            label_pah_33_z (at the galaxy's redshift) or at a good photo-z below PHOTOZ_PAH_Z_MAX; no ice on a good
+            photo-z galaxy; a Gaia star with BP − RP >= LABEL_MDWARF_BP_RP keeps no LABEL_MDWARF_EXPECTED label (an
+            M dwarf's own water vapour and CO). And a Gaia DR3 star (G < BLEND_MAX_G) within BLEND_ARCSEC at the
+            source's epoch (refcat, pm-propagated) counts as a Gaia match: crossid's 2.5″ radius misses blends.
 - shape     results/<zone>/shape_candidates.parquet (`python -m skyshift_pipeline.shape`), every row, clock months:
             stretched like two objects where Gaia and CatWISE list one (contracts/api.md v3.7). Absent file: none.
+high_pm, spectral and shape (results/<zone>/fragments.parquet, step `fragments`, when present): a source tagged
+bright_fragment (a piece of a saturated star's ring) or `duplicate` (a second source of one star) is never listed; a
+`blend` (two Gaia stars within 8″) gets that reason.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
@@ -59,6 +67,7 @@ DEFAULT_OUT = REPO / "web" / "public" / "data" / "candidates.json"
 
 # --- selection --------------------------------------------------------------------------------
 SPECTRAL_CAP = 300             # spectral: keep the most promising this many per zone
+SPECTRAL_PAH_ONLY_CAP = 20     # ... of which rows labelled PAH 3.3 µm alone (galaxies; photoz's PAH at z: ~150 in the hunt)
 NEAR_PARALLAX_MAS = 20.0       # spectral: a Gaia star this close (<= 50 pc) is kept despite the Gaia match
 NEAR_PARALLAX_SNR = 5.0        # ... if its parallax is this significant
 RED_J_M46_AB = C.BD_MIN_J_M46_AB             # label "red": J_AB - [4.6]_AB above this (classify's brown-dwarf cut)
@@ -89,12 +98,13 @@ MOVER_REPEAT = 0.3             # repeat_position
 MOVER_BAD_PIXELS = 0.8
 MOVER_NO_MOTION = 0.85
 MOVER_GRADE_C = 0.1            # the suspects' vetting graded it C (a failed gate or a catalogue source within 6″)
+MOVER_EDGE = 0.5               # a dot within VET_EDGE_PX of the detector edge (edge_dot), graded or not
 GRADE_RANK = {"A": 0, "B": 1, "C": 2}  # list order inside each zone and kind; null (other kinds, ungraded) sorts with B
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
                         "implausible_pm": 0.01}  # implausible_pm: to the bottom of the list
-HIGHPM_KNOWN_STAR = 0.6        # status "gaia": a catalogued star
+HIGHPM_KNOWN_STAR = 0.6        # status "gaia" or "2mass" (highpm's deep check): a catalogued star
 SPECTRAL_SIG_SCALE = 10.0
 SPECTRAL_WEIGHT = {"brown_dwarf_like": 1.0, "ch4": 1.0, "h2o_ice": 0.8, "co2_ice": 0.8, "co_ice": 0.8,
                    "h2o_vapour": 0.6, "co_23": 0.4, "pah_33": 0.3}
@@ -122,9 +132,9 @@ REASONS = {
               "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked",
               *C.VET_GATES),  # the suspects' failed vetting gates (vet.py, contracts/api.md suspects.json)
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
-                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
-    "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
-    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy"),
+                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm", "blend"),
+    "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable", "blend"),
+    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy", "blend"),
 }
 FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
@@ -273,13 +283,14 @@ def match_mover(ra: float, dec: float, mjd: float, n_dots: int, near: pd.DataFra
 
 def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
     """(rate ″/h, its 1σ error, position angle east of north) from a weighted straight-line fit of
-    position against time; None with fewer than two distinct times."""
+    position against time; None with fewer than two distinct times. Position errors are the dots' pos_err_arcsec ×
+    POS_ERR_SCALE (raw pos_err is 1.4–1.8× too small against Gaia), 0.3″ × that where missing."""
     t = dots["mjd"].to_numpy(np.float64) * 24.0
     if len(np.unique(np.round(t, 6))) < 2:
         return None
     e, n = tangent_offset_arcsec(dots["ra"].mean(), dots["dec"].mean(), dots["ra"].to_numpy(), dots["dec"].to_numpy())
     err = dots["pos_err_arcsec"].to_numpy(np.float64) if "pos_err_arcsec" in dots else np.full(len(dots), 0.3)
-    err = np.where(np.isfinite(err) & (err > 0), err, 0.3)
+    err = np.where(np.isfinite(err) & (err > 0), err, 0.3) * C.POS_ERR_SCALE
     w = 1.0 / err**2
     tm = np.sum(w * t) / np.sum(w)
     stt = np.sum(w * (t - tm) ** 2)
@@ -361,12 +372,13 @@ def fixed_flag_names(info_row: pd.Series | dict) -> list[str]:
 
 
 # --- movers ----------------------------------------------------------------------------------------
-def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=None, repeat=None) -> np.ndarray:
+def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=None, repeat=None, edge=None) -> np.ndarray:
     """score = S/N term x evidence x known-object term x caution terms (contracts/api.md):
     (1 - exp(-snr / 15)) x {two_exposures 1, two_detectors 0.6} x (0.85 with only two dots)
     x (1 if no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″)
     x 0.6 if OUTLIER x 0.7 if another record-only flag (ghost, halo, …) x 0.8 if a masked pixel touches a dot
-    x 0.85 if the motion is not significant x 0.6 if detector_excess x 0.3 if repeat_position."""
+    x 0.85 if the motion is not significant x 0.6 if detector_excess x 0.3 if repeat_position
+    x 0.5 if a dot is within VET_EDGE_PX of the detector edge (edge_dot)."""
     snr = np.asarray(snr, np.float64)
     s = 1.0 - np.exp(-np.maximum(snr, 0.0) / MOVER_SNR_SCALE)
     s = s * np.array([MOVER_EVIDENCE.get(e, 0.5) for e in evidence])
@@ -381,7 +393,22 @@ def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=N
     n = len(s)
     s = s * np.where(np.asarray(excess if excess is not None else [False] * n, bool), MOVER_EXCESS, 1.0)
     s = s * np.where(np.asarray(repeat if repeat is not None else [False] * n, bool), MOVER_REPEAT, 1.0)
+    s = s * np.where(np.asarray(edge if edge is not None else [False] * n, bool), MOVER_EDGE, 1.0)
     return _clip01(s)
+
+
+def edge_dot(r) -> bool:
+    """A suspect with a dot within VET_EDGE_PX of the detector edge (its dot lists dot_x, dot_y; False without them):
+    the vetting's `edge` gate, also for zones graded before it or not graded at all."""
+    x, y = getattr(r, "dot_x", None), getattr(r, "dot_y", None)
+    if x is None or y is None or isinstance(x, float) or isinstance(y, float):
+        return False
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    if not x.size or x.size != y.size:
+        return False
+    hi = C.VET_DETECTOR_PX - 1 - C.VET_EDGE_PX
+    ok = np.isfinite(x) & np.isfinite(y)
+    return bool(np.any(ok & ((x < C.VET_EDGE_PX) | (x > hi) | (y < C.VET_EDGE_PX) | (y > hi))))
 
 
 def excess_cells(susp: pd.DataFrame, mov: pd.DataFrame | None) -> dict[tuple[int, int], float]:
@@ -446,9 +473,29 @@ def mover_track(r) -> tuple[int, float, float] | None:
     return int(n), float(rate), snr
 
 
+VET_TEXT = {"not_vetted": "it could not be vetted (no data on its dots)", "hot_pixel": "a dot sits on a hot pixel",
+            "bad_column": "a dot sits on a bad detector column", "edge": "a dot is at the detector's edge",
+            "masked_peak": "a dot has a masked pixel at its peak",
+            "sharp_outlier": "a dot is sharper than a star (a cosmic ray?)", "very_sharp": "a dot is sharper than any star",
+            "flux_ratio": "its brightness jumps more than 4× in one detector",
+            "red_photo": "a dot comes from a photo that failed our quality check",
+            "2mass": "a 2MASS source lies within 6″", "allwise": "an AllWISE source lies within 6″"}
+
+
+def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
+    """The vetting's verdict in words, put first in `why`: grade C with its failed gates; a gate found here on a mover the
+    vetting passed or never saw (edge_dot) as a caution; "" otherwise."""
+    if grade != "C" and not vet_reasons:
+        return ""
+    gates = [VET_TEXT.get(x, x.replace("_", " ")) for x in vet_reasons]
+    head = "Failed the vetting, most likely an artefact or a catalogued source" if grade == "C" else "Possibly an artefact"
+    return f"{head}: {'; '.join(gates)}. " if gates else f"{head}. "
+
+
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
               no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
-              track: tuple[int, float, float] | None = None) -> str:
+              track: tuple[int, float, float] | None = None, grade: str | None = None,
+              vet_reasons: list[str] | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -468,7 +515,7 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
     if repeat is not None:
         known += (f", but another unexplained mover was seen {_fmt_dist(repeat[0])} from here {_fmt_days(repeat[1])} "
                   "apart, so it may be a fixed source")
-    return f"{seen}; {known}."
+    return f"{vet_text(grade, list(vet_reasons or []))}{seen}; {known}."
 
 
 def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
@@ -511,15 +558,20 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         grade = getattr(r, "grade", None)
         grade = grade if isinstance(grade, str) and grade else None
         vet_reasons = getattr(r, "reasons", None)
-        reasons += [str(x) for x in (vet_reasons if vet_reasons is not None and not isinstance(vet_reasons, float) else [])]
+        vet_reasons = [str(x) for x in (vet_reasons if vet_reasons is not None and not isinstance(vet_reasons, float) else [])]
+        edge = edge_dot(r)
+        if edge and "edge" not in vet_reasons:
+            vet_reasons.append("edge")
+        reasons += vet_reasons
         score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion],
-                                  [excess], [rep_ is not None])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
+                                  [excess], [rep_ is not None], [edge])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
         out.append({
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
             "zone": zone, "zones": [zone], "score": score, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
-            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track),
+            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track, grade,
+                             vet_reasons),
             "flags": record_flag_names(f), "_dets": dets,
         })
     return out
@@ -555,7 +607,7 @@ def highpm_score(pipeline_score, reasons: list[list[str]], status) -> np.ndarray
     gaia_pm_disagrees, catwise_pm_disagrees 0.4; implausible_pm 0.01 (always last)."""
     q = np.exp(-np.nan_to_num(np.asarray(pipeline_score, np.float64), nan=1.0) / HIGHPM_SCORE_SCALE)
     w = np.array([np.prod([HIGHPM_REASON_WEIGHT.get(x, 1.0) for x in rs]) if rs else 1.0 for rs in reasons])
-    known = np.where(np.asarray(status) == "gaia", HIGHPM_KNOWN_STAR, 1.0)
+    known = np.where(np.isin(np.asarray(status, dtype=object), ["gaia", "2mass"]), HIGHPM_KNOWN_STAR, 1.0)
     return _clip01(q * w * known)
 
 
@@ -586,6 +638,8 @@ def highpm_why(r, reasons: list[str]) -> str:
     elif r.status == "gaia":
         tail = ("; Gaia lists this star with the same motion, a known nearby star that shows the method works"
                 if "vetted" in reasons else "; Gaia lists a star here")
+    elif r.status == "2mass":
+        tail = "; 2MASS saw a star where this motion puts it in 2000, so it is a known star"
     else:
         tail = "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion"
     cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "bad_fit", "few_dots", "short_span") if x in reasons]
@@ -671,18 +725,105 @@ def spectral_score(c: pd.DataFrame) -> np.ndarray:
     return _clip01(best)
 
 
-def select_spectral(c: pd.DataFrame, cap: int = SPECTRAL_CAP) -> pd.DataFrame:
-    """Labelled or brown_dwarf_like, and no Gaia star (or a near one); the `cap` best by score."""
+def clean_labels(c: pd.DataFrame, pz: pd.DataFrame | None) -> pd.DataFrame:
+    """classes rows with the export's label rules applied to label_* and `labels` (module docstring). pz: photoz.parquet's
+    source_id, z_best, good, label_pah_33_z (None: no photo-z for the zone, so no PAH label)."""
+    from .classify import LABELS as CLASSIFY_LABELS
+
+    c = c.copy()
+    n = len(c)
+    if not n:
+        return c
+    good, zb, pah_z = np.zeros(n, bool), np.full(n, np.nan), np.zeros(n, bool)
+    if pz is not None and len(pz):
+        p = pz.drop_duplicates("source_id").set_index("source_id").reindex(c["source_id"].to_numpy(np.int64))
+        good = p["good"].fillna(False).to_numpy(bool)
+        zb = p["z_best"].to_numpy(np.float64)
+        if "label_pah_33_z" in p:
+            pah_z = p["label_pah_33_z"].fillna(False).to_numpy(bool)
+
+    def lab(name):
+        return c[f"label_{name}"].fillna(False).to_numpy(bool) if f"label_{name}" in c else np.zeros(n, bool)
+
+    with np.errstate(invalid="ignore"):
+        c["label_pah_33"] = pah_z | (lab("pah_33") & good & (zb < C.PHOTOZ_PAH_Z_MAX))
+        for ice in ("h2o_ice", "co2_ice", "co_ice"):
+            c[f"label_{ice}"] = lab(ice) & ~good
+        has_gaia = np.isfinite(_col(c, "gaia_sep_arcsec")) | np.isfinite(_col(c, "gaia_g"))
+        mdwarf = has_gaia & (_col(c, "gaia_bp_rp") >= C.LABEL_MDWARF_BP_RP)
+    for x in C.LABEL_MDWARF_EXPECTED:
+        c[f"label_{x}"] = lab(x) & ~mdwarf
+    on = np.stack([lab(x) for x in CLASSIFY_LABELS], 1)
+    names = np.array(CLASSIFY_LABELS)
+    c["labels"] = [",".join(names[b]) for b in on]
+    return c
+
+
+def gaia_blends(store: Store, zone: str, ids: np.ndarray) -> np.ndarray:
+    """The source_ids (of `ids`) with a Gaia DR3 star brighter than BLEND_MAX_G within BLEND_ARCSEC at the source's
+    epoch (crossids epoch_mjd, else the photo list's median): refcat/<zone>.parquet moved with its proper motion."""
+    from .crossid import ref_offset_at
+
+    ids = np.unique(np.asarray(ids, np.int64))
+    rel = next((r.format(zone=zone) for r in (C.REFCAT_REL, C.REFCAT_FALLBACK_REL) if store.exists(r.format(zone=zone))), None)
+    if not ids.size or rel is None:
+        return np.zeros(0, np.int64)
+    ref = read_columns(store, rel, ["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "g", "g_mag", "phot_g_mean_mag"])
+    g = next((pd.to_numeric(ref[k], errors="coerce").to_numpy(np.float64) for k in ("g", "g_mag", "phot_g_mean_mag")
+              if k in ref), np.full(len(ref), np.nan))
+    cat = ref["cat"].astype(str).str.lower() if "cat" in ref else pd.Series("", index=ref.index)
+    with np.errstate(invalid="ignore"):
+        ref = ref[cat.str.contains("gaia").to_numpy() & (g < C.BLEND_MAX_G)].reset_index(drop=True)
+    if not len(ref):
+        return np.zeros(0, np.int64)
+    for k in ("pmra", "pmdec"):
+        ref[k] = pd.to_numeric(ref[k], errors="coerce") if k in ref else np.nan
+    ref["epoch_mjd"] = pd.to_numeric(ref["epoch_mjd"], errors="coerce").fillna(57388.5) if "epoch_mjd" in ref else 57388.5
+    pos = read_columns(store, results_rel(zone, "sources.parquet"), ["source_id", "ra", "dec"], ids)
+    xrel = results_rel(zone, "crossids.parquet")
+    ep = (read_columns(store, xrel, ["source_id", "epoch_mjd"], ids).drop_duplicates("source_id").set_index("source_id")["epoch_mjd"]
+          if store.exists(xrel) else pd.Series(dtype=np.float64))
+    mjd = ep.reindex(pos["source_id"].to_numpy(np.int64)).to_numpy(np.float64)
+    if np.isnan(mjd).any():
+        fill = float(np.nanmedian(read_columns(store, photolist_rel(zone), ["mjd"])["mjd"])) if store.exists(photolist_rel(zone)) else 61000.0
+        mjd = np.where(np.isnan(mjd), fill, mjd)
+    span = np.nanmax(np.abs(mjd[:, None] - np.array([np.nanmin(ref["epoch_mjd"]), np.nanmax(ref["epoch_mjd"])])[None])) / 365.25
+    pm_max = float(np.nanmax(np.hypot(np.nan_to_num(ref["pmra"].to_numpy(np.float64)), np.nan_to_num(ref["pmdec"].to_numpy(np.float64))))) / 1000.0
+    tree = SkyTree(ref["ra"].to_numpy(np.float64), ref["dec"].to_numpy(np.float64))
+    near = tree.query_radius(pos["ra"].to_numpy(np.float64), pos["dec"].to_numpy(np.float64),
+                             C.BLEND_ARCSEC + 1.0 + pm_max * float(span))
+    out = []
+    for i, js in enumerate(near):
+        if not js:
+            continue
+        sub = ref.iloc[js]
+        e, nn = ref_offset_at(float(pos["ra"].iloc[i]), float(pos["dec"].iloc[i]), sub, mjd[i], parallax=False)
+        if (np.hypot(e, nn) <= C.BLEND_ARCSEC).any():
+            out.append(int(pos["source_id"].iloc[i]))
+    return np.asarray(out, np.int64)
+
+
+def select_spectral(c: pd.DataFrame, cap: int = SPECTRAL_CAP, blended: np.ndarray | None = None) -> pd.DataFrame:
+    """Labelled or brown_dwarf_like, and no Gaia star (or a near one); the `cap` best by score, at most
+    SPECTRAL_PAH_ONLY_CAP of them labelled PAH alone (star-forming galaxies, not the hunt's target). blended: source_ids
+    with a Gaia star within BLEND_ARCSEC (gaia_blends): they count as matched to it."""
     labelled = (c["labels"].fillna("").astype(str) != "").to_numpy() if "labels" in c else np.zeros(len(c), bool)
     if "brown_dwarf_like" in c:
         labelled = labelled | c["brown_dwarf_like"].to_numpy(bool)
     has_gaia = np.isfinite(_col(c, "gaia_sep_arcsec")) | np.isfinite(_col(c, "gaia_g"))
+    if blended is not None and len(blended):
+        has_gaia = has_gaia | c["source_id"].isin(blended).to_numpy()
     with np.errstate(invalid="ignore", divide="ignore"):
         plx = _col(c, "gaia_parallax")
         near = (plx >= NEAR_PARALLAX_MAS) & (plx / _col(c, "gaia_parallax_error") >= NEAR_PARALLAX_SNR)
     s = c[labelled & (~has_gaia | near)].copy()
     s["_score"] = spectral_score(s)
-    return s.sort_values(["_score", "source_id"], ascending=[False, True]).head(cap).reset_index(drop=True)
+    s = s.sort_values(["_score", "source_id"], ascending=[False, True])
+    pah_only = (s["labels"].fillna("").astype(str) == "pah_33").to_numpy() if "labels" in s else np.zeros(len(s), bool)
+    if "brown_dwarf_like" in s:
+        pah_only = pah_only & ~s["brown_dwarf_like"].to_numpy(bool)
+    over = pah_only & (np.cumsum(pah_only) > SPECTRAL_PAH_ONLY_CAP)
+    return s[~over].head(cap).reset_index(drop=True)
 
 
 def _band_phrase(lab: str, row) -> str:
@@ -763,7 +904,7 @@ def shape_candidates(store: Store, zone: str) -> list[dict]:
 
 # --- zones -------------------------------------------------------------------------------------------
 CLASS_COLUMNS = ["source_id", "class", "labels", "brown_dwarf_like", "bd_evidence", "j_m46_ab", "gaia_sep_arcsec",
-                 "gaia_g", "gaia_parallax", "gaia_parallax_error",
+                 "gaia_g", "gaia_bp_rp", "gaia_parallax", "gaia_parallax_error",
                  *[f"label_{x}" for x in LABEL_BANDS],
                  *sorted({f"{b}_sig" for bands in LABEL_BANDS.values() for b, _ in bands})]
 
@@ -775,7 +916,17 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
     h = highpm_leads(store.read_parquet(hrel)) if store.exists(hrel) else pd.DataFrame()
     crel = results_rel(zone, "classes.parquet")
     cls = read_columns(store, crel, CLASS_COLUMNS) if store.exists(crel) else pd.DataFrame(columns=CLASS_COLUMNS)
-    spec = select_spectral(cls, spectral_cap) if len(cls) else cls
+    prel = results_rel(zone, "photoz.parquet")
+    pz = read_columns(store, prel, ["source_id", "z_best", "good", "label_pah_33_z"]) if store.exists(prel) else None
+    cls = clean_labels(cls, pz)
+    blended = np.zeros(0, np.int64)
+    if len(cls):
+        pool = ((cls["labels"].fillna("").astype(str) != "").to_numpy() | cls["brown_dwarf_like"].to_numpy(bool)) & \
+            ~(np.isfinite(_col(cls, "gaia_sep_arcsec")) | np.isfinite(_col(cls, "gaia_g")))
+        blended = gaia_blends(store, zone, cls["source_id"].to_numpy(np.int64)[pool])
+        L.info("candidates %s: %d labelled no-Gaia sources, %d with a Gaia star within %.0f″ (counted as Gaia)",
+               zone, int(pool.sum()), len(blended), C.BLEND_ARCSEC)
+    spec = select_spectral(cls, spectral_cap, blended) if len(cls) else cls
     hp_ids = np.unique(np.r_[h["source_id"].to_numpy(np.int64), h["source_id_b"].to_numpy(np.int64)]) if len(h) else np.zeros(0, np.int64)
     sub = cls[cls["source_id"].isin(hp_ids)]
     cl = dict(zip(sub["source_id"].to_numpy(np.int64), class_labels(sub)))
@@ -872,6 +1023,10 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
         cands += shape_candidates(store, z)
+        from . import fragments  # results/<zone>/fragments.parquet: bright_fragment, duplicate never listed; blend: a reason
+        cands, fst = fragments.apply_candidates(cands, fragments.load(store, z))
+        if fst["applied"]:
+            L.info("candidates %s: fragments tags: %s", z, fst)
         # spectral positions are needed for the dedupe: read them now (cheap)
         sp = [c for c in cands if c["kind"] == "spectral"]
         if sp:

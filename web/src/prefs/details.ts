@@ -1,7 +1,9 @@
-// The site-wide "Details" preference (web/DESIGN.md, "Two audiences, one tool"). Off by default.
-// On, pages show the dense numbers professionals want: MJDs, rates with errors, flag bit names,
-// pipeline scores, raw ids. Mark such elements with class "pro-only" (prefs.css hides them while
-// Details is off); "plain-only" is the reverse. The switch lives in the page header.
+// The site-wide "Advanced" switch (was "Details"; web/DESIGN.md, "Two audiences, one tool"). Off by
+// default. On, pages show what professionals want: exact numbers (MJDs, rates with errors, σ, flag
+// bit names, pipeline scores, raw ids), the Viewer's measurement sections and derived plate layers,
+// and Results' data, methods and tools. Mark such elements with class "pro-only" (prefs.css hides
+// them while it's off); "plain-only" is the reverse. The switch lives in the page header. It is a
+// switch, never a separate screen. The stored key keeps its old name so earlier choices carry over.
 //
 // State: localStorage "skyshift:details" ("on" | "off"), mirrored on <html data-details="on|off">.
 // Changes fire a window CustomEvent "skyshift:details" with detail { on }.
@@ -29,7 +31,7 @@ function mirror(on: boolean): void {
   if (typeof document !== "undefined") document.documentElement.dataset.details = on ? "on" : "off";
 }
 
-/** Is Details on? */
+/** Is Advanced on? */
 export function getDetails(): boolean {
   return memory ?? stored() ?? false;
 }
@@ -81,10 +83,10 @@ export function mountDetailsSwitch(el: HTMLElement): { destroy(): void } {
   btn.type = "button";
   btn.className = "details-switch";
   btn.setAttribute("role", "switch");
-  btn.title = "Show the dense numbers: MJDs, rates with errors, flag names, pipeline scores, raw ids";
+  btn.title = "Show exact numbers, measurement charts, derived images, methods and tools";
   btn.innerHTML =
     '<span class="details-track" aria-hidden="true"><span class="details-thumb"></span></span>' +
-    '<span class="details-label">Details</span>';
+    '<span class="details-label">Advanced</span>';
   const sync = () => btn.setAttribute("aria-checked", String(getDetails()));
   btn.addEventListener("click", () => setDetails(!getDetails()));
   const off = onDetails(sync);
@@ -97,6 +99,11 @@ export function mountDetailsSwitch(el: HTMLElement): { destroy(): void } {
     },
   };
 }
+
+/** The same functions under the switch's current name. */
+export const getAdvanced = getDetails;
+export const setAdvanced = setDetails;
+export const onAdvanced = onDetails;
 
 /** For tests: forget this session's choice. */
 export function _resetDetailsForTests(): void {

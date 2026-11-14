@@ -104,6 +104,8 @@ function homeHtml(p: Progress): string {
         }).join("")}
       </ol>
       <div class="ln-home-more">
+        <div><h2><a href="#/learn/practice">Guided practice</a></h2><p>Three real SPHEREx examples with a known answer: blink each one and say what you see.</p></div>
+        <div><h2><a href="#/learn/stories">Stories in the sky</a></h2><p>Historical asterisms, guest stars and planetary events, in their own space.</p></div>
         <div>
           <h2><a href="#/learn/glossary">Glossary</a></h2>
           <p>${GLOSSARY.length} words in one plain sentence each. Dotted words across SkyShift open the same sentences.</p>

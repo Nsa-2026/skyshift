@@ -14,11 +14,11 @@ from PIL import Image
 from skyshift_mcp import frames as fr
 from skyshift_mcp import server
 
-from conftest import PUBLIC, make_offline
+from conftest import PUBLIC, make_offline, site_file
 
 BARNARD = PUBLIC / "data" / "barnard" / "frames_months_5.json"
 CAND_ID = "hunt-648380072434-87805628"
-CAND = PUBLIC / "data" / "cand" / CAND_ID / "frames.json"
+CAND = site_file(f"data/cand/{CAND_ID}/frames.json")
 
 
 def run(coro):

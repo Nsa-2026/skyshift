@@ -10,7 +10,7 @@ import pytest
 from skyshift_mcp import server, tools_data
 from skyshift_mcp.client import SkyShiftError
 
-from conftest import PUBLIC, make_offline, network
+from conftest import PUBLIC, make_offline, network, site_file
 
 FS = "https://firestore.test/v1/projects/p/databases/(default)/documents"
 CAND_MOVER = "hunt-664250069368-87801613"   # in fixtures/api/candidates_sample.json, with static frames
@@ -73,7 +73,7 @@ def _hours_measured(epochs):
 
 
 def _with_measured(rel, measured, reason=None):
-    data = json.loads((PUBLIC / rel).read_text())
+    data = json.loads(site_file(rel).read_text())
     data["measured"] = measured(data["epochs"]) if callable(measured) else measured
     data["measured_reason"] = reason
     return data

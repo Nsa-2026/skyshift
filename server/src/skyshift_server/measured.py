@@ -340,12 +340,15 @@ class Tables:
     # astrometry rows with pm_snr >= SHIFT_MIN_SNR
     ast: dict[str, np.ndarray]
     highpm: dict[int, tuple[str, list[str]]]  # source_id -> ("suspect" | "artifact", reasons)
+    # results/<zone>/fragments.parquet (v3.11), tagged rows only: source_id -> (tag, parent_gaia_id, blend_gaia_ids);
+    # None when the zone has no such file (then nothing changes)
+    frag: dict[int, tuple[str, str | None, list[str] | None]] | None = None
     loaded: float = field(default_factory=time.monotonic)
 
     def nbytes(self) -> int:
         n = sum(a.nbytes for a in (self.src_id, self.src_ra, self.src_dec, self.src_gaia))
         n += sum(a.nbytes for a in self.ast.values())
-        return n + 200 * len(self.mv.get("ra", ()))
+        return n + 200 * len(self.mv.get("ra", ())) + 150 * len(self.frag or ())
 
 
 def _mkey(cell: int, mjd: float) -> tuple[int, int]:
@@ -415,11 +418,55 @@ def _load_tables(st: Store, zone: Zone) -> Tables:
                 if cls == "suspect" or (cls == "artifact" and sid not in highpm):
                     highpm[sid] = (cls, reasons if cls == "artifact" else [])
     tables = Tables(zone, np.asarray(src["source_id"], np.int64)[order], np.asarray(src["ra"], float)[order],
-                    np.asarray(src["dec"], float)[order], gaia, mv, suspects, ast, highpm)
+                    np.asarray(src["dec"], float)[order], gaia, mv, suspects, ast, highpm,
+                    _load_fragments(st, base))
     log.info("measured: zone %s tables loaded in %.1f s (%d sources, %d movers, %d suspects, %d shifts, %.1f MB)",
              zone.name, time.perf_counter() - t0, len(order), len(mv.get("ra", ())), len(suspects),
              len(ast.get("source_id", ())), tables.nbytes() / 1e6)
     return tables
+
+
+def _load_fragments(st: Store, base: str) -> dict[int, tuple[str, str | None, list[str] | None]] | None:
+    """The pipeline's `fragments` tags (contracts/dots.md): bright_fragment, duplicate and blend rows, or None without
+    the file (or unreadable: the layer then reads as before). A duplicate (a second source of one star) is read as a
+    bright_fragment whose parent is that star, so the site draws the star once (no new API reason)."""
+    try:
+        f = st.read_table(f"{base}/fragments.parquet", ["source_id", "tag"], ["parent_gaia_id", "blend_ids"])
+    except Exception:  # noqa: BLE001
+        log.warning("measured: %s/fragments.parquet unreadable; no fragment tags", base, exc_info=True)
+        return None
+    if f is None:
+        return None
+    out: dict[int, tuple[str, str | None, list[str] | None]] = {}
+    for i, tag in enumerate(f["tag"]):
+        if tag in ("bright_fragment", "duplicate"):
+            p = int(f["parent_gaia_id"][i]) if "parent_gaia_id" in f else -1
+            out[int(f["source_id"][i])] = ("bright_fragment", str(p) if p >= 0 else None, None)
+        elif tag == "blend":
+            ids = [str(int(x)) for x in (f["blend_ids"][i] or [])] if "blend_ids" in f else []
+            out[int(f["source_id"][i])] = (tag, None, ids or None)
+    return out
+
+
+def _apply_fragments(dets: list[dict], shifts: list[dict], frag: dict) -> None:
+    """v3.11: a linked source tagged bright_fragment is an `artifact` (+ reason `bright_fragment`, `parent_gaia_id`);
+    one tagged blend keeps its class and gains the reason `blend` and `blend_gaia_ids` (not on an artifact). Every
+    detection gets both fields (null when they don't apply). Suspects and known objects keep their class."""
+    for d in dets:
+        d.setdefault("parent_gaia_id", None)
+        d.setdefault("blend_gaia_ids", None)
+        sid = d.get("source_id")
+        tag, parent, blend = frag.get(int(sid), (None, None, None)) if sid is not None else (None, None, None)
+        if tag == "bright_fragment" and d["class"] in ("star", "other", "artifact"):
+            why = list(d["reasons"]) if d["class"] == "artifact" else []  # e.g. a high-pm row's codes stay
+            d["class"], d["reasons"], d["parent_gaia_id"] = "artifact", why + ["bright_fragment"], parent
+        elif tag == "blend" and d["class"] != "artifact":
+            if "blend" not in d["reasons"]:
+                d["reasons"] = list(d["reasons"]) + ["blend"]
+            d["blend_gaia_ids"] = blend
+    for s in shifts:
+        if frag.get(int(s["source_id"]), ("",))[0] == "bright_fragment" and s["class"] in ("star", "other"):
+            s["class"] = "artifact"
 
 
 _tables: OrderedDict[tuple, Tables] = OrderedDict()
@@ -708,6 +755,8 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
     else:
         dets = _months(loaded, meta, epochs, photos, F, T)
     shifts = _shifts(meta, epochs, F, T) if clock == "months" else []
+    if T.frag is not None:
+        _apply_fragments(dets, shifts, T.frag)
     return _finish(dets, tracks, shifts, zone=Z.name, stage=Z.stage, zone_box=Z.box(), clock=clock,
                    n_have=len(have), n_all=len(all_keys)), None
 

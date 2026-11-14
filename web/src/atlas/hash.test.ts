@@ -29,6 +29,12 @@ describe("parseState", () => {
     expect(parseState("122.5%2C17%2C3")!.fov).toBe(3);
   });
 
+  it("rejects malformed percent encoding without breaking navigation", () => {
+    for (const param of ["%", "125,19,360,%E0%A4%A", "%FF,19,360"]) {
+      expect(parseState(param)).toBeNull();
+    }
+  });
+
   it("refuses what isn't a view", () => {
     for (const bad of [null, undefined, "", "1,2", "a,b,c", "0,91,1", "0,-91,1", "0,0,0", "0,0,-2"]) {
       expect(parseState(bad)).toBeNull();

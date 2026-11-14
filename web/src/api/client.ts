@@ -26,7 +26,7 @@ export class ApiFailure extends Error {
 
 const base = (): string => (typeof location !== "undefined" ? location.href : "http://localhost/");
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal });
   if (!res.ok) {
     let code = "internal";
@@ -45,10 +45,27 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** getJson for observations (frames, objects): a synthetic example ("synthetic": true) is never
+ *  shown as a real observation. Pages that label examples (Results, Tools) read them with getJson. */
+export async function getReal<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const data = await getJson<T>(url, signal);
+  if ((data as { synthetic?: unknown } | null)?.synthetic === true)
+    throw new ApiFailure("Synthetic examples cannot be loaded as real observations", 502, "upstream");
+  return data;
+}
+
 export async function loadTargetIndex(slug: string, signal?: AbortSignal): Promise<TargetIndex | null> {
   try {
-    return await getJson<TargetIndex>(`/data/${slug}/index.json`, signal);
-  } catch {
+    const index = await getJson<TargetIndex>(`/data/${slug}/index.json`, signal);
+    // A partial/stale static export must not prevent the live fallback. Validate
+    // the entries consumed by loadFrames before using find/includes on them.
+    if (!index || !Array.isArray(index.frames) || !index.frames.every((f) =>
+      f && typeof f.file === "string" && f.file.length > 0 &&
+      (f.clock === "months" || f.clock === "hours") && Number.isFinite(f.fov) && f.fov > 0 &&
+      Array.isArray(f.dets) && f.dets.every(d => Number.isInteger(d) && d >= 1 && d <= 6))) return null;
+    return index;
+  } catch (e) {
+    if (signal?.aborted || (e as Error).name === "AbortError") throw e;
     return null;
   }
 }
@@ -83,8 +100,13 @@ export async function loadFrames(q: FramesQuery, signal?: AbortSignal): Promise<
     if (file) {
       const jsonUrl = new URL(`/data/${q.slug}/${file}`, base()).href;
       try {
-        const frames = await getJson<FramesResponse>(jsonUrl, signal);
-        if (frames.clock === q.clock) return { frames, jsonUrl, origin: "static" };
+        const frames = await getReal<FramesResponse>(jsonUrl, signal);
+        // Without an index, frames.json is the legacy default set. Its clock and
+        // detector can match even when the user requested a wider field.
+        const pixelArcmin = frames.pixel_arcsec / 60;
+        const fieldMatches = idx !== null || (pixelArcmin > 0 &&
+          frames.size.every(n => Math.abs(n * pixelArcmin - fov) <= pixelArcmin));
+        if (fieldMatches && frames.clock === q.clock && (!q.det || frames.epochs.some(e=>e.det===q.det))) return { frames, jsonUrl, origin: "static" };
       } catch (e) {
         if ((e as Error).name === "AbortError") throw e;
       }
@@ -93,7 +115,7 @@ export async function loadFrames(q: FramesQuery, signal?: AbortSignal): Promise<
   const p = new URLSearchParams({ ra: String(q.ra), dec: String(q.dec), clock: q.clock, fov: String(fov) });
   if (q.det) p.set("det", String(q.det));
   const jsonUrl = new URL(`/api/frames?${p}`, base()).href;
-  const frames = await getJson<FramesResponse>(jsonUrl, signal);
+  const frames = await getReal<FramesResponse>(jsonUrl, signal);
   return { frames, jsonUrl, origin: "api" };
 }
 
@@ -126,12 +148,12 @@ export async function loadObject(
 ): Promise<ObjectResponse> {
   if (pos.slug) {
     try {
-      return await getJson<ObjectResponse>(`/data/${pos.slug}/object.json`, signal);
+      return await getReal<ObjectResponse>(`/data/${pos.slug}/object.json`, signal);
     } catch (e) {
       if ((e as Error).name === "AbortError") throw e;
     }
   }
-  return getJson<ObjectResponse>(`/api/object?ra=${pos.ra}&dec=${pos.dec}`, signal);
+  return getReal<ObjectResponse>(`/api/object?ra=${pos.ra}&dec=${pos.dec}`, signal);
 }
 
 export function resolve(q: string, signal?: AbortSignal): Promise<ResolveResponse> {

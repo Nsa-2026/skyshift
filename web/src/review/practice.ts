@@ -48,7 +48,7 @@ export const PRACTICE: PracticeItem[] = [
       junk:
         "It's real: Barnard's Star. Its core is so bright it saturates (solid ink), which can look odd, but the star itself steps north between visits.",
       unsure:
-        "Fair: the step is under one pixel. That's Barnard's Star, moving 10.4″ a year. Subtract two visits in the player to see it clearly.",
+        "Fair: the step is under one pixel. That's Barnard's Star, moving 10.4″ a year. Use Show changes in guided practice, or Difference in Analyze, to compare visits.",
     },
   },
   {

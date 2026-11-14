@@ -23,6 +23,13 @@ export function isBareHome(hash: string, search: string): boolean {
   return (search === "" || search === "?") && (hash === "" || hash === "#" || hash === "#/");
 }
 
+/** Explicit local-review/replay link. Observation links retain their normal entry. */
+export function isOpeningPreview(hash: string, search: string): boolean {
+  const query = new URLSearchParams(search);
+  return query.get('intro') === '1' && [...query.keys()].every(key => key === 'intro') &&
+    (isBareHome(hash, '') || hash === '#/sky' || hash.startsWith('#/sky/'));
+}
+
 /**
  * True when the opening should play now. It also records the play, so a reload or a second
  * tab never shows it again. Any storage error means "don't show": better to skip it for

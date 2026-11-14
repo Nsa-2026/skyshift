@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { paintScene } from "./scene";
 import { playOpening, type OpeningHandle } from "./opening";
+import { preparePlanetaryOpening, type PreparationResult } from './planet-worker-client';
 
 vi.mock("./scene", () => ({ paintScene: vi.fn() }));
+vi.mock('./planet-worker-client', () => ({ preparePlanetaryOpening: vi.fn(() => ({ pending: false, ready: new Promise(() => {}), cancel: vi.fn() })) }));
 
 describe("the opening overlay", () => {
   let app: HTMLElement;
@@ -47,14 +49,14 @@ describe("the opening overlay", () => {
     const el = open();
     expect(el.getAttribute("role")).toBe("dialog");
     expect(el.getAttribute("aria-modal")).toBe("true");
-    expect(el.getAttribute("aria-label")).toBe("SkyShift opening. Scroll down to explore, or skip the intro.");
+    expect(el.getAttribute("aria-label")).toBe("SkyShift opening. Scroll to follow the story, or choose Explore the sky.");
     expect(document.getElementById(el.getAttribute("aria-describedby")!)!.textContent).toMatch(/Escape/);
     expect(el.querySelector("h2")!.textContent).toMatch(/The sky is\s+never still\./);
     expect(document.activeElement).toBe(el);
     expect(app.hasAttribute("inert")).toBe(true);
     expect(document.documentElement.classList.contains("op-open")).toBe(true);
     const skip = el.querySelector<HTMLButtonElement>(".op-skip")!;
-    expect(skip.textContent!.replace(/\s+/g, " ").trim()).toMatch(/^Skip intro/);
+    expect(skip.textContent!.replace(/\s+/g, " ").trim()).toMatch(/^Explore the sky/);
     expect(skip.tabIndex).toBe(0);
     expect(el.querySelector("canvas")!.getAttribute("aria-hidden")).toBe("true");
     expect(el.querySelector(".op-sky")!.getAttribute("aria-hidden")).toBe("true");
@@ -75,6 +77,30 @@ describe("the opening overlay", () => {
     expect(el.querySelector(".op-credit")!.textContent).not.toContain("SPHEREx");
     scroll(el, 2200);
     expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 0.5);
+  });
+
+  it("keeps the entry action usable after the canvas renderer fails", () => {
+    vi.mocked(paintScene).mockImplementationOnce(() => { throw new Error("canvas resource unavailable"); });
+    const el = open();
+    expect(el.querySelector("canvas")!.hidden).toBe(true);
+    expect(document.activeElement).toBe(el);
+    scroll(el, 2200);
+    expect(paintScene).toHaveBeenCalledTimes(1);
+    el.querySelector<HTMLButtonElement>(".op-skip")!.click();
+    expect(el.isConnected).toBe(false);
+    expect(app.hasAttribute("inert")).toBe(false);
+    expect(onClose).toHaveBeenCalledWith("skip");
+  });
+
+  it("finishes the journey even if a later canvas redraw fails", () => {
+    const el = open();
+    vi.mocked(paintScene).mockImplementationOnce(() => { throw new Error("context lost"); });
+    expect(() => scroll(el, 2200)).not.toThrow();
+    expect(el.querySelector("canvas")!.hidden).toBe(true);
+    scroll(el, 4400);
+    vi.advanceTimersByTime(800);
+    expect(onClose).toHaveBeenCalledWith("end");
+    expect(app.hasAttribute("inert")).toBe(false);
   });
 
   it("has no Chinese text left", () => {
@@ -119,14 +145,85 @@ describe("the opening overlay", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("ends by itself at the bottom, once, even after a fling", () => {
+  it("does not rasterize an unchanged scene again on duplicate scroll or resize events", () => {
+    const el = open();
+    scroll(el, 2200);
+    const paints = vi.mocked(paintScene).mock.calls.length;
+    scroll(el, 2200);
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(20);
+    expect(paintScene).toHaveBeenCalledTimes(paints);
+    vi.stubGlobal("innerWidth", window.innerWidth + 100);
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(20);
+    expect(paintScene).toHaveBeenCalledTimes(paints + 1);
+  });
+
+  it('redraws the current story once off-thread planets are ready, without moving scroll', async () => {
+    let ready!: (result: PreparationResult) => void;
+    vi.mocked(preparePlanetaryOpening).mockReturnValueOnce({ pending: true, ready: new Promise(r => { ready = r; }), cancel: vi.fn() });
+    const el = open(); scroll(el, 2200);
+    expect(el.dataset.planetPreparation).toBe('pending');
+    const paints = vi.mocked(paintScene).mock.calls.length;
+    ready('ready'); await Promise.resolve(); vi.advanceTimersByTime(20);
+    expect(el.dataset.planetPreparation).toBe('ready');
+    expect(el.scrollTop).toBe(2200);
+    expect(paintScene).toHaveBeenCalledTimes(paints + 1);
+    expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), .5);
+  });
+
+  it('cancels preparation on close and does not draw a late completion', async () => {
+    let ready!: (result: PreparationResult) => void;
+    const cancel = vi.fn();
+    vi.mocked(preparePlanetaryOpening).mockReturnValueOnce({ pending: true, ready: new Promise(r => { ready = r; }), cancel });
+    const el = open(), paints = vi.mocked(paintScene).mock.calls.length;
+    handle!.close(); ready('ready'); await Promise.resolve(); vi.advanceTimersByTime(20);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(el.isConnected).toBe(false);
+    expect(paintScene).toHaveBeenCalledTimes(paints);
+  });
+
+  it("dissolves into the page at the bottom, once, even after a fling", () => {
     const el = open();
     scroll(el, 4400);
     scroll(el, 4400);
+    expect(el.classList.contains('is-revealing')).toBe(true);
+    expect(el.isConnected).toBe(true);
+    expect(app.hasAttribute('inert')).toBe(true);
+    vi.advanceTimersByTime(800);
     expect(el.isConnected).toBe(false);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledWith("end");
     expect(app.hasAttribute("inert")).toBe(false);
+  });
+
+  it('pauses the independent sky drift off the title and in hidden tabs, without a canvas idle loop',()=>{
+    const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false);
+    try {
+      const el=open();
+      expect(el.classList.contains('is-drifting')).toBe(true);
+      const paints=vi.mocked(paintScene).mock.calls.length;
+      vi.advanceTimersByTime(5000);
+      expect(paintScene).toHaveBeenCalledTimes(paints);
+      hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));
+      expect(el.classList.contains('is-background-paused')).toBe(true);
+      scroll(el,2200);
+      expect(el.classList.contains('is-drifting')).toBe(false);
+      hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));
+      scroll(el,0);
+      expect(el.classList.contains('is-background-paused')).toBe(false);
+      expect(el.classList.contains('is-drifting')).toBe(true);
+    } finally { hidden.mockRestore(); }
+  });
+
+  it('cancels a pending dissolve immediately on navigation and removes its later callback',()=>{
+    const el=open();scroll(el,4400);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(el.isConnected).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith('navigate');
+    vi.advanceTimersByTime(1000);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("keeps its place when the window resizes", () => {
@@ -146,10 +243,10 @@ describe("the opening overlay", () => {
     expect(document.activeElement).toBe(replay);
   });
 
-  it("still version: one frame, no scroll journey, an Enter button", () => {
+  it("still version: one frame, no scroll journey, the same Explore the sky action", () => {
     const el = open({ still: true });
     expect(el.classList.contains("is-still")).toBe(true);
-    expect(el.querySelector(".op-skip")!.textContent).toMatch(/Enter/);
+    expect(el.querySelector(".op-skip")!.textContent).toMatch(/Explore the sky/);
     scroll(el, 2200);
     expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 0);
     expect(el.isConnected).toBe(true);
@@ -163,5 +260,15 @@ describe("the opening overlay", () => {
     motion.dispatchEvent(new Event("change"));
     expect(el.isConnected).toBe(false);
     expect(onClose).toHaveBeenCalledWith("skip");
+  });
+
+  it("honours reduced motion switched on while its module was loading", () => {
+    const motion = Object.assign(new EventTarget(), { matches: true });
+    vi.stubGlobal("matchMedia", () => motion);
+    const el = open({ still: false });
+    expect(el.classList.contains("is-still")).toBe(true);
+    scroll(el, 2200);
+    expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 0);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

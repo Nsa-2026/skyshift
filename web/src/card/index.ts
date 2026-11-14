@@ -66,7 +66,9 @@ interface Note {
   html: string;
 }
 
-export const mountCard: MountCard = (el, opts = {}) => {
+export const mountCard: MountCard = (el, options = {}) => {
+  let reference: {um: number; flux_ujy: number}[] = [];
+  let section: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' = 'all';
   const id = `cd${++uid}`;
   el.classList.add("cd");
   let shown: Shown | null = null;
@@ -100,13 +102,17 @@ export const mountCard: MountCard = (el, opts = {}) => {
       el.innerHTML = headHtml(view, null, true) + skeletonHtml(false) + lookForHtml(view);
       return;
     }
-    const notes = notesFor(object);
+    const notes = section === 'summary'
+      ? notesFor(object).filter(n=>n.key==='sat').map(n=>({...n,html:object&&satQualifiesShift(object)
+        ? 'The target core is saturated. Its motion is measured on the wings, outside the saturated core.'
+        : 'Some spectral measurements are saturated. Brightness estimates in those bands are approximate.'}))
+      : notesFor(object);
     el.innerHTML = [
       headHtml(view, object, false),
-      measureHtml(shown, notes),
-      spectrumHtml(object, notes),
-      lightCurveHtml(object),
-      lookForHtml(view),
+      ['all','summary','motion'].includes(section) ? measureHtml(shown, notes) : '',
+      options.plots === false || !['all','spectrum'].includes(section) ? "" : spectrumHtml(object, notes),
+      options.plots === false || !['all','lightcurve'].includes(section) ? "" : lightCurveHtml(object),
+      ['all','summary'].includes(section) ? lookForHtml(view) : '',
     ].join("");
     wire();
   }
@@ -205,7 +211,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
     }
     const u = object?.known_ucd;
     if (u) items.push(["Spectral type", `${esc(u.spt)} <span class="cd-dim">(${esc(u.ref)})</span>`]);
-    const dl = items.length
+    const dl = items.length && section !== 'summary'
       ? `<dl class="cd-dl">${items.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`
       : "";
 
@@ -285,7 +291,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
     }
     const visits = visitsOf(sp);
     if (visits.length < 2) mode = "det";
-    const chart = renderSpectrum(sp, { width, mode, id: `${id}-sp` });
+    const chart = renderSpectrum(sp, { width, mode, reference, id: `${id}-sp` });
     spPoints = chart.points;
     const um0 = Math.min(...sp.map((p) => p.um));
     const um1 = Math.max(...sp.map((p) => p.um));
@@ -307,6 +313,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
       <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}${missing}</p>
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
+      ${reference.length ? '<p class="cd-cap">Outlined points: DR1 reference on the same flux scale.</p>' : ""}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
@@ -447,10 +454,10 @@ export const mountCard: MountCard = (el, opts = {}) => {
   function wire() {
     el.querySelector<HTMLAnchorElement>(".cd-open")?.addEventListener("click", (ev) => {
       // no app around it, or a new tab asked for: the link loads the page at the star
-      if (!opts.onExplore || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      if (!options.onExplore || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
       ev.preventDefault();
       const a = ev.currentTarget as HTMLAnchorElement;
-      opts.onExplore({ ra: Number(a.dataset.ra), dec: Number(a.dataset.dec) });
+      options.onExplore({ ra: Number(a.dataset.ra), dec: Number(a.dataset.dec) });
     });
     el.querySelectorAll<HTMLButtonElement>(".cd-spec .cd-seg button").forEach((b) =>
       b.addEventListener("click", () => {
@@ -556,6 +563,13 @@ export const mountCard: MountCard = (el, opts = {}) => {
   }
 
   const handle: CardHandle = {
+    section(value) {
+      if(section === value) return;
+      section = value;
+      el.classList.toggle('cd-summary',value === 'summary');
+      if(shown) render();
+    },
+    reference(points) { reference = points; if (shown) render(); },
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;

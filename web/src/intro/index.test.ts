@@ -70,6 +70,13 @@ describe("mountOpening", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
+  it('replays the chosen opening from its explicit link after a previous visit, with a still reduced-motion option',async()=>{
+    const seen=memory();seen.setItem(SEEN_KEY,'1');
+    expect(mountOpening(app,env({search:'?intro=1',hash:'#/sky',reducedMotion:true},seen),load)).toBe(true);
+    await flush();
+    expect(playOpening.mock.calls[0][1]).toMatchObject({still:true});
+  });
+
   it("replays on request, and only one at a time", async () => {
     mountOpening(app, env({ hash: "#/about" }), load);
     const replay = app.querySelector<HTMLButtonElement>(".foot-replay")!;
@@ -89,6 +96,27 @@ describe("mountOpening", () => {
     const slow = vi.fn(() => new Promise<never>((r) => (resolve = () => r({ playOpening } as never))));
     mountOpening(app, env({}), slow);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
+    resolve();
+    await flush();
+    expect(playOpening).not.toHaveBeenCalled();
+  });
+
+  it("cancels a delayed replay when the visitor navigates before it loads", async () => {
+    let resolve!: () => void;
+    const slow = vi.fn(() => new Promise<never>((r) => (resolve = () => r({ playOpening } as never))));
+    mountOpening(app, env({ hash: "#/about" }), slow);
+    app.querySelector<HTMLButtonElement>(".foot-replay")!.click();
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    resolve();
+    await flush();
+    expect(playOpening).not.toHaveBeenCalled();
+  });
+
+  it("does not mount an overlay over an app removed while the module loads", async () => {
+    let resolve!: () => void;
+    const slow = vi.fn(() => new Promise<never>((r) => (resolve = () => r({ playOpening } as never))));
+    mountOpening(app, env({}), slow);
+    app.remove();
     resolve();
     await flush();
     expect(playOpening).not.toHaveBeenCalled();

@@ -259,14 +259,15 @@ def contains(s_regions, ra: float, dec: float) -> np.ndarray:
     return inside & ok
 
 
-def sia_row(obs_id: str, collection: str, det: int, t_min: float, t_max: float, s3_key: str) -> dict[str, Any]:
+def sia_row(obs_id: str, collection: str, det: int, t_min: float, t_max: float, s3_key: str,
+            s_region: str | None = None) -> dict[str, Any]:
     """A photo-list row in IRSA SIA's shape (search._query_sia), for search.rows_to_images.
     The detector was read from energy_bandpassname when the list was made (photolist.clean)."""
     return {
         "obs_collection": collection, "obs_id": obs_id, "energy_bandpassname": f"SPHEREx-D{int(det)}",
         "t_min": float(t_min), "t_max": float(t_max), "access_url": IRSA_DATA + s3_key,
         "cloud_access": json.dumps({"aws": {"bucket_name": S3_BUCKET, "region": S3_REGION, "key": s3_key}}),
-        "dataproduct_type": "image", "dataproduct_subtype": "science",
+        "dataproduct_type": "image", "dataproduct_subtype": "science", "s_region": s_region,
     }
 
 
@@ -282,7 +283,8 @@ def from_lists(ra: float, dec: float, st) -> tuple[list[dict[str, Any]], list[st
         near = np.flatnonzero(angsep(zl.s_ra, zl.s_dec, ra, dec) < NEAR_CENTRE_DEG)
         inside = near[contains(zl.s_region[near], ra, dec)]
         rows += [sia_row(str(zl.obs_id[i]), str(zl.collection[i]), int(zl.det[i]), float(zl.t_min[i]),
-                         float(zl.t_max[i]), str(zl.s3_key[i])) for i in inside if zl.s3_key[i]]
+                         float(zl.t_max[i]), str(zl.s3_key[i]), str(zl.s_region[i]))
+                 for i in inside if zl.s3_key[i]]
     return rows, [n for n, _ in zones], max(d for _, d in zones)
 
 

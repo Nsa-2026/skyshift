@@ -44,13 +44,36 @@ SHA=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 ME=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name 2>/dev/null || hostname)
 echo "SKYRUN start $ME sha=$SHA stage=$STAGE extract_workers=$W combine_slots=$K after_extraction=$KX combine_workers=$CW nice_combine=$CNICE nice_dots=$DNICE zones=${#Z[@]}"
 
+# Right after a boot `gcloud storage` can fail for minutes (seen on the worker, 14 Nov 19:59-20:05): every read then
+# looked empty, so extracted zones were redone, our stale claims stayed and present photo lists were "missing".
+# Wait until the bucket answers, and retry a failed read; "matched no objects" (an empty folder) is an answer.
+bucket_ok() { gcloud storage ls "$B/" >/dev/null 2>&1; }
+for i in $(seq 1 40); do bucket_ok && break; echo "SKYRUN bucket not answering yet ($i)"; sleep 15; done
+
 # mark ROOT STATE ZONE [DETAIL]
 mark() { echo "$ME $(date -u +%FT%TZ) ${4:+$4 }sha=$SHA" | gcloud storage cp -q - "$1/$2/$3.txt" >/dev/null 2>&1 || true; }
-names() { gcloud storage ls "$1/$2/" 2>/dev/null | sed 's|.*/||; s|\.txt$||'; }
+names() {
+  local i out
+  for i in 1 2 3 4 5; do
+    if out=$(gcloud storage ls "$1/$2/" 2>&1); then printf '%s\n' "$out" | sed 's|.*/||; s|\.txt$||'; return 0; fi
+    printf '%s' "$out" | grep -q "matched no objects" && return 0
+    sleep 15
+  done
+  echo "SKYRUN cannot list $1/$2/" >&2; return 1
+}
 # time limits: refcat/photolist queries have no HTTP timeout, and a hung prep would block the loop at `wait`
 prep() { timeout 900 uv run skyshift-pipeline photolist --zone "$1" && timeout 1200 uv run skyshift-pipeline refcat --zone "$1"; }
 
-has_photolist() { gcloud storage ls "gs://nasa-glazing-data/photolists/zones/$1.parquet" >/dev/null 2>&1; }
+# missing only when the bucket answers and the file isn't there; a failed call is retried
+has_photolist() {
+  local i
+  for i in 1 2 3 4 5; do
+    gcloud storage ls "gs://nasa-glazing-data/photolists/zones/$1.parquet" >/dev/null 2>&1 && return 0
+    bucket_ok && return 1
+    sleep 15
+  done
+  return 1
+}
 
 extract() {
   local i z n p done_ todo=() deferred=() pass fails=0

@@ -34,7 +34,13 @@ function fovText(fov: number): string {
 /** Parse the route parameter (what follows #/sky/). null when it isn't a view. */
 export function parseState(param: string | null | undefined): AtlasState | null {
   if (!param) return null;
-  const parts = decodeURIComponent(param).split(",").map((s) => s.trim());
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(param);
+  } catch {
+    return null;
+  }
+  const parts = decoded.split(",").map((s) => s.trim());
   if (parts.length < 3) return null;
   const [ra, dec, fov] = parts.slice(0, 3).map(Number);
   if (![ra, dec, fov].every(Number.isFinite) || Math.abs(dec) > 90 || fov <= 0) return null;

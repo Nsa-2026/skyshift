@@ -29,7 +29,7 @@ export function sceneAt(progress: number) {
     clouds: smooth(p, 0.21, 0.29) * (1 - smooth(p, 0.32, 0.43)),
     /** Brand and credit step back before the fade, so they never print over the site's header. */
     chrome: 1 - smooth(p, 0.86, 0.9),
-    /** The whole overlay's opacity: it fades into the page underneath at the very end. */
+    /** Scroll contribution to the fade; the overlay completes its reveal with a short dissolve. */
     veil: 1 - smooth(p, 0.92, 0.995),
   };
 }

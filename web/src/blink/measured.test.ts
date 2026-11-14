@@ -6,7 +6,14 @@ import monthsJson from "./fixtures/frames-months-measured.json";
 import {
   describeDetection,
   describeShift,
-  exaggeration,
+  arrowFactor,
+  motionArrow,
+  shiftAt,
+  shiftVerdict,
+  gaiaById,
+  verdictWords,
+  blendCount,
+  offsetArcsec,
   listItems,
   measuredState,
   reasonLine,
@@ -127,12 +134,17 @@ describe("hours summary", () => {
 
 describe("months summary", () => {
   const s = summarize(M);
-  it("counts distinct sources (at least, when capped) and what moved", () => {
+  it("counts distinct sources (at least, when capped) and only the shifts the plate draws as moved", () => {
     expect(sourcesByClass(M)).toMatchObject({ star: 2, other: 1, artifact: 1, suspect: 1 });
-    expect(strip(s.lead)).toBe(
+    // Barnard's Star at 115σ moved; the suspect (3.2σ) and the source without Gaia (3.6σ) are under 5σ.
+    expect(strip(s.lead)).toBe("Here SkyShift found at least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(s.rest).toBe(
+      "2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion. " +
+        "Of the sources, at least 2 match Gaia stars, at least 1 has no Gaia match, 1 looks like an artefact and 1 is a suspect.",
+    );
+    expect(strip(summarize({ ...M, shifts: M.shifts.map((x) => ({ ...x, pm_snr: 6 })) }, months.gaia).lead)).toBe(
       "Here SkyShift found at least 5 sources in 48 photos, and 3 moved between visits: 1 Gaia star, 1 suspect and 1 source without Gaia.",
     );
-    expect(s.rest).toBe("Of the sources, at least 2 match Gaia stars, at least 1 has no Gaia match and 1 looks like an artefact.");
   });
   it("says provisional, the photos without dots and the cap", () => {
     expect(s.notes[0]).toBe(
@@ -144,16 +156,52 @@ describe("months summary", () => {
 });
 
 describe("arrows", () => {
-  it("picks a plain exaggeration that keeps the typical arrow near the target", () => {
-    expect(exaggeration([], 72)).toBe(1);
-    expect(exaggeration([0, 0], 72)).toBe(1);
-    expect(exaggeration([3.1], 72)).toBe(20);
-    expect(exaggeration([0.39, 0.65, 10.36], 18)).toBe(20);
-    expect(exaggeration([25], 18)).toBe(1);
+  it("are to scale from 3 px; shorter ones get the smallest plain factor reaching about 16 px", () => {
+    expect(arrowFactor(0)).toBe(0);
+    expect(arrowFactor(3)).toBe(1);
+    expect(arrowFactor(24.5)).toBe(1);
+    expect(arrowFactor(2.9)).toBe(10); // ×5 is 14.5 px, ×10 is 29 px
+    expect(arrowFactor(1.6)).toBe(10);
+    expect(arrowFactor(0.115)).toBe(200);
+    expect(arrowFactor(0.01)).toBe(0); // even ×1000 wouldn't show: nothing drawn
   });
+
+  it("Barnard's 10.8″ on the 15′ months plate is to scale: no factor, the tip on the later position", () => {
+    // 3.075″ per image pixel, about 2.3 screen pixels each: 10.8″ is about 8 px.
+    const s = 2.3 / 3.075;
+    const from = { X: 400, Y: 400 };
+    const to = { X: 400 - 1.1 * s, Y: 400 - 10.75 * s };
+    const a = motionArrow([from, to], { X: to.X - from.X, Y: to.Y - from.Y })!;
+    expect(a.factor).toBe(1);
+    expect(a.pts).toEqual([from, to]);
+    expect(a.end).toEqual(to);
+  });
+
+  it("stretches a short arrow about its start, along the fit, and keeps the true end", () => {
+    const from = { X: 100, Y: 100 };
+    // Two measured positions 1 px apart, but the fit says 1.5 px due east-ish: the stretch follows the fit.
+    const a = motionArrow([from, { X: 101, Y: 100 }], { X: 1.5, Y: 0 })!;
+    expect(a.factor).toBe(20);
+    expect(a.pts[1]).toEqual({ X: 130, Y: 100 });
+    expect(a.end).toEqual({ X: 101.5, Y: 100 });
+    // Without a fit (an hours track), every dot moves out by the same factor.
+    const t = motionArrow([from, { X: 100, Y: 100.5 }, { X: 100, Y: 101 }])!;
+    expect(t.factor).toBe(20);
+    expect(t.pts.map((p) => p.Y)).toEqual([100, 110, 120]);
+    expect(t.end).toEqual({ X: 100, Y: 101 });
+  });
+
+  it("moves a fitted shift to any epoch with its proper motion", () => {
+    const s = M.shifts[0];
+    const p = shiftAt(s, s.mjd_to);
+    const o = offsetArcsec(s, p);
+    expect(o.east).toBeCloseTo((s.pmra * s.dt_yr) / 1000, 2);
+    expect(o.north).toBeCloseTo((s.pmdec * s.dt_yr) / 1000, 2);
+  });
+
   it("says how arrows are drawn", () => {
-    expect(arrowNote("hours", 20)).toBe("Arrows join each mover's dots in time order, drawn 20 times longer than the motion.");
-    expect(arrowNote("months", 1)).toMatch(/^Arrows show each measured shift from the first visit to the last, drawn to scale\. The circle at the tip/);
+    expect(arrowNote("hours")).toMatch(/^Arrows join each mover's dots in time order, to scale\. One too short to see is drawn longer, with its factor \(×10\)/);
+    expect(arrowNote("months")).toMatch(/to scale\. Only shifts of 5σ or more, or that Gaia's own motion confirms, get one; the rest are in the list\./);
   });
   it("keeps a partner detector's dot (same moment) off the arrow", () => {
     const d = detOf(hours);
@@ -164,6 +212,45 @@ describe("arrows", () => {
     expect(sus).toHaveLength(3);
     // 0.00018° east and 0.00008° north over 4.3 minutes: about 0.7″.
     expect(trackSpanArcsec(sus)).toBeCloseTo(Math.hypot(0.00018 * 3600 * Math.cos((17.41195 * Math.PI) / 180), 0.00008 * 3600), 2);
+  });
+});
+
+describe("which shifts get an arrow", () => {
+  const G = gaiaById(months.gaia);
+  const base = M.shifts[0];
+  it("draws a Gaia star when Gaia's own motion agrees (Barnard's Star)", () => {
+    expect(shiftVerdict(base, G)).toMatchObject({ draw: true, why: "gaia_agrees" });
+  });
+  it("hides a Gaia star whose measured shift Gaia doesn't see, however many σ (a saturated star's fake shift)", () => {
+    // Barnard's 15′ field: a G 13.6 neighbour measured at 148 ± 19 mas/yr (7.8σ), Gaia 6 mas/yr.
+    const fake = { ...base, gaia_id: "n1", pmra: 44.6, pmdec: -141.5, pm_err: 19, pm_snr: 7.8 };
+    const g = new Map([["n1", { id: "n1", ra: 0, dec: 0, pmra: -1, pmdec: -6, parallax: 1, g: 13.6 }]]);
+    const v = shiftVerdict(fake, g);
+    expect(v).toMatchObject({ draw: false, why: "gaia_disagrees" });
+    expect(verdictWords(v)).toBe("Not on the plate: Gaia measures 6 mas/yr for this star.");
+  });
+  it("draws a 4σ Gaia star when Gaia confirms its motion (WISE 0855's field)", () => {
+    const s = { ...base, gaia_id: "w", pmra: -124, pmdec: -125, pm_err: 45, pm_snr: 4.0 };
+    const g = new Map([["w", { id: "w", ra: 0, dec: 0, pmra: -153, pmdec: -113, parallax: 1, g: 17.2 }]]);
+    expect(shiftVerdict(s, g).draw).toBe(true);
+  });
+  it("without a Gaia motion: 5σ or more, and never an artefact", () => {
+    const other = { ...base, gaia_id: null, class: "other" as const };
+    expect(shiftVerdict({ ...other, pm_snr: 5 }, G).draw).toBe(true);
+    expect(shiftVerdict({ ...other, pm_snr: 4.9 }, G)).toMatchObject({ draw: false, why: "weak" });
+    expect(shiftVerdict({ ...other, class: "artifact", pm_snr: 40 }, G)).toMatchObject({ draw: false, why: "artifact" });
+    expect(verdictWords({ draw: false, why: "weak" })).toBe("Not on the plate: under 5σ.");
+  });
+  it("counts a blend from the server's reason, else Gaia stars within 9″ with no detection of their own", () => {
+    expect(blendCount(base, M, months.gaia)).toBe(1);
+    const g0 = months.gaia[0];
+    const twin = { ...g0, id: "twin", ra: g0.ra + 5 / 3600, pmra: g0.pmra, pmdec: g0.pmdec, g: 9.5 };
+    expect(blendCount(base, M, [g0, twin])).toBe(2);
+    const told: Measured = {
+      ...M,
+      detections: M.detections.map((d) => (d.source_id === 101 ? { ...d, reasons: ["blend"], blend_gaia_ids: ["a", "b", "c"] } : d)),
+    };
+    expect(blendCount(base, told, months.gaia)).toBe(3);
   });
 });
 
@@ -183,16 +270,22 @@ describe("the list under the summary", () => {
   it("hours on the partner detector lists only what has a dot there", () => {
     expect(listItems(H, detOf(hours), 5).map((i) => i.cls)).toEqual(["mover"]);
   });
-  it("months: every shift, then artefact or suspect sources without one", () => {
-    const items = listItems(M, detOf(months), 2);
+  it("months: every shift with an arrow and the artefact sources, then the shifts that get none, saying why", () => {
+    const items = listItems(M, detOf(months), 2, months.gaia);
     expect(items.map((i) => i.label)).toEqual([
-      "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
       "Artefact: too few dots, poor motion fit",
       "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
+      "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
       "Source without Gaia moved 0.39″ ± 0.11″ in 1.0 yr",
     ]);
-    expect(items[2].numbers).toBe("10,391 ± 90 mas/yr, 115.4σ, towards 356° east of north");
-    expect(items[1].numbers).toBe("In 1 visit. S/N 9.4, 380 µJy, from 3 dots");
+    expect(items.map((i) => !!i.undrawn)).toEqual([false, false, true, true]);
+    expect(items[0].numbers).toBe("In 1 visit. S/N 9.4, 380 µJy, from 3 dots");
+    // The fixture's start sits 4.9″ from where Gaia puts Barnard's Star that day: the list says so.
+    expect(items[1].numbers).toBe("10,391 ± 90 mas/yr, 115.4σ, towards 356° east of north. Measured 4.9″ from Gaia's position.");
+    expect(items[2].numbers).toBe("648 ± 200 mas/yr, 3.2σ, towards 74° east of north. Not on the plate: under 5σ.");
+    // No offset note within 1.5″.
+    const near = { ...M, shifts: [{ ...M.shifts[0], dec: 4.767397 }] };
+    expect(listItems(near, detOf(months), 2, months.gaia)[0].numbers).not.toMatch(/Gaia's position/);
   });
 });
 
@@ -243,7 +336,8 @@ describe("grades", () => {
     const m: Measured = { ...M, detections: M.detections.map((d) => (d.source_id === 105 ? { ...d, grade: "C" } : d)) };
     const it = listItems(m, detOf(months), 2).find((i) => i.cls === "suspect")!;
     expect(it.label).toBe("Suspect, grade C, moved 0.65″ ± 0.20″ in 1.0 yr");
-    expect(strip(summarize(m).lead)).toContain("1 suspect (grade C)");
+    const strong: Measured = { ...m, shifts: m.shifts.map((x) => (x.source_id === 105 ? { ...x, pm_snr: 5.2 } : x)) };
+    expect(strip(summarize(strong).lead)).toContain("1 suspect (grade C)");
   });
 });
 

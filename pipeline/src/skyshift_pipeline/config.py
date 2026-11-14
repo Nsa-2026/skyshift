@@ -106,6 +106,7 @@ DOTS_PREFETCH = True           # read the next photo of a task while this one is
 POS_ERR_K = 1.4
 PSF_SIGMA_ARCSEC = 3.2
 POS_ERR_FLOOR_ARCSEC = 0.25    # measured on the first photo; V3 will replace it
+POS_ERR_SCALE = 1.6            # pos_err_arcsec is 1.4–1.8× too small against Gaia (pilot): × this before use
 ELONG_R_PX = 2.5               # elong: second moments of the pixels within this radius
 ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 
@@ -218,6 +219,22 @@ SPECTRA_SAT_MIN_DOTS = 2        # `saturated` if at least this many of the sourc
 SPECTRA_VARIABLE_CHI2_NU = 5.0  # `variable` = chi2_nu above this AND visit_flux_ratio beyond the factor below
 SPECTRA_VARIABLE_RATIO = 1.25
 SPECTRA_MEMBER_MAX_ARCSEC = 10.0  # a member dot further than this from its source is stale (dot file rewritten): dropped
+# Dot error model (15 Nov review: 85% of hunt channels hold 1–2 dots, so the channel errors are the quoted dot errors
+# alone; the labelled sources' chi2_nu had median 3.4, p90 29). Each dot's error before weighting:
+# σ' = √((k σ)² + (floor × |channel median|)²). Measured on aperture fluxes (flux_ujy) of quiet single Gaia stars, pairs of
+# dots in one channel (146k pairs, hunt box 126.2–127.7°, 20–21.5°): k = 1 (below S/N 10 the S/N ≥ 5 cut truncates the
+# pairs), floor 1.5–2.5% (median pair chi2 1.00 per detector; quoted errors alone 1.36–1.48 in D1–D3, ~3× too small at
+# S/N > 100). Not the light-curve model: that is fitted on PSF fluxes (k 1.04–1.42), on aperture pairs it gives 0.5–0.9.
+SPECTRA_ERR_K = {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0}
+SPECTRA_ERR_FLOOR = {1: 0.018, 2: 0.024, 3: 0.025, 4: 0.019, 5: 0.017, 6: 0.018}
+# Single bad dots (cosmic rays, artefacts) made band labels (review: 15 of 38 PAH rows; e.g. a D4 dot at 3,012 µJy
+# among ~350, √(a·b) 0.42 × a star's; another with aperture flux 33,968 µJy, PSF fit 561 µJy). Left out of the spectrum:
+SPECTRA_AP_PSF_MAX = 2.0       # aperture flux > this × the ePSF flux (flux_psf_ujy): not a point source's light
+SPECTRA_SHARP_FRAC = 0.7       # √(a·b) < this × the detector's stellar size at the dot's S/N (vet.star_size; no OUTLIER needed)
+SPECTRA_SPIKE_SIGMA = 5.0      # a dot further than this × σ' from the median of its source's ±2 neighbouring channels
+SPECTRA_SPIKE_FRAC = 0.5       # ... and than this × |that median| (same detector, >= 2 of them measured), unless the
+SPECTRA_SPIKE_KEEP_VISITS = 2  # channel's deviating dots come from at least this many visits (a real narrow feature)
+SPECTRA_VISIT_BITS = 15        # sources `visit_bits`: bit (visit − 1) mod 15 per channel (int16)
 
 # --- score ---------------------------------------------------------------------------------
 SCORE_V_MAX = 16.0
@@ -261,6 +278,11 @@ LC_VARIABLE_SCATTER = 0.05     # robust scatter of flux / model (fraction)
 LC_MIN_POINTS = 3              # summary rows need this many points
 # astrometry: weighted least squares on the tangent plane about each source's median position
 ASTRO_MIN_DOTS = 6             # dots needed for a fit (position + proper motion)
+ASTRO_MIN_MOTION_DOF = 8       # ... and degrees of freedom the motion keeps after the source × detector zero points:
+                               # 2 × (used dots − zero points) − 2 (− 1 with parallax), over detectors seen in >= 2
+                               # visits (astrometry.motion_dof). Hunt, Gaia stars with a fake pm (pull > 5) per fit:
+                               # 1–2.6% under 6, 0.3% at 6–10, 0.06% from 20; 8 drops 65 of 214 fakes and 2.7% of the
+                               # Gaia fits, no fast (> 200 mas/yr) Gaia star (the least free one has 8; 10 would lose it)
 ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (two are degenerate with pm)
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
 ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
@@ -278,7 +300,22 @@ ASTRO_DETECTOR_ROBUST_P = 0.95
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
+# Saturated dots (CALIB_SAT_BITS at the peak: centroided on the wings, left uncorrected by calib) sit 0.01–0.05 px
+# along the detector's −x axis, the same in both visits (hunt, 14 Nov: D1 −0.038, D2 −0.021, D3 −0.035, D4 −0.017,
+# D5 −0.014, D6 −0.016 px; |Δy| < 0.01). The 180° roll between visits turns that into fake RA motion: −110 mas/yr at
+# G 8–10, −81 at G 10–11, −32 at G 11–12. The median offset in pixels per detector and depth bin, over the zone's
+# saturated dots of quiet Gaia stars after the frame offset, is subtracted from every saturated dot (photo Jacobian).
+ASTRO_SAT_OFFSET = True
+ASTRO_SAT_MIN_DOTS = 200       # saturated reference dots needed for a detector's (or a depth bin's) offset; a bin with
+                               # fewer takes the detector's "all" value, a detector with fewer gets none
+# depth = the source's magnitude in the detector's band (crossids, Vega) + Vega→AB − the AB magnitude at which half the
+# stars saturate there (pilot, root CLAUDE.md); < 0 = deeper. Hunt: D4 −0.032 px at depth −1.5…−1, −0.009 at 0…0.5,
+# +0.009 beyond +2 (saturated peaks on faint sources: the G-based bins mixed those in).
+ASTRO_SAT_DEPTH_BANDS = {1: ("j", 0.91, 10.5), 2: ("j", 0.91, 10.8), 3: ("k", 1.85, 11.0), 4: ("w1", 2.70, 11.1),
+                         5: ("w2", 3.34, 9.6), 6: ("w2", 3.34, 9.0)}
+ASTRO_SAT_DEPTH_BINS = (-2.5, -1.0, -0.5, 0.0, 0.5, 1.5)  # bin edges (mag; open-ended both ways); NaN depth: "all"
 ASTRO_REPORT_SNR_BINS = (5.0, 10.0, 20.0, 50.0, 100.0, 1e9)  # median dot S/N bins of the report
+ASTRO_REPORT_G_BINS = (0.0, 8.0, 10.0, 11.0, 12.0, 14.0, 17.0, 21.0)  # Gaia G bins of the report (saturated: G < ~12)
 # highpm: "Planet X"-style search for nearby cold movers not in Gaia
 HIGHPM_MIN_SEP_ARCSEC = 3.0    # a source seen in one visit only, with a counterpart in another visit
 HIGHPM_MAX_SEP_ARCSEC = 120.0  # between these separations
@@ -289,6 +326,17 @@ HIGHPM_FIT_MIN_MAS_YR = 150.0  # fitted proper motion this fast ...
 HIGHPM_FIT_MIN_SNR = 4.5       # ... and this significant also makes a candidate (method "fit"). Hunt (Gaia as truth):
                                # 5σ found 55 of the 104 detected fast Gaia stars; 4.5σ with the catalogue checks below 55
                                # (46 of the 49 misses are precision-limited: Gaia's motion / our pm_err < 5)
+                               # Unconfirmed: 4.5σ is the lowest whose fp_control stays well under 1 expected new fake
+                               # (hunt, dof-cut fits: 5.0 0.00, 4.5 0.30, 4.25 0.91, 4.0 2.13, 3.5 8.8, 3.0 122).
+HIGHPM_FIT_MIN_SNR_GAIA = 3.0  # a fit whose fast motion Gaia confirms (pm + ϖ·k >= HIGHPM_FIT_MIN_MAS_YR, agreeing) is a
+                               # candidate from this significance. Hunt: fast Gaia stars counted 63 (4.5) → 68 (4.0), 74
+                               # (3.5), 77 (3.0), 80 (2.5); still stars given a random fast Gaia motion agree by chance at
+                               # 3.2e-3 (3.0) and 1.5e-2 (2.5): × the 277 fits Gaia calls fast = 0.88 and 4.1 miscounted
+HIGHPM_FIT_MIN_SNR_CATWISE = 3.5  # ... and one CatWISE confirms (no Gaia pm; CatWISE's own motion fast and significant,
+                               # agreeing). The same control with the motion as CatWISE's: 9.4e-4 (3.5), 4.1e-3 (3.0) × the
+                               # 235 such fits with no Gaia match = 0.22, 0.95 chance "new" rows on top of fp_control's 0.30
+HIGHPM_CW_CONFIRM_SNR = 3.0    # CatWISE confirms a fast motion only when its own |pm| is this many of its errors (a
+                               # low-significance fit "agrees" within 3σ with a still CatWISE source: that confirms nothing)
 HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in the zone
 HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
 HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)
@@ -323,12 +371,15 @@ MAG_WINDOWS = {"j": (1.15, 1.33), "h": (1.50, 1.78), "k": (2.00, 2.30), "m34": (
 CLASSIFY_SHAPE_MIN_SNR = 8.0       # dots below this S/N don't vote on the shape
 CLASSIFY_LOCUS_MIN_SNR = 20.0      # dots at least this bright define the stellar locus per detector
 CLASSIFY_LOCUS_MIN_DOTS = 30       # Gaia-star dots needed to use them for the locus (else all bright dots)
+# the locus per S/N bin (lower edges): Gaia stars' √(a·b) / its S/N >= 20 value is 1.14–1.24 at S/N 8–12, 1.07–1.14 at
+# 12–20, 0.96–0.99 above 80 (hunt box, 15 Nov); ap/PSF 1.03–1.10 at 8–12. One locus made faint stars "galaxies".
+CLASSIFY_LOCUS_SNR_EDGES = (8.0, 12.0, 20.0, 40.0, 80.0)
 CLASSIFY_SIZE_TOL = 0.10           # extended score: (size ratio − 1) / this
 CLASSIFY_COG_TOL = 0.10            # ... (curve-of-growth ratio − 1) / this
 CLASSIFY_CHI2_FACTOR = 2.0         # ... log(psf chi2 ratio) / log(this)
 CLASSIFY_EXT_STAR = 1.0            # extended score <= this: point-like
 CLASSIFY_EXT_GALAXY = 2.0          # extended score >= this (and no significant parallax): galaxy
-CLASSIFY_PLX_SNR_STAR = 5.0        # Gaia parallax / error >= this: star, whatever the shape
+CLASSIFY_PLX_SNR_STAR = 3.0        # Gaia parallax / error >= this: star, whatever the shape (no galaxy has a 3σ parallax)
 CLASSIFY_GAIA_MATCH_ARCSEC = 3.0   # own Gaia match from refcat when crossids.parquet has none
 
 # brown-dwarf-like: (methane or water) and red and (no Gaia or faint in Gaia) and not a galaxy, not saturated
@@ -349,6 +400,8 @@ PHOTOZ_ODDS_DZ = 0.05          # odds = p(|z − z_best| < this × (1 + z_best))
 PHOTOZ_GOOD_ODDS = 0.8         # good = odds >= this, chi2_nu <= PHOTOZ_GOOD_CHI2_NU, n_channels >= PHOTOZ_GOOD_MIN_CHANNELS
 PHOTOZ_GOOD_CHI2_NU = 3.0
 PHOTOZ_GOOD_MIN_CHANNELS = 40
+PHOTOZ_GOOD_MIN_Z = 0.01       # good also needs z_best > this: z ≈ 0 is where stars and failed fits land
+PHOTOZ_PAH_Z_MAX = 0.02        # candidates: classify's PAH 3.3 µm at z ≈ 0 counts only for a good photo-z below this
 PHOTOZ_CHUNK = 4000            # sources per matrix product
 PHOTOZ_SDSS_MATCH_ARCSEC = 3.0
 PHOTOZ_OUTLIER = 0.15          # |Δz| / (1 + z_spec) above this is an outlier
@@ -506,6 +559,24 @@ LABEL_ICE_MAX_BP_RP = 2.0      # ice: Gaia stars redder than this are M dwarfs (
 LABEL_ICE_MAX_EXT = 1.0        # ice: point-like (extended_score <= this; NaN passes): a star behind a cloud
 LABEL_ICE_MIN_J_M46 = 0.0      # ice: reddened by the cloud (J − [4.6] AB >= this; bare photospheres −1.4 to −2.4, M dwarfs −1.3)
 LABEL_CH4_MIN_G = 19.5         # methane: no Gaia counterpart, or fainter than this
+LABEL_MIN_VISITS = 2           # every label: its band window measured in this many visits (sources.parquet visit_bits)
+# ice also needs reddened-star colours (Vega; 2MASS J, H, Ks and CatWISE W1, W2 from crossids, else our own spectrum's
+# windows: J/H/K AB − 0.91/1.39/1.85, W1 − W2 = [3.4] − [4.6] AB + 0.64): H − K >= 0.6 and J − H >= 1.0 (A_V ≳ 9, where
+# ice can be seen), on or above the reddening line J − H >= 1.7 (H − K) − 0.15 (below it: an infrared excess, galaxies
+# and quasars), and W1 − W2 < 0.4 (quasars and AGN are redder). Hunt (15 Nov): 5 of 8 "ice" were galaxy-like.
+LABEL_ICE_MIN_HK = 0.6
+LABEL_ICE_MIN_JH = 1.0
+LABEL_ICE_REDDENING = (1.7, -0.15)  # J − H >= slope × (H − K) + intercept
+LABEL_ICE_MAX_W1W2 = 0.4
+AB_TO_VEGA = {"j": -0.91, "h": -1.39, "k": -1.85, "w1_w2": 0.64}  # Vega = AB + this (W1 − W2: colour offset)
+# candidates (the export): a Gaia star with BP − RP >= this (an M dwarf) is expected to show water vapour and CO 2.3 µm:
+# those labels don't make it a spectral candidate (hunt: 42 of 43 nearby Gaia rows were textbook M dwarfs)
+LABEL_MDWARF_BP_RP = 1.8
+LABEL_MDWARF_EXPECTED = ("h2o_vapour", "co_23")
+# candidates: a Gaia DR3 star (G < BLEND_MAX_G) within BLEND_ARCSEC of a source at its epoch (pm-propagated) counts as its
+# Gaia match: crossid's 2.5″ radius misses blends (hunt: 8 of 54 no-Gaia spectral rows had one at 2.6–6″)
+BLEND_ARCSEC = 6.0
+BLEND_MAX_G = 20.0
 # highpm vetting: every candidate is kept; `vetted` false and `reason` (comma list) say why it was cut. Pilot: 241
 # candidates, the 10 "new" all artefacts (9 fits at 5,000–11,000 ± 900–2,200 mas/yr on 6–13 dots, sitting on a slow
 # CatWISE source; 1 pair at 171″/yr), and pairs at the control level (12 real vs 13 chance).
@@ -532,6 +603,18 @@ HIGHPM_CW_PLX_PER_PM = 0.25    # CatWISE check: our pm may exceed CatWISE's by a
 HIGHPM_CW_PLX_PER_PM_SAT = 0.1 # ... for saturated sources (their centroid bias runs along RA like the leak): 27 Gaia
                                # fakes pass the blind route instead of 58, at the same 55 of 104 fast stars
 HIGHPM_CW_REL_TOL = 0.2        # CatWISE agrees when the residual <= max(3σ (ours ⊕ CatWISE), this × |pm_cw|, 100 mas/yr)
+HIGHPM_CW_SAT_W1_MAX = 8.0     # CatWISE's motion of a saturated source brighter than this W1 (Vega) neither checks nor
+                               # disproves ours (hunt: fp_control's 2 fakes, G 7.9–8.0 still stars, passed on it)
+# Deep checks before a vetted row counts as "new" (refcat stops at G 20; crossid's 2MASS match ignores motion). Hunt,
+# 14 Nov: the one vetted "new" row was Gaia DR3 664214600677732864 (G 20.40, 2MASSW J0825196+211552, L7.5, ϖ 92.6).
+HIGHPM_DEEP_CHECK = True
+HIGHPM_DEEP_ARCSEC = 5.0       # Gaia DR3, any G (ESA TAP sync): within this of our position and of the segment our position
+                               # takes moved to 2016.0 with our pm less a parallax leak ϖ·k, 0 <= ϖ <= HIGHPM_CW_PLX_PER_PM × |pm|
+HIGHPM_DEEP_MATCH_ARCSEC = 3.0 # a deep Gaia source is our object when its own motion puts it this close to us at our epoch;
+                               # a 2MASS source (refcat) when our motion (less such a leak) puts us this close at its epoch
+HIGHPM_DEEP_TMASS_MAX_DMAG = 1.5  # ... and its J (AB) is within this of our D2 flux (AB), where both are known
+HIGHPM_DEEP_BATCH = 20         # rows per ESA query (two circles each)
+HIGHPM_DEEP_TIMEOUT_S = 60     # per ESA request; a failure keeps the rows "new" (report deep_gaia_checked false)
 HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
 HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
@@ -734,6 +817,45 @@ QA_OFFSET_RED_ARCSEC = 1.5     # ecl15 raw offsets: median 0.11″, p99 0.39″,
 QA_OFFSET_AMBER_ARCSEC = 0.6
 QA_LIGHTCURVES = True          # lightcurves: red photos' points get photo_ok false (as its own bad photos)
 QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
+
+# --- fragments: bright-star ring fragments, saturated stars, blended pairs (fragments.py) --------------------------
+# IRSA flags 30–180 px around a saturated core TRANSIENT, SUR_ERROR and BLOOM; the mask zeroes the island and sep finds
+# the wings as a ring of "fixed sources" without a catalogue entry (hunt review, 14 Nov: 16 per G < 6 star within 60″,
+# 1.5 at G 8–9). Their member dots carry BLOOM in 98% (Gaia stars' dots: 0%). Two stars < 8″ apart merge into one source
+# that crossid's 2.5″ may match to neither. Link's release (FIXED_RELEASE_ARCSEC) can regroup a star's far dots into a
+# second source ~2.7″ off it (hunt cross-check, 14 Nov: 200 Gaia stars with two sources within 3″).
+# Tags (first that applies): bright_fragment, duplicate, saturated_star, blend.
+FRAGMENTS_BLOOM_FRAC = 0.5         # BLOOM (3×3 `flags`) on more than this share of the member dots ...
+FRAGMENTS_MATCH_ARCSEC = 3.0       # ... and no Gaia / 2MASS entry this close, nor a Gaia star it is the kept source of
+#                                    (FRAGMENTS_STAR_ARCSEC): bright_fragment; with either: saturated_star
+FRAGMENTS_MATCH_CATALOGUES = ("gaia", "tmass")  # the catalogues of that test (match_dist_arcsec)
+# Which source is which Gaia star: each source's home is the nearest Gaia star (moved to its epoch) within that star's
+# radius, by G: (G below, radius ″), first that applies, else FRAGMENTS_MATCH_ARCSEC. A saturated star's position sits
+# further off (hunt: a G 7.2 star's nearest source 4.8″, a G 10.6 one 3.6″), and so does a fainter star's inside a
+# bright star's glow (2.9–3.8″ at G 13.6–16.7). Each star keeps one home source (crossid's match, else the most member
+# dots within its duplicate radius, else the nearest): that one is the star (never bright_fragment) ...
+FRAGMENTS_STAR_ARCSEC = ((11.0, 6.0), (18.0, 4.0))
+# ... though beyond FRAGMENTS_MATCH_ARCSEC only with at least this many member dots, by G (same form; else 0): a ring
+# piece has 3–8, a star inside a glow 18–179 (hunt); the 1–9-dot pieces near faint stars stay fragments (3 were orphans)
+FRAGMENTS_STAR_MIN_DOTS = ((11.0, 0), (18.0, 10))
+# ... and its other home sources within the duplicate radius (same form; else FRAGMENTS_MATCH_ARCSEC) are `duplicate` of
+# it. Fainter than G 11 that stays 3″ (< half the PSF's FWHM: one object): at 3–4″ the bigger source is often a
+# neighbour's, and calling the star's own small source its duplicate would read two stars as one (hunt: 137 stars) ...
+FRAGMENTS_DUP_ARCSEC = ((11.0, 6.0),)
+FRAGMENTS_DUP_MAX_MOVE_ARCSEC = 1.0  # ... when the star moved less than this between the two sources' epochs (a fast star's
+#                                      two visits are two sources: highpm pairs them) ...
+FRAGMENTS_DUP_OWN_MARGIN_ARCSEC = 1.0  # ... and no catalogue entry is this much nearer to it than the star (its own object),
+#                                        and no other Gaia star whose radius holds it lacks a source of its own
+FRAGMENTS_CAT_SEARCH_ARCSEC = 15.0  # cat_dist_arcsec: nearest Gaia / 2MASS / CatWISE entry searched this far (NaN beyond)
+FRAGMENTS_BRIGHT_G = 10.0          # bright_neighbour: Gaia G brighter than this ...
+FRAGMENTS_BRIGHT_K = 7.0           # ... or 2MASS K (G misses red giants: K 3.4 at G 10.2 in the hunt) ...
+FRAGMENTS_BRIGHT_W1 = 7.0          # ... or CatWISE W1 ...
+FRAGMENTS_BRIGHT_ARCSEC = 120.0    # ... searched this far (NaN beyond)
+FRAGMENTS_BLEND_ARCSEC = 8.0       # blend: at least FRAGMENTS_BLEND_MIN_GAIA Gaia stars this close (PSF FWHM 7.5″) ...
+FRAGMENTS_BLEND_G_MAX = 19.0       # ... brighter than this (18 before 15 Nov missed two similar G 18–19 stars)
+FRAGMENTS_BLEND_MIN_GAIA = 2
+FRAGMENTS_PARENT_G = 12.0          # a bright_fragment's parent: the brightest Gaia star brighter than this (nearer on a tie) ...
+FRAGMENTS_PARENT_ARCSEC = 60.0     # ... this close (hunt: 2,226 of 2,234 have one; the ring sits ~10″ out at G 8–11, ~30″ at G < 6)
 
 # --- orphans: the distant-planet route (orphans.py) ---------------------------------------------------------------
 # A planet at 70–1000 AU drifts 0.5–0.03″/h inside a visit (Earth's reflex), so link's 4″ FoF chains it into a fixed

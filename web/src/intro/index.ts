@@ -1,7 +1,7 @@
 // The opening's entry point, the only part in the main bundle: decide whether it plays (rules.ts),
 // add "Replay intro" to the footer, and load the overlay itself only when it is shown.
 import "./replay.css";
-import { browserEnv, claimOpening, type OpeningEnv } from "./rules";
+import { browserEnv, claimOpening, isOpeningPreview, type OpeningEnv } from "./rules";
 import type { OpeningOptions } from "./opening";
 
 type Loader = () => Promise<typeof import("./opening")>;
@@ -17,15 +17,16 @@ export async function playOpeningLater(
 ): Promise<boolean> {
   if (playing) return false;
   playing = true;
-  // A first visit may navigate while the module loads (a nav link, Back): then it stays away.
+  // A first visit or replay may navigate while the module loads (a nav link, Back):
+  // then it stays away rather than opening over the newly selected page.
   // Only real navigations count: the Sky page writes its view with replaceState, which fires no
   // hashchange, and that must not cancel the opening.
   let navigated = false;
   const onHash = () => (navigated = true);
-  if (opts.auto) addEventListener("hashchange", onHash);
+  addEventListener("hashchange", onHash);
   try {
     const { playOpening } = await load();
-    if (navigated) {
+    if (navigated || !app.isConnected) {
       playing = false;
       return false;
     }
@@ -70,7 +71,8 @@ export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), l
     });
     links.append(" ", replay);
   }
-  const show = claimOpening(env);
-  if (show) void playOpeningLater(app, { auto: true }, load);
+  const preview = isOpeningPreview(env.hash, env.search);
+  const show = preview || claimOpening(env);
+  if (show) void playOpeningLater(app, { auto: true, still: preview && env.reducedMotion }, load);
   return show;
 }

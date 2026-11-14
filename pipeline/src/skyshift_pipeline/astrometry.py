@@ -1,6 +1,6 @@
 """Step `astrometry`: SPHEREx-only position, proper motion (and parallax) of every fixed source.
 
-Per source with >= ASTRO_MIN_DOTS member dots, a weighted least-squares fit on the tangent plane about
+Per source with >= ASTRO_MIN_DOTS member dots (and ASTRO_MIN_MOTION_DOF, below), a weighted least-squares fit on the tangent plane about
 the source's median position:
     east_i  = x0 + pmra  · t_i + ϖ · Pe_i
     north_i = y0 + pmdec · t_i + ϖ · Pn_i
@@ -26,6 +26,10 @@ The hunt tail (15 Nov: 622 Gaia-still stars at ≥ 150 mas/yr, ≥ 5σ; in a 2°
   the motion errors are also the session-clustered sandwich (≥ ASTRO_ROBUST_MIN_SESSIONS sessions), whichever is larger.
 - ASTRO_DETECTOR_ROBUST: detectors that disagree about the motion (a ghost or halo in some bands in one visit) inflate
   the errors to the detector-clustered sandwich where it beats its ASTRO_DETECTOR_ROBUST_P χ² quantile.
+- ASTRO_MIN_MOTION_DOF (motion_dof): with the zero points a detector seen in one visit only measures nothing between
+  the visits, so a fit is written only when the detectors seen in both visits leave the motion this many degrees of
+  freedom (2 × (their used dots − their number) − 2, − 1 with parallax). At 6 dots that was often 0–4: a χ² that
+  could not check the errors and a motion from one or two dots.
 ra/dec and their errors stay those of the plain fit (no zero points: the position is every detector's mean).
 
 Frame correction (ASTRO_FRAME_CORRECT): each photo's WCS can be off by a fraction of an arcsec as a
@@ -34,9 +38,19 @@ offset of their dots in that photo (>= ASTRO_FRAME_MIN_STARS stars) is subtracte
 This ties our frame to Gaia's (proper motions become absolute); each star weighs 1/thousands in its
 photo's offset, so the comparison with Gaia below stays honest.
 
+Saturated dots (ASTRO_SAT_OFFSET): a dot with OVERFLOW or NONLINEAR at its peak is centroided on the wings, and calib
+leaves it uncorrected. Such dots sit a constant fraction of a pixel along the detector's −x axis, which points west in
+one visit and east in the other (the 180° roll), so a saturated star got a fake RA motion (hunt: −110 mas/yr at
+G 8–10) that the source × detector zero points cannot absorb (they take sky-fixed offsets only). Per detector and
+depth bin (sat_depth: the source's magnitude in the detector's band against the saturation limit), the median offset
+(Δx, Δy) in pixels of the saturated dots of the quiet Gaia stars against Gaia, after the frame offset, is subtracted
+from every saturated dot through its photo's Jacobian
+(motion_io's, from the whole dot file). Fitted once per zone, like the frame offsets (tiles: sat_residuals per tile,
+sat_offsets on all of them); the report lists the offsets. The frame offsets then use unsaturated dots only.
+
 Writes results/<zone>/astrometry.parquet and astrometry_report.json: SPHEREx proper motion vs Gaia for
-matched stars (bias, robust scatter, median error, pull scatter), overall and by median dot S/N,
-with and without the frame correction, and the fast Gaia stars one by one.
+matched stars (bias, robust scatter, median error, pull scatter), overall, by median dot S/N and by Gaia G,
+with and without the frame correction, the saturated-dot offsets, and the fast Gaia stars one by one.
 """
 
 from __future__ import annotations
@@ -50,7 +64,7 @@ from skyshift_core.astrometry import DAYS_PER_JYEAR
 
 from . import config as C
 from . import log
-from .motion_io import member_dots
+from .motion_io import member_dots, member_dots_raw
 from .spectra import count_distinct, group_median
 from .store import Store, results_rel
 
@@ -60,6 +74,9 @@ AU_KM = 149_597_870.7
 COLUMNS = ["source_id", "ra", "dec", "epoch_mjd", "ra_err_arcsec", "dec_err_arcsec", "pmra", "pmdec", "pmra_err",
            "pmdec_err", "pm", "pm_snr", "parallax", "parallax_err", "fit", "n_dots", "n_used", "n_visits", "span_yr",
            "chi2_nu", "snr_median", "frame_corrected"]
+JAC_COLUMNS = ["jac_ex", "jac_ey", "jac_nx", "jac_ny"]  # ″ per pixel: east per x, east per y, north per x, north per y
+SAT_COLUMNS = ["detector", "depth_bin", "depth_min", "depth_max", "dx_px", "dy_px", "dx_err_px", "dy_err_px", "n",
+               "applied"]
 
 
 def observer_xyz_au(mjd: np.ndarray, sc_km: np.ndarray | None = None) -> np.ndarray:
@@ -90,14 +107,17 @@ def parallax_factors(ra_deg, dec_deg, xyz_au) -> tuple[np.ndarray, np.ndarray]:
 
 def frame_refs(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.ndarray, dec0: np.ndarray,
                s: np.ndarray, sid_u: np.ndarray, crossids: pd.DataFrame | None,
-               xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-    """(mask of the reference dots: quiet Gaia stars, their east and north residual against Gaia ″), or None."""
+               xyz: np.ndarray, unsat: bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """(mask of the reference dots: quiet Gaia stars, their east and north residual against Gaia ″), or None.
+    unsat: unsaturated dots only (the frame offsets, with ASTRO_SAT_OFFSET: a saturated dot's offset turns with the roll)."""
     if crossids is None or not len(crossids) or "gaia_ra" not in crossids:
         return None
     x = crossids.set_index("source_id").reindex(sid_u)
     pm = np.hypot(x["gaia_pmra"].to_numpy(np.float64), x["gaia_pmdec"].to_numpy(np.float64))
     ref_src = np.isfinite(x["gaia_ra"].to_numpy(np.float64)) & (np.nan_to_num(pm, nan=np.inf) < C.ASTRO_FRAME_PM_MAX)
     m = ref_src[s]
+    if unsat:
+        m &= ~sat_dots(d)
     if not m.any():
         return None
     xs = x.iloc[s[m]]
@@ -126,7 +146,7 @@ def frame_offsets(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.
         fe, fn = zero.copy(), zero.copy()
         fe[ok], fn[ok] = o["oe"].to_numpy(np.float64)[pos[ok]], o["on"].to_numpy(np.float64)[pos[ok]]
         return fe, fn, {"photos_corrected": int(len(o))}
-    refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz)
+    refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz, unsat=C.ASTRO_SAT_OFFSET)
     if refs is None:
         return zero, zero, {"photos_corrected": 0}
     m, re, rn = refs
@@ -204,6 +224,37 @@ def _cluster_cov(s, N, cl, wk, t, re, rn, Pe, Pn, cov, k) -> tuple[np.ndarray, n
     return np.einsum("nij,njk,nkl->nil", cov, M, cov) * corr[:, None, None], G
 
 
+def motion_dof(s: np.ndarray, N: int, keep: np.ndarray, visit: np.ndarray, use_plx: np.ndarray,
+               z: np.ndarray | None = None, okz: np.ndarray | None = None) -> np.ndarray:
+    """Per source, the degrees of freedom the motion keeps after its position zero points: 2 × (used dots − zero
+    points) − (2 + parallax), over the zero points whose used dots span two or more visits. In a source seen in several
+    visits, a detector seen in one of them only measures nothing between visits (its zero point takes up all its dots),
+    so it counts for nothing; a source seen in one visit counts every detector (its motion is within the visit).
+    z: each dot's source × detector zero point (None, or okz False for the source: one zero point, the plain fit).
+    Hunt (14 Nov): the 6-dot fits had 0–4 of them; 1.8×10⁶ mas/yr at 18.9σ on a G 16.7 star from none (−2)."""
+    keep = np.asarray(keep, bool)
+    vis = np.asarray(visit, np.int64) & 0xFFFF
+    plx = np.asarray(use_plx, bool).astype(np.int64)
+    sk = s[keep].astype(np.int64)
+    n_vis = np.bincount(np.unique((sk << 16) | vis[keep]) >> 16, minlength=N)  # visits with used dots, per source
+
+    def dof(zz: np.ndarray) -> np.ndarray:
+        Z = int(zz.max()) + 1 if zz.size else 0
+        zk = zz[keep].astype(np.int64)
+        nv = np.bincount(np.unique((zk << 16) | vis[keep]) >> 16, minlength=Z)  # distinct visits per zero point
+        zsrc = np.zeros(Z, np.int64)
+        zsrc[zz] = s
+        use = (nv >= 2) | ((nv >= 1) & (n_vis[zsrc] <= 1))
+        return 2 * (np.bincount(s, keep & use[zz], N) - np.bincount(zsrc, use, N)) - 2 - plx
+
+    if z is None:  # no zero points: the source's position is its one zero point
+        return dof(s).astype(np.int64)
+    out = dof(z)
+    if okz is not None and not np.all(okz):  # the zero-point fit failed for these: they keep the plain fit
+        out = np.where(okz, out, dof(s))
+    return out.astype(np.int64)
+
+
 def clean_mask(d: pd.DataFrame, s: np.ndarray, N: int, east: np.ndarray, north: np.ndarray) -> np.ndarray:
     """Dots whose position can be trusted for a motion fit (False: left out from the start).
     (a) A masked pixel at the peak that is not saturation (core MASK_BITS without SAT_BITS, e.g. PERSIST): the centroid
@@ -259,7 +310,7 @@ def frame_residuals(d: pd.DataFrame, crossids: pd.DataFrame | None) -> pd.DataFr
     """The reference dots' residuals against Gaia (obs_id, detector, e, n ″), as frame_offsets measures them: tiles.py
     collects them from every tile and takes the per-photo medians over the whole zone (photo_offsets)."""
     d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
-    refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz)
+    refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz, unsat=C.ASTRO_SAT_OFFSET)
     if refs is None:
         return pd.DataFrame({"obs_id": pd.Series(dtype=str), "detector": pd.Series(dtype=np.int8),
                              "e": pd.Series(dtype=np.float64), "n": pd.Series(dtype=np.float64)})
@@ -288,10 +339,179 @@ def photo_offsets(res: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return out, st
 
 
+# --- saturated dots: an offset fixed in detector pixels ------------------------------------------------------------
+def sat_dots(d: pd.DataFrame) -> np.ndarray:
+    """Dots with OVERFLOW or NONLINEAR at the peak (CALIB_SAT_BITS): centroided on the wings, never an ePSF position."""
+    if "flags_peak" not in d or not len(d):
+        return np.zeros(len(d), bool)
+    fp = pd.to_numeric(d["flags_peak"], errors="coerce").fillna(0).to_numpy().astype(np.int64)
+    sat = (fp & C.CALIB_SAT_BITS) != 0
+    if "pos_psf" in d:
+        sat &= ~d["pos_psf"].fillna(False).to_numpy(bool)
+    return sat
+
+
+def photo_jacobians(d: pd.DataFrame, jac: np.ndarray) -> pd.DataFrame:
+    """Per photo of d: obs_id, detector and its Jacobian (JAC_COLUMNS) from motion_io.member_dots_raw's `jac` (rows = d's
+    `photo`; calib.photo_jacobian over the whole dot file, so a tile gets the untiled values). NaN: not measurable."""
+    ph = d["photo"].to_numpy(np.int64) if len(d) else np.zeros(0, np.int64)
+    u, i = np.unique(ph, return_index=True)
+    ok = (u >= 0) & (u < len(jac))
+    u, i = u[ok], i[ok]
+    J = np.asarray(jac, np.float64)[u].reshape(len(u), 4)
+    out = pd.DataFrame({"obs_id": d["obs_id"].iloc[i].astype(str).to_numpy(),
+                        "detector": d["detector"].iloc[i].to_numpy(np.int8)})
+    for k, c in enumerate(JAC_COLUMNS):
+        out[c] = J[:, k]
+    return out
+
+
+def _jacobian_at(d: pd.DataFrame, idx: np.ndarray, jac: pd.DataFrame | None) -> np.ndarray:
+    """(len(idx), 2, 2) Jacobian of the photo of each dot d.iloc[idx], from photo_jacobians' table (NaN: none)."""
+    out = np.full((idx.size, 2, 2), np.nan)
+    if jac is None or not len(jac) or not idx.size:
+        return out
+    key = pd.MultiIndex.from_arrays([jac["obs_id"].astype(str).to_numpy(), jac["detector"].to_numpy(np.int64)])
+    pos = key.get_indexer(pd.MultiIndex.from_arrays([d["obs_id"].iloc[idx].astype(str).to_numpy(),
+                                                     d["detector"].iloc[idx].to_numpy(np.int64)]))
+    ok = pos >= 0
+    out[ok] = jac[JAC_COLUMNS].to_numpy(np.float64)[pos[ok]].reshape(-1, 2, 2)
+    return out
+
+
+def sat_depth(crossids: pd.DataFrame | None, sid: np.ndarray, det: np.ndarray) -> np.ndarray:
+    """How deep a source saturates in a detector: its catalogue magnitude in the detector's band (crossids j, k, w1, w2;
+    Vega → AB) minus the AB magnitude at which half the stars saturate there (ASTRO_SAT_DEPTH_BANDS); < 0 = deeper.
+    NaN without that magnitude."""
+    out = np.full(len(sid), np.nan)
+    if crossids is None or not len(crossids) or not len(sid):
+        return out
+    det = np.asarray(det, np.int64)
+    x = crossids.set_index("source_id")
+    for k, (band, ab, sat_ab) in C.ASTRO_SAT_DEPTH_BANDS.items():
+        m = det == k
+        if m.any() and band in x:
+            out[m] = x[band].reindex(np.asarray(sid, np.int64)[m]).to_numpy(np.float64) + ab - sat_ab
+    return out
+
+
+def _empty_sat_rows() -> pd.DataFrame:
+    return pd.DataFrame({"source_id": pd.Series(dtype=np.int64), "obs_id": pd.Series(dtype=str), "detector": pd.Series(dtype=np.int8),
+                         **{c: pd.Series(dtype=np.float64) for c in ("depth", "e", "n", *JAC_COLUMNS)}})
+
+
+def _sat_rows(d: pd.DataFrame, idx: np.ndarray, east, north, ra0, dec0, s, sid_u, crossids, xyz,
+              jac: pd.DataFrame | None) -> tuple[np.ndarray, pd.DataFrame]:
+    """Of the saturated dots d.iloc[idx], those of quiet Gaia stars (frame_refs' stars): (their rows in d, a table
+    source_id, obs_id, detector, depth (sat_depth), e, n (″ against Gaia, as frame_refs), JAC_COLUMNS)."""
+    refs = frame_refs(d.iloc[idx], east[idx], north[idx], ra0, dec0, s[idx], sid_u, crossids, xyz[idx]) if idx.size else None
+    if refs is None:
+        return np.zeros(0, np.int64), _empty_sat_rows()
+    m, re, rn = refs
+    k = idx[m]
+    J = _jacobian_at(d, k, jac).reshape(-1, 4)
+    det = d["detector"].iloc[k].to_numpy(np.int8)
+    rows = pd.DataFrame({"source_id": sid_u[s[k]], "obs_id": d["obs_id"].iloc[k].astype(str).to_numpy(), "detector": det,
+                         "depth": sat_depth(crossids, sid_u[s[k]], det), "e": re, "n": rn})
+    for j, c in enumerate(JAC_COLUMNS):
+        rows[c] = J[:, j]
+    return k, rows
+
+
+def sat_residuals(d: pd.DataFrame, crossids: pd.DataFrame | None, jac: pd.DataFrame | None) -> pd.DataFrame:
+    """The saturated dots of quiet Gaia stars: source_id, obs_id, detector, depth, e, n (″ against Gaia, no frame offset
+    removed) and their photo's Jacobian. tiles.py collects them from every tile and fits the zone's offsets (sat_offsets)."""
+    sat = sat_dots(d)
+    if not sat.any() or crossids is None:
+        return _empty_sat_rows()
+    sid = d["source_id"].to_numpy(np.int64)
+    d = d[np.isin(sid, np.unique(sid[sat]))]  # whole sources: their median positions are fit's
+    d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
+    return _sat_rows(d, np.flatnonzero(sat_dots(d)), east, north, ra0, dec0, s, sid_u, crossids, xyz, jac)[1]
+
+
+def _sat_bin_row(det: int, label: str, lo: float, hi: float, dx: np.ndarray, dy: np.ndarray) -> dict:
+    n = int(dx.size)
+    mx, my = (float(np.median(dx)), float(np.median(dy))) if n else (np.nan, np.nan)
+    # error of a median: 1.2533 σ/√n, σ from the MAD
+    ex = 1.2533 * 1.4826 * float(np.median(np.abs(dx - mx))) / np.sqrt(n) if n else np.nan
+    ey = 1.2533 * 1.4826 * float(np.median(np.abs(dy - my))) / np.sqrt(n) if n else np.nan
+    return {"detector": det, "depth_bin": label, "depth_min": lo, "depth_max": hi, "dx_px": mx, "dy_px": my,
+            "dx_err_px": ex, "dy_err_px": ey, "n": n, "applied": bool(n >= C.ASTRO_SAT_MIN_DOTS)}
+
+
+def sat_offsets(res: pd.DataFrame, offsets: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The saturated-dot offset in detector pixels: per detector (depth_bin "all") and per detector × ASTRO_SAT_DEPTH_BINS
+    bin, the median (dx_px, dy_px) of sat_residuals rows, after removing each photo's frame offset (offsets: photo_offsets'
+    table, `good` rows; None: none). `applied` with >= ASTRO_SAT_MIN_DOTS dots."""
+    e = res["e"].to_numpy(np.float64) if len(res) else np.zeros(0)
+    n = res["n"].to_numpy(np.float64) if len(res) else np.zeros(0)
+    if offsets is not None and len(offsets) and len(res):
+        o = offsets[offsets["good"].to_numpy(bool)]
+        key = pd.MultiIndex.from_arrays([o["obs_id"].astype(str).to_numpy(), o["detector"].to_numpy(np.int64)])
+        pos = key.get_indexer(pd.MultiIndex.from_arrays([res["obs_id"].astype(str).to_numpy(), res["detector"].to_numpy(np.int64)]))
+        ok, p = pos >= 0, np.maximum(pos, 0)
+        e = e - np.where(ok, o["oe"].to_numpy(np.float64)[p] if len(o) else 0.0, 0.0)
+        n = n - np.where(ok, o["on"].to_numpy(np.float64)[p] if len(o) else 0.0, 0.0)
+    J = res[JAC_COLUMNS].to_numpy(np.float64).reshape(-1, 2, 2) if len(res) else np.zeros((0, 2, 2))
+    dj = J[:, 0, 0] * J[:, 1, 1] - J[:, 0, 1] * J[:, 1, 0]
+    ok = np.isfinite(dj) & (np.abs(np.nan_to_num(dj)) > 1e-6) & np.isfinite(e) & np.isfinite(n)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        dx = (J[:, 1, 1] * e - J[:, 0, 1] * n) / dj
+        dy = (J[:, 0, 0] * n - J[:, 1, 0] * e) / dj
+    det = res["detector"].to_numpy(np.int64) if len(res) else np.zeros(0, np.int64)
+    dep = res["depth"].to_numpy(np.float64) if len(res) else np.zeros(0)
+    edges = [-np.inf, *C.ASTRO_SAT_DEPTH_BINS, np.inf]
+    rows = []
+    for k in range(1, 7):
+        mk = ok & (det == k)
+        rows.append(_sat_bin_row(k, "all", np.nan, np.nan, dx[mk], dy[mk]))
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            label = f"<{hi:g}" if not np.isfinite(lo) else f">={lo:g}" if not np.isfinite(hi) else f"{lo:g}..{hi:g}"
+            with np.errstate(invalid="ignore"):
+                m = mk & (dep >= lo) & (dep < hi)
+            rows.append(_sat_bin_row(k, label, lo, hi, dx[m], dy[m]))
+    return pd.DataFrame(rows, columns=SAT_COLUMNS)
+
+
+def sat_shift(det: np.ndarray, depth: np.ndarray, J: np.ndarray, tab: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray]:
+    """(east, north ″) to subtract from saturated dots of detectors det, depths `depth` (sat_depth; NaN: unknown) and
+    photo Jacobians J (n, 2, 2): their depth bin's (dx, dy) where applied, else their detector's "all" one, else 0."""
+    dx, dy = np.zeros(len(det)), np.zeros(len(det))
+    if tab is None or not len(tab) or not len(det):
+        return dx, dy
+    t = tab[tab["applied"].to_numpy(bool)]
+    for r in sorted(t.itertuples(), key=lambda r: r.depth_bin != "all"):  # "all" first, then the bins over it
+        m = np.asarray(det) == r.detector
+        if r.depth_bin != "all":
+            with np.errstate(invalid="ignore"):
+                m &= (depth >= r.depth_min) & (depth < r.depth_max)
+        dx[m], dy[m] = r.dx_px, r.dy_px
+    de = J[:, 0, 0] * dx + J[:, 0, 1] * dy
+    dn = J[:, 1, 0] * dx + J[:, 1, 1] * dy
+    ok = np.isfinite(de) & np.isfinite(dn)
+    return np.where(ok, de, 0.0), np.where(ok, dn, 0.0)
+
+
+def sat_report(tab: pd.DataFrame | None, dots: int = 0, corrected: int = 0) -> dict:
+    """astrometry_report.json `saturated_offsets`: the table (pixels, per detector and depth bin) and dot counts."""
+    def num(v, nd=4):
+        return None if v is None or not np.isfinite(v) else round(float(v), nd)
+    rows = [] if tab is None else [
+        {"detector": int(r.detector), "depth_bin": r.depth_bin, "dx_px": num(r.dx_px), "dy_px": num(r.dy_px),
+         "dx_err_px": num(r.dx_err_px), "dy_err_px": num(r.dy_err_px), "n": int(r.n), "applied": bool(r.applied)}
+        for r in tab.itertuples()]
+    return {"enabled": bool(C.ASTRO_SAT_OFFSET), "measured_on_dots": int(sum(r["n"] for r in rows if r["depth_bin"] == "all")),
+            "saturated_dots": int(dots), "dots_corrected": int(corrected), "offsets": rows}
+
+
 def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = True,
-        offsets: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
-    """Member dots (source_id, ra, dec, mjd, pos_err_arcsec, visit, photo, snr, x/y/z_sc_km) → one row per
-    fitted source (COLUMNS). offsets: per-photo frame offsets from photo_offsets (else measured on these dots)."""
+        offsets: pd.DataFrame | None = None, jac: pd.DataFrame | None = None,
+        sat: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
+    """Member dots (source_id, ra, dec, mjd, pos_err_arcsec, visit, photo, snr, x/y/z_sc_km, flags_peak) → one row per
+    fitted source (COLUMNS). offsets: per-photo frame offsets from photo_offsets (else measured on these dots).
+    jac: photo_jacobians' table (None: no saturated-dot correction); sat: sat_offsets' table (None: measured on these
+    dots, after the frame offsets, and returned in the stats as `sat_table`)."""
     d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
     n_dots = np.bincount(s, minlength=N)
     mjd = d["mjd"].to_numpy(np.float64)
@@ -299,11 +519,26 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
     const2 = np.maximum(d["pos_err_arcsec"].to_numpy(np.float64) ** 2 - err ** 2, 0.0)  # star-constant part (calib)
     st: dict = {"spacecraft_position_dots": int(np.isfinite(sc).all(axis=1).sum()) if sc is not None else 0}
     corrected = np.zeros(N, bool)
+    east0, north0 = east, north
+    fe = fn = np.zeros(len(d))
     if frame:
         fe, fn, fst = frame_offsets(d, east, north, ra0, dec0, s, sid_u, crossids, xyz, offsets)
         st.update(fst)
         east, north = east - fe, north - fn
         corrected = np.bincount(s, (fe != 0) | (fn != 0), N) > 0
+    if C.ASTRO_SAT_OFFSET and jac is not None:
+        si = np.flatnonzero(sat_dots(d))
+        if sat is None:  # measured on these dots, after the frame offsets (as tiles.py: sat_residuals, sat_offsets)
+            k, rows = _sat_rows(d, si, east0, north0, ra0, dec0, s, sid_u, crossids, xyz, jac)
+            rows["e"], rows["n"] = rows["e"].to_numpy(np.float64) - fe[k], rows["n"].to_numpy(np.float64) - fn[k]
+            sat = sat_offsets(rows)
+            st["sat_table"] = sat
+        det_s = d["detector"].to_numpy(np.int64)[si]
+        se, sn = sat_shift(det_s, sat_depth(crossids, sid_u[s[si]], det_s), _jacobian_at(d, si, jac), sat)
+        east, north = east.copy(), north.copy()
+        east[si] -= se
+        north[si] -= sn
+        st.update({"saturated_dots": int(si.size), "saturated_dots_corrected": int(((se != 0) | (sn != 0)).sum())})
     Pe, Pn = parallax_factors(ra0[s], dec0[s], xyz)
     n_visits = count_distinct(s, d["visit"].to_numpy(np.int64), N)
     use_plx = n_visits >= C.ASTRO_PARALLAX_MIN_VISITS
@@ -353,6 +588,8 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         if it == 0:
             infl = np.sqrt(np.maximum(1.0, chi2_nu))[s]
             keep = keep0 & (np.maximum(np.abs(re), np.abs(rn)) <= C.ASTRO_CLIP_SIGMA * err * infl)
+    vis_d = d["visit"].to_numpy(np.int64)
+    mdof = motion_dof(s, N, keep, vis_d, use_plx, z if zp else None, okz if zp else None)
     from scipy.stats import chi2 as chi2_dist
     dof = np.maximum(2 * n_used - npar, 1)
     excess = chi2_nu > chi2_dist.ppf(C.ASTRO_CHI2_INFLATE_P, dof) / dof
@@ -412,9 +649,13 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         "n_dots": n_dots.astype(np.int32), "n_used": n_used.astype(np.int32), "n_visits": n_visits.astype(np.int16),
         "span_yr": span.astype(np.float32), "chi2_nu": chi2_nu.astype(np.float32),
         "snr_median": group_median(s, snr, N).astype(np.float32), "frame_corrected": corrected,
+        "motion_dof": mdof.astype(np.int32),  # not written (COLUMNS): the fit's own diagnostics
     })
     good = (n_used >= C.ASTRO_MIN_DOTS) & np.isfinite(pmra) & (span > 0)  # used dots: clean_mask can leave 1 per visit
-    st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum())})
+    few_dof = good & (mdof < C.ASTRO_MIN_MOTION_DOF)  # the zero points leave the motion (almost) no freedom
+    good &= ~few_dof
+    st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum()),
+               "dropped_motion_dof": int(few_dof.sum())})
     return out[good].reset_index(drop=True)[COLUMNS], st
 
 
@@ -451,6 +692,13 @@ def report(fit_tab: pd.DataFrame, crossids: pd.DataFrame | None) -> dict:
         out["by_snr"].append({"snr": [lo, hi if hi < 1e8 else None],
                               "pmra": _stats(dra[m], j["pmra_err"].to_numpy(np.float64)[m]),
                               "pmdec": _stats(ddec[m], j["pmdec_err"].to_numpy(np.float64)[m])})
+    # by Gaia G: saturated stars (G < ~12) had a fake westward pmra before the saturated-dot offset (ASTRO_SAT_OFFSET)
+    gg = j["gaia_g"].to_numpy(np.float64)
+    out["by_gaia_g"] = []
+    for lo, hi in zip(C.ASTRO_REPORT_G_BINS[:-1], C.ASTRO_REPORT_G_BINS[1:]):
+        m = (gg >= lo) & (gg < hi)
+        out["by_gaia_g"].append({"g": [lo, hi], "pmra": _stats(dra[m], j["pmra_err"].to_numpy(np.float64)[m]),
+                                 "pmdec": _stats(ddec[m], j["pmdec_err"].to_numpy(np.float64)[m])})
     p = j[j["fit"] == "pm+plx"]
     if len(p):
         out["parallax"] = _stats((p["parallax"] - p["gaia_parallax"]).to_numpy(np.float64), p["parallax_err"].to_numpy(np.float64))
@@ -468,19 +716,26 @@ def report(fit_tab: pd.DataFrame, crossids: pd.DataFrame | None) -> dict:
 def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     t0 = time.time()
     d, st = member_dots(store, zone, workers)
+    # each photo's Jacobian (whole dot file; cached by member_dots) for the saturated-dot offset
+    jac = photo_jacobians(d, member_dots_raw(store, zone, workers)[2]) if C.ASTRO_SAT_OFFSET else None
     xid_rel = results_rel(zone.name, "crossids.parquet")
     crossids = store.read_parquet(xid_rel) if store.exists(xid_rel) else None
     if crossids is None:
         L.warning("astrometry %s: no crossids.parquet: no frame correction, no Gaia comparison", zone.name)
-    raw, st_raw = fit(d, crossids, frame=False)
     if C.ASTRO_FRAME_CORRECT and crossids is not None:
-        cor, st_cor = fit(d, crossids, frame=True)
+        # the saturated-dot offsets are measured after the frame offsets, then used by both fits (as tiles.py)
+        cor, st_cor = fit(d, crossids, frame=True, jac=jac)
+        sat = st_cor.pop("sat_table", None)
+        raw, st_raw = fit(d, crossids, frame=False, jac=jac, sat=sat)
     else:
+        raw, st_raw = fit(d, crossids, frame=False, jac=jac)
+        sat = st_raw.pop("sat_table", None)
         cor, st_cor = raw, st_raw
     store.write_parquet(results_rel(zone.name, "astrometry.parquet"), cor)
     rep = {"zone": zone.name, "frame_correction": {k: v for k, v in st_cor.items() if k.startswith(("photos", "frame"))},
            "fitted": st_cor.get("fitted", 0), "with_parallax": st_cor.get("with_parallax", 0),
            "spacecraft_position_dots": st_cor.get("spacecraft_position_dots", 0),
+           "saturated_offsets": sat_report(sat, st_cor.get("saturated_dots", 0), st_cor.get("saturated_dots_corrected", 0)),
            "vs_gaia_frame_corrected": report(cor, crossids) if cor is not raw else None,
            "vs_gaia_raw": report(raw, crossids)}
     store.write_json(results_rel(zone.name, "astrometry_report.json"), rep)

@@ -40,6 +40,8 @@ export interface FiltersHandle {
   goto(view: View, frames: FramesResponse | null): void;
   /** The blink is loading `view`. A filter on another spot is cleared, never shown as this one. */
   loading(view: View): void;
+  /** Filters are available only over original observations, outside guided practice. */
+  active(enabled: boolean): void;
   destroy(): void;
 }
 
@@ -153,7 +155,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   const mat = blinkEl.querySelector<HTMLElement>(".bk-mat");
   const plate = blinkEl.querySelector<HTMLElement>(".bk-plate");
   const root = blinkEl.querySelector<HTMLElement>(".bk");
-  if (!col || !mat || !plate || !root) return { goto() {}, loading() {}, destroy() {} };
+  if (!col || !mat || !plate || !root) return { goto() {}, loading() {}, active() {}, destroy() {} };
   const uid = `flt${++mounts}`;
 
   // ---- the button and menu, just above the plate ------------------------------------------
@@ -257,6 +259,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   let view: View | null = null;
   let frames: FramesResponse | null = null;
   let mode: Mode = "none";
+  let enabled = true;
   let frame = DEFAULT_FRAME;
   let showSat = true;
   let reader: FieldReader | null = null;
@@ -266,7 +269,28 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   let picture: Shown | null = null;
   let ctl: AbortController | null = null;
   let readout = "Point at the picture to see how much light is there in each colour.";
-  const infos = new Map<number, Promise<TileInfo>>();
+  let infos = new Map<number, Promise<TileInfo>>();
+  // Header reads survive an ordinary filter switch, but must stop when filters are disabled.
+  const pendingReads = new Set<AbortController>();
+  const scopedFetch: Fetcher = async (url, init) => {
+    if (!enabled) throw new DOMException("Filters are unavailable", "AbortError");
+    const request = new AbortController();
+    const abort = () => request.abort(init.signal?.reason);
+    if (init.signal?.aborted) abort();
+    else init.signal?.addEventListener("abort", abort, { once: true });
+    pendingReads.add(request);
+    try {
+      const response = await fetcher(url, { ...init, signal: request.signal });
+      // Keep cancellation connected through the range body, not just its headers. A 200 is
+      // returned immediately so cube.ts can cancel an ignored range without reading a whole tile.
+      if (response.status !== 206) return response;
+      const bytes = await response.arrayBuffer();
+      return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+    } finally {
+      pendingReads.delete(request);
+      init.signal?.removeEventListener("abort", abort);
+    }
+  };
   /** The blink was playing when the filter went on: play it again when the filter goes off. */
   let pausedBlink = false;
   let slowTimer: ReturnType<typeof setTimeout> | undefined;
@@ -281,12 +305,12 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
    * plain words with Try again and Back to the blink. null hides it.
    */
   type Note = { kind: "info"; text: string; slow?: boolean } | { kind: "fail"; title: string; text: string };
-  function say(n: Note | null) {
+  function say(n: Note | null, restoreFocus = true) {
     // Focus never falls to the page when the note's buttons go away.
     const focused = note.contains(document.activeElement);
     note.hidden = n == null;
     if (!n) {
-      if (focused) addBtn.focus();
+      if (focused && restoreFocus) addBtn.focus();
       return;
     }
     note.dataset.kind = n.kind;
@@ -386,7 +410,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     const c = centre();
     const fov = field();
     if (!reader || reader.center.ra !== c.ra || reader.center.dec !== c.dec || reader.fovArcmin !== fov) {
-      reader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), fetcher, infos);
+      reader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), scopedFetch, infos);
       picture = null;
     }
     return reader;
@@ -421,7 +445,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   async function render() {
     ctl?.abort();
     clearTimeout(slideTimer);
-    if (mode === "none" || !view) return;
+    if (!enabled || mode === "none" || !view) return;
     ctl = new AbortController();
     const signal = ctl.signal;
     const r = ensureReader();
@@ -596,15 +620,17 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   // …). The filters' clicks are their own: they used to switch the blink into mode "cold" or "none".
   // Attributes are prefixed data-flt-, and the button clicks stay here.
   for (const part of [bar, noteActions]) part.addEventListener("click", (ev) => ev.stopPropagation());
-  addBtn.addEventListener("click", () => openMenu(menu.hidden));
+  addBtn.addEventListener("click", () => { if (enabled) openMenu(menu.hidden); });
   q<HTMLButtonElement>(bar, ".flt-off").addEventListener("click", removeFilter);
   noteActions.addEventListener("click", (ev) => {
+    if (!enabled) return;
     const b = (ev.target as Element).closest("button");
     if (b?.hasAttribute("data-flt-retry")) void render();
     else if (b?.hasAttribute("data-flt-back")) removeFilter();
   });
   bar.querySelectorAll<HTMLButtonElement>("[data-flt-mode]").forEach((b) =>
     b.addEventListener("click", () => {
+      if (!enabled) return;
       const next = b.dataset.fltMode as Mode;
       if (next === "none") {
         removeFilter();
@@ -625,6 +651,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     }),
   );
   frameIn.addEventListener("input", () => {
+    if (!enabled) return;
     frame = skipBlank(Number(frameIn.value), frame);
     press();
     // Read once the slider rests, not at every step of a drag (each step was a cancelled read).
@@ -674,8 +701,34 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
         renderKey();
       }
     },
+    active(value) {
+      enabled = value;
+      bar.hidden = !value;
+      bar.style.display = value ? "" : "none";
+      col.classList.toggle("has-flt", value);
+      if (value) return;
+      mode = "none";
+      ctl?.abort();
+      for (const request of pendingReads) request.abort();
+      pendingReads.clear();
+      clearTimeout(slowTimer);
+      clearTimeout(slideTimer);
+      reader = null;
+      infos = new Map();
+      clearPicture();
+      say(null, false);
+      key.replaceChildren();
+      noteTitle.textContent = "";
+      noteText.textContent = "";
+      noteActions.replaceChildren();
+      delete noteActions.dataset.kind;
+      press();
+      openMenu(false);
+    },
     destroy() {
       ctl?.abort();
+      for (const request of pendingReads) request.abort();
+      pendingReads.clear();
       clearTimeout(slowTimer);
       clearTimeout(slideTimer);
       playWatch?.disconnect();
