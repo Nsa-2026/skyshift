@@ -1,7 +1,7 @@
 #!/bin/bash
 # SkyShift cloud machines (P1). Run from anywhere; needs gcloud logged in to project nasa-glazing.
 #
-#   infra/worker/vm.sh create test|worker        create the machine; it boots, installs, then stops itself
+#   infra/worker/vm.sh create test|worker|od     create the machine; it boots, installs, then stops itself
 #   infra/worker/vm.sh run test|worker 'JOB' [REF]
 #                                                start JOB (a shell command run from the repo root) on
 #                                                the code at REF (default main); the machine stops itself
@@ -12,6 +12,8 @@
 #
 # test   = skyshift-test, e2-standard-8, normal: pilot, validation, precompute (about EUR 0.30/h)
 # worker = skyshift-worker, n2-highcpu-64, spot: hunt zone only, after gate G2 (about EUR 0.60-1/h)
+# od     = skyshift-od, n2-custom-120 (180 GB), on-demand: the sky run's second machine (spot quota is
+#          96 CPUs, on-demand 128 for the project); about EUR 5/h, never preempted
 # A stopped machine costs only its 30 GB disk (cents a day). To delete one (after the final
 # submission): gcloud compute instances delete skyshift-test --zone us-east4-a
 set -euo pipefail
@@ -28,7 +30,8 @@ vm_name() {
   case "${1:-}" in
     test) echo skyshift-test ;;
     worker) echo skyshift-worker ;;
-    *) echo "say 'test' or 'worker'" >&2; exit 2 ;;
+    od) echo skyshift-od ;;
+    *) echo "say 'test', 'worker' or 'od'" >&2; exit 2 ;;
   esac
 }
 
@@ -45,6 +48,8 @@ create() {
     --labels=app=skyshift,owner=p1)
   if [ "$1" = test ]; then
     args+=(--machine-type=e2-standard-8)
+  elif [ "$1" = od ]; then
+    args+=(--machine-type=n2-custom-120-184320)
   else
     args+=(--machine-type=n2-highcpu-64 --provisioning-model=SPOT --instance-termination-action=STOP)
   fi
@@ -88,7 +93,7 @@ log() {
 status() {
   "$G" compute instances list --project=$PROJECT --filter='labels.app=skyshift' \
     --format='table(name,machineType.basename(),scheduling.provisioningModel,status)'
-  for vm in skyshift-test skyshift-worker; do
+  for vm in skyshift-test skyshift-worker skyshift-od; do
     local s; s=$("$G" storage cat "$BUCKET/logs/$vm/latest-status.txt" 2>/dev/null || true)
     [ -n "$s" ] && echo "$vm last job: $s"
   done
