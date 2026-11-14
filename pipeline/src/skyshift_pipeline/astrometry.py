@@ -413,7 +413,7 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         "span_yr": span.astype(np.float32), "chi2_nu": chi2_nu.astype(np.float32),
         "snr_median": group_median(s, snr, N).astype(np.float32), "frame_corrected": corrected,
     })
-    good = (n_dots >= C.ASTRO_MIN_DOTS) & np.isfinite(pmra) & (span > 0)
+    good = (n_used >= C.ASTRO_MIN_DOTS) & np.isfinite(pmra) & (span > 0)  # used dots: clean_mask can leave 1 per visit
     st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum())})
     return out[good].reset_index(drop=True)[COLUMNS], st
 

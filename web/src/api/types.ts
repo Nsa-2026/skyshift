@@ -321,8 +321,9 @@ export interface LoadedFrames {
 // ---- Community discovery: candidates for people to review (contracts/api.md, candidates.json, proposal v2.2)
 
 /** mover: moves within hours (possible new asteroid or comet); high_pm: moves between visits
- *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look. */
-export type CandidateKind = "mover" | "high_pm" | "spectral";
+ *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look;
+ *  shape: wider or longer than a single star where the catalogues list one object (one or two?). */
+export type CandidateKind = "mover" | "high_pm" | "spectral" | "shape";
 
 export interface Candidate {
   id: string;
@@ -370,6 +371,97 @@ export interface CandidatesResponse {
   generated: string;
   data_release: string;
   zones: string[];
-  counts: Record<CandidateKind, number>;
+  /** Files written before the shape kind (api v3.7) have no `shape` key: read it as 0. */
+  counts: Record<Exclude<CandidateKind, "shape">, number> & { shape?: number };
   candidates: Candidate[];
+}
+
+// ---- The distant-planet search (contracts/api.md v3.6, /data/distant.json; pipeline step `orphans`)
+
+/** One passing pair: an orphan of the earlier visit (_a) and one of the later visit (_b). Degrees, MJD, arcsec, AU. */
+export interface DistantPair {
+  source_id_a: number;
+  source_id_b: number;
+  visit_a: number;
+  visit_b: number;
+  ra_a: number;
+  dec_a: number;
+  mjd_a: number;
+  ra_b: number;
+  dec_b: number;
+  mjd_b: number;
+  sep_arcsec: number;
+  dlon_arcsec: number;
+  dlat_arcsec: number;
+  distance_au: number;
+  distance_lo_au: number | null;
+  distance_hi_au: number | null;
+  /** Flux B / A, geometric mean over the detectors measured in both. */
+  flux_ratio: number | null;
+  n_common_det: number;
+  n_dots_a: number;
+  n_dots_b: number;
+  snr_a: number | null;
+  snr_b: number | null;
+  p: number;
+  known_a: string | null;
+  known_b: string | null;
+}
+
+export interface DistantInjectionRow {
+  distance_au: number;
+  injected: number;
+  recovered: number;
+  recovered_frac: number | null;
+  distance_fit_median_au: number | null;
+}
+
+export interface DistantResponse {
+  generated: string;
+  data_release: string;
+  zone: string;
+  zone_box: { ra: [number, number]; dec: [number, number] } | null;
+  run_created: string;
+  searched: {
+    distance_au: [number, number];
+    sep_arcsec: [number, number];
+    rate_arcsec_h: [number, number];
+    pair_min_p: number;
+  };
+  counts: {
+    single_visit_sources: number;
+    uncatalogued: number;
+    covered: number;
+    orphans: number;
+    dropped: Record<string, number>;
+    drift_ok: number;
+    pairs_tested: number;
+    pairs: number;
+    known_orphans: number;
+    open_orphans: number;
+  };
+  pairs: DistantPair[];
+  control: {
+    n: number;
+    passing_per_control: number[];
+    expected_pairs: number | null;
+    spread_pairs: number | null;
+    poisson_p: number | null;
+    beyond_chance: boolean;
+    method: string;
+  };
+  injection: {
+    method: string;
+    distances: DistantInjectionRow[];
+    recovered_frac: number | null;
+    min_cell_recovered_frac: number | null;
+    distance_err_median_frac: number | null;
+  } | null;
+  limits: {
+    /** Single-exposure depth (AB mag) per detector, keys "D1".."D6". */
+    depth_ab_snr5: Record<string, number>;
+    /** Farthest distance (AU) at which a planet is as bright as the D2 depth, keys "<planet>_p<albedo>". */
+    reach_au: Record<string, number>;
+    notes: string[];
+  };
 }

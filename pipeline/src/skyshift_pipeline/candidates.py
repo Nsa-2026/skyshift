@@ -5,7 +5,7 @@ to review on the site's Discover and Review pages.
     uv run skyshift-candidates --zones hunt,pilot --out ../web/public/data/candidates.json
 
 A zone is finished when results/<zone>/suspects.parquet exists (`suspects` is the pipeline's last step).
-Three kinds:
+Four kinds:
 - mover     results/<zone>/suspects.parquet (movers no catalogue explains), clock hours. The rate and
             direction come from the mover's own dots, re-read from dots/ for the exposures it was seen in.
 - high_pm   results/<zone>/highpm_candidates.parquet, the `vetted` rows (highpm_leads), clock months: known
@@ -13,6 +13,8 @@ Three kinds:
             (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
+- shape     results/<zone>/shape_candidates.parquet (`python -m skyshift_pipeline.shape`), every row, clock months:
+            stretched like two objects where Gaia and CatWISE list one (contracts/api.md v3.7). Absent file: none.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
@@ -50,7 +52,7 @@ from .store import Store, dots_rel, photolist_rel, results_rel
 
 L = log.get("candidates")
 
-KINDS = ("mover", "high_pm", "spectral")
+KINDS = ("mover", "high_pm", "spectral", "shape")
 CACHE_DIR: Path | None = None  # --cache: column reads kept on disk between runs
 REPO =Path(__file__).resolve().parents[3]
 DEFAULT_OUT = REPO / "web" / "public" / "data" / "candidates.json"
@@ -122,6 +124,7 @@ REASONS = {
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
                 "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
+    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy"),
 }
 FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
@@ -732,6 +735,32 @@ def spectrals(s: pd.DataFrame, zone: str) -> list[dict]:
     return out
 
 
+# --- shape ---------------------------------------------------------------------------------------------
+SHAPE_FILE = "shape_candidates.parquet"
+
+
+def shape_candidates(store: Store, zone: str) -> list[dict]:
+    """kind `shape`: the rows of results/<zone>/shape_candidates.parquet (written by
+    `python -m skyshift_pipeline.shape`), already selected, scored and worded; [] when the file is missing."""
+    rel = results_rel(zone, SHAPE_FILE)
+    if not store.exists(rel):
+        return []
+    t = store.read_parquet(rel)
+    out = []
+    for r in t.to_dict("records"):
+        split = lambda v: [x for x in str(v or "").split(",") if x]  # noqa: E731
+        out.append({
+            "id": f"{zone}-sh-{int(r['source_id'])}", "kind": "shape", "ra": float(r["ra"]), "dec": float(r["dec"]),
+            "mjd": r.get("mjd"), "clock": "months", "det": int(r["det"]) if pd.notna(r.get("det")) else 2,
+            "zone": zone, "zones": [zone], "score": float(r["score"]), "snr": r.get("snr"), "flux_ujy": r.get("flux_ujy"),
+            "rate_arcsec_h": None, "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": r.get("pa_deg"),
+            "nearest_known_arcsec": None, "gaia_match": bool(r.get("gaia_match")), "catwise_match": bool(r.get("catwise_match")),
+            "labels": [], "reasons": [x for x in split(r.get("reasons")) if x in REASONS["shape"]], "why": str(r["why"]),
+            "flags": split(r.get("flags")), "_sources": [int(r["source_id"])],
+        })
+    return out
+
+
 # --- zones -------------------------------------------------------------------------------------------
 CLASS_COLUMNS = ["source_id", "class", "labels", "brown_dwarf_like", "bd_evidence", "j_m46_ab", "gaia_sep_arcsec",
                  "gaia_g", "gaia_parallax", "gaia_parallax_error",
@@ -842,6 +871,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         b = zone_base(store, z, spectral_cap)
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
+        cands += shape_candidates(store, z)
         # spectral positions are needed for the dedupe: read them now (cheap)
         sp = [c for c in cands if c["kind"] == "spectral"]
         if sp:

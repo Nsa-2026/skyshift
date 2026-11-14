@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from skyshift_pipeline import config as C
 from skyshift_pipeline.link import classify, pair_candidates
@@ -15,24 +16,31 @@ class Scene:
     """Synthetic in-zone dots in link's load format, with N sessions of 2 exposures, all covering
     the field (photos list with footprints and sessions)."""
 
-    def __init__(self, n_sessions=5):
+    def __init__(self, n_sessions=5, n_exp=2):
         self.rows = []
         self.photos = []
+        self.n_exp = n_exp
         for s in range(n_sessions):
-            for e in range(2):
+            for e in range(n_exp):
                 for det in (1, 4):
                     self.photos.append(dict(obs_id=f"S{s}E{e}", detector=det, mjd=t(s, e), session=s + 1, visit=1,
                                             s_region=square(122.3, 16.15)))
 
-    def add(self, ra, dec, s, e, det=1, snr=20.0, elong=1.1, flags=0, flags_peak=0):
-        self.rows.append(dict(detector=det, mjd=t(s, e), ra=ra, dec=dec, flux_ujy=100.0, snr=snr, flags=flags,
+    def add(self, ra, dec, s, e, det=1, snr=20.0, elong=1.1, flags=0, flags_peak=0, flux=100.0):
+        self.rows.append(dict(detector=det, mjd=t(s, e), ra=ra, dec=dec, flux_ujy=flux, snr=snr, flags=flags,
                               flags_peak=flags_peak, elong=elong, session=s + 1, visit=1, photo=0, exposure=s * 10 + e))
         return self
 
     def star(self, ra, dec, sessions=range(5)):
         for s in sessions:
-            for e in range(2):
+            for e in range(self.n_exp):
                 self.add(ra, dec, s, e, snr=200)
+        return self
+
+    def track(self, ra, dec, s, step_east, exposures, **kw):
+        """An asteroid moving step_east arcsec per exposure (2.1 min) in the given exposures of session s."""
+        for e in exposures:
+            self.add(*offset_radec(ra, dec, step_east * e, 0.0), s, e, **kw)
         return self
 
     def run(self, photos=None):
@@ -90,10 +98,87 @@ def test_simultaneous_detector_pair():
     sc = Scene()
     sc.add(122.0, 16.0, 3, 0, det=1, snr=9).add(*offset_radec(122.0, 16.0, 1.0, 0.0), 3, 0, det=4, snr=8)
     sc.add(122.2, 16.2, 3, 0, det=1).add(122.2, 16.2, 3, 0, det=2)  # D1+D2 is not a simultaneous pair
-    _, movers, _ = sc.run()
-    assert len(movers) == 1
+    # session 4's second exposure points elsewhere: the pair is the only look at that spot
+    photos = [dict(p, s_region=square(140.0, 16.15)) if p["obs_id"] == "S3E1" else p for p in sc.photos]
+    _, movers, st = sc.run(photos)
+    assert len(movers) == 1, st
     m = movers.iloc[0]
     assert m["evidence"] == "two_detectors" and m["detectors"] == "1,4" and m["det"] == 1
+    assert m["cover_exposures"] == 1 and m["missed_exposures"] == 0
+
+
+def test_simultaneous_pair_missing_from_a_covering_exposure_is_dropped():
+    sc = Scene()
+    sc.add(122.0, 16.0, 3, 0, det=1, snr=9).add(*offset_radec(122.0, 16.0, 1.0, 0.0), 3, 0, det=4, snr=8)
+    _, movers, st = sc.run()  # exposure S3E1 covers the spot 2.1 min later and shows nothing
+    assert len(movers) == 0 and st["vetoed_missed"] == 1
+
+
+def test_two_exposures_out_of_four_is_dropped_all_four_kept():
+    sc = Scene(n_exp=4)
+    sc.track(122.0, 16.0, 2, 1.4, [0, 1])            # seen in 2 of the 4 covering exposures: chance pair
+    sc.track(122.1, 16.0, 2, 1.4, [0, 1, 2, 3])      # a real asteroid: 40″/h, every exposure
+    sc.track(122.2, 16.0, 2, 1.4, [0, 1, 2])         # 3 of 4: one miss allowed (masked pixel, faint)
+    _, movers, st = sc.run()
+    assert sorted(movers["n_exposures"].tolist()) == [3, 4] and st["vetoed_missed"] == 1
+    m = movers[movers["n_exposures"] == 4].iloc[0]
+    assert m["rate_arcsec_h"] == pytest.approx(1.4 / 2.1 * 60, rel=1e-3) and m["pa_deg"] == pytest.approx(90.0, abs=0.1)
+    assert m["line_resid_arcsec"] < 0.01 and m["cover_exposures"] == 4 and m["missed_exposures"] == 0
+
+
+def test_flux_jump_is_dropped():
+    sc = Scene(n_exp=3)
+    b = (122.1, 16.0)
+    sc.track(*b, 1, 1.0, [0, 1], flux=100.0).add(*offset_radec(*b, 2.0, 0.0), 1, 2, flux=500.0)  # x5 in one detector
+    _, movers, st = sc.run()
+    assert len(movers) == 0 and st["vetoed_flux"] == 1
+
+
+def test_track_fit_and_vet_rules():
+    from skyshift_pipeline.link import track_fit, vet_reason
+    ra = 122.0 + np.array([0.0, 2.0, 4.0, 6.0]) / 3600 / np.cos(np.deg2rad(16.0))
+    dec = 16.0 + np.array([0.0, 0.0, 6.0, 0.0]) / 3600  # the third exposure 6″ off: 4.2″ from the fitted line
+    tr = track_fit(ra, dec, t(0, 0) + np.arange(4) * 2.1 / 1440, [0, 1, 2, 3], [1, 1, 1, 1], [100, 110, 90, 100])
+    assert tr["line_resid_arcsec"] == pytest.approx(4.2, abs=0.05) and tr["flux_ratio"] == pytest.approx(110 / 90)
+    assert tr["dup_dots"] == 0 and tr["rate_arcsec_h"] == pytest.approx(np.hypot(2.0, 0.6) / 2.1 * 60, rel=0.01)
+    m = pd.DataFrame(dict(n_exposures=[4, 2, 3, 2, 2, 3, 2], line_resid_arcsec=[4.5, np.nan, 1.0, np.nan, np.nan, 1.0, np.nan],
+                          dup_dots=[0, 0, 1, 0, 0, 0, 0], flux_ratio=[1.2, 3.5, 1.0, 1.0, 1.0, 1.0, 1.0],
+                          missed_exposures=[0, 0, 0, 1, 0, 1, 0], edge_exposures=[0, 0, 0, 0, 1, 0, 0]))
+    assert vet_reason(m).tolist() == ["line", "flux", "dup", "missed", "edge", "", ""]
+
+
+def test_edge_dots_do_not_make_movers():
+    sc = Scene()
+    edge = square(122.3, 16.15)  # the field is 122.3 ± 1.75° / cos(dec) in RA
+    ra_edge = 122.3 + 1.75 / np.cos(np.deg2rad(16.15)) - 3 * C.PIXEL_ARCSEC / 3600 / np.cos(np.deg2rad(16.15))
+    sc.track(ra_edge, 16.15, 2, 1.0, [0, 1])  # 3 px inside the edge in both exposures
+    _, movers, st = sc.run()
+    assert len(movers) == 0 and st["vetoed_edge"] == 1 and edge
+
+
+def test_fast_mover_confirmed_by_detector_pairs():
+    sc = Scene(n_exp=3)
+    a = (122.0, 16.0)
+    for e in range(3):  # 300″/h: 10.5″ per 2.1 min, beyond 3″ + 1″/min, each exposure a D1+D4 pair
+        p = offset_radec(*a, 10.5 * e, 0.0)
+        sc.add(*p, 2, e, det=1).add(*p, 2, e, det=4)
+    _, movers, st = sc.run()
+    assert len(movers) == 1, st
+    assert movers["n_exposures"].iloc[0] == 3 and movers["rate_arcsec_h"].iloc[0] == pytest.approx(300.0, rel=1e-3)
+
+
+def test_asteroid_chained_into_a_star_is_released(monkeypatch):
+    sc = Scene(n_exp=4).star(*STAR)
+    # 100″/h through the star: 3.5″ per exposure, so the 4″ FoF chains the whole track into the star's group
+    sc.track(*offset_radec(*STAR, 2.0, 0.0), 2, 3.5, [0, 1, 2, 3])
+    fixed, movers, st = sc.run()
+    assert len(fixed) == 1 and fixed["n_sessions"].iloc[0] == 5
+    assert len(movers) == 1, st  # the two dots beyond 6″ (9″, 12.5″) pair; the two near the star are vetoed
+    m = movers.iloc[0]
+    assert m["n_exposures"] == 2 and m["missed_exposures"] == 0  # exposures where it sat on the star don't count
+    monkeypatch.setattr(C, "FIXED_RELEASE_ARCSEC", None)
+    _, movers, _ = sc.run()
+    assert len(movers) == 0  # the old behaviour: swallowed by the star
 
 
 def test_under_covered_position():

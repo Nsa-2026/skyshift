@@ -319,7 +319,7 @@ def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
         "shape_rms": np.float32(0.0), "n_common_det": np.int8(0), "red_ratio": np.float32(np.nan),
         "score": (1.0 / a["pm_snr"]).to_numpy(np.float32),
         **{f"_{c}": (a[c].to_numpy(np.float64) if c in a else np.full(len(a), np.nan))
-           for c in ("n_visits", "span_yr", "chi2_nu", "n_dots", "pm_snr")},
+           for c in ("n_visits", "span_yr", "chi2_nu", "n_dots", "n_used", "pm_snr")},
     })
 
 
@@ -347,7 +347,7 @@ def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: 
     with np.errstate(invalid="ignore"):
         bad = {
             "short_span": fit & ((col("_n_visits") < C.HIGHPM_FIT_MIN_VISITS) | (col("_span_yr") < C.HIGHPM_FIT_MIN_SPAN_YR)),
-            "few_dots": fit & (col("_n_dots") < C.HIGHPM_FIT_MIN_DOTS),
+            "few_dots": fit & (np.fmin(col("_n_dots"), col("_n_used")) < C.HIGHPM_FIT_MIN_DOTS),  # dots the fit used
             "few_sessions": fit & (col("_sessions_min") < C.HIGHPM_FIT_MIN_SESSIONS),
             "bad_fit": fit & (col("_chi2_nu") > C.HIGHPM_FIT_MAX_CHI2_NU),
             "over_pm_cap": fit & (col("pm") > C.HIGHPM_FIT_MAX_PM_MAS_YR),

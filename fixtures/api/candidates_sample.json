@@ -10,7 +10,8 @@
  "counts": {
   "mover": 228,
   "high_pm": 1008,
-  "spectral": 97
+  "spectral": 97,
+  "shape": 0
  },
  "candidates": [
   {

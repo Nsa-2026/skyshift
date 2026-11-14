@@ -41,6 +41,7 @@ export const KIND_NAME: Record<CandInfo["kind"], string> = {
   mover: "Fast mover",
   high_pm: "Moving star",
   spectral: "Odd spectrum",
+  shape: "One or two?",
   flag: "Flagged dot",
 };
 

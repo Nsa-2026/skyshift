@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_FOV, MIN_FOV, formatState, parseState, preparedBlinkHash, sameState, stateHash, type AtlasState } from "./hash";
 
-const ALL = ["mover", "high_pm", "spectral"];
+const ALL = ["mover", "high_pm", "spectral", "shape"];
 
 describe("parseState", () => {
   it("reads ra, dec and field of view", () => {
@@ -43,7 +43,7 @@ describe("parseState", () => {
 });
 
 describe("formatState", () => {
-  const base: AtlasState = { ra: 122.55415, dec: 17.00357, fov: 4.2, gal: false, mol: false, kinds: ["mover", "high_pm", "spectral"] };
+  const base: AtlasState = { ra: 122.55415, dec: 17.00357, fov: 4.2, gal: false, mol: false, kinds: ["mover", "high_pm", "spectral", "shape"] };
 
   it("writes short numbers and leaves out the defaults", () => {
     expect(formatState(base)).toBe("122.5542,17.0036,4.2");

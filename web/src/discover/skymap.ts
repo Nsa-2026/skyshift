@@ -109,6 +109,11 @@ export function glyphPath(kind: CandidateKind, x: number, y: number, r: number):
     const s = r * 0.88;
     return `M${f(x - s)},${f(y - s)}H${f(x + s)}V${f(y + s)}H${f(x - s)}Z`;
   }
+  if (kind === "shape") {
+    // A diamond: one object or two?
+    const h = r * 1.2;
+    return `M${f(x)},${f(y - h)}L${f(x + h)},${f(y)}L${f(x)},${f(y + h)}L${f(x - h)},${f(y)}Z`;
+  }
   return `M${f(x - r)},${f(y)}a${f(r)},${f(r)} 0 1,0 ${f(2 * r)},0a${f(r)},${f(r)} 0 1,0 ${f(-2 * r)},0Z`;
 }
 

@@ -17,7 +17,7 @@ export interface CandidateSet {
   sample: boolean;
 }
 
-const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral"];
+const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 const finite = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 const numOrNull = (x: unknown): number | null => (finite(x) ? x : null);
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);

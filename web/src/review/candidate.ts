@@ -307,7 +307,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     nextSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-next")!);
     lastSummary = "";
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
-    ballot = open ? new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true }) : null;
+    ballot = open ? new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true, kind: c.kind }) : null;
     renderBallot();
     if (c.kind === "mover")
       suspectFor(c.id).then((s) => {
