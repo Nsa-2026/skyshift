@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Measure, SpectrumPoint } from "../api/types";
+import type { Measure, ObjectResponse, SpectrumPoint } from "../api/types";
 import {
   aboutSentence,
   agreement,
@@ -14,6 +14,8 @@ import {
   linearTicks,
   listDets,
   logTicks,
+  MEASURE_REASON_TEXT,
+  measureReasonOf,
   noMeasureReason,
   paVector,
   paWord,
@@ -203,6 +205,54 @@ describe("why there is no measure", () => {
     );
     expect(noMeasureReason({ object: empty, kind: null, visits: 1 })).toMatch(/one visit/);
   });
+  // contracts/api.md v3.2: the server says why (measure_reason); static files and older answers don't.
+  const why = (measure_reason: unknown, extra: Partial<ObjectResponse> = {}) =>
+    ({ name: null, gaia: null, known_ucd: null, spectrum: [], measure: null, measure_reason, ...extra }) as ObjectResponse;
+  const barnard2016 = { ra: 269.4485, dec: 4.7394 }; // Barnard's Star's Gaia DR3 position (epoch 2016.0)
+  const hint = { name: "Barnard's Star", ra: 269.446376, dec: 4.768684, mjd: 61104.25 }; // the server's answer there
+
+  it("gives one plain sentence per server reason", () => {
+    expect(noMeasureReason({ object: why("not_detected"), kind: null, visits: 3 })).toMatch(
+      /^Nothing stands out clearly at this spot in the first or the last visit/,
+    );
+    expect(noMeasureReason({ object: why("edge"), kind: null, visits: 3 })).toMatch(/at the edge of SPHEREx's photos/);
+    expect(noMeasureReason({ object: why("different_sources"), kind: null, visits: 3 })).toMatch(/too far apart to be one moving star/);
+    expect(noMeasureReason({ object: why("no_time"), kind: null, visits: 3 })).toMatch(/ran out of time.*Try again in a minute/);
+    expect(noMeasureReason({ object: why("few_visits"), kind: null, visits: 2 })).toMatch(/two visits about six months apart/);
+    for (const text of Object.values(MEASURE_REASON_TEXT)) {
+      expect(text.length).toBeLessThan(170); // short and plain
+      expect(text).not.toMatch(/S\/N|σ|PSF|centroid|stack|guard/);
+    }
+  });
+
+  it("falls back to the general sentence without a reason or with an unknown one", () => {
+    const general = /^No shift measured here: .*single source stands out clearly/;
+    expect(noMeasureReason({ object: why(undefined), kind: null, visits: 2 })).toMatch(general);
+    expect(noMeasureReason({ object: why(null), kind: null, visits: 2 })).toMatch(general);
+    expect(noMeasureReason({ object: why("solar_flare"), kind: null, visits: 2 })).toMatch(general);
+    expect(measureReasonOf(why("solar_flare"))).toBeNull();
+    expect(measureReasonOf(null)).toBeNull();
+  });
+
+  it("keeps the frames' visit count and the mover wording ahead of the server's reason", () => {
+    expect(noMeasureReason({ object: why("few_visits"), kind: null, visits: 1 })).toMatch(/one visit so far/);
+    expect(noMeasureReason({ object: why("not_detected"), kind: "asteroid", visits: null })).toMatch(/hours, not months/);
+  });
+
+  it("says where a fast star went when its old catalogue position is pasted", () => {
+    const moved = why("moved_away", { measure_hint: hint });
+    expect(noMeasureReason({ object: moved, kind: null, visits: 3, at: barnard2016 })).toBe(
+      "This is a catalogue position of Barnard's Star, but it moves fast: during SPHEREx's visits it was 106″ away, so there is nothing here to measure.",
+    );
+    expect(noMeasureReason({ object: moved, kind: null, visits: 1, at: barnard2016 })).toMatch(/^This is a catalogue position of Barnard's Star/);
+    expect(noMeasureReason({ object: why("moved_away", { measure_hint: { ...hint, name: null } }), kind: null, visits: 3 })).toMatch(
+      /^This is a catalogue position of a fast-moving star, .* it was somewhere else/,
+    );
+    expect(noMeasureReason({ object: why("moved_away"), kind: null, visits: 3 })).toBe(
+      "No source at this position in either visit. Fast stars move: try their current position or their name.",
+    );
+  });
+
   it("counts visits per detector in frames near the view", () => {
     const frames = {
       clock: "months",

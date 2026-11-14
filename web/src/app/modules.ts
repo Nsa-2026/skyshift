@@ -44,7 +44,11 @@ export interface CardHandle {
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;
 }
-export type MountCard = (el: HTMLElement) => CardHandle;
+export interface CardOptions {
+  /** Open the blink at another position (the card's "open it where it is now" for a star that moved away). */
+  onExplore?(at: SkyPos): void;
+}
+export type MountCard = (el: HTMLElement, opts?: CardOptions) => CardHandle;
 
 // ---- P3: src/sky/index.ts exports mountSky ----------------------------------------------
 export interface SkyHandle {

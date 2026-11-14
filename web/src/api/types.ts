@@ -92,12 +92,27 @@ export interface KnownUcd {
   ref: string;
 }
 
+/** Why `measure` is null (contracts/api.md v3.2). */
+export type MeasureReason = "few_visits" | "not_detected" | "edge" | "different_sources" | "no_time" | "moved_away";
+
+/** With `moved_away`: the fast star catalogued at this position, and where it is at `mjd` (the middle of SPHEREx's visits). */
+export interface MeasureHint {
+  name: string | null;
+  ra: number;
+  dec: number;
+  mjd: number;
+}
+
 export interface ObjectResponse {
   name: string | null;
   gaia: GaiaStar | null;
   known_ucd: KnownUcd | null;
   spectrum: SpectrumPoint[];
   measure: Measure | null;
+  /** Optional (v3.2): why `measure` is null. Static files and older answers leave it out: read as null. */
+  measure_reason?: MeasureReason | null;
+  /** Optional (v3.2): set with `measure_reason` "moved_away" only. */
+  measure_hint?: MeasureHint | null;
 }
 
 export interface ResolveResponse {

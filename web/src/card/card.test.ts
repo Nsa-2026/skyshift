@@ -221,6 +221,46 @@ describe("states", () => {
     expect(el.getAttribute("aria-busy")).toBe("false");
   });
 
+  describe("why there is no shift (measure_reason, contracts v3.2)", () => {
+    const barnard2016: View = { ...spot, ra: 269.4485, dec: 4.7394 };
+    const moved = {
+      name: null, gaia: null, known_ucd: null, spectrum: [], measure: null, measure_reason: "moved_away",
+      measure_hint: { name: "Barnard's Star", ra: 269.446376, dec: 4.768684, mjd: 61104.25 },
+    } as ObjectResponse;
+
+    it("offers to open a fast star where it is now", () => {
+      const el = document.createElement("section");
+      const opened: { ra: number; dec: number }[] = [];
+      mountCard(el, { onExplore: (at) => opened.push(at) }).show(barnard2016, moved, null);
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/^This is a catalogue position of Barnard's Star, .* 106″ away/);
+      const a = el.querySelector<HTMLAnchorElement>("a.cd-open");
+      expect(a?.textContent).toBe("Open it where it is now");
+      expect(a?.getAttribute("href")).toBe("?ra=269.44638&dec=4.76868&clock=months&fov=5&det=2#/explore");
+      a!.click();
+      expect(opened).toEqual([{ ra: 269.446376, dec: 4.768684 }]);
+    });
+
+    it("keeps a plain link without the app, and no link for other reasons", () => {
+      const el = document.createElement("section");
+      mountCard(el).show(barnard2016, moved, null);
+      expect(el.querySelector("a.cd-open")?.getAttribute("href")).toMatch(/^\?ra=269\.44638&dec=4\.76868/);
+      mountCard(el).show(spot, { ...moved, measure_reason: "not_detected", measure_hint: null }, null);
+      expect(el.querySelector("a.cd-open")).toBeNull();
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/^Nothing stands out clearly at this spot/);
+      mountCard(el).show(spot, { ...moved, measure_hint: null }, null);
+      expect(el.querySelector("a.cd-open")).toBeNull();
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/Fast stars move/);
+    });
+
+    it("escapes a hint's name", () => {
+      const el = document.createElement("section");
+      const evil = { ...moved, measure_hint: { ...moved.measure_hint!, name: "<img src=x>" } };
+      mountCard(el, { onExplore: () => {} }).show(barnard2016, evil, null);
+      expect(el.querySelector("img")).toBeNull();
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/<img src=x>/);
+    });
+  });
+
   it("escapes names", () => {
     const el = document.createElement("section");
     mountCard(el).show(spot, { name: "<img src=x>", gaia: null, known_ucd: null, spectrum: [], measure: null }, null);
