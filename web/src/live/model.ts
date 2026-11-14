@@ -5,7 +5,8 @@
 //   totals: { zones, extracted, combined, failed, photos, dots, sources, movers, suspects },
 //   machines: [{ name, cpus, kind, status, zone }],
 //   zones: [{ name, ra: [lo, hi], dec: [lo, hi], state, machine, photos, dots, extracted_at, combined_at,
-//             sources, movers, suspects, recall, final?, error?, suspects_url? }] }
+//             sources, movers, suspects, recall, final?, error?, suspects_url?, deferred?, checks? }],
+//   notes?: { deferred, provisional } }
 // RA/Dec in degrees (ICRS); a zone is ra[0] ≤ RA < ra[1], dec[0] ≤ Dec < dec[1]. Times ISO UTC.
 
 export const ZONE_STATES = ["queued", "extracting", "extracted", "combining", "combined", "failed"] as const;
@@ -46,6 +47,10 @@ export interface SkyZone {
   final: boolean;
   error: string | null;
   suspects_url: string | null;
+  /** A Galactic bulge zone: very crowded, so it comes last in every machine's list. */
+  deferred: boolean;
+  /** Checks run on its suspects: "gaia" while provisional, "gaia+catwise" after the WISE check; null in older files. */
+  checks: string | null;
 }
 
 export interface SkyMachine {
@@ -70,6 +75,15 @@ export interface SkyTotals {
   sources: number | null;
   movers: number | null;
   suspects: number | null;
+  deferred: number | null;
+}
+
+/** Sentences the run writes for the page, shown as they are. */
+export interface SkyNotes {
+  /** Why the deferred (Galactic bulge) zones come last. */
+  deferred: string | null;
+  /** What "provisional" means for suspects that had the Gaia check only. */
+  provisional: string | null;
 }
 
 export interface SkyRun {
@@ -87,6 +101,7 @@ export interface SkyRun {
   /** The run's own progress figures (percentages 0..100), or null when the file has none. */
   progress: SkyProgress | null;
   totals: SkyTotals;
+  notes: SkyNotes;
   machines: SkyMachine[];
   zones: SkyZone[];
   /** What the parser dropped or guessed, for the console. */
@@ -189,6 +204,8 @@ function parseZone(raw: unknown, i: number, warnings: string[]): SkyZone | null 
     final: raw.final === true,
     error: str(raw.error),
     suspects_url: str(raw.suspects_url),
+    deferred: raw.deferred === true,
+    checks: str(raw.checks),
   };
 }
 
@@ -246,7 +263,12 @@ function parseProgress(v: unknown): SkyProgress | null {
   return out;
 }
 
-const TOTAL_KEYS =["zones", "extracted", "combined", "failed", "photos", "dots", "sources", "movers", "suspects"] as const;
+const TOTAL_KEYS =["zones", "extracted", "combined", "failed", "photos", "dots", "sources", "movers", "suspects", "deferred"] as const;
+
+function parseNotes(raw: unknown): SkyNotes {
+  const n = isObj(raw) ? raw : {};
+  return { deferred: str(n.deferred), provisional: str(n.provisional) };
+}
 
 /** Read a progress file. Throws SkyrunInvalid when it isn't one; drops (and notes) bad zones and machines. */
 export function parseSkyrun(raw: unknown): SkyRun {
@@ -286,6 +308,7 @@ export function parseSkyrun(raw: unknown): SkyRun {
     pace_photos_per_hour: count(raw.pace_photos_per_hour),
     progress: parseProgress(raw.progress),
     totals,
+    notes: parseNotes(raw.notes),
     machines,
     zones,
     warnings,
@@ -318,6 +341,12 @@ export interface ProgressBar {
   from: "run" | "page";
 }
 
+/** Suspects that had the Gaia check only (no WISE check yet) are provisional; older files: until final. */
+export function isProvisional(z: Pick<SkyZone, "checks" | "final">): boolean {
+  if (z.checks === null) return !z.final;
+  return !z.checks.toLowerCase().split("+").map((c) => c.trim()).includes("catwise");
+}
+
 /** Who is working on a zone now: its combiner while combining (older files: its machine), else its extractor. */
 export function workerOf(z: SkyZone): string | null {
   return z.state === "combining" ? z.combiner ?? z.machine : z.machine;
@@ -347,6 +376,10 @@ export interface RunSummary {
   photosByEnds: number | null;
   /** The progress bar: from the file's progress block when there is one, else worked out here. */
   bar: ProgressBar;
+  /** Galactic bulge zones (last in every machine's list): all of them, and those still queued. */
+  deferred: { total: number; queued: number };
+  /** Combined zones whose suspects are still provisional (Gaia check only). */
+  provisionalCombined: number;
   zonesExtractedPerHour: number | null;
   zonesCombinedPerHour: number | null;
   /** At the pace so far: when every zone is extracted / combined (ms), or null when unknown or done. */
@@ -433,6 +466,12 @@ export function summarize(run: SkyRun, now: number): RunSummary {
   let etaCombined = toCombine > 0 && zonesCombinedPerHour ? end + (toCombine / zonesCombinedPerHour) * 3600e3 : null;
   if (etaCombined !== null && etaExtracted !== null) etaCombined = Math.max(etaCombined, etaExtracted);
 
+  const deferredZones = run.zones.filter((z) => z.deferred);
+  const deferred = deferredZones.length
+    ? { total: deferredZones.length, queued: deferredZones.filter((z) => z.state === "queued").length }
+    : { total: run.totals.deferred ?? 0, queued: run.totals.deferred ?? 0 };
+  const provisionalCombined = combined.filter(isProvisional).length;
+
   const age = run.updated !== null ? Math.max(0, now - run.updated) : null;
   const byName = new Map(run.zones.map((z) => [z.name, z]));
   const machines: MachineSummary[] = run.machines.map((m) => {
@@ -472,6 +511,8 @@ export function summarize(run: SkyRun, now: number): RunSummary {
     paceFrom,
     photosByEnds,
     bar,
+    deferred,
+    provisionalCombined,
     zonesExtractedPerHour,
     zonesCombinedPerHour,
     etaExtracted,

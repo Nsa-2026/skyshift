@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import real from "./fixtures/skyrun-real-1410Z.json";
 import real2 from "./fixtures/skyrun-real-1440Z.json";
+import real3 from "./fixtures/skyrun-real-1505Z.json";
 import sample from "./fixtures/skyrun-sample.json";
 import { fmtAbout, fmtAgo, fmtCount, fmtDec, fmtDuration, fmtTimePair } from "./format";
 import {
   DEFAULT_DEADLINE,
+  isProvisional,
   SkyrunInvalid,
   changedZones,
   normaliseState,
@@ -184,6 +186,28 @@ describe("summarize", () => {
     expect(r.zones.find((z) => z.name === "hunt")!.suspects_url).toBe("https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/hunt.json");
     const od = summarize(r, T("2026-11-14T14:41:00Z")).machines.find((m) => m.label === "od")!;
     expect(od.combining.map((z) => z.name)).toEqual(["ecl13"]);
+  });
+
+  it("reads deferred zones, checks and notes (real file, 15:05 UTC); provisional = no WISE check", () => {
+    const r = parseSkyrun(real3);
+    expect(r.totals.deferred).toBe(25);
+    expect(r.zones.filter((z) => z.deferred)).toHaveLength(25);
+    expect(r.notes.deferred).toMatch(/^Galactic bulge zones: very crowded/);
+    expect(r.notes.provisional).toMatch(/^Provisional results \(overnight\): checked against Gaia only\./);
+    const hunt = r.zones.find((z) => z.name === "hunt")!;
+    expect(hunt.checks).toBe("gaia+catwise");
+    expect(isProvisional(hunt)).toBe(false);
+    expect(isProvisional(r.zones.find((z) => z.name === "ecl13")!)).toBe(true);
+    const sum = summarize(r, T("2026-11-14T15:07:00Z"));
+    expect(sum.deferred).toEqual({ total: 25, queued: 25 });
+    expect(sum.provisionalCombined).toBe(0);
+    // older files: no checks, so provisional until final; no notes; deferred from totals when no zones are listed
+    expect(isProvisional({ checks: null, final: false })).toBe(true);
+    expect(isProvisional({ checks: null, final: true })).toBe(false);
+    expect(isProvisional({ checks: "Gaia + CatWISE", final: false })).toBe(false);
+    expect(parseSkyrun(real2).notes).toEqual({ deferred: null, provisional: null });
+    const bare = summarize(parseSkyrun({ schema: 1, totals: { zones: 333, deferred: 25 } }), T("2026-11-14T15:07:00Z"));
+    expect(bare.deferred).toEqual({ total: 25, queued: 25 });
   });
 
   it("is stale after 10 minutes without an update", () => {

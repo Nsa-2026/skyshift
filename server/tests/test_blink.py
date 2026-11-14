@@ -22,6 +22,8 @@ REPO = Path(__file__).resolve().parents[2]
 # a bright star near the middle of the fixture cutout (fixtures/fits/*.stars.json) and its Gaia entry
 STAR_RA, STAR_DEC = 304.4799843, 41.8376316
 STAR_GAIA_ID = "2068618363302306688"
+# an empty patch of the fixture 2' from it: no dot and no Gaia star within 6 px (37")
+EMPTY_RA, EMPTY_DEC = 304.4416228966218, 41.82004012070606
 MJD1 = 60794.017655738  # the fixture's MJD-AVG
 VISIT2 = 185.0  # days later
 ZODI_LEVEL = 0.1
@@ -29,14 +31,18 @@ EPOCH_KEYS = {"id", "kind", "mjd_mid", "mjd_start", "mjd_end", "det", "um_min", 
               "flag_frac", "sat_frac", "data_url", "scale", "zero"}
 
 
-def _cutout_at(mjd: float) -> bytes:
-    """The fixture cutout with its times moved (so we can fake several exposures and visits)."""
+def _cutout_at(mjd: float, noise: float = 0.0, seed: int = 0) -> bytes:
+    """The fixture cutout with its times moved (so we can fake several exposures and visits),
+    optionally with fresh noise (MJy/sr) added to IMAGE so that exposures differ."""
     with fits.open(FIXTURE_CUTOUT) as h:
         hdr = h["IMAGE"].header
         shift = mjd - hdr["MJD-AVG"]
         for k in ("MJD-AVG", "MJD-BEG", "MJD-END", "MJD-OBS"):
             if k in hdr:
                 hdr[k] = hdr[k] + shift
+        if noise:
+            data = h["IMAGE"].data
+            h["IMAGE"].data = (data + np.random.default_rng(seed).normal(0, noise, data.shape)).astype(data.dtype)
         b = io.BytesIO()
         h.writeto(b)
         return b.getvalue()
@@ -266,6 +272,33 @@ def test_object_spectrum_and_zero_shift(world):
     assert details["det"] == 1 and details["visits"] == [1, 2]
     # photometry is done on IMAGE as it is: the zodi model is only taken off the stacks
     assert len(world["zodi_calls"]) == 6
+
+
+def test_object_on_an_empty_spot_has_no_shift(world, monkeypatch):
+    """A spot with nothing on it (RA 125.5, Dec 19.4 on the live site: "30.15" between visits 1
+    and 2"). Without the detection guard the centroid takes the brightest noise peak near the
+    spot in each stack, two different ones, and reports their distance as motion. With it, no
+    shift: measure is null and details say why."""
+    ra, dec = EMPTY_RA, EMPTY_DEC
+    images = search.search(ra, dec, cache=world["cache"]).of_detector(1)
+    for i, (im, t) in enumerate(zip(images, world["times"])):
+        world["cache"].put(cutouts.cache_key(im, ra, dec, cutouts.SIZE_TIERS_DEG[-1]), _cutout_at(t, 0.05, seed=i))
+    unguarded = obj.measure_shift
+
+    def old_rule(*a, **kw):
+        return unguarded(*a, **kw, min_snr=None, edge_r=None, max_pm_arcsec_yr=None)
+
+    monkeypatch.setattr(obj, "measure_shift", old_rule)
+    before = obj.build_object(ra, dec, cache=world["cache"])
+    assert before["name"] is None and before["gaia"] is None
+    assert before["measure"] is not None and before["measure"]["shift_arcsec"] > 3 * before["measure"]["sigma_arcsec"]
+
+    monkeypatch.setattr(obj, "measure_shift", unguarded)
+    details = {}
+    o = obj.build_object(ra, dec, cache=world["cache"], details=details)
+    assert o["measure"] is None
+    assert details["measure_reason"] == "not_detected"
+    assert o["spectrum"]  # the spectrum is still measured there
 
 
 def test_identify_follows_fast_stars():

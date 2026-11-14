@@ -102,12 +102,29 @@
 }
 
 /* the selected zone's suspects: small red marks on the map, a short list in the panel */
+/* after the WISE check: solid red with a light rim; provisional (Gaia only): hollow, dimmer rings */
 .lv-sus-marks circle {
-  fill: var(--sheet);
-  stroke: var(--pencil-red);
-  stroke-width: 1.2;
+  fill: var(--pencil-red);
+  stroke: var(--sheet);
+  stroke-width: 0.9;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+.lv-sus-marks[data-provisional="1"] circle {
+  fill: var(--sheet);
+  fill-opacity: 0.55;
+  stroke: var(--pencil-red);
+  stroke-opacity: 0.7;
+  stroke-width: 1;
+}
+.lv-prov-note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-left: 3px solid var(--partial);
+  background: color-mix(in srgb, var(--partial) 8%, transparent);
+  color: var(--ink);
+  font-size: var(--step--1);
+  line-height: 1.5;
 }
 .lv-sus {
   display: grid;
@@ -305,6 +322,9 @@
 .lv-sw[data-state="queued"] .z-shape {
   fill: var(--sheet);
 }
+.lv-sw[data-state="queued"][data-deferred="1"] .z-shape {
+  fill: url(#lv-p-deferred);
+}
 
 /* counters, time, machines */
 .lv-counts {
@@ -488,6 +508,9 @@
   stroke: var(--hair-strong);
   stroke-width: 0.6;
 }
+[data-state="queued"][data-deferred="1"] > .z-shape {
+  fill: url(#lv-p-deferred);
+}
 [data-state="extracting"] > .z-shape {
   fill: url(#lv-p-extracting);
 }
@@ -544,6 +567,10 @@
 .lv-pat-dot {
   fill: var(--ink);
   fill-opacity: 0.5;
+}
+.lv-pat-stipple {
+  fill: var(--ink-3);
+  fill-opacity: 0.45;
 }
 .z-text {
   fill: var(--ink);

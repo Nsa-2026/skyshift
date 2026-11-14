@@ -22,7 +22,7 @@ import numpy as np
 from astropy.wcs import WCS
 from numpy.typing import ArrayLike, NDArray
 
-from .detect import centroid
+from .detect import centroid, detection_snr, no_data_near
 
 GAIA_EPOCH_JYEAR = 2016.0
 GAIA_EPOCH_MJD = 57388.5  # J2016.0 = JD 2457389.0
@@ -31,6 +31,14 @@ ARCSEC_PER_RAD = 180.0 * 3600.0 / np.pi
 DAYS_PER_JYEAR = 365.25
 
 FloatArr = NDArray[np.float64]
+
+# The detection guard of measure_shift: a shift is reported only for one source clearly seen in
+# both stacks. A random spot used to "move" 30" (RA 125.5, Dec 19.4, D6): with nothing there,
+# the centroid took the brightest noise pixel within search_r in each stack, two different ones.
+PSF_FWHM_ARCSEC = 7.53
+MIN_SNR = 5.0  # PSF-matched S/N of the target in each stack (detect.detection_snr)
+EDGE_R_PX = 4.0  # no missing sky this close to either centroid: the centroid fit's 9 x 9 stamp
+MAX_PM_ARCSEC_YR = 12.0  # contracts/api.md `implausible_pm`: no star moves faster (Barnard's 10.4)
 
 
 # --- pixel <-> sky ---------------------------------------------------------------------------
@@ -150,6 +158,8 @@ class ShiftResult:
     target_xy1: tuple[float, float]
     target_xy2: tuple[float, float]
     ref_residuals_arcsec: FloatArr = field(repr=False)  # (n, 2) east, north, of the refs kept
+    target_snr: tuple[float, float] = (float("nan"), float("nan"))  # detection S/N in each stack
+    match_r_arcsec: float = float("nan")  # the largest distance from the prediction allowed
 
     def to_measure(self) -> dict[str, Any]:
         """The `measure` object of GET /api/object (contracts/api.md)."""
@@ -168,7 +178,17 @@ class ShiftResult:
 
 
 class ShiftError(ValueError):
-    """The target could not be centroided in one of the two stacks."""
+    """No honest shift: `reason` says why, as a code.
+
+    not_found          the target could not be centroided in a stack
+    not_detected       it does not stand out clearly (S/N < min_snr) in a stack
+    edge               missing sky (the edge of the covered area) within edge_r px of a centroid
+    different_sources  the two centroids are too far apart to be one source (see measure_shift)
+    """
+
+    def __init__(self, message: str, reason: str = "not_found") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 def _centroid_sky(image: ArrayLike, wcs: WCS, ra: float, dec: float, flags: ArrayLike | None,
@@ -209,6 +229,10 @@ def measure_shift(
     min_ref_stars: int = 3,
     clip_sigma: float = 3.0,
     method: str = "fit",
+    min_snr: float | None = MIN_SNR,
+    edge_r: float | None = EDGE_R_PX,
+    max_pm_arcsec_yr: float | None = MAX_PM_ARCSEC_YR,
+    match_floor_arcsec: float = PSF_FWHM_ARCSEC,
 ) -> ShiftResult:
     """Target's shift between two visit stacks, with the reference-star error floor (V2 + V3).
 
@@ -223,7 +247,17 @@ def measure_shift(
     we can see. Saturated cores are masked through flags, so centroids use the wings.
     method: centroid method for target and refs (detect.centroid); "fit" (pixel-integrated
         Gaussian) avoids the pixel-phase bias of windowed centroids on the undersampled PSF.
-    Raises ShiftError if the target can't be centroided in either stack.
+
+    The detection guard: a shift is one source, clearly seen in both stacks. Each check can be
+    turned off with None. ShiftError (with its `reason`) when
+    - edge_r: missing sky (detect.no_data_near) lies within edge_r px of either centroid;
+    - min_snr: the target's PSF-matched S/N (detect.detection_snr) is below min_snr in either
+      stack: the centroid then sits on whatever noise peak is brightest near the guess;
+    - max_pm_arcsec_yr: the shift strays from the prediction by more than the match radius,
+      max(match_floor_arcsec, the motion allowed) + 3 sigma (sigma: 0 without reference stars).
+      The motion allowed is 0 with a predicted motion (target_pmra/pmdec: the guesses already
+      follow it) and max_pm_arcsec_yr x dt without one, since no star moves faster. The floor
+      is the PSF's FWHM: two dots closer than that can't be told apart anyway.
     """
     dt_yr = (mjd2 - mjd1) / DAYS_PER_JYEAR
 
@@ -242,6 +276,18 @@ def measure_shift(
     t2 = _centroid_sky(image2, wcs2, g2[0], g2[1], flags2, search_r, method)
     if t1 is None or t2 is None:
         raise ShiftError("target not found in " + ("first" if t1 is None else "second") + " stack")
+    stacks = (("first", image1, flags1, t1), ("second", image2, flags2, t2))
+    if edge_r is not None:
+        for which, img, _, t in stacks:
+            if no_data_near(img, t[0], t[1], edge_r):
+                raise ShiftError(f"missing sky within {edge_r:g} px of the target in the {which} stack", "edge")
+    snr = [float("nan"), float("nan")]
+    if min_snr is not None:
+        for i, (which, img, fl, t) in enumerate(stacks):
+            snr[i] = detection_snr(img, t[0], t[1], flags=fl)
+            if not snr[i] >= min_snr:
+                raise ShiftError(f"target not detected in the {which} stack (S/N {snr[i]:.1f} < {min_snr:g})",
+                                 "not_detected")
     re_, rn_ = tangent_offset_arcsec(t1[2], t1[3], t2[2], t2[3])
     raw_e, raw_n = float(re_), float(rn_)
 
@@ -281,6 +327,15 @@ def measure_shift(
 
     de, dn = raw_e - offset[0], raw_n - offset[1]
     shift = float(np.hypot(de, dn))
+    match_r = float("nan")
+    if max_pm_arcsec_yr is not None:
+        allowed = 0.0 if predicted is not None else max_pm_arcsec_yr * abs(dt_yr)
+        match_r = max(match_floor_arcsec, allowed) + 3.0 * (sigma if np.isfinite(sigma) else 0.0)
+        stray = float(np.hypot(de - pe, dn - pn)) if predicted is not None else shift
+        if stray > match_r:
+            what = "from the predicted motion" if predicted is not None else "between the stacks"
+            raise ShiftError(f"the centroids are {stray:.1f}\" apart {what}, over the {match_r:.1f}\" one "
+                             "source can account for: two different sources", "different_sources")
     return ShiftResult(
         shift_arcsec=shift,
         pa_deg=float(position_angle_deg(de, dn)),
@@ -297,4 +352,6 @@ def measure_shift(
         target_xy1=(t1[0], t1[1]),
         target_xy2=(t2[0], t2[1]),
         ref_residuals_arcsec=resid,
+        target_snr=(snr[0], snr[1]),
+        match_r_arcsec=match_r,
     )

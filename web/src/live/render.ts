@@ -2,15 +2,36 @@
 // left, machines, the side lists and the zone panel. Strings only; index.ts puts them in place.
 import { esc, fmtAbout, fmtAgo, fmtClock, fmtCount, fmtDec, fmtDuration, fmtPct, fmtRa, fmtTimePair, numberWord } from "./format";
 import type { Suspect } from "../api/types";
-import { workerOf, zoneArea, zoneCentre, type RunSummary, type SkyRun, type SkyZone, type ZoneState } from "./model";
+import {
+  isProvisional,
+  workerOf,
+  zoneArea,
+  zoneCentre,
+  type RunSummary,
+  type SkyNotes,
+  type SkyRun,
+  type SkyZone,
+  type ZoneState,
+} from "./model";
 import { suspectLevel, zoneTitle } from "./map";
 
 const html = String.raw;
 
 /** A small square in a state's fill and pattern (the legend's key). */
-export function swatch(state: ZoneState, level = state === "combined" ? "3" : ""): string {
+export function swatch(state: ZoneState, level = state === "combined" ? "3" : "", deferred = false): string {
   const cross = state === "failed" ? `<path class="z-x" d="M2 2L12 12M12 2L2 12"/>` : "";
-  return `<svg class="lv-sw" viewBox="0 0 14 14" aria-hidden="true" data-state="${state}" data-level="${level}"><rect class="z-shape" x="1" y="1" width="12" height="12"/>${cross}</svg>`;
+  return `<svg class="lv-sw" viewBox="0 0 14 14" aria-hidden="true" data-state="${state}" data-level="${level}" data-deferred="${deferred ? "1" : ""}"><rect class="z-shape" x="1" y="1" width="12" height="12"/>${cross}</svg>`;
+}
+
+const NO_NOTES: SkyNotes = { deferred: null, provisional: null };
+
+/** The run's note on the bulge zones, as written, then whether tonight reaches them. */
+function deferredText(sum: RunSummary, notes: SkyNotes): string {
+  const d = sum.deferred;
+  if (!d.queued || sum.finished) return "";
+  const why = notes.deferred ? `${esc(notes.deferred)} ` : "Galactic bulge zones are very crowded and slow to extract, so they come last. ";
+  const which = d.queued === d.total ? `The ${fmtCount(d.total)}` : `${fmtCount(d.queued)} of the ${fmtCount(d.total)}`;
+  return `${why}${which} likely won't be reached tonight.`;
 }
 
 // ---- head ------------------------------------------------------------------------------------------
@@ -35,7 +56,7 @@ export function pctWord(p: number): string {
  * The stacked bar: combined (solid dark), extracted but not yet combined (mid, hatched), not yet extracted
  * (light, dotted), with the projection for `ends` as a marker; under it, the time gone towards the deadline.
  */
-export function barHtml(sum: RunSummary, now: number): string {
+export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES): string {
   const b = sum.bar;
   const ext = Math.max(0, b.extractedPct - b.combinedPct);
   const rest = Math.max(0, 100 - b.extractedPct);
@@ -66,6 +87,7 @@ export function barHtml(sum: RunSummary, now: number): string {
     (b.projectedPct !== null
       ? `At the current pace about ${pctWord(b.projectedPct)}${zones} will be extracted ${by}.`
       : "How much it reaches shows here once the run has a steady pace.");
+  const bulge = deferredText(sum, notes);
   return html`
     <div class="lv-pbar"${marker ? " data-proj" : ""}>
       <div class="lv-pbar-track" role="img" aria-label="${pctWord(b.combinedPct)} of zones combined, ${pctWord(b.extractedPct)} extracted${b.projectedPct !== null ? `, ${pctWord(b.projectedPct)} expected ${esc(by)}` : ""}.">
@@ -75,11 +97,12 @@ export function barHtml(sum: RunSummary, now: number): string {
     </div>
     <ul class="lv-pkey">${key}</ul>
     ${time}
-    <p class="lv-honest">${honest}</p>`;
+    <p class="lv-honest">${honest}</p>
+    ${bulge ? `<p class="lv-honest lv-deferred">${bulge}</p>` : ""}`;
 }
 
 /** The big line, the progress bars, and the map's legend as one sentence. */
-export function progressHtml(sum: RunSummary, now: number): string {
+export function progressHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES): string {
   const c = sum.counts;
   const pctText = pctWord(sum.combinedPct);
   const lowRed = swatch("combined", "1");
@@ -89,12 +112,15 @@ export function progressHtml(sum: RunSummary, now: number): string {
     `${swatch("combining")} <b>${fmtCount(c.combining)}</b> combining and ${swatch("extracting")} <b>${fmtCount(c.extracting)}</b> extracting, hatched blue with the machine's name`,
     `${swatch("extracted")} <b>${fmtCount(c.extracted)}</b> extracted and waiting, dotted`,
     ...(c.failed ? [`${swatch("failed")} <b>${fmtCount(c.failed)}</b> failed, crossed`] : []),
-    `${swatch("queued")} <b>${fmtCount(c.queued)}</b> queued, empty`,
+    `${swatch("queued")} <b>${fmtCount(c.queued - sum.deferred.queued)}</b> queued, empty`,
+    ...(sum.deferred.queued
+      ? [`${swatch("queued", "", true)} <b>${fmtCount(sum.deferred.queued)}</b> Galactic bulge zones, fine grey stipple, queued last and likely not reached tonight`]
+      : []),
   ];
   const legend = parts.slice(0, -1).join("; ") + "; and " + parts[parts.length - 1] + ".";
   return html`
     <p class="lv-big"><span class="lv-big-n">${fmtCount(c.combined)}</span> of ${fmtCount(sum.total)} zones combined <span class="lv-big-pct">${pctText}</span></p>
-    ${barHtml(sum, now)}
+    ${barHtml(sum, now, notes)}
     <p class="lv-legend">On the map: ${legend} The dashed line is the ecliptic; the heavy outline is the hunt zone, searched this morning.</p>`;
 }
 
@@ -113,7 +139,15 @@ export function countersHtml(sum: RunSummary): string {
     <dl class="lv-counts">
       ${items.map(([k, n, label]) => `<div class="lv-count lv-count-${k}"><dt>${label}</dt><dd>${fmtCount(n)}</dd></div>`).join("")}
     </dl>
-    <p class="lv-note">${rate}Dots, sources, movers and suspects count combined zones only.</p>`;
+    <p class="lv-note">${rate}Dots, sources, movers and suspects count combined zones only.${provisionalCount(sum)}</p>`;
+}
+
+function provisionalCount(sum: RunSummary): string {
+  const n = sum.provisionalCombined;
+  if (!n) return "";
+  return n === sum.counts.combined
+    ? " The suspects are provisional: checked against Gaia only, before the WISE check."
+    : ` Suspects in ${fmtCount(n)} of the ${fmtCount(sum.counts.combined)} combined zones are provisional: checked against Gaia only, before the WISE check.`;
 }
 
 /** Time left to the end of the run and to the deadline, and where the pace points. */
@@ -221,36 +255,53 @@ export function skyHref(z: SkyZone): string {
 }
 const round2 = (x: number) => String(Math.round(x * 100) / 100);
 
-export function zonePanelHtml(z: SkyZone, now: number): string {
+/** The checks run on a zone's suspects, in plain words: "Gaia", "Gaia and WISE (CatWISE)". */
+export function checksWords(checks: string | null): string | null {
+  if (!checks) return null;
+  const words: Record<string, string> = { gaia: "Gaia", catwise: "WISE (CatWISE)", wise: "WISE" };
+  const parts = checks
+    .split("+")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => words[c.toLowerCase()] ?? c);
+  return parts.length ? andList(parts) : null;
+}
+
+export function zonePanelHtml(z: SkyZone, now: number, notes: SkyNotes = NO_NOTES): string {
   const c = zoneCentre(z);
   let state = STATE_SENTENCE[z.state];
   const who = workerOf(z);
   if (z.state === "extracting" && who) state = `Extracting on ${esc(who)}: reading its photos.`;
   if (z.state === "combining" && who) state = `Combining on ${esc(who)}: linking dots into sources and movers.`;
   if (z.state === "combined" && z.combined_at !== null) state = `Combined at ${fmtTimePair(z.combined_at, now)}.`;
+  if (z.state === "queued" && z.deferred) state = "Queued last: a Galactic bulge zone, likely not reached tonight.";
+  const prov = z.state === "combined" && isProvisional(z);
   const rows: Array<[string, string]> = [
     ["Where", `RA ${fmtRa(z.ra[0])} to ${fmtRa(z.ra[1])}<br>Dec ${fmtDec(z.dec[0])} to ${fmtDec(z.dec[1])}<br>${fmtCount(Math.round(zoneArea(z)))} deg²`],
     ["Photos", num(z.photos, "photos")],
     ["Dots", num(z.dots, "dots")],
     ["Sources", num(z.sources, "sources")],
     ["Movers", num(z.movers, "movers")],
-    ["Suspects", num(z.suspects, "suspects")],
+    [prov ? "Suspects, provisional" : "Suspects", num(z.suspects, "suspects")],
     ["Known asteroids re-found", z.recall === null ? `<span class="lv-muted">not yet</span>` : fmtPct(z.recall)],
   ];
   if (z.machine && z.state !== "queued") rows.push([z.state === "extracting" ? "Extracting on" : "Extracted by", esc(z.machine)]);
   if (z.state === "combining" && z.combiner) rows.push(["Combining on", esc(z.combiner)]);
   if (z.extracted_at !== null) rows.push(["Extracted", fmtTimePair(z.extracted_at, now)]);
   if (z.combined_at !== null) rows.push(["Combined", fmtTimePair(z.combined_at, now)]);
+  const checks = z.state === "combined" ? checksWords(z.checks) : null;
+  if (checks) rows.push(["Checked against", checks]);
   const provisional =
     z.final || z.state !== "combined" ? "" : `<p class="lv-prov">Provisional: zone edges and the CatWISE check pending.</p>`;
   const err = z.error ? `<p class="lv-err">What went wrong: ${esc(z.error)}</p>` : "";
+  const bulge = z.deferred && z.state === "queued" && notes.deferred ? `<p class="lv-note">${esc(notes.deferred)}</p>` : "";
   return html`
     <div class="lv-ptop">
       <h2 class="lv-ptitle" tabindex="-1">${esc(zoneTitle(z))}</h2>
       <button type="button" class="btn btn-ghost lv-close" data-close aria-label="Close the zone panel">Close</button>
     </div>
     <p class="lv-pstate">${swatch(z.state, z.state === "combined" ? suspectLevel(z.suspects) : "")} ${state}</p>
-    ${provisional}${err}
+    ${provisional}${err}${bulge}
     <dl class="lv-pdl">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
     <div class="lv-pact">
       <button type="button" class="btn btn-primary" data-blink>Blink the centre</button>
@@ -266,8 +317,12 @@ export type SuspectsState = { status: "loading" } | { status: "error" } | { stat
 export const TOP_SUSPECTS = 8;
 
 /** The top suspects by S/N, each with a Blink on the Hours clock at its detector. */
-export function suspectsHtml(z: SkyZone, s: SuspectsState): string {
-  const head = `<h3 class="lv-h">Top suspects</h3>`;
+export function suspectsHtml(z: SkyZone, s: SuspectsState, notes: SkyNotes = NO_NOTES): string {
+  const prov = isProvisional(z);
+  const note = prov
+    ? `<p class="lv-prov-note">${esc(notes.provisional ?? "Provisional: checked against Gaia only. The WISE check in the final pass removes most of these; they are not candidates yet.")}</p>`
+    : "";
+  const head = `<h3 class="lv-h">${prov ? "Provisional suspects, before the WISE check" : "Top suspects"}</h3>${note}`;
   if (s.status === "loading") return `${head}<p class="lv-note">Loading this zone's suspects…</p>`;
   if (s.status === "error") return `${head}<p class="lv-note">This zone's suspects couldn't be loaded. They appear here once the file is published.</p>`;
   if (!s.rows.length) return `${head}<p class="lv-note">No suspects in this zone.</p>`;
@@ -278,7 +333,7 @@ export function suspectsHtml(z: SkyZone, s: SuspectsState): string {
       return html`<li class="lv-sus-row">
         <span class="lv-sus-pos">RA ${r.ra.toFixed(4)}°, Dec ${r.dec < 0 ? "\u2212" : "+"}${Math.abs(r.dec).toFixed(4)}°</span>
         <span class="lv-sus-meta">D${esc(r.det)}, S/N ${fmtCount(Math.round(r.snr))}${flux}</span>
-        <button type="button" class="btn btn-ghost lv-sus-blink" data-sus="${i}" data-key="s-${esc(r.id)}" aria-label="Blink suspect ${i + 1} on the Hours clock">Blink</button>
+        <button type="button" class="btn btn-ghost lv-sus-blink" data-sus="${i}" data-key="s-${esc(r.id)}" aria-label="Blink ${prov ? "provisional " : ""}suspect ${i + 1} on the Hours clock">Blink</button>
       </li>`;
     })
     .join("");
@@ -286,6 +341,6 @@ export function suspectsHtml(z: SkyZone, s: SuspectsState): string {
     ? ` <a href="${esc(z.suspects_url)}" target="_blank" rel="noopener">All ${fmtCount(s.rows.length)} as JSON</a>.`
     : "";
   return html`${head}
-    <p class="lv-note">The ${top.length} with the highest S/N of ${fmtCount(s.rows.length)}, marked in red on the map.${all}</p>
+    <p class="lv-note">The ${top.length} with the highest S/N of ${fmtCount(s.rows.length)}, marked on the map ${prov ? "as hollow red rings" : "in solid red"}.${all}</p>
     <ol class="lv-sus-list">${items}</ol>`;
 }
