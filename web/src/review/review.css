@@ -504,6 +504,14 @@
 .rq-main {
   --rv-plate: calc(max(300px, 100svh - 236px) + 24px);
 }
+/* Up to 1480 px the nav takes a second header row: keep the time strip on the first screen
+   (it ended 42 px below it on a candidate at 1280×720). */
+@media (max-width: 1480px) {
+  .cd-main,
+  .rq-main {
+    --rv-plate: calc(max(300px, 100svh - 290px) + 24px);
+  }
+}
 .cd-main {
   display: grid;
   grid-template-columns: minmax(0, var(--rv-plate)) minmax(340px, 560px);
