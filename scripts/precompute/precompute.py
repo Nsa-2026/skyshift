@@ -21,6 +21,10 @@ Files per target (shapes of contracts/api.md; data_url is relative to the JSON):
 
 The cache is the engine's (SKYSHIFT_CACHE, default ~/.cache/skyshift), so a second run only
 downloads what is missing.
+
+Known objects of the star targets come from MPC orbits (server known.py). After a new MPC index,
+`--known-only` recomputes only their known[] (frames and frame files untouched):
+    uv run python ../scripts/precompute/precompute.py --known-only [--only barnard]
 """
 
 from __future__ import annotations

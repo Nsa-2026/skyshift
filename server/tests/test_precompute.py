@@ -1,6 +1,5 @@
 """scripts/precompute helpers (no network)."""
 
-import json
 import sys
 from pathlib import Path
 
@@ -9,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "precompute"))
 import precompute  # noqa: E402
+from skyshift_server import known  # noqa: E402
 
 
 def _row(det: int, mjd: float, ra: float = 10.0, dec: float = 5.0):
@@ -49,6 +49,8 @@ def test_comet_rows_come_from_the_irsa_table():
 
 
 def test_refresh_known_rewrites_only_known(tmp_path, monkeypatch):
+    import json
+
     folder = tmp_path / "star"
     frames = {"clock": "months", "center": {"ra": 10.0, "dec": 5.0}, "pixel_arcsec": 2.05, "size": [146, 146],
               "epochs": [{"id": "d2-v1", "mjd_mid": 60900.5, "det": 2}, {"id": "d2-v2", "mjd_mid": 61090.5, "det": 2}],
@@ -65,7 +67,7 @@ def test_refresh_known_rewrites_only_known(tmp_path, monkeypatch):
         return [{"name": "Vesta", "epoch_id": epoch_ids[1], "ra": ra, "dec": dec, "v": 7.1, "source": "mpc"}]
 
     monkeypatch.setattr(precompute, "OUT", tmp_path)
-    monkeypatch.setattr(precompute.known, "near", fake_near)
+    monkeypatch.setattr(known, "near", fake_near)
     precompute.refresh_known("star", cache=None)
     assert calls == [(10.0, 5.0, pytest.approx(5 / 2 * 2**0.5), [60900.5, 61090.5], ["d2-v1", "d2-v2"])]
     out = json.loads((folder / "frames_months_5.json").read_text())
