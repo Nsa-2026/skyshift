@@ -1,0 +1,274 @@
+/* Flag-a-dot and votes. Quiet panel; the one loud thing is the tally strip under each
+   candidate, where only "mover" carries the flagged-dot orange. */
+.vt {
+  display: grid;
+  gap: var(--s3);
+  --a-mover: var(--mover);
+  --a-changing: var(--emulsion);
+  --a-junk: var(--faint);
+  --a-unsure: var(--rule-strong);
+}
+.vt .a-mover { --a: var(--a-mover); }
+.vt .a-changing { --a: var(--a-changing); }
+.vt .a-junk { --a: var(--a-junk); }
+.vt .a-unsure { --a: var(--a-unsure); }
+
+.vt-head {
+  display: grid;
+  gap: var(--s1);
+}
+.vt-title {
+  font-size: var(--step-1);
+}
+.vt-mode {
+  font-size: var(--step--1);
+  color: var(--d5);
+}
+.vt-hint {
+  color: var(--muted);
+}
+.vt-status {
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+.vt-status:empty {
+  display: none;
+}
+.vt-status[data-kind="error"] {
+  color: var(--sat);
+}
+.vt-status[data-kind="ok"] {
+  color: var(--ok);
+}
+
+/* Readouts: condensed Archivo keeps a full position on one line in a 320px column. */
+.vt-pos {
+  font-weight: 600;
+  font-variation-settings: "wdth" 80;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.vt-meta {
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+
+/* The pick: an orange rule, like the flag the dot is about to get. */
+.vt-pick {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s3) var(--s3) var(--s3) var(--s4);
+  border-left: 3px solid var(--mover);
+  background: var(--plate-3);
+}
+.vt-pick[hidden] {
+  display: none;
+}
+.vt-pick-q {
+  font-size: var(--step-0);
+  color: var(--mover);
+}
+.vt-pick .vt-pos {
+  font-size: var(--step-1);
+}
+.vt-pick-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+.vt-primary {
+  background: var(--mover);
+  border-color: var(--mover);
+  color: var(--plate);
+  font-weight: 600;
+}
+.vt-primary:hover {
+  background: #ffb066;
+}
+.vt-primary:disabled {
+  background: var(--plate-3);
+  border-color: var(--rule-strong);
+}
+.vt-twin {
+  font-size: var(--step--1);
+  color: var(--emulsion);
+}
+.vt-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gaia);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* The list */
+.vt-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--rule);
+}
+.vt-list-title {
+  font-size: var(--step-0);
+}
+.vt-n {
+  color: var(--muted);
+  font-weight: 400;
+}
+.vt-csv {
+  min-height: 32px;
+  font-size: var(--step--1);
+}
+.vt-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.vt-empty {
+  color: var(--muted);
+  font-size: var(--step--1);
+}
+.vt-item {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.vt-item:first-child {
+  padding-top: 0;
+}
+.vt-item:last-child {
+  border-bottom: 0;
+}
+.vt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.vt-item .vt-meta {
+  margin-top: calc(-1 * var(--s2));
+}
+.vt-src {
+  font-size: var(--step--1);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.vt-item[data-source="pipeline"] .vt-src {
+  color: var(--known);
+}
+
+/* Tally strip: one segment per answer, length = votes. Empty = a hairline. */
+.vt-strip {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  background: var(--rule);
+}
+.vt-strip.is-empty {
+  height: 1px;
+  background: var(--rule-strong);
+}
+.vt-none {
+  margin-top: calc(-1 * var(--s1));
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+.vt-strip i {
+  flex-basis: 0;
+  background: var(--a);
+}
+.vt-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--step--1);
+}
+.vt-counts div {
+  display: grid;
+  padding-left: var(--s2);
+  border-left: 2px solid var(--a);
+}
+.vt-counts dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.vt-counts dd {
+  margin: 0;
+  font-size: var(--step-0);
+  font-weight: 600;
+}
+.vt-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.vt-actions .btn {
+  min-height: 32px;
+}
+.vt-mine {
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+.vt-mine b {
+  color: var(--emulsion);
+  font-weight: 600;
+}
+
+/* Ballot: four real buttons, each says what the answer means. */
+.vt-ballot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.vt-ballot legend {
+  padding: 0;
+  margin-bottom: var(--s2);
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+.vt-answer {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 44px;
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  border: 1px solid var(--rule-strong);
+  border-top: 3px solid var(--a);
+  border-radius: var(--radius-ctl);
+  background: var(--plate);
+  cursor: pointer;
+}
+.vt-answer:hover {
+  background: var(--plate-3);
+}
+.vt-answer b {
+  font-weight: 600;
+}
+.vt-answer span {
+  font-size: var(--step--1);
+  color: var(--muted);
+  line-height: 1.3;
+}
+.vt-ballot:disabled .vt-answer {
+  cursor: progress;
+  opacity: 0.6;
+}
+.vt-after {
+  font-size: var(--step--1);
+  color: var(--emulsion);
+}
