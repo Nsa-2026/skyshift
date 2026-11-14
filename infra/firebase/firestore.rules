@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// Firestore rules for SkyShift (contracts/api.md, "Firestore: flags and votes").
+// Create-only: anyone may read and create; nobody may update or delete.
+// Each create must have exactly the contract's fields, with the right types and allowed values.
+// Pipeline suspects (source "pipeline") are written server-side with the Admin SDK, which
+// bypasses these rules, so browsers may only create source "user".
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isNum(x) { return x is int || x is float; }
+
+    // candidates: { ra, dec, mjd, clock, source }
+    match /candidates/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['ra', 'dec', 'mjd', 'clock', 'source'])
+        && request.resource.data.keys().hasAll(['ra', 'dec', 'mjd', 'clock', 'source'])
+        && isNum(request.resource.data.ra)
+        && request.resource.data.ra >= 0 && request.resource.data.ra <= 360
+        && isNum(request.resource.data.dec)
+        && request.resource.data.dec >= -90 && request.resource.data.dec <= 90
+        && isNum(request.resource.data.mjd)
+        && request.resource.data.mjd >= 60000 && request.resource.data.mjd <= 80000
+        && request.resource.data.clock in ['months', 'hours']
+        && request.resource.data.source == 'user';
+      allow update, delete: if false;
+    }
+
+    // votes: { candidate_id, answer, ts, voter }
+    match /votes/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['candidate_id', 'answer', 'ts', 'voter'])
+        && request.resource.data.keys().hasAll(['candidate_id', 'answer', 'ts', 'voter'])
+        && request.resource.data.candidate_id is string
+        && request.resource.data.candidate_id.size() > 0
+        && request.resource.data.candidate_id.size() <= 128
+        && request.resource.data.answer in ['mover', 'changing', 'junk', 'unsure']
+        && request.resource.data.ts == request.time        // serverTimestamp()
+        && request.resource.data.voter is string
+        && request.resource.data.voter.matches('^[A-Za-z0-9_-]{8,64}$');
+      allow update, delete: if false;
+    }
+
+    // everything else: closed
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
