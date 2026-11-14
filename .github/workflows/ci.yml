@@ -1,0 +1,71 @@
+# Tests on every push and pull request. Offline: no network, no Google credentials.
+# Tests marked `network` are skipped unless SKYSHIFT_NETWORK=1, which CI never sets.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: pytest ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # pipeline, server and scripts/science import core/ through a uv path source (../core),
+        # so the whole repo is checked out and each folder syncs its own uv.lock.
+        dir: [core, pipeline, server, scripts/science]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.8"  # same as the Dockerfile
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.dir }}/uv.lock
+
+      # --locked fails if uv.lock is out of date with pyproject.toml (the Dockerfile builds with --frozen).
+      - name: uv run pytest
+        run: uv run --locked pytest -q
+
+  web:
+    name: npm test web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: No web/package.json yet
+        if: hashFiles('web/package.json') == ''
+        working-directory: .
+        run: echo "::notice::web/package.json not found, skipping npm ci and npm test"
+
+      - uses: actions/setup-node@v4
+        if: hashFiles('web/package.json') != ''
+        with:
+          node-version: 22
+
+      - name: npm ci
+        if: hashFiles('web/package.json') != ''
+        run: npm ci
+
+      - name: npm test
+        if: hashFiles('web/package.json') != ''
+        run: npm test
