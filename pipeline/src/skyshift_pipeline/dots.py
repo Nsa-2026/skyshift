@@ -32,6 +32,7 @@ import io
 import json
 import multiprocessing as mp
 import os
+import re
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -294,9 +295,32 @@ def aperture_fluxes(l2, ctx: PhotoContext, x: np.ndarray, y: np.ndarray,
     if x.size == 0:
         return f, e
     for k, r in enumerate(radii):
-        fk, ek, _ = sep.sum_circle(d, x, y, float(r), err=err, mask=m, bkgann=tuple(annulus), subpix=5)
-        f[:, k], e[:, k] = fk, ek
+        f[:, k], e[:, k] = _sum_circle_bkgann(d, x, y, float(r), err, m, tuple(annulus))
     return f * ctx.conv, e * ctx.conv
+
+
+def _sum_circle_bkgann(d, x, y, r, err, m, annulus) -> tuple[np.ndarray, np.ndarray]:
+    """sep.sum_circle with a background annulus; NaN for a dot whose annulus is entirely masked.
+    sep raises ValueError for the whole call when one object's annulus has no valid pixel (all-sky test,
+    14 Nov: a bright star near the Galactic centre with its OVERFLOW/NONLINEAR mask beyond 8 px failed the
+    photo). Those objects are found from sep's message (it names one index per call) and left out."""
+    ok = np.ones(x.size, bool)
+    fk, ek = np.full(x.size, np.nan), np.full(x.size, np.nan)
+    for _ in range(x.size):
+        sel = np.flatnonzero(ok)
+        if sel.size == 0:
+            break
+        try:
+            fs, es, _ = sep.sum_circle(d, x[sel], y[sel], r, err=err, mask=m, bkgann=annulus, subpix=5)
+        except ValueError as exc:
+            hit = re.search(r"background annulus does not contain any valid pixels, for the object at index (\d+)", str(exc))
+            if not hit:
+                raise
+            ok[sel[int(hit.group(1))]] = False
+            continue
+        fk[sel], ek[sel] = fs, es
+        break
+    return fk, ek
 
 
 def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
