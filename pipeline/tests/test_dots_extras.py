@@ -178,6 +178,25 @@ def write_refcat(store: Store, zone: str, n_blank: int = 20) -> pd.DataFrame:
     return ref
 
 
+def gaia_scatter(dots: pd.DataFrame, rc: str, dc: str) -> float:
+    """Robust per-axis scatter (″, mean of RA and Dec) of dots within 2″ of a fixture Gaia star at their MJD."""
+    g = json.loads(GAIA.read_text())["gaia"]
+    pm = lambda v: 0.0 if v is None else float(v)  # noqa: E731
+    dt = (dots["mjd"].iloc[0] - 57388.5) / 365.25
+    gde = np.array([s["dec"] for s in g])
+    gra = np.array([s["ra"] for s in g]) + np.array([pm(s["pmra"]) for s in g]) * dt / 3.6e6 / np.cos(np.deg2rad(gde))
+    gde = gde + np.array([pm(s["pmdec"]) for s in g]) * dt / 3.6e6
+    ra, dec = dots[rc].to_numpy(), dots[dc].to_numpy()
+    dra = (ra[:, None] - gra[None, :]) * np.cos(np.deg2rad(gde))[None, :] * 3600.0
+    dde = (dec[:, None] - gde[None, :]) * 3600.0
+    j = np.hypot(dra, dde).argmin(axis=1)
+    k = np.arange(len(ra))
+    m = np.hypot(dra[k, j], dde[k, j]) < 2.0
+    assert m.sum() >= 30
+    rob = lambda v: 1.4826 * np.median(np.abs(v - np.median(v)))  # noqa: E731
+    return 0.5 * (rob(dra[k, j][m]) + rob(dde[k, j][m]))
+
+
 @pytest.fixture
 def cyg_zone(monkeypatch):
     monkeypatch.setitem(C.ZONES, "cygtest", C.Zone("cygtest", 303.0, 305.0, 41.0, 42.5))
@@ -204,6 +223,20 @@ def test_photo_with_zodi_epsf_forced_and_metadata(tmp_path, cyg_zone):
     assert df.loc[good, "flux_psf_ujy"].notna().all()
     r = (df.loc[good, "flux_psf_ujy"] / df.loc[good, "flux_ujy"]).median()
     assert 0.8 < r < 1.3  # ≈ the aperture correction of r = 2 px
+    # v4: ePSF positions for nearly every unsaturated dot; saturated dots keep the wings centroid
+    sat = (df["flags"].to_numpy() & SAT_BITS) != 0
+    assert sat.any() and df.loc[~sat, "psf_pos_ok"].mean() > 0.95 and not df.loc[sat, "psf_pos_ok"].any()
+    np.testing.assert_array_equal(df.loc[sat, "x_psf"], df.loc[sat, "x"])
+    np.testing.assert_array_equal(df.loc[sat, "ra_psf"], df.loc[sat, "ra"])
+    ok = df["psf_pos_ok"].to_numpy()
+    assert (np.hypot(df["x_psf"] - df["x"], df["y_psf"] - df["y"])[ok] <= C.PSF_POS_MAX_SHIFT_PX).all()
+    assert (df.loc[ok, "pos_err_psf_arcsec"] >= C.PSF_POS_ERR_FLOOR_ARCSEC).all()
+    assert (df["sep_flag"] != 0).any() and (df["sep_flag"] >= 0).all()
+    # ... and closer to Gaia than the windowed centroid (real Cygnus stars: ~0.2″ vs ~0.55″ per axis)
+    sig_c = gaia_scatter(df[good & ok], "ra", "dec")
+    sig_p = gaia_scatter(df[good & ok], "ra_psf", "dec_psf")
+    assert sig_p < 0.7 * sig_c and sig_p < 0.35
+    assert D.photo_meta(root / dots_rel(OBS, 1))["psf_fit"]["position"] is True
     # forced: columns, types, every target inside the frame (>= 3 px) and the zone; blanks kept
     assert list(fo.columns) == list(D.FORCED_COLUMNS)
     for c, t in D.FORCED_COLUMNS.items():
@@ -225,6 +258,19 @@ def test_photo_with_zodi_epsf_forced_and_metadata(tmp_path, cyg_zone):
     assert len(D._EPSF_CACHE) == 1
     l2 = D.load_photo(str(src))
     assert l2.epsf is next(iter(D._EPSF_CACHE.values()))
+
+
+def test_psf_position_switch_off(tmp_path, cyg_zone, monkeypatch):
+    monkeypatch.setattr(C, "DOTS_PSF_POSITION", False)
+    src = synthetic_mef(tmp_path)
+    root = tmp_path / "root"
+    assert D.process_photo(str(root), OBS, 1, str(src), 3, 1)["status"] == "done"
+    df = pd.read_parquet(root / dots_rel(OBS, 1))
+    assert list(df.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS)
+    assert not df["psf_pos_ok"].any() and df["flux_psf_ujy"].notna().any()
+    np.testing.assert_array_equal(df["x_psf"], df["x"])
+    np.testing.assert_array_equal(df["dec_psf"], df["dec"])
+    assert D.photo_meta(root / dots_rel(OBS, 1))["psf_fit"]["position"] is False
 
 
 def test_missing_refcat_skips_forced(tmp_path, cyg_zone):

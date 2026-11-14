@@ -13,13 +13,19 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   is_saturated_core, flags_under (dot `flags` column), flag_frac, sat_frac.
 - level2: open_level2(path_or_https_url, variance=False, region=(x0,x1,y0,y1)) -> Level2
   (data, flags, variance, wcs, mjd_avg, detector, obsid, wavelength(x,y), wavelength_range()).
-  `region` reads only that block (range reads over HTTPS).
+  `region` reads only that block (range reads over HTTPS). EPSF (epsf=True): evaluate / evaluate_grad (value and
+  derivatives), stamps / stamps_at (separable, fixed pixel grid); one cubic spline per zone.
 - visits: visits(mjds), sessions(mjds), summarize_visits(mjds).
 - detect: detect(data, flags, variance=) -> structured array (x, y, flux MJy/sr summed, flux_err, snr, ...);
   centroid(data, x, y, flags=, method="auto"|"window"|"fit"). Noise = max(sqrt(VARIANCE), background rms).
 - astrometry: pixel_to_sky, sky_to_pixel, propagate (Gaia J2016.0 -> MJD, optional parallax),
   select_reference_stars, measure_shift (V2 + V3) -> ShiftResult.to_measure() = api `measure`.
 - photometry: pixel_solid_angle_sr, ujy_per_mjysr (from the WCS, ~889.7), aperture_photometry -> uJy.
+- known_index: known asteroids and comets near (ra, dec, r) at given MJDs, fast (live API). load_index(npz) is
+  numpy only; candidates() = two-body coarse cut with per-object margins; known_near() = kete n-body on the
+  candidates -> api `known[]` entries (source "mpc"). build_index / `python -m skyshift_core.known_index` makes the
+  .npz from the MPC snapshot parquets. kete is the optional extra `known` (`uv sync --extra known`).
+  Design and numbers: docs/research/2026-11-14-live-known-mpc.md.
 
 ## Tests and fixtures
 - `uv run pytest` (network test: `SKYSHIFT_NETWORK=1 uv run pytest -k url`).

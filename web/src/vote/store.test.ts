@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KEYS, VoteError, type KV } from "./model";
-import { LocalStore, firebaseConfig, toVoteError, withTimeout } from "./store";
+import { LocalStore, VOTED_EVENT, firebaseConfig, openStore, toVoteError, voteApi, withTimeout } from "./store";
 
 // FirestoreStore against a fake SDK: checks what it would send to Firestore.
 const sent: { path: string; data: Record<string, unknown> }[] = [];
@@ -21,7 +21,7 @@ vi.mock("firebase/firestore", () => ({
     const docs =
       q.col.path === "candidates"
         ? [
-            { id: "near", data: () => ({ ra: 10, dec: 20.001, mjd: 60800, clock: "months", source: "user" }) },
+            { id: "near", data: () => ({ ra: 10, dec: 20.001, mjd: 60800, clock: "months", source: "user", created: { toMillis: () => 1700000000000 } }) },
             { id: "pipe", data: () => ({ ra: 10.002, dec: 20, mjd: 60801, clock: "hours", source: "pipeline" }) },
             { id: "far-in-ra", data: () => ({ ra: 11, dec: 20, mjd: 60800, clock: "months", source: "user" }) },
             { id: "broken", data: () => ({ ra: "x" }) },
@@ -43,9 +43,12 @@ const doc = { ra: 10, dec: 20, mjd: 60800.5, clock: "hours" as const, source: "u
 describe("LocalStore", () => {
   it("writes the contract's shapes and reads them back near a point", async () => {
     const s = new LocalStore(memKV());
+    const before = Date.now();
     const c = await s.flag(doc);
     expect(c.id).toBeTruthy();
-    expect(s.written.candidates).toEqual([doc]);
+    expect(s.written.candidates).toEqual([{ ...doc, created: expect.any(Date) }]);
+    expect(Object.keys(s.written.candidates[0]).sort()).toEqual(["clock", "created", "dec", "mjd", "ra", "source"]);
+    expect(c.created).toBeGreaterThanOrEqual(before);
     await s.vote(c.id, "changing", "voter_12345");
     expect(Object.keys(s.written.votes[0]).sort()).toEqual(["answer", "candidate_id", "ts", "voter"]);
     expect(await s.near({ ra: 10, dec: 20 }, 10)).toEqual([c]);
@@ -71,7 +74,7 @@ describe("LocalStore", () => {
   it("adds pipeline suspects and survives a failing source or broken storage", async () => {
     const kv = memKV();
     kv.set(KEYS.localCandidates, "not json");
-    const pipe = { id: "pipeline-s1", ra: 10, dec: 20, mjd: 60800, clock: "hours" as const, source: "pipeline" as const };
+    const pipe = { id: "pipeline-s1", ra: 10, dec: 20, mjd: 60800, clock: "hours" as const, source: "pipeline" as const, created: null };
     expect(await new LocalStore(kv, async () => [pipe]).near({ ra: 10, dec: 20 }, 5)).toEqual([pipe]);
     expect(await new LocalStore(kv, async () => Promise.reject(new Error("404"))).near({ ra: 10, dec: 20 }, 5)).toEqual([]);
   });
@@ -80,13 +83,13 @@ describe("LocalStore", () => {
 describe("FirestoreStore", () => {
   beforeEach(() => void (sent.length = 0));
 
-  it("sends exactly the contract's fields, with serverTimestamp() for ts", async () => {
+  it("sends exactly the contract's fields, with serverTimestamp() for created and ts", async () => {
     const { FirestoreStore } = await import("./firestore");
     const s = new FirestoreStore({ apiKey: "k", projectId: "nasa-glazing" });
     const c = await s.flag(doc);
     await s.vote(c.id, "unsure", "voter_12345");
     expect(sent).toEqual([
-      { path: "candidates", data: { ra: 10, dec: 20, mjd: 60800.5, clock: "hours", source: "user" } },
+      { path: "candidates", data: { ra: 10, dec: 20, mjd: 60800.5, clock: "hours", source: "user", created: SERVER_TS } },
       { path: "votes", data: { candidate_id: c.id, answer: "unsure", ts: SERVER_TS, voter: "voter_12345" } },
     ]);
   });
@@ -96,8 +99,85 @@ describe("FirestoreStore", () => {
     const s = new FirestoreStore({ apiKey: "k", projectId: "p" });
     const near = await s.near({ ra: 10, dec: 20 }, 60);
     expect(near.map((c) => c.id)).toEqual(["near", "pipe"]);
+    expect(near.map((c) => c.created)).toEqual([1700000000000, null]);
+    expect((await s.allCandidates()).map((c) => c.id)).toEqual(["near", "pipe", "far-in-ra"]);
+    expect((await s.allVotes()).map((v) => v.answer)).toEqual(["mover", "junk"]);
     const counts = await s.counts(["near", "pipe"]);
     expect(counts.get("near")).toEqual({ mover: 1, changing: 0, junk: 1, unsure: 0 });
+  });
+});
+
+describe("vote API for other pages (voteApi, getVoteStore)", () => {
+  it("counts every id, zeros included, and casts this browser's one vote", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    expect(api.mode).toBe("local");
+    expect(api.voterId()).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    const seen = vi.fn();
+    window.addEventListener(VOTED_EVENT, (e) => seen((e as CustomEvent).detail), { once: true });
+
+    // Pipeline candidates from /data/candidates.json vote by their own id.
+    await api.castVote("pilot-pm-0003", "mover");
+    expect(seen).toHaveBeenCalledWith({ candidateId: "pilot-pm-0003", answer: "mover" });
+    expect(api.myVote("pilot-pm-0003")).toBe("mover");
+    expect(api.myVote("pilot-pm-0004")).toBeNull();
+    expect(s.written.votes[0]).toMatchObject({ candidate_id: "pilot-pm-0003", answer: "mover", voter: api.voterId() });
+
+    await expect(api.castVote("pilot-pm-0003", "junk")).rejects.toMatchObject({ kind: "already" });
+    await expect(api.castVote("pilot-pm-0005", "maybe" as never)).rejects.toMatchObject({ kind: "invalid" });
+
+    const counts = await api.countsFor(["pilot-pm-0003", "pilot-pm-0004", "pilot-pm-0003"]);
+    expect([...counts.keys()]).toEqual(["pilot-pm-0003", "pilot-pm-0004"]);
+    expect(counts.get("pilot-pm-0003")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
+    expect(counts.get("pilot-pm-0004")).toEqual({ mover: 0, changing: 0, junk: 0, unsure: 0 });
+    expect((await api.countsFor([])).size).toBe(0);
+  });
+
+  it("lists all votes and all flagged candidates", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    const c = await api.flag(doc);
+    expect(api.flaggedAt(c.id)).toEqual(expect.any(Number));
+    await api.castVote(c.id, "junk");
+    await s.vote(c.id, "mover", "someone_else_1");
+    const votes = await api.allVotes();
+    expect(votes.map((v) => [v.candidate_id, v.answer])).toEqual([
+      [c.id, "junk"],
+      [c.id, "mover"],
+    ]);
+    expect(votes[0].ts).toEqual(expect.any(Number));
+    expect((await api.allCandidates()).map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it("turns store failures into plain words", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    s.vote = () => Promise.reject({ code: "permission-denied" });
+    s.allVotes = () => Promise.reject({ code: "unavailable" });
+    const api = voteApi(s, kv);
+    await expect(api.castVote("x1", "mover")).rejects.toMatchObject({ kind: "denied" });
+    expect(api.myVote("x1")).toBeNull();
+    await expect(api.allVotes()).rejects.toMatchObject({ kind: "offline" });
+  });
+
+  it("getVoteStore is one shared, local-mode API without a Firebase config", async () => {
+    // A developer's web/.env may hold the real config: blank it so the test never opens Firestore.
+    vi.stubEnv("VITE_FIREBASE_API_KEY", "");
+    vi.stubEnv("VITE_FIREBASE_PROJECT_ID", "");
+    vi.resetModules();
+    const { getVoteStore } = await import("./store");
+    const a = await getVoteStore();
+    expect(await getVoteStore()).toBe(a);
+    expect(a.mode).toBe("local");
+    expect(a.notice).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it("openStore picks Firestore when configured", async () => {
+    const { store } = await openStore(memKV(), { VITE_FIREBASE_API_KEY: "k", VITE_FIREBASE_PROJECT_ID: "p" });
+    expect(store.mode).toBe("firestore");
   });
 });
 

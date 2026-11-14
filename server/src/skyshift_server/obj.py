@@ -23,18 +23,25 @@ A point that can't be measured honestly (masked core on a faint source, a neighb
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
 native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. The detector is the
 one with the best signal that is not saturated; if every detector saturates, the least saturated
-(a built-in target seen only in some detectors is measured in those: MEASURE_DETECTORS).
+(a built-in target seen only in some detectors is measured in those: its `dets` in targets.json,
+else MEASURE_DETECTORS).
 The two times are the MEDIAN exposure times of the two stacks: a per-pixel median of a slowly
 moving star sits where the star was at the median time, not at mjd_mid (the middle of the first
 and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
 mjd_mid is 14.6 days (0.41") after the median. dt_yr is therefore the difference of the median
-times (contracts/api.md says mjd_mid: raised with P1). predicted_arcsec includes parallax.
+times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax.
+
+spectrum_reason: why the spectrum is empty, or null. "saturated" when exposures were left out for
+a saturated core (OVERFLOW or NONLINEAR) and none remain, e.g. a star so bright that even its
+wings are masked; "no_data" otherwise. R Draconis now has wing points, so it is null. We give no
+lower limits.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from typing import Any
 
 import numpy as np
@@ -113,6 +120,13 @@ BLEND_FIT_R_PX = 3.5
 BLEND_PSF = {1: (0.38, 1.104), 2: (0.38, 1.086), 3: (0.38, 1.114), 4: (0.46, 1.111), 5: (0.46, 1.089), 6: (0.50, 1.098)}
 
 
+def measure_detectors(model: dict[str, Any] | None) -> tuple[int, ...] | None:
+    """Detectors a built-in target is measured in: its `dets` in targets.json, else
+    MEASURE_DETECTORS by slug, else None (any detector)."""
+    m = model or {}
+    return m.get("dets") or MEASURE_DETECTORS.get(m.get("slug") or "")
+
+
 def _builtin_targets() -> list[dict[str, Any]]:
     """The five targets' astrometry (scripts/validate/data/targets.json), as Gaia-like models."""
     try:
@@ -128,6 +142,7 @@ def _builtin_targets() -> list[dict[str, Any]]:
             "pmra": t.get("pmra"), "pmdec": t.get("pmdec"), "parallax": t.get("parallax"),
             "g": None if t.get("phot_g_mean_mag") is None else round(t["phot_g_mean_mag"], 3),
             "epoch_mjd": t.get("ref_mjd", GAIA_EPOCH_MJD),
+            "dets": tuple(int(d) for d in t["dets"]) if t.get("dets") else None,
         })
     return out
 
@@ -319,10 +334,12 @@ def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, 
 
 def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any] | None,
                     ra: float, dec: float, positions: list[tuple[float, float]] | None = None,
-                    stars: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+                    stars: list[dict[str, Any]] | None = None,
+                    dropped: Counter | None = None) -> list[dict[str, Any]]:
     """One point per exposure that can be measured (point_photometry). positions: the object's
     (ra, dec) per image, for a solar-system object. stars: Gaia stars around the position, for
-    neighbours of the target (model) that share its aperture."""
+    neighbours of the target (model) that share its aperture. dropped: counts the exposures that
+    gave no point, as "saturated" (OVERFLOW or NONLINEAR in the core) or "other"."""
     out = []
     target_in_gaia = bool(model and model.get("g") is not None)
     mjds = [l2.mjd_avg for l2 in l2s if l2 is not None]
@@ -338,26 +355,41 @@ def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any]
         ny, nx = l2.data.shape
         if not (EDGE_PX <= x < nx - EDGE_PX and EDGE_PX <= y < ny - EDGE_PX):
             continue
+        sat = bool(is_saturated_core(l2.flags, x, y))
         um = float(l2.wavelength(x, y)) if l2.wave is not None else float("nan")
         if not np.isfinite(um):
+            if dropped is not None:
+                dropped["other"] += 1
             continue
         nb = neighbours_at(near, model, l2.mjd_avg, r, d) if near else []
         try:
             got = point_photometry(l2, x, y, nb, target_in_gaia)
         except Exception as e:  # noqa: BLE001 - one bad cutout must not lose the spectrum
             log.warning("photometry failed on %s: %s", im.key, e)
+            if dropped is not None:
+                dropped["saturated" if sat else "other"] += 1
             continue
         if got is None or not np.isfinite(got[0]):
+            if dropped is not None:
+                dropped["saturated" if sat else "other"] += 1
             continue
         flux, err = got
         out.append({
             "um": round(um, 4), "flux_ujy": round(flux, 1),
             "err_ujy": round(err, 1) if np.isfinite(err) else None,
             "det": int(l2.detector), "mjd": round(float(l2.mjd_avg), 6), "visit": int(im.visit),
-            "saturated": bool(is_saturated_core(l2.flags, x, y)),
+            "saturated": sat,
         })
     out.sort(key=lambda p: (p["um"], p["mjd"]))
     return out
+
+
+def spectrum_reason(spectrum: list[dict[str, Any]], dropped: Counter) -> str | None:
+    """Why the spectrum is empty (contracts/api.md `spectrum_reason`): "saturated" when exposures
+    were dropped for a saturated core, "no_data" otherwise; None when there are points."""
+    if spectrum:
+        return None
+    return "saturated" if dropped.get("saturated") else "no_data"
 
 
 def pick_detector(spectrum: list[dict[str, Any]], images: list[search.Image],
@@ -503,14 +535,16 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, _builtin_targets())
 
     l2s = cutouts.fetch_many(images, ra, dec, cutouts.tier_for_field(5), cache, variance=True)
-    spectrum = spectrum_points(images, l2s, model, ra, dec, stars=stars)
+    dropped: Counter = Counter()
+    spectrum = spectrum_points(images, l2s, model, ra, dec, stars=stars, dropped=dropped)
 
     result: dict[str, Any] | None = None
-    pick = pick_detector(spectrum, images, MEASURE_DETECTORS.get((model or {}).get("slug", "")))
+    pick = pick_detector(spectrum, images, measure_detectors(model))
     if pick is not None:
         got = measure(ra, dec, model, images, *pick, cache)
         if got is not None:
             result, extra = got
             if details is not None:
                 details.update(extra)
-    return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum, "measure": result}
+    return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum,
+            "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result}

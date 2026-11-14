@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Measure, SpectrumPoint } from "../api/types";
 import {
+  aboutSentence,
   agreement,
   compactUjy,
+  framesFollow,
+  measureSentence,
+  proseLy,
   detectionLimit,
   distancePc,
   isDetectedMotion,
@@ -138,9 +142,52 @@ describe("saturated and undetected points", () => {
   });
 });
 
+describe("sentences", () => {
+  it("rounds light-years for prose", () => {
+    expect(proseLy(5.963)).toBe("6");
+    expect(proseLy(12.05)).toBe("12");
+    expect(proseLy(509.1)).toBe("510");
+    expect(proseLy(2607)).toBe("2,600");
+    expect(proseLy(1.2)).toBe("1.2");
+    expect(proseLy(NaN)).toBe("");
+  });
+  it("says what a featured target is, with Gaia's distance", () => {
+    const gaia = { id: "1", ra: 0, dec: 0, pmra: 0, pmdec: 0, parallax: 546.976, g: 8 };
+    const obj = { name: "x", gaia, known_ucd: null, spectrum: [], measure: null };
+    expect(aboutSentence({ slug: "barnard", kind: "star", object: obj, where: "" })).toBe(
+      "A red dwarf 6 light-years away, the fastest-moving star in our sky.",
+    );
+    expect(aboutSentence({ slug: "barnard", kind: "star", object: null, where: "" })).toBe("A red dwarf, the fastest-moving star in our sky.");
+    expect(aboutSentence({ slug: null, kind: "star in Gaia DR3", object: obj, where: "" })).toBe("A star in Gaia DR3, 6 light-years away.");
+    expect(aboutSentence({ slug: null, kind: "ultracool dwarf", object: { ...obj, known_ucd: { name: "u", spt: "T8", ref: "r" } }, where: "" })).toBe(
+      "An ultracool dwarf of spectral type T8, 6 light-years away.",
+    );
+    expect(aboutSentence({ slug: null, kind: null, object: null, where: "00h40m00.0s +10°00′00″" })).toBe("The sky at 00h40m00.0s +10°00′00″.");
+  });
+  it("words the measurement against the prediction", () => {
+    expect(measureSentence(barnard, { visits: 3, who: "Gaia" })).toBe(
+      "moved between visits 1 and 3 (0.99 years). Gaia predicts 10.27″: they agree within 1.6σ.",
+    );
+    expect(measureSentence({ ...barnard, predicted_arcsec: 9.9 }, { visits: null, who: "Gaia" })).toMatch(
+      /^moved between the first and last visits .* 2\.6σ apart, close but not a clean match\.$/,
+    );
+    expect(measureSentence({ ...barnard, predicted_arcsec: 12 }, { visits: 4, who: "Gaia" })).toMatch(/3\.2σ apart and disagree\.$/);
+    expect(measureSentence({ ...barnard, predicted_arcsec: null }, { visits: 3, who: "Gaia" })).toMatch(/no catalogue prediction/);
+    const still = measureSentence({ ...barnard, shift_arcsec: 0.0427, sigma_arcsec: 0.3555, predicted_arcsec: 0.0214, dt_yr: 1 }, { visits: 3, who: "Gaia" });
+    expect(still).toBe("between visits 1 and 3 (1 year): below the 1.07″ we can see (3σ), so it stays put. Gaia predicts 0.02″: they agree within 0.1σ.");
+  });
+  it("knows whether the frames follow the object", () => {
+    expect(framesFollow(null)).toBeNull();
+    expect(framesFollow({ epochs: [{ center: { ra: 1, dec: 1 } }] } as never)).toBe(true);
+    expect(framesFollow({ epochs: [{}] } as never)).toBe(false);
+  });
+});
+
 describe("why there is no measure", () => {
   it("explains movers, single visits and empty spots", () => {
     expect(noMeasureReason({ object: null, kind: "asteroid", visits: null })).toMatch(/hours/);
+    expect(noMeasureReason({ object: null, kind: "asteroid", visits: null, follows: false })).toMatch(/crosses the field.*violet diamond/);
+    expect(noMeasureReason({ object: null, kind: "interstellar comet", visits: null, follows: true })).toMatch(/frames follow it/);
     expect(noMeasureReason({ object: null, kind: null, visits: 1 })).toMatch(/one visit/);
     expect(noMeasureReason({ object: null, kind: null, visits: null })).toMatch(/Nothing has been measured/);
   });

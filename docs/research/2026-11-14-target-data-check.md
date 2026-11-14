@@ -131,8 +131,9 @@ table.
 ## What remains
 
 - Wing fluxes are good to a factor ~2 at worst (D3–D4 high on Barnard's Star); they carry ±50% and
-  `saturated: true`. The card's text says saturated points "read low": now they don't, they are
-  uncertain. That sentence is in web/src/card/index.ts (P3): suggest "measured on the wings, ±50%".
+  `saturated: true`. The card now says "measured on the wings, ±50%" (changed by the lead).
+- `spectrum_reason` (contract v3) is null for every featured target now; R Draconis was "saturated".
+  An exposure left out still counts as "saturated" or "other" for it.
 - A brighter calibrator than the 50–150 mJy field stars (e.g. Epsilon Indi A, K ≈ 2, in the 15′ D2/D5
   frames) would fix the profile beyond 3 px and the D3–D4 offset.
 - The blend fit uses a Gaussian PSF; a star brighter than the target 5–8″ away still leaves a few
