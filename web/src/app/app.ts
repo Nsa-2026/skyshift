@@ -22,6 +22,8 @@ import type { BlinkHandle, CardHandle, MountPage, PageContext, PageHandle, SkyHa
 import { TARGETS, isEmbed, readView, targetBySlug, viewForTarget, writeView } from "./state";
 
 const html = String.raw;
+/** Flip to true when src/atlas replaces its placeholder. */
+const ATLAS_READY = false;
 
 export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
@@ -38,7 +40,7 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="atlas">Sky</a>
+        <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
         <a href="#/candidates" data-route="discover">Candidates</a>
         <a href="#/review" data-route="review">Review</a>
         <a href="#/explore" data-route="explore">Blink</a>
@@ -273,7 +275,8 @@ export function startApp(root: HTMLElement): void {
     // No hash: deep links to a target or coordinates open Explore; otherwise the sky (atlas).
     if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
       return { page: "explore", param: null };
-    return { page: "atlas", param: null };
+    // Until the Sky globe lands, the home page shows tonight's live search.
+    return { page: ATLAS_READY ? "atlas" : "live", param: null };
   }
 
   function route() {
