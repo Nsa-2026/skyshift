@@ -1,0 +1,17 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data. The position asked: Barnard's Star's Gaia DR3 position (269.4485, 4.7394, epoch 2016.0).",
+  "name": null,
+  "gaia": null,
+  "known_ucd": null,
+  "spectrum": [],
+  "spectrum_reason": "no_data",
+  "measure": null,
+  "measure_reason": "moved_away",
+  "measure_hint": {
+    "name": "Barnard's Star",
+    "ra": 269.446219,
+    "dec": 4.768836,
+    "mjd": 61120.67
+  }
+}

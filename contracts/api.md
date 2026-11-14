@@ -1,9 +1,10 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.1)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.2)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
-targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages).
+targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages;
+v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -31,7 +32,9 @@ GET /api/object?ra=&dec=
     spectrum:[{ um, flux_ujy, err_ujy, det, mjd, visit, saturated }],
     spectrum_reason?,                                # why spectrum is empty, else null
     measure:{ shift_arcsec, pa_deg, dt_yr, rate_arcsec_yr, sigma_arcsec,
-              n_ref_stars, predicted_arcsec|null } }
+              n_ref_stars, predicted_arcsec|null },
+    measure_reason?,                                 # why measure is null, else null
+    measure_hint?:{ name, ra, dec, mjd } }           # moved_away only: where the star is
 GET /api/gaia?ra=&dec=&r=
 GET /api/known?ra=&dec=&r=&mjd=
 GET /api/resolve?q=        # any coordinate format, or a built-in name
@@ -297,13 +300,24 @@ The object nearest a position (search radius 6″).
 | known_ucd | Known ultracool dwarf, or null. **Proposal:** `{ name, spt, ref }` |
 | spectrum[] | Sorted by `um`. `flux_ujy`, `err_ujy` in µJy; `det` 1–6; `mjd` = the exposure's MJD-AVG; `visit` = visit number; `saturated` = OVERFLOW or NONLINEAR in the core. An exposure whose aperture or background annulus has no good pixels gives no point (no lower limits) |
 | spectrum_reason | **Optional.** Why `spectrum` is empty: `"saturated"` (a star saturated so deeply that no exposure had a usable aperture and background annulus, e.g. R Draconis) or `"no_data"`; `null` when there are points. Files without it: read as `null` |
-| measure | Motion between the first and last visit stack, or null with fewer than two visits. The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
+| measure | Motion between the first and last visit stack, or null with fewer than two visits or when no single source stands out clearly in both stacks (`measure_reason` says why). The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
 | measure.shift_arcsec, pa_deg | Size and direction of the shift; position angle east of north |
 | measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks, years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
 | measure.rate_arcsec_yr | shift_arcsec / dt_yr |
 | measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
 | measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
+| measure_reason | **Optional.** Why `measure` is null: one of the codes below. When it is set, `measure` is null; with a measure it is null. Files and answers without it: read as `null` (the site then gives its general sentence) |
+| measure_hint | **Optional.** `{ name, ra, dec, mjd }` with `measure_reason` `moved_away`, else null: the fast star that was catalogued here and its position (degrees) at `mjd`, the middle of SPHEREx's first and last exposures at this position, so the site can open it where it is. `name`: the built-in name or `Gaia DR3 <id>` |
+
+| measure_reason | plain meaning |
+|---|---|
+| few_visits | SPHEREx has not seen this spot in two visits with at least 3 exposures each (in the detectors it can be measured in), so there is nothing to compare |
+| not_detected | No source stands out clearly here (PSF-matched S/N ≥ 5) in the first or the last visit stack |
+| edge | Sky is missing within 4 px of the position in the first or the last visit stack (the edge of the area covered) |
+| different_sources | A source stands out in both stacks, but the two are too far apart to be one: more than max(7.53″, 12″/yr × Δt) + 3σ apart, or that far from the catalogue's predicted motion |
+| no_time | A live answer ran out of time before the measurement. Such answers are not cached: asking again helps |
+| moved_away | A fast star was catalogued here, but it had moved away by SPHEREx's visits: `measure_hint` says where it is. The star: a built-in target or a Gaia DR3 star with a proper motion, whose track between J1990.0 and its catalogue epoch (Gaia: 2016.0) passes within 6″ (so Gaia DR3 and DR2, SIMBAD's J2000.0, 2MASS and Hipparcos positions all count) of the position asked and stays more than 7.53″ (one PSF FWHM) from it through SPHEREx's first to last exposure there. Example: Barnard's Star's Gaia position (269.4485, 4.7394); SPHEREx sees the star 100–111″ north of it. It wins over the other codes. A measure of another source at the position asked is kept (no reason, no hint) |
 
 ## GET /api/gaia, GET /api/known
 
@@ -575,6 +589,15 @@ check."
   web/src/vote change (web/src/vote/model.test.ts checks that both list the same fields), and the
   rules and the site deploy together (`infra/firebase/deploy.sh`, both parts). Until then the
   deployed rules are v2 (no `created`).
+
+## Changes in v3.2 (14 Nov 2026)
+
+- `/api/object` and `object.json`: optional `measure_reason` (why `measure` is null: `few_visits`,
+  `not_detected`, `edge`, `different_sources`, `no_time`, `moved_away`) and `measure_hint` (with
+  `moved_away`: the fast star's name and its position at the middle of SPHEREx's visits). Additive:
+  no existing field changes, and files without them (the static `object.json` files) read as null.
+- `measure` row: null also when the detection guard (core.measure_shift, #121) finds no single
+  source clearly seen in both visit stacks.
 
 ## Changes in v3.1 (14 Nov 2026)
 
