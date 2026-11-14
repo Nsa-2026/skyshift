@@ -139,3 +139,17 @@ def test_process_photos_failed_read_does_not_stop_the_task(tmp_path, monkeypatch
     photos = [("X", 1, str(tmp_path / "missing.fits"), 0, 0), ("2025W18_1B_0074_2", 1, str(CUTOUT), 7, 2)]
     sts = process_photos(str(tmp_path), photos, prefetch=True)
     assert sts[0]["status"] == "failed" and sts[0]["error"] and sts[1]["status"] == "done"
+
+
+def test_spread_limit_covers_detectors_and_dates():
+    from types import SimpleNamespace
+
+    from skyshift_pipeline.dots import spread_limit
+    # 50 exposures x 6 detectors, in (mjd, detector) order as dots.run builds them
+    todo = [SimpleNamespace(mjd=float(e), detector=d) for e in range(50) for d in range(1, 7)]
+    pick = spread_limit(todo, 10)
+    assert len(pick) == 10
+    assert sorted({r.detector for r in pick}) == [1, 2, 3, 4, 5, 6]
+    assert max(r.mjd for r in pick) - min(r.mjd for r in pick) > 30  # not the first two exposures
+    assert pick == sorted(pick, key=lambda r: (r.mjd, r.detector))
+    assert spread_limit(todo, None) == todo and spread_limit(todo[:5], 10) == todo[:5]
