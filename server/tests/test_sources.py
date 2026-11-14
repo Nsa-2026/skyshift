@@ -142,3 +142,19 @@ def test_tier_for_field():
     assert cutouts.tier_for_field(15) == 0.36
     assert cutouts.tier_for_field(20) == 0.48
     assert cutouts.tier_for_field(60) == 1.45
+
+
+def test_visits_near_the_ecliptic_pole_are_cut_into_parts():
+    # near the pole SPHEREx sees a spot for months on end: one session a day for 120 days, then
+    # a normal visit half a year later
+    rows = [sia_row(f"P{d:03d}", 2, 60800.0 + d) for d in range(120)]
+    rows += [sia_row(f"Q{d}", 2, 61100.0 + d) for d in range(10)]
+    images = search.rows_to_images(rows)
+    long_ = [im for im in images if im.obs_id.startswith("P")]
+    parts = sorted({im.visit for im in long_})
+    assert parts == [1, 2, 3, 4]  # 119 days > 75: cut into ceil(119 / 30) = 4 parts
+    for v in parts:
+        t = [im.mjd for im in long_ if im.visit == v]
+        assert max(t) - min(t) <= 30.0
+    assert {im.visit for im in images if im.obs_id.startswith("Q")} == {5}
+    assert [im.visit for im in images] == sorted(im.visit for im in images)  # numbered in time order

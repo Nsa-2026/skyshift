@@ -4,11 +4,11 @@ Run from server/ (it imports skyshift_server and skyshift_core):
 
     cd server
     uv run python ../scripts/precompute/precompute.py --only barnard --sets months:15 --dets 2
-    uv run python ../scripts/precompute/precompute.py --only 3i-atlas,flora,psyche
+    uv run python ../scripts/precompute/precompute.py --only 3i-atlas,elpis,euphrosyne
     uv run python ../scripts/precompute/precompute.py                 # everything (slow, cached)
 
 Targets: barnard, epsindib, wise0855, rwaur, rdra (scripts/validate/data/targets.json), then
-comet 3i-atlas and the asteroids flora (8) and psyche (16), on the hours clock.
+comet 3i-atlas and the asteroids elpis (59) and euphrosyne (31), on the hours clock.
 
 Files per target (shapes of contracts/api.md; data_url is relative to the JSON):
 
@@ -101,7 +101,7 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
     for det in dets:
         t0 = time.time()
         try:
-            fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache)
+            fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache, per_visit=None)
         except Exception as e:  # noqa: BLE001 - one detector must not stop the rest
             log.warning("%s %s d%d failed: %s", t["slug"], set_name, det, e)
             continue
@@ -137,7 +137,10 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
 COMET_CSV = ROOT / "scripts" / "validate" / "data" / "photolists" / "3i-atlas.csv"
 COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion), as in resolve.COMET
 COMET_DETS = [1, 2, 3, 4, 5, 6]
-ASTEROIDS = {8: "flora", 16: "psyche"}  # V 10.5-11.8, bright and not saturated
+# The two of MOST's asteroids 1-60 with the most images at V 11.5-14 (bright, not saturated):
+# (59) Elpis 454 images at V 12.6-13.6, (31) Euphrosyne 436 at V 13.0-13.7 (MOST, 14 Nov 2026).
+ASTEROIDS = {59: "elpis", 31: "euphrosyne"}
+ASTEROID_V = (11.5, 14.0)
 ASTEROID_DETS = [2, 5]
 ASTEROID_WINDOW_D = 1.0
 S3_ROOT = "https://nasa-irsa-spherex.s3.us-east-1.amazonaws.com/"
@@ -272,7 +275,8 @@ def build_asteroid(number: int, slug: str, cache: Cache) -> None:
 
     name, rows = most_rows(number)
     label = "(%d) %s" % (number, name.split("(")[0].replace(str(number), "", 1).strip() or slug.title())
-    win = densest_window(rows, ASTEROID_DETS[0], ASTEROID_WINDOW_D)
+    bright = [r for r in rows if r["v"] is not None and ASTEROID_V[0] <= r["v"] <= ASTEROID_V[1]]
+    win = densest_window(bright, ASTEROID_DETS[0], ASTEROID_WINDOW_D)
     if not win:
         log.warning("%s: no images", slug)
         return

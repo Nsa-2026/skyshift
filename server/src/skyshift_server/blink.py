@@ -32,6 +32,9 @@ from .search import Image
 log = logging.getLogger(__name__)
 
 HOURS_MAX_FRAMES = 48
+# Live path (GET /api/frames): at most this many exposures per visit go into a months stack, so a
+# cold request stays well inside Cloud Run's 60 s. scripts/precompute passes per_visit=None.
+LIVE_PER_VISIT = 8
 
 
 @dataclass
@@ -128,6 +131,21 @@ def pick_hours_images(images: list[Image]) -> list[Image]:
     return chosen
 
 
+def pick_months_images(images: list[Image], per_visit: int | None) -> list[Image]:
+    """At most `per_visit` exposures of each visit, spread evenly in time over the visit (so the
+    median still sees several sessions and removes asteroids). None or 0: every exposure."""
+    if not per_visit:
+        return images
+    out: list[Image] = []
+    for v in sorted({im.visit for im in images}):
+        part = sorted((im for im in images if im.visit == v), key=lambda im: im.mjd)
+        if len(part) > per_visit:
+            idx = np.unique(np.rint(np.linspace(0, len(part) - 1, per_visit)).astype(int))
+            part = [part[i] for i in idx]
+        out += part
+    return out
+
+
 def exposure_epochs(images: list[Image], ra: float, dec: float, fov: float, cache: Cache, prefix: str,
                     centers: list[tuple[float, float]] | None = None) -> tuple[list[dict], dict[str, bytes], stack.Grid]:
     """Hours-clock epochs for the given images (one detector). centers: a centre per image, for
@@ -220,8 +238,9 @@ def frames_meta(clock: str, grid: stack.Grid, epochs: list[dict], stars: list[di
 
 
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
-                 *, cache: Cache | None = None) -> Frames:
-    """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector."""
+                 *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT) -> Frames:
+    """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
+    per_visit: months clock, at most this many exposures per visit stack (None: all of them)."""
     _check(clock, fov, det)
     cache = cache or Cache()
     fov_i = int(round(fov))
@@ -235,7 +254,7 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         stars_f = side.submit(gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)
         if clock == "months":
             grid, _ = stack.grid_for(ra, dec, clock, fov)
-            stacks = visit_stacks(images, grid, cutouts.tier_for_field(fov), cache)
+            stacks = visit_stacks(pick_months_images(images, per_visit), grid, cutouts.tier_for_field(fov), cache)
             epochs, blobs = visit_epochs(stacks, det, prefix)
         else:
             epochs, blobs, grid = exposure_epochs(pick_hours_images(images), ra, dec, fov, cache, prefix)
