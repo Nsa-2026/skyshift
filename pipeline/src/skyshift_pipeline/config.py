@@ -129,8 +129,31 @@ PAIR_BASE_ARCSEC = 3.0        # two exposures pair if separated <= base + rate x
 PAIR_RATE_ARCSEC_PER_MIN = 1.0
 SIMULTANEOUS_PAIR_ARCSEC = 3.0
 SIMULTANEOUS_PAIRS = ((1, 4), (2, 5), (3, 6))
+PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN = 5.0  # two dots that each have a simultaneous partner also pair up to 3″ + this × Δt
+                              # (fast movers, ~140–380″/h, step past the plain rule; their per-exposure D1+D4 pairs
+                              # would otherwise be one-exposure candidates that MOVER_MAX_MISSED_FEW drops)
 MOVER_MAX_ELONG = 3.0         # dots longer than this (trails, cosmic rays) don't pair
 MOVER_MIN_COVER_SESSIONS = 3  # sessions whose footprints contain the candidate
+# Fixed groups: an asteroid at ~40″/h moves ~1.4″ per exposure, so the 4″ FoF chains its dots, and a track passing a
+# star joins the star's fixed group. Hunt, 14 Nov, 36-session sample: 17 of 42 known V < 17 object-sessions that link
+# missed had their dots (≤ 1″ from the MPC position) inside a star's group, 3–13″ from its median. A would-be fixed
+# group's dots farther than this from its median are released and regrouped among themselves (a second star chained
+# to the first is fixed again with >= FIXED_MIN_SESSIONS sessions; a one-session track is left free). None = off.
+FIXED_RELEASE_ARCSEC = 6.0
+# Mover vetting (link.vet_reason, after the session-coverage test; stats vetoed_<rule>; SKYSHIFT_MOVER_VET=off keeps
+# every candidate, with the columns). Hunt, 14 Nov: of 6,143 movers 4,464 were seen in two exposures and 4,045 of those
+# matched no MPC object; 209 of the 228 suspects were two-dot pairs. Known asteroids with V < 17 showed a dot in every
+# exposure that covered them in 848 of 893 movers; chance pairs (two unrelated dots ≤ 3″ + 1″/min × Δt apart) don't.
+# On the sample (87 suspects): missed 43, both dots at a frame edge 21, flux jump 21, kept 2.
+MOVER_COVER_EDGE_PX = 10.0       # an exposure covers a track when one of its photos holds it this far inside (px)
+MOVER_COVER_FIXED_SLACK_ARCSEC = 2.0  # ... and the track isn't within FIXED_VETO_ARCSEC + this of a fixed source
+                                 # (link drops dots there: no dot is expected). None = no exclusion
+MOVER_MAX_MISSED_FEW = 0         # tracks seen in <= 2 exposures: covering exposures without a dot allowed
+MOVER_MAX_MISSED = 1             # tracks seen in >= 3 exposures: ... allowed (a masked pixel, a faint exposure)
+MOVER_LINE_MAX_ARCSEC = 4.0      # >= 3 exposures: largest distance of an exposure's position from the fitted line
+                                 # (known: max 3.2″, 99% < 2.6″)
+MOVER_FLUX_RATIO_MAX = 3.0       # largest max/min flux among one detector's dots (known: max 2.6, 99% < 2.2)
+MOVER_VET = os.environ.get("SKYSHIFT_MOVER_VET", "on") != "off"
 SOURCE_ID_PER_CELL = 100      # source_id = 6″ cell × this + rank of the source inside the cell
 
 # --- spectra -------------------------------------------------------------------------------
