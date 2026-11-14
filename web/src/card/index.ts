@@ -2,6 +2,8 @@
 // Name, one plain sentence of what it is, then the measured shift against the prediction: the
 // loudest thing beside the plate. Details as a quiet list, limits as footnotes, then the
 // spectrum, brightness by visit, and what to look for on the plate.
+import { ApiFailure } from "../api/client";
+import { hasScience, loadScience } from "../api/science-client";
 import type { Det, FramesResponse, ObjectResponse, SpectrumPoint } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { CardHandle, MountCard, View } from "../app/modules";
@@ -39,7 +41,7 @@ import {
   visitsOf,
 } from "./format";
 import { describeVisit, lightCurveDets, renderLightCurve } from "./lightcurve";
-import { describePoint, renderSpectrum, type PlotPoint, type SpectrumMode } from "./spectrum";
+import { describePoint, drawableReference, renderSpectrum, type PlotPoint, type ReferencePoint, type SpectrumMode } from "./spectrum";
 import { caret, esc, marker, r1, swatch, visitColour, visitShape } from "./svg";
 
 const html = String.raw;
@@ -66,6 +68,21 @@ interface Note {
   html: string;
 }
 
+/**
+ * The DR1 reference spectrum (contracts/api.md, science.json `reference`), loaded only when asked,
+ * for one target: a new target aborts the request and starts again from idle.
+ */
+interface Reference {
+  key: string;
+  state: "idle" | "loading" | "shown" | "hidden" | "none" | "error";
+  points: ReferencePoint[];
+  message: string;
+  ctl: AbortController | null;
+}
+
+/** One target's identity: a new key means new data, never the previous target's. */
+const targetKey = (v: Pick<View, "slug" | "ra" | "dec">): string => `${v.slug ?? ""}|${v.ra.toFixed(5)},${v.dec.toFixed(5)}`;
+
 export const mountCard: MountCard = (el, opts = {}) => {
   const id = `cd${++uid}`;
   el.classList.add("cd");
@@ -76,6 +93,14 @@ export const mountCard: MountCard = (el, opts = {}) => {
   let staleObject: ObjectResponse | null = null;
   let width = 0;
   const readables: Readable[] = [];
+  let dr1: Reference = { key: "", state: "idle", points: [], message: "", ctl: null };
+
+  /** Forget the reference (and stop loading it) unless it belongs to this key. */
+  function resetReference(key: string) {
+    if (dr1.key === key) return;
+    dr1.ctl?.abort();
+    dr1 = { key, state: "idle", points: [], message: "", ctl: null };
+  }
 
   function measureWidth(): number {
     const w = el.clientWidth;
@@ -285,7 +310,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
     }
     const visits = visitsOf(sp);
     if (visits.length < 2) mode = "det";
-    const chart = renderSpectrum(sp, { width, mode, id: `${id}-sp` });
+    const chart = renderSpectrum(sp, { width, mode, id: `${id}-sp`, reference: dr1.state === "shown" ? dr1.points : null });
     spPoints = chart.points;
     const um0 = Math.min(...sp.map((p) => p.um));
     const um1 = Math.max(...sp.map((p) => p.um));
@@ -308,6 +333,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
+      ${referenceHtml()}
       ${tableHtml(sp, visits)}
     </section>`;
   }
@@ -317,6 +343,60 @@ export const mountCard: MountCard = (el, opts = {}) => {
     if (!shown) return "";
     const said = missingVisitsSentence(visitsMissingFromSpectrum(shown.frames, shown.view, shown.view.fov, sp, det), det);
     return said ? ` <span class="cd-missing">${esc(said)}</span>` : "";
+  }
+
+  /**
+   * The DR1 reference (contracts/api.md, "Science workspace"): only the five fields with prepared
+   * science products have one, so only they get the button. Loaded on request, static first.
+   */
+  function referenceHtml(): string {
+    if (!shown || !hasScience(shown.view.slug)) return "";
+    const about =
+      "The same spot in NASA's SPHEREx DR1 all-sky spectral cube, in µJy like the dots. The cube is a still sky built from many visits: " +
+      "a moving star has left this spot in it, and neighbours can add light, so a difference is a hint, not a measurement.";
+    const btn = (action: string, label: string, extra = "") =>
+      `<button type="button" class="btn btn-ghost cd-refbtn" data-ref="${action}" ${extra}>${label}</button>`;
+    switch (dr1.state) {
+      case "loading":
+        return `<div class="cd-refrow">${btn("load", "Loading the DR1 reference…", 'disabled aria-busy="true"')}</div>`;
+      case "shown":
+        return `<div class="cd-refrow">${btn("hide", "Hide the DR1 reference")}<p class="cd-cap">${esc(about)}</p></div>`;
+      case "hidden":
+        return `<div class="cd-refrow">${btn("show", "Show the DR1 reference")}</div>`;
+      case "none":
+        return `<div class="cd-refrow"><p class="cd-cap">The DR1 all-sky cube gives no usable reference spectrum at this spot${dr1.message ? ` (${esc(dr1.message)})` : ""}.</p></div>`;
+      case "error":
+        return `<div class="cd-refrow">${btn("load", "Try the DR1 reference again")}<p class="cd-cap" role="alert">${esc(dr1.message)}</p></div>`;
+      default:
+        return `<div class="cd-refrow">${btn("load", "Load DR1 reference spectrum")}</div>`;
+    }
+  }
+
+  async function loadReference() {
+    if (!shown) return;
+    const view = shown.view;
+    const key = targetKey(view);
+    resetReference(key);
+    dr1.ctl?.abort();
+    const ctl = new AbortController();
+    dr1 = { key, state: "loading", points: [], message: "", ctl };
+    rerenderKeepingFocus(".cd-refbtn");
+    try {
+      const sci = await loadScience<{ reference?: { spectrum?: ReferencePoint[]; error?: string | null } }>(view, ctl.signal);
+      if (ctl.signal.aborted || dr1.ctl !== ctl) return;
+      const points = drawableReference(sci.reference?.spectrum ?? []);
+      dr1 = { key, state: points.length ? "shown" : "none", points, message: sci.reference?.error ?? "", ctl: null };
+    } catch (e) {
+      if (ctl.signal.aborted || dr1.ctl !== ctl) return;
+      const why =
+        e instanceof ApiFailure && e.code === "upstream"
+          ? "SkyShift's science service didn't answer."
+          : e instanceof ApiFailure
+            ? `SkyShift's science service failed (${e.status}).`
+            : "SkyShift's science service can't be reached.";
+      dr1 = { key, state: "error", points: [], message: `${why} The spectrum above is unchanged; try again in a minute.`, ctl: null };
+    }
+    rerenderKeepingFocus(".cd-refbtn");
   }
 
   /** Why the spectrum is empty, from the optional spectrum_reason (contracts/api.md v3; absent reads as null). */
@@ -337,6 +417,10 @@ export const mountCard: MountCard = (el, opts = {}) => {
         items.push(`<li>${swatch(marker(visitShape(i), 7, 7, 3.6, visitColour(i, visits.length), false))}Visit ${v}, ${d}</li>`);
       });
     }
+    if (dr1.state === "shown")
+      items.push(
+        `<li>${swatch(`<path d="M0.5 7H13.5" stroke="var(--ink)" stroke-width="1.25" stroke-dasharray="4 2.5"/><circle cx="7" cy="7" r="1.6" fill="var(--ink)"/>`)}DR1 reference</li>`,
+      );
     if (sp.some((p) => p.saturated)) items.push(`<li>${swatch(marker("circle", 7, 7, 3.6, "var(--ink-2)", true))}Core saturated</li>`);
     if (sp.some((p) => isUpperLimit(p))) items.push(`<li>${swatch(caret(7, 6, "var(--ink-2)"))}Upper limit, below 2σ</li>`);
     items.push(`<li>${swatch(`<rect x="3" y="1" width="8" height="12" fill="var(--ink)" opacity="0.09"/>`)}Molecule band</li>`);
@@ -460,6 +544,14 @@ export const mountCard: MountCard = (el, opts = {}) => {
         rerenderKeepingFocus(`.cd-spec .cd-seg button[data-mode="${next}"]`);
       }),
     );
+    el.querySelector<HTMLButtonElement>(".cd-refbtn")?.addEventListener("click", (ev) => {
+      const action = (ev.currentTarget as HTMLButtonElement).dataset.ref;
+      if (action === "load") void loadReference();
+      else if (action === "hide" || action === "show") {
+        dr1.state = action === "hide" ? "hidden" : "shown";
+        rerenderKeepingFocus(".cd-refbtn");
+      }
+    });
     el.querySelectorAll<HTMLButtonElement>(".cd-dets button").forEach((b) =>
       b.addEventListener("click", () => {
         const next = Number(b.dataset.det) as Det;
@@ -560,12 +652,15 @@ export const mountCard: MountCard = (el, opts = {}) => {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;
       if (!pending) loading = false;
+      resetReference(targetKey(view));
       shown = { view, object: pending ? null : object, frames, pending };
       render();
     },
     status(kind, message) {
       if (kind === "loading") {
         loading = true;
+        // A new target is on its way: drop the reference (and its request) now, not on arrival.
+        resetReference("");
         staleObject = shown?.object ?? null;
         showLoading();
       } else if (kind === "error") {
