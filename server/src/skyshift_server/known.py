@@ -31,6 +31,10 @@ INDEX_KEY = os.environ.get("SKYSHIFT_KNOWN_INDEX") or "mpc/known_index/known_ind
 
 _lock = threading.Lock()
 _index: known_index.KnownIndex | None = None
+# At most this many known_near calls at once per process: each one's coarse cut makes ~60 MB of
+# float32 temporaries over all orbits, and 8 at once (Cloud Run's concurrency) took a worker from
+# 0.46 to 0.98 GB peak (14 Nov). The CPU is shared anyway, so waiting costs little time.
+_slots = threading.BoundedSemaphore(int(os.environ.get("SKYSHIFT_KNOWN_SLOTS") or 2))
 
 
 def mpc_index(cache: Cache | None = None) -> known_index.KnownIndex:
@@ -61,7 +65,9 @@ def near(ra: float, dec: float, r_arcmin: float, mjds: Sequence[float], *, epoch
     """Known objects within r_arcmin of (ra, dec) at each of `mjds` (UTC), one entry per object and
     time; epoch_id = epoch_ids[k] for mjds[k] (None without epoch_ids). Raises ValueError for times
     outside the index's range and UpstreamError when the index is missing."""
-    return known_index.known_near(ra, dec, r_arcmin / 60.0, list(mjds), index=mpc_index(cache), epoch_ids=epoch_ids)
+    idx = mpc_index(cache)
+    with _slots:
+        return known_index.known_near(ra, dec, r_arcmin / 60.0, list(mjds), index=idx, epoch_ids=epoch_ids)
 
 
 def cone(ra: float, dec: float, r_arcmin: float, mjd: float, *, cache: Cache | None = None) -> list[dict[str, Any]]:
