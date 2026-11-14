@@ -20,7 +20,7 @@ lists in movers.parquet) or at zone-level maps:
 
 Grades: C = fails a gate or is catalogued (kept, with its reasons); B = passes everything, motion not shown (most suspects
 are 2 dots of one session: at S/N 7–9 the centroid error exceeds the motion between exposures); A = B plus motion
->= 5σ over >= 2 sessions, which needs a multi-session linker the pipeline doesn't have yet, so no suspect is graded A.
+>= 5σ over >= 2 sessions: on a `tracklets` track (suspects.track_grades, after vet; vet itself gives only B and C).
 `near_source_arcsec` (a refcat or fixed source 6–10″ away: a possible blend or PSF wing) is a warning, not a gate.
 """
 

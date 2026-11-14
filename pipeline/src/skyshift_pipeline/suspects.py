@@ -18,10 +18,13 @@ A mover becomes a suspect when:
   summary's catwise_source says which catalogue it was.
 Then the vetting gates (vet.py: hot pixel, bad column, detector edge, masked bit at the peak, sharp + OUTLIER, flux
 ratio, red photo, 2MASS within 6″, AllWISE within 6″ where CatWISE was the veto) grade every suspect: C fails one
-(kept, with `reasons`), B passes all (motion not shown), A (motion >= 5σ over >= 2 sessions) needs a multi-session
-linker and is never given yet.
+(kept, with `reasons`), B passes all (motion not shown). A = B and on a track of `tracklets` (results/<zone>/
+tracklets.parquet, joined on the suspect id = its `mover_id`) with movers in >= VET_A_MIN_SESSIONS sessions and
+rate_snr >= VET_MOTION_SIGMA: a candidate mover. Suspects on a track carry its n_sessions, rate_arcsec_h, pa_deg,
+rate_sigma (rate_snr, tracklet_id in the parquet); without a readable tracklets.parquet nothing changes.
 Ranked by grade, then snr. Written as results/<zone>/suspects.parquet and results/<zone>/suspects.json in the
-contracts/api.md suspects.json shape (+ grade, reasons, near_source_arcsec; zone-level vetoes, provisional, grades).
+contracts/api.md suspects.json shape (+ grade, reasons, near_source_arcsec, the track's fields; zone-level vetoes,
+provisional, grades).
 """
 
 from __future__ import annotations
@@ -37,8 +40,14 @@ from . import vet as V
 from .known import load_predictions
 from .sky import SkyTree, angsep, offset_radec
 from .store import Store, photolist_rel, results_rel
+from .tracklets import mover_ids
 
 L = log.get("suspects")
+
+TRACKLETS_NAME = "tracklets.parquet"
+# tracklets.parquet columns a suspect on a track takes over (NaN / null when on no track); the JSON gets TRACK_JSON
+TRACK_COLUMNS = ("tracklet_id", "n_sessions", "rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr")
+TRACK_JSON = (("n_sessions", None), ("rate_arcsec_h", 2), ("pa_deg", 1), ("rate_sigma", 2))  # (field, decimals; None = int)
 
 
 def nearest_known_arcsec(movers: pd.DataFrame, pred: pd.DataFrame, search_arcsec: float = 600.0) -> np.ndarray:
@@ -345,6 +354,18 @@ def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str, vetting: dict | No
     def num(x, nd):
         return None if x is None or not np.isfinite(x) else round(float(x), nd)
 
+    def track(r) -> dict:
+        """The track's fields (null when on no track); {} when the suspects weren't joined to tracklets.parquet."""
+        if "tracklet_id" not in s.columns:
+            return {}
+        on = int(r.tracklet_id) >= 0
+        out = {}
+        for k, nd in TRACK_JSON:
+            v = getattr(r, k)
+            v = float(v) if on and pd.notna(v) else np.nan
+            out[k] = (int(v) if np.isfinite(v) else None) if nd is None else num(v, nd)
+        return out
+
     graded = "grade" in s.columns
     out = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -358,6 +379,7 @@ def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str, vetting: dict | No
             "nearest_known_arcsec": num(r.nearest_known_arcsec, 1),
             **({"grade": r.grade, "reasons": [str(x) for x in r.reasons],
                 "near_source_arcsec": num(getattr(r, "near_source_arcsec", np.nan), 1)} if graded else {}),
+            **track(r),
         } for r in s.itertuples()],
     }
     return out
@@ -374,10 +396,48 @@ def near_source(seps: dict[str, np.ndarray], fixed: pd.DataFrame, ra: np.ndarray
     return np.where(best <= C.VET_NEAR_SOURCE_ARCSEC, best, np.nan)
 
 
+def load_tracklets(store: Store, zone: C.Zone) -> pd.DataFrame | None:
+    """tracklets.parquet's mover_id and TRACK_COLUMNS, one row per mover_id (a row on a track wins). None when the file
+    is missing or can't be read (then no suspect is graded A)."""
+    rel = results_rel(zone.name, TRACKLETS_NAME)
+    try:
+        if not store.exists(rel):
+            return None
+        t = store.read_parquet(rel, columns=["mover_id", *TRACK_COLUMNS])
+        t = t.assign(mover_id=t["mover_id"].astype(str),
+                     tracklet_id=pd.to_numeric(t["tracklet_id"]).fillna(-1).astype(np.int64))
+        return t.sort_values("tracklet_id", ascending=False, kind="stable").drop_duplicates("mover_id").reset_index(drop=True)
+    except Exception as e:  # noqa: BLE001  (a malformed tracklets file must not stop the suspects)
+        L.warning("suspects %s: %s unreadable, no grade A: %s", zone.name, rel, e)
+        return None
+
+
+def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
+    """Joins each graded suspect (ids: its suspect id, row by row) to its tracklets row (tr: load_tracklets) and sets
+    grade A where the grade is B, tracklet_id >= 0, n_sessions >= VET_A_MIN_SESSIONS and rate_snr >= VET_MOTION_SIGMA.
+    Adds TRACK_COLUMNS: tracklet_id (-1 = on no track), the others NaN / null off a track. tr None: s unchanged."""
+    if tr is None or not len(s):
+        return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0}
+    j = pd.DataFrame({"mover_id": [str(x) for x in ids]}).merge(tr, on="mover_id", how="left")
+    s = s.copy()
+    tid = j["tracklet_id"].fillna(-1).astype(np.int64).to_numpy()
+    on = tid >= 0
+    s["tracklet_id"] = tid
+    nsess = pd.to_numeric(j["n_sessions"]).to_numpy(np.float64)
+    s["n_sessions"] = pd.array(np.where(on & np.isfinite(nsess), nsess, np.nan), dtype="Int16")
+    for c in ("rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr"):
+        s[c] = np.where(on, pd.to_numeric(j[c]).to_numpy(np.float64), np.nan)
+    a = ((s["grade"].to_numpy() == "B") & on & (np.nan_to_num(nsess, nan=0.0) >= C.VET_A_MIN_SESSIONS)
+         & (np.nan_to_num(s["rate_snr"].to_numpy(np.float64), nan=-np.inf) >= C.VET_MOTION_SIGMA))
+    s.loc[a, "grade"] = "A"
+    return s, {"source": TRACKLETS_NAME, "on_track": int(on.sum()), "graded_a": int(a.sum())}
+
+
 def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fixed: pd.DataFrame,
           ref: pd.DataFrame | None, wise_source: str = "", allwise_reader=None) -> tuple[pd.DataFrame, dict]:
     """vet.vet on the suspects s, with the catalogue checks (2MASS from the refcat; AllWISE where CatWISE was the WISE
-    veto: wise_source names it) and near_source_arcsec from the refcat and fixed sources."""
+    veto: wise_source names it), near_source_arcsec from the refcat and fixed sources, then grade A from tracklets
+    (track_grades)."""
     t0 = time.time()
     ra, dec, mjd = s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64), s["mjd"].to_numpy(np.float64)
     seps = refcat_seps(ref, ra, dec, mjd)
@@ -394,6 +454,9 @@ def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fix
     red = V.load_red(store, zone)
     s, st = V.vet(s, movers, free, red, cats)
     s["near_source_arcsec"] = near_source(seps, fixed, ra, dec)
+    tr = load_tracklets(store, zone) if len(s) else None
+    s, st["tracklets"] = track_grades(s, mover_ids(zone, s) if len(s) else [], tr)
+    st["grades"] = {g_: int((s["grade"] == g_).sum()) if len(s) else 0 for g_ in ("A", "B", "C")}
     st["catalogs_checked"] = sorted(cats)
     if ast:
         st["allwise"] = ast
@@ -439,7 +502,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
                "provisional": not (source and wsource), "grades": vst["grades"], "gates": vst["gates"]}
     s = rank(s)
     if len(s):
-        s.insert(0, "id", [f"{zone.name}-{int(c)}-{int(round(m * 1440))}" for c, m in zip(s["cell"], s["mjd"])])
+        s.insert(0, "id", list(mover_ids(zone, s)))  # = tracklets.parquet's mover_id
     else:
         s["id"] = pd.Series(dtype=str)
     collections = sorted(set(photos["collection"]))

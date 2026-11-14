@@ -99,8 +99,8 @@ def test_movers_without_dot_lists_are_not_vetted():
     assert list(out["grade"]) == ["C"] and list(out["reasons"]) == [["not_vetted"]] and st["dot_lists"] is False
 
 
-def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
-    monkeypatch.setattr(C, "VET_ALLWISE", False)  # offline; the AllWISE reason has its own test
+def _run_zone(tmp_path) -> tuple[Store, C.Zone, pd.DataFrame]:
+    """A pilot store with 4 movers (cells 0-3) that all become suspects: 0 edge (C), 1 and 2 clean (B), 3 2MASS (C)."""
     z = C.ZONES["pilot"]
     store = Store(str(tmp_path))
     rows = [clean(0, x=3.0) | {"snr": 50.0}, clean(1) | {"snr": 9.0}, clean(2) | {"snr": 20.0}, clean(3) | {"snr": 30.0}]
@@ -122,7 +122,16 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
         dict(cat="tmass", ra=t3[0], dec=t3[1], epoch_mjd=51000.0, pmra=np.nan, pmdec=np.nan)]))
     store.write_parquet(results_rel(z.name, C.VET_QA_NAME), pd.DataFrame({"obs_id": ["E9"], "detector": [4], "grade": ["red"],
                                                                          "reasons": ["test"]}))
-    st = S.run(store, z, pred=pd.DataFrame(columns=["ra", "dec", "mjd", "session", "dra_arcsec_h", "ddec_arcsec_h"]))
+    return store, z, m
+
+
+NO_PRED = pd.DataFrame(columns=["ra", "dec", "mjd", "session", "dra_arcsec_h", "ddec_arcsec_h"])
+
+
+def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "VET_ALLWISE", False)  # offline; the AllWISE reason has its own test
+    store, z, m = _run_zone(tmp_path)
+    st = S.run(store, z, pred=NO_PRED)
     assert st["suspects"] == 4 and st["vetting"]["grades"] == {"A": 0, "B": 2, "C": 2}
     j = store.read_json(results_rel(z.name, "suspects.json"))
     assert j["vetoes"] == ["mpc", "gaia", "catwise"] and j["provisional"] is False
@@ -134,6 +143,79 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     assert j["grades"] == {"A": 0, "B": 2, "C": 2} and j["gates"]["edge"] == 1
     p = store.read_parquet(results_rel(z.name, "suspects.parquet"))
     assert list(p["grade"]) == ["B", "B", "C", "C"] and "dot_x" in p and "gate_2mass" in p
+    # no tracklets.parquet: no track fields, nothing graded A
+    assert "tracklet_id" not in p and all("rate_arcsec_h" not in x for x in j["suspects"])
+    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0}
+
+
+def _sid(z, m, k) -> str:
+    return f"{z.name}-{int(m.loc[k, 'cell'])}-{int(round(m.loc[k, 'mjd'] * 1440))}"
+
+
+def _tracklets(z, m) -> pd.DataFrame:
+    """tracklets.parquet rows (tracklets.TRACK_COLUMNS subset) for the _run_zone movers: 1 on a 3-session track at 50σ
+    (→ A), 2 on a track at 2σ (stays B), 0 on a track but gated (stays C), 3 on no track; plus another zone mover."""
+    rows = [
+        dict(mover_id=_sid(z, m, 1), tracklet_id=0, n_sessions=3, rate_arcsec_h=25.0, pa_deg=80.0, rate_sigma=0.5, rate_snr=50.0),
+        dict(mover_id=_sid(z, m, 2), tracklet_id=1, n_sessions=4, rate_arcsec_h=1.0, pa_deg=10.0, rate_sigma=0.5, rate_snr=2.0),
+        dict(mover_id=_sid(z, m, 0), tracklet_id=2, n_sessions=5, rate_arcsec_h=30.0, pa_deg=270.0, rate_sigma=0.3, rate_snr=100.0),
+        dict(mover_id=_sid(z, m, 3), tracklet_id=-1, n_sessions=1, rate_arcsec_h=np.nan, pa_deg=np.nan, rate_sigma=np.nan,
+             rate_snr=np.nan),
+        dict(mover_id="pilot-99-1", tracklet_id=0, n_sessions=3, rate_arcsec_h=25.0, pa_deg=80.0, rate_sigma=0.5, rate_snr=50.0),
+    ]
+    t = pd.DataFrame(rows)
+    return t.astype({"tracklet_id": "int64", "n_sessions": "int16", "rate_arcsec_h": "float32", "pa_deg": "float32",
+                     "rate_sigma": "float32", "rate_snr": "float32"})
+
+
+def test_run_grades_a_from_tracklets(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "VET_ALLWISE", False)
+    store, z, m = _run_zone(tmp_path)
+    store.write_parquet(results_rel(z.name, "tracklets.parquet"), _tracklets(z, m))
+    st = S.run(store, z, pred=NO_PRED)
+    assert st["vetting"]["grades"] == {"A": 1, "B": 1, "C": 2}
+    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1}
+    j = store.read_json(results_rel(z.name, "suspects.json"))
+    assert j["grades"] == {"A": 1, "B": 1, "C": 2}
+    assert [(x["cell"], x["grade"]) for x in j["suspects"]] == [(1, "A"), (2, "B"), (0, "C"), (3, "C")]  # A leads
+    tr = {x["cell"]: {k: x[k] for k in ("n_sessions", "rate_arcsec_h", "pa_deg", "rate_sigma")} for x in j["suspects"]}
+    assert tr[1] == {"n_sessions": 3, "rate_arcsec_h": 25.0, "pa_deg": 80.0, "rate_sigma": 0.5}
+    assert tr[2] == {"n_sessions": 4, "rate_arcsec_h": 1.0, "pa_deg": 10.0, "rate_sigma": 0.5}  # on a track, < 5σ: B
+    assert tr[0]["n_sessions"] == 5 and tr[3] == dict.fromkeys(tr[3])  # gated C keeps its track; no track: all null
+    assert j["suspects"][0]["id"] == _sid(z, m, 1) and j["suspects"][0]["reasons"] == []
+    p = store.read_parquet(results_rel(z.name, "suspects.parquet"))
+    assert list(p["grade"]) == ["A", "B", "C", "C"] and list(p["tracklet_id"]) == [0, 1, 2, -1]
+    assert p["rate_snr"].iloc[0] == 50.0 and np.isnan(p["rate_snr"].iloc[3]) and pd.isna(p["n_sessions"].iloc[3])
+
+
+def test_unreadable_tracklets_change_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "VET_ALLWISE", False)
+    store, z, m = _run_zone(tmp_path)
+    store.write_parquet(results_rel(z.name, "tracklets.parquet"), pd.DataFrame({"mover_id": [_sid(z, m, 1)], "other": [1]}))
+    st = S.run(store, z, pred=NO_PRED)
+    assert st["vetting"]["grades"] == {"A": 0, "B": 2, "C": 2} and st["vetting"]["tracklets"]["source"] is None
+    j = store.read_json(results_rel(z.name, "suspects.json"))
+    assert [x["grade"] for x in j["suspects"]] == ["B", "B", "C", "C"] and all("n_sessions" not in x for x in j["suspects"])
+    # tracklets' error table (no rows, float columns): read, nothing on a track, fields null
+    store.write_parquet(results_rel(z.name, "tracklets.parquet"),
+                        pd.DataFrame({c: pd.Series(dtype="float64") for c in ("mover_id", *S.TRACK_COLUMNS)}))
+    st = S.run(store, z, pred=NO_PRED)
+    assert st["vetting"]["grades"] == {"A": 0, "B": 2, "C": 2} and st["vetting"]["tracklets"]["on_track"] == 0
+    j = store.read_json(results_rel(z.name, "suspects.json"))
+    assert all(x["n_sessions"] is None and x["rate_arcsec_h"] is None for x in j["suspects"])
+
+
+def test_track_grades_rule():
+    """A needs B, a track, n_sessions >= VET_A_MIN_SESSIONS and rate_snr >= VET_MOTION_SIGMA (5σ exactly passes)."""
+    s = pd.DataFrame({"grade": ["B", "B", "B", "B", "C", "B"]})
+    ids = [f"m{i}" for i in range(6)]
+    tr = pd.DataFrame({"mover_id": ids[:5], "tracklet_id": [0, 1, 2, -1, 3], "n_sessions": [3, 1, 2, 1, 3],
+                       "rate_arcsec_h": 10.0, "pa_deg": 0.0, "rate_sigma": 2.0, "rate_snr": [5.0, 9.0, 4.99, np.nan, 9.0]})
+    out, st = S.track_grades(s, ids, tr)
+    assert list(out["grade"]) == ["A", "B", "B", "B", "C", "B"] and st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1}
+    assert list(out["tracklet_id"]) == [0, 1, 2, -1, 3, -1] and out["rate_arcsec_h"].isna().tolist() == [False] * 3 + [True, False, True]
+    same, st0 = S.track_grades(s, ids, None)
+    assert same is s and st0["graded_a"] == 0
 
 
 def test_allwise_reason_where_catwise_was_the_veto(tmp_path, monkeypatch):

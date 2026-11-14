@@ -268,6 +268,20 @@ def test_v5_hunt_headline_pilot_kept(tmp_path):
     assert c["note"].endswith("Rows: zone, v_min, v_max, n, found, recall, control_recall.")
 
 
+def test_v5_says_recovered_on_a_track_when_recall_counts_tracklets(tmp_path):
+    """A recall.json with recall_movers (tracklets, #150): `recall` also counts dots recovered on a track."""
+    _zone(tmp_path, "hunt", "2026-11-14T13:39:27Z", HUNT_BY_V, HUNT_BOX, 3692, 30)
+    rec = json.loads((tmp_path / "hunt" / "recall.json").read_text())
+    rec.update({"n_found": 433, "recall": 433 / 457, "n_found_movers": 413, "recall_movers": 413 / 457,
+                "control_recall_movers": 0.0})
+    (tmp_path / "hunt" / "recall.json").write_text(json.dumps(rec))
+    c = bv.v5(tmp_path, "hunt")
+    assert c["headline"].startswith("Hunt zone: 433 of 457 known asteroid sessions at V < 16 found (as movers or "
+                                    "recovered on a track) (95%); control 0%")
+    assert "movers alone: 413 of 457 (90%)" in c["note"] and "a dot recovered on a mover track's predicted path" in c["note"]
+    assert c["value"] == pytest.approx(433 / 457, abs=1e-3)
+
+
 def test_v5_falls_back_to_the_pilot_without_hunt_reports(tmp_path):
     _zone(tmp_path, "pilot", "2026-11-14T13:12:08Z", PILOT_BY_V, PILOT_BOX, 990, 8)
     c = bv.v5(tmp_path, "hunt,pilot")

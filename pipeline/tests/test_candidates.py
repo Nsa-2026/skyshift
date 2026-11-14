@@ -293,3 +293,22 @@ def test_movers_carry_the_suspects_grade():
     assert set(b["reasons"]) <= set(K.REASONS["mover"])
     old = K.movers(s.drop(columns=["grade", "reasons"]), "hunt", None)
     assert old[0]["grade"] is None and old[1]["score"] == pytest.approx(a["score"])
+
+
+def test_grade_a_movers_name_their_track(monkeypatch):
+    """grade A (suspects.py: on a tracklets track): kept as A, `why` names the track, and its own two dots' weak motion
+    gives no motion_not_significant; a B with the same dots does get it."""
+    row = {"ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1,
+           "reasons": np.array([], dtype=object)}
+    s = _suspects([{**row, "id": "a", "grade": "A"}, {**row, "id": "b", "ra": 125.1, "grade": "B"}])
+    s["n_sessions"] = pd.array([3, None], dtype="Int16")  # as suspects.parquet: null off a track
+    s["rate_arcsec_h"], s["pa_deg"], s["rate_sigma"] = [25.0, np.nan], [80.0, np.nan], [0.5, np.nan]
+    monkeypatch.setattr(K, "match_mover", lambda *a, **k: pd.DataFrame({"mjd": [61000.0, 61000.0 + 2.1 / 1440]}))
+    monkeypatch.setattr(K, "motion", lambda d: (1.0, 1.0, 45.0))  # 1″/h ± 1″/h: not significant on its own
+    a, b = K.movers(s, "hunt", pd.DataFrame({"sid": [0, 1]}))
+    assert a["grade"] == "A" and "motion_not_significant" not in a["reasons"]
+    assert "followed over 3 sessions of its visit at 25.0″ an hour, 50σ" in a["why"]
+    assert b["grade"] == "B" and "motion_not_significant" in b["reasons"] and "followed" not in b["why"]
+    assert a["score"] == pytest.approx(b["score"] / K.MOVER_NO_MOTION)
+    assert a["rate_arcsec_h"] == 1.0 and a["pa_deg"] == 45.0  # contract: from its own dots
+    assert K.mover_track(next(s.drop(columns=["n_sessions"]).itertuples())) is None  # no track columns: as before

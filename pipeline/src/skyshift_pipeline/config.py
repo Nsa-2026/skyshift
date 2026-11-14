@@ -576,7 +576,8 @@ VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalo
 VET_ALLWISE = os.environ.get("SKYSHIFT_VET_ALLWISE", "1") != "0"
 VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
                                # near_source_arcsec, a blend/wing warning (not a gate)
-VET_MOTION_SIGMA = 5.0         # grade A: motion >= 5σ over >= 2 sessions; needs a multi-session linker (none yet: no A)
+VET_MOTION_SIGMA = 5.0         # grade A: B and on a tracklets track with rate_snr >= this (tracklets.parquet) ...
+VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks need TRACK_MIN_SESSIONS = 3 anyway)
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
 VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
