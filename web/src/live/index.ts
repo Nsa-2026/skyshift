@@ -3,19 +3,21 @@
 // (what is happening, progress, counters, time left, machines), the all-sky map (the one bold thing)
 // and a zone panel (side column on desktop, bottom sheet on phone).
 import type { MountPage, PageContext, PageHandle } from "../app/modules";
-import { FeedError, loadSkyrun } from "./load";
+import type { Suspect } from "../api/types";
+import { FeedError, loadSkyrun, loadZoneSuspects } from "./load";
 import {
   axisLabels,
   buildGeometry,
   mapSvg,
   markChanged,
+  markSuspects,
   neighbour,
   ring,
   updateZones,
   type MapGeometry,
   type NavKey,
 } from "./map";
-import { SkyrunInvalid, changedZones, summarize, zoneCentre, type RunSummary, type SkyRun } from "./model";
+import { SkyrunInvalid, changedZones, isProvisional, summarize, zoneCentre, type RunSummary, type SkyRun, type SkyZone } from "./model";
 import { createMinuteTicker, createRefresher } from "./refresh";
 import { fmtDuration, fmtTimePair } from "./format";
 import {
@@ -24,22 +26,26 @@ import {
   listsHtml,
   machinesHtml,
   progressHtml,
+  suspectsHtml,
   timeHtml,
   updatedText,
   zonePanelHtml,
+  type SuspectsState,
 } from "./render";
 import "./live.css";
 
 // For other pages (the Sky page's "Tonight's search" layer).
-export { FeedError, SKYRUN_URL, httpSource, loadSkyrun, type SkyrunSource } from "./load";
+export { FeedError, SKYRUN_URL, httpSource, loadSkyrun, loadZoneSuspects, type SkyrunSource } from "./load";
 export { zonesToPolygons, type ZonePolygon, type Ring } from "./project";
-export { parseSkyrun, summarize, zoneCentre, zoneContains, type SkyRun, type SkyZone, type ZoneState } from "./model";
+export { isProvisional, parseSkyrun, summarize, zoneCentre, zoneContains, type SkyRun, type SkyZone, type ZoneState } from "./model";
 
 export interface LiveDeps {
   load?: (signal: AbortSignal) => Promise<SkyRun>;
   now?: () => number;
   intervalMs?: number;
   doc?: Document;
+  /** A zone's suspects from its suspects_url (default: loadZoneSuspects). */
+  loadSuspects?: (url: string, signal: AbortSignal) => Promise<Suspect[]>;
 }
 
 const NAV_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
@@ -67,6 +73,7 @@ function errorTone(e: unknown, run: SkyRun | null): string {
 
 export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps = {}): PageHandle {
   const now = deps.now ?? Date.now;
+  const loadSuspects = deps.loadSuspects ?? ((url: string, signal: AbortSignal) => loadZoneSuspects(url, signal));
   const doc = deps.doc ?? document;
   el.innerHTML = html`
     <div class="lv">
@@ -155,6 +162,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     }
     geom = next;
     ring(svg()!, "lv-sel", selected, geom);
+    markSuspects(svg()!, selected ? susRows : [], geom, susProv);
     svg()!
       .querySelectorAll<SVGGElement>("g.z")
       .forEach((g) => {
@@ -177,18 +185,65 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
       panel.hidden = true;
       panel.innerHTML = "";
       el.querySelector(".lv")?.classList.remove("has-panel");
+      showSuspects(null);
       return;
     }
-    fill("panel", zonePanelHtml(z, now()));
+    const active = doc.activeElement as HTMLElement | null;
+    const key = active && panel.contains(active) ? active.dataset?.key : undefined;
+    fill("panel", zonePanelHtml(z, now(), run!.notes));
     panel.hidden = false;
     el.querySelector(".lv")?.classList.add("has-panel");
+    showSuspects(z);
+    if (key && !panel.contains(doc.activeElement)) panel.querySelector<HTMLElement>(`[data-key="${key.replace(/"/g, "")}"]`)?.focus();
+  }
+
+  // ---- the selected zone's suspects: loaded on demand, cached for the page's life ------------------
+  const susCache = new Map<string, Suspect[]>();
+  let susCtl: AbortController | null = null;
+  let susRows: Suspect[] = [];
+  let susProv = false;
+
+  function paintSuspects(z: SkyZone, state: SuspectsState) {
+    const section = slot("panel").querySelector<HTMLElement>("[data-sus]");
+    if (section) section.innerHTML = suspectsHtml(z, state, run?.notes);
+    susRows = state.status === "ok" ? state.rows : [];
+    susProv = isProvisional(z);
+    if (svg() && geom) markSuspects(svg()!, susRows, geom, susProv);
+  }
+
+  function showSuspects(z: SkyZone | null) {
+    const url = z?.suspects_url ?? null;
+    if (!z || !url) {
+      susCtl?.abort();
+      susCtl = null;
+      susRows = [];
+      if (svg() && geom) markSuspects(svg()!, [], geom);
+      return;
+    }
+    const cached = susCache.get(url);
+    if (cached) return paintSuspects(z, { status: "ok", rows: cached });
+    susCtl?.abort();
+    const ctl = new AbortController();
+    susCtl = ctl;
+    paintSuspects(z, { status: "loading" });
+    loadSuspects(url, ctl.signal).then(
+      (rows) => {
+        susCache.set(url, rows);
+        if (ctl.signal.aborted || selected !== z.name) return;
+        paintSuspects(z, { status: "ok", rows });
+      },
+      () => {
+        if (ctl.signal.aborted || selected !== z.name) return;
+        paintSuspects(z, { status: "error" });
+      },
+    );
   }
 
   function renderAll(prev: SkyRun | null) {
     if (!run) return;
     sum = summarize(run, now());
     fill("lede", ledeText(run, sum));
-    fill("progress", progressHtml(sum));
+    fill("progress", progressHtml(sum, now(), run.notes));
     fill("counters", countersHtml(sum));
     fill("machines", machinesHtml(sum));
     fill("lists", listsHtml(sum, now()));
@@ -254,6 +309,12 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     }
     if (t.closest("[data-close]")) return closePanel();
     if (t.closest("[data-retry]")) return refresher.refreshNow();
+    const sus = t.closest<HTMLElement>(".lv-sus-blink");
+    if (sus) {
+      const r = susRows[Number(sus.dataset.sus)];
+      if (r) ctx.explore({ ra: r.ra, dec: r.dec, clock: "hours", det: r.det });
+      return;
+    }
     if (t.closest("[data-blink]") && selected && run) {
       const z2 = run.zones.find((q) => q.name === selected);
       if (z2) ctx.explore(zoneCentre(z2));
@@ -349,6 +410,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
       shown = false;
       refresher.destroy();
       ticker.stop();
+      susCtl?.abort();
       el.innerHTML = "";
     },
   };

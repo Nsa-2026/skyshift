@@ -9,6 +9,10 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
 Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves, astrometry,
 highpm, score, suspects; `all` runs them in order.
+- Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
+  [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
+  then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
+  Reads only some columns (range reads), the dot files' `flags` and the movers' dots: ~0.4 GB from the bucket for the hunt.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.

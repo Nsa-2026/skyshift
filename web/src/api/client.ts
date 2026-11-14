@@ -162,3 +162,8 @@ export async function loadCandidates(signal?: AbortSignal): Promise<import("./ty
     return null;
   }
 }
+
+/** A candidate's static frames_url resolves against candidates.json (contracts/api.md), not the page. */
+export function candidateFramesUrl(framesUrl: string): string {
+  return new URL(framesUrl, new URL("/data/candidates.json", base())).href;
+}

@@ -768,6 +768,31 @@ def _df(parts: list[pa.Table]) -> pd.DataFrame:
     return t.to_pandas() if t is not None else pd.DataFrame()
 
 
+def clear_stale(base: str, zone: str) -> list[str]:
+    """Remove work dirs of earlier runs of this zone (<zone>-<time>-<pid>) whose process is gone: a pre-empted machine
+    restarts the zone from the top, and their slim dot mirrors would fill the disk."""
+    gone = []
+    if not os.path.isdir(base):
+        return gone
+    for n in os.listdir(base):
+        head, _, pid = n.rpartition("-")
+        if not head.startswith(f"{zone}-") or head[len(zone) + 1:].count("-") or not pid.isdigit():
+            continue
+        try:
+            os.kill(int(pid), 0)
+            if int(pid) != os.getpid():
+                continue  # that run is still going
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            continue
+        shutil.rmtree(os.path.join(base, n), ignore_errors=True)
+        gone.append(n)
+    if gone:
+        L.info("tiles %s: removed %d stale work dirs: %s", zone, len(gone), gone)
+    return gone
+
+
 class Run:
     """One tiled run of the combining steps of a zone."""
 
@@ -784,6 +809,8 @@ class Run:
         w, h = sides_deg(zone)
         self.grid, self.sides = (nx, ny), (round(w / nx, 4), round(h / ny, 4))
         base = work_dir or os.path.join(tempfile.gettempdir(), "skyshift-tiles")
+        clear_stale(base, zone.name)
+        # a fresh dir per run: nothing a stopped (pre-empted) run left half-written is ever read again
         self.work = os.path.abspath(os.path.join(base, f"{zone.name}-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"))
         os.makedirs(self.work, exist_ok=True)
         self.keep_work = keep_work
@@ -930,7 +957,7 @@ class Run:
         spec = self.store.read_parquet(results_rel(z.name, "sources.parquet")) if self.store.exists(results_rel(z.name, "sources.parquet")) else None
         orig_mdr, orig_fit = motion_io.member_dots_raw, calib.fit
         motion_io.member_dots_raw = lambda store, zone, workers=16: (d, {"member_dots_used": int(len(d))}, jac)
-        calib.fit = lambda d_, jac_, xid_, spec_=None: orig_fit(d_, jac_, xid_, spec)
+        calib.fit = lambda d_, jac_, xid_, spec_=None, **kw: orig_fit(d_, jac_, xid_, spec, **kw)  # (ref=: borrowing)
         try:
             out = calib.run(self.store, z, self.workers)
         finally:

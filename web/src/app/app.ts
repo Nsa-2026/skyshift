@@ -23,7 +23,7 @@ import { TARGETS, isEmbed, readView, targetBySlug, viewForTarget, writeView } fr
 
 const html = String.raw;
 /** Flip to true when src/atlas replaces its placeholder. */
-const ATLAS_READY = false;
+const ATLAS_READY = true;
 
 export function startApp(root: HTMLElement): void {
   const embed = isEmbed();

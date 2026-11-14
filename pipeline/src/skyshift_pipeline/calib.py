@@ -43,6 +43,14 @@ Fluxes, against each source's own spectrum (spectra.compute on the raw member do
 
 6. Forced photometry (forced/): its own PSF level and the share of the dots' PSF phase term it carries (fit_forced).
 
+Borrowed instrument terms (config CALIB_BORROW, CALIB_REF_ZONE; final pass, 15 Nov). A zone with a Gaia-only refcat has
+no 2MASS/CatWISE anchors, so its total-flux scale would stay 1. Then (and with "always") factor_ap comes from the
+reference zone's calib.json (default `hunt`); factor_psf = that × the zone's own ap_over_psf. Any per-detector table the
+zone could not fit itself (pixel phase, y-map, flux phase, forced) is taken from the reference too. Per-photo distortion,
+pos_err and the ePSF section are always the zone's own (Gaia alone is enough). calib.json `borrowed` lists the terms
+and the source; `aperture.stitches_after` (detector-boundary mismatch with the factors used) and, with own anchors,
+`aperture.anchors_after` check the borrowed scale on the zone's own data.
+
 Writes results/<zone>/calib.json (tables, constants, before/after numbers, stars used, date) and
 calib_photos.parquet. Dot files are never rewritten: their ra/dec/pos_err/fluxes stay raw; the combining steps
 (motion_io.member_dots, spectra.load_members) return corrected values when calib.json exists and exactly the
@@ -315,6 +323,35 @@ def load(store: Store, zone: C.Zone) -> dict | None:
         cal["_photos"] = store.read_parquet(prel) if store.exists(prel) else None
     _LOADED[key] = (stamp, cal)
     return cal
+
+
+def load_reference(store: Store, zone: C.Zone) -> tuple[dict | None, str]:
+    """The reference zone's calib.json for borrowing (CALIB_REF_ZONE), or (None, why not)."""
+    ref = (C.CALIB_REF_ZONE or "").strip()
+    if C.CALIB_BORROW == "off" or not ref or ref.lower() in ("none", "off"):
+        return None, "borrowing off"
+    if ref == zone.name:
+        return None, "this is the reference zone"
+    rel = results_rel(ref, C.CALIB_REL)
+    if not store.exists(rel):
+        return None, f"{rel} missing"
+    try:
+        cal = store.read_json(rel)
+    except Exception as e:  # noqa: BLE001
+        return None, f"{rel} unreadable ({e})"
+    if cal.get("schema") not in READ_SCHEMAS:
+        return None, f"{rel} has schema {cal.get('schema')}"
+    cal["_rel"] = rel
+    return cal, rel
+
+
+def fill_detectors(own: dict, ref_tables: dict | None, term: str, borrowed: dict) -> dict:
+    """Per-detector tables the zone could not fit, taken from the reference (its `check` subtree dropped)."""
+    for k, t in (ref_tables or {}).items():
+        if k not in own and t:
+            own[k] = {kk: v for kk, v in t.items() if kk != "check"}
+            borrowed.setdefault(term, []).append(int(k))
+    return own
 
 
 # --- learning: positions -----------------------------------------------------------------------
@@ -924,10 +961,15 @@ def solve_factors(anc: list[dict], sti: list[dict]) -> tuple[np.ndarray, list[di
 
 
 # --- the step ----------------------------------------------------------------------------------
-def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataFrame | None = None) -> tuple[dict, pd.DataFrame]:
+def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataFrame | None = None,
+        ref: dict | None = None) -> tuple[dict, pd.DataFrame]:
     """Member dots (motion_io.member_dots_raw: + x, y, flags_peak, photo, flux_psf_ujy) and the photos' Jacobians
     (P, 2, 2) → (calib.json dictionary without zone/date, per-photo distortion table). `spec`: the sources'
-    spectra from the same raw dots (spectra.compute); computed here when None."""
+    spectra from the same raw dots (spectra.compute); computed here when None. `ref`: a reference zone's calib.json
+    (load_reference) to borrow instrument terms from (module docstring); what was taken is in the result's
+    `_borrowed` (run() turns it into `borrowed`)."""
+    borrowed: dict = {}
+    ref_phase = ((ref or {}).get("phase") or {}).get("detectors")
     s = gaia_residuals(d, crossids)
     P = max(len(jac), int(d["photo"].max()) + 1 if len(d) else 0)
     jac = np.concatenate([jac, np.full((P - len(jac), 2, 2), np.nan)]) if len(jac) < P else jac
@@ -963,7 +1005,7 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
 
     # pass 1: phase on the offset-removed residuals
     rx, ry = to_px(raw_e, raw_n, 0.0, 0.0)
-    tables = fit_phase_tables(det, px, py, rx, ry, sig_px, hi, sid)
+    tables = fill_detectors(fit_phase_tables(det, px, py, rx, ry, sig_px, hi, sid), ref_phase, "phase", {})
     e1, n1, dx, dy = corrected(tables)
     # per-photo distortion: order by cross-validation, then fit
     order, cv = choose_photo_order(photo, xs, ys, e1, n1, sig_fit, frame_use, sid, P)
@@ -975,7 +1017,8 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
     oe, on = remove_photo_offsets(photo, e1, n1, frame_use, P)
     re_, rn_ = np.where(nofit, oe, re_), np.where(nofit, on, rn_)
     rx, ry = to_px(re_, rn_, dx, dy)
-    tables = fit_phase_tables(det, px, py, rx, ry, sig_px, hi, sid, checks={"_snr": snr, "_use": good & hasJ})
+    tables = fill_detectors(fit_phase_tables(det, px, py, rx, ry, sig_px, hi, sid, checks={"_snr": snr, "_use": good & hasJ}),
+                            ref_phase, "phase", borrowed)
     e1, n1, dx, dy = corrected(tables)
     CE, CN, used = fit_photo_poly(photo, xs, ys, e1, n1, sig_fit, frame_use, order, P)
     pe, pn = poly_offsets(CE[photo], CN[photo], xs, ys)
@@ -985,7 +1028,8 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
     phase_only_e, phase_only_n = oe, on
     # pass 3: the detector y-map (a fixed Δy(y) along the wavelength axis), then the distortion again
     _, ry3 = to_px(ce, cn, 0.0, 0.0)
-    ymap = fit_ymap(det, ys, ry3, good & hasJ & (snr >= C.CALIB_FRAME_MIN_SNR))
+    ymap = fill_detectors(fit_ymap(det, ys, ry3, good & hasJ & (snr >= C.CALIB_FRAME_MIN_SNR)),
+                          ((ref or {}).get("ymap") or {}).get("detectors"), "ymap", borrowed)
     dyy = np.where(hasJ & ~sat, ymap_offsets(ymap, det, ys), 0.0)
     if (dyy != 0).any():
         e1 = e1 - np.where(dyy != 0, J[:, 0, 1] * dyy, 0.0)
@@ -1032,7 +1076,7 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
         "scatter_photo_median_corrected": round(float(np.nanmedian(photos["scatter_corrected"])), 4) if len(photos) else None}
 
     # fluxes
-    flux_phase, aperture = fit_fluxes(d, crossids, spec)
+    flux_phase, aperture = fit_fluxes(d, crossids, spec, ref, borrowed)
 
     return {
         "schema": SCHEMA,
@@ -1053,11 +1097,16 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
                       "stars": int(np.unique(sid[good & np.isfinite(ce)]).size),
                       "rules": "crossids gaia_n == 1, parallax < %g mas; flags_peak & 0x%X == 0; photo fits from dots with S/N ≥ %g"
                                % (C.CALIB_MAX_PARALLAX_MAS, C.CALIB_SAT_BITS, C.CALIB_FRAME_MIN_SNR)},
+        "_borrowed": borrowed,
     }, photos
 
 
-def fit_fluxes(d: pd.DataFrame, crossids: pd.DataFrame, spec: pd.DataFrame | None) -> tuple[dict, dict]:
-    """Flux pixel phase (ap and psf) and the per-detector scale. Empty dicts when there is too little to fit."""
+def fit_fluxes(d: pd.DataFrame, crossids: pd.DataFrame, spec: pd.DataFrame | None, ref_cal: dict | None = None,
+               borrowed: dict | None = None) -> tuple[dict, dict]:
+    """Flux pixel phase (ap and psf) and the per-detector scale. Empty dicts when there is too little to fit.
+    With `ref_cal` (a reference zone's calib.json): flux-phase tables the zone could not fit and, when its own anchors are too few (or CALIB_BORROW is
+    "always"), factor_ap come from the reference; `borrowed` collects what was taken."""
+    borrowed = {} if borrowed is None else borrowed
     from .spectra import compute
     if spec is None:
         spec = compute(d) if len(d) else pd.DataFrame()
@@ -1089,6 +1138,11 @@ def fit_fluxes(d: pd.DataFrame, crossids: pd.DataFrame, spec: pd.DataFrame | Non
         ok = fin & (np.abs(r - np.median(r[fin])) < 0.3)
         for k, t in fit_flux_phase(det, px, py, r, ok).items():
             fp["detectors"].setdefault(k, {})[name] = t
+    for k, tabs in (((ref_cal or {}).get("flux_phase") or {}).get("detectors") or {}).items():
+        for name in ("ap", "psf"):
+            if (tabs or {}).get(name) and name not in fp["detectors"].get(k, {}):
+                fp["detectors"].setdefault(k, {})[name] = {**tabs[name], "borrowed": True}
+                borrowed.setdefault(f"flux_phase.{name}", []).append(int(k))
     cal_tmp = {"flux_phase": fp}
     fap = fl * flux_factor(cal_tmp, det, x, y, "ap")
     fps = fpsf * flux_factor(cal_tmp, det, x, y, "psf")
@@ -1097,38 +1151,57 @@ def fit_fluxes(d: pd.DataFrame, crossids: pd.DataFrame, spec: pd.DataFrame | Non
     anc = anchors(sed, sid, det, wl, fap, fps, ~sat & (snr >= C.CALIB_AP_MIN_SNR))
     sti = stitches(spec)
     ap.update({"anchors": anc, "stitches": sti, "stars_with_sed": int(len(sed[0]))})
-    if not anc:
+    ref_ap = (ref_cal or {}).get("aperture") or {}
+    own_dets = {a["detector"] for a in anc}
+    use_ref = bool(ref_ap.get("factor_ap")) and (C.CALIB_BORROW == "always" or len(own_dets) < C.CALIB_BORROW_MIN_ANCHOR_DETS)
+    if not anc and not use_ref:
         return fp, ap
-    if not C.CALIB_AP_STITCH_ANCHORED:  # a boundary between two anchored detectors: the anchors decide
-        ad = {a["detector"] for a in anc}
-        for s_ in sti:
-            if "ln_upper_over_lower" in s_ and set(s_["boundary"]) <= ad:
-                s_["unused"] = "both detectors have catalogue anchors"
-    lnf, res = solve_factors(anc, [s_ for s_ in sti if "unused" not in s_])
-    constrained = sorted({a["detector"] for a in anc} | {b for s_ in sti if "ln_upper_over_lower" in s_ and "unused" not in s_
-                                                         for b in s_["boundary"]})
-    # a detector nothing constrains: the mean of its constrained neighbours in the same arm (SWIR 1–3, MWIR 4–6), else 1
-    interp = []
-    for k in range(1, 7):
-        if k in constrained:
-            continue
-        arm = range(1, 4) if k <= 3 else range(4, 7)
-        nb = [j for j in (k - 1, k + 1) if j in arm and j in constrained]
-        lnf[k - 1] = float(np.mean([lnf[j - 1] for j in nb])) if nb else 0.0
-        interp.append(k)
-    ap["factor_ap"] = {str(k + 1): round(float(np.exp(lnf[k])), 4) for k in range(6)}
-    ap["residuals"] = res
-    ap["constrained"] = constrained
-    ap["interpolated"] = interp
+    if anc:
+        if not C.CALIB_AP_STITCH_ANCHORED:  # a boundary between two anchored detectors: the anchors decide
+            for s_ in sti:
+                if "ln_upper_over_lower" in s_ and set(s_["boundary"]) <= own_dets:
+                    s_["unused"] = "both detectors have catalogue anchors"
+        lnf, res = solve_factors(anc, [s_ for s_ in sti if "unused" not in s_])
+        constrained = sorted(own_dets | {b for s_ in sti if "ln_upper_over_lower" in s_ and "unused" not in s_
+                                         for b in s_["boundary"]})
+        # a detector nothing constrains: the mean of its constrained neighbours in the same arm (SWIR 1–3, MWIR 4–6), else 1
+        interp = []
+        for k in range(1, 7):
+            if k in constrained:
+                continue
+            arm = range(1, 4) if k <= 3 else range(4, 7)
+            nb = [j for j in (k - 1, k + 1) if j in arm and j in constrained]
+            lnf[k - 1] = float(np.mean([lnf[j - 1] for j in nb])) if nb else 0.0
+            interp.append(k)
+        own = {"factor_ap": {str(k + 1): round(float(np.exp(lnf[k])), 4) for k in range(6)},
+               "residuals": res, "constrained": constrained, "interpolated": interp}
+    if use_ref:
+        if anc:
+            ap["own"] = own  # what the zone's own anchors gave (kept for comparison)
+        lnf = np.array([np.log(ref_ap["factor_ap"].get(str(k)) or 1.0) for k in range(1, 7)])
+        ap.update({"factor_ap": {str(k): round(float(np.exp(lnf[k - 1])), 4) for k in range(1, 7)},
+                   "constrained": [], "interpolated": [], "source": f"borrowed: {ref_cal.get('_rel', 'reference')}"})
+        borrowed["aperture.factor_ap"] = list(range(1, 7))
+    else:
+        ap.update(own)
     psf_over = {}
     for k in range(1, 7):
         m = (det == k) & ~sat & (snr >= C.CALIB_FLUX_MIN_SNR) & np.isfinite(fps) & (fps > 0) & np.isfinite(fap)
         psf_over[str(k)] = round(float(np.exp(np.median(np.log(fap[m] / fps[m])))), 4) if m.sum() >= C.CALIB_MIN_STARS else None
+    if use_ref:  # a detector without its own ap/psf ratio takes the reference's
+        for k, v in (ref_ap.get("ap_over_psf") or {}).items():
+            if psf_over.get(k) is None and v is not None:
+                psf_over[k] = v
+                borrowed.setdefault("aperture.ap_over_psf", []).append(int(k))
     ap["ap_over_psf"] = psf_over
     ap["factor_psf"] = {k: (round(ap["factor_ap"][k] * v, 4) if v is not None else None) for k, v in psf_over.items()}
-    # after: the anchors again with the factors applied
+    # after: the anchors and the detector-boundary stitches again with the factors applied (with borrowed factors these
+    # are the check on the zone's own data: stitch mismatch ln(upper/lower) ≈ 0 when the scale fits)
     ap["anchors_after"] = [{"band": a["band"], "detector": a["detector"], "ratio_ap": round(float(np.exp(a["ln_ratio"] - lnf[a["detector"] - 1])), 4)}
                            for a in anc]
+    ap["stitches_after"] = [{"boundary": s_["boundary"], "ln_upper_over_lower": round(float(
+        s_["ln_upper_over_lower"] + lnf[s_["boundary"][1] - 1] - lnf[s_["boundary"][0] - 1]), 4)}
+        for s_ in sti if "ln_upper_over_lower" in s_]
     return fp, ap
 
 
@@ -1212,10 +1285,12 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
         L.warning("calib %s: no crossids.parquet: nothing to learn from, dots stay raw", zone.name)
         return {"calib": "skipped: no crossids"}
     d, st, jac = member_dots_raw(store, zone, workers)
-    cal, photos = fit(d, jac, store.read_parquet(xid_rel))
+    ref, ref_why = load_reference(store, zone)
+    cal, photos = fit(d, jac, store.read_parquet(xid_rel), ref=ref)
+    borrowed = cal.pop("_borrowed", {})
     cal.update({"zone": zone.name, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "photos_with_jacobian": int(np.isfinite(jac).all(axis=(1, 2)).sum()), "photos": int(len(jac))})
-    if not cal["phase"]["detectors"] and not cal["pos_err"]["detectors"]:
+    if set(cal["phase"]["detectors"]) <= {str(k) for k in borrowed.get("phase", [])} and not cal["pos_err"]["detectors"]:
         L.warning("calib %s: too few Gaia-matched dots (%d): no calib.json, dots stay raw", zone.name, cal["selection"]["dots_used"])
         return {"calib": "skipped: too few stars", **cal["selection"]}
     try:  # optional: never fails calib
@@ -1223,14 +1298,28 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     except Exception as e:  # noqa: BLE001
         L.warning("calib %s: forced photometry's level not fitted (%s): forced fluxes take the dots' scale", zone.name, e)
         forced = {}
+    if ref is not None and len(forced) < 6:
+        forced = fill_detectors(forced, (ref.get("forced") or {}).get("detectors"), "forced", borrowed)
     if forced:
         cal["forced"] = {"model": "forced flux_psf_ujy × factor_psf[d] × exp(−phase_frac[d] × the dots' PSF phase model at the "
                                   "target's pixel); forced aperture fluxes: the dots' flux_factor 'ap'", "detectors": forced}
+    if borrowed:
+        own_dets = sorted({a["detector"] for a in cal["aperture"].get("anchors", [])})
+        cal["borrowed"] = {"from": ref["_rel"], "zone": ref.get("zone"), "ref_created": ref.get("created"),
+                           "ref_schema": ref.get("schema"), "mode": C.CALIB_BORROW,
+                           "own_anchor_detectors": own_dets, "min_anchor_detectors": C.CALIB_BORROW_MIN_ANCHOR_DETS,
+                           "terms": {k: sorted(set(v)) for k, v in borrowed.items()},
+                           "own": "per-photo distortion, pos_err, psf (ePSF positions), ap_over_psf where measured, "
+                                  "and every table not listed in terms"}
+        L.info("calib %s: borrowed from %s: %s", zone.name, ref["_rel"], cal["borrowed"]["terms"])
+    elif not cal["aperture"].get("factor_ap"):
+        L.warning("calib %s: no flux anchors and nothing borrowed (%s): total-flux factors stay 1", zone.name, ref_why)
     store.write_parquet(results_rel(zone.name, PHOTOS_REL), photos)
     store.write_json(results_rel(zone.name, C.CALIB_REL), cal)  # last: its existence means calib is done
     out = {"detectors_phase": sorted(cal["phase"]["detectors"]), "detectors_pos_err": sorted(cal["pos_err"]["detectors"]),
            "distortion_order": cal["distortion"]["order"], "photos_distortion": int(len(photos)),
            "factor_ap": cal["aperture"].get("factor_ap"), "factor_psf": cal["aperture"].get("factor_psf"),
+           "borrowed": (cal.get("borrowed") or {}).get("terms"),
            **cal["selection"], "wall_s": round(time.time() - t0, 1)}
     for k, v in cal["summary"].items():
         hs = v[f"snr_ge_{int(C.CALIB_PHASE_MIN_SNR)}"]

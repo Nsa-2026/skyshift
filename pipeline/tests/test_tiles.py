@@ -410,3 +410,16 @@ def test_all_runs_the_combining_steps_tiled(tmp_path, monkeypatch):
     assert cli.main(["all", "--zone", ZONE.name, "--root", store.root, "--workers", "1", "--from", "link", "--tiles", "4",
                      "--tile-dir", str(tmp_path / "work")]) == 0
     assert store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]["tiles"]["zone_edge_margin"] is True
+
+
+def test_stale_work_dirs_are_cleared(tmp_path):
+    """A pre-empted run's work dir (its process gone) is removed when the zone starts again; a live run's is kept."""
+    import os
+    dead = tmp_path / "tst-20261114T010203-999999"
+    (dead / "tiles").mkdir(parents=True)
+    live = tmp_path / f"tst-20261114T010203-{os.getppid()}"
+    live.mkdir()
+    other = tmp_path / "tst2-20261114T010203-999999"
+    other.mkdir()
+    assert tiles.clear_stale(str(tmp_path), "tst") == [dead.name]
+    assert live.exists() and other.exists() and not dead.exists()

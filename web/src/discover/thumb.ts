@@ -1,3 +1,4 @@
+import { candidateFramesUrl } from "../api/client";
 // Row thumbnails: the candidate's first frame as a small plate negative (DESIGN.md "Plate
 // drawing"), drawn lazily when the row scrolls into view. Without frames_url: an empty plate with
 // the target reticle, so every row has the same shape.
@@ -114,7 +115,7 @@ async function framesFor(url: string, signal?: AbortSignal): Promise<FramesRespo
 /** Load the candidate's first frame (its own detector first) and draw it. Throws on failure. */
 export async function drawThumb(canvas: HTMLCanvasElement, c: Candidate, signal?: AbortSignal): Promise<void> {
   if (!c.frames_url) throw new Error("no frames");
-  const jsonUrl = new URL(c.frames_url, location.href).href;
+  const jsonUrl = candidateFramesUrl(c.frames_url);
   const frames = await framesFor(jsonUrl, signal);
   const ep = epochsFor(frames, c.det)[0] ?? frames.epochs[0];
   if (!ep) throw new Error("no epochs");
