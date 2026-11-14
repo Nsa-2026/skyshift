@@ -10,26 +10,26 @@ The user subsequently requested: retain the integration and do not deploy for no
 - Started from upstream `8522cd7`, then incorporated the latest fetched main, `84b0f1c` (including the QA pipeline, honest UI copy, featured zones and measured-layer contract).
 - Imported the user's scientific work from `9b1c775`, retaining its history. The original prototype and working copies were not changed.
 - Preserved main's Lightbox UI, sky atlas, original blink observations, object measurements, review, live search, courses, votes and tools.
-- Replaced the long Science disclosure with three workspace levels: Explore (Amateur), Analyze (Professional) and Research (Expert). They share one player and canonical measurements. The home page opens Explore; the atlas remains at `#/sky`.
+- Replaced the long Science disclosure with three task-based workspace views: Explore, Analyze and Research. They share one player and canonical measurements. The view switcher uses task names without audience labels or numbered ranks. The home page opens Explore; the atlas remains at `#/sky`.
 - Included motion and cold-source checks, D3/D6 comparison, DR1 reference spectrum, synthetic W1/W2 and experimental halo light curves, spectral audio, sensitivity estimates, catalogue checks, cultural modules and exports.
 - The retained preview uses English throughout, including scientific messages, accessibility labels, historical sky charts, guest-star captions and planet events. English cultural displays use the existing English names and records; scientific data and the bilingual source records are preserved.
 - This release does not import the prototype's game or API inspector.
 
 The change spans core (legacy analysis adapter), server, web, precompute scripts and container packaging. Repeated wavelengths now use the weighted-mean fallback when the polynomial normal matrix is rank deficient; a regression test also checks that full-rank spectra retain their polynomial fit. The first remote Linux CI run exposed a pre-existing race in spectra loader statistics: shared counter updates occasionally omitted a photo. Workers now return their own counts for serial aggregation. A barrier-based regression reproduces the loss before the fix (10 instead of 40) and passes after it. No new formal contract fields are introduced by this integration.
 
-## Three-level workspace
+## Task-based workspace views
 
-| Level | Route | Reading surface |
+| View | Route | Reading surface |
 | --- | --- | --- |
-| Explore · Amateur | `#/explore` | Original observations, a short target/motion summary, quality warnings and a guided next step. Advanced player controls and dense charts stay out of this view. |
-| Analyze · Professional | `#/explore/analyze/<section>` | Motion, Spectrum, Light curve, Compare bands, Cross-match or Signals; one section at a time beside the same player. |
-| Research · Expert | `#/explore/research/<section>` | Data/provenance, Processing, Validation, Sensitivity or Export. Local-only computation remains gated by actual server capability. |
+| Explore | `#/explore` | Original observations, a short target/motion summary, quality warnings and a guided next step. Advanced player controls and dense charts stay out of this view. |
+| Analyze | `#/explore/analyze/<section>` | Motion, Spectrum, Light curve, Compare bands, Cross-match or Signals; one section at a time beside the same player. |
+| Research | `#/explore/research/<section>` | Data/provenance, Processing, Validation, Sensitivity or Export. Local-only computation remains gated by actual server capability. |
 
-Switching levels keeps the target, detector, clock, current frame, highlighted position and the last section used in each professional level. A derived layer retains its explicit caption and a Show observations action. Changing a target clears stale results. Data and methods are shared rather than refitted for each audience; simplified views retain uncertainty and quality disclosures.
+Switching views keeps the target, detector, clock, current frame, highlighted position and the last section used in each view. A derived layer retains its explicit caption and a Show observations action. Changing a target clears stale results. Data and methods are shared rather than refitted for each audience; simplified views retain uncertainty and quality disclosures.
 
 The former `#/explore/science` link opens Research → Processing. Historical asterisms, guest-star images and planet events now live at `#/learn/stories`, linked from Learn. They load only when opened and return to the same workspace observation. Stories do not affect scientific scoring.
 
-Browser checks exercised all sections, the real model layer, source metadata, a paused second exposure retained across all three levels and Stories, and the 390px layout. Current screenshots are in `docs/previews/workspace`; earlier science-release screenshots document the previous UI.
+Browser checks exercised all sections, the real model layer, source metadata, a paused second exposure retained across all three views and Stories, and the 390px layout. Current screenshots are in `docs/previews/workspace`; earlier science-release screenshots document the previous UI.
 
 ## Data and deployment boundaries
 
@@ -47,7 +47,7 @@ Arbitrary-field background analysis is local-only by default. `SKYSHIFT_ENABLE_S
 
 Locked Python environments and `npm ci` were used. Logs are under the ignored `.runtime/release` directory. The production TypeScript/Vite build succeeds; the existing bundle-size warning remains.
 
-The full suites passed 1,319 tests: web 731, server 279, core 62, pipeline 195, scientific helpers 19 and validation utilities 33. Three optional network tests were skipped. The workspace UI revision reran all 731 web tests and the production build. Integration checks verify that mode/section changes and hash-history navigation retain the current observation, metadata and selected signal without reloading the player; Explore does not request extended science products. English chart text and historical/event descriptions remain covered. Release tests specifically check that raw observations bypass legacy caches, all five scientific products work without native jobs, published image grids are not relabelled, exports remain portable, and hosted background jobs are disabled.
+The full suites passed 1,319 tests: web 731, server 279, core 62, pipeline 195, scientific helpers 19 and validation utilities 33. Three optional network tests were skipped. The workspace UI revision reran all 731 web tests and the production build. Integration checks verify that view/section changes and hash-history navigation retain the current observation, metadata and selected signal without reloading the player; Explore does not request extended science products. English chart text and historical/event descriptions remain covered. Release tests specifically check that raw observations bypass legacy caches, all five scientific products work without native jobs, published image grids are not relabelled, exports remain portable, and hosted background jobs are disabled.
 
 HTTP smoke checks passed for all five science/analysis APIs and model/residual/reference layers (25 groups), including every returned binary frame's size. Browser verification covered the five targets, scientific navigation, candidate checks, reference overlays, comparison, original object list and lessons, and a 390-pixel mobile viewport without horizontal overflow. Screenshots and UI checks are in `docs/previews/science-release`.
 

@@ -1,10 +1,10 @@
 export type WorkspaceMode = 'explore' | 'analyze' | 'research';
 export const MODES = {
-  explore: {title:'Explore the sky', audience:'Amateur', description:'Watch the sky change. Start with what you can see.', tabs:[]},
-  analyze: {title:'Analyze the evidence', audience:'Professional', description:'Check one line of evidence at a time.', tabs:[
+  explore: {title:'Explore the sky', description:'Watch the sky change. Start with what you can see.', tabs:[]},
+  analyze: {title:'Analyze the evidence', description:'Check one line of evidence at a time.', tabs:[
     ['motion','Motion'],['spectrum','Spectrum'],['lightcurve','Light curve'],['compare','Compare bands'],['crossmatch','Cross-match'],['signals','Signals'],
   ]},
-  research: {title:'Research the result', audience:'Expert', description:'Trace the data, inspect the processing and test the assumptions.', tabs:[
+  research: {title:'Research the result', description:'Trace the data, inspect the processing and test the assumptions.', tabs:[
     ['data','Data'],['processing','Processing'],['validation','Validation'],['sensitivity','Sensitivity'],['export','Export'],
   ]},
 } as const;

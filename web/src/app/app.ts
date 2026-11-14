@@ -84,10 +84,10 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-blink" data-page="explore" hidden>
       <header class="workspace-head">
         <div><p class="workspace-eyebrow">Your workspace</p><h1 id="blink-h1">Explore the sky</h1><p class="workspace-description"></p></div>
-        <nav class="workspace-levels" aria-label="Workspace level">
-          <a href="#/explore" data-level="explore"><span class="workspace-level-number">01</span><span>Explore<small>Amateur</small></span></a>
-          <a href="#/explore/analyze" data-level="analyze"><span class="workspace-level-number">02</span><span>Analyze<small>Professional</small></span></a>
-          <a href="#/explore/research" data-level="research"><span class="workspace-level-number">03</span><span>Research<small>Expert</small></span></a>
+        <nav class="workspace-modes" aria-label="Workspace view">
+          <a href="#/explore" data-level="explore">Explore</a>
+          <a href="#/explore/analyze" data-level="analyze">Analyze</a>
+          <a href="#/explore/research" data-level="research">Research</a>
         </nav>
       </header>
       <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
