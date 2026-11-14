@@ -16,6 +16,7 @@ dependencies = [
     "requests>=2.31",
     "scipy>=1.11",
     "kete==3.3.0",  # known: MPC orbits (the default known source)
+    "astropy-healpix>=1.0",
 ]
 
 [project.scripts]

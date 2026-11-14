@@ -14,11 +14,24 @@ import {
 } from "firebase/firestore";
 import type { SkyPos } from "../api/types";
 import { sepArcsec } from "../app/astro";
-import { candidateDoc, countVotes, toCandidate, voteDoc, type Answer, type Candidate, type CandidateDoc, type Counts } from "./model";
+import {
+  candidateDoc,
+  countVotes,
+  toCandidate,
+  toVoteRecord,
+  voteDoc,
+  type Answer,
+  type Candidate,
+  type CandidateFields,
+  type Counts,
+  type VoteRecord,
+} from "./model";
 import { toVoteError, withTimeout, type FirebaseConfig, type VoteStore } from "./store";
 
 const TIMEOUT_MS = 12_000;
 const MAX_NEAR = 500;
+/** allVotes / allCandidates read at most this many documents (one read each). */
+const MAX_ALL = 20_000;
 const IN_CHUNK = 30; // Firestore "in" takes at most 30 values
 
 export class FirestoreStore implements VoteStore {
@@ -63,11 +76,31 @@ export class FirestoreStore implements VoteStore {
     return countVotes(votes);
   }
 
-  async flag(doc: CandidateDoc): Promise<Candidate> {
-    const clean = candidateDoc(doc);
+  async flag(fields: CandidateFields): Promise<Candidate> {
+    // created: serverTimestamp(); the rules require created == request.time (contracts/api.md v2.1).
+    const doc = candidateDoc(fields, serverTimestamp());
     try {
-      const ref = await withTimeout(addDoc(collection(this.db, "candidates"), clean), TIMEOUT_MS);
-      return { id: ref.id, ...clean };
+      const ref = await withTimeout(addDoc(collection(this.db, "candidates"), doc), TIMEOUT_MS);
+      // The server's time comes back on the next read; until then, this browser's clock.
+      return { id: ref.id, ...doc, created: Date.now() };
+    } catch (e) {
+      throw toVoteError(e);
+    }
+  }
+
+  async allVotes(): Promise<VoteRecord[]> {
+    try {
+      const snap = await withTimeout(getDocs(query(collection(this.db, "votes"), limit(MAX_ALL))), TIMEOUT_MS);
+      return snap.docs.map((d) => toVoteRecord(d.data())).filter((v): v is VoteRecord => v !== null);
+    } catch (e) {
+      throw toVoteError(e);
+    }
+  }
+
+  async allCandidates(): Promise<Candidate[]> {
+    try {
+      const snap = await withTimeout(getDocs(query(collection(this.db, "candidates"), limit(MAX_ALL))), TIMEOUT_MS);
+      return snap.docs.map((d) => toCandidate(d.id, d.data())).filter((c): c is Candidate => c !== null);
     } catch (e) {
       throw toVoteError(e);
     }

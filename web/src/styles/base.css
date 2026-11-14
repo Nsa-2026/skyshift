@@ -6,6 +6,11 @@
   box-sizing: border-box;
 }
 
+/* hidden always wins over a component's display rule. */
+[hidden] {
+  display: none !important;
+}
+
 html {
   color-scheme: light;
   -webkit-text-size-adjust: 100%;
