@@ -20,6 +20,10 @@ from skyshift_pipeline.store import Store, dots_rel, results_rel
 ZONE = C.Zone("t_frag", 124.0, 127.0, 18.0, 21.0)
 EPOCH = 61000.0
 P0, P1, P4, P6, P7, P8, P9 = (125.5, 19.5), (125.0, 19.0), (126.0, 20.0), (124.5, 18.5), (126.5, 18.5), (124.5, 20.5), (126.5, 20.5)
+# second sources of one star, stars seen > 3″ off, faint blends (15 Nov)
+Q0, Q1, Q2, Q3, Q4, Q5, Q6, Q7 = ((124.3, 19.5), (126.7, 19.5), (125.5, 18.3), (125.5, 20.7), (124.3, 18.3), (126.7, 20.7),
+                                  (124.3, 20.7), (126.7, 18.3))
+DT_FAST = 180.0  # days between a fast star's two single-visit sources
 
 
 def off(p, e, n):
@@ -31,7 +35,8 @@ def make_zone(tmp_path, flags_peak=True) -> Store:
     store = Store(str(tmp_path))
     dt = (EPOCH - GAIA_EPOCH_MJD) / DAYS_PER_JYEAR
     s3 = off(P1, 0, 20)
-    # (source_id, sources.parquet position, link position, BLOOM on its 4 dots, saturated peak on its 4 dots, crossid Gaia)
+    fast_n = 5000.0 * DT_FAST / DAYS_PER_JYEAR / 1000.0  # ″ a 5″/yr star moves between its two sources
+    # (source_id, sources.parquet position, link position, BLOOM per member dot, saturated peak per member dot, crossid Gaia)
     src = [
         (1, P0, P0, [1, 1, 1, 1], [1, 1, 1, 0], 1000),       # a G 7 star: saturated_star
         (2, off(P0, 12, 0), None, [1, 1, 1, 0], [0] * 4, -1),  # its ring: bright_fragment, parent 1000 / source 1
@@ -42,20 +47,43 @@ def make_zone(tmp_path, flags_peak=True) -> Store:
         (7, P7, None, [1, 1, 1, 1], [0] * 4, -1),              # a fast Gaia star reaches it only at the source's epoch
         (8, P8, None, [0] * 4, [0] * 4, 1007),                 # a plain Gaia star
         (9, off(P9, 0, 30), None, [1, 1, 1, 1], [0] * 4, -1),  # fragment of a 2MASS-only K 5 star
+        (10, off(Q0, 0.3, 0), None, [0] * 4, [0] * 4, 1010),    # a G 14 star: crossid's match is kept ...
+        (11, off(Q0, -2.6, 0), None, [0] * 6, [0] * 6, -1),     # ... over its second source with more dots: duplicate
+        (12, off(Q1, 2.0, 0), None, [0] * 8, [0] * 8, -1),      # no crossid match: the most dots is kept ...
+        (13, off(Q1, -2.5, 0), None, [0] * 3, [0] * 3, -1),     # ... the other is its duplicate
+        (14, Q2, None, [0] * 4, [0] * 4, 1014),                 # a 5″/yr star's two visits: two sources, no duplicate
+        (15, off(Q2, 0, fast_n), None, [0] * 4, [0] * 4, 1014),
+        (16, Q3, None, [0] * 5, [0] * 5, 1016),                 # a G 16 star ...
+        (17, off(Q3, 2.8, 0), None, [0] * 4, [0] * 4, -1),      # ... and a CatWISE object 0.2″ from this one: not its duplicate
+        (18, off(Q4, -0.2, 0), None, [0] * 6, [0] * 6, 1018),   # a G 17 star ...
+        (19, off(Q4, 1.4, 0), None, [0] * 4, [0] * 4, -1),      # ... and a source that may be a G 19.5 star without one
+        (20, off(Q5, 3.6, 0), None, [1] * 6, [1] * 6, -1),      # a G 10.5 star seen 3.6″ off (BLOOM): the star ...
+        (21, off(Q5, -12, 0), None, [1] * 4, [0] * 4, -1),      # ... its ring: parent source 20
+        (22, off(Q6, 3.5, 0), None, [1] * 4, [0] * 4, -1),      # a 4-dot BLOOM piece 3.5″ from a G 15 star: a fragment
+        (23, off(Q7, 3.5, 0), None, [1] * 12, [0] * 12, -1),    # 12 BLOOM dots 3.5″ from a G 15 star: that star
+        (24, off(P1, -30, 30), None, [0] * 4, [0] * 4, -1),     # between two G 18.4 / 18.6 stars: blend (G < 19)
     ]
+    epochs = {15: EPOCH + DT_FAST}
     gaia = [  # (id, position at J2016, G, pmdec mas/yr)
         (1000, P0, 7.0, 0.0), (1001, P1, 9.0, 0.0), (1002, off(s3, 6, 0), 11.5, 0.0), (1003, P4, 8.0, 0.0),
         (1004, off(P6, 2.5, 0), 14.0, 0.0), (1005, off(P6, -2.4, 0), 15.5, 0.0),
-        (1006, off(P7, 1.0, -2000.0 * dt / 1000.0), 16.0, 2000.0), (1007, off(P8, 0.5, 0), 13.0, 0.0)]
+        (1006, off(P7, 1.0, -2000.0 * dt / 1000.0), 16.0, 2000.0), (1007, off(P8, 0.5, 0), 13.0, 0.0),
+        (1010, Q0, 14.0, 0.0), (1012, Q1, 15.0, 0.0), (1014, off(Q2, 0, -5000.0 * dt / 1000.0), 13.0, 5000.0),
+        (1016, Q3, 16.0, 0.0), (1018, Q4, 17.0, 0.0), (1019, off(Q4, 3.2, 0), 19.5, 0.0), (1020, Q5, 10.5, 0.0),
+        (1022, Q6, 15.0, 0.0), (1023, Q7, 15.0, 0.0), (1024, off(P1, -32.5, 30), 18.4, 0.0),
+        (1025, off(P1, -27.6, 30), 18.6, 0.0)]
+    cw = off(Q3, 3.0, 0)
     ref = pd.DataFrame({
-        "ref_id": [f"gaia:{g[0]}" for g in gaia] + ["2mass:J1"], "cat": ["gaia"] * len(gaia) + ["2mass"],
-        "ra": [g[1][0] for g in gaia] + [P9[0]], "dec": [g[1][1] for g in gaia] + [P9[1]],
-        "epoch_mjd": [GAIA_EPOCH_MJD] * len(gaia) + [np.nan], "pmra": 0.0, "pmdec": [g[3] for g in gaia] + [np.nan],
-        "parallax": np.nan, "g": [g[2] for g in gaia] + [np.nan], "k": [np.nan] * len(gaia) + [5.0], "w1": np.nan})
+        "ref_id": [f"gaia:{g[0]}" for g in gaia] + ["2mass:J1", "catwise:W1"],
+        "cat": ["gaia"] * len(gaia) + ["2mass", "catwise"],
+        "ra": [g[1][0] for g in gaia] + [P9[0], cw[0]], "dec": [g[1][1] for g in gaia] + [P9[1], cw[1]],
+        "epoch_mjd": [GAIA_EPOCH_MJD] * len(gaia) + [np.nan] * 2, "pmra": 0.0,
+        "pmdec": [g[3] for g in gaia] + [np.nan] * 2, "parallax": np.nan, "g": [g[2] for g in gaia] + [np.nan] * 2,
+        "k": [np.nan] * len(gaia) + [5.0, np.nan], "w1": [np.nan] * len(gaia) + [np.nan, 15.0]})
     store.write_parquet(C.REFCAT_REL.format(zone=ZONE.name), ref)
     dots, members = {}, []
     for sid, pos, _, bloom, sat, _ in src:
-        for k in range(4):
+        for k in range(len(bloom)):
             d = dots.setdefault(("A" if k < 2 else "B", 1), [])
             members.append((sid, "A" if k < 2 else "B", 1, len(d)))
             d.append({"ra": pos[0], "dec": pos[1], "flags": BLOOM * bloom[k] | (1 << 20), "flags_peak": SAT_BITS * sat[k]})
@@ -70,7 +98,7 @@ def make_zone(tmp_path, flags_peak=True) -> Store:
     store.write_parquet(results_rel(ZONE.name, "fixed.parquet"), pd.DataFrame({
         "source_id": ids, "ra": [(s[2] or s[1])[0] for s in src], "dec": [(s[2] or s[1])[1] for s in src]}))
     store.write_parquet(results_rel(ZONE.name, "crossids.parquet"), pd.DataFrame({
-        "source_id": ids, "epoch_mjd": EPOCH, "gaia_id": [s[5] for s in src],
+        "source_id": ids, "epoch_mjd": [epochs.get(i, EPOCH) for i in ids], "gaia_id": [s[5] for s in src],
         "gaia_sep_arcsec": [0.0 if s[5] >= 0 else np.nan for s in src]}))
     return store
 
@@ -83,7 +111,10 @@ def test_fragments_step_tags_fragments_saturated_stars_and_blends(tmp_path, monk
     assert list(t.columns) == F.COLUMNS
     t = t.set_index("source_id")
     assert t["tag"].to_dict() == {1: "saturated_star", 2: "bright_fragment", 3: "bright_fragment", 4: "saturated_star",
-                                  5: "bright_fragment", 6: "blend", 7: "saturated_star", 8: "", 9: "bright_fragment"}
+                                  5: "bright_fragment", 6: "blend", 7: "saturated_star", 8: "", 9: "bright_fragment",
+                                  10: "", 11: "duplicate", 12: "", 13: "duplicate", 14: "", 15: "", 16: "", 17: "", 18: "",
+                                  19: "", 20: "saturated_star", 21: "bright_fragment", 22: "bright_fragment",
+                                  23: "saturated_star", 24: "blend"}
     assert t.loc[1, "n_member_dots"] == 4 and t.loc[2, "bloom_frac"] == pytest.approx(0.75)
     assert t.loc[1, "sat_frac"] == pytest.approx(0.75) and t.loc[8, "transient_frac"] == 0.0
     # Gaia moved by its proper motion to the source's epoch: 1″, not the catalogue's 19.8″
@@ -105,12 +136,24 @@ def test_fragments_step_tags_fragments_saturated_stars_and_blends(tmp_path, monk
     assert t.loc[6, "n_gaia_8"] == 2 and list(t.loc[6, "blend_ids"]) == [1005, 1004]
     assert t.loc[6, "blend_sep_arcsec"] == pytest.approx(4.9, abs=0.01) and t.loc[6, "blend_dg"] == pytest.approx(1.5)
     assert list(t.loc[8, "blend_ids"]) == [] and np.isnan(t.loc[8, "blend_sep_arcsec"])
+    # one star, two sources: the duplicate names the kept source (crossid's match, else the most dots) and the star
+    assert t.loc[11, ["duplicate_of", "parent_source_id", "parent_gaia_id"]].tolist() == [10, 10, 1010]
+    assert t.loc[11, "parent_dist_arcsec"] == pytest.approx(2.6, abs=0.01) and t.loc[11, "parent_mag"] == pytest.approx(14.0)
+    assert t.loc[13, ["duplicate_of", "parent_gaia_id"]].tolist() == [12, 1012]
+    assert (t.loc[[10, 12, 14, 15, 16, 17, 18, 19, 20], "duplicate_of"] == -1).all()
+    # a star seen 3.6″ off is that star (G < 11), and its ring's parent source; a faint star's needs FRAGMENTS_STAR_MIN_DOTS
+    assert t.loc[20, "match_dist_arcsec"] == pytest.approx(3.6, abs=0.01) and t.loc[20, "parent_gaia_id"] == -1
+    assert t.loc[21, ["parent_gaia_id", "parent_source_id"]].tolist() == [1020, 20]
+    # blends count Gaia companions to G 19
+    assert list(t.loc[24, "blend_ids"]) == [1025, 1024] and t.loc[24, "blend_dg"] == pytest.approx(0.2, abs=1e-4)
     rep = json.loads((tmp_path / f"results/{ZONE.name}/{F.REPORT}").read_text())
-    assert rep["counts"]["tags"] == {"bright_fragment": 4, "saturated_star": 3, "blend": 1}
-    assert rep["bright_fragment_parents"]["with_parent"] == 3 and rep["bright_fragment_parents"]["with_parent_source"] == 2
+    assert rep["counts"]["tags"] == {"bright_fragment": 6, "duplicate": 2, "saturated_star": 5, "blend": 2}
+    assert rep["bright_fragment_parents"]["with_parent"] == 4 and rep["bright_fragment_parents"]["with_parent_source"] == 3
+    assert rep["duplicates"]["stars"] == 2 and rep["stats"]["stars"]["not_duplicate"] == {
+        "star_moved": 1, "own_catalogue_entry": 1, "other_star_without_source": 1}
     assert "seconds" not in rep["stats"]
     summ = json.loads((tmp_path / f"results/{ZONE.name}/summary.json").read_text())["steps"]["fragments"]
-    assert summ["tags"]["blend"] == 1 and "error" not in summ
+    assert summ["tags"]["blend"] == 2 and summ["tags"]["duplicate"] == 2 and "error" not in summ
 
 
 def test_without_flags_peak_sat_frac_is_nan(tmp_path):
@@ -152,6 +195,9 @@ def test_highpm_hook():
     assert out["source_id"].tolist() == [8, 2, 9]                      # vetted first
     assert out["reason"].tolist() == ["", "fragment", "short_span"] and out["vetted"].tolist() == [True, False, False]
     assert out["status"].tolist() == ["gaia", "new", "new"]
+    out, st = F.apply_highpm(c, pd.Series({9: "duplicate", 6: "blend"}))  # a star's second source: as a fragment
+    assert st == {"applied": True, "fragment": 1, "blend_not_new": 1}
+    assert out.set_index("source_id").loc[9, "reason"] == "short_span,fragment"
 
 
 def test_candidates_hook_unit():
@@ -162,13 +208,15 @@ def test_candidates_hook_unit():
     out, st = F.apply_candidates([dict(c, reasons=list(c["reasons"])) for c in cands], pd.Series({2: "bright_fragment", 3: "blend"}))
     assert [c["id"] for c in out] == ["b", "c"] and out[0]["reasons"] == ["no_gaia", "blend"]
     assert st == {"applied": True, "dropped_fragment": 1, "blend": 1}
+    out, st = F.apply_candidates([dict(c, reasons=list(c["reasons"])) for c in cands], pd.Series({3: "duplicate"}))
+    assert [c["id"] for c in out] == ["a", "c"] and st["dropped_fragment"] == 1
 
 
 def test_candidates_build_uses_the_tags(tmp_path):
     from test_candidates import _zone_files
     store = Store(str(tmp_path / "bucket"))
     _zone_files(store, "hunt", 125.0, 20.0, with_extra_mover=False)
-    write_tags(store, "hunt", {100: "blend", 101: "bright_fragment"})
+    write_tags(store, "hunt", {100: "blend", 101: "duplicate"})
     doc = K.build(store, ["hunt"], tmp_path / "data")
     ids = [c["id"] for c in doc["candidates"]]
     assert "hunt-sp-101" not in ids and "hunt-sp-100" in ids and doc["counts"]["spectral"] == 1
@@ -184,10 +232,11 @@ def test_orphans_drop_fragments_and_blends(tmp_path, rng, monkeypatch):
     store = orphan_zone(tmp_path, rng)
     monkeypatch.setitem(C.ZONES, OZ.name, OZ)
     monkeypatch.setattr(C, "ORPHANS_CONTROL_N", 2)
-    write_tags(store, OZ.name, {101: "bright_fragment", 201: "blend"})
+    write_tags(store, OZ.name, {101: "bright_fragment", 201: "blend", 206: "duplicate"})
     assert main(["orphans", "--zone", OZ.name, "--root", str(tmp_path), "--workers", "2"]) == 0
     o = store.read_parquet(results_rel(OZ.name, "orphans.parquet")).set_index("source_id")
     assert o.loc[101, "reason"] == "bright_fragment" and o.loc[201, "reason"] == "blend"
+    assert o.loc[206, "reason"] == "bright_fragment"  # a star's second source counts as a piece of it
     assert o.loc[204, "reason"] == "bright_fragment" and o.loc[102, "reason"] == ""   # its own rule still applies
     rep = json.loads((tmp_path / f"results/{OZ.name}/distant.json").read_text())
     assert rep["pairs"] == []                       # the planet's visit-1 half is gone
