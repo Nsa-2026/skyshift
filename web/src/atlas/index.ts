@@ -14,9 +14,9 @@ import { createAladinMap, readInk } from "./aladin-map";
 import { loadAtlasData, type AtlasData } from "./data";
 import { kindIcon, renderCandidate, renderTarget, type DrawerHandle } from "./drawer";
 import { createFallbackMap } from "./fallback";
-import { parseState, sameState, stateHash, type AtlasState } from "./hash";
+import { parseState, preparedBlinkHash, sameState, stateHash, type AtlasState } from "./hash";
 import { binCandidates, rampLabels, rampSteps, zoneBoxes, type Cell, type ZoneBox } from "./heat";
-import { KINDS, KIND_TEXT, LIST_NOTE, countSentence, isLikelyMismatch, oneLine, plural, shownSentence, zoneName } from "./kinds";
+import { KINDS, KIND_TEXT, LIST_NOTE, countSentence, countText, isLikelyMismatch, kindChipTitle, oneLine, plural, shownSentence, zoneName } from "./kinds";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
@@ -88,7 +88,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <div class="atl-kinds" role="group" aria-label="Kinds of object shown">
           ${KINDS.map(
             (k) => html`<button class="atl-kind" type="button" data-kind="${k}" aria-pressed="true" title="${KIND_TEXT[k].meaning}">
-              ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="atl-kind-n" data-kind-n="${k}"></span>
+              ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="atl-kind-n" data-kind-n="${k}"></span><span class="visually-hidden" data-kind-hidden="${k}"></span>
             </button>`,
           ).join("")}
         </div>
@@ -396,9 +396,16 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function renderCounts() {
     const all = data?.candidates ?? [];
     for (const k of KINDS) {
-      const n = all.filter((c) => c.kind === k && (mismatches || !isLikelyMismatch(c))).length;
+      const ofKind = all.filter((c) => c.kind === k);
+      // Likely mismatches stay off the map: say so on the chip, so its count doesn't look wrong.
+      const hidden = mismatches ? 0 : ofKind.filter(isLikelyMismatch).length;
+      const n = ofKind.length - hidden;
       const span = el.querySelector<HTMLSpanElement>(`[data-kind-n="${k}"]`);
-      if (span) span.textContent = new Intl.NumberFormat("en-GB").format(n);
+      if (span) span.textContent = countText(n);
+      const note = el.querySelector<HTMLSpanElement>(`[data-kind-hidden="${k}"]`);
+      if (note) note.textContent = hidden ? `, ${plural(hidden, "likely mismatch", "likely mismatches")} hidden` : "";
+      const chip = el.querySelector<HTMLButtonElement>(`.atl-kind[data-kind="${k}"]`);
+      if (chip) chip.title = kindChipTitle(k, n, hidden);
     }
     if (!data) return;
     if (data.origin === "none") {
@@ -493,14 +500,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     listToggle.disabled = false;
     if (showsSignals(level)) {
       const items = inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight });
-      listToggle.textContent = `Signals in view (${items.length})`;
+      listToggle.textContent = `Signals in view (${countText(items.length)})`;
       listEl.innerHTML = items.length
         ? items
             .slice(0, LIST_MAX)
             .map(
               (c) => html`<li><button type="button" class="atl-list-item" data-id="${esc(c.id)}">${kindIcon(c.kind, 16)}<span>${esc(oneLine(c))}</span><span class="atl-list-pos">${esc(formatRaDec(c))}</span></button></li>`,
             )
-            .join("") + (items.length > LIST_MAX ? `<li class="atl-list-more">${items.length - LIST_MAX} more: zoom in to narrow the list.</li>` : "")
+            .join("") + (items.length > LIST_MAX ? `<li class="atl-list-more">${countText(items.length - LIST_MAX)} more: zoom in to narrow the list.</li>` : "")
         : `<li class="atl-list-more">No signals in view.</li>`;
     } else {
       const order = heatOrder(state.fov, stage.clientWidth || 800);
@@ -614,7 +621,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         hasNext: shown.length > chain.size,
         handlers: {
           review: (k) => ctx.navigate(`#/c/${encodeURIComponent(k.id)}`),
-          blink: (k) => ctx.explore({ ra: k.ra, dec: k.dec, clock: k.clock, det: k.det }),
+          blink: (k) => {
+            // Static first: prepared frames open on the object's own page; the live API only without them.
+            const prepared = preparedBlinkHash(k);
+            if (prepared) ctx.navigate(prepared);
+            else ctx.explore({ ra: k.ra, dec: k.dec, clock: k.clock, det: k.det });
+          },
           next: (k) => {
             const n = nextNearby(k);
             if (n) selectCandidate(n, { fly: true, keepChain: true });

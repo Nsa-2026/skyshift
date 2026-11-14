@@ -3,7 +3,7 @@
 // gal: galactic grid; mol: the whole-sky (Mollweide) map instead of the globe;
 // kinds: letters of the kinds shown (m fast movers, p moving stars, s odd spectra), left out when
 // all are shown, "none" when none are. Pure.
-import type { CandidateKind } from "../api/types";
+import type { Candidate, CandidateKind } from "../api/types";
 import { KINDS, KIND_TEXT } from "./kinds";
 import { wrap360 } from "./sphere";
 
@@ -76,4 +76,12 @@ export function stateHash(s: AtlasState): string {
 /** True when two states would show the same view (to skip redundant URL writes and flights). */
 export function sameState(a: AtlasState, b: AtlasState): boolean {
   return formatState(a) === formatState(b);
+}
+
+/**
+ * Static first: an object with prepared frames (frames_url) blinks them on its own page, #/c/<id>,
+ * which reads the static files. Null: no prepared frames, so Blink here builds them live (Explore).
+ */
+export function preparedBlinkHash(c: Pick<Candidate, "id" | "frames_url">): string | null {
+  return c.frames_url ? `#/c/${encodeURIComponent(c.id)}` : null;
 }

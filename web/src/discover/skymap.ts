@@ -405,7 +405,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       if (p) shown.set(p.c.kind, (shown.get(p.c.kind) ?? 0) + 1);
     }
     const items = KINDS.filter((k) => total.get(k)).map(
-      (k) => html`<li>${glyphSvg(k, 12)}<span>${KIND_TEXT[k].plural}</span><span class="sm-n">${shown.get(k) ?? 0} of ${total.get(k)}</span></li>`,
+      (k) => html`<li>${glyphSvg(k, 12)}<span>${KIND_TEXT[k].plural}</span><span class="sm-n">${(shown.get(k) ?? 0).toLocaleString("en-GB")} of ${(total.get(k) ?? 0).toLocaleString("en-GB")}</span></li>`,
     );
     if (filtered.length < all.length)
       items.push(html`<li><svg class="kind-glyph" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle class="sm-ctx" cx="6" cy="6" r="2"/></svg><span>Not matching the filters</span></li>`);
@@ -533,7 +533,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     plot.setAttribute(
       "aria-label",
       filtered.length
-        ? `Sky map of ${filtered.length} objects to check. Arrow keys step through them; Enter opens one.`
+        ? `Sky map of ${filtered.length.toLocaleString("en-GB")} objects to check. Arrow keys step through them; Enter opens one.`
         : "Sky map. Nothing matches the filters.",
     );
   }

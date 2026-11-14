@@ -14,8 +14,14 @@ import { reasonText, type ReviewState } from "./text";
 export type Tri = "any" | "yes" | "no";
 export type SortKey = "promising" | "fewest" | "most" | "brightest" | "fastest" | "newest";
 
-export const SORTS: { key: SortKey; label: string }[] = [
-  { key: "promising", label: "Most promising" },
+/** Sorts only reorder the list, so their names say what they order by. "Most promising" is the
+ *  preset (a narrowed set), not a sort: the default order is "Pipeline score". */
+export const SORTS: { key: SortKey; label: string; hint?: string }[] = [
+  {
+    key: "promising",
+    label: "Pipeline score",
+    hint: "Highest pipeline score first; possible artefacts and the pipeline's doubts go last. Nothing is hidden.",
+  },
   { key: "fewest", label: "Fewest votes" },
   { key: "most", label: "Most votes" },
   { key: "brightest", label: "Brightest" },
@@ -321,8 +327,8 @@ export function activeCount(s: FilterState): number {
 /** Descending with nulls last. */
 const desc = (a: number | null, b: number | null) => (a == null ? (b == null ? 0 : 1) : b == null ? -1 : b - a);
 
-/** Most promising: anything an artefact may be behind goes last, then the pipeline's doubts; then
- *  the score, how sure the motion is, and S/N. */
+/** The "Pipeline score" order: anything an artefact may be behind goes last, then the pipeline's
+ *  doubts; then the score, how sure the motion is, and S/N. */
 function promising(a: Row, b: Row): number {
   return (
     Number(isCautioned(a.c)) - Number(isCautioned(b.c)) ||

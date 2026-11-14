@@ -347,7 +347,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     link(prevEl, prev);
     link(nextEl, next);
     countEl.textContent =
-      index >= 0 ? `${index + 1} of ${items.length} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
+      index >= 0 ? `${(index + 1).toLocaleString("en-GB")} of ${items.length.toLocaleString("en-GB")} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
     backEl.href = lastDiscoverHash();
   }
 

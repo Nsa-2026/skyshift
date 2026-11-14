@@ -5,6 +5,7 @@ import type { Counts } from "../vote/model";
 import {
   PRESETS,
   RANGES,
+  SORTS,
   activeCount,
   activePreset,
   bestRelaxation,
@@ -199,6 +200,13 @@ describe("presets", () => {
     expect(pick("promising")).toEqual(["k"]);
   });
 
+  it("never share a name with a sort: a preset narrows the list, a sort only reorders it", () => {
+    const sorts = SORTS.map((s) => s.label);
+    for (const p of PRESETS) expect(sorts).not.toContain(p.label);
+    expect(SORTS.find((s) => s.key === "promising")?.label).toBe("Pipeline score");
+    expect(PRESETS.find((p) => p.id === "promising")?.label).toBe("Most promising");
+  });
+
   it("is recognised again from the URL, and only when nothing else changed", () => {
     const p = PRESETS[2];
     const s = queryToState(stateToQuery(presetState(p)));
@@ -221,7 +229,7 @@ describe("sorting", () => {
   const ids = (k: Parameters<typeof sortRows>[1]) => sortRows(rows, k).map((r) => r.c.id);
 
   it("puts scored candidates first, then by S/N", () => expect(ids("promising")).toEqual(["b", "a", "m", "n"]));
-  it("puts artefact cautions, then the pipeline's doubts, below everything else in 'Most promising'", () => {
+  it("puts artefact cautions, then the pipeline's doubts, below everything else in 'Pipeline score'", () => {
     const r = toRows(
       [
         c({ id: "best-but-outlier", score: 0.9, reasons: ["outlier"] }),
