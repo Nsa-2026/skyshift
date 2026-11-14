@@ -1,7 +1,7 @@
 // The opening's entry point, the only part in the main bundle: decide whether it plays (rules.ts),
 // add "Replay intro" to the footer, and load the overlay itself only when it is shown.
 import "./replay.css";
-import { browserEnv, claimOpening, isBareHome, type OpeningEnv } from "./rules";
+import { browserEnv, claimOpening, type OpeningEnv } from "./rules";
 import type { OpeningOptions } from "./opening";
 
 type Loader = () => Promise<typeof import("./opening")>;
@@ -17,10 +17,15 @@ export async function playOpeningLater(
 ): Promise<boolean> {
   if (playing) return false;
   playing = true;
+  // A first visit may navigate while the module loads (a nav link, Back): then it stays away.
+  // Only real navigations count: the Sky page writes its view with replaceState, which fires no
+  // hashchange, and that must not cancel the opening.
+  let navigated = false;
+  const onHash = () => (navigated = true);
+  if (opts.auto) addEventListener("hashchange", onHash);
   try {
     const { playOpening } = await load();
-    // A first visit may have moved on while the module loaded: then it stays away.
-    if (opts.auto && !isBareHome(location.hash, location.search)) {
+    if (navigated) {
       playing = false;
       return false;
     }
@@ -36,6 +41,8 @@ export async function playOpeningLater(
     // The chunk didn't load (offline, a new deploy): the site simply shows without it.
     playing = false;
     return false;
+  } finally {
+    removeEventListener("hashchange", onHash);
   }
 }
 

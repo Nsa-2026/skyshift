@@ -88,11 +88,21 @@ describe("mountOpening", () => {
     let resolve!: () => void;
     const slow = vi.fn(() => new Promise<never>((r) => (resolve = () => r({ playOpening } as never))));
     mountOpening(app, env({}), slow);
-    location.hash = "#/explore";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
     resolve();
     await flush();
     expect(playOpening).not.toHaveBeenCalled();
-    location.hash = "";
+  });
+
+  it("still plays when the Sky page writes its view into the URL meanwhile (replaceState)", async () => {
+    let resolve!: () => void;
+    const slow = vi.fn(() => new Promise<never>((r) => (resolve = () => r({ playOpening } as never))));
+    mountOpening(app, env({}), slow);
+    history.replaceState(null, "", "#/sky/0,0,180");
+    resolve();
+    await flush();
+    expect(playOpening).toHaveBeenCalledTimes(1);
+    history.replaceState(null, "", "/");
   });
 
   it("shows the site as normal when the module fails to load", async () => {
