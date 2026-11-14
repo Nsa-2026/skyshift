@@ -278,6 +278,18 @@ def fit_one(pts: list[dict], geom: dict, eta_fixed: float | None) -> dict:
     return out
 
 
+def _round(x, sig: int = 5):
+    if isinstance(x, float):
+        return float(f"{x:.{sig}g}") if np.isfinite(x) else None
+    if isinstance(x, dict):
+        return {k: _round(v, sig) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_round(v, sig) for v in x]
+    if isinstance(x, np.generic):
+        return _round(x.item(), sig)
+    return x
+
+
 def cmd_fit() -> None:
     data = json.loads(POINTS_JSON.read_text())
     geo_cache = json.loads(GEOM_JSON.read_text()) if GEOM_JSON.exists() else {}
@@ -409,7 +421,7 @@ def cmd_fit() -> None:
         "asteroids": results,
     }
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    OUT_JSON.write_text(json.dumps(out, indent=1, default=float))
+    OUT_JSON.write_text(json.dumps(_round(out), separators=(",", ":")))
     print("wrote", OUT_JSON, OUT_JSON.stat().st_size // 1024, "kB")
 
 
