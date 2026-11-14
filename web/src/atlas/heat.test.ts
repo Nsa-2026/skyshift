@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ang2pixNest } from "./healpix";
-import { binCandidates, cellOutline, rampAlpha, rampIndex, rampLabels, rampSteps, zoneBoxes, zoneLabelAnchor, zoneOutline } from "./heat";
+import { binCandidates, cellOutline, isNested, rampAlpha, rampIndex, rampLabels, rampSteps, zoneBoxes, zoneLabelAnchor, zoneOutline, zoneSideAnchor } from "./heat";
 import { sepDeg } from "./sphere";
 import { cand } from "./testdata";
 
@@ -113,5 +113,26 @@ describe("zoneBoxes", () => {
     for (const [ra] of ring) expect(ra >= 0 && ra < 360).toBe(true);
     // The label sits on the south-east corner: largest RA, lowest Dec.
     expect(zoneLabelAnchor(b)).toEqual({ ra: b.ra1, dec: b.dec0 });
+  });
+
+  it("puts the whole-sky label east of the box, clear of its cells", () => {
+    const [b] = zoneBoxes([cand({ id: "a", ra: 120.5, dec: 14.4 }), cand({ id: "b", ra: 130.5, dec: 24.4 })], 0.4);
+    const at = zoneSideAnchor(b, 3.5);
+    expect(at.dec).toBeCloseTo((b.dec0 + b.dec1) / 2);
+    expect(at.ra).toBeGreaterThan(b.ra1);
+    expect(sepDeg(at, { ra: b.ra1, dec: at.dec })).toBeCloseTo(3.5, 1);
+  });
+
+  it("knows a zone inside a busier one", () => {
+    const boxes = zoneBoxes([
+      ...Array.from({ length: 5 }, (_, i) => cand({ id: `h${i}`, ra: 120.5 + 2.5 * i, dec: 14.4 + 2.5 * i, zone: "hunt" })),
+      cand({ id: "p0", ra: 121, dec: 15, zone: "pilot" }),
+      cand({ id: "p1", ra: 123, dec: 17, zone: "pilot" }),
+      cand({ id: "far", ra: 300, dec: -40, zone: "other" }),
+    ]);
+    const by = Object.fromEntries(boxes.map((b) => [b.zone, b]));
+    expect(isNested(by.pilot, boxes)).toBe(true);
+    expect(isNested(by.hunt, boxes)).toBe(false);
+    expect(isNested(by.other, boxes)).toBe(false);
   });
 });

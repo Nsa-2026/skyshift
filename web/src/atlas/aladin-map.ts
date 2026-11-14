@@ -7,7 +7,7 @@ import type { Target } from "../app/state";
 import type { AladinCatalog, AladinClick, AladinHiPS, AladinInstance, AladinOverlay, AladinStatic } from "../sky/aladin";
 import { ALLWISE, SPHEREX, TWO_MASS, cubeFrameForDet, type SkyLayer } from "../sky/layers";
 import { ang2pixNest } from "./healpix";
-import { cellOutline, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, type Cell } from "./heat";
+import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
 import { oneLine, zoneName } from "./kinds";
 import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, drawLabel, drawSignal, drawTarget, nearestHit, paToScreen, type Ink, type Vec } from "./marks";
@@ -112,7 +112,7 @@ export interface AladinMapInit {
 export function createAladinMap(host: HTMLElement, A: AladinStatic, init: AladinMapInit, cb: MapCallbacks): MapHandle {
   const ink = readInk();
   const mapEl = document.createElement("div");
-  mapEl.className = "ab-aladin";
+  mapEl.className = "atl-aladin";
   host.appendChild(mapEl);
 
   // ---- backgrounds: IRSA HiPS only, negative by default -----------------------------------
@@ -230,9 +230,9 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   const labelShape: ShapeFn = (s, ctx) => {
     const d = s.data;
     if (d.kind === "zone") {
-      // On the whole sky the zone is a speck: the name sits beside it rather than over its cell.
-      const [dx, dy] = d.side ? [18, 0] : [2, 13];
-      drawLabel(ctx, ink, s.x + dx, s.y + dy, String(d.text), { ...text(), align: "left", weight: 650, size: 13 });
+      // On the whole sky the zone is a small blot: the name sits beside it (east, screen left).
+      if (d.side) drawLabel(ctx, ink, s.x - 6, s.y, String(d.text), { ...text(), align: "right", weight: 650, size: 13 });
+      else drawLabel(ctx, ink, s.x + 2, s.y + 13, String(d.text), { ...text(), align: "left", weight: 650, size: 13 });
     } else {
       drawLabel(ctx, ink, s.x, s.y, String(d.text), { ...text(), weight: 700, size: 12.5 });
     }
@@ -344,9 +344,10 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       // Close in, the zone's edge is a long straight line across the signals: keep it faint there.
       const edge = rgba(ink.ink, showsSignals(level) ? 0.3 : 0.7);
       zoneOv.add(A.polygon(zoneOutline(z, 0.5), { ...quiet(edge), lineWidth: 1.25, opacity: 1 }));
-      if (level !== "detail") {
+      // On the whole sky a zone inside a busier one (the pilot in the hunt) would print on top of it.
+      if (level !== "detail" && !(level === "whole" && isNested(z, model.zones))) {
         const side = level === "whole";
-        const at = side ? z.center : zoneLabelAnchor(z);
+        const at = side ? zoneSideAnchor(z) : zoneLabelAnchor(z);
         const name = side ? `${zoneName(z.zone)}, ${new Intl.NumberFormat("en-GB").format(z.count)}` : zoneName(z.zone);
         labels.push(A.source(at.ra, at.dec, { kind: "zone", text: name, side }));
       }
@@ -381,13 +382,13 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   // ---- the plate's edge: Aladin paints outside the projection near-black; the mat covers it --
   const svgNS = "http://www.w3.org/2000/svg";
   const limb = document.createElementNS(svgNS, "svg");
-  limb.setAttribute("class", "ab-limb");
+  limb.setAttribute("class", "atl-limb");
   limb.setAttribute("aria-hidden", "true");
   const limbMat = document.createElementNS(svgNS, "path");
-  limbMat.setAttribute("class", "ab-limb-mat");
+  limbMat.setAttribute("class", "atl-limb-mat");
   limbMat.setAttribute("fill-rule", "evenodd");
   const limbEdge = document.createElementNS(svgNS, "ellipse");
-  limbEdge.setAttribute("class", "ab-limb-edge");
+  limbEdge.setAttribute("class", "atl-limb-edge");
   limb.append(limbMat, limbEdge);
   host.appendChild(limb);
   let mol = init.mol;

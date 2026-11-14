@@ -5,7 +5,7 @@
 import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
 import { ang2pixNest } from "./healpix";
-import { cellOutline, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, type Cell } from "./heat";
+import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
 import { zoneName } from "./kinds";
 import type { MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, diamond, moverTick, nearestHit, paToScreen, starArrow, MARK_R, type Vec } from "./marks";
@@ -42,7 +42,7 @@ export function wholeGeometry(w: number, h: number): { s: number; cy: number } {
 
 export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: MapCallbacks): MapHandle {
   const wrap = document.createElement("div");
-  wrap.className = "ab-svgmap";
+  wrap.className = "atl-svgmap";
   host.appendChild(wrap);
 
   let v: MapView = { ...init.view };
@@ -155,9 +155,9 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       }
     }
     const reticle = selected
-      ? `<path class="ab-svg-reticle" d="M${f1(at.x + 13)} ${f1(at.y)}h6M${f1(at.x - 13)} ${f1(at.y)}h-6M${f1(at.x)} ${f1(at.y + 13)}v6M${f1(at.x)} ${f1(at.y - 13)}v-6"/>`
+      ? `<path class="atl-svg-reticle" d="M${f1(at.x + 13)} ${f1(at.y)}h6M${f1(at.x - 13)} ${f1(at.y)}h-6M${f1(at.x)} ${f1(at.y + 13)}v6M${f1(at.x)} ${f1(at.y - 13)}v-6"/>`
       : "";
-    return `<g class="ab-svg-mark${selected ? " is-selected" : ""}"><path class="ab-svg-halo" d="${d}"/><path d="${d}" stroke="${color}"/>${reticle}</g>`;
+    return `<g class="atl-svg-mark${selected ? " is-selected" : ""}"><path class="atl-svg-halo" d="${d}"/><path d="${d}" stroke="${color}"/>${reticle}</g>`;
   }
 
   function render() {
@@ -175,7 +175,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
     // The sky's outline (whole sky) or the glass (close-up).
     if (p.whole) {
       const { s, cy } = wholeGeometry(w, h);
-      parts.push(`<ellipse class="ab-svg-sky" cx="${f1(w / 2)}" cy="${f1(cy)}" rx="${f1(2 * s)}" ry="${f1(s)}"/>`);
+      parts.push(`<ellipse class="atl-svg-sky" cx="${f1(w / 2)}" cy="${f1(cy)}" rx="${f1(2 * s)}" ry="${f1(s)}"/>`);
       let grid = "";
       for (let lon = 0; lon < 360; lon += 30) {
         const pts: SkyPos[] = [];
@@ -187,7 +187,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         for (let lon = 0; lon <= 360; lon += 3) pts.push({ ra: lon, dec: lat });
         grid += gridLine(pts, p, maxJump);
       }
-      parts.push(`<path class="ab-svg-grid" d="${grid}"/>`);
+      parts.push(`<path class="atl-svg-grid" d="${grid}"/>`);
       if (!gal) {
         // The Milky Way's mid-line, for orientation.
         const pts: SkyPos[] = [];
@@ -197,12 +197,12 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           p,
           maxJump,
         );
-        parts.push(`<path class="ab-svg-plane" d="${d}"/>`);
+        parts.push(`<path class="atl-svg-plane" d="${d}"/>`);
         const lab = p.project(fromGalactic(60, 0));
-        if (lab) labels.push(`<text class="ab-svg-note" x="${f1(lab.x + 6)}" y="${f1(lab.y - 6)}">Milky Way</text>`);
+        if (lab) labels.push(`<text class="atl-svg-note" x="${f1(lab.x + 6)}" y="${f1(lab.y - 6)}">Milky Way</text>`);
       }
     } else {
-      parts.push(`<rect class="ab-svg-glass" x="0" y="0" width="${w}" height="${h}"/>`);
+      parts.push(`<rect class="atl-svg-glass" x="0" y="0" width="${w}" height="${h}"/>`);
     }
 
     if (model) {
@@ -215,29 +215,31 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           const a = rampAlpha(rampIndex(cell.count, steps), steps.length);
           if (d) {
             parts.push(
-              `<path class="ab-svg-cell" data-cell="${cell.pix}" d="${d}" fill-opacity="${a.toFixed(3)}" stroke-opacity="${Math.min(1, a + 0.2).toFixed(3)}"><title>${cell.count} candidate${cell.count === 1 ? "" : "s"}</title></path>`,
+              `<path class="atl-svg-cell" data-cell="${cell.pix}" d="${d}" fill-opacity="${a.toFixed(3)}" stroke-opacity="${Math.min(1, a + 0.2).toFixed(3)}"><title>${cell.count} candidate${cell.count === 1 ? "" : "s"}</title></path>`,
             );
           } else {
             const q = p.project(cell.center);
-            if (q) parts.push(`<circle class="ab-svg-cell" data-cell="${cell.pix}" cx="${f1(q.x)}" cy="${f1(q.y)}" r="5" fill-opacity="${a.toFixed(3)}"/>`);
+            if (q) parts.push(`<circle class="atl-svg-cell" data-cell="${cell.pix}" cx="${f1(q.x)}" cy="${f1(q.y)}" r="5" fill-opacity="${a.toFixed(3)}"/>`);
           }
           if (labelled) {
             const q = p.project(cell.center);
-            if (q) parts.push(`<text class="ab-svg-count${a > 0.5 ? " is-dark" : ""}" x="${f1(q.x)}" y="${f1(q.y)}">${cell.count}</text>`);
+            if (q) parts.push(`<text class="atl-svg-count${a > 0.5 ? " is-dark" : ""}" x="${f1(q.x)}" y="${f1(q.y)}">${cell.count}</text>`);
           }
         }
       }
       if (model.layers.zones) {
         for (const z of model.zones) {
           const d = path(zoneOutline(z, 0.5), true, p, maxJump);
-          if (d) parts.push(`<path class="ab-svg-zone" d="${d}"/>`);
+          if (d) parts.push(`<path class="atl-svg-zone" d="${d}"/>`);
           // As on the globe: beside the zone on the whole sky (with its count), under its box closer in.
           const side = level === "whole";
-          const at = p.project(side ? z.center : zoneLabelAnchor(z));
+          const at = p.project(side ? zoneSideAnchor(z) : zoneLabelAnchor(z));
           const name = side ? `${zoneName(z.zone)}, ${new Intl.NumberFormat("en-GB").format(z.count)}` : zoneName(z.zone);
-          if (at && level !== "detail")
+          if (at && level !== "detail" && !(side && isNested(z, model.zones)))
             labels.push(
-              `<text class="ab-svg-zone-label" x="${f1(at.x + (side ? 14 : 2))}" y="${f1(at.y + (side ? 0 : 12))}">${esc(name)}</text>`,
+              side
+                ? `<text class="atl-svg-zone-label" x="${f1(at.x - 6)}" y="${f1(at.y)}" text-anchor="end">${esc(name)}</text>`
+                : `<text class="atl-svg-zone-label" x="${f1(at.x + 2)}" y="${f1(at.y + 12)}">${esc(name)}</text>`,
             );
         }
       }
@@ -251,7 +253,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         const label = named
           ? `<text x="${f1(left ? q.x - 11 : q.x + 11)}" y="${f1(q.y)}"${left ? ' text-anchor="end"' : ""}>${esc(t.short)}</text>`
           : "";
-        parts.push(`<g class="ab-svg-target"><path class="ab-svg-halo" d="${r}"/><path d="${r}"/>${label}</g>`);
+        parts.push(`<g class="atl-svg-target"><path class="atl-svg-halo" d="${r}"/><path d="${r}"/>${label}</g>`);
       }
       if (showsSignals(level) && model.layers.signals) {
         for (const c of model.candidates) {
@@ -269,10 +271,10 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       const len = (nice / 60) * p.pxPerDeg;
       const label = nice >= 60 ? `${nice / 60}°` : `${nice}′`;
       parts.push(
-        `<g class="ab-svg-scale"><path d="M16 ${h - 18}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${h - 18}">${label}</text></g>`,
+        `<g class="atl-svg-scale"><path d="M16 ${h - 18}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${h - 18}">${label}</text></g>`,
       );
     }
-    wrap.innerHTML = `<svg class="ab-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the candidates${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
+    wrap.innerHTML = `<svg class="atl-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the candidates${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
   }
 
   // ---- interaction ---------------------------------------------------------------------------

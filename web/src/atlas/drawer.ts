@@ -2,12 +2,12 @@
 // the list, its key number with units, a live mini blink, votes so far (read only), and three
 // actions: Review it, Blink here, Next nearby. Also the small pin for a click on empty sky.
 import type { Candidate, CandidateKind, FramesResponse } from "../api/types";
-import { DEFAULT_FOV, loadFrames } from "../api/client";
+import { DEFAULT_FOV, candidateFramesUrl, loadFrames } from "../api/client";
 import { formatRaDec } from "../app/astro";
 import type { Target } from "../app/state";
 import { ANSWERS, ANSWER_TEXT, consensus, total, type Counts } from "../vote/model";
 import { getVoteStore } from "../vote/store";
-import { KIND_TEXT, detectorText, flagsSentence, keyNumber, labelText, reasonText, seenText, zoneName } from "./kinds";
+import { KIND_TEXT, detectorText, flagsSentence, isCaution, keyNumber, labelText, reasonText, seenText, zoneName } from "./kinds";
 import { mountMiniBlink, type MiniBlinkHandle } from "./miniblink";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -18,20 +18,20 @@ export function kindIcon(kind: CandidateKind | "target", size = 18): string {
   const m = s / 2;
   const r = s * 0.26;
   let d = "";
-  let cls = "ab-ico-red";
+  let cls = "atl-ico-red";
   if (kind === "mover") {
     const t = r + 1;
     d = `<circle cx="${m - 1.5}" cy="${m + 1.5}" r="${r}"/><path d="M${m - 1.5 + t * 0.7} ${m + 1.5 - t * 0.7}l${s * 0.2} ${-s * 0.2}"/>`;
   } else if (kind === "high_pm") {
     d = `<circle cx="${m - 3}" cy="${m}" r="${r * 0.85}"/><path d="M${m - 3 + r} ${m}H${s - 2}M${s - 5.5} ${m - 3}L${s - 2} ${m}L${s - 5.5} ${m + 3}"/>`;
   } else if (kind === "spectral") {
-    cls = "ab-ico-violet";
+    cls = "atl-ico-violet";
     d = `<path d="M${m} ${m - r - 1.5}L${m + r + 1.5} ${m}L${m} ${m + r + 1.5}L${m - r - 1.5} ${m}Z"/>`;
   } else {
-    cls = "ab-ico-ink";
+    cls = "atl-ico-ink";
     d = `<path d="M${m + 2.5} ${m}h4M${m - 2.5} ${m}h-4M${m} ${m + 2.5}v4M${m} ${m - 2.5}v-4"/>`;
   }
-  return `<svg class="ab-ico ${cls}" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true" focusable="false">${d}</svg>`;
+  return `<svg class="atl-ico ${cls}" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true" focusable="false">${d}</svg>`;
 }
 
 /** Votes so far, in one or two plain sentences. */
@@ -101,41 +101,52 @@ export function renderCandidate(
   const k = KIND_TEXT[c.kind];
   const key = keyNumber(c);
   const caution = flagsSentence(c.flags);
-  const chips = [...c.reasons.map(reasonText), ...c.labels.map(labelText)];
+  // Evidence and labels first, then the contract's "check first" codes, marked as cautions.
+  const chips = [
+    ...c.labels.map((l) => ({ text: labelText(l), caution: false })),
+    ...c.reasons.filter((r) => !isCaution(r)).map((r) => ({ text: reasonText(r), caution: false })),
+    ...c.reasons.filter(isCaution).map((r) => ({ text: reasonText(r), caution: true })),
+  ];
   const pos = formatRaDec(c);
   const scoreText = c.score != null && Number.isFinite(c.score) ? `, pipeline score ${c.score.toFixed(2)}` : "";
   el.innerHTML = `
-    <header class="ab-dr-head">
+    <header class="atl-dr-head">
       ${kindIcon(c.kind, 22)}
-      <h2 class="ab-dr-title" id="ab-dr-title" tabindex="-1">${esc(k.name)}</h2>
-      <button class="ab-dr-x" type="button" data-close aria-label="Close the preview">×</button>
+      <h2 class="atl-dr-title" id="atl-dr-title" tabindex="-1">${esc(k.name)}</h2>
+      <button class="atl-dr-x" type="button" data-close aria-label="Close the preview">×</button>
     </header>
-    <p class="ab-dr-meaning">${esc(k.meaning)}</p>
-    ${c.why ? `<p class="ab-dr-why">${esc(c.why)}</p>` : ""}
+    <p class="atl-dr-meaning">${esc(k.meaning)}</p>
+    ${c.why ? `<p class="atl-dr-why">${esc(c.why)}</p>` : ""}
     ${
       key
-        ? `<p class="ab-dr-key"><span class="ab-dr-num">${esc(key.value)}</span><span class="ab-dr-unit">${esc(key.unit)}</span></p>
-           ${key.detail ? `<p class="ab-dr-keydetail">${esc(key.detail)}</p>` : ""}`
+        ? `<p class="atl-dr-key"><span class="atl-dr-num">${esc(key.value)}</span><span class="atl-dr-unit">${esc(key.unit)}</span></p>
+           ${key.detail ? `<p class="atl-dr-keydetail">${esc(key.detail)}</p>` : ""}`
         : ""
     }
-    ${chips.length ? `<ul class="ab-dr-chips">${chips.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
-    ${caution ? `<p class="ab-dr-caution">${esc(caution)}</p>` : ""}
-    <div class="ab-dr-mini" data-mini></div>
-    <dl class="ab-dr-facts">
-      <div><dt>Position</dt><dd><span>${esc(pos)}</span> <button class="ab-dr-copy" type="button" data-copy>Copy</button></dd></div>
+    ${
+      chips.length
+        ? `<ul class="atl-dr-chips">${chips
+            .map((t) => (t.caution ? `<li class="is-caution"><span class="visually-hidden">Check first: </span>${esc(t.text)}</li>` : `<li>${esc(t.text)}</li>`))
+            .join("")}</ul>`
+        : ""
+    }
+    ${caution ? `<p class="atl-dr-caution">${esc(caution)}</p>` : ""}
+    <div class="atl-dr-mini" data-mini></div>
+    <dl class="atl-dr-facts">
+      <div><dt>Position</dt><dd><span>${esc(pos)}</span> <button class="atl-dr-copy" type="button" data-copy>Copy</button></dd></div>
       <div><dt>Seen</dt><dd>${esc(seenText(c))}</dd></div>
       <div><dt>Detector</dt><dd>${esc(detectorText(c.det))}</dd></div>
       <div><dt>Known asteroid</dt><dd>${esc(nearestKnownText(c))}</dd></div>
       <div><dt>Catalogues</dt><dd>${esc(cataloguesText(c))}</dd></div>
       <div><dt>Zone</dt><dd>${esc(zoneName(c.zone))}${esc(scoreText)}</dd></div>
     </dl>
-    <p class="ab-dr-votes" data-votes aria-live="polite">Counting votes…</p>
-    <div class="ab-dr-actions">
+    <p class="atl-dr-votes" data-votes aria-live="polite">Counting votes…</p>
+    <div class="atl-dr-actions">
       <a class="btn btn-primary" href="#/c/${encodeURIComponent(c.id)}" data-review>Review it</a>
       <button class="btn" type="button" data-blink>Blink here</button>
       <button class="btn btn-ghost" type="button" data-next ${o.hasNext ? "" : "disabled"}>Next nearby</button>
     </div>
-    <p class="ab-dr-id">${esc(c.id)}</p>
+    <p class="atl-dr-id">${esc(c.id)}</p>
   `;
   const q = <T extends Element>(s: string) => el.querySelector(s) as T;
   const mini = q<HTMLDivElement>("[data-mini]");
@@ -170,7 +181,7 @@ export function renderCandidate(
   }
 
   function say(text: string, withButton: boolean) {
-    mini.innerHTML = `<div class="ab-dr-mini-empty"><p>${esc(text)}</p>${
+    mini.innerHTML = `<div class="atl-dr-mini-empty"><p>${esc(text)}</p>${
       withButton ? `<button class="btn" type="button" data-load>Load the blink</button>` : ""
     }</div>`;
     mini.querySelector<HTMLButtonElement>("[data-load]")?.addEventListener("click", loadLive);
@@ -178,9 +189,9 @@ export function renderCandidate(
 
   async function loadStatic(url: string) {
     ctl = new AbortController();
-    mini.innerHTML = `<div class="ab-dr-mini-empty"><p>Loading the frames…</p></div>`;
+    mini.innerHTML = `<div class="atl-dr-mini-empty"><p>Loading the frames…</p></div>`;
     try {
-      const jsonUrl = new URL(url, location.href).href;
+      const jsonUrl = candidateFramesUrl(url);
       const res = await fetch(jsonUrl, { signal: ctl.signal });
       if (!res.ok) throw new Error(String(res.status));
       const frames = (await res.json()) as FramesResponse;
@@ -195,7 +206,7 @@ export function renderCandidate(
   async function loadLive() {
     ctl?.abort();
     ctl = new AbortController();
-    mini.innerHTML = `<div class="ab-dr-mini-empty"><p>Building frames from SPHEREx. This takes up to 15 s.</p></div>`;
+    mini.innerHTML = `<div class="atl-dr-mini-empty"><p>Building frames from SPHEREx. This takes up to 15 s.</p></div>`;
     try {
       const loaded = await loadFrames({ ra: c.ra, dec: c.dec, clock: c.clock, fov: DEFAULT_FOV[c.clock], det: c.det }, ctl.signal);
       if (gone) return;
@@ -224,20 +235,20 @@ export function renderCandidate(
 /** Fill the drawer with a featured target. */
 export function renderTarget(el: HTMLElement, t: Target, o: { open(t: Target): void; close(): void }): DrawerHandle {
   el.innerHTML = `
-    <header class="ab-dr-head">
+    <header class="atl-dr-head">
       ${kindIcon("target", 22)}
-      <h2 class="ab-dr-title" id="ab-dr-title" tabindex="-1">${esc(t.name)}</h2>
-      <button class="ab-dr-x" type="button" data-close aria-label="Close the preview">×</button>
+      <h2 class="atl-dr-title" id="atl-dr-title" tabindex="-1">${esc(t.name)}</h2>
+      <button class="atl-dr-x" type="button" data-close aria-label="Close the preview">×</button>
     </header>
-    <p class="ab-dr-meaning">A featured target: a ${esc(t.kind)} with frames ready to blink.</p>
-    <p class="ab-dr-why">${esc(t.look_for)}</p>
-    <p class="ab-dr-keydetail">${esc(t.expected)}</p>
-    <dl class="ab-dr-facts">
+    <p class="atl-dr-meaning">A featured target: a ${esc(t.kind)} with frames ready to blink.</p>
+    <p class="atl-dr-why">${esc(t.look_for)}</p>
+    <p class="atl-dr-keydetail">${esc(t.expected)}</p>
+    <dl class="atl-dr-facts">
       <div><dt>Position</dt><dd>${esc(formatRaDec(t))}</dd></div>
       <div><dt>Clock</dt><dd>${t.clock === "hours" ? "Hours: exposures within one visit" : "Months: visits six months apart"}</dd></div>
       <div><dt>Detector</dt><dd>${esc(detectorText(t.det))}</dd></div>
     </dl>
-    <div class="ab-dr-actions">
+    <div class="atl-dr-actions">
       <button class="btn btn-primary" type="button" data-open>Blink it</button>
     </div>
   `;

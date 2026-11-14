@@ -172,15 +172,15 @@ export async function mountMiniBlink(host: HTMLElement, o: MiniBlinkOptions): Pr
   });
 
   host.innerHTML = `
-    <div class="ab-mini-plate"><canvas class="ab-mini-canvas" aria-hidden="true"></canvas></div>
-    <div class="ab-mini-bar">
-      <button class="btn btn-ghost ab-mini-play" type="button"></button>
-      <p class="ab-mini-cap" aria-live="off"></p>
+    <div class="atl-mini-plate"><canvas class="atl-mini-canvas" aria-hidden="true"></canvas></div>
+    <div class="atl-mini-bar">
+      <button class="btn btn-ghost atl-mini-play" type="button"></button>
+      <p class="atl-mini-cap" aria-live="off"></p>
     </div>`;
-  const canvas = host.querySelector<HTMLCanvasElement>(".ab-mini-canvas")!;
-  const cap = host.querySelector<HTMLParagraphElement>(".ab-mini-cap")!;
-  const btn = host.querySelector<HTMLButtonElement>(".ab-mini-play")!;
-  const plate = host.querySelector<HTMLDivElement>(".ab-mini-plate")!;
+  const canvas = host.querySelector<HTMLCanvasElement>(".atl-mini-canvas")!;
+  const cap = host.querySelector<HTMLParagraphElement>(".atl-mini-cap")!;
+  const btn = host.querySelector<HTMLButtonElement>(".atl-mini-play")!;
+  const plate = host.querySelector<HTMLDivElement>(".atl-mini-plate")!;
   plate.setAttribute("role", "img");
   plate.setAttribute(
     "aria-label",

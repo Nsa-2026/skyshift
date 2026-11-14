@@ -16,7 +16,7 @@ import { kindIcon, renderCandidate, renderTarget, type DrawerHandle } from "./dr
 import { createFallbackMap } from "./fallback";
 import { parseState, sameState, stateHash, type AtlasState } from "./hash";
 import { binCandidates, rampLabels, rampSteps, zoneBoxes, type Cell, type ZoneBox } from "./heat";
-import { KINDS, KIND_TEXT, countSentence, oneLine, plural, zoneName } from "./kinds";
+import { KINDS, KIND_TEXT, countSentence, isLikelyMismatch, oneLine, plural, zoneName } from "./kinds";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
@@ -57,21 +57,21 @@ const BACKGROUNDS: { id: BackgroundId; label: string; about: string }[] = [
 ];
 
 export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
-  el.classList.add("ab");
+  el.classList.add("atl");
   el.innerHTML = html`
-    <div class="ab-intro">
-      <h1 class="ab-lede" id="ab-title">
+    <div class="atl-intro">
+      <h1 class="atl-lede" id="atl-title">
         Every candidate our pipeline found in NASA's SPHEREx sky.
-        <span class="ab-lede-2">Zoom into a red patch, click a signal, and help decide what it is.</span>
+        <span class="atl-lede-2">Zoom into a red patch, click a signal, and help decide what it is.</span>
       </h1>
-      <div class="ab-intro-side">
-        <p class="ab-count" data-count aria-live="polite">Loading candidates…</p>
-        <a class="btn btn-primary ab-start" href="#/review">Start reviewing</a>
+      <div class="atl-intro-side">
+        <p class="atl-count" data-count aria-live="polite">Loading candidates…</p>
+        <a class="btn btn-primary atl-start" href="#/review">Start reviewing</a>
       </div>
     </div>
 
-    <div class="ab-controls">
-      <div class="ab-controls-main">
+    <div class="atl-controls">
+      <div class="atl-controls-main">
         <div class="seg" role="group" aria-label="Map shape">
           <button type="button" data-proj="globe" aria-pressed="true" title="A globe: the sky as a sphere, half at a time">Globe</button>
           <button type="button" data-proj="mol" aria-pressed="false" title="The whole sky at once (Mollweide projection)">Whole sky</button>
@@ -80,83 +80,85 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
           <button type="button" data-frame="eq" aria-pressed="true" title="Right ascension and declination">Equatorial</button>
           <button type="button" data-frame="gal" aria-pressed="false" title="Galactic longitude and latitude: the Milky Way runs along the equator">Galactic</button>
         </div>
-        <div class="ab-kinds" role="group" aria-label="Kinds of candidate shown">
+        <div class="atl-kinds" role="group" aria-label="Kinds of candidate shown">
           ${KINDS.map(
-            (k) => html`<button class="ab-kind" type="button" data-kind="${k}" aria-pressed="true" title="${KIND_TEXT[k].meaning}">
-              ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="ab-kind-n" data-kind-n="${k}"></span>
+            (k) => html`<button class="atl-kind" type="button" data-kind="${k}" aria-pressed="true" title="${KIND_TEXT[k].meaning}">
+              ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="atl-kind-n" data-kind-n="${k}"></span>
             </button>`,
           ).join("")}
         </div>
       </div>
-      <div class="ab-controls-side">
-        <form class="ab-find" role="search">
-          <label class="visually-hidden" for="ab-q">Fly to coordinates or a featured name</label>
-          <input id="ab-q" class="input ab-find-input" name="q" autocomplete="off" spellcheck="false" placeholder="Fly to coordinates or a name" />
-          <button class="btn ab-find-go" type="submit">Fly</button>
+      <div class="atl-controls-side">
+        <form class="atl-find" role="search">
+          <label class="visually-hidden" for="atl-q">Fly to coordinates or a featured name</label>
+          <input id="atl-q" class="input atl-find-input" name="q" autocomplete="off" spellcheck="false" placeholder="Fly to coordinates or a name" />
+          <button class="btn atl-find-go" type="submit">Fly</button>
         </form>
-        <button class="ab-adjust" type="button" aria-expanded="false" aria-controls="ab-more">Adjust</button>
+        <button class="atl-adjust" type="button" aria-expanded="false" aria-controls="atl-more">Adjust</button>
       </div>
     </div>
-    <div class="ab-more" id="ab-more" hidden>
-      <div class="ab-more-row">
-        <span class="ab-more-label" id="ab-bg-label">Background</span>
-        <div class="seg" role="group" aria-labelledby="ab-bg-label">
+    <div class="atl-more" id="atl-more" hidden>
+      <div class="atl-more-row">
+        <span class="atl-more-label" id="atl-bg-label">Background</span>
+        <div class="seg" role="group" aria-labelledby="atl-bg-label">
           ${BACKGROUNDS.map((b) => html`<button type="button" data-bg="${b.id}" aria-pressed="${b.id === "spherex"}" title="${b.about}">${b.label}</button>`).join("")}
         </div>
       </div>
-      <div class="ab-more-row">
-        <span class="ab-more-label" id="ab-plate-label">Plate</span>
-        <div class="seg" role="group" aria-labelledby="ab-plate-label">
+      <div class="atl-more-row">
+        <span class="atl-more-label" id="atl-plate-label">Plate</span>
+        <div class="seg" role="group" aria-labelledby="atl-plate-label">
           <button type="button" data-neg="1" aria-pressed="true" title="Dark stars on light glass, as astronomers blink plates">Negative</button>
           <button type="button" data-neg="0" aria-pressed="false" title="The survey's own colours, bright stars on dark sky">Positive</button>
         </div>
       </div>
-      <div class="ab-more-row">
-        <button class="ab-switch" type="button" data-layer="heat" aria-pressed="true">Heat map</button>
-        <button class="ab-switch" type="button" data-layer="zones" aria-pressed="true">Zones</button>
-        <button class="ab-switch" type="button" data-layer="signals" aria-pressed="true">Signals</button>
+      <div class="atl-more-row">
+        <button class="atl-switch" type="button" data-layer="heat" aria-pressed="true">Heat map</button>
+        <button class="atl-switch" type="button" data-layer="zones" aria-pressed="true">Zones</button>
+        <button class="atl-switch" type="button" data-layer="signals" aria-pressed="true">Signals</button>
+        <button class="atl-switch" type="button" data-mismatch aria-pressed="false"
+          title="Moving stars faster than any star can move: almost certainly two different sources paired by mistake">Likely mismatches</button>
       </div>
     </div>
-    <p class="ab-msg" data-msg role="status" aria-live="polite"></p>
+    <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
 
-    <div class="ab-stage" data-stage>
-      <div class="ab-map" data-map tabindex="0" role="region" aria-roledescription="sky map"
-        aria-label="Sky map" aria-describedby="ab-keys"></div>
-      <p class="visually-hidden" id="ab-keys">Arrow keys move the map, plus and minus zoom, Enter opens the signal nearest the centre. The list below the map holds every signal in view.</p>
-      <div class="ab-note" data-note role="status"><p>Loading the sky…</p></div>
-      <div class="ab-hint" data-hint hidden>
+    <div class="atl-stage" data-stage>
+      <div class="atl-map" data-map tabindex="0" role="region" aria-roledescription="sky map"
+        aria-label="Sky map" aria-describedby="atl-keys"></div>
+      <p class="visually-hidden" id="atl-keys">Arrow keys move the map, plus and minus zoom, Enter opens the signal nearest the centre. The list below the map holds every signal in view.</p>
+      <div class="atl-note" data-note role="status"><p>Loading the sky…</p></div>
+      <div class="atl-hint" data-hint hidden>
         <ol>
           <li>Zoom into a red patch.</li>
           <li>Click a signal.</li>
           <li>Review it.</li>
         </ol>
-        <button class="btn btn-ghost ab-hint-x" type="button" data-hint-x>Got it</button>
+        <button class="btn btn-ghost atl-hint-x" type="button" data-hint-x>Got it</button>
       </div>
-      <div class="ab-tip" data-tip role="tooltip" hidden></div>
-      <div class="ab-pin" data-pin hidden>
-        <p class="ab-pin-coords" data-pin-coords></p>
-        <div class="ab-pin-actions">
+      <div class="atl-tip" data-tip role="tooltip" hidden></div>
+      <div class="atl-pin" data-pin hidden>
+        <p class="atl-pin-coords" data-pin-coords></p>
+        <div class="atl-pin-actions">
           <button class="btn btn-primary" type="button" data-pin-blink>Blink here</button>
           <button class="btn btn-ghost" type="button" data-pin-copy>Copy</button>
-          <button class="ab-pin-x" type="button" data-pin-x aria-label="Close">×</button>
+          <button class="atl-pin-x" type="button" data-pin-x aria-label="Close">×</button>
         </div>
       </div>
-      <p class="ab-status" data-status aria-live="polite"></p>
-      <div class="ab-zoom" role="group" aria-label="Zoom">
+      <p class="atl-status" data-status aria-live="polite"></p>
+      <div class="atl-zoom" role="group" aria-label="Zoom">
         <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
         <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" data-zoom="all" title="Back to the whole sky">Whole sky</button>
       </div>
-      <aside class="ab-drawer" data-drawer aria-labelledby="ab-dr-title" hidden></aside>
+      <aside class="atl-drawer" data-drawer aria-labelledby="atl-dr-title" hidden></aside>
     </div>
 
-    <div class="ab-below">
-      <p class="ab-key" data-key></p>
-      <div class="ab-listbox">
-        <button class="ab-list-toggle" type="button" aria-expanded="false" aria-controls="ab-list" data-list-toggle></button>
-        <ol class="ab-list" id="ab-list" data-list hidden></ol>
+    <div class="atl-below">
+      <p class="atl-key" data-key></p>
+      <div class="atl-listbox">
+        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle></button>
+        <ol class="atl-list" id="atl-list" data-list hidden></ol>
       </div>
-      <p class="ab-source" data-source></p>
+      <p class="atl-source" data-source></p>
     </div>
   `;
 
@@ -175,16 +177,16 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const listToggle = q<HTMLButtonElement>("[data-list-toggle]");
   const sourceEl = q<HTMLParagraphElement>("[data-source]");
   const hint = q<HTMLDivElement>("[data-hint]");
-  const input = q<HTMLInputElement>("#ab-q");
-  const adjust = q<HTMLButtonElement>(".ab-adjust");
-  const more = q<HTMLDivElement>("#ab-more");
+  const input = q<HTMLInputElement>("#atl-q");
+  const adjust = q<HTMLButtonElement>(".atl-adjust");
+  const more = q<HTMLDivElement>("#atl-more");
 
   /** The stage bleeds to the window's edges and ends at the bottom of the first screen. */
   function measure() {
     try {
-      el.style.setProperty("--ab-vw", `${document.documentElement.clientWidth}px`);
+      el.style.setProperty("--atl-vw", `${document.documentElement.clientWidth}px`);
       const top = stage.getBoundingClientRect().top + scrollY;
-      if (top > 0) el.style.setProperty("--ab-top", `${Math.round(top)}px`);
+      if (top > 0) el.style.setProperty("--atl-top", `${Math.round(top)}px`);
     } catch {
       /* CSS defaults hold */
     }
@@ -226,11 +228,15 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     return { candidates: shown, cellsAt, zones, targets: TARGETS, selectedId: selected?.id ?? null, layers };
   }
 
+  /** Likely mismatches (implausible_pm) stay off the map unless Adjust turns them on. */
+  let mismatches = false;
+  const onMap = (c: Candidate) => state.kinds.includes(c.kind) && (mismatches || !isLikelyMismatch(c));
+
   function refilter() {
     const all = data?.candidates ?? [];
-    shown = all.filter((c) => state.kinds.includes(c.kind));
+    shown = all.filter(onMap);
     cellCache.clear();
-    if (selected && !state.kinds.includes(selected.kind)) closeDrawer();
+    if (selected && !onMap(selected)) closeDrawer();
   }
 
   // ---- URL -----------------------------------------------------------------------------------
@@ -255,7 +261,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function renderCounts() {
     const all = data?.candidates ?? [];
     for (const k of KINDS) {
-      const n = all.filter((c) => c.kind === k).length;
+      const n = all.filter((c) => c.kind === k && (mismatches || !isLikelyMismatch(c))).length;
       const span = el.querySelector<HTMLSpanElement>(`[data-kind-n="${k}"]`);
       if (span) span.textContent = new Intl.NumberFormat("en-GB").format(n);
     }
@@ -287,11 +293,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       const sw = steps
         .map((_, i) => {
           const a = steps.length <= 1 ? 0.55 : 0.16 + (0.62 * i) / (steps.length - 1);
-          return `<span class="ab-swatch" style="--a:${a.toFixed(3)}" aria-hidden="true"></span>${esc(labels[i])}`;
+          return `<span class="atl-swatch" style="--a:${a.toFixed(3)}" aria-hidden="true"></span>${esc(labels[i])}`;
         })
         .join(" ");
       keyEl.innerHTML = `Red cells: candidates per ${side >= 3 ? Math.round(side) : side.toFixed(1)}° cell, ${sw}. ${
-        layers.zones ? `<span class="ab-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far. ` : ""
+        layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far. ` : ""
       }${kindIcon("target", 16)} Featured targets.`;
     } else {
       keyEl.innerHTML = `${KINDS.map((k) => `${kindIcon(k, 16)} ${KIND_TEXT[k].name}`).join(", ")}, ${kindIcon("target", 16)} featured target. A moving star's arrow shows where it will be in 100 years.`;
@@ -332,10 +338,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         ? items
             .slice(0, LIST_MAX)
             .map(
-              (c) => html`<li><button type="button" class="ab-list-item" data-id="${esc(c.id)}">${kindIcon(c.kind, 16)}<span>${esc(oneLine(c))}</span><span class="ab-list-pos">${esc(formatRaDec(c))}</span></button></li>`,
+              (c) => html`<li><button type="button" class="atl-list-item" data-id="${esc(c.id)}">${kindIcon(c.kind, 16)}<span>${esc(oneLine(c))}</span><span class="atl-list-pos">${esc(formatRaDec(c))}</span></button></li>`,
             )
-            .join("") + (items.length > LIST_MAX ? `<li class="ab-list-more">${items.length - LIST_MAX} more: zoom in to narrow the list.</li>` : "")
-        : `<li class="ab-list-more">No signals in view.</li>`;
+            .join("") + (items.length > LIST_MAX ? `<li class="atl-list-more">${items.length - LIST_MAX} more: zoom in to narrow the list.</li>` : "")
+        : `<li class="atl-list-more">No signals in view.</li>`;
     } else {
       const order = heatOrder(state.fov, stage.clientWidth || 800);
       const cells = cellsAt(order).slice(0, 12);
@@ -343,10 +349,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       listEl.innerHTML = cells.length
         ? cells
             .map(
-              (c) => html`<li><button type="button" class="ab-list-item" data-cell="${c.pix}" data-order="${order}"><span class="ab-swatch" style="--a:0.6" aria-hidden="true"></span><span>${esc(plural(c.count, "candidate", "candidates"))}</span><span class="ab-list-pos">near ${esc(formatRaDec(c.center))}</span></button></li>`,
+              (c) => html`<li><button type="button" class="atl-list-item" data-cell="${c.pix}" data-order="${order}"><span class="atl-swatch" style="--a:0.6" aria-hidden="true"></span><span>${esc(plural(c.count, "candidate", "candidates"))}</span><span class="atl-list-pos">near ${esc(formatRaDec(c.center))}</span></button></li>`,
             )
             .join("")
-        : `<li class="ab-list-more">No candidates of these kinds.</li>`;
+        : `<li class="atl-list-more">No candidates of these kinds.</li>`;
     }
   }
 
@@ -378,7 +384,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     stage.classList.add("has-drawer");
     drawer = fill(drawerEl);
     drawerEl.scrollTop = 0;
-    q<HTMLElement>("#ab-dr-title")?.focus({ preventScroll: true });
+    q<HTMLElement>("#atl-dr-title")?.focus({ preventScroll: true });
     // On a phone the drawer is a sheet over the lower half: bring the map to the top so the
     // chosen mark, at the map's centre, stays in sight above it.
     if (phone()) {
@@ -452,13 +458,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     );
   }
 
-  /** Featured targets open their prepared frames (static first): the ?t= deep link of the Blink page. */
+  /** Featured targets open their prepared frames (static first). */
   function openTarget(t: Target) {
-    // The shell reads ?t= on popstate and opens Explore with the target's static frames.
+    // The shell's explore() finds a months target at its own spot.
+    if (featuredNear(t)?.slug === t.slug) return ctx.explore({ ra: t.ra, dec: t.dec });
+    // The moving ones (hours clock) only by name: the ?t= deep link, which the shell reads on popstate.
     history.pushState(null, "", `${location.pathname}?t=${encodeURIComponent(t.slug)}${location.hash}`);
     dispatchEvent(new PopStateEvent("popstate"));
-    // If the shell didn't switch pages from the popstate, the hash change will.
-    if (!location.hash.startsWith("#/explore")) ctx.navigate("#/explore");
+    ctx.navigate("#/explore");
   }
 
   function selectTarget(t: Target) {
@@ -571,7 +578,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     } catch (e) {
       if (import.meta.env.DEV) console.error("Sky: the globe failed, using the flat map.", e);
       // Clear whatever Aladin left behind before the flat map takes the stage.
-      mapEl.querySelectorAll(".ab-aladin").forEach((n) => n.remove());
+      mapEl.querySelectorAll(".atl-aladin").forEach((n) => n.remove());
       map = null;
       startFallback(e instanceof SkyUnavailable ? e.reason : "the sky viewer couldn't start");
     }
@@ -715,6 +722,18 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       map?.update(model());
     }),
   );
+  q<HTMLButtonElement>("[data-mismatch]").addEventListener("click", (ev) => {
+    mismatches = !mismatches;
+    (ev.currentTarget as HTMLButtonElement).setAttribute("aria-pressed", String(mismatches));
+    refilter();
+    renderCounts();
+    map?.update(model());
+    renderKey();
+    if (map) {
+      renderStatus(map.view());
+      renderList();
+    }
+  });
   el.querySelectorAll<HTMLButtonElement>("[data-layer]").forEach((b) =>
     b.addEventListener("click", () => {
       const key = b.dataset.layer as "heat" | "zones" | "signals";
@@ -725,7 +744,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }),
   );
 
-  q<HTMLFormElement>(".ab-find").addEventListener("submit", (ev) => {
+  q<HTMLFormElement>(".atl-find").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = input.value.trim();
     if (!text) return;
@@ -745,8 +764,13 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
     const c = data?.candidates.find((x) => x.id === text);
     if (c) {
-      if (!state.kinds.includes(c.kind)) {
+      if (!onMap(c)) {
         state = { ...state, kinds: KINDS.filter((k) => k === c.kind || state.kinds.includes(k)) };
+        if (isLikelyMismatch(c)) {
+          mismatches = true;
+          q<HTMLButtonElement>("[data-mismatch]").setAttribute("aria-pressed", "true");
+          renderCounts();
+        }
         refilter();
         syncKindButtons();
       }
@@ -809,7 +833,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (open) renderList();
   });
   listEl.addEventListener("click", (ev) => {
-    const b = (ev.target as Element).closest<HTMLButtonElement>("button.ab-list-item");
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button.atl-list-item");
     if (!b || !map) return;
     if (b.dataset.id) {
       const c = shown.find((x) => x.id === b.dataset.id);
@@ -869,7 +893,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let ro: ResizeObserver | null = null;
   if (typeof ResizeObserver === "function") {
     ro = new ResizeObserver(() => measure());
-    for (const n of [document.querySelector("header.top"), q(".ab-intro"), q(".ab-controls"), more, msgEl]) if (n) ro.observe(n);
+    for (const n of [document.querySelector("header.top"), q(".atl-intro"), q(".atl-controls"), more, msgEl]) if (n) ro.observe(n);
   }
 
   return {
@@ -907,7 +931,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       ro?.disconnect();
       if (hashTimer) clearTimeout(hashTimer);
       el.innerHTML = "";
-      el.classList.remove("ab");
+      el.classList.remove("atl");
     },
   };
 };

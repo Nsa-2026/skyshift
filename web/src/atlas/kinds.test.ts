@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanCandidates, toAtlasData } from "./data";
-import { KINDS, KIND_TEXT, countSentence, detectorText, flagsSentence, isKind, keyNumber, labelText, oneLine, plural, reasonText, zoneName } from "./kinds";
+import { KINDS, KIND_TEXT, countSentence, detectorText, flagsSentence, isCaution, isKind, isLikelyMismatch, keyNumber, labelText, oneLine, plural, reasonText, zoneName } from "./kinds";
 import { cand } from "./testdata";
 
 describe("kinds in words", () => {
@@ -20,6 +20,13 @@ describe("kinds in words", () => {
         expect(s).not.toBe(s.toUpperCase());
       }
     }
+  });
+
+  it("knows the contract's check-first codes and the likely mismatches", () => {
+    for (const c of ["implausible_pm", "gaia_pm_disagrees", "detector_excess", "repeat_position", "few_dots"]) expect(isCaution(c)).toBe(true);
+    for (const c of ["two_exposures", "pm_fit", "vetted", "no_gaia", "catwise_pm_agrees"]) expect(isCaution(c)).toBe(false);
+    expect(isLikelyMismatch(cand({ kind: "high_pm", reasons: ["pm_pair", "implausible_pm"] }))).toBe(true);
+    expect(isLikelyMismatch(cand({ kind: "high_pm", reasons: ["pm_fit", "vetted"] }))).toBe(false);
   });
 
   it("turns codes into phrases, known or not", () => {

@@ -39,18 +39,75 @@ export function isKind(k: unknown): k is CandidateKind {
   return k === "mover" || k === "high_pm" || k === "spectral";
 }
 
-/** Pipeline reason codes (contracts/dots.md) as short phrases. Unknown codes fall back to the code in words. */
+/**
+ * Reason codes (contracts/api.md, candidates.json "reasons") as short phrases. Unknown codes fall
+ * back to the code in words.
+ */
 const REASON_TEXT: Record<string, string> = {
+  // mover
   two_exposures: "Seen in two exposures",
   two_detectors: "Seen in two detectors at once",
-  gaia_pm_disagrees: "Gaia's motion differs",
-  catwise_pm_disagrees: "CatWISE's motion differs",
+  known_object_near: "A known asteroid is predicted near",
+  motion_not_significant: "Motion not significant",
+  bad_pixels_near: "Bad pixels nearby",
+  outlier_flag: "Outlier pixels",
+  detector_excess: "Detector with many artefacts",
+  repeat_position: "Seen here before",
+  gaia_unchecked: "Gaia not checked",
+  catwise_unchecked: "CatWISE not checked",
+  // high_pm
+  pm_fit: "Motion fitted over every visit",
+  pm_pair: "Paired across two visits",
+  vetted: "Passed every check",
+  catwise_pm_agrees: "CatWISE's motion agrees",
+  short_span: "Short time span",
   few_dots: "Few detections",
   bad_fit: "Poor straight-line fit",
-  short_span: "Short time span",
   over_pm_cap: "Faster than any known star",
+  gaia_pm_disagrees: "Gaia's motion differs",
+  catwise_pm_disagrees: "CatWISE's motion differs",
   at_control_level: "Could be chance",
+  implausible_pm: "Too fast to be one star",
+  // spectral
+  no_gaia: "Not in Gaia",
+  gaia_nearby: "Gaia: within 50 pc",
+  class_star: "Looks like a star",
+  class_galaxy: "Looks like a galaxy",
+  class_unsure: "Star or galaxy unclear",
+  variable: "Brightness changes",
 };
+
+/** The "check first" codes of the contract: shown as cautions, not as evidence. */
+const CAUTION_CODES = new Set([
+  "known_object_near",
+  "motion_not_significant",
+  "bad_pixels_near",
+  "outlier_flag",
+  "detector_excess",
+  "repeat_position",
+  "gaia_unchecked",
+  "catwise_unchecked",
+  "short_span",
+  "few_dots",
+  "bad_fit",
+  "over_pm_cap",
+  "gaia_pm_disagrees",
+  "catwise_pm_disagrees",
+  "at_control_level",
+  "implausible_pm",
+]);
+
+export function isCaution(code: string): boolean {
+  return CAUTION_CODES.has(code);
+}
+
+/**
+ * A "moving star" faster than any star can move (`implausible_pm`): almost certainly two different
+ * sources paired by mistake (the export scores them × 0.01). The map leaves them out unless asked.
+ */
+export function isLikelyMismatch(c: Pick<Candidate, "reasons">): boolean {
+  return c.reasons.includes("implausible_pm");
+}
 
 export function reasonText(code: string): string {
   if (REASON_TEXT[code]) return REASON_TEXT[code];
@@ -65,6 +122,8 @@ const LABEL_TEXT: Record<string, string> = {
   co2_ice: "CO₂ ice",
   co_ice: "CO ice",
   h2o_vapour: "Water vapour",
+  co_23: "CO at 2.3 µm",
+  pah_33: "PAH at 3.3 µm",
   brown_dwarf_like: "Brown-dwarf colours",
 };
 

@@ -151,3 +151,24 @@ export function zoneOutline(b: ZoneBox, stepDeg = 1): [number, number][] {
 export function zoneLabelAnchor(b: ZoneBox): SkyPos {
   return { ra: wrap360(b.ra1), dec: b.dec0 };
 }
+
+/**
+ * On the whole sky a zone is a small blot of order-3 cells (~7°): its label goes beside it, on the
+ * east side (screen left), clear of the cells that stick out of the box by up to half a cell.
+ */
+export function zoneSideAnchor(b: ZoneBox, clearDeg = 3.5): SkyPos {
+  const dec = (b.dec0 + b.dec1) / 2;
+  const cos = Math.max(0.05, Math.cos((dec * Math.PI) / 180));
+  return { ra: wrap360(b.ra1 + clearDeg / cos), dec };
+}
+
+/** True when the zone's centre lies in the box of a busier zone (the pilot inside the hunt). */
+export function isNested(b: ZoneBox, all: readonly ZoneBox[]): boolean {
+  return all.some((o) => {
+    if (o === b || o.count < b.count) return false;
+    if (b.center.dec < o.dec0 || b.center.dec > o.dec1) return false;
+    let ra = wrap360(b.center.ra);
+    if (ra < o.ra0) ra += 360;
+    return ra <= o.ra1;
+  });
+}
