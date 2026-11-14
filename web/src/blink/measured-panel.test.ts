@@ -96,8 +96,12 @@ describe("what SkyShift measured", () => {
     );
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Final");
     const legend = [...el.querySelectorAll(".bk-meas-key li")].map((li) => li.textContent);
-    expect(legend).toEqual(["Suspect", "Known asteroid or comet", "Other mover", "Artefact", "Gaia star", "Other source"]);
-    expect(el.querySelector(".bk-meas-how")!.textContent).toMatch(/Arrows join each mover's dots in time order, drawn \d+ times longer than the motion\./);
+    // Its photos have saturated pixels (sat_frac 0.001): the legend explains the dashed ring.
+    expect(legend).toEqual(["Suspect", "Known asteroid or comet", "Other mover", "Artefact", "Gaia star", "Other source", "Saturated star"]);
+    const how = el.querySelector(".bk-meas-how")!.textContent!;
+    expect(how).toMatch(/each as big as its source looks on the plate/);
+    expect(how).toMatch(/a little bigger, so a match reads as a circle inside a ring/);
+    expect(how).toMatch(/Arrows join each mover's dots in time order, to scale\. One too short to see is drawn longer, with its factor \(×10\)/);
     expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("Movers and artefacts on D2");
     const items = [...el.querySelectorAll<HTMLButtonElement>(".bk-mi")];
     expect(items.map((b) => b.querySelector(".bk-mi-t")!.textContent)).toEqual([
@@ -141,18 +145,23 @@ describe("what SkyShift measured", () => {
 
   it("months: shifts, distinct sources, provisional, missing photos and the cap", async () => {
     await h.show(monthsView, months(), URL);
-    expect(lead().textContent).toBe(
-      "Here SkyShift found at least 5 sources in 48 photos, and 3 moved between visits: 1 Gaia star, 1 suspect and 1 source without Gaia.",
-    );
+    expect(lead().textContent).toBe("Here SkyShift found at least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(el.querySelector(".bk-meas-rest")!.textContent).toMatch(/^2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion\./);
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Provisional");
-    expect(el.querySelector(".bk-meas-how")!.textContent).toMatch(/Arrows show each measured shift from the first visit to the last, drawn \d+ times longer than it is\. The circle at the tip is its uncertainty \(1σ\)\./);
+    const how = el.querySelector(".bk-meas-how")!.textContent!;
+    expect(how).toMatch(/Arrows run from where we measured a source in the first visit to where we measured it in the last, to scale\./);
+    expect(how).toMatch(/Only shifts of 5σ or more, or that Gaia's own motion confirms, get one; the rest are in the list\./);
+    // Barnard's Star (G 8.2) saturates: the dashed ring is explained, and no word about shortened arrows.
+    expect(how).toMatch(/A dashed ring is a saturated star/);
+    expect(how).not.toMatch(/shortened|1σ/);
     expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("What moved between visits");
     expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual([
-      "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
       "Artefact: too few dots, poor motion fit",
       "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
+      "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
       "Source without Gaia moved 0.39″ ± 0.11″ in 1.0 yr",
     ]);
+    expect(el.querySelectorAll(".bk-mi-n")[2].textContent).toMatch(/Not on the plate: under 5σ\.$/);
     const notes = el.querySelector(".bk-meas-notes")!.textContent!;
     expect(notes).toContain("2 of these 50 photos have no dots yet");
     expect(notes).toContain("A busy field: each visit shows at most 250 marks");

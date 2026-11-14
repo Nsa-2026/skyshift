@@ -421,3 +421,118 @@ export function burntCores(
   }
   return out;
 }
+
+// ---- how big a source looks on the plate -------------------------------------------------------
+
+/** The value a stretch maps to `y` (0–1): the inverse of `stretch`. */
+export function unstretch(y: number, lim: Limits, kind: StretchKind): number {
+  const yy = Math.min(1, Math.max(0, y));
+  const t = kind === "asinh" ? Math.sinh(yy * ASINH_NORM) / ASINH_BETA : yy;
+  return lim.lo + t * (lim.hi - lim.lo);
+}
+
+export interface ExtentOptions {
+  /** The level the source must fall to: the local sky + 2σ, or the display's visible floor if higher. */
+  floor: number;
+  /** Noise per pixel, same units as the frame. */
+  sigma: number;
+  /** PSF FWHM, image pixels. */
+  fwhm: number;
+  /** The longest ray, image pixels. */
+  maxR: number;
+}
+
+/**
+ * How far a source visibly reaches from (x, y), in image pixels: along 8 rays, the distance where
+ * the plate falls to `floor`. A ray also stops where the profile rises again by 2σ (a neighbour),
+ * where it stops falling (less than 2σ over one FWHM: a star sitting on a brighter star's halo), and
+ * at missing data or the frame's edge. Burnt (saturated) pixels count as brighter than anything, so
+ * a saturated star's rays run through its core to the edge of its wings. The median of the rays, so
+ * one neighbour or a bleed trail doesn't stretch it. 0 when the plate shows nothing at (x, y).
+ */
+export function visibleExtent(
+  vals: ArrayLike<number>,
+  burnt: ArrayLike<number> | null,
+  nx: number,
+  ny: number,
+  x: number,
+  y: number,
+  o: ExtentOptions,
+): number {
+  const at = (px: number, py: number): number => {
+    const ix = Math.round(px);
+    const iy = Math.round(py);
+    if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) return NaN;
+    const k = iy * nx + ix;
+    const v = vals[k];
+    if (v === v) return v;
+    return burnt?.[k] ? Infinity : NaN;
+  };
+  // The position may sit a pixel off its peak: start from the brightest of the 3 × 3.
+  let c = -Infinity;
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      const v = at(x + dx, y + dy);
+      if (v > c) c = v;
+    }
+  if (!(c > o.floor)) return 0;
+  const step = 0.5;
+  const perFwhm = Math.max(2, Math.round(o.fwhm / step));
+  const rays: number[] = [];
+  for (let a = 0; a < 8; a++) {
+    const ux = Math.cos((a * Math.PI) / 4);
+    const uy = Math.sin((a * Math.PI) / 4);
+    const prof = [c];
+    let minV = c;
+    let minR = 0;
+    let edge = o.maxR;
+    for (let i = 1; i * step <= o.maxR; i++) {
+      const r = i * step;
+      const v = at(x + ux * r, y + uy * r);
+      if (Number.isNaN(v)) {
+        edge = r - step;
+        break;
+      }
+      if (v <= o.floor) {
+        const p = prof[i - 1];
+        edge = Number.isFinite(p) && p > v ? r - step + (step * (p - o.floor)) / (p - v) : r - step;
+        break;
+      }
+      if (Number.isFinite(minV) && v > minV + 2 * o.sigma) {
+        edge = minR;
+        break;
+      }
+      if (i >= perFwhm) {
+        const p = prof[i - perFwhm];
+        if (Number.isFinite(p) && Number.isFinite(v) && p - v < 2 * o.sigma) {
+          edge = Math.max(0, r - o.fwhm / 2);
+          break;
+        }
+      }
+      prof.push(v);
+      if (v < minV) {
+        minV = v;
+        minR = r;
+      }
+    }
+    rays.push(Math.max(0, edge));
+  }
+  rays.sort((p, q) => p - q);
+  return (rays[3] + rays[4]) / 2;
+}
+
+/** µJy per arcsec² in 1 MJy/sr (10¹² µJy over 4.2545 × 10¹⁰ arcsec²): 889 µJy in a 6.15″ pixel. */
+export const UJY_PER_ARCSEC2_PER_MJYSR = 1e12 / 4.25451702961522e10;
+
+/**
+ * The same reach from a model, when the plate can't be read there: the radius (image pixels) where
+ * a Gaussian PSF holding `fluxUjy` falls to `floorAboveSky` (MJy/sr over the sky). 0 when its peak
+ * doesn't reach the floor.
+ */
+export function psfExtent(fluxUjy: number, fwhmArcsec: number, pixelArcsec: number, floorAboveSky: number): number {
+  if (!(fluxUjy > 0) || !(floorAboveSky > 0)) return 0;
+  const s = fwhmArcsec * FWHM_TO_SIGMA;
+  const peak = fluxUjy / (2 * Math.PI * s * s) / UJY_PER_ARCSEC2_PER_MJYSR;
+  if (peak <= floorAboveSky) return 0;
+  return (s * Math.sqrt(2 * Math.log(peak / floorAboveSky))) / pixelArcsec;
+}

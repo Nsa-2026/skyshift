@@ -3,6 +3,7 @@
 // without a canvas. Drawing lives in index.ts and marks.ts.
 import type {
   FramesResponse,
+  GaiaStar,
   Measured,
   MeasuredClass,
   MeasuredDetection,
@@ -10,6 +11,7 @@ import type {
   MeasuredShift,
   MeasuredTrack,
 } from "../api/types";
+import { gaiaAt } from "../app/astro";
 
 /** Legend and drawing order: what matters most first (drawn last, so it sits on top). */
 export const CLASS_ORDER: MeasuredClass[] = ["suspect", "known", "mover", "artifact", "star", "other"];
@@ -80,7 +82,20 @@ const REASON_WORDS: Record<string, string> = {
   red_photo: "photo failed the quality check",
   "2mass": "a 2MASS source sits here",
   near_gaia: "near a Gaia star",
+  // Proposed codes (not in contracts/api.md yet): read when the server sends them.
+  bright_fragment: "a piece of a bright star's glow",
+  blend: "two Gaia stars blended in SPHEREx's 6″ pixels",
 };
+
+/**
+ * Proposed detection fields, not in contracts/api.md yet: the bright star a `bright_fragment` belongs
+ * to, and the Gaia stars of a `blend`. Read when present; the plate falls back on its own heuristics.
+ */
+export interface DetectionExtras {
+  parent_gaia_id?: string | null;
+  blend_gaia_ids?: string[] | null;
+}
+export const extras = (d: MeasuredDetection): DetectionExtras => d as MeasuredDetection & DetectionExtras;
 
 export const reasonWords = (codes: string[]): string[] => codes.map((c) => REASON_WORDS[c] ?? c);
 
@@ -208,7 +223,7 @@ export function stageNote(m: Pick<Measured, "zone" | "stage">): string {
 }
 
 /** "Here SkyShift found N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
-export function summarize(m: Measured): Summary {
+export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
   const photos = plural(m.photos ?? 0, "photo");
   const counts = Object.fromEntries(CLASS_ORDER.map((k) => [k, m.counts?.[k] ?? 0])) as Record<MeasuredClass, number>;
   m = { ...m, counts, tracks: m.tracks ?? [], shifts: m.shifts ?? [], detections: m.detections ?? [] };
@@ -275,26 +290,33 @@ export function summarize(m: Measured): Summary {
     const n = total(src);
     const atLeast = m.truncated ? "at least " : "";
     const parts: string[] = [];
-    const by = (c: MeasuredClass) => m.shifts.filter((s) => s.class === c).length;
+    // Only the shifts the plate draws an arrow for "moved": the rest are weak or Gaia disagrees.
+    const G = gaiaById(gaia);
+    const moved = m.shifts.filter((s) => shiftVerdict(s, G).draw);
+    const weak = m.shifts.length - moved.length;
+    const by = (c: MeasuredClass) => moved.filter((s) => s.class === c).length;
     if (by("star")) parts.push(plural(by("star"), "Gaia star"));
     if (by("suspect")) {
       const g = new Map(m.detections.filter((d) => d.class === "suspect" && d.source_id != null).map((d) => [d.source_id, d.grade]));
-      const grades = m.shifts.filter((s) => s.class === "suspect").map((s) => g.get(s.source_id) ?? null);
+      const grades = moved.filter((s) => s.class === "suspect").map((s) => g.get(s.source_id) ?? null);
       parts.push(grades.some((x) => x) ? `${plural(by("suspect"), "suspect")} (${gradePhrase(grades)})` : plural(by("suspect"), "suspect"));
     }
     if (by("artifact")) parts.push(plural(by("artifact"), "artefact"));
-    const others = m.shifts.length - by("star") - by("suspect") - by("artifact");
+    const others = moved.length - by("star") - by("suspect") - by("artifact");
     if (others) parts.push(plural(others, "source without Gaia", "sources without Gaia"));
     lead = `Here SkyShift found ${atLeast}<b>${n.toLocaleString("en-GB")}</b> ${n === 1 ? "source" : "sources"} in ${photos}`;
-    lead += m.shifts.length
-      ? `, and <b>${m.shifts.length}</b> moved between visits: ${listJoin(parts)}.`
+    lead += moved.length
+      ? `, and <b>${moved.length}</b> moved between visits: ${listJoin(parts)}.`
       : ", and none moved measurably between visits.";
     const r: string[] = [];
     if (src.star) r.push(`${atLeast}${src.star.toLocaleString("en-GB")} ${src.star === 1 ? "matches a Gaia star" : "match Gaia stars"}`);
     if (src.other) r.push(`${atLeast}${src.other.toLocaleString("en-GB")} ${src.other === 1 ? "has" : "have"} no Gaia match`);
     if (src.artifact) r.push(`${src.artifact.toLocaleString("en-GB")} ${src.artifact === 1 ? "looks" : "look"} like ${src.artifact === 1 ? "an artefact" : "artefacts"}`);
     if (src.suspect && !by("suspect")) r.push(`${src.suspect} ${src.suspect === 1 ? "is a suspect" : "are suspects"}`);
-    if (r.length) rest = `Of the sources, ${listJoin(r)}.`;
+    const weakNote = weak
+      ? `${weak.toLocaleString("en-GB")} weaker ${weak === 1 ? "shift is" : "shifts are"} listed but not drawn: under ${SHIFT_MIN_SNR}σ, or Gaia measures a different motion.`
+      : "";
+    rest = [weakNote, r.length ? `Of the sources, ${listJoin(r)}.` : ""].filter(Boolean).join(" ");
   }
 
   const notes: string[] = [stageNote(m)];
@@ -359,7 +381,7 @@ export function describeDetection(d: MeasuredDetection): string {
     case "artifact":
       return `Artefact${tail || ", reason not given"}`;
     case "star":
-      return "Gaia star";
+      return (d.reasons ?? []).includes("blend") ? blendWords(Math.max(2, extras(d).blend_gaia_ids?.length ?? 2)) : "Gaia star";
     default:
       return "Other source";
   }
@@ -387,36 +409,130 @@ export function shiftNumbers(s: MeasuredShift): string {
 
 // ---- arrows ---------------------------------------------------------------------------------
 
-/** Exaggeration factors: plain numbers people can multiply in their head. */
-const NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+/** An arrow at least this long (screen pixels) is drawn to scale. */
+export const MIN_ARROW_PX = 3;
+/** A shorter one is stretched to about this length, by a plain factor printed on it. */
+export const STRETCHED_ARROW_PX = 16;
+/** Stretch factors: plain numbers people can multiply in their head. */
+const STRETCH = [2, 5, 10, 20, 50, 100, 200, 500, 1000];
 
 /**
- * How much to stretch motion arrows so a typical one is visible: the largest nice factor that keeps
- * the median motion (arcsec) at or under `target` arcsec (a share of the field). 1 when nothing moves
- * or motion is already that large.
+ * How many times longer than the motion an arrow is drawn: 1 (to scale) when it is long enough to
+ * see; else the smallest plain factor that makes it about 16 px; 0 when nothing would show.
  */
-export function exaggeration(lengthsArcsec: number[], targetArcsec: number): number {
-  const ls = lengthsArcsec.filter((x) => Number.isFinite(x) && x > 0.005).sort((a, b) => a - b);
-  if (!ls.length) return 1;
-  // The lower median: one fast star (Barnard's) must not shrink every other arrow to nothing; it is
-  // shortened with a break instead.
-  const med = ls[(ls.length - 1) >> 1];
-  let f = 1;
-  for (const k of NICE) if (med * k <= targetArcsec) f = k;
-  return f;
+export function arrowFactor(lengthPx: number): number {
+  if (!(lengthPx > 0.001)) return 0;
+  if (lengthPx >= MIN_ARROW_PX) return 1;
+  for (const k of STRETCH) if (lengthPx * k >= STRETCHED_ARROW_PX) return k;
+  return 0;
 }
 
-/** Sentence for the legend: how arrows are drawn, and whether a long one was shortened to fit. */
-export function arrowNote(clock: "hours" | "months", factor: number, shortened = false): string {
-  const how = factor > 1 ? `drawn ${factor} times longer than ${clock === "hours" ? "the motion" : "it is"}` : "drawn to scale";
-  const cut = shortened ? " Two strokes across an arrow mean it was shortened to fit the plate." : "";
+type Pt = { X: number; Y: number };
+
+export interface Arrow {
+  /** The shaft through these points, the head on the last. */
+  pts: Pt[];
+  /** 1: to scale. More: stretched that many times, printed on the arrow ("×10"). */
+  factor: number;
+  /** Where the motion really ends (the last point when to scale). */
+  end: Pt;
+}
+
+/**
+ * A motion arrow through screen points in time order (first to last measured position). To scale
+ * when it spans at least 3 px; else stretched about its first point by `arrowFactor`, keeping the
+ * true end. `along`, when given, replaces the direction and length of a stretched arrow: the fitted
+ * motion, steadier than two positions a fraction of a pixel apart. null when nothing would show.
+ */
+export function motionArrow(pts: Pt[], along?: Pt): Arrow | null {
+  if (pts.length < 2) return null;
+  const p0 = pts[0];
+  const last = pts[pts.length - 1];
+  const span = Math.hypot(last.X - p0.X, last.Y - p0.Y);
+  if (span >= MIN_ARROW_PX) return { pts, factor: 1, end: last };
+  if (along) {
+    const k = arrowFactor(Math.hypot(along.X, along.Y));
+    if (!k) return null;
+    if (k === 1) return { pts: [p0, { X: p0.X + along.X, Y: p0.Y + along.Y }], factor: 1, end: { X: p0.X + along.X, Y: p0.Y + along.Y } };
+    return { pts: [p0, { X: p0.X + along.X * k, Y: p0.Y + along.Y * k }], factor: k, end: { X: p0.X + along.X, Y: p0.Y + along.Y } };
+  }
+  const k = arrowFactor(span);
+  if (!k) return null;
+  return { pts: pts.map((p) => ({ X: p0.X + (p.X - p0.X) * k, Y: p0.Y + (p.Y - p0.Y) * k })), factor: k, end: last };
+}
+
+/** Where a fitted shift puts its source at `mjd`: its position at mjd_from moved by the proper motion. */
+export function shiftAt(s: Pick<MeasuredShift, "ra" | "dec" | "pmra" | "pmdec" | "mjd_from">, mjd: number): { ra: number; dec: number } {
+  const yr = (mjd - s.mjd_from) / 365.25;
+  const dec = s.dec + (s.pmdec * yr) / 3.6e6;
+  return { ra: s.ra + (s.pmra * yr) / 3.6e6 / Math.cos((s.dec * Math.PI) / 180), dec };
+}
+
+/** A shift is drawn at 5σ or more… */
+export const SHIFT_MIN_SNR = 5;
+/** …with our errors scaled up like this before comparing with Gaia (pos_err is 1.4–1.8× too small, CLAUDE.md). */
+export const ERR_SCALE = 1.6;
+
+export type ShiftWhy = "gaia_agrees" | "significant" | "gaia_disagrees" | "weak" | "artifact";
+
+export interface ShiftVerdict {
+  draw: boolean;
+  why: ShiftWhy;
+  /** Gaia's proper motion for the star, mas/yr, when known. */
+  gaiaPm?: number;
+}
+
+/**
+ * Is a shift worth an arrow on the plate? A Gaia star's motion is Gaia's to confirm, since Gaia is
+ * far more precise: drawn when Gaia measures a motion we could see (3σ of ours) and ours agrees
+ * within 3σ (errors × 1.6); not drawn when it disagrees, as a saturated star's fake westward shift
+ * does. Without a Gaia motion: drawn at 5σ or more, unless the checks called it an artefact.
+ */
+export function shiftVerdict(s: MeasuredShift, gaia?: Map<string, GaiaStar>): ShiftVerdict {
+  const g = s.gaia_id ? gaia?.get(s.gaia_id) : undefined;
+  if (g && g.pmra != null && g.pmdec != null) {
+    const gaiaPm = Math.hypot(g.pmra, g.pmdec);
+    const diff = Math.hypot(s.pmra - g.pmra, s.pmdec - g.pmdec);
+    if (diff <= 3 * ERR_SCALE * s.pm_err && gaiaPm >= 3 * s.pm_err) return { draw: true, why: "gaia_agrees", gaiaPm };
+    return { draw: false, why: "gaia_disagrees", gaiaPm };
+  }
+  if (s.class === "artifact") return { draw: false, why: "artifact" };
+  if (s.pm_snr >= SHIFT_MIN_SNR) return { draw: true, why: "significant" };
+  return { draw: false, why: "weak" };
+}
+
+/** Why a shift has no arrow, one sentence; "" when it has one. */
+export function verdictWords(v: ShiftVerdict): string {
+  if (v.draw) return "";
+  switch (v.why) {
+    case "gaia_disagrees":
+      return `Not on the plate: Gaia measures ${num(v.gaiaPm ?? 0)} mas/yr for this star.`;
+    case "artifact":
+      return "Not on the plate: our checks set it aside.";
+    default:
+      return `Not on the plate: under ${SHIFT_MIN_SNR}σ.`;
+  }
+}
+
+export const gaiaById = (gaia: GaiaStar[] | null | undefined): Map<string, GaiaStar> => new Map((gaia ?? []).map((g) => [g.id, g]));
+
+/** "measured 2.1″ from Gaia's position", when a circle sits more than 1.5″ off its ring; else "". */
+export const OFFSET_NOTE_ARCSEC = 1.5;
+export function offsetWords(arcsec: number | undefined): string {
+  return arcsec != null && arcsec > OFFSET_NOTE_ARCSEC ? `measured ${arcsec.toFixed(1)}″ from Gaia's position` : "";
+}
+
+/** The words for a blend of n Gaia stars. */
+export const blendWords = (n: number): string => `${n} Gaia stars, blended in SPHEREx's 6″ pixels`;
+
+/** Sentence for the legend: how arrows are drawn. */
+export function arrowNote(clock: "hours" | "months"): string {
+  const stretched = "One too short to see is drawn longer, with its factor (×10) beside it and a small dot where it really ends.";
   return clock === "hours"
-    ? `Arrows join each mover's dots in time order, ${how}.${cut}`
-    : `Arrows show each measured shift from the first visit to the last, ${how}. The circle at the tip is its uncertainty (1σ).${cut}`;
+    ? `Arrows join each mover's dots in time order, to scale. ${stretched}`
+    : `Arrows run from where we measured a source in the first visit to where we measured it in the last, to scale. ` +
+        `Only shifts of ${SHIFT_MIN_SNR}σ or more, or that Gaia's own motion confirms, get one; the rest are in the list. ${stretched}`;
 }
-
-/** Arrows longer than this share of the field are shortened (with a break across the shaft). */
-export const ARROW_CAP = 0.4;
 
 /** Offset (arcsec, east and north) between two positions, small-angle. */
 export function offsetArcsec(a: { ra: number; dec: number }, b: { ra: number; dec: number }): { east: number; north: number } {
@@ -458,6 +574,8 @@ export interface MeasuredItem {
   shift?: number;
   /** A suspect's grade, when graded. */
   grade?: MeasuredDetection["grade"];
+  /** A shift without an arrow on the plate (under 5σ, or Gaia disagrees). */
+  undrawn?: boolean;
 }
 
 /** Grade C suspects fail a check: drawn greyed like artefacts, still labelled "Suspect, grade C". */
@@ -481,7 +599,7 @@ function span(days: number): string {
  * Hours: each track with a dot on this detector, then lone known/suspect/mover/artefact dots.
  * Months: each fitted shift, then suspect or artefact sources without one.
  */
-export function listItems(m: Measured, epochDet: Map<string, number>, det: number): MeasuredItem[] {
+export function listItems(m: Measured, epochDet: Map<string, number>, det: number, gaia?: GaiaStar[]): MeasuredItem[] {
   const onDet = (id: string) => epochDet.get(id) === det;
   const items: MeasuredItem[] = [];
   if (m.clock === "hours") {
@@ -562,19 +680,32 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
   } else {
     const withShift = new Set<number>();
     const gradeOf = new Map(m.detections.filter((d) => d.grade && d.source_id != null).map((d) => [d.source_id, d.grade]));
+    const G = gaiaById(gaia);
     m.shifts.forEach((s, i) => {
       withShift.add(s.source_id);
       const grade = s.class === "suspect" ? (gradeOf.get(s.source_id) ?? null) : undefined;
+      const v = shiftVerdict(s, G);
+      const g = s.gaia_id ? G.get(s.gaia_id) : undefined;
+      const notes: string[] = [];
+      const n = blendCount(s, m, gaia ?? []);
+      if (n > 1) notes.push(`${blendWords(n)}.`);
+      if (g && n < 2) {
+        const o = offsetArcsec(gaiaAt(g, s.mjd_from), s);
+        const w = offsetWords(Math.hypot(o.east, o.north));
+        if (w) notes.push(`${w[0].toUpperCase()}${w.slice(1)}.`);
+      }
+      if (!v.draw) notes.push(verdictWords(v));
       items.push({
         key: `s:${s.source_id}`,
         cls: s.class,
         grade,
         label: describeShift(s, grade),
-        numbers: shiftNumbers(s),
+        numbers: [shiftNumbers(s) + (notes.length ? "." : ""), ...notes].join(" "),
         at: {},
         pos: { ra: s.ra, dec: s.dec },
         epochs: [],
         shift: i,
+        undrawn: !v.draw || undefined,
       });
     });
     const src = new Map<number, MeasuredDetection[]>();
@@ -596,9 +727,38 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
       });
     }
   }
-  // Class first, then as listed (tracks in the server's order, shifts by pm_snr).
+  // Shifts with an arrow first, then class, then as listed (tracks in the server's order, shifts by pm_snr).
   return items
     .map((it, i) => ({ it, i }))
-    .sort((a, b) => byClass(a.it, b.it) || a.i - b.i)
+    .sort((a, b) => Number(!!a.it.undrawn) - Number(!!b.it.undrawn) || byClass(a.it, b.it) || a.i - b.i)
     .map((x) => x.it);
+}
+
+/**
+ * How many Gaia stars a shift's source blends (1: none). From its detections' `blend` reason when
+ * the server sends one; else Gaia stars within 9″ of its own at mjd_from, at most 3 mag fainter,
+ * with no other source measured within 4″ of them.
+ */
+export function blendCount(s: MeasuredShift, m: Measured, gaia: GaiaStar[]): number {
+  const mine = m.detections.filter((d) => d.source_id === s.source_id);
+  const told = mine.find((d) => (d.reasons ?? []).includes("blend"));
+  if (told) return Math.max(2, extras(told).blend_gaia_ids?.length ?? 2);
+  const g0 = s.gaia_id ? gaia.find((g) => g.id === s.gaia_id) : undefined;
+  if (!g0) return 1;
+  const p0 = gaiaAt(g0, s.mjd_from);
+  const near = (a: { ra: number; dec: number }, b: { ra: number; dec: number }, r: number) => {
+    const o = offsetArcsec(a, b);
+    return Math.hypot(o.east, o.north) <= r;
+  };
+  const others = m.detections.filter((d) => d.source_id !== s.source_id);
+  let n = 1;
+  for (const g of gaia) {
+    // A partner SPHEREx could see (the plate rings G 16.5 and brighter), at most 3 mag fainter.
+    if (g.id === g0.id || g.g == null || g.g > 16.5 || (g0.g != null && g.g - g0.g > 3)) continue;
+    const p = gaiaAt(g, s.mjd_from);
+    if (!near(p0, p, 9)) continue;
+    if (others.some((d) => near(d, p, 4))) continue;
+    n++;
+  }
+  return n;
 }
