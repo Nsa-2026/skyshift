@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.8)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.9)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -7,7 +7,8 @@ targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the communi
 v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
 v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows only;
 v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json;
-v3.8: `measure.source`, which detector, visits and exposures the shift was measured in).
+v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
+v3.9: `measure.source`, which detector, visits and exposures the shift was measured in).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -43,12 +44,21 @@ GET /api/gaia?ra=&dec=&r=
 GET /api/known?ra=&dec=&r=&mjd=
 GET /api/resolve?q=        # any coordinate format, or a built-in name
 
+# v3.8 science workspace: supplemental, not the scored pipeline (below)
+GET  /api/frames?…&view=raw|model|resid|refdiff
+GET  /api/science?ra=&dec=          GET /api/analysis?ra=&dec=&det=
+GET  /api/science/capabilities      GET /api/enrichment?ra=&dec=&kind=
+GET  /api/export?ra=&dec=&det=&clock=&format=
+POST /api/jobs?ra=&dec=&size=       GET /api/jobs/<id>      # off unless SKYSHIFT_ENABLE_SCIENCE_JOBS=1
+POST /api/reference?ra=&dec=
+
 # static twins, same shapes
 /data/<slug>/frames.json   /data/<slug>/object.json
 /data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
 /data/validation.json      /data/suspects.json
 /data/candidates.json      /data/cand/<id>/frames.json   # candidates to review
 /data/distant.json                                       # v3.6: the distant-planet search
+/science-data/<slug>/…                                   # v3.8: science products, five featured fields
 
 # frames are data, not pictures
 # 16-bit arrays, at most 300 px a side; value = raw × scale + zero (MJy/sr)
@@ -103,6 +113,7 @@ Blink frames for one spot on one clock and one detector.
 | clock | `months` / `hours` | `months` | `months`: one median stack per visit. `hours`: single exposures of one visit in time order |
 | fov | arcmin | 5 (months), 20 (hours) | Allowed: months 5 or 15; hours 20 or 60. Sampling as in the summary |
 | det | 1–6 | 2 | Detector |
+| view | `raw` / `model` / `resid` / `refdiff` | `raw` | v3.8, science workspace only. Not `raw`: a derived layer (below), same response shape |
 
 **Live caps.** A cold `/api/frames` call must fit in Cloud Run's 60 s, so the live API uses fewer
 exposures than the static files. The static twins (scripts/precompute) use all of them.
@@ -313,7 +324,7 @@ The object nearest a position (search radius 6″).
 | measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
 | measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
-| measure.source | **Optional** (v3.8). What the shift was measured on, below. The server picks its own detector and visit pair, whatever the player shows: changing the player's detector, clock or field doesn't change `measure`. Files and answers without it, and `null`: unknown. Readers then say less (no detector, the visits as "first and last") and never take the detector or visits from the frames on screen |
+| measure.source | **Optional** (v3.9). What the shift was measured on, below. The server picks its own detector and visit pair, whatever the player shows: changing the player's detector, clock or field doesn't change `measure`. Files and answers without it, and `null`: unknown. Readers then say less (no detector, the visits as "first and last") and never take the detector or visits from the frames on screen |
 | measure.source.det | Detector 1–6 of both stacks |
 | measure.source.visits | `[first, last]`: the two visit numbers compared, as in the frames' epoch ids (`d<det>-v<visit>`). Not always 1 and the last visit: a visit with fewer than 3 exposures in that detector is skipped |
 | measure.source.mjd | `[first, last]`: the median MJD-AVG (UTC) of each stack's exposures, the times the fit uses. `dt_yr` = (mjd[1] − mjd[0]) / 365.25. They can differ from the epochs' `mjd_mid` (above) |
@@ -706,6 +717,94 @@ The page shows what was searched, the result against chance (`counts.pairs` vs `
 `spread_pairs`, `poisson_p`), the injection by distance and the limits. A passing pair at chance level is not a
 candidate: say so (`beyond_chance` false).
 
+## Science workspace (v3.8, supplemental)
+
+The workspace's Analyze and Research views (web/src/product, web/src/card/science.ts). Experimental and
+**not part of the scored pipeline**: nothing here feeds candidates.json, suspects.json, validation.json or
+the votes. Results are labelled unvetted; a detectable model is not a discovery or a Planet X exclusion.
+Units as in Conventions, except proper motions here in **arcsec/yr** (fields say so: `pm…_arcsec_yr`,
+`target_motion` and `astrometry.fit` in arcsec/yr, `units` given). Errors use the usual error JSON.
+
+**Static first.** Five featured fields have versioned products in `/science-data/<slug>/` (in the repo
+`web/public/science-data/`; slugs `barnard`, `epsindib`, `wise0855`, `rwaur`, `rdra`). The site reads them
+before the API; the API serves the same files when a request is within 2″ of a field's `center`, and
+copies them into its image. Elsewhere the analysis endpoints answer 404 unless a local job built a cube.
+
+| file | shape |
+|---|---|
+| `frames.json` + `frames/d<det>-v<visit>.bin` | `GET /api/frames`, months 5′ (146 px, 2.05″/px), all six detectors in one file. `um_min`, `um_max`, `flag_frac`, `sat_frac` are null (the analysis cube keeps no FLAGS or WCS-WAVE) |
+| `model.json`, `resid.json`, `refdiff.json` + `views/<view>/frames/d<det>-v<visit>.bin` | The same grid for the derived layers: static-sky model, observation − model, observation − DR1 all-sky reference at each frame's wavelength. MJy/sr. Pixels outside the analysis footprint (4′) are raw 0 |
+| `science.json` | `GET /api/science` |
+| `analysis.json` | `GET /api/analysis` for one detector (its `detector`: 6 for wise0855, else 2) |
+| `object.json` | `GET /api/object` from the analysis cube (`measure` null) |
+
+### GET /api/frames?view=
+
+`model`, `resid`, `refdiff`: only a published field, `clock=months`, `fov=5`; otherwise 404 `not_found`
+(no relabelled grids, no other fields, clocks or sizes). `raw` (default) is the usual engine.
+
+### GET /api/science?ra=&dec=
+
+`{ version, source:{ kind, coverage_arcmin, n_frames, available_exposures|null, flags_complete, limitations[] },
+target_motion:{ method, pmra, pmdec, epmra, epmdec, p_false? }|null, astrometry:{ points[], fit, … },
+lightcurve:[{ mjd, dmag, lam, window }], bands:[{ visit, mjd, W1|null, W2|null }],
+reference:{ spectrum:[{ um, flux_ujy }], error|null, source }, sensitivity:{ limits:[{ um, flux_ujy_5sigma,
+ab_mag_5sigma, n_frames }], rmin[], p9[], wise0855_twin_reach_pc, note }, frames:[{ mjd, det, um, visit,
+quality, flags }] }`. `W1`/`W2`: `{ flux_ujy, err_ujy, vega_mag, n }`, synthesised from the SPHEREx spectrum
+of the visit. `lightcurve` is experimental. 404 off a published field without a local cube.
+
+### GET /api/analysis?ra=&dec=&det=1..6 (default 6)
+
+`{ version, detector, n_slides, source:{ kind, n_frames, n_visits, coverage_arcmin, native_pixel_arcsec,
+flags_complete, … }, warnings:[string], slow_movers[], fast_movers[], cold_candidates[] }`. Every
+candidate has `ra`, `dec`, `status` (`unvetted`, `single_visit`, `persistent`, `artifact_warning`) and
+`p_false` (an empirical time-slide false-alarm rate over `n_slides` backgrounds, **not** a probability that
+the object is false; null for cold candidates: uncalibrated). Slow movers add `pm_arcsec_yr`,
+`pmra_arcsec_yr`, `pmdec_arcsec_yr`, `mjd_ref`, `n_visits`; fast movers `speed_arcsec_day`. Pixel fields
+(`x`, `y`, …) are on the analysis grid. A detector without a published analysis: 404.
+
+### GET /api/science/capabilities
+
+`{ analysis_jobs: bool }`, `Cache-Control: no-store`. False unless `SKYSHIFT_ENABLE_SCIENCE_JOBS=1`.
+
+### GET /api/enrichment?ra=&dec=&kind=
+
+On-demand catalogue checks of a published field (or a local cube). `kind`:
+
+| kind | source | answer |
+|---|---|---|
+| `catwise` | NASA/IPAC IRSA TAP, CatWISE2020 | `{ source, sources:[{ name, ra, dec, w1mpro, w2mpro, pmra, pmdec, candidate?, separation_arcsec?, pm_difference_arcsec_yr? }], note }`; CatWISE `pmra`, `pmdec` in arcsec/yr |
+| `relay` | NASA/IPAC IRSA TAP, NEOWISE single exposures | `{ source, points:[{ mjd, W1?, W1_err?, W2?, W2_err?, n?, source }], error:null }`, Vega mag, NEOWISE visits then SPHEREx synthetic |
+| `comovers` | ESA Gaia archive TAP, DR3 | `{ source, candidates:[ Gaia rows + pm_chi, sep_arcsec, distance_pc, projected_sep_au ], luminosity|null }`; without a target motion `{ source, candidates:[], note }` |
+| `asteroids` | Minor Planet Center orbits with kete (as `/api/known`) | `{ source, objects:[{ name, ra, dec, v, visit, mjd }], errors:[{ visit, mjd, error }], note }`, one prediction per observing session |
+
+A service that fails or times out answers **502 `upstream`** with a message naming it ("No catalogue
+results are shown"); results are never invented or partly filled in. Only complete answers are cached
+(an `asteroids` answer with `errors` is not). 400 for an unknown `kind`; 404 outside a published field.
+
+### GET /api/export?ra=&dec=&det=2&clock=months&format=
+
+A download (`Content-Disposition: attachment`). Published fields: `json` (science.json), `csv` (the
+`frames[]` table: `mjd, det, um, visit, quality, flags`), `gif` (the months blink of `det`, labelled
+frames). Other fields with static twins under `/data/<slug>/`: `json` (`{ frames, object }`), `csv`
+(epochs) and `gif` of the first set with that clock and detector. `ades` and `mpc80` are **drafts** from
+a local job's fast-mover tracks only (unverified astrometry, no observatory code; never submit as is);
+elsewhere 404. Unknown format 400.
+
+### POST /api/jobs?ra=&dec=&size=5|15|20|60, GET /api/jobs/<id>, POST /api/reference?ra=&dec=
+
+Background analysis of a new field (IRSA cutouts, sky model, candidates) and the DR1 reference cube.
+**Off by default**, and off on Cloud Run: jobs live in one process's memory and local disk, which a
+multi-instance service does not share. `SKYSHIFT_ENABLE_SCIENCE_JOBS=1` turns them on for a local
+single-process server only (scripts/run-local.sh).
+
+- Off: `POST /api/jobs` answers 503 `upstream` ("New-field analysis is not enabled here") before
+  checking the values (a missing `ra` or `dec` is still 400). `POST /api/reference` returns the
+  published `science.json` within 2″ of a published field, otherwise 404 `not_found`.
+- `POST /api/jobs` (on) → `{ id, ra, dec, size, state:"queued"|"running"|"done"|"error", progress:[string],
+  error|null }`; at most 3 queued or running, else 429. `GET /api/jobs/<id>` → the same; an unknown or
+  malformed id is 404 (on or off).
+
 ## Firestore: flags and votes (no API endpoint)
 
 | collection | fields |
@@ -733,15 +832,6 @@ candidate: say so (`beyond_chance` false).
   web/src/vote change (web/src/vote/model.test.ts checks that both list the same fields), and the
   rules and the site deploy together (`infra/firebase/deploy.sh`, both parts). Until then the
   deployed rules are v2 (no `created`).
-
-## Changes in v3.8 (14 Nov 2026): where the measured shift comes from
-
-- `/api/object` and `object.json`: optional `measure.source = { det, visits:[first,last], mjd:[first,last],
-  n_exposures:[first,last], fov, pixel_arcsec, core_filled:[first,last] }`, the detector, visit pair,
-  median times and exposure counts of the two stacks the shift was measured on. Additive: no existing
-  field or number changes. Files and answers without it (the static `object.json` files until the next
-  precompute, cached live answers) read as `null`: unknown, never guessed from the player's frames.
-  Proposed by 春。 (PR #66), adapted to v3.7.
 
 ## Changes in v3.2 (14 Nov 2026)
 
@@ -815,3 +905,22 @@ candidate: say so (`beyond_chance` false).
   `one_visit`, `one_catalogue_source` (and `class_galaxy`), `pa_deg` = the stretch's axis (0–180) for shape.
   Additive: the other kinds and every field are unchanged; files without `shape` read as 0 of them.
 - Firestore votes: shape candidates use the same four answers with other labels (above); rules unchanged.
+
+## Changes in v3.8 (14 Nov 2026): science workspace endpoints
+
+- Supplemental, from the workspace integration (credit: 春。 and Codex): `/api/frames` param `view`,
+  `GET /api/science`, `GET /api/analysis`, `GET /api/science/capabilities`, `GET /api/enrichment`,
+  `GET /api/export`, `POST /api/jobs`, `GET /api/jobs/<id>`, `POST /api/reference`, and the static
+  `/science-data/<slug>/` products. Background jobs off unless `SKYSHIFT_ENABLE_SCIENCE_JOBS=1` (never on
+  Cloud Run). Additive: no existing endpoint, file or field changes; nothing here is scored.
+- A missing engine now answers 404; the fixture examples (`"synthetic": true`) are served only with
+  `SKYSHIFT_ALLOW_SYNTHETIC=1` (tests). Every engine is real, so no live answer changes.
+
+## Changes in v3.9 (14 Nov 2026): where the measured shift comes from
+
+- `/api/object` and `object.json`: optional `measure.source = { det, visits:[first,last], mjd:[first,last],
+  n_exposures:[first,last], fov, pixel_arcsec, core_filled:[first,last] }`, the detector, visit pair,
+  median times and exposure counts of the two stacks the shift was measured on. Additive: no existing
+  field or number changes. Files and answers without it (the static `object.json` files until the next
+  precompute, cached live answers) read as `null`: unknown, never guessed from the player's frames.
+  Proposed by 春。 (PR #66), adapted to v3.8.
