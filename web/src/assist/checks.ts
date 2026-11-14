@@ -4,6 +4,7 @@
 // becomes a sentence saying what we don't know and how to look.
 import type { CandidateKind, Det } from "../api/types";
 import { DETECTORS, SAME_MOMENT } from "../app/astro";
+import { SPHEREX_V_LIMIT } from "../blink/known";
 import { paWord } from "../card/format";
 import { ANSWERS, ANSWER_TEXT } from "../vote/model";
 import { arcsecText, grouped, raw, trimZeros } from "./format";
@@ -291,7 +292,7 @@ function knownStep(c: AssistCandidate): CheckStep {
   const finding = cap(parts.join("; ")) + ".";
   const howTo = [
     "On the plate, blue rings are Gaia stars moved to the photo's date: a ring on the dot means Gaia knows it.",
-    "Violet diamonds are known asteroids and comets predicted for that time.",
+    `Violet diamonds are known asteroids (V ${SPHEREX_V_LIMIT} or brighter: what SPHEREx can see) and comets, predicted for that time.`,
     c.kind === "mover"
       ? "Astronomers: run the MPC's MPChecker for the time and position below (SPHEREx is MPC observatory code 288; use the geocentre, 500, where a tool can't take a spacecraft)."
       : "Astronomers: look the position up in Gaia DR3 and CatWISE2020 and compare their proper motions with ours.",

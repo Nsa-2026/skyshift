@@ -196,6 +196,13 @@ describe("why there is no measure", () => {
     expect(noMeasureReason({ object: null, kind: null, visits: 1 })).toMatch(/one visit/);
     expect(noMeasureReason({ object: null, kind: null, visits: null })).toMatch(/Nothing has been measured/);
   });
+  it("says why a spot seen in two visits has no shift (the server's detection guard)", () => {
+    const empty = { name: null, gaia: null, known_ucd: null, spectrum: [], measure: null } as never;
+    expect(noMeasureReason({ object: empty, kind: null, visits: 2 })).toMatch(
+      /^No shift measured here: .*single source stands out clearly .* both the first and last visits/,
+    );
+    expect(noMeasureReason({ object: empty, kind: null, visits: 1 })).toMatch(/one visit/);
+  });
   it("counts visits per detector in frames near the view", () => {
     const frames = {
       clock: "months",

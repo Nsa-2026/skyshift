@@ -657,6 +657,9 @@
   border-radius: 1px;
   transform: rotate(45deg) scale(0.8);
 }
+.sw-faint {
+  border-style: dashed;
+}
 .sw-target {
   border-color: var(--pencil-red);
   border-radius: 0;
