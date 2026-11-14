@@ -38,3 +38,17 @@ def test_aperture_photometry_fixture(cutout_path, cutout_stars):
     ph = aperture_photometry(l2.data, s["x"], s["y"], l2.wcs, flags=l2.flags, variance=l2.variance)
     assert ph.flux_ujy[0] > 0
     assert ph.flux_ujy[0] / ph.err_ujy[0] > 30
+
+
+def test_aperture_correction_only_at_2px(monkeypatch):
+    import skyshift_core.photometry as P
+    assert P.aperture_correction(2.0) == P.APERTURE_CORRECTION == 1.033
+    assert P.aperture_correction(4.0) == 1.0
+    w = tan_wcs(10.0, 20.0, (64, 64))
+    img = gaussian_image((64, 64), [31.2], [30.7], [100.0], 1.0) + 3.0
+    var = np.full(img.shape, 0.01)
+    corrected = aperture_photometry(img, 31.2, 30.7, w, r=2.0, bkg_annulus=(6.0, 9.0), variance=var)
+    monkeypatch.setattr(P, "APERTURE_CORRECTION", 1.0)
+    raw = aperture_photometry(img, 31.2, 30.7, w, r=2.0, bkg_annulus=(6.0, 9.0), variance=var)
+    assert corrected.flux_mjysr[0] == pytest.approx(1.033 * raw.flux_mjysr[0], rel=1e-9)
+    assert corrected.err_ujy[0] == pytest.approx(1.033 * raw.err_ujy[0], rel=1e-9)

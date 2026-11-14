@@ -3,21 +3,24 @@ import pandas as pd
 import pytest
 
 from skyshift_core import flags_under
-from skyshift_pipeline.dots import DOT_COLUMNS, bad_finast, or3x3, pos_err_arcsec, process_photo
+from skyshift_pipeline.dots import (DOT_COLUMNS, DOT_LIST_COLUMNS, bad_finast, or3x3, photo_meta,
+                                    pos_err_arcsec, process_photo)
 from skyshift_pipeline.sky import cell_of
 from skyshift_pipeline.store import Store, dots_rel
 
 from conftest import CUTOUT
 
 CONTRACT = ["obs_id", "detector", "mjd", "session", "visit", "ra", "dec", "pos_err_arcsec", "x", "y", "flux_ujy",
-            "flux_err_ujy", "wavelength_um", "bandwidth_um", "elong", "snr", "flags", "flags_peak", "cell"]
+            "flux_err_ujy", "wavelength_um", "bandwidth_um", "elong", "snr", "flags", "flags_peak", "cell",
+            "zodi_mjysr", "bkg_mjysr", "peak_mjysr", "a_arcsec", "b_arcsec", "theta_deg",
+            "flux_psf_ujy", "flux_psf_err_ujy", "psf_chi2_nu", "flux_ap_ujy", "flux_ap_err_ujy"]
 
 
 def test_dots_on_real_cutout(tmp_path):
     st = process_photo(str(tmp_path), "2025W18_1B_0074_2", 1, str(CUTOUT), 7, 2)
     assert st["status"] == "done", st
     df = pd.read_parquet(tmp_path / dots_rel("2025W18_1B_0074_2", 1))
-    assert list(df.columns) == CONTRACT == list(DOT_COLUMNS)
+    assert list(df.columns) == CONTRACT == list(DOT_COLUMNS) + list(DOT_LIST_COLUMNS)
     for c, t in DOT_COLUMNS.items():
         assert str(df[c].dtype) == t, c
     assert len(df) > 50 and st["n_dots"] == len(df)
@@ -39,6 +42,28 @@ def test_dots_on_real_cutout(tmp_path):
     assert df["snr"].max() > 100 and df["flux_ujy"].max() > 1e4
     # SOURCE bit (21) is recorded under most dots, never masked
     assert ((df["flags"] & (1 << 21)) != 0).mean() > 0.5
+    # rows stay in core.detect's order (brightest aperture flux first): members.parquet's dot_row relies on it
+    assert (np.diff(df["flux_ujy"].to_numpy()) <= 0).all()
+    # the cutout has no ZODI / EPSF HDU: those columns are NaN, the rest are filled
+    assert df["zodi_mjysr"].isna().all() and df["flux_psf_ujy"].isna().all()
+    assert df["bkg_mjysr"].notna().all() and (df["peak_mjysr"] > 0).all()
+    ok = df["elong"].notna()
+    np.testing.assert_allclose(df["elong"][ok], (df["a_arcsec"] / df["b_arcsec"])[ok], rtol=1e-4)
+    ap = np.stack(df["flux_ap_ujy"].to_numpy())
+    assert ap.shape == (len(df), 5) and ap.dtype == np.float32
+    bright = df["snr"].to_numpy() > 50
+    assert np.median(ap[bright, 2] / ap[bright, 0]) > 1.1  # r = 2 px holds more than r = 1 px
+    # r = 2 px with a local annulus agrees with flux_ujy (r = 2 px on the background map) for bright dots
+    assert 0.8 < np.median(ap[bright, 2] / df["flux_ujy"].to_numpy()[bright]) < 1.2
+    # photo metadata round trip
+    meta = photo_meta(tmp_path / dots_rel("2025W18_1B_0074_2", 1))
+    assert meta["obs_id"] == "2025W18_1B_0074_2" and meta["detector"] == 1 and meta["n_dots"] == len(df)
+    assert meta["header"]["MJD-AVG"] == pytest.approx(60794.017655738)
+    assert meta["header"]["FINAST"] == 0 and meta["header"]["L2 N_OVERFLOW"] == 2976
+    assert meta["aperture_radii_px"] == [1.0, 1.5, 2.0, 3.0, 4.5]
+    assert meta["zodi_median_mjysr"] is None and meta["read_s"] >= 0 and meta["detect_s"] > 0
+    assert len(meta["grids"]["bkg_mjysr"]) == 32 and len(meta["grids"]["bkg_mjysr"][0]) == 32
+    assert meta["calibration"]["psf_moments"]["fwhm_arcsec"] > 5
     # restart: the existing file is skipped
     assert process_photo(str(tmp_path), "2025W18_1B_0074_2", 1, str(CUTOUT))["status"] == "skipped"
 

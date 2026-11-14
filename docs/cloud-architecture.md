@@ -7,7 +7,7 @@ Interfaces stay in `contracts/`; this page explains the logic behind them.
 
 **We never copy NASA's photos.** Each SPHEREx photo is a 60 MB FITS file on NASA's public Amazon
 copy (`s3://nasa-irsa-spherex`, read over HTTPS without a login). We stream only the parts we need
-(IMAGE + FLAGS + WCS-WAVE, plus VARIANCE for error bars), compute in memory, and keep only what we
+(all six parts, about 56 MB of a 60–70 MB file, read once), compute in memory, and keep only what we
 computed: photo lists, dots, results and small cutouts. Reading from Amazon into Google Cloud costs
 us nothing.
 
@@ -41,7 +41,9 @@ us nothing.
 |---|---|---|---|---|
 | `photolists/targets/` | scripts/validate | IRSA search results per featured target | Parquet + CSV | < 1 MB each |
 | `photolists/zones/` | pipeline `photolist` | Photos covering the pilot and the hunt zone, with footprint, time, detector, S3 key, session and visit | Parquet | < 5 MB |
-| `dots/` | pipeline `dots` | One file per photo: every detected point (contracts/dots.md) | Parquet, `dots/<obs_id>D<det>.parquet` | ~1 MB per photo, a few GB for the hunt zone |
+| `refcat/` | pipeline `refcat` | Gaia DR3, CatWISE2020, 2MASS for each zone, and the forced-photometry target list | Parquet | tens of MB |
+| `dots/` | pipeline `dots` | One file per photo: every detected point, with photo metadata (contracts/dots.md) | Parquet, `dots/<obs_id>D<det>.parquet` | ~3–6.5 MB per photo |
+| `forced/` | pipeline `dots` | One file per photo: brightness at every catalogue star, detected or not | Parquet | ~1–1.5 MB per photo |
 | `cache/skybot/` | pipeline `known` | Known asteroids predicted in each photo | JSON per photo | small |
 | `cache/` (rest) | server | Live API cutouts and frames | as the API needs | grows with use |
 | `results/<zone>/` | pipeline `link`, `score`, `suspects` | `fixed`, `movers`, `suspects` tables, `recall.json`, `summary.json` | Parquet + JSON | < 100 MB |
@@ -71,12 +73,15 @@ order. Each step reads the previous step's files from the bucket (or from `--roo
    `*_deep`), one row per photo (obs_id + detector) with its footprint, time and S3 key. A
    **session** is a run of the zone's exposure times with gaps under 10 minutes (one value per
    photo); visits come from `core.visits` on the same times.
-2. **`dots`** (the heavy step, one process per core): for each photo, stream IMAGE, FLAGS, VARIANCE
-   and WCS-WAVE from Amazon (skip photos whose astrometry flag `FINAST` isn't 0); mask bad pixels
-   (SOURCE and OUTLIER are never masked); detect at `thresh=2.0` and keep dots with S/N ≥ 5;
-   re-fit the centre of saturated dots on their wings; record position and its error, wavelength
-   and bandwidth, brightness in µJy, shape, and the flag bits around and at the peak. Write
-   `dots/<obs_id>D<det>.parquet`. Nothing else from the photo is kept.
+2. **`dots`** (the heavy step, one process per core): for each photo, stream all six parts from
+   Amazon once (skip photos whose astrometry flag `FINAST` isn't 0); mask bad pixels (SOURCE and
+   OUTLIER are never masked); detect at `thresh=2.0` and keep dots with S/N ≥ 5; re-fit the
+   centre of saturated dots on their wings. Per dot: position and its error, wavelength and
+   bandwidth, brightness (aperture, 5 radii, and NASA's ePSF fit with its χ²), shape, peak, local
+   background, zodiacal light, and the flag bits around and at the peak. Also **forced photometry**
+   at every reference-catalogue star (`refcat`: Gaia, CatWISE), detected or not, and per-photo
+   metadata (spacecraft position, astrometry and PSF quality, background and ZODI grids). Writes
+   `forced/` then `dots/<obs_id>D<det>.parquet`. Nothing else from the photo is kept.
 3. **`known`**: one SkyBoT cone per session (not per photo: one cone takes 13–23 s), each object
    moved to every photo's time with SkyBoT's rates. Cached in `cache/skybot/`.
 4. **`link`**, on dots inside the zone only:
@@ -107,7 +112,7 @@ order. Each step reads the previous step's files from the bucket (or from `--roo
   about S/N 14–22 in D1–D4.
 - 2MASS has 3,100 stars/deg² brighter than J 16.5 here, so a coarse 18″ veto box would throw
   away about 8% of asteroids; hence the 4″ fixed / 6″ exclusion.
-- Pilot: 990 photos (352 exposures); hunt zone: 3,686. About 45 MB read per photo. Pilot `dots`
+- Pilot: 990 photos (352 exposures); hunt zone: 3,686. About 56 MB read per photo; about 4.5 MB stored per photo (pilot ~4.5 GB, hunt zone ~17 GB). Pilot `dots`
   about 10–20 minutes on 8 cores; hunt zone well under an hour on 64.
 
 ## Machines

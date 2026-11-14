@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 from skyshift_pipeline import config as C
 from skyshift_pipeline import spectra as SP
 from skyshift_pipeline.cli import main
-from skyshift_pipeline.dots import DOT_COLUMNS
+from skyshift_pipeline.dots import as_dots
 from skyshift_pipeline.link import fixed_groups, members_table, source_id_of
 from skyshift_pipeline.photolist import add_sessions
 from skyshift_pipeline.sky import cell_of, offset_radec
@@ -139,7 +139,7 @@ def dots_df(obs_id, det, mjd, pts, wl):
         "pos_err_arcsec": 0.3, "x": 1.0, "y": 1.0, "flux_ujy": np.arange(n) + 100.0, "flux_err_ujy": 5.0,
         "wavelength_um": wl, "bandwidth_um": 0.02, "elong": 1.1, "snr": np.full(n, 20.0), "flags": 0, "flags_peak": 0,
         "cell": cell_of(ra, dec),
-    }).astype(DOT_COLUMNS)
+    }).pipe(as_dots)
 
 
 def test_members_round_trip(tmp_path):

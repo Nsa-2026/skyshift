@@ -1,7 +1,8 @@
 # pipeline/CLAUDE.md
 Owner: P1. Imports core/ for the visit rule, masks and measurement. Design: docs/cloud-architecture.md,
 after review (PR #11); dot columns and derived-table rules: contracts/dots.md.
-Reads IMAGE, FLAGS, VARIANCE, WCS-WAVE from s3://nasa-irsa-spherex over HTTPS (anonymous).
+Reads IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE (~56 MB per photo) from s3://nasa-irsa-spherex over HTTPS
+(anonymous), once: dots, forced photometry at refcat positions and photo metadata come out of that one read.
 Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt zone (3,692 photos) on skyshift-worker after G2.
 
 ## Run
