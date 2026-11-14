@@ -1,0 +1,126 @@
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--plate);
+  color: var(--emulsion);
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: var(--lh);
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "wdth" 100;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+a {
+  color: var(--gaia);
+  text-underline-offset: 2px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Controls: real buttons, aria-pressed / aria-selected show state. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 36px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-ctl);
+  background: var(--plate-2);
+  color: var(--emulsion);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--plate-3);
+}
+.btn[aria-pressed="true"],
+.btn[aria-selected="true"] {
+  background: var(--emulsion);
+  border-color: var(--emulsion);
+  color: var(--plate);
+}
+.btn:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.input {
+  min-height: 40px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-ctl);
+  background: var(--plate);
+  color: var(--emulsion);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.panel {
+  background: var(--plate-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-panel);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Detector colours as classes, so every area uses the same ramp. */
+.det-1 { --det: var(--d1); }
+.det-2 { --det: var(--d2); }
+.det-3 { --det: var(--d3); }
+.det-4 { --det: var(--d4); }
+.det-5 { --det: var(--d5); }
+.det-6 { --det: var(--d6); }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

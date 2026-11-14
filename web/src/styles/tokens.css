@@ -1,0 +1,52 @@
+/* SkyShift design tokens. One dark "plate" surface (images need a dark surround), warm
+   emulsion text, and six detector colours that carry meaning everywhere they appear.
+   Bold element: the epoch timeline and the detector ramp. Everything else stays quiet. */
+:root {
+  /* surfaces */
+  --plate: #0f1a2c;        /* page */
+  --plate-2: #14223a;      /* raised panel */
+  --plate-3: #1b2c48;      /* control fill, hover */
+  --rule: #24314a;         /* borders, gridlines */
+  --rule-strong: #34456a;
+
+  /* text */
+  --emulsion: #e9e4d6;     /* main text */
+  --muted: #8b94a7;        /* secondary text */
+  --faint: #5d6880;        /* axis labels, disabled */
+
+  /* meaning */
+  --gaia: #62c9e6;         /* rings: stars Gaia already knows */
+  --mover: #ff9b3d;        /* flagged dots, the target, measured motion */
+  --known: #c59cff;        /* predicted positions of known asteroids/comets */
+  --sat: #ff5c7a;          /* saturated cores, errors */
+  --ok: #7fd49b;           /* validation pass */
+
+  /* detector ramp, D1 → D6 (0.75 → 5.0 µm) */
+  --d1: #8a7cf7;
+  --d2: #4b9ff2;
+  --d3: #2fc4a6;
+  --d4: #b9d548;
+  --d5: #f3b53f;
+  --d6: #ef5f4b;
+
+  /* type: Archivo only. Width axis does the work: wide for the wordmark, condensed for readouts. */
+  --font: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --step--1: 0.8125rem;    /* 13px: axis labels, captions */
+  --step-0: 0.9375rem;     /* 15px: body, controls */
+  --step-1: 1.125rem;      /* 18px: panel titles */
+  --step-2: 1.5rem;        /* 24px: object name */
+  --step-3: 2.25rem;       /* 36px: the measured number */
+  --lh: 1.45;
+
+  /* space and shape */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --radius-ctl: 6px;       /* buttons, inputs */
+  --radius-panel: 2px;     /* panels are plates: nearly square */
+  --focus: 0 0 0 2px var(--plate), 0 0 0 4px var(--gaia);
+}
