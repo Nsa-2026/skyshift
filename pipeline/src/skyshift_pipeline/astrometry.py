@@ -16,6 +16,18 @@ Errors are the formal ones, × √χ²_ν where χ²_ν is beyond its ASTRO_CHI2
 degrees of freedom (√max(1, χ²_ν) everywhere inflated small-ν sources by chance: pulls 0.85 against Gaia). Vectorised: normal equations from bincounts, one batched
 5×5 solve; no loop per source.
 
+The hunt tail (15 Nov: 622 Gaia-still stars at ≥ 150 mas/yr, ≥ 5σ; in a 2°×2° test box 40 → 9 with these, Gaia as truth):
+- ASTRO_CLEAN_DOTS (clean_mask): dots with a masked, unsaturated peak (centroid on the wings) and extra dots of one photo
+  (a bright star's wing fragments) are left out from the start; n_dots still counts them, n_used doesn't.
+- ASTRO_DETECTOR_ZEROPOINTS: a position zero point per source × detector, eliminated exactly (dots demeaned per
+  detector, Frisch–Waugh), so pm and parallax come only from position changes within a detector. A star's constant
+  colour-dependent offset per detector, with detectors weighing differently in the two visits, was fake motion.
+- ASTRO_SESSION_ROBUST: a session's dots share errors (pointing, simultaneous detector pairs, a passing neighbour), so
+  the motion errors are also the session-clustered sandwich (≥ ASTRO_ROBUST_MIN_SESSIONS sessions), whichever is larger.
+- ASTRO_DETECTOR_ROBUST: detectors that disagree about the motion (a ghost or halo in some bands in one visit) inflate
+  the errors to the detector-clustered sandwich where it beats its ASTRO_DETECTOR_ROBUST_P χ² quantile.
+ra/dec and their errors stay those of the plain fit (no zero points: the position is every detector's mean).
+
 Frame correction (ASTRO_FRAME_CORRECT): each photo's WCS can be off by a fraction of an arcsec as a
 whole. Quiet Gaia stars (crossids, |pm| < ASTRO_FRAME_PM_MAX) are moved to the photo's time; the median
 offset of their dots in that photo (>= ASTRO_FRAME_MIN_STARS stars) is subtracted from all its dots.
@@ -168,6 +180,59 @@ def _solve(s, N, w, t, east, north, Pe, Pn, use_plx):
     return par, cov
 
 
+def _cluster_cov(s, N, cl, wk, t, re, rn, Pe, Pn, cov, k) -> tuple[np.ndarray, np.ndarray]:
+    """Cluster-robust (sandwich) covariance of the fit, clusters = cl (one code per source × session):
+    cov · Σ_c g_c g_cᵀ · cov × G/(G − k), g_c = Σ_{i∈c} w_i r_i x_i over both axes' rows, G the source's clusters with
+    used dots, k (per source) the parameters per axis each cluster's residuals are fitted with. Errors shared by a session's dots (the same pointing, simultaneous detector
+    pairs, a neighbour or a ghost that moves with the roll) show up as session means scattering beyond the formal error,
+    which the formal covariance (and χ²_ν, dominated by the many dots) misses. Returns (cov_robust, G)."""
+    _, c = np.unique(cl, return_inverse=True)
+    c = c.ravel()
+    K = int(c.max()) + 1 if c.size else 0
+    used = wk > 0
+    cs = np.zeros(K, np.int64)
+    cs[c] = s
+    g = np.stack([np.bincount(c, wk * re, K), np.bincount(c, wk * rn, K), np.bincount(c, wk * re * t, K),
+                  np.bincount(c, wk * rn * t, K), np.bincount(c, wk * (re * Pe + rn * Pn), K)], axis=1)
+    G = np.bincount(cs, np.bincount(c, used, K) > 0, N)
+    M = np.zeros((N, 5, 5))
+    for a in range(5):
+        for b in range(a, 5):
+            M[:, a, b] = M[:, b, a] = np.bincount(cs, g[:, a] * g[:, b], N)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.where(G > k + 1, G / (G - k), np.nan)
+    return np.einsum("nij,njk,nkl->nil", cov, M, cov) * corr[:, None, None], G
+
+
+def clean_mask(d: pd.DataFrame, s: np.ndarray, N: int, east: np.ndarray, north: np.ndarray) -> np.ndarray:
+    """Dots whose position can be trusted for a motion fit (False: left out from the start).
+    (a) A masked pixel at the peak that is not saturation (core MASK_BITS without SAT_BITS, e.g. PERSIST): the centroid
+    lands on the wings, 3–8″ off (hunt: 1.4–1.8% of member dots, mostly in one visit). A source keeps them all if every
+    one of its dots has it. Saturated dots stay (calib gives them their own, larger error).
+    (b) Two or more dots of one photo in one source (a bright star plus fragments of its own wings): only the one
+    nearest the source's median position stays."""
+    from skyshift_core import MASK_BITS, SAT_BITS
+    keep = np.ones(len(d), bool)
+    if "flags_peak" in d:
+        fp = pd.to_numeric(d["flags_peak"], errors="coerce").fillna(0).to_numpy().astype(np.int64)
+        bad = ((fp & (MASK_BITS & ~SAT_BITS)) != 0) & ((fp & SAT_BITS) == 0)
+        all_bad = np.bincount(s, ~bad, N) == 0
+        keep &= ~bad | all_bad[s]
+    if "photo" in d:
+        ph = d["photo"].to_numpy(np.int64)
+        ok = ph >= 0
+        if "obs_id" in d and "detector" in d:  # photos missing from the photo list: by file
+            ph = np.where(ok, ph, -1 - pd.factorize(d["obs_id"].astype(str) + "D" + d["detector"].astype(str))[0])
+        r = np.hypot(east, north)
+        o = np.lexsort((r, ph, s))
+        first = np.ones(o.size, bool)
+        first[1:] = (s[o][1:] != s[o][:-1]) | (ph[o][1:] != ph[o][:-1])
+        dup = np.zeros(len(d), bool)
+        dup[o] = ~first
+        keep &= ~dup
+    return keep
+
+
 def _rel_col(d: pd.DataFrame) -> str:
     """calib's epoch-to-epoch error when present (without each star's constant offset from Gaia), else pos_err."""
     return "pos_err_rel_arcsec" if "pos_err_rel_arcsec" in d else "pos_err_arcsec"
@@ -243,29 +308,83 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
     n_visits = count_distinct(s, d["visit"].to_numpy(np.int64), N)
     use_plx = n_visits >= C.ASTRO_PARALLAX_MIN_VISITS
     w = 1.0 / err ** 2
-    keep = np.ones(len(d), bool)
+    keep0 = clean_mask(d, s, N, east, north) if C.ASTRO_CLEAN_DOTS else np.ones(len(d), bool)
+    st["dots_cleaned"] = int((~keep0).sum())
+    keep = keep0.copy()
+    zp = C.ASTRO_DETECTOR_ZEROPOINTS and "detector" in d
+    if zp:  # one position zero point per source × detector: motion only from changes within a detector
+        _, z = np.unique((s.astype(np.int64) << 8) | (d["detector"].to_numpy(np.int64) & 0xFF), return_inverse=True)
+        z = z.ravel()
+        Z = int(z.max()) + 1 if z.size else 0
     for it in range(2):
         wk = np.where(keep, w, 0.0)
         sw = np.bincount(s, wk, N)
         tref = np.bincount(s, wk * mjd, N) / np.maximum(sw, 1e-300)
         t = (mjd - tref[s]) / DAYS_PER_JYEAR
         par, cov = _solve(s, N, wk, t, east, north, Pe, Pn, use_plx)
-        pi = par[s]
-        re = east - (pi[:, 0] + pi[:, 2] * t + pi[:, 4] * Pe)
-        rn = north - (pi[:, 1] + pi[:, 3] * t + pi[:, 4] * Pn)
         n_used = np.bincount(s, keep, N)
         npar = np.where(use_plx, 5, 4)
+        # the motion problem (pm, parallax): the plain fit, or with detector zero points removed (Frisch–Waugh)
+        T, E, Nn, PE, PN, cv = t, east, north, Pe, Pn, cov
+        if zp:
+            swz = np.maximum(np.bincount(z, wk, Z), 1e-300)
+            def dm(v):
+                return v - (np.bincount(z, wk * v, Z) / swz)[z]
+            Tz, Ez, Nz, PEz, PNz = dm(t), dm(east), dm(north), dm(Pe), dm(Pn)
+            parz, covz = _solve(s, N, wk, Tz, Ez, Nz, PEz, PNz, use_plx)
+            okz = np.isfinite(parz[:, 2]) & np.isfinite(parz[:, 3])
+            par[okz, 2:] = parz[okz, 2:]
+            cv = np.where(okz[:, None, None], covz, cov)
+            o = okz[s]
+            T, E, Nn, PE, PN = (np.where(o, a, b) for a, b in ((Tz, t), (Ez, east), (Nz, north), (PEz, Pe), (PNz, Pn)))
+            p0 = np.where(okz[:, None], np.nan_to_num(parz[:, :2]), par[:, :2])
+            zsrc = np.zeros(Z, np.int64)
+            zsrc[z] = s
+            n_zp = np.bincount(zsrc, np.bincount(z, keep, Z) > 0, N)  # zero points with used dots
+            npar = np.where(okz, 2 * n_zp + 2 + use_plx, npar)
+        else:
+            p0 = par[:, :2]
+        pi = par[s]
+        re = E - (p0[s, 0] + pi[:, 2] * T + pi[:, 4] * PE)
+        rn = Nn - (p0[s, 1] + pi[:, 3] * T + pi[:, 4] * PN)
         chi = np.bincount(s, wk * (re * re + rn * rn), N)
         with np.errstate(invalid="ignore", divide="ignore"):
             chi2_nu = chi / np.maximum(2 * n_used - npar, 1)
         if it == 0:
             infl = np.sqrt(np.maximum(1.0, chi2_nu))[s]
-            keep = np.maximum(np.abs(re), np.abs(rn)) <= C.ASTRO_CLIP_SIGMA * err * infl
+            keep = keep0 & (np.maximum(np.abs(re), np.abs(rn)) <= C.ASTRO_CLIP_SIGMA * err * infl)
     from scipy.stats import chi2 as chi2_dist
     dof = np.maximum(2 * n_used - npar, 1)
     excess = chi2_nu > chi2_dist.ppf(C.ASTRO_CHI2_INFLATE_P, dof) / dof
     scale = np.where(excess, np.sqrt(np.maximum(1.0, chi2_nu)), 1.0)
-    sig = np.sqrt(np.einsum("nii->ni", cov)) * scale[:, None]
+    var = np.einsum("nii->ni", cov) * scale[:, None] ** 2  # positions: the plain fit's
+    var[:, 2:] = np.einsum("nii->ni", cv)[:, 2:] * scale[:, None] ** 2  # motion: the motion problem's
+    if C.ASTRO_SESSION_ROBUST:
+        # errors shared within a session: the session-clustered sandwich where it is larger (enough sessions), else
+        # the formal errors × √max(1, χ²_ν) (no chance allowance: few sessions cannot show a correlated excess)
+        sess = d["session"].to_numpy(np.int64) if "session" in d else np.arange(len(d), dtype=np.int64)
+        cl = (s.astype(np.int64) << 32) | (sess & 0xFFFFFFFF)
+        cov_rob, n_sess = _cluster_cov(s, N, cl, wk, T, re, rn, PE, PN, cv, np.where(use_plx, 2.5, 2.0))
+        enough = n_sess >= C.ASTRO_ROBUST_MIN_SESSIONS
+        var_few = var / scale[:, None] ** 2 * np.maximum(1.0, np.nan_to_num(chi2_nu, nan=1.0))[:, None]
+        var = np.where(enough[:, None], np.fmax(var, np.einsum("nii->ni", cov_rob)), np.maximum(var, var_few))
+    if C.ASTRO_DETECTOR_ROBUST and "detector" in d:
+        # detectors that disagree about the motion (a ghost, halo or neighbour that touches some bands in one visit):
+        # the sandwich over detector clusters (with zero points: each detector's own motion; without: visit × detector),
+        # where it beats its chance level (χ² quantile)
+        det_ = d["detector"].to_numpy(np.int64) & 0xFF
+        if zp:
+            cl, k_ = (s.astype(np.int64) << 8) | det_, np.where(use_plx, 1.5, 1.0)
+        else:
+            vis = d["visit"].to_numpy(np.int64) if "visit" in d else np.zeros(len(d), np.int64)
+            cl, k_ = (s.astype(np.int64) << 32) | ((vis & 0xFFFF) << 8) | det_, np.where(use_plx, 2.5, 2.0)
+        cov_det, n_cl = _cluster_cov(s, N, cl, wk, T, re, rn, PE, PN, cv, k_)
+        nu = np.maximum(n_cl - k_, 1.0)
+        lim = chi2_dist.ppf(C.ASTRO_DETECTOR_ROBUST_P, nu) / nu
+        vd = np.einsum("nii->ni", cov_det)
+        excess_d = (vd > lim[:, None] * np.einsum("nii->ni", cv)) & (n_cl > k_ + 1)[:, None]
+        var = np.where(excess_d, np.fmax(var, vd), var)
+    sig = np.sqrt(var)
     extra = np.bincount(s, const2, N) / np.maximum(n_dots, 1)  # 0 without calib's floor_rel
     for j in (0, 1):
         sig[:, j] = np.where(extra > 0, np.sqrt(sig[:, j] ** 2 + extra), sig[:, j])
