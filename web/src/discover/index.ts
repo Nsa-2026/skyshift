@@ -9,6 +9,7 @@ import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
 import { isEmbed } from "../app/state";
+import { rememberDiscover, trackDiscover } from "../review/nav";
 import { ANSWER_TEXT, type Answer, type Counts } from "../vote/model";
 import { download, toCsv, toJson } from "./export";
 import { arcsecPerHour, arcsecPerYr, flux, fromSlider, num, plural, rangeText, rangeValue, roundNice, SLIDER_MAX, toSlider } from "./format";
@@ -71,6 +72,7 @@ const TONE_MARK = {
 type VoteStatus = "idle" | "loading" | "ok" | "local" | "error";
 
 export const mountDiscover: MountPage = (el, ctx) => {
+  trackDiscover();
   const embed = isEmbed();
   el.innerHTML = html`
     <div class="dv">
@@ -236,6 +238,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     if (!/^#\/?(candidates|discover)\b/.test(location.hash)) return;
     const hash = candidatesHash(state);
     if (location.hash !== hash) history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
+    rememberDiscover();
   }
 
   function setState(next: FilterState, opts: { keepPage?: boolean } = {}) {
