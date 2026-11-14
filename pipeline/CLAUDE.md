@@ -1,9 +1,28 @@
 # pipeline/CLAUDE.md
-Owner: P1. Imports core/ for the visit rule, masks and measurement.
-Pilot and hunt zone. Reads IMAGE, FLAGS, WCS-WAVE from s3://nasa-irsa-spherex (anonymous).
-- One Parquet file per photo in gs://nasa-glazing-data/dots/ (contracts/dots.md). Its existence marks the photo done; skip it on restart. No job list, no locks.
-- SkyBoT: ssp.imcce.fr, geocentre (500), -from=SkyShift, cached, a few requests at a time.
-- Read only the parts needed: IMAGE + FLAGS + WCS-WAVE are 22.9 MB of a 60.2 MB file; the parts are contiguous, so range reads skip ZODI and EPSF.
-- Derived tables fixed, movers and suspects: contracts/dots.md. Suspects are exported to web/public/data/suspects.json.
-- The pilot (12 deg², 990 photos = 352 exposures × detectors) runs on skyshift-test; the hunt zone runs on skyshift-worker only after gate G2.
-- Tests: uv run pytest.
+Owner: P1. Imports core/ for the visit rule, masks and measurement. Design: docs/cloud-architecture.md,
+after review (PR #11); dot columns and derived-table rules: contracts/dots.md.
+Reads IMAGE, FLAGS, VARIANCE, WCS-WAVE from s3://nasa-irsa-spherex over HTTPS (anonymous).
+Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt zone (3,692 photos) on skyshift-worker after G2.
+
+## Run
+`uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
+Steps in order: photolist, dots, known, link, score, suspects; `all` runs them in order.
+- Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/skybot/<zone>/run_<obs_id>.json.
+  link, score and suspects are cheap and always recompute from what is there.
+- `known` doesn't need `dots`: run it at the same time in a second process.
+- Every threshold lives in src/skyshift_pipeline/config.py.
+
+## Rules (summary)
+- Session = run of the zone's exposure times with gaps < 10 min (core.sessions over all photos), one per photo; visit = core.visits.
+- dots: core.detect thresh=2 (per pixel), keep snr >= 5; saturated dots re-centroided on the wings; flags = 3×3 OR,
+  flags_peak = bits at the peak pixel; FINAST != 0 → empty dot file.
+- link: fixed = FoF 4″ groups in >= 3 sessions; drop dots within 6″ of fixed; pair dots of one session
+  (≤ 3″ + 1″/min × Δt, or a simultaneous D1+D4/D2+D5/D3+D6 pair ≤ 3″, elong ≤ 3); coverage ≥ 3 sessions from footprints.
+- suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
+  no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″.
+
+## Facts
+- S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.
+- IRSA TAP doesn't accept OR'd CONTAINS; use a TAP_UPLOAD crossmatch (pyvo) for IRSA catalogues.
+- macOS: uv may mark the editable .pth files hidden (Python then skips them); pytest adds ../core/src itself.
+- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test.
