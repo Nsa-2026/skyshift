@@ -805,7 +805,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, tap=None) -> dict:
             d2_ab = pd.Series(-2.5 * np.log10(dflux[:, 1] / 3631e6), index=src["source_id"].to_numpy(np.int64))
         cands, deep = deep_check(cands, vstats, refcat, d2_ab, tap)
         deep = {"enabled": True, **deep}
-    from . import fragments  # bright_fragment → reason `fragment` (never vetted); blend → not new (Gaia lists the stars)
+    from . import fragments  # bright_fragment, duplicate → reason `fragment` (never vetted); blend → not new (Gaia lists the stars)
     cands, frag_st = fragments.apply_highpm(cands, fragments.load(store, zone))
     store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     mjd_ref = float(np.nanmedian(src["mjd"])) if len(src) else 61000.0

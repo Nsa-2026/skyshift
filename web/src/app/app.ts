@@ -4,9 +4,11 @@ import { ApiFailure, loadFrames, loadObject, resolve } from "../api/client";
 import type { FramesResponse, ObjectResponse } from "../api/types";
 import { mountBlink } from "../blink";
 import { mountCard } from "../card";
+import { withExtras } from "../extras";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountFilters } from "../colour";
+import { mountPlateLayers } from "../layers";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
 import { mountAtlas } from "../atlas";
@@ -14,8 +16,10 @@ import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
+import { mountField } from "../field";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
+import { mountOpening } from "../intro";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -82,8 +86,12 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-blink" data-page="explore" hidden>
       <h1 class="visually-hidden" id="blink-h1">Blink</h1>
       <section class="stage" aria-label="Blink"><div id="blink"></div></section>
-      <section id="card" class="side-card" aria-label="Object"></section>
+      <div class="side-col">
+        <section id="card" class="side-card" aria-label="Object"></section>
+        <div id="extras" role="region" aria-label="More evidence"></div>
+      </div>
       <div class="below">
+        <div id="field"></div>
         <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
         <section id="sky" class="sky" aria-label="Sky around this spot"></section>
       </div>
@@ -113,28 +121,33 @@ export function startApp(root: HTMLElement): void {
   let frameCtl: AbortController | null = null;
   let objectCtl: AbortController | null = null;
 
-  const blink: BlinkHandle = mountBlink($("#blink"), {
+  // Plate layers (src/layers) mount the player and pick what its plate shows: observed or derived.
+  const blink: BlinkHandle = mountPlateLayers($("#blink"), mountBlink, {
     onViewChange(change) {
       if (!view) return;
       go({ ...view, ...change }, { objectToo: false });
     },
     onPick(pick) {
       vote.pick(pick);
+      field.picked();
     },
     onEpoch(e) {
       sky.epoch(e.mjd_mid);
+      field.epoch(e.mjd_mid);
     },
   });
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
   const filters = mountFilters($("#blink"));
   // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
-  const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
+  const card: CardHandle = withExtras(mountCard($("#card"), { onExplore: (at) => ctx.explore(at) }), $<HTMLElement>("#extras"));
   const vote: VoteHandle = mountVote($("#vote"));
   const sky: SkyHandle = mountSky($("#sky"), {
     onClick(pos) {
       if (view) go({ ...view, ...pos, slug: null, name: null });
     },
   });
+  // Signals and Planet X sensitivity of this field (src/field), under the card; load when scrolled to.
+  const field = mountField($("#field"), { highlight: (p) => blink.highlight?.(p), plate: $<HTMLElement>(".stage") });
   let score: { destroy(): void } | null = null;
 
   function say(text: string, kind: "info" | "error" = "info") {
@@ -170,6 +183,7 @@ export function startApp(root: HTMLElement): void {
     input.value = next.name ?? formatRaDec(next);
     say("");
     vote.view(next);
+    field.view(next);
 
     frameCtl?.abort();
     frameCtl = new AbortController();
@@ -360,4 +374,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
+  // The opening (src/intro): every visit to the home page itself, over the Sky map as it loads.
+  if (!embed) mountOpening(root);
 }

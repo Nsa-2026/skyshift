@@ -782,17 +782,37 @@ QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
 # IRSA flags 30–180 px around a saturated core TRANSIENT, SUR_ERROR and BLOOM; the mask zeroes the island and sep finds
 # the wings as a ring of "fixed sources" without a catalogue entry (hunt review, 14 Nov: 16 per G < 6 star within 60″,
 # 1.5 at G 8–9). Their member dots carry BLOOM in 98% (Gaia stars' dots: 0%). Two stars < 8″ apart merge into one source
-# that crossid's 2.5″ may match to neither. Tags (first that applies): bright_fragment, saturated_star, blend.
+# that crossid's 2.5″ may match to neither. Link's release (FIXED_RELEASE_ARCSEC) can regroup a star's far dots into a
+# second source ~2.7″ off it (hunt cross-check, 14 Nov: 200 Gaia stars with two sources within 3″).
+# Tags (first that applies): bright_fragment, duplicate, saturated_star, blend.
 FRAGMENTS_BLOOM_FRAC = 0.5         # BLOOM (3×3 `flags`) on more than this share of the member dots ...
-FRAGMENTS_MATCH_ARCSEC = 3.0       # ... and no Gaia / 2MASS entry this close: bright_fragment; one this close: saturated_star
+FRAGMENTS_MATCH_ARCSEC = 3.0       # ... and no Gaia / 2MASS entry this close, nor a Gaia star it is the kept source of
+#                                    (FRAGMENTS_STAR_ARCSEC): bright_fragment; with either: saturated_star
 FRAGMENTS_MATCH_CATALOGUES = ("gaia", "tmass")  # the catalogues of that test (match_dist_arcsec)
+# Which source is which Gaia star: each source's home is the nearest Gaia star (moved to its epoch) within that star's
+# radius, by G: (G below, radius ″), first that applies, else FRAGMENTS_MATCH_ARCSEC. A saturated star's position sits
+# further off (hunt: a G 7.2 star's nearest source 4.8″, a G 10.6 one 3.6″), and so does a fainter star's inside a
+# bright star's glow (2.9–3.8″ at G 13.6–16.7). Each star keeps one home source (crossid's match, else the most member
+# dots within its duplicate radius, else the nearest): that one is the star (never bright_fragment) ...
+FRAGMENTS_STAR_ARCSEC = ((11.0, 6.0), (18.0, 4.0))
+# ... though beyond FRAGMENTS_MATCH_ARCSEC only with at least this many member dots, by G (same form; else 0): a ring
+# piece has 3–8, a star inside a glow 18–179 (hunt); the 1–9-dot pieces near faint stars stay fragments (3 were orphans)
+FRAGMENTS_STAR_MIN_DOTS = ((11.0, 0), (18.0, 10))
+# ... and its other home sources within the duplicate radius (same form; else FRAGMENTS_MATCH_ARCSEC) are `duplicate` of
+# it. Fainter than G 11 that stays 3″ (< half the PSF's FWHM: one object): at 3–4″ the bigger source is often a
+# neighbour's, and calling the star's own small source its duplicate would read two stars as one (hunt: 137 stars) ...
+FRAGMENTS_DUP_ARCSEC = ((11.0, 6.0),)
+FRAGMENTS_DUP_MAX_MOVE_ARCSEC = 1.0  # ... when the star moved less than this between the two sources' epochs (a fast star's
+#                                      two visits are two sources: highpm pairs them) ...
+FRAGMENTS_DUP_OWN_MARGIN_ARCSEC = 1.0  # ... and no catalogue entry is this much nearer to it than the star (its own object),
+#                                        and no other Gaia star whose radius holds it lacks a source of its own
 FRAGMENTS_CAT_SEARCH_ARCSEC = 15.0  # cat_dist_arcsec: nearest Gaia / 2MASS / CatWISE entry searched this far (NaN beyond)
 FRAGMENTS_BRIGHT_G = 10.0          # bright_neighbour: Gaia G brighter than this ...
 FRAGMENTS_BRIGHT_K = 7.0           # ... or 2MASS K (G misses red giants: K 3.4 at G 10.2 in the hunt) ...
 FRAGMENTS_BRIGHT_W1 = 7.0          # ... or CatWISE W1 ...
 FRAGMENTS_BRIGHT_ARCSEC = 120.0    # ... searched this far (NaN beyond)
 FRAGMENTS_BLEND_ARCSEC = 8.0       # blend: at least FRAGMENTS_BLEND_MIN_GAIA Gaia stars this close (PSF FWHM 7.5″) ...
-FRAGMENTS_BLEND_G_MAX = 18.0       # ... brighter than this
+FRAGMENTS_BLEND_G_MAX = 19.0       # ... brighter than this (18 before 15 Nov missed two similar G 18–19 stars)
 FRAGMENTS_BLEND_MIN_GAIA = 2
 FRAGMENTS_PARENT_G = 12.0          # a bright_fragment's parent: the brightest Gaia star brighter than this (nearer on a tie) ...
 FRAGMENTS_PARENT_ARCSEC = 60.0     # ... this close (hunt: 2,226 of 2,234 have one; the ring sits ~10″ out at G 8–11, ~30″ at G < 6)

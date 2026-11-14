@@ -1,5 +1,6 @@
 // Review queue (#/review): one candidate at a time, big plate, vote with 1–4, S skips, ← goes
-// back. A practice round on featured targets comes first, once per browser.
+// back. A practice round on featured targets comes first, once per browser; each plate has a
+// hint behind a disclosure, and the answers so far are kept in the browser (never sent as votes).
 import { nearSourceOf } from "../api/grades";
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
@@ -11,7 +12,18 @@ import { gradeCCount, keyAction, queueOrder } from "./model";
 import { lastDiscoverHash, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, factsHtml, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
-import { PRACTICE, judge, markPracticeDone, practiceDone, practiceSummary, type PracticeResult } from "./practice";
+import {
+  PRACTICE,
+  clearProgress,
+  judge,
+  markPracticeDone,
+  practiceDone,
+  practiceSummary,
+  readProgress,
+  saveProgress,
+  type PracticeItem,
+  type PracticeResult,
+} from "./practice";
 import { MOVER_CAUTION, answerLabel, esc } from "./text";
 
 const html = String.raw;
@@ -34,6 +46,23 @@ function recapHtml(results: PracticeResult[]): string {
     return html`<li class="${r.correct ? "is-right" : "is-off"}"><b>${esc(item.name)}</b><span>${esc(said)}</span></li>`;
   });
   return html`<ul class="rq-recap" aria-label="Your answers">${rows.join("")}</ul>`;
+}
+
+/** Practice answers live in this browser only: said once on each plate and in the summary. */
+const PRACTICE_PRIVATE = "Practice answers stay in this browser and never count as votes.";
+
+/** The hint behind its disclosure, closed. The Difference button waits for the frames. */
+function hintHtml(item: PracticeItem, ready: boolean): string {
+  const mode = item.hintMode
+    ? html`<button class="btn btn-ghost rq-hint-mode" type="button" data-act="hint-mode" ${ready ? "" : "disabled"}>Show Difference</button>`
+    : "";
+  return html`<div class="rq-hint">
+    <button class="rq-hint-toggle" type="button" data-act="hint" aria-expanded="false" aria-controls="rq-hint-body">Show a hint</button>
+    <div class="rq-hint-body" id="rq-hint-body" hidden>
+      <p>${esc(item.hint)}</p>
+      ${mode}
+    </div>
+  </div>`;
 }
 
 function readSession(): number {
@@ -100,6 +129,8 @@ export const mountReview: MountPage = (el) => {
   let pi = 0;
   let results: PracticeResult[] = [];
   let practiceAnswer: ReturnType<typeof judge> | null = null;
+  /** The round was picked up from saved answers: the first plate says so. */
+  let resumed = false;
 
   // queue
   let order: Candidate[] = [];
@@ -121,6 +152,8 @@ export const mountReview: MountPage = (el) => {
     onReady(ready) {
       plateReady = ready;
       renderBallot();
+      const mode = cardEl.querySelector<HTMLButtonElement>("[data-act='hint-mode']");
+      if (mode) mode.disabled = !ready;
     },
   });
 
@@ -173,9 +206,13 @@ export const mountReview: MountPage = (el) => {
   }
 
   // ---- practice -----------------------------------------------------------------------------
-  function startPractice() {
-    pi = 0;
-    results = [];
+  /** From the first plate, or (resume) from the answers saved in this browser. */
+  function startPractice(resume = false) {
+    results = resume && v ? readProgress(v.kv) : [];
+    if (!resume && v) clearProgress(v.kv);
+    pi = results.length;
+    resumed = pi > 0;
+    if (pi >= PRACTICE.length) return showSummary();
     setMode("practice");
     showPractice();
   }
@@ -185,12 +222,15 @@ export const mountReview: MountPage = (el) => {
     practiceAnswer = null;
     plateReady = false;
     titleEl.textContent = "Practice round";
-    progressEl.textContent = `Plate ${pi + 1} of ${PRACTICE.length}. We know the answer to these three, so you'll see how you did.`;
+    const where = resumed ? `Plate ${pi + 1} of ${PRACTICE.length}, picked up where you left off.` : `Plate ${pi + 1} of ${PRACTICE.length}.`;
+    resumed = false;
+    progressEl.textContent = `${where} We know the answer to these three, so you'll see how you did. ${PRACTICE_PRIVATE}`;
     toolsEl.innerHTML = html`<button class="btn btn-ghost" type="button" data-act="skip-practice">Skip practice</button>`;
     cardEl.innerHTML = html`
       <h2 class="rq-card-title">${esc(item.title)}</h2>
       <p class="rv-why">${esc(item.prompt)}</p>
       ${LEGEND}
+      ${hintHtml(item, false)}
     `;
     const last = pi === PRACTICE.length - 1;
     ballot = new Ballot(ballotEl, {
@@ -206,13 +246,26 @@ export const mountReview: MountPage = (el) => {
   function answerPractice(a: Answer) {
     if (mode !== "practice" || practiceAnswer || !plateReady) return;
     practiceAnswer = judge(PRACTICE[pi], a);
-    results.push(practiceAnswer);
+    results[pi] = { slug: practiceAnswer.slug, answer: a, correct: practiceAnswer.correct };
+    results.length = pi + 1;
+    if (v) saveProgress(v.kv, results);
     renderBallot();
     ballotEl.querySelector<HTMLButtonElement>("[data-act='practice-next']")?.focus({ preventScroll: true });
   }
 
+  function toggleHint(b: HTMLButtonElement) {
+    const body = cardEl.querySelector<HTMLElement>("#rq-hint-body");
+    if (!body) return;
+    const open = b.getAttribute("aria-expanded") !== "true";
+    b.setAttribute("aria-expanded", String(open));
+    b.textContent = open ? "Hide the hint" : "Show a hint";
+    body.hidden = !open;
+  }
+
   function nextPractice() {
     if (!practiceAnswer) return;
+    // A hint may have switched the player to Difference: each plate starts as a plain blink.
+    plate.display("blink");
     if (pi < PRACTICE.length - 1) {
       pi++;
       showPractice();
@@ -233,6 +286,7 @@ export const mountReview: MountPage = (el) => {
       <p class="rv-why">${esc(s.line.replace(/^\d+ of \d+\. /, ""))}</p>
       ${recapHtml(results)}
       <p class="rq-note">Real objects have no answer key, and most turn out to be detector artefacts: the community's votes decide. When 5 people have voted and 70% agree, the object is settled. Short lessons with more examples are on <a href="#/learn">Learn</a>.</p>
+      <p class="rq-note">${PRACTICE_PRIVATE}</p>
       <div class="rq-after"><button class="btn btn-primary" type="button" data-act="start">Start reviewing</button></div>
     `;
     ballotEl.innerHTML = "";
@@ -455,6 +509,17 @@ export const mountReview: MountPage = (el) => {
         return startPractice();
       case "practice-next":
         return nextPractice();
+      case "hint":
+        return toggleHint(b);
+      case "hint-mode": {
+        if (!plateReady) return;
+        // The label says what a press does next; the player's own Blink | Difference stay in charge too.
+        const on = b.dataset.on !== "1";
+        plate.display(on ? "difference" : "blink");
+        b.dataset.on = on ? "1" : "";
+        b.textContent = on ? "Back to the blink" : "Show Difference";
+        return;
+      }
       case "start":
         return startQueue().then(focusCard);
       case "next":
@@ -505,7 +570,7 @@ export const mountReview: MountPage = (el) => {
     [set, v] = await Promise.all([candidateSet(), votes()]);
     sampleEl.hidden = !set?.sample;
     sampleEl.textContent = set?.sample ? SAMPLE_NOTE : "";
-    if (!practiceDone(v.kv)) startPractice();
+    if (!practiceDone(v.kv)) startPractice(true);
     else await startQueue();
   }
 

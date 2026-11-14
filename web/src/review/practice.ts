@@ -1,7 +1,8 @@
-// The practice round: three featured targets where the answer is known, with feedback.
-// Frames are the static /data/<slug>/ files, so practice never waits for the live service.
-import type { Answer } from "../vote/model";
-import type { KV } from "../vote/model";
+// The practice round: three featured targets where the answer is known, with a hint each and
+// feedback. Frames are the static /data/<slug>/ files, so practice never waits for the live
+// service. Answers are kept in this browser so the round picks up where it was left; they are
+// never sent as votes. Hints after PR #214's guided practice (春。 and Codex).
+import { ANSWERS, type Answer, type KV } from "../vote/model";
 
 export interface PracticeItem {
   slug: string;
@@ -11,6 +12,10 @@ export interface PracticeItem {
   name: string;
   /** What we ask the person to watch. Never gives the answer away. */
   prompt: string;
+  /** Behind "Show a hint": where to look and how, still without naming the object or the answer. */
+  hint: string;
+  /** A player mode the hint offers to switch on, when seeing the change needs it. */
+  hintMode?: "difference";
   answer: Answer;
   /** Feedback per answer. The right answer's text starts with "Yes". */
   feedback: Record<Answer, string>;
@@ -22,6 +27,8 @@ export const PRACTICE: PracticeItem[] = [
     title: "What do you see in this field?",
     name: "Asteroid (59) Elpis",
     prompt: "Exposures from one day, a few minutes to hours apart. Watch the whole field, not only the centre.",
+    hint:
+      "Find the violet diamond: it marks where a known asteroid's orbit puts it in each exposure. Pause the blink and click along the time strip. Is there a dot on the diamond, and does it stay with it from one exposure to the next?",
     answer: "mover",
     feedback: {
       mover:
@@ -39,6 +46,9 @@ export const PRACTICE: PracticeItem[] = [
     title: "What's in the red reticle?",
     name: "Barnard's Star",
     prompt: "Visits months apart. Watch the dark blot in the red reticle closely: the change is small.",
+    hint:
+      "The change is smaller than one SPHEREx pixel, so blinking alone can hide it. Difference shows each visit minus the first: red where light arrived, blue where it left. The core is so bright it burns to solid ink, so watch its edges. Does red sit on one side of the blot and blue on the other?",
+    hintMode: "difference",
     answer: "mover",
     feedback: {
       mover:
@@ -48,7 +58,7 @@ export const PRACTICE: PracticeItem[] = [
       junk:
         "It's real: Barnard's Star. Its core is so bright it saturates (solid ink), which can look odd, but the star itself steps north between visits.",
       unsure:
-        "Fair: the step is under one pixel. That's Barnard's Star, moving 10.4″ a year. Subtract two visits in the player to see it clearly.",
+        "Fair: the step is under one pixel. That's Barnard's Star, moving 10.4″ a year. Difference, under the plate, shows the step clearly.",
     },
   },
   {
@@ -56,6 +66,9 @@ export const PRACTICE: PracticeItem[] = [
     title: "What does this star do?",
     name: "RW Aurigae",
     prompt: "Visits months apart. Watch the star in the red reticle: does it move, change, or neither?",
+    hint:
+      "Compare the star in the reticle with its neighbours, visit by visit. Does it shift against them, or stay put? Does its blot grow or shrink when theirs don't? Its core burns to solid ink, so judge by its size. In Difference a step shows as red and blue side by side, a change in brightness as one colour all round the star. If every star turns the same colour, that's the frame, not the star.",
+    hintMode: "difference",
     answer: "changing",
     feedback: {
       changing:
@@ -96,6 +109,8 @@ export function practiceSummary(results: PracticeResult[]): { right: number; of:
 }
 
 export const PRACTICE_KEY = "skyshift.review.practice";
+/** The answers so far, in order: [{slug, answer}]. Kept in this browser only, never sent. */
+export const PROGRESS_KEY = "skyshift.review.practice.progress";
 
 export function practiceDone(kv: KV): boolean {
   return kv.get(PRACTICE_KEY) === "done";
@@ -103,4 +118,36 @@ export function practiceDone(kv: KV): boolean {
 
 export function markPracticeDone(kv: KV): void {
   kv.set(PRACTICE_KEY, "done");
+}
+
+/**
+ * The saved answers, as an ordered prefix of PRACTICE: the first row that doesn't match the next
+ * plate (or anything unreadable) ends it. Each answer is judged again against the key, so a saved
+ * "correct" is never trusted.
+ */
+export function readProgress(kv: KV): PracticeResult[] {
+  let saved: unknown;
+  try {
+    saved = JSON.parse(kv.get(PROGRESS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(saved)) return [];
+  const out: PracticeResult[] = [];
+  for (const [i, row] of saved.entries()) {
+    const item = PRACTICE[i];
+    const answer = (row as { answer?: unknown } | null)?.answer;
+    if (!item || (row as { slug?: unknown } | null)?.slug !== item.slug || !ANSWERS.includes(answer as Answer)) break;
+    const { slug, correct } = judge(item, answer as Answer);
+    out.push({ slug, answer: answer as Answer, correct });
+  }
+  return out;
+}
+
+export function saveProgress(kv: KV, results: PracticeResult[]): void {
+  kv.set(PROGRESS_KEY, JSON.stringify(results.map(({ slug, answer }) => ({ slug, answer }))));
+}
+
+export function clearProgress(kv: KV): void {
+  kv.set(PROGRESS_KEY, "[]");
 }
