@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.10)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.11)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -9,7 +9,8 @@ v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows on
 v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json;
 v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
 v3.9: `measure.source`, which detector, visits and exposures the shift was measured in;
-v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree).
+v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree;
+v3.11: a published science field answers within one SPHEREx pixel (6.15″) of its `center`, not 2″).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -569,7 +570,7 @@ codes (show them as cautions): `known_object_near`, `motion_not_significant`, `b
 
 | kind | score |
 |---|---|
-| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.1 with `grade` C |
+| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.5 with a dot within 6 px of the detector edge (reason `edge`, added by the exporter too when the vetting didn't run) × 0.1 with `grade` C. "Motion not significant" uses the dots' pos_err × 1.6 |
 | high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
 | shape | (1 − e^(−s/15)) × 0.8 with `one_visit`; s = significance of the stretch (\|mean excess ellipticity\| / its error; Rayleigh, P(> s) = e^(−s²/2) for noise) |
@@ -734,7 +735,9 @@ Units as in Conventions, except proper motions here in **arcsec/yr** (fields say
 
 **Static first.** Five featured fields have versioned products in `/science-data/<slug>/` (in the repo
 `web/public/science-data/`; slugs `barnard`, `epsindib`, `wise0855`, `rwaur`, `rdra`). The site reads them
-before the API; the API serves the same files when a request is within 2″ of a field's `center`, and
+before the API; the API serves the same files when a request is within one SPHEREx pixel (6.15″) of a field's
+`center` (v3.11; the centres are rounded to 1e-4°, so the site's own target positions sit up to 2.3″
+away), and
 copies them into its image. Elsewhere the analysis endpoints answer 404 unless a local job built a cube.
 
 | file | shape |
@@ -807,7 +810,7 @@ single-process server only (scripts/run-local.sh).
 
 - Off: `POST /api/jobs` answers 503 `upstream` ("New-field analysis is not enabled here") before
   checking the values (a missing `ra` or `dec` is still 400). `POST /api/reference` returns the
-  published `science.json` within 2″ of a published field, otherwise 404 `not_found`.
+  published `science.json` within 6.15″ of a published field, otherwise 404 `not_found`.
 - `POST /api/jobs` (on) → `{ id, ra, dec, size, state:"queued"|"running"|"done"|"error", progress:[string],
   error|null }`; at most 3 queued or running, else 429. `GET /api/jobs/<id>` → the same; an unknown or
   malformed id is 404 (on or off).

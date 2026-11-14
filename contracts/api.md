@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.10)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.11)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -9,7 +9,8 @@ v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows on
 v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json;
 v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
 v3.9: `measure.source`, which detector, visits and exposures the shift was measured in;
-v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree).
+v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree;
+v3.11: a published science field answers within one SPHEREx pixel (6.15″) of its `center`, not 2″).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -734,7 +735,9 @@ Units as in Conventions, except proper motions here in **arcsec/yr** (fields say
 
 **Static first.** Five featured fields have versioned products in `/science-data/<slug>/` (in the repo
 `web/public/science-data/`; slugs `barnard`, `epsindib`, `wise0855`, `rwaur`, `rdra`). The site reads them
-before the API; the API serves the same files when a request is within 2″ of a field's `center`, and
+before the API; the API serves the same files when a request is within one SPHEREx pixel (6.15″) of a field's
+`center` (v3.11; the centres are rounded to 1e-4°, so the site's own target positions sit up to 2.3″
+away), and
 copies them into its image. Elsewhere the analysis endpoints answer 404 unless a local job built a cube.
 
 | file | shape |
@@ -807,7 +810,7 @@ single-process server only (scripts/run-local.sh).
 
 - Off: `POST /api/jobs` answers 503 `upstream` ("New-field analysis is not enabled here") before
   checking the values (a missing `ra` or `dec` is still 400). `POST /api/reference` returns the
-  published `science.json` within 2″ of a published field, otherwise 404 `not_found`.
+  published `science.json` within 6.15″ of a published field, otherwise 404 `not_found`.
 - `POST /api/jobs` (on) → `{ id, ra, dec, size, state:"queued"|"running"|"done"|"error", progress:[string],
   error|null }`; at most 3 queued or running, else 429. `GET /api/jobs/<id>` → the same; an unknown or
   malformed id is 404 (on or off).
