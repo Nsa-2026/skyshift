@@ -187,11 +187,26 @@ async def blink(
     det: Annotated[int | None, Field(ge=1, le=6, description="Detector 1–6 (default 2, 1.1–1.6 µm)")] = None,
     max_frames: Annotated[int, Field(ge=2, le=8)] = 4,
     zoom_arcmin: Annotated[float | None, Field(gt=0, description="Crop to this many arcmin around the centre. Use 1–3 for an hours-clock mover: it moves only a few arcsec in minutes")] = None,
+    overlays: Annotated[bool, Field(description="Draw Gaia stars, known asteroids/comets and SkyShift's measured detections on the frames, with a legend")] = True,
+    max_gaia_g: Annotated[float, Field(ge=0, le=25, description=f"Circle Gaia DR3 stars down to this G magnitude (at most {fr.GAIA_MAX_MARKS} a frame, brightest first)")] = 19.0,
+    max_known_v: Annotated[float, Field(ge=0, le=40, description="Mark known asteroids/comets down to this V magnitude; null V is always marked")] = 18.0,
+    animate: Annotated[bool, Field(description="Also return a looping animated GIF of the frames (same stretch and marks, 0.7 s a frame)")] = False,
 ) -> list:
     """Look at a spot of the SPHEREx sky over time. Returns the epochs' metadata and ONE image: the
     frames left to right in time (north up, east left, same stretch), then a last − first difference
     (white = brighter later, black = fainter, grey = unchanged). Orange ticks mark the field centre;
-    purple = no data. Something that moved shows as a black-white pair in the difference panel."""
+    purple = no data. Something that moved shows as a black-white pair in the difference panel.
+
+    Marks on the frames (overlays=True; none on the difference panel; a legend strip underneath):
+    thin cyan circles = Gaia DR3 stars moved to each frame's date with their proper motion (bigger
+    = brighter, dimmer cyan = G > 16), so a high-proper-motion star's circle follows it from frame
+    to frame and a blob without a circle is not a Gaia star down to max_gaia_g (crowded fields show
+    the brightest 150 a frame: zoom in for all); green diamonds + name = known asteroids/comets
+    predicted at that frame's time, down to max_known_v (MPC orbits; `source` in known_objects); SkyShift's measured detections, by class: red thick square = suspect
+    (a pipeline lead), yellow thick square = mover vetted out, green square = matched a known object,
+    magenta x = artefact, blue + = Gaia star, grey dot = other. `overlays` in the metadata counts
+    the marks drawn per frame (and Gaia stars / known objects left out as fainter than the limits).
+    animate=True adds a second image: an animated GIF of the same frames (blink by eye)."""
     url, params, det, note = await _frames_source(target, ra, dec, candidate_id, clock, fov, det)
     c = client()
     data = await (c.api("/api/frames", **params) if params else c.get_json(url))
@@ -201,9 +216,19 @@ async def blink(
         raise SkyShiftError(f"no epochs for detector {det} here (detectors with data: {have})")
     shown = fr.pick_epochs(all_det, det, max_frames)
     bins = await asyncio.gather(*(c.get_bytes(urljoin(url, e["data_url"])) for e in shown))
-    arrays = [fr.crop(fr.decode(b, data["size"], e["scale"], e["zero"]), data["pixel_arcsec"], zoom_arcmin)
-              for b, e in zip(bins, shown)]
-    png = fr.contact_sheet(arrays, [fr.label_for(e) for e in shown])
+    full = [fr.decode(b, data["size"], e["scale"], e["zero"]) for b, e in zip(bins, shown)]
+    arrays = [fr.crop(f, data["pixel_arcsec"], zoom_arcmin) for f in full]
+    labels = [fr.label_for(e) for e in shown]
+    marks = legend = None
+    if overlays:
+        origin = fr.crop_origin(full[0].shape, data["pixel_arcsec"], zoom_arcmin)
+        marks = [fr.epoch_marks(data, e, a.shape, origin, max_gaia_g=max_gaia_g, max_known_v=max_known_v)
+                 for e, a in zip(shown, arrays)]
+        legend = fr.legend(max_gaia_g=max_gaia_g, max_known_v=max_known_v,
+                           gaia_capped=any(m.gaia_capped for m in marks),
+                           measured=bool(data.get("measured")), measured_reason=data.get("measured_reason"),
+                           with_diff=len(arrays) >= 2)
+    png = fr.contact_sheet(arrays, labels, marks=marks, legend_items=legend)
     ids = {e["id"] for e in shown}
     meta = {
         **note,
@@ -218,9 +243,24 @@ async def blink(
         "gaia_stars_in_field": len(data.get("gaia") or []),
         "known_objects": [k for k in (data.get("known") or []) if k.get("epoch_id") in ids],
         "measured": _measured_summary(data.get("measured"), data.get("measured_reason")),
+        "overlays": _overlay_counts(shown, marks, max_gaia_g, max_known_v),
         "data_release": data.get("data_release"), "archive_checked": data.get("archive_checked"),
     }
-    return [_json(meta), Image(data=png, format="png")]
+    out = [_json(meta), Image(data=png, format="png")]
+    if animate:
+        out.append(Image(data=fr.animation(arrays, labels, marks, legend), format="gif"))
+    return out
+
+
+def _overlay_counts(shown: list[dict[str, Any]], marks: list[fr.Marks] | None,
+                    max_gaia_g: float, max_known_v: float) -> dict[str, Any] | None:
+    """Marks drawn per frame and in all, for blink's metadata. None when overlays are off."""
+    if marks is None:
+        return None
+    per = [{"epoch_id": e["id"], **m.counts()} for e, m in zip(shown, marks)]
+    total = {"gaia": sum(p["gaia"] for p in per), "known": sum(p["known"] for p in per),
+             "measured": {k: sum(p["measured"][k] for p in per) for k in fr.CLASS_COLOR}}
+    return {"max_gaia_g": max_gaia_g, "max_known_v": max_known_v, "drawn": total, "per_frame": per}
 
 
 # ---------------------------------------------------------------- measure, catalogues
