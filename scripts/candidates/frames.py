@@ -6,6 +6,7 @@ exporter (pipeline: `uv run skyshift-candidates`) has written web/public/data/ca
     cd server
     uv run python ../scripts/candidates/frames.py                        # mover=25,high_pm=20,spectral=15
     uv run python ../scripts/candidates/frames.py --top mover=5,high_pm=0,spectral=0 --dry-run
+    uv run python ../scripts/candidates/frames.py --known-only           # only known[] again (MPC)
 
 For each kind, the candidates with the highest `score` (any zone) get frames; the rest keep
 frames_url null and the site asks /api/frames. Per candidate (shapes of contracts/api.md, data_url
@@ -21,6 +22,10 @@ relative to the JSON):
   not always the mover's.)
 - high_pm, spectral: months clock, 5′ field, the candidate's detector, every exposure of every visit:
   blink.build_frames(..., per_visit=None), as scripts/precompute does for the featured stars.
+
+Known objects are MPC orbits only (server known.py, skyshift_core.known_index.known_near), never
+SkyBoT. After a new MPC index, `--known-only` recomputes only known[] of every existing
+cand/<id>/frames.json, at each epoch's mjd_mid and centre (epochs, Gaia and frame files untouched).
 
 Then frames_url is set in candidates.json for every candidate whose cand/<id>/frames.json exists
 (the exporter does the same when it runs again), and folders of candidates no longer chosen are removed.
@@ -135,6 +140,40 @@ def build_one(c: dict, cache: Cache, out: Path) -> bool:
     return True
 
 
+def fov_of(meta: dict) -> float:
+    """The field a frames.json was built with: HOURS_FOV for the hours clock, MONTHS_FOV for months."""
+    fov = HOURS_FOV if meta["clock"] == "hours" else MONTHS_FOV
+    built = meta["size"][0] * meta["pixel_arcsec"] / 60.0
+    if abs(built - fov) > 0.1:
+        raise ValueError(f"{meta['clock']} frames span {built:.2f}', expected {fov}'")
+    return fov
+
+
+def refresh_known(cand_dir: Path, cache: Cache) -> None:
+    """Only `known` again in every cand/<id>/frames.json (MPC, server known.py), at each epoch's
+    mjd_mid and centre; everything else stays byte for byte. Every file is computed before any is
+    written, and a failure stops: nothing half-done is written."""
+    from skyshift_server import known
+
+    new: dict[Path, dict] = {}
+    for path in sorted(cand_dir.glob("*/frames.json")):
+        meta = json.loads(path.read_text())
+        r = fov_of(meta) / 2.0 * 2**0.5
+        by_centre: dict[tuple[float, float], list[dict]] = {}
+        for ep in meta["epochs"]:
+            c = ep.get("center") or meta["center"]
+            by_centre.setdefault((c["ra"], c["dec"]), []).append(ep)
+        found: list[dict] = []
+        for (ra, dec), eps in by_centre.items():
+            found += known.near(ra, dec, r, [e["mjd_mid"] for e in eps], epoch_ids=[e["id"] for e in eps], cache=cache)
+        log.info("%s: known %d -> %d", path.parent.name, len(meta["known"]), len(found))
+        meta["known"] = found
+        new[path] = meta
+    for path, meta in new.items():
+        write_json(path, clean(meta), compact=True)
+    log.info("known[] recomputed in %d frames files", len(new))
+
+
 def dumps(doc: dict) -> str:
     """The exporter's layout: compact JSON, one candidate per line."""
     head = {k: v for k, v in doc.items() if k != "candidates"}
@@ -150,12 +189,17 @@ def main() -> int:
     ap.add_argument("--parallel", type=int, default=6, help="candidates built at once")
     ap.add_argument("--deadline", type=float, default=45.0, help="minutes; then finish with what was built")
     ap.add_argument("--dry-run", action="store_true", help="list the chosen candidates and stop")
+    ap.add_argument("--known-only", action="store_true",
+                    help="recompute only known[] of the existing cand/<id>/frames.json (MPC) and stop")
     ap.add_argument("--cache", help="cache folder or gs:// (default: SKYSHIFT_CACHE or ~/.cache/skyshift)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
 
     path = Path(a.candidates)
     out = path.parent
+    if a.known_only:
+        refresh_known(out / "cand", Cache(a.cache))
+        return 0
     doc = json.loads(path.read_text())
     top = {k: int(v) for k, v in (x.split("=") for x in a.top.split(",") if x)}
     chosen = choose(doc["candidates"], top)

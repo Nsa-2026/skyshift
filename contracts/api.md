@@ -1,10 +1,11 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.2)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.4)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
 targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages;
-v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift).
+v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
+v3.4: suspects.json track fields and grade A).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -164,7 +165,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | field | type | meaning |
 |---|---|---|
 | zone | string | Pipeline zone the results come from (`hunt`, `ecl13`, `t_barnard`, …). When several cover the centre: a target zone `t_<slug>` first, then a sky zone listed in `skyrun/progress.json` (final before provisional), then the others (e.g. `pilot`) |
-| stage | `"provisional"` \| `"final"` | `final`: the zone's final pass (calibration, Gaia and WISE checks). `provisional`: overnight results, checked against Gaia only; suspect lists are several times longer than the final ones. From `skyrun/progress.json`; for zones not listed there, `final` when `results/<zone>/calib.json` exists |
+| stage | `"provisional"` \| `"final"` \| `"extracted"` | `final`: the zone's final pass (calibration, Gaia and WISE checks). `provisional`: overnight results, checked against Gaia only; suspect lists are several times longer than the final ones. From `skyrun/progress.json`; for zones not listed there, `final` when `results/<zone>/calib.json` exists. `extracted`: the photos' dot files exist but no zone has combined them yet, so `detections` are the dots alone (on the months clock a visit's dots merged within 2″, groups of 2 or more when 3 or more photos were read), classed `star` (within 2″ of a `gaia[]` star moved to the epoch), `known` (hours: within 10″ of a `known[]` prediction of the epoch), `artifact` (the flag rules) or `other`, with `source_id` null, no `tracks` or `shifts`, and `zone`/`zone_box` the zone being processed there or null. Its cap: the 400 brightest (S/N) of every class an epoch, so the stars stay for a comparison with Gaia |
 | zone_box | object, deg | The zone's box. Outside it nothing is linked: dots there are `other` |
 | clock | string | `months` or `hours`, as the response |
 | photos, photos_missing | int | Photos of this response whose dot file was read / had no dot file (not in the zone's photo list, or not extracted yet) |
@@ -204,7 +205,8 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
 3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
-`bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`).
+`bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`, and from 14 Nov
+evening `few_sessions`, `unchecked`, `gaia_slow`).
 Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
 in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-matched movers have it at the peak).
 
@@ -405,17 +407,26 @@ A reader shows every check the file holds, in file order; an id missing from the
 
 ```
 { generated, data_release, zone,
+  vetoes:[…], provisional, grades:{A,B,C}, gates:{<gate>:n},          # added 14 Nov (vetting)
   suspects:[{ id, ra, dec, mjd, clock:"hours", det, evidence:"two_exposures"|"two_detectors",
-              n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null }] }
+              n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null,
+              grade:"A"|"B"|"C", reasons:[<gate>…], near_source_arcsec|null,      # added 14 Nov
+              n_sessions?|null, rate_arcsec_h?|null, pa_deg?|null, rate_sigma?|null }] }   # optional, 14 Nov (tracks)
 ```
 
 Movers with no known-object match from MPC (contracts/dots.md). Written by the pipeline's
 `suspects` step (`results/<zone>/suspects.json`, copied to `web/public/data/suspects.json`).
 They are also written to Firestore `candidates` with `source: "pipeline"`.
+Ranked by `grade` (A, B, C), then `snr` (highest first). A file without `grade` (written before 14 Nov evening) is
+ungraded: show its suspects as unvetted, not as B.
 
 | field | type | meaning |
 |---|---|---|
 | zone | string | Pipeline zone, `pilot` or `hunt` |
+| vetoes | string[] | Zone-level checks every listed suspect passed: `mpc` (no known object within 30″), `gaia` (no Gaia DR3 within 6″), and `catwise` (CatWISE2020, 6″) or `allwise` (AllWISE, 6″: zones with a Gaia-only refcat). A catalogue missing here was not checked |
+| provisional | bool | true when Gaia or every WISE catalogue could not be checked (e.g. a Gaia-only refcat with AllWISE unreachable): very red WISE-only sources may still be listed. Say so next to the zone's suspects |
+| grades | object | Count of suspects per grade, `{ "A": n, "B": n, "C": n }` |
+| gates | object | Per gate name (below), the suspects failing it; a suspect can fail several |
 | id | string | Unique in the file. The pipeline writes `<zone>-<cell>-<minute>` (minute = round(mjd × 1440)); treat it as opaque |
 | ra, dec | float, deg | Mean position of the mover's dots |
 | mjd | float, MJD | Mean MJD-AVG of the mover's dots |
@@ -424,6 +435,13 @@ They are also written to Firestore `candidates` with `source: "pipeline"`.
 | n_dots, snr, flux_ujy | int, float, float µJy | Dots in the mover, their highest S/N and median brightness |
 | cell | integer, no unit | The 6″ sky cell of (`ra`, `dec`), exactly contracts/dots.md's `cell` (`band × 10 000 000 + col`). An id for grouping, not a quantity: neighbouring cells are not neighbouring numbers. At most ~1.08 × 10¹², so a JSON number is exact in JavaScript (below 2⁵³); never a string |
 | nearest_known_arcsec | float, arcsec, or null | Distance to the nearest known object predicted in the same session, moved to `mjd`; null if none within 600″. Suspects have none within 30″ |
+| grade | string | `C`: fails a gate or is catalogued (`reasons` says which); kept in the file, shown greyed with its reasons. `B`: passes every gate; its motion is not shown (most suspects are 2 dots of one session, and at S/N 7–9 the position error exceeds the motion between exposures): an "unexplained one-session source". `A`: candidate mover: on a track over ≥ 2 sessions with motion ≥ 5σ, no catalogue or known match. That is a B whose mover the pipeline's `tracklets` step linked into a track (movers of ≥ 3 sessions of one visit, contracts/dots.md `tracklets`) with movers in ≥ 2 sessions and rate / rate σ ≥ 5; `n_sessions`, `rate_arcsec_h`, `pa_deg`, `rate_sigma` below give the track. Show A first, as the most promising. A file written without tracks has no A |
+| reasons | string[] | The gates it fails, in this order (empty for A and B): `not_vetted` (no dot data to vet: an old movers table, or a dot without a pixel position), `hot_pixel` (a dot on a detector pixel, ±1 px, where the zone's movers have dots in ≥ 3 exposures or its free dots in ≥ 5: hot pixels NASA's HOT bit misses), `bad_column` (≥ 3 free dots of that exposure and detector within ±0.5 px in x), `edge` (a dot within 6 px of the detector edge), `masked_peak` (a mask bit of contracts/flags.md at a dot's peak, OVERFLOW/NONLINEAR aside), `sharp_outlier` (a dot sharper than a star: √(a·b) < 0.6 × (D1–D3) or 0.7 × (D4–D6) the detector's stellar value at its S/N, with OUTLIER at the peak; OUTLIER alone never counts), `very_sharp` (√(a·b) < 0.4 × the stellar value at S/N ≥ 15, OUTLIER or not), `flux_ratio` (brightest dot > 4× the faintest within one detector), `red_photo` (every dot from a photo graded red by the photo QA, qa_photos.parquet; amber never counts), `2mass` (a 2MASS PSC source within 6″), `allwise` (an AllWISE source within 6″; checked where CatWISE2020 was the zone's WISE veto). Thresholds: pipeline config `VET_*`. On 150 MPC-matched hunt movers (real asteroids) 141 pass every gate (edge 4, masked_peak 6) |
+| near_source_arcsec | float, arcsec, or null | Nearest catalogue (Gaia, CatWISE, 2MASS) or fixed source within 10″: a possible blend or PSF wing. A warning, not a gate; null if none within 10″ |
+| n_sessions | int or null, **optional** | The track this suspect is on (pipeline `tracklets`, joined on `id`): sessions of its visit with a mover on the track (≥ 3 on any track). null when the suspect is on no track. The four track fields are absent from a file written without tracks: read absent as null. Present on any suspect on a track, whatever its grade; A also needs rate / rate_sigma ≥ 5 and no failed gate. Added 14 Nov |
+| rate_arcsec_h | float, ″/h, or null, **optional** | The track's apparent rate at this suspect's time (local fit over the track's movers); null off a track |
+| pa_deg | float, degrees, or null, **optional** | The track's direction of motion, east of north, 0–360; null off a track |
+| rate_sigma | float, ″/h, or null, **optional** | 1σ error of `rate_arcsec_h` (scaled up by √χ²_ν of the fit when > 1); null off a track |
 
 ### candidates.json
 
@@ -448,7 +466,7 @@ web tests still use; it predates `zones` and the high_pm id rule).
 | data_release | string | Collections the zones' photos came from, e.g. `"DR1+QR3"` |
 | zones | [string] | Zones searched, in the order used: the larger first (`["hunt", "pilot"]`). A zone appears even when all its objects were already listed from an earlier one |
 | counts | {kind: int} | Candidates of each kind in the file (all three keys, 0 if none) |
-| candidates | [object] | Sorted by zone (in `zones` order), then kind (mover, high_pm, spectral), then `score` descending |
+| candidates | [object] | Sorted by zone (in `zones` order), then kind (mover, high_pm, spectral), then `grade` (A, B or null, C; added 14 Nov), then `score` descending |
 
 Each candidate: every field is present; a missing value is `null`, never omitted.
 
@@ -473,6 +491,7 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one |
 | galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
 | labels | [string] | Filter labels, vocabulary below; order as listed there. [] for movers |
+| grade | string or null | Movers: the suspects' vetting grade, `A`, `B` or `C` (suspects.json `grade`; A = a candidate mover on a track over ≥ 2 sessions at ≥ 5σ, its `why` names the track and it never gets `motion_not_significant`; C = a failed gate or a catalogue source within 6″, its gates are in `reasons`). null for high_pm and spectral, and for zones run before the vetting. Grade C movers come after the zone's other movers and score × 0.1. Added 14 Nov |
 | reasons | [string] | Codes, vocabulary below: why it was listed and what to be careful about |
 | why | string | One plain English sentence: why it is on the list (examples below) |
 | flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair) |
@@ -486,7 +505,9 @@ spectral: months clock, 5′ field, `det`, every exposure of every visit (as the
 Several detectors may share one file (sorted by `mjd_mid`, then `det`); the client filters by `det`.
 
 **Which objects.** mover: every row of `results/<zone>/suspects.parquet` (suspects.json's rules). high_pm:
-every row of `highpm_candidates.parquet`, vetted or not; the pipeline's vetting reasons become `reasons`.
+the `vetted` rows of `highpm_candidates.parquet` (from 14 Nov evening; before, every row). Unvetted rows are
+fakes or not movers: a Gaia or CatWISE motion that isn't ours, chance-level pairs, too few sessions, nothing to
+check against, or a known slow Gaia star (contracts/dots.md, highpm_candidates).
 spectral: sources of `classes.parquet` with a band label or `brown_dwarf_like`, and either no Gaia match or
 a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. An object already
 listed from an earlier zone is not listed again, and the earlier entry's `zones` gets the later zone: movers
@@ -494,9 +515,9 @@ within 6″ and 2 minutes (suspects.json's merge), high_pm and spectral within 4
 hunt zone, which was run on the same photos: the hunt re-found all 27 pilot movers (the same ids as
 suspects.json), so the pilot adds only objects the hunt didn't list.
 
-Nothing is dropped for being doubtful: doubts become `reasons` and lower the `score`. The "check first"
+Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
-`outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` (mover);
+`outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` and the vetting gates (mover);
 `short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
 `at_control_level`, `implausible_pm` (high_pm).
 
@@ -504,7 +525,7 @@ codes (show them as cautions): `known_object_near`, `motion_not_significant`, `b
 
 | kind | score |
 |---|---|
-| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` |
+| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.1 with `grade` C |
 | high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
 
@@ -536,6 +557,7 @@ candidate they are those of its (first) source.
 | detector_excess | mover | Seen only in detectors where, in that visit, the zone has at least 1.5× its usual share of unexplained movers per mover (≥ 5 suspects in the cell): likely artefacts. Hunt: D4, D5, D6 in visit 2 (D4 is 41% of the suspects but 28% of the movers); 108 suspects. A D1+D4 pair seen by D1 too doesn't count |
 | repeat_position | mover | Another unexplained mover of the zone was seen within 30″ in another session, at under 2″ an hour apart: probably a fixed or very slow source, not a fast mover. Hunt: 7 suspects at 3 places, 1 to 169 days apart (one is the brightest suspect, S/N 290 in D1) |
 | gaia_unchecked, catwise_unchecked | mover | Gaia / CatWISE could not be checked when the pipeline ran |
+| not_vetted, hot_pixel, bad_column, edge, masked_peak, sharp_outlier, very_sharp, flux_ratio, red_photo, 2mass, allwise | mover | The suspects' failed vetting gates (suspects.json `reasons`, meanings there): the mover is grade C, most likely an artefact or a catalogued source |
 | pm_fit | high_pm | Motion fitted over all its detections in every visit |
 | pm_pair | high_pm | Two sources each seen in one visit only, paired across visits (too fast to stay linked) |
 | vetted | high_pm | Passed every pipeline check |
@@ -547,6 +569,9 @@ candidate they are those of its (first) source.
 | gaia_pm_disagrees | high_pm | Gaia lists a different motion for the star here: likely a mismatch |
 | catwise_pm_disagrees | high_pm | CatWISE lists a different motion for the source here: likely a mismatch |
 | at_control_level | high_pm | As many pairs at this separation turn up by chance (the control) |
+| few_sessions | high_pm | Seen in fewer than 3 sessions in one of its visits (pipeline row only: not exported) |
+| unchecked | high_pm | No Gaia or CatWISE motion to check it against, and under 10σ or saturated (pipeline row only: not exported) |
+| gaia_slow | high_pm | Gaia agrees, but predicts under 150 mas/yr: a known slow star (pipeline row only: not exported) |
 | implausible_pm | high_pm | Faster than 12″/yr between visits: no star moves that fast (Barnard's Star, the fastest known, does 10.4″/yr), so it is almost certainly two different sources. In practice every pair (3–120″ apart about half a year apart; hunt 32–269″/yr) and the fits above 12″/yr; none is `vetted`. Hunt: 82 of 997 (55 pairs, 27 fits); pilot: 15 of 167 (12 pairs, 3 fits) |
 | no_gaia | spectral | No Gaia DR3 source here |
 | gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
@@ -625,3 +650,25 @@ check."
   the zone and its stage) and `measured_reason` (why `measured` is null). Additive: no existing field
   changes; files and answers without them read as not computed. Class names: `star`, `known`, `mover`,
   `suspect`, `artifact`, `other` (`known` as in `known[]`).
+
+## Changes in v3.4 (14 Nov 2026): tracks and grade A
+
+- suspects.json: optional `n_sessions`, `rate_arcsec_h`, `pa_deg`, `rate_sigma` per suspect, from the
+  pipeline's `tracklets` step (movers linked across the sessions of one visit; contracts/dots.md
+  `tracklets`). null when the suspect is on no track; absent from files written without tracks (read
+  absent as null). Additive: no existing field changes.
+- Grade `A` is now given: a candidate mover, on a track over ≥ 2 sessions with motion ≥ 5σ, no
+  catalogue or known match (grade B plus the track). It sorts first in suspects.json and, through
+  `grade`, in candidates.json, where an A's `why` names the track.
+- contracts/dots.md: `nonfixed_dots`, `tracklets`, `tracklet_dots`, and `recall` (recall.json): `recall`
+  now counts a known sighting found by a mover or a dot recovered on a track; `n_found_movers`,
+  `recall_movers` and `control_recall_movers` are the movers-alone numbers.
+
+## Changes in v3.5 (14 Nov 2026): high_pm lists vetted rows only
+
+- candidates.json: high_pm lists only the `vetted` rows of highpm_candidates.parquet. On the hunt zone
+  this removes the 714 rows Gaia proves wrong (997 → about 130 rows, nearly all Gaia-confirmed movers).
+  The high_pm caution codes stay valid in `reasons` but no longer appear in practice. No field changes.
+- contracts/dots.md: astrometry leaves out masked-peak and second-in-photo dots, fits a zero point per
+  detector and uses session-robust pm errors; highpm compares with Gaia and CatWISE including the
+  parallax leak, selects at 4.5σ, adds `few_sessions`, `unchecked`, `gaia_slow` and `fp_control`.

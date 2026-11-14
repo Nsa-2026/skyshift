@@ -4,12 +4,12 @@
 // one row of primary controls follows, and everything secondary lives behind "Adjust".
 import "./blink.css";
 import { ALLOWED_FOV, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadTargetIndex, toMJySr } from "../api/client";
-import type { Clock, Det, Epoch, FramesResponse, SkyPos, TargetIndex } from "../api/types";
+import type { Clock, Det, Epoch, FramesResponse, Measured, MeasuredClass, MeasuredDetection, SkyPos, TargetIndex } from "../api/types";
 import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
 import type { BlinkHandle, BlinkOptions, MountBlink, View } from "../app/modules";
 import { nearestIndex, type Axis } from "./axis";
 import { SPHEREX_V_LIMIT, seenBySpherex } from "./known";
-import { compass, diamond, flagMark, hatchPattern, label, pencil, reticle, ring, scaleBar } from "./marks";
+import { arrowPath, compass, diamond, flagMark, hatchPattern, label, measuredMark, pencil, reticle, ring, scaleBar } from "./marks";
 import {
   burntCores,
   mean,
@@ -28,6 +28,27 @@ import {
   type Limits,
   type StretchKind,
 } from "./math";
+import {
+  ARROW_CAP,
+  CLASS_INFO,
+  greyed,
+  stageLabel,
+  CLASS_ORDER,
+  arrowNote,
+  classesPresent,
+  describeDetection,
+  describeShift,
+  detectionNumbers,
+  exaggeration,
+  listItems,
+  measuredState,
+  reasonLine,
+  shiftNumbers,
+  summarize,
+  trackDotsFor,
+  trackSpanArcsec,
+  type MeasuredItem,
+} from "./measured";
 import { driftPx, findMover, followShifts, type Mover } from "./motion";
 import { buildLut, diffIndex, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
 import { drawStrip, plateDate, updateStrip } from "./strip";
@@ -100,6 +121,23 @@ const icon = {
   pause: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5.5" y="4.5" width="3" height="11" rx="1"/><rect x="11.5" y="4.5" width="3" height="11" rx="1"/></svg>`,
   chevron: `<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
+
+/** The measured marks as small SVGs for the legend and the list: the same shapes as on the plate (marks.ts). */
+const GLYPH_PATH: Record<MeasuredClass, string> = {
+  star: `<circle cx="9" cy="9" r="5"/>`,
+  other: `<circle cx="9" cy="9" r="5" stroke-dasharray="0.01 3" stroke-width="1.8"/>`,
+  known: `<circle cx="9" cy="9" r="3.6"/><circle cx="9" cy="9" r="6.6"/>`,
+  mover: `<circle cx="9" cy="9" r="4.2"/><path d="M1 9h2.6M14.4 9H17"/>`,
+  suspect: `<circle cx="9" cy="9" r="5" stroke-width="2.4"/>`,
+  artifact: `<circle cx="9" cy="9" r="5"/><path d="M5.5 12.5l7-7"/>`,
+};
+const glyph = (c: MeasuredClass, grade?: string | null) =>
+  `<svg class="bk-mg" data-cls="${c}"${grade ? ` data-grade="${grade}"` : ""} viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${GLYPH_PATH[c]}</svg>`;
+/** Draw order on the plate: the plainest first, so suspects end on top. */
+const DRAW_ORDER: MeasuredClass[] = [...CLASS_ORDER].reverse();
+/** Rows shown before "Show all". */
+const LIST_SHOWN = 6;
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): BlinkHandle => {
   const uid = `bk${++mounts}`;
@@ -207,6 +245,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <div class="bk-adj-row">
             <span class="bk-adj-k" id="${uid}-mk">Marks</span>
             <div class="bk-marks" role="group" aria-labelledby="${uid}-mk">
+              <button class="bk-mk" type="button" data-ov="measured" aria-pressed="true"
+                title="What SkyShift measured in these photos: circles by class, with motion arrows"><i class="sw sw-measured"></i>Measured</button>
               <button class="bk-mk" type="button" data-ov="gaia" aria-pressed="true"><i class="sw sw-gaia"></i>Gaia</button>
               <button class="bk-mk" type="button" data-ov="known" aria-pressed="true"
                 title="Known asteroids and comets bright enough for SPHEREx (V ${SPHEREX_V_LIMIT} or brighter), where their orbits put them"><i class="sw sw-known"></i>Known</button>
@@ -232,6 +272,26 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           </div>
           <p class="bk-adj-keys">Space plays, ← → step, hold C to compare.</p>
         </div>
+
+        <section class="bk-meas" aria-labelledby="${uid}-mt" hidden>
+          <div class="bk-meas-head">
+            <h2 class="bk-meas-title" id="${uid}-mt">What SkyShift measured</h2>
+            <span class="bk-meas-stage" hidden></span>
+            <button class="bk-meas-toggle" type="button" data-ov="measured" aria-pressed="true"
+              title="Draw what SkyShift measured on the plate"><span class="bk-meas-knob" aria-hidden="true"><i></i></span>On the plate</button>
+          </div>
+          <p class="bk-meas-lead"></p>
+          <p class="bk-meas-rest"></p>
+          <ul class="bk-meas-key" aria-label="Marks"></ul>
+          <p class="bk-meas-how"></p>
+          <div class="bk-meas-items">
+            <p class="bk-meas-lh" id="${uid}-ml"></p>
+            <ul class="bk-meas-list" aria-labelledby="${uid}-ml"></ul>
+            <button class="btn btn-ghost bk-meas-all" type="button" aria-expanded="false" hidden></button>
+          </div>
+          <p class="bk-meas-notes"></p>
+          <p class="bk-meas-pro pro-only"></p>
+        </section>
       </div>
     </div>
   `;
@@ -260,6 +320,20 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const refSel = $<HTMLSelectElement>("select.bk-ref");
   const contrastIn = $<HTMLInputElement>(".bk-contrast");
   const hold = $<HTMLButtonElement>(".bk-hold");
+  const mp = {
+    panel: $<HTMLElement>(".bk-meas"),
+    stage: $<HTMLElement>(".bk-meas-stage"),
+    lead: $<HTMLParagraphElement>(".bk-meas-lead"),
+    rest: $<HTMLParagraphElement>(".bk-meas-rest"),
+    key: $<HTMLUListElement>(".bk-meas-key"),
+    how: $<HTMLParagraphElement>(".bk-meas-how"),
+    items: $<HTMLDivElement>(".bk-meas-items"),
+    lh: $<HTMLParagraphElement>(".bk-meas-lh"),
+    list: $<HTMLUListElement>(".bk-meas-list"),
+    all: $<HTMLButtonElement>(".bk-meas-all"),
+    notes: $<HTMLParagraphElement>(".bk-meas-notes"),
+    pro: $<HTMLParagraphElement>(".bk-meas-pro"),
+  };
   const off = document.createElement("canvas");
   const offCtx = off.getContext("2d");
 
@@ -282,7 +356,25 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let follow = false;
   let mover: Mover | null = null;
   let shifts: { dx: number; dy: number }[] | null = null;
-  const overlays = { gaia: true, known: true, faint: false, target: true, guides: true };
+  const overlays = { measured: true, gaia: true, known: true, faint: false, target: true, guides: true };
+  // What SkyShift measured (contracts/api.md v3.3), prepared once per response and detector.
+  let meas: Measured | null = null;
+  let measAt = new Map<string, MeasuredDetection[]>();
+  let epochDet = new Map<string, number>();
+  let measItems: MeasuredItem[] = [];
+  let measAll = false;
+  /** Motion arrows are this many times longer than the motion (stated in the panel). */
+  let arrowFactor = 1;
+  let arrowShortened = false;
+  /** Suspect grades by track and by source (tracks and shifts carry none themselves). */
+  let trackGrade = new Map<string, string>();
+  let sourceGrade = new Map<number, string>();
+  /** The list entry under the pointer or focus, and the one pinned by a click. */
+  let focusItem: string | null = null;
+  let pinned: string | null = null;
+  /** Hover targets of the last draw, in screen pixels: the caption names what is under the pointer. */
+  let hits: { X: number; Y: number; r: number; html: string }[] = [];
+  let hoverXY: { X: number; Y: number } | null = null;
   let zoom = 1;
   let centre = { u: 0, v: 0 }; // view centre in image edge coordinates (pixel i spans [i, i+1])
   let playing = false;
@@ -475,6 +567,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   function draw() {
+    hits = [];
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssSize, cssSize);
@@ -648,6 +741,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       }
     }
 
+    drawMeasured(vp, e, c, inView, psf, halo);
+
     if (overlays.target) {
       reticle(ctx, tp.X, tp.Y, gap, Math.max(7, gap * 0.6));
       pencil(ctx, pen("--pencil-red"), 1.75);
@@ -659,6 +754,194 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       pencil(ctx, pen("--pencil-red"), 1.75);
     }
     ctx.restore();
+  }
+
+  /**
+   * What SkyShift measured, over the catalogue marks: the zone's edge when it cuts the field, motion
+   * arrows (hours: each mover's dots in time order; months: each fitted shift with its error at the
+   * tip), then this epoch's detections as circles by class, and the list entry in focus.
+   */
+  function drawMeasured(
+    vp: VP,
+    e: Epoch | null,
+    c: SkyPos,
+    inView: (p: { X: number; Y: number }, m?: number) => boolean,
+    psf: number,
+    halo: string,
+  ) {
+    const m = meas;
+    if (!ctx || !F || !view || !m || !overlays.measured) return;
+    const f = F;
+    const toS = (p: SkyPos) => toScreen(skyToPixel(p, f, c), vp);
+    const pxPerArcsec = vp.s / f.pixel_arcsec;
+    /** Arrows longer than 40% of the field are shortened, with a break across the shaft. */
+    const cap = ARROW_CAP * size()[0] * vp.s;
+    const r0 = Math.max(3.5, Math.min(9, psf * 0.45));
+    // Known is doubled (r and r + 2.5), so its inner circle stays at r0: inside the violet diamond.
+    const radius = (k: MeasuredClass) => (k === "mover" || k === "suspect" ? Math.max(5, r0 * 1.3) : r0);
+    const [nx, ny] = size();
+    /** Past the detector's edge (the hatch): no mark, as for Gaia rings. */
+    const hatched = (p: SkyPos) => {
+      if (!shown || shown.length !== nx * ny) return false;
+      const px = skyToPixel(p, f, c);
+      return noDataAt(shown, shownMask, nx, ny, px.x, px.y);
+    };
+    const stroke = (col: string, w: number, a = 0.9) => {
+      pencil(ctx, halo, w + 2, 0.5);
+      pencil(ctx, col, w, a);
+    };
+
+    drawZoneEdge(m, vp, c, halo);
+
+    if (m.clock === "hours") {
+      for (const t of m.tracks) {
+        const dots = trackDotsFor(t, epochDet, view.det);
+        if (dots.length < 2) continue;
+        const p0 = toS(dots[0]);
+        let pts = dots.map((d) => {
+          const p = toS(d);
+          return { X: p0.X + (p.X - p0.X) * arrowFactor, Y: p0.Y + (p.Y - p0.Y) * arrowFactor };
+        });
+        const last = pts[pts.length - 1];
+        const L = Math.hypot(last.X - p0.X, last.Y - p0.Y);
+        const broken = L > cap;
+        if (broken) pts = pts.map((p) => ({ X: p0.X + ((p.X - p0.X) * cap) / L, Y: p0.Y + ((p.Y - p0.Y) * cap) / L }));
+        if (!pts.some((q) => inView(q))) continue;
+        const col = pen(greyed(t.class, trackGrade.get(t.id)) ? "--m-artifact" : CLASS_INFO[t.class].token);
+        if (arrowPath(ctx, pts, 7, broken)) stroke(col, 1.6);
+        // A bead at each dot; this exposure's is larger, so blinking walks it along the arrow.
+        dots.forEach((d, i) => {
+          const now = d.epoch_id === e?.id;
+          ctx.beginPath();
+          ctx.arc(pts[i].X, pts[i].Y, now ? 3 : 1.75, 0, Math.PI * 2);
+          ctx.save();
+          ctx.globalAlpha = 0.9;
+          ctx.fillStyle = col;
+          ctx.fill();
+          ctx.restore();
+        });
+      }
+    } else {
+      m.shifts.forEach((s) => {
+        const p0 = toS(s);
+        let dx = -s.dra_arcsec * arrowFactor * pxPerArcsec; // east is left
+        let dy = -s.ddec_arcsec * arrowFactor * pxPerArcsec; // north is up
+        let err = s.err_arcsec * arrowFactor * pxPerArcsec;
+        const L = Math.hypot(dx, dy);
+        const broken = L > cap;
+        if (broken) {
+          dx *= cap / L;
+          dy *= cap / L;
+          err *= cap / L;
+        }
+        const tip = { X: p0.X + dx, Y: p0.Y + dy };
+        if (!inView(p0) && !inView(tip)) return;
+        const grade = sourceGrade.get(s.source_id);
+        const col = pen(greyed(s.class, grade) ? "--m-artifact" : CLASS_INFO[s.class].token);
+        if (arrowPath(ctx, [p0, tip], 6, broken)) stroke(col, 1.6);
+        ring(ctx, tip.X, tip.Y, Math.max(1.5, err));
+        ctx.save();
+        ctx.setLineDash([2, 2]);
+        pencil(ctx, col, 1, 0.8);
+        ctx.restore();
+        const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(shiftNumbers(s))}</span>`;
+        hits.push({ X: p0.X, Y: p0.Y, r: Math.max(8, radius(s.class) + 3), html });
+        hits.push({ X: tip.X, Y: tip.Y, r: Math.max(8, err), html });
+      });
+    }
+
+    if (e) {
+      ctx.font = `700 11px ${fontFamily}`;
+      const ds = [...(measAt.get(e.id) ?? [])].sort((a, b) => DRAW_ORDER.indexOf(a.class) - DRAW_ORDER.indexOf(b.class));
+      for (const d of ds) {
+        const p = toS(d);
+        if (!inView(p, 0) || hatched(d)) continue;
+        const r = radius(d.class);
+        const col = pen(greyed(d.class, d.grade) ? "--m-artifact" : CLASS_INFO[d.class].token);
+        measuredMark(ctx, d.class, p.X, p.Y, r, col, halo);
+        if (d.class === "suspect" && d.grade) label(ctx, d.grade, p.X + r * 0.75 + 3, p.Y - r * 0.75 - 2, col, halo);
+        hits.push({
+          X: p.X,
+          Y: p.Y,
+          r: r + 4,
+          html: `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}"${d.grade ? ` data-grade="${d.grade}"` : ""}>${esc(describeDetection(d))}</span> <span class="bk-val">${esc(detectionNumbers(d))}</span>`,
+        });
+      }
+    }
+
+    // The list entry in focus (or pinned): an ink ring that follows it from photo to photo.
+    const it = measItems.find((x) => x.key === (focusItem ?? pinned));
+    if (it) {
+      const pos = (e && it.at[e.id]) || it.pos;
+      const p = toS(pos);
+      const R = radius(it.cls) + 7;
+      ring(ctx, p.X, p.Y, R);
+      stroke(pen("--ink"), 2, 0.95);
+      if (it.shift != null) {
+        const s = m.shifts[it.shift];
+        const L = Math.hypot(s.dra_arcsec, s.ddec_arcsec) * arrowFactor * pxPerArcsec;
+        const k = L > cap ? cap / L : 1;
+        const tip = { X: p.X - s.dra_arcsec * arrowFactor * pxPerArcsec * k, Y: p.Y - s.ddec_arcsec * arrowFactor * pxPerArcsec * k };
+        ring(ctx, tip.X, tip.Y, Math.max(6, s.err_arcsec * arrowFactor * pxPerArcsec * k + 4));
+        stroke(pen("--ink"), 1.5, 0.8);
+      }
+    }
+  }
+
+  /** The zone's box, dashed, when the field reaches past it: outside it nothing is linked. */
+  function drawZoneEdge(m: Measured, vp: VP, c: SkyPos, halo: string) {
+    if (!ctx || !F || !m.zone_box?.ra || !m.zone_box?.dec) return;
+    const f = F;
+    const [ra0, ra1raw] = m.zone_box.ra;
+    const [dec0, dec1] = m.zone_box.dec;
+    const ra1 = ra1raw < ra0 ? ra1raw + 360 : ra1raw; // a box across RA 0
+    const inside = (p: SkyPos) => {
+      const ra = p.ra < ra0 ? p.ra + 360 : p.ra;
+      return p.dec >= dec0 && p.dec <= dec1 && ra >= ra0 && ra <= ra1;
+    };
+    const [nx, ny] = size();
+    const corners = [
+      [-0.5, -0.5],
+      [nx - 0.5, -0.5],
+      [-0.5, ny - 0.5],
+      [nx - 0.5, ny - 0.5],
+      [(nx - 1) / 2, -0.5],
+      [(nx - 1) / 2, ny - 0.5],
+      [-0.5, (ny - 1) / 2],
+      [nx - 0.5, (ny - 1) / 2],
+    ].map(([x, y]) => pixelToSky({ x, y }, f, c));
+    if (corners.every(inside)) return;
+    const N = 64;
+    const sides: SkyPos[][] = [
+      Array.from({ length: N + 1 }, (_, i) => ({ ra: ra0 + ((ra1 - ra0) * i) / N, dec: dec0 })),
+      Array.from({ length: N + 1 }, (_, i) => ({ ra: ra0 + ((ra1 - ra0) * i) / N, dec: dec1 })),
+      Array.from({ length: N + 1 }, (_, i) => ({ ra: ra0, dec: dec0 + ((dec1 - dec0) * i) / N })),
+      Array.from({ length: N + 1 }, (_, i) => ({ ra: ra1, dec: dec0 + ((dec1 - dec0) * i) / N })),
+    ];
+    const W = vp.vw * vp.s;
+    const mid = { X: vp.ox + W / 2, Y: vp.oy + (vp.vh * vp.s) / 2 };
+    let best: { X: number; Y: number; d: number } | null = null;
+    ctx.beginPath();
+    for (const side of sides) {
+      side.forEach((p, i) => {
+        const q = toScreen(skyToPixel({ ra: ((p.ra % 360) + 360) % 360, dec: p.dec }, f, c), vp);
+        if (i) ctx.lineTo(q.X, q.Y);
+        else ctx.moveTo(q.X, q.Y);
+        const inPlate = q.X > vp.ox + 40 && q.X < vp.ox + W - 80 && q.Y > vp.oy + 16 && q.Y < vp.oy + vp.vh * vp.s - 30;
+        const d = Math.hypot(q.X - mid.X, q.Y - mid.Y);
+        if (inPlate && (!best || d < best.d)) best = { X: q.X, Y: q.Y, d };
+      });
+    }
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    pencil(ctx, halo, 3, 0.5);
+    pencil(ctx, pen("--ink-2"), 1.25, 0.8);
+    ctx.restore();
+    const b = best as { X: number; Y: number } | null;
+    if (b) {
+      ctx.font = `600 11px ${fontFamily}`;
+      label(ctx, `${m.zone} zone edge`, b.X + 6, b.Y - 6, pen("--ink-2"), halo);
+    }
   }
 
   function drawGuides(vp: VP, onInk: boolean) {
@@ -749,6 +1032,29 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (!frames.length || busy) {
       say.textContent = "";
       return;
+    }
+    // A list entry in focus, or a measured mark under the pointer: say what it is.
+    const it = focusItem ? measItems.find((x) => x.key === focusItem) : null;
+    if (it) {
+      say.innerHTML = `<span class="bk-mtag" data-cls="${it.cls}"${it.grade ? ` data-grade="${it.grade}"` : ""}>${esc(it.label)}</span> <span class="bk-val">${esc(it.numbers)}</span>`;
+      renderKey();
+      return;
+    }
+    if (hover && hoverXY && hits.length) {
+      let best: (typeof hits)[number] | null = null;
+      let bd = Infinity;
+      for (const h of hits) {
+        const d = Math.hypot(h.X - hoverXY.X, h.Y - hoverXY.Y);
+        if (d <= h.r && d < bd) {
+          bd = d;
+          best = h;
+        }
+      }
+      if (best) {
+        say.innerHTML = best.html;
+        renderKey();
+        return;
+      }
     }
     if (hover && F && shown) {
       const [nx, ny] = size();
@@ -954,6 +1260,127 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     renderLabel();
   }
 
+  // ---- what SkyShift measured: the panel under the controls --------------------------------
+  /** Index the response's measured layer for this detector and pick the arrow exaggeration. */
+  function prepareMeasured() {
+    const st = measuredState(F);
+    meas = st.kind === "measured" ? st.m : null;
+    measAt = new Map();
+    epochDet = new Map((F?.epochs ?? []).map((e) => [e.id, e.det]));
+    measItems = [];
+    arrowFactor = 1;
+    if (!meas || !F || !view) return;
+    trackGrade = new Map();
+    sourceGrade = new Map();
+    for (const d of meas.detections ?? []) {
+      if (d.grade && d.track_id) trackGrade.set(d.track_id, d.grade);
+      if (d.grade && d.source_id != null) sourceGrade.set(d.source_id, d.grade);
+      const l = measAt.get(d.epoch_id);
+      if (l) l.push(d);
+      else measAt.set(d.epoch_id, [d]);
+    }
+    meas.tracks ??= [];
+    meas.shifts ??= [];
+    meas.detections ??= [];
+    measItems = listItems(meas, epochDet, view.det);
+    // A typical arrow about 6% of the field long: tracks and shifts are arcseconds on 6.15″ pixels.
+    const target = 0.06 * F.size[0] * F.pixel_arcsec;
+    const lengths =
+      meas.clock === "hours"
+        ? meas.tracks.map((t) => trackSpanArcsec(trackDotsFor(t, epochDet, view!.det)))
+        : meas.shifts.map((s) => s.shift_arcsec);
+    arrowFactor = exaggeration(lengths, target);
+    arrowShortened = lengths.some((l) => l * arrowFactor > ARROW_CAP * F!.size[0] * F!.pixel_arcsec);
+  }
+
+  function renderMeasured() {
+    const st = measuredState(F);
+    mp.panel.hidden = st.kind === "absent";
+    const on = st.kind === "measured";
+    for (const e of [mp.rest, mp.key, mp.how, mp.items, mp.notes, mp.pro]) e.hidden = !on;
+    mp.stage.hidden = !on;
+    $<HTMLButtonElement>(".bk-meas-toggle").hidden = !on;
+    if (st.kind === "absent") return;
+    if (st.kind === "missing") {
+      const r = reasonLine(st.reason);
+      mp.lead.innerHTML = `${r.html}${r.retry ? ` <button class="btn btn-ghost bk-meas-retry" type="button" data-meas-retry>Try again</button>` : ""}`;
+      mp.panel.dataset.state = st.reason;
+      return;
+    }
+    const m = st.m;
+    mp.panel.dataset.state = "measured";
+    const s = summarize(m);
+    mp.lead.innerHTML = s.lead;
+    mp.rest.textContent = s.rest;
+    mp.rest.hidden = !s.rest;
+    mp.stage.textContent = stageLabel(m.stage);
+    mp.stage.dataset.stage = String(m.stage ?? "");
+    mp.stage.hidden = !mp.stage.textContent;
+    mp.key.innerHTML = classesPresent(m)
+      .flatMap((c) => {
+        const li = `<li title="${esc(CLASS_INFO[c].about)}">${glyph(c)}<span>${CLASS_INFO[c].name}</span></li>`;
+        // Grade C suspects fail a check: greyed on the plate, so the legend says so.
+        const hasC = c === "suspect" && m.detections.some((d) => d.class === "suspect" && d.grade === "C");
+        return hasC
+          ? [li, `<li title="A suspect that fails one of our checks (its reasons say which).">${glyph(c, "C")}<span>Suspect, grade C</span></li>`]
+          : [li];
+      })
+      .join("");
+    const arrows = m.clock === "hours" ? m.tracks.length > 0 : m.shifts.length > 0;
+    mp.how.textContent =
+      "Circles are what SkyShift measured in each photo. Blue rings and violet diamonds are where Gaia and the Minor Planet Center predict stars and asteroids." +
+      (arrows ? ` ${arrowNote(m.clock, arrowFactor, arrowShortened)}` : "");
+    mp.notes.textContent = s.notes.join(" ");
+    const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
+    mp.pro.textContent =
+      `Detections per class, before the cap: ${CLASS_ORDER.map((k) => `${k} ${c[k] ?? 0}`).join(", ")}. ` +
+      `${m.photos} photos read, ${m.photos_missing} without dots. Zone box RA ${m.zone_box?.ra?.join("–")}°, Dec ${m.zone_box?.dec?.join("–")}°.`;
+    renderMeasuredList();
+  }
+
+  function renderMeasuredList() {
+    const m = meas;
+    if (!m || !view) return;
+    const hours = m.clock === "hours";
+    mp.items.hidden = !measItems.length;
+    if (!measItems.length) return;
+    mp.lh.textContent = hours ? `Movers and artefacts on D${view.det}` : "What moved between visits";
+    const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
+    mp.list.innerHTML = shown
+      .map(
+        (it) => html`<li><button class="bk-mi" type="button" data-item="${esc(it.key)}" aria-pressed="${it.key === pinned}"
+          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n">${esc(it.numbers)}</span></button></li>`,
+      )
+      .join("");
+    const more = measItems.length - LIST_SHOWN;
+    mp.all.hidden = more <= 0;
+    mp.all.setAttribute("aria-expanded", String(measAll));
+    mp.all.textContent = measAll ? "Show fewer" : `Show all ${measItems.length}`;
+  }
+
+  /** A list entry was clicked: pin its ring, and on the hours clock show a photo it is in. */
+  function pickItem(key: string) {
+    const it = measItems.find((x) => x.key === key);
+    if (!it) return;
+    pinned = pinned === key ? null : key;
+    mp.list.querySelectorAll<HTMLButtonElement>(".bk-mi").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.item === pinned)));
+    if (pinned && !overlays.measured) {
+      overlays.measured = true;
+      renderControls();
+    }
+    const here = cur()?.epoch.id;
+    if (pinned && it.epochs.length && (!here || !it.epochs.includes(here))) {
+      const i = frames.findIndex((f) => f.epoch.id === it.epochs[0]);
+      if (i >= 0) {
+        setPlaying(false);
+        if (allAtOnce()) setMode("blink");
+        goTo(i, false);
+        return;
+      }
+    }
+    draw();
+  }
+
   function renderAll() {
     renderControls();
     renderLabel();
@@ -1069,6 +1496,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     comparing = false;
     root.dataset.ready = "false";
     renderRow();
+    if (moved || prev?.clock !== next.clock || prev?.det !== next.det) {
+      pinned = null;
+      measAll = false;
+    }
+    focusItem = null;
+    prepareMeasured();
+    renderMeasured();
     const eps = epochsFor(resp, next.det);
     if (!eps.length) {
       frames = [];
@@ -1230,8 +1664,28 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       fps = Number(d.fps);
       renderControls();
       if (playing) setPlaying(true);
-    } else if (b === playBtn) setPlaying(!playing);
+    } else if (d.item) pickItem(d.item);
+    else if (b === mp.all) {
+      measAll = !measAll;
+      renderMeasuredList();
+    } else if (d.measRetry !== undefined) opts.onViewChange({});
+    else if (b === playBtn) setPlaying(!playing);
     else if (b === adjBtn) setAdjust(adj.hidden);
+  });
+
+  // The list: pointer or focus on an entry rings it on the plate and names it under the plate.
+  const itemOf = (t: EventTarget | null) => (t instanceof Element ? t.closest<HTMLButtonElement>(".bk-mi") : null);
+  const focusOn = (key: string | null) => {
+    if (key === focusItem) return;
+    focusItem = key;
+    draw();
+    renderCaption();
+  };
+  mp.list.addEventListener("pointerover", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
+  mp.list.addEventListener("pointerleave", () => focusOn(document.activeElement && itemOf(document.activeElement) ? itemOf(document.activeElement)!.dataset.item ?? null : null));
+  mp.list.addEventListener("focusin", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
+  mp.list.addEventListener("focusout", (ev) => {
+    if (!itemOf(ev.relatedTarget)) focusOn(null);
   });
 
   hold.addEventListener("pointerdown", (ev) => {
@@ -1338,6 +1792,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       }
     }
     hover = ev.pointerType === "mouse" ? toImage(X, Y) : null;
+    hoverXY = hover ? { X, Y } : null;
     renderCaption();
   });
   canvas.addEventListener("pointerup", (ev) => {
@@ -1359,6 +1814,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   });
   canvas.addEventListener("pointerleave", () => {
     hover = null;
+    hoverXY = null;
     renderCaption();
   });
 
@@ -1442,6 +1898,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         setPlaying(false);
         frames = [];
         F = null;
+        prepareMeasured();
+        renderMeasured();
         renderAxis();
         draw();
         renderCaption();

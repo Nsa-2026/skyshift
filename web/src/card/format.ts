@@ -1,6 +1,6 @@
 // Pure helpers for the object card: numbers, wording and axis maths. No DOM here, so tests are cheap.
 import type { Det, FramesResponse, GaiaStar, Measure, MeasureReason, ObjectResponse, SkyPos, SpectrumPoint } from "../api/types";
-import { sepArcsec } from "../app/astro";
+import { formatMjd, sepArcsec } from "../app/astro";
 
 export const LY_PER_PC = 3.26156;
 /** Largest parallax shift between two visits six months apart for our targets (Barnard's Star). */
@@ -109,6 +109,53 @@ export function upperLimitValue(p: Pick<SpectrumPoint, "flux_ujy" | "err_ujy">):
 /** Distinct visit numbers in the spectrum, in order. */
 export function visitsOf(spectrum: SpectrumPoint[]): number[] {
   return [...new Set(spectrum.map((p) => p.visit))].sort((a, b) => a - b);
+}
+
+export interface MissingVisit {
+  visit: number;
+  /** The visit's middle (median of its stacks' mjd_mid over the detectors given). */
+  mjd: number;
+}
+
+/**
+ * Visits the months blink shows that have no spectrum point: every exposure there was left out of
+ * the photometry (a Gaia star too close to measure apart, a masked core). WISE 0855−0714 passes 4″
+ * from a G = 16.3 star in visit 3, so its spectrum has visits 1–2 while the blink has 1–3.
+ * Both number visits by the same rule over the same search, so the numbers compare directly
+ * (contracts/api.md: months epoch ids are `d<det>-v<visit>`). det: only that detector's stacks and
+ * points (the light curve). [] without months frames near the view (hours clock, stale frames).
+ */
+export function visitsMissingFromSpectrum(
+  frames: FramesResponse | null,
+  near: { ra: number; dec: number },
+  fovArcmin: number,
+  spectrum: SpectrumPoint[],
+  det?: Det,
+): MissingVisit[] {
+  if (!frames || frames.clock !== "months" || !spectrum.length) return [];
+  if (sepArcsec(frames.center, near) > fovArcmin * 60) return [];
+  const have = new Set(spectrum.filter((p) => det == null || p.det === det).map((p) => p.visit));
+  const times = new Map<number, number[]>();
+  for (const e of frames.epochs) {
+    const v = e.kind === "visit" ? /-v(\d+)$/.exec(e.id) : null;
+    if (!v || (det != null && e.det !== det) || have.has(Number(v[1]))) continue;
+    times.set(Number(v[1]), [...(times.get(Number(v[1])) ?? []), e.mjd_mid]);
+  }
+  return [...times].map(([visit, t]) => ({ visit, mjd: median(t) })).sort((a, b) => a.visit - b.visit);
+}
+
+/** "Visit 3, May 2026, is in the blink but not here: none of its exposures could be measured cleanly." */
+export function missingVisitsSentence(missing: MissingVisit[], det?: Det): string {
+  if (!missing.length) return "";
+  const month = (mjd: number) => formatMjd(mjd).split(" ").slice(1).join(" ");
+  const when = (m: MissingVisit) => `${m.visit}, ${month(m.mjd)}`;
+  const list =
+    missing.length === 1
+      ? `Visit ${when(missing[0])}, is`
+      : `Visits ${missing.slice(0, -1).map(when).join("; ")} and ${when(missing[missing.length - 1])} are`;
+  const one = missing.length === 1;
+  const what = det != null ? `${one ? "its" : "their"} D${det} exposures` : `${one ? "its" : "their"} exposures`;
+  return `${list} in the blink but not here: none of ${what} could be measured cleanly.`;
 }
 
 /** Median of a list (NaN for an empty list). */

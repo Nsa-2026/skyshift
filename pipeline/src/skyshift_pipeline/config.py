@@ -202,6 +202,16 @@ ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
 ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
                                # √max(1, χ²_ν) for every source inflated errors 1.5× at ~7 dots (pm pulls 0.85)
+# session-robust errors (15 Nov, hunt tail): dots of one session share errors, so pm errors also come from the scatter of
+# session means (cluster-robust sandwich over source x session), whichever is larger; sources with fewer sessions: x sqrt(max(1, chi2_nu))
+# dots left out of motion fits: a masked (not saturated) peak, and all but the nearest of several dots of one photo
+ASTRO_CLEAN_DOTS = True
+ASTRO_SESSION_ROBUST = True
+ASTRO_ROBUST_MIN_SESSIONS = 6  # sessions needed for the session-robust error
+# ... and detectors that disagree within a visit: sandwich over visit x detector clusters where beyond this chi2 quantile
+ASTRO_DETECTOR_ROBUST = True
+ASTRO_DETECTOR_ZEROPOINTS = True  # a position zero point per source x detector: pm only from changes within a detector
+ASTRO_DETECTOR_ROBUST_P = 0.95
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
@@ -213,7 +223,9 @@ HIGHPM_FLUX_RATIO_MAX = 2.0    # same-detector flux ratio within this factor (ei
 HIGHPM_SHAPE_MAX = 0.25        # rms of ln(flux ratio) across shared detectors (spectrum shape)
 HIGHPM_MIN_COVER_PHOTOS = 2    # the other visit must have this many photos covering each position
 HIGHPM_FIT_MIN_MAS_YR = 150.0  # fitted proper motion this fast ...
-HIGHPM_FIT_MIN_SNR = 5.0       # ... and this significant also makes a candidate (method "fit")
+HIGHPM_FIT_MIN_SNR = 4.5       # ... and this significant also makes a candidate (method "fit"). Hunt (Gaia as truth):
+                               # 5σ found 55 of the 104 detected fast Gaia stars; 4.5σ with the catalogue checks below 55
+                               # (46 of the 49 misses are precision-limited: Gaia's motion / our pm_err < 5)
 HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in the zone
 HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
 HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)
@@ -441,6 +453,24 @@ HIGHPM_FIT_MAX_CHI2_NU = 5.0   # fit: astrometric chi2_nu above this is a blend 
 HIGHPM_FIT_MAX_PM_MAS_YR = 10_500.0  # fit: faster than Barnard's Star (10.4″/yr, the fastest known star) is not a star
 HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees when |Δpm| > max(this × pm_err,
                                # HIGHPM_CATWISE_PM_TOL × pm, 100 mas/yr): the counterpart is a slow star, ours is an artefact
+# Parallax-aware checks (hunt, 14 Nov tables, Gaia DR3 as truth). Two visits half a year apart make parallax and proper
+# motion one thing: the fit's pm = true pm + ϖ·(k_e, k_n), k = cov(t, parallax factor) / var(t) over the source's
+# dots (hunt k_e ≈ −4.1, k_n ≈ +1.0 per mas). Gaia's motion is compared as pm + ϖ·k (real nearby stars were
+# "gaia_pm_disagrees" before: 16 of the 55 recovered fast stars). Gaia-5p stars: the blind 4.5σ selection's tail is
+# not Gaussian (pm_snr ≥ 5 on 584 of 211,690 still stars vs 0.8 expected): saturated stars (pmra ≈ −200…−300 mas/yr),
+# one-session visits and coherent ~0.5″ shifts with chi2_nu ≈ 1. Table-level cuts (chi2_nu, n_dots, neighbours) remove
+# < 30% of it; CatWISE's own 10-yr motion removes 95% (it agrees with Gaia for 100 of 101 fast stars).
+HIGHPM_FIT_MIN_SESSIONS = 3    # fit: at least this many sessions in each visit it is seen in (one-session visits
+                               # gave 6–12-dot fits at 5–10″/yr on Gaia still stars)
+HIGHPM_NOCAT_MIN_SNR = 10.0    # fit with no Gaia or CatWISE motion to check it against: this significant (the still
+                               # stars' tail without the CatWISE check: 1.9 per 100k at 10σ vs 276 per 100k at 5σ)
+HIGHPM_CW_PLX_PER_PM = 0.25    # CatWISE check: our pm may exceed CatWISE's by a parallax leak ϖ·k with 0 ≤ ϖ ≤ this ×
+                               # CatWISE's |pm| (tangential velocity ≥ 19 km/s); kept 140 of 143 Gaia-confirmed movers
+HIGHPM_CW_PLX_PER_PM_SAT = 0.1 # ... for saturated sources (their centroid bias runs along RA like the leak): 27 Gaia
+                               # fakes pass the blind route instead of 58, at the same 55 of 104 fast stars
+HIGHPM_CW_REL_TOL = 0.2        # CatWISE agrees when the residual <= max(3σ (ours ⊕ CatWISE), this × |pm_cw|, 100 mas/yr)
+HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
+HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
 HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
 HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls
@@ -535,6 +565,61 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # from a sample of the files, plus as much again for the tiles' own files); otherwise the tiles
                                # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
+
+# --- vetting: gates, grades and reasons on the suspects (vet.py, suspects.py) ---------------------
+# Run on the suspects only (after the MPC/flag/bright/SOURCE cuts and the Gaia/WISE vetoes), never before link's pairing,
+# so known-asteroid recall (score) is untouched. A suspect that fails a gate stays in suspects.json with grade C and its
+# reasons. Hunt zone (14 Nov, 228 suspects): recurring detector pixels 94, within 6 px of the edge 70, sharp/poor PSF 22,
+# masked bit at the peak 13, one D6 column 2; ~4 unexplained. link carries each mover's dots as lists (dot_obs, dot_det,
+# dot_x, dot_y, dot_mjd, dot_flux, dot_snr, dot_size, dot_chi2, dot_fpk, dot_row) and writes freedots.parquet (every
+# free dot: obs_id, detector, x, y, ra, dec) for the zone-level hot-pixel and column maps.
+VET_DETECTOR_PX = 2040
+VET_EDGE_PX = 6.0              # a dot within 6 px of the detector edge (x or y < 6 or > 2033)
+VET_HOT_PX = 1.0               # same detector pixel: |Δx| and |Δy| <= 1 px
+VET_HOT_MIN_EXP_MOVERS = 3     # hot pixel: the zone's movers' dots on that pixel in >= 3 exposures ...
+VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free dots per detector, 0.29 per 3×3 px: >= 3 would
+                               # hit 3.4% of real dots by chance, >= 5 0.01%; the five worst pixels made 10–14 suspects each)
+VET_COLUMN_PX = 0.5            # bad column: free dots of one exposure and detector within ±0.5 px in x ...
+VET_COLUMN_MIN_DOTS = 3        # ... at least this many (hunt: ~216 free dots per photo, 0.1 per column: 0.5% by chance)
+# sharp: √(a·b) below VET_SHARP_FRAC[det] × the detector's stellar √(a·b) at that S/N, with OUTLIER (19) at the peak.
+# OUTLIER alone is set at the peak of 52–69% of MPC-matched movers' dots, so it never vetoes on its own. 150 MPC-matched
+# hunt movers (643 dots): ratio p1 0.69, p5 0.78; with OUTLIER, 10 dots at 0.62–0.69, all in D1–D3, none below 0.6. The
+# sharp MWIR artefacts grow over the mission (QA: bright D6 dots under 0.7× stellar 1% → 44% from visit 1 to 3), so
+# D4–D6 keep 0.7 and D1–D3 take 0.6: no real asteroid of the sample is gated, 3 fewer hunt suspects than 0.7 everywhere.
+VET_SHARP_FRAC = {1: 0.6, 2: 0.6, 3: 0.6, 4: 0.7, 5: 0.7, 6: 0.7}
+VET_OUTLIER_BIT = 1 << 19
+# very_sharp: √(a·b) below 0.4 × the stellar value at S/N >= 15, OUTLIER or not: no point source is that sharp (a star's
+# 5th percentile is ~0.8×). Hunt: suspect #3, a 1.0″ dot at S/N 85 (35,000 µJy) paired with a 500 µJy partner in D6.
+VET_VERY_SHARP_FRAC = 0.4
+VET_VERY_SHARP_MIN_SNR = 15.0
+# median √(a_arcsec·b_arcsec) of unflagged dots per detector in S/N bins [5,7,10,15,20,30,50,100,∞) (94 hunt photos, 1.87 M dots)
+VET_STAR_SNR_EDGES = (5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0)
+VET_STAR_SIZE_ARCSEC = {
+    1: (4.65, 4.40, 4.08, 3.83, 3.63, 3.45, 3.32, 3.26),
+    2: (4.64, 4.42, 4.14, 3.90, 3.70, 3.52, 3.37, 3.29),
+    3: (4.72, 4.51, 4.22, 3.99, 3.80, 3.61, 3.47, 3.39),
+    4: (4.97, 4.81, 4.54, 4.31, 4.13, 3.97, 3.87, 3.86),
+    5: (4.99, 4.79, 4.51, 4.24, 4.09, 3.96, 3.89, 3.89),
+    6: (5.04, 4.88, 4.60, 4.36, 4.22, 4.12, 4.08, 4.13),
+}
+# masked bit at the peak of any dot: MASK_BITS (contracts/flags.md) without OVERFLOW/NONLINEAR (saturation is no defect)
+VET_PEAK_BITS = 0x0A02CEC7 & ~0x00008002
+VET_FLUX_RATIO_MAX = 4.0       # brightest / faintest dot within one detector (cosmic ray + a 5–20× fainter partner)
+VET_QA_NAME = "qa_photos.parquet"  # results/<zone>/qa_photos.parquet (qa.py): obs_id, detector, grade green|amber|red, reasons
+VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalogued (`2mass`), grade C
+# AllWISE within 6″ (`allwise`, grade C) where CatWISE2020 was the zone's WISE veto (where AllWISE was the veto they are
+# gone already): hunt, 5 of the 28 suspects that pass every gate have one. Read from S3 as suspects' AllWISE veto does
+# (cache/allwise/k5 at the root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
+VET_ALLWISE = os.environ.get("SKYSHIFT_VET_ALLWISE", "1") != "0"
+VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
+                               # near_source_arcsec, a blend/wing warning (not a gate)
+VET_MOTION_SIGMA = 5.0         # grade A: B and on a tracklets track with rate_snr >= this (tracklets.parquet) ...
+VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks need TRACK_MIN_SESSIONS = 3 anyway)
+VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
+# reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
+VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
+             "red_photo", "2mass", "allwise")
+VET_CATALOGS = ("2mass", "allwise")  # the catalogue reasons among VET_GATES
 
 # --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
 # NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
@@ -662,3 +747,45 @@ INJECT_DET_FIT_SNR = (12.0, 35.0)
 INJECT_DET_MIN_DOTS = 2000
 INJECT_DET_SNR50 = 5.7
 INJECT_DET_WIDTH = 0.7
+
+# --- tracklets: movers linked across the sessions of a visit, missed sightings recovered (tracklets.py) -------------
+# link's movers live inside one session (2-5 exposures over minutes): too short to show main-belt motion at S/N 7-9.
+# tracklets links movers of different sessions of one visit into tracks (positions on a local tangent plane, linear
+# motion, quadratic once a local fit spans >= TRACK_QUAD_MIN_SPAN_H with >= 4 members), measures each mover's rate
+# from the track, then looks in the visit's other sessions at the predicted positions for link's unpaired dots
+# (results/<zone>/nonfixed_dots.parquet) and keeps them as recovered detections. score counts a known sighting found when
+# a mover or a recovered dot matches it. Hunt (known asteroids' predicted session positions, V < 18): linear fits leave
+# <= 1.9″ (99%) over 1 day, 14″ over 3 days; quadratic <= 1.9″ over 3 days (SPHEREx's orbital parallax included).
+TRACK_RATE_MIN_ARCSEC_H = 0.5    # slower: not linked (stars, galaxies, fixed junk)
+TRACK_RATE_MAX_ARCSEC_H = 150.0  # link's pair rule allows ~146″/h (3″ + 1″/min over 2.1 min)
+TRACK_SEED_MAX_GAP_H = 36.0      # seed pairs: movers of two sessions at most this far apart
+TRACK_TRIPLET_WINDOW_H = 36.0    # a seed is tested in sessions up to this far outside its two times
+TRACK_MAX_GAP_H = 60.0           # a track grows across gaps up to this long (no detection in between)
+TRACK_FIT_WINDOW_H = 48.0        # local fits use the members within this of the time they predict (at least 2)
+TRACK_QUAD_MIN_SPAN_H = 24.0     # a local fit with >= 4 members spanning this long is quadratic, else linear
+TRACK_ACCEL_ARCSEC_H2 = 0.04     # first pass: curvature allowance of a linear prediction, ½ a |(t-t1)(t-t2)| (hunt:
+                                 # known asteroids' apparent acceleration 0.028″/h² median, 0.039 at 99%)
+TRACK_ACCEL_MIN_SESSIONS = 5     # second pass: the visit's median acceleration vector from first-pass tracks this long
+TRACK_ACCEL_MIN_SPAN_H = 36.0    # ... over at least this many hours (a quadratic fit within this window)
+TRACK_ACCEL_MIN_TRACKS = 5       # ... at least this many of them, else the first pass stands
+TRACK_ACCEL_TOL_ARCSEC_H2 = 0.016  # ... and the allowance around it (hunt: 99% of known asteroids within 0.016)
+TRACK_JERK_ARCSEC_H3 = 0.0005    # allowance of a quadratic prediction: j dt³ / 6
+TRACK_SYS_ARCSEC = 0.8           # per-axis systematic added to every mover's error (parallax, model; hunt residuals)
+TRACK_POS_K = 2.2                # mover per-axis error: sqrt((K × PSF σ / snr)² + floor²) / sqrt(n_dots): the raw
+TRACK_POS_FLOOR_ARCSEC = 0.43    # pos_err is 1.4-1.8× too small; single-dot floor ~0.43″ against Gaia
+TRACK_NSIGMA = 4.0               # match radius = NSIGMA × prediction σ + curvature allowance, within the limits below
+TRACK_R_MIN_ARCSEC = 3.0
+TRACK_R_MAX_ARCSEC = 30.0
+TRACK_MIN_SESSIONS = 3           # a tracklet: movers in >= 3 sessions (2 sessions alone are any pair in the rate range)
+TRACK_SHORT_MAX_SPAN_H = 36.0    # ... and with exactly 3, over at most this long (hunt control: chance 3-session tracks
+                                 # all spanned 37-72 h, their third mover far out on the extrapolated path)
+TRACK_VISIT_MAX_S = 30.0         # time budget of one linking pass over a visit (hunt: ~1 s); then the weakest seeds are skipped
+# recovery: link's dots in no fixed group (results/<zone>/nonfixed_dots.parquet: not in a fixed group, elong <= MOVER_MAX_ELONG).
+# Hunt (V < 16, free dots rebuilt from the missed units' photos): recall 90.4% (movers) → 93.0% with 24 h and no
+# near-fixed dots, 94.7% with the settings below; control 0; the dots moved 120″ gave 3 chance track-sessions vs 56.
+# Most of the rest pass within 4″ of a star: their dot is in the star's fixed group, not a free dot.
+TRACK_RECOVER = True
+TRACK_RECOVER_EXT_H = 60.0       # sessions up to this far before the first / after the last member are searched too
+TRACK_RECOVER_R_MIN_ARCSEC = 3.0
+TRACK_RECOVER_R_MAX_ARCSEC = 8.0
+TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)

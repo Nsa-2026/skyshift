@@ -1,7 +1,7 @@
 """skyshift-pipeline <step> --zone pilot|hunt [--root ROOT] [--workers N] [--limit N]
 
 Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-astrometry, highpm, orphans, score, completeness, suspects, all (in that order).
+astrometry, highpm, orphans, tracklets, score, completeness, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (config) runs link … suspects per sky tile in parallel processes
@@ -27,7 +27,7 @@ from .store import Store, results_rel
 
 MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
 STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "qa", "classify", "photoz",
-         "colours", "lightcurves", "astrometry", "highpm", "orphans", "score", "completeness", "suspects")
+         "colours", "lightcurves", "astrometry", "highpm", "orphans", "tracklets", "score", "completeness", "suspects")
 ZONE_STEPS = ("completeness",)  # once per zone on its own sub-area, also in a tiled `all` (after the tiles)
 TILED_STEPS = tuple(s for s in STEPS[STEPS.index("link"):] if s not in ZONE_STEPS)  # what `all` runs per tile (tiles.py)
 TOOLS = ("mpc-orbits",)  # run by hand, never by `all`; no zone
@@ -68,6 +68,9 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step == "orphans":
         from . import orphans
         return orphans.run(store, zone, workers=args.workers)
+    if step == "tracklets":
+        from . import tracklets
+        return tracklets.run(store, zone)
     if step == "score":
         from . import score
         return score.run(store, zone)
