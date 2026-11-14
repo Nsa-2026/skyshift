@@ -48,6 +48,14 @@ invert, subtract and add, so a move of less than one pixel stays visible.
 | `infra/` | Cloud machine, Cloud Run and Firebase Hosting scripts |
 | `docs/` | Planning notes and research written before and during the event |
 
+## Plans
+
+- [Concept plan](https://claude.ai/artifact/VECemCPhqjnSVDBnfqJyZd): what we build and why.
+- [Dev plan](https://claude.ai/artifact/GhfDcQevT69fDKDY8hXrxS): architecture, who owns which folder,
+  the contracts, setup and the hour-by-hour schedule.
+
+Copies of both are in `docs/` (`skyshift-hackathon-plan.html`, `skyshift-dev-plan.html`).
+
 ## For developers
 
 You need Git, Node 22, Python 3.12 and [uv](https://docs.astral.sh/uv/). Deploys also need the
