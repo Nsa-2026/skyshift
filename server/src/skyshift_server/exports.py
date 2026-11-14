@@ -10,7 +10,10 @@ from .observations import science_result
 def download(ra,dec,det,clock,format):
     from .app import jsonable
     import json
-    job=find_job(ra,dec);r=job['res']
+    from .errors import NotFoundError
+    try:job=find_job(ra,dec)
+    except NotFoundError:return static_download(ra,dec,det,clock,format)
+    r=job['res']
     if format=='json':return json.dumps(jsonable(science_result(ra,dec)),ensure_ascii=False).encode(),'application/json','science.json'
     if format=='gif':
         from .science import render
@@ -45,3 +48,30 @@ def download(ra,dec,det,clock,format):
                     rows.append(f"     SPX{n:04d}  C{dt.year:04d} {dt.month:02d} {day:08.5f} {ra_s} {de_s}".ljust(77)+'XXX')
         return ('\n'.join(rows)+'\n').encode(),'text/plain','draft.ades.psv' if format=='ades' else 'draft.mpc80.txt'
     raise ValueError('Unsupported export')
+
+
+def static_download(ra,dec,det,clock,format):
+    """Published moving-object fields have no time-machine cube: use their raw twins."""
+    from .app import _repo_root
+    from .errors import NotFoundError
+    from skyshift_core.astrometry import tangent_offset_arcsec
+    import json
+    root=_repo_root()/'web/public/data'
+    for index_path in root.glob('*/index.json'):
+        meta=json.loads(index_path.read_text());center=meta['center']
+        dx,dy=tangent_offset_arcsec(ra,dec,center['ra'],center['dec'])
+        if float(np.hypot(dx,dy))>2:continue
+        entry=next((f for f in meta['frames'] if f['clock']==clock and det in f['dets']),None)
+        if entry is None:raise NotFoundError('No published frames for this detector and clock')
+        folder=index_path.parent;frames=json.loads((folder/entry['file']).read_text());epochs=[e for e in frames['epochs'] if e['det']==det]
+        if format=='json':return json.dumps(dict(frames=frames,object=json.loads((folder/'object.json').read_text())),ensure_ascii=False).encode(),'application/json','published-observations.json'
+        if format=='csv':
+            out=io.StringIO();writer=csv.DictWriter(out,fieldnames=['id','mjd_mid','det','n_exposures']);writer.writeheader();writer.writerows({k:e[k] for k in writer.fieldnames} for e in epochs)
+            return out.getvalue().encode(),'text/csv','observations.csv'
+        if format=='gif':
+            from .science import render
+            from .stack import decode
+            nx,ny=frames['size'];images=[decode((folder/e['data_url']).read_bytes(),e['scale'],e['zero'],(ny,nx))[::-1] for e in epochs]
+            return render.gif(images,render.stretch_limits(np.array(images)),labels=[f"D{det} MJD {e['mjd_mid']:.5f}" for e in epochs],scale=2,ms=600),'image/gif','blink.gif'
+        raise NotFoundError('No measured mover tracks published for this field; astrometry drafts are unavailable')
+    raise NotFoundError('No cached analysis or published field at this position')

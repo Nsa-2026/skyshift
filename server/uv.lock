@@ -1245,6 +1245,7 @@ dependencies = [
     { name = "pyvo" },
     { name = "reproject" },
     { name = "requests" },
+    { name = "scipy" },
     { name = "skyshift-core" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1267,6 +1268,7 @@ requires-dist = [
     { name = "pyvo", specifier = ">=1.6" },
     { name = "reproject", specifier = ">=0.14" },
     { name = "requests", specifier = ">=2.32" },
+    { name = "scipy", specifier = ">=1.11" },
     { name = "skyshift-core", editable = "../core" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]

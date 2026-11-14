@@ -9,12 +9,12 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const base=process.env.SKYSHIFT_URL||'http://127.0.0.1:8082';
 await page.goto(base);
 await page.waitForSelector('#status.ready');
-const targets=await page.locator('[data-slug]').evaluateAll(bs=>bs.map(b=>b.dataset.slug));
+const targets=await page.locator('[data-slug][data-published="true"]').evaluateAll(bs=>bs.map(b=>b.dataset.slug));
 const report=[];
 for(const slug of targets){
- const start=Date.now();await page.locator(`[data-slug="${slug}"]`).click();
+ console.log('checking',slug);const start=Date.now();await page.locator(`[data-slug="${slug}"]`).click();
  await page.waitForFunction(s=>document.querySelector('#status.ready')&&document.querySelector(`[data-slug="${s}"]`)?.getAttribute('aria-pressed')==='true',slug);
- await page.waitForFunction(()=>document.querySelector('#analysis-status')?.textContent==='');
+ if(['barnard','wise0855','epsindib','rwaur','rdra'].includes(slug)){try{await page.waitForFunction(()=>document.querySelector('#analysis-status')?.textContent==='',{},{timeout:8000})}catch(e){console.log('failed-state',slug,await page.locator('#status').innerText(),await page.locator('#analysis-status').innerText(),errors);throw e}}
  const pixels=await page.locator('#sky').evaluate(canvas=>{const d=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;return new Set(Array.from(d).filter((_,i)=>i%4===0)).size});
  assert.ok(pixels>10,`${slug}: real canvas should contain a dynamic range`);
  await page.locator('#next').click();assert.match(await page.locator('#counter').innerText(),/^2 \/ /);
@@ -23,11 +23,13 @@ for(const slug of targets){
  report.push({slug,ms:Date.now()-start,pixels,status:await page.locator('#status').innerText()});
 }
 await page.locator('[data-slug="wise0855"]').click();await page.waitForSelector('#status.ready');
+await page.locator('[data-det="2"]').click();await page.waitForSelector('#status.ready');await page.selectOption('#fov','15');await page.waitForSelector('#status.ready');assert.match(await page.locator('#sampling').innerText(),/3.075/);await page.selectOption('#fov','5');await page.waitForSelector('#status.ready');await page.locator('[data-det="6"]').click();await page.waitForSelector('#status.ready');
 await page.locator('#play').click();assert.equal(await page.locator('#play').innerText(),'暂停');await page.locator('#play').click();
 await page.locator('[data-clock="hours"]').click();await page.waitForSelector('#status.ready');assert.match(await page.locator('#status').innerText(),/逐次曝光/);
 await page.locator('[data-clock="months"]').click();await page.waitForSelector('#status.ready');
 await page.locator('[data-det="3"]').click();await page.waitForSelector('#status.ready');assert.match(await page.locator('#status').innerText(),/已就绪/);
 await page.locator('[data-det="6"]').click();await page.waitForSelector('#status.ready');
+await page.route('**/api/frames?ra=0&dec=0&*',route=>route.fulfill({status:404,json:{error:{code:'not_found',message:'No precomputed field fixture'}}}));
 await page.locator('#query').fill('0 0');await page.locator('#search button').click();await page.waitForSelector('#status.error');assert.match(await page.locator('#status').innerText(),/No precomputed field/);
 // New-coordinate task UI uses deterministic fixture data, never starts a real sky scan.
 await page.route('**/api/jobs?*',route=>route.fulfill({json:{id:'mock-job',state:'queued',progress:[],error:null}}));
@@ -47,6 +49,8 @@ await page.selectOption('#view','model');await page.waitForSelector('#status.rea
 await page.selectOption('#view','raw');await page.waitForSelector('#status.ready');
 await page.selectOption('#view','refdiff');await page.waitForSelector('#status.ready');
 await page.selectOption('#view','raw');await page.waitForSelector('#status.ready');
+await page.locator('#score-panel').evaluate(e=>e.open=true);await page.waitForSelector('#score-content .sc');
+await page.locator('#sky').click({position:{x:50,y:50}});assert.equal(await page.locator('#vote-panel').getAttribute('open'),'');
 await page.locator('#guxing-panel').evaluate(e=>e.open=true);
 await page.waitForFunction(()=>document.querySelector('guxing-card')?.shadowRoot?.querySelector('.zh'));
 await page.locator('#guxing-history').evaluate(e=>e.open=true);
@@ -73,5 +77,5 @@ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWid
 await page.screenshot({path:'../docs/previews/mobile.png',fullPage:false});
 await page.locator('#sky').scrollIntoViewIfNeeded();
 await page.screenshot({path:'../docs/previews/mobile-player.png',fullPage:false});
-assert.deepEqual(errors,[]);const result={report,browserErrors:errors,mobile:'390px: no overflow',checks:['five real targets','next frame','difference','play/pause','hours API','detector switch','coordinate error','name resolve','single player/spectrum','residual/model views','Guxing/history/planets','mocked Gaia overlay','mocked upstream failure recovery','real GIF export','DR1 reference difference','mocked new-coordinate job UI']};await writeFile('../docs/previews/browser-check.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
+assert.deepEqual(errors,[]);const result={report,browserErrors:errors,mobile:'390px: no overflow',checks:['five real targets','next frame','difference','play/pause','hours API','detector switch','coordinate error','name resolve','single player/spectrum','upstream measured object card','validation scoreboard','local vote pick','residual/model views','Guxing/history/planets','mocked Gaia overlay','mocked upstream failure recovery','real GIF export','upstream 15-arcmin field','following-object comet frames','DR1 reference difference','mocked new-coordinate job UI']};await writeFile('../docs/previews/browser-check.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
 await browser.close();

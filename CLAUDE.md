@@ -43,9 +43,12 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   DETCOORD = 'sky': MWIR pixels are already flipped on X to match the SWIR view.
 - D1+D4, D2+D5, D3+D6 are exposed at the same moment: a D1→D4 flip is colour, not motion.
   Compare brightness only within one detector.
-- A file is one FITS: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE, 60.2 MB (measured). We read
-  IMAGE, FLAGS and WCS-WAVE: 22.9 MB (+ VARIANCE for error bars: 39.6 MB). The parts are contiguous,
-  so range reads can skip ZODI and EPSF. FLAGS is a tile-compressed HDU: let astropy decode it.
+- A file is one FITS: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE, 60–70 MB. The pipeline reads all
+  six (about 56 MB) so each photo is read once; cutouts read IMAGE, FLAGS, VARIANCE, WCS-WAVE.
+  FLAGS is a tile-compressed HDU: let astropy decode it.
+- ZODI (NASA's zodiacal-light model, MJy/sr) is NOT subtracted from IMAGE (Expsupp 2.2, 3.2.11).
+  EPSF is an effective PSF (pixel response included): evaluate it at pixel centres, don't integrate.
+  An r = 2 px aperture holds 96.8% of a star's light: aperture correction 1.033 (core photometry).
 - Units: IMAGE is in MJy/sr (BUNIT 'MJy / sr', float32). 1 MJy/sr = 889 µJy in a 6.15″ pixel.
   TELAPSE 118 s from start to stop.
 - Flags (contracts/flags.md). Mask for detection and photometry: TRANSIENT, OVERFLOW, SUR_ERROR,
@@ -55,7 +58,10 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   OVERFLOW or NONLINEAR in a source's core means saturated.
   Bit names and numbers confirmed on the first file (14 Nov, FLAGS header MSKNnnnn keys).
   SOURCE was on 99.37% of pixels (Cygnus, crowded); about 50% in the hunt zone. The mask list removed about 2.1%.
-- Saturation starts near AB 10–11 (to check on real data). Barnard's Star, RW Aurigae and
+- Saturation (pilot, 50% of stars with OVERFLOW/NONLINEAR at the peak): D1 J_AB 10.5, D2 J_AB 10.8,
+  D3 K_AB 11.0, D4 W1_AB 11.1, D5 W2_AB 9.6, D6 W2_AB 9.0. Units checked: our fluxes / 2MASS = 0.995 (J),
+  1.037 (H), 1.022 (Ks), so 889 µJy per MJy/sr and the 1.033 aperture correction hold to 2–4%.
+- pos_err_arcsec is 1.4–1.8× too small against Gaia (single-dot floor ~0.43″); scale it before use. Barnard's Star, RW Aurigae and
   R Draconis are expected to saturate: centroid on the wings and mark the core.
 - Collections: spherex_dr1 and spherex_qr3. Skip *_deep. Search with astroquery Irsa.query_sia;
   the TAP table name is unverified.
@@ -72,7 +78,7 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 
 ## Cloud
 - Google Cloud project nasa-glazing, region us-east4, zone us-east4-a.
-- Bucket gs://nasa-glazing-data: photolists/, dots/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
+- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
 - Firestore (us-east4): candidates, votes. Create-only rules. Site on Firebase Hosting, API on Cloud Run.
 - Machines: skyshift-test (e2-standard-8) for most work; skyshift-worker (n2-highcpu-64 spot)
   only for the hunt zone after gate G2. Both stop themselves after each job; use infra/worker/vm.sh.
@@ -80,5 +86,4 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 
 ## Not yet verified (check on real data, then fix here and in contracts/)
 Facts measured on the first file: docs/research/2026-11-14-first-photo-facts.md.
-- Units to µJy: the 889 µJy per MJy/sr per pixel conversion, against a catalogue star.
-- Saturation level: where saturation starts (AB 10–11 expected).
+- Nothing open from the first list: the pilot (14 Nov) checked units and saturation (see Domain facts).

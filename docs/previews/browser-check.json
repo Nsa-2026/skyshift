@@ -2,33 +2,51 @@
   "report": [
     {
       "slug": "barnard",
-      "ms": 213,
+      "ms": 211,
       "pixels": 255,
       "status": "✓ Barnard's Star 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "wise0855",
-      "ms": 179,
-      "pixels": 240,
+      "ms": 199,
+      "pixels": 251,
       "status": "✓ WISE 0855−0714 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "epsindib",
-      "ms": 200,
-      "pixels": 208,
+      "ms": 199,
+      "pixels": 247,
       "status": "✓ Epsilon Indi B 已就绪 · 4 帧 · 巡天叠加"
     },
     {
       "slug": "rwaur",
-      "ms": 164,
-      "pixels": 224,
+      "ms": 199,
+      "pixels": 233,
       "status": "✓ RW Aurigae 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "rdra",
-      "ms": 200,
-      "pixels": 250,
-      "status": "✓ R Draconis 已就绪 · 5 帧 · 巡天叠加"
+      "ms": 199,
+      "pixels": 252,
+      "status": "✓ R Draconis 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "3i-atlas",
+      "ms": 499,
+      "pixels": 253,
+      "status": "✓ Comet 3I/ATLAS 已就绪 · 17 帧 · 逐次曝光"
+    },
+    {
+      "slug": "elpis",
+      "ms": 449,
+      "pixels": 248,
+      "status": "✓ (59) Elpis 已就绪 · 18 帧 · 逐次曝光"
+    },
+    {
+      "slug": "euphrosyne",
+      "ms": 317,
+      "pixels": 255,
+      "status": "✓ (31) Euphrosyne 已就绪 · 8 帧 · 逐次曝光"
     }
   ],
   "browserErrors": [],
@@ -43,11 +61,16 @@
     "coordinate error",
     "name resolve",
     "single player/spectrum",
+    "upstream measured object card",
+    "validation scoreboard",
+    "local vote pick",
     "residual/model views",
     "Guxing/history/planets",
     "mocked Gaia overlay",
     "mocked upstream failure recovery",
     "real GIF export",
+    "upstream 15-arcmin field",
+    "following-object comet frames",
     "DR1 reference difference",
     "mocked new-coordinate job UI"
   ]

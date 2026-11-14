@@ -1,0 +1,23 @@
+{
+ "slug": "euphrosyne",
+ "name": "(31) Euphrosyne",
+ "center": {
+  "ra": 210.13973,
+  "dec": -24.84643
+ },
+ "own": "frames_hours_20.json",
+ "follows_object": false,
+ "frames": [
+  {
+   "file": "frames_hours_20.json",
+   "clock": "hours",
+   "fov": 20,
+   "dets": [
+    2,
+    5
+   ],
+   "epochs": 16,
+   "bytes": 1347741
+  }
+ ]
+}

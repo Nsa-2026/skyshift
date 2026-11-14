@@ -10,6 +10,9 @@ dependencies = [
     "requests>=2.32",
     "numpy>=2.0",
     "skyshift-core",
+    "scipy>=1.13",
+    "fsspec>=2024.6",
+    "aiohttp>=3.9",
 ]
 
 [tool.uv]
@@ -17,3 +20,11 @@ package = false
 
 [tool.uv.sources]
 skyshift-core = { path = "../../core", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

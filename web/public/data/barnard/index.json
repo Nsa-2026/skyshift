@@ -1,0 +1,62 @@
+{
+ "slug": "barnard",
+ "name": "Barnard's Star",
+ "center": {
+  "ra": 269.4462,
+  "dec": 4.76883
+ },
+ "frames": [
+  {
+   "file": "frames_hours_20.json",
+   "clock": "hours",
+   "fov": 20,
+   "dets": [
+    2,
+    5
+   ],
+   "epochs": 49,
+   "bytes": 4087766
+  },
+  {
+   "file": "frames_hours_60.json",
+   "clock": "hours",
+   "fov": 60,
+   "dets": [
+    2
+   ],
+   "epochs": 25,
+   "bytes": 4682152
+  },
+  {
+   "file": "frames_months_15.json",
+   "clock": "months",
+   "fov": 15,
+   "dets": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "epochs": 18,
+   "bytes": 3428369
+  },
+  {
+   "file": "frames_months_5.json",
+   "clock": "months",
+   "fov": 5,
+   "dets": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "epochs": 18,
+   "bytes": 824533
+  }
+ ],
+ "own": "frames_months_5.json"
+}

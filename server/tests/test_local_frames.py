@@ -13,7 +13,8 @@ def test_real_grid_orientation_no_data_and_quantization(monkeypatch):
              res=dict(img=np.stack([image,image+2]),mjd=np.array([60000,60100]),
                       meta=[dict(det=2,wavelength=1.3,key='dr1/x')]*2))
     monkeypatch.setattr(local_results,'find_job',lambda *a:job)
-    monkeypatch.setattr(blink,'_gaia',lambda j:[])
+    from skyshift_server import cached_results
+    monkeypatch.setattr(cached_results,'_gaia',lambda j:[])
     result=blink.build_frames(10,20,5,'months',2)
     assert result.meta['size']==[146,146]
     assert len(result.meta['epochs'])==2

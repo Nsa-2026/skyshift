@@ -1,0 +1,58 @@
+{
+ "slug": "rwaur",
+ "name": "RW Aurigae",
+ "center": {
+  "ra": 76.95609,
+  "dec": 30.40113
+ },
+ "frames": [
+  {
+   "file": "frames_hours_20.json",
+   "clock": "hours",
+   "fov": 20,
+   "dets": [
+    2,
+    5
+   ],
+   "epochs": 38,
+   "bytes": 3303967
+  },
+  {
+   "file": "frames_hours_60.json",
+   "clock": "hours",
+   "fov": 60,
+   "dets": [
+    2
+   ],
+   "epochs": 19,
+   "bytes": 3937671
+  },
+  {
+   "file": "frames_months_15.json",
+   "clock": "months",
+   "fov": 15,
+   "dets": [
+    2,
+    5
+   ],
+   "epochs": 6,
+   "bytes": 1295016
+  },
+  {
+   "file": "frames_months_5.json",
+   "clock": "months",
+   "fov": 5,
+   "dets": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "epochs": 18,
+   "bytes": 804448
+  }
+ ],
+ "own": "frames_months_5.json"
+}

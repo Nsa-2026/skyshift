@@ -25,8 +25,8 @@ Under every blink it measures how far the object moved and compares that with Ga
 and with known asteroid positions. It also builds a spectrum on the fly, coloured by visit.
 Anyone can flag a dot and vote on whether it is real.
 
-> **Status:** being built during the hackathon, 14–15 November 2026. Links to the live site and
-> the video will be added here when they exist.
+> **Status:** being built during the hackathon, 14–15 November 2026.
+> Site: **https://skyshift.web.app** (live after the first deploy). The video link will be added here.
 
 ## Try these targets
 
@@ -60,6 +60,14 @@ invert, subtract and add, so a move of less than one pixel stays visible.
 | `fixtures/` | Small examples used in tests; the API examples in `fixtures/api/` are synthetic and marked `"synthetic": true` |
 | `infra/` | Cloud machine, Cloud Run and Firebase Hosting scripts |
 | `docs/` | Planning notes and research written before and during the event |
+
+## Plans
+
+- [Concept plan](https://claude.ai/artifact/VECemCPhqjnSVDBnfqJyZd): what we build and why.
+- [Dev plan](https://claude.ai/artifact/GhfDcQevT69fDKDY8hXrxS): architecture, who owns which folder,
+  the contracts, setup and the hour-by-hour schedule.
+
+Copies of both are in `docs/` (`skyshift-hackathon-plan.html`, `skyshift-dev-plan.html`).
 
 ## For developers
 

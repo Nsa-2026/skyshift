@@ -1,0 +1,20 @@
+{"metadata":
+[
+{"name": "source_id", "datatype": "long", "xtype": null, "arraysize": null, "description": "Unique source identifier (unique within a particular Data Release)", "unit": null, "ucd": "meta.id", "utype": null},
+{"name": "ra", "datatype": "double", "xtype": null, "arraysize": null, "description": "Right ascension", "unit": "deg", "ucd": "pos.eq.ra;meta.main", "utype": "stc:AstroCoords.Position3D.Value3.C1"},
+{"name": "dec", "datatype": "double", "xtype": null, "arraysize": null, "description": "Declination", "unit": "deg", "ucd": "pos.eq.dec;meta.main", "utype": "stc:AstroCoords.Position3D.Value3.C2"},
+{"name": "pmra", "datatype": "double", "xtype": null, "arraysize": null, "description": "Proper motion in right ascension direction", "unit": "mas.yr**-1", "ucd": "pos.pm;pos.eq.ra", "utype": "stc:AstroCoords.Velocity3D.Value3.C1"},
+{"name": "pmdec", "datatype": "double", "xtype": null, "arraysize": null, "description": "Proper motion in declination direction", "unit": "mas.yr**-1", "ucd": "pos.pm;pos.eq.dec", "utype": "stc:AstroCoords.Velocity3D.Value3.C2"},
+{"name": "parallax", "datatype": "double", "xtype": null, "arraysize": null, "description": "Parallax", "unit": "mas", "ucd": "pos.parallax.trig", "utype": null},
+{"name": "phot_g_mean_mag", "datatype": "float", "xtype": null, "arraysize": null, "description": "G-band mean magnitude", "unit": "mag", "ucd": "phot.mag;em.opt", "utype": null}
+],
+"data":
+[
+[4472832130942575872,269.44850252543836,4.739420051112412,-801.5509783684709,10362.394206546573,546.975939730948,8.1939745],
+[4472836292758713216,269.443871611535,4.796291416021129,-6.158672306279798,0.5128588102925811,0.9765427027908512,11.862574],
+[4472837770227461504,269.4570371115001,4.811112657622305,1.324612539590324,-7.686559994524281,0.4894495398217104,12.653553],
+[4472832508888391168,269.42030243078,4.731612848718635,-8.944019290356941,-2.0121607341824954,0.39308844157537554,13.028434],
+[4472836327118455552,269.4253197077428,4.798175613971136,-2.678382642115475,-5.260091630532646,0.2868824759950817,13.4505],
+[4472837495349546240,269.479207947452,4.790965142047323,-1.9984252542598904,-7.904237658860036,0.40690834438767526,13.467515]
+]
+}

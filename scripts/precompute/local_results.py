@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from skyshift_server.app import jsonable
-from skyshift_server.blink import build_frames, build_object
+from skyshift_server.cached_results import build_frames, build_object
 from skyshift_server.analysis import build_analysis
 from skyshift_server.observations import science_result
 from skyshift_server.local_results import jobs, target_for
@@ -40,7 +40,7 @@ def export(output, n_slides=100):
                     epoch['data_url']=f"views/{view}/{epoch['data_url']}"
                 view_epochs.extend(variant.meta['epochs'])
             variant.meta['epochs']=sorted(view_epochs,key=lambda e:(e['mjd_mid'],e['det']))
-            (dest/f'frames_{view}.json').write_text(json.dumps(jsonable(variant.meta),allow_nan=False))
+            (dest/f'{view}.json').write_text(json.dumps(jsonable(variant.meta),allow_nan=False))
         obj = build_object(ra, dec)
         default_det = 6 if target['slug'] == 'wise0855' else 2
         analysis = build_analysis(ra, dec, default_det, n_slides=n_slides)
@@ -57,7 +57,7 @@ def export(output, n_slides=100):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output', type=Path, default=Path('web/public/data'))
+    parser.add_argument('--output', type=Path, default=Path('web/public/science-data'))
     parser.add_argument('--slides', type=int, default=100)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)

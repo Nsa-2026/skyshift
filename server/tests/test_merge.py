@@ -105,28 +105,22 @@ def test_native_store_is_used_without_reading_legacy_pickle(monkeypatch):
     assert local_results.find_job(10,20) is job
 
 
-def test_irsa_outage_falls_back_to_a_bounded_s3_region(monkeypatch,tmp_path):
-    import requests
+def test_science_loader_reuses_canonical_cutouts(monkeypatch):
     from types import SimpleNamespace
-    w=ingest.target_wcs(10,20,49);header=w.to_header();header['NAXIS1']=49;header['NAXIS2']=49
-    class HDUs:
-        def __enter__(self):return self
-        def __exit__(self,*args):pass
-        def __getitem__(self,key):return SimpleNamespace(header=header)
+    from skyshift_server import cutouts
+    w=ingest.target_wcs(10,20,49)
     frame=SimpleNamespace(data=np.ones((49,49)),variance=np.ones((49,49)),flags=np.zeros((49,49),np.int32),
                           wcs=w,detector=2,obsid='one',mjd_avg=60000.,mjd_beg=59999.99,mjd_end=60000.01,
-                          wavelength_map=lambda:np.full((49,49),1.3))
-    seen=[]
-    monkeypatch.setenv('SKYSHIFT_JOBS',str(tmp_path))
-    monkeypatch.setattr(ingest,'discover',lambda *a:[dict(url='https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/test.fits',det=2,obs='one',collection='spherex_dr1',mjd=60000.)])
-    monkeypatch.setattr(ingest.requests,'get',lambda *a,**kw:(_ for _ in ()).throw(requests.HTTPError('503')))
-    monkeypatch.setattr(ingest.fits,'open',lambda *a,**kw:HDUs())
-    monkeypatch.setattr(ingest,'open_level2',lambda url,**kw:seen.append((url,kw)) or frame)
+                          header={'ZODISUB':True},wavelength_map=lambda:np.full((49,49),1.3))
+    row=SimpleNamespace(obs_id='one',det=2,collection='spherex_dr1',key='oneD2')
+    monkeypatch.setattr(ingest,'discover',lambda *a:[row])
+    calls=[]
+    monkeypatch.setattr(cutouts,'fetch_many',lambda *a,**kw:calls.append(kw) or [frame])
     frames,_=ingest.load_frames(10,20,5)
-    assert frames[0]['meta']['pixel_source']=='NASA S3 HTTP Range fallback'
-    assert seen[0][0].startswith('https://nasa-irsa-spherex.s3.')
-    assert seen[0][1]['region']==(0,49,0,49)
+    assert calls==[{'variance':True,'zodi':True}]
+    assert frames[0]['meta']['zodi_subtracted'] is True
     assert frames[0]['bad'].dtype==bool and frames[0]['flags'].dtype==np.int32
+
 
 
 def test_reference_matches_background_convention_and_reuses_cached_cube(monkeypatch):
@@ -140,3 +134,13 @@ def test_reference_matches_background_convention_and_reuses_cached_cube(monkeypa
     assert len(result['reference']['spectrum'])==3
     monkeypatch.setattr(ref,'reference_cube',lambda *a:(_ for _ in ()).throw(AssertionError('reference was downloaded twice')))
     assert len(observations.reference(10,20)['reference']['spectrum'])==3
+
+
+def test_published_comet_exports_without_a_legacy_cube(monkeypatch):
+    from skyshift_server import exports
+    from skyshift_server.errors import NotFoundError
+    monkeypatch.setattr(exports,'find_job',lambda *a:(_ for _ in ()).throw(NotFoundError('no cube')))
+    blob,mime,name=exports.download(166.97483,5.22757,3,'hours','gif')
+    assert blob.startswith(b'GIF') and mime=='image/gif' and name=='blink.gif'
+    blob,_,_=exports.download(166.97483,5.22757,3,'hours','json')
+    assert json.loads(blob)['object']['name'] is not None
