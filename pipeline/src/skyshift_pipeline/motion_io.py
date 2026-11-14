@@ -13,6 +13,9 @@ When results/<zone>/calib.json exists (step `calib`), member_dots returns correc
 per-photo distortion), calibrated pos_err_arcsec and corrected fluxes (flux_ujy, flux_psf_ujy and their errors:
 flux pixel phase + per-detector scale) and says so in its stats (`calib_applied`); without it, the dot
 files' values exactly. The dot files themselves are never rewritten.
+Dots v4: where psf_pos_ok, ra/dec/pos_err_arcsec are the ePSF fit's (column `pos_psf`, stats `pos_psf_dots`),
+corrected by calib's `psf` section (distortion + pos_err, no phase term); a calib.json without one (schema 2, or
+fitted on v3 files) keeps every dot on the centroid path. v3 files give exactly what they gave before.
 """
 
 from __future__ import annotations
@@ -43,9 +46,12 @@ DOT_ALIASES: dict[str, tuple[str, ...]] = {
     "wavelength_um": ("wavelength_um",), "snr": ("snr",), "flags": ("flags",),
     "x": ("x",), "y": ("y",), "flags_peak": ("flags_peak",),
     "x_sc_km": ("X_SC", "x_sc", "x_sc_km"), "y_sc_km": ("Y_SC", "y_sc", "y_sc_km"), "z_sc_km": ("Z_SC", "z_sc", "z_sc_km"),
+    # dots v4: the ePSF position (NaN, psf_pos_ok False in v3 files)
+    "ra_psf": ("ra_psf",), "dec_psf": ("dec_psf",), "pos_err_psf_arcsec": ("pos_err_psf_arcsec",),
+    "psf_pos_ok": ("psf_pos_ok",),
 }
 FLOAT32 = {"pos_err_arcsec", "flux_ujy", "flux_err_ujy", "flux_psf_ujy", "flux_psf_err_ujy", "wavelength_um", "snr",
-           "x_sc_km", "y_sc_km", "z_sc_km", "x", "y"}
+           "x_sc_km", "y_sc_km", "z_sc_km", "x", "y", "pos_err_psf_arcsec"}
 
 _CACHE: dict[tuple[str, str, str], tuple[pd.DataFrame, dict, np.ndarray]] = {}
 
@@ -85,11 +91,28 @@ def clear_cache() -> None:
 def member_dots(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool = True) -> tuple[pd.DataFrame, dict]:
     """One row per member dot: source_id, obs_id, detector, session, visit, photo (row in the photo
     list) + every DOT_ALIASES column (NaN where the dot files lack it). Cached per (root, zone).
-    With calib.json (and `calibrated`): ra, dec, pos_err_arcsec corrected (see module doc)."""
+    ra, dec, pos_err_arcsec are the dot's position as used: the ePSF fit's (ra_psf, dec_psf, pos_err_psf_arcsec)
+    where `pos_psf` (dots v4, psf_pos_ok; with calib.json only if it calibrated ePSF positions for the detector and
+    their calibrated pos_err is the smaller at the dot's S/N: calib.use_psf),
+    else the windowed centroid's. With calib.json (and `calibrated`) each path gets its own corrections (see
+    module doc); ra_psf, dec_psf, pos_err_psf_arcsec stay raw. v3 dot files: exactly the centroid path as before."""
     d, st, jac = member_dots_raw(store, zone, workers)
     cal = calib.load(store, zone) if calibrated else None
+    det = d["detector"].to_numpy()
+    psf = calib.use_psf(cal, det, d["psf_pos_ok"].to_numpy(bool), d["ra_psf"].to_numpy(), d["dec_psf"].to_numpy(),
+                        d["snr"].to_numpy())
+    st = {**st, "pos_psf_dots": int(psf.sum())}
     if cal is None or not len(d):
-        return d, {**st, "calib_applied": False}
+        out = d.copy(deep=False)  # the cached raw frame stays as it is
+        out["pos_psf"] = psf
+        if not psf.any():
+            out["pos_err_rel_arcsec"] = out["pos_err_arcsec"]
+            return out, {**st, "calib_applied": False}
+        out["ra"] = np.where(psf, d["ra_psf"].to_numpy(), d["ra"].to_numpy())
+        out["dec"] = np.where(psf, d["dec_psf"].to_numpy(), d["dec"].to_numpy())
+        out["pos_err_arcsec"] = np.where(psf, d["pos_err_psf_arcsec"].to_numpy(), d["pos_err_arcsec"].to_numpy())
+        out["pos_err_rel_arcsec"] = out["pos_err_arcsec"]
+        return out, {**st, "calib_applied": False}
     t0 = time.time()
     p = d["photo"].to_numpy(np.int64)
     k = (p >= 0) & (p < len(jac))
@@ -99,22 +122,43 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool 
     photos = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector"])
     ce, cn = calib.photo_coefs(cal, photos["obs_id"].to_numpy(), photos["detector"].to_numpy())
     ce, cn = np.where(k[:, None], ce[pk], np.nan), np.where(k[:, None], cn[pk], np.nan)
-    det, x, y = d["detector"].to_numpy(), d["x"].to_numpy(), d["y"].to_numpy()
+    x, y = d["x"].to_numpy(), d["y"].to_numpy()
     pe, pn = calib.poly_offsets(ce, cn, x, y)
     distorted = np.isfinite(ce).all(axis=1)
     del ce, cn
     ra, dec, err, ok = calib.apply(cal, det, x, y, d["ra"].to_numpy(), d["dec"].to_numpy(), d["snr"].to_numpy(),
                                    d["flags_peak"].to_numpy(), d["pos_err_arcsec"].to_numpy(), J, pe, pn)
-    del J, pe, pn
+    del pe, pn
+    sat = (d["flags_peak"].to_numpy().astype(np.int64) & C.CALIB_SAT_BITS) != 0
+    err_rel = calib.pos_err_model(cal, det, d["snr"].to_numpy(), sat, d["pos_err_arcsec"].to_numpy(), rel=True)
+    st_psf = {}
+    if psf.any():  # dots v4: the ePSF positions with their own distortion and pos_err, never a phase term
+        i = np.flatnonzero(psf)
+        ce, cn = calib.photo_coefs(cal, photos["obs_id"].to_numpy(), photos["detector"].to_numpy(), "psf")
+        ce, cn = np.where(k[i, None], ce[pk[i]], np.nan), np.where(k[i, None], cn[pk[i]], np.nan)
+        pe, pn = calib.poly_offsets(ce, cn, x[i], y[i])
+        ra[i], dec[i], err[i] = calib.apply_psf(cal, det[i], d["ra_psf"].to_numpy()[i], d["dec_psf"].to_numpy()[i],
+                                                d["snr"].to_numpy()[i], d["pos_err_psf_arcsec"].to_numpy()[i], pe, pn,
+                                                J[i], y[i])
+        err_rel[i] = calib.pos_err_model(cal, det[i], d["snr"].to_numpy()[i], np.zeros(i.size, bool),
+                                         d["pos_err_psf_arcsec"].to_numpy()[i], "psf", rel=True)
+        ok[i] = False
+        psf_dist = np.isfinite(ce).all(axis=1)
+        distorted[i] = psf_dist
+        st_psf = {"calib_psf_distortion_corrected_dots": int(psf_dist.sum())}
+        del ce, cn, pe, pn
+    del J
     out = d.copy(deep=False)  # the cached raw frame stays as it is
     out["ra"], out["dec"], out["pos_err_arcsec"] = ra, dec, err.astype(np.float32)
+    out["pos_err_rel_arcsec"] = err_rel.astype(np.float32)  # epoch-to-epoch (calib floor_rel): for motion fits
+    out["pos_psf"] = psf
     for kind, cols in (("ap", ("flux_ujy", "flux_err_ujy")), ("psf", ("flux_psf_ujy", "flux_psf_err_ujy"))):
         f = calib.flux_factor(cal, det, x, y, kind)
         for c in cols:
             out[c] = (d[c].to_numpy(np.float64) * f).astype(np.float32)
     return out, {**st, "calib_applied": True, "calib_created": cal.get("created"),
                  "calib_phase_corrected_dots": int(ok.sum()), "calib_distortion_corrected_dots": int(distorted.sum()),
-                 "calib_flux_factor_ap": (cal.get("aperture") or {}).get("factor_ap"), "calib_s": round(time.time() - t0, 1)}
+                 **st_psf, "calib_flux_factor_ap": (cal.get("aperture") or {}).get("factor_ap"), "calib_s": round(time.time() - t0, 1)}
 
 
 def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame, dict, np.ndarray]:
@@ -153,6 +197,7 @@ def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.D
         counts["rows_missing"] += int((~ok).sum())
         df = df.iloc[rows[ok]].reset_index(drop=True)
         out = {k: pick(df, v) for k, v in DOT_ALIASES.items()}
+        out["psf_pos_ok"] = pick(df, DOT_ALIASES["psf_pos_ok"], False).astype(bool)
         part = pd.DataFrame(out)
         part.insert(0, "source_id", sid_all[idx[ok]])
         part.insert(1, "obs_id", str(obs_id))
@@ -172,6 +217,7 @@ def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.D
         d = pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
         d["source_id"] = d["source_id"].astype(np.int64)
         d["photo"] = d["photo"].astype(np.int32)
+        d["psf_pos_ok"] = d["psf_pos_ok"].astype(bool)
     p = d["photo"].to_numpy(np.int64)
     known = p >= 0
     d["session"] = np.where(known, photos["session"].to_numpy(np.int64)[np.where(known, p, 0)], -1).astype(np.int32) if len(photos) else np.int32(-1)
@@ -219,6 +265,7 @@ MAG_ALIASES: dict[str, tuple[str, ...]] = {
     "bp_rp": ("bp_rp",),
     "w1": ("w1", "w1mpro", "w1_mag", "w1mpro_pm"), "w2": ("w2", "w2mpro", "w2_mag", "w2mpro_pm"),
     "j": ("j", "j_m", "jmag", "j_mag"), "h": ("h", "h_m", "hmag", "h_mag"), "k": ("k", "ks", "k_m", "kmag", "ks_mag", "k_mag"),
+    "z_ab": ("z_ab",), "y_ab": ("y_ab",),  # Gaia GSPC synthetic SDSS z, PS1 y (AB)
     "name": ("name", "source_name", "designation"),
 }
 CAT_NAMES = {"gaia": ("gaia",), "catwise": ("catwise", "cwise", "wise"), "tmass": ("2mass", "tmass", "twomass")}
@@ -290,12 +337,16 @@ FORCED_ALIASES: dict[str, tuple[str, ...]] = {
     "ref_id": ("ref_id", "source_id", "id"), "mjd": ("mjd",), "detector": ("detector",),
     "flux_ujy": ("flux_psf_ujy", "flux_ujy", "flux"), "flux_err_ujy": ("flux_psf_err_ujy", "err", "flux_err_ujy", "flux_err"),
     "wavelength_um": ("wavelength_um",), "detected": ("detected",), "flags": ("flags",),
+    "x": ("x",), "y": ("y",),
 }
 
 
-def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
+def load_forced(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool = True) -> pd.DataFrame:
     """Every forced/<obs_id>D<det>.parquet of the zone's photos, normalised (FORCED_ALIASES keys + obs_id,
-    session, visit). Empty when the step hasn't run."""
+    session, visit). Empty when the step hasn't run. With calib.json (and `calibrated`) flux_ujy and flux_err_ujy go
+    on the dots' corrected scale: a PSF flux × calib.forced_psf_factor (calib.json `forced`: its own level and the part
+    of the dots' phase term it carries; the forced fit at the true position lacks most of the dots' phase loss), an
+    r = 2 px aperture flux × the dots' full flux_factor 'ap' at the target's pixel. `attrs['calib_applied']`."""
     photos = store.read_parquet(photolist_rel(zone.name)).reset_index(drop=True)
     have = set(store.listdir(C.FORCED_DIR))
     cols = [*FORCED_ALIASES, "obs_id", "session", "visit"]
@@ -316,6 +367,7 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
         out["obs_id"] = str(r.obs_id)
         out["session"] = np.int32(r.session)
         out["visit"] = np.int16(r.visit)
+        out["_psf"] = has_any(f, FORCED_ALIASES["flux_ujy"][:1])  # which flux the file gave: PSF or aperture
         return out
 
     with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
@@ -323,6 +375,15 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
     f = pd.concat(parts, ignore_index=True)
     f["flux_ujy"] = pd.to_numeric(f["flux_ujy"], errors="coerce").astype(np.float32)
     f["flux_err_ujy"] = pd.to_numeric(f["flux_err_ujy"], errors="coerce").astype(np.float32)
+    cal = calib.load(store, zone) if calibrated else None
+    if cal is not None:
+        det = f["detector"].to_numpy(np.int64)
+        x = pd.to_numeric(f["x"], errors="coerce").to_numpy(np.float64)
+        y = pd.to_numeric(f["y"], errors="coerce").to_numpy(np.float64)
+        psf = f["_psf"].to_numpy(bool)
+        fac = np.where(psf, calib.forced_psf_factor(cal, det, x, y), calib.flux_factor(cal, det, x, y, "ap"))
+        for c in ("flux_ujy", "flux_err_ujy"):
+            f[c] = (f[c].to_numpy(np.float64) * fac).astype(np.float32)
     f["wavelength_um"] = pd.to_numeric(f["wavelength_um"], errors="coerce").astype(np.float32)
     f["flags"] = pd.to_numeric(f["flags"], errors="coerce").fillna(0).astype(np.int64)
     det = f["detected"]
@@ -331,4 +392,6 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
             f["detected"] = (f["flux_ujy"] / f["flux_err_ujy"]).to_numpy() >= C.LC_DETECTED_SNR
     else:
         f["detected"] = det.fillna(False).astype(bool)
-    return f[cols]
+    out = f[cols]
+    out.attrs["calib_applied"] = cal is not None
+    return out

@@ -62,6 +62,17 @@ def test_v8_status_two_halves():
     assert bv.v8_status(False, 4.0, True) == "fail"
 
 
+def test_v10_status_and_worst_of_zones():
+    assert bv.v10_status(0.02) == "pass"
+    assert bv.v10_status(0.07) == "partial"
+    assert bv.v10_status(0.2) == "fail"
+    assert bv.v10_status(None) == "fail"
+    assert bv.worst(["pass", "partial"]) == "partial"
+    assert bv.worst(["pass", "fail", "partial"]) == "fail"
+    assert bv.worst(["pass", "pending"]) == "pass"
+    assert bv.worst([]) == "pending"
+
+
 def test_dev_sigma():
     assert bv.dev_sigma(10.83, 10.27, 0.36) == pytest.approx(1.556, abs=1e-3)
     assert bv.dev_sigma(6.05, 6.49, 0.42) == pytest.approx(1.048, abs=1e-3)
@@ -206,3 +217,153 @@ def test_v1_note_agrees_with_rows():
             assert claim in c["note"], row["slug"]
         else:  # no sentence only when every expected stack was found
             assert row["stacks_recovered"] == row["stacks_expected"], row["slug"]
+
+
+# --- two zones: hunt headline, pilot kept ---------------------------------------------------------
+
+def _by_v(rows):
+    return [{"v_min": a, "v_max": b, "n": n, "found": f, "recall": f / n, "control_recall": 0.0} for a, b, n, f in rows]
+
+
+HUNT_BY_V = _by_v([(None, 12.0, 41, 40), (12.0, 14.0, 56, 52), (14.0, 15.0, 102, 93), (15.0, 16.0, 258, 228),
+                   (16.0, 17.0, 349, 291)])
+PILOT_BY_V = _by_v([(None, 12.0, 18, 17), (12.0, 14.0, 5, 5), (14.0, 15.0, 28, 25), (15.0, 16.0, 39, 36),
+                    (16.0, 17.0, 70, 58)])
+HUNT_BOX, PILOT_BOX = ([120.5, 130.5], [14.4, 24.4]), ([120.5, 124.1], [14.4, 17.9])
+
+
+def _zone(root, zone, generated, by_v, box, photos, objects, source="mpc", score_generated=None):
+    """One zone's recall.json and summary.json under root/zone."""
+    gate = [b for b in by_v if b["v_max"] <= 16]
+    n, f = sum(b["n"] for b in gate), sum(b["found"] for b in gate)
+    rec = {"zone": zone, "generated": generated, "match_arcsec": 12.0, "control_offset_arcsec": 120.0,
+           "unit": "one known object in one session with >= 2 exposures covering it", "photos_with_predictions": photos,
+           "v_max": 16.0, "n_known": n, "n_found": f, "recall": f / n, "control_recall": 0.0,
+           "per_object": {"n": objects, "found": objects}, "v_12_to_16": {"n": 50, "found": 46},  # stale on purpose
+           "g2_threshold": 0.5, "by_v": by_v}
+    summ = {"zone": {"name": zone, "ra": box[0], "dec": box[1]},
+            "steps": {"photolist": {"photos": photos}, "known": {"source": source},
+                      "score": {"generated": score_generated or generated}}}
+    d = root / zone
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "recall.json").write_text(json.dumps(rec))
+    (d / "summary.json").write_text(json.dumps(summ))
+
+
+def test_v5_hunt_headline_pilot_kept(tmp_path):
+    _zone(tmp_path, "hunt", "2026-11-14T13:39:27Z", HUNT_BY_V, HUNT_BOX, 3692, 30)
+    _zone(tmp_path, "pilot", "2026-11-14T13:12:08Z", PILOT_BY_V, PILOT_BOX, 990, 8)
+    c = bv.v5(tmp_path)  # default zones: hunt, pilot
+    assert set(c) == KEYS and c["status"] == "pass"
+    assert c["headline"].startswith("Hunt zone: 413 of 457 known asteroid sessions at V < 16 found as movers (90%)")
+    assert "Pilot zone (gate G2): 83 of 90 (92%), control 0%, 8 of 8 objects" in c["headline"]
+    assert c["value"] == pytest.approx(413 / 457, abs=1e-3)
+    assert [r["zone"] for r in c["rows"]] == ["hunt"] * 5 + ["pilot"] * 5
+    # V 12-16 counts come from the rows, not from the report's own summary field (stale here: 46 of 50)
+    assert "V 12-16 alone: 373 of 416" in c["note"] and "V 12-16 alone: 66 of 72" in c["note"]
+    assert "46 of 50" not in c["note"]
+    assert "2026-11-14T13:39:27Z" in c["note"] and "2026-11-14T13:12:08Z" in c["note"]
+    assert "Minor Planet Center" in c["note"] and "skybot" not in json.dumps(c).lower()
+    assert "inside the hunt zone" in c["note"] and "decided on the pilot zone" in c["note"]
+    assert c["note"].endswith("Rows: zone, v_min, v_max, n, found, recall, control_recall.")
+
+
+def test_v5_falls_back_to_the_pilot_without_hunt_reports(tmp_path):
+    _zone(tmp_path, "pilot", "2026-11-14T13:12:08Z", PILOT_BY_V, PILOT_BOX, 990, 8)
+    c = bv.v5(tmp_path, "hunt,pilot")
+    assert c["headline"].startswith("Pilot zone: 83 of 90 known asteroid sessions")
+    assert "(gate G2)" not in c["headline"]
+    assert "No hunt zone report yet." in c["note"]
+    assert {r["zone"] for r in c["rows"]} == {"pilot"}
+
+
+def test_v5_publishes_only_mpc_scored_reports(tmp_path, capsys):
+    _zone(tmp_path, "pilot", "2026-11-14T13:12:08Z", PILOT_BY_V, PILOT_BOX, 990, 8)
+    _zone(tmp_path, "hunt", "2026-11-14T13:39:27Z", HUNT_BY_V, HUNT_BOX, 3692, 30, source="other")
+    c = bv.v5(tmp_path)
+    assert c["headline"].startswith("Pilot zone:") and {r["zone"] for r in c["rows"]} == {"pilot"}
+    assert "The hunt zone's report is left out" in c["note"] and "No hunt zone report yet" not in c["note"]
+    assert "left out" in capsys.readouterr().out
+    # summary.json of another run (a different score time): the source is unknown, so the report is left out
+    _zone(tmp_path, "hunt", "2026-11-14T13:39:27Z", HUNT_BY_V, HUNT_BOX, 3692, 30, score_generated="2026-11-14T10:00:00Z")
+    assert bv.v5(tmp_path)["headline"].startswith("Pilot zone:")
+    (tmp_path / "hunt" / "summary.json").unlink()
+    assert bv.v5(tmp_path)["headline"].startswith("Pilot zone:")
+    # a report that names its own source needs no summary
+    rec = json.loads((tmp_path / "hunt" / "recall.json").read_text())
+    (tmp_path / "hunt" / "recall.json").write_text(json.dumps({**rec, "known_source": "mpc"}))
+    assert bv.v5(tmp_path)["headline"].startswith("Hunt zone:")
+
+
+def _astrometry(root, zone, n, pull):
+    axis = {"n": n, "bias": 2.5, "scatter": 146.0, "pull_scatter": pull}
+    (root / zone).mkdir(parents=True, exist_ok=True)
+    (root / zone / "astrometry_report.json").write_text(json.dumps(
+        {"vs_gaia_frame_corrected": {"matched": n, "pmra": axis, "pmdec": axis}}))
+
+
+def _photoz(root, zone, n, s):
+    b = {"n": n, "sigma_nmad": s, "outlier_frac": 0.027, "bias": 0.004}
+    (root / zone).mkdir(parents=True, exist_ok=True)
+    (root / zone / "photoz_report.json").write_text(json.dumps(
+        {"sdss_dr17": {"all": b, "k_ab_lt_17": b, "by_k_ab": {"15..16": b}}}))
+
+
+def test_v9_v10_two_zones_and_the_poorer_status_wins(tmp_path):
+    _astrometry(tmp_path, "hunt", 211326, 0.97)
+    _astrometry(tmp_path, "pilot", 32446, 1.6)  # the pilot's pulls out of range: not a pass overall
+    c = bv.v9(tmp_path)
+    assert c["headline"].startswith("211,326 stars vs Gaia (hunt zone)") and "Pilot zone: 32,446 stars" in c["headline"]
+    assert c["status"] == "partial"
+    assert [r["zone"] for r in c["rows"]] == ["hunt", "hunt", "pilot", "pilot"]
+    _photoz(tmp_path, "hunt", 8552, 0.0228)
+    _photoz(tmp_path, "pilot", 1211, 0.0209)
+    c = bv.v10(tmp_path)
+    assert c["status"] == "pass" and c["value"] == pytest.approx(0.0228)
+    assert c["headline"].startswith("8,552 bright galaxies (hunt zone): sigma_NMAD 0.023")
+    assert {r["zone"] for r in c["rows"]} == {"hunt", "pilot"}
+    assert c["note"].endswith("Rows: zone, sample, n, sigma_nmad, outlier_frac, bias.")
+
+
+def _spectra(path, zone, ks, w1, ok=True):
+    def band(m):
+        return {"clean": {"n": 1000, "median": m, "scatter": 0.03},
+                "by_mag": [{"band": "x", "mag_min": 13, "mag_max": 14, "n": 10, "median": m, "scatter": 0.05}]}
+    path.write_text(json.dumps({"zone": zone, "sources": 5000, "pass": ok, "bands": {"Ks": band(ks), "W1": band(w1)}}))
+
+
+def test_v8_spectra_two_zones(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)
+    _spectra(tmp_path / "v8_spectra_hunt.json", "hunt", 0.9925, 1.0291)
+    _spectra(tmp_path / "v8_spectra_pilot.json", "pilot", 0.9933, 1.0265)
+    c = bv.v8(None)
+    assert c["value"] == 0.9925 and c["status"] == "partial"  # spectra only, no speed run
+    assert "(hunt zone, 10-13 mag; pilot zone Ks 0.993, W1 1.026)" in c["headline"]
+    assert {r["zone"] for r in c["rows"]} == {"hunt", "pilot"}
+    _spectra(tmp_path / "v8_spectra_pilot.json", "pilot", 1.3, 1.0265, ok=False)
+    assert bv.v8(None)["status"] == "fail"  # every zone must pass
+    (tmp_path / "v8_spectra_hunt.json").unlink()
+    assert "(pilot zone, 10-13 mag)" in bv.v8(None)["headline"]
+
+
+def _suspect(id_, ra, dec, mjd):
+    return {"id": id_, "ra": ra, "dec": dec, "mjd": mjd, "clock": "hours", "det": 4, "evidence": "two_exposures",
+            "n_dots": 2, "snr": 10.0, "flux_ujy": 900.0, "cell": 1, "nearest_known_arcsec": None}
+
+
+def test_merge_suspects_hunt_first_pilot_kept_no_repeats():
+    hunt = {"generated": "2026-11-14T13:39:56Z", "data_release": "DR1", "zone": "hunt",
+            "suspects": [_suspect("hunt-1-1", 121.0, 15.0, 60970.0), _suspect("hunt-2-2", 128.0, 22.0, 61140.0)]}
+    pilot = {"generated": "2026-11-14T13:12:18Z", "data_release": "DR1", "zone": "pilot",
+             "suspects": [_suspect("pilot-1-1", 121.0 + 1e-5, 15.0, 60970.0 + 1e-5),  # the same mover as hunt-1-1
+                          _suspect("pilot-3-3", 122.0, 16.0, 60971.0)]}  # found by the pilot only
+    m = bv.merge_suspects([("hunt", hunt), ("pilot", pilot)])
+    assert m["zone"] == "hunt" and m["zones"] == ["hunt", "pilot"] and m["generated"] == hunt["generated"]
+    assert [s["id"] for s in m["suspects"]] == ["hunt-1-1", "hunt-2-2", "pilot-3-3"]
+    assert [s["zones"] for s in m["suspects"]] == [["hunt", "pilot"], ["hunt"], ["pilot"]]
+    assert [s["zone"] for s in m["suspects"]] == ["hunt", "hunt", "pilot"]
+    assert bv.valid_suspects(m)  # still the contract's shape: two optional fields added
+    # a file that doesn't match the contract is skipped; nothing valid gives None
+    bad = {"suspects": [{"id": "x"}]}
+    assert bv.merge_suspects([("hunt", bad), ("pilot", pilot)])["zone"] == "pilot"
+    assert bv.merge_suspects([("hunt", bad)]) is None

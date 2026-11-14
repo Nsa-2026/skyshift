@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -125,7 +126,8 @@ def _query_sia(ra: float, dec: float, collection: str) -> list[dict[str, Any]]:
         except Exception as e:  # noqa: BLE001 - network: retry, then give up loudly
             last = e
             log.warning("SIA %s failed (%s), attempt %d", collection, e, attempt + 1)
-            time.sleep(3 * (attempt + 1))
+            if attempt < 2:  # no sleep after the last try
+                time.sleep(3 * (attempt + 1))
     else:
         raise UpstreamError(f"IRSA SIA search failed for {collection}: {last}")
     cols = ("obs_collection", "obs_id", "energy_bandpassname", "t_min", "t_max", "access_url",
@@ -140,11 +142,28 @@ def _query_sia(ra: float, dec: float, collection: str) -> list[dict[str, Any]]:
     return out
 
 
+_key_locks: dict[str, threading.Lock] = {}
+_key_locks_guard = threading.Lock()
+
+
+def _lock_for(key: str) -> threading.Lock:
+    with _key_locks_guard:
+        if len(_key_locks) > 10_000:
+            _key_locks.clear()
+        return _key_locks.setdefault(key, threading.Lock())
+
+
 def search(ra: float, dec: float, *, cache: Cache | None = None, refresh: bool = False) -> SearchResult:
-    """Every DR1 + QR3 image covering (ra, dec), with visit and session numbers."""
+    """Every DR1 + QR3 image covering (ra, dec), with visit and session numbers.
+    Builds asking for one position at once (frames and object) share one search."""
     cache = cache or Cache()
     day = today()
     key = f"search/{pos_key(ra, dec)}/{day}.json"
+    with _lock_for(key):
+        return _search(ra, dec, cache, day, key, refresh)
+
+
+def _search(ra: float, dec: float, cache: Cache, day: str, key: str, refresh: bool) -> SearchResult:
     raw = None if refresh else cache.get(key)
     if raw is not None:
         d = json.loads(raw)

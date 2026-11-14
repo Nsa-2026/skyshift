@@ -12,6 +12,7 @@ import { mountAtlas } from "../atlas";
 import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
+import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { formatRaDec } from "./astro";
@@ -46,6 +47,7 @@ export function startApp(root: HTMLElement): void {
         <a href="#/results" data-route="results">Results</a>
         <a href="#/learn" data-route="learn">Learn</a>
       </nav>
+      <div class="details-slot"></div>
     </header>
     <div class="featured" data-only="explore" ${embed ? "hidden" : ""}>
       <span class="featured-label" id="featured-label">Try</span>
@@ -77,12 +79,13 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-live" data-page="live" hidden></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
       <p class="foot-links"><a href="#/about">About</a> <a href="#/learn">Learn</a> <a href="#/tools">Tools and data</a> <a href="#/results">How we know it works</a></p>
-      <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids: MPC, IMCCE SkyBoT. Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
+      <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids and comets: Minor Planet Center orbits, computed with kete (Dar Dahlen, first written at Caltech/IPAC, BSD-3-Clause). Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
 
   const $ = <T extends Element>(sel: string) => root.querySelector(sel) as T;
   const msg = $<HTMLParagraphElement>(".find-msg");
+  mountDetailsSwitch($<HTMLElement>(".details-slot"));
   const input = $<HTMLInputElement>("#q");
 
   let view: View | null = null;
@@ -236,6 +239,9 @@ export function startApp(root: HTMLElement): void {
       location.hash = hash;
     },
     explore(at) {
+      // Static first: a spot inside a featured target's field opens its prepared frames.
+      const near = featuredNear(at);
+      if (near && (!at.clock || at.clock === near.clock)) return void go(viewForTarget(near));
       const clock = at.clock ?? view?.clock ?? "months";
       const fov = at.fov ?? (view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20);
       go({ ra: at.ra, dec: at.dec, clock, fov, det: at.det ?? view?.det ?? 2, slug: null, name: null });

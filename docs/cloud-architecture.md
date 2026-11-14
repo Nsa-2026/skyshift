@@ -20,7 +20,7 @@ us nothing.
 | **Hunt zone** (pilot, then S1) | Whole photos streamed from Amazon → every dot → which dots move → which movers are unknown | `skyshift-test` (pilot), `skyshift-worker` (hunt zone, after gate G2) | `dots/`, `results/<zone>/`, then `web/public/data/suspects.json` | P1 |
 
 ```
-               NASA S3 (public)            IRSA (search, cutouts, MOST)     ESA Gaia · IMCCE SkyBoT
+               NASA S3 (public)            IRSA (search, cutouts, MOST)     ESA Gaia · MPC orbits
                      │                                │                              │
    whole photos ─────┤                    cutouts ────┤                              │
                      ▼                                ▼                              │
@@ -44,7 +44,7 @@ us nothing.
 | `refcat/` | pipeline `refcat` | Gaia DR3, CatWISE2020, 2MASS for each zone, and the forced-photometry target list | Parquet | tens of MB |
 | `dots/` | pipeline `dots` | One file per photo: every detected point, with photo metadata (contracts/dots.md) | Parquet, `dots/<obs_id>D<det>.parquet` | ~3–6.5 MB per photo |
 | `forced/` | pipeline `dots` | One file per photo: brightness at every catalogue star, detected or not | Parquet | ~1–1.5 MB per photo |
-| `cache/skybot/` | pipeline `known` | Known asteroids predicted in each photo | JSON per photo | small |
+| `cache/mpc/` | pipeline `known`, `mpc-orbits` | `orbits/`: dated MPC orbit snapshots (asteroids, comets); `<zone>/`: known asteroids and comets predicted in each photo | Parquet (orbits); JSON per session | small per session |
 | `cache/` (rest) | server | Live API cutouts and frames | as the API needs | grows with use |
 | `results/<zone>/` | pipeline `link`, `score`, `suspects` | `fixed`, `movers`, `suspects` tables, `recall.json`, `summary.json` | Parquet + JSON | < 100 MB |
 | `results/validation/` | scripts/validate | V1–V8 outputs | JSON, Parquet | small |
@@ -82,8 +82,10 @@ order. Each step reads the previous step's files from the bucket (or from `--roo
    at every reference-catalogue star (`refcat`: Gaia, CatWISE), detected or not, and per-photo
    metadata (spacecraft position, astrometry and PSF quality, background and ZODI grids). Writes
    `forced/` then `dots/<obs_id>D<det>.parquet`. Nothing else from the photo is kept.
-3. **`known`**: one SkyBoT cone per session (not per photo: one cone takes 13–23 s), each object
-   moved to every photo's time with SkyBoT's rates. Cached in `cache/skybot/`.
+3. **`known`**: Minor Planet Center orbits (asteroids and comets) propagated with kete to every
+   photo's MJD-AVG, seen from SPHEREx's own position in the IMAGE header. Orbit snapshots in
+   `cache/mpc/orbits/` (refreshed from a laptop: the GCP machines can't reach the MPC); predictions
+   per session in `cache/mpc/<zone>/`.
 4. **`link`**, on dots inside the zone only:
    - **fixed**: dots within 4″ of each other in 3 or more sessions (stars, galaxies).
    - **mover**: a dot not within 6″ of a fixed source, paired inside one session with another

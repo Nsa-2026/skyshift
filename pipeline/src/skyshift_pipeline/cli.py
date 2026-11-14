@@ -86,13 +86,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=None, help="testing: dots does at most N photos, known at most N sessions")
     ap.add_argument("--force", action="store_true",
                     help="photolist, refcat, mpc-orbits: query the services again even if the files exist")
-    ap.add_argument("--known-source", choices=C.KNOWN_SOURCES, default=C.KNOWN_SOURCE,
-                    help="known, score, suspects: MPC orbits with kete (default) or the SkyBoT service")
     args = ap.parse_args(argv)
     if args.step not in TOOLS and args.zone is None:
         ap.error(f"{args.step} needs --zone")
-    C.KNOWN_SOURCE = args.known_source
-    os.environ["SKYSHIFT_KNOWN_SOURCE"] = args.known_source  # worker processes read config afresh
     log.setup()
     store = Store(args.root)
     if args.step == "mpc-orbits":

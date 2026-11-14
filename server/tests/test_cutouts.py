@@ -24,6 +24,7 @@ def _im(det: int = 1, s3: bool = True) -> Image:
 def fresh(monkeypatch):
     monkeypatch.setattr(cutouts, "_irsa", cutouts._Breaker())
     monkeypatch.setattr(cutouts, "STATS", cutouts.Stats())
+    monkeypatch.setattr(cutouts, "_layout_mem", {})
     monkeypatch.delenv("SKYSHIFT_PIXELS", raising=False)
 
 
@@ -251,3 +252,104 @@ def test_fetch_many_subtracts_zodi_only_when_asked(tmp_path, monkeypatch, cutout
     kept = cutouts.fetch_many([_im()], RA, DEC, 0.12, c, zodi=True)[0]
     assert cutouts.STATS.zodi_missing == n_missing + 1  # counted, so precompute can report it
     assert np.array_equal(kept.data, plain.data, equal_nan=True) and kept.header["ZODISUB"] is False
+
+
+# ---------------------------------------------------------------- direct S3 reads, time budget
+
+def test_direct_s3_reader_matches_astropy(tmp_path, monkeypatch):
+    import io
+
+    blob, _ = _full_file()
+    asked = _serve(monkeypatch, blob)
+    c = Cache(str(tmp_path))
+    lay = cutouts.s3_layout(_im(), c)
+    with fits.open(io.BytesIO(blob)) as h:
+        assert lay.image == h["IMAGE"].fileinfo()["datLoc"] and lay.zodi == h["ZODI"].fileinfo()["datLoc"]
+        assert lay.variance == h["VARIANCE"].fileinfo()["datLoc"] and (lay.nx, lay.ny) == (120, 200)
+        img, flg, var = h["IMAGE"].data.copy(), h["FLAGS"].data.copy(), h["VARIANCE"].data.copy()
+    walked = len(asked)
+    assert walked <= 4  # PRIMARY + IMAGE headers in one read, then FLAGS, VARIANCE, ZODI
+    cutouts._layout_mem.clear()
+    assert cutouts.s3_layout(_im(), c) == lay and len(asked) == walked  # from the cache
+    url = _im().s3_url
+    rows = cutouts._float_rows(url, lay.image, lay.nx, 20, 90, 10, 70)
+    assert np.array_equal(rows, img[20:90, 10:70]) and len(asked) == walked + 1  # one request
+    assert np.array_equal(cutouts._float_rows(url, lay.variance, lay.nx, 20, 90, 10, 70), var[20:90, 10:70])
+    n = len(asked)
+    f = cutouts._flag_rows(url, lay, 20, 90, 10, 70)
+    assert f.dtype == np.int32 and np.array_equal(f, flg[20:90, 10:70])
+    assert len(asked) == n + 2  # tile descriptors, then their part of the heap
+
+
+def test_unexpected_flags_compression_is_refused(tmp_path, monkeypatch):
+    blob, _ = _full_file()
+    _serve(monkeypatch, blob)
+    lay = cutouts.s3_layout(_im(), Cache(str(tmp_path)))
+    lay.flags_header = lay.flags_header.replace("RICE_1  ", "GZIP_1  ")
+    with pytest.raises(ValueError):  # _from_s3 then falls back to core.open_level2
+        cutouts._flag_rows(_im().s3_url, lay, 0, 10, 0, 10)
+
+
+def _ims(names):
+    return [Image("spherex_dr1", n, 1, 60794.0 + i, 60794.001 + i, 60794.0005 + i,
+                  f"https://irsa.example/ibe/{n}.fits", None, 1, 1) for i, n in enumerate(names)]
+
+
+def test_fetch_many_returns_what_arrived_by_the_deadline(tmp_path, monkeypatch, cutout_bytes):
+    import time
+
+    from skyshift_server.budget import Budget
+
+    def irsa(im, ra, dec, size, cache, tries, variance):
+        if im.obs_id == "slow":
+            time.sleep(1.0)
+        return cutout_bytes
+
+    monkeypatch.setattr(cutouts, "_from_irsa", irsa)
+    monkeypatch.setattr(cutouts, "MAX_IN_FLIGHT", 1)
+    monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
+    c = Cache(str(tmp_path))
+    images = _ims(["fast", "slow", "next", "last"])
+    b = Budget(0.5)
+    t = time.monotonic()
+    got = cutouts.fetch_many(images, RA, DEC, 0.12, c, budget=b)
+    assert time.monotonic() - t < 0.9  # did not wait for the slow one
+    assert got[0] is not None and got[1:] == [None, None, None]
+    assert b.partial == ["3 of 4 cutouts not in time"]
+    time.sleep(0.8)  # the slow download finishes in the background, into the cache
+    again = cutouts.fetch_many(images, RA, DEC, 0.12, c, budget=Budget(5.0))
+    assert all(l2 is not None for l2 in again)
+
+
+def test_same_cutout_asked_twice_at_once_is_downloaded_once(tmp_path, monkeypatch, cutout_bytes):
+    import threading
+    import time
+
+    calls = []
+
+    def irsa(im, ra, dec, size, cache, tries, variance):
+        calls.append(im.key)
+        time.sleep(0.3)
+        return cutout_bytes
+
+    monkeypatch.setattr(cutouts, "_from_irsa", irsa)
+    monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
+    c = Cache(str(tmp_path))
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(cutouts.fetch(_im(), RA, DEC, 0.12, c))) for _ in range(3)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(calls) == 1 and out == [cutout_bytes] * 3
+
+
+def test_s3first_reads_s3_and_asks_irsa_only_without_a_copy(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(cutouts, "_from_irsa",
+                        lambda im, ra, dec, size, cache, tries, variance: calls.append("irsa") or b"I")
+    monkeypatch.setattr(cutouts, "_from_s3", lambda *a: calls.append("s3") or b"S")
+    monkeypatch.setenv("SKYSHIFT_PIXELS", "s3first")
+    c = Cache(str(tmp_path))
+    assert cutouts.fetch(_im(), RA, DEC, 0.36, c) == b"S" and calls == ["s3"]
+    assert cutouts.fetch(_im(s3=False), RA + 1, DEC, 0.36, c) == b"I" and calls == ["s3", "irsa"]

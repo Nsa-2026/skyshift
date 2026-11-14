@@ -1,0 +1,54 @@
+/* Glossary words in running text (src/learn/glossary.ts): quiet ink with a dotted underline,
+   and one small sheet with the sentence. Imported by glossary.ts, so any page that uses term()
+   gets these styles. */
+.gl-term {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--ink-3);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: help;
+  border-radius: 2px;
+}
+.gl-term:hover,
+.gl-term[aria-expanded="true"] {
+  text-decoration-color: var(--ink);
+}
+
+.gl-pop {
+  position: absolute;
+  z-index: 50;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: var(--s3) var(--s4);
+  background: var(--sheet);
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-plate);
+  font-size: var(--step--1);
+  line-height: 1.45;
+  font-weight: 400;
+  font-variation-settings: "wdth" 100;
+  text-align: left;
+}
+.gl-pop strong {
+  font-weight: 650;
+}
+
+@media print {
+  .gl-term {
+    text-decoration: none;
+  }
+  .gl-pop {
+    display: none !important;
+  }
+}
