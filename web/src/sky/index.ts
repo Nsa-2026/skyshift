@@ -274,7 +274,7 @@ export const mountSky: MountSky = (el, opts) => {
     shownBudget = currentBudget();
     const dots = brightest(all, shownBudget);
     if (dots.length < all.length) {
-      gaiaText = `the brightest ${dots.length} of ${all.length} Gaia DR3 stars${date}`;
+      gaiaText = `the brightest ${dots.length.toLocaleString("en-GB")} of ${all.length.toLocaleString("en-GB")} Gaia DR3 stars${date}`;
       renderKey();
     }
     gaiaCat.addSources(dots.map((s) => Al.source(s.ra, s.dec, { id: s.id, G: s.g })));

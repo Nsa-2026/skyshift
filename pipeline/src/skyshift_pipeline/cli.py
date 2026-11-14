@@ -1,11 +1,13 @@
 """skyshift-pipeline <step> --zone pilot|hunt [--root ROOT] [--workers N] [--limit N]
 
-Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves,
-astrometry, highpm, score, suspects, all (in that order).
+Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
+astrometry, highpm, orphans, score, completeness, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (config) runs link … suspects per sky tile in parallel processes
 and merges them into the same results/<zone>/ files (tiles.py); --tiles off|N and --tile-deg D override that.
+completeness (synthetic movers in a 1° sub-area, inject.py) always runs once per zone, after the tiles; env
+SKYSHIFT_COMPLETENESS=off skips it.
 
 skyshift-pipeline mpc-orbits [--root ROOT] [--force]
   Laptop only, not part of `all`: new dated MPC orbit snapshots in cache/mpc/orbits/ (the GCP machines
@@ -24,9 +26,10 @@ from . import log
 from .store import Store, results_rel
 
 MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
-STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "classify", "photoz",
-         "colours", "lightcurves", "astrometry", "highpm", "score", "suspects")
-TILED_STEPS = STEPS[STEPS.index("link"):]  # what `all` runs per tile (tiles.py) on a large zone
+STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "qa", "classify", "photoz",
+         "colours", "lightcurves", "astrometry", "highpm", "orphans", "score", "completeness", "suspects")
+ZONE_STEPS = ("completeness",)  # once per zone on its own sub-area, also in a tiled `all` (after the tiles)
+TILED_STEPS = tuple(s for s in STEPS[STEPS.index("link"):] if s not in ZONE_STEPS)  # what `all` runs per tile (tiles.py)
 TOOLS = ("mpc-orbits",)  # run by hand, never by `all`; no zone
 L = log.get("cli")
 
@@ -53,18 +56,31 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step in MOTION_STEPS:
         import importlib
         return importlib.import_module(f".{step}", __package__).run(store, zone, workers=args.workers)
+    if step == "qa":  # in `all` a failure is logged and the run goes on (lightcurves, suspects: no new grades)
+        from . import qa
+        return qa.run(store, zone, workers=args.workers) if args.step == "qa" else qa.run_safe(store, zone, workers=args.workers)
     if step == "classify":
         from . import classify
         return classify.run(store, zone, workers=args.workers)
     if step == "photoz":
         from . import photoz
         return photoz.run(store, zone)
+    if step == "orphans":
+        from . import orphans
+        return orphans.run(store, zone, workers=args.workers)
     if step == "score":
         from . import score
         return score.run(store, zone)
     if step == "suspects":
         from . import suspects
         return suspects.run(store, zone)
+    if step == "completeness":
+        from . import inject
+        try:
+            return inject.run(store, zone, workers=args.workers)
+        except Exception as e:  # noqa: BLE001  a report only: it never stops the zone's run
+            L.exception("completeness %s failed; the zone's run goes on", zone.name)
+            return {"error": repr(e)}
     raise ValueError(step)
 
 

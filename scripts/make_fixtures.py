@@ -192,8 +192,24 @@ def object_barnard(mids):
         "measure": {"shift_arcsec": r(shift, 3), "pa_deg": 356.1, "dt_yr": r(dt_yr, 4),
                     "rate_arcsec_yr": r(shift / dt_yr, 3), "sigma_arcsec": 0.9, "n_ref_stars": 12,
                     "predicted_arcsec": r(pm_total * dt_yr, 3)},
+        "measure_reason": None, "measure_hint": None,
     }
     write_json("object_barnard.json", obj)
+
+
+def object_moved_away(mids):
+    """GET /api/object at Barnard's Star's Gaia (2016.0) position: by SPHEREx's visits the star is
+    ~100" north, nothing is measured there, and measure_hint says where it went."""
+    mid = (mids[0] + mids[-1]) / 2
+    ra, dec = move(BARNARD, mid)
+    obj = {
+        "synthetic": True, "note": NOTE + " The position asked: Barnard's Star's Gaia DR3 position "
+                                          "(269.4485, 4.7394, epoch 2016.0).",
+        "name": None, "gaia": None, "known_ucd": None, "spectrum": [], "spectrum_reason": "no_data",
+        "measure": None, "measure_reason": "moved_away",
+        "measure_hint": {"name": "Barnard's Star", "ra": r(ra, 6), "dec": r(dec, 6), "mjd": r(mid, 2)},
+    }
+    write_json("object_moved_away.json", obj)
 
 
 # ---------------------------------------------------------------- Hours clock: comet-like mover
@@ -309,6 +325,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     mids, _ = months_barnard()
     object_barnard(mids)
+    object_moved_away(mids)
     hours_comet()
     resolve()
     validation()

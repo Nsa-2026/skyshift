@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FOV, MIN_FOV, formatState, parseState, sameState, stateHash, type AtlasState } from "./hash";
+import { MAX_FOV, MIN_FOV, formatState, parseState, preparedBlinkHash, sameState, stateHash, type AtlasState } from "./hash";
 
 const ALL = ["mover", "high_pm", "spectral"];
 
@@ -78,5 +78,17 @@ describe("formatState", () => {
   it("treats views that print the same as the same", () => {
     expect(sameState(base, { ...base, ra: base.ra + 1e-6 })).toBe(true);
     expect(sameState(base, { ...base, fov: 5 })).toBe(false);
+  });
+});
+
+describe("preparedBlinkHash", () => {
+  it("opens prepared frames on the object's own page", () => {
+    expect(preparedBlinkHash({ id: "hunt-664250069368-87801613", frames_url: "cand/hunt-664250069368-87801613/frames.json" })).toBe(
+      "#/c/hunt-664250069368-87801613",
+    );
+    expect(preparedBlinkHash({ id: "a b/c", frames_url: "cand/x/frames.json" })).toBe("#/c/a%20b%2Fc");
+  });
+  it("leaves objects without prepared frames to the live API", () => {
+    expect(preparedBlinkHash({ id: "hunt-1", frames_url: null })).toBeNull();
   });
 });

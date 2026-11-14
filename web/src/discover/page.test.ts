@@ -108,7 +108,7 @@ describe("the Candidates page", () => {
     expect(el.querySelector(".dv-count")?.textContent).toBe("192 of 194 objects");
     el.querySelector<HTMLButtonElement>('#fx-cautions-t + .seg button[data-v="any"]')!.click();
     const ids = [...el.querySelectorAll(".dv-row")].map((r) => r.getAttribute("data-id"));
-    expect(ids).not.toContain(d.candidates[0].id); // 'Most promising' pushes cautions past the first page
+    expect(ids).not.toContain(d.candidates[0].id); // the 'Pipeline score' sort pushes cautions past the first page
   });
 
   it("says what to do when nothing matches", async () => {
