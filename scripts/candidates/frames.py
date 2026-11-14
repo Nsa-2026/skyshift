@@ -4,13 +4,15 @@ Run from server/ (it imports skyshift_server and skyshift_core, like scripts/pre
 exporter (pipeline: `uv run skyshift-candidates`) has written web/public/data/candidates.json:
 
     cd server
-    uv run python ../scripts/candidates/frames.py                        # mover=25,high_pm=20,spectral=15
-    uv run python ../scripts/candidates/frames.py --top mover=5,high_pm=0,spectral=0 --dry-run
+    uv run python ../scripts/candidates/frames.py                  # mover=25,high_pm=20,spectral=15,shape=15
+    uv run python ../scripts/candidates/frames.py --top mover=5,high_pm=0,spectral=0,shape=0 --dry-run
     uv run python ../scripts/candidates/frames.py --known-only           # only known[] again (MPC)
 
-For each kind, the candidates with the highest `score` (any zone) get frames; the rest keep
-frames_url null and the site asks /api/frames. Per candidate (shapes of contracts/api.md, data_url
-relative to the JSON):
+For each kind, the candidates with the highest `score` (any zone) get frames, and so does every mover
+of grade A or B, whatever `--top` says (they are few, and /api/frames has no time parameter: a live
+hours blink shows the visit with the most exposures, not always the mover's session). Movers of
+grade C never get frames. The rest keep frames_url null and the site asks /api/frames. Per candidate
+(shapes of contracts/api.md, data_url relative to the JSON):
 
     cand/<id>/frames.json       GET /api/frames for the candidate's clock and field
     cand/<id>/frames/*.bin      the frame data
@@ -19,9 +21,13 @@ relative to the JSON):
   the exposures within HOURS_WINDOW_D of its mjd (its own session and the next ones), at most
   HOURS_MAX per detector: blink.exposure_epochs, gaia.cone and blink.known_for_epochs, the engine's
   own hours-clock code. (build_frames' hours clock shows the visit with the most exposures, which is
-  not always the mover's.)
-- high_pm, spectral: months clock, 5′ field, the candidate's detector, every exposure of every visit:
-  blink.build_frames(..., per_visit=None), as scripts/precompute does for the featured stars.
+  not always the mover's.) The frames must show the mover's own exposures (`own_times`: mjd ± half
+  its span, the span read from its `why`; one moment for two_detectors). A partial search (IRSA
+  down: the server's fallback photo lists) can miss them: the search is asked once more without its
+  caches, then the mover is skipped and logged (frames_url stays null). Older frames without them
+  are rebuilt, or removed when the rebuild fails.
+- high_pm, spectral, shape: months clock, 5′ field, the candidate's detector, every exposure of every
+  visit: blink.build_frames(..., per_visit=None), as scripts/precompute does for the featured stars.
 
 Known objects are MPC orbits only (server known.py, skyshift_core.known_index.known_near), never
 SkyBoT. After a new MPC index, `--known-only` recomputes only known[] of every existing
@@ -37,6 +43,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import time
@@ -52,24 +59,34 @@ DATA = ROOT / "web" / "public" / "data"
 sys.path.insert(0, str(ROOT / "scripts" / "precompute"))
 from precompute import clean, folder_bytes, write_json  # noqa: E402  (P2's writers: NaN -> null, compact JSON)
 
-DEFAULT_TOP = "mover=25,high_pm=20,spectral=15"
+DEFAULT_TOP = "mover=25,high_pm=20,spectral=15,shape=15"
 HOURS_FOV = 20.0
 HOURS_WINDOW_D = 0.3   # days either side of the mover's mjd
 HOURS_MAX = 10         # exposures per detector, the nearest in time
 MONTHS_FOV = 5.0
 MAX_DETS = 2
+ALWAYS_GRADES = ("A", "B")   # movers of these grades always get frames; grade C never
+OWN_TOL_D = 1.0 / 1440.0     # an exposure within 1 min of a mover's dot time is its own (cadence 2.1 min)
+SESSION_D = 10.0 / 1440.0    # a session: exposures with gaps under 10 min
+# The exporter's mover `why`: "... in 2 exposures 2.1 minutes apart" or "... in 3 exposures over 4.3 minutes".
+SPAN_RE = re.compile(r"in \d+ exposures (?:([\d.]+) minutes apart|over ([\d.]+) minutes)")
 
 log = logging.getLogger("cand-frames")
 
 
 def choose(cands: list[dict], top: dict[str, int]) -> list[dict]:
-    """The `top[kind]` highest-scoring candidates of each kind (ties: id)."""
+    """The `top[kind]` highest-scoring candidates of each kind (ties: id), then every mover of grade A
+    or B not chosen yet, whatever `top` says. Never a mover of grade C."""
+    usable = [c for c in cands if c.get("det") is not None and not (c["kind"] == "mover" and c.get("grade") == "C")]
     out = []
     for kind, n in top.items():
-        cs = [c for c in cands if c["kind"] == kind and c.get("det") is not None]
+        cs = [c for c in usable if c["kind"] == kind]
         cs.sort(key=lambda c: (-(c.get("score") or 0.0), c["id"]))
         out += cs[:n]
-    return out
+    have = {c["id"] for c in out}
+    graded = [c for c in usable if c["kind"] == "mover" and c.get("grade") in ALWAYS_GRADES and c["id"] not in have]
+    graded.sort(key=lambda c: (ALWAYS_GRADES.index(c["grade"]), -(c.get("score") or 0.0), c["id"]))
+    return out + graded
 
 
 def mover_dets(c: dict) -> list[int]:
@@ -81,15 +98,42 @@ def mover_dets(c: dict) -> list[int]:
     return dets[:MAX_DETS]
 
 
+def own_times(c: dict) -> list[float] | None:
+    """MJDs of the mover's own exposures, which its frames must show: its mjd for two_detectors (one
+    moment), mjd ± span/2 otherwise (mjd is the mean of its dots; the exporter writes the span in
+    `why`). None when the span can't be read: then an exposure on each side of mjd is enough."""
+    if "two_detectors" in c.get("reasons", []):
+        return [c["mjd"]]
+    m = SPAN_RE.search(c.get("why") or "")
+    if not m:
+        return None
+    half = float(m.group(1) or m.group(2)) / 1440.0 / 2.0
+    return [c["mjd"] - half, c["mjd"] + half]
+
+
+def missing_own(c: dict, epochs: list[dict]) -> str | None:
+    """None when `epochs` show the mover's own exposures, else what is missing (for the log)."""
+    t = [e["mjd_mid"] for e in epochs]
+    want = own_times(c)
+    if want is None:
+        before = any(-SESSION_D <= x - c["mjd"] < 0 for x in t)
+        after = any(0 < x - c["mjd"] <= SESSION_D for x in t)
+        return None if before and after else f"no exposure on each side of its mjd in its session ({len(t)} epochs)"
+    lost = [w for w in want if not any(abs(x - w) <= OWN_TOL_D for x in t)]
+    if not lost:
+        return None
+    return "none at " + ", ".join(f"{(w - c['mjd']) * 1440.0:+.2f} min" for w in lost) + f" from its mjd ({len(t)} epochs)"
+
+
 def hours_images(found, det: int, mjd: float) -> list:
     near = [im for im in found.of_detector(det) if abs(im.mjd - mjd) <= HOURS_WINDOW_D]
     near.sort(key=lambda im: abs(im.mjd - mjd))
     return sorted(near[:HOURS_MAX], key=lambda im: im.mjd)
 
 
-def build_mover(c: dict, cache: Cache) -> tuple[dict, dict[str, bytes]] | None:
+def build_mover(c: dict, cache: Cache, refresh: bool = False) -> tuple[dict, dict[str, bytes]] | None:
     ra, dec, mjd = c["ra"], c["dec"], c["mjd"]
-    found = search.search(ra, dec, cache=cache)
+    found = search.search(ra, dec, cache=cache, refresh=refresh)
     epochs, blobs, grid = [], {}, None
     for det in mover_dets(c):
         ims = hours_images(found, det, mjd)
@@ -111,6 +155,19 @@ def build_mover(c: dict, cache: Cache) -> tuple[dict, dict[str, bytes]] | None:
     return blink.frames_meta("hours", grid, epochs, stars, known_, found.archive_checked), blobs
 
 
+def build_mover_checked(c: dict, cache: Cache) -> tuple[dict, dict[str, bytes]] | None:
+    """build_mover, kept only when the frames show the mover's own exposures: else the search is asked
+    once more without its caches (during an IRSA outage the fallback search is partial), then None."""
+    for attempt in (0, 1):
+        res = build_mover(c, cache, refresh=attempt > 0)
+        miss = missing_own(c, res[0]["epochs"]) if res else "no frames"
+        if miss is None:
+            return res
+        log.warning("%s: frames lack the mover's own exposures: %s; %s", c["id"], miss,
+                    "searching again" if attempt == 0 else "skipped, frames_url stays null")
+    return None
+
+
 def build_months(c: dict, cache: Cache) -> tuple[dict, dict[str, bytes]] | None:
     fr = blink.build_frames(c["ra"], c["dec"], MONTHS_FOV, "months", int(c["det"]), cache=cache, per_visit=None)
     return fr.meta, fr.blobs
@@ -119,7 +176,7 @@ def build_months(c: dict, cache: Cache) -> tuple[dict, dict[str, bytes]] | None:
 def build_one(c: dict, cache: Cache, out: Path) -> bool:
     t0 = time.time()
     try:
-        res = build_mover(c, cache) if c["kind"] == "mover" else build_months(c, cache)
+        res = build_mover_checked(c, cache) if c["kind"] == "mover" else build_months(c, cache)
     except Exception as e:  # noqa: BLE001 - one candidate must not stop the rest
         log.warning("%s failed: %s", c["id"], e)
         return False
@@ -138,6 +195,27 @@ def build_one(c: dict, cache: Cache, out: Path) -> bool:
     log.info("%s (%s, score %s): %d epochs, %.2f MB in %.0f s", c["id"], c["kind"], c.get("score"),
              len(meta["epochs"]), folder_bytes(folder) / 1e6, time.time() - t0)
     return True
+
+
+def needs_build(c: dict, out: Path) -> bool:
+    """No frames yet, or a mover's frames without its own exposures (built from a partial search)."""
+    p = out / "cand" / c["id"] / "frames.json"
+    if not p.exists():
+        return True
+    return c["kind"] == "mover" and missing_own(c, json.loads(p.read_text())["epochs"]) is not None
+
+
+def drop_without_own(cands: list[dict], cand_dir: Path) -> None:
+    """Remove every mover's frames that don't show its own exposures, so it gets no frames_url (here
+    and when the exporter runs again)."""
+    for c in cands:
+        p = cand_dir / c["id"] / "frames.json"
+        if c["kind"] != "mover" or not p.exists():
+            continue
+        miss = missing_own(c, json.loads(p.read_text())["epochs"])
+        if miss is not None:
+            shutil.rmtree(p.parent)
+            log.warning("%s: removed frames without the mover's own exposures (%s)", c["id"], miss)
 
 
 def fov_of(meta: dict) -> float:
@@ -207,7 +285,7 @@ def main() -> int:
         log.info("chosen: %s %s score %s det %s", c["kind"], c["id"], c["score"], c["det"])
     if a.dry_run:
         return 0
-    todo = [c for c in chosen if a.rebuild or not (out / "cand" / c["id"] / "frames.json").exists()]
+    todo = [c for c in chosen if a.rebuild or needs_build(c, out)]
     log.info("%d chosen, %d to build", len(chosen), len(todo))
     cache = Cache(a.cache)
     # Some upstream reads can hang without a timeout: stop waiting after --deadline minutes, keep
@@ -228,6 +306,7 @@ def main() -> int:
             if p.is_dir() and p.name not in keep:
                 shutil.rmtree(p)
                 log.info("removed %s (no longer chosen)", p.name)
+        drop_without_own(chosen, cand_dir)
     n = 0
     for c in doc["candidates"]:
         ok = (cand_dir / c["id"] / "frames.json").exists()

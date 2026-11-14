@@ -80,20 +80,39 @@ def select(
     return out
 
 
+RATE_NOTE = ("sort=rate: movers by rate_arcsec_h (″/h) first, fastest first; then high_pm by pm_mas_yr "
+             "(mas/yr); then the rest in score order. The two units are never compared: a mover drifts "
+             "arcsec in an hour, a star a few arcsec in a year")
+
+
+def _rate_key(c: dict[str, Any]) -> tuple[int, float]:
+    if c.get("rate_arcsec_h") is not None:
+        return 0, -c["rate_arcsec_h"]
+    if c.get("pm_mas_yr") is not None:
+        return 1, -c["pm_mas_yr"]
+    return 2, 0.0
+
+
 def rank(rows: list[dict[str, Any]], sort: str = "score") -> list[dict[str, Any]]:
-    """Sort: `score` (grade A, B, ungraded, C; then score), `snr`, `rate` (movers' ″/h, else proper
-    motion), `distance` (needs `near`). Highest first, except distance."""
+    """Sort: `score` (grade A, B, ungraded, C; then score), `snr`, `rate` (RATE_NOTE: movers by ″/h,
+    then high_pm by mas/yr, then the rest), `distance` (needs `near`). Highest first, except distance."""
     if sort == "score":
         key = lambda c: (GRADE_ORDER.get(c.get("grade"), 2), -(c.get("score") or 0.0))
     elif sort == "snr":
         key = lambda c: -(c.get("snr") or 0.0)
     elif sort == "rate":
-        key = lambda c: -(c.get("rate_arcsec_h") or (c.get("pm_mas_yr") or 0.0) / 1000.0)
+        rows = rank(rows, "score")  # ties and rows without a rate keep the score order
+        key = _rate_key
     elif sort == "distance":
         key = lambda c: c.get("distance_arcmin", math.inf)
     else:
         raise ValueError("sort must be score, snr, rate or distance")
     return sorted(rows, key=key)
+
+
+def has_grades(candidates: Iterable[dict[str, Any]]) -> bool:
+    """Does the file carry vetting grades (movers' A/B/C, from 14 Nov evening)?"""
+    return any(c.get("grade") for c in candidates)
 
 
 def find(candidates: Iterable[dict[str, Any]], cid: str) -> dict[str, Any] | None:

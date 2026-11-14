@@ -8,6 +8,9 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    promising candidates, web/public/data/cand/<id>/, and their frames_url in candidates.json.
                    candidates.json itself comes from the pipeline: cd pipeline && uv run skyshift-candidates.
                    known[] is MPC only (server known.py); `--known-only` recomputes just known[] of cand/*.
+                   The top of each kind, every grade A/B mover, never a grade C one. A mover's frames must
+                   show its own exposures (a partial search is retried once, then skipped).
+                   Tests: cd server && uv run pytest ../scripts/candidates/tests
 - make_fixtures.py P1. Writes the synthetic examples in fixtures/api/: python3 -I scripts/make_fixtures.py
 - demo_check.py    Opens every featured target from /data plus three random coordinates
                    through /api on the live site and prints the time to first frame. Used by /demo-check.
