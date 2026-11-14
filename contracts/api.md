@@ -205,7 +205,8 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
 3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
-`bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`).
+`bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`, and from 14 Nov
+evening `few_sessions`, `unchecked`, `gaia_slow`).
 Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
 in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-matched movers have it at the peak).
 
@@ -504,7 +505,9 @@ spectral: months clock, 5′ field, `det`, every exposure of every visit (as the
 Several detectors may share one file (sorted by `mjd_mid`, then `det`); the client filters by `det`.
 
 **Which objects.** mover: every row of `results/<zone>/suspects.parquet` (suspects.json's rules). high_pm:
-every row of `highpm_candidates.parquet`, vetted or not; the pipeline's vetting reasons become `reasons`.
+the `vetted` rows of `highpm_candidates.parquet` (from 14 Nov evening; before, every row). Unvetted rows are
+fakes or not movers: a Gaia or CatWISE motion that isn't ours, chance-level pairs, too few sessions, nothing to
+check against, or a known slow Gaia star (contracts/dots.md, highpm_candidates).
 spectral: sources of `classes.parquet` with a band label or `brown_dwarf_like`, and either no Gaia match or
 a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. An object already
 listed from an earlier zone is not listed again, and the earlier entry's `zones` gets the later zone: movers
@@ -512,7 +515,7 @@ within 6″ and 2 minutes (suspects.json's merge), high_pm and spectral within 4
 hunt zone, which was run on the same photos: the hunt re-found all 27 pilot movers (the same ids as
 suspects.json), so the pilot adds only objects the hunt didn't list.
 
-Nothing is dropped for being doubtful: doubts become `reasons` and lower the `score`. The "check first"
+Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
 `outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` and the vetting gates (mover);
 `short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
@@ -566,6 +569,9 @@ candidate they are those of its (first) source.
 | gaia_pm_disagrees | high_pm | Gaia lists a different motion for the star here: likely a mismatch |
 | catwise_pm_disagrees | high_pm | CatWISE lists a different motion for the source here: likely a mismatch |
 | at_control_level | high_pm | As many pairs at this separation turn up by chance (the control) |
+| few_sessions | high_pm | Seen in fewer than 3 sessions in one of its visits (pipeline row only: not exported) |
+| unchecked | high_pm | No Gaia or CatWISE motion to check it against, and under 10σ or saturated (pipeline row only: not exported) |
+| gaia_slow | high_pm | Gaia agrees, but predicts under 150 mas/yr: a known slow star (pipeline row only: not exported) |
 | implausible_pm | high_pm | Faster than 12″/yr between visits: no star moves that fast (Barnard's Star, the fastest known, does 10.4″/yr), so it is almost certainly two different sources. In practice every pair (3–120″ apart about half a year apart; hunt 32–269″/yr) and the fits above 12″/yr; none is `vetted`. Hunt: 82 of 997 (55 pairs, 27 fits); pilot: 15 of 167 (12 pairs, 3 fits) |
 | no_gaia | spectral | No Gaia DR3 source here |
 | gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
@@ -657,3 +663,12 @@ check."
 - contracts/dots.md: `nonfixed_dots`, `tracklets`, `tracklet_dots`, and `recall` (recall.json): `recall`
   now counts a known sighting found by a mover or a dot recovered on a track; `n_found_movers`,
   `recall_movers` and `control_recall_movers` are the movers-alone numbers.
+
+## Changes in v3.5 (14 Nov 2026): high_pm lists vetted rows only
+
+- candidates.json: high_pm lists only the `vetted` rows of highpm_candidates.parquet. On the hunt zone
+  this removes the 714 rows Gaia proves wrong (997 → about 130 rows, nearly all Gaia-confirmed movers).
+  The high_pm caution codes stay valid in `reasons` but no longer appear in practice. No field changes.
+- contracts/dots.md: astrometry leaves out masked-peak and second-in-photo dots, fits a zero point per
+  detector and uses session-robust pm errors; highpm compares with Gaia and CatWISE including the
+  parallax leak, selects at 4.5σ, adds `few_sessions`, `unchecked`, `gaia_slow` and `fp_control`.
