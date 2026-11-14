@@ -1,0 +1,109 @@
+{
+ "note": "Featured targets: one-click chips. Static data in /data/<slug>/ (scripts/precompute). Positions are each target's frame centre; the expected values are from catalogues (docs/skyshift-hackathon-plan.html, demo targets table).",
+ "targets": [
+  {
+   "slug": "barnard",
+   "name": "Barnard's Star",
+   "short": "Barnard's Star",
+   "ra": 269.4462,
+   "dec": 4.76883,
+   "clock": "months",
+   "fov": 5,
+   "det": 2,
+   "kind": "star",
+   "look_for": "Steps north about 5″ each visit, under one SPHEREx pixel. Subtract two visits to see it. Its core saturates, so the shift is measured on the wings.",
+   "expected": "Gaia DR3: 10.39″/yr at position angle 355.6°."
+  },
+  {
+   "slug": "epsindib",
+   "name": "Epsilon Indi B",
+   "short": "Eps Indi B",
+   "ra": 331.09668,
+   "dec": -56.80067,
+   "clock": "months",
+   "fov": 5,
+   "det": 2,
+   "kind": "brown dwarf",
+   "look_for": "A brown-dwarf pair under 1″ apart, seen as one dot moving 2.3″ per visit. Epsilon Indi A, very bright, sits 7′ away.",
+   "expected": "Gaia DR3: 4.68″/yr."
+  },
+  {
+   "slug": "wise0855",
+   "name": "WISE 0855−0714",
+   "short": "WISE 0855",
+   "ra": 133.75969,
+   "dec": -7.24216,
+   "clock": "months",
+   "fov": 5,
+   "det": 6,
+   "kind": "brown dwarf",
+   "look_for": "The coldest known brown dwarf. Absent in D1–D3; in D5–D6 a dot with no Gaia ring steps west about 4″ per visit. By visit 3 it is 4″ from a Gaia star, too close to measure apart, so its spectrum and brightness stop at visit 2.",
+   "expected": "Luhman & Esplin 2016: 8.15″/yr."
+  },
+  {
+   "slug": "rwaur",
+   "name": "RW Aurigae",
+   "short": "RW Aur",
+   "ra": 76.95609,
+   "dec": 30.40113,
+   "clock": "months",
+   "fov": 5,
+   "det": 2,
+   "kind": "variable star",
+   "look_for": "A young star that stays put while its brightness and spectrum change between visits. May saturate in the short bands.",
+   "expected": "Brightness changes, no motion."
+  },
+  {
+   "slug": "rdra",
+   "name": "R Draconis",
+   "short": "R Dra",
+   "ra": 248.16723,
+   "dec": 66.75502,
+   "clock": "months",
+   "fov": 5,
+   "det": 2,
+   "kind": "variable star",
+   "look_for": "A pulsating giant near the north ecliptic pole, so SPHEREx sees it many times. Watch it brighten and fade; the core saturates.",
+   "expected": "Mira variable, period about 246 days."
+  },
+  {
+   "slug": "3i-atlas",
+   "name": "Comet 3I/ATLAS",
+   "short": "3I/ATLAS",
+   "ra": 166.97483,
+   "dec": 5.22757,
+   "clock": "hours",
+   "fov": 20,
+   "det": 3,
+   "kind": "interstellar comet",
+   "look_for": "The third known interstellar object. The frames follow the comet, so the stars stream past while it stays near the centre.",
+   "expected": "About 176″/h on 14 Dec 2025."
+  },
+  {
+   "slug": "elpis",
+   "name": "(59) Elpis",
+   "short": "Elpis",
+   "ra": 88.71168,
+   "dec": 14.48551,
+   "clock": "hours",
+   "fov": 20,
+   "det": 2,
+   "kind": "asteroid",
+   "look_for": "A main-belt asteroid. It crosses the field between exposures; the violet diamond marks where its known orbit puts it in each frame, so a dot sitting on the diamond is the asteroid.",
+   "expected": "Predicted positions from known orbits."
+  },
+  {
+   "slug": "euphrosyne",
+   "name": "(31) Euphrosyne",
+   "short": "Euphrosyne",
+   "ra": 210.13973,
+   "dec": -24.84643,
+   "clock": "hours",
+   "fov": 20,
+   "det": 2,
+   "kind": "asteroid",
+   "look_for": "A large main-belt asteroid. It crosses the field between exposures; the violet diamond marks where its known orbit puts it in each frame, so a dot sitting on the diamond is the asteroid.",
+   "expected": "Predicted positions from known orbits."
+  }
+ ]
+}
