@@ -34,16 +34,17 @@ SIZE_DEG = 0.06  # 3.6' = 35 px
 RADII = (1.0, 2.0, 3.0, 5.0)
 ANNULUS = (12.0, 17.0)  # px; the CO2 coma reaches >= 3' (Lisse et al. 2025), so this removes some gas
 PIX_ARCSEC = 6.152
+SAMPLING_SYS = 0.15  # fractional, added to each band flux error
 KM_PER_ARCSEC_AU = 725.27
 
 # band: (window um, continuum side windows, polynomial order, line um, g-factor at 1 au, tau at 1 au s)
 # g: Crovisier (1997) / Crovisier database, the values Lisse et al. (2025a,b) used, for comparison.
 # tau: photodissociation lifetimes at 1 au, quiet Sun (Huebner et al. 1992).
 BANDS = {
-    "CO2": dict(band=(4.21, 4.31), sides=[(3.95, 4.15), (4.36, 4.55)], order=1, um=4.26, g1=2.6e-3, tau1=5.0e5),
-    "CO": dict(band=(4.61, 4.73), sides=[(4.45, 4.57), (4.77, 4.98)], order=1, um=4.67, g1=2.6e-4, tau1=1.3e6),
-    "H2O": dict(band=(2.56, 2.86), sides=[(2.30, 2.50), (2.90, 3.05)], order=1, um=2.70, g1=2.9e-4, tau1=8.3e4),
-    "organics_CH": dict(band=(3.25, 3.55), sides=[(3.05, 3.20), (3.60, 3.80)], order=1, um=3.4, g1=None, tau1=None),
+    "CO2": dict(band=(4.17, 4.37), sides=[(3.95, 4.13), (4.40, 4.56)], order=1, um=4.26, g1=2.6e-3, tau1=5.0e5),
+    "CO": dict(band=(4.57, 4.79), sides=[(4.40, 4.55), (4.81, 5.00)], order=1, um=4.67, g1=2.6e-4, tau1=1.3e6),
+    "H2O": dict(band=(2.55, 2.92), sides=[(2.25, 2.52), (2.93, 3.12)], order=1, um=2.70, g1=2.9e-4, tau1=8.3e4),
+    "organics_CH": dict(band=(3.22, 3.60), sides=[(3.00, 3.20), (3.62, 3.80)], order=1, um=3.4, g1=None, tau1=None),
 }
 
 
@@ -157,12 +158,17 @@ def cmd_fit() -> None:
             bands = {}
             for name, b in BANDS.items():
                 ex = M.band_excess(um, flam, elam, b["band"], b["sides"], b["order"])
+                if ex["flux_w_m2"] is not None:
+                    # sampling systematic: 5-8 channel samples per band, channel response not modelled
+                    # snr stays the detection significance (noise only): the sampling systematic
+                    # scales with the band flux and cannot make a band out of nothing
+                    ex["err_total_w_m2"] = float(np.hypot(ex["err_w_m2"], SAMPLING_SYS * abs(ex["flux_w_m2"])))
                 if b["g1"] is not None and ex["flux_w_m2"] is not None:
                     v_kms = 0.85 / np.sqrt(r0)
                     pr = M.production_rate(ex["flux_w_m2"], b["g1"], b["um"], r0, d0, rho_km, v_kms, b["tau1"],
                                            annulus_km=ann_km)
                     ex["Q_per_s"] = pr["Q_per_s"]
-                    ex["Q_err_per_s"] = abs(pr["Q_per_s"] * ex["err_w_m2"] / ex["flux_w_m2"]) if ex["flux_w_m2"] else None
+                    ex["Q_err_per_s"] = abs(pr["Q_per_s"] * ex["err_total_w_m2"] / ex["flux_w_m2"]) if ex["flux_w_m2"] else None
                     ex["Q_3sigma_upper_per_s"] = pr["Q_per_s"] / ex["flux_w_m2"] * 3 * ex["err_w_m2"] if ex["flux_w_m2"] else None
                     ex["haser"] = {k2: pr[k2] for k2 in ("g", "L_km", "v_km_s", "rho_km", "annulus_fraction_lost")}
                 bands[name] = ex
@@ -191,6 +197,11 @@ def cmd_fit() -> None:
                                "annulus is added back with the same Haser model. g1 (photons/s/molecule at 1 au): "
                                "CO2 2.6e-3, CO 2.6e-4, H2O 2.9e-4 (Crovisier 1997, as in Lisse et al.). tau1 (s, "
                                "quiet Sun, Huebner et al. 1992): CO2 5.0e5, CO 1.3e6, H2O 8.3e4.",
+            "errors": "err_w_m2 = measurement errors + side-window jitter (stars crossing the aperture, "
+                      "activity) through the trapezoid weights, plus the continuum error; snr = flux / err_w_m2 "
+                      "(detection significance). err_total_w_m2 adds 15% for the sparse channel sampling. "
+                      "Q_err_per_s scales err_total_w_m2; the "
+                      "g-factors, lifetimes and v add a factor ~2 systematic.",
             "geometry": "JPL Horizons C/2025 N1, geocentre (SPHEREx is in low Earth orbit).",
         },
         "bands": {k: {"band_um": list(v["band"]), "sides_um": [list(s) for s in v["sides"]]} for k, v in BANDS.items()},

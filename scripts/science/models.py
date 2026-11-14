@@ -185,13 +185,18 @@ def neatm_bolometric_w_m2(D_km: float, pv: float, eta: float, r_au: float, delta
 # --- band excess ---------------------------------------------------------------------------
 
 def band_excess(um: ArrayLike, flam: ArrayLike, err: ArrayLike, band: tuple[float, float],
-                sides: list[tuple[float, float]], order: int = 1) -> dict:
-    """Integrated excess (W m^-2) in `band` above a polynomial continuum fit to the `sides` windows.
+                sides: list[tuple[float, float]], order: int = 1, clip: float = 3.0) -> dict:
+    """Integrated excess (W m^-2) in `band` above a polynomial continuum fitted to the `sides` windows.
 
-    flam and err in W m^-2 um^-1 (one value per sample, any spacing). The continuum is a weighted
-    polynomial in wavelength; the excess is (mean residual in the band) x band width, which equals
-    the line flux for a line narrower than the band whatever the channel width, as long as the
-    samples fill the band evenly. The error combines the band scatter and the continuum error.
+    flam and err in W m^-2 um^-1, one value per sample at the channel centre `um` (any spacing).
+    Each sample is the spectrum seen through its channel, so a line of flux F adds F / bw to the
+    channels within ~bw of it: integrating the residual over the channel-centre wavelength gives F
+    whatever the channel width. The integral is a trapezoid over the sorted samples, pinned to 0 at
+    the band edges.
+    Continuum: weighted polynomial with iterative `clip`-sigma rejection (stars crossing the aperture,
+    cosmic rays). Errors: each sample's error plus the extra scatter seen in the side windows
+    (jitter: stars, activity changes), propagated through the trapezoid weights, plus the continuum
+    error over the band.
     """
     um = np.asarray(um, dtype=np.float64)
     y = np.asarray(flam, dtype=np.float64)
@@ -202,35 +207,45 @@ def band_excess(um: ArrayLike, flam: ArrayLike, err: ArrayLike, band: tuple[floa
         side |= (um >= a) & (um <= b)
     side &= ok
     inb = (um >= band[0]) & (um <= band[1]) & ok
-    out = {"band_um": list(band), "n_band": int(inb.sum()), "n_cont": int(side.sum())}
-    if inb.sum() < 2 or side.sum() < order + 2:
+    out: dict = {"band_um": list(band), "n_band": int(inb.sum()), "n_cont": int(side.sum())}
+    if inb.sum() < 1 or side.sum() < order + 2:
         out.update(flux_w_m2=None, err_w_m2=None, snr=None)
         return out
     x0 = float(np.mean(band))
-    A = np.vander(um[side] - x0, order + 1)
-    w = 1 / e[side]
-    coef, *_ = np.linalg.lstsq(A * w[:, None], y[side] * w, rcond=None)
-    res_side = y[side] - A @ coef
-    chi2 = float(np.sum((res_side * w) ** 2) / max(side.sum() - order - 1, 1))
-    cov = np.linalg.inv((A * w[:, None]).T @ (A * w[:, None])) * max(chi2, 1.0)
-    Ab = np.vander(um[inb] - x0, order + 1)
-    cont = Ab @ coef
-    res = y[inb] - cont
-    wb = 1 / e[inb] ** 2
+    use = side.copy()
+    jitter = 0.0
+    for _ in range(10):
+        A = np.vander(um[use] - x0, order + 1)
+        w = 1 / np.sqrt(e[use] ** 2 + jitter**2)
+        coef, *_ = np.linalg.lstsq(A * w[:, None], y[use] * w, rcond=None)
+        res_all = y - np.vander(um - x0, order + 1) @ coef
+        r = res_all[use]
+        mad = 1.4826 * float(np.median(np.abs(r - np.median(r))))
+        jitter = float(np.sqrt(max(mad**2 - np.median(e[use] ** 2), 0.0)))
+        new = side & (np.abs(res_all) <= clip * np.sqrt(e**2 + jitter**2))
+        if new.sum() < order + 2 or np.array_equal(new, use):
+            break
+        use = new
+    A = np.vander(um[use] - x0, order + 1)
+    w = 1 / np.sqrt(e[use] ** 2 + jitter**2)
+    cov = np.linalg.inv((A * w[:, None]).T @ (A * w[:, None]))
+    # trapezoid over the band, pinned to zero residual at both edges
+    o = np.argsort(um[inb])
+    xb = np.concatenate([[band[0]], um[inb][o], [band[1]]])
+    rb = np.concatenate([[0.0], res_all[inb][o], [0.0]])
+    eb = np.concatenate([[0.0], np.sqrt(e[inb][o] ** 2 + jitter**2), [0.0]])
+    wt = np.zeros(xb.size)
+    wt[1:-1] = (xb[2:] - xb[:-2]) / 2
+    flux = float(np.sum(wt * rb))
+    err_meas = float(np.sqrt(np.sum((wt * eb) ** 2)))
     width = band[1] - band[0]
-    mean_res = float(np.sum(res * wb) / np.sum(wb))
-    # error: weighted error of the mean (scaled by the band's own scatter if larger) + continuum
-    n = inb.sum()
-    chi2_b = float(np.sum((res - mean_res) ** 2 * wb) / max(n - 1, 1))
-    err_mean = float(np.sqrt(1 / np.sum(wb) * max(chi2_b, 1.0)))
-    Am = np.mean(Ab, axis=0)
-    err_cont = float(np.sqrt(Am @ cov @ Am))
-    flux = mean_res * width
-    ferr = float(np.hypot(err_mean, err_cont)) * width
-    cont_mean = float(np.mean(cont))
+    Am = np.mean(np.vander(np.linspace(band[0], band[1], 21) - x0, order + 1), axis=0)
+    err_cont = float(np.sqrt(Am @ cov @ Am)) * width
+    ferr = float(np.hypot(err_meas, err_cont))
+    cont_mean = float(Am @ coef)
     out.update(flux_w_m2=flux, err_w_m2=ferr, snr=flux / ferr if ferr > 0 else None,
-               continuum_flam=cont_mean, peak_ratio=float(mean_res / cont_mean) if cont_mean else None,
-               chi2_cont=chi2)
+               continuum_flam=cont_mean, n_cont_used=int(use.sum()), jitter_flam=jitter,
+               peak_residual_flam=float(np.max(res_all[inb])), max_gap_um=float(np.max(np.diff(xb))))
     return out
 
 
