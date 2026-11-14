@@ -8,12 +8,14 @@ import type { Clock, Det, Epoch, FramesResponse, SkyPos, TargetIndex } from "../
 import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
 import type { BlinkHandle, BlinkOptions, MountBlink, View } from "../app/modules";
 import { nearestIndex, type Axis } from "./axis";
+import { SPHEREX_V_LIMIT, seenBySpherex } from "./known";
 import { compass, diamond, flagMark, hatchPattern, label, pencil, reticle, ring, scaleBar } from "./marks";
 import {
   burntCores,
   mean,
   median,
   niceArcsec,
+  noDataAt,
   offset,
   psfSigmaPx,
   robustLimits,
@@ -206,7 +208,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
             <span class="bk-adj-k" id="${uid}-mk">Marks</span>
             <div class="bk-marks" role="group" aria-labelledby="${uid}-mk">
               <button class="bk-mk" type="button" data-ov="gaia" aria-pressed="true"><i class="sw sw-gaia"></i>Gaia</button>
-              <button class="bk-mk" type="button" data-ov="known" aria-pressed="true"><i class="sw sw-known"></i>Known</button>
+              <button class="bk-mk" type="button" data-ov="known" aria-pressed="true"
+                title="Known asteroids and comets bright enough for SPHEREx (V ${SPHEREX_V_LIMIT} or brighter), where their orbits put them"><i class="sw sw-known"></i>Known</button>
+              <button class="bk-mk" type="button" data-ov="faint" aria-pressed="false"
+                title="Also known asteroids fainter than V ${SPHEREX_V_LIMIT}, dashed: usually too faint for SPHEREx to show"><i class="sw sw-known sw-faint"></i>Faint</button>
               <button class="bk-mk" type="button" data-ov="target" aria-pressed="true"><i class="sw sw-target"></i>Target</button>
               <button class="bk-mk" type="button" data-ov="guides" aria-pressed="true"><i class="sw sw-guide"></i>Compass</button>
             </div>
@@ -277,7 +282,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let follow = false;
   let mover: Mover | null = null;
   let shifts: { dx: number; dy: number }[] | null = null;
-  const overlays = { gaia: true, known: true, target: true, guides: true };
+  const overlays = { gaia: true, known: true, faint: false, target: true, guides: true };
   let zoom = 1;
   let centre = { u: 0, v: 0 }; // view centre in image edge coordinates (pixel i spans [i, i+1])
   let playing = false;
@@ -291,6 +296,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let appStatus: { kind: "loading" | "error"; message: string } | null = null;
   let axis: Axis | null = null;
   let shown: Float32Array | null = null;
+  /** The burnt cores painted as ink over `shown` (null in Difference): with it, where the hatch shows. */
+  let shownMask: Uint8Array | null = null;
   let shownSigned = false;
   let shownLim: (Limits & { sigma?: number; n?: number }) | null = null;
   let firstShow = true;
@@ -431,6 +438,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     paint(values, img.data, lut.data, signed ? diffIndex(lim) : plainIndex(lim, stretchKind), mask);
     offCtx.putImageData(img, 0, 0);
     shown = values;
+    shownMask = mask;
     shownSigned = signed;
     shownLim = lim;
     draw();
@@ -559,6 +567,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       return dark(x0, y0) ? (rs[1] + rs[2]) / 2 : 0;
     };
 
+    /** No ring or diamond over the hatched no-data area (past the detector's edge): nothing to mark there. */
+    const hatched = (px: { x: number; y: number }): boolean =>
+      !!shown && shown.length === nx * ny && noDataAt(shown, shownMask, nx, ny, px.x, px.y);
+
     // The target: the reticle opens wider than its dot. Gaia's own ring for it would crowd it.
     const targetPos = e?.center ?? (view.slug ? { ra: view.ra, dec: view.dec } : F.center);
     const tpx = skyToPixel(targetPos, F, c);
@@ -579,6 +591,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           return { s, px, p: toScreen(px, vp) };
         })
         .filter((o) => inView(o.p))
+        .filter((o) => !hatched(o.px))
         .filter((o) => !overlays.target || Math.hypot(o.p.X - tp.X, o.p.Y - tp.Y) > gap)
         .filter((o) => (o.s.g ?? 99) <= faintG || standsOut(o.px.x, o.px.y))
         .sort((a, b) => (a.s.g ?? 99) - (b.s.g ?? 99))
@@ -608,18 +621,30 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
     if (overlays.known && e) {
       const violet = pen("--pencil-violet");
-      const list = F.known.filter((k) => k.epoch_id === e.id || k.epoch_id === null);
       const r = Math.max(6, Math.min(16, psf * 0.9));
       ctx.font = `600 11px ${fontFamily}`;
+      // Only what SPHEREx can show (V ≤ 18, or a comet), unless Faint is on; only in view, not over
+      // the no-data hatch, and not the target itself (a comet or asteroid the frames follow: the
+      // reticle already marks it). Names when few diamonds are drawn.
+      const list = F.known
+        .filter((k) => (k.epoch_id === e.id || k.epoch_id === null) && (overlays.faint || seenBySpherex(k)))
+        .map((k) => {
+          const px = skyToPixel(k, F!, c);
+          return { k, px, p: toScreen(px, vp) };
+        })
+        .filter((o) => inView(o.p, 0) && !hatched(o.px))
+        .filter((o) => !overlays.target || Math.hypot(o.p.X - tp.X, o.p.Y - tp.Y) >= gap);
       const named = list.length <= 8;
-      for (const k of list) {
-        const p = toScreen(skyToPixel(k, F, c), vp);
-        if (!inView(p, 0)) continue;
-        // The target itself (a comet or asteroid the frames follow): the reticle already marks it.
-        if (overlays.target && Math.hypot(p.X - tp.X, p.Y - tp.Y) < gap) continue;
+      for (const { k, p } of list) {
+        const faint = !seenBySpherex(k);
         diamond(ctx, p.X, p.Y, r);
-        pencil(ctx, violet);
-        if (named) label(ctx, k.name, p.X + r + 5, p.Y + 4, violet, halo);
+        if (faint) {
+          ctx.save();
+          ctx.setLineDash([3, 2.5]);
+          pencil(ctx, violet, 1.4, 0.7);
+          ctx.restore();
+        } else pencil(ctx, violet);
+        if (named) label(ctx, faint && k.v != null ? `${k.name} V ${k.v.toFixed(1)}` : k.name, p.X + r + 5, p.Y + 4, violet, halo);
       }
     }
 
