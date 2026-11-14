@@ -280,3 +280,43 @@ FORCED_CATWISE_W1_W2_MIN = 0.4
 FORCED_DEDUP_ARCSEC = 2.0
 FORCED_MAX_PER_PHOTO = 30_000  # in a 3.5° x 3.5° photo-sized box inside the zone
 PHOTO_SIDE_DEG = 3.5
+
+# --- pilot fixes (14 Nov): light-curve error model, band labels, fast-mover vetting ----------
+# lightcurves: per (detector, origin) σ_cal² = (k σ)² + (floor · model)², fitted on the Gaia-matched light curves
+# (lightcurves.py docstring). Pilot: the quoted errors gave median chi2_nu 1.96 (dots) / 1.28 (forced).
+LC_ERR_MODEL = True            # False: k = 1, floor = 0 (the quoted errors)
+LC_ERR_MIN_GROUPS = 30         # light curves needed per (detector, origin): Gaia-matched first, else all, else no model
+LC_ERR_SNR_BINS = 10           # S/N quantile bins for the shape (k vs floor)
+LC_ERR_MIN_BIN_POINTS = 200    # points needed in a bin
+LC_ERR_K_GRID = (0.5, 3.0, 0.01)       # grid (lo, hi, step) for k ...
+LC_ERR_FLOOR_GRID = (0.0, 0.15, 0.001)  # ... and for the fractional floor, before the median-chi2 rescale
+LC_PHOTO_MAX_MEDIAN_CHI = 2.0  # a photo whose Gaia-matched points sit this far off as a group (median σ_cal) ...
+LC_PHOTO_MIN_REF = 10          # ... over at least this many of them is left out of chi2_nu / scatter (photo_ok false)
+LC_VARIABLE_DROP_WORST = 1     # `variable` tests chi2_nu without each light curve's worst point(s): one hit isn't variability
+# classify: band labels the web shows instead of raw <index>_sig (classify.band_labels). Pilot (INDEX_SIG = 5, sig alone):
+# water ice fired on 372 sources (206 of 230 Gaia ones with BP − RP > 2: M dwarfs' own water vapour; 140 no-Gaia, mostly
+# galaxies' 1.6 µm bump and PAH), methane on 50 (15 Gaia stars: impossible). Each label = sig >= INDEX_SIG, depth >= the
+# minimum below, not saturated, plus the physical guards.
+LABEL_SUPPORT_SIG = 3.0        # "significant" for a supporting or vetoing band
+LABEL_MIN_DEPTH = {            # index depth (or PAH excess) needed for a label
+    "h2o_ice_305": 0.10, "co2_ice_427": 0.10, "co_ice_467": 0.10,
+    "ch4_33": 0.25, "ch4_16": 0.15,      # = BD_CH4_*_MIN_DEPTH: T dwarfs have deep methane
+    "h2o_14": 0.05, "h2o_19": 0.05, "co_23": 0.05, "pah_33": 0.10,
+}
+LABEL_ICE_MAX_BP_RP = 2.0      # ice: Gaia stars redder than this are M dwarfs (water vapour at 2.7–3.2 µm), not ice
+LABEL_ICE_MAX_EXT = 1.0        # ice: point-like (extended_score <= this; NaN passes): a star behind a cloud
+LABEL_ICE_MIN_J_M46 = 0.0      # ice: reddened by the cloud (J − [4.6] AB >= this; bare photospheres −1.4 to −2.4, M dwarfs −1.3)
+LABEL_CH4_MIN_G = 19.5         # methane: no Gaia counterpart, or fainter than this
+# highpm vetting: every candidate is kept; `vetted` false and `reason` (comma list) say why it was cut. Pilot: 241
+# candidates, the 10 "new" all artefacts (9 fits at 5,000–11,000 ± 900–2,200 mas/yr on 6–13 dots, sitting on a slow
+# CatWISE source; 1 pair at 171″/yr), and pairs at the control level (12 real vs 13 chance).
+HIGHPM_FIT_MIN_VISITS = 2      # fit: proper motion needs two visits ...
+HIGHPM_FIT_MIN_SPAN_YR = 0.25  # ... this far apart
+HIGHPM_FIT_MIN_DOTS = 20       # fit: fewer dots is a barely-detected source (pilot artefacts had 6–13; median source 120)
+HIGHPM_FIT_MAX_CHI2_NU = 5.0   # fit: astrometric chi2_nu above this is a blend or a bad fit
+HIGHPM_FIT_MAX_PM_MAS_YR = 10_500.0  # fit: faster than Barnard's Star (10.4″/yr, the fastest known star) is not a star
+HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees when |Δpm| > max(this × pm_err,
+                               # HIGHPM_CATWISE_PM_TOL × pm, 100 mas/yr): the counterpart is a slow star, ours is an artefact
+HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
+HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
+HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls
