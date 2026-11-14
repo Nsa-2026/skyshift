@@ -16,11 +16,12 @@ import { kindIcon, renderCandidate, renderTarget, type DrawerHandle } from "./dr
 import { createFallbackMap } from "./fallback";
 import { parseState, sameState, stateHash, type AtlasState } from "./hash";
 import { binCandidates, rampLabels, rampSteps, zoneBoxes, type Cell, type ZoneBox } from "./heat";
-import { KINDS, KIND_TEXT, countSentence, isLikelyMismatch, oneLine, plural, zoneName } from "./kinds";
+import { KINDS, KIND_TEXT, countSentence, isLikelyMismatch, oneLine, plural, shownSentence, zoneName } from "./kinds";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
 import { cellSideDeg } from "./healpix";
+import { liveLine, loadSearch, loadZoneSuspects, provisionalZone, type ProvisionalSet, type SearchLayer } from "./search";
 
 const html = String.raw;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -65,7 +66,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <span class="atl-lede-2">Zoom into a red patch, click a signal, and help decide what it is.</span>
       </h1>
       <div class="atl-intro-side">
-        <p class="atl-count" data-count aria-live="polite">Loading candidates…</p>
+        <div class="atl-count-box">
+          <p class="atl-count" data-count aria-live="polite">Loading candidates…</p>
+          <a class="atl-live" href="#/live" data-live hidden></a>
+        </div>
         <a class="btn btn-primary atl-start" href="#/review">Start reviewing</a>
       </div>
     </div>
@@ -118,6 +122,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <button class="atl-switch" type="button" data-mismatch aria-pressed="false"
           title="Moving stars faster than any star can move: almost certainly two different sources paired by mistake">Likely mismatches</button>
       </div>
+      <div class="atl-more-row">
+        <button class="atl-switch" type="button" data-layer="search" aria-pressed="true"
+          title="The whole-sky run's zones along the ecliptic, shaded by how far tonight's search has got">Tonight's search</button>
+        <button class="atl-switch" type="button" data-layer="provisional" aria-pressed="true"
+          title="Zoomed into a searched zone: its suspects so far, as dashed rings. Not candidates: the WISE check still has to remove most of them">Provisional suspects</button>
+      </div>
     </div>
     <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
 
@@ -167,6 +177,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const mapEl = q<HTMLDivElement>("[data-map]");
   const note = q<HTMLDivElement>("[data-note]");
   const countEl = q<HTMLParagraphElement>("[data-count]");
+  const liveEl = q<HTMLAnchorElement>("[data-live]");
   const statusEl = q<HTMLParagraphElement>("[data-status]");
   const msgEl = q<HTMLParagraphElement>("[data-msg]");
   const tip = q<HTMLDivElement>("[data-tip]");
@@ -197,7 +208,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   // ---- state ---------------------------------------------------------------------------------
   let state: AtlasState = { ra: 0, dec: 0, fov: WHOLE_FOV, gal: false, mol: false, kinds: [...KINDS] };
-  let layers: Layers = { heat: true, zones: true, signals: true, background: "spherex", negative: true };
+  let layers: Layers = { heat: true, zones: true, signals: true, search: true, provisional: true, background: "spherex", negative: true };
+  /** Tonight's search (the sky run's progress file), refreshed every minute while the page shows. */
+  let search: SearchLayer | null = null;
+  /** The provisional suspects of the combined zone in view, when zoomed in on one. */
+  let provisional: ProvisionalSet | null = null;
   let data: AtlasData | null = null;
   let shown: Candidate[] = [];
   let zones: ZoneBox[] = [];
@@ -225,7 +240,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   };
 
   function model(): MapModel {
-    return { candidates: shown, cellsAt, zones, targets: TARGETS, selectedId: selected?.id ?? null, layers };
+    return { candidates: shown, cellsAt, zones, targets: TARGETS, selectedId: selected?.id ?? null, layers, search, provisional };
   }
 
   /** Likely mismatches (implausible_pm) stay off the map unless Adjust turns them on. */
@@ -238,6 +253,125 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     cellCache.clear();
     if (selected && !onMap(selected)) closeDrawer();
   }
+
+  // ---- tonight's search --------------------------------------------------------------------
+  const SEARCH_EVERY_MS = 60_000;
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  let searchAbort: AbortController | null = null;
+  let searchAt = 0;
+  /** Suspects per suspects_url and check, so panning about a zone fetches its list once. */
+  const provCache = new Map<string, Promise<ProvisionalSet["suspects"]>>();
+  let provWant: string | null = null;
+
+  const live = () => !destroyed && visible && !(typeof document !== "undefined" && document.hidden);
+
+  function renderLive() {
+    liveEl.hidden = !search;
+    if (!search) return;
+    liveEl.textContent = liveLine(search);
+    const when = search.updated != null ? new Date(search.updated) : null;
+    const at = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) : null;
+    liveEl.title = `${at ? `As of ${at} UTC. ` : ""}Open the live search.`;
+  }
+
+  function stopSearch() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = null;
+    searchAbort?.abort();
+    searchAbort = null;
+  }
+
+  function scheduleSearch(ms = SEARCH_EVERY_MS) {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = live() ? setTimeout(() => void refreshSearch(), ms) : null;
+  }
+
+  /** Load the progress file now; on success redraw, on failure keep the last good layer. */
+  async function refreshSearch() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = null;
+    if (!live()) return;
+    searchAbort?.abort();
+    const ac = new AbortController();
+    searchAbort = ac;
+    try {
+      const next = await loadSearch(ac.signal);
+      if (ac.signal.aborted || destroyed) return;
+      search = next;
+      searchAt = Date.now();
+      renderLive();
+      map?.update(model());
+      renderKey();
+      if (map) updateProvisional(map.view());
+    } catch (e) {
+      if (ac.signal.aborted || destroyed) return;
+      if (import.meta.env.DEV) console.warn("Sky: tonight's search didn't load.", e);
+    } finally {
+      if (searchAbort === ac) {
+        searchAbort = null;
+        scheduleSearch();
+      }
+    }
+  }
+
+  /** Back on the page (or the tab): refresh if the last load is a minute old, else wait out the rest. */
+  function resumeSearch() {
+    if (!live()) return;
+    const age = Date.now() - searchAt;
+    if (age >= SEARCH_EVERY_MS) void refreshSearch();
+    else if (!searchAbort) scheduleSearch(SEARCH_EVERY_MS - age);
+  }
+
+  const onVisibility = () => (document.hidden ? stopSearch() : resumeSearch());
+  document.addEventListener("visibilitychange", onVisibility);
+
+  function setProvisional(next: ProvisionalSet | null) {
+    if (next === provisional) return;
+    provisional = next;
+    map?.update(model());
+    renderKey();
+    if (map) renderStatus(map.view());
+  }
+
+  /** Zoomed in (< 8°) on a combined zone of tonight's run: load and show its provisional suspects. */
+  function updateProvisional(v: MapView) {
+    const z = layers.provisional && showsSignals(levelFor(v.fov)) ? provisionalZone(search, v, data?.zones ?? []) : null;
+    if (!z || !z.suspectsUrl) {
+      provWant = null;
+      setProvisional(null);
+      return;
+    }
+    // The list is rewritten when the WISE check runs: a new key then, so it's fetched again.
+    const url = z.suspectsUrl;
+    const key = `${url}#${z.provisional ? "gaia" : "wise"}`;
+    if (provWant === key) return;
+    provWant = key;
+    let p = provCache.get(key);
+    if (!p) {
+      p = loadZoneSuspects(url);
+      provCache.set(key, p);
+      p.catch(() => provCache.delete(key));
+    }
+    p.then(
+      (suspects) => {
+        if (destroyed || provWant !== key) return;
+        setProvisional({ zone: z.name, suspects, provisional: z.provisional });
+      },
+      () => {
+        if (destroyed || provWant !== key) return;
+        setProvisional(null);
+      },
+    );
+  }
+
+  /** "41 provisional suspects (dashed), before the WISE check." for the status line. */
+  function provisionalSentence(): string {
+    if (!provisional || !layers.provisional || !showsSignals(level) || !provisional.suspects.length) return "";
+    const n = plural(provisional.suspects.length, "provisional suspect", "provisional suspects");
+    return ` Dashed: ${n} in ${zoneLabel(provisional.zone)}, ${provisional.provisional ? "before the WISE check" : "after the WISE check, not yet reviewed"}.`;
+  }
+
+  const zoneLabel = (name: string) => (/^ecl/i.test(name) ? `zone ${name}` : zoneName(name));
 
   // ---- URL -----------------------------------------------------------------------------------
   let hashTimer: ReturnType<typeof setTimeout> | null = null;
@@ -297,11 +431,29 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         })
         .join(" ");
       keyEl.innerHTML = `Red cells: candidates per ${side >= 3 ? Math.round(side) : side.toFixed(1)}° cell, ${sw}. ${
-        layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far. ` : ""
-      }${kindIcon("target", 16)} Featured targets.`;
+        layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones with candidates. ` : ""
+      }${kindIcon("target", 16)} Featured targets.${searchKey()}`;
     } else {
-      keyEl.innerHTML = `${KINDS.map((k) => `${kindIcon(k, 16)} ${KIND_TEXT[k].name}`).join(", ")}, ${kindIcon("target", 16)} featured target. A moving star's arrow shows where it will be in 100 years.`;
+      keyEl.innerHTML = `${KINDS.map((k) => `${kindIcon(k, 16)} ${KIND_TEXT[k].name}`).join(", ")}, ${kindIcon("target", 16)} featured target. A moving star's arrow shows where it will be in 100 years.${provisionalKey()}`;
     }
+  }
+
+  /** The faint zones along the ecliptic, when tonight's search is on the map. */
+  function searchKey(): string {
+    if (!search || !layers.search) return "";
+    const sw = (state: string) => `<span class="atl-key-search is-${state}" aria-hidden="true"></span>`;
+    const deferred = search.deferred ? `, ${sw("deferred")}crowded, left for last` : "";
+    const failed = search.failed ? `, ${sw("failed")}failed` : "";
+    return ` <span class="atl-key-group">Tonight's search along the ecliptic: ${sw("queued")}waiting, ${sw("extracting")}being searched, ${sw("combined")}searched (redder: more suspects)${deferred}${failed}. <a href="#/live">Live search</a></span>`;
+  }
+
+  /** Close in on a zone of tonight's run: what the dashed rings are, and aren't. */
+  function provisionalKey(): string {
+    if (!provisional || !layers.provisional || !provisional.suspects.length) return "";
+    const note = !provisional.provisional ? "" : (search?.provisionalNote ?? "Checked against Gaia only; the WISE check in the final pass removes most of them.");
+    return ` <span class="atl-key-group"><span class="atl-key-prov" aria-hidden="true"></span>Dashed rings: tonight's suspects in ${esc(zoneLabel(provisional.zone))}, ${
+      provisional.provisional ? "provisional, before the WISE check" : "after the WISE check, not yet reviewed"
+    }. Not candidates. ${esc(note)}</span>`;
   }
 
   function renderStatus(v: MapView) {
@@ -312,13 +464,20 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       return;
     }
     if (level === "whole") {
-      statusEl.textContent = `${countSentence(shown.length, zones.length)}. Zoom into a red patch.`;
+      // Say why the map holds fewer than the intro's total when likely mismatches are hidden.
+      const hidden = mismatches ? 0 : data.candidates.filter((c) => state.kinds.includes(c.kind) && isLikelyMismatch(c)).length;
+      statusEl.textContent = `${shownSentence(shown.length, hidden, zones.length)} Zoom into a red patch.`;
     } else if (level === "mid") {
       const n = map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }).length : 0;
       statusEl.textContent = n ? `${plural(n, "candidate", "candidates")} in view. Zoom in to see each one.` : "No candidates here. Zoom out to find a red patch.";
     } else {
       const n = map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }).length : 0;
-      statusEl.textContent = n ? `${plural(n, "signal", "signals")} in view. Click one to preview its blink.` : "No signals here. Zoom out to find a red patch.";
+      const prov = provisionalSentence();
+      statusEl.textContent = n
+        ? `${plural(n, "signal", "signals")} in view. Click one to preview its blink.${prov}`
+        : prov
+          ? `No candidates here.${prov}`
+          : "No signals here. Zoom out to find a red patch.";
     }
     void v;
   }
@@ -371,6 +530,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (viewRaf) clearTimeout(viewRaf);
     viewRaf = setTimeout(() => {
       viewRaf = null;
+      updateProvisional(v);
       renderStatus(v);
       renderList();
     }, 120);
@@ -634,6 +794,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   async function start(param: string | null) {
     started = true;
+    // Tonight's search loads beside the candidates; the map takes it whenever it comes.
+    void refreshSearch();
     try {
       data = await loadAtlasData();
     } catch {
@@ -736,11 +898,15 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   });
   el.querySelectorAll<HTMLButtonElement>("[data-layer]").forEach((b) =>
     b.addEventListener("click", () => {
-      const key = b.dataset.layer as "heat" | "zones" | "signals";
+      const key = b.dataset.layer as "heat" | "zones" | "signals" | "search" | "provisional";
       layers = { ...layers, [key]: !layers[key] };
       b.setAttribute("aria-pressed", String(layers[key]));
       map?.update(model());
       renderKey();
+      if (map && key === "provisional") {
+        updateProvisional(map.view());
+        renderStatus(map.view());
+      }
     }),
   );
 
@@ -905,6 +1071,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         void start(param);
         return;
       }
+      resumeSearch();
       const next = parseState(param);
       if (next) {
         if (!sameState(next, state)) applyState(next, wasVisible);
@@ -920,13 +1087,16 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       visible = false;
       drawer?.pause();
       hideTip();
+      stopSearch();
       if (hashTimer) clearTimeout(hashTimer);
     },
     destroy() {
       destroyed = true;
+      stopSearch();
       drawer?.destroy();
       map?.destroy();
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", onVisibility);
       removeEventListener("resize", onResize);
       ro?.disconnect();
       if (hashTimer) clearTimeout(hashTimer);

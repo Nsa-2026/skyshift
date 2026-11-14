@@ -11,6 +11,7 @@ import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor
 import { oneLine, zoneName } from "./kinds";
 import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, drawLabel, drawSignal, drawTarget, nearestHit, paToScreen, type Ink, type Vec } from "./marks";
+import { paintSearch, type SearchInk } from "./searchdraw";
 import { offsetPa, sepDeg } from "./sphere";
 import { LABEL_MIN_PX, WHOLE_FOV, cellPx, heatOrder, levelFor, showsHeat, showsSignals, type Level } from "./zoom";
 
@@ -45,6 +46,8 @@ const LAYERS: Record<BackgroundId, SkyLayer> = { spherex: SPHEREX, "2mass": TWO_
 export const SPHEREX_FRAME = cubeFrameForDet(3);
 /** The negative sits on the white mat at this opacity: a soft plate, so the pencil reads first. */
 const NEGATIVE_OPACITY = 0.62;
+/** Radius of a provisional suspect's dashed grey ring, px (a candidate's mark is solid pencil). */
+const PROV_R = 6;
 
 function token(name: string, fallback: string): string {
   try {
@@ -272,13 +275,33 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     drawTarget(ctx, ink, s.x, s.y, level === "whole" && host.clientWidth < 640 ? null : t.short, s.x > width * 0.78 ? "left" : "right");
   };
 
+  /** A provisional suspect: a small dashed grey ring, never a pencil mark (it is not a candidate). */
+  const provisionalShape: ShapeFn = (s, ctx) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, PROV_R, 0, Math.PI * 2);
+    // A faint halo so the ring reads over the stars, then the dashed ring itself.
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = layers.negative ? ink.glass : "#000";
+    ctx.stroke();
+    ctx.globalAlpha = 0.85;
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = layers.negative ? ink.ink2 : ink.glass;
+    ctx.stroke();
+    ctx.restore();
+  };
+
   const labelCat = A.catalog({ name: "Labels", shape: labelShape, sourceSize: 8 }) as AladinCatalog;
+  const provisionalCat = A.catalog({ name: "Provisional suspects", shape: provisionalShape, sourceSize: 10 }) as AladinCatalog;
   const signalCat = A.catalog({ name: "Signals", shape: signalShape, sourceSize: 20 }) as AladinCatalog;
   const targetCat = A.catalog({ name: "Featured targets", shape: targetShape, sourceSize: 18 }) as AladinCatalog;
 
   al.addOverlay(heatOv);
   al.addOverlay(zoneOv);
   // Labels last, so a name is never crossed out by a mark beside it.
+  al.addCatalog(provisionalCat);
   al.addCatalog(targetCat);
   al.addCatalog(signalCat);
   al.addCatalog(labelCat);
@@ -361,6 +384,13 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     signalCat.addSources(model.candidates.map((c) => A.source(c.ra, c.dec, { c, id: c.id })));
   }
 
+  function drawProvisional() {
+    provisionalCat.removeAll();
+    const p = model?.provisional;
+    if (!p || !model?.layers.provisional || !showsSignals(level)) return;
+    provisionalCat.addSources(p.suspects.map((x) => A.source(x.ra, x.dec, { id: x.id })));
+  }
+
   function drawTargets() {
     targetCat.removeAll();
     if (!model) return;
@@ -376,6 +406,42 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
         /* next frame will show it */
       }
     }
+  }
+
+  // ---- tonight's search: a canvas between the survey and Aladin's overlays ----------------------
+  const searchInk: SearchInk = {
+    ink: ink.ink,
+    red: ink.red,
+    blue: token("--pencil-blue", "#2556c8"),
+    grey: token("--ink-3", "#78818f"),
+    warn: token("--warn", "#b4232f"),
+  };
+  const searchCanvas = document.createElement("canvas");
+  searchCanvas.className = "atl-searchcanvas";
+  searchCanvas.setAttribute("aria-hidden", "true");
+  // Just above the survey image and below the canvas Aladin draws its overlays and marks on.
+  const imageCanvas = mapEl.querySelector(".aladin-imageCanvas");
+  if (imageCanvas?.parentElement) imageCanvas.after(searchCanvas);
+  else mapEl.appendChild(searchCanvas);
+
+  function drawSearch() {
+    const w = mapEl.clientWidth;
+    const h = mapEl.clientHeight;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.round(w * dpr);
+    const H = Math.round(h * dpr);
+    if (searchCanvas.width !== W || searchCanvas.height !== H) {
+      searchCanvas.width = W;
+      searchCanvas.height = H;
+    }
+    const ctx = searchCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const layer = model?.search;
+    if (!layer || !model?.layers.search || !showsHeat(level) || !(w > 0)) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paintSearch(ctx, layer, (ra, dec) => rawScreen({ ra, dec }), searchInk, { w, h });
   }
 
   // ---- view changes: at most once per frame ------------------------------------------------
@@ -454,9 +520,13 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
         level = nextLevel;
         order = nextOrder;
         drawHeat();
-        if (signalsChanged) drawSignals();
+        if (signalsChanged) {
+          drawSignals();
+          drawProvisional();
+        }
         drawTargets();
       }
+      drawSearch();
       cb.onView(v);
     });
   }
@@ -574,6 +644,8 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       }
       if (!prev || prev.candidates !== m.candidates || prev.layers.signals !== m.layers.signals) drawSignals();
       if (!prev || prev.targets !== m.targets) drawTargets();
+      if (!prev || prev.provisional !== m.provisional || prev.layers.provisional !== m.layers.provisional) drawProvisional();
+      if (!prev || prev.search !== m.search || prev.layers.search !== m.layers.search) drawSearch();
       if (prev && prev.selectedId !== m.selectedId) repaint();
     },
     view,
@@ -644,6 +716,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       mapEl.removeEventListener("mouseleave", onMouseLeave);
       ro?.disconnect();
       limb.remove();
+      searchCanvas.remove();
       mapEl.remove();
     },
   };

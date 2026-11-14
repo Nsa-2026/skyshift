@@ -3,6 +3,7 @@
 import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
 import type { Cell, ZoneBox } from "./heat";
+import type { ProvisionalSet, SearchLayer } from "./search";
 
 export interface MapView extends SkyPos {
   /** Field of view across the map's long side, degrees. */
@@ -18,6 +19,10 @@ export interface Layers {
   background: BackgroundId;
   /** Plate negative (dark stars on light glass), the default; false shows the survey's own colours. */
   negative: boolean;
+  /** Tonight's search: the run's zones by state, far out. */
+  search: boolean;
+  /** A combined zone's provisional suspects, close in. */
+  provisional: boolean;
 }
 
 export interface MapModel {
@@ -29,6 +34,10 @@ export interface MapModel {
   targets: readonly Target[];
   selectedId: string | null;
   layers: Layers;
+  /** Tonight's search (null until the progress file has loaded, or when it can't be read). */
+  search: SearchLayer | null;
+  /** Provisional suspects of the combined zone in view, or null. */
+  provisional: ProvisionalSet | null;
 }
 
 export interface MapCallbacks {
