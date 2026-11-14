@@ -69,12 +69,17 @@ export function mjdToDate(mjd: number): Date {
   return new Date((mjd - 40587) * 86400000);
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "13 Sep 2025", or "13 Sep 2025, 04:27 UTC". Fixed month names: current en-GB locale data says
+ * "Sept", which disagreed with the plate label and the time strip ("Sep"). */
 export function formatMjd(mjd: number, withTime = false): string {
   const d = mjdToDate(mjd);
-  const opts: Intl.DateTimeFormatOptions = withTime
-    ? { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }
-    : { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" };
-  return d.toLocaleString("en-GB", opts) + (withTime ? " UTC" : "");
+  const day = `${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  if (!withTime) return day;
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${day}, ${hh}:${mm} UTC`;
 }
 
 /** Sexagesimal for display: 08h55m10.8s −07°14′42″. */

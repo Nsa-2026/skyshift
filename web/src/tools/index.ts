@@ -6,7 +6,7 @@ import "./tools.css";
 import "../prefs/details";
 import { ApiFailure, loadCandidates, loadFrames, loadSuspects, loadValidation } from "../api/client";
 import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationResponse } from "../api/types";
-import { mjdToDate } from "../app/astro";
+import { formatMjd } from "../app/astro";
 import type { MountPage, PageContext } from "../app/modules";
 import { TARGETS, featuredNear } from "../app/state";
 import { BATCH_LIMIT, type BatchResult, type BatchRow, batchCSV, blinkHref, decimalText, parseBatch, rowStatus, sexagesimal, skyHref } from "./batch";
@@ -77,8 +77,7 @@ export function formatWhen(iso: string | null | undefined): string {
   }) + (dateOnly ? "" : " UTC");
 }
 
-const fmtDay = (mjd: number) =>
-  mjdToDate(mjd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const fmtDay = (mjd: number) => formatMjd(mjd);
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
 
