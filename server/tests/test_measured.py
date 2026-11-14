@@ -399,3 +399,34 @@ def test_photo_keys_and_exposure_ids():
     meta = _months_meta()
     keys = M.photo_keys({"d2-v1": [f"O{i}D2" for i in range(30)], "d2-v2": ["P1D2"]}, meta)
     assert len(keys) == M.MONTHS_MAX_PHOTOS_PER_VISIT + 1 and keys[0] == "O0D2" and "O29D2" in keys
+
+
+def test_fragments_tags_v3_11(root):
+    """results/<zone>/fragments.parquet (contracts v3.11): a bright_fragment becomes an artifact naming its parent star,
+    a blend keeps its class and names its Gaia stars; without the file nothing changes (no new fields)."""
+    m0, _ = M.build(_hours_meta(KNOWN), root=root)
+    assert all("parent_gaia_id" not in d and "blend_gaia_ids" not in d for d in m0["detections"])
+    _write(Path(root) / "results" / "zz" / "fragments.parquet", {
+        "source_id": np.array([111, 222, 333], np.int64), "tag": ["blend", "bright_fragment", ""],
+        "parent_gaia_id": np.array([-1, 4242424242424242424, -1], np.int64),
+        "blend_ids": pa.array([[4242424242424242424, 7], [], []], pa.list_(pa.int64()))})
+    M.reset()
+    m, reason = M.build(_hours_meta(KNOWN), root=root)
+    assert reason is None
+    frag = _find(m, "d2-OBS_1", S2)
+    assert frag["class"] == "artifact" and frag["reasons"] == ["bright_fragment"] and frag["source_id"] == 222
+    assert frag["parent_gaia_id"] == "4242424242424242424" and frag["blend_gaia_ids"] is None
+    star = _find(m, "d2-OBS_1", S1)
+    assert star["class"] == "star" and star["reasons"] == ["blend"]
+    assert star["blend_gaia_ids"] == ["4242424242424242424", "7"] and star["parent_gaia_id"] is None
+    sus = _find(m, "d2-OBS_1", MOVER_A)  # not a linked source: unchanged, the fields null
+    assert sus["class"] == "suspect" and sus["parent_gaia_id"] is None and sus["blend_gaia_ids"] is None
+    assert m["counts"]["artifact"] == m0["counts"]["artifact"] + 1 and m["counts"]["other"] == m0["counts"]["other"] - 1
+    json.dumps(m, allow_nan=False)
+    keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
+    mm, _ = M.build(_months_meta(), keys, root=root)
+    v1 = {d["source_id"]: d for d in mm["detections"] if d["epoch_id"] == "d2-v1"}
+    assert v1[222]["class"] == "artifact" and v1[222]["reasons"] == ["bad_fit", "few_dots", "bright_fragment"]
+    assert v1[222]["parent_gaia_id"] == "4242424242424242424"
+    assert v1[111]["class"] == "star" and v1[111]["reasons"] == ["blend"]
+    assert v1[333]["class"] == "suspect" and v1[333]["reasons"] == [] and v1[333]["blend_gaia_ids"] is None
