@@ -39,6 +39,13 @@ ZONES: dict[str, Zone] = {
     "t_nep": Zone("t_nep", 269.372, 270.628, 66.31, 66.81),          # north ecliptic pole
     "t_sep": Zone("t_sep", 89.372, 90.628, -66.81, -66.31),          # south ecliptic pole
     "t_ngp": Zone("t_ngp", 192.579, 193.141, 26.88, 27.38),          # north Galactic pole
+    # featured star targets (web/src/data/targets.json): 1.2° boxes around the Gaia 2016 position; the photo list is
+    # cut to the photos their static frames use (14 Nov evening), so the blink can show what SkyShift measured there
+    "t_barnard": Zone("t_barnard", 268.846, 270.051, 4.139, 5.339),           # Barnard's Star
+    "t_epsindib": Zone("t_epsindib", 329.981, 332.172, -57.394, -56.194),     # Epsilon Indi B
+    "t_wise0855": Zone("t_wise0855", 133.178, 134.387, -7.844, -6.644),       # WISE 0855-0714
+    "t_rwaur": Zone("t_rwaur", 76.260, 77.652, 29.801, 31.001),               # RW Aurigae
+    "t_rdra": Zone("t_rdra", 246.647, 249.688, 66.155, 67.355),               # R Draconis
 }
 
 # Sky run (14 Nov): 10° x 10° zones stacked along the ecliptic, aligned on the hunt zone. Column k covers
@@ -521,3 +528,130 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
                                # from a sample of the files, plus as much again for the tiles' own files); otherwise the tiles
                                # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
                                # slim dots + 1.9 GB forced on a 30 GB boot disk
+
+# --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
+# NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
+# the zone's other photos of its detector, from the dot files' footers (contracts/dots.md photo metadata), calib's
+# per-photo scatter and, where the dot files are local, 5 dot columns. A reason fires at amber or red; the grade is the
+# worst. Numbers measured on 14 Nov (hunt calib_photos; 1,209 ecl15 photos' footers; 216 photos' bright dots).
+QA_FOOTER_TAIL_BYTES = 72 * 1024  # one ranged read per dot file (footers ~65 KB with the grids); a longer footer: a second
+QA_THREADS = 32                # footer / dot-column reads in parallel
+QA_SHAPES = os.environ.get("SKYSHIFT_QA_SHAPES", "auto")  # dot columns for the sharp-artefact share: auto = only when the
+                               # dot files are on local disk (tiled run's slim mirror, local root), on, off
+QA_MIN_PHOTOS = 5              # a detector (or detector-and-visit) median needs this many photos, else the defaults below
+QA_MIN_BRIGHT = 20             # bright dots (unsaturated, S/N > CALIB_PSF_MIN_SNR) a photo needs for its PSF numbers
+QA_FWHM_REF_ARCSEC = {1: 7.8, 2: 7.8, 3: 8.0, 4: 9.1, 5: 9.1, 6: 9.5}  # stellar FWHM from second moments (ecl15 medians;
+                               # used only when the zone has too few photos of the detector)
+QA_PSF_AP_REF = 1.035          # median PSF / r = 2 px aperture flux of stars (ePSF aperture correction 1.033)
+# dots per photo / median of the same detector and visit (ecl15: p1 0.89, p99 1.18; SAA: D6 3.5× at 1.2°, D5 1.6–1.9×
+# within 2°, D5 1.45× at 70°). Red needs less near the SAA, where the extra dots are particle hits.
+QA_DOTS_RATIO_RED = 2.0
+QA_DOTS_RATIO_RED_SAA = 1.5
+QA_DOTS_RATIO_AMBER = 1.35
+QA_DOTS_RATIO_LOW = 0.5        # amber below (part of the photo empty)
+QA_SAA_DEG = 2.0               # header SGT_MIN_GCD2SAA below this: amber, and the lower red threshold above
+QA_SATSTRKS_AMBER = 15         # header `L2 SATSTRKS` (ecl15: median 1, p99 11, 34 on the SAA photo)
+# PSF of bright dots / the detector's median (ecl15 FWHM: p1 0.96, p99 1.04; PSF/aperture: p1 0.88, p99 1.03).
+# Visit-3 D6 artefact photos: FWHM 0.40–0.49, PSF/aperture 0.49–0.57 (more than half the bright dots are artefacts,
+# so the medians flip); 0.66–0.76 where it's nearly half.
+QA_FWHM_RATIO_RED = (0.7, 1.4)
+QA_FWHM_RATIO_AMBER = (0.9, 1.15)
+QA_PSF_AP_RATIO_RED = (0.8, 1.25)
+QA_PSF_AP_RATIO_AMBER = (0.9, 1.1)
+# Sharp artefacts (dot columns): share of bright dots with FWHM < QA_SHARP_FWHM_FRAC × the detector's stellar FWHM.
+# 216 sampled photos: D1–D3 ≤ 0.4%; MWIR grows with time: D4 0.2% → 1% → 7%, D5 0% → 3% → 7%, D6 1% → 24% → 44%
+# (visits 1 → 3, Sep 2025 → May 2026), 73% of the sharp ones with OUTLIER at the peak. Red: the photo's PSF medians flip
+# (≥ half); amber: the visit-3 D6 level. The share is a photo number: the sharp dots themselves are the artefacts.
+QA_SHARP_FWHM_FRAC = 0.7
+QA_SHARP_FRAC_RED = 0.5
+QA_SHARP_FRAC_AMBER = 0.3
+QA_SHARP_OUTLIER_MIN = 0.3     # red also needs this share of the sharp dots with OUTLIER at the peak (OUTLIER alone is
+                               # never a reason: MPC asteroids carry it on 52% of their dots)
+# Astrometry against Gaia. calib's per-photo scatter after the distortion fit / the detector's median (hunt: 0.99″ = 5.6×
+# on D4 and 0.74″ = 5.3× on D6, the next 2.9×; D3's median is 0.26″, the others' 0.14–0.18″), the worse of centroid and
+# ePSF; without a calib row (≥ QA_MIN_GAIA stars) the dot file's raw scatter against forced Gaia targets. Red also needs
+# QA_SCATTER_MIN_RED_ARCSEC. Offset: the dot file's raw median offset minus the detector's median offset.
+QA_MIN_GAIA = 20               # fewer matches: not checked (`astrometry_checked` false; hunt calib: 6% of photos, zone edges)
+QA_SCATTER_RATIO_RED = 3.5
+QA_SCATTER_MIN_RED_ARCSEC = 0.5
+QA_SCATTER_RATIO_AMBER = 2.0
+QA_OFFSET_RED_ARCSEC = 1.5     # ecl15 raw offsets: median 0.11″, p99 0.39″, max 1.09″ (D6); calib removes offsets anyway
+QA_OFFSET_AMBER_ARCSEC = 0.6
+QA_LIGHTCURVES = True          # lightcurves: red photos' points get photo_ok false (as its own bad photos)
+QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
+
+# --- orphans: the distant-planet route (orphans.py) ---------------------------------------------------------------
+# A planet at 70–1000 AU drifts 0.5–0.03″/h inside a visit (Earth's reflex), so link's 4″ FoF chains it into a fixed
+# source seen in ONE visit; six months later it sits 4,800–390″ away along ecliptic longitude (Earth's 2 AU parallax
+# baseline, less its own orbital motion). Orphans: single-visit sources without a catalogue counterpart whose spot the
+# other visit covered. Pairs across visits are tested against a bound-orbit model; controls give the chance rate.
+ORPHANS_MIN_COVER_PHOTOS = 6       # the other visit covered the position with at least this many photos (absence is real)
+ORPHANS_BRIGHT_SNR = 100.0         # bright-star fragment: another source this bright (max dot S/N) ...
+ORPHANS_BRIGHT_ARCSEC = 15.0       # ... within this distance
+ORPHANS_EDGE_ARCSEC = 180.0        # zone edge: closer than this to the zone box's edge (inside or out) is dropped
+ORPHANS_MEMBER_MAX_ARCSEC = 60.0   # a member dot further than this from its source is stale (dot file rewritten): dropped
+ORPHANS_POS_ERR_SCALE = 1.6        # dot pos_err is 1.4–1.8× too small against Gaia (raw dots; calib is not applied here)
+ORPHANS_POS_FLOOR_ARCSEC = 0.3     # added in quadrature per dot (pixel phase, frame offsets, SPHEREx's own parallax)
+ORPHANS_MIN_DOTS = 3               # dots needed for the drift fit (4 parameters, 2 numbers per dot) ...
+ORPHANS_MIN_SPAN_H = 6.0           # ... spanning at least this long
+ORPHANS_CLIP_SIGMA = 5.0           # one refit without dots beyond this many (χ²-inflated) sigma
+ORPHANS_RATE_MIN = 0.0             # ″/h. Not 0.02: at SPHEREx's ~90° elongation Earth's velocity runs along the line of sight,
+                                   # so a 700–1000 AU planet can drift only 0.002–0.03″/h in a visit; with 0.02 the table-level
+                                   # injection (hunt cadence, 20 dots per visit) kept 17% / 5% of them. The pair model tests the
+                                   # drift against the distance instead.
+ORPHANS_RATE_MAX = 1.0             # ″/h: ~50 AU (faster movers don't chain into a fixed source)
+ORPHANS_DRIFT_NSIGMA = 3.0         # drift_ok: the rate is within this many sigma of [RATE_MIN, RATE_MAX] ...
+ORPHANS_DRIFT_MAX_ERR = 0.1        # ... and measured to better than this (″/h; otherwise anything is "consistent")
+ORPHANS_DRIFT_FLOOR = 0.005        # ″/h added in quadrature to drift errors in the pair model (straight-line motion, r grid)
+ORPHANS_SEP_MIN_ARCSEC = 300.0     # pair separation between visits: 1000 AU ≈ 390″ ...
+ORPHANS_SEP_MAX_ARCSEC = 7200.0    # ... 70 AU ≈ 4,800″ prograde, 6,900″ retrograde (six months apart; the partner may be in
+                                   # the next zone)
+ORPHANS_MIN_DT_DAYS = 60.0         # pairs only across visits (the visit rule's gap)
+ORPHANS_R_GRID_AU = (40.0, 2000.0, 160)  # heliocentric distance grid of the pair model: min, max, points (log)
+ORPHANS_VMAX_FACTOR = 1.4142       # bound orbit: heliocentric speed <= this × circular speed 2π/√r AU/yr (escape)
+ORPHANS_FLUX_LN_FLOOR = 0.35       # ln-flux error floor per detector (each visit samples other channels of the detector)
+ORPHANS_MIN_COMMON_DET = 1         # pairs need a detector measured in both visits
+ORPHANS_PAIR_MIN_P = 0.01          # a pair passes when χ²(drifts + fluxes) has p >= this
+ORPHANS_CONTROL_N = 50             # controls: the later visit's orphans shifted cyclically within their box ...
+ORPHANS_CONTROL_SHIFT = (0.25, 0.75)  # ... by this share of the box (uniform), in RA and in Dec: no real pair survives
+ORPHANS_CONTROL_SEED = 2026
+ORPHANS_TRACK_AU = (70.0, 1000.0, 24)  # partner track (parallax only) for the zone-edge check: min, max, points (log)
+ORPHANS_REPORT_MAX = 300           # rows of pairs / open orphans written to distant.json
+ORPHANS_KNOWN_ARCSEC = 30.0        # an MPC object this close to the orphan (moved by its drift to the object's time) ...
+ORPHANS_KNOWN_RATE_TOL = 0.3       # ... moving like it (″/h, + 3σ of the drift) ...
+ORPHANS_KNOWN_DAYS = 5.0           # ... within this many days of the orphan's mean time: `known_name` (a recovered body)
+ORPHANS_MAX_PAIRING = 5000         # more drift_ok orphans than this (a crowded zone): pairing skipped, said in distant.json
+ORPHANS_MAX_PAIR_EVALS = 3_000_000 # pairs scored over real + controls: fewer controls (>= 5) when the real set is large
+
+# --- completeness: synthetic movers injected into the stored dots (inject.py) -------------------------------------
+# Once per zone after score (untiled, also in a tiled `all`): a sub-area of INJECT_BOX_DEG × INJECT_BOX_DEG (on the sky)
+# at the zone's centre (the zone itself if smaller), its real dots (every photo overlapping it) plus synthetic dots of
+# objects on straight tracks at the real exposure times, detectors and footprints, linked again in memory by
+# link.fixed_groups + link.classify. Unit = one object in one session with >= SCORE_MIN_EXPOSURES exposures covering it
+# >= SCORE_EDGE_PX inside the photo, as score's (recall.json); found = a mover of that session within MATCH_ARCSEC of the
+# object at the mover's time (score.match_movers' rule). Off: env SKYSHIFT_COMPLETENESS=off.
+COMPLETENESS = os.environ.get("SKYSHIFT_COMPLETENESS", "on").strip().lower() not in ("off", "0", "false", "no")
+INJECT_BOX_DEG = 1.0           # side of the sub-area (hunt centre: 474 photos overlap it, ~400k real dots)
+INJECT_EDGE_ARCSEC = 120.0     # units only this far inside the sub-area (its edge cuts real fixed sources, as a tile's)
+INJECT_ROUNDS = 8              # independent injections (each relinks the sub-area, ~1 s at hunt density): fewer synthetic
+INJECT_OBJECTS = 400           # neighbours per round (400 objects/deg² add ~10% to the fixed sources), 3,200 objects in all
+INJECT_SEED = 20261114
+INJECT_RATE_ARCSEC_H = (0.01, 300.0)  # log-uniform; direction uniform
+INJECT_SNR = (5.0, 100.0)      # log-uniform; the S/N of every dot in a photo of median noise for its detector
+INJECT_MWIR_SNR_FACTOR = 1.0   # S/N in D4–D6 = this × the object's S/N (1: the same S/N in every detector; asteroids'
+                               # reflected light is fainter there, a cold planet's brighter)
+INJECT_RATE_EDGES = (0.01, 0.0215, 0.0464, 0.1, 0.215, 0.464, 1.0, 2.15, 4.64, 10.0, 21.5, 46.4, 100.0, 215.0, 300.0)
+INJECT_SNR_EDGES = (5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0)
+INJECT_PLATEAU_SNR = 20.0      # limits: the rate range is read at S/N >= this
+INJECT_RECALL_RATES = (10.0, 90.0)  # vs_recall: the known asteroids' rates (hunt: all 30 objects at 10–90″/h)
+INJECT_MAX_REAL_DOTS = 2_000_000  # more real dots in the sub-area (crowded field): a smaller box at the same centre
+INJECT_NOISE_MAX_SNR = 10.0    # a photo's noise: median flux_err_ujy of its dots below this S/N (else its detector's)
+INJECT_POS_ERR_SCALE = 1.6     # raw dot positions scatter 1.4–1.8 × pos_err_arcsec against Gaia (CLAUDE.md)
+INJECT_EXPOSURE_S = 113.0      # trailing: elong × √(1 + L²/(12 σ²)), L = rate × exposure, σ = PSF_SIGMA_ARCSEC
+# Detection: P(kept | measured S/N) from the sub-area's own dot counts: a power law fitted to the S/N histogram over
+# INJECT_DET_FIT_SNR, extrapolated down; observed / expected per 0.5-wide bin (hunt centre: ~0.4 at 5–6, 0.7 at 6–7,
+# 0.9 at 7–8, 1 above). With too few dots: logistic, 50% at INJECT_DET_SNR50, width INJECT_DET_WIDTH.
+INJECT_DET_FIT_SNR = (12.0, 35.0)
+INJECT_DET_MIN_DOTS = 2000
+INJECT_DET_SNR50 = 5.7
+INJECT_DET_WIDTH = 0.7

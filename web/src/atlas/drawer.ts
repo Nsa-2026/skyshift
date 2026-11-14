@@ -143,7 +143,9 @@ export function renderCandidate(
     <p class="atl-dr-votes" data-votes aria-live="polite">Counting votes…</p>
     <div class="atl-dr-actions">
       <a class="btn btn-primary" href="#/c/${encodeURIComponent(c.id)}" data-review>Review it</a>
-      <button class="btn" type="button" data-blink>Blink here</button>
+      <button class="btn" type="button" data-blink title="${
+        c.frames_url ? "Blink its prepared frames, full size" : "Build frames of this spot live from NASA's archive (up to 15 s)"
+      }">Blink here</button>
       <button class="btn btn-ghost" type="button" data-next ${o.hasNext ? "" : "disabled"}>Next nearby</button>
     </div>
     <p class="atl-dr-id">${esc(c.id)}</p>

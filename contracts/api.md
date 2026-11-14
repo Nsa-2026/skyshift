@@ -1,9 +1,10 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.1)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.2)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
-targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages).
+targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages;
+v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -23,13 +24,17 @@ GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6
               data_url, scale, zero, center? }],      # center: moving targets only
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
     known:[{ name, epoch_id, ra, dec, v, source:"mpc"|"most"|"irsa-3i" }],
-    data_release, archive_checked }
+    data_release, archive_checked,
+    measured?:{ zone, stage, clock, counts, detections[], tracks[], shifts[], … }|null,
+    measured_reason? }                                # v3.3: what our pipeline measured
 GET /api/object?ra=&dec=
 → { name|null, gaia|null, known_ucd|null,
     spectrum:[{ um, flux_ujy, err_ujy, det, mjd, visit, saturated }],
     spectrum_reason?,                                # why spectrum is empty, else null
     measure:{ shift_arcsec, pa_deg, dt_yr, rate_arcsec_yr, sigma_arcsec,
-              n_ref_stars, predicted_arcsec|null } }
+              n_ref_stars, predicted_arcsec|null },
+    measure_reason?,                                 # why measure is null, else null
+    measure_hint?:{ name, ra, dec, mjd } }           # moved_away only: where the star is
 GET /api/gaia?ra=&dec=&r=
 GET /api/known?ra=&dec=&r=&mjd=
 GET /api/resolve?q=        # any coordinate format, or a built-in name
@@ -130,6 +135,140 @@ Response fields:
 | known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null. `source`: `mpc` (Minor Planet Center orbits propagated with kete, from SPHEREx's own position when the photo header gives it), `most` (IRSA MOST), `irsa-3i` (IRSA's 3I/ATLAS photo list) |
 | data_release | Collections searched, e.g. `"DR1+QR3"` |
 | archive_checked | Date of the IRSA search, `YYYY-MM-DD` |
+| measured | **Optional** (v3.3). What SkyShift's own pipeline measured in this field, below; `null` when nothing is measured here (`measured_reason` says why). Files and answers without it: not computed, read as `null` |
+| measured_reason | **Optional** (v3.3). Why `measured` is null, a code below; `null` when `measured` is set |
+
+### measured: what SkyShift measured (optional, v3.3)
+
+`gaia[]` and `known[]` are catalogue **predictions**. `measured` is what our pipeline (pipeline/,
+contracts/dots.md) **detected** in the photos of this response: the dots of each photo, the sources
+it linked, the movers it paired, and the motions it fitted. Built by the server from
+`gs://nasa-glazing-data/results/<zone>/` and `dots/` (read-only), and by scripts/precompute for the
+static twins (`--measured-only` rewrites only `measured` and `measured_reason`).
+
+```
+measured: { zone, stage, zone_box:{ra:[min,max], dec:[min,max]}, clock,
+            photos, photos_missing, truncated,
+            counts:{ star, known, mover, suspect, artifact, other },
+            detections:[{ epoch_id, ra, dec, snr, flux_ujy, n_dots, class,
+                          source_id|null, gaia_id|null, known_name|null, track_id|null,
+                          grade|null, reasons:[code…] }],
+            tracks:[{ id, class, suspect_id|null, known_name|null, evidence,
+                      dots:[{ ra, dec, mjd, epoch_id }] }],
+            shifts:[{ source_id, gaia_id|null, class, ra, dec, mjd_from, mjd_to, dt_yr,
+                      dra_arcsec, ddec_arcsec, shift_arcsec, err_arcsec, pa_deg,
+                      pmra, pmdec, pm_err, pm_snr }] } | null
+measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | null
+```
+
+| field | type | meaning |
+|---|---|---|
+| zone | string | Pipeline zone the results come from (`hunt`, `ecl13`, `t_barnard`, …). When several cover the centre: a target zone `t_<slug>` first, then a sky zone listed in `skyrun/progress.json` (final before provisional), then the others (e.g. `pilot`) |
+| stage | `"provisional"` \| `"final"` | `final`: the zone's final pass (calibration, Gaia and WISE checks). `provisional`: overnight results, checked against Gaia only; suspect lists are several times longer than the final ones. From `skyrun/progress.json`; for zones not listed there, `final` when `results/<zone>/calib.json` exists |
+| zone_box | object, deg | The zone's box. Outside it nothing is linked: dots there are `other` |
+| clock | string | `months` or `hours`, as the response |
+| photos, photos_missing | int | Photos of this response whose dot file was read / had no dot file (not in the zone's photo list, or not extracted yet) |
+| truncated | bool | true when `detections` was capped (at most 250 per epoch: every `known`, `mover`, `suspect`, `artifact` first, then `star` and `other` by S/N) |
+| counts | {class: int} | Detections per class, all six keys, **before** the cap |
+| detections | [object] | Below. Sorted by `epoch_id`, then `snr` descending |
+| tracks | [object] | Hours clock: the pipeline's movers with at least one dot in this response. Months: `[]` |
+| shifts | [object] | Months clock: fitted motions, below. Hours: `[]` |
+
+**detections[]**: one per dot (hours) or per linked source and visit (months).
+
+| field | type | meaning |
+|---|---|---|
+| epoch_id | string | The `epochs[].id` it was measured in. Hours: the exposure. Months: the visit stack, from the dots of that visit's photos **in this response** (live: the capped stack) |
+| ra, dec | float, deg | Measured position, ICRS, raw (no `calib` corrections, ≤ 0.2″). Hours: the dot's (`ra_psf`, `dec_psf` where `psf_pos_ok`, else `ra`, `dec`). Months: the 1/pos_err²-weighted mean of the source's dots in that visit, so a fast star sits where it was in each visit |
+| snr | float | Hours: the dot's S/N. Months: √Σ snr² of those dots |
+| flux_ujy | float, µJy | Hours: the dot's `flux_ujy` (r = 2 px aperture, raw; × 1.033 for the total). Months: median of those dots' `flux_ujy` (they span the detector's wavelengths) |
+| n_dots | int | Dots behind it (hours: 1) |
+| class | string | `star` \| `known` \| `mover` \| `suspect` \| `artifact` \| `other`, rules below |
+| source_id | int or null | The pipeline's linked source (contracts/dots.md `source_id`, below 2⁵³). Months: always set. Hours: the source within 4″, else null |
+| gaia_id | string or null | Gaia DR3 source_id of the source's crossid match (`results/<zone>/crossids.parquet`), a string like `gaia[].id`. It is in `gaia[]` when that list goes deep enough |
+| known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`) |
+| track_id | string or null | `tracks[].id` of the mover it belongs to |
+| grade | `"A"` \| `"B"` \| `"C"` or null | Suspects only, from the zone's suspects table when it is graded (vetting); null otherwise |
+| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. Else `[]` |
+
+**class**, first rule that applies:
+
+| class | hours clock (a dot) | months clock (a linked source in one visit) |
+|---|---|---|
+| suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
+| known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
+| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3 | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star |
+| mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
+| star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
+| other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else |
+
+**artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
+3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
+`bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`).
+Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
+in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-matched movers have it at the peak).
+
+**tracks[]** (hours clock): one per pipeline mover (`results/<zone>/movers.parquet`).
+
+| field | type | meaning |
+|---|---|---|
+| id | string | Unique in the response. The suspect's id (suspects.json `id`) for a suspect, else `<zone>-m<cell>-<minute>` with the mover's `cell` and round(mjd × 1440). Opaque |
+| class | string | `suspect`, `known`, `artifact` or `mover`, as its dots' class |
+| suspect_id | string or null | suspects.json / candidates.json `id` for a suspect, else null |
+| known_name | string or null | `known[].name` it matched (class `known`) |
+| evidence | string | `two_exposures` or `two_detectors`, as the pipeline found it |
+| dots | [object] | Its dots in this response, **in time order**: `ra`, `dec` (deg), `mjd` (the photo's MJD-AVG), `epoch_id`. Draw the arrow from the first to the last. Dots in photos outside this response are not listed, so a track may have one dot (e.g. its partner detector is not in the file) |
+
+**shifts[]** (months clock): sources in the field whose astrometric fit
+(`results/<zone>/astrometry.parquet`) has `pm_snr` ≥ 3, at most 300 (highest `pm_snr` first).
+Proper motion only (parallax not included: ≤ 1″ for Barnard's Star; `/api/object` `measure` has the
+full measurement).
+
+| field | type | meaning |
+|---|---|---|
+| source_id, gaia_id, class | | As in `detections` (class `star`, `suspect`, `artifact` or `other`) |
+| ra, dec | float, deg | The fit's position moved to `mjd_from`: where the arrow starts |
+| mjd_from, mjd_to | float, MJD | The first and last visit epochs' `mjd_mid` in this response (all detectors) |
+| dt_yr | float, yr | (mjd_to − mjd_from) / 365.25 |
+| dra_arcsec, ddec_arcsec | float, arcsec | Shift over `dt_yr`: east (already × cos dec) and north. The arrow ends at (ra, dec) + this |
+| shift_arcsec, err_arcsec | float, arcsec | Length of the shift and its 1σ error per axis (pm error × dt_yr) |
+| pa_deg | float, deg | Direction, east of north, 0–360 |
+| pmra, pmdec, pm_err, pm_snr | float, mas/yr | The fit (pmra × cos dec), its 1σ error per axis, and pm / error |
+
+**measured_reason**
+
+| code | meaning |
+|---|---|
+| not_processed | No pipeline zone covers this position yet |
+| processing | A zone covers it, but its results are not combined yet (`skyrun/progress.json`) |
+| no_dots | The zone has results, but none of this response's photos has a dot file |
+| unavailable | The results could not be read in time. Live answers with it are not cached: asking again helps |
+
+Example (hours clock, abridged):
+
+```json
+"measured": {
+  "zone": "hunt", "stage": "final", "zone_box": {"ra": [120.5, 130.5], "dec": [14.4, 24.4]},
+  "clock": "hours", "photos": 6, "photos_missing": 0, "truncated": false,
+  "counts": {"star": 210, "known": 2, "mover": 0, "suspect": 1, "artifact": 3, "other": 95},
+  "detections": [
+    {"epoch_id": "d2-2025W42_2A_0213_1", "ra": 123.93382, "dec": 17.41191, "snr": 22.7, "flux_ujy": 996.6,
+     "n_dots": 1, "class": "suspect", "source_id": null, "gaia_id": null, "known_name": null,
+     "track_id": "hunt-644470070952-87790280", "grade": "B", "reasons": []},
+    {"epoch_id": "d2-2025W42_2A_0213_1", "ra": 123.95012, "dec": 17.40233, "snr": 310.2, "flux_ujy": 52310.0,
+     "n_dots": 1, "class": "star", "source_id": 64447007096001, "gaia_id": "654331674772691712",
+     "known_name": null, "track_id": null, "grade": null, "reasons": []}
+  ],
+  "tracks": [
+    {"id": "hunt-644470070952-87790280", "class": "suspect", "suspect_id": "hunt-644470070952-87790280",
+     "known_name": null, "evidence": "two_exposures",
+     "dots": [{"ra": 123.93382, "dec": 17.41191, "mjd": 60965.46572, "epoch_id": "d2-2025W42_2A_0213_1"},
+              {"ra": 123.93391, "dec": 17.41195, "mjd": 60965.46723, "epoch_id": "d2-2025W42_2A_0213_2"}]}
+  ],
+  "shifts": []
+},
+"measured_reason": null
+```
 
 ### Frame data (binary layout)
 
@@ -161,13 +300,24 @@ The object nearest a position (search radius 6″).
 | known_ucd | Known ultracool dwarf, or null. **Proposal:** `{ name, spt, ref }` |
 | spectrum[] | Sorted by `um`. `flux_ujy`, `err_ujy` in µJy; `det` 1–6; `mjd` = the exposure's MJD-AVG; `visit` = visit number; `saturated` = OVERFLOW or NONLINEAR in the core. An exposure whose aperture or background annulus has no good pixels gives no point (no lower limits) |
 | spectrum_reason | **Optional.** Why `spectrum` is empty: `"saturated"` (a star saturated so deeply that no exposure had a usable aperture and background annulus, e.g. R Draconis) or `"no_data"`; `null` when there are points. Files without it: read as `null` |
-| measure | Motion between the first and last visit stack, or null with fewer than two visits. The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
+| measure | Motion between the first and last visit stack, or null with fewer than two visits or when no single source stands out clearly in both stacks (`measure_reason` says why). The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
 | measure.shift_arcsec, pa_deg | Size and direction of the shift; position angle east of north |
 | measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks, years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
 | measure.rate_arcsec_yr | shift_arcsec / dt_yr |
 | measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
 | measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
+| measure_reason | **Optional.** Why `measure` is null: one of the codes below. When it is set, `measure` is null; with a measure it is null. Files and answers without it: read as `null` (the site then gives its general sentence) |
+| measure_hint | **Optional.** `{ name, ra, dec, mjd }` with `measure_reason` `moved_away`, else null: the fast star that was catalogued here and its position (degrees) at `mjd`, the middle of SPHEREx's first and last exposures at this position, so the site can open it where it is. `name`: the built-in name or `Gaia DR3 <id>` |
+
+| measure_reason | plain meaning |
+|---|---|
+| few_visits | SPHEREx has not seen this spot in two visits with at least 3 exposures each (in the detectors it can be measured in), so there is nothing to compare |
+| not_detected | No source stands out clearly here (PSF-matched S/N ≥ 5) in the first or the last visit stack |
+| edge | Sky is missing within 4 px of the position in the first or the last visit stack (the edge of the area covered) |
+| different_sources | A source stands out in both stacks, but the two are too far apart to be one: more than max(7.53″, 12″/yr × Δt) + 3σ apart, or that far from the catalogue's predicted motion |
+| no_time | A live answer ran out of time before the measurement. Such answers are not cached: asking again helps |
+| moved_away | A fast star was catalogued here, but it had moved away by SPHEREx's visits: `measure_hint` says where it is. The star: a built-in target or a Gaia DR3 star with a proper motion, whose track between J1990.0 and its catalogue epoch (Gaia: 2016.0) passes within 6″ (so Gaia DR3 and DR2, SIMBAD's J2000.0, 2MASS and Hipparcos positions all count) of the position asked and stays more than 7.53″ (one PSF FWHM) from it through SPHEREx's first to last exposure there. Example: Barnard's Star's Gaia position (269.4485, 4.7394); SPHEREx sees the star 100–111″ north of it. It wins over the other codes. A measure of another source at the position asked is kept (no reason, no hint) |
 
 ## GET /api/gaia, GET /api/known
 
@@ -451,6 +601,15 @@ check."
   rules and the site deploy together (`infra/firebase/deploy.sh`, both parts). Until then the
   deployed rules are v2 (no `created`).
 
+## Changes in v3.2 (14 Nov 2026)
+
+- `/api/object` and `object.json`: optional `measure_reason` (why `measure` is null: `few_visits`,
+  `not_detected`, `edge`, `different_sources`, `no_time`, `moved_away`) and `measure_hint` (with
+  `moved_away`: the fast star's name and its position at the middle of SPHEREx's visits). Additive:
+  no existing field changes, and files without them (the static `object.json` files) read as null.
+- `measure` row: null also when the detection guard (core.measure_shift, #121) finds no single
+  source clearly seen in both visit stacks.
+
 ## Changes in v3.1 (14 Nov 2026)
 
 - New static file `/data/candidates.json` (type `CandidatesResponse` in web/src/api/types.ts) and
@@ -469,3 +628,11 @@ check."
   Still open: `known_ucd` (the server returns null so far).
 - Known objects (14 Nov, P1): MPC only, no SkyBoT. `known[].source` is `"mpc"` | `"most"` | `"irsa-3i"`;
   asteroids and comets come from Minor Planet Center orbits computed with kete.
+
+## Changes in v3.3 (14 Nov 2026): the measured layer
+
+- `/api/frames` and the static `frames*.json`: optional `measured` (what our pipeline detected in the
+  photos of the response: per-epoch `detections` with a `class`, mover `tracks`, months-clock `shifts`,
+  the zone and its stage) and `measured_reason` (why `measured` is null). Additive: no existing field
+  changes; files and answers without them read as not computed. Class names: `star`, `known`, `mover`,
+  `suspect`, `artifact`, `other` (`known` as in `known[]`).

@@ -88,10 +88,10 @@ export function practiceSummary(results: PracticeResult[]): { right: number; of:
     of === 0
       ? "Practice skipped."
       : right === of
-        ? `${right} of ${of}. You're ready for real candidates.`
+        ? `${right} of ${of}. You're ready for real objects.`
         : right === 0
-          ? `${right} of ${of}. That's normal on a first try: real candidates come with the same four answers, and “Not sure” is always fine.`
-          : `${right} of ${of}. Good start. When a real candidate is hard to call, “Not sure” is an honest answer.`;
+          ? `${right} of ${of}. That's normal on a first try: real objects come with the same four answers, and “Not sure” is always fine.`
+          : `${right} of ${of}. Good start. When a real object is hard to call, “Not sure” is an honest answer.`;
   return { right, of, line };
 }
 

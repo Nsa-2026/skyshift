@@ -8,7 +8,7 @@ import type { AladinCatalog, AladinClick, AladinHiPS, AladinInstance, AladinOver
 import { ALLWISE, SPHEREX, TWO_MASS, cubeFrameForDet, type SkyLayer } from "../sky/layers";
 import { ang2pixNest } from "./healpix";
 import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
-import { oneLine, zoneName } from "./kinds";
+import { countText, oneLine, zoneName } from "./kinds";
 import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, drawLabel, drawSignal, drawTarget, nearestHit, paToScreen, type Ink, type Vec } from "./marks";
 import { paintSearch, type SearchInk } from "./searchdraw";
@@ -218,7 +218,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
 
   // ---- overlays -------------------------------------------------------------------------
   const quiet = (color: string) => ({ color, hoverColor: color, selectionColor: color });
-  const heatOv = A.graphicOverlay({ name: "Candidates per cell", ...quiet(ink.red), lineWidth: 1 }) as AladinOverlay;
+  const heatOv = A.graphicOverlay({ name: "Objects to check per cell", ...quiet(ink.red), lineWidth: 1 }) as AladinOverlay;
   const zoneOv = A.graphicOverlay({ name: "Zones", ...quiet(ink.ink), lineWidth: 1.25 }) as AladinOverlay;
 
   let model: MapModel | null = null;
@@ -352,7 +352,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
             opacity: 1,
           }),
         );
-        if (labelled) labels.push(A.source(cell.center.ra, cell.center.dec, { kind: "count", text: String(cell.count), alpha: a }));
+        if (labelled) labels.push(A.source(cell.center.ra, cell.center.dec, { kind: "count", text: countText(cell.count), alpha: a }));
       }
       if (labels.length) labelCat.addSources(labels);
     }

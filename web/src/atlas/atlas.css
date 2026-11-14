@@ -69,6 +69,8 @@
   gap: var(--s2);
 }
 .atl-kind {
+  /* Holds the chip's visually hidden note inside the chip row's scroller at phone width. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -877,6 +879,13 @@
 .atl-count-box {
   display: grid;
   gap: 2px;
+}
+.atl-count-note {
+  max-width: 44ch;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.4;
+  text-wrap: pretty;
 }
 .atl-live {
   color: var(--ink-2);

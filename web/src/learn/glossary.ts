@@ -146,7 +146,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   {
     slug: "healpix",
     term: "HEALPix",
-    def: "A way to cut the sky into tiles of equal area; the Sky map counts candidates in HEALPix tiles.",
+    def: "A way to cut the sky into tiles of equal area; the Sky map counts objects to check in HEALPix tiles.",
   },
   {
     slug: "stack",
@@ -236,7 +236,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   {
     slug: "consensus",
     term: "Consensus",
-    def: "On SkyShift, a candidate with at least 5 votes where at least 70% agree on one answer.",
+    def: "On SkyShift, an object with at least 5 votes where at least 70% agree on one answer.",
   },
   {
     slug: "planet-nine",

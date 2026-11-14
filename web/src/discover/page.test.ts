@@ -39,9 +39,9 @@ describe("the Candidates page", () => {
   it("shows the intro, counts, list, presets and the map", async () => {
     const { el } = await mount();
     expect(el.querySelector(".dv-title")?.textContent).toContain("SPHEREx");
-    expect(el.querySelector(".dv-counts")?.textContent).toContain("194 candidates from the pilot zone.");
+    expect(el.querySelector(".dv-counts")?.textContent).toContain("194 objects to check from the pilot zone.");
     expect(el.querySelector(".dv-counts")?.textContent).toContain("1 reviewed so far, with 7 votes cast.");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("194 candidates");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("194 objects");
     expect(el.querySelectorAll(".dv-row")).toHaveLength(50);
     expect(el.querySelector(".dv-more-n")?.textContent).toBe("Showing 50 of 194.");
     expect(el.querySelectorAll("[data-preset]")).toHaveLength(6);
@@ -53,7 +53,7 @@ describe("the Candidates page", () => {
     const { el } = await mount();
     el.querySelector<HTMLButtonElement>('[data-preset="fast-movers"]')!.click();
     expect(location.hash).toBe("#/candidates/kind=mover&known=60-");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 candidates");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 objects");
     expect(el.querySelector('[data-preset="fast-movers"]')?.getAttribute("aria-pressed")).toBe("true");
     const chips = [...el.querySelectorAll(".achip")].map((b) => b.textContent);
     expect(chips).toEqual(["Fast mover", "No known object within 60″"]);
@@ -64,7 +64,7 @@ describe("the Candidates page", () => {
 
   it("reads a shared link and keeps facet counts next to each option", async () => {
     const { el } = await mount("#/candidates/kind=high_pm&score=0.15-1&sort=fewest");
-    expect(el.querySelector(".dv-count")?.textContent).toMatch(/^\d+ of 194 candidates$/);
+    expect(el.querySelector(".dv-count")?.textContent).toMatch(/^\d+ of 194 objects$/);
     expect(el.querySelector<HTMLSelectElement>(".dv-select")!.value).toBe("fewest");
     const mover = el.querySelector<HTMLInputElement>('.fx input[value="mover"]')!;
     expect(mover.checked).toBe(false);
@@ -78,7 +78,7 @@ describe("the Candidates page", () => {
     const box = el.querySelector<HTMLInputElement>('.fx input[value="mover"]')!;
     box.checked = true;
     box.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 candidates");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 objects");
     const link = el.querySelector<HTMLAnchorElement>(".dv-link")!;
     expect(link.getAttribute("href")).toMatch(/^#\/c\/pilot-/);
     expect(link.textContent).toContain("Fast mover");
@@ -99,23 +99,23 @@ describe("the Candidates page", () => {
     d.candidates[1].reasons = ["repeat_position"];
     loadCandidates.mockResolvedValue(d);
     const { el } = await mount("#/candidates/cautions=only");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("2 of 194 candidates");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("2 of 194 objects");
     const tags = [...el.querySelectorAll(".dv-row .tag-caution")].map((t) => t.textContent);
     expect(tags.sort()).toEqual(["Outlier pixels (caution)", "Same spot days apart (caution)"]);
     expect(el.querySelector('[data-preset="check-first"]')).not.toBeNull();
     el.querySelector<HTMLButtonElement>('#fx-cautions-t + .seg button[data-v="no"]')!.click();
     expect(location.hash).toBe("#/candidates/cautions=hide");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("192 of 194 candidates");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("192 of 194 objects");
     el.querySelector<HTMLButtonElement>('#fx-cautions-t + .seg button[data-v="any"]')!.click();
     const ids = [...el.querySelectorAll(".dv-row")].map((r) => r.getAttribute("data-id"));
-    expect(ids).not.toContain(d.candidates[0].id); // 'Most promising' pushes cautions past the first page
+    expect(ids).not.toContain(d.candidates[0].id); // the 'Pipeline score' sort pushes cautions past the first page
   });
 
   it("says what to do when nothing matches", async () => {
     const { el } = await mount("#/candidates/kind=mover&gaia=yes");
     expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
-    expect(el.querySelector(".dv-state")?.textContent).toContain("No candidates match these filters.");
-    expect(el.querySelector(".dv-state")?.textContent).toContain("Removing “Fast mover” would bring back 142 candidates.");
+    expect(el.querySelector(".dv-state")?.textContent).toContain("Nothing matches these filters.");
+    expect(el.querySelector(".dv-state")?.textContent).toContain("Removing “Fast mover” would bring back 142 objects.");
     el.querySelector<HTMLButtonElement>("[data-relax]")!.click();
     expect(location.hash).toBe("#/candidates/gaia=yes");
   });
@@ -124,7 +124,7 @@ describe("the Candidates page", () => {
     vi.stubEnv("DEV", false);
     loadCandidates.mockResolvedValue(null);
     const { el } = await mount();
-    expect(el.querySelector(".dv-state")?.textContent).toContain("The candidate list isn't published yet.");
+    expect(el.querySelector(".dv-state")?.textContent).toContain("The list of objects to check isn't published yet.");
     expect(el.querySelector('.dv-state a[href="#/explore"]')).not.toBeNull();
     expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
     expect(el.querySelector<HTMLElement>(".dv-filters")!.hidden).toBe(true);

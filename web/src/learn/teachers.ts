@@ -58,7 +58,7 @@ export function teachersHtml(): string {
       <li><a href="#/learn/1">The seven lessons</a>: ten minutes of reading before class.</li>
       <li><a href="#/learn/glossary">The glossary</a>: every word in one sentence.</li>
       <li><a href="#/tools">Tools and data</a>: downloads, batch coordinates and the API for older students.</li>
-      <li><a href="#/review">The Review queue</a>: a class can vote on real candidates together.</li>
+      <li><a href="#/review">The Review queue</a>: a class can vote on real objects together.</li>
     </ul>
   </section>`;
 }

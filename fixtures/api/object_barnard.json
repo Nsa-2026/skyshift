@@ -508,5 +508,7 @@
     "sigma_arcsec": 0.9,
     "n_ref_stars": 12,
     "predicted_arcsec": 10.36
-  }
+  },
+  "measure_reason": null,
+  "measure_hint": null
 }

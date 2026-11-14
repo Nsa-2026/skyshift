@@ -30,9 +30,11 @@ import { toVoteError, withTimeout, type FirebaseConfig, type VoteStore } from ".
 
 const TIMEOUT_MS = 12_000;
 const MAX_NEAR = 500;
-/** allVotes / allCandidates read at most this many documents (one read each). */
-const MAX_ALL = 20_000;
+/** allVotes / allCandidates read at most this many documents (one read each). Firestore refuses
+ * a query limit over 10,000 (INVALID_ARGUMENT), which left the Community page with no votes. */
+const MAX_ALL = 10_000;
 const IN_CHUNK = 30; // Firestore "in" takes at most 30 values
+const COUNT_PARALLEL = 8; // "in" queries in flight at once while counting votes
 
 export class FirestoreStore implements VoteStore {
   readonly mode = "firestore" as const;
@@ -64,12 +66,19 @@ export class FirestoreStore implements VoteStore {
 
   async counts(ids: string[]): Promise<Map<string, Counts>> {
     const votes: { candidate_id: string; answer: Answer }[] = [];
-    try {
-      for (let i = 0; i < ids.length; i += IN_CHUNK) {
-        const chunk = ids.slice(i, i + IN_CHUNK);
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += IN_CHUNK) chunks.push(ids.slice(i, i + IN_CHUNK));
+    // A few queries in flight at once: one after another, 1,333 candidates took 7–12 s.
+    let next = 0;
+    const worker = async () => {
+      while (next < chunks.length) {
+        const chunk = chunks[next++];
         const snap = await withTimeout(getDocs(query(collection(this.db, "votes"), where("candidate_id", "in", chunk))), TIMEOUT_MS);
         snap.forEach((d) => votes.push(d.data() as { candidate_id: string; answer: Answer }));
       }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(COUNT_PARALLEL, chunks.length) }, worker));
     } catch (e) {
       throw toVoteError(e);
     }

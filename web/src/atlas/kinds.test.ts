@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { cleanCandidates, toAtlasData } from "./data";
-import { KINDS, KIND_TEXT, countSentence, detectorText, flagsSentence, isCaution, isKind, isLikelyMismatch, keyNumber, labelText, oneLine, plural, reasonText, zoneName } from "./kinds";
+import {
+  KINDS,
+  KIND_TEXT,
+  countSentence,
+  countText,
+  detectorText,
+  flagsSentence,
+  isCaution,
+  isKind,
+  isLikelyMismatch,
+  keyNumber,
+  kindChipTitle,
+  labelText,
+  oneLine,
+  plural,
+  reasonText,
+  zoneName,
+} from "./kinds";
 import { cand } from "./testdata";
 
 describe("kinds in words", () => {
@@ -49,10 +66,26 @@ describe("kinds in words", () => {
     expect(detectorText(9)).toBe("D9");
     expect(zoneName("pilot")).toBe("Pilot zone");
     expect(zoneName("hunt_2")).toBe("Hunt 2 zone");
-    expect(countSentence(194, 1)).toBe("194 candidates in 1 zone");
-    expect(countSentence(1, 2)).toBe("1 candidate in 2 zones");
-    expect(countSentence(1200, 0)).toBe("1,200 candidates");
+    expect(countSentence(194, 1)).toBe("194 objects to check in 1 zone");
+    expect(countSentence(1, 2)).toBe("1 object to check in 2 zones");
+    expect(countSentence(1200, 0)).toBe("1,200 objects to check");
     expect(plural(1, "signal", "signals")).toBe("1 signal");
+  });
+});
+
+describe("counts on the kind chips", () => {
+  it("prints counts with thousands separators", () => {
+    expect(countText(925)).toBe("925");
+    expect(countText(1008)).toBe("1,008");
+  });
+
+  it("says why a chip's count is lower when likely mismatches are hidden", () => {
+    expect(kindChipTitle("high_pm", 1008, 0)).toBe(KIND_TEXT.high_pm.meaning);
+    const t = kindChipTitle("high_pm", 925, 83);
+    expect(t.startsWith(KIND_TEXT.high_pm.meaning)).toBe(true);
+    expect(t).toContain("925 shown; 83 likely mismatches hidden");
+    expect(t).toContain("under Adjust");
+    expect(kindChipTitle("high_pm", 1, 1)).toContain("1 likely mismatch hidden");
   });
 });
 

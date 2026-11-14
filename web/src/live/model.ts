@@ -38,7 +38,7 @@ export interface SkyZone {
   sources: number | null;
   movers: number | null;
   suspects: number | null;
-  /** Known asteroids re-found, 0..1. */
+  /** Known asteroids re-found, 0..1: sessions of known asteroids brighter than V 16 matched by a mover. */
   recall: number | null;
   /** Times in ms since 1970 (UTC). */
   extracted_at: number | null;

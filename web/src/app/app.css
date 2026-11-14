@@ -197,6 +197,12 @@
     flex: none;
   }
 }
+/* Matches blink.css: with the nav on a second row the plate is 100svh − 280px. */
+@media (min-width: 1101px) and (max-width: 1480px) {
+  .page-blink {
+    grid-template-columns: minmax(0, calc(max(300px, 100svh - 280px) + 24px)) minmax(340px, 1fr);
+  }
+}
 
 @media (max-width: 720px) {
   #app {

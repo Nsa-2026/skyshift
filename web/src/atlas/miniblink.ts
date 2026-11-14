@@ -184,7 +184,7 @@ export async function mountMiniBlink(host: HTMLElement, o: MiniBlinkOptions): Pr
   plate.setAttribute("role", "img");
   plate.setAttribute(
     "aria-label",
-    `${epochs.length} SPHEREx frames of this spot, ${epochs[0].kind === "exposure" ? "hours" : "months"} apart, shown in turn. The candidate is in the red reticle.`,
+    `${epochs.length} SPHEREx frames of this spot, ${epochs[0].kind === "exposure" ? "hours" : "months"} apart, shown in turn. The object is in the red reticle.`,
   );
 
   const css = 260;

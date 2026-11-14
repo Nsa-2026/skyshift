@@ -7,7 +7,7 @@ import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
 import { ang2pixNest } from "./healpix";
 import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
-import { zoneName } from "./kinds";
+import { countText, zoneName } from "./kinds";
 import type { MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, diamond, moverTick, nearestHit, paToScreen, starArrow, MARK_R, type Vec } from "./marks";
 import { suspectAlpha } from "./search";
@@ -256,7 +256,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           const a = rampAlpha(rampIndex(cell.count, steps), steps.length);
           if (d) {
             parts.push(
-              `<path class="atl-svg-cell" data-cell="${cell.pix}" d="${d}" fill-opacity="${a.toFixed(3)}" stroke-opacity="${Math.min(1, a + 0.2).toFixed(3)}"><title>${cell.count} candidate${cell.count === 1 ? "" : "s"}</title></path>`,
+              `<path class="atl-svg-cell" data-cell="${cell.pix}" d="${d}" fill-opacity="${a.toFixed(3)}" stroke-opacity="${Math.min(1, a + 0.2).toFixed(3)}"><title>${countText(cell.count)} object${cell.count === 1 ? "" : "s"} to check</title></path>`,
             );
           } else {
             const q = p.project(cell.center);
@@ -264,7 +264,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           }
           if (labelled) {
             const q = p.project(cell.center);
-            if (q) parts.push(`<text class="atl-svg-count${a > 0.5 ? " is-dark" : ""}" x="${f1(q.x)}" y="${f1(q.y)}">${cell.count}</text>`);
+            if (q) parts.push(`<text class="atl-svg-count${a > 0.5 ? " is-dark" : ""}" x="${f1(q.x)}" y="${f1(q.y)}">${countText(cell.count)}</text>`);
           }
         }
       }
@@ -325,7 +325,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         `<g class="atl-svg-scale"><path d="M16 ${h - 18}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${h - 18}">${label}</text></g>`,
       );
     }
-    wrap.innerHTML = `<svg class="atl-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the candidates${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
+    wrap.innerHTML = `<svg class="atl-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the objects to check${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
   }
 
   // ---- interaction ---------------------------------------------------------------------------

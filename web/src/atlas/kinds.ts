@@ -19,7 +19,8 @@ export const KIND_TEXT: Record<CandidateKind, KindText> = {
     name: "Fast mover",
     plural: "Fast movers",
     code: "m",
-    meaning: "Moves within hours. Could be an asteroid or comet no one has catalogued.",
+    meaning:
+      "Seems to move within hours. Could be an asteroid or comet no one has catalogued. Most fast movers are seen in only two exposures of one session, which can't show motion by itself: blink it and look for a steady step.",
   },
   high_pm: {
     name: "Moving star",
@@ -209,14 +210,33 @@ export function zoneName(zone: string): string {
   return `${z.charAt(0).toUpperCase()}${z.slice(1)} zone`;
 }
 
-/** "194 candidates in 1 zone", "1 candidate in 2 zones". */
+/** A count with thousands separators: "1,008". */
+export function countText(n: number): string {
+  return new Intl.NumberFormat("en-GB").format(n);
+}
+
+/** "194 objects to check in 1 zone", "1 object to check in 2 zones". */
 export function countSentence(n: number, zones: number): string {
-  const c = `${new Intl.NumberFormat("en-GB").format(n)} candidate${n === 1 ? "" : "s"}`;
+  const c = `${countText(n)} object${n === 1 ? "" : "s"} to check`;
   return zones > 0 ? `${c} in ${zones} zone${zones === 1 ? "" : "s"}` : c;
 }
 
+/** What the list is, next to its count: honest about how many turn out to be artefacts. */
+export const LIST_NOTE =
+  "Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them.";
+
 export function plural(n: number, one: string, many: string): string {
   return `${new Intl.NumberFormat("en-GB").format(n)} ${n === 1 ? one : many}`;
+}
+
+/**
+ * A kind chip's tooltip: what the kind is and, when likely mismatches are hidden, why its count is
+ * lower than on To check: "… 925 shown; 83 likely mismatches hidden …".
+ */
+export function kindChipTitle(kind: CandidateKind, shown: number, hidden: number): string {
+  const m = KIND_TEXT[kind].meaning;
+  if (!(hidden > 0)) return m;
+  return `${m} ${countText(shown)} shown; ${plural(hidden, "likely mismatch", "likely mismatches")} hidden: too fast to be one star. Turn on Likely mismatches under Adjust to show them.`;
 }
 
 /**
