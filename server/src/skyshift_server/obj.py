@@ -13,9 +13,11 @@ visit, saturated (OVERFLOW or NONLINEAR in the core).
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
 native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. The detector is the
 one with the best signal that is not saturated; if every detector saturates, the least saturated.
-The two times are the mean exposure times of the two stacks (where a median stack of a moving
-star puts it), so dt_yr can differ by days from the frames' mjd_mid difference.
-predicted_arcsec includes parallax.
+The two times are the MEDIAN exposure times of the two stacks: a per-pixel median of a slowly
+moving star sits where the star was at the median time, not at mjd_mid (the middle of the first
+and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
+mjd_mid is 14.6 days (0.41") after the median. dt_yr is therefore the difference of the median
+times (contracts/api.md says mjd_mid: raised with P1). predicted_arcsec includes parallax.
 """
 
 from __future__ import annotations
@@ -248,7 +250,7 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
     img1, img2 = s1.image.astype(np.float64), s2.image.astype(np.float64)
     filled = []
     for i, (img, s) in enumerate(((img1, s1), (img2, s2))):
-        gx, gy = (float(v) for v in w.wcs_world2pix(*(position_at(model, s.mjd_mean) if model else (ra, dec)), 0))
+        gx, gy = (float(v) for v in w.wcs_world2pix(*(position_at(model, s.mjd_median) if model else (ra, dec)), 0))
         new, centre = fill_saturated_core(img, gx, gy)
         filled.append(centre is not None)
         if i == 0:
@@ -257,7 +259,7 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             img2 = new
     try:
         res = measure_shift(
-            img1, img2, w, w, s1.mjd_mean, s2.mjd_mean, t_ra, t_dec,
+            img1, img2, w, w, s1.mjd_median, s2.mjd_median, t_ra, t_dec,
             ref_ra=col("ra")[ref] if stars else (), ref_dec=col("dec")[ref] if stars else (),
             ref_pmra=col("pmra")[ref] if stars else None, ref_pmdec=col("pmdec")[ref] if stars else None,
             search_r=search_r, method="fit", **kw)
@@ -270,7 +272,7 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             out[k] = round(out[k], 4)
     return out, {"det": det, "visits": [v1, v2], "d_east_arcsec": res.d_east_arcsec, "d_north_arcsec": res.d_north_arcsec,
                  "frame_offset_arcsec": res.frame_offset_arcsec, "n_exposures": [s1.n_exposures, s2.n_exposures],
-                 "mjd": [s1.mjd_mean, s2.mjd_mean], "core_filled": filled}
+                 "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled}
 
 
 def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: dict | None = None) -> dict[str, Any]:

@@ -181,7 +181,7 @@ def test_object_spectrum_and_zero_shift(world):
     assert set(m) == {"shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec",
                       "n_ref_stars", "predicted_arcsec"}
     assert m["shift_arcsec"] < 0.05  # the same pixels in both visits
-    assert m["dt_yr"] == pytest.approx((VISIT2 + 0.0015 - 1.0005) / 365.25, abs=1e-3)
+    assert m["dt_yr"] == pytest.approx((VISIT2 + 0.0015 - 0.0015) / 365.25, abs=1e-4)
     assert m["n_ref_stars"] >= 3 and m["sigma_arcsec"] < 0.05
     assert m["predicted_arcsec"] is not None and m["predicted_arcsec"] < 0.05  # a slow star
     assert details["det"] == 1 and details["visits"] == [1, 2]

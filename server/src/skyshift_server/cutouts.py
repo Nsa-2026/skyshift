@@ -395,8 +395,11 @@ def open_bytes(data: bytes) -> Level2:
 def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cache: Cache,
                centers: list[tuple[float, float]] | None = None, variance: bool = False) -> list[Level2 | None]:
     """Cutouts of many images, at most 8 requests in flight, in the order given.
-    A failed image gives None (and is logged); it never fails the whole build.
+    A failed image gives None (and is logged); the build goes on without it, unless every image
+    failed (UpstreamError).
     centers: one (ra, dec) per image when each cutout has its own centre (a moving object)."""
+
+    errors: list[str] = []
 
     def one(i: int) -> Level2 | None:
         im = images[i]
@@ -406,10 +409,14 @@ def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cach
             return None if data is None else open_bytes(data)
         except Exception as e:  # noqa: BLE001
             STATS.add(failed=1)
+            errors.append(f"{im.key}: {e}")
             log.warning("cutout %s failed: %s", im.key, e)
             return None
 
-    return list(_pool.map(one, range(len(images))))
+    out = list(_pool.map(one, range(len(images))))
+    if images and len(errors) == len(images):
+        raise UpstreamError(f"every cutout failed ({len(errors)}); first: {errors[0]}"[:300])
+    return out
 
 
 def to_fits_bytes(hdul: fits.HDUList) -> bytes:

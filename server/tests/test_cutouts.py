@@ -134,3 +134,13 @@ def test_a_missing_image_is_remembered_and_one_failure_does_not_stop_the_rest(tm
     assert c.get(cutouts.cache_key(_im(2), RA, DEC, 0.12)) == b""  # "no pixels here" is cached
     assert c.get(cutouts.cache_key(_im(3), RA, DEC, 0.12)) is None  # a failure is not
     assert cutouts.STATS.failed == 1
+
+
+def test_every_cutout_failing_is_an_upstream_error(tmp_path, monkeypatch):
+    def irsa(im, ra, dec, size, cache, tries, variance):
+        raise cutouts.UpstreamError("down")
+
+    monkeypatch.setattr(cutouts, "_from_irsa", irsa)
+    monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
+    with pytest.raises(cutouts.UpstreamError):
+        cutouts.fetch_many([_im(1), _im(2)], RA, DEC, 0.12, Cache(str(tmp_path)))
