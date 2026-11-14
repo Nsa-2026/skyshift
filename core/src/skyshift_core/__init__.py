@@ -21,7 +21,7 @@ from .astrometry import (
     tangent_deproject,
     tangent_offset_arcsec,
 )
-from .detect import DETECTION_DTYPE, background, build_mask, centroid, detect
+from .detect import DETECTION_DTYPE, background, build_mask, centroid, detect, detection_snr, no_data_near
 from .flags import (
     MASK_BITS,
     NEVER_BITS,
@@ -44,7 +44,7 @@ __all__ = [
     "GAIA_EPOCH_MJD", "ShiftError", "ShiftResult", "measure_shift", "mjd_to_jyear",
     "parallax_offset_arcsec", "pixel_to_sky", "position_angle_deg", "propagate",
     "select_reference_stars", "sky_to_pixel", "tangent_deproject", "tangent_offset_arcsec",
-    "DETECTION_DTYPE", "background", "build_mask", "centroid", "detect",
+    "DETECTION_DTYPE", "background", "build_mask", "centroid", "detect", "detection_snr", "no_data_near",
     "MASK_BITS", "NEVER_BITS", "RECORD_BITS", "SAT_BITS", "bad_pixel_mask", "bit_names",
     "flag_frac", "flags_under", "is_saturated_core", "record_bits", "sat_frac", "saturated_mask",
     "Level2", "WaveTable", "detector_from_bandpass", "open_level2",
