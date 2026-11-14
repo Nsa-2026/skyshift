@@ -26,7 +26,7 @@ highpm, score, suspects; `all` runs them in order.
 - `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
   cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. `--known-source skybot` (or SKYSHIFT_KNOWN_SOURCE=skybot) uses the
-  SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms: C/2025 R2 was 4.5′ off SkyBoT a month after perihelion.
+  SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″ (SkyBoT was 4.5′ off).
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
