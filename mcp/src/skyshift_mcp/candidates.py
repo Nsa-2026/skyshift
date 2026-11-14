@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable
 
-KINDS = ("mover", "high_pm", "spectral")
+KINDS = ("mover", "high_pm", "spectral", "shape")
 GRADE_ORDER = {"A": 0, "B": 1, None: 2, "C": 3}
 
 # Fields kept in list views; get_candidate returns the full record.
