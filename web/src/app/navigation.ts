@@ -26,7 +26,7 @@ export const AREA_LABELS:Record<WorkspaceMode,string>={explore:'Explore',analyze
 export interface AreaRoute {
   page:string;
   param:string|null;
-  mode:WorkspaceMode;
+  mode:WorkspaceMode|null;
   feature:string;
   workspace?:WorkspaceState;
 }
@@ -37,7 +37,7 @@ const PAGE_AREA:Record<string,[WorkspaceMode,string]>={
   live:['research','live'],results:['research','results'],tools:['research','tools'],
 };
 function pageRoute(page:string,param:string|null):AreaRoute {
-  const [mode,feature]=PAGE_AREA[page];return {page,param,mode,feature};
+  const [mode,feature]=PAGE_AREA[page];return {page,param,mode:page==='atlas'?null:mode,feature};
 }
 function observationRoute(param:string|null):AreaRoute {
   const workspace=workspaceState(param);
@@ -47,12 +47,13 @@ function observationRoute(param:string|null):AreaRoute {
 function candidateId(value:string):string {try{return decodeURIComponent(value);}catch{return value;}}
 
 /** Area-first links and existing shared URLs resolve to the same page controllers.
- *  No hash is the home page: the Sky globe (#119, Explore → Sky map), unless the query is a
- *  shared observation (?t=slug or ?ra=&dec=), which opens Explore → Watch on it. */
-export function areaRoute(hash:string,search=''):AreaRoute {
+ *  No hash is the home page: the Sky map (#119), before any area is chosen. A shared observation
+ *  link without a hash (?t=slug or ?ra=&dec=, as main has always written them) and the embed open
+ *  Explore → Watch on it. */
+export function areaRoute(hash:string,embed=false,search=''):AreaRoute {
   if(!hash.replace(/^#\/?/,'')){
     const query=new URLSearchParams(search);
-    return query.has('t')||query.has('ra')?observationRoute(null):pageRoute('atlas',null);
+    if(embed||query.has('t')||query.has('ra'))return observationRoute(null);
   }
   const [head,...parts]=hash.replace(/^#\/?/,'').split('/');
   const param=parts.join('/')||null;
@@ -81,5 +82,5 @@ export function areaRoute(hash:string,search=''):AreaRoute {
   if(head==='candidates'||head==='discover')return pageRoute('discover',param);
   if(head==='sky')return pageRoute('atlas',param);
   if(['review','community','about','learn','tools','live'].includes(head))return pageRoute(head,param);
-  return observationRoute(null);
+  return pageRoute('atlas',null);
 }

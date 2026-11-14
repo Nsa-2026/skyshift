@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-14",
+  "main_incorporated": "3cfc1c8",
+  "entry": "neutral interactive sky map",
+  "default_background": "2MASS colour with labelled SPHEREx signals",
+  "paths": ["Explore", "Analyze", "Research"],
+  "browser_checks": {
+    "root_opens_map_without_selected_area_or_feature_row": true,
+    "desktop_map_height_at_1440x1000": 916,
+    "mobile_map_height_at_390x844": 731,
+    "no_horizontal_overflow_at_1440_390_and_320px": true,
+    "intro_and_search_do_not_overlap_at_320px": true,
+    "search_overlay_starts_off_and_adjust_contains_advanced_controls": true,
+    "zoom_and_keyboard_pan_update_the_sky_selection": true,
+    "barnard_selection_enters_research_and_analyze_with_selected_point": true,
+    "logo_returns_to_saved_map_coordinates_zoom_and_projection": true,
+    "next_step_button_reveals_three_optional_paths": true,
+    "target_drawer_is_not_covered_by_search_controls": true
+  },
+  "local_tests_passed": {
+    "web": 855,
+    "server": 312,
+    "core": 61,
+    "pipeline": 292,
+    "mcp": 77,
+    "science": 19,
+    "validation": 40
+  },
+  "optional_tests_skipped": 8,
+  "typescript": "passed",
+  "production_build": "passed",
+  "production_deployment": "not_performed"
+}

@@ -1,4 +1,4 @@
-// The home page is the Sky globe (#119), under Explore → Sky map; Watch opens on target links.
+// The home page is the Sky map (#119), before any area is chosen; Watch opens on shared target links.
 import { afterEach, expect, it, vi } from "vitest";
 
 const atlas = vi.hoisted(() => ({ show: vi.fn() }));
@@ -28,16 +28,20 @@ afterEach(() => {
   vi.mocked(loadFrames).mockClear();
 });
 
-it("opens on the Sky globe under Explore, with Watch one click away, and loads no frames", () => {
+it("opens on the Sky map with the three areas one click away, and loads no frames", () => {
   history.replaceState(null, "", "/");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
   expect(visible(root)).toEqual(["atlas"]);
   expect(atlas.show).toHaveBeenCalledTimes(1);
-  expect(root.querySelector(".nav [aria-current]")!.textContent).toBe("Explore");
-  expect(root.querySelector(".feature-nav [aria-current]")!.textContent).toBe("Sky map");
-  expect(root.querySelector<HTMLAnchorElement>('.feature-nav [data-feature="watch"]')!.getAttribute("href")).toBe("#/explore");
+  expect(root.querySelector(".nav [aria-current]")).toBeNull();
+  expect(root.querySelector<HTMLElement>(".area-features")!.hidden).toBe(true);
+  expect([...root.querySelectorAll<HTMLAnchorElement>(".nav a")].map((a) => a.getAttribute("href"))).toEqual([
+    "#/explore",
+    "#/analyze/motion",
+    "#/research/data",
+  ]);
   expect(loadFrames).not.toHaveBeenCalled();
 });
 

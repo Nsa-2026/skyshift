@@ -6,14 +6,18 @@ import {routeQuery} from '../discover/filters';
 describe('area-first navigation',()=>{
   it('places every feature under its area and resolves every navigation entry',()=>{
     for(const [mode,features] of Object.entries(AREA_FEATURES))for(const feature of features){
-      expect(areaRoute(feature.href)).toMatchObject({mode,feature:feature.id});
+      expect(areaRoute(feature.href)).toMatchObject({mode:feature.id==='sky'?null:mode,feature:feature.id});
     }
-    // Home stays the Sky globe (#119); a shared observation link without a hash opens Watch.
-    expect(areaRoute('#/')).toMatchObject({page:'atlas',mode:'explore',feature:'sky'});
-    expect(areaRoute('')).toMatchObject({page:'atlas',mode:'explore',feature:'sky'});
-    expect(areaRoute('','?t=barnard')).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
-    expect(areaRoute('','?ra=10&dec=20')).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
-    expect(areaRoute('#/explore','?t=barnard')).toMatchObject({page:'explore',feature:'watch'});
+    // Home is the Sky map (#119) before any area is chosen; the embed and a shared observation link
+    // without a hash (?t= or ?ra=, as main writes them) open Explore → Watch.
+    expect(areaRoute('#/')).toMatchObject({page:'atlas',mode:null,feature:'sky'});
+    expect(areaRoute('')).toMatchObject({page:'atlas',mode:null});
+    expect(areaRoute('',true)).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
+    expect(areaRoute('',false,'?t=barnard')).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
+    expect(areaRoute('',false,'?ra=10&dec=20')).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
+    expect(areaRoute('#/',false,'?t=barnard')).toMatchObject({page:'explore',mode:'explore',feature:'watch'});
+    expect(areaRoute('#/explore',false,'?t=barnard')).toMatchObject({page:'explore',feature:'watch'});
+    expect(areaRoute('#/sky',false,'?t=barnard')).toMatchObject({page:'atlas',mode:null});
     expect(areaRoute('#/analyze/spectrum')).toMatchObject({page:'explore',mode:'analyze',workspace:{tab:'spectrum'}});
     expect(areaRoute('#/research/export')).toMatchObject({page:'explore',mode:'research',workspace:{tab:'export'}});
   });
