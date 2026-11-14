@@ -430,3 +430,4 @@ describe("vetting grades on the suspects table", () => {
     expect(d.querySelectorAll(".sc-suspect-table .is-gradec, .sc-track")).toHaveLength(0);
   });
 });
+

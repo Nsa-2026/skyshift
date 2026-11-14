@@ -300,7 +300,8 @@ export const LIST_HASH = "#/candidates";
 
 /** Is this URL the candidate list? Mirrors src/app/app.ts parseRoute: "#/candidates…", "#/discover…". */
 export function isDiscoverUrl(hash: string): boolean {
-  return /^#\/?(?:(?:analyze\/)?candidates|discover)(?:[/?]|$)/.test(hash);
+  const head = hash.replace(/^#\/?/, "").split(/[/?]/)[0];
+  return head === "candidates" || head === "discover";
 }
 
 /**
@@ -309,7 +310,7 @@ export function isDiscoverUrl(hash: string): boolean {
  * else the page query minus the Explore view keys.
  */
 export function discoverQuery(hash: string, search: string): string {
-  const rest = hash.replace(/^#\/?(?:(?:analyze\/)?candidates|discover)/, "").replace(/^[/?]+/, "");
+  const rest = hash.replace(/^#\/?(candidates|discover)/, "").replace(/^[/?]+/, "");
   if (rest) return rest;
   const s = new URLSearchParams(search);
   for (const k of VIEW_KEYS) s.delete(k);

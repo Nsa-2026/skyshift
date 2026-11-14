@@ -1,4 +1,4 @@
-// The globe: Aladin Lite 3.8.2 with IRSA HiPS and a selectable plate-negative display.
+// The globe: Aladin Lite 3.8.2 with IRSA HiPS only, drawn as a plate negative by default.
 // Heat cells and zone boxes are graphic-overlay polygons; counts, zone names, signals and
 // featured targets are catalogs with custom canvas shapes (pencil marks). Hit-testing is ours,
 // on screen positions, so a click means the same thing in the SVG fallback.
@@ -118,7 +118,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   mapEl.className = "atl-aladin";
   host.appendChild(mapEl);
 
-  // ---- backgrounds: IRSA HiPS only ---------------------------------------------------------
+  // ---- backgrounds: IRSA HiPS only, negative by default -----------------------------------
   // Every layer is made here, never by Aladin from a URL: Aladin caches layers by id, and one
   // it made itself would ignore the colour map set on ours.
   const hips: Partial<Record<BackgroundId, Hips>> = {};
