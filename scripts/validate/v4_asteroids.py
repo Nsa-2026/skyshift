@@ -6,7 +6,7 @@ position and a reference stack: the median of up to 3 photos of the same detecto
 away, when the asteroid was at least 90" from that spot, resampled onto the box.
 
   found   = a 5 sigma detection within 2 px of the prediction in the photo,
-            and nothing (4 sigma) within 2 px of the same spot in the reference stack.
+            and nothing (4 sigma) within 3 px of the same spot in the reference stack.
   control = the same test 3' from the prediction, in a random direction (seeded): the chance rate.
 
 An asteroid counts as re-found when at least one of its photos is found. The control is counted the
@@ -40,6 +40,8 @@ OUT_CSV = DATA / "v4_photos.csv"
 DETECTORS = (2, 3)
 HALF_PX = 40            # 81 x 81 px box
 MATCH_PX = 2.0          # "within 2 px"
+STACK_MATCH_PX = 3.0    # "absent from the stack": nothing within 3 px. With 2 px, a static star at 1.9 px in
+                        # the photo and 2.1 px in the resampled stack counted as new (5 of 6 control hits).
 CONTROL_ARCSEC = 180.0  # control 3' away
 MIN_REF_DT, MAX_REF_DT = 0.25, 12.0   # days between the photo and its references
 MIN_REF_AWAY = 90.0     # arcsec: the asteroid must be at least this far from the spot in a reference
@@ -158,7 +160,7 @@ def main() -> None:
         for tag, (sra, sdec) in (("pred", (ra, dec)), ("ctrl", p["control"])):
             x, y = box.to_pixel(sra, sdec)
             hit = source_near(box.image, x, y, flags=box.flags, variance=box.variance, radius_px=MATCH_PX, thresh=5.0, wings=True)
-            in_stack = source_near(stack, x, y, mask=stack_bad, radius_px=MATCH_PX, thresh=4.0)
+            in_stack = source_near(stack, x, y, mask=stack_bad, radius_px=STACK_MATCH_PX, thresh=4.0)
             rec[f"{tag}_in_photo"] = hit.found
             rec[f"{tag}_in_stack"] = in_stack.found
             rec[f"{tag}_found"] = hit.found and not in_stack.found
@@ -215,7 +217,7 @@ def main() -> None:
         "median_offset_arcsec": round(float(np.median(all_offs)) * PIXEL_ARCSEC, 2) if all_offs else None,
         "photos_failed": [{"number": r["number"], "obs_id": r["obs_id"], "detector": r["detector"], "status": r["status"]}
                           for r in photos if r["status"] != "ok"],
-        "params": {"detectors": list(DETECTORS), "half_px": HALF_PX, "match_px": MATCH_PX,
+        "params": {"detectors": list(DETECTORS), "half_px": HALF_PX, "match_px": MATCH_PX, "stack_match_px": STACK_MATCH_PX,
                    "control_arcsec": CONTROL_ARCSEC, "ref_dt_days": [MIN_REF_DT, MAX_REF_DT],
                    "ref_min_away_arcsec": MIN_REF_AWAY, "n_refs": N_REFS, "seed": SEED,
                    "thresh_photo_sigma": 5.0, "thresh_stack_sigma": 4.0},
