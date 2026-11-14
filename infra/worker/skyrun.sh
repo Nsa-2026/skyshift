@@ -12,6 +12,7 @@
 #   provisional (default): Gaia-only refcat, markers in skyrun/<state>/       (zone edges, no WISE check, no calib)
 #   final: + calib borrowed from the hunt zone, AllWISE veto in suspects, markers in skyrun/final/<state>/
 #   combining -> combined | combine_failed
+# SKYRUN_COMBINE_ONLY="z1 z2 ...": combine only these zones (rehearsal, morning priorities).
 # Every step after `known` recomputes, so a final combine of a provisionally combined zone redoes link..suspects;
 # finished photos and known sessions are reused.
 # Time limits: prep 15+20 min, dots SKYRUN_DOTS_TIMEOUT (5h), a combine SKYRUN_COMBINE_TIMEOUT (3h). Each combine's log goes to skyrun/logs/<stage>/<zone>.log.
@@ -92,6 +93,7 @@ combine_loop() {
     finished=$(names "$CB" combined; names "$CB" combine_failed; names "$CB" combining)
     for z in $ext; do
       [ "${#running[@]}" -ge "$K" ] && break
+      if [ -n "${SKYRUN_COMBINE_ONLY:-}" ]; then printf '%s\n' $SKYRUN_COMBINE_ONLY | grep -qx "$z" || continue; fi
       [ -n "${running[$z]:-}" ] && continue
       printf '%s\n' "$finished" | grep -qx "$z" && continue
       claim "$z" || continue
