@@ -24,9 +24,14 @@ Measure: core.measure_shift between the first and last visit stacks of one detec
 native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. Its detection guard
 gives a shift only for one source clearly seen in both stacks (PSF-matched S/N >= 5 in each, no
 missing sky within 4 px, the two centroids within max(FWHM, 12"/yr x dt) + 3 sigma of each other,
-or of the predicted motion); otherwise `measure` is null and details["measure_reason"] says why.
-Before it, a random spot with nothing on it "moved" 30" (RA 125.5, Dec 19.4: two noise peaks). The detector is the
-one with the best signal that is not saturated; if every detector saturates, the least saturated
+or of the predicted motion); otherwise `measure` is null and `measure_reason` says why
+(contracts/api.md v3.2: few_visits, not_detected, edge, different_sources, no_time, moved_away).
+moved_away: someone pasted an old catalogue position of a fast star (Barnard's Star at its Gaia
+2016.0 position is 100-111" from where SPHEREx sees it, so nothing is there); `measure_hint` then
+gives the star's name and its position in the middle of SPHEREx's visits, from the Gaia cone and
+the built-in targets already at hand (no extra request). Before the guard, a random spot with
+nothing on it "moved" 30" (RA 125.5, Dec 19.4: two noise peaks). The detector is the one with the
+best signal that is not saturated; if every detector saturates, the least saturated
 (a built-in target seen only in some detectors is measured in those: its `dets` in targets.json,
 else MEASURE_DETECTORS).
 The two times are the MEDIAN exposure times of the two stacks: a per-pixel median of a slowly
@@ -77,6 +82,7 @@ from skyshift_core import (
     tangent_offset_arcsec,
     ujy_per_mjysr,
 )
+from skyshift_core.astrometry import PSF_FWHM_ARCSEC
 from skyshift_core.flags import SUR_ERROR, TRANSIENT
 from skyshift_core.photometry import APERTURE_CORRECTION
 
@@ -103,6 +109,13 @@ SPECTRUM_LIVE_PER_DET = 12  # live: spectrum points asked per detector (precompu
 OBJECT_MEASURE_S = 16.0  # live: seconds of the budget kept for the measurement after the spectrum
 OBJECT_RESERVE_S = 3.0  # live: seconds kept after the measurement's downloads
 MAX_REF_LIVE = 150  # live: reference stars fitted, the nearest to the position (precompute: all)
+# contracts/api.md `measure_reason` for core's ShiftError codes ("not_found": no centroid at all)
+SHIFT_REASONS = {"not_found": "not_detected", "not_detected": "not_detected", "edge": "edge",
+                 "different_sources": "different_sources"}
+# `moved_away` looks for catalogue positions back to J1990.0: Hipparcos (1991.25), 2MASS (1997-2001),
+# SIMBAD's J2000.0 positions, Gaia DR2 (2015.5) and DR3 (2016.0)
+OLDEST_CATALOGUE_MJD = 47892.0
+MOVED_ARCSEC = PSF_FWHM_ARCSEC  # `moved_away`: the star stays further than this through the visits
 _measure_pool = ThreadPoolExecutor(8, thread_name_prefix="measure")
 
 
@@ -236,6 +249,42 @@ def identify(ra: float, dec: float, mjd_a: float, mjd_b: float, stars: list[dict
         entry = from_gaia or {k: m.get(k) for k in ("id", "ra", "dec", "pmra", "pmdec", "parallax", "g")}
     name = m.get("name") or f"Gaia DR3 {m['id']}"
     return name, entry, m
+
+
+def moved_away(ra: float, dec: float, mjd_a: float, mjd_b: float, stars: list[dict[str, Any]],
+               builtins: list[dict[str, Any]], skip: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """contracts/api.md `measure_hint`: the fast star catalogued at (ra, dec) that SPHEREx sees
+    elsewhere, as {name, ra, dec, mjd} at the middle of mjd_a..mjd_b, or None.
+
+    A star qualifies when its track from J1990.0 to its catalogue epoch (Gaia: 2016.0) passes within
+    MATCH_ARCSEC of the position, and its track from mjd_a to mjd_b stays more than MOVED_ARCSEC from
+    it. Slow stars never do. The nearest catalogue track wins; a built-in over the same Gaia star.
+    skip: the star identify() follows at this position (its measure is about it already)."""
+    cosd = np.cos(np.radians(dec))
+    best: tuple[float, dict[str, Any]] | None = None
+    for m in [*builtins, *stars]:
+        if m.get("pmra") is None or m.get("pmdec") is None:
+            continue
+        if skip is not None and (m is skip or (skip.get("id") and m.get("id") == skip.get("id"))):
+            continue
+        epoch = float(m.get("epoch_mjd", GAIA_EPOCH_MJD))
+        # cheap cut first: the catalogue position can be no further than 6" + the motion since J1990
+        sep = 3600.0 * float(np.hypot(((m["ra"] - ra + 180.0) % 360.0 - 180.0) * cosd, m["dec"] - dec))
+        span_yr = max(epoch - OLDEST_CATALOGUE_MJD, 0.0) / 365.25
+        if sep > MATCH_ARCSEC + 1.0 + float(np.hypot(m["pmra"], m["pmdec"])) / 1000.0 * span_yr:
+            continue
+        d = track_distance_arcsec(m, ra, dec, min(OLDEST_CATALOGUE_MJD, epoch), epoch)
+        if d > MATCH_ARCSEC or track_distance_arcsec(m, ra, dec, mjd_a, mjd_b) <= MOVED_ARCSEC:
+            continue
+        if best is None or d < best[0] - 0.01:
+            best = (d, m)
+    if best is None:
+        return None
+    m = best[1]
+    name = m.get("name") or (f"Gaia DR3 {m['id']}" if m.get("id") else None)
+    mid = (mjd_a + mjd_b) / 2.0
+    r, d = position_at(m, mid)
+    return {"name": name, "ra": round(r, 6), "dec": round(d, 6), "mjd": round(mid, 2)}
 
 
 def wing_photometry(data: np.ndarray, flags: np.ndarray, x: float, y: float, det: int,
@@ -587,7 +636,8 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
 def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: dict | None = None,
                  budget: Budget | None = None) -> dict[str, Any]:
     """GET /api/object. `details` (optional dict) receives what the contract has no field for:
-    the detector and visits measured, the shift's east/north parts (used by scripts/precompute).
+    the detector and visits measured, the shift's east/north parts (used by scripts/precompute),
+    and with no measure, core's own reason code (details["shift_error"]).
     budget: a live request's time budget (None: every exposure, no limit). BudgetError (503) if
     neither a spectrum point nor a measurement arrived in time."""
     cache = cache or Cache()
@@ -609,11 +659,13 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     l2s = cutouts.fetch_many(spec_images, ra, dec, cutouts.tier_for_field(5), cache, variance=True,
                              budget=budget, reserve=OBJECT_MEASURE_S)
     stars = _result(near_f, budget, OBJECT_MEASURE_S, "Gaia")
-    name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, _builtin_targets())
+    builtins = _builtin_targets()
+    name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, builtins)
     dropped: Counter = Counter()
     spectrum = spectrum_points(spec_images, l2s, model, ra, dec, stars=stars, dropped=dropped)
 
     result: dict[str, Any] | None = None
+    reason: str | None = None  # contracts/api.md `measure_reason`
     pick = pick_detector(spectrum, images, measure_detectors(model))
     if pick is not None and not (budget is not None and budget.expired(OBJECT_RESERVE_S)):
         t = time.monotonic()
@@ -635,12 +687,29 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
             result, extra = got
             if details is not None:
                 details.update(extra)
-        elif details is not None and reasons:
-            details["measure_reason"] = reasons[0]
+        elif reasons:  # the detection guard refused the shift
+            reason = SHIFT_REASONS.get(reasons[0], "not_detected")
+            if details is not None:
+                details["shift_error"] = reasons[0]
+        elif budget is not None and budget.partial:
+            reason = "no_time"
+        else:  # fewer than two visit stacks could be made from the cutouts
+            reason = "few_visits"
     elif pick is not None and budget is not None:
         budget.cut("no time left for the measurement")
+        reason = "no_time"
+    else:
+        reason = "few_visits"
+    hint = None
+    if result is None:
+        hint = moved_away(ra, dec, mjd_a, mjd_b, stars, builtins, skip=model)
+        if hint is not None:
+            reason = "moved_away"
+    if details is not None and reason is not None:
+        details["measure_reason"] = reason
     if budget is not None and budget.partial and not spectrum and result is None:
         raise BudgetError("the SPHEREx archive did not deliver in time "
                           f"({budget.elapsed():.0f} s); try again in a minute: what arrived is kept")
     return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum,
-            "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result}
+            "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result,
+            "measure_reason": reason, "measure_hint": hint}
