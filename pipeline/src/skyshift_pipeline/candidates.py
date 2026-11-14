@@ -56,7 +56,7 @@ from . import config as C
 from . import log
 from .sky import SkyTree, angsep
 from .spectra import NCH_DET, NDET
-from .store import Store, dots_rel, photolist_rel, results_rel
+from .store import Store, dots_rel, linked_dots_dir, photolist_rel, results_rel, use_dots_dir
 
 L = log.get("candidates")
 
@@ -1019,6 +1019,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     used_zones = []
     for z in zones:
         t0 = time.time()
+        use_dots_dir(linked_dots_dir(store, z))  # the zone's dot files: the folder its link read (members.dot_row)
         b = zone_base(store, z, spectral_cap)
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)

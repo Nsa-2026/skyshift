@@ -17,8 +17,7 @@ import {
   mostDebated,
   summarize,
   tally,
-  toAstroCsv,
-  toAstroJson,
+  astroFile,
   type AstroRow,
   type CandInfo,
 } from "./stats";
@@ -114,7 +113,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         <p class="cm-lead" aria-live="polite">Counting votes…</p>
         <p class="cm-source"></p>
         <p class="cm-cta">
-          <a class="btn btn-primary" href="#/review">Start reviewing</a>
+          <a class="btn btn-primary" href="#/candidates/one=1">Start reviewing</a>
           <a class="btn btn-ghost" href="#/candidates">Browse objects to check</a>
         </p>
       </header>`
@@ -278,9 +277,9 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (!rows.length) {
       astroEl.innerHTML = embedded
         ? html`<p class="cm-empty">Nothing has reached consensus as a mover or changing source yet.
-        <a href="#/review">Review the objects to check</a>: your vote may settle one.</p>`
+        <a href="#/candidates/one=1">Review the objects to check</a>: your vote may settle one.</p>`
         : html`<p class="cm-empty">Nothing has reached consensus as a mover or changing source yet.
-        The objects under Most debated are closest: <a href="#/review">review them</a> and your vote may settle one.</p>`;
+        The objects under Most debated are closest: <a href="#/candidates/one=1">review them</a> and your vote may settle one.</p>`;
       return;
     }
     const body = rows
@@ -345,7 +344,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (!a.voted) {
       youEl.innerHTML = html`${hello}<p>You haven't voted from this browser yet. The review queue starts with a short
         practice round, so you'll know what a mover looks like first.</p>
-        <p><a class="btn" href="#/review">Review your first object</a></p>`;
+        <p><a class="btn" href="#/candidates/one=1">Review your first object</a></p>`;
       return;
     }
     const mix = ANSWERS.filter((x) => a.answers[x])
@@ -430,7 +429,6 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     }
   }
 
-  const stamp = () => new Date(now()).toISOString().slice(0, 10);
 
   function onClick(ev: MouseEvent) {
     const t = ev.target as Element;
@@ -449,15 +447,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (!snap) return;
     switch (btn.dataset.act) {
       case "csv":
-        download(`skyshift-list-for-astronomers-${stamp()}.csv`, toAstroCsv(rows, location.href), "text/csv;charset=utf-8");
+      case "json": {
+        const meta = { generated: new Date(now()).toISOString(), votes_from: snap.mode, data_release: snap.dataRelease };
+        const file = astroFile(btn.dataset.act, rows, meta, location.href);
+        download(file.name, file.text, file.type);
         break;
-      case "json":
-        download(
-          `skyshift-list-for-astronomers-${stamp()}.json`,
-          toAstroJson(rows, { generated: new Date(now()).toISOString(), votes_from: snap.mode, data_release: snap.dataRelease }, location.href),
-          "application/json",
-        );
-        break;
+      }
     }
   }
 

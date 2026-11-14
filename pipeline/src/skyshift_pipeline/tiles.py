@@ -56,7 +56,7 @@ from . import config as C
 from . import log
 from .link import FREEDOTS_NAME, NONFIXED_DOTS_NAME
 from .sky import parse_polygon
-from .store import Store, dots_rel, photolist_rel, results_rel
+from .store import Store, dots_dir, dots_rel, photolist_rel, results_rel
 
 L = log.get("tiles")
 
@@ -314,7 +314,7 @@ class TileStore:
             return self.work, self.tile_dir("results", name)
         if rel in (f"refcat/{t}.parquet", f"refcat/{t}_forced.parquet"):
             return self.work, self.tile_dir(rel)
-        if rel.startswith("dots/") and self.slim:
+        if rel.startswith(f"{dots_dir()}/") and self.slim:
             return self.work, rel
         if rel.startswith(f"{C.FORCED_DIR}/") or rel == C.FORCED_DIR:
             return (self.work if self.forced_mirror else self.base), rel
@@ -593,7 +593,7 @@ def prepare_photos(ctx: dict, names: list[str]) -> dict:
     for name in names:
         if ctx["slim"]:
             try:
-                raw = base.read_bytes(f"dots/{name}")
+                raw = base.read_bytes(f"{dots_dir()}/{name}")
             except FileNotFoundError:
                 raw = None
             if raw is not None:
@@ -604,7 +604,7 @@ def prepare_photos(ctx: dict, names: list[str]) -> dict:
                     buf = io.BytesIO()
                     pq.write_table(t, buf, compression="zstd")
                     raw = buf.getvalue()
-                work.write_bytes(f"dots/{name}", raw)
+                work.write_bytes(f"{dots_dir()}/{name}", raw)
                 n += 1
                 nb += len(raw)
         if ctx["forced_mirror"]:
@@ -912,7 +912,7 @@ class Run:
         self.reach = {k: refcat_reach(v, self.t_med, self.span_yr) for k, v in self.refcats.items()}
         self._tile_inputs(self.tiles)
         # the zone's dot files, slimmed, into the work dir
-        have = set(self.store.listdir("dots"))
+        have = set(self.store.listdir(dots_dir()))
         names = [n for n in (f"{o}D{int(d)}.parquet" for o, d in zip(photos["obs_id"], photos["detector"])) if n in have]
         if self.ctx["slim"] or self.ctx["forced_mirror"]:
             self._check_disk(names)
@@ -932,7 +932,7 @@ class Run:
         sample = names[:: max(1, len(names) // 16)][:16]
         per = 0.0
         for n in sample:
-            for rel, on in ((f"dots/{n}", self.ctx["slim"]), (f"{C.FORCED_DIR}/{n}", self.ctx["forced_mirror"])):
+            for rel, on in ((f"{dots_dir()}/{n}", self.ctx["slim"]), (f"{C.FORCED_DIR}/{n}", self.ctx["forced_mirror"])):
                 if on:
                     try:
                         per += float(self.store.fs.size(self.store.path(rel)) or 0)

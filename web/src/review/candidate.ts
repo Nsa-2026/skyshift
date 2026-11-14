@@ -403,7 +403,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (!set || !set.candidates.length) {
       showEmpty(
         "No objects to check are published yet",
-        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets on <a href="#/explore">Blink</a> work now.</p>`,
+        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/candidates/one=1">practice round</a> and the featured targets on <a href="#/explore">Blink</a> work now.</p>`,
       );
       return;
     }
@@ -412,7 +412,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
       showEmpty(
         "This object isn't in the current list",
         html`<p>Nothing called “${esc(id)}” is in this set. It may come from an older list.</p>
-          <p class="rv-actions"><a class="btn" href="${lastDiscoverHash()}">Browse the list</a> <a class="btn btn-ghost" href="#/review">Start reviewing</a></p>`,
+          <p class="rv-actions"><a class="btn" href="${lastDiscoverHash()}">Browse the list</a> <a class="btn btn-ghost" href="#/candidates/one=1">Start reviewing</a></p>`,
       );
       return;
     }

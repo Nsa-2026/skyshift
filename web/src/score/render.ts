@@ -437,7 +437,7 @@ export function renderObjects(c: CandidatesResponse | null): string {
       check${esc(zonesText(c!.zones))}${esc(kinds)}.</p>
     <p class="sc-intro">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector
       artefacts until people check them.</p>
-    <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/review">Check them one by one</a></p>
+    <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/candidates/one=1">Check them one at a time</a></p>
   </div>`;
 }
 

@@ -96,6 +96,33 @@ IRSA_URI_PREFIX = "ibe/data/spherex/"  # spherex.artifact.uri = this + the S3 ke
 # S/N 9 with no false detections on a blank frame; then keep aperture snr >= DOT_MIN_SNR.
 DETECT_THRESH = 2.0
 DOT_MIN_SNR = 5.0
+# sep deblend_cont of core.detect: a blob is split where a branch holds at least this share of its light. At 0.005 a
+# star beside a much brighter star's glow is never split off (R Dra, 2025W43_2A_0464_2D4, peak 2,623 MJy/sr: 0 of 4
+# Gaia neighbours at 92–162″ with S/N 43–59; at 1e-4, 3 of 4). The sky run keeps DOTS_DEBLEND_CONT; the zones of
+# DOTS_FINE_ZONES use DOTS_FINE_DEBLEND_CONT. Dot files are never rewritten (members.dot_row points at rows) and these
+# zones' photos also lie in ecliptic zones, so each other setting has its own folder, dots_deblend<value>/ (dots_dir_for):
+# `dots` and `link` of such a zone use it; later steps read the folder `link` recorded (results/<zone>/summary.json
+# steps.link.dots_dir; "dots" when absent). Each dot file's metadata records the setting (`detect`).
+DOTS_DIR = "dots"              # the sky run's dot files: dots/<obs_id>D<det>.parquet
+DOTS_DEBLEND_CONT = 0.005
+DOTS_FINE_DEBLEND_CONT = 1e-4  # one line to change; a new value gets a new folder (files are never mixed)
+DOTS_FINE_ZONES = ("t_rdra", "t_barnard", "t_rwaur", "t_epsindib", "t_wise0855")
+
+
+def dots_dir_for(deblend_cont: float) -> str:
+    """The folder of dot files made with this deblend_cont: DOTS_DIR for the sky run's value, else dots_deblend<v>
+    (1e-4 -> dots_deblend1e-4)."""
+    if float(deblend_cont) == float(DOTS_DEBLEND_CONT):
+        return DOTS_DIR
+    mant, exp = f"{float(deblend_cont):.6e}".split("e")
+    mant = mant.rstrip("0").rstrip(".")
+    return f"{DOTS_DIR}_deblend{mant}e{int(exp)}"
+
+
+def zone_dots(zone: str | None) -> tuple[str, float]:
+    """(folder, deblend_cont) the `dots` step uses for this zone (None: the sky run's)."""
+    d = DOTS_FINE_DEBLEND_CONT if zone in DOTS_FINE_ZONES else DOTS_DEBLEND_CONT
+    return dots_dir_for(d), d
 PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
