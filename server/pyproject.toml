@@ -16,6 +16,7 @@ dependencies = [
     "requests>=2.32",
     "scipy>=1.11",
     "uvicorn[standard]>=0.30",
+    "pyarrow>=16",
 ]
 
 [tool.uv.sources]

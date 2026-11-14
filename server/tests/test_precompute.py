@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "precompute"))
 import precompute  # noqa: E402
 from skyshift_server import known  # noqa: E402
+from test_measured import root  # noqa: E402,F401 - the synthetic data root fixture
 
 
 def _row(det: int, mjd: float, ra: float = 10.0, dec: float = 5.0):
@@ -76,3 +77,54 @@ def test_refresh_known_rewrites_only_known(tmp_path, monkeypatch):
     assert (folder / "frames.json").read_bytes() == (folder / "frames_months_5.json").read_bytes()
     entry = json.loads((folder / "index.json").read_text())["frames"][0]
     assert entry["bytes"] == (folder / "frames_months_5.json").stat().st_size + 1000  # frame files unchanged
+
+
+def test_refresh_measured_rewrites_only_measured(tmp_path, monkeypatch, root):  # noqa: F811 - pytest fixture
+    """--measured-only on the synthetic zone of test_measured.py: hours keys from the epoch ids, months
+    keys from the search (every exposure of the visit); the rest of each file stays as it was."""
+    import json
+
+    from skyshift_server import measured, search
+    from test_measured import T1, T3, _hours_meta, _months_meta
+
+    monkeypatch.setattr(measured, "DATA_ROOT", root)
+    folder = tmp_path / "star"
+    files = {"frames_hours_20.json": {**_hours_meta(), "data_release": "DR1+QR3", "archive_checked": "2026-11-14"},
+             "frames_months_15.json": {**_months_meta(), "data_release": "DR1+QR3", "archive_checked": "2026-11-14",
+                                       "measured": None, "measured_reason": "not_processed"}}
+    entries = []
+    for name, meta in files.items():
+        n = precompute.write_json(folder / name, meta, compact=True)
+        entries.append({"file": name, "clock": meta["clock"], "fov": 20 if "hours" in name else 15, "dets": [2],
+                        "epochs": 2, "bytes": n + 500})
+    precompute.write_json(folder / "index.json", {"slug": "star", "frames": entries, "own": "frames_months_15.json"})
+
+    def img(obs, mjd, visit, det=2):
+        return search.Image("spherex_dr1", obs, det, mjd, mjd, mjd, "", None, visit=visit)
+
+    images = [img("OBS_1", T1, 1), img("OBS_2", T1 + 0.0015, 1), img("OBS_3", T3, 2), img("OBS_3", T3, 2, det=5)]
+    monkeypatch.setattr(search, "search", lambda ra, dec, cache=None: search.SearchResult(ra, dec, "2026-11-14", images))
+    monkeypatch.setattr(precompute, "OUT", tmp_path)
+    precompute.refresh_measured("star", cache=None)
+    hours = json.loads((folder / "frames_hours_20.json").read_text())
+    months = json.loads((folder / "frames_months_15.json").read_text())
+    for name, out in (("frames_hours_20.json", hours), ("frames_months_15.json", months)):
+        assert {k: v for k, v in out.items() if not k.startswith("measured")} == \
+            {k: v for k, v in files[name].items() if not k.startswith("measured")}
+        assert out["measured_reason"] is None and out["measured"]["zone"] == "zz"
+    assert hours["measured"]["clock"] == "hours" and len(hours["measured"]["tracks"]) == 3
+    assert months["measured"]["photos"] == 3 and len(months["measured"]["shifts"]) == 1
+    assert (folder / "frames.json").read_bytes() == (folder / "frames_months_15.json").read_bytes()
+    index = json.loads((folder / "index.json").read_text())
+    assert [e["bytes"] for e in index["frames"]] == [(folder / e["file"]).stat().st_size + 500 for e in index["frames"]]
+
+    # a zone that is still running: the files say so, and a read failure writes nothing
+    monkeypatch.setattr(measured, "DATA_ROOT", str(tmp_path / "empty"))
+    measured.reset()
+    precompute.refresh_measured("star", cache=None)
+    assert json.loads((folder / "frames_hours_20.json").read_text())["measured_reason"] == "not_processed"
+    monkeypatch.setattr(measured, "build", lambda *a, **k: (None, "unavailable"))
+    before = (folder / "frames_hours_20.json").read_bytes()
+    with pytest.raises(RuntimeError):
+        precompute.refresh_measured("star", cache=None)
+    assert (folder / "frames_hours_20.json").read_bytes() == before
