@@ -30,8 +30,9 @@ import { toVoteError, withTimeout, type FirebaseConfig, type VoteStore } from ".
 
 const TIMEOUT_MS = 12_000;
 const MAX_NEAR = 500;
-/** allVotes / allCandidates read at most this many documents (one read each). */
-const MAX_ALL = 20_000;
+/** allVotes / allCandidates read at most this many documents (one read each). Firestore refuses
+ * a query limit over 10,000 (INVALID_ARGUMENT), which left the Community page with no votes. */
+const MAX_ALL = 10_000;
 const IN_CHUNK = 30; // Firestore "in" takes at most 30 values
 
 export class FirestoreStore implements VoteStore {
