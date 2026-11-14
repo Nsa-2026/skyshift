@@ -21,9 +21,17 @@ import {
   trackText,
   vetoesText,
 } from "../api/grades";
-import type { CheckStatus, Suspect, SuspectsResponse, ValidationCheck, ValidationResponse } from "../api/types";
+import type {
+  CheckStatus,
+  DistantResponse,
+  Suspect,
+  SuspectsResponse,
+  ValidationCheck,
+  ValidationResponse,
+} from "../api/types";
 import { DETECTORS } from "../app/astro";
 import { checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
+import { renderDistant } from "./distant";
 import {
   bigValue,
   blinkHref,
@@ -296,13 +304,18 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
 
 // ---- page --------------------------------------------------------------------------------
 
-export function renderPage(v: ValidationResponse | null, sr: SuspectsResponse | null): string {
+export function renderPage(
+  v: ValidationResponse | null,
+  sr: SuspectsResponse | null,
+  dist: DistantResponse | null = null,
+): string {
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
-  const synthetic = isSynthetic(v) || isSynthetic(sr);
+  const synthetic = isSynthetic(v) || isSynthetic(sr) || isSynthetic(dist);
   return html`
     <div class="sc">
       ${renderHead(checks, v, synthetic)}
       <section class="sc-checks" aria-label="Checks">${checks.map((c, i) => renderCheck(c, i === 0)).join("")}</section>
       ${renderSuspects(sr)}
+      ${renderDistant(dist)}
     </div>`;
 }
