@@ -786,8 +786,8 @@ session = run of exposures with gaps under 10 minutes
             <tr><td>Galaxy distances</td><td>EAZY templates on the 102-channel spectrum (<span class="mono">photoz</span>), checked against SDSS DR17: 2,755 galaxies with redshifts in the pilot zone</td><td><span class="chip good">built</span> <span class="chip">not yet run</span> σ_NMAD after the pilot</td></tr>
             <tr><td>True colour at one instant</td><td>D1+D4, D2+D5 and D3+D6 photograph the same sky at the same moment (<span class="mono">colours</span>)</td><td><span class="chip good">built</span> evidence for movers · <span class="chip warn">in progress</span> colour readout (P3)</td></tr>
             <tr><td>Brightness changes (R Draconis, RW Aurigae)</td><td>Same detector, visit to visit and within a visit, including forced non-detections (<span class="mono">lightcurves</span>)</td><td><span class="chip good">built</span> blink and table · <span class="chip warn">in progress</span> light-curve chart (P3)</td></tr>
-            <tr><td>Asteroid size and reflectivity</td><td>Reflected sunlight (D1–D3) against heat glow (D5–D6), NEATM; compared with published diameters and albedos</td><td><span class="chip warn">in progress</span> a new validation check</td></tr>
-            <tr><td>Comet gas (3I/ATLAS)</td><td>CO₂, H₂O and CO bands in the comet's spectrum</td><td><span class="chip warn">in progress</span></td></tr>
+            <tr><td>Asteroid size and reflectivity</td><td>Reflected sunlight (D1–D3) against heat glow (D5–D6), NEATM; compared with published diameters and albedos</td><td><span class="chip good">built</span> PR #26, <span class="mono">scripts/science/</span>: 11 asteroids, D ratio 1.06 (scatter 14%), albedo ratio 0.71; one η per visit (morning vs afternoon side)</td></tr>
+            <tr><td>Comet gas (3I/ATLAS)</td><td>CO₂, H₂O, CO and C–H bands in the comet's spectrum, Haser model</td><td><span class="chip good">built</span> PR #26: Aug 2025 CO₂ 1.3e27/s (team 1.6e27); Dec 2025 CO₂, CO, H₂O within 25% of the team's rates</td></tr>
           </tbody></table></div>
       </div>
     </div>
@@ -1190,7 +1190,7 @@ gcloud storage rm -r gs://nasa-glazing-data/dots/</pre></div></li>
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">PR log · Sat 14 Nov</p>
         <h2>What landed on main, PR by PR</h2>
-        <p class="muted">PRs #1–#23 as of this update. Two are still open.</p>
+        <p class="muted">PRs #1–#26 as of this update. #13 (blink engine) is still open; the dots speed-up and the MPC known-objects step are being built on their own branches.</p>
       </div>
       <div class="tablewrap"><table>
         <thead><tr><th>PR</th><th>Area</th><th>What</th><th>State</th></tr></thead>
@@ -1218,6 +1218,9 @@ gcloud storage rm -r gs://nasa-glazing-data/dots/</pre></div></li>
           <tr><td class="m">#21</td><td>P1 docs</td><td>Public address is skyshift.web.app</td><td><span class="chip good">merged</span></td></tr>
           <tr><td class="m">#22</td><td>P1 pipeline</td><td>Cross-ids, colours, light curves, astrometry, high-PM search</td><td><span class="chip good">merged</span></td></tr>
           <tr><td class="m">#23</td><td>P2 infra</td><td>Firebase deploys to site <span class="mono">skyshift</span> instead of <span class="mono">skyshift-sky</span></td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#24</td><td>P1 docs</td><td>Both plan pages updated to the built system</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#25</td><td>P1 docs</td><td>Known objects: MPC orbits with kete replace SkyBoT (plan)</td><td><span class="chip good">merged</span> with #24</td></tr>
+          <tr><td class="m">#26</td><td>P1 science</td><td><span class="mono">scripts/science/</span>: asteroid sizes (NEATM) and 3I/ATLAS gas (Haser)</td><td><span class="chip good">merged</span></td></tr>
         </tbody></table></div>
     </div>
   </section>
@@ -1272,7 +1275,7 @@ const AREAS=[
    "18:00–19:30 · README credits and AI section. Page text: data, validation, limits. 19:30: numbers frozen.",
    "20:00–22:00 · Project page with working links."],
   should:[
-   "Asteroid diameters and albedos from reflected light plus thermal emission (NEATM), compared with published values: a new validation check. In progress.",
+   "Asteroid diameters and albedos from reflected light plus thermal emission (NEATM), compared with published values: a new validation check. Built (PR #26): D within 6% on the median.",
    "Comet 3I/ATLAS: CO2, H2O and CO bands. In progress.",
    "`refcat` merged (PR #20); pilot and hunt-zone catalogues are in the bucket."],
   done:"`validation.json` holds the five targets, Barnard's motion vs Gaia, N of 60 asteroids re-found and the pilot's recall with its control; the pilot's reports are read (see the runbook).",

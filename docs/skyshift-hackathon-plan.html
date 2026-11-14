@@ -271,7 +271,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
         <div class="idea-card"><span class="chip good" style="align-self:flex-start">built</span><h3>A dot database</h3><p class="small">Every point of light in every photo: position and error, brightness from apertures and from NASA's star shape, colour channel, shape, background, quality flags. Plus the brightness at every catalogue star, seen or not. One test photo gave 28,583 dots from AB 10.6 to 17.5.</p></div>
         <div class="idea-card"><span class="chip core" style="align-self:flex-start">after the pilot</span><h3>A star catalogue with 102-colour spectra</h3><p class="small">Dots seen in the same place in 3 or more sessions become a source with its own 0.75–5 µm spectrum, matched to Gaia, CatWISE and 2MASS, and classed as star, galaxy or unsure. Light curves and true colours come with it.</p></div>
         <div class="idea-card"><span class="chip core" style="align-self:flex-start">after the pilot</span><h3>Motion, and a Planet X search</h3><p class="small">Proper motion for every source, and parallax where there are 3 or more visits. A search for fast movers that Gaia doesn't know, checked by re-finding known fast stars. Known asteroids re-found, unknown movers listed as suspects for people to vote on.</p></div>
-        <div class="idea-card"><span class="chip edge" style="align-self:flex-start">in progress</span><h3>Asteroid sizes and comet gas</h3><p class="small">An asteroid's reflected sunlight (short wavelengths) against its heat glow (long wavelengths) gives its size and how dark it is, compared with published values. For comet 3I/ATLAS: the CO₂, water and CO bands.</p></div>
+        <div class="idea-card"><span class="chip good" style="align-self:flex-start">built</span><h3>Asteroid sizes and comet gas</h3><p class="small">An asteroid's reflected sunlight (short wavelengths) against its heat glow (long wavelengths) gives its size and how dark it is. 11 asteroids: diameters within 6% of published values on the median (scatter 14%; 16 Psyche 230 ± 45 km vs 222). Comet 3I/ATLAS: CO₂ in August; CO₂, water, CO and organics in December, within 25% of the SPHEREx team's own rates.</p></div>
         <div class="idea-card"><span class="chip core" style="align-self:flex-start">after the pilot</span><h3>Ices and galaxy distances</h3><p class="small">Ice bands (water, CO₂, CO) in front of background stars; methane and water in cold brown dwarfs. Rough distances to galaxies from the shape of their spectrum, checked against 2,755 SDSS galaxies with measured redshifts in the pilot zone.</p></div>
       </div>
     </div>
@@ -542,8 +542,8 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <thead><tr><th>#</th><th>Feature</th><th>Owner</th><th>Cost</th></tr></thead>
             <tbody>
               <tr><td class="k">S1</td><td><b>Hunt zone.</b> 100 deg² on the ecliptic, where asteroids are densest (RA 120.5–130.5, Dec +14.4 to +24.4). Known asteroids are matched; suspects join the candidate list.</td><td class="k">P1</td><td class="k">gated, G2 ~14:30</td></tr>
-              <tr><td class="k">+</td><td><b>Asteroid sizes and albedos</b> from reflected light plus heat glow (NEATM), compared with published values.</td><td class="k">P1</td><td class="k">in progress</td></tr>
-              <tr><td class="k">+</td><td><b>Comet 3I/ATLAS gas:</b> CO₂, H₂O and CO bands.</td><td class="k">P1</td><td class="k">in progress</td></tr>
+              <tr><td class="k">+</td><td><b>Asteroid sizes and albedos</b> from reflected light plus heat glow (NEATM), compared with published values.</td><td class="k">P1</td><td class="k">built</td></tr>
+              <tr><td class="k">+</td><td><b>Comet 3I/ATLAS gas:</b> CO₂, H₂O, CO and C–H bands.</td><td class="k">P1</td><td class="k">built</td></tr>
               <tr><td class="k">+</td><td><b>Light-curve chart and colour readout</b> in the app (the pipeline has the data).</td><td class="k">P3</td><td class="k">Sat afternoon</td></tr>
               <tr><td class="k">S2–S6</td><td>Fast Gaia stars, Gagné brown-dwarf list, "hidden neighbour" drill, false-colour still, flag-pixel overlay and AllWISE layer.</td><td class="k">—</td><td class="k">cut; only if someone is idle after 18:00</td></tr>
             </tbody>
@@ -713,7 +713,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <tr><td class="k">V8</td><td>Spectra and speed</td><td>Two unsaturated stars: our spectrum averaged over 2MASS Ks and WISE W1 vs the catalogue. Median time to first frame for 10 random coordinates.</td><td>Within 20%; under 15 s</td><td class="k">Sat 19:30</td></tr>
             <tr><td class="k">V9</td><td>Astrometry matches Gaia</td><td>Proper motion of every source in the zone, fitted over all its dots with SPHEREx's own position as the observer, each photo's offset against quiet Gaia stars removed. Compare with Gaia: bias, scatter, and the pull (difference ÷ stated error).</td><td>Bias near zero; pull scatter near 1, so our error bars are honest. After the pilot</td><td class="k">Sat afternoon</td></tr>
             <tr><td class="k">V10</td><td>Galaxy distances match SDSS</td><td>Photometric redshifts from EAZY templates fitted to each galaxy's 102-channel spectrum, against SDSS DR17 spectroscopic redshifts: 2,755 galaxies with redshifts in the pilot zone. Report σ_NMAD of Δz/(1+z) and the outlier share (&gt; 0.15).</td><td>Useful only for bright galaxies (AB ≲ 17); 0.02 would be good. After the pilot</td><td class="k">Sat afternoon</td></tr>
-            <tr><td class="k">V11</td><td>Asteroid sizes match published values</td><td>Reflected sunlight (D1–D3) and heat glow (D5–D6) fitted with the NEATM thermal model, giving a diameter and an albedo. Compare with published values for the same asteroids.</td><td>In progress; no number yet</td><td class="k">Sat evening</td></tr>
+            <tr><td class="k">V11</td><td>Asteroid sizes match published values</td><td>Reflected sunlight (D1–D3) and heat glow (D5–D6) fitted with the NEATM thermal model, giving a diameter and an albedo. Compare with published values for the same asteroids.</td><td>11 asteroids: diameter ratio to published 1.06 median (scatter 14%); albedo ratio 0.71 (scatter 26%, our albedos run low). Ceres saturates.</td><td class="k">Sat evening</td></tr>
           </tbody>
         </table>
       </div>
@@ -785,7 +785,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <li>How it answers the challenge: the <a href="#challenge-map">challenge-to-feature table</a>.</li>
             <li>Why two clocks: four sentences and a diagram.</li>
             <li>How we know it works: the V numbers, the controls, a screenshot.</li>
-            <li>What the pipeline found: the dot database, spectra, star and galaxy classes, motions, the fast-mover search, asteroid sizes and comet gas, each marked measured or in progress.</li>
+            <li>What the pipeline found: the dot database, spectra, star and galaxy classes, motions, the fast-mover search, asteroid sizes and comet gas, each marked measured or not yet run.</li>
             <li>Limits: saturation, the blended Epsilon Indi pair, parallax, and which "Planet X" SPHEREx could see (a cold brown dwarf, not a faint distant planet).</li>
             <li>How it works: data flow, tools, languages.</li>
             <li>After a vote: counts, the CSV, a route to astronomers (Backyard Worlds forum).</li>
