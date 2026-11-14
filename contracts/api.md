@@ -20,7 +20,7 @@ GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6
               um_min, um_max, n_exposures, flag_frac, sat_frac,
               data_url, scale, zero }],
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
-    known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"most"|"irsa-3i" }],
+    known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"mpc"|"most"|"irsa-3i" }],
     data_release, archive_checked }
 GET /api/object?ra=&dec=
 → { name|null, gaia|null, known_ucd|null,
@@ -109,7 +109,7 @@ Response fields:
 | epochs[].sat_frac | Share of frame pixels with OVERFLOW or NONLINEAR, 0–1 |
 | epochs[].data_url, scale, zero | The frame data, see below |
 | gaia | Gaia DR3 stars in the frame at epoch J2016.0 (MJD 57388.5). The browser moves each one to an epoch's `mjd_mid` with `pmra`, `pmdec`. `parallax` and `g` may be null |
-| known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null |
+| known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null. `source`: `skybot` (IMCCE SkyBoT, from the Earth's centre), `mpc` (Minor Planet Center orbits propagated with kete, from SPHEREx's own position when the photo header gives it), `most` (IRSA MOST), `irsa-3i` (IRSA's 3I/ATLAS photo list) |
 | data_release | Collections searched, e.g. `"DR1+QR3"` |
 | archive_checked | Date of the IRSA search, `YYYY-MM-DD` |
 
@@ -197,7 +197,7 @@ flat object per item (a target, an asteroid, a star); P1 lists its keys per chec
               n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null }] }
 ```
 
-Movers with no SkyBoT match (contracts/dots.md). They are also written to Firestore
+Movers with no known-object match, SkyBoT or MPC (contracts/dots.md). They are also written to Firestore
 `candidates` with `source: "pipeline"`.
 
 ## Firestore: flags and votes (no API endpoint)
