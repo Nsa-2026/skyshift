@@ -22,6 +22,7 @@ import {
   measureSentence,
   measuredVisitCount,
   median,
+  measurementSource,
   noMeasureReason,
   paVector,
   paWord,
@@ -29,8 +30,6 @@ import {
   pmPa,
   saturation,
   visitCountFromFrames,
-  visitTimesFromFrames,
-  visitTimesFromSpectrum,
   visitsOf,
 } from "./format";
 import { describeVisit, lightCurveDets, renderLightCurve } from "./lightcurve";
@@ -61,7 +60,8 @@ interface Note {
   html: string;
 }
 
-export const mountCard: MountCard = (el) => {
+export const mountCard: MountCard = (el, options = {}) => {
+  let reference: {um: number; flux_ujy: number}[] = [];
   const id = `cd${++uid}`;
   el.classList.add("cd");
   let shown: Shown | null = null;
@@ -99,8 +99,8 @@ export const mountCard: MountCard = (el) => {
     el.innerHTML = [
       headHtml(view, object, false),
       measureHtml(shown, notes),
-      spectrumHtml(object, notes),
-      lightCurveHtml(object),
+      options.plots === false ? "" : spectrumHtml(object, notes),
+      options.plots === false ? "" : lightCurveHtml(object),
       lookForHtml(view),
     ].join("");
     wire();
@@ -179,6 +179,7 @@ export const mountCard: MountCard = (el) => {
     const g = object?.gaia ?? null;
     const pc = distancePc(g?.parallax);
     const items: [string, string][] = [];
+    const source = m ? measurementSource(m) : null;
     if (m) {
       const seen = isDetectedMotion(m);
       const gaiaPa = pmPa(g);
@@ -189,6 +190,11 @@ export const mountCard: MountCard = (el) => {
           ? `${Math.round(m.pa_deg)}°, ${paWord(m.pa_deg)}${gaiaPa != null ? ` <span class="cd-dim">(Gaia ${Math.round(gaiaPa)}°)</span>` : ""}`
           : `<span class="cd-dim">none above the noise</span>`,
       ]);
+      if (source) items.push(
+        ["Measured in", `D${source.det}, visits ${source.visits[0]} and ${source.visits[1]}`],
+        ["Fit times (UTC)", `${formatMjd(source.mjd[0], true)} to ${formatMjd(source.mjd[1], true)}`],
+        ["Stack inputs", `${source.n_exposures[0]} and ${source.n_exposures[1]} exposures`],
+      );
       items.push(["Reference stars", `${m.n_ref_stars} Gaia stars`]);
       items.push(["Slowest visible", `${arcsec(detectionLimit(m))} <span class="cd-dim">(3σ)</span>`]);
     }
@@ -215,8 +221,11 @@ export const mountCard: MountCard = (el) => {
 
     const seen = isDetectedMotion(m);
     const who = g ? "Gaia" : "The published proper motion";
-    const times = visitTimesFromFrames(s.frames, s.view, s.view.fov) ?? visitTimesFromSpectrum(object?.spectrum ?? []);
-    const said = measureSentence(m, { visits: measuredVisitCount(m, times), who });
+    const said = measureSentence(m, { visits: null, pair: source?.visits, who });
+    const sourceNote = source
+      ? s.view.clock === 'hours' ? `The player shows individual exposures. This measurement compares visit stacks in D${source.det}.`
+      : `This measurement uses D${source.det}, visits ${source.visits[0]} and ${source.visits[1]}. Changing the player does not recompute it.`
+      : 'This stored measurement has no verified detector or visit source. Its inputs cannot be inferred from the player.';
     const spoken = `${m.shift_arcsec.toFixed(2)} arcseconds, plus or minus ${m.sigma_arcsec.toFixed(2)}.`;
     return html`<section class="cd-measure" aria-labelledby="${id}-m">
       <h3 class="visually-hidden" id="${id}-m">Shift between visits</h3>
@@ -227,6 +236,7 @@ export const mountCard: MountCard = (el) => {
         ${seen ? arrowSvg(m.pa_deg) : ""}
       </p>
       <p class="cd-says">${said}</p>
+      <p class="cd-cap cd-measure-source">${sourceNote}</p>
       ${dl}${notesHtml(notes)}
     </section>`;
   }
@@ -267,7 +277,7 @@ export const mountCard: MountCard = (el) => {
     }
     const visits = visitsOf(sp);
     if (visits.length < 2) mode = "det";
-    const chart = renderSpectrum(sp, { width, mode, id: `${id}-sp` });
+    const chart = renderSpectrum(sp, { width, mode, reference, id: `${id}-sp` });
     spPoints = chart.points;
     const um0 = Math.min(...sp.map((p) => p.um));
     const um1 = Math.max(...sp.map((p) => p.um));
@@ -288,6 +298,7 @@ export const mountCard: MountCard = (el) => {
       <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}</p>
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
+      ${reference.length ? '<p class="cd-cap">Outlined ink points: DR1 reference, shown on the same flux scale.</p>' : ""}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
@@ -523,6 +534,7 @@ export const mountCard: MountCard = (el) => {
   }
 
   const handle: CardHandle = {
+    reference(points) { reference = points; if (shown) render(); },
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;

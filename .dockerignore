@@ -4,13 +4,14 @@
 **/*.pyc
 **/.pytest_cache
 **/node_modules
+.runtime/
 .git
 .claude
 .env
 .env.*
 *-key.json
 service-account*.json
-web/
+web/dist/
 docs/
 pitch/
 pipeline/

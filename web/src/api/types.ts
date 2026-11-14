@@ -76,7 +76,21 @@ export interface SpectrumPoint {
   saturated: boolean;
 }
 
+/** Proposed additive metadata in contracts/api.md; old static results may omit it. */
+export interface MeasurementSource {
+  det: Det;
+  visits: [number, number];
+  /** UTC MJDs actually used by the fit (stack median exposure times). */
+  mjd: [number, number];
+  n_exposures: [number, number];
+  /** Nominal measurement field, arcmin. */
+  fov: number;
+  pixel_arcsec: number;
+  core_filled: [boolean, boolean];
+}
+
 export interface Measure {
+  source?: MeasurementSource | null;
   shift_arcsec: number;
   pa_deg: number;
   dt_yr: number;

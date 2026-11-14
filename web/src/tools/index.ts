@@ -3,6 +3,7 @@
 // cite, and data versions. Everything runs in the browser; the only live API call is a per-row
 // "Check" in the batch table, one at a time. Sections deep-link as #/tools/<section>.
 import "./tools.css";
+import { mountInspector } from './inspector';
 import "../prefs/details";
 import { ApiFailure, loadCandidates, loadFrames, loadSuspects, loadValidation } from "../api/client";
 import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationResponse } from "../api/types";
@@ -46,6 +47,7 @@ export const SECTIONS = [
   { id: "downloads", title: "Download candidates" },
   { id: "batch", title: "Batch coordinates" },
   { id: "api", title: "API" },
+  { id: "inspector", title: "API inspector" },
   { id: "cite", title: "Cite and acknowledge" },
   { id: "data", title: "Data and versions" },
 ] as const;
@@ -449,6 +451,11 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const base = siteBase();
   let lang = readLang();
   el.innerHTML = pageHtml(base, lang);
+  const inspectorHost = document.createElement('section');
+  inspectorHost.id = 'tl-inspector'; inspectorHost.className = 'tl-sec';
+  inspectorHost.setAttribute('aria-labelledby', 'tl-inspector-h');
+  el.querySelector('#tl-api')!.after(inspectorHost);
+  const inspector = mountInspector(inspectorHost);
 
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const announceEl = $<HTMLElement>("[data-announce]");
@@ -716,13 +723,16 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   return {
     show(param) {
+      inspector.show();
       void load();
       if (param && SECTIONS.some((s) => s.id === param)) {
         // The shell scrolls to the top after show(): jump once it has.
         setTimeout(() => jumpTo(param), 0);
       }
     },
+    hide() { inspector.hide(); },
     destroy() {
+      inspector.destroy();
       ctl.abort();
       el.innerHTML = "";
     },

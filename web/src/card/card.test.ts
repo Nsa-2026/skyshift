@@ -74,7 +74,7 @@ describe("every real object.json", () => {
     expect(el.querySelector(".cd-n")?.textContent).toBe("10.83″");
     expect(el.querySelector(".cd-pm")?.textContent).toBe("± 0.36″");
     expect(el.querySelector(".cd-says")?.textContent).toBe(
-      "moved between visits 1 and 3 (0.99 years). Gaia predicts 10.27″: they agree within 1.6σ.",
+      "moved between the first and last visits (0.99 years). Gaia predicts 10.27″: they agree within 1.6σ.",
     );
     expect(el.querySelector(".cd-arrow")?.getAttribute("aria-label")).toMatch(/358° east of north \(north\)/);
     expect(el.querySelector(".cd-dl")?.textContent).toMatch(/1\.83 pc/);
@@ -101,7 +101,7 @@ describe("every real object.json", () => {
     const note = el.querySelector(capRef!.getAttribute("href")!);
     expect(note?.textContent).toMatch(/saturated in D5 and D6 \(2 of 416 spectrum points\)\./);
     expect(note?.textContent).not.toMatch(/wings/);
-    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 4 \(1\.41 years\)/);
+    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between the first and last visits \(1\.41 years\)/);
   });
 
   it("follows a footnote mark without touching the URL hash", () => {
@@ -114,12 +114,28 @@ describe("every real object.json", () => {
     el.remove();
   });
 
-  it("names the visit pair only when the detectors that fit the measure agree", () => {
+  it("does not infer legacy measurement inputs from whichever frames are displayed", () => {
     const months = (slug: string): FramesResponse => JSON.parse(readFileSync(join(dataDir, slug, "frames_months_5.json"), "utf8"));
-    expect(cardFor("barnard", months("barnard")).querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 3 \(0\.99 years\)/);
-    expect(cardFor("epsindib", months("epsindib")).querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 4/);
-    // R Draconis: 3 visits in D2, 4 in D3, and both span the measured year.
-    expect(cardFor("rdra", months("rdra")).querySelector(".cd-says")?.textContent).toMatch(/^between the first and last visits \(1 year\)/);
+    for (const slug of ["barnard", "epsindib", "rdra"]) {
+      const el = cardFor(slug, months(slug));
+      expect(el.querySelector(".cd-says")?.textContent).toContain("between the first and last visits");
+      expect(el.querySelector(".cd-measure-source")?.textContent).toContain("no verified detector or visit source");
+    }
+  });
+
+  it("keeps actual measurement inputs independent of the player detector and clock", () => {
+    const obj = load("barnard"), m = obj.measure!;
+    m.source = { det: 2, visits: [2, 5], mjd: [61000, 61000 + m.dt_yr * 365.25],
+      n_exposures: [19, 20], fov: 15, pixel_arcsec: 6.15, core_filled: [false, true] };
+    const el = document.createElement("section"), card = mountCard(el);
+    const v = { ...viewFor("barnard"), det: 6 as const };
+    card.show(v, obj, null);
+    expect(el.querySelector(".cd-says")?.textContent).toContain("between visits 2 and 5");
+    expect(el.querySelector(".cd-measure-source")?.textContent).toContain("uses D2, visits 2 and 5");
+    expect(el.textContent).toContain("19 and 20 exposures");
+    card.show({ ...v, clock: "hours", fov: 20 }, obj, null);
+    expect(el.querySelector(".cd-measure-source")?.textContent).toContain("individual exposures");
+    expect(el.querySelector(".cd-n")?.textContent).toBe("10.83″");
   });
 
   it("says R Draconis stays put, with a spectrum read from the wings", () => {

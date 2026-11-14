@@ -1,3 +1,11 @@
+# One image serves the Vite UI and FastAPI/science modules.
+FROM node:22-slim AS frontend
+WORKDIR /build/web
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN corepack enable && corepack prepare pnpm@11.25.0 --activate && pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm build
+
 # SkyShift API (server/) for Cloud Run. Built from the repo root because the image needs core/.
 #   docker build -t skyshift-api . && docker run -p 8080:8080 -e SKYSHIFT_CACHE=/tmp/cache skyshift-api
 # Deploy: infra/run/deploy.sh (gcloud run deploy --source . uses this file).
@@ -10,6 +18,9 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     SKYSHIFT_REPO_ROOT=/app \
+    SKYSHIFT_JOBS=/app/runtime/jobs \
+    SKYSHIFT_SCIENCE_CACHE=/app/runtime/science \
+    SKYSHIFT_CACHE=/app/runtime/api \
     PORT=8080
 
 WORKDIR /app
@@ -26,6 +37,8 @@ COPY fixtures/api fixtures/api
 COPY scripts/validate/data/targets.json scripts/validate/data/targets.json
 RUN cd server && uv sync --frozen --no-dev
 
+COPY --from=frontend /build/web/dist web/dist
+RUN mkdir -p /app/runtime
 RUN useradd --create-home --uid 10001 app && chown -R app /app
 USER app
 

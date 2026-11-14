@@ -43,7 +43,7 @@ jobs:
         run: uv run --locked pytest -q
 
   web:
-    name: npm test web
+    name: web tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -64,8 +64,8 @@ jobs:
 
       - name: npm ci
         if: hashFiles('web/package.json') != ''
-        run: npm ci
+        run: corepack enable && corepack prepare pnpm@11.25.0 --activate && pnpm install --frozen-lockfile
 
       - name: npm test
         if: hashFiles('web/package.json') != ''
-        run: npm test
+        run: pnpm test && pnpm build

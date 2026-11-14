@@ -120,6 +120,32 @@ describe("blink player", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
+  it("does not start playback when a pending load finishes on a hidden page", async () => {
+    let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(fetch).mockImplementation(async () => { await wait; return new Response(new Uint16Array(N * N).fill(1000).buffer); });
+    const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+    const loading = h.show(view, frames, "https://example.test/hidden/frames.json");
+    h.active?.(false);
+    release(); await loading;
+    expect(el.querySelector('.bk-play')?.getAttribute('aria-pressed')).toBe('false');
+    expect(el.querySelector('.bk')?.getAttribute('data-ready')).toBe('true');
+    h.destroy();
+  });
+
+  it("discards old pixel loads as soon as another view starts loading", async () => {
+    let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(fetch).mockImplementation(async () => { await wait; return new Response(new Uint16Array(N * N).fill(1000).buffer); });
+    const onEpoch = vi.fn(), h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn(), onEpoch });
+    const loading = h.show(view, frames, "https://example.test/stale/frames.json");
+    h.status('loading', 'Loading the next target');
+    release(); await loading;
+    expect(onEpoch).not.toHaveBeenCalled();
+    expect(el.querySelector('.bk')?.getAttribute('data-ready')).toBe('false');
+    h.destroy();
+  });
+
   it("offers the detectors that have frames when the chosen one has none", async () => {
     const onViewChange = vi.fn();
     const h = mountBlink(el, { onViewChange, onPick: vi.fn() });

@@ -48,3 +48,6 @@ firestore-debug.log*
 !fixtures/fits/*.fits
 # web/public/data/ stays TRACKED: scripts/precompute and scripts/validate write it before the
 # build, not during it, and Hosting deploys it from the repo (dev plan v2, Repo section).
+
+# Local analysis state (not source data)
+.runtime/

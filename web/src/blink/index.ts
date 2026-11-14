@@ -91,8 +91,8 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>, done:
   return out;
 }
 
-const um = (n: number) => n.toFixed(2);
-const pct = (f: number) => (f >= 0.1 ? `${(f * 100).toFixed(0)}%` : f > 0 ? `${(f * 100).toFixed(f >= 0.01 ? 1 : 2)}%` : "0%");
+const um = (n: number | null) => n == null || !Number.isFinite(n) ? "unknown" : n.toFixed(2);
+const pct = (f: number | null) => f == null ? "unknown" : (f >= 0.1 ? `${(f * 100).toFixed(0)}%` : f > 0 ? `${(f * 100).toFixed(f >= 0.01 ? 1 : 2)}%` : "0%");
 const icon = {
   play: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.6v10.8c0 .5.6.8 1 .5l8-5.4c.4-.3.4-.8 0-1L8 4.1c-.4-.3-1 0-1 .5z"/></svg>`,
   pause: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5.5" y="4.5" width="3" height="11" rx="1"/><rect x="11.5" y="4.5" width="3" height="11" rx="1"/></svg>`,
@@ -294,6 +294,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let shownSigned = false;
   let shownLim: (Limits & { sigma?: number; n?: number }) | null = null;
   let firstShow = true;
+  let pageActive = true;
   const leveled = new Map<number, Float32Array>();
   const smoothed = new Map<number, Float32Array>();
   const burnt = new Map<number, Uint8Array>();
@@ -695,7 +696,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (det) {
       const lo = e && !allAtOnce() ? um(e.um_min) : um(DETECTORS[det].min);
       const hi = e && !allAtOnce() ? um(e.um_max) : um(DETECTORS[det].max);
-      detLabel.innerHTML = `<i class="bk-swatch"></i>D${det} <span>${lo}–${hi} µm</span>`;
+      const band = lo === 'unknown' || hi === 'unknown' ? 'wavelength range not recorded' : `${lo}–${hi} µm`;
+      detLabel.innerHTML = `<i class="bk-swatch"></i>D${det} <span>${band}</span>`;
       detLabel.title = e
         ? `${e.n_exposures} exposure${e.n_exposures === 1 ? "" : "s"}. ${pct(e.flag_frac)} of pixels flagged, ${pct(e.sat_frac)} saturated.`
         : "";
@@ -1097,7 +1099,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       renderAll();
       emitEpoch();
       const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      if (wasPlaying && !reduce && !allAtOnce()) setPlaying(true);
+      if (pageActive && wasPlaying && !reduce && !allAtOnce()) setPlaying(true);
       firstShow = false;
     } else {
       renderAll();
@@ -1400,9 +1402,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         draw();
         renderCaption();
         root.dataset.ready = "true";
-      } else if (kind === "loading") root.dataset.ready = "false";
+      } else if (kind === "loading") { loadCtl++; setPlaying(false); root.dataset.ready = "false"; }
       renderMsg();
     },
+    highlight(pos) { pick=pos; draw(); },
+    gaia(stars) { if (F) { F.gaia = stars; draw(); } },
+    active(value) { pageActive = value; if (!value) setPlaying(false); },
     destroy() {
       loadCtl++;
       clearTimeout(timer);

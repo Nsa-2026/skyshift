@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Measure, SpectrumPoint } from "../api/types";
+import type { Measure, MeasurementSource, SpectrumPoint } from "../api/types";
 import {
   aboutSentence,
   agreement,
   compactUjy,
   framesFollow,
   measureSentence,
+  measurementSource,
   proseLy,
   detectionLimit,
   distancePc,
@@ -60,6 +61,17 @@ describe("distance", () => {
 });
 
 describe("measure", () => {
+  it("requires internally consistent, explicit measurement provenance", () => {
+    const source: MeasurementSource = { det: 2, visits: [1, 3], mjd: [61000, 61000 + barnard.dt_yr * 365.25],
+      n_exposures: [19, 20], fov: 15, pixel_arcsec: 6.15, core_filled: [false, true] };
+    expect(measurementSource({ ...barnard, source })).toEqual(source);
+    expect(measurementSource(barnard)).toBeNull();
+    for (const invalid of [{ ...source, visits: [3, 1] }, { ...source, mjd: [61000, 61001] },
+      { ...source, n_exposures: [0, 20] }, { ...source, det: 9 }, { ...source, mjd: null },
+      { ...source, core_filled: [false] }]) {
+      expect(measurementSource({ ...barnard, source: invalid as MeasurementSource })).toBeNull();
+    }
+  });
   it("gives the signed difference from the prediction in σ", () => {
     expect(sigmaDiff(barnard)).toBeCloseTo((10.8336 - 10.2663) / 0.3637, 6);
     expect(agreement(sigmaDiff(barnard)!)).toBe("agrees");

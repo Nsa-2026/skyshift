@@ -1,0 +1,47 @@
+[
+  {
+    "slug": "barnard",
+    "name": "Barnard's Star",
+    "ra": 269.4462,
+    "dec": 4.769,
+    "default_det": 2,
+    "n_frames": 358,
+    "n_visits": 3
+  },
+  {
+    "slug": "wise0855",
+    "name": "WISE 0855−0714",
+    "ra": 133.7599,
+    "dec": -7.2422,
+    "default_det": 6,
+    "n_frames": 255,
+    "n_visits": 3
+  },
+  {
+    "slug": "epsindib",
+    "name": "Epsilon Indi B",
+    "ra": 331.0967,
+    "dec": -56.8013,
+    "default_det": 2,
+    "n_frames": 457,
+    "n_visits": 4
+  },
+  {
+    "slug": "rwaur",
+    "name": "RW Aurigae",
+    "ra": 76.9564,
+    "dec": 30.4011,
+    "default_det": 2,
+    "n_frames": 328,
+    "n_visits": 3
+  },
+  {
+    "slug": "rdra",
+    "name": "R Draconis",
+    "ra": 248.1674,
+    "dec": 66.755,
+    "default_det": 2,
+    "n_frames": 800,
+    "n_visits": 18
+  }
+]

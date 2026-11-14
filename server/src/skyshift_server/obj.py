@@ -570,6 +570,12 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
     for k in ("shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec", "predicted_arcsec"):
         if out.get(k) is not None:
             out[k] = round(out[k], 4)
+    out["source"] = {
+        "det": det, "visits": [s1.visit, s2.visit],
+        "mjd": [round(s1.mjd_median, 6), round(s2.mjd_median, 6)],
+        "n_exposures": [s1.n_exposures, s2.n_exposures],
+        "fov": MEASURE_FOV, "pixel_arcsec": grid.pixel_arcsec, "core_filled": filled,
+    }
     return out, {"det": det, "visits": [v1, v2], "d_east_arcsec": res.d_east_arcsec, "d_north_arcsec": res.d_north_arcsec,
                  "frame_offset_arcsec": res.frame_offset_arcsec, "n_exposures": [s1.n_exposures, s2.n_exposures],
                  "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled}

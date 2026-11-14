@@ -1,0 +1,95 @@
+/* Play first: direct manipulation, immediate feedback, optional explanations. */
+.learning-active .professional{display:none}
+.page-play .guide-home,.page-play .guide-stage{max-width:720px;margin:0 auto}
+.guide-welcome{padding:42px 0 24px;text-align:center}
+.page-play .guide-welcome h1{font-size:clamp(38px,6vw,58px);line-height:1.2;margin:20px 0;color:var(--emulsion)}
+.guide-lead{font-size:18px;line-height:1.8;color:var(--muted);margin:20px 0}
+.guide-promise{display:flex;justify-content:center;gap:24px;font-size:14px;color:var(--emulsion);margin:26px 0}
+.page-play .guide-primary{display:block;min-height:52px;width:100%;max-width:440px;margin:0 auto;background:var(--gaia);color:var(--plate);border:1px solid var(--gaia);border-radius:var(--radius-ctl);font-size:16px;font-weight:650;padding:13px 18px;line-height:1.5;cursor:pointer}
+.page-play .guide-primary:hover:enabled{filter:brightness(1.08)}
+.page-play .guide-primary:disabled{background:var(--plate-3);border-color:var(--rule);color:var(--muted);cursor:default;opacity:1}
+.guide-time{font-size:12px;color:var(--muted);margin:14px 0}
+.guide-collection{display:flex;justify-content:center;gap:12px;margin:26px 0 8px}
+.collection-star{display:grid;place-items:center;width:44px;height:44px;font-size:27px;color:var(--muted);border:1px dashed var(--rule-strong);border-radius:50%}
+.collection-star.collected{color:var(--gaia);background:var(--plate-2);border:1px solid var(--gaia)}
+.guide-levels,.learn-extras{border-top:1px solid var(--rule);padding:18px 0;margin:0;font-size:13px}
+.guide-levels>summary,.learn-extras>summary{font-size:13px;color:var(--muted)}
+.guide-levels .lesson-progress{float:right;font-size:11px}
+.guide-levels .lesson-cards{grid-template-columns:repeat(2,minmax(0,1fr));margin:18px 0 0}
+.guide-stage{padding:20px 0 36px;scroll-margin-top:14px}
+.guide-top{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.page-play .guide-text{background:transparent;border:0;padding:9px 4px;color:var(--muted);font-size:13px;cursor:pointer;line-height:1.5}
+.page-play .guide-text:hover:enabled{color:var(--emulsion)}
+.page-play .guide-text:disabled{opacity:.35;cursor:default}
+.guide-count{font-size:12px;color:var(--gaia);text-align:center}
+.guide-progress{display:block;width:100%;height:4px;margin:10px 0 22px;appearance:none;border:0;background:var(--rule);border-radius:4px;overflow:hidden}
+.guide-progress::-webkit-progress-bar{background:var(--rule)}
+.guide-progress::-webkit-progress-value{background:var(--gaia);border-radius:4px}
+.guide-progress::-moz-progress-bar{background:var(--gaia)}
+.guide-content{text-align:center}
+.page-play .guide-heading{font-size:clamp(25px,3.7vw,34px);font-weight:650;line-height:1.4;margin:0 0 8px;outline:none;color:var(--emulsion)}
+.guide-instruction{font-size:15px;line-height:1.8;color:var(--muted);max-width:520px;margin:0 auto 18px}
+.guide-image{position:relative;max-width:320px;margin:0 auto;background:var(--plate);border:1px solid var(--rule-strong);border-radius:12px;overflow:hidden;line-height:0}
+.guide-canvas{display:block;width:100%;aspect-ratio:1;image-rendering:pixelated;cursor:default}
+.guide-canvas.pickable{cursor:crosshair;touch-action:manipulation}.guide-canvas:focus-visible{outline:3px solid var(--gaia);outline-offset:-4px}
+.guide-photo-tag{position:absolute;left:10px;top:10px;line-height:1.4;background:rgba(10,17,28,.9);color:var(--emulsion);font-size:12px;padding:6px 10px;border-radius:5px;pointer-events:none}
+.guide-marker{position:absolute;width:40px;height:40px;border:2px solid var(--mover);box-shadow:0 0 0 6px #ff9b3d1a;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}
+.guide-marker.previous{border-style:dashed;opacity:.7}.guide-marker.found{border-color:var(--ok);box-shadow:0 0 0 8px #7fd49b30}
+.guide-photo-date{font-size:11px;color:var(--muted);margin:8px 0 0;line-height:1.7}
+.guide-missing{max-width:380px;margin:5px auto 0;font-size:11px;line-height:1.7;color:var(--muted)}
+.guide-time-control{max-width:320px;margin:16px auto 0;text-align:center}
+.guide-time-control label{display:block;color:var(--gaia);font-size:13px;margin-bottom:3px}
+.guide-time-control input{display:block;width:100%;height:36px;margin:0;cursor:ew-resize;accent-color:var(--gaia)}
+.guide-time-control>div{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+.page-play .guide-night-switch{display:block;min-height:48px;margin:18px auto 0;padding:10px 18px;border-radius:24px;border:1px solid var(--rule-strong);background:var(--plate-2);color:var(--emulsion);font-size:15px;cursor:pointer}
+.page-play .guide-night-switch[aria-checked=true]{border-color:var(--gaia);color:var(--gaia)}
+.page-play .guide-playback{margin:8px auto 0;min-width:130px;min-height:44px;border:1px solid var(--rule-strong);border-radius:24px}
+.guide-feedback{min-height:22px;text-align:center;font-size:14px;line-height:1.6;color:var(--gaia);margin:12px 0 10px}
+.guide-actions{text-align:center;display:flex;align-items:center;flex-direction:column;gap:5px}
+.page-play .guide-help{min-height:44px;color:var(--gaia)}
+.guide-notes{text-align:center;margin-top:18px}
+.page-play .guide-data{font-size:12px;line-height:1.8;text-align:left;max-width:520px;margin:12px auto;color:var(--muted)}
+.page-play .guide-data>summary{font-size:12px;color:var(--muted)}
+.guide-data p{font-size:12px;line-height:1.9}.guide-data blockquote{margin:12px 0;padding:12px 16px;border-left:2px solid var(--warning)}
+.guide-catch{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ok);color:var(--plate);padding:12px 18px;border-radius:25px;font-size:18px;line-height:1;white-space:nowrap;pointer-events:none;animation:catch-pop .35s ease-out}
+.guide-image.is-caught{border-color:var(--ok);box-shadow:0 0 28px #7fd49b20}
+@keyframes catch-pop{from{opacity:0;transform:translateX(-50%) scale(.65)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+.guide-reward{max-width:350px;border:1px solid var(--gaia);background:var(--plate-2);border-radius:16px;margin:20px auto 0;padding:18px}
+.reward-stamp{display:block;font-size:12px;color:var(--gaia);margin:0 0 14px}
+.guide-reward .guide-image{max-width:220px}.guide-reward .guide-missing{display:none}
+.guide-reward>strong{display:block;font-size:22px;line-height:1.5;color:var(--emulsion);margin-top:16px}.guide-reward>small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.guide-shelf{color:var(--gaia);font-size:13px;margin:16px 0 0}
+.guide-star-map svg{display:block;width:100%;background:var(--plate);border:1px solid var(--rule);margin:12px 0}.guide-star-map text{fill:var(--emulsion);font-size:12px}
+.explore-learn-entry{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:20px 0;font-size:13px;color:var(--muted)}
+#beginner-start{color:var(--plate);background:var(--gaia);border-color:var(--gaia);font-size:13px}
+@media(max-width:720px){
+  .guide-welcome{padding:26px 0 22px}.guide-lead{font-size:16px}.guide-promise{gap:18px;font-size:12px;margin:24px 0}.guide-stage{padding-top:12px}.guide-top{gap:6px}.page-play .guide-top .guide-text{font-size:11px}.guide-count{font-size:11px}.guide-progress{margin:8px 0 18px}.guide-instruction{font-size:14px;margin-bottom:16px}.guide-image{max-width:min(280px,72vw)}.guide-feedback{font-size:13px;margin:10px 0}.guide-levels .lesson-cards button{min-height:auto}.guide-photo-date{font-size:10px}.guide-time-control{max-width:280px;margin-top:12px}.guide-reward{padding:14px;max-width:300px}.guide-reward .guide-image{max-width:180px}.guide-collection{margin-top:22px}.collection-star{width:40px;height:40px;font-size:24px}
+}
+@media(prefers-reduced-motion:reduce){.guide-stage{scroll-behavior:auto}.guide-catch{animation:none}}
+/* A real field to search; the map owns pan/zoom and observation tracking. */
+.page-play .guide-stage.is-hunting{max-width:1100px}
+.is-hunting .guide-progress{display:none}.is-hunting .guide-content{margin-top:20px}
+.hunt-mission{display:flex;justify-content:center;gap:28px;color:var(--muted);font-size:12px;margin-bottom:18px}.hunt-mission .current{color:var(--gaia)}
+.is-hunting .guide-instruction{margin-bottom:18px}.is-hunting .guide-actions{max-width:520px;margin:auto}.is-hunting .guide-notes{margin-top:8px}
+.hunt-map{position:relative;width:100%;aspect-ratio:16/9;min-height:380px;max-height:65vh;background:var(--sheet-2);border:1px solid var(--rule-strong);border-radius:14px;overflow:hidden;isolation:isolate}
+.hunt-canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}.hunt-canvas:active{cursor:grabbing}.hunt-canvas:focus-visible{outline:2px solid var(--gaia);outline-offset:-3px}
+.hunt-map-label{position:absolute;left:16px;top:14px;display:flex;gap:14px;background:var(--sheet);padding:7px 10px;border:1px solid var(--hair);border-radius:6px;pointer-events:none;color:var(--muted);font-size:11px;line-height:1.5}.hunt-zoom{color:var(--gaia)}
+.hunt-zoom-controls{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:5px}
+.page-play .hunt-zoom-controls button{width:42px;min-height:40px;padding:5px;color:var(--emulsion);background:var(--sheet);border:1px solid var(--rule-strong);border-radius:7px;font-size:21px;cursor:pointer}
+.page-play .hunt-zoom-controls .hunt-reset{font-size:11px}
+.hunt-overview{position:absolute;left:14px;bottom:14px;background:var(--sheet);border:1px solid var(--rule-strong);border-radius:6px;padding:4px;line-height:1;overflow:hidden}.hunt-mini{display:block;width:104px;height:104px;cursor:crosshair}.hunt-overview>span{display:block;font-size:9px;color:var(--muted);line-height:1.5;padding:5px 2px 1px;pointer-events:none}
+.hunt-map-prompt{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:var(--ink);background:var(--sheet);border-radius:18px;padding:8px 14px;font-size:11px;pointer-events:none;white-space:nowrap}
+.hunt-win{position:absolute;top:40%;left:50%;transform:translateX(-50%);font-size:24px;color:var(--ok);background:var(--sheet);padding:20px 28px;border:1px solid var(--ok);border-radius:16px;pointer-events:none;white-space:nowrap}
+.hunt-tools{display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin:14px auto 0}
+.page-play .hunt-tools button,.page-play .hunt-retry{font-size:12px;min-height:40px;line-height:1.5;padding:9px 14px;border:1px solid var(--rule-strong);border-radius:8px;background:var(--plate-2);color:var(--emulsion);cursor:pointer}
+.page-play .hunt-tools button:disabled{opacity:.55;cursor:default}
+.page-play .hunt-tools button[aria-pressed=true],.page-play .hunt-tools button[aria-checked=true]{border-color:var(--gaia);color:var(--gaia)}
+.hunt-frames{display:flex;gap:5px}.hunt-frames button{display:flex;align-items:center;gap:8px}.hunt-frames button>span{display:grid;place-items:center;border:1px solid var(--rule-strong);border-radius:50%;width:20px;height:20px;font-size:11px}.hunt-frames small{font-size:11px}.hunt-frames .recorded>span{border-color:var(--ok);background:#7fd49b25;color:var(--ok)}
+.hunt-bottom{display:flex;justify-content:center;align-items:center;gap:18px;margin-top:10px}.hunt-date{font-size:11px;color:var(--muted);line-height:1.7;margin:0}
+.page-play .hunt-retry{background:transparent;border:0;color:var(--gaia);padding:5px;min-height:32px}
+.hunt-trail-note{font-size:12px;color:var(--muted);margin:12px 0 0;line-height:1.7}
+.is-hunting .guide-feedback{margin:8px auto;max-width:660px;min-height:22px}.is-hunting .guide-heading{font-size:28px}
+@media(max-width:720px){
+  .is-hunting .guide-content{margin-top:10px}.hunt-mission{gap:20px;font-size:11px;margin-bottom:12px}.is-hunting .guide-heading{font-size:22px}.is-hunting .guide-instruction{font-size:12px;margin-bottom:12px}.hunt-map{aspect-ratio:1;min-height:320px;max-height:none;border-radius:10px}.hunt-map-label{left:8px;top:8px;font-size:9px;padding:5px 7px;gap:8px}.hunt-zoom-controls{right:8px;top:8px}.hunt-overview{left:8px;bottom:8px}.hunt-mini{width:66px;height:66px}.hunt-overview>span{font-size:8px}.hunt-map-prompt{left:auto;right:8px;bottom:10px;transform:none;padding:7px 9px;font-size:9px;max-width:calc(100% - 100px);white-space:normal;line-height:1.4}.hunt-tools{gap:8px;margin-top:10px}.page-play .hunt-tools button{font-size:11px;min-height:40px;padding:8px 10px}.hunt-frames button>span{display:none}.hunt-frames{gap:3px}.hunt-bottom{gap:10px;margin-top:6px}.hunt-date{font-size:10px}.hunt-trail-note{font-size:11px;margin-top:6px}.hunt-win{font-size:19px;padding:16px 22px}.is-hunting .guide-feedback{font-size:12px;margin:8px auto}
+}
+@media(max-width:720px){.hunt-map{min-height:300px;max-height:52vh}}

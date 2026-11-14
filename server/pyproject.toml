@@ -6,6 +6,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "skyshift-core",
     "astropy>=6.1",
+    "astropy-healpix>=1.0",
+    "pillow>=10",
     "astroquery>=0.4.10",
     "fastapi>=0.115",
     "google-cloud-storage>=2.18",

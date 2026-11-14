@@ -15,6 +15,9 @@ import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
+import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
+import { loadFrames as loadScienceFrames } from "../api/science-client";
+import { mountPlay } from "../play/page";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -46,6 +49,7 @@ export function startApp(root: HTMLElement): void {
         <a href="#/community" data-route="community">Community</a>
         <a href="#/results" data-route="results">Results</a>
         <a href="#/learn" data-route="learn">Learn</a>
+        <a href="#/play" data-route="play">Play · 星空捉迷藏</a>
       </nav>
       <div class="details-slot"></div>
     </header>
@@ -70,7 +74,9 @@ export function startApp(root: HTMLElement): void {
         <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
         <section id="sky" class="sky" aria-label="Sky around this spot"></section>
       </div>
+      <section id="science-workbench" aria-label="Extended science and cultural sky"></section>
     </main>
+    <main class="page page-play" data-page="play" hidden></main>
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
     <main class="page page-community" data-page="community" hidden></main>
     <main class="page page-about" data-page="about" hidden></main>
@@ -93,6 +99,8 @@ export function startApp(root: HTMLElement): void {
   let object: ObjectResponse | null = null;
   let frameCtl: AbortController | null = null;
   let objectCtl: AbortController | null = null;
+  let layer: Layer = 'raw';
+  let epochMjd = 0;
 
   const blink: BlinkHandle = mountBlink($("#blink"), {
     onViewChange(change) {
@@ -103,7 +111,9 @@ export function startApp(root: HTMLElement): void {
       vote.pick(pick);
     },
     onEpoch(e) {
+      epochMjd = e.mjd_mid;
       sky.epoch(e.mjd_mid);
+      workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id));
     },
   });
   const card: CardHandle = mountCard($("#card"));
@@ -112,6 +122,16 @@ export function startApp(root: HTMLElement): void {
     onClick(pos) {
       if (view) go({ ...view, ...pos, slug: null, name: null });
     },
+  });
+  const workbench = mountWorkbench($("#science-workbench"), {
+    layer(next) { if (view) { layer = next; void go(view, { objectToo: false }); } },
+    reference(points) { card.reference?.(points); },
+    locate(candidate) {
+      const dt = candidate.mjd_ref ? (epochMjd - candidate.mjd_ref) / 365.25 : 0;
+      blink.highlight?.({ ra: candidate.ra + (candidate.pmra_arcsec_yr ?? 0) * dt / (3600 * Math.cos(candidate.dec * Math.PI / 180)), dec: candidate.dec + (candidate.pmdec_arcsec_yr ?? 0) * dt / 3600 });
+      $("#blink").scrollIntoView({ block: 'start', behavior: 'auto' });
+    },
+    rebuilt(next) { layer = 'raw'; void go(next); },
   });
   let score: { destroy(): void } | null = null;
 
@@ -134,7 +154,9 @@ export function startApp(root: HTMLElement): void {
       route();
     }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
+    if (moved) layer = 'raw';
     view = next;
+    workbench.select(next, layer);
     if (push) writeView(next);
     markChips(next.slug);
     input.value = next.name ?? formatRaDec(next);
@@ -146,6 +168,8 @@ export function startApp(root: HTMLElement): void {
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
 
+    frames = null;
+    blink.highlight?.(null);
     if (moved) {
       // Don't hand the card or sky the previous spot's data while the new one loads.
       object = null;
@@ -158,7 +182,9 @@ export function startApp(root: HTMLElement): void {
       card.status("loading");
       loadObject(next, osig)
         .then((o) => {
+          if (osig.aborted) return;
           object = o;
+          workbench.object(o);
           card.show(next, o, frames);
         })
         .catch((e) => {
@@ -169,18 +195,29 @@ export function startApp(root: HTMLElement): void {
         });
     }
 
+    if (!moved && !objectToo) workbench.object(object);
     try {
-      const loaded = await loadFrames(next, fsig);
+      const loaded = layer === 'raw' ? await loadFrames(next, fsig) : await (async () => {
+        const extended = await loadScienceFrames(targetFor(next), next.det, next.clock, fsig, layer, next.fov);
+        return { frames: extended.data as FramesResponse, jsonUrl: extended.jsonUrl };
+      })();
       if (fsig.aborted) return;
       frames = loaded.frames;
       sky.goto(next, frames);
       card.show(next, object, frames);
-      await blink.show(next, loaded.frames, loaded.jsonUrl);
+      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl);
+      if (fsig.aborted) return;
+      blink.status('idle');
     } catch (e) {
       if (fsig.aborted) return;
       frames = null;
       sky.goto(next, null);
-      blink.status("error", errorText(e));
+      if (layer !== 'raw') {
+        const failed = layer;
+        layer = 'raw';
+        await go(next, { push: false, objectToo: false });
+        if (view === next) workbench.message(`${failed} is unavailable here. Showing the original observations. Build an analysis to prepare the model and residual.`);
+      } else blink.status("error", errorText(e));
     }
   }
 
@@ -251,6 +288,7 @@ export function startApp(root: HTMLElement): void {
     atlas: mountAtlas,
     discover: mountDiscover,
     learn: mountLearn,
+    play: mountPlay,
     tools: mountTools,
     live: mountLive,
     review: mountReview,
@@ -269,7 +307,7 @@ export function startApp(root: HTMLElement): void {
     if (head === "score" || head === "results") return { page: "results", param: null };
     if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
     if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
-    if (["review", "explore", "community", "about", "learn", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
+    if (["review", "explore", "community", "about", "learn", "play", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
     // No hash: deep links to a target or coordinates open Explore; otherwise the sky (atlas).
     if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
       return { page: "explore", param: null };
@@ -279,6 +317,8 @@ export function startApp(root: HTMLElement): void {
   function route() {
     const { page, param } = parseRoute();
     if (current && current !== page) pages.get(current)?.hide?.();
+    blink.active?.(page === 'explore');
+    workbench.active(page === 'explore');
     current = page;
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
@@ -306,6 +346,15 @@ export function startApp(root: HTMLElement): void {
   }
   addEventListener("hashchange", route);
 
+  addEventListener('skyshift:gaia', (event) => {
+    const data = (event as CustomEvent<{ra: number; dec: number; stars: FramesResponse['gaia']}>).detail;
+    if (!view || !frames || !data || data.ra !== view.ra || data.dec !== view.dec || !Array.isArray(data.stars)) return;
+    frames.gaia = data.stars;
+    blink.gaia?.(data.stars);
+    sky.goto(view, frames);
+    sky.epoch(epochMjd);
+  });
+
   // Votes' "Show" re-centres the blink on a candidate.
   addEventListener("skyshift:goto", (ev) => {
     const d = (ev as CustomEvent<{ ra: number; dec: number; clock?: View["clock"] }>).detail;
@@ -317,7 +366,7 @@ export function startApp(root: HTMLElement): void {
 
   addEventListener("popstate", () => {
     const v = readView();
-    if (v) go(v, { push: false });
+    if (v && parseRoute().page === "explore") go(v, { push: false });
   });
 
   route();

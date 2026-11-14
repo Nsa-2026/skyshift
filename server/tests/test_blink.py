@@ -250,12 +250,20 @@ def test_object_spectrum_and_zero_shift(world):
     assert sorted({p["visit"] for p in sp}) == [1, 2]
     m = o["measure"]
     assert set(m) == {"shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec",
-                      "n_ref_stars", "predicted_arcsec"}
+                      "n_ref_stars", "predicted_arcsec", "source"}
     assert m["shift_arcsec"] < 0.05  # the same pixels in both visits
     assert m["dt_yr"] == pytest.approx((VISIT2 + 0.0015 - 0.0015) / 365.25, abs=1e-4)
     assert m["n_ref_stars"] >= 3 and m["sigma_arcsec"] < 0.05
     assert m["predicted_arcsec"] is not None and m["predicted_arcsec"] < 0.05  # a slow star
     assert details["det"] == 1 and details["visits"] == [1, 2]
+    source = m["source"]
+    assert source["det"] == details["det"] and source["visits"] == details["visits"]
+    assert source["n_exposures"] == [3, 3]
+    assert source["mjd"] == pytest.approx(details["mjd"], abs=1e-6)
+    assert source["mjd"][0] == pytest.approx(MJD1 + 0.0015, abs=1e-6)
+    assert m["dt_yr"] == pytest.approx((source["mjd"][1] - source["mjd"][0]) / 365.25, abs=1e-4)
+    assert source["fov"] == 15 and source["pixel_arcsec"] == 6.15
+    assert source["core_filled"] == details["core_filled"]
     # photometry is done on IMAGE as it is: the zodi model is only taken off the stacks
     assert len(world["zodi_calls"]) == 6
 
