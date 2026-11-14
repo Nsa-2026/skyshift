@@ -16,6 +16,7 @@ import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
+import { mountOpening } from "../intro";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -360,4 +361,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
+  // The opening (src/intro): every visit to the home page itself, over the Sky map as it loads.
+  if (!embed) mountOpening(root);
 }
