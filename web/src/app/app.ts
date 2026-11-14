@@ -239,6 +239,9 @@ export function startApp(root: HTMLElement): void {
       location.hash = hash;
     },
     explore(at) {
+      // Static first: a spot inside a featured target's field opens its prepared frames.
+      const near = featuredNear(at);
+      if (near && (!at.clock || at.clock === near.clock)) return void go(viewForTarget(near));
       const clock = at.clock ?? view?.clock ?? "months";
       const fov = at.fov ?? (view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20);
       go({ ra: at.ra, dec: at.dec, clock, fov, det: at.det ?? view?.det ?? 2, slug: null, name: null });
