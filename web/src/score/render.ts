@@ -189,6 +189,13 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
 
 // ---- page --------------------------------------------------------------------------------
 
+const NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+
+/** 11 → "eleven"; beyond twelve, digits. */
+export function countWord(n: number): string {
+  return NUMBER_WORDS[n] ?? String(n);
+}
+
 function isSynthetic(x: unknown): boolean {
   return !!x && typeof x === "object" && (x as { synthetic?: unknown }).synthetic === true;
 }
@@ -196,12 +203,14 @@ function isSynthetic(x: unknown): boolean {
 export function renderPage(v: ValidationResponse | null, sr: SuspectsResponse | null): string {
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
   const synthetic = isSynthetic(v) || isSynthetic(sr);
+  const n = countWord(checks.length);
   return html`
     <div class="sc">
       <header class="sc-head">
         <h1 class="sc-title">How we know it works</h1>
-        <p class="sc-lede">Eight checks of SkyShift's measurements against Gaia, NASA's asteroid predictions and
-          catalogue brightness. Every number is printed as measured, including the poor ones.</p>
+        <p class="sc-lede">${n.charAt(0).toUpperCase() + n.slice(1)} checks of SkyShift's measurements against Gaia,
+          NASA's asteroid predictions, star catalogues, SDSS galaxy redshifts and published asteroid sizes. Every number
+          is printed as measured, including the poor ones.</p>
         ${
           synthetic
             ? html`<p class="sc-synthetic" role="note">Synthetic example data: these numbers are made up to test the page.</p>`
@@ -211,7 +220,7 @@ export function renderPage(v: ValidationResponse | null, sr: SuspectsResponse | 
           v
             ? ""
             : html`<p class="sc-pending-note" role="status">${statusMark("pending")} The validation run hasn't published its results
-                yet. The eight checks are listed below and fill in when it does.</p>`
+                yet. The ${n} checks are listed below and fill in when it does.</p>`
         }
       </header>
       ${renderSummary(checks, v)}

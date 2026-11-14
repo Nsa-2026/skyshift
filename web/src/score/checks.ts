@@ -1,6 +1,8 @@
-// The eight checks the scoreboard always lists, from docs/skyshift-hackathon-plan.html
-// ("How we know it works"). Used for the pending state before scripts/validate publishes
-// /data/validation.json, and to add a plain-language line under each published claim.
+// The checks of docs/skyshift-hackathon-plan.html ("How we know it works"), V1–V11, with a
+// plain-language line for each published claim. CHECKS (V1–V8) are always listed: they make the
+// pending state before scripts/validate publishes /data/validation.json and fill any of V1–V8 the
+// file leaves out. EXTRA_CHECKS (V9–V11, added on Saturday 14 Nov) show when the file has them.
+// Claims and expected values follow validation.json; measured numbers only ever come from it.
 import type { CheckStatus, ValidationCheck } from "../api/types";
 
 export interface CheckInfo {
@@ -64,16 +66,41 @@ export const CHECKS: CheckInfo[] = [
     id: "V8",
     claim: "Spectra and speed",
     plain:
-      "Our spectra of two unsaturated stars against their 2MASS and WISE catalogue brightness, and the time to the first frame for random coordinates.",
-    expected: "within 20%; first frame under 15 s",
+      "Our spectrum of every clean star in the pilot zone (thousands, matched to Gaia, 2MASS and CatWISE, not saturated or variable), averaged over the 2MASS Ks and WISE W1 bands and divided by the catalogue brightness: 1 means we agree. Speed is the time in seconds from asking for random coordinates to the first frame on screen.",
+    expected: "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
+  },
+];
+
+/** V9–V11: shown with a plain-language line when validation.json publishes them. */
+export const EXTRA_CHECKS: CheckInfo[] = [
+  {
+    id: "V9",
+    claim: "Astrometry matches Gaia",
+    plain:
+      "For every star in the pilot zone we fit a proper motion (its own drift across the sky, in mas/yr: thousandths of an arcsecond per year) from all its dots, with SPHEREx's own position as the observer, and compare it with Gaia's. The bias (average difference) should be near zero; the scatter is the typical difference. The pull scatter (difference ÷ our stated error) near 1 means our error bars are honest.",
+    expected: "Bias near zero; pull scatter near 1",
+  },
+  {
+    id: "V10",
+    claim: "Galaxy distances match SDSS",
+    plain:
+      "We estimate each galaxy's redshift z, a measure of its distance, by fitting EAZY galaxy templates to its 102-channel SPHEREx spectrum, and compare it with the SDSS DR17 redshift measured by a spectrograph. σ_NMAD is the typical error in Δz/(1+z); an outlier is off by more than 0.15 in Δz/(1+z).",
+    expected: "σ_NMAD ~0.02 for bright galaxies (AB < 17)",
+  },
+  {
+    id: "V11",
+    claim: "Asteroid sizes match published values",
+    plain:
+      "We fit each asteroid's SPHEREx spectrum (reflected sunlight at the short wavelengths, its own heat glow at the long ones) with the NEATM thermal model. That gives a diameter in km and an albedo (the share of sunlight the surface reflects), which we divide by the published values: 1 means we agree.",
+    expected: "Diameter ratio near 1",
   },
 ];
 
 export function checkInfo(id: string): CheckInfo | undefined {
-  return CHECKS.find((c) => c.id === id);
+  return CHECKS.find((c) => c.id === id) ?? EXTRA_CHECKS.find((c) => c.id === id);
 }
 
-/** The checks shown before validation.json exists: all eight, pending. */
+/** The checks shown before validation.json exists: V1–V8, pending. */
 export function pendingChecks(): ValidationCheck[] {
   return CHECKS.map((c) => ({
     id: c.id,
@@ -89,8 +116,8 @@ export function pendingChecks(): ValidationCheck[] {
 }
 
 /**
- * The published checks, in file order, plus any of V1–V8 the file leaves out (as pending),
- * so the page always accounts for all eight.
+ * The published checks, in file order (V9–V11 included when present), plus any of V1–V8 the
+ * file leaves out (as pending), so the page always accounts for those eight.
  */
 export function withAllChecks(published: ValidationCheck[]): ValidationCheck[] {
   const have = new Set(published.map((c) => c.id));

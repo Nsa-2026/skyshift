@@ -1,4 +1,4 @@
-// Scoreboard page (#/score): checks V1–V8 from /data/validation.json and the unknown-mover
+// Scoreboard page (#/score): checks V1–V11 from /data/validation.json and the unknown-mover
 // suspects from /data/suspects.json. Missing files show a pending state, never fixtures.
 import { loadSuspects, loadValidation } from "../api/client";
 import type { SuspectsResponse, ValidationResponse } from "../api/types";

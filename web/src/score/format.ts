@@ -59,14 +59,16 @@ const UNITS: Record<string, string> = {
   deg: "°",
   ujy: "µJy",
   um: "µm",
+  ratio: "×",
+  "dz/(1+z)": "Δz/(1+z)",
 };
 
-/** Measured value with its unit: "10.21″/yr", "4 targets", "—". */
+/** Measured value with its unit: "10.21″/yr", "1.056×", "4 targets", "—". */
 export function formatValue(value: number | null, unit: string | null): string {
   if (value === null || value === undefined) return "—";
   const u = unit ? UNITS[unit.toLowerCase()] ?? unit : "";
   if (!u) return formatNumber(value);
-  return /^[″°]/.test(u) ? `${formatNumber(value)}${u}` : `${formatNumber(value)} ${u}`;
+  return /^[″°×]/.test(u) ? `${formatNumber(value)}${u}` : `${formatNumber(value)} ${u}`;
 }
 
 /** "2026-11-14T09:30:00Z" → "14 Nov 2026, 09:30 UTC". Unparseable input is returned as is. */

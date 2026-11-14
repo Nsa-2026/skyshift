@@ -1,8 +1,10 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import validationFx from "../../../fixtures/api/validation.json";
 import suspectsFx from "../../../fixtures/api/suspects.json";
 import type { SuspectsResponse, ValidationResponse } from "../api/types";
-import { CHECKS, countStatuses, withAllChecks } from "./checks";
+import { CHECKS, checkInfo, countStatuses, withAllChecks } from "./checks";
 import { blinkHref, csvField, formatCell, formatValue, suspectsCsv } from "./format";
 import { mountScore, renderScore } from "./index";
 
@@ -171,6 +173,45 @@ describe("pending state", () => {
   });
 });
 
+// The published file from scripts/validate (P1): read as is, never edited here.
+const realPath = join(__dirname, "../../public/data/validation.json");
+const realValidation = (): ValidationResponse => JSON.parse(readFileSync(realPath, "utf8"));
+const V1_V11 = Array.from({ length: 11 }, (_, i) => `V${i + 1}`);
+
+describe.runIf(existsSync(realPath))("the real validation.json", () => {
+  it("renders all eleven checks in order, each with a plain-language line", () => {
+    const v = realValidation();
+    const d = el();
+    renderScore(d, v, null);
+    const blocks = [...d.querySelectorAll(".sc-check")];
+    expect(blocks.map((b) => b.querySelector(".sc-id")!.textContent)).toEqual(V1_V11);
+    expect(d.querySelectorAll(".sc-tick")).toHaveLength(11);
+    for (const c of v.checks) {
+      const b = d.querySelector(`#sc-${c.id}`)!;
+      expect(checkInfo(c.id), c.id).toBeDefined();
+      expect(b.querySelector(".sc-claim")!.textContent).toBe(c.claim);
+      expect(b.querySelector(".sc-plain")!.textContent).toBe(checkInfo(c.id)!.plain);
+      expect(b.querySelector(".sc-headline")!.textContent).toBe(c.headline);
+      expect(b.textContent).toContain(c.expected);
+    }
+    const counts = countStatuses(v.checks);
+    expect(d.querySelector(".sc-count.sc-pending b")!.textContent).toBe(String(counts.pending));
+    expect(d.querySelector(".sc-head .sc-lede")!.textContent).toMatch(/^Eleven checks/);
+    expect(d.querySelector(".sc-synthetic")).toBeNull();
+  });
+
+  it("shows V9–V11 with their units and rows", () => {
+    const d = el();
+    renderScore(d, realValidation(), null);
+    expect(d.querySelector("#sc-V9 .sc-value")!.textContent).toMatch(/ mas\/yr$/);
+    expect(d.querySelector("#sc-V10 .sc-value")!.textContent).toMatch(/ Δz\/\(1\+z\)$/);
+    expect(d.querySelector("#sc-V11 .sc-value")!.textContent).toMatch(/×$/);
+    for (const id of ["V9", "V10", "V11"]) {
+      expect(d.querySelector(`#sc-${id} details tbody tr`), id).not.toBeNull();
+    }
+  });
+});
+
 describe("formatting", () => {
   it("formats cells", () => {
     expect(formatCell(null)).toBe("—");
@@ -186,6 +227,9 @@ describe("formatting", () => {
     expect(formatValue(null, null)).toBe("—");
     expect(formatValue(0.9, "arcsec")).toBe("0.9″");
     expect(formatValue(4, "targets")).toBe("4 targets");
+    expect(formatValue(216.072, "mas/yr")).toBe("216.07 mas/yr");
+    expect(formatValue(1.056, "ratio")).toBe("1.056×");
+    expect(formatValue(0.0229, "dz/(1+z)")).toBe("0.0229 Δz/(1+z)");
   });
   it("builds the blink link", () => {
     expect(blinkHref({ ra: 1, dec: -2.5, det: 6 })).toBe("?ra=1.00000&dec=-2.50000&clock=hours&fov=20&det=6#/");
