@@ -9,10 +9,8 @@ on `codex/frontend-unified`.
 ## Current opening (14 November 2026)
 
 `#/` is a scroll-controlled space → Earth → ground → frontal face → pupil → real sky sequence.
-The figure is a flat black silhouette drawn with Canvas paths. It has one almond eye with
-extended liner inspired by Egyptian murals; no skin shading or other facial features remain.
-The camera stays front-on and centers the eye before approaching its pupil. Phone framing
-adapts to viewport width. There are no video files or AI-generated visual assets.
+The portrait uses procedural surface shading and authored Canvas paths. The face stays front-on
+before the camera approaches one pupil. There are no video files or AI-generated visual assets.
 The same live dashboard emerges at the end and becomes interactive at `#/explore`.
 
 Entry/Explore-only styles live in `src/intro/intro.css`: persistent search/navigation, five target
