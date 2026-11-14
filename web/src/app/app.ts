@@ -18,6 +18,7 @@ import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { mountPlay } from "../play/page";
+import { mountObservatory } from "./observatory";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -41,7 +42,7 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="atlas">Sky</a>
+        <a href="#/sky" data-route="atlas">Sky</a>
         <a href="#/candidates" data-route="discover">Candidates</a>
         <a href="#/review" data-route="review">Review</a>
         <a href="#/explore" data-route="explore">Blink</a>
@@ -49,6 +50,8 @@ export function startApp(root: HTMLElement): void {
         <a href="#/community" data-route="community">Community</a>
         <a href="#/results" data-route="results">Results</a>
         <a href="#/learn" data-route="learn">Learn</a>
+        <a href="#/tools" data-route="tools">Tools &amp; data</a>
+        <a href="#/about" data-route="about">About</a>
         <a href="#/play" data-route="play">Play · 星空捉迷藏</a>
       </nav>
       <div class="details-slot"></div>
@@ -103,18 +106,24 @@ export function startApp(root: HTMLElement): void {
   let epochMjd = 0;
 
   const blink: BlinkHandle = mountBlink($("#blink"), {
+    immersive: true,
     onViewChange(change) {
       if (!view) return;
       go({ ...view, ...change }, { objectToo: false });
     },
     onPick(pick) {
       vote.pick(pick);
+      observatory.panel("context");
     },
     onEpoch(e) {
       epochMjd = e.mjd_mid;
       sky.epoch(e.mjd_mid);
       workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id));
     },
+  });
+  const observatory = mountObservatory(root, $("#blink"), {
+    target(slug) { const t=targetBySlug(slug); if(t)void go(viewForTarget(t)); },
+    analysis(visible) { workbench.active(visible); },
   });
   const card: CardHandle = mountCard($("#card"));
   const vote: VoteHandle = mountVote($("#vote"));
@@ -157,6 +166,7 @@ export function startApp(root: HTMLElement): void {
     if (moved) layer = 'raw';
     view = next;
     workbench.select(next, layer);
+    observatory.view(next, moved ? null : object);
     if (push) writeView(next);
     markChips(next.slug);
     input.value = next.name ?? formatRaDec(next);
@@ -185,6 +195,7 @@ export function startApp(root: HTMLElement): void {
           if (osig.aborted) return;
           object = o;
           workbench.object(o);
+          observatory.view(view ?? next, o);
           card.show(next, o, frames);
         })
         .catch((e) => {
@@ -318,10 +329,12 @@ export function startApp(root: HTMLElement): void {
     const { page, param } = parseRoute();
     if (current && current !== page) pages.get(current)?.hide?.();
     blink.active?.(page === 'explore');
-    workbench.active(page === 'explore');
+    root.dataset.page = page;
+    observatory.active(page === "explore");
     current = page;
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
+    if (page === "explore") root.querySelector<HTMLElement>(".featured")!.hidden = true;
     const navKey = page === "candidate" ? "review" : page;
     root.querySelectorAll<HTMLAnchorElement>(".nav a").forEach((a) =>
       a.dataset.route === navKey ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),

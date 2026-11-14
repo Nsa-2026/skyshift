@@ -52,25 +52,25 @@ export function mountHunt(host:HTMLElement,options:Options){
   function draw(){
     if(disposed)return;const ctx=canvas.getContext('2d');if(!ctx)return;
     const sx=canvas.width/screen.width,sy=canvas.height/screen.height;ctx.setTransform(sx,0,0,sy,0,0);
-    ctx.fillStyle='#e3e8e7';ctx.fillRect(0,0,screen.width,screen.height);
+    ctx.fillStyle='#202124';ctx.fillRect(0,0,screen.width,screen.height);
     const scale=mapScale(camera,world,screen),origin=toScreen({x:0,y:0},camera,world,screen);
     ctx.imageSmoothingEnabled=camera.zoom<3;ctx.drawImage(images[frame],origin.x,origin.y,world.width*scale,world.height*scale);
     // Overlays are navigation aids only; source pixels are never moved or invented.
     ctx.save();ctx.beginPath();ctx.rect(origin.x,origin.y,world.width*scale,world.height*scale);ctx.clip();
-    ctx.lineWidth=1;ctx.strokeStyle='#a9b1b655';ctx.font='11px system-ui';ctx.fillStyle='#4f5867';
+    ctx.lineWidth=1;ctx.strokeStyle='#45484e55';ctx.font='11px system-ui';ctx.fillStyle='#a0a5ae';
     for(let n=0;n<=4;n++){
       const x=origin.x+world.width*n/4*scale,y=origin.y+world.height*n/4*scale;
       ctx.beginPath();ctx.moveTo(x,origin.y);ctx.lineTo(x,origin.y+world.height*scale);ctx.stroke();ctx.beginPath();ctx.moveTo(origin.x,y);ctx.lineTo(origin.x+world.width*scale,y);ctx.stroke();
     }
     for(let y=0;y<4;y++)for(let x=0;x<4;x++){const p=toScreen({x:world.width*x/4,y:world.height*y/4},camera,world,screen);ctx.fillText(`${'ABCD'[x]}${y+1}`,p.x+8,p.y+18)}
     if(hints&&phase!=='found'){
-      const box=hintBox(),p=toScreen(box,camera,world,screen);ctx.fillStyle='#a35f0012';ctx.fillRect(p.x,p.y,box.width*scale,box.height*scale);ctx.strokeStyle='#a35f00';ctx.setLineDash([8,6]);ctx.strokeRect(p.x,p.y,box.width*scale,box.height*scale);ctx.setLineDash([]);
+      const box=hintBox(),p=toScreen(box,camera,world,screen);ctx.fillStyle='#d0b58412';ctx.fillRect(p.x,p.y,box.width*scale,box.height*scale);ctx.strokeStyle='#d0b584';ctx.setLineDash([8,6]);ctx.strokeRect(p.x,p.y,box.width*scale,box.height*scale);ctx.setLineDash([]);
     }
     const ring=(point:Point,colour:string,label:string)=>{const p=toScreen(point,camera,world,screen);ctx.strokeStyle=colour;ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,14,0,Math.PI*2);ctx.stroke();ctx.fillStyle=colour;ctx.fillText(label,p.x+19,p.y-10)};
-    rejected.forEach(p=>ring(p,'#78818f88','已试过'));
-    marks.forEach((p,i)=>ring(p,phase==='found'?'#1f7a4d':'#2556c8',String(i+1)));
-    if(selected)ring(selected,phase==='found'?'#1f7a4d':'#a35f00',phase==='search'?'可疑位置':phase==='found'?'跟踪成功':'待记录');
-    if(keyboard){ctx.strokeStyle='#18202e';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(screen.width/2-8,screen.height/2);ctx.lineTo(screen.width/2+8,screen.height/2);ctx.moveTo(screen.width/2,screen.height/2-8);ctx.lineTo(screen.width/2,screen.height/2+8);ctx.stroke()}
+    rejected.forEach(p=>ring(p,'#747a8488','已试过'));
+    marks.forEach((p,i)=>ring(p,phase==='found'?'#98c6ad':'#a9b9d4',String(i+1)));
+    if(selected)ring(selected,phase==='found'?'#98c6ad':'#d0b584',phase==='search'?'可疑位置':phase==='found'?'跟踪成功':'待记录');
+    if(keyboard){ctx.strokeStyle='#e8e9ec';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(screen.width/2-8,screen.height/2);ctx.lineTo(screen.width/2+8,screen.height/2);ctx.moveTo(screen.width/2,screen.height/2-8);ctx.lineTo(screen.width/2,screen.height/2+8);ctx.stroke()}
     ctx.restore();
     $('.hunt-zoom').textContent=`${camera.zoom.toFixed(1)}×`;
     $('.hunt-date').textContent=`照片 ${frame+1} / ${observations.length} · ${dateLabel(observations[frame].epoch.mjd_mid)}${night&&options.changeNight?' · 夜视已开':''}`;
@@ -79,9 +79,9 @@ export function mountHunt(host:HTMLElement,options:Options){
   }
   function drawOverview(){
     mini.width=104;mini.height=104;const ctx=mini.getContext('2d');if(!ctx)return;ctx.drawImage(images[frame],0,0,104,104);
-    if(hints){const b=hintBox();ctx.fillStyle='#a35f0033';ctx.fillRect(b.x/world.width*104,b.y/world.height*104,b.width/world.width*104,b.height/world.height*104)}
+    if(hints){const b=hintBox();ctx.fillStyle='#d0b58433';ctx.fillRect(b.x/world.width*104,b.y/world.height*104,b.width/world.width*104,b.height/world.height*104)}
     const top=toWorld({x:0,y:0},camera,world,screen),bottom=toWorld({x:screen.width,y:screen.height},camera,world,screen);
-    ctx.strokeStyle='#2556c8';ctx.lineWidth=2;ctx.strokeRect(Math.max(1,top.x/world.width*104),Math.max(1,top.y/world.height*104),Math.min(world.width,bottom.x-Math.max(0,top.x))/world.width*104-2,Math.min(world.height,bottom.y-Math.max(0,top.y))/world.height*104-2);
+    ctx.strokeStyle='#a9b9d4';ctx.lineWidth=2;ctx.strokeRect(Math.max(1,top.x/world.width*104),Math.max(1,top.y/world.height*104),Math.min(world.width,bottom.x-Math.max(0,top.x))/world.width*104-2,Math.min(world.height,bottom.y-Math.max(0,top.y))/world.height*104-2);
   }
   function controls(){
     const following=phase==='follow',found=phase==='found';

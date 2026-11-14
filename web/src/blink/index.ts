@@ -1,8 +1,8 @@
 // The blink player (P4). Draws SPHEREx frames of one detector on a plate and blinks them on the
 // months clock (visit stacks) or the hours clock (single exposures). Seam: src/app/modules.ts.
-// Design: web/DESIGN.md ("Lightbox"). The plate is the hero, the time strip sits right under it,
-// one row of primary controls follows, and everything secondary lives behind "Adjust".
+// The same astronomical player supports the full-window observatory and compact embeds.
 import "./blink.css";
+import { frameViewport } from "./viewport";
 import { ALLOWED_FOV, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadTargetIndex, toMJySr } from "../api/client";
 import type { Clock, Det, Epoch, FramesResponse, SkyPos, TargetIndex } from "../api/types";
 import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
@@ -32,7 +32,7 @@ import { drawStrip, plateDate, updateStrip } from "./strip";
 
 type Mode = "blink" | "difference" | "stack";
 const DETS: Det[] = [1, 2, 3, 4, 5, 6];
-const FPS = [1, 2, 4, 8];
+const FPS = [0.5, 1, 2, 4, 8];
 const PSF_FWHM_ARCSEC = 7.53;
 const FAST_STAR_MAS_YR = 300;
 /** At most this many Gaia rings on a 680 px plate (fewer on a smaller one): the brightest win. */
@@ -173,8 +173,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <div class="bk-adj-row">
             <span class="bk-adj-k" id="${uid}-pl">Plate</span>
             <div class="seg seg-sm" role="group" aria-labelledby="${uid}-pl">
-              <button type="button" data-positive="false" aria-pressed="true">Negative</button>
-              <button type="button" data-positive="true" aria-pressed="false">Positive</button>
+              <button type="button" data-positive="false" aria-pressed="true">Bright stars</button>
+              <button type="button" data-positive="true" aria-pressed="false">Dark stars</button>
             </div>
           </div>
           <div class="bk-adj-row">
@@ -232,8 +232,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   `;
 
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
-  const $$ = <T extends Element>(sel: string) => [...el.querySelectorAll<T>(sel)];
+  const $$ = <T extends Element>(sel: string) => [...el.querySelectorAll<T>(sel)].filter(e => !(e instanceof HTMLButtonElement) || e.hasAttribute("data-blink-control"));
   const root = $<HTMLDivElement>(".bk");
+  if (opts.immersive) root.classList.add("bk-immersive");
+  el.querySelectorAll("button").forEach(b => b.setAttribute("data-blink-control", ""));
   const col = $<HTMLDivElement>(".bk-col");
   const plate = $<HTMLDivElement>(".bk-plate");
   const canvas = $<HTMLCanvasElement>(".bk-canvas");
@@ -269,7 +271,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let idx = 0;
   let ref = 0;
   let mode: Mode = "blink";
-  let stretchKind: StretchKind = "asinh";
+  let stretchKind: StretchKind = opts.immersive ? "linear" : "asinh";
   let contrast = 0.45;
   let positive = false;
   let levelSky = true;
@@ -303,6 +305,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let lut: { key: string; data: Uint8ClampedArray } = { key: "", data: new Uint8ClampedArray(0) };
   let hatch: { key: string; pattern: CanvasPattern | null } = { key: "", pattern: null };
   let cssSize = 0;
+  let cssHeight = 0;
+  let fitField = false;
   let dpr = 1;
 
   // ---- data helpers -------------------------------------------------------------------------
@@ -440,15 +444,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   /** Image edge coordinates (u, v) of the visible window and screen pixels per image pixel. */
   function viewport() {
     const [nx, ny] = size();
-    const W = cssSize;
-    const vw = nx / zoom;
-    const vh = ny / zoom;
-    const s = Math.min(W / vw, W / vh);
-    const u0 = Math.min(Math.max(centre.u - vw / 2, 0), nx - vw);
-    const v0 = Math.min(Math.max(centre.v - vh / 2, 0), ny - vh);
-    const ox = (W - vw * s) / 2;
-    const oy = (W - vh * s) / 2;
-    return { u0, v0, vw, vh, s, ox, oy };
+    return frameViewport(nx,ny,cssSize,cssHeight||cssSize,zoom,centre,!!opts.immersive&&!fitField);
   }
   type VP = ReturnType<typeof viewport>;
   const toScreen = (px: { x: number; y: number }, vp: VP) => ({
@@ -470,7 +466,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   function draw() {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssSize, cssSize);
+    ctx.clearRect(0, 0, cssSize, cssHeight || cssSize);
     if (!F || !frames.length) return;
     const vp = viewport();
     const hk = `${dpr}`;
@@ -482,7 +478,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillRect(Math.round(vp.ox * dpr), Math.round(vp.oy * dpr), Math.round(vp.vw * vp.s * dpr), Math.round(vp.vh * vp.s * dpr));
     ctx.restore();
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = !!opts.immersive;
     ctx.drawImage(off, vp.u0, vp.v0, vp.vw, vp.vh, vp.ox, vp.oy, vp.vw * vp.s, vp.vh * vp.s);
     drawMarks(vp);
     if (overlays.guides) drawGuides(vp, plain && positive);
@@ -625,8 +621,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
 
     if (overlays.target) {
-      reticle(ctx, tp.X, tp.Y, gap, Math.max(7, gap * 0.6));
-      pencil(ctx, pen("--pencil-red"), 1.75);
+      if(opts.immersive) { ctx.setLineDash([5,5]); ring(ctx,tp.X,tp.Y,gap*1.35); }
+      else reticle(ctx, tp.X, tp.Y, gap, Math.max(7, gap * 0.6));
+      pencil(ctx, opts.immersive ? cssColor("--ink") : pen("--pencil-red"), 1.75);
+      ctx.setLineDash([]);
     }
 
     if (pick) {
@@ -640,6 +638,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   function drawGuides(vp: VP, onInk: boolean) {
     if (!ctx || !F) return;
     const W = cssSize;
+    const H = (cssHeight || cssSize) - (opts.immersive ? 95 : 0);
     const ink = onInk ? cssColor("--glass", "#edf0ef") : cssColor("--ink");
     const halo = onInk ? cssColor("--ink") : cssColor("--glass", "#edf0ef");
     ctx.font = `600 11px ${fontFamily}`;
@@ -647,15 +646,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     // Scale bar, bottom left.
     const { arcsec, label: text } = niceArcsec((W * 0.18 * F.pixel_arcsec) / vp.s);
     const len = (arcsec / F.pixel_arcsec) * vp.s;
-    scaleBar(ctx, pad, W - pad, len);
+    scaleBar(ctx, pad, H - pad, len);
     pencil(ctx, halo, 4, 0.6);
     pencil(ctx, ink, 1.25, 0.9);
     ctx.textAlign = "center";
-    label(ctx, text, pad + len / 2, W - pad - 6, ink, halo);
+    label(ctx, text, pad + len / 2, H - pad - 6, ink, halo);
     // Compass, bottom right: north up, east left.
     const L = 18;
     const cx = W - pad;
-    const cy = W - pad;
+    const cy = H - pad;
     compass(ctx, cx, cy, L);
     pencil(ctx, halo, 4, 0.6);
     pencil(ctx, ink, 1.25, 0.9);
@@ -782,7 +781,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const fovs = ALLOWED_FOV[view.clock];
     $(".bk-fov").innerHTML = fovs
       .map(
-        (f) => html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
+        (f) => html`<button type="button" data-blink-control data-fov="${f}" aria-pressed="${f === view!.fov}"
           aria-label="${f} arcminute field" title="${f} arcminute field">${f}′</button>`,
       )
       .join("");
@@ -820,6 +819,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     press("[data-positive]", "data-positive", String(positive));
     press("[data-zoom]", "data-zoom", String(zoom));
     press("[data-fps]", "data-fps", String(fps));
+    press("[data-fit]", "data-fit", fitField ? "field" : "window");
     $$<HTMLButtonElement>("[data-opt]").forEach((b) => {
       const o = b.dataset.opt;
       b.setAttribute("aria-pressed", String(o === "level" ? levelSky : o === "smooth" ? smoothOn : following()));
@@ -837,6 +837,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     const stepOff = allAtOnce() || n() < 2 || !!busy;
     playBtn.disabled = stepOff;
+    $$<HTMLButtonElement>("[data-step]").forEach(b => b.disabled = stepOff);
     playBtn.innerHTML = playing ? icon.pause : icon.play;
     playBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
     playBtn.setAttribute("aria-pressed", String(playing));
@@ -912,11 +913,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         msgText.textContent = `SPHEREx has no ${view.clock} frames here yet. Try the other clock or a featured target.`;
       } else if (failed) {
         msgText.textContent = `None of the ${failed} frames loaded. Check your connection, then try again.`;
-        msgActions.innerHTML = `<button class="btn" type="button" data-retry>Try again</button>`;
+        msgActions.innerHTML = `<button class="btn" type="button" data-blink-control data-retry>Try again</button>`;
       } else {
         msgText.textContent = `No D${view.det} frames on the ${view.clock} clock here. Pick a detector that has them.`;
         msgActions.innerHTML = have
-          .map((d) => `<button class="btn det-${d} bk-msg-det" type="button" data-goto-det="${d}"><i class="bk-swatch"></i>D${d}</button>`)
+          .map((d) => `<button class="btn det-${d} bk-msg-det" type="button" data-blink-control data-goto-det="${d}"><i class="bk-swatch"></i>D${d}</button>`)
           .join("");
       }
     }
@@ -997,7 +998,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (open) placeAdjust();
   }
   function placeAdjust() {
-    if (adj.hidden) return;
+    if (opts.immersive || adj.hidden) return;
     adj.classList.remove("is-right", "is-up", "is-sheet");
     const narrow = root.clientWidth < 600;
     if (narrow) {
@@ -1135,9 +1136,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   // ---- events ------------------------------------------------------------------------------
   root.addEventListener("click", (ev) => {
     const b = (ev.target as Element).closest<HTMLButtonElement>("button");
-    if (!b || b.disabled || !view) return;
+    if (!b || !b.hasAttribute("data-blink-control") || b.disabled || !view) return;
     const d = b.dataset;
-    if (d.clock) {
+    if (d.step) { setPlaying(false); goTo(idx + Number(d.step)); }
+    else if (d.zoomDelta) setZoom(Math.min(8,Math.max(1,zoom*Number(d.zoomDelta))));
+    else if (d.fit) { fitField=d.fit==='field'; setZoom(1); draw(); }
+    else if (d.clock) {
       if (d.clock !== view.clock) {
         const clock = d.clock as Clock;
         opts.onViewChange({ clock, fov: DEFAULT_FOV[clock] });
@@ -1219,7 +1223,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
   // Close Adjust on Escape or a click elsewhere.
   const onDocDown = (ev: PointerEvent) => {
-    if (adj.hidden) return;
+    if (opts.immersive || adj.hidden) return;
     const t = ev.target as Node;
     if (adj.contains(t) || adjBtn.contains(t)) return;
     setAdjust(false);
@@ -1323,12 +1327,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable='true']");
   const visible = () => el.isConnected && el.getClientRects().length > 0;
   const onKey = (ev: KeyboardEvent) => {
-    if (ev.key === "Escape" && !adj.hidden) {
+    if (!opts.immersive && ev.key === "Escape" && !adj.hidden) {
       setAdjust(false);
       adjBtn.focus();
       return;
     }
-    if (!visible() || typing(ev.target) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    if (!visible() || typing(ev.target) || (opts.immersive && ev.target instanceof HTMLElement && ev.target.closest(".obs-details, .obs-navigation")) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
     if (ev.key === " ") {
       if (ev.target instanceof HTMLElement && ev.target.closest("button")) return;
       ev.preventDefault();
@@ -1353,13 +1357,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let stripWidth = 0;
   const ro = new ResizeObserver(() => {
     const w = plate.clientWidth;
-    if (w) {
+    const h = opts.immersive ? plate.clientHeight : w;
+    if (w && h) {
       const r = Math.min(3, window.devicePixelRatio || 1);
-      if (w !== cssSize || r !== dpr || canvas.width !== Math.round(w * r)) {
+      if (w !== cssSize || h !== cssHeight || r !== dpr || canvas.width !== Math.round(w * r)) {
         cssSize = w;
+        cssHeight = h;
         dpr = r;
         canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
         draw();
       }
     }

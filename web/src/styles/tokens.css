@@ -1,38 +1,36 @@
-/* SkyShift "Lightbox" design tokens (web/DESIGN.md).
-   Pluto was found by blinking photographic plates on a lightbox. The page is that lightbox:
-   cool glass-white, frames shown as plate negatives, marks in grease pencil.
-   Spend boldness on the plate. Everything around it is quiet ink on glass. */
+/* Dark observatory: black field, graphite panels, neutral controls.
+   Shared by every integrated route. Scientific marks retain semantic colours. */
 :root {
   /* surfaces */
-  --glass: #edf0ef;        /* page: the lightbox */
-  --sheet: #f8faf9;        /* raised: the panel a plate sits in */
-  --sheet-2: #e3e8e7;      /* control fill, hover */
-  --hair: #cdd3d6;         /* the few rules we keep */
-  --hair-strong: #a9b1b6;
+  --glass: #070809;        /* page and sky background */
+  --sheet: #111214;        /* raised: the panel a plate sits in */
+  --sheet-2: #202124;      /* control fill, hover */
+  --hair: #27292d;         /* the few rules we keep */
+  --hair-strong: #45484e;
 
   /* ink */
-  --ink: #18202e;          /* text, negative stars */
-  --ink-2: #4f5867;        /* secondary text */
-  --ink-3: #78818f;        /* axis labels, disabled (AA on --glass for ≥ 14px bold / large) */
+  --ink: #e8e9ec;          /* text and bright stars */
+  --ink-2: #a0a5ae;        /* secondary text */
+  --ink-3: #747a84;        /* secondary chart labels */
 
   /* grease pencil: meaning on the plate */
-  --pencil-red: #cf2338;   /* the target, flagged dots, our measurement */
-  --pencil-blue: #2556c8;  /* stars Gaia already knows */
-  --pencil-violet: #7a3fc4;/* predicted positions of known asteroids and comets */
-  --warn: #b4232f;         /* saturated cores, errors */
-  --pass: #1f7a4d;         /* validation pass */
-  --partial: #a35f00;      /* validation partial */
+  --pencil-red: #e3a5aa;   /* the target, flagged dots, our measurement */
+  --pencil-blue: #a9b9d4;  /* stars Gaia already knows */
+  --pencil-violet: #bbb0cd;/* predicted positions of known asteroids and comets */
+  --warn: #efa1a9;         /* saturated cores, errors */
+  --pass: #98c6ad;         /* validation pass */
+  --partial: #d0b584;      /* validation partial */
 
-  /* detector ramp D1 → D6 (0.75 → 5.0 µm), dark enough to read on glass */
-  --d1: #6a4fe0;
-  --d2: #1f6fd1;
-  --d3: #0e8f75;
-  --d4: #6f8f0e;
-  --d5: #c27c00;
-  --d6: #d0432c;
+  /* subdued detector ramp D1 to D6 (0.75 to 5.0 micrometres) */
+  --d1: #aab2c3;
+  --d2: #e2e4e8;
+  --d3: #b7c1bf;
+  --d4: #c0c1b2;
+  --d5: #cbc0aa;
+  --d6: #cbb2ae;
 
-  /* type: Archivo only; the width axis does the work */
-  --font: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* system sans-serif, tabular numbers */
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --step--1: 0.8125rem;   /* 13px captions, axis labels */
   --step-0: 0.9375rem;    /* 15px body, controls */
   --step-1: 1.125rem;     /* 18px section titles */
@@ -52,9 +50,9 @@
   --s8: 72px;
 
   /* shape: controls are soft, plates and panels are glass (barely rounded) */
-  --radius-ctl: 999px;     /* segmented controls and buttons are capsules */
-  --radius-plate: 3px;
-  --radius-panel: 3px;
+  --radius-ctl: 6px;     /* softly rounded rectangular controls */
+  --radius-plate: 6px;
+  --radius-panel: 6px;
   --shadow-plate: 0 1px 0 rgba(24, 32, 46, 0.06), 0 12px 32px -18px rgba(24, 32, 46, 0.35);
   --focus: 0 0 0 2px var(--glass), 0 0 0 4px var(--pencil-blue);
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Det, Epoch, FramesResponse } from "../api/types";
 import type { View } from "../app/modules";
 import { mountBlink } from "./index";
+import { mountObservatory } from "../app/observatory";
 
 const N = 8;
 const epoch = (id: string, det: Det, mjd: number): Epoch => ({
@@ -144,6 +145,76 @@ describe("blink player", () => {
     expect(onEpoch).not.toHaveBeenCalled();
     expect(el.querySelector('.bk')?.getAttribute('data-ready')).toBe('false');
     h.destroy();
+  });
+
+  function shell() {
+    const app = document.createElement("div");
+    app.innerHTML = `<header class="top"><input id="q"></header><div class="featured"></div>
+      <p class="find-msg"></p><section id="card"><button data-mode="visit" aria-pressed="true">By visit</button>
+      <button data-det="6" aria-pressed="true">Chart D6</button></section>
+      <section id="science-workbench"><details class="wb-main"></details></section>
+      <section id="vote"></section><section id="sky"></section>`;
+    document.body.append(app); app.append(el);
+    return app;
+  }
+
+  it("keeps chart controls independent after docking them inside the player", async () => {
+    const app = shell(), onViewChange = vi.fn(), onEpoch = vi.fn();
+    const h = mountBlink(el, { immersive: true, onViewChange, onEpoch, onPick: vi.fn() });
+    const obs = mountObservatory(app, el, { target: vi.fn(), analysis: vi.fn() });
+    await h.show(view, frames, "https://example.test/docked/frames.json");
+    obs.active(true);
+    const chart = app.querySelector<HTMLButtonElement>('#card [data-mode]')!;
+    chart.click();
+    expect(el.querySelector('.bk')!.getAttribute('data-mode')).toBe('blink');
+    expect(chart.getAttribute('aria-pressed')).toBe('true');
+    const chartBand = app.querySelector<HTMLButtonElement>('#card [data-det]')!;
+    expect(chartBand.disabled).toBe(false);
+    chartBand.click(); expect(onViewChange).not.toHaveBeenCalled();
+    app.querySelector<HTMLButtonElement>('.obs-next')!.click();
+    expect(onEpoch).toHaveBeenLastCalledWith({ id: 'd2-v2', mjd_mid: 61090, det: 2 });
+    expect(el.querySelector('.bk-play')!.getAttribute('aria-pressed')).toBe('false');
+    app.querySelector<HTMLButtonElement>('[data-mode="stack"]')!.click();
+    expect(app.querySelector<HTMLButtonElement>('.obs-next')!.disabled).toBe(true);
+    const invert = app.querySelector<HTMLInputElement>('.obs-invert input')!;
+    invert.checked = true; invert.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(el.querySelector('.bk')!.getAttribute('data-positive')).toBe('true');
+    const speed = app.querySelector<HTMLSelectElement>('.obs-speed')!;
+    speed.value = '0.5'; speed.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(app.querySelector('[data-fps="0.5"]')!.getAttribute('aria-pressed')).toBe('true');
+    obs.destroy(); h.destroy(); app.remove();
+  });
+
+  it("stops analysis when its pane is hidden and restores navigation across routes", () => {
+    const app = shell(), analysis = vi.fn(), target = vi.fn();
+    const header = app.querySelector('.top')!;
+    const h = mountBlink(el, { immersive: true, onViewChange: vi.fn(), onPick: vi.fn() });
+    const obs = mountObservatory(app, el, { target, analysis });
+    obs.active(true);
+    expect(header.parentElement?.className).toBe('obs-navigation-content');
+    obs.panel('analysis');
+    expect(analysis).toHaveBeenLastCalledWith(true);
+    expect(app.querySelector<HTMLDetailsElement>('.wb-main')!.open).toBe(true);
+    app.querySelector<HTMLButtonElement>('[data-panel="analysis"]')!.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowLeft', bubbles:true}));
+    expect(app.querySelector('[data-panel="view"]')!.getAttribute('aria-selected')).toBe('true');
+    expect(analysis).toHaveBeenLastCalledWith(false);
+    obs.panel('analysis');
+    app.querySelector<HTMLButtonElement>('.obs-close')!.click();
+    expect(analysis).toHaveBeenLastCalledWith(false);
+    expect(app.querySelector<HTMLElement>('.obs-details')!.hidden).toBe(true);
+    app.querySelector<HTMLButtonElement>('.obs-menu')!.click();
+    expect(app.querySelector<HTMLElement>('.obs-navigation')!.hidden).toBe(false);
+    obs.view(view, null);
+    expect(app.querySelector<HTMLElement>('.obs-navigation')!.hidden).toBe(true);
+    const targets = app.querySelector<HTMLSelectElement>('.obs-target')!;
+    targets.value = 'barnard'; targets.dispatchEvent(new Event('change', {bubbles:true}));
+    expect(target).toHaveBeenCalledWith('barnard');
+    obs.active(false);
+    expect(header.parentElement).toBe(app);
+    expect(analysis).toHaveBeenLastCalledWith(false);
+    obs.active(true);
+    expect(app.querySelectorAll('.top')).toHaveLength(1);
+    obs.destroy(); h.destroy(); app.remove();
   });
 
   it("offers the detectors that have frames when the chosen one has none", async () => {

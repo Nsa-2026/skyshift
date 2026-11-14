@@ -22,6 +22,8 @@ export interface View extends SkyPos {
 
 // ---- P4: src/blink/index.ts exports mountBlink -------------------------------------------
 export interface BlinkOptions {
+  /** Full-window astronomical canvas with a persistent inspector. */
+  immersive?: boolean;
   /** The blink calls this when the person picks the clock, field or detector inside the player. */
   onViewChange(change: Partial<Pick<View, "clock" | "fov" | "det">>): void;
   /** A click on the image: hand the position to votes. */

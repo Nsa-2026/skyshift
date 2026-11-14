@@ -12,7 +12,7 @@
 }
 
 html {
-  color-scheme: light;
+  color-scheme: dark;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -89,14 +89,14 @@ select {
   color: var(--glass);
 }
 .btn-primary:hover {
-  background: #2b3445;
+  background: #c5c8ce;
 }
 .btn-ghost {
   background: transparent;
   border-color: var(--hair-strong);
 }
 
-/* Segmented control: one capsule, options inside. */
+/* Segmented control: a quiet rectangular group with a clear selected state. */
 .seg {
   display: inline-flex;
   padding: 3px;

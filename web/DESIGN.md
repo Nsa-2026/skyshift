@@ -1,65 +1,31 @@
-# SkyShift UI: "Lightbox"
+# SkyShift UI: dark observatory
 
-The design every area follows. Tokens live in `src/styles/tokens.css`; shared controls in `src/styles/base.css`.
+The current visual baseline is the user-supplied black observatory screenshot, clarified on 14 November 2026. It supersedes the earlier light Lightbox palette and layout. The integrated features remain in one application on `codex/frontend-unified`.
 
-## Idea
-Pluto was found by blinking two photographic plates on a lightbox. SkyShift is that lightbox for
-NASA's SPHEREx sky. The page is cool glass-white. Frames are shown as **plate negatives** by
-default (dark stars on light glass), which is how astronomers hunt faint movers; "Positive"
-shows the usual bright-on-dark view. Marks on the plate are **grease pencil**: red for the target,
-flagged dots and our measurement, blue for stars Gaia already knows, violet for predicted
-asteroids and comets. The six detector colours (`--d1`..`--d6`) mean wavelength and nothing else.
+## Visual system
 
-## One bold thing
-The plate: as large as the viewport allows, with its time strip directly under it. Everything
-else is quiet ink on glass, separated by space rather than boxes.
+- Near-black sky (`#070809`), graphite floating panels (`#111214`), thin grey borders, white and grey text. Shared tokens are in `src/styles/tokens.css`.
+- System sans-serif, tabular numbers, small uppercase inspector labels. Controls are quiet rectangular segments with 6 px corners and a visible selected state.
+- The sky fills the viewport. A target card floats at the upper left, Details at the right, and playback along the bottom. The observation is the visual focus.
+- The spectrum sits directly below its heading, followed by its colour controls and explanation. All charts keep measured values, units, saturation flags and accessible readouts.
+- Colour remains meaningful in difference images and scientific marks. The interface itself is mostly neutral.
 
-## Rules
-- **Hierarchy over chrome.** No box around every section. Use space (`--s6`, `--s7`) and, rarely,
-  a single `--hair` rule. `.panel` (sheet) only where content must sit on a surface (the plate's
-  mat, a chart, a table).
-- **Controls.** Primary choices use `.seg` (one capsule, options inside, `aria-pressed`).
-  Actions use `.btn` (quiet), `.btn-primary` (one per view at most) or `.btn-ghost`.
-  Secondary settings live behind a disclosure ("Adjust"), closed by default.
-- **Type.** Archivo only. Width axis carries the voice: `wdth 125` wordmark, `wdth 100` body,
-  `wdth 85–92` for dense numbers and labels. Sentence case. No all-caps labels, no eyebrow labels,
-  no monospace, no "A · B · C" meta strings: write a short sentence or use a definition list.
-- **Numbers.** Tabular figures. Units always: ″, ″/yr, µm, µJy, MJy/sr, pc. The measured shift is
-  the largest number on the page (`--step-3`, `wdth 85`, `--pencil-red`).
-- **Plate drawing.** Negative by default: high values → `--ink`, sky → `--glass`. No-data pixels
-  (raw 0) are drawn as a flat `--sheet-2` with a fine diagonal hatch, never a checkerboard.
-  Saturated cores in negative read as solid ink (a burnt plate), which is honest and looks right.
-  Difference mode: `--pencil-blue` for light that left, `--pencil-red` for light that arrived.
-- **Pencil marks.** 1.5 px strokes, slightly translucent (0.85), round caps. Gaia rings thin and
-  blue; the target a red open reticle with a gap; known objects violet diamonds; a flagged dot a
-  red circle with a short tick.
-- **Copy.** Plain, specific, active. Say what to do next in errors. One sentence explains each
-  mode the first time it matters ("Each visit minus the first. Red: light arrived. Blue: light left.").
-- **Accessibility floor.** Visible focus (`--focus`), keyboard paths for everything, colour never
-  the only cue, `prefers-reduced-motion` respected, 375 px phone width works without page scroll.
-- **Motion.** One moment only: the blink itself. No entrance animations or hover flourishes.
+## Explore layout and integration
 
-## Layout
-```
-SkyShift                 [ Paste coordinates …                ] [Blink]     Blink  Scoreboard
-Blink NASA's SPHEREx…
-Try  Barnard's Star  Eps Indi B  WISE 0855  RW Aur  R Dra  3I/ATLAS  Elpis  Euphrosyne
-┌──────────────────────── plate (square) ───────────┐   Barnard's Star
-│ 18 Mar 2026 · visit 2 of 3 · D2 1.1–1.6 µm   (label printed on the plate edge, small)
-│                                                    │   10.83″ ± 0.36″
-│              negative frame + pencil marks         │   moved between visits 1 and 3
-│                                          N         │   Gaia predicts 10.27″: they agree.
-│ 1′ ─────                               E┘          │
-└────────────────────────────────────────────────────┘   Distance  1.83 pc …
- ▶ ┃━━●━━━━━━━━━━━━━━━━━━●━━━━━━━━━━━━━━━●━━  time strip   Spectrum (chart)
- (Months|Hours) (D1 D2 D3 D4 D5 D6 ramp) (Blink|Difference|Stack)  Adjust ▾   What to look for
-──────────────────────────────────────────────────────────────────────────────────────────────
-Flag what moved (votes)                      Sky around this spot (Aladin, opens on request)
-```
-The plate's square edge is `min(available column width, 100vh − 220px)` so the time strip is
-visible without scrolling at 1440×900 and 1280×720.
-Phone: find → names (scroll sideways) → plate full width → strip and primary controls → card →
-votes → sky (collapsed).
+`src/app/observatory.ts` rehomes the existing live components; it does not clone players or object cards. `observatory.css` supplies the layout.
+
+- **Target card:** actual name, coordinates, detector range and measured motion where available. Its Workspace menu contains coordinate search and every route.
+- **View:** Normal / Difference / Stack, brightness, inversion, catalogue/moving-object/target/guides overlays, D1-D6 and the shared spectrum and measurement card.
+- **Sampling & display:** Months / Hours, field size, Fill window / Fit full field, linear / asinh stretch, sky subtraction, difference smoothing, comparison reference, following, zoom and speed.
+- **Analysis:** original observations, model, residual and DR1 difference in the same player; findings, calibration, paired bands, reference spectrum, light curves, sensitivity, catalogues, cultural sky and exports.
+- **Sky & votes:** the original flagging, voting and contextual sky components. Picking the main image opens this pane.
+- **Bottom transport:** target, play/pause, previous/next observation, real date timeline, playback speed, zoom/centre and Details toggle.
+
+The canvas uses one uniform scale for both axes. Fill window crops the footprint without stretching the sky; Fit full field reveals its whole extent. Pixel-to-sky mapping, picks, marks and the scale bar use the same transform. Actual observations are retained: the screenshot is a style reference, not a source of stars, measurements or catalogue claims.
+
+On phones the target card stays at the top, the transport uses two rows, and Details starts closed. Opening it shows an internally scrolling inspector between the card and transport. Tab navigation supports arrow keys; Escape closes an open panel and restores focus. Leaving the Analysis pane stops its audio; leaving Explore stops playback. Other pages share the dark tokens.
+
+Keep explicit no-data and loading states, detector-specific time comparisons, legacy measurement provenance warnings, saturation and model limitations. Never substitute synthetic examples for real observations. Retain shape/text cues in addition to colour, visible keyboard focus, reduced-motion support and usable phone widths.
 
 ## Product: a community discovery tool (added 14 Nov, 15:30)
 SkyShift exists so that many people can find new things in SPHEREx: asteroids and comets no one
@@ -75,14 +41,14 @@ practice round, nothing requires an account).
 | `#/candidates` | **Candidates**: smart filters, candidate list, small sky map (was "Discover" at `#/`) | `src/discover` |
 | `#/review` | **Review queue**: one candidate at a time, big plate, vote with keys 1–4, skip, progress; practice round first time | `src/review` |
 | `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, the check assistant, measurements, votes and consensus, report and share | `src/review` (+ `src/assist`) |
-| `#/explore` | **Blink**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
+| `#/explore` | **Observatory**: full-window sky, floating target card, Details inspector and bottom transport | `src/app` + blink, card, vote, sky |
 | `#/live` | **Live search**: tonight's pipeline run along the ecliptic, zone by zone (map, counters, machines, time left), provisional results per zone | `src/live` |
 | `#/community` | **Community**: what people have reviewed, consensus results, the list going to astronomers | `src/community` |
 | `#/results` | **Results**: validation checks and what the pipeline found (`#/score` redirects here) | `src/score` |
 | `#/learn` | **Learn**: short lessons with real SPHEREx examples, glossary, the practice round's teaching | `src/learn` |
 | `#/tools` | **Tools and data**: downloads, batch coordinates, API, citation (for professionals) | `src/tools` |
 | `#/about` | **About**: the challenge, method, data, limits, credits, FAQ | `src/community` |
-Nav: Sky, Candidates, Review, Blink, Live search, Community, Results, Learn. Footer: About, Learn, Tools and data, Results.
+Nav: Sky, Candidates, Review, Blink, Live search, Community, Results, Learn, Tools and data, About, Play. On Explore it lives in the target card's Workspace menu; other routes retain the page header. Play (`#/play`, `src/play`) contains the map hunt, tracking, collection, birthday stars and cultural stories.
 Deep links `?t=<slug>` and `?ra=&dec=` open Explore.
 
 ### Candidates (data: `/data/candidates.json`, type `CandidatesResponse` in `src/api/types.ts`)
