@@ -201,13 +201,29 @@ def test_gaia_and_known_real(client, monkeypatch):
         {"id": 4472832130942575872, "ra": ra, "dec": dec, "pmra": 1.0, "pmdec": 2.0,
          "parallax": None, "g": np.float32(12.5)}])
     _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None, **kw: [
-        {"name": "(1) Ceres", "epoch_id": "x", "ra": ra, "dec": dec, "v": None, "source": "skybot"}])
+        {"name": "Ceres", "epoch_id": "x", "ra": ra, "dec": dec, "v": None, "source": "mpc"}])
     g = client.get("/api/gaia", params={"ra": 1, "dec": 2, "r": 5}).json()
     assert g == {"gaia": [{"id": "4472832130942575872", "ra": 1.0, "dec": 2.0, "pmra": 1.0,
                            "pmdec": 2.0, "parallax": None, "g": 12.5}]}
     k = client.get("/api/known", params={"ra": 1, "dec": 2, "r": 5, "mjd": 61000.5}).json()
-    assert k == {"mjd": 61000.5, "known": [{"name": "(1) Ceres", "epoch_id": None, "ra": 1.0,
-                                            "dec": 2.0, "v": None, "source": "skybot"}]}
+    assert k == {"mjd": 61000.5, "known": [{"name": "Ceres", "epoch_id": None, "ra": 1.0,
+                                            "dec": 2.0, "v": None, "source": "mpc"}]}
+
+
+def test_known_and_frames_cache_keys_follow_the_known_index(client, monkeypatch):
+    """Entries cached with another known-object source (SkyBoT before 14 Nov) are never served again."""
+    n, f = [], []
+    _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None: n.append(mjd) or [])
+    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: f.append(a) or _frames_result())
+    params = {"ra": 1, "dec": 2, "r": 5, "mjd": 61000.5}
+    for _ in range(2):
+        client.get("/api/known", params=params)
+        client.get("/api/frames", params={"ra": 1, "dec": 2})
+    assert len(n) == 1 and len(f) == 1
+    monkeypatch.setattr(app_mod.known_mod, "INDEX_KEY", "mpc/known_index/known_index_2027-01-01.npz")
+    client.get("/api/known", params=params)
+    client.get("/api/frames", params={"ra": 1, "dec": 2})
+    assert len(n) == 2 and len(f) == 2
 
 
 def test_upstream_and_not_found_errors(client, monkeypatch):

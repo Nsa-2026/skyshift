@@ -1,4 +1,4 @@
-"""build_frames and build_object end to end, offline: the search, Gaia and SkyBoT answers are
+"""build_frames and build_object end to end, offline: the search, Gaia and known-object answers are
 canned and every cutout comes from the cache (the real cutout in fixtures/fits/)."""
 
 import io
@@ -45,7 +45,7 @@ def _cutout_at(mjd: float) -> bytes:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     """A cache holding 3 + 3 exposures of detector 1 in two visits (and detector 4 rows with no
-    cutouts), canned Gaia and SkyBoT, and no network."""
+    cutouts), canned Gaia and known objects, and no network."""
     cache = Cache(str(tmp_path))
     times = [MJD1, MJD1 + 0.0015, MJD1 + 3.0, MJD1 + VISIT2, MJD1 + VISIT2 + 0.0015, MJD1 + VISIT2 + 0.003]
     rows = [sia_row(f"2025W18_1B_{i:04d}_1", 1, t) for i, t in enumerate(times)]
@@ -56,9 +56,14 @@ def world(tmp_path, monkeypatch):
         cache.put(cutouts.cache_key(im, STAR_RA, STAR_DEC, cutouts.SIZE_TIERS_DEG[-1]), _cutout_at(t))
     stars = json.loads((REPO / "fixtures/fits/cutout_2025W18_1B_0074_2D1.gaia.json").read_text())["gaia"]
     monkeypatch.setattr(gaia, "cone", lambda ra, dec, r, cache=None: stars)
-    skybot_calls = []
-    monkeypatch.setattr(known, "_skybot", lambda ra, dec, rs, mjd: skybot_calls.append(mjd) or
-                        " 4 | Vesta | 20 17 55.1962 | +41 50 15.474 | MB>Inner | 7.1 | 0.01 | 1.0 \n")
+    known_calls = []
+
+    def fake_near(ra, dec, r, mjds, *, epoch_ids=None, cache=None):
+        known_calls.append({"ra": ra, "dec": dec, "r": r, "mjds": list(mjds), "ids": list(epoch_ids)})
+        return [{"name": "Vesta", "epoch_id": i, "ra": 304.48, "dec": 41.84, "v": 7.1, "source": "mpc"}
+                for i in epoch_ids]
+
+    monkeypatch.setattr(known, "near", fake_near)
 
     def no_network(*a, **k):
         raise AssertionError("the network was used")
@@ -72,7 +77,7 @@ def world(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cutouts, "zodi_model", flat_zodi)
     monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
-    return {"cache": cache, "stars": stars, "skybot_calls": skybot_calls, "times": times, "zodi_calls": zodi_calls}
+    return {"cache": cache, "stars": stars, "known_calls": known_calls, "times": times, "zodi_calls": zodi_calls}
 
 
 def _decode(fr: blink.Frames, ep: dict) -> np.ndarray:
@@ -124,11 +129,14 @@ def test_months_frames_contract_shape_and_pixels(world):
     assert len(world["zodi_calls"]) == 6
     assert float(np.nanmedian(img)) == pytest.approx(raw_sky - ZODI_LEVEL, abs=0.03)
 
-    # Gaia and known objects ride along; one SkyBoT question per epoch, at its mjd_mid
+    # Gaia and known objects ride along; one MPC call for the frame centre, at every epoch's mjd_mid
     assert m["gaia"] == world["stars"]
-    assert sorted(world["skybot_calls"]) == pytest.approx(sorted(e["mjd_mid"] for e in m["epochs"]))
+    (call,) = world["known_calls"]
+    assert (call["ra"], call["dec"]) == (STAR_RA, STAR_DEC) and call["r"] == pytest.approx(5 / 2 * 2**0.5)
+    assert call["mjds"] == pytest.approx([e["mjd_mid"] for e in m["epochs"]])
+    assert call["ids"] == ["d1-v1", "d1-v2"]
     assert {k["epoch_id"] for k in m["known"]} == {"d1-v1", "d1-v2"}
-    assert m["known"][0]["name"] == "(4) Vesta" and m["known"][0]["source"] == "skybot"
+    assert m["known"][0]["name"] == "Vesta" and m["known"][0]["source"] == "mpc"
     assert set(m["known"][0]) == {"name", "epoch_id", "ra", "dec", "v", "source"}
 
 
@@ -232,7 +240,7 @@ def test_hours_live_cap_and_full_set(world, monkeypatch):
     assert ids == ["d1-S00_0", "d1-S00_1", "d1-S03_0", "d1-S03_1"]
     assert all(e["n_exposures"] == 1 for e in live.meta["epochs"])  # each frame is one real exposure
     assert set(live.blobs) == {e["data_url"] for e in live.meta["epochs"]}
-    assert {k["epoch_id"] for k in live.meta["known"]} == set(ids)  # SkyBoT asked for the shown frames only
+    assert {k["epoch_id"] for k in live.meta["known"]} == set(ids)  # known objects for the shown frames only
 
 
 def test_object_spectrum_and_zero_shift(world):
@@ -315,8 +323,10 @@ def test_pick_detector_best_signal_unless_the_target_says_otherwise():
 
 def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_path, monkeypatch):
     asked = []
-    monkeypatch.setattr(known, "cone", lambda ra, dec, r, mjd, cache=None: asked.append(round(mjd, 4)) or
-                        [{"name": "(4) Vesta", "ra": 1.0, "dec": 2.0, "v": 7.1, "source": "skybot"}])
+    monkeypatch.setattr(known, "near", lambda ra, dec, r, mjds, epoch_ids=None, cache=None:
+                        asked.append([round(m, 4) for m in mjds]) or
+                        [{"name": "Vesta", "epoch_id": i, "ra": 1.0, "dec": 2.0, "v": 7.1, "source": "mpc"}
+                         for i in epoch_ids])
     rows = [sia_row("A1", 2, 60900.0), sia_row("A2", 2, 60910.0), sia_row("B1", 2, 61100.0), sia_row("B2", 2, 61104.0)]
     images = search.rows_to_images(rows)
     planned = blink.planned_epochs(images, 2, "months")
@@ -328,7 +338,7 @@ def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_p
     epochs = [{"id": "d2-v1", "mjd_mid": 60905.0}, {"id": "d2-v2", "mjd_mid": 61100.0}]
     asked.clear()
     got = blink.reconcile_known(found, planned, epochs, 1.0, 2.0, 5, c)
-    assert asked == [61100.0]  # only the moved epoch is asked again
+    assert asked == [[61100.0]]  # only the moved epoch is asked again
     assert sorted(k["epoch_id"] for k in got) == ["d2-v1", "d2-v2"]
     # an epoch that was planned but not built drops its known objects
     assert [k["epoch_id"] for k in blink.reconcile_known(found, planned, epochs[:1], 1.0, 2.0, 5, c)] == ["d2-v1"]
@@ -368,7 +378,7 @@ def test_months_frames_partial_when_cutouts_are_late(world, monkeypatch):
     assert time.monotonic() - t < 1.4
     assert [e["n_exposures"] for e in fr.meta["epochs"]] == [2, 2]  # each visit's first and last
     assert fr.partial == ["2 of 6 cutouts not in time"]
-    assert len(fr.meta["gaia"]) > 0 and fr.meta["known"]  # Gaia and SkyBoT answered in time
+    assert len(fr.meta["gaia"]) > 0 and fr.meta["known"]  # Gaia and known objects answered in time
     full = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
     assert full.partial == [] and [e["n_exposures"] for e in full.meta["epochs"]] == [3, 3]
 
@@ -390,6 +400,41 @@ def test_object_with_a_budget_is_the_same_when_there_is_time(world):
     live = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=b)
     full = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
     assert b.partial == [] and live == full
+
+
+def test_known_one_call_per_centre_and_failures_leave_epochs_empty(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_near(ra, dec, r, mjds, *, epoch_ids=None, cache=None):
+        calls.append((ra, dec, list(mjds), list(epoch_ids)))
+        if ra == 9.0:
+            raise ValueError("MJD outside the known index's range")
+        return [{"name": "Vesta", "epoch_id": i, "ra": ra, "dec": dec, "v": 7.1, "source": "mpc"} for i in epoch_ids]
+
+    monkeypatch.setattr(known, "near", fake_near)
+    epochs = [{"id": "a", "mjd_mid": 61000.0}, {"id": "b", "mjd_mid": 61000.1},
+              {"id": "c", "mjd_mid": 61000.2, "center": {"ra": 5.0, "dec": 6.0}},
+              {"id": "d", "mjd_mid": 61000.3, "center": {"ra": 9.0, "dec": 6.0}}]
+    got = blink.known_for_epochs(epochs, 1.0, 2.0, 20, Cache(str(tmp_path)))
+    assert calls == [(1.0, 2.0, [61000.0, 61000.1], ["a", "b"]), (5.0, 6.0, [61000.2], ["c"]),
+                     (9.0, 6.0, [61000.3], ["d"])]
+    assert [(k["epoch_id"], k["ra"]) for k in got] == [("a", 1.0), ("b", 1.0), ("c", 5.0)]  # d failed: empty
+    assert blink.known_for_epochs([], 1.0, 2.0, 20, Cache(str(tmp_path))) == []
+
+    # a live build: a time outside the index is final; a missing index makes the answer partial (not cached)
+    from skyshift_server.budget import Budget
+    from skyshift_server.errors import UpstreamError
+
+    b = Budget(30)
+    blink.known_for_epochs(epochs[3:], 1.0, 2.0, 20, Cache(str(tmp_path)), b)
+    assert b.partial == []
+
+    def missing(*a, **k):
+        raise UpstreamError("known-object index missing")
+
+    monkeypatch.setattr(known, "near", missing)
+    assert blink.known_for_epochs(epochs, 1.0, 2.0, 20, Cache(str(tmp_path)), b) == []
+    assert b.partial == ["known objects failed"]
 
 
 def test_spectrum_reason():

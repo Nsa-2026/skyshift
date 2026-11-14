@@ -306,6 +306,36 @@ def build_asteroid(number: int, slug: str, cache: Cache, object_only: bool = Fal
                  object_only=object_only)
 
 
+def refresh_known(slug: str, cache: Cache) -> None:
+    """Only `known` again in every frames_<clock>_<fov>.json of a star target (MPC, server known.py),
+    at each epoch's mjd_mid and centre; epochs, Gaia and frame files stay as they are. index.json
+    `bytes` and frames.json (the copy of `own`) follow. A failure stops: nothing half-done is written."""
+    from skyshift_server import known
+
+    folder = OUT / slug
+    index_path = folder / "index.json"
+    index = json.loads(index_path.read_text())
+    for entry in index["frames"]:
+        path = folder / entry["file"]
+        meta = json.loads(path.read_text())
+        r = entry["fov"] / 2.0 * 2**0.5
+        by_centre: dict[tuple[float, float], list[dict]] = {}
+        for ep in meta["epochs"]:
+            c = ep.get("center") or meta["center"]
+            by_centre.setdefault((c["ra"], c["dec"]), []).append(ep)
+        found: list[dict] = []
+        for (ra, dec), eps in by_centre.items():
+            found += known.near(ra, dec, r, [e["mjd_mid"] for e in eps], epoch_ids=[e["id"] for e in eps], cache=cache)
+        before = len(meta["known"])
+        meta["known"] = found
+        old = path.stat().st_size
+        entry["bytes"] += write_json(path, clean(meta), compact=True) - old
+        log.info("%s %s: known %d -> %d", slug, entry["file"], before, len(found))
+    if index.get("own"):
+        shutil.copyfile(folder / index["own"], folder / "frames.json")
+    write_json(index_path, index)
+
+
 def folder_bytes(folder: Path) -> int:
     return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
 
@@ -318,6 +348,8 @@ def main() -> int:
     ap.add_argument("--dets", help="comma-separated detectors (default: per set)")
     ap.add_argument("--own", default=OWN_SET, help="the set copied to frames.json")
     ap.add_argument("--no-object", action="store_true", help="skip object.json")
+    ap.add_argument("--known-only", action="store_true",
+                    help="star targets: recompute only known[] of the existing frames files (MPC)")
     ap.add_argument("--cache", help="cache folder or gs:// (default: SKYSHIFT_CACHE or ~/.cache/skyshift)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
@@ -327,6 +359,9 @@ def main() -> int:
     sets = [] if a.sets == "none" else a.sets.split(",") if a.sets else DEFAULT_SETS
     for t in star_targets():
         if only and t["slug"] not in only:
+            continue
+        if a.known_only:
+            refresh_known(t["slug"], cache)
             continue
         t0 = time.time()
         folder = OUT / t["slug"]
@@ -355,6 +390,8 @@ def main() -> int:
         write_json(index_path, index)
         log.info("%s done in %.0f s: %.2f MB on disk; downloads so far: %s", t["slug"], time.time() - t0,
                  folder_bytes(folder) / 1e6, cutouts.STATS)
+    if a.known_only:
+        return 0  # moving targets: known[] is NASA's own position list (irsa-3i, most), not MPC
     if not only or "3i-atlas" in only:
         build_comet(cache, object_only=not sets)
     for number, slug in ASTEROIDS.items():
