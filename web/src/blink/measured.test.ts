@@ -15,6 +15,8 @@ import {
   trackDotsFor,
   trackSpanArcsec,
   arrowNote,
+  greyed,
+  stageLabel,
   classesPresent,
 } from "./measured";
 
@@ -70,6 +72,23 @@ describe("hours summary", () => {
     expect(strip(summarize({ ...H, tracks: [] }).lead)).toMatch(/, and no movers\.$/);
     const comet = { ...H, tracks: [{ ...H.tracks[1], known_name: "3I/ATLAS" }] };
     expect(strip(summarize(comet).lead)).toMatch(/1 movers?: 1 known comet\.$/);
+  });
+  it("counts a known asteroid paired in several sessions once, and lists it once", () => {
+    const k = H.tracks[1];
+    const later = {
+      ...k,
+      id: "hunt-m644470070960-87790400",
+      dots: [{ ...k.dots[1], epoch_id: "d2-2025W42_2A_0213_3", mjd: 60965.46874 }],
+    };
+    const m: Measured = { ...H, tracks: [...H.tracks, later] };
+    expect(strip(summarize(m).lead)).toBe(
+      "Here SkyShift found 14 dots in 4 photos, and 3 movers: 1 known asteroid (in 2 sessions), 1 suspect (grade B) and 1 other mover.",
+    );
+    const known = listItems(m, detOf(hours), 2).filter((i) => i.cls === "known");
+    expect(known).toHaveLength(1);
+    expect(known[0].label).toBe("Known: (433) Eros");
+    expect(known[0].numbers).toMatch(/^3 dots in 2 sessions/);
+    expect(known[0].epochs).toEqual(["d2-2025W42_2A_0213_1", "d2-2025W42_2A_0213_2", "d2-2025W42_2A_0213_3"]);
   });
   it("lists several grades and ungraded suspects", () => {
     const t = H.tracks[0];
@@ -168,6 +187,57 @@ describe("the list under the summary", () => {
     ]);
     expect(items[2].numbers).toBe("10391 ± 90 mas/yr, 115.4σ, towards 356° east of north");
     expect(items[1].numbers).toBe("In 1 visit. S/N 9.4, 380 µJy, from 3 dots");
+  });
+});
+
+describe("stages", () => {
+  it("extracted: classed against Gaia only, movers not linked yet (never 'no movers')", () => {
+    const m: Measured = { ...H, stage: "extracted", tracks: [] };
+    const s = summarize(m);
+    expect(strip(s.lead)).toBe("Here SkyShift found 14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
+    expect(s.notes[0]).toBe(
+      "Early results from the hunt zone: each photo's detections classed against Gaia only, before the zone is combined.",
+    );
+    const mo: Measured = { ...M, stage: "extracted", shifts: [], truncated: false };
+    expect(strip(summarize(mo).lead)).toBe(
+      "Here SkyShift found 12 detections in 48 photos, classed against Gaia only: sources aren't linked and motions aren't fitted yet.",
+    );
+    expect(stageLabel("extracted")).toBe("Extracted");
+  });
+  it("an unknown stage, or missing pieces, never break the summary", () => {
+    const m = { ...H, stage: "re_run", counts: undefined, tracks: undefined } as unknown as Measured;
+    const s = summarize(m);
+    expect(strip(s.lead)).toBe("Here SkyShift found 0 dots in 4 photos, and no movers.");
+    expect(s.notes[0]).toBe("Results from the hunt zone, at the stage it calls re run.");
+    expect(stageLabel("re_run")).toBe("Re run");
+    expect(stageLabel(undefined)).toBe("");
+  });
+});
+
+describe("grades", () => {
+  const graded = (g: "A" | "B" | "C", reasons: string[] = []): Measured => ({
+    ...H,
+    detections: H.detections.map((d) => (d.class === "suspect" ? { ...d, grade: g, reasons } : d)),
+  });
+  it("greys grade C suspects, like artefacts, and keeps them named", () => {
+    expect(greyed("suspect", "C")).toBe(true);
+    expect(greyed("suspect", "B")).toBe(false);
+    expect(greyed("suspect", null)).toBe(false);
+    expect(greyed("artifact")).toBe(true);
+    const it = listItems(graded("C", ["very_sharp", "allwise"]), detOf(hours), 2).find((i) => i.cls === "suspect")!;
+    expect(it.grade).toBe("C");
+    expect(it.label).toBe("Suspect, grade C: very sharp, sharper than the optics allow, an AllWISE source sits here");
+  });
+  it("puts grade C suspects after the other movers, before artefacts", () => {
+    const order = listItems(graded("C"), detOf(hours), 2).map((i) => `${i.cls}${i.grade ?? ""}`);
+    expect(order).toEqual(["known", "mover", "suspectC", "artifact"]);
+    expect(listItems(graded("A"), detOf(hours), 2)[0].grade).toBe("A");
+  });
+  it("names a graded suspect's shift with its grade", () => {
+    const m: Measured = { ...M, detections: M.detections.map((d) => (d.source_id === 105 ? { ...d, grade: "C" } : d)) };
+    const it = listItems(m, detOf(months), 2).find((i) => i.cls === "suspect")!;
+    expect(it.label).toBe("Suspect, grade C, moved 0.65″ ± 0.20″ in 1.0 yr");
+    expect(strip(summarize(m).lead)).toContain("1 suspect (grade C)");
   });
 });
 

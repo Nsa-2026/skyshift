@@ -151,7 +151,9 @@ export interface MeasuredShift {
 export interface Measured {
   /** Pipeline zone: "hunt", "ecl13", "t_barnard", … */
   zone: string;
-  stage: "provisional" | "final";
+  /** "extracted" (coming): every extracted photo's detections classed against Gaia only, before the
+   *  zone is combined. Other strings may appear later: show them, never break on them. */
+  stage: "provisional" | "final" | "extracted" | (string & {});
   /** deg. Outside it nothing is linked: dots there are `other`. */
   zone_box: { ra: [number, number]; dec: [number, number] };
   clock: Clock;

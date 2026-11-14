@@ -65,8 +65,8 @@ export type MeasuredShape = "star" | "known" | "mover" | "suspect" | "artifact" 
 
 /** Stroke per class: width, alpha, and a dash (dots for `other`). */
 export const MEASURED_STROKE: Record<MeasuredShape, { width: number; alpha: number; dash: number[] }> = {
-  star: { width: 1.25, alpha: 0.8, dash: [] },
-  other: { width: 1.6, alpha: 0.85, dash: [0.01, 3] },
+  star: { width: 1.1, alpha: 0.75, dash: [] },
+  other: { width: 1.5, alpha: 0.8, dash: [0.01, 3] },
   known: { width: 1.4, alpha: 0.9, dash: [] },
   mover: { width: 1.6, alpha: 0.9, dash: [] },
   suspect: { width: 2.4, alpha: 0.95, dash: [] },
@@ -78,8 +78,8 @@ export function measuredPath(ctx: Ctx, cls: MeasuredShape, x: number, y: number,
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   if (cls === "known") {
-    ctx.moveTo(x + r + 3, y);
-    ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+    ctx.moveTo(x + r + 2.5, y);
+    ctx.arc(x, y, r + 2.5, 0, Math.PI * 2);
   } else if (cls === "mover") {
     ctx.moveTo(x - r - 2, y);
     ctx.lineTo(x - r - 6, y);
@@ -92,13 +92,16 @@ export function measuredPath(ctx: Ctx, cls: MeasuredShape, x: number, y: number,
   }
 }
 
-/** Draw a measured mark: a halo in the plate colour under the pencil, so it reads on a dark core. */
+/**
+ * Draw a measured mark. The rarer classes get a halo in the plate colour under the pencil, so they
+ * read on a dark core; stars and other sources (hundreds of them) stay a plain thin line.
+ */
 export function measuredMark(ctx: Ctx, cls: MeasuredShape, x: number, y: number, r: number, color: string, halo: string): void {
   const s = MEASURED_STROKE[cls];
   measuredPath(ctx, cls, x, y, r);
   ctx.save();
   ctx.setLineDash(s.dash);
-  pencil(ctx, halo, s.width + 2, 0.5);
+  if (cls !== "star" && cls !== "other") pencil(ctx, halo, s.width + 2, 0.5);
   pencil(ctx, color, s.width, s.alpha);
   ctx.restore();
 }

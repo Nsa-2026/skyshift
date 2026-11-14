@@ -158,6 +158,31 @@ describe("what SkyShift measured", () => {
     expect(notes).toContain("A busy field: each visit shows at most 250 marks");
   });
 
+  it("shows the extracted stage, and a stage it doesn't know, without breaking", async () => {
+    const f = hours();
+    f.measured!.stage = "extracted";
+    f.measured!.tracks = [];
+    await h.show(hoursView, f, URL);
+    expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Extracted");
+    expect(lead().textContent).toBe("Here SkyShift found 14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
+    const g = hours();
+    g.measured!.stage = "something_new";
+    await h.show({ ...hoursView, ra: 123.95 }, g, URL);
+    expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Something new");
+    expect(el.querySelector(".bk-meas-notes")!.textContent).toBe("Results from the hunt zone, at the stage it calls something new.");
+  });
+
+  it("a grade C suspect is greyed in the list and the legend, still named", async () => {
+    const f = hours();
+    for (const d of f.measured!.detections) if (d.class === "suspect") Object.assign(d, { grade: "C", reasons: ["hot_pixel"] });
+    await h.show(hoursView, f, URL);
+    const sus = [...el.querySelectorAll<HTMLButtonElement>(".bk-mi")].find((b) => b.textContent!.startsWith("Suspect"))!;
+    expect(sus.querySelector(".bk-mg")!.getAttribute("data-grade")).toBe("C");
+    expect(sus.querySelector(".bk-mi-t")!.textContent).toBe("Suspect, grade C: hot pixel");
+    expect([...el.querySelectorAll(".bk-meas-key li")].map((li) => li.textContent)).toContain("Suspect, grade C");
+    expect(lead().textContent).toContain("1 suspect (grade C)");
+  });
+
   it("hides the panel again when the next spot has no measured fields, and on an error", async () => {
     await h.show(hoursView, hours(), URL);
     expect(panel().hidden).toBe(false);

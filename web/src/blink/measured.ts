@@ -74,6 +74,8 @@ const REASON_WORDS: Record<string, string> = {
   bad_column: "bad column",
   edge: "at the detector's edge",
   sharp_outlier: "sharper than a star",
+  very_sharp: "very sharp, sharper than the optics allow",
+  allwise: "an AllWISE source sits here",
   flux_ratio: "brightness jumps",
   red_photo: "photo failed the quality check",
   "2mass": "a 2MASS source sits here",
@@ -184,18 +186,63 @@ export interface Summary {
   notes: string[];
 }
 
+/** The stage as a short tag: Final, Provisional, Extracted, or a new stage as given. */
+export function stageLabel(stage: string | null | undefined): string {
+  const s = String(stage ?? "").replace(/_/g, " ").trim();
+  return s ? s[0].toUpperCase() + s.slice(1) : "";
+}
+
+/** One sentence: which zone, and how far its results have come. */
+export function stageNote(m: Pick<Measured, "zone" | "stage">): string {
+  const zone = `the ${m.zone} zone`;
+  switch (m.stage) {
+    case "final":
+      return `Final results from ${zone}.`;
+    case "provisional":
+      return `Provisional results from ${zone}, checked against Gaia only: expect more suspects than the final pass keeps.`;
+    case "extracted":
+      return `Early results from ${zone}: each photo's detections classed against Gaia only, before the zone is combined.`;
+    default:
+      return m.stage ? `Results from ${zone}, at the stage it calls ${String(m.stage).replace(/_/g, " ")}.` : `Results from ${zone}.`;
+  }
+}
+
 /** "Here SkyShift found N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
 export function summarize(m: Measured): Summary {
-  const photos = plural(m.photos, "photo");
+  const photos = plural(m.photos ?? 0, "photo");
+  const counts = Object.fromEntries(CLASS_ORDER.map((k) => [k, m.counts?.[k] ?? 0])) as Record<MeasuredClass, number>;
+  m = { ...m, counts, tracks: m.tracks ?? [], shifts: m.shifts ?? [], detections: m.detections ?? [] };
   let lead: string;
   let rest = "";
-  if (m.clock === "hours") {
+  // Extracted: each photo classed against Gaia, nothing linked or paired yet. "No movers" would be
+  // wrong there: say they aren't linked yet.
+  const early = m.stage === "extracted" && !m.tracks.length && !m.shifts.length;
+  if (early) {
+    const n = total(counts);
+    lead =
+      `Here SkyShift found <b>${n.toLocaleString("en-GB")}</b> ${m.clock === "hours" ? (n === 1 ? "dot" : "dots") : n === 1 ? "detection" : "detections"} in ${photos}, ` +
+      (m.clock === "hours"
+        ? "classed against Gaia only: movers aren't linked yet."
+        : "classed against Gaia only: sources aren't linked and motions aren't fitted yet.");
+    const r: string[] = [];
+    if (counts.star) r.push(`${counts.star.toLocaleString("en-GB")} ${counts.star === 1 ? "matches a Gaia star" : "match Gaia stars"}`);
+    if (counts.other) r.push(`${counts.other.toLocaleString("en-GB")} ${counts.other === 1 ? "has" : "have"} no Gaia match`);
+    if (counts.artifact) r.push(`${counts.artifact.toLocaleString("en-GB")} ${counts.artifact === 1 ? "looks" : "look"} like ${counts.artifact === 1 ? "an artefact" : "artefacts"}`);
+    if (r.length) rest = `${listJoin(r)}.`;
+  } else if (m.clock === "hours") {
     const dots = total(m.counts);
     const by = (c: MeasuredTrack["class"]) => m.tracks.filter((t) => t.class === c);
     const grades = trackGrades(m);
     const parts: string[] = [];
+    // The pipeline pairs a mover per session: one known asteroid crossing the field in six sessions
+    // is six tracks but one object. Count objects by name.
     const known = by("known");
-    if (known.length) parts.push(knownPhrase(known.length, known.map((t) => t.known_name)));
+    const knownObjects = new Set(known.map((t, i) => t.known_name ?? `#${i}`)).size;
+    if (known.length)
+      parts.push(
+        knownPhrase(knownObjects, known.map((t) => t.known_name)) +
+          (known.length > knownObjects ? ` (in ${known.length} sessions)` : ""),
+      );
     const sus = by("suspect");
     if (sus.length) {
       // Until the vetting grades a zone, every grade is null: then no parenthesis at all.
@@ -207,8 +254,9 @@ export function summarize(m: Measured): Summary {
     const mov = by("mover");
     if (mov.length) parts.push(plural(mov.length, "other mover"));
     lead = `Here SkyShift found <b>${dots.toLocaleString("en-GB")}</b> ${dots === 1 ? "dot" : "dots"} in ${photos}`;
-    lead += m.tracks.length
-      ? `, and <b>${m.tracks.length}</b> ${m.tracks.length === 1 ? "mover" : "movers"}: ${listJoin(parts)}.`
+    const movers = m.tracks.length - known.length + knownObjects;
+    lead += movers
+      ? `, and <b>${movers}</b> ${movers === 1 ? "mover" : "movers"}: ${listJoin(parts)}.`
       : ", and no movers.";
     const r: string[] = [];
     if (m.counts.star) r.push(`${plural(m.counts.star, "dot")} ${m.counts.star === 1 ? "matches a Gaia star" : "match Gaia stars"}`);
@@ -242,12 +290,7 @@ export function summarize(m: Measured): Summary {
     if (r.length) rest = `Of the sources, ${listJoin(r)}.`;
   }
 
-  const notes: string[] = [];
-  notes.push(
-    m.stage === "final"
-      ? `Final results from the ${m.zone} zone.`
-      : `Provisional results from the ${m.zone} zone, checked against Gaia only: expect more suspects than the final pass keeps.`,
-  );
+  const notes: string[] = [stageNote(m)];
   if (m.photos_missing > 0) {
     const all = m.photos + m.photos_missing;
     notes.push(
@@ -270,8 +313,8 @@ export function classesPresent(m: Measured): MeasuredClass[] {
     (c) =>
       (m.counts?.[c] ?? 0) > 0 ||
       (src?.[c] ?? 0) > 0 ||
-      m.tracks.some((t) => t.class === c) ||
-      m.shifts.some((s) => s.class === c),
+      (m.tracks ?? []).some((t) => t.class === c) ||
+      (m.shifts ?? []).some((s) => s.class === c),
   );
 }
 
@@ -321,8 +364,9 @@ export function detectionNumbers(d: MeasuredDetection): string {
 }
 
 /** "Gaia star moved 0.42″ ± 0.08″ in 1.0 yr". */
-export function describeShift(s: MeasuredShift): string {
-  const who = s.class === "star" ? "Gaia star" : s.class === "other" ? "Source without Gaia" : CLASS_INFO[s.class].name;
+export function describeShift(s: MeasuredShift, grade?: string | null): string {
+  const name = CLASS_INFO[s.class]?.name ?? "Source";
+  const who = s.class === "star" ? "Gaia star" : s.class === "other" ? "Source without Gaia" : grade ? `${name}, grade ${grade},` : name;
   return `${who} moved ${arcsec(s.shift_arcsec)} ± ${arcsec(s.err_arcsec)} in ${num(s.dt_yr, 1)} yr`;
 }
 
@@ -345,19 +389,25 @@ const NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500];
 export function exaggeration(lengthsArcsec: number[], targetArcsec: number): number {
   const ls = lengthsArcsec.filter((x) => Number.isFinite(x) && x > 0.005).sort((a, b) => a - b);
   if (!ls.length) return 1;
-  const med = ls[ls.length >> 1];
+  // The lower median: one fast star (Barnard's) must not shrink every other arrow to nothing; it is
+  // shortened with a break instead.
+  const med = ls[(ls.length - 1) >> 1];
   let f = 1;
   for (const k of NICE) if (med * k <= targetArcsec) f = k;
   return f;
 }
 
-/** Sentence for the legend: how arrows are drawn. */
-export function arrowNote(clock: "hours" | "months", factor: number): string {
+/** Sentence for the legend: how arrows are drawn, and whether a long one was shortened to fit. */
+export function arrowNote(clock: "hours" | "months", factor: number, shortened = false): string {
   const how = factor > 1 ? `drawn ${factor} times longer than ${clock === "hours" ? "the motion" : "it is"}` : "drawn to scale";
+  const cut = shortened ? " Two strokes across an arrow mean it was shortened to fit the plate." : "";
   return clock === "hours"
-    ? `Arrows join each mover's dots in time order, ${how}.`
-    : `Arrows show each measured shift from the first visit to the last, ${how}. The circle at the tip is its uncertainty (1σ).`;
+    ? `Arrows join each mover's dots in time order, ${how}.${cut}`
+    : `Arrows show each measured shift from the first visit to the last, ${how}. The circle at the tip is its uncertainty (1σ).${cut}`;
 }
+
+/** Arrows longer than this share of the field are shortened (with a break across the shaft). */
+export const ARROW_CAP = 0.4;
 
 /** Offset (arcsec, east and north) between two positions, small-angle. */
 export function offsetArcsec(a: { ra: number; dec: number }, b: { ra: number; dec: number }): { east: number; north: number } {
@@ -397,10 +447,18 @@ export interface MeasuredItem {
   epochs: string[];
   track?: string;
   shift?: number;
+  /** A suspect's grade, when graded. */
+  grade?: MeasuredDetection["grade"];
 }
 
+/** Grade C suspects fail a check: drawn greyed like artefacts, still labelled "Suspect, grade C". */
+export const greyed = (cls: MeasuredClass, grade?: string | null): boolean =>
+  cls === "artifact" || (cls === "suspect" && grade === "C");
+
 const ITEM_ORDER: MeasuredClass[] = ["suspect", "known", "mover", "artifact", "star", "other"];
-const byClass = (a: MeasuredItem, b: MeasuredItem) => ITEM_ORDER.indexOf(a.cls) - ITEM_ORDER.indexOf(b.cls);
+/** Suspects A, B, ungraded, then C (after the other movers, before artefacts). */
+const rank = (it: MeasuredItem) => (it.cls === "suspect" && it.grade === "C" ? 2.5 : ITEM_ORDER.indexOf(it.cls));
+const byClass = (a: MeasuredItem, b: MeasuredItem) => rank(a) - rank(b) || (a.grade ?? "Z").localeCompare(b.grade ?? "Z");
 
 function span(days: number): string {
   const m = days * 1440;
@@ -418,7 +476,28 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
   const onDet = (id: string) => epochDet.get(id) === det;
   const items: MeasuredItem[] = [];
   if (m.clock === "hours") {
+    // One entry per known object, however many sessions paired it.
+    const knownBy = new Map<string, MeasuredTrack[]>();
+    for (const t of m.tracks)
+      if (t.class === "known" && t.known_name && trackDotsFor(t, epochDet, det).length)
+        knownBy.set(t.known_name, [...(knownBy.get(t.known_name) ?? []), t]);
+    for (const [name, ts] of knownBy) {
+      if (ts.length < 2) continue;
+      const dots = ts.flatMap((t) => trackDotsFor(t, epochDet, det)).sort((a, b) => a.mjd - b.mjd);
+      const d = m.detections.find((x) => x.track_id === ts[0].id && onDet(x.epoch_id));
+      items.push({
+        key: `k:${name}`,
+        cls: "known",
+        label: `Known: ${name}`,
+        numbers: `${plural(dots.length, "dot")} in ${ts.length} sessions${d ? `. ${detectionNumbers(d)}` : ""}`,
+        at: Object.fromEntries(dots.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
+        pos: { ra: dots[0].ra, dec: dots[0].dec },
+        epochs: dots.map((x) => x.epoch_id),
+        track: ts[0].id,
+      });
+    }
     for (const t of m.tracks) {
+      if (t.class === "known" && t.known_name && (knownBy.get(t.known_name)?.length ?? 0) > 1) continue;
       const dots = trackDotsFor(t, epochDet, det);
       if (!dots.length) continue;
       const ds = m.detections.filter((d) => d.track_id === t.id);
@@ -440,35 +519,48 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         pos: { ra: dots[0].ra, dec: dots[0].dec },
         epochs: dots.map((x) => x.epoch_id),
         track: t.id,
+        grade: t.class === "suspect" ? (ds.find((x) => x.grade)?.grade ?? null) : undefined,
       });
     }
-    // Lone dots: known ones grouped by name, the rest one by one.
+    // Lone dots: known ones grouped by name; the rest grouped when the same class sits within 4″
+    // in several exposures (a ghost stays put), so one artefact is one entry.
     const lone = m.detections.filter((d) => !d.track_id && onDet(d.epoch_id) && NOTABLE.includes(d.class));
     const groups = new Map<string, MeasuredDetection[]>();
     lone.forEach((d, i) => {
-      const k = d.class === "known" && d.known_name ? `k:${d.known_name}` : `d:${d.epoch_id}:${i}`;
+      let k = d.class === "known" && d.known_name ? `k:${d.known_name}` : "";
+      if (!k)
+        for (const [gk, g] of groups) {
+          const o = offsetArcsec(g[0], d);
+          if (gk.startsWith("d:") && g[0].class === d.class && Math.hypot(o.east, o.north) <= 4) k = gk;
+        }
+      k ||= `d:${d.epoch_id}:${i}`;
       groups.set(k, [...(groups.get(k) ?? []), d]);
     });
     for (const [k, ds] of groups) {
       const d = ds[0];
+      const n = new Set(ds.map((x) => x.epoch_id)).size;
       items.push({
         key: k,
         cls: d.class,
         label: describeDetection(d),
-        numbers: ds.length > 1 ? plural(ds.length, "dot") : detectionNumbers(d),
+        numbers: n > 1 ? `In ${n} exposures. ${detectionNumbers(d)}` : detectionNumbers(d),
         at: Object.fromEntries(ds.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
         pos: { ra: d.ra, dec: d.dec },
         epochs: ds.map((x) => x.epoch_id),
+        grade: d.grade,
       });
     }
   } else {
     const withShift = new Set<number>();
+    const gradeOf = new Map(m.detections.filter((d) => d.grade && d.source_id != null).map((d) => [d.source_id, d.grade]));
     m.shifts.forEach((s, i) => {
       withShift.add(s.source_id);
+      const grade = s.class === "suspect" ? (gradeOf.get(s.source_id) ?? null) : undefined;
       items.push({
         key: `s:${s.source_id}`,
         cls: s.class,
-        label: describeShift(s),
+        grade,
+        label: describeShift(s, grade),
         numbers: shiftNumbers(s),
         at: {},
         pos: { ra: s.ra, dec: s.dec },
@@ -491,6 +583,7 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         at: Object.fromEntries(mine.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
         pos: { ra: d.ra, dec: d.dec },
         epochs: mine.map((x) => x.epoch_id),
+        grade: d.grade,
       });
     }
   }

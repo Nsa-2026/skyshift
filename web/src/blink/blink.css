@@ -717,7 +717,7 @@
   font-weight: 600;
   font-variation-settings: "wdth" 88;
 }
-.bk-meas-stage[data-stage="provisional"] {
+.bk-meas-stage:not([data-stage="final"]) {
   background: color-mix(in srgb, var(--partial) 14%, var(--glass));
   color: var(--partial);
 }
@@ -825,8 +825,13 @@
 .bk-mtag[data-cls="artifact"] {
   color: var(--m-artifact);
 }
+/* Grade C suspects fail a check: greyed like artefacts, still named "Suspect, grade C". */
+.bk-mg[data-grade="C"] {
+  color: var(--m-artifact);
+}
 /* As text the grey and the amber need more contrast than as a stroke (4.5:1 on glass). */
-.bk-mtag[data-cls="artifact"] {
+.bk-mtag[data-cls="artifact"],
+.bk-mtag[data-grade="C"] {
   color: var(--ink-2);
 }
 .bk-mtag[data-cls="mover"] {

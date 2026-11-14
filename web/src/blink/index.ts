@@ -29,7 +29,10 @@ import {
   type StretchKind,
 } from "./math";
 import {
+  ARROW_CAP,
   CLASS_INFO,
+  greyed,
+  stageLabel,
   CLASS_ORDER,
   arrowNote,
   classesPresent,
@@ -128,8 +131,8 @@ const GLYPH_PATH: Record<MeasuredClass, string> = {
   suspect: `<circle cx="9" cy="9" r="5" stroke-width="2.4"/>`,
   artifact: `<circle cx="9" cy="9" r="5"/><path d="M5.5 12.5l7-7"/>`,
 };
-const glyph = (c: MeasuredClass) =>
-  `<svg class="bk-mg" data-cls="${c}" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${GLYPH_PATH[c]}</svg>`;
+const glyph = (c: MeasuredClass, grade?: string | null) =>
+  `<svg class="bk-mg" data-cls="${c}"${grade ? ` data-grade="${grade}"` : ""} viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${GLYPH_PATH[c]}</svg>`;
 /** Draw order on the plate: the plainest first, so suspects end on top. */
 const DRAW_ORDER: MeasuredClass[] = [...CLASS_ORDER].reverse();
 /** Rows shown before "Show all". */
@@ -362,6 +365,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let measAll = false;
   /** Motion arrows are this many times longer than the motion (stated in the panel). */
   let arrowFactor = 1;
+  let arrowShortened = false;
+  /** Suspect grades by track and by source (tracks and shifts carry none themselves). */
+  let trackGrade = new Map<string, string>();
+  let sourceGrade = new Map<number, string>();
   /** The list entry under the pointer or focus, and the one pinned by a click. */
   let focusItem: string | null = null;
   let pinned: string | null = null;
@@ -768,9 +775,17 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const toS = (p: SkyPos) => toScreen(skyToPixel(p, f, c), vp);
     const pxPerArcsec = vp.s / f.pixel_arcsec;
     /** Arrows longer than 40% of the field are shortened, with a break across the shaft. */
-    const cap = 0.4 * size()[0] * vp.s;
+    const cap = ARROW_CAP * size()[0] * vp.s;
     const r0 = Math.max(3.5, Math.min(9, psf * 0.45));
-    const radius = (k: MeasuredClass) => (k === "star" || k === "other" || k === "artifact" ? r0 : Math.max(5, r0 * 1.3));
+    // Known is doubled (r and r + 2.5), so its inner circle stays at r0: inside the violet diamond.
+    const radius = (k: MeasuredClass) => (k === "mover" || k === "suspect" ? Math.max(5, r0 * 1.3) : r0);
+    const [nx, ny] = size();
+    /** Past the detector's edge (the hatch): no mark, as for Gaia rings. */
+    const hatched = (p: SkyPos) => {
+      if (!shown || shown.length !== nx * ny) return false;
+      const px = skyToPixel(p, f, c);
+      return noDataAt(shown, shownMask, nx, ny, px.x, px.y);
+    };
     const stroke = (col: string, w: number, a = 0.9) => {
       pencil(ctx, halo, w + 2, 0.5);
       pencil(ctx, col, w, a);
@@ -792,7 +807,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         const broken = L > cap;
         if (broken) pts = pts.map((p) => ({ X: p0.X + ((p.X - p0.X) * cap) / L, Y: p0.Y + ((p.Y - p0.Y) * cap) / L }));
         if (!pts.some((q) => inView(q))) continue;
-        const col = pen(CLASS_INFO[t.class].token);
+        const col = pen(greyed(t.class, trackGrade.get(t.id)) ? "--m-artifact" : CLASS_INFO[t.class].token);
         if (arrowPath(ctx, pts, 7, broken)) stroke(col, 1.6);
         // A bead at each dot; this exposure's is larger, so blinking walks it along the arrow.
         dots.forEach((d, i) => {
@@ -821,14 +836,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         }
         const tip = { X: p0.X + dx, Y: p0.Y + dy };
         if (!inView(p0) && !inView(tip)) return;
-        const col = pen(CLASS_INFO[s.class].token);
+        const grade = sourceGrade.get(s.source_id);
+        const col = pen(greyed(s.class, grade) ? "--m-artifact" : CLASS_INFO[s.class].token);
         if (arrowPath(ctx, [p0, tip], 6, broken)) stroke(col, 1.6);
         ring(ctx, tip.X, tip.Y, Math.max(1.5, err));
         ctx.save();
         ctx.setLineDash([2, 2]);
         pencil(ctx, col, 1, 0.8);
         ctx.restore();
-        const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s))}</span> <span class="bk-val">${esc(shiftNumbers(s))}</span>`;
+        const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(shiftNumbers(s))}</span>`;
         hits.push({ X: p0.X, Y: p0.Y, r: Math.max(8, radius(s.class) + 3), html });
         hits.push({ X: tip.X, Y: tip.Y, r: Math.max(8, err), html });
       });
@@ -839,16 +855,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       const ds = [...(measAt.get(e.id) ?? [])].sort((a, b) => DRAW_ORDER.indexOf(a.class) - DRAW_ORDER.indexOf(b.class));
       for (const d of ds) {
         const p = toS(d);
-        if (!inView(p, 0)) continue;
+        if (!inView(p, 0) || hatched(d)) continue;
         const r = radius(d.class);
-        const col = pen(CLASS_INFO[d.class].token);
+        const col = pen(greyed(d.class, d.grade) ? "--m-artifact" : CLASS_INFO[d.class].token);
         measuredMark(ctx, d.class, p.X, p.Y, r, col, halo);
         if (d.class === "suspect" && d.grade) label(ctx, d.grade, p.X + r * 0.75 + 3, p.Y - r * 0.75 - 2, col, halo);
         hits.push({
           X: p.X,
           Y: p.Y,
           r: r + 4,
-          html: `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}">${esc(describeDetection(d))}</span> <span class="bk-val">${esc(detectionNumbers(d))}</span>`,
+          html: `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}"${d.grade ? ` data-grade="${d.grade}"` : ""}>${esc(describeDetection(d))}</span> <span class="bk-val">${esc(detectionNumbers(d))}</span>`,
         });
       }
     }
@@ -1020,7 +1036,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     // A list entry in focus, or a measured mark under the pointer: say what it is.
     const it = focusItem ? measItems.find((x) => x.key === focusItem) : null;
     if (it) {
-      say.innerHTML = `<span class="bk-mtag" data-cls="${it.cls}">${esc(it.label)}</span> <span class="bk-val">${esc(it.numbers)}</span>`;
+      say.innerHTML = `<span class="bk-mtag" data-cls="${it.cls}"${it.grade ? ` data-grade="${it.grade}"` : ""}>${esc(it.label)}</span> <span class="bk-val">${esc(it.numbers)}</span>`;
       renderKey();
       return;
     }
@@ -1254,7 +1270,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     measItems = [];
     arrowFactor = 1;
     if (!meas || !F || !view) return;
+    trackGrade = new Map();
+    sourceGrade = new Map();
     for (const d of meas.detections ?? []) {
+      if (d.grade && d.track_id) trackGrade.set(d.track_id, d.grade);
+      if (d.grade && d.source_id != null) sourceGrade.set(d.source_id, d.grade);
       const l = measAt.get(d.epoch_id);
       if (l) l.push(d);
       else measAt.set(d.epoch_id, [d]);
@@ -1270,6 +1290,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         ? meas.tracks.map((t) => trackSpanArcsec(trackDotsFor(t, epochDet, view!.det)))
         : meas.shifts.map((s) => s.shift_arcsec);
     arrowFactor = exaggeration(lengths, target);
+    arrowShortened = lengths.some((l) => l * arrowFactor > ARROW_CAP * F!.size[0] * F!.pixel_arcsec);
   }
 
   function renderMeasured() {
@@ -1292,15 +1313,23 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.lead.innerHTML = s.lead;
     mp.rest.textContent = s.rest;
     mp.rest.hidden = !s.rest;
-    mp.stage.textContent = m.stage === "final" ? "Final" : "Provisional";
-    mp.stage.dataset.stage = m.stage;
+    mp.stage.textContent = stageLabel(m.stage);
+    mp.stage.dataset.stage = String(m.stage ?? "");
+    mp.stage.hidden = !mp.stage.textContent;
     mp.key.innerHTML = classesPresent(m)
-      .map((c) => `<li title="${esc(CLASS_INFO[c].about)}">${glyph(c)}<span>${CLASS_INFO[c].name}</span></li>`)
+      .flatMap((c) => {
+        const li = `<li title="${esc(CLASS_INFO[c].about)}">${glyph(c)}<span>${CLASS_INFO[c].name}</span></li>`;
+        // Grade C suspects fail a check: greyed on the plate, so the legend says so.
+        const hasC = c === "suspect" && m.detections.some((d) => d.class === "suspect" && d.grade === "C");
+        return hasC
+          ? [li, `<li title="A suspect that fails one of our checks (its reasons say which).">${glyph(c, "C")}<span>Suspect, grade C</span></li>`]
+          : [li];
+      })
       .join("");
     const arrows = m.clock === "hours" ? m.tracks.length > 0 : m.shifts.length > 0;
     mp.how.textContent =
       "Circles are what SkyShift measured in each photo. Blue rings and violet diamonds are where Gaia and the Minor Planet Center predict stars and asteroids." +
-      (arrows ? ` ${arrowNote(m.clock, arrowFactor)}` : "");
+      (arrows ? ` ${arrowNote(m.clock, arrowFactor, arrowShortened)}` : "");
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
     mp.pro.textContent =
@@ -1320,7 +1349,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.list.innerHTML = shown
       .map(
         (it) => html`<li><button class="bk-mi" type="button" data-item="${esc(it.key)}" aria-pressed="${it.key === pinned}"
-          >${glyph(it.cls)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n">${esc(it.numbers)}</span></button></li>`,
+          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n">${esc(it.numbers)}</span></button></li>`,
       )
       .join("");
     const more = measItems.length - LIST_SHOWN;
