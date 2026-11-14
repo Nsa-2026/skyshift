@@ -9,9 +9,9 @@ scientific features, and release status.
 See [branch CI](https://github.com/cucuradu/skyshift/actions?query=branch%3Acodex%2Fscience-production-integration)
 for remote checks of each pushed commit.
 
-**Status, 14 November 2026:** source pushed and CI passed. This integration has not been
-merged into `main` or deployed to the public site. A source push does not update
-[skyshift.web.app](https://skyshift.web.app/).
+**Status, 14 November 2026:** source pushed and CI passed. Integrated into `main` through
+`p3/workspace-into-main` (home stays the Sky globe; hosted background jobs stay off). The public
+site at [skyshift.web.app](https://skyshift.web.app/) changes only with the team's next deploy.
 
 ## What this integration adds
 

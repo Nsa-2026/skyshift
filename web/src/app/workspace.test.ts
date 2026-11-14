@@ -82,4 +82,4 @@ it('keeps the observation, selected signal and player instance through level and
   expect(root.querySelector('.feature-nav [aria-current]')!.textContent).toBe('Sky map');
   expect(engine.show).toHaveBeenCalledTimes(practiceLoads);
   root.remove();
-});
+}, 30_000); // a whole-app walk: about 1 s alone, several on a loaded machine
