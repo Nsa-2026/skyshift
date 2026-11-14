@@ -1,0 +1,23 @@
+{
+ "slug": "elpis",
+ "name": "(59) Elpis",
+ "center": {
+  "ra": 88.71168,
+  "dec": 14.48551
+ },
+ "own": "frames_hours_20.json",
+ "follows_object": false,
+ "frames": [
+  {
+   "file": "frames_hours_20.json",
+   "clock": "hours",
+   "fov": 20,
+   "dets": [
+    2,
+    5
+   ],
+   "epochs": 36,
+   "bytes": 3084297
+  }
+ ]
+}
