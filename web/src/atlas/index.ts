@@ -33,6 +33,7 @@ import {
   zoneName,
 } from "./kinds";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
+import { createTour, type TourHandle } from "./tour";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
 import { cellSideDeg } from "./healpix";
@@ -103,10 +104,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         </div>
       </div>
       <div class="atl-more-row">
-        <span class="atl-more-label" id="atl-plate-label">Plate</span>
+        <span class="atl-more-label" id="atl-plate-label">View</span>
         <div class="seg" role="group" aria-labelledby="atl-plate-label">
-          <button type="button" data-neg="1" aria-pressed="true" title="Dark stars on light glass, as astronomers blink plates">Negative</button>
-          <button type="button" data-neg="0" aria-pressed="false" title="Bright on dark: 2MASS and AllWISE in their own colours, SPHEREx in a colour map over one of its 102 wavelengths">Positive</button>
+          <button type="button" data-neg="0" aria-pressed="true" title="The same measurements in colour: 2MASS and AllWISE in their own three-band colour, SPHEREx in a colour map over one of its 102 wavelengths. Nothing is moved or added.">Colour</button>
+          <button type="button" data-neg="1" aria-pressed="false" title="The measuring view: the same data as a plate negative, dark stars on light glass, the way astronomers blink plates">Plate</button>
         </div>
       </div>
       <div class="atl-more-row">
@@ -129,6 +130,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       <div class="atl-map" data-map tabindex="0" role="region" aria-roledescription="sky map"
         aria-label="Sky map" aria-describedby="atl-keys"></div>
       <p class="visually-hidden" id="atl-keys">Arrow keys move the map, plus and minus zoom, Enter opens the signal nearest the centre. The list below the map holds every signal in view.</p>
+      <div class="atl-tour" data-tour aria-live="polite" hidden></div>
       <div class="atl-note" data-note role="status"><p>Loading the sky…</p></div>
       <div class="atl-tip" data-tip role="tooltip" hidden></div>
       <div class="atl-pin" data-pin hidden>
@@ -214,9 +216,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   // ---- state ---------------------------------------------------------------------------------
   let state: AtlasState = { ra: 0, dec: 0, fov: WHOLE_FOV, gal: false, mol: false, kinds: [...KINDS] };
+  // Colour is the Sky page's opening view: the whole sky in its own light is what the page is
+  // for. The plate negative, the view measurements are read on, is one click away and is still
+  // the default everywhere a frame is measured (Blink, the row thumbnails). The classes that
+  // go with it are set in afterMapReady, where the root one the full-bleed layout needs is set
+  // too, so the two can never disagree.
   let layers: Layers = { heat: true, zones: true, signals: true, search: false, provisional: true, background: "2mass", negative: false };
-  stage.classList.add('is-positive');
-  el.querySelectorAll<HTMLButtonElement>('[data-neg]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.neg==='0')));
   /** Tonight's search (the sky run's progress file), refreshed every minute while the page shows. */
   let search: SearchLayer | null = null;
   /** The provisional suspects of the combined zone in view, when zoomed in on one. */
@@ -230,6 +235,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let drawer: DrawerHandle | null = null;
   let map: MapHandle | null = null;
   let mapStarting = false;
+  let tour: TourHandle | null = null;
   let visible = false;
   let started = false;
   let destroyed = false;
@@ -485,7 +491,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       statusEl.textContent = "Nothing to show yet.";
       return;
     }
-    if (level === "whole") {
+    if (tour?.running) {
+      // The tour chose this view, so "zoom out to find a red patch" would be telling the person
+      // off for something they did not do. Say where the view is instead.
+      statusEl.textContent = "Touring the featured targets. Move the map to take over.";
+    } else if (level === "whole") {
       // Say why the map holds fewer than the intro's total when likely mismatches are hidden.
       const hidden = mismatches ? 0 : data.candidates.filter((c) => state.kinds.includes(c.kind) && isLikelyMismatch(c)).length;
       statusEl.textContent = `${shownSentence(shown.length, hidden, zones.length)} Zoom into a red patch.`;
@@ -545,6 +555,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     const changed = nextLevel !== level;
     level = nextLevel;
     stage.classList.toggle("is-whole", level === "whole");
+    // A view change the tour did not cause is somebody driving, whatever moved it.
+    if (tour?.running && Date.now() > tourFlightUntil) tour.interrupted();
     state = { ...state, ra: wrap360(v.ra), dec: v.dec, fov: v.fov };
     zoomFocus.update(v.fov, map?.kind === 'svg' ? false : state.mol);
     publishSky();
@@ -798,8 +810,48 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
   }
 
+  /**
+   * The tour runs only on the whole sky, with nothing open and nobody driving: the moment the
+   * person zooms in, picks a signal or touches the map, it is their view, not the tour's.
+   */
+  function tourShouldRun(): boolean {
+    return visible && !reduced && !selected && !pinPos && !document.hidden;
+  }
+
+  /**
+   * Until this moment, view changes are the tour's own flight and must not be mistaken for the
+   * person taking over. Anything after it is somebody driving — the zoom buttons, a drag, the
+   * keyboard — and the tour stands down. Going by who moved the view, rather than by how far it
+   * is zoomed in, is what lets the tour zoom in at all without stopping itself.
+   */
+  let tourFlightUntil = 0;
+
+  function syncTour() {
+    if (!tour) return;
+    if (tourShouldRun()) tour.start();
+    else tour.stop();
+  }
+
+  function startTour() {
+    tour?.destroy();
+    tour = createTour(TARGETS, {
+      flyTo: (to, animate) => {
+        tourFlightUntil = Date.now() + 3400;
+        map?.flyTo(to, animate);
+      },
+      card: q<HTMLDivElement>("[data-tour]"),
+      reducedMotion: reduced,
+    });
+    syncTour();
+  }
+
   function afterMapReady() {
     if (!map) return;
+    // The opening view is colour, so the stage has to carry that from the first paint, not only
+    // after somebody uses the View control.
+    stage.classList.toggle("is-positive", !layers.negative);
+    syncSeg("[data-neg]", layers.negative ? "1" : "0", "neg");
+    startTour();
     const v = map.view();
     state={...state,ra:v.ra,dec:v.dec,fov:v.fov};publishSky();
     zoomFocus.update(v.fov, map.kind === 'svg' ? false : state.mol);
@@ -1074,6 +1126,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   });
 
   // Keyboard on the map: arrows pan, + and − zoom, Enter opens the signal nearest the centre.
+  // Anybody touching the map takes the view off the tour at once: it is their view from then on,
+  // and the tour only comes back after the map has been left alone for a while.
+  for (const ev of ["pointerdown", "wheel", "keydown"] as const) {
+    mapEl.addEventListener(ev, () => tour?.interrupted(), { passive: true });
+  }
   mapEl.addEventListener("keydown", (ev) => {
     if (!map) return;
     const k = ev.key;
@@ -1153,6 +1210,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
+      tour?.stop();
       drawer?.pause();
       hideTip();
       stopSearch();
@@ -1164,6 +1222,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
       stopSearch();
+      tour?.destroy();
       drawer?.destroy();
       map?.destroy();
       document.removeEventListener("keydown", onKey);

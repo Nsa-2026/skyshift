@@ -251,6 +251,74 @@
   stroke: var(--hair-strong);
   stroke-width: 1;
 }
+/* The tour's card: it sits over the map while the view rests on a featured target, and it is
+   gone the instant anybody touches the map, so it never covers something being looked at.
+   Translucent, because what is behind it is the point. */
+.atl-tour {
+  position: absolute;
+  left: clamp(16px, 4vw, 48px);
+  bottom: clamp(56px, 9vh, 104px);
+  z-index: 3;
+  max-width: min(34ch, calc(100% - 32px));
+  padding: 14px 18px 16px;
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sheet) 78%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 18%);
+  pointer-events: none;
+  animation: atl-tour-in 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.atl-tour-kind {
+  margin: 0 0 2px;
+  font-size: 0.74rem;
+  font-stretch: 112%;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+.atl-tour-name {
+  margin: 0;
+  font-size: 1.22rem;
+  font-stretch: 118%;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.atl-tour-look {
+  margin: 7px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+@keyframes atl-tour-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* On the colour sky the card is a pane of dark glass, so the sky still reads through it. */
+.atl-stage.is-positive .atl-tour {
+  border-color: rgb(255 255 255 / 16%);
+  background: rgb(10 12 20 / 54%);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 46%);
+}
+.atl-stage.is-positive .atl-tour-name {
+  color: #f4f6fb;
+}
+.atl-stage.is-positive .atl-tour-kind,
+.atl-stage.is-positive .atl-tour-look {
+  color: rgb(226 232 245 / 82%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .atl-tour {
+    animation: none;
+  }
+}
+
 /* Positive: bright on dark, the view the survey's own images are published in. The SPHEREx
    cube's tiles are PNG with alpha, so the sheet shows through them and washes the colour map
    out; the stage and the mat go to ink so the sky reads as sky. The pencil marks already flip
