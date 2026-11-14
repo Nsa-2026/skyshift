@@ -86,13 +86,18 @@ def crop_origin(shape: Sequence[int], pixel_arcsec: float, zoom_arcmin: float | 
     return (0, 0) if w is None else (w[2], w[0])
 
 
-def pick_epochs(epochs: list[dict[str, Any]], det: int | None, max_frames: int) -> list[dict[str, Any]]:
+def pick_epochs(epochs: list[dict[str, Any]], det: int | None, max_frames: int,
+                around_mjd: float | None = None) -> list[dict[str, Any]]:
     """Epochs of one detector, sorted by time; if there are more than max_frames, an even spread
-    that keeps the first and last."""
+    that keeps the first and last, or with `around_mjd` (an hours-clock find) the max_frames
+    nearest that time."""
     rows = [e for e in epochs if det is None or e.get("det") == det]
     rows.sort(key=lambda e: e["mjd_mid"])
     if len(rows) <= max_frames:
         return rows
+    if around_mjd is not None:
+        near = sorted(rows, key=lambda e: abs(e["mjd_mid"] - around_mjd))[:max_frames]
+        return sorted(near, key=lambda e: e["mjd_mid"])
     idx = np.unique(np.round(np.linspace(0, len(rows) - 1, max(2, max_frames))).astype(int))
     return [rows[i] for i in idx]
 
@@ -297,6 +302,13 @@ _CLASS_GLYPH = {
 }
 
 
+def _ticks(w: int, h: int) -> list[tuple[int, int, int, int]]:
+    """The four field-centre ticks of a w × h panel, (x0, y0, x1, y1) each, with a gap at the centre."""
+    cx, cy, g, ln = w // 2, h // 2, max(8, w // 20), max(8, w // 14)
+    return [(cx - g - ln, cy, cx - g, cy), (cx + g, cy, cx + g + ln, cy),
+            (cx, cy - g - ln, cx, cy - g), (cx, cy + g, cx, cy + g + ln)]
+
+
 def _draw_marks(img: Image.Image, marks: Marks, factor: int) -> None:
     d = ImageDraw.Draw(img)
     scale = factor / marks.pixel_arcsec          # display pixels per arcsec
@@ -308,10 +320,23 @@ def _draw_marks(img: Image.Image, marks: Marks, factor: int) -> None:
     def size(arcsec: float, lo: float) -> float:
         return float(np.clip(arcsec * scale, lo, 40.0))
 
+    ticks = [(min(x0, x1) - 3, min(y0, y1) - 3, max(x0, x1) + 3, max(y0, y1) + 3) for x0, y0, x1, y1 in _ticks(w, h)]
+
     def label(X: float, Y: float, r: float, text: str, color) -> None:
+        """Right of the mark, else left; moved above or below it where the centre ticks would cross
+        the text (a known object at the field centre: a comet the frames follow)."""
         tw = d.textlength(text, font=font)
-        tx = X + r + 3 if X + r + 3 + tw <= w - 2 else X - r - 3 - tw
-        ty = min(max(Y - 6, 1), h - 13)
+        right, left = X + r + 3, X - r - 3 - tw
+        spots = [(right, Y - 6), (left, Y - 6), (right, Y - r - 13), (right, Y + r), (left, Y - r - 13), (left, Y + r),
+                 (X - tw / 2, Y - r - 15), (X - tw / 2, Y + r + 2)]
+        inside = [(tx, ty) for tx, ty in spots if 1 <= tx and tx + tw <= w - 2 and 1 <= ty <= h - 13]
+        clear = [(tx, ty) for tx, ty in inside
+                 if not any(tx < x1 and tx + tw > x0 and ty < y1 and ty + 13 > y0 for x0, y0, x1, y1 in ticks)]
+        if clear or inside:
+            tx, ty = (clear or inside)[0]
+        else:
+            tx = right if right + tw <= w - 2 else left
+            ty = min(max(Y - 6, 1), h - 13)
         d.text((tx, ty), text, fill=color, font=font, stroke_width=1, stroke_fill=(0, 0, 0))
 
     font = _font(11)
@@ -346,10 +371,8 @@ def _panel(rgb: np.ndarray, label: str, factor: int, marks: Marks | None = None)
     if marks is not None:
         _draw_marks(img, marks, factor)
     d = ImageDraw.Draw(img)
-    cx, cy, g, ln = w // 2, h // 2, max(8, w // 20), max(8, w // 14)
-    for x0, y0, x1, y1 in ((cx - g - ln, cy, cx - g, cy), (cx + g, cy, cx + g + ln, cy),
-                           (cx, cy - g - ln, cx, cy - g), (cx, cy + g, cx, cy + g + ln)):
-        d.line((x0, y0, x1, y1), fill=TICK, width=2)
+    for seg in _ticks(w, h):
+        d.line(seg, fill=TICK, width=2)
     out = Image.new("RGB", (w, h + LABEL_H), BG)
     out.paste(img, (0, LABEL_H))
     ImageDraw.Draw(out).text((4, 8), label, fill=TEXT, font=_font(11))

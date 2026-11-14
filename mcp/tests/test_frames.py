@@ -69,3 +69,24 @@ def test_crop_centre_and_noop():
     cg = fr.crop(g, 6.0, 0.9)
     assert cg.shape == (9, 9) and cg[4, 4] == g[5, 5]
     assert fr.crop_origin(g.shape, 6.0, None) == (0, 0)
+
+
+def test_pick_epochs_around_a_find_keeps_the_nearest():
+    eps = [{"id": f"e{i}", "det": 2, "mjd_mid": 100 + i * 0.1} for i in range(10)]
+    got = fr.pick_epochs(list(reversed(eps)), 2, 3, around_mjd=100.52)
+    assert [e["id"] for e in got] == ["e4", "e5", "e6"]
+
+
+def test_known_label_moves_off_the_centre_ticks():
+    """A known object at the field centre (a comet the frames follow): its name must not sit on the
+    orange tick right of the centre."""
+    n = 41
+    rgb = np.zeros((n, n, 3), np.uint8)
+    factor = -(-fr.PANEL_MIN // n)
+    m = fr.Marks(pixel_arcsec=6.15, known=[((n - 1) / 2, (n - 1) / 2, "3I/ATLAS")])
+    img = np.asarray(fr._panel(rgb, "x", factor, marks=m))[fr.LABEL_H:]
+    w = img.shape[1]
+    (x0, y0, x1, _), = [t for t in fr._ticks(w, img.shape[0]) if t[0] > w // 2]  # the right tick
+    band = img[y0 - 4:y0 + 5, x0 - 2:x1 + 3]
+    assert not np.all(band == fr.KNOWN_COLOR, axis=2).any()
+    assert np.all(img == fr.KNOWN_COLOR, axis=2).sum() > 40  # the diamond and its name are drawn

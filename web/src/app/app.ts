@@ -6,6 +6,7 @@ import { mountBlink } from "../blink";
 import { mountCard } from "../card";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
+import { mountFilters } from "../colour";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
 import { mountAtlas } from "../atlas";
@@ -21,6 +22,7 @@ import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
 import {AREA_FEATURES,AREA_LABELS,areaRoute} from './navigation';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
+import { mountOpening } from "../intro";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -156,6 +158,8 @@ export function startApp(root: HTMLElement): void {
       workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id));
     },
   });
+  // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
+  const filters = mountFilters($("#blink"));
   // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
   const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
   const vote: VoteHandle = mountVote($("#vote"));
@@ -235,6 +239,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
+    filters.loading(next);
 
     frames = null;
     workbench.frames(null);
@@ -274,6 +279,7 @@ export function startApp(root: HTMLElement): void {
       frames = loaded.frames;
       workbench.frames(frames,loaded.jsonUrl);
       sky.goto(next, frames);
+      filters.goto(next, frames);
       card.show(next, object, frames);
       await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl);
       if (fsig.aborted) return;
@@ -285,6 +291,7 @@ export function startApp(root: HTMLElement): void {
       frames = null;
       workbench.frames(null);
       sky.goto(next, null);
+      filters.goto(next, null);
       if (layer !== 'raw') {
         const failed = layer;
         layer = 'raw';
@@ -462,4 +469,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
+  // The opening (src/intro): first visit to the bare home URL only, loaded on demand.
+  if (!embed) mountOpening(root);
 }

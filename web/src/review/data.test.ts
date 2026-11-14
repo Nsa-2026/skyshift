@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Epoch, FramesResponse } from "../api/types";
 import { embedCode, shareUrl } from "./candidate";
-import { candidateView, focusFrames, toCandidate, toCandidateSet } from "./data";
+import { OWN_GAP_DAYS, candidateView, findGap, focusFrames, gapText, toCandidate, toCandidateSet } from "./data";
 import { cand } from "./testkit";
 
 function epoch(id: string, mjd: number, det: 1 | 2 | 3 | 4 | 5 | 6 = 3): Epoch {
@@ -97,6 +97,27 @@ describe("the plate's view and frames", () => {
     const few = focusFrames(frames(many), { mjd: 60500.05, clock: "hours" }, 3);
     expect(few).toMatchObject({ focused: false, all: 7, shown: 7 });
     expect(focusFrames(frames(many), { mjd: 0, clock: "hours" }, 3).focused).toBe(false);
+  });
+
+  it("measures how far the nearest frame is from the find", () => {
+    // live frames of another session: the nearest of D3 is 0.4 days after the find
+    const gap = findGap(frames(many), { mjd: 60899.6, clock: "hours" }, 3)!;
+    expect(gap).toBeCloseTo(0.4, 6);
+    expect(gap > OWN_GAP_DAYS).toBe(true);
+    expect(gapText(gap)).toBe("9.6 hours");
+    // the find's own exposure is there (other detectors don't count)
+    expect(findGap(frames(many), { mjd: 60900.05, clock: "hours" }, 3)).toBe(0);
+    expect(findGap(frames(many), { mjd: 60900.05, clock: "hours" }, 3)! > OWN_GAP_DAYS).toBe(false);
+    expect(findGap(frames(many, "months"), { mjd: 60900, clock: "months" }, 3)).toBeNull();
+    expect(findGap(frames(many), { mjd: 0, clock: "hours" }, 3)).toBeNull();
+    expect(findGap(frames(many), { mjd: 60900, clock: "hours" }, 1)).toBeNull();
+  });
+
+  it("says a gap in plain words", () => {
+    expect(gapText(0.02)).toBe("29 minutes");
+    expect(gapText(-0.5)).toBe("12 hours");
+    expect(gapText(3.25)).toBe("3.3 days");
+    expect(gapText(40)).toBe("40 days");
   });
 });
 
