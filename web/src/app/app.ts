@@ -8,6 +8,9 @@ import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
+import { mountAtlas } from "../atlas";
+import { mountLearn } from "../learn";
+import { mountTools } from "../tools";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { formatRaDec } from "./astro";
@@ -33,12 +36,13 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="discover">Discover</a>
+        <a href="#/" data-route="atlas">Sky</a>
+        <a href="#/candidates" data-route="discover">Candidates</a>
         <a href="#/review" data-route="review">Review</a>
-        <a href="#/explore" data-route="explore">Explore</a>
-        <a href="#/results" data-route="results">Results</a>
+        <a href="#/explore" data-route="explore">Blink</a>
         <a href="#/community" data-route="community">Community</a>
-        <a href="#/about" data-route="about">About</a>
+        <a href="#/results" data-route="results">Results</a>
+        <a href="#/learn" data-route="learn">Learn</a>
       </nav>
     </header>
     <div class="featured" data-only="explore" ${embed ? "hidden" : ""}>
@@ -51,6 +55,7 @@ export function startApp(root: HTMLElement): void {
       </div>
     </div>
     <p class="find-msg" role="status" aria-live="polite"></p>
+    <main class="page page-atlas" data-page="atlas" hidden></main>
     <main class="page page-discover" data-page="discover" hidden></main>
     <main class="page page-review" data-page="review" hidden></main>
     <main class="page page-candidate" data-page="candidate" hidden></main>
@@ -65,7 +70,10 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
     <main class="page page-community" data-page="community" hidden></main>
     <main class="page page-about" data-page="about" hidden></main>
+    <main class="page page-learn" data-page="learn" hidden></main>
+    <main class="page page-tools" data-page="tools" hidden></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
+      <p class="foot-links"><a href="#/about">About</a> <a href="#/learn">Learn</a> <a href="#/tools">Tools and data</a> <a href="#/results">How we know it works</a></p>
       <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids: MPC, IMCCE SkyBoT. Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
@@ -231,7 +239,10 @@ export function startApp(root: HTMLElement): void {
     },
   };
   const pageMounts: Record<string, MountPage> = {
+    atlas: mountAtlas,
     discover: mountDiscover,
+    learn: mountLearn,
+    tools: mountTools,
     review: mountReview,
     candidate: mountCandidate,
     community: mountCommunity,
@@ -246,11 +257,13 @@ export function startApp(root: HTMLElement): void {
     const [head, ...rest] = h.split("/");
     if (head === "c" && rest.length) return { page: "candidate", param: decodeURIComponent(rest.join("/")) };
     if (head === "score" || head === "results") return { page: "results", param: null };
-    if (["review", "explore", "community", "about"].includes(head)) return { page: head, param: null };
-    // No hash: deep links to a target or coordinates open Explore; otherwise Discover.
+    if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
+    if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
+    if (["review", "explore", "community", "about", "learn", "tools"].includes(head)) return { page: head, param: rest.join("/") || null };
+    // No hash: deep links to a target or coordinates open Explore; otherwise the sky (atlas).
     if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
       return { page: "explore", param: null };
-    return { page: "discover", param: null };
+    return { page: "atlas", param: null };
   }
 
   function route() {
