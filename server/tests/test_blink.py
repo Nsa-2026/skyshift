@@ -300,6 +300,23 @@ def test_object_spectrum_and_zero_shift(world):
     assert len(world["zodi_calls"]) == 6
 
 
+def test_predicted_shift_is_null_without_gaia(world, monkeypatch):
+    """contracts/api.md: measure.predicted_arcsec is Gaia's prediction, or null without Gaia. A
+    built-in target Gaia doesn't see (WISE 0855: published proper motion and parallax) is still
+    measured, but gets no predicted_arcsec (14 Nov site review: WISE 0855 had 8.06)."""
+    builtin = {"name": "Test dwarf", "slug": "testbd", "id": None, "ra": STAR_RA, "dec": STAR_DEC,
+               "pmra": 0.0, "pmdec": 0.0, "parallax": 0.0, "g": None, "epoch_mjd": obj.GAIA_EPOCH_MJD, "dets": None}
+    monkeypatch.setattr(obj, "_builtin_targets", lambda: [builtin])
+    o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert o["name"] == "Test dwarf" and o["gaia"] is None
+    m = o["measure"]
+    assert m is not None and m["shift_arcsec"] < 0.05 and m["predicted_arcsec"] is None
+    # the same built-in with a Gaia id keeps Gaia's prediction
+    monkeypatch.setattr(obj, "_builtin_targets", lambda: [dict(builtin, id=STAR_GAIA_ID, g=12.0)])
+    o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert o["gaia"]["id"] == STAR_GAIA_ID and o["measure"]["predicted_arcsec"] is not None
+
+
 def test_object_on_an_empty_spot_has_no_shift(world, monkeypatch):
     """A spot with nothing on it (RA 125.5, Dec 19.4 on the live site: "30.15" between visits 1
     and 2"). Without the detection guard the centroid takes the brightest noise peak near the
