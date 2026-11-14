@@ -312,7 +312,7 @@ def main() -> None:
             gcs_upload(path, f"{BUCKET}/photolists/{path.name}")
 
     summary.update(generated=today(), collections=COLLECTIONS, search_epoch=SEARCH_EPOCH_YR,
-                   visit_rule="local copy in _common.py; replace with skyshift_core.visits after p1/core merges")
+                   visit_rule="skyshift_core.visits (contracts/api.md)")
     write_json(summary_path, summary)
     if not args.no_upload:
         gcs_upload(summary_path, f"{BUCKET}/photolists/summary.json")

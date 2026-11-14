@@ -57,58 +57,8 @@ def detector_from_bandpass(name: str) -> int:
 
 
 # --- visit rule -----------------------------------------------------------------------------
-# Tiny local copy of the contracts/api.md visit and session rule.
-# TODO: replace with skyshift_core.visits (visits(), sessions()) after p1/core merges.
-# Same semantics as core: 30-day bins counted from the visit's first exposure, each session binned
-# by its own start time (a session never straddles two visits), ids dense and 1-based.
-VISIT_GAP_DAYS = 60.0
-MAX_VISIT_DAYS = 45.0
-VISIT_BIN_DAYS = 30.0
-SESSION_GAP_DAYS = 10.0 / 1440.0
-
-
-def _runs(new_run: np.ndarray, n: int) -> np.ndarray:
-    ids = np.ones(n, dtype=np.int64)
-    if n > 1:
-        ids[1:] += np.cumsum(new_run)
-    return ids
-
-
-def sessions(mjds) -> np.ndarray:
-    t = np.asarray(mjds, dtype=float).ravel()
-    if t.size == 0:
-        return np.zeros(0, dtype=np.int64)
-    order = np.argsort(t, kind="stable")
-    ts = t[order]
-    sid = _runs(np.diff(ts) >= SESSION_GAP_DAYS, ts.size)
-    out = np.empty_like(sid)
-    out[order] = sid
-    return out
-
-
-def visits(mjds) -> np.ndarray:
-    t = np.asarray(mjds, dtype=float).ravel()
-    if t.size == 0:
-        return np.zeros(0, dtype=np.int64)
-    order = np.argsort(t, kind="stable")
-    ts = t[order]
-    raw = _runs(np.diff(ts) > VISIT_GAP_DAYS, ts.size)
-    sess = _runs(np.diff(ts) >= SESSION_GAP_DAYS, ts.size)
-    sub = np.zeros(ts.size, dtype=np.int64)
-    for v in np.unique(raw):
-        sel = raw == v
-        tv = ts[sel]
-        if tv[-1] - tv[0] <= MAX_VISIT_DAYS:
-            continue
-        sv = sess[sel]
-        first = {s: tv[sv == s][0] for s in np.unique(sv)}
-        start = np.array([first[s] for s in sv])
-        sub[sel] = np.floor((start - tv[0]) / VISIT_BIN_DAYS).astype(np.int64)
-    key = raw * 1_000_000 + sub
-    vid = _runs(np.diff(key) != 0, ts.size)
-    out = np.empty_like(vid)
-    out[order] = vid
-    return out
+# The contracts/api.md visit and session rule, from the shared library (one copy of the rule).
+from skyshift_core import sessions, visits  # noqa: E402,F401
 
 
 # --- geometry -------------------------------------------------------------------------------
