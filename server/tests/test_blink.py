@@ -586,3 +586,40 @@ def test_measure_detectors_prefer_targets_json(tmp_path, monkeypatch):
     # no `dets`: obj.MEASURE_DETECTORS, else any detector
     assert by_slug["wise0855"]["dets"] is None and obj.measure_detectors(by_slug["wise0855"]) == (5, 6)
     assert obj.measure_detectors(by_slug["barnard"]) is None and obj.measure_detectors(None) is None
+
+
+def test_measured_layer_gets_the_photos_of_the_frames_and_never_fails_them(world, monkeypatch):
+    from skyshift_server import measured
+    from skyshift_server.budget import Budget
+
+    monkeypatch.setenv("SKYSHIFT_MEASURED", "1")
+    seen = []
+
+    def fake_load(ra, dec, r_deg, keys, **kw):
+        seen.append((ra, dec, r_deg, list(keys)))
+        return measured.Loaded(reason="not_processed")
+
+    monkeypatch.setattr(measured, "load", fake_load)
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], per_visit=None)
+    assert fr.meta["measured"] is None and fr.meta["measured_reason"] == "not_processed"
+    assert seen[0][3] == [f"2025W18_1B_{i:04d}_1D1" for i in range(6)]
+    assert fr.epoch_keys == {"d1-v1": [f"2025W18_1B_{i:04d}_1D1" for i in range(3)],
+                             "d1-v2": [f"2025W18_1B_{i:04d}_1D1" for i in range(3, 6)]}
+    hours = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"])
+    assert all(hours.epoch_keys[e["id"]] == [e["id"][3:] + "D1"] for e in hours.meta["epochs"])
+    # a failure (or a timeout) gives null + "unavailable" and a partial answer (not cached)
+    monkeypatch.setattr(measured, "load", lambda *a, **k: measured.Loaded(reason="unavailable", error=True))
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
+    assert fr.meta["measured"] is None and fr.meta["measured_reason"] == "unavailable"
+    assert fr.partial == ["measured layer unavailable"]
+
+    def boom(*a, **k):
+        raise RuntimeError("bucket on fire")
+
+    monkeypatch.setattr(measured, "load", boom)
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
+    assert fr.meta["measured_reason"] == "unavailable" and fr.meta["epochs"]
+    # off: no fields at all (read as "not computed")
+    monkeypatch.setenv("SKYSHIFT_MEASURED", "0")
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"])
+    assert "measured" not in fr.meta

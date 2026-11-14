@@ -50,6 +50,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import known as known_mod
+from . import measured as measured_mod
 from . import resolve as resolve_mod
 from .budget import Budget, BudgetError
 from .cache import Cache
@@ -385,14 +386,24 @@ async def frames(request: Request, ra: float, dec: float, fov: float | None = No
     if not 1 <= det <= 6:
         raise bad_request("det must be 1-6")
 
-    key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY)
+    key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY,
+               measured=measured_mod.VERSION)
     cached = await run_in_threadpool(_cache_get_json, f"frames/{key}/frames.json")
-    if cached is not None:
+    # a cached answer is rebuilt (its cutouts are cached) when a zone has since got results here
+    if cached is not None and not await run_in_threadpool(_measured_stale, cached):
         return _json(cached)
     content, cache_control = await _shared(
         request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec})",
         lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget))
     return _json(content, cache_control)
+
+
+def _measured_stale(cached: dict) -> bool:
+    try:
+        return measured_mod.stale(cached)
+    except Exception:  # noqa: BLE001 - never fail a cached answer over this
+        log.exception("measured stale check failed")
+        return False
 
 
 def _build_frames(key: str, ra: float, dec: float, fov: float, clock: str, det: int,

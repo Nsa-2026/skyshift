@@ -9,6 +9,12 @@ import numpy as np
 import pytest
 
 DATA = Path(__file__).parent / "data"
+
+
+@pytest.fixture(autouse=True)
+def _measured_off(monkeypatch):
+    """The measured layer reads the data bucket: off unless a test turns it on (test_measured.py)."""
+    monkeypatch.setenv("SKYSHIFT_MEASURED", "0")
 FIXTURE_CUTOUT = Path(__file__).resolve().parents[2] / "fixtures" / "fits" / "cutout_2025W18_1B_0074_2D1.fits"
 
 
