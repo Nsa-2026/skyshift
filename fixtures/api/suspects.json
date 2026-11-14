@@ -11,8 +11,8 @@
   ],
   "provisional": false,
   "grades": {
-    "A": 0,
-    "B": 1,
+    "A": 1,
+    "B": 0,
     "C": 2
   },
   "gates": {
@@ -42,9 +42,13 @@
       "flux_ujy": 262.3,
       "cell": 573350074917,
       "nearest_known_arcsec": null,
-      "grade": "B",
+      "grade": "A",
       "reasons": [],
-      "near_source_arcsec": 8.4
+      "near_source_arcsec": 8.4,
+      "n_sessions": 4,
+      "rate_arcsec_h": 31.25,
+      "pa_deg": 252.4,
+      "rate_sigma": 0.82
     },
     {
       "id": "SYNTH-S2",
@@ -64,7 +68,11 @@
         "hot_pixel",
         "edge"
       ],
-      "near_source_arcsec": null
+      "near_source_arcsec": null,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null
     },
     {
       "id": "SYNTH-S3",
@@ -83,7 +91,11 @@
       "reasons": [
         "2mass"
       ],
-      "near_source_arcsec": 4.1
+      "near_source_arcsec": 4.1,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null
     }
   ]
 }
