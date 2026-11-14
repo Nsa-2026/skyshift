@@ -102,6 +102,7 @@ for e in data["epochs"]:
       ["spectrum[]", "um (µm), flux_ujy and err_ujy (µJy), det, mjd (the exposure's MJD-AVG, UTC), visit, saturated (OVERFLOW or NONLINEAR in the core); sorted by wavelength"],
       ["spectrum_reason", "Why the spectrum is empty (saturated or no_data), else null"],
       ["measure", "shift_arcsec (″), pa_deg (° east of north), dt_yr (yr), rate_arcsec_yr (″/yr), sigma_arcsec (″, 1σ), n_ref_stars, predicted_arcsec (″, from Gaia, or null). Null with fewer than two visits, or when no single source stands out clearly in both"],
+      ["measure.source", "Optional: { det, visits, mjd, n_exposures, fov, pixel_arcsec, core_filled }, the detector, the [first, last] visit stacks (their median MJDs, which dt_yr comes from, and exposure counts) and the 15′ grid the shift was measured on. Absent or null in older answers: unknown"],
       ["measure_reason", "Why measure is null (few_visits, not_detected, edge, different_sources, no_time, moved_away), else null"],
       ["measure_hint", "With moved_away: { name, ra, dec, mjd }, the fast star catalogued here and where it is during SPHEREx's visits, else null"],
     ],

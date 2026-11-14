@@ -123,6 +123,49 @@ def test_known_cone_from_the_mpc_index(tmp_path, monkeypatch):
     known.reset_index()
 
 
+def test_known_position_of_one_object_by_its_mpc_name(tmp_path, monkeypatch):
+    """GET /api/resolve's moving targets: one object's place from its MPC orbit with kete (replaced
+    here: the real kete needs its kernels), at the time asked, by the index's exact name."""
+    from types import SimpleNamespace
+
+    c = Cache(str(tmp_path))
+    c.put(known.INDEX_KEY, tiny_index_npz())
+    known.reset_index()
+    idx = known.mpc_index(c)
+    assert [known.row_of(idx, n) for n in ("Ceres", "(12345)", "C/2025 A1", "Cere", "eres", "C/2025")] == \
+        [0, 1, 2, None, None, None]
+    seen = {}
+
+    class FakeKete:
+        @staticmethod
+        def propagate_n_body(states, jd, suppress_errors=False):
+            seen.update(rows=states, jd=jd)
+            return [SimpleNamespace(is_finite=True)]
+
+        @staticmethod
+        def OmniDirectionalFOV(obs):  # noqa: N802 - kete's name
+            return ("omni", obs)
+
+        @staticmethod
+        def fov_state_check(states, fovs):
+            seen["fov"] = fovs[0]
+            return [SimpleNamespace(states=states, ra_dec_with_rates=[[361.5, -12.25, 0.1, 0.2]])]
+
+    monkeypatch.setattr(known_index, "_kete", lambda: FakeKete)
+    monkeypatch.setattr(known_index, "observer_state", lambda kete, mjd, sc=None: SimpleNamespace(jd=mjd + 2400000.5))
+    monkeypatch.setattr(known_index, "kete_states", lambda kete, idx, rows: [int(r) for r in rows])
+    assert known.position("(12345)", 61000.25, cache=c) == (1.5, -12.25)
+    assert seen["rows"] == [1] and seen["jd"] == 61000.25 + 2400000.5 and seen["fov"][0] == "omni"
+    with pytest.raises(KeyError):
+        known.position("Vesta", 61000.25, cache=c)
+    with pytest.raises(ValueError):
+        known.position("Ceres", 50000.0, cache=c)  # outside the index's time range
+    monkeypatch.setattr(FakeKete, "fov_state_check", staticmethod(lambda states, fovs: []))
+    with pytest.raises(ValueError):
+        known.position("Ceres", 61000.25, cache=c)  # kete lost it
+    known.reset_index()
+
+
 def test_known_warm_up_never_raises(tmp_path, monkeypatch):
     known.reset_index()
     known.warm_up(Cache(str(tmp_path)))  # no index in this cache: logged, not raised

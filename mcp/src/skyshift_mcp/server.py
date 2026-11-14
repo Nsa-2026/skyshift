@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
+import unicodedata
 from typing import Annotated, Any, Literal
 from urllib.parse import urljoin
 
@@ -50,10 +52,50 @@ def _json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=1)
 
 
+def _norm_name(s: str) -> str:
+    """Lowercase, Greek epsilon spelled out, only letters and digits (as the server's resolve.py)."""
+    s = unicodedata.normalize("NFKC", s).lower().replace("ε", "eps").replace("epsilon", "eps")
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+def _featured(slug: str | None) -> dict[str, Any] | None:
+    """A featured target of targets.json by slug."""
+    from .tools_reference import targets  # registers on `app` after this module: import when used
+    return next((t for t in targets() if t["slug"] == slug), None) if slug else None
+
+
+def _featured_by_name(query: str) -> dict[str, Any] | None:
+    """A featured target whose slug, name or short name is `query`, ignoring case, spaces and
+    punctuation; an asteroid also by its name without the number ('Elpis' for '(59) Elpis')."""
+    from .tools_reference import targets
+    q = _norm_name(query)
+    if not q:
+        return None
+    for t in targets():
+        names = [t["slug"], t["name"], t.get("short") or "",
+                 re.sub(r"^\s*(\(\d+\)|comet)\s*", "", t["name"], flags=re.I)]
+        if q in {_norm_name(n) for n in names if n}:
+            return t
+    return None
+
+
+async def resolve_name(query: str) -> dict[str, Any]:
+    """/api/resolve, else a featured target by name (case-insensitive), in /api/resolve's shape with
+    the target's prepared field centre. /api/resolve knows the five test objects and 3I/ATLAS by
+    several names, but not the featured asteroids; a featured name also works when it is down."""
+    try:
+        return await client().resolve(query)
+    except SkyShiftError:
+        t = _featured_by_name(query)
+        if t is None:
+            raise
+        return {"q": query, "name": t["name"], "ra": t["ra"], "dec": t["dec"], "slug": t["slug"], "source": "builtin"}
+
+
 async def _position(target: str | None, ra: float | None, dec: float | None) -> dict[str, Any]:
     """{ra, dec, name, slug} from a name / coordinate string, or from ra and dec."""
     if target:
-        r = await client().resolve(target)
+        r = await resolve_name(target)
         return {"ra": r["ra"], "dec": r["dec"], "name": r.get("name"), "slug": r.get("slug")}
     if ra is None or dec is None:
         raise SkyShiftError("give a target (name or coordinates) or both ra and dec")
@@ -67,10 +109,11 @@ async def top_candidates(
     kind: Annotated[Literal["mover", "high_pm", "spectral", "shape"] | None,
                     Field(description="mover = moves within hours (asteroid or comet?); high_pm = moves between visits (nearby star or brown dwarf?); spectral = odd spectrum; shape = stretched like two objects where catalogues list one. Omit for all")] = None,
     limit: Annotated[int, Field(ge=1, le=100)] = 10,
-    sort: Literal["score", "snr", "rate"] = "score",
+    sort: Annotated[Literal["score", "snr", "rate"],
+                    Field(description="rate: movers by rate_arcsec_h (″/h), then high_pm by pm_mas_yr (mas/yr); the units are never compared")] = "score",
     min_score: Annotated[float | None, Field(ge=0, le=1)] = None,
     min_snr: float | None = None,
-    grade: Annotated[Literal["A", "B", "C"] | None, Field(description="Movers' vetting grade; C = failed a gate, likely artefact")] = None,
+    grade: Annotated[Literal["A", "B", "C"] | None, Field(description="Movers' vetting grade; C = failed a gate, likely artefact. A file written before the vetting has no grades (`notes` says so)")] = None,
     zone: str | None = None,
     det: Annotated[int | None, Field(ge=1, le=6)] = None,
     exclude_gaia: Annotated[bool, Field(description="Drop candidates with a Gaia DR3 source at their position")] = False,
@@ -84,9 +127,18 @@ async def top_candidates(
                         min_snr=min_snr, grade=grade, exclude_gaia=exclude_gaia,
                         exclude_flagged=exclude_flagged, min_known_arcsec=min_known_arcsec)
     rows = cands.rank(rows, sort)
+    notes = []
+    if grade and not cands.has_grades(data["candidates"]):
+        notes.append(f"this file has no grades: candidates.json (generated {data.get('generated')}) was written "
+                     f"before the movers' vetting, so grade={grade} matches nothing. Drop the grade filter")
+    elif grade and kind not in (None, "mover"):
+        notes.append("grades are given to movers only")
+    if sort == "rate":
+        notes.append(cands.RATE_NOTE)
     return _json({
         "generated": data.get("generated"), "data_release": data.get("data_release"),
         "zones": data.get("zones"), "counts_in_file": data.get("counts"),
+        **({"notes": notes} if notes else {}),
         "matching": len(rows), "shown": min(limit, len(rows)),
         "candidates": [cands.summarise(c) for c in rows[:limit]],
     })
@@ -150,6 +202,7 @@ async def _frames_source(target: str | None, ra: float | None, dec: float | None
         pos = await _position(target, ra, dec)
         ra, dec = pos["ra"], pos["dec"]
         note["target"] = pos
+        featured = _featured(pos.get("slug"))
         if pos.get("slug"):
             idx = await c.get_json(f"/data/{pos['slug']}/index.json")
             sets = idx.get("frames") or []
@@ -162,10 +215,55 @@ async def _frames_source(target: str | None, ra: float | None, dec: float | None
             pick = [s for s in pick if det is None or det in s.get("dets", [])] or []
             if pick:
                 s = pick[0]
-                det = det or (2 if 2 in s.get("dets", []) else s["dets"][0])
+                det = det or _best_det(s.get("dets", []), featured)
                 return c.url(f"/data/{pos['slug']}/{s['file']}"), None, det, note
+        det = det or (featured or {}).get("det")
     params = {"ra": ra, "dec": dec, "clock": clock or "months", "fov": fov, "det": det or 2}
     return c.url("/api/frames"), params, det or 2, note
+
+
+def _best_det(dets: list[int], featured: dict[str, Any] | None) -> int:
+    """The detector to show of those in a frames set: the featured target's own `det` (targets.json:
+    WISE 0855−0714 is invisible short of 3 µm, so D6), else one of its `dets`, else the nearest to
+    its `det`; without a featured target D2, else the first."""
+    if featured and featured.get("det") and dets:
+        want = featured["det"]
+        for d in [want, *(featured.get("dets") or [])]:
+            if d in dets:
+                return d
+        return min(dets, key=lambda d: (abs(d - want), d))
+    return 2 if 2 in dets else dets[0]
+
+
+def _fmt_dt(days: float) -> str:
+    h = abs(days) * 24.0
+    if h < 1.0:
+        return f"{h * 60.0:.1f} min"
+    return f"{h:.1f} hours" if h < 48.0 else f"{h / 24.0:.1f} days"
+
+
+def _session_note(cand: dict[str, Any] | None, data: dict[str, Any], det: int | None, live: bool) -> dict[str, Any] | None:
+    """For an hours-clock candidate: how far the nearest frame of `det` is from the find's own time,
+    and a warning when the frames may not, or do not, show the find's session. None otherwise."""
+    if not cand or cand.get("clock") != "hours" or data.get("clock") != "hours" or not cand.get("mjd"):
+        return None
+    eps = [e for e in data.get("epochs") or [] if det is None or e.get("det") == det]
+    if not eps:
+        return None
+    mjd = float(cand["mjd"])
+    near = min(eps, key=lambda e: abs(e["mjd_mid"] - mjd))
+    dt = near["mjd_mid"] - mjd
+    out: dict[str, Any] = {"find_mjd": mjd, "nearest_epoch_id": near["id"],
+                           "nearest_frame_minutes": round(dt * 1440.0, 2)}
+    if abs(dt) > 1.0 / 24.0:
+        out["warning"] = (f"The find's own exposures are NOT in these frames: the nearest frame is "
+                          f"{_fmt_dt(dt)} {'after' if dt > 0 else 'before'} the find (MJD {mjd:.4f}). "
+                          "The mover will not be seen here; these frames show another session.")
+    elif live:
+        out["warning"] = (f"Live /api/frames has no time parameter: its hours frames show the visit with the most "
+                          f"exposures, which may not include the find's session. Here the nearest frame is "
+                          f"{_fmt_dt(dt)} from the find (MJD {mjd:.4f}).")
+    return out
 
 
 def _measured_summary(m: dict[str, Any] | None, reason: str | None) -> dict[str, Any] | None:
@@ -183,11 +281,11 @@ async def blink(
     target: Annotated[str | None, Field(description="Name or coordinates in any format")] = None,
     ra: float | None = None,
     dec: float | None = None,
-    candidate_id: Annotated[str | None, Field(description="Blink a candidate from candidates.json (uses its clock and detector)")] = None,
+    candidate_id: Annotated[str | None, Field(description="Blink a candidate from candidates.json (uses its clock, detector and static frames; an hours-clock candidate shows the frames nearest its own time, and `find_session` says how near they are)")] = None,
     clock: Annotated[Literal["months", "hours"] | None,
                      Field(description="months = one stack per visit (~6 months apart); hours = single exposures of one visit")] = None,
     fov: Annotated[int | None, Field(description="Field in arcmin: months 5 or 15; hours 20 or 60")] = None,
-    det: Annotated[int | None, Field(ge=1, le=6, description="Detector 1–6 (default 2, 1.1–1.6 µm)")] = None,
+    det: Annotated[int | None, Field(ge=1, le=6, description="Detector 1–6 (default: the candidate's or featured target's own detector, e.g. D6 for WISE 0855−0714; else D2, 1.1–1.6 µm)")] = None,
     max_frames: Annotated[int, Field(ge=2, le=8)] = 4,
     zoom_arcmin: Annotated[float | None, Field(gt=0, description="Crop to this many arcmin around the centre. Use 1–3 for an hours-clock mover: it moves only a few arcsec in minutes")] = None,
     overlays: Annotated[bool, Field(description="Draw Gaia stars, known asteroids/comets and SkyShift's measured detections on the frames, with a legend")] = True,
@@ -217,7 +315,9 @@ async def blink(
     if not all_det:
         have = sorted({e.get("det") for e in data["epochs"]})
         raise SkyShiftError(f"no epochs for detector {det} here (detectors with data: {have})")
-    shown = fr.pick_epochs(all_det, det, max_frames)
+    session = _session_note(note.get("candidate"), data, det, live=bool(params))
+    # an hours-clock candidate: the frames nearest its own time, not an even spread over the set
+    shown = fr.pick_epochs(all_det, det, max_frames, around_mjd=session["find_mjd"] if session else None)
     bins = await asyncio.gather(*(c.get_bytes(urljoin(url, e["data_url"])) for e in shown))
     full = [fr.decode(b, data["size"], e["scale"], e["zero"]) for b, e in zip(bins, shown)]
     arrays = [fr.crop(f, data["pixel_arcsec"], zoom_arcmin) for f in full]
@@ -235,6 +335,7 @@ async def blink(
     ids = {e["id"] for e in shown}
     meta = {
         **note,
+        **({"find_session": session} if session else {}),
         "source": "live /api/frames" if params else "static " + url,
         "clock": data["clock"], "det": det, "center": data["center"],
         "pixel_arcsec": data["pixel_arcsec"], "size": data["size"],
@@ -325,8 +426,9 @@ async def gaia_stars(
 
 @app.tool()
 async def resolve(query: Annotated[str, Field(description="A built-in name (e.g. 'Barnard's Star', '3I/ATLAS') or coordinates in any format")]) -> str:
-    """Turn a name or coordinate string into ICRS degrees. `slug` is set for SkyShift's featured targets."""
-    return _json(await client().resolve(query))
+    """Turn a name or coordinate string into ICRS degrees. `slug` is set for SkyShift's featured targets
+    (the asteroids too, e.g. 'Elpis': their position is the prepared field's centre)."""
+    return _json(await resolve_name(query))
 
 
 # Tools, resources and prompts in their own modules register on `app` when imported. One module
