@@ -409,3 +409,23 @@ HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
 HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
 HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls
+
+# --- forced-photometry sky list (forced_sky.py; contracts/dots.md, forced) ------------------------
+# One target list for the whole sky, HEALPix-partitioned (nested, nside FORCED_SKY_NSIDE: 12,288 partitions of
+# 3.36 deg²), so a photo reads only the ~9–12 partitions its footprint overlaps and gets every target in it,
+# whatever zone it was extracted under. Built by `python -m skyshift_pipeline.forced_sky` (resumable); dots uses it
+# only when FORCED_SKY_DIR/FORCED_SKY_MANIFEST exists (written once every partition is done), else falls back to
+# refcat/<zone>_forced.parquet exactly as before. SKYSHIFT_FORCED_SKY=off forces the zone list.
+# Gaia DR3 G < FORCED_GAIA_G_MAX is 221 M targets whole sky (Gaia random_index sample, 14 Nov); 45% of the sky is
+# denser than the 30,000-per-photo budget (2,449/deg²), up to ~250,000/deg² near the galactic centre (2.8 M per photo).
+# So each partition keeps at most its brightest FORCED_SKY_MAX_PER_DEG2 × area targets (a per-partition G limit,
+# recorded in the manifest): 71 M targets. None = no cap (221 M targets; plane photos up to ~2.8 M targets each).
+FORCED_SKY_MODE = os.environ.get("SKYSHIFT_FORCED_SKY", "auto")   # "auto" (use it if complete) or "off"
+FORCED_SKY_NSIDE = 32
+FORCED_SKY_DIR = "refcat/sky/forced_n32"           # p<pixel:05d>.parquet, FORCED_COLUMNS of refcat.py
+FORCED_SKY_MANIFEST = "_complete.json"             # written last: the list is complete
+FORCED_SKY_MAX_PER_DEG2: float | None = FORCED_MAX_PER_PHOTO / PHOTO_SIDE_DEG ** 2   # 2,449/deg² -> 8,222 per partition
+FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in flight (16 measured fine, 14 Nov)
+FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
+FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
+FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
