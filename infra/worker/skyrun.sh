@@ -16,7 +16,8 @@ export SKYSHIFT_REFCAT_CATALOGS=gaia
 ME=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name 2>/dev/null || hostname)
 
 mark() { echo "$ME $(date -u +%FT%TZ) ${3:-}" | gcloud storage cp -q - "$B/$1/$2.txt" >/dev/null 2>&1 || true; }
-prep() { uv run skyshift-pipeline photolist --zone "$1" && uv run skyshift-pipeline refcat --zone "$1"; }
+# time limits: refcat/photolist queries have no HTTP timeout, and a hung prep would block the loop at `wait`
+prep() { timeout 900 uv run skyshift-pipeline photolist --zone "$1" && timeout 1200 uv run skyshift-pipeline refcat --zone "$1"; }
 
 extract() {
   local i z n p
