@@ -2,6 +2,9 @@
 
 **Blink NASA's SPHEREx infrared sky, measure what moved, and check it against Gaia.**
 
+**Workspace integration:** [Three views, guided practice, local setup and release status](README-WORKSPACE.md).
+This branch includes the integrated workspace and game; deployment to the public site is still pending.
+
 SkyShift is a web tool built for the NASA Space Apps Challenge 2026, challenge "Planet X and SPHEREx".
 You paste sky coordinates and it plays that patch of the SPHEREx sky as a short movie, so anything
 that moved jumps between frames. Under the movie it measures how far the object moved and compares

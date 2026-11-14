@@ -1,0 +1,207 @@
+# SkyShift: scientific workspace and guided practice
+
+An English-language guide to the integrated SkyShift workspace, its observation game,
+scientific features, and release status.
+
+**Branch:** `codex/science-production-integration`
+
+**Validated application commit:** [`6b38f6c`](https://github.com/cucuradu/skyshift/commit/6b38f6cd189a3e91d267eb8cf6794839c7a2376e)
+
+**Status, 14 November 2026:** source pushed and CI passed. This integration has not been
+merged into `main` or deployed to the public site. A source push does not update
+[skyshift.web.app](https://skyshift.web.app/).
+
+## What this integration adds
+
+SkyShift connects real NASA SPHEREx observations with tools for watching changes,
+measuring evidence, and inspecting how results were produced. This branch incorporates
+upstream `main` through `6ad0394`, including measured image overlays, candidate vetting,
+and MCP support, alongside the integrated scientific products.
+
+The workspace uses three task names: **Explore**, **Analyze**, and **Research**.
+These are freely accessible views of the same observation. There are no audience ranks
+or prerequisites to unlock a view.
+
+| View | Purpose | Route |
+| --- | --- | --- |
+| Explore | Watch the sky change, read a concise target summary, and start guided practice. | `#/explore` |
+| Analyze | Inspect Motion, Spectrum, Light curve, Compare bands, Cross-match, or Signals. | `#/explore/analyze/<section>` |
+| Research | Inspect Data, Processing, Validation, Sensitivity, or Export. | `#/explore/research/<section>` |
+
+The three views share one image player. Switching views preserves the target, detector,
+clock, current frame, and selected position. Analyze and Research remember their last
+selected section during the session. Changing the target clears stale scientific results.
+
+The root entry opens Explore. The sky atlas remains available at `#/sky`, and the former
+`#/explore/science` link opens Research → Processing.
+
+## Guided observation game
+
+Choose **Try guided practice** in Explore, or open `#/explore/play`.
+The activity uses real prepared SPHEREx observations in the shared player.
+
+1. **Elpis:** follow an asteroid through exposures on the Hours clock.
+2. **Barnard's Star:** inspect a small positional shift between visits on the Months clock.
+3. **RW Aurigae:** inspect brightness changes between visits.
+
+Each example offers **Moving**, **Changing brightness**, **Image artifact**, and
+**Not sure**. Users can play the images, step to the next observation, reveal a hint,
+or use **Show changes** to inspect an image difference. Feedback explains the known
+example before the user continues.
+
+Answers open only after at least two image arrays have loaded for the expected target,
+detector, clock, and field of view. If the observation changes, the activity asks the user
+to return to the practice target. Hatched image regions have no usable data.
+
+On desktop, the image and observation choices sit alongside each other. On mobile,
+the task appears before the image, followed by the controls, choices, and feedback.
+
+Progress is saved in the current browser and can resume after a refresh. A completion
+recap links to real candidate review or Analyze. Practice answers are never submitted
+as scientific votes. There is no timer, user ranking, or discovery score; uncertainty
+is a valid response. Real candidates require follow-up and have no practice answer key.
+
+![Guided practice using real SPHEREx observations](docs/previews/workspace/practice-desktop.jpg)
+
+[Mobile layout](docs/previews/workspace/practice-mobile.jpg)
+
+## Scientific features
+
+- Motion measurements and comparisons with Gaia, with uncertainties and quality notes.
+- Spectra, reference spectra, light curves, and paired detector comparisons.
+- Published static sky models, model residuals, and DR1 reference differences.
+- Motion and cold-source candidate checks, catalogue queries, and sensitivity estimates.
+- Source metadata, validation results, and supported scientific exports.
+- Experimental halo light curves, synthetic W1/W2 products, and spectral audio, with
+  their method and interpretation limits retained.
+
+Historical asterisms, guest stars, and planetary events live separately at
+`#/learn/stories`. They do not change scientific measurements or candidate assessments.
+
+### Data paths and supported coverage
+
+| Product | Location or service | Scope |
+| --- | --- | --- |
+| Canonical observations and object measurements | `web/public/data/`, then the bounded live API | Featured targets use prepared files; other supported coordinates use the existing live service. |
+| Integrated scientific products | `web/public/science-data/` and the scientific API | Five published science fields; availability depends on detector and product. |
+| Practice progress | Browser storage | Local learning activity; no Firestore practice votes. |
+| Real flags and votes | Existing voting service | Separate from practice; the UI discloses browser-local mode when Firebase is not configured. |
+
+The five published science fields are Barnard's Star, Epsilon Indi B, WISE 0855−0714,
+RW Aurigae, and R Draconis. Published derived image layers support the **5′ Months**
+selection. Their actual analysis footprint is approximately **4′**, with missing edges
+masked. They are not arbitrary-field or Hours products.
+
+Original observations and canonical object measurements retain their existing data paths.
+The derived science products do not replace the raw observations or redefine their grid.
+Portable products are included in the API container and do not require private pickle,
+NPZ, or original prototype caches.
+
+### Scientific limits
+
+- Legacy analysis products do not retain complete quality flags; their candidate leads
+  remain unvetted. Catalogue query support does not mean every candidate has been vetted.
+- Cold-source false-alarm estimates remain uncalibrated. Background frequencies are not
+  probabilities that a candidate is real.
+- R Draconis has reference-difference image coverage but no reliable reference aperture
+  spectrum in the published products.
+- Sensitivity estimates do not establish a discovery or exclude Planet X.
+- Known-object recovery checks apply to their documented samples and selection rules;
+  they do not establish the precision of unknown candidates or the completeness of a
+  distant-planet search.
+- Live CatWISE and NEOWISE smoke checks encountered an upstream 502 and a timeout.
+  Successful cloud-side checks are still outstanding.
+
+New-field background science jobs must remain disabled in the current multi-worker
+Cloud Run service with `SKYSHIFT_ENABLE_SCIENCE_JOBS=0`. The optional local queue needs
+shared storage and distributed coordination before it can safely support cloud workers.
+The existing canonical live observation API remains separate from that queue.
+
+## Run the integrated version locally
+
+Requirements: Node.js 22 or compatible, Python 3.12, and [uv](https://docs.astral.sh/uv/).
+From a checkout of this repository:
+
+```sh
+git switch codex/science-production-integration
+uv sync --project server --locked
+(cd web && npm ci && npm run build)
+SKYSHIFT_ENABLE_SCIENCE_JOBS=0 PORT=8083 bash scripts/run-local.sh
+```
+
+Open [Explore](http://127.0.0.1:8083/#/explore) or
+[guided practice](http://127.0.0.1:8083/#/explore/play).
+The local server serves the production build and API from the same origin.
+
+For frontend development, keep the API running on port 8083 and run `npm run dev`
+inside `web/`. Vite serves port 5173 and proxies `/api` to port 8083 by default;
+`SKYSHIFT_API` can select another API origin.
+
+Firebase configuration is optional for local inspection. Without `VITE_FIREBASE_*`
+settings, real flags and votes use the disclosed local mode. Guided practice does not
+require Firebase authentication.
+
+## Validation
+
+Application commit `6b38f6c` passed **1,606 tests locally**, with eight optional skips:
+
+| Suite | Passed |
+| --- | ---: |
+| Web | 835 |
+| Server | 312 |
+| Core | 61 |
+| Pipeline | 267 |
+| MCP | 77 |
+| Scientific helpers | 19 |
+| Validation utilities | 35 |
+
+The TypeScript check and Vite production build passed. The existing JavaScript bundle
+size warning remains. The matching [GitHub CI run](https://github.com/cucuradu/skyshift/actions/runs/43624341717)
+also passed, including the production web build.
+
+Browser verification covered all three practice examples, hints and differences,
+uncertainty feedback, refresh/resume, completion, and transitions into Analyze and
+Research. The 390px mobile layout had no horizontal overflow. Regression tests cover
+the observation readiness gate, wrong-target handling, progress recovery, and shared
+player navigation.
+
+To run the checks:
+
+```sh
+(cd web && npm test && npm run build)
+for area in core pipeline server mcp scripts/science scripts/validate; do
+  (cd "$area" && uv run --locked pytest -q) || exit 1
+done
+```
+
+These engineering checks complement the scientific validation reports. They do not
+substitute for independent scientific confirmation or a cloud deployment smoke test.
+
+## Publication and handoff
+
+The integration is pushed to GitHub. **It is not yet merged into `main` or published
+to the production site.** The last access check was blocked by missing project-authorized
+Cloud Run access and incomplete Firebase authentication. A successful cloud image build
+and a matching hosted preview are still required.
+
+The release owner should:
+
+1. Use an account authorized for the existing `nasa-glazing` project and `skyshift` site.
+2. Capture the current Cloud Run traffic and Firebase release for rollback.
+3. Build and test a tagged API revision without production traffic, with background
+   science jobs disabled.
+4. Test a matching Hosting preview against that API, including the original sky route,
+   all three views, practice, scientific products, image bytes, and supported exports.
+5. Promote the tested API revision and Hosting build, verify the public routes, and
+   roll back if those checks fail. This change does not require publishing Firestore rules.
+
+See the [integration and release record](docs/science-production-integration.md) for
+coverage, earlier checks, and release gates; [API contracts](contracts/api.md) for data
+shapes and units; and [MCP setup](mcp/README.md) for assistant access.
+
+## Data and credits
+
+Observations come from NASA SPHEREx DR1 and QR3 through NASA/IPAC IRSA. Gaia DR3 supplies
+reference astrometry, while known-object checks use the documented external catalogues
+and Minor Planet Center orbits. Existing acknowledgements, software licences, and data
+credits remain in the [project README](README.md#data-and-credits).
