@@ -81,7 +81,7 @@ Every check is on the scoreboard at [#/score](https://skyshift.web.app/#/score),
 IRSA image search ─► cutouts (IRSA, or the S3 copy) ─► visit rule, median stack, measure ─► 16-bit frames + JSON
   featured targets: scripts/precompute ─► static files on Firebase Hosting (/data/<slug>/)
   any coordinates:  FastAPI on Cloud Run ─► cached in Cloud Storage
-ESA Gaia DR3 · IRSA MOST · IRSA 3I/ATLAS table · MPC orbits (kete) · SkyBoT ─► same API, cached
+ESA Gaia DR3 · IRSA MOST · IRSA 3I/ATLAS table · MPC orbits (kete) ─► same API, cached
 Flags and votes ─► Firestore (create-only rules)
 ```
 
@@ -144,7 +144,7 @@ Four people at one local event. Roles, not names:
   IRSA's Moving Object Search Tool (MOST) and IRSA's SPHEREx table for comet 3I/ATLAS.
 - **2MASS** and **AllWISE** sky layers (HiPS) and the 2MASS and CatWISE2020 catalogues, served by IRSA.
 - **ESA Gaia DR3** through the ESA Gaia Archive (partner data).
-- **Minor Planet Center** orbits, propagated with **kete**; **IMCCE SkyBoT** for known solar-system objects.
+- **Minor Planet Center** orbits for known asteroids and comets, propagated with **kete** (BSD-3-Clause, first written at Caltech/IPAC).
 - **SDSS DR17** spectroscopic redshifts and the **EAZY** templates (galaxy distances, V10);
   the NEATM thermal model (Harris 1998) for asteroid sizes (V11).
 - **Aladin Lite 3.8.2** (CDS, GPL-3.0), loaded from jsDelivr at run time and not bundled, showing IRSA HiPS layers.
