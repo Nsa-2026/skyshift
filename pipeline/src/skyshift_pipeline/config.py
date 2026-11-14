@@ -225,6 +225,15 @@ PSF_FIT_MIN_PIX = 12           # fewer unmasked pixels than this: flux_psf_* NaN
 PSF_MODEL_FRAC = 0.03          # ePSF shape error added in quadrature to the pixel noise (fraction of the model)
 PSF_NOISE = "detect"           # pixel noise of the fit: "detect" = max(√VARIANCE, background rms) as in core.detect;
                                # "variance" = √VARIANCE only (chi2 then grows with confusion in crowded fields)
+# ePSF position fit (psf.psf_position) -> x_psf, y_psf, ra_psf, dec_psf, pos_err_psf_arcsec, psf_pos_ok (dots v4).
+# Off: those columns still exist and carry the windowed centroid with psf_pos_ok False.
+DOTS_PSF_POSITION = True
+PSF_POS_MIN_SNR = 5.0          # dots below this aperture S/N keep the windowed centroid (psf_pos_ok False)
+PSF_POS_MAX_ITER = 10          # Gauss–Newton steps at most; not converged by then -> psf_pos_ok False
+PSF_POS_MAX_STEP_PX = 0.3      # one step moves (x, y) at most this far
+PSF_POS_MAX_SHIFT_PX = 1.0     # a fit that ends further than this from the windowed centroid fails
+PSF_POS_TOL_PX = 0.002         # converged when a step is shorter than this ...
+PSF_POS_TOL_SIGMA = 0.05       # ... or than this × the fit's own 1σ (faint dots); reversing steps are halved
 PHOTO_META_KEY = "skyshift_photo"  # Parquet key-value metadata of each dot file (JSON)
 PHOTO_META_HEADER_KEYS = (     # IMAGE header values copied into it as they are (missing keys -> null)
     "MJD-BEG", "MJD-AVG", "MJD-END", "XPOSURE", "TELAPSE",
