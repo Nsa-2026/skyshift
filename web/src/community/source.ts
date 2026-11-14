@@ -6,7 +6,7 @@ import { loadCandidates } from "../api/client";
 import type { CandidatesResponse } from "../api/types";
 import { ANSWERS, KEYS, readJson, type Answer, type Candidate, type KV } from "../vote/model";
 import { getVoteStore, type VoteApi } from "../vote/store";
-import { cleanVotes, type CandInfo, type VoteRow } from "./stats";
+import { astronomersList, cleanVotes, tally, type AstroRow, type CandInfo, type VoteRow } from "./stats";
 
 export interface Snapshot {
   mode: "firestore" | "local";
@@ -102,4 +102,20 @@ export async function loadSnapshot(opts: LoadOptions): Promise<Snapshot> {
       return new Map(want.filter((id) => all.has(id)).map((id) => [id, all.get(id)!]));
     },
   };
+}
+
+/**
+ * The list for astronomers, as the Community page shows it: everyone's votes (one per browser and
+ * object), consensus movers and changing sources, strongest agreement first, with positions looked
+ * up for dots that visitors flagged. To check downloads it from here.
+ */
+export async function astronomersFor(s: Snapshot): Promise<AstroRow[]> {
+  const counts = tally(s.votes);
+  const info = new Map(s.info);
+  const rows = astronomersList(counts, (id) => info.get(id));
+  const missing = rows.map((r) => r.id).filter((id) => !info.has(id));
+  if (!missing.length) return rows;
+  const found = await s.lookup(missing).catch(() => new Map<string, CandInfo>());
+  for (const [id, i] of found) info.set(id, i);
+  return found.size ? astronomersList(counts, (id) => info.get(id)) : rows;
 }

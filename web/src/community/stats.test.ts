@@ -5,6 +5,7 @@ import {
   CONSENSUS,
   activity,
   agreement,
+  astroFile,
   astronomersList,
   candidateLink,
   cleanVotes,
@@ -293,5 +294,15 @@ describe("the list for astronomers", () => {
 
   it("encodes ids in links", () => {
     expect(candidateLink("https://x.test/a/?q=1#/about", "a b/c")).toBe("https://x.test/a/#/c/a%20b%2Fc");
+  });
+
+  it("makes the same file for the Community page and To check: name dated by generation, CSV or JSON", () => {
+    const meta = { generated: "2026-11-15T00:30:00.000Z", votes_from: "firestore" as const, data_release: "DR1+QR3" };
+    const csv = astroFile("csv", rows, meta, "https://skyshift.web.app/#/candidates/one=1");
+    expect(csv).toMatchObject({ name: "skyshift-list-for-astronomers-2026-11-15.csv", type: "text/csv;charset=utf-8" });
+    expect(csv.text).toBe(toAstroCsv(rows, "https://skyshift.web.app/#/candidates/one=1"));
+    const json = astroFile("json", rows, meta, "https://skyshift.web.app/");
+    expect(json).toMatchObject({ name: "skyshift-list-for-astronomers-2026-11-15.json", type: "application/json" });
+    expect(JSON.parse(json.text).count).toBe(3);
   });
 });

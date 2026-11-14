@@ -8,6 +8,7 @@ import {
   discoverQuery,
   forAstronomers,
   gradeCCount,
+  inScope,
   isDiscoverUrl,
   keyAction,
   needsCounts,
@@ -99,6 +100,16 @@ describe("queueOrder", () => {
     const k = new Map([["gA", counts({ mover: 1 })]]);
     expect(ids(queueOrder([gB, gA], k))).toEqual(["gA", "gB"]);
     expect(ids(queueOrder([gA, gB], new Map([["gA", counts({ mover: 5 })]])))).toEqual(["gB", "gA"]);
+  });
+
+  it("runs inside To check's filtered list (scope), in its own order there", () => {
+    const all = [a, b, c, d, e];
+    expect(ids(inScope(all, null))).toEqual(["a", "b", "c", "d", "e"]);
+    expect(ids(inScope(all, new Set(["e", "b", "nowhere"])))).toEqual(["b", "e"]);
+    expect(ids(inScope(all, new Set()))).toEqual([]);
+    // Fewest votes first inside the scope, whatever order the list was sorted in.
+    const k = new Map([["e", counts({ mover: 1 })]]);
+    expect(ids(queueOrder(inScope(all, new Set(["e", "b", "c"])), k))).toEqual(["b", "c", "e"]);
   });
 
   it("score order breaks ties by S/N, then id", () => {
@@ -200,6 +211,13 @@ describe("URLs", () => {
     expect(discoverQuery("#/candidates?sort=fewest", "")).toBe("sort=fewest");
     expect(discoverQuery("#/candidates", "?ra=1&dec=2&kind=mover")).toBe("kind=mover");
     expect(discoverQuery("#/candidates", "")).toBe("");
+  });
+
+  it("leaves out 'One at a time' (one=1): a view of the list, not part of its filter", () => {
+    expect(discoverQuery("#/candidates/kind=mover&one=1", "")).toBe("kind=mover");
+    expect(discoverQuery("#/candidates/one=1&sort=fewest", "")).toBe("sort=fewest");
+    expect(discoverQuery("#/candidates/one=1", "")).toBe("");
+    expect(isDiscoverUrl("#/candidates/one=1")).toBe(true);
   });
 });
 

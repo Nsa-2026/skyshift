@@ -2,4 +2,4 @@
 import "./review.css";
 
 export { mountCandidate } from "./candidate";
-export { mountReview } from "./review";
+export { mountQueue, mountReview, type QueueHandle, type QueueOptions } from "./review";
