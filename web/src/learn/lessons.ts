@@ -62,7 +62,7 @@ export const LESSONS: Lesson[] = [
       <p>Barnard's Star crosses our sky faster than any other star: ${t("Gaia")} measures 10.39″ a year, because it is only 1.83 ${t("parsec", "pc")} away. Between visits it steps north about 5″, less than one SPHEREx pixel. Watch it move up past the red marks.</p>
       <p>The hatched hole in the middle is honest: the star is so bright that its centre overflows the pixels, called ${t("saturation")}; NASA ${t("flag", "flags")} them and we leave them blank. SkyShift measures the position on the star's wings.</p>`,
     figure: "barnard",
-    tryText: "Blink Barnard's Star yourself, then press Subtract: one visit minus another shows where light left and arrived.",
+    tryText: "Blink Barnard's Star yourself, then press Difference: one visit minus another shows where light left and arrived.",
     tryIt: [{ label: "Blink Barnard's Star", href: exploreHref("barnard") }],
   },
   {
