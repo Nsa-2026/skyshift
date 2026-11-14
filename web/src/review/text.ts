@@ -71,6 +71,16 @@ export const REASON_TEXT: Record<string, { chip: string; tone: "for" | "doubt" |
     tone: "info",
     tip: "CatWISE2020 (infrared, from NASA's WISE) has a source here with a different motion.",
   },
+  catwise_pm_agrees: {
+    chip: "CatWISE lists the same motion",
+    tone: "for",
+    tip: "CatWISE2020 (infrared, from NASA's WISE) lists a source here moving the same way: an independent check of the motion.",
+  },
+  no_gaia: {
+    chip: "Not in Gaia (G < 20)",
+    tone: "for",
+    tip: "Gaia DR3 lists nothing brighter than G 20 here. Our Gaia catalogue stops at G 20, so a fainter Gaia source may still be there.",
+  },
   few_dots: {
     chip: "Few detections",
     tone: "doubt",

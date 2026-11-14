@@ -589,7 +589,7 @@ def highpm_why(r, reasons: list[str]) -> str:
     elif r.status == "2mass":
         tail = "; 2MASS saw a star where this motion puts it in 2000, so it is a known star"
     else:
-        tail = "; no catalogue lists this motion"
+        tail = "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion"
     cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "bad_fit", "few_dots", "short_span") if x in reasons]
     if cautions and "gaia_pm_disagrees" not in reasons and "catwise_pm_disagrees" not in reasons:
         tail += f", but {cautions[0]}"

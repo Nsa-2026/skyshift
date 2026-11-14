@@ -89,6 +89,11 @@ def measured_site(monkeypatch):
             return _json_response(_with_measured("data/barnard/frames_months_5.json", _months_measured()))
         if p == f"/data/cand/{CAND_MOVER}/frames.json":
             return _json_response(_with_measured(f"data/cand/{CAND_MOVER}/frames.json", _hours_measured))
+        if p == "/data/barnard/frames_hours_20.json":   # a static file without the layer (zone not combined yet)
+            data = json.loads((PUBLIC / "data/barnard/frames_hours_20.json").read_text())
+            data.pop("measured", None)
+            data.pop("measured_reason", None)
+            return _json_response(data)
         if p == "/api/frames":
             calls.append(dict(req.url.params))
             if req.url.params.get("clock") == "hours":   # the Barnard hours fallback: zone not combined yet

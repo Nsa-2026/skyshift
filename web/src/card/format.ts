@@ -1,5 +1,5 @@
 // Pure helpers for the object card: numbers, wording and axis maths. No DOM here, so tests are cheap.
-import type { Det, FramesResponse, GaiaStar, Measure, MeasureReason, ObjectResponse, SkyPos, SpectrumPoint } from "../api/types";
+import type { Det, FramesResponse, GaiaStar, Measure, MeasureReason, MeasureSource, ObjectResponse, SkyPos, SpectrumPoint } from "../api/types";
 import { formatMjd, sepArcsec } from "../app/astro";
 
 export const LY_PER_PC = 3.26156;
@@ -391,8 +391,25 @@ export function visitTimesFromSpectrum(spectrum: SpectrumPoint[]): Map<number, n
 }
 
 /**
- * How many visits the measured detector has, so the card can say "between visits 1 and N".
- * The measure doesn't name its detector: take the detectors whose first-to-last span matches dt_yr
+ * What the shift was measured on (contracts/api.md v3.9), when the answer says so and it hangs
+ * together (dt_yr is the gap between its two median times). Null otherwise: older files and cached
+ * answers have none, and the card never takes it from the player's frames instead.
+ */
+export function measureSource(m: Measure): MeasureSource | null {
+  const s = m.source;
+  if (!s) return null;
+  const pair = (a: unknown, ok: (x: number) => boolean): boolean =>
+    Array.isArray(a) && a.length === 2 && a.every((x) => typeof x === "number" && ok(x));
+  const count = (x: number) => Number.isInteger(x) && x >= 1;
+  if (!count(s.det) || s.det > 6) return null;
+  if (!pair(s.visits, count) || s.visits[1] <= s.visits[0] || !pair(s.n_exposures, count)) return null;
+  if (!pair(s.mjd, Number.isFinite) || s.mjd[1] <= s.mjd[0]) return null;
+  return Math.abs((s.mjd[1] - s.mjd[0]) / 365.25 - m.dt_yr) <= 0.001 ? s : null;
+}
+
+/**
+ * How many visits the measured detector has, so the card can say "between visits 1 and N", for a
+ * measure without `source` (above). Take the detectors whose first-to-last span matches dt_yr
  * (within 0.1 yr: the server times stacks by their median exposure, not mjd_mid) and answer only
  * when they agree. Null when unsure: the card then says "the first and last visits".
  */
@@ -407,9 +424,17 @@ export function measuredVisitCount(m: Measure, times: Map<number, number[]> | nu
   return counts.size === 1 ? [...counts][0] : null;
 }
 
-/** "visits 1 and 3" from the visit count, or "the first and last visits" without one. */
-export function visitPair(n: number | null): string {
+/** "visits 2 and 4" from the measured pair, "visits 1 and 3" from a visit count, or "the first and last visits". */
+export function visitPair(n: number | [number, number] | null): string {
+  if (Array.isArray(n)) return `visits ${n[0]} and ${n[1]}`;
   return n != null && n >= 2 ? `visits 1 and ${n}` : "the first and last visits";
+}
+
+/** The card's "Measured in" line: detector, visit pair and exposures, and the player's detector when it differs. */
+export function measuredIn(src: MeasureSource, playerDet: Det): string {
+  const n = src.n_exposures;
+  const other = playerDet !== src.det ? `, not the D${playerDet} the player shows` : "";
+  return `D${src.det}, ${visitPair(src.visits)} (${n[0]} and ${n[1]} exposures)${other}`;
 }
 
 /** Years for prose: "0.99 years", "1 year", "1.42 years". */
@@ -419,7 +444,7 @@ export function proseYears(yr: number): string {
 }
 
 /** The sentence after the measured number: when, then how it compares with the prediction. */
-export function measureSentence(m: Measure, opts: { visits: number | null; who: string }): string {
+export function measureSentence(m: Measure, opts: { visits: number | [number, number] | null; who: string }): string {
   const when = `between ${visitPair(opts.visits)} (${proseYears(m.dt_yr)})`;
   const seen = isDetectedMotion(m);
   const first = seen

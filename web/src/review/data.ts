@@ -141,6 +141,28 @@ export function focusFrames(frames: FramesResponse, c: Pick<Candidate, "mjd" | "
   };
 }
 
+/** Over this gap (days) between the find and the nearest frame, the find's own exposures aren't shown. */
+export const OWN_GAP_DAYS = 1 / 24;
+
+/**
+ * Hours candidates: days from the find's mjd to the nearest frame of `det`. Live hours frames show
+ * the visit with the most exposures (the API has no time parameter), which may not be the find's
+ * session. null for months, an unknown mjd or no frames of `det`.
+ */
+export function findGap(frames: FramesResponse, c: Pick<Candidate, "mjd" | "clock">, det: Det): number | null {
+  if (frames.clock !== "hours" || c.clock !== "hours" || !(c.mjd > 0)) return null;
+  const eps = epochsFor(frames, det);
+  return eps.length ? Math.min(...eps.map((e) => Math.abs(e.mjd_mid - c.mjd))) : null;
+}
+
+/** A time gap in plain words: "40 minutes", "9.8 hours", "3.2 days". */
+export function gapText(days: number): string {
+  const h = Math.abs(days) * 24;
+  const n = (v: number) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+  if (h < 1) return `${Math.round(h * 60)} minutes`;
+  return h < 48 ? `${n(h)} hours` : `${n(h / 24)} days`;
+}
+
 async function getFrames(url: string, signal?: AbortSignal): Promise<FramesResponse> {
   const res = await fetch(url, { signal });
   if (!res.ok) throw new ApiFailure(`${res.status} for ${url}`, res.status, res.status === 404 ? "not_found" : "internal");
