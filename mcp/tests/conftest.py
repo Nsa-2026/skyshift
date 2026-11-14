@@ -1,5 +1,6 @@
 """Offline site: /data/ from web/public/data/ (real static twins in the repo), /data/candidates.json
-from fixtures/api/candidates_sample.json, /api/ from fixtures/api/."""
+from fixtures/api/candidates_sample.json, /data/cand/<id>/ from fixtures/api/cand/ when frozen there
+(the sample's candidates; the site's cand/ changes with every rerun), /api/ from fixtures/api/."""
 from __future__ import annotations
 
 import json
@@ -18,6 +19,14 @@ FIX = ROOT / "fixtures" / "api"
 BASE = "https://skyshift.test"
 
 
+def site_file(rel: str) -> Path:
+    """A /data/ path on disk: the frozen candidate folders first, then the site's static twins."""
+    rel = rel.lstrip("/")
+    if rel.startswith("data/cand/") and (FIX / rel[len("data/"):]).is_file():
+        return FIX / rel[len("data/"):]
+    return PUBLIC / rel
+
+
 def _file(path: Path) -> httpx.Response:
     if not path.is_file():
         return httpx.Response(404, json={"error": {"code": "not_found", "message": str(path.name)}})
@@ -31,7 +40,7 @@ def handler(request: httpx.Request) -> httpx.Response:
     if p == "/data/candidates.json":
         return _file(FIX / "candidates_sample.json")
     if p.startswith("/data/"):
-        return _file(PUBLIC / p.lstrip("/"))
+        return _file(site_file(p))
     if p == "/api/resolve":
         name = "resolve_barnard.json" if "barnard" in q.get("q", "").lower() else "resolve_coords.json"
         return _file(FIX / name)
