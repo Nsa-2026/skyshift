@@ -1,7 +1,7 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>SkyShift Dev Plan</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Version 2 of the SkyShift developer plan: architecture, four areas with first prompts for Claude Code, repo setup, contracts, cloud setup and the hour-by-hour schedule.">
+<meta name="description" content="Version 3 of the SkyShift developer plan, as built on Sat 14 Nov: architecture and cloud, the four areas, contracts, the pipeline and pilot runbook, storage and cost, the one-day schedule and the PR log.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -203,9 +203,9 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
 
 <header class="nav">
   <div class="wrap nav-inner">
-    <a class="brand" href="#top">Sky<span>Shift</span><small>DEV v2</small></a>
+    <a class="brand" href="#top">Sky<span>Shift</span><small>DEV v3</small></a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#arch">Architecture</a><a href="#areas">Areas</a><a href="#repo">Repo</a><a href="#contract">Contracts</a><a href="#data">Data</a><a href="#workflow">Workflow</a><a href="#setup">Setup</a><a href="#schedule">Schedule</a><a href="#rules">Rules</a>
+      <a href="#arch">Architecture</a><a href="#areas">Areas</a><a href="#repo">Repo</a><a href="#contract">Contracts</a><a href="#data">Data</a><a href="#pipeline">Pipeline</a><a href="#runbook">Runbook</a><a href="#known">Known</a><a href="#workflow">Workflow</a><a href="#setup">Setup</a><a href="#cost">Cost</a><a href="#schedule">Schedule</a><a href="#prs">PRs</a><a href="#rules">Rules</a>
     </nav>
   </div>
 </header>
@@ -215,27 +215,31 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
     <div class="wrap stack-lg">
       <div class="hero-grid">
         <div class="stack" style="gap:18px">
-          <p class="eyebrow">Version 2 · 14 Nov 2026 · for the four developers</p>
+          <p class="eyebrow">Version 3 · Sat 14 Nov 2026, as built · for the four developers</p>
           <h1>SkyShift Dev Plan</h1>
-          <p class="lede">How we build SkyShift: where each piece runs, who owns which folder, the shared contracts, and the first prompt each of us pastes into Claude Code. What we build and why is on the concept page.</p>
+          <p class="lede">How we build SkyShift: where each piece runs, who owns which folder, the shared contracts, the pipeline that turns photos into dots and tables, and the one-day schedule. Updated on Saturday to match what we built and decided. What we build and why is on the concept page.</p>
           <div class="seg"><a class="btn primary" href="#areas">Find your area</a><a class="btn" href="skyshift-hackathon-plan.html">Concept plan (what and why)</a><a class="btn" href="#schedule">Schedule</a></div>
           <div class="stack" style="gap:8px">
-            <h4>Changed since v1</h4>
+            <h4>Changed during Saturday (v3)</h4>
             <ul class="changes">
-              <li><span>No "passes". We blink on two clocks: <b>Months</b> (one stacked frame per visit, six months apart) and <b>Hours</b> (single exposures inside a visit).</span></li>
-              <li><span>Static first. Featured targets are files on Firebase Hosting; the live API serves any other coordinates.</span></li>
-              <li><span>The 5% deep zone is cut. A 100 deg² hunt zone runs only if gate G2 passes at Sat 18:00.</span></li>
-              <li><span>Frames are 16-bit data, not pictures. The browser does stretch, invert, subtract and add.</span></li>
-              <li><span>No CDS: Aladin Lite 3.8.2 from jsDelivr, IRSA layer URLs only, SIMBAD features off.</span></li>
+              <li><span><b>One build day.</b> Freeze Sat 20:00, first full submission 22:00, no night shift. Sunday is for the video, rehearsals and the final submission at 14:30. S2–S6 are cut.</span></li>
+              <li><span><b>Pilot ~13:45–14:30, gate G2 right after.</b> The hunt zone (3,692 photos) runs on the spot worker only if G2 passes.</span></li>
+              <li><span><b>Data rule.</b> NASA's photos are never copied: each is streamed once from S3 (all six parts, ~56 MB) and we keep ~4.5 MB of computed data per photo.</span></li>
+              <li><span><b>The pipeline grew.</b> Dots now carry ePSF flux, five apertures, shape, peak, background and zodi, plus forced photometry at catalogue stars. Ten combining steps run afterwards: spectra, cross-ids, classes, photo-z, colours, light curves, astrometry, the high-PM search, score and suspects.</span></li>
+              <li><span><b>Visit rule fixed.</b> Only visits over 75 days are cut, into equal parts. Barnard's Star now has 3 clean visits of 60–61 exposures.</span></li>
+              <li><span><b>Cloud is set up and tested.</b> Bucket, two machines that stop themselves, two service accounts, Firestore rules, the Cloud Run deploy script. Public address: <span class="mono">https://skyshift.web.app</span>.</span></li>
+              <li><span><b>Known objects: MPC orbits with kete replace SkyBoT</b> (plan, <a href="#known">Known</a>). The pilot and G2 use SkyBoT; the hunt zone switches only if the MPC step finds ≥ 95% of SkyBoT's V &lt; 18 objects with a median offset under 2″.</span></li>
+              <li><span>Unchanged: two clocks (<b>Months</b>, <b>Hours</b>), static first, frames as 16-bit data, no CDS.</span></li>
             </ul>
           </div>
         </div>
         <dl class="decisions" aria-label="Key decisions">
           <h4>Decided</h4>
-          <div class="decision"><dt>Cloud</dt><dd>Google Cloud only, project <span class="mono">nasa-glazing</span>, region <span class="mono">us-east4</span>. €264 credit until 17 Jan 2027. Setup is done.</dd></div>
-          <div class="decision"><dt>Heavy work</dt><dd>An 8-core test machine does most of it. The 64-core spot machine runs the hunt zone for under an hour.</dd></div>
+          <div class="decision"><dt>Cloud</dt><dd>Google Cloud only, project <span class="mono">nasa-glazing</span>, region <span class="mono">us-east4</span>. €264 credit until 17 Jan 2027. Set up and tested on Saturday (<a href="#cloud">cloud as built</a>).</dd></div>
+          <div class="decision"><dt>Heavy work</dt><dd>The 8-core <span class="mono">skyshift-test</span> runs the pilot. The 64-core spot <span class="mono">skyshift-worker</span> runs the hunt zone after G2, for under an hour. Both stop themselves after each job.</dd></div>
+          <div class="decision"><dt>Data</dt><dd>NASA's photos are streamed from <span class="mono">s3://nasa-irsa-spherex</span>, read once, never copied. We keep only what we compute.</dd></div>
           <div class="decision"><dt>Static first</dt><dd>One Python function builds a blink. A script runs it for the featured targets and writes files to <span class="mono">/data</span>; Cloud Run runs it for anything else. First frame: under 15 s live, under 2 s static.</dd></div>
-          <div class="decision"><dt>Code</dt><dd>One public GitHub repo, created Sat 09:00. Four areas, one owner each. <span class="mono">contracts/</span> v2 is the source of truth.</dd></div>
+          <div class="decision"><dt>Code</dt><dd>One public GitHub repo, created Sat 09:00. Four areas, one owner each. <span class="mono">contracts/</span> is the source of truth (<span class="mono">api.md</span> v2, <span class="mono">dots.md</span> v3). Branch → PR → tests → merge after every change to main.</dd></div>
           <div class="decision"><dt>AI</dt><dd>Everyone runs Claude Code on their own plan (Pro or higher). Login is per machine.</dd></div>
           <div class="decision"><dt>Lead</dt><dd>P1 owns the repo, the contracts, <span class="mono">core/</span> and validation. Owners merge their own area; only contract changes wait for P1.</dd></div>
         </dl>
@@ -259,7 +263,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
       <div class="diagram">
         <svg viewBox="0 0 1000 450" role="img" aria-labelledby="arch-title arch-desc">
           <title id="arch-title">SkyShift architecture, version 2</title>
-          <desc id="arch-desc">IRSA image search and cutouts feed the cloud machines and the Cloud Run API. SPHEREx files on Amazon S3 feed the machines for the hunt zone. Gaia, SkyBoT, MOST and the 3I/ATLAS table feed the API, cached. The machines write photo lists and results to Cloud Storage and precompute static target files for Firebase Hosting. Hosting serves the web app and the static files and forwards /api to Cloud Run. Browsers write flags and votes to Firestore. Developers push to GitHub, which deploys.</desc>
+          <desc id="arch-desc">IRSA image search and cutouts feed the cloud machines and the Cloud Run API. SPHEREx files on Amazon S3 feed the machines for the hunt zone. Gaia, MPC orbits (computed with kete), MOST and the 3I/ATLAS table feed the API and the machines, cached. The machines write photo lists and results to Cloud Storage and precompute static target files for Firebase Hosting. Hosting serves the web app and the static files and forwards /api to Cloud Run. Browsers write flags and votes to Firestore. Developers push to GitHub, which deploys.</desc>
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/></marker></defs>
           <style>
             .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
@@ -277,19 +281,19 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <rect x="258" y="8" width="490" height="434" rx="14" class="grp"/>
           <text x="276" y="32" class="gl">GOOGLE CLOUD · us-east4</text>
 
-          <rect x="20" y="44" width="210" height="96" rx="10" class="bx"/><text x="34" y="68" class="t">SPHEREx files on S3</text><text x="34" y="88" class="s">s3://nasa-irsa-spherex</text><text x="34" y="106" class="s">about 66 MB per file</text><text x="34" y="124" class="s">needed parts only</text>
+          <rect x="20" y="44" width="210" height="96" rx="10" class="bx"/><text x="34" y="68" class="t">SPHEREx files on S3</text><text x="34" y="88" class="s">s3://nasa-irsa-spherex</text><text x="34" y="106" class="s">60–70 MB per file</text><text x="34" y="124" class="s">streamed once, not kept</text>
           <rect x="20" y="156" width="210" height="84" rx="10" class="bx"/><text x="34" y="180" class="t">IRSA (NASA/IPAC)</text><text x="34" y="200" class="s">image search · cutouts</text><text x="34" y="218" class="s">MOST · 3I/ATLAS table</text>
-          <rect x="20" y="262" width="210" height="84" rx="10" class="bx"/><text x="34" y="286" class="t">ESA Gaia DR3 · SkyBoT</text><text x="34" y="306" class="s">gea.esac.esa.int TAP</text><text x="34" y="324" class="s">ssp.imcce.fr (IMCCE)</text>
+          <rect x="20" y="262" width="210" height="84" rx="10" class="bx"/><text x="34" y="286" class="t">ESA Gaia DR3 · MPC orbits</text><text x="34" y="306" class="s">gea.esac.esa.int TAP</text><text x="34" y="324" class="s">minorplanetcenter.net (kete)</text>
 
-          <rect x="280" y="44" width="200" height="140" rx="10" class="bx"/><text x="294" y="68" class="t">Cloud machines</text><text x="294" y="88" class="s">e2-standard-8: most work</text><text x="294" y="106" class="s">n2-highcpu-64 spot:</text><text x="294" y="124" class="s">hunt zone after G2</text><text x="294" y="146" class="s">core/ · pipeline/</text><text x="294" y="164" class="s">scripts/precompute</text>
+          <rect x="280" y="44" width="200" height="140" rx="10" class="bx"/><text x="294" y="68" class="t">Cloud machines</text><text x="294" y="88" class="s">e2-standard-8: pilot</text><text x="294" y="106" class="s">n2-highcpu-64 spot:</text><text x="294" y="124" class="s">hunt zone after G2</text><text x="294" y="146" class="s">pipeline/ · vm.sh</text><text x="294" y="164" class="s">stop after each job</text>
           <rect x="280" y="214" width="200" height="96" rx="10" class="bx"/><text x="294" y="238" class="t">Cloud Run API</text><text x="294" y="258" class="s">server/ · imports core/</text><text x="294" y="276" class="s">any coordinates, live</text><text x="294" y="294" class="s">caches in bucket cache/</text>
           <rect x="280" y="350" width="200" height="78" rx="10" class="bx"/><text x="294" y="374" class="t">Firestore</text><text x="294" y="394" class="s">candidates · votes</text><text x="294" y="412" class="s">create-only rules</text>
 
-          <rect x="528" y="44" width="200" height="104" rx="10" class="bx"/><text x="542" y="68" class="t">Cloud Storage</text><text x="542" y="88" class="s">gs://nasa-glazing-data</text><text x="542" y="108" class="s">photolists/  dots/</text><text x="542" y="126" class="s">results/  cache/</text>
-          <rect x="528" y="214" width="200" height="114" rx="10" class="bx hot"/><text x="542" y="238" class="t">Firebase Hosting</text><text x="542" y="258" class="s">web/ (Vite app)</text><text x="542" y="276" class="s">/data/&lt;slug&gt;/ static</text><text x="542" y="294" class="s">featured targets</text><text x="542" y="312" class="s">/api/** → Cloud Run</text>
+          <rect x="528" y="44" width="200" height="140" rx="10" class="bx"/><text x="542" y="68" class="t">Cloud Storage</text><text x="542" y="88" class="s">gs://nasa-glazing-data</text><text x="542" y="108" class="s">photolists/ refcat/</text><text x="542" y="126" class="s">dots/ forced/ cache/</text><text x="542" y="144" class="s">results/ logs/</text><text x="542" y="166" class="s">~4.5 MB kept per photo</text>
+          <rect x="528" y="214" width="200" height="114" rx="10" class="bx hot"/><text x="542" y="238" class="t">Firebase Hosting</text><text x="542" y="258" class="s">skyshift.web.app</text><text x="542" y="276" class="s">/data/&lt;slug&gt;/ static</text><text x="542" y="294" class="s">featured targets</text><text x="542" y="312" class="s">/api/** → Cloud Run</text>
 
           <rect x="780" y="44" width="200" height="72" rx="10" class="bx"/><text x="794" y="68" class="t">4 developers</text><text x="794" y="88" class="s">Claude Code on laptops</text><text x="794" y="106" class="s">and on the cloud VM</text>
-          <rect x="780" y="180" width="200" height="66" rx="10" class="bx"/><text x="794" y="204" class="t">GitHub repo</text><text x="794" y="224" class="s">public, first commit</text><text x="794" y="240" class="s">at Sat 09:00</text>
+          <rect x="780" y="180" width="200" height="66" rx="10" class="bx"/><text x="794" y="204" class="t">GitHub repo</text><text x="794" y="224" class="s">branch → PR → tests</text><text x="794" y="240" class="s">→ merge</text>
           <rect x="780" y="280" width="200" height="66" rx="10" class="bx"/><text x="794" y="304" class="t">Visitors and judges</text><text x="794" y="324" class="s">phone or laptop</text>
 
           <path class="ar" d="M230 120 H278" marker-end="url(#ah)"/>
@@ -297,7 +301,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <path class="ar" d="M230 228 H278" marker-end="url(#ah)"/><text x="237" y="222" class="lab">live</text>
           <path class="ar" d="M230 296 H278" marker-end="url(#ah)"/><text x="234" y="290" class="lab">cached</text>
           <path class="ar" d="M480 90 H526" marker-end="url(#ah)"/><text x="486" y="84" class="lab">write</text>
-          <path class="ar" d="M480 162 H504 V250 H526" marker-end="url(#ah)"/><text x="512" y="190" class="lab">precompute → /data</text>
+          <path class="ar" d="M480 170 H504 V250 H526" marker-end="url(#ah)"/><text x="508" y="204" class="lab">precompute → /data</text>
           <path class="ar" d="M528 292 H482" marker-end="url(#ah)"/><text x="490" y="286" class="lab">/api</text>
           <path class="ar" d="M600 328 V389 H482" marker-end="url(#ah)"/><text x="492" y="383" class="lab">flags · votes</text>
           <path class="ar" d="M880 116 V178" marker-end="url(#ah)"/><text x="888" y="152" class="lab">push · PR</text>
@@ -306,14 +310,14 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
         </svg>
       </div>
       <div class="flowlist">
-        <div class="flow" style="border-color:var(--p2)"><h3>Featured targets, static</h3><p>The five test objects, comet 3I/ATLAS and two asteroids. <span class="mono">scripts/precompute</span> calls the blink function and writes <span class="mono">web/public/data/&lt;slug&gt;/</span>. They load at once and keep working after the credit ends.</p></div>
+        <div class="flow" style="border-color:var(--p2)"><h3>Featured targets, static</h3><p>The five test objects, comet 3I/ATLAS and two asteroids. <span class="mono">scripts/precompute</span> calls the blink function and writes <span class="mono">web/public/data/&lt;slug&gt;/</span>. They load at once and keep working after the credit ends. Barnard's Star, Epsilon Indi B and WISE 0855 are built from real data (PR #13, open); the rest are in progress.</p></div>
         <div class="flow" style="border-color:var(--p3)"><h3>Any coordinates, live</h3><p>The site asks <span class="mono">/api/frames</span>. Cloud Run searches IRSA, fetches cutouts, stacks and measures with <span class="mono">core/</span>, and caches the result in <span class="mono">cache/</span>. Target: first frame under 15 s.</p></div>
-        <div class="flow" style="border-color:var(--p1)"><h3>Hunt zone, gated</h3><p>100 deg² on the ecliptic, about 3,400 photos. A 12 deg² pilot runs first on the test machine. Only if gate G2 passes does the spot worker run the rest, for under an hour. Each photo's output file in <span class="mono">dots/</span> marks it done.</p></div>
+        <div class="flow" style="border-color:var(--p1)"><h3>Hunt zone, gated</h3><p>100 deg² on the ecliptic, 3,692 photos. A 12 deg² pilot (990 photos) runs first on the test machine. Only if gate G2 passes does the spot worker run the rest, for under an hour. Each photo's output file in <span class="mono">dots/</span> marks it done. Steps: <a href="#pipeline">Pipeline</a>.</p></div>
       </div>
       <div class="why">
         <div class="cloud pick"><span class="chip good">Chosen</span><h3>Google Cloud</h3><p class="small">€264 credit already active, until 17 Jan 2027. Quota is in place, so there is no fallback cloud. Reading NASA's Amazon copy anonymously costs nothing; us-east4 is next to it.</p></div>
         <div class="cloud"><span class="chip">Not now</span><h3>Amazon (AWS)</h3><p class="small">The data lives there, so it would be the fastest. But it means a new account and new tools for everyone on the first morning.</p></div>
-        <div class="cloud"><span class="chip info">After 17 Jan</span><h3>When the credit ends</h3><p class="small">Winners are announced on 26 Jan, so the site must work without the credit. The static site, featured targets, scoreboard and candidate list need no server. The live API needs a card on the account, with the existing budget alert set to about €10.</p></div>
+        <div class="cloud"><span class="chip info">After 17 Jan</span><h3>When the credit ends</h3><p class="small">Winners are announced on 26 Jan. The account becomes a paid one: nothing is deleted, usage is billed. The site, featured targets and votes run on Firebase's free tier; the live API scales to zero. Results go to Zenodo (with a DOI) and Hugging Face. See <a href="#after-credit">after the credit</a>.</p></div>
       </div>
       <div class="nocds" role="note">
         <b>No CDS this weekend</b>
@@ -323,6 +327,73 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <li>Layers by IRSA URL only: 2MASS colour as the base, the SPHEREx all-sky cube (<span class="mono">https://irsa.ipac.caltech.edu/data/hips/SPHEREx/spherex_allsky_cube</span>, 102 frames, about 12.9″/px) on top, AllWISE optional. Never a CDS survey id; the default <span class="mono">P/DSS2/color</span> is broken.</li>
           <li>SIMBAD features off: <span class="mono">showSimbadPointerControl: false</span>; no <span class="mono">gotoObject</span>, <span class="mono">catalogFromSimbad</span>, <span class="mono">catalogFromVizieR</span>, <span class="mono">catalogFromSkyBot</span>. Names come from our built-in list behind <span class="mono">/api/resolve</span>; Gaia dots from our <span class="mono">/api/gaia</span>.</li>
         </ul>
+      </div>
+
+      <div class="stack-lg" id="cloud" style="margin-top:36px">
+        <div class="sec-head" style="margin-bottom:0">
+          <p class="eyebrow">Cloud, as built · set up and tested Sat 14 Nov</p>
+          <h3 style="font-size:1.35rem">Bucket, machines, service accounts</h3>
+          <p class="small muted">Details and reasons: <span class="mono">docs/cloud-architecture.md</span> and <span class="mono">infra/CLAUDE.md</span>. Google access comes from <span class="mono">gcloud</span>; no keys exist.</p>
+        </div>
+        <div class="stack">
+          <h3>The bucket: <span class="mono">gs://nasa-glazing-data</span> (us-east4)</h3>
+          <div class="tablewrap"><table>
+            <thead><tr><th>Prefix</th><th>Written by</th><th>Holds</th><th>Size</th></tr></thead>
+            <tbody>
+              <tr><td class="m">photolists/</td><td>scripts/validate, pipeline <span class="mono">photolist</span></td><td>IRSA search results for the featured targets (<span class="mono">targets/</span>) and the zones (<span class="mono">zones/</span>): footprint, time, detector, S3 key, session, visit</td><td>&lt; 5 MB</td></tr>
+              <tr><td class="m">refcat/</td><td>pipeline <span class="mono">refcat</span> (PR #20)</td><td>Gaia DR3, CatWISE2020 and 2MASS per zone, and the forced-photometry target list</td><td>tens of MB</td></tr>
+              <tr><td class="m">dots/</td><td>pipeline <span class="mono">dots</span></td><td>One Parquet per photo: every dot, with the photo metadata (contracts/dots.md v3)</td><td>~3–6.5 MB per photo</td></tr>
+              <tr><td class="m">forced/</td><td>pipeline <span class="mono">dots</span></td><td>One Parquet per photo: brightness at every catalogue star, detected or not</td><td>~1–1.5 MB per photo</td></tr>
+              <tr><td class="m">cache/</td><td>pipeline <span class="mono">known</span>, <span class="mono">photoz</span>; server</td><td>SkyBoT per session, SDSS per zone, refcat tiles; live API cutouts and frames</td><td>small; grows with use</td></tr>
+              <tr><td class="m">results/</td><td>pipeline (link → suspects), scripts/validate</td><td><span class="mono">results/&lt;zone&gt;/</span> derived tables and reports; <span class="mono">results/validation/</span></td><td>&lt; 100 MB per zone</td></tr>
+              <tr><td class="m">logs/</td><td>the machines</td><td>One log per job, <span class="mono">latest-status.txt</span></td><td>small</td></tr>
+            </tbody></table></div>
+          <p class="small muted">A file's existence means its step is done: every step can stop and restart, skipping what is finished. No job list, no locks. The machines never write to Git; P1 copies <span class="mono">suspects.json</span> and <span class="mono">validation.json</span> into <span class="mono">web/public/data/</span> through a PR.</p>
+        </div>
+        <div class="two">
+          <div class="stack">
+            <h3>Machines</h3>
+            <div class="tablewrap"><table>
+              <thead><tr><th>Machine</th><th>Type</th><th>Use</th><th>Running</th></tr></thead>
+              <tbody>
+                <tr><td class="m">skyshift-test</td><td>e2-standard-8</td><td>Pilot, validation, precompute</td><td>~€0.30/h</td></tr>
+                <tr><td class="m">skyshift-worker</td><td>n2-highcpu-64, spot</td><td>Hunt zone, only after G2</td><td>~€0.60–1/h</td></tr>
+              </tbody></table></div>
+            <p class="small">Both run Debian 12 with a 30 GB disk as service account <span class="mono">skyshift-worker</span>, from <span class="mono">infra/worker/startup.sh</span>. At each boot a machine installs Git and uv once, checks out the repo at metadata <span class="mono">skyshift-ref</span>, runs the one job in metadata <span class="mono">skyshift-job</span>, copies its log to <span class="mono">logs/&lt;machine&gt;/</span> every minute, then <b>stops itself</b>. A stopped machine costs only its disk. A reclaimed spot machine stops; <span class="mono">run</span> again and it skips finished photos.</p>
+          </div>
+          <div class="stack">
+            <div class="code-block"><div class="code-head"><span>infra/worker/vm.sh · the only way to drive them</span><button class="copy" data-copy="c-vm">Copy</button></div>
+<pre id="c-vm">infra/worker/vm.sh create test|worker     <span class="c"># boots, installs, stops itself</span>
+infra/worker/vm.sh run test 'JOB' [REF]   <span class="c"># JOB runs from the repo root</span>
+infra/worker/vm.sh log test [N]           <span class="c"># last N lines of the job log</span>
+infra/worker/vm.sh status                 <span class="c"># machines, state, last result</span>
+infra/worker/vm.sh stop test              <span class="c"># stop now; the job resumes later</span>
+
+<span class="c"># example: the pilot</span>
+infra/worker/vm.sh run test \
+  'cd pipeline &amp;&amp; uv run skyshift-pipeline all --zone pilot'</pre></div>
+          </div>
+        </div>
+        <div class="two">
+          <div class="stack">
+            <h3>Service accounts (no keys)</h3>
+            <div class="tablewrap"><table>
+              <thead><tr><th>Account</th><th>Used by</th><th>Roles</th></tr></thead>
+              <tbody>
+                <tr><td class="m">skyshift-worker</td><td>both machines</td><td>Storage Object Admin on the bucket only; Logs Writer; Monitoring Metric Writer</td></tr>
+                <tr><td class="m">skyshift-api</td><td>Cloud Run <span class="mono">skyshift-api</span></td><td>Storage Object Admin on the bucket only; Cloud Datastore User (Firestore); Logs Writer</td></tr>
+              </tbody></table></div>
+          </div>
+          <div class="stack">
+            <h3>Site, API, Firestore</h3>
+            <ul class="small" style="padding-left:18px;display:flex;flex-direction:column;gap:4px">
+              <li>Hosting site <span class="mono">skyshift</span>: <b class="mono">https://skyshift.web.app</b>, public dir <span class="mono">web/dist</span>, <span class="mono">/api/**</span> rewritten to Cloud Run. The <span class="mono">skyshift-sky</span> site is not used.</li>
+              <li>Firestore create-only rules for <span class="mono">candidates</span> and <span class="mono">votes</span>: deployed.</li>
+              <li>Cloud Run: <span class="mono">infra/run/deploy.sh</span> is ready (0–2 instances, 2 vCPU, 2 GiB, service account <span class="mono">skyshift-api</span>).</li>
+              <li>P2 deploys; the agents never do (<span class="mono">infra/firebase/README.md</span>).</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -363,6 +434,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
 ├─ core/      CLAUDE.md   visit rule · masks · centroid ·
 │                         shift · photometry                 (P1)
 ├─ pipeline/  CLAUDE.md   pilot + hunt zone: photos → dots   (P1)
+│                         → tables (spectra … suspects)
 ├─ server/    CLAUDE.md   FastAPI, imports core/             (P2)
 ├─ scripts/
 │  ├─ validate/           V1–V8 → validation.json            (P1)
@@ -374,6 +446,8 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
 │  └─ src/  app sky card api data score                      (P3)
 │           blink vote                                       (P4)
 ├─ infra/                 worker/ (P1) · run/ firebase/      (P2)
+├─ docs/                  plans · cloud-architecture.md      (P1)
+├─ tools/backend-playground/  API and frame testing    (P2, removable)
 ├─ pitch/                 storyboard · slides · captions     (P4)
 └─ .github/workflows/     ci.yml  pytest + npm test          (P2)</pre></div>
         <div class="stack">
@@ -411,7 +485,7 @@ web/dist/</pre></div>
           <p class="small muted">After anyone edits <span class="mono">.claude/settings.json</span>, run <span class="mono">claude doctor</span> to check it parses.</p>
         </div>
       </div>
-      <div class="code-block"><div class="code-head"><span>CLAUDE.md (repo root)</span><button class="copy" data-copy="c-root">Copy</button></div>
+      <div class="code-block"><div class="code-head"><span>CLAUDE.md (repo root, main parts; visit rule as in contracts/api.md)</span><button class="copy" data-copy="c-root">Copy</button></div>
 <pre id="c-root" class="wrapit"># SkyShift
 
 Web tool for NASA Space Apps 2026 "Planet X and SPHEREx". Paste coordinates and blink any spot of
@@ -444,23 +518,30 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   Visit = the 2–4 weeks in which SPHEREx sees one spot, every six months: about 21 sessions,
   55–60 exposures. Dates depend on the position. There are no fixed "passes".
 - Visit rule: sort the exposure times at a position; start a new visit where the gap exceeds
-  60 days; cut any visit longer than 45 days (near the ecliptic poles) into 30-day bins.
-  A session is a run with gaps under 10 minutes.
+  60 days; cut any visit longer than 75 days (near the ecliptic poles) into n = ceil(days / 30)
+  equal parts. A session is a run with gaps under 10 minutes.
 - Time: MJD-AVG from the IMAGE header (UTC, exposure midpoint). In search results, the middle
-  of t_min and t_max.
+  of t_min and t_max. MJD-BEG and MJD-END also exist. DATE is the file creation time: never use it.
 - Band: detector from energy_bandpassname ("SPHEREx-D2") or the header, never the filename.
+  IMAGE header DETECTOR: 1–3 SWIR, 4–6 MWIR. The name suffix _&lt;exp&gt;D&lt;det&gt; (e.g. _2D1) agrees,
+  but never parse names.
 - 6 detectors: D1 0.75–1.1, D2 1.1–1.6, D3 1.6–2.4, D4 2.4–3.8, D5 3.8–4.4, D6 4.4–5.0 µm.
-  102 channels in all. Pixel 6.15″. Images 2040 × 2040.
+  102 channels in all. Pixel 6.15″ (6.152″ measured). PSF FWHM 7.53″. Images 2040 × 2040.
+  DETCOORD = 'sky': MWIR pixels are already flipped on X to match the SWIR view.
 - D1+D4, D2+D5, D3+D6 are exposed at the same moment: a D1→D4 flip is colour, not motion.
   Compare brightness only within one detector.
-- A file is one FITS: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE, about 66 MB. We read IMAGE,
-  FLAGS and WCS-WAVE: an estimated 28 MB, to be measured.
-- Units: IMAGE is in MJy/sr. 1 MJy/sr = 889 µJy in a 6.15″ pixel.
+- A file is one FITS: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE, 60.2 MB (measured). The
+  pipeline streams all six parts once (~56 MB) and keeps ~4.5 MB of computed data per photo.
+  FLAGS is a tile-compressed HDU: let astropy decode it. ZODI is not subtracted from IMAGE.
+- Units: IMAGE is in MJy/sr (BUNIT 'MJy / sr', float32). 1 MJy/sr = 889 µJy in a 6.15″ pixel.
+  TELAPSE 118 s from start to stop. Aperture correction at r = 2 px: 1.033 (from the ePSF).
 - Flags (contracts/flags.md). Mask for detection and photometry: TRANSIENT, OVERFLOW, SUR_ERROR,
   NONFUNC, DICHROIC, MISSING_DATA, HOT, COLD, PHANMISS, NONLINEAR, PERSIST, STREAK, SNOWBALL.
   Record on the dot, don't mask: CROSSTALK, GHOST, GHOST_FPA, GHOST_EXT, BLOOM, HALO, OUTLIER.
   Never mask SOURCE (set on about 99% of pixels) or FULLSAMPLE.
   OVERFLOW or NONLINEAR in a source's core means saturated.
+  Bit names and numbers confirmed on the first file (14 Nov). SOURCE was on 99.37% of pixels;
+  the mask list removed about 2.1%.
 - Saturation starts near AB 10–11 (to check on real data). Barnard's Star, RW Aurigae and
   R Draconis are expected to saturate: centroid on the wings and mark the core.
 - Collections: spherex_dr1 and spherex_qr3. Skip *_deep. Search with astroquery Irsa.query_sia;
@@ -478,10 +559,11 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 
 ## Cloud
 - Google Cloud project nasa-glazing, region us-east4, zone us-east4-a.
-- Bucket gs://nasa-glazing-data: photolists/, dots/, results/, cache/.
-- Firestore (us-east4): candidates, votes. Create-only rules. Site on Firebase Hosting, API on Cloud Run.
+- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, cache/, results/, logs/.
+- Firestore (us-east4): candidates, votes. Create-only rules. Site https://skyshift.web.app
+  on Firebase Hosting, API on Cloud Run.
 - Machines: skyshift-test (e2-standard-8) for most work; skyshift-worker (n2-highcpu-64 spot)
-  only for the hunt zone after gate G2. Stop machines when idle.</pre></div>
+  only for the hunt zone after gate G2. Both stop themselves after each job (infra/worker/vm.sh).</pre></div>
       <div class="repo-grid">
         <div class="code-block"><div class="code-head"><span>.claude/skills/contract-check/SKILL.md</span><button class="copy" data-copy="c-skill">Copy</button></div>
 <pre id="c-skill" class="wrapit">---
@@ -508,9 +590,9 @@ Then run this area's tests and report the result.</pre></div>
   <section id="contract">
     <div class="wrap stack-lg">
       <div class="sec-head" style="margin-bottom:0">
-        <p class="eyebrow">Contracts v2 · contracts/</p>
+        <p class="eyebrow">Contracts · contracts/ · api.md v2, flags.md, dots.md v3</p>
         <h2>Agree on the shapes first, then build in parallel</h2>
-        <p class="muted">P1 writes these at 09:00 with example JSON in <span class="mono">fixtures/api/</span>, then fixes <span class="mono">flags.md</span> after opening the first photo at 10:00. The static files have the same shapes as the API, so if front and back don't meet, the static format is the contract.</p>
+        <p class="muted">Written at 09:00 with example JSON in <span class="mono">fixtures/api/</span>. <span class="mono">flags.md</span> was confirmed on the first photo; <span class="mono">dots.md</span> is now at v3. The static files have the same shapes as the API, so if front and back don't meet, the static format is the contract. Contract changes are their own PR and wait for P1.</p>
       </div>
       <div class="two">
         <div class="stack">
@@ -522,7 +604,7 @@ Then run this area's tests and report the result.</pre></div>
               um_min, um_max, n_exposures, flag_frac, sat_frac,
               data_url, scale, zero }],
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
-    known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"most"|"irsa-3i" }],
+    known:[{ name, epoch_id, ra, dec, v, source:"mpc"|"most"|"irsa-3i" }],
     data_release, archive_checked }
 <span class="k">GET</span> /api/object?ra=&amp;dec=
 → { name|null, gaia|null, known_ucd|null,
@@ -554,9 +636,14 @@ Then run this area's tests and report the result.</pre></div>
 <span class="c"># from search results: (t_min + t_max) / 2</span>
 sort the exposure times at one position
 new visit where the gap exceeds 60 days
-cut any visit longer than 45 days into 30-day bins
-  <span class="c"># happens near the ecliptic poles</span>
+cut any visit longer than 75 days into
+  n = ceil(days / 30) equal parts
+  <span class="c"># near the ecliptic poles; fixed 14 Nov</span>
 session = run of exposures with gaps under 10 minutes
+
+<span class="c"># the old rule (cut at 45 days into 30-day bins) left</span>
+<span class="c"># 4–16-exposure tail visits. Now Barnard's Star has</span>
+<span class="c"># 3 visits of 60–61 exposures, all six detectors</span>
 
 <span class="c"># why not fixed bins: at RA 125.5 the visit runs to</span>
 <span class="c"># 6 May 2026; a 1 May cut-off would split it</span></pre></div>
@@ -567,51 +654,61 @@ session = run of exposures with gaps under 10 minutes
               <tr><td class="m">candidates</td><td><span class="mono">ra, dec, mjd, clock, source: "user" | "pipeline"</span></td></tr>
               <tr><td class="m">votes</td><td><span class="mono">candidate_id, answer: mover | changing | junk | unsure, ts, voter</span></td></tr>
             </tbody></table></div>
-          <p class="small">Rules are <b>create-only</b>: anyone may read and create; nobody may update or delete. Each create must have exactly these fields, with the right types and allowed values. <span class="mono">voter</span> is a random id kept in the browser, never a name or email. Pipeline suspects are written server-side with <span class="mono">source: "pipeline"</span>.</p>
+          <p class="small">Rules are <b>create-only</b> and deployed: anyone may read and create; nobody may update or delete. Each create must have exactly these fields, with the right types and allowed values. Browsers may only create <span class="mono">source: "user"</span>; <span class="mono">voter</span> is a random id kept in the browser, never a name or email; <span class="mono">ts</span> must be the server time. Pipeline suspects are written with the Admin SDK as <span class="mono">source: "pipeline"</span>.</p>
         </div>
       </div>
 
       <div class="stack">
         <h3>contracts/flags.md · what we do with each flag bit</h3>
-        <p class="small muted">Bit numbers from IRSA's documentation. P1 checks their meaning on the first real file at 10:00.</p>
+        <p class="small muted">Bit names and numbers confirmed on the first file (14 Nov, the FLAGS header's <span class="mono">MSKNnnnn</span> keys). SOURCE was on 99.37% of pixels; the mask list removed about 2.1%.</p>
         <div class="tablewrap"><table class="flagpol">
           <thead><tr><th>Policy</th><th>Bits</th><th>Why</th></tr></thead>
           <tbody>
             <tr><td><span class="chip warn">Mask</span><br><span class="small">for detection and photometry</span></td><td class="small"><span class="mono">TRANSIENT 0, OVERFLOW 1, SUR_ERROR 2, NONFUNC 6, DICHROIC 7, MISSING_DATA 9, HOT 10, COLD 11, PHANMISS 14, NONLINEAR 15, PERSIST 17, STREAK 25, SNOWBALL 27</span><br><span class="muted">Mask value <span class="mono">0x0A02CEC7</span></span></td><td class="small">Cosmic rays, hot and dead pixels, saturation, persistence, streaks. A dot on these pixels can't be trusted.</td></tr>
             <tr><td><span class="chip info">Record</span><br><span class="small">on the dot, don't mask</span></td><td class="small"><span class="mono">OUTLIER 19, CROSSTALK 20, GHOST 22, GHOST_FPA 23, GHOST_EXT 24, BLOOM 26, HALO 28</span><br><span class="muted">Mask value <span class="mono">0x15D80000</span></span></td><td class="small">Useful for vetting, but masking could hide real objects. OUTLIER stays here until we've checked it isn't set on a known asteroid.</td></tr>
-            <tr><td><span class="chip good">Never mask</span></td><td class="small"><span class="mono">FULLSAMPLE 12, SOURCE 21</span></td><td class="small">SOURCE is set on about 99% of pixels in NASA's example. Masking it would remove almost everything.</td></tr>
+            <tr><td><span class="chip good">Never mask</span></td><td class="small"><span class="mono">FULLSAMPLE 12, SOURCE 21</span></td><td class="small">SOURCE was set on 99.37% of pixels in the first photo. Masking it would remove almost everything. At a dot's peak (<span class="mono">flags_peak</span>) it means a catalogued source, which the suspects filter uses.</td></tr>
             <tr><td><span class="chip">Saturated</span></td><td class="small">OVERFLOW or NONLINEAR in a source's core</td><td class="small">Sets <span class="mono">saturated</span> in the spectrum and <span class="mono">sat_frac</span> on the frame. Centroid on the wings.</td></tr>
           </tbody></table></div>
       </div>
 
       <div class="two">
         <div class="stack">
-          <h3>contracts/dots.md · the dot table</h3>
+          <h3>contracts/dots.md v3 · the dot table</h3>
           <div class="tablewrap"><table>
             <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
             <tbody>
-              <tr><td class="m">obs_id · detector</td><td>IRSA observation id; detector 1–6 from <span class="mono">energy_bandpassname</span></td></tr>
-              <tr><td class="m">mjd</td><td>MJD-AVG of the exposure (UTC)</td></tr>
-              <tr><td class="m">session · visit</td><td>From the visit rule, per position</td></tr>
-              <tr><td class="m">ra · dec</td><td>Sky position, degrees</td></tr>
-              <tr><td class="m">x · y</td><td>Pixel position in the exposure</td></tr>
-              <tr><td class="m">flux_ujy · flux_err_ujy</td><td>Brightness and its error, µJy</td></tr>
-              <tr><td class="m">wavelength_um</td><td>Wavelength at that pixel, from WCS-WAVE</td></tr>
-              <tr><td class="m">snr · flags</td><td>Signal-to-noise; OR of the flag bits under the dot (including recorded ones)</td></tr>
-              <tr><td class="m">cell</td><td>6″ sky cell, used to group dots by position</td></tr>
+              <tr><td class="m">obs_id · detector · mjd</td><td>IRSA observation id; detector 1–6 from <span class="mono">energy_bandpassname</span> or the header; MJD-AVG (UTC)</td></tr>
+              <tr><td class="m">session · visit</td><td>One value per photo, from the zone's photo list (<span class="mono">core.sessions</span>, <span class="mono">core.visits</span>)</td></tr>
+              <tr><td class="m">ra · dec · pos_err_arcsec</td><td>Sky position (deg) and 1σ error per axis: √((1.4 × 3.2″ / snr)² + 0.25″²)</td></tr>
+              <tr><td class="m">x · y · cell</td><td>Pixel position (0-based); 6″ sky cell for grouping</td></tr>
+              <tr><td class="m">flux_ujy · flux_err_ujy · snr</td><td>r = 2 px aperture brightness, µJy; S/N ≥ 5 kept (detection at <span class="mono">thresh=2.0</span>)</td></tr>
+              <tr><td class="m">flux_ap_ujy[5] · flux_ap_err_ujy[5]</td><td>Apertures at 1.0, 1.5, 2.0, 3.0, 4.5 px, annulus 5.5–8 px</td></tr>
+              <tr><td class="m">flux_psf_ujy · _err · psf_chi2_nu</td><td>Fit of NASA's ePSF at the fixed (x, y) on 7 × 7 px; total flux (÷ flux_ujy ≈ 1.033 at 2 px)</td></tr>
+              <tr><td class="m">wavelength_um · bandwidth_um</td><td>From WCS-WAVE at that pixel: one dot = one of the 102 channels</td></tr>
+              <tr><td class="m">elong · a_arcsec · b_arcsec · theta_deg</td><td>Shape from second moments; streaks have elong &gt; 3</td></tr>
+              <tr><td class="m">peak_mjysr · bkg_mjysr · zodi_mjysr</td><td>Peak above background; the subtracted background; NASA's zodi model (IMAGE is not zodi-subtracted)</td></tr>
+              <tr><td class="m">flags · flags_peak</td><td>OR of flag bits in the 3×3 around the dot; bits at the peak pixel</td></tr>
             </tbody></table></div>
-          <p class="small muted">One Parquet file per photo in <span class="mono">dots/</span>; its existence marks the photo done. No job list, no locks.</p>
+          <p class="small muted">One Parquet file per photo in <span class="mono">dots/</span>, brightest first, never rewritten; its existence marks the photo done. Each file also carries the <b>photo metadata</b> (key <span class="mono">skyshift_photo</span>): spacecraft position and velocity, astrometry against Gaia, PSF size and shape, background and ZODI 32 × 32 grids, header quality values, stage timings. Beside it, <span class="mono">forced/</span> holds the ePSF and 2 px fluxes at every reference-catalogue star, detected or not.</p>
         </div>
         <div class="stack">
-          <h3>Derived tables</h3>
+          <h3>Derived tables (results/&lt;zone&gt;/)</h3>
           <div class="tablewrap"><table>
             <thead><tr><th>Table</th><th>Rule</th></tr></thead>
             <tbody>
-              <tr><td class="m">fixed</td><td>Cell seen in 3 or more sessions</td></tr>
-              <tr><td class="m">movers</td><td>Seen in one session only, in 2 exposures or in 2 detectors exposed at the same moment (D1+D4, D2+D5, D3+D6)</td></tr>
-              <tr><td class="m">suspects</td><td>Movers with no SkyBoT match. Exported to <span class="mono">/data/suspects.json</span> and the candidate list.</td></tr>
+              <tr><td class="m">fixed · members</td><td>Dots within 4″ of each other in 3 or more sessions get a <span class="mono">source_id</span>; <span class="mono">members</span> maps each dot to its source</td></tr>
+              <tr><td class="m">movers</td><td>Not within 6″ of a fixed source; paired inside one session (≤ 3″ + 1″/min) or by a simultaneous detector pair (D1+D4, D2+D5, D3+D6); covered by ≥ 3 sessions. Only fixed sources veto</td></tr>
+              <tr><td class="m">sources · channels</td><td>102-channel spectrum per source (our own channel definition: 17 log-spaced per detector), χ², last/first visit ratio, <span class="mono">variable</span></td></tr>
+              <tr><td class="m">crossids</td><td>Nearest Gaia DR3 (2.5″), CatWISE2020 and 2MASS (3″), catalogues moved to the source's epoch</td></tr>
+              <tr><td class="m">classes</td><td>star / galaxy / unsure; ice, methane, water, CO and PAH indices; <span class="mono">brown_dwarf_like</span></td></tr>
+              <tr><td class="m">photoz</td><td>Galaxy redshift from EAZY templates; <span class="mono">photoz_report.json</span> against SDSS DR17</td></tr>
+              <tr><td class="m">colours</td><td>Simultaneous detector pairs in the same photo, so variability cancels</td></tr>
+              <tr><td class="m">lightcurves</td><td>Every dot and forced point, model-normalised; a summary per source and detector</td></tr>
+              <tr><td class="m">astrometry</td><td>Proper motion per source (≥ 6 dots); parallax with ≥ 3 visits; <span class="mono">astrometry_report.json</span> vs Gaia</td></tr>
+              <tr><td class="m">highpm_candidates</td><td>Fast movers across visits ("Planet X"-style), with a control and a Gaia &gt; 200 mas/yr recall check</td></tr>
+              <tr><td class="m">recall · suspects</td><td>G2 recall from <span class="mono">score</span>; movers with no known object, no artefact bits, no Gaia or CatWISE match. Exported to <span class="mono">/data/suspects.json</span></td></tr>
             </tbody></table></div>
-          <p class="small muted">We measure motion only where people look. No linking of every dot across visits.</p>
+          <p class="small muted">Full columns: <span class="mono">contracts/dots.md</span>. How each step makes them: <a href="#pipeline">Pipeline</a>.</p>
         </div>
       </div>
     </div>
@@ -621,38 +718,38 @@ session = run of exposures with gaps under 10 minutes
   <section id="data">
     <div class="wrap stack-lg">
       <div class="sec-head" style="margin-bottom:0">
-        <p class="eyebrow">Data · from the first photo, 14 Nov</p>
+        <p class="eyebrow">Data · from the first photo and the pipeline, 14 Nov</p>
         <h2>What one photo holds, what we measure, what it adds up to</h2>
-        <p class="muted">Read off the first real SPHEREx file and the pipeline's first dots. <span class="chip good">built</span> built or being built today · <span class="chip info">possible</span> possible, not built · <span class="chip">out of scope</span></p>
+        <p class="muted">Read off the first real SPHEREx file and the pipeline's first dots. <span class="chip good">built</span> code merged · <span class="chip warn">in progress</span> being built · <span class="chip info">possible</span> not built · <span class="chip">not yet run</span> built but not yet run on the pilot: its numbers come after the pilot.</p>
       </div>
 
       <div class="stack">
-        <h3>1. What's inside one photo (one file of about 60 MB from NASA)</h3>
+        <h3>1. What's inside one photo (one file of 60.2 MB from NASA, streamed once, all six parts)</h3>
         <div class="tablewrap"><table>
           <thead><tr><th>Part</th><th>What it is</th><th>Example from the first photo</th><th>Do we use it?</th></tr></thead>
           <tbody>
             <tr><td class="m">IMAGE</td><td>Brightness of each of 4.16 million pixels (2040 × 2040), in MJy/sr</td><td>median 0.53, brightest 5,146</td><td><span class="chip good">built</span> the main input</td></tr>
             <tr><td class="m">FLAGS</td><td>32 quality bits per pixel: saturated, hot, cosmic ray, ghost, halo, known source…</td><td>4.1 M pixels marked SOURCE, 71,118 HALO, 31,044 TRANSIENT</td><td><span class="chip good">built</span> masks and dot flags</td></tr>
             <tr><td class="m">VARIANCE</td><td>Noise of each pixel</td><td>(MJy/sr)²</td><td><span class="chip good">built</span> error bars</td></tr>
-            <tr><td class="m">ZODI</td><td>NASA's model of zodiacal light, the glow of sunlight on dust between the planets</td><td>0.11–0.14 MJy/sr here</td><td><span class="chip info">possible</span> could clean faint backgrounds</td></tr>
-            <tr><td class="m">EPSF</td><td>The telescope's measured star shape (point-spread function, PSF): a 21 × 21 grid of zones, each a 33 × 33 image at 5× detail, built from about 500 stars per zone</td><td>441 zones, each with its own wavelength</td><td><span class="chip info">possible</span> sharper, deeper brightness fits</td></tr>
+            <tr><td class="m">ZODI</td><td>NASA's model of zodiacal light, the glow of sunlight on dust between the planets</td><td>0.11–0.14 MJy/sr here</td><td><span class="chip good">built</span> <span class="mono">zodi_mjysr</span> per dot and a 32 × 32 grid per photo. IMAGE is <b>not</b> zodi-subtracted</td></tr>
+            <tr><td class="m">EPSF</td><td>The telescope's measured star shape (point-spread function, PSF): a 21 × 21 grid of zones, each a 33 × 33 image at 5× detail, built from about 500 stars per zone</td><td>441 zones, each with its own wavelength</td><td><span class="chip good">built</span> an effective PSF: <span class="mono">flux_psf_ujy</span>, <span class="mono">psf_chi2_nu</span>; aperture correction 1.033 at 2 px</td></tr>
             <tr><td class="m">WCS-WAVE</td><td>Wavelength and channel width at every pixel</td><td>0.74–1.11 µm on D1</td><td><span class="chip good">built</span> <span class="mono">wavelength_um</span>, <span class="mono">bandwidth_um</span></td></tr>
             <tr><td class="m">Position map (WCS)</td><td>Pixel → exact sky position, including lens distortion; NASA fitted it against 3,647 Gaia stars in this photo</td><td><span class="mono">FINAST = 0</span> (good fit)</td><td><span class="chip good">built</span> every dot's RA/Dec</td></tr>
           </tbody></table></div>
         <p>The header (about 290 entries) also carries:</p>
         <ul class="small">
           <li><b>Time:</b> start, middle and end to the millisecond; exposure 113.6 s.</li>
-          <li><b>Where SPHEREx was:</b> its exact position and speed around Earth (km, km/s) at start, middle and end, the ground track, and the distance to the South Atlantic Anomaly, a radiation zone. <span class="chip info">possible</span> This could replace "seen from Earth's centre" for close asteroids, where it matters by tens of arcseconds.</li>
+          <li><b>Where SPHEREx was:</b> its exact position and speed around Earth (km, km/s) at start, middle and end, the ground track, and the distance to the South Atlantic Anomaly, a radiation zone. <span class="chip good">built</span> Stored in each photo's metadata; <span class="mono">astrometry</span> uses it as the observer. It could also replace "seen from Earth's centre" for close asteroids, where it matters by tens of arcseconds.</li>
           <li><b>Pointing plan:</b> survey target ID and ecliptic position of the field.</li>
           <li><b>Pixel area:</b> 37.87 arcsec², which gives our 889.7 µJy-per-MJy/sr conversion. <span class="chip good">built</span></li>
-          <li><b>Artefact counts:</b> 595 saturated bloomed stars, 7 "snowballs" (cosmic-ray splashes), 0 satellite streaks, and the strength of helium airglow, aurora and spacecraft glow.</li>
-          <li><b>Quality verdicts:</b> L1 and L2 checks "Pass", and how many pixels carry each flag.</li>
+          <li><b>Artefact counts:</b> 595 saturated bloomed stars, 7 "snowballs" (cosmic-ray splashes), 0 satellite streaks, and the strength of helium airglow, aurora and spacecraft glow. <span class="chip good">built</span> kept in the photo metadata.</li>
+          <li><b>Quality verdicts:</b> L1 and L2 checks "Pass", and how many pixels carry each flag. <span class="chip good">built</span> kept in the photo metadata.</li>
           <li><b>IDs:</b> observation ID, exposure ID, detector, and NASA's pipeline version (7.0.5).</li>
         </ul>
       </div>
 
       <div class="stack">
-        <h3>2. What we measure per dot (in every file, today)</h3>
+        <h3>2. What we measure per dot, and at every catalogue star</h3>
         <div class="tablewrap"><table>
           <thead><tr><th>Measured</th><th>Column(s)</th><th>Example</th></tr></thead>
           <tbody>
@@ -661,11 +758,15 @@ session = run of exposures with gaps under 10 minutes
             <tr><td>Brightness and its error</td><td class="m">flux_ujy, flux_err_ujy</td><td>→ AB magnitude 10.6 to 17.5</td></tr>
             <tr><td>Signal-to-noise</td><td class="m">snr</td><td>5 to 426</td></tr>
             <tr><td>Colour channel (out of 102)</td><td class="m">wavelength_um, bandwidth_um</td><td>1.040 µm, 0.028 µm wide</td></tr>
-            <tr><td>Shape</td><td class="m">elong</td><td>round star ≈ 1.2; streak &gt; 3</td></tr>
+            <tr><td>Shape</td><td class="m">elong, a_arcsec, b_arcsec, theta_deg</td><td>round star ≈ 1.2, a ≈ b ≈ 3.5–5″; streak &gt; 3</td></tr>
+            <tr><td>Brightness fitted with NASA's star shape (ePSF)</td><td class="m">flux_psf_ujy, flux_psf_err_ujy, psf_chi2_nu</td><td>total flux; χ² sits well above the star locus for galaxies, blends and artefacts</td></tr>
+            <tr><td>Brightness in five apertures</td><td class="m">flux_ap_ujy, flux_ap_err_ujy</td><td>1.0, 1.5, 2.0, 3.0, 4.5 px (curve of growth)</td></tr>
+            <tr><td>Peak, local background, zodiacal light</td><td class="m">peak_mjysr, bkg_mjysr, zodi_mjysr</td><td>MJy/sr</td></tr>
             <tr><td>Quality around and at the centre</td><td class="m">flags, flags_peak</td><td>saturated, halo, ghost, catalogued source…</td></tr>
             <tr><td>When, which detector, which session and visit</td><td class="m">mjd, detector, session, visit, obs_id</td><td></td></tr>
+            <tr><td>Forced photometry at every reference star, detected or not</td><td class="m">forced/: flux_psf_ujy, flux_ap2_ujy, …</td><td>Gaia DR3 and CatWISE2020 sources not in Gaia (limits: <a href="#pipeline">Pipeline</a>)</td></tr>
           </tbody></table></div>
-        <p class="small"><span class="chip info">possible</span> Could be added per dot (not built): brightness fitted with NASA's star shape, which is deeper and better in crowded fields; local background and zodiacal light under the dot; peak pixel value; full shape (width, tilt).</p>
+        <p class="small">All <span class="chip good">built</span> and merged (PR #16). One-photo cloud test: read 1.1 s, detect 8.6 s, 28,583 dots, AB 10.6–17.5, position errors 0.25–0.93″. Saturated dots are re-fitted on their wings.</p>
       </div>
 
       <div class="stack">
@@ -673,18 +774,172 @@ session = run of exposures with gaps under 10 minutes
         <div class="tablewrap"><table>
           <thead><tr><th>Result</th><th>How</th><th>Status</th></tr></thead>
           <tbody>
-            <tr><td>Motion of nearby stars and brown dwarfs (Barnard's Star, WISE 0855)</td><td>Visit-to-visit position shift against Gaia</td><td><span class="chip good">built</span> Months clock, V2</td></tr>
+            <tr><td>Motion of nearby stars and brown dwarfs (Barnard's Star, WISE 0855)</td><td>Visit-to-visit position shift against Gaia</td><td><span class="chip good">built</span> Months clock, V2. Barnard's Star: 10.83″ ± 0.36″ at PA 357.8° (visits 1→3) against Gaia's 10.27″ with parallax (PR #13, open)</td></tr>
+            <tr><td>Proper motion of every source in a zone</td><td>Weighted fit over all dots, frame-corrected against quiet Gaia stars (<span class="mono">astrometry</span>)</td><td><span class="chip good">built</span> <span class="chip">not yet run</span></td></tr>
+            <tr><td>Parallax of the nearest stars</td><td>Same fit with SPHEREx's own position, only with 3 or more visits</td><td><span class="chip good">built</span> <span class="chip">not yet run</span> small against the errors; the card shows Gaia's distance</td></tr>
+            <tr><td>"Planet X"-style search: fast movers not in Gaia</td><td>Single-visit sources paired across visits (<span class="mono">highpm</span>), with a control and a Gaia &gt; 200 mas/yr recall check</td><td><span class="chip good">built</span> <span class="chip">not yet run</span></td></tr>
             <tr><td>Asteroid and comet tracks</td><td>Same spot, sessions hours apart</td><td><span class="chip good">built</span> Hours clock, hunt zone</td></tr>
-            <tr><td>Recovery of known asteroids, and unknown suspects</td><td>Match to SkyBoT and MOST</td><td><span class="chip good">built</span> the gate, suspects list</td></tr>
-            <tr><td>Full 0.75–5.0 µm spectrum, 102 channels</td><td>One wavelength per photo; ~100+ photos per visit fill the spectrum</td><td><span class="chip good">built</span> spectrum chart</td></tr>
-            <tr><td>Molecules</td><td>Spectrum bands: water ~1.4 and 1.9 µm, methane 3.3 µm, CO₂ 4.26 µm, CO 4.6 µm, water ice 3.0 µm</td><td><span class="chip good">built</span> marked on the chart, not fitted</td></tr>
-            <tr><td>True colour at one instant</td><td>D1+D4, D2+D5 and D3+D6 photograph the same sky at the same moment</td><td><span class="chip good">built</span> evidence for movers · <span class="chip info">possible</span> colour readout</td></tr>
-            <tr><td>Brightness changes (R Draconis, RW Aurigae)</td><td>Same detector, visit to visit, and within a visit</td><td><span class="chip good">built</span> blink · <span class="chip info">possible</span> light-curve chart (cut)</td></tr>
-            <tr><td>Parallax of the nearest stars</td><td>Barnard's Star moves about 0.55″ each way over the year</td><td><span class="chip info">possible</span> with 3+ visits, but small against our 0.25″ floor</td></tr>
-            <tr><td>Asteroid size and reflectivity</td><td>Reflected sunlight (D1–D3) against heat glow (D5–D6)</td><td><span class="chip info">possible</span> a strong idea, not built</td></tr>
-            <tr><td>Comet gas (3I/ATLAS)</td><td>CO₂ and water bands in the comet's spectrum</td><td><span class="chip info">possible</span> visible in the spectrum, not measured</td></tr>
-            <tr><td>Galaxy distances, interstellar ice</td><td>SPHEREx's own main science</td><td><span class="chip">out of scope</span></td></tr>
+            <tr><td>Recovery of known asteroids, and unknown suspects</td><td>Match to SkyBoT (once per session; MPC orbits with kete once that step passes) and MOST, control at 2′</td><td><span class="chip good">built</span> <span class="mono">score</span>, <span class="mono">suspects</span>; recall after the pilot</td></tr>
+            <tr><td>Full 0.75–5.0 µm spectrum, 102 channels, for every star</td><td>One wavelength per photo; ~113 exposures over two visits fill the spectrum (<span class="mono">spectra</span>)</td><td><span class="chip good">built</span> spectrum chart; per-source table</td></tr>
+            <tr><td>Star, galaxy or unsure</td><td>Gaia parallax, size, curve of growth, PSF misfit (<span class="mono">classify</span>)</td><td><span class="chip good">built</span> <span class="chip">not yet run</span></td></tr>
+            <tr><td>Molecules and ices</td><td>Band depths: ice H2O 3.05, CO2 4.27, CO 4.67 µm; CH4 3.3 and 1.6; H2O 1.4 and 1.9; CO 2.3; PAH 3.3 µm; <span class="mono">brown_dwarf_like</span></td><td><span class="chip good">built</span> <span class="chip">not yet run</span> shown when ≥ 5σ</td></tr>
+            <tr><td>Galaxy distances</td><td>EAZY templates on the 102-channel spectrum (<span class="mono">photoz</span>), checked against SDSS DR17: 2,755 galaxies with redshifts in the pilot zone</td><td><span class="chip good">built</span> <span class="chip">not yet run</span> σ_NMAD after the pilot</td></tr>
+            <tr><td>True colour at one instant</td><td>D1+D4, D2+D5 and D3+D6 photograph the same sky at the same moment (<span class="mono">colours</span>)</td><td><span class="chip good">built</span> evidence for movers · <span class="chip warn">in progress</span> colour readout (P3)</td></tr>
+            <tr><td>Brightness changes (R Draconis, RW Aurigae)</td><td>Same detector, visit to visit and within a visit, including forced non-detections (<span class="mono">lightcurves</span>)</td><td><span class="chip good">built</span> blink and table · <span class="chip warn">in progress</span> light-curve chart (P3)</td></tr>
+            <tr><td>Asteroid size and reflectivity</td><td>Reflected sunlight (D1–D3) against heat glow (D5–D6), NEATM; compared with published diameters and albedos</td><td><span class="chip good">built</span> PR #26, <span class="mono">scripts/science/</span>: 11 asteroids, D ratio 1.06 (scatter 14%), albedo ratio 0.71; one η per visit (morning vs afternoon side)</td></tr>
+            <tr><td>Comet gas (3I/ATLAS)</td><td>CO₂, H₂O, CO and C–H bands in the comet's spectrum, Haser model</td><td><span class="chip good">built</span> PR #26: Aug 2025 CO₂ 1.3e27/s (team 1.6e27); Dec 2025 CO₂, CO, H₂O within 25% of the team's rates</td></tr>
           </tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section id="pipeline">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Pipeline · pipeline/ · P1</p>
+        <h2>Read each photo once, then combine the tables</h2>
+        <p class="muted">The heavy step reads every photo once and writes its dots. Everything after it works only on stored tables, never on photos again. The pilot is 12 deg² (990 photos from 352 exposures) on <span class="mono">skyshift-test</span>; the hunt zone is 100 deg² (3,692 photos) on <span class="mono">skyshift-worker</span> after G2. Rules and thresholds: <span class="mono">pipeline/CLAUDE.md</span> and <span class="mono">config.py</span>.</p>
+      </div>
+      <div class="nocds" role="note" style="margin-top:0">
+        <b>The data rule</b>
+        <p>NASA's photos are never copied. Each photo is streamed from <span class="mono">s3://nasa-irsa-spherex</span> over HTTPS without a login and read once: all six parts, about 56 MB. Dots, forced photometry and photo metadata all come out of that one read. We keep about 4.5 MB of computed data per photo (pilot ~4.5 GB, hunt zone ~17 GB).</p>
+      </div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>#</th><th>Step</th><th>What it does</th><th>Writes</th></tr></thead>
+        <tbody>
+          <tr><td class="m">1</td><td class="m">photolist</td><td>Every Level 2 photo touching the zone (DR1 and QR3, no <span class="mono">*_deep</span>). A session is a run of the zone's exposure times with gaps under 10 min; visits from <span class="mono">core.visits</span>.</td><td class="m">photolists/zones/</td></tr>
+          <tr><td class="m">2</td><td class="m">refcat</td><td>Gaia DR3, CatWISE2020 and 2MASS over the zone, and the forced-photometry list. <span class="chip good">built</span> Forced list: Gaia DR3 G &lt; 17.5, plus CatWISE-only sources with W1 &lt; 16 and W1 − W2 ≥ 0.4 (the red ones: brown dwarfs, cold objects). The first idea, G &lt; 19 plus every CatWISE W1 &lt; 16, gave ~66,000 targets per photo. Pilot: 30,865 targets (~28,000 per photo); hunt zone: 180,575. Both zones are in the bucket; the step skips when its two files exist.</td><td class="m">refcat/</td></tr>
+          <tr><td class="m">3</td><td class="m">dots</td><td>The heavy step, one process per core. Skip photos with <span class="mono">FINAST</span> ≠ 0; mask bad pixels; detect at <span class="mono">thresh=2.0</span>, keep S/N ≥ 5; re-fit saturated dots on the wings. Per dot: the v3 columns. Forced photometry at every refcat star. Photo metadata.</td><td class="m">forced/, dots/</td></tr>
+          <tr><td class="m">4</td><td class="m">known</td><td>One SkyBoT cone per session (not per photo: one cone takes 13–23 s); objects moved to each photo's time. Needs no dots: run it in a second process at the same time.</td><td class="m">cache/skybot/</td></tr>
+          <tr><td class="m">5</td><td class="m">link</td><td>Groups dots by position: 4″, ≥ 3 sessions → a source with a <span class="mono">source_id</span>. Movers: pairs within one session or simultaneous detector pairs, vetoed only by fixed sources.</td><td class="m">fixed, members, movers</td></tr>
+          <tr><td class="m">6</td><td class="m">spectra</td><td>102-channel spectrum per source (our channel definition), masked bits out, clipped weighted mean; χ² and visit ratio for variability.</td><td class="m">sources, channels</td></tr>
+          <tr><td class="m">7</td><td class="m">crossid</td><td>Gaia DR3 (2.5″), CatWISE2020 and 2MASS (3″), catalogues moved to each source's epoch.</td><td class="m">crossids</td></tr>
+          <tr><td class="m">8</td><td class="m">classify</td><td>star / galaxy / unsure; ice H2O 3.05, CO2 4.27, CO 4.67 µm; CH4 3.3 and 1.6; H2O 1.4 and 1.9; CO 2.3; PAH 3.3; <span class="mono">brown_dwarf_like</span>.</td><td class="m">classes</td></tr>
+          <tr><td class="m">9</td><td class="m">photoz</td><td>EAZY templates on galaxies and unsure sources; checked against SDSS DR17 (2,755 galaxies with redshifts in the pilot zone, queried once and cached).</td><td class="m">photoz, photoz_report.json</td></tr>
+          <tr><td class="m">10</td><td class="m">colours</td><td>Simultaneous D1+D4, D2+D5, D3+D6 in the same photo, so variability cancels.</td><td class="m">colours</td></tr>
+          <tr><td class="m">11</td><td class="m">lightcurves</td><td>Every dot and forced point per source and detector, including non-detections.</td><td class="m">lightcurves, _summary</td></tr>
+          <tr><td class="m">12</td><td class="m">astrometry</td><td>Proper motion per source; parallax with ≥ 3 visits; observer = Earth + SPHEREx's own position; frame offsets against quiet Gaia stars removed.</td><td class="m">astrometry, astrometry_report.json</td></tr>
+          <tr><td class="m">13</td><td class="m">highpm</td><td>"Planet X"-style search for fast movers not in Gaia: single-visit sources paired across visits, plus fits ≥ 150 mas/yr. Control at 15′; recall of Gaia stars faster than 200 mas/yr.</td><td class="m">highpm_candidates, highpm_report.json</td></tr>
+          <tr><td class="m">14</td><td class="m">score</td><td>Gate G2: known asteroids brighter than V 16 found as movers within 12″, per (asteroid, session) and per asteroid; control with predictions moved 2′; counts printed with every rate.</td><td class="m">recall.json</td></tr>
+          <tr><td class="m">15</td><td class="m">suspects</td><td>Movers with no known object within 30″, no ghost, crosstalk, halo or bloom bit, no SOURCE at the peak, no Gaia or CatWISE within 6″, no bright fixed source within 30″.</td><td class="m">suspects → suspects.json</td></tr>
+        </tbody></table></div>
+      <div class="two">
+        <div class="code-block"><div class="code-head"><span>run, from pipeline/</span><button class="copy" data-copy="c-pipe">Copy</button></div>
+<pre id="c-pipe">uv run skyshift-pipeline &lt;step&gt; --zone pilot|hunt \
+  [--root gs://nasa-glazing-data | &lt;dir&gt;] [--workers N] [--limit N]
+uv run skyshift-pipeline all --zone pilot   <span class="c"># every step in order</span>
+
+<span class="c"># on the cloud machine (it stops itself when done)</span>
+infra/worker/vm.sh run test \
+  'cd pipeline &amp;&amp; uv run skyshift-pipeline all --zone pilot'
+infra/worker/vm.sh log test
+
+<span class="c"># tests: offline; SKYSHIFT_NETWORK=1 adds the live SkyBoT test</span>
+uv run pytest</pre></div>
+        <div class="stack small">
+          <h3>Why combine afterwards</h3>
+          <p>Photos are independent, so the dots step runs in parallel on every core. Each photo's file marks it done, so a stopped or reclaimed machine restarts where it was. The combining steps read only stored tables, so they re-run in minutes when a threshold changes, and nothing measured is lost. <span class="mono">link</span>, <span class="mono">spectra</span>, <span class="mono">classify</span>, <span class="mono">photoz</span>, <span class="mono">score</span> and <span class="mono">suspects</span> always recompute.</p>
+          <h3>Measured in the design review (14 Nov)</h3>
+          <ul style="padding-left:18px;display:flex;flex-direction:column;gap:4px">
+            <li>A pilot position gets about 113 exposures in 38 sessions over two visits; 78.5% of sessions have 2 or more, so pairs inside a session really happen.</li>
+            <li><span class="mono">thresh=5</span> really meant S/N ~22 on SPHEREx's sharp PSF, so detection now runs at 2.0 (S/N ~9) and keeps S/N ≥ 5.</li>
+            <li>SkyBoT is queried once per session, not per photo.</li>
+            <li>One photo on the cloud: read 1.1 s, detect 8.6 s, 28,583 dots.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RUNBOOK -->
+  <section id="runbook">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Pilot runbook · P1 · Sat ~13:45–14:30</p>
+        <h2>What runs, in what order, and what to check first</h2>
+        <p class="muted">None of these outputs exist yet on real data. Every value below comes after the pilot; the "good sign" column says what to look for, not what we expect to get.</p>
+      </div>
+      <div class="two">
+        <ol class="ssteps">
+          <li class="sstep"><div class="sstep-head"><h3>Reference catalogue</h3></div><p class="small"><span class="mono">refcat --zone pilot</span>, if not already in <span class="mono">refcat/</span> (both zones are already there, built from a laptop; the step skips them).</p></li>
+          <li class="sstep"><div class="sstep-head"><h3>Start the pilot</h3></div><p class="small">First delete the one-photo test file in <span class="mono">dots/</span> (old columns; <span class="mono">dots</span> would skip it). Then <span class="mono">vm.sh run test 'cd pipeline &amp;&amp; uv sync -q &amp;&amp; (uv run skyshift-pipeline known --zone pilot &amp; uv run skyshift-pipeline dots --zone pilot --workers 8; wait) &amp;&amp; uv run skyshift-pipeline all --zone pilot --workers 8'</span>: <span class="mono">known</span> runs beside <span class="mono">dots</span>, then <span class="mono">all</span> skips what exists and runs the rest. Before it, every step ran end to end on 30 real photos on a laptop; that smoke test found the slow <span class="mono">suspects</span> web queries (fixed in #28).</p></li>
+          <li class="sstep"><div class="sstep-head"><h3>Watch it</h3></div><p class="small"><span class="mono">vm.sh log test</span> and <span class="mono">logs/skyshift-test/latest-status.txt</span>. Count files in <span class="mono">dots/</span> against the 990 photos. Read <span class="mono">read_s</span> and <span class="mono">detect_s</span> in a few photos' metadata.</p></li>
+          <li class="sstep"><div class="sstep-head"><h3>Gate G2, right after</h3></div><p class="small">From <span class="mono">recall.json</span>. Pass: <span class="mono">vm.sh run worker '… all --zone hunt'</span>. Fail: 30 minutes on the time keyword, the OUTLIER mask and the match radius, then stop S1.</p></li>
+        </ol>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Check first</th><th>Good sign</th></tr></thead>
+          <tbody>
+            <tr><td><span class="mono">recall.json</span> (G2)</td><td>Recall at V &lt; 16 ≥ 50%, well above the 2′ control. Read the counts: the pilot holds only about 9 known asteroids brighter than V 16.</td></tr>
+            <tr><td><span class="mono">astrometry_report.json</span></td><td>Pull scatter ≈ 1 (our errors are honest); proper-motion bias against Gaia near zero, raw and frame-corrected.</td></tr>
+            <tr><td><span class="mono">highpm_report.json</span></td><td>Real pairs clearly outnumber the 15′ control pairs; the Gaia &gt; 200 mas/yr stars in the zone are recovered.</td></tr>
+            <tr><td><span class="mono">photoz_report.json</span></td><td>σ_NMAD of Δz/(1+z) near 0.02 for bright galaxies (K_AB &lt; 17), few outliers (&gt; 0.15).</td></tr>
+            <tr><td>Variable share among Gaia stars</td><td>A small share of Gaia-matched stars flagged <span class="mono">variable</span> in <span class="mono">sources</span> and <span class="mono">lightcurves_summary</span>. A large share means the errors are too small.</td></tr>
+            <tr><td>Colours vs Gaia BP−RP</td><td><span class="mono">colours</span> (D1D4 etc.) of Gaia stars follow a tight sequence against BP−RP.</td></tr>
+          </tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- KNOWN OBJECTS -->
+  <section id="known">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Known objects · decided 14 Nov</p>
+        <h2>MPC orbits replace SkyBoT</h2>
+        <p class="muted">We work out where every known asteroid and comet was in each photo ourselves, from the Minor Planet Center's orbit file and the open-source <span class="mono">kete</span> library, instead of asking the SkyBoT web service. It runs offline, has no rate limit, sees the sky from SPHEREx itself, and scales to the whole sky.</p>
+      </div>
+
+      <div class="stack">
+        <h3>Who tells us what</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Source</th><th>What it knows</th><th>What we use it for</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Gaia DR3 (ESA)</td><td>1.8 billion <b>stars</b>: position in 2016, proper motion, parallax, brightness. Nothing on asteroids at our dates.</td><td>Which dots are stars; how far a star should have moved (V2, V3); rings in the blink; distances on the cards</td><td><span class="chip good">keep</span></td></tr>
+            <tr><td class="m">MPC (Minor Planet Center, IAU)</td><td>Orbits of about 1.5 million known asteroids, plus comets; updated daily</td><td>Where each known asteroid or comet was at each photo's time, seen from SPHEREx; its expected V</td><td><span class="chip good">new</span></td></tr>
+            <tr><td class="m">kete (Caltech/IPAC, BSD-3)</td><td>Python library that loads MPC orbits, moves them with full n-body physics, and checks which fall inside a survey frame. Has a built-in SPHEREx frame type.</td><td>The calculation behind the MPC step</td><td><span class="chip good">new</span></td></tr>
+            <tr><td class="m">SkyBoT (IMCCE)</td><td>Web service that does the same calculation on its servers, one cone at a time (13–23 s each), seen from the Earth's centre</td><td>Only as a cross-check on the pilot, then dropped</td><td><span class="chip warn">replaced</span></td></tr>
+            <tr><td class="m">IRSA MOST</td><td>For one named asteroid: which SPHEREx photos caught it and where</td><td>V4 test on asteroids 1–60</td><td><span class="chip good">keep</span></td></tr>
+          </tbody></table></div>
+      </div>
+
+      <div class="two">
+        <div class="stack">
+          <h3>Why switch</h3>
+          <ul class="small">
+            <li><b>Scale.</b> The whole sky has about 100,000 sessions. At 13–23 s per SkyBoT cone that is hundreds of hours, and an unfair load on a free service. Local orbits take minutes to hours on our own machines.</li>
+            <li><b>Accuracy.</b> SkyBoT answers from the Earth's centre. Each photo's header holds SPHEREx's own position and speed (<span class="mono">X_SC</span>, <span class="mono">VX_SC</span>…, already copied into every dot file), so we predict positions as SPHEREx saw them, at each photo's own <span class="mono">MJD-AVG</span>, with light-time correction.</li>
+            <li><b>No rate extrapolation.</b> SkyBoT gives one position per session and we move it with its rates; kete computes each photo's time directly.</li>
+            <li><b>Offline and fixed.</b> One dated copy of the orbits in the bucket, so every machine and every rerun uses the same catalogue.</li>
+          </ul>
+        </div>
+        <div class="stack">
+          <h3>What stays the same</h3>
+          <ul class="small">
+            <li>The <span class="mono">known</span> step writes the same cache shape it writes today: per session, <span class="mono">objects: {name, number, ra, dec, v, dra_arcsec_h, ddec_arcsec_h, class}</span>. <span class="mono">load_predictions</span>, <span class="mono">link</span>, <span class="mono">score</span> and <span class="mono">suspects</span> don't change.</li>
+            <li>Matching rules: a known object within 2 px (about 12″) of a mover; suspects have no known object within 30″.</li>
+            <li>A config switch, <span class="mono">KNOWN_SOURCE = "skybot" | "mpc"</span>, so the pilot can run both and compare.</li>
+            <li>Contract: <span class="mono">known[].source</span> gains <span class="mono">"mpc"</span> in <span class="mono">contracts/api.md</span> (its own contract PR, P1).</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="stack">
+        <h3>The plan</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>#</th><th>Step</th><th>How</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td class="m">1</td><td>Get the orbits</td><td><span class="mono">kete.mpc.fetch_known_orbit_data()</span> (about 1.5 million asteroids, over 100 MB) and <span class="mono">kete.mpc.fetch_known_comet_orbit_data()</span>. Save a dated copy to <span class="mono">gs://nasa-glazing-data/cache/mpc/&lt;date&gt;/</span>; every machine reads that copy.</td><td>P1</td></tr>
+            <tr><td class="m">2</td><td>Move them to the survey</td><td>One n-body run (<span class="mono">kete.propagate_n_body</span>) from the orbit epoch to the middle of each visit; save the states. kete downloads its planet ephemerides (DE440) once; bake them into the VM start-up.</td><td>P1</td></tr>
+            <tr><td class="m">3</td><td>Describe each photo</td><td>Frame from the photo's WCS corners (<span class="mono">RectangleFOV.from_corners</span>, or kete's SPHEREx frame type) and SPHEREx's position from the header, converted from Earth-centred to Sun-centred.</td><td>P1</td></tr>
+            <tr><td class="m">4</td><td>Find what's inside</td><td><span class="mono">kete.fov_state_check(states, frames)</span>: objects in each frame with RA, Dec and rates, light-time corrected. V from H and G with <span class="mono">kete.flux.hg_apparent_mag</span>; keep V &lt; 20.</td><td>P1</td></tr>
+            <tr><td class="m">5</td><td>Write the same cache</td><td>One file per session in the existing <span class="mono">known</span> format (<span class="mono">cache/mpc/&lt;zone&gt;/run_&lt;obs_id&gt;.json</span>), so the later steps run unchanged.</td><td>P1</td></tr>
+            <tr><td class="m">6</td><td>Check against SkyBoT on the pilot</td><td>Same objects (V &lt; 18), positions within 2 px, median offset reported; IRSA MOST for asteroids 1–60 as a second check. <b>Switch when at least 95% of SkyBoT's objects are found and the median offset is under 2″.</b> Otherwise the hunt zone stays on SkyBoT.</td><td>P1</td></tr>
+            <tr><td class="m">7</td><td>Live API</td><td><span class="mono">/api/known</span> and <span class="mono">frames.json</span> <span class="mono">known[]</span> from the same orbit copy, <span class="mono">source: "mpc"</span>.</td><td>P2</td></tr>
+            <tr><td class="m">8</td><td>Credits</td><td>MPC and kete on the project page and in the README; SkyBoT stays listed while it is the cross-check.</td><td>P1, P4</td></tr>
+          </tbody></table></div>
+        <p class="small muted">Effort: about 3 hours of P1 work, plus 1 hour for P2's endpoint. Time to run: kete's own tests check a year of NEOWISE frames against all numbered asteroids in about 3–10 minutes on one computer; ours is to be measured on the pilot. Gate G2 at 18:00 uses whichever source has passed step 6; SkyBoT's pilot results remain valid until then.</p>
+        <p class="note small"><b>To verify on first use:</b> kete's SPHEREx frame type and <span class="mono">kete.spherex.fetch_fovs</span> (not read in the docs yet), and how the header's spacecraft position is framed (Earth-centred, km). UTC must be converted to TDB for kete, or positions shift by over a minute of motion.</p>
       </div>
     </div>
   </section>
@@ -699,7 +954,7 @@ session = run of exposures with gaps under 10 minutes
       <ol class="rules">
         <li><b>Plan before code</b>Start each task in plan mode (Shift+Tab until it says plan mode). Read the plan and correct it before Claude edits anything.</li>
         <li><b>Point at the contract</b>Every first message names <span class="mono">contracts/api.md</span> (and <span class="mono">flags.md</span> or <span class="mono">dots.md</span> if relevant) and the fixtures to use. That keeps the four areas compatible.</li>
-        <li><b>One branch per task</b>Name it after your area, like <span class="mono">p2/frames-endpoint</span>. Open a PR into <span class="mono">main</span>. Owners merge their own area when tests pass; contract PRs wait for P1.</li>
+        <li><b>One branch per task</b>Name it after your area, like <span class="mono">p2/frames-endpoint</span>. Branch → PR → tests → merge, after every change to <span class="mono">main</span>. Owners merge their own area when tests pass; contract PRs wait for P1.</li>
         <li><b>Two tasks at once</b>Run <span class="mono">claude -w &lt;name&gt;</span>: a separate copy of the repo in <span class="mono">.claude/worktrees/&lt;name&gt;</span> on its own branch, so parallel sessions don't overwrite each other. That folder is gitignored.</li>
         <li><b>Sync often</b>Run <span class="mono">/sync</span> before every new task, and <span class="mono">/contract-check</span> before every PR.</li>
         <li><b>Shared settings</b>After editing <span class="mono">.claude/settings.json</span>, run <span class="mono">claude doctor</span> to check the file before you push it.</li>
@@ -734,7 +989,7 @@ claude doctor</pre></div>
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">Setup</p>
         <h2>Google Cloud for nasa-glazing</h2>
-        <p class="muted">Part A was done and checked by 14 November. The commands stay here as a reference. Part B is Saturday's work; tick it off as you go (the ticks are saved in this browser only).</p>
+        <p class="muted">Part A was done before and on Saturday morning; the commands stay as a reference. The machines, accounts and bucket as they now stand are under <a href="#cloud">cloud, as built</a>. Part B is what is left after the submission; tick it off as you go (the ticks are saved in this browser only).</p>
       </div>
       <dl class="facts-card">
         <div><dt>Project</dt><dd><b class="mono">nasa-glazing</b></dd></div>
@@ -744,7 +999,7 @@ claude doctor</pre></div>
         <div><dt>Hosting</dt><dd>Public site <span class="mono">skyshift.web.app</span> (created 14 Nov); <span class="mono">nasa-glazing.web.app</span> unused</dd></div>
       </dl>
 
-      <div class="part-head"><h3>Part A · Done by 14 Nov</h3><span class="chip good">9 of 9 done</span><span class="chip warn">2 open items</span></div>
+      <div class="part-head"><h3>Part A · Done by Sat 14 Nov</h3><span class="chip good">11 of 11 done</span></div>
       <ol class="ssteps">
         <li class="sstep is-done"><div class="sstep-head"><h3>Google Cloud command line installed</h3><span class="chip good">Done</span></div>
           <div class="code-block"><div class="code-head"><span>reference · laptop terminal</span><button class="copy" data-copy="k-gcloud">Copy</button></div>
@@ -769,7 +1024,7 @@ gcloud config set run/region us-east4</pre></div></li>
 <pre id="k-quota">gcloud compute regions describe us-east4 --flatten=quotas \
   --format="table(quotas.metric,quotas.limit,quotas.usage)"</pre></div></li>
         <li class="sstep is-done"><div class="sstep-head"><h3>Bucket and Firestore</h3><span class="chip good">Done</span></div>
-          <p class="small"><span class="mono">gs://nasa-glazing-data</span> in US-EAST4 with uniform access. Firestore in native mode, <span class="mono">us-east4</span>, free tier. Folders are created on first write: <span class="mono">photolists/</span>, <span class="mono">dots/</span>, <span class="mono">results/</span>, <span class="mono">cache/</span>.</p>
+          <p class="small"><span class="mono">gs://nasa-glazing-data</span> in US-EAST4 with uniform access. Firestore in native mode, <span class="mono">us-east4</span>, free tier. Folders are created on first write: <span class="mono">photolists/ refcat/ dots/ forced/ cache/ results/ logs/</span>.</p>
           <div class="code-block"><div class="code-head"><span>reference · laptop terminal</span><button class="copy" data-copy="k-bucket">Copy</button></div>
 <pre id="k-bucket">gcloud storage buckets create gs://nasa-glazing-data \
   --location=us-east4 --uniform-bucket-level-access
@@ -789,91 +1044,89 @@ gcloud compute instances delete skyshift-check --zone=us-east4-a --quiet</pre></
 <pre id="k-iam">gcloud projects add-iam-policy-binding nasa-glazing \
   --member=user:TEAMMATE_EMAIL --role=roles/editor   <span class="c"># roles/viewer for P3, P4</span></pre></div></li>
         <li class="sstep is-done"><div class="sstep-head"><h3>Firebase added</h3><span class="chip good">Done</span></div>
-          <p class="small">Firebase is on the project. Hosting site <span class="mono">nasa-glazing</span> answers at <span class="mono">https://nasa-glazing.web.app</span>, with nothing deployed yet. We don't publish there: "nasa" in a non-NASA address reads badly.</p></li>
+          <p class="small">Firebase is on the project. The default site <span class="mono">nasa-glazing</span> stays unused: "nasa" in a non-NASA address reads badly.</p></li>
         <li class="sstep is-done"><div class="sstep-head"><h3>Budget alert</h3><span class="chip good">Done 13 Nov</span></div>
           <p class="small">The team lead set it up in the Google Cloud console on 13 Nov; the amount isn't recorded here. One check is left for the team lead on Saturday morning: Billing → <b>Budgets &amp; alerts</b> → open the budget → under <b>Credits</b>, "Promotions and others" must be <b>unticked</b>. Otherwise the credit hides spending and no alert fires.</p>
           <p class="small muted">Costs show up hours late. Alerts are a safety net, not a brake: stop machines yourself.</p></li>
       </ol>
 
       <div class="stack">
-        <h3>Open items for Sat 09:00</h3>
+        <h3>Done on Saturday</h3>
         <ol class="ssteps">
-          <li class="sstep is-open"><div class="sstep-head"><h3>GitHub repo, public from the first commit</h3><span class="chip warn">P1 · 09:00</span></div>
-            <p class="small">Create it at 09:00 so its history starts at kickoff. Public from the first commit, Apache-2.0 licence, README. Add the three teammates as collaborators.</p>
+          <li class="sstep is-done"><div class="sstep-head"><h3>GitHub repo, public from the first commit</h3><span class="chip good">Done Sat 09:00</span></div>
+            <p class="small">Created at 09:00 so its history starts at kickoff. Public, Apache-2.0 licence, README, the three teammates as collaborators.</p>
             <div class="code-block"><div class="code-head"><span>laptop terminal</span><button class="copy" data-copy="k-repo">Copy</button></div>
 <pre id="k-repo">gh repo create skyshift --public --license apache-2.0 --add-readme --clone
 cd skyshift
 gh api -X PUT repos/YOUR-GITHUB/skyshift/collaborators/TEAMMATE   <span class="c"># once per teammate</span></pre></div></li>
-          <li class="sstep is-open"><div class="sstep-head"><h3>Second Hosting site for the public address</h3><span class="chip good">Created 14 Nov</span></div>
-            <p class="small">The public address is <b><span class="mono">https://skyshift.web.app</span></b>: no "nasa" or "spherex" in the name. Use it everywhere: page, video, README, QR code. The earlier <span class="mono">skyshift-sky</span> site is not used. P2 points <span class="mono">infra/firebase/</span> at <span class="mono">skyshift</span>.</p>
-            <div class="code-block"><div class="code-head"><span>laptop terminal, in the repo</span><button class="copy" data-copy="k-site">Copy</button></div>
-<pre id="k-site"><span class="c"># done 14 Nov: firebase hosting:sites:create skyshift</span>
-firebase target:apply hosting sky skyshift
-<span class="c"># firebase.json: hosting target "sky", public "web/dist",</span>
-<span class="c"># rewrite "/api/**" to Cloud Run service skyshift-api in us-east4</span>
-firebase deploy --only hosting:sky</pre></div></li>
+          <li class="sstep is-done"><div class="sstep-head"><h3>Hosting site for the public address</h3><span class="chip good">Done 14 Nov</span></div>
+            <p class="small">The public address is <b><span class="mono">https://skyshift.web.app</span></b>: no "nasa" or "spherex" in the name. Use it everywhere: page, video, README, QR code. The earlier <span class="mono">skyshift-sky</span> site is not used. <span class="mono">infra/firebase/</span> points at <span class="mono">skyshift</span> (PR #23).</p>
+            <div class="code-block"><div class="code-head"><span>deploy · P2 runs these, the agents never do</span><button class="copy" data-copy="k-site">Copy</button></div>
+<pre id="k-site">infra/run/deploy.sh             <span class="c"># the API first, so /api/** has a target</span>
+(cd web &amp;&amp; npm ci &amp;&amp; npm run build)
+infra/firebase/deploy.sh        <span class="c"># hosting + firestore rules</span>
+<span class="c"># one part only: infra/firebase/deploy.sh hosting | firestore:rules</span></pre></div></li>
         </ol>
       </div>
 
-      <div class="part-head"><h3>Part B · Saturday, the machines</h3><span class="chip" id="setup-progress">0 of 5 done</span></div>
+      <div class="part-head"><h3>Part B · After the submission</h3><span class="chip" id="setup-progress">0 of 2 done</span></div>
       <ol class="ssteps">
-        <li class="sstep"><div class="sstep-head"><h3>Test machine: most of the work</h3><label class="check" for="b1"><input type="checkbox" id="b1" data-step> Done</label></div>
-          <p class="small">P1, from 10:00. First photo, <span class="mono">core/</span> runs, precompute, then the 12 deg² pilot (about 230 photos) at 16:00. Measure seconds per photo here.</p>
-          <div class="code-block"><div class="code-head"><span>laptop terminal</span><button class="copy" data-copy="b-test">Copy</button></div>
-<pre id="b-test">gcloud compute instances create skyshift-test \
-  --machine-type=e2-standard-8 \
-  --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB --scopes=cloud-platform</pre></div></li>
-        <li class="sstep"><div class="sstep-head"><h3>Spot worker: only after gate G2 at 18:00</h3><label class="check" for="b2"><input type="checkbox" id="b2" data-step> Done</label></div>
-          <p class="small">Create it only if pilot recall at V &lt; 16 is 50% or more. If Google reclaims it, start it again; photos with an output file are skipped. After two stops, finish on the 8-core machine. The 100 GB disk only caches photo lists and results; photos are read from S3 and not kept. If creation fails with "resource not available", use <span class="mono">--zone=us-east4-b</span> or <span class="mono">us-east4-c</span>.</p>
-          <div class="code-block"><div class="code-head"><span>laptop terminal</span><button class="copy" data-copy="b-worker">Copy</button></div>
-<pre id="b-worker">gcloud compute instances create skyshift-worker \
-  --machine-type=n2-highcpu-64 \
-  --provisioning-model=SPOT --instance-termination-action=STOP \
-  --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-  --boot-disk-size=100GB --scopes=cloud-platform</pre></div></li>
-        <li class="sstep"><div class="sstep-head"><h3>Connect, with tmux and Claude Code on the VM</h3><label class="check" for="b3"><input type="checkbox" id="b3" data-step> Done</label></div>
-          <p class="small">If the venue Wi-Fi blocks SSH, use the <b>SSH</b> button in the console or a phone hotspot. Run jobs and Claude Code inside <span class="mono">tmux</span>: leave with Ctrl+B then D, come back with <span class="mono">tmux attach -t run</span>. The VM needs its own Claude login: press <span class="mono">c</span> to copy the URL, open it on your laptop, paste the code back.</p>
-          <div class="code-block"><div class="code-head"><span>laptop, then on the VM</span><button class="copy" data-copy="b-connect">Copy</button></div>
-<pre id="b-connect">gcloud compute ssh skyshift-test
-tmux new -s run
-curl -fsSL https://claude.ai/install.sh | bash
-git clone https://github.com/YOUR-GITHUB/skyshift.git &amp;&amp; cd skyshift
-claude                 <span class="c"># first run: log in (press c to copy the URL)</span>
-claude auth status</pre></div></li>
-        <li class="sstep"><div class="sstep-head"><h3>Stop and delete machines; delete bulk files on Monday</h3><label class="check" for="b4"><input type="checkbox" id="b4" data-step> Done</label></div>
-          <p class="small">Machines cost money only while running. Stop the worker as soon as the hunt zone finishes. Delete both after the final submission. On Monday delete the bulk dot files; keep <span class="mono">results/</span> and <span class="mono">photolists/</span>, which are small.</p>
+        <li class="sstep"><div class="sstep-head"><h3>Delete machines; delete bulk files on Monday</h3><label class="check" for="b4"><input type="checkbox" id="b4" data-step> Done</label></div>
+          <p class="small">The machines stop themselves after each job, so a running one is a job in progress. Delete both after the final submission. On Monday delete <span class="mono">dots/</span>, <span class="mono">forced/</span> and <span class="mono">cache/</span> unless the results are being published (see <a href="#after-credit">after the credit</a>); keep <span class="mono">results/</span> and <span class="mono">photolists/</span>, which are small.</p>
           <div class="code-block"><div class="code-head"><span>laptop terminal</span><button class="copy" data-copy="b-stop">Copy</button></div>
-<pre id="b-stop">gcloud compute instances stop skyshift-worker
-gcloud compute instances list
+<pre id="b-stop">infra/worker/vm.sh status
+infra/worker/vm.sh stop worker
 <span class="c"># Sunday, after the final save</span>
-gcloud compute instances delete skyshift-worker skyshift-test --quiet
+gcloud compute instances delete skyshift-worker skyshift-test \
+  --zone us-east4-a --quiet
 <span class="c"># Monday</span>
 gcloud storage du -s gs://nasa-glazing-data/dots/
 gcloud storage rm -r gs://nasa-glazing-data/dots/</pre></div></li>
         <li class="sstep"><div class="sstep-head"><h3>Billing after the credit</h3><label class="check" for="b5"><input type="checkbox" id="b5" data-step> Done</label></div>
-          <p class="small">The credit ends on <b>17 Jan 2027</b>; winners are announced on <b>26 Jan</b>. Keep a card on the account and set the existing budget alert to about <b>€10</b>, so the live API keeps working. Cloud Run stays at 0–2 instances. If the API fails, the page offers the featured targets. P2 confirms on Firebase's pricing page that Hosting and Firestore stay in the no-cost tier.</p>
-          <div class="code-block"><div class="code-head"><span>laptop terminal, in the repo</span><button class="copy" data-copy="b-run">Copy</button></div>
-<pre id="b-run"><span class="c"># from the repo root: the image needs core/ as well as server/</span>
-gcloud run deploy skyshift-api --source . --region us-east4 \
-  --min-instances 0 --max-instances 2 --allow-unauthenticated</pre></div></li>
+          <p class="small">The credit ends on <b>17 Jan 2027</b>; winners are announced on <b>26 Jan</b>. The account becomes a paid one: nothing is deleted, usage is billed. Keep the budget alert. Cloud Run scales to zero (0–2 instances); the site, featured targets and votes stay in Firebase's free tier. If the API fails, the page offers the featured targets.</p></li>
       </ol>
+    </div>
+  </section>
 
+  <!-- COST -->
+  <section id="cost">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Storage and cost · Google price list, EUR, us-east4</p>
+        <h2>What this weekend costs, and what the whole sky would</h2>
+        <p class="muted">We store about 4.5 MB of computed data per photo and nothing of NASA's. Reading from Amazon into Google Cloud costs us nothing. Only the pilot and the hunt zone run this weekend; larger areas are costed, not run.</p>
+      </div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Area</th><th>Photos</th><th>Compute</th><th>Time</th><th>Stored</th></tr></thead>
+        <tbody>
+          <tr><td>Pilot, 12 deg²</td><td>990</td><td>test machine ~€0.30/h while it runs</td><td>after the pilot</td><td>~4.5 GB</td></tr>
+          <tr><td>Hunt zone, 100 deg²</td><td>3,692</td><td>~€0.30</td><td>under an hour on 64 spot cores</td><td>~17 GB</td></tr>
+          <tr><td>5% of the sky</td><td>—</td><td>~€4</td><td>~4 h</td><td>~300 GB</td></tr>
+          <tr><td><b>Whole sky</b> (not run)</td><td>≈ 1.32 million survey photos (~2,500 a day, 24 Apr 2025 – 5 Oct 2026)</td><td>~€75 (€55–110), ~7,300 core-hours, plus ~€18 of writes</td><td>~3 days on today's quota; ~15 h on 480 spot cores</td><td>dots ~5.5 TB: €114/month Standard, €30/month Coldline. Star catalogue 50–100 GB, €1–2/month</td></tr>
+        </tbody></table></div>
       <div class="two">
         <div class="stack">
-          <h3>Cost against the €264 credit</h3>
+          <h3>Quotas</h3>
           <div class="tablewrap"><table>
-            <thead><tr><th>Item</th><th>Estimate</th></tr></thead>
+            <thead><tr><th>Quota</th><th>Now</th><th>Ask for, if whole sky</th></tr></thead>
             <tbody>
-              <tr><td>Test machine, <span class="mono">e2-standard-8</span>, stopped when idle</td><td>€4</td></tr>
-              <tr><td>Worker, <span class="mono">n2-highcpu-64</span> spot, hunt zone under an hour</td><td>€2</td></tr>
-              <tr><td>Storage: photo lists, dots, results, cache</td><td>€2</td></tr>
-              <tr><td>Cloud Run and Firebase</td><td>under €2</td></tr>
-              <tr><td><b>Total</b></td><td><b>under €15</b></td></tr>
+              <tr><td>Preemptible CPUs, us-east4</td><td>96</td><td>480</td></tr>
+              <tr><td>CPUs, all regions</td><td>128</td><td>512</td></tr>
+              <tr><td>N2 CPUs, us-east4</td><td>200</td><td>512</td></tr>
             </tbody></table></div>
-          <p class="small muted">Planning numbers until P1 measures seconds per photo on the test machine. Whole sky: not attempted; the project page gives one projected-cost sentence instead.</p>
+          <p class="small muted">Spot <span class="mono">n2-highcpu-96</span> is €0.95/h. Machine prices: test ~€0.30/h, worker ~€0.60–1/h (spot varies). Cloud Run costs nothing when idle; Firebase Hosting and Firestore stay in the free tier.</p>
         </div>
-        <div class="note"><b>If a cost runs away.</b> Check <span class="mono">gcloud compute instances list</span> first: a forgotten 64-core machine is the only item that can cost real money. Spot workers stop rather than delete when reclaimed, so a stopped worker still holds its disk until you delete it.</div>
+        <div class="stack" id="after-credit">
+          <h3>After the credit (ends 17 Jan 2027)</h3>
+          <ul class="small" style="padding-left:18px;display:flex;flex-direction:column;gap:4px">
+            <li>The account becomes a paid one: nothing is deleted, usage gets billed.</li>
+            <li>The site, featured targets and votes run on Firebase's free tier.</li>
+            <li>Results are published on Zenodo (with a DOI) and Hugging Face.</li>
+            <li>A teammate's own $300, 90-day trial can be linked to the project later (8-core cap).</li>
+            <li>A free domain from the Space Apps offers.</li>
+          </ul>
+          <div class="note"><b>If a cost runs away.</b> Run <span class="mono">infra/worker/vm.sh status</span> first: a 64-core machine left running is the only item that can cost real money. The machines stop themselves after each job, and a reclaimed spot worker stops rather than deletes, so a stopped worker still holds its disk until you delete it.</div>
+        </div>
       </div>
     </div>
   </section>
@@ -882,58 +1135,95 @@ gcloud run deploy skyshift-api --source . --region us-east4 \
   <section id="schedule">
     <div class="wrap stack-lg">
       <div class="sec-head" style="margin-bottom:0">
-        <p class="eyebrow">Schedule · Sat 09:00 to Sun 15:30</p>
-        <h2>Hour by hour, per person</h2>
-        <p class="muted">Times assume a 15:00 local deadline and a 15:30 pitch. If the Local Lead says otherwise at 09:00, move every time by the difference. At each milestone, run <span class="mono">/demo-check</span> on <span class="mono">main</span>.</p>
+        <p class="eyebrow">Schedule · one build day, Sat 14 Nov · source: docs/plan-one-day.md</p>
+        <h2>Build everything on Saturday, freeze at 20:00</h2>
+        <p class="muted">The plan v2 schedule spread the build over Saturday and a night shift. It is condensed to one day: freeze at 20:00, first full submission at 22:00, no night shift. Sunday is only for the video, rehearsals and the final submission at 14:30. S2–S6 are cut; pick one up only if a person is idle after 18:00. Times assume a 15:00 local deadline and a 15:30 pitch. At each milestone, run <span class="mono">/demo-check</span> on <span class="mono">main</span>.</p>
       </div>
       <div class="timeline" aria-label="Milestones and gates">
         <div class="ms"><span class="when">M1 · Sat 13:00</span><b>Barnard's Star blinks</b><p>From real data on the public site.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
+        <div class="ms g"><span class="when">G2 · Sat ~14:30</span><b>Gate</b><p>Right after the pilot: recall at V &lt; 16 is 50% or more, or S1 stops.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span></div></div>
         <div class="ms g"><span class="when">G1 · Sat 15:00</span><b>Gate</b><p>Five targets blink; one motion measured.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span></div></div>
-        <div class="ms g"><span class="when">G2 · Sat 18:00</span><b>Gate</b><p>Pilot recall at V &lt; 16 is 50% or more, or S1 stops.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span></div></div>
-        <div class="ms"><span class="when">M2 · Sat 20:00</span><b>Any coordinates live</b><p>Five targets and the comet are static.</p><div class="owners"><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p3)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
-        <div class="ms"><span class="when">M3 · Sun 09:00</span><b>Feature freeze</b><p>Stand-up; choose the hero target.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p3)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
-        <div class="ms"><span class="when">M4 · Sun 12:00</span><b>First full submission</b><p>Saved; everyone reads the page once.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
-        <div class="ms"><span class="when">M5 · Sun 14:30</span><b>Final submission</b><p>Checked in a private window. Hard stop 14:45.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p3)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
+        <div class="ms"><span class="when">M2 · Sat 17:00</span><b>Any coordinates live</b><p>All featured targets static; suspects listed. Integration hour.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p3)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
+        <div class="ms"><span class="when">Sat 20:00</span><b>Feature freeze</b><p>Numbers frozen at 19:30. Only fixes from here.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p3)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
+        <div class="ms"><span class="when">M4 · Sat 22:00</span><b>First full submission</b><p>Saved. Go home.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
+        <div class="ms"><span class="when">Sun 14:30</span><b>Final submission</b><p>Checked in a private window. Hard stop 14:45.</p><div class="owners"><span class="dot" style="--c:var(--p1)"></span><span class="dot" style="--c:var(--p2)"></span><span class="dot" style="--c:var(--p3)"></span><span class="dot" style="--c:var(--p4)"></span></div></div>
       </div>
       <div class="legend"><span class="chip info">Milestone</span><span class="chip warn">Gate</span><span class="muted">The table scrolls sideways on a phone.</span></div>
       <div class="tablewrap"><table class="sched">
         <thead><tr><th>Time</th><th>P1 · lead, science, pipeline</th><th>P2 · server, deploys</th><th>P3 · sky, cards</th><th>P4 · blink, votes, pitch</th></tr></thead>
         <tbody>
-          <tr class="ms"><td>Sat 09:00</td><td>All: ask the Local Lead for the deadline, pitch length, night access; agree this scope. Then public repo, contracts v2, <span class="mono">CLAUDE.md</span> files.</td><td>New hosting site; empty site and API stub live.</td><td>Vite app; Aladin from jsDelivr with IRSA layers.</td><td>Open the project page form. Blink player on made-up arrays.</td></tr>
-          <tr><td>10:00</td><td>Open the first photo: check MJD-AVG, detector naming, flag bits, units, sizes. Post the facts.</td><td>Image search; save photo lists to the bucket.</td><td>Coordinate parser, chips, URL state.</td><td>Player: speed, stretch, invert, subtract, add.</td></tr>
-          <tr><td>11:00</td><td><span class="mono">core/</span>: detect, centroid, compare positions with Gaia.</td><td>Cutouts, visit rule, median stack: Barnard's Star, one detector.</td><td>Gaia dots; card layout.</td><td>Months/Hours switch; date legend.</td></tr>
-          <tr><td>12:00</td><td>Lunch in turns. Shift measurement.</td><td>Barnard's frames as static files.</td><td>Card on fixtures.</td><td>Load the static frames.</td></tr>
-          <tr class="ms"><td>13:00 · M1</td><td><b>Barnard's Star blinks from real data on the public site.</b> Error floor (V3).</td><td>Six detectors; WISE 0855, Epsilon Indi B.</td><td>Measure readout; Gaia distance.</td><td>Gaia rings moved to each date.</td></tr>
-          <tr><td>14:00</td><td>Motion vs Gaia (V2). MOST asteroid test (V4).</td><td>RW Aurigae, R Draconis. Live <span class="mono">/api/frames</span>.</td><td>Spectrum chart, molecule marks.</td><td>Field-of-view picker.</td></tr>
-          <tr class="gate"><td>15:00 · G1</td><td><b>Gate: five targets blink; one motion measured.</b> Photometry.</td><td><span class="mono">/api/object</span>; spectra for the five.</td><td>Spectrum wired; "what to look for" text.</td><td>Hours clock on a fixture.</td></tr>
-          <tr><td>16:00</td><td>Pilot: 12 deg², about 230 photos, test machine.</td><td>3I/ATLAS: NASA's table → cutouts → static movie.</td><td>Embed mode, data badge, gallery.</td><td>Comet movie with its path ring.</td></tr>
-          <tr><td>17:00</td><td>SkyBoT match and control for the pilot.</td><td>Deploy; cache; time to first frame.</td><td>Scoreboard page layout.</td><td>Flag-a-dot; candidate list.</td></tr>
-          <tr class="gate"><td>18:00 · G2</td><td><b>Gate: pilot recall at V &lt; 16 is 50% or more.</b> Yes: start the hunt zone on the worker. No: stop S1. Dinner in turns.</td><td>Two asteroid movies from V4.</td><td>Phone-width check.</td><td>Votes to Firestore; counts.</td></tr>
-          <tr><td>19:00</td><td colspan="4" class="all">All: integration hour. Open every target on the public site; write the bug list.</td></tr>
-          <tr class="ms"><td>20:00 · M2</td><td><b>Any coordinates work live; five targets and the comet are static.</b> SkyBoT queries for the hunt zone.</td><td>Bug list.</td><td>Bug list.</td><td>CSV export.</td></tr>
-          <tr class="ms"><td>21:00 · Page v0</td><td>All, 15 min: 60-second pitch dry run. Then <span class="mono">validation.json</span> v1.</td><td>Start S2; it runs unattended.</td><td>Scoreboard reads <span class="mono">validation.json</span>.</td><td>Save project page v0 with working links.</td></tr>
-          <tr><td>22:00</td><td>Hunt-zone matching.</td><td>Static export script; handover note.</td><td>Card polish; handover note.</td><td>Walk the storyboard on the real site; list missing shots.</td></tr>
-          <tr><td>23:00–04:00</td><td>Suspects and recall chart (V5). S3. Spectrum check. Numbers frozen 03:30; handover note.</td><td class="sleep">Sleep.</td><td class="sleep">Sleep.</td><td>Votes on real suspects. S4 or S5. Page text; handover note.</td></tr>
-          <tr><td>04:00–09:00</td><td class="sleep">Sleep.</td><td>Static export of everything; deploy. S2 results. Time to first frame. 08:00: open every target.</td><td>Scoreboard with final numbers; gallery; phone layout; copy; S6.</td><td class="sleep">Sleep.</td></tr>
-          <tr class="ms"><td>Sun 09:00 · M3</td><td><b>Feature freeze.</b> Stand-up; choose the hero. Then README, licence, AI section, references.</td><td>FortiGuard request; fixes.</td><td>UI and copy pass.</td><td>Venue test with a QR code; record the GIF.</td></tr>
-          <tr><td>10:00</td><td>Page: data, validation, limits.</td><td>Private-window link tests; offline copy on the pitch laptop.</td><td>Screen set-up and captions.</td><td>Record video takes.</td></tr>
-          <tr><td>11:00</td><td>Finish the page.</td><td>Bug fixes only.</td><td>Seven slides.</td><td>Cut to 29.0 s; upload; check length.</td></tr>
-          <tr class="ms"><td>12:00 · M4</td><td colspan="4" class="all"><b>First full submission saved.</b> Lunch. Everyone reads the page once.</td></tr>
-          <tr><td>13:00</td><td>Pitch rehearsal 1, then fixes.</td><td>Last deploy 14:00.</td><td>Fixes.</td><td>Fixes.</td></tr>
-          <tr><td>14:15</td><td colspan="4" class="all">Pitch rehearsal 2, all four present.</td></tr>
-          <tr class="ms"><td>14:30 · M5</td><td colspan="4" class="all"><b>Final submission saved</b> and checked in a private window. Hard stop 14:45.</td></tr>
+          <tr class="ms"><td>Sat 09:00</td><td>All: agree the scope. Public repo, contracts, <span class="mono">CLAUDE.md</span> files.</td><td>Hosting site; API shell.</td><td>Vite app.</td><td>Project page form.</td></tr>
+          <tr><td>10:30–13:00</td><td>Cloud set-up (bucket, machines, accounts). Pipeline code. Validation data. V2 and V3 numbers.</td><td>Barnard's Star blink from real data with <span class="mono">core/</span>: cutouts, visit rule, median stack; static files.</td><td>App shell, coordinate box, chips, Aladin with IRSA layers.</td><td>Blink player on fixtures: speed, stretch, invert, subtract, add.</td></tr>
+          <tr class="ms"><td>13:00 · M1</td><td><b>Barnard's Star blinks from real data on the public site.</b> Pilot (12 deg²) starts on <span class="mono">skyshift-test</span> at ~13:45.</td><td>Six detectors; WISE 0855, Epsilon Indi B.</td><td>Measure readout, Gaia distance.</td><td>Months/Hours switch, date legend, Gaia rings.</td></tr>
+          <tr><td>14:00</td><td>V4: known asteroids re-found (MOST), with a control.</td><td>RW Aurigae, R Draconis. Live <span class="mono">/api/frames</span>.</td><td>Spectrum chart, molecule marks.</td><td>Load the static frames; field-of-view picker.</td></tr>
+          <tr class="gate"><td>~14:30 · G2</td><td><b>Gate, right after the pilot: recall at V &lt; 16 is 50% or more</b> (<a href="#runbook">runbook</a>). Yes: hunt zone on <span class="mono">skyshift-worker</span> (runs alone). No: stop S1.</td><td></td><td></td><td></td></tr>
+          <tr class="gate"><td>15:00 · G1</td><td><b>Gate: five targets blink; one motion measured.</b></td><td><span class="mono">/api/object</span>; spectra for the five.</td><td>Spectrum wired; "what to look for" text. Light-curve chart and colour readout.</td><td>Hours clock on real frames.</td></tr>
+          <tr><td>15:00–17:00</td><td>Hunt-zone results → <span class="mono">suspects.json</span>. <span class="mono">validation.json</span> v1.</td><td>3I/ATLAS movie; two asteroid movies from V4; deploy; cache.</td><td>Scoreboard page reads <span class="mono">validation.json</span>.</td><td>Flag-a-dot, candidate list, votes to Firestore, counts.</td></tr>
+          <tr class="ms"><td>17:00 · M2</td><td colspan="4" class="all"><b>Any coordinates work live; all featured targets are static; suspects are listed.</b> Integration hour: every target on the public site, bug list. Dinner in turns.</td></tr>
+          <tr><td>18:00–19:30</td><td>Bug fixes. README credits and AI section. Page text: data, validation, limits.</td><td>Bug fixes; static export of everything; deploy.</td><td>Phone width; copy pass.</td><td>CSV export; walk the storyboard on the real site.</td></tr>
+          <tr class="ms"><td>19:30</td><td colspan="4" class="all"><b>Numbers frozen.</b></td></tr>
+          <tr class="ms"><td>20:00 · freeze</td><td><b>Feature freeze.</b> Only fixes from here.</td><td>Last deploy 21:30.</td><td>Seven slides.</td><td>Record video takes.</td></tr>
+          <tr><td>20:00–22:00</td><td>Project page with working links.</td><td>Private-window link tests; offline copy on the pitch laptop.</td><td>Screen set-up and captions.</td><td>Cut to 29.0 s; check the length with a tool.</td></tr>
+          <tr><td>21:30</td><td colspan="4" class="all">All, 15 min: pitch dry run.</td></tr>
+          <tr class="ms"><td>22:00 · M4</td><td colspan="4" class="all"><b>First full submission saved.</b> Go home.</td></tr>
+          <tr><td>Sun 09:00</td><td colspan="4" class="all">Stand-up; everyone opens the submission in a private window. Fix only what's broken.</td></tr>
+          <tr><td>Sun 11:00 · 13:00</td><td colspan="4" class="all">Pitch rehearsals 1 and 2, all four present.</td></tr>
+          <tr class="ms"><td>Sun 14:30</td><td colspan="4" class="all"><b>Final submission saved</b> and checked in a private window. Hard stop 14:45.</td></tr>
           <tr><td>15:00 · 15:30</td><td colspan="4" class="all">Local deadline · live pitch.</td></tr>
         </tbody></table></div>
       <div class="two">
         <div class="stack small">
-          <h3>Sleep and handovers</h3>
-          <p>Five hours each, in two shifts, so one backend and one frontend person are always awake. <b>P2 and P3: 23:00–04:00. P1 and P4: 04:00–09:00.</b> Everyone writes a handover note before sleeping. If the venue closes at night, the same plan runs from home.</p>
+          <h3>No night shift</h3>
+          <p>Everyone goes home after the 22:00 save. If the submission itself must also be in on Saturday, the 22:00 save is the final one: do the upload and the private-window check at 21:30 instead of the dry run.</p>
         </div>
         <div class="stack small">
           <h3>Merges and the pitch</h3>
-          <p>Owners merge their own area when tests pass; only contract changes wait for P1. P4 presents; P1 answers data questions. Dry run Sat 21:00; timed rehearsals Sun 13:00 and 14:15. If local rules allow edits until 23:59, use the evening for typos only.</p>
+          <p>Branch → PR → tests → merge after every change to main. Owners merge their own area when tests pass; only contract changes wait for P1. P4 presents; P1 answers data questions. Dry run Sat 21:30; rehearsals Sun 11:00 and 13:00.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- PRS -->
+  <section id="prs">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">PR log · Sat 14 Nov</p>
+        <h2>What landed on main, PR by PR</h2>
+        <p class="muted">PRs #1–#28 as of this update. #13 (blink engine) is still open; the dots speed-up and the MPC known-objects step are being built on their own branches.</p>
+      </div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>PR</th><th>Area</th><th>What</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td class="m">#1</td><td>P1 core</td><td>Shared science library: visit rule, masks, detect, centroid, shift, photometry</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#2</td><td>P1 docs</td><td>README links the plan pages</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#3</td><td>P1 contract</td><td>Gaia epoch, <span class="mono">sigma_arcsec</span>, <span class="mono">predicted_arcsec</span></td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#4</td><td>P1 infra</td><td>Cloud set-up: architecture, machines, one-day schedule</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#5</td><td>P1 validate</td><td>Target, photo-list and MOST data</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#6</td><td>P1 contract</td><td>Visit rule: cut only visits over 75 days, into equal parts</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#7</td><td>P2 server</td><td>Skeleton for the two P2 builds</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#8</td><td>P1 contract</td><td>Dot columns: position error, bandwidth, elongation</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#9</td><td>P2 server</td><td>API shell, container, deploy files (fixture fallback until the engine lands)</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#10</td><td>P1 pipeline</td><td>Hunt-zone pipeline: photolist, dots, known, link, score, suspects</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#11</td><td>P1 contract</td><td>Design after review: detection depth, per-photo sessions, fixed-first linking, suspect filters</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#12</td><td>P1 docs</td><td>Dev plan: Data section</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#13</td><td>P2 server</td><td>Blink engine and featured targets: Barnard's Star, Epsilon Indi B, WISE 0855 from real data; RW Aur, R Dra, 3I/ATLAS and two asteroids in progress</td><td><span class="chip warn">open</span></td></tr>
+          <tr><td class="m">#14</td><td>P1 pipeline</td><td>Per-star 102-channel spectra</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#15</td><td>P2 tools</td><td>Backend playground (<span class="mono">tools/backend-playground/</span>) for API and frame testing, removable</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#16</td><td>P1 pipeline</td><td>Dots: zodi, ePSF photometry, shape, apertures, forced photometry, photo metadata</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#17</td><td>P1 pipeline</td><td>Classes, ice and methane indices, photo-z</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#18</td><td>P1 docs</td><td>Aperture correction 1.033 from the ePSF; the pipeline reads all six parts once</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#19</td><td>P1 core</td><td>Apply the aperture correction only at r = 2 px</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#20</td><td>P1 pipeline</td><td><span class="mono">refcat</span> step: Gaia, CatWISE, 2MASS and the forced list</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#21</td><td>P1 docs</td><td>Public address is skyshift.web.app</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#22</td><td>P1 pipeline</td><td>Cross-ids, colours, light curves, astrometry, high-PM search</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#23</td><td>P2 infra</td><td>Firebase deploys to site <span class="mono">skyshift</span> instead of <span class="mono">skyshift-sky</span></td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#24</td><td>P1 docs</td><td>Both plan pages updated to the built system</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#25</td><td>P1 docs</td><td>Known objects: MPC orbits with kete replace SkyBoT (plan)</td><td><span class="chip good">merged</span> with #24</td></tr>
+          <tr><td class="m">#26</td><td>P1 science</td><td><span class="mono">scripts/science/</span>: asteroid sizes (NEATM) and 3I/ATLAS gas (Haser)</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#27</td><td>P1 pipeline</td><td>Pilot-ready: <span class="mono">refcat --force</span>, saturation levels, docs</td><td><span class="chip good">merged</span></td></tr>
+          <tr><td class="m">#28</td><td>P1 pipeline</td><td><span class="mono">suspects</span> checks Gaia and CatWISE against <span class="mono">refcat/</span> locally: 6 s instead of 30+ min of web queries (found by the smoke test)</td><td><span class="chip good">merged</span></td></tr>
+        </tbody></table></div>
     </div>
   </section>
 
@@ -943,14 +1233,14 @@ gcloud run deploy skyshift-api --source . --region us-east4 \
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">Rules and compliance</p>
         <h2>What keeps the submission eligible</h2>
-        <p class="muted">From the Space Apps FAQ, submission guide and terms. Any item that fails the Sunday 12:00 check gets fixed before anything else.</p>
+        <p class="muted">From the Space Apps FAQ, submission guide and terms. Any item that fails the check at the Saturday 22:00 save, or the Sunday 09:00 private-window check, gets fixed before anything else.</p>
       </div>
       <div class="tablewrap"><table>
         <thead><tr><th>Rule</th><th>What we do</th></tr></thead>
         <tbody>
           <tr><td><b>No project code before Sat 09:00</b></td><td>The FAQ says teams may not start work on the challenge before the hackathon. Accounts, quotas, installs and reading are preparation. The repo is created at 09:00 so its history starts at kickoff. The plan pages' simulated demo code is never reused.</td></tr>
           <tr><td><b>AI disclosure</b></td><td>The project page and a README "Use of SI" section say plainly that Claude Code wrote most of the code from our instructions and helped with research, planning and text, and that we reviewed and tested it. Commits keep their <span class="mono">Co-Authored-By</span> line. The idea and the decisions are the team's. The draft text is on the <a href="skyshift-hackathon-plan.html">concept page</a>.</td></tr>
-          <tr><td><b>Screen recordings only</b></td><td>Every image, GIF and video is a screen recording of the running tool on real data. No AI-generated media, so no watermark is needed. No NASA logos. The planted object in the S4 drill is labelled as simulated.</td></tr>
+          <tr><td><b>Screen recordings only</b></td><td>Every image, GIF and video is a screen recording of the running tool on real data. No AI-generated media, so no watermark is needed. No NASA logos. The S4 planted-object drill is cut; anything simulated that is ever shown is labelled as such.</td></tr>
           <tr><td><b>Video 30 s or less</b></td><td>Cut to 29.0 s, and check the length with a tool before upload: <span class="mono">ffprobe -v error -show_entries format=duration -of csv=p=0 skyshift.mp4</span>. The seven slides are the fallback demo.</td></tr>
           <tr><td><b>Public repo and links</b></td><td>The repo is public from the first commit. The video and live site links are tested in a private window: no password, permission or sign-in.</td></tr>
           <tr><td><b>Licence Apache-2.0</b></td><td>In <span class="mono">LICENSE</span> from the first commit. Every outside library and data source is listed on the page, with its licence where it matters (Aladin Lite is GPL-3.0).</td></tr>
@@ -962,7 +1252,7 @@ gcloud run deploy skyshift-api --source . --region us-east4 \
 
 <footer>
   <div class="wrap stack small">
-    <p>Version 2, 14 November 2026. Facts checked 14 November 2026. Costs and speeds are planning estimates until measured. Version 1 is kept at <span class="mono">docs/archive/skyshift-dev-plan-v1.html</span>. What we build and why: <a href="skyshift-hackathon-plan.html">concept plan</a>.</p>
+    <p>Version 3, Saturday 14 November 2026, updated to the built system. Costs are from Google's price list (EUR, us-east4). Anything marked "not yet run" or "after the pilot" has no real-data number yet. Version 1 is kept at <span class="mono">docs/archive/skyshift-dev-plan-v1.html</span>. What we build and why: <a href="skyshift-hackathon-plan.html">concept plan</a>.</p>
     <p><a href="https://irsa.ipac.caltech.edu/Missions/spherex.html">IRSA SPHEREx</a> · <a href="https://irsa.ipac.caltech.edu/cloud_access/">IRSA cloud access</a> · <a href="https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/">IRSA tutorials</a> · <a href="https://irsa.ipac.caltech.edu/applications/MOST">MOST</a> · <a href="https://gea.esac.esa.int/archive/">ESA Gaia archive</a> · <a href="https://cds-astro.github.io/aladin-lite/">Aladin Lite docs</a> · <a href="https://code.claude.com/docs/en/setup">Claude Code setup</a></p>
   </div>
 </footer>
@@ -972,70 +1262,68 @@ gcloud run deploy skyshift-api --source . --region us-east4 \
 "use strict";
 const AREAS=[
  {id:"p1",color:"var(--p1)",who:"P1 · Lead",name:"Science, pipeline, validation",
-  short:"core/, the first-photo facts, validation V1–V8, the pilot and the gated hunt zone. Owns the repo and contracts.",
-  mission:"Write the shared science code everyone imports, check the real data facts at 10:00, and produce the numbers that prove the tool works. As lead, also own the repo, the contracts and the cloud machines.",
-  owns:"core/, pipeline/, scripts/validate/, contracts/, fixtures/, infra/worker/, .claude/, CLAUDE.md",
-  gets:"The first photo and P2's photo lists, cutouts and visit stacks; SPHEREx files from s3://nasa-irsa-spherex; Gaia DR3 (ESA TAP); MOST; SkyBoT.",
-  gives:"`core/` (visit rule, masks, centroid, shift, photometry) for server and pipeline; contracts v2 and `contracts/flags.md`; `web/public/data/validation.json` and `suspects.json`; the first-photo facts at 10:00.",
+  short:"core/, the pipeline (photos → dots → tables), validation, the pilot and the gated hunt zone. Owns the repo, contracts and cloud machines.",
+  mission:"Write the shared science code everyone imports, run the pipeline that turns every photo into dots and tables, and produce the numbers that prove the tool works. As lead, also own the repo, the contracts and the cloud machines.",
+  owns:"core/, pipeline/, scripts/validate/, contracts/, fixtures/, infra/worker/, docs/, .claude/, CLAUDE.md",
+  gets:"SPHEREx photos streamed from s3://nasa-irsa-spherex; IRSA search and MOST; Gaia DR3 (ESA TAP); CatWISE2020 and 2MASS (IRSA); SkyBoT, then MPC orbits (kete); SDSS DR17.",
+  gives:"`core/` (visit rule, masks, centroid, shift, photometry) for server and pipeline; the contracts; `web/public/data/validation.json` and `suspects.json`; the pipeline tables in `results/<zone>/`.",
   must:[
-   "09:00 · With the team, ask the Local Lead for the deadline, pitch length and night access. Then the public repo, contracts v2 (`api.md`, `flags.md`, `dots.md`) and the `CLAUDE.md` files.",
-   "10:00 · Open the first photo. Check `MJD-AVG`, detector naming (`energy_bandpassname` vs header vs filename), the flag bits, units (MJy/sr), image and file size. Post the facts to the team; fix `contracts/flags.md`.",
-   "11:00 · `core/`: visit rule, flag mask, detect, centroid (wings when saturated), positions compared with Gaia moved to each visit's mid-time.",
-   "12:00–14:00 · Shift measurement. V3 error floor from 10 or more quiet Gaia stars (G 13–17). V2: Barnard's Star vs Gaia's 10.39″/yr at PA 355.6°.",
-   "14:00 · V4: asteroids numbered 1–60 through MOST (`catalog=spherex`, `output_mode=Brief`, numbers not names); 5′ cutouts; control 3′ away.",
-   "15:00 · Gate G1. Then photometry for the spectrum: µJy per cutout, by wavelength and visit.",
-   "21:00 · `validation.json` v1 with V1–V4 for P3's scoreboard. A poor number is still printed."],
+   "09:00 · Public repo, contracts, `CLAUDE.md` files. Done.",
+   "10:30–13:00 · Cloud set-up (bucket, machines, accounts): done and tested. Pipeline code: merged through PR #22. Validation data. V2 and V3 numbers.",
+   "~13:45 · Pilot on `skyshift-test`: `vm.sh run test 'cd pipeline && uv run skyshift-pipeline all --zone pilot'`.",
+   "14:00 · V4: known asteroids 1–60 re-found through MOST, with a control 3′ away.",
+   "~14:30 · Gate G2 from `recall.json`, right after the pilot. Yes: hunt zone on `skyshift-worker`. No: 30 minutes on the time keyword, OUTLIER mask and match radius, then stop S1.",
+   "15:00–17:00 · Hunt-zone results → `suspects.json`. `validation.json` v1. A poor number is still printed.",
+   "18:00–19:30 · README credits and AI section. Page text: data, validation, limits. 19:30: numbers frozen.",
+   "20:00–22:00 · Project page with working links."],
   should:[
-   "16:00 · S1 pilot: 12 deg², about 230 photos, on the test machine. 17:00: SkyBoT match and control.",
-   "18:00 · Gate G2: pilot recall at V < 16 of 50% or more starts the hunt zone on the worker. Otherwise check the time keyword, OUTLIER mask and match radius for 30 min, then stop S1.",
-   "20:00–03:00 · SkyBoT queries (`ssp.imcce.fr`, geocentre, `-from=SkyShift`, cached), matching, suspects and the recall chart (V5).",
-   "Overnight · S3 Gagné brown-dwarf list (V7; a hand list of 10 if it isn't loaded in 30 min). Spectrum check (V8). Numbers frozen 03:30.",
-   "Sun 09:00 · README, licence, AI section, references. 10:00: page text on data, validation and limits."],
-  done:"`validation.json` holds the five targets, Barnard's motion vs Gaia, and N of 60 asteroids re-found.",
-  watch:"Never mask SOURCE: it is set on about 99% of pixels. Three of the five targets saturate: centroid on the wings and mark the core. Use the visit rule, never fixed date bins. Parallax (at most 1.1″) is below what we can measure: show Gaia's distance. Stop the worker when it's idle.",
-  claude:"# core/CLAUDE.md\nShared science code, imported by server/ and pipeline/. No web or cloud code here.\n- visits(mjds), sessions(mjds): the visit rule in contracts/api.md.\n- bad_pixel_mask(flags): exactly the 'mask' bits in contracts/flags.md. Never SOURCE or FULLSAMPLE.\n- detect, centroid (wings when saturated), shift between visit stacks, aperture photometry in µJy.\n- Time = MJD-AVG (UTC). Detector = energy_bandpassname. IMAGE in MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel.\n- Pure functions: numpy in, numpy or dicts out. Tests: uv run pytest on fixtures/fits/.\n\n# pipeline/CLAUDE.md\nPilot and hunt zone. Reads IMAGE, FLAGS, WCS-WAVE from s3://nasa-irsa-spherex (anonymous).\n- One Parquet file per photo in gs://nasa-glazing-data/dots/ (contracts/dots.md). Its existence marks the photo done; skip it on restart. No job list, no locks.\n- SkyBoT: ssp.imcce.fr, geocentre (500), -from=SkyShift, cached, a few requests at a time.",
-  prompt:"Read CLAUDE.md, core/CLAUDE.md, contracts/api.md and contracts/flags.md. In core/, build a small Python package skyshift_core with pure functions and pytest tests that use fixtures/fits/:\n1. visits(mjds) using the visit rule in contracts/api.md: sort the times, start a new visit where the gap exceeds 60 days, cut any visit longer than 45 days into 30-day bins. sessions(mjds) for runs with gaps under 10 minutes.\n2. bad_pixel_mask(flags) that masks exactly the bits listed under 'mask' in contracts/flags.md and never SOURCE or FULLSAMPLE.\n3. detect(image, mask) with sep, returning x, y and flux in µJy (IMAGE is MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel), with saturated = True when OVERFLOW or NONLINEAR is set in the core.\n4. centroid(image, x, y, saturated) that uses the wings when saturated.\n5. shift(stack_a, stack_b, wcs, ref_stars) returning shift_arcsec, pa_deg and sigma_arcsec from the reference stars, matching the measure fields in contracts/api.md.\nThen add scripts/validate/v2_barnard.py that reads the static frames in web/public/data/barnard/ and prints measured motion vs Gaia (10.39″/yr at position angle 355.6°). Start in plan mode and show me the plan before writing code."},
+   "Asteroid diameters and albedos from reflected light plus thermal emission (NEATM), compared with published values: a new validation check. Built (PR #26): D within 6% on the median.",
+   "Comet 3I/ATLAS: CO2, H2O and CO bands. In progress.",
+   "`refcat` merged (PR #20); pilot and hunt-zone catalogues are in the bucket."],
+  done:"`validation.json` holds the five targets, Barnard's motion vs Gaia, N of 60 asteroids re-found and the pilot's recall with its control; the pilot's reports are read (see the runbook).",
+  status:"Pipeline merged through PR #22 (dots v3, spectra, cross-ids, classes, photo-z, colours, light curves, astrometry, high-PM). `refcat` merged (PR #20), both zones built. Barnard's Star measured from real data: 10.83″ ± 0.36″ at PA 357.8° vs Gaia's 10.27″ with parallax (5.5%, inside V2's 15%). Pilot numbers come after the pilot.",
+  watch:"Never mask SOURCE: it was on 99.37% of pixels. Three of the five targets saturate: centroid on the wings and mark the core. Use the visit rule, never fixed date bins. Parallax is fitted only with 3 or more visits and is small against our errors: the card shows Gaia's distance. The machines stop themselves; check `vm.sh status` anyway.",
+  claude:"# core/CLAUDE.md\nShared science code, imported by server/ and pipeline/. No web or cloud code here.\n- visits(mjds), sessions(mjds): the visit rule in contracts/api.md (cut only visits over 75 days, into equal parts).\n- bad_pixel_mask(flags): exactly the 'mask' bits in contracts/flags.md. Never SOURCE or FULLSAMPLE.\n- detect, centroid (wings when saturated), shift between visit stacks, aperture photometry in µJy (correction 1.033 at r = 2 px).\n- Time = MJD-AVG (UTC). Detector = energy_bandpassname. IMAGE in MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel.\n\n# pipeline/CLAUDE.md (summary)\nReads IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE (~56 MB per photo) from s3://nasa-irsa-spherex, once.\nRun: uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]\nSteps: photolist, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves, astrometry, highpm, score, suspects; all runs them in order.\n- Every step skips what exists. The combining steps read only stored tables, never photos.\n- Every threshold lives in src/skyshift_pipeline/config.py.",
+  prompt:"Read CLAUDE.md, core/CLAUDE.md, contracts/api.md and contracts/flags.md. In core/, build a small Python package skyshift_core with pure functions and pytest tests that use fixtures/fits/:\n1. visits(mjds) using the visit rule in contracts/api.md: sort the times, start a new visit where the gap exceeds 60 days, cut any visit longer than 75 days into n = ceil(days / 30) equal parts. sessions(mjds) for runs with gaps under 10 minutes.\n2. bad_pixel_mask(flags) that masks exactly the bits listed under 'mask' in contracts/flags.md and never SOURCE or FULLSAMPLE.\n3. detect(image, mask) with sep, returning x, y and flux in µJy (IMAGE is MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel), with saturated = True when OVERFLOW or NONLINEAR is set in the core.\n4. centroid(image, x, y, saturated) that uses the wings when saturated.\n5. shift(stack_a, stack_b, wcs, ref_stars) returning shift_arcsec, pa_deg and sigma_arcsec from the reference stars, matching the measure fields in contracts/api.md.\nThen add scripts/validate/v2_barnard.py that reads the static frames in web/public/data/barnard/ and prints measured motion vs Gaia (10.39″/yr at position angle 355.6°). Start in plan mode and show me the plan before writing code."},
  {id:"p2",color:"var(--p2)",who:"P2",name:"Server and deploys",
   short:"Image search, photo lists, cutouts, visit stacks, static export, Cloud Run, the 3I/ATLAS movie, the public Hosting site.",
   mission:"Build the one function that turns a position into blink frames, run it ahead of time for the featured targets, and serve it live for any coordinates. Own Cloud Run, Firebase Hosting and CI.",
   owns:"server/, Dockerfile, scripts/precompute/, web/public/data/ (generated), infra/run/, infra/firebase/, .github/workflows/",
-  gets:"IRSA image search and cutouts; `core/` from P1; Gaia (ESA TAP), SkyBoT, MOST and NASA's 3I/ATLAS table; P1's V4 asteroid list.",
+  gets:"IRSA image search and cutouts; `core/` from P1; Gaia (ESA TAP), MPC orbits (kete), MOST and NASA's 3I/ATLAS table; P1's V4 asteroid list.",
   gives:"Photo lists in `photolists/` at 10:00; static files in `web/public/data/<slug>/`; live `/api/frames`, `/api/object`, `/api/gaia`, `/api/known`, `/api/resolve`; the public Hosting site.",
   must:[
-   "09:00 · Public Hosting site `skyshift` (https://skyshift.web.app, created). Empty site and an API stub live.",
-   "10:00 · Image search (`Irsa.query_sia`, collections `spherex_dr1` and `spherex_qr3`) for the five targets, 3I/ATLAS and the hunt zone. Save the photo lists to `gs://nasa-glazing-data/photolists/`.",
-   "11:00 · Cutouts (`?center=RA,DEC&size=DEG` on IRSA URLs), visit rule from `core/`, median stack per visit and detector, oversampled (3× for the 5′ field, 2× for 15′). Barnard's Star, one detector.",
-   "12:00 · Barnard's frames as static files in `web/public/data/barnard/`. 13:00: six detectors; WISE 0855 and Epsilon Indi B.",
-   "14:00 · RW Aurigae and R Draconis. Live `/api/frames` on Cloud Run. 15:00: `/api/object` and spectra for the five.",
-   "16:00 · 3I/ATLAS: NASA's table (55 exposures on 14 Dec 2025, with `comet_ra` and `comet_dec`) → cutouts → static Hours movie.",
-   "17:00 · Deploy; bucket cache; time to first frame. 18:00: two asteroid movies from P1's V4 batch.",
-   "22:00 · Static export script; handover note. 04:00–09:00: static export of everything, deploy, open every target at 08:00."],
+   "09:00 · Hosting site `skyshift` (https://skyshift.web.app). API shell: done (PR #9, fixture fallback until the engine lands).",
+   "10:30–13:00 · Barnard's Star blink from real data with `core/`: cutouts, visit rule, median stack; static files in `web/public/data/barnard/`.",
+   "13:00 · Six detectors; WISE 0855, Epsilon Indi B. 14:00: RW Aurigae, R Draconis. Live `/api/frames`.",
+   "15:00 · `/api/object`; spectra for the five.",
+   "15:00–17:00 · 3I/ATLAS movie; two asteroid movies from P1's V4 batch; deploy (`infra/run/deploy.sh`, then `infra/firebase/deploy.sh`); cache.",
+   "18:00–19:30 · Bug fixes; static export of everything; deploy.",
+   "20:00–22:00 · Last deploy 21:30. Private-window link tests; offline copy on the pitch laptop."],
   should:[
-   "21:00 · S2 fast Gaia stars: ESA Gaia TAP, `pm > 1500 AND phot_g_mean_mag > 12`, top 40 by `pm`. Runs unattended (V6).",
-   "Sun 09:00 · FortiGuard request, fixes. 10:00: private-window link tests; offline copy on the pitch laptop.",
+   "S2 (fast Gaia stars) is cut; pick it up only if idle after 18:00.",
    "Confirm on Firebase's pricing page that Hosting and Firestore stay in the no-cost tier after 17 Jan."],
   done:"All featured targets load from `/data` in under 2 s, and 10 random coordinates give a first frame from Cloud Run in under 15 s.",
+  status:"API shell merged (PR #9). Blink engine PR #13, open: Barnard's Star, Epsilon Indi B and WISE 0855 built from real data; RW Aur, R Dra, 3I/ATLAS and two asteroids in progress. maverickd07's backend playground (`tools/backend-playground/`, PR #15) tests the API and frames.",
   watch:"Be polite to IRSA: 7–12 workers, retries, `remote_timeout = 120`, cache everything. Cutouts work on IRSA's servers only, not on S3. If IRSA is slow (over 20 s, or one in five failing, for 15 min), use the saved photo lists and read files from S3 on the cloud machine. Subtract and add happen in the browser, not here. The TAP table name is unverified: use `Irsa.query_sia`.",
-  claude:"# server/CLAUDE.md\nFastAPI on Cloud Run (us-east4, 0–2 instances). Implements contracts/api.md exactly.\n- One function build_blink(ra, dec, fov, clock, det), used by server/ and scripts/precompute/. It uses core/ for the visit rule, masks and measurement.\n- Search: astroquery Irsa.query_sia, collections spherex_dr1 and spherex_qr3 (skip *_deep). The TAP table name is unverified.\n- Detector from energy_bandpassname. Time: middle of t_min and t_max, then MJD-AVG once a file is open.\n- Pixels: IRSA cutouts (?center=RA,DEC&size=DEG) only. Never whole files on demand.\n- Frames: 16-bit arrays with scale and zero, at most 300 px a side. Sampling per field as in contracts/api.md: months 5′ at 3×, 15′ at 2×; hours 20′ native, 60′ binned 2×. No PNGs, no stretch, no subtract or add on the server.\n- Cache in gs://nasa-glazing-data/cache/. Static files first: scripts/precompute writes web/public/data/<slug>/.\n- Tests: uv run pytest. Container: Dockerfile at the repo root, because the image needs core/ and server/; deploy with --source . from the root.",
+  claude:"# server/CLAUDE.md\nFastAPI on Cloud Run (us-east4, 0–2 instances). Implements contracts/api.md exactly.\n- One function build_blink(ra, dec, fov, clock, det), used by server/ and scripts/precompute/. It uses core/ for the visit rule, masks and measurement.\n- Search: astroquery Irsa.query_sia, collections spherex_dr1 and spherex_qr3 (skip *_deep). The TAP table name is unverified.\n- Detector from energy_bandpassname. Time: middle of t_min and t_max, then MJD-AVG once a file is open.\n- Pixels: IRSA cutouts (?center=RA,DEC&size=DEG) only. Never whole files on demand.\n- Frames: 16-bit arrays with scale and zero, at most 300 px a side. Sampling per field as in contracts/api.md: months 5′ at 3×, 15′ at 2×; hours 20′ native, 60′ binned 2×. No PNGs, no stretch, no subtract or add on the server.\n- Cache in gs://nasa-glazing-data/cache/. Static files first: scripts/precompute writes web/public/data/<slug>/.\n- Tests: uv run pytest. Container: Dockerfile at the repo root, because the image needs core/ and server/; deploy with --source . from the root.\n- Until an endpoint is real, return its example from fixtures/api/ (marked \"synthetic\": true).",
   prompt:"Read CLAUDE.md, server/CLAUDE.md, contracts/api.md and core/. In server/, write build_blink(ra, dec, fov_arcmin, clock, det) that:\n- finds SPHEREx exposures with astroquery Irsa.query_sia (collections spherex_dr1 and spherex_qr3) and picks the detector from energy_bandpassname;\n- takes each exposure's time as the middle of t_min and t_max;\n- fetches cutouts by appending ?center=RA,DEC&size=DEG to the IRSA image URL, with 8 workers, retries and astropy remote_timeout = 120;\n- for clock=months, groups exposures into visits with core.visits() and median-stacks each visit per detector on one oversampled grid with reproject (3× for the 5′ field, 2× for the 15′ field); for clock=hours, returns single exposures in time order (20′ at the native 6.15″ pixel, 60′ binned 2×);\n- masks pixels with core.bad_pixel_mask();\n- returns the frames.json shape in contracts/api.md with 16-bit frame data (scale, zero, at most 300 px a side).\nAdd scripts/precompute/run.py that calls it for every entry in web/src/data/targets.json and writes web/public/data/<slug>/frames.json, object.json and the frame files. Then wrap the same function in GET /api/frames with a cache in gs://nasa-glazing-data/cache/. Targets: first frame under 15 s live, under 2 s from static files. Start in plan mode and show me the plan before writing code."},
  {id:"p3",color:"var(--p3)",who:"P3",name:"Sky, cards, scoreboard",
-  short:"Vite app, coordinate box first, Aladin with IRSA layers, chips, URL state and embed, cards, spectrum chart, scoreboard page.",
+  short:"Vite app, coordinate box first, Aladin with IRSA layers, chips, URL state and embed, cards, spectrum chart, light-curve chart, colour readout, scoreboard page.",
   mission:"Build the app shell around the blink: the coordinate box that judges will use first, the sky view, the information card with the measure readout and the spectrum, and the 'How we know it works' scoreboard.",
   owns:"web/src/app, web/src/sky, web/src/card, web/src/api, web/src/data, web/src/score, web/index.html, styles",
   gets:"Static `/data/<slug>/frames.json` and `object.json`, `/data/validation.json`; `/api/resolve`, `/api/object`, `/api/gaia`; Aladin Lite 3.8.2; IRSA layer URLs.",
   gives:"The app shell, coordinate parser, URL state and `&embed=1`; an `openBlink(ra, dec, fov)` hook for P4; cards, the spectrum chart and the scoreboard page.",
   must:[
-   "09:00 · Vite + TypeScript app. Aladin Lite 3.8.2 from jsDelivr (unpkg as second) with IRSA layers: 2MASS colour base, SPHEREx cube on top.",
-   "10:00 · Coordinate parser first, with tests: `08h55m10.831s -7d14m42.53s`, other sexagesimal forms and decimal degrees. Then the five chips, the built-in name list and URL state.",
-   "11:00 · Gaia dots (from `frames.json` or `/api/gaia`); card layout. 12:00: card on fixtures.",
+   "10:30–13:00 · Vite + TypeScript app shell; coordinate box first (with tests: `08h55m10.831s -7d14m42.53s`, other sexagesimal forms, decimal degrees); chips; URL state; Aladin Lite 3.8.2 from jsDelivr with IRSA layers.",
    "13:00 · Measure readout: shift, rate, error, Gaia's prediction and distance.",
-   "14:00 · Spectrum chart: flux vs wavelength, coloured by visit; marks for water ice (about 3.0 µm), CH₄ (3.3), CO₂ (4.27), CO (4.6); saturated points hollow. 15:00: wire it; 'what to look for' text.",
-   "16:00 · Embed mode (`&embed=1`), data badge ('Data: DR1 + QR3, checked ⟨date⟩'), gallery of featured targets.",
-   "17:00 · Scoreboard page layout. 18:00: phone-width check. 21:00: the scoreboard reads `/data/validation.json`."],
+   "14:00 · Spectrum chart: flux vs wavelength, coloured by visit; molecule marks at the pipeline's band positions (ice H2O 3.05, CO2 4.27, CO 4.67 µm; CH4 3.3; H2O 1.4 and 1.9; CO 2.3); saturated points hollow.",
+   "15:00 · Spectrum wired; 'what to look for' text. The light-curve chart and the colour readout are P3's: the data is in the pipeline's `lightcurves` and `colours` tables (the web shape is not in contracts/api.md yet: agree it with P1).",
+   "15:00–17:00 · Scoreboard page reads `/data/validation.json`.",
+   "18:00–19:30 · Phone width; copy pass.",
+   "20:00–22:00 · Seven slides; screen set-up and captions."],
   should:[
-   "S6 · Flag-pixel overlay, AllWISE layer, light-curve chart (about 1 h each).",
-   "04:00–09:00 · Scoreboard with final numbers; gallery; phone layout; copy.",
-   "Sun 09:00 · UI and copy pass. 10:00: screen set-up and captions. 11:00: the seven slides."],
+   "S6 (flag-pixel overlay, AllWISE layer) is cut; pick it up only if idle after 18:00.",
+   "Embed mode (`&embed=1`), data badge ('Data: DR1 + QR3, checked ⟨date⟩'), gallery of featured targets."],
   done:"Pasting `08h55m10.831s -7d14m42.53s` opens WISE 0855 from static files with its card and spectrum, and the URL reopens the same view, also with `&embed=1` on a phone.",
   watch:"Never pass a CDS survey id: the default `P/DSS2/color` is broken. No `gotoObject`, `catalogFromSimbad`, `catalogFromVizieR` or `catalogFromSkyBot`. Aladin needs WebGL2; the blink must work without it. Keep `src/api` the only place that knows URLs, and try static files first. Check the molecule positions against SPHEREx material before showing them.",
   claude:"# web/CLAUDE.md\nVite + TypeScript, no heavy framework unless agreed. Two owners:\n- P3: src/app, src/sky, src/card, src/api, src/data, src/score, index.html, styles.\n- P4: src/blink, src/vote.\nDon't edit the other owner's folders.\n- Data: src/api tries /data/<slug>/*.json first, then /api/*. Shapes from contracts/api.md.\n- Aladin Lite 3.8.2 from https://cdn.jsdelivr.net/npm/aladin-lite@3.8.2/dist/aladin.js, unpkg as second. Layers by IRSA URL only. showSimbadPointerControl: false. No gotoObject, catalogFromSimbad, catalogFromVizieR, catalogFromSkyBot.\n- The blink must work without Aladin (no WebGL2, or tiles down).\n- Real buttons with aria-pressed or aria-selected; works at phone width.\n- Tests: npm test.",
@@ -1047,18 +1335,16 @@ const AREAS=[
   gets:"Frames (static first, then API) through P3's `src/api`; Gaia and known-object positions in `frames.json`; Firestore.",
   gives:"The blink player mounted through `openBlink`; `candidates` and `votes` in Firestore; CSV export; project page v0, GIF, video and pitch.",
   must:[
-   "09:00 · Open the project page form. Blink player on made-up 16-bit arrays.",
-   "10:00 · Player: speed, stretch (asinh, min/max), invert, subtract, add. All in the browser on the 16-bit data.",
-   "11:00 · Months/Hours switch; date legend. 12:00: load the static frames.",
-   "13:00 · Gaia rings moved to each date. 14:00: field-of-view picker (Months 5′ or 15′, Hours 20′ or 60′).",
-   "15:00 · Hours clock on a fixture. 16:00: comet movie with its path ring.",
-   "17:00 · Flag-a-dot (the click stores ra, dec, mjd, clock) and the candidate list. 18:00: votes to Firestore (mover / changing / junk / not sure) and counts. 20:00: CSV export.",
-   "21:00 · Project page v0 saved with working links. 22:00: walk the storyboard on the real site; list missing shots.",
-   "Sun 09:00 · Venue test with a QR code; record the GIF. 10:00: record video takes. 11:00: cut to 29.0 s, upload, check the length."],
+   "10:30–13:00 · Blink player on fixtures: speed, stretch (asinh, min/max), invert, subtract, add. All in the browser on the 16-bit data.",
+   "13:00 · Months/Hours switch, date legend, Gaia rings moved to each date.",
+   "14:00 · Load the static frames; field-of-view picker (Months 5′ or 15′, Hours 20′ or 60′).",
+   "15:00 · Hours clock on real frames.",
+   "15:00–17:00 · Flag-a-dot (the click stores ra, dec, mjd, clock), candidate list, votes to Firestore (mover / changing / junk / not sure), counts.",
+   "18:00–19:30 · CSV export; walk the storyboard on the real site.",
+   "20:00–22:00 · Record video takes; cut to 29.0 s; check the length with a tool. 21:30: pitch dry run.",
+   "Sun · Rehearsals at 11:00 and 13:00; final submission at 14:30."],
   should:[
-   "S4 · 'Hidden neighbour' drill: a simulated WISE 0855-like object planted in real frames, labelled as simulated (2 h).",
-   "S5 · False-colour still per visit (1.5 h). A still, not a blink mode.",
-   "Overnight · Votes on real suspects; page text; handover note."],
+   "S4 (hidden-neighbour drill) and S5 (false-colour still) are cut; pick one up only if idle after 18:00."],
   done:"The five targets and 3I/ATLAS play on both clocks from static files, a flag and a vote land in Firestore and show up in the CSV, and the 29.0 s video is uploaded.",
   watch:"Draw with pixelated scaling: smoothing hides one-pixel moves. Preload every epoch before playing. Never blink two detectors as if it were motion: D1 to D4 is a colour change. Screen recordings only, no AI-generated media. The video must be 30 s or less; check with a tool. Don't reuse the concept page's simulated demo code.",
   claude:"# (shares web/CLAUDE.md with P3)\nP4 works only in web/src/blink, web/src/vote and pitch/.\n- Frames are 16-bit arrays with scale and zero (contracts/api.md): value = raw × scale + zero, in MJy/sr. Stretch, invert, subtract and add happen here, in the browser.\n- Draw with image-rendering: pixelated. Preload every epoch before playing.\n- Months blinks visits; Hours blinks exposures. Never blink different detectors as motion.\n- Firestore: candidates and votes, fields exactly as contracts/api.md. Rules are create-only. voter is a random id kept in the browser.\n- Mount through openBlink(ra, dec, fov) from src/app.",
@@ -1073,11 +1359,11 @@ panels.innerHTML=AREAS.map((a,i)=>`<div class="area-panel" role="tabpanel" id="p
   <div class="col">
     <div class="stack" style="gap:6px"><span class="eyebrow">${esc(a.who)}</span><h3 style="font-size:1.35rem">${esc(a.name)}</h3><p>${fmt(a.mission)}</p></div>
     <dl class="kv"><dt>Owns</dt><dd class="mono">${esc(a.owns)}</dd><dt>Receives</dt><dd>${fmt(a.gets)}</dd><dt>Delivers</dt><dd>${fmt(a.gives)}</dd></dl>
-    <div class="stack" style="gap:8px"><h4>Must, by the Sunday 09:00 freeze</h4><ul class="tasks">${a.must.map(t=>`<li><span>${fmt(t)}</span></li>`).join("")}</ul></div>
-    <div class="stack" style="gap:8px"><h4>Should, after the gates</h4><ul class="tasks should">${a.should.map(t=>`<li><span>${fmt(t)}</span></li>`).join("")}</ul></div>
+    <div class="stack" style="gap:8px"><h4>Must, by the Saturday 20:00 freeze</h4><ul class="tasks">${a.must.map(t=>`<li><span>${fmt(t)}</span></li>`).join("")}</ul></div>
+    <div class="stack" style="gap:8px"><h4>Should, only if time allows</h4><ul class="tasks should">${a.should.map(t=>`<li><span>${fmt(t)}</span></li>`).join("")}</ul></div>
   </div>
   <div class="col">
-    <p class="done"><b>Done when:</b> ${fmt(a.done)}</p>
+    <p class="done"><b>Done when:</b> ${fmt(a.done)}</p>${a.status?`<p class="done"><b>Status:</b> ${fmt(a.status)}</p>`:""}
     <div class="code-block"><div class="code-head"><span>first message to Claude Code</span><button type="button" class="copy" data-copy="pr-${a.id}">Copy</button></div><pre id="pr-${a.id}" class="wrapit">${esc(a.prompt)}</pre></div>
     <div class="code-block"><div class="code-head"><span>your folder's CLAUDE.md</span><button type="button" class="copy" data-copy="cm-${a.id}">Copy</button></div><pre id="cm-${a.id}" class="wrapit">${esc(a.claude)}</pre></div>
     <p class="watch"><b>Risks:</b> ${fmt(a.watch)}</p>
