@@ -1,0 +1,27 @@
+[project]
+name = "skyshift-core"
+version = "0.1.0"
+description = "SkyShift shared science: flag masks, visit rule, detection, centroids, shifts, photometry for SPHEREx Level 2."
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.9",     # fsspec HTTP backend, for open_level2(https://...)
+    "astropy>=6.1",
+    "fsspec>=2024.6",
+    "numpy>=2.0",
+    "scipy>=1.11",
+    "sep>=1.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["network: needs internet (set SKYSHIFT_NETWORK=1 to run)"]
