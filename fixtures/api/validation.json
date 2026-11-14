@@ -131,6 +131,39 @@
       "expected": "within 20%; first frame under 15 s",
       "note": null,
       "rows": []
+    },
+    {
+      "id": "V9",
+      "claim": "Astrometry matches Gaia",
+      "status": "pending",
+      "headline": "not run yet",
+      "value": null,
+      "unit": null,
+      "expected": "bias near zero; pull scatter near 1",
+      "note": null,
+      "rows": []
+    },
+    {
+      "id": "V10",
+      "claim": "Galaxy distances match SDSS",
+      "status": "pending",
+      "headline": "not run yet",
+      "value": null,
+      "unit": null,
+      "expected": "sigma_NMAD ~0.02 for bright galaxies",
+      "note": null,
+      "rows": []
+    },
+    {
+      "id": "V11",
+      "claim": "Asteroid sizes match published values",
+      "status": "pending",
+      "headline": "not run yet",
+      "value": null,
+      "unit": null,
+      "expected": "diameter ratio near 1",
+      "note": null,
+      "rows": []
     }
   ]
 }
