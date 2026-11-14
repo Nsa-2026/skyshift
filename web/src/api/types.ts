@@ -48,7 +48,7 @@ export interface KnownObject {
   ra: number;
   dec: number;
   v: number | null;
-  source: "skybot" | "most" | "irsa-3i" | string;
+  source: "mpc" | "most" | "irsa-3i" | string;
 }
 
 export interface FramesResponse {
