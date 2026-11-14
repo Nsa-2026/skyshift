@@ -22,6 +22,18 @@ import type { BlinkHandle, CardHandle, MountPage, PageContext, PageHandle, SkyHa
 import { TARGETS, isEmbed, readView, targetBySlug, viewForTarget, writeView } from "./state";
 
 const html = String.raw;
+/** Each page's name in the browser tab ("Candidates: SkyShift"); the home page is plain SkyShift. */
+const PAGE_TITLES: Record<string, string> = {
+  discover: "Candidates",
+  review: "Review",
+  explore: "Blink",
+  live: "Live search",
+  community: "Community",
+  results: "Results",
+  learn: "Learn",
+  tools: "Tools and data",
+  about: "About",
+};
 /** Flip to true when src/atlas replaces its placeholder. */
 const ATLAS_READY = true;
 
@@ -66,6 +78,7 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-review" data-page="review" hidden></main>
     <main class="page page-candidate" data-page="candidate" hidden></main>
     <main class="page page-blink" data-page="explore" hidden>
+      <h1 class="visually-hidden" id="blink-h1">Blink</h1>
       <section class="stage" aria-label="Blink"><div id="blink"></div></section>
       <section id="card" class="side-card" aria-label="Object"></section>
       <div class="below">
@@ -91,6 +104,8 @@ export function startApp(root: HTMLElement): void {
   const input = $<HTMLInputElement>("#q");
 
   let view: View | null = null;
+  /** What the Blink page shows, for its heading and the tab title. */
+  let blinkName: string | null = null;
   let frames: FramesResponse | null = null;
   let object: ObjectResponse | null = null;
   let frameCtl: AbortController | null = null;
@@ -138,6 +153,9 @@ export function startApp(root: HTMLElement): void {
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
     view = next;
     if (push) writeView(next);
+    blinkName = next.name ?? formatRaDec(next);
+    $<HTMLHeadingElement>("#blink-h1").textContent = `Blink: ${blinkName}`;
+    if (current === "explore") document.title = `${blinkName}: SkyShift`;
     markChips(next.slug);
     input.value = next.name ?? formatRaDec(next);
     say("");
@@ -283,6 +301,9 @@ export function startApp(root: HTMLElement): void {
     const { page, param } = parseRoute();
     if (current && current !== page) pages.get(current)?.hide?.();
     current = page;
+    // Pages with their own title (Review, a candidate) set it in show(), after this.
+    const name = page === "explore" && blinkName ? blinkName : PAGE_TITLES[page];
+    document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
     const navKey = page === "candidate" ? "review" : page;
