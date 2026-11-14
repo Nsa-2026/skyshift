@@ -3,8 +3,9 @@
 Local implementation on `codex/frontend-unified`, 14 November 2026. No push or deployment.
 The latest user reference supplies the dashboard's light gray panels, dark text, rounded
 controls and red accents. It is a style reference, not a data source or an instruction to
-replace the existing scientific tools. The opening uses a front-facing girl and moves toward
-her eyes, as requested in the final correction.
+replace the existing scientific tools. The latest correction uses a black, frontal silhouette
+with one visible almond eye and extended liner inspired by ancient Egyptian murals. The camera
+approaches the silhouette straight on, centers the eye, then enters its pupil.
 
 ## Camera and rendering
 
@@ -16,15 +17,16 @@ time-based interpolation. Scrolling backwards reverses the shot. Resize preserve
 | --- | --- |
 | 0–0.25 | Real SPHEREx sky, title, enlarging shaded Earth |
 | 0.25–0.45 | Cloud passage, night hills, standing girl |
-| 0.45–0.70 | Frontal face, both eyes, then right pupil |
+| 0.45–0.70 | Frontal black silhouette, single visible eye, then pupil |
 | 0.70–0.90 | Real sky visible through pupil, expanding to fill the screen |
 | 0.90–1 | Search/header, five targets, existing player, candidate list reveal in order |
 
-Canvas paths and gradients draw Earth, clouds, scenery, hair and clothing. The face is a
-procedurally shaded height surface with authored eyes, iris strokes, brows and lips; it is a
-stylized frontal portrait, not a photorealistic rigged 3D asset. Its lighting is computed once
-into an in-memory canvas. No video, AI-generated image, external character model or generated
-astronomical pixels are used. Only the first screen's sky has slow ambient rotation; the
+Canvas paths and gradients draw Earth, clouds and scenery. The figure is a flat black outline:
+rounded crown, blunt hair, long neck and tapered robe. A single pale almond eye has a simple
+iris and extended liner. There is no skin shading, nose, mouth, hair-strand texture or clothing
+detail. Mobile face framing scales to viewport width and centers the eye before its close-up.
+No video, AI-generated image, external character model or generated astronomical pixels are
+used. Only the first screen's sky has slow ambient rotation; the
 narrative camera is controlled by scroll. The sky stops rotating for the dashboard.
 
 ## Real sky and provenance
@@ -85,7 +87,7 @@ Run the existing Vite preview at <http://127.0.0.1:5173/>. Returning visitors ca
 
 These captures are screenshots of the running local tool, not generated concept art:
 
-![Frontal approach](previews/intro/frontal-face.jpg)
+![Black silhouette with mural-style eye](previews/intro/frontal-face.jpg)
 ![Dashboard](previews/intro/desktop-dashboard.jpg)
 
 Additional captures: [landing](previews/intro/landing.jpg),

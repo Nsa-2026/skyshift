@@ -1,7 +1,7 @@
 # Unified observatory frontend
 
 The current entry/Explore shell follows the latest light dashboard reference and includes a
-scroll opening with a frontal face approach. See [the opening implementation and verification](scroll-intro.md)
+scroll opening with a frontal black silhouette and a single mural-style eye. See [the opening implementation and verification](scroll-intro.md)
 for current routes, real-sky provenance and 1,006 passing local checks (4 network skips).
 
 The integration baseline documented below is the earlier black observatory screenshot:
