@@ -120,3 +120,32 @@ SOURCE_PHOTO_MAX_FRAC = 0.9    # a photo with SOURCE at the peak of more than th
                                # (seen: 99.98% on 2025W42_2A_0111_1D1) carries no information: ignore it there
 CATALOG_BATCH = 50
 EVIDENCE_RANK = {"two_exposures": 0, "two_detectors": 1}
+
+# --- dots extras: zodi, ePSF photometry, shape, photo metadata (contracts/dots.md) --------------
+DOTS_READ_ZODI = True          # read the ZODI HDU (16.6 MB more per photo) for zodi_mjysr and the photo's zodi median
+DOTS_READ_EPSF = True          # read the EPSF table (3.9 MB; once per worker per ePSF calibration file) for flux_psf_*
+PSF_FIT_HALF_PX = 3            # ePSF fit on a 7 × 7 stamp around the dot
+PSF_FIT_MIN_PIX = 12           # fewer unmasked pixels than this: flux_psf_* NaN
+PSF_MODEL_FRAC = 0.03          # ePSF shape error added in quadrature to the pixel noise (fraction of the model)
+PSF_NOISE = "detect"           # pixel noise of the fit: "detect" = max(√VARIANCE, background rms) as in core.detect;
+                               # "variance" = √VARIANCE only (chi2 then grows with confusion in crowded fields)
+PHOTO_META_KEY = "skyshift_photo"  # Parquet key-value metadata of each dot file (JSON)
+PHOTO_META_HEADER_KEYS = (     # IMAGE header values copied into it as they are (missing keys -> null)
+    "MJD-BEG", "MJD-AVG", "MJD-END", "XPOSURE", "TELAPSE",
+    "X_SC_START", "Y_SC_START", "Z_SC_START", "VX_SC_START", "VY_SC_START", "VZ_SC_START",
+    "X_SC", "Y_SC", "Z_SC", "VX_SC", "VY_SC", "VZ_SC",
+    "X_SC_END", "Y_SC_END", "Z_SC_END", "VX_SC_END", "VY_SC_END", "VZ_SC_END",
+    "FINAST", "MATCH_NSTARS", "ASTRONETSOLVED", "OMEGA_MEDIAN", "OMEGA_STDDEV", "PSF_FWHM",
+    "L1DQAFLG", "L2DQAFLG", "HE_AG_AMPL", "AURORA_CORR", "SHUTTLE_GLOW_CORR",
+    "NBLMSRCS", "NSNOWSRC", "L2 SATSTRKS", "SPS_ELON", "SPS_ELAT", "SPS_EPA", "SGT_MIN_GCD2SAA",
+)
+PHOTO_META_HEADER_PREFIXES = ("L2 N_",)  # every flag count key, e.g. 'L2 N_OVERFLOW'
+AP_RADII_PX = (1.0, 1.5, 2.0, 3.0, 4.5)  # flux_ap_ujy / flux_ap_err_ujy, one value per radius
+AP_BKG_ANNULUS_PX = (5.5, 8.0)  # local background annulus of those apertures (outside 4.5 px)
+FORCED_EDGE_PX = 3.0            # forced targets at least this far inside the frame
+FORCED_ZONE_MARGIN_DEG = 0.05   # ... and inside the zone box plus this margin
+FORCED_WARN_TARGETS = 30_000    # log a warning above this many forced targets in one photo (no cut)
+CALIB_ASTROM_MIN_SNR = 20.0     # photo metadata: dots used for the offset against forced Gaia targets
+CALIB_ASTROM_MATCH_ARCSEC = 2.0
+CALIB_PSF_MIN_SNR = 50.0        # photo metadata: unsaturated dots used for the PSF size / ellipticity
+PHOTO_META_GRID = 32            # photo metadata: 32 × 32 block means of the background and ZODI maps

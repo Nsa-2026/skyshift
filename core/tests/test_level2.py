@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -83,3 +84,97 @@ def test_open_url_region(cutout_path, cutout_stars):
     np.testing.assert_array_equal(l2.flags, ref.flags)
     np.testing.assert_allclose(l2.wcs.all_pix2world(50, 50, 0), ref.wcs.all_pix2world(50, 50, 0), atol=1e-9)
     assert l2.wavelength(50, 50) == pytest.approx(ref.wavelength(50, 50))
+
+
+# --- ZODI and EPSF (optional reads) -----------------------------------------------------------
+EPSF_FILE = Path(__file__).parent / "data" / "epsf_d1_centre3x3.npz"  # 9 real zones (BINX, BINY 9-11)
+
+def epsf_hdu(path) -> "fits.BinTableHDU":
+    """An EPSF HDU (as in a Level 2 file) built from the real zones saved in tests/data/*.npz
+    (*.fits is git-ignored outside fixtures/)."""
+    z = np.load(path)
+    cols = [fits.Column(name=c, format=f, array=z[c], **kw) for c, f, kw in [
+        ("BINX", "J", {}), ("BINY", "J", {}), ("XCENTER", "E", {"unit": "pixel"}), ("YCENTER", "E", {"unit": "pixel"}),
+        ("XWIDTH", "E", {"unit": "pixel"}), ("YWIDTH", "E", {"unit": "pixel"}), ("NSTAR", "J", {}),
+        ("NEFF_MEAN", "E", {}), ("CWAVE", "E", {"unit": "um"}), ("CBAND", "E", {"unit": "um"}),
+        ("EPSF", "1089D", {"dim": "(33,33)"})]]
+    hdu = fits.BinTableHDU.from_columns(cols, name="EPSF")
+    hdu.header["OVSMPX"], hdu.header["OVSMPY"] = int(z["OVSMPX"]), int(z["OVSMPY"])
+    hdu.header["ORDERING"] = "x-fast then y"
+    return hdu
+
+
+
+def synthetic_mef(tmp_path, cutout_path):
+    """The fixture cutout plus a ZODI plane and a real 3 x 3-zone EPSF table (the cutout has neither)."""
+    with fits.open(cutout_path) as h:
+        hdus = [fits.PrimaryHDU(header=h[0].header)]
+        hdus.append(fits.ImageHDU(h["IMAGE"].data, h["IMAGE"].header, name="IMAGE"))
+        hdus.append(fits.CompImageHDU(h["FLAGS"].data, name="FLAGS"))
+        hdus.append(fits.ImageHDU(h["VARIANCE"].data, name="VARIANCE"))
+        ny, nx = h["IMAGE"].data.shape
+        zodi = (0.1 + 1e-4 * np.arange(nx)[None, :] + 2e-4 * np.arange(ny)[:, None]).astype(np.float32)
+        z = fits.ImageHDU(zodi, name="ZODI")
+        z.header["BUNIT"] = "MJy / sr"
+        hdus.append(z)
+        hdus.append(epsf_hdu(EPSF_FILE))
+        hdus.append(fits.BinTableHDU(h["WCS-WAVE"].data, h["WCS-WAVE"].header, name="WCS-WAVE"))
+    p = tmp_path / "synthetic_l2.fits"
+    fits.HDUList(hdus).writeto(p)
+    return p, zodi
+
+
+def test_zodi_epsf_default_off_and_missing(cutout_path):
+    l2 = open_level2(cutout_path)
+    assert l2.zodi is None and l2.epsf is None
+    l2 = open_level2(cutout_path, zodi=True, epsf=True)  # the cutout has no ZODI / EPSF HDU
+    assert l2.zodi is None and l2.epsf is None
+
+
+def test_zodi_and_epsf_reads(tmp_path, cutout_path):
+    p, zodi = synthetic_mef(tmp_path, cutout_path)
+    l2 = open_level2(p, zodi=True, epsf=True)
+    assert l2.zodi.dtype == np.float32
+    np.testing.assert_array_equal(l2.zodi, zodi)
+    sub = open_level2(p, zodi=True, epsf=True, region=(10, 60, 20, 90))
+    np.testing.assert_array_equal(sub.zodi, zodi[20:90, 10:60])
+    assert sub.epsf.origin == (10, 20)
+    assert l2.epsf.psf.shape == (9, 33, 33) and l2.epsf.oversample == (5, 5)
+    np.testing.assert_allclose(l2.epsf.psf.sum(axis=(1, 2)), 1.0, atol=1e-6)
+    # zone lookup: each zone centre maps to its own row; the region shift is applied
+    E = l2.epsf
+    for k in range(9):
+        assert E.zone(E.xcenter[k], E.ycenter[k]) == k
+        assert sub.epsf.zone(E.xcenter[k] - 10, E.ycenter[k] - 20) == k
+    assert E.zone(-1e4, -1e4) == int(np.argmin(E.xcenter + E.ycenter))  # off the grid: nearest zone
+    # metadata columns come along
+    assert set(["NSTAR", "NEFF_MEAN", "CWAVE", "CBAND"]) <= set(E.table.columns.names)
+    assert l2.primary_header is not None
+
+
+def test_epsf_stamps_are_normalised_and_centred():
+    from skyshift_core.level2 import EPSF
+    E = EPSF.from_hdu(epsf_hdu(EPSF_FILE))
+    rng = np.random.default_rng(2)
+    k = np.arange(-4, 5)
+    for _ in range(20):
+        x, y = 1000 + rng.uniform(-0.5, 0.5), 1000 + rng.uniform(-0.5, 0.5)
+        st = E.stamp(x, y, half=4)
+        ix, iy = round(x), round(y)
+        assert st.sum() == pytest.approx(1.0, abs=0.01)  # native pixels hold ~all the flux
+        # first moment ~ the source position (pixel sampling of an asymmetric ePSF moves it < 0.1 px)
+        assert (st * k[None, :]).sum() / st.sum() + ix == pytest.approx(x, abs=0.1)
+        assert (st * k[:, None]).sum() / st.sum() + iy == pytest.approx(y, abs=0.1)
+    # the oversampled arrays are centred on index 16 (within half an oversampled pixel)
+    i = np.arange(33)
+    for p in E.psf:
+        assert (p.sum(axis=0) * i).sum() == pytest.approx(16, abs=0.5)
+        assert (p.sum(axis=1) * i).sum() == pytest.approx(16, abs=0.5)
+    # a whole-pixel shift moves the stamp by one pixel
+    a = E.stamp(1000.2, 1000.1, half=3)
+    b = E.stamp(1001.2, 1000.1, half=3)
+    np.testing.assert_allclose(a, b, atol=1e-12)
+    # vectorised stamps agree with single ones
+    S, ix, iy = E.stamps([1000.2, 990.7], [1000.1, 1003.4], half=3)
+    np.testing.assert_allclose(S[1], E.stamp(990.7, 1003.4, half=3))
+    assert (ix == [1000, 991]).all() and (iy == [1000, 1003]).all()
