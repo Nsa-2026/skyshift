@@ -7,7 +7,26 @@ import type { Det, FramesResponse, SkyPos } from "../api/types";
 import { formatMjd, formatRaDec, sepArcsec } from "../app/astro";
 import type { MountSky, View } from "../app/modules";
 import type { AladinCatalog, AladinClick, AladinHiPS, AladinInstance, AladinOverlay, AladinStatic } from "./aladin";
-import { BASE_LAYERS, SPHEREX, TWO_MASS, type SkyLayer, cubeFrameForDet, cubeFrameUm } from "./layers";
+import { BASE_LAYERS, CUBE_UM, SPHEREX, TWO_MASS, type SkyLayer, cubeFrameForDet, cubeFrameUm } from "./layers";
+import { FEATURES, detChannel, featureAt } from "../colour/bands";
+import { BLANK_FRAMES } from "../colour/cube";
+
+/** The cube frame whose wavelength is closest to `um`. */
+function nearestFrame(um: number): number {
+  let best = 0;
+  CUBE_UM.forEach((v, i) => {
+    if (Math.abs(v - um) < Math.abs(CUBE_UM[best] - um)) best = i;
+  });
+  return best;
+}
+
+/** Plain words for one cube frame: wavelength, detector and channel, and any feature there. */
+export function frameText(frame: number): string {
+  const um = cubeFrameUm(frame);
+  const { det, channel } = detChannel(frame);
+  const f = featureAt(um);
+  return `${um.toFixed(2)} µm · D${det} channel ${channel}${f ? ` · ${f.name}: ${f.what}` : ""}`;
+}
 import { SkyUnavailable, loadAladinOnce } from "./loader";
 import { blinkFieldArcmin, brightest, centerAt, fieldCorners, firstEpochMjd, gaiaBudget, gaiaDots, skyFovDeg } from "./overlay";
 
@@ -100,6 +119,18 @@ export const mountSky: MountSky = (el, opts) => {
             ).join("")}
           </div>
           <span class="sky-um" data-um aria-live="polite"></span>
+          <div class="sky-slider">
+            <input class="sky-frame" type="range" min="0" max="${CUBE_UM.length - 1}" step="1" value="${cubeFrameForDet(2)}"
+              data-frame aria-label="SPHEREx wavelength, all 102 frames" />
+            <div class="sky-ticks" aria-hidden="true">
+              ${FEATURES.map(
+                (f) => html`<span class="sky-tick" style="left:${(100 * nearestFrame(f.um)) / (CUBE_UM.length - 1)}%"
+                  title="${f.um} µm ${f.name}: ${f.what}"></span>`,
+              ).join("")}
+              <span class="sky-tick sky-tick-gap" style="left:${(100 * 50.5) / (CUBE_UM.length - 1)}%"
+                title="2.40–2.45 µm: no data (dichroic)"></span>
+            </div>
+          </div>
           <button class="sky-switch" type="button" data-gaia aria-pressed="true" title="Gaia DR3 stars, moved to the shown epoch">Gaia stars</button>
         </div>
       </div>
@@ -121,6 +152,7 @@ export const mountSky: MountSky = (el, opts) => {
   const umLabel = q<HTMLSpanElement>("[data-um]");
   const keyEl = q<HTMLParagraphElement>("[data-key]");
   const opacityIn = q<HTMLInputElement>("[data-opacity]");
+  const frameIn = q<HTMLInputElement>("[data-frame]");
 
   // State that outlives Aladin: kept until it loads, then applied.
   let view: View | null = null;
@@ -192,7 +224,9 @@ export const mountSky: MountSky = (el, opts) => {
 
   function applySlice() {
     const f = currentSlice();
-    umLabel.textContent = `${cubeFrameUm(f).toFixed(2)} µm`;
+    umLabel.textContent = frameText(f);
+    frameIn.value = String(f);
+    frameIn.setAttribute("aria-valuetext", frameText(f));
     el.querySelectorAll<HTMLButtonElement>("[data-det]").forEach((b) => {
       b.setAttribute("aria-pressed", String(cubeFrameForDet(Number(b.dataset.det) as Det) === f));
     });
@@ -210,6 +244,7 @@ export const mountSky: MountSky = (el, opts) => {
     el.querySelector("[data-spherex]")!.setAttribute("aria-pressed", String(spherexOn));
     opacityIn.disabled = !spherexOn;
     el.querySelectorAll<HTMLButtonElement>("[data-det]").forEach((b) => (b.disabled = !spherexOn));
+    frameIn.disabled = !spherexOn;
     if (!al) return;
     try {
       if (spherexOn) {
@@ -506,6 +541,13 @@ export const mountSky: MountSky = (el, opts) => {
       applySlice();
     }),
   );
+  // The 102-frame slider. Frames 50 and 51 are blank (dichroic): step over them, never show black sky.
+  frameIn.addEventListener("input", () => {
+    let v = Number(frameIn.value);
+    if (BLANK_FRAMES.has(v)) v = v > currentSlice() ? 52 : 49;
+    slice = v;
+    applySlice();
+  });
   q<HTMLButtonElement>("[data-gaia]").addEventListener("click", (ev) => {
     gaiaOn = !gaiaOn;
     (ev.currentTarget as HTMLButtonElement).setAttribute("aria-pressed", String(gaiaOn));

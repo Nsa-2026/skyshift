@@ -421,3 +421,42 @@
     margin-left: 0;
   }
 }
+
+/* ---- the 102-frame wavelength slider (layer A1) ---- */
+.sky-slider {
+  position: relative;
+  flex-basis: 100%;
+  max-width: 560px;
+  padding-bottom: 10px;
+}
+.sky-frame {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.sky-frame:disabled {
+  opacity: 0.4;
+}
+/* Feature wavelengths as small pencil ticks under the track; the gap tick marks the blank frames. */
+.sky-ticks {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 8px;
+  pointer-events: none;
+}
+.sky-tick {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  background: var(--pencil-red);
+  pointer-events: auto;
+}
+.sky-tick-gap {
+  width: 6px;
+  margin-left: -3px;
+  background: repeating-linear-gradient(45deg, var(--ink-3) 0 1px, transparent 1px 3px);
+}
