@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.9)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.10)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -8,7 +8,8 @@ v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.
 v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows only;
 v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json;
 v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
-v3.9: `measure.source`, which detector, visits and exposures the shift was measured in).
+v3.9: `measure.source`, which detector, visits and exposures the shift was measured in;
+v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -532,7 +533,11 @@ the `vetted` rows of `highpm_candidates.parquet` (from 14 Nov evening; before, e
 fakes or not movers: a Gaia or CatWISE motion that isn't ours, chance-level pairs, too few sessions, nothing to
 check against, or a known slow Gaia star (contracts/dots.md, highpm_candidates).
 spectral: sources of `classes.parquet` with a band label or `brown_dwarf_like`, and either no Gaia match or
-a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. An object already
+a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. From v3.10 the exporter
+first cleans the labels: `pah_33` only from photoz's PAH at the galaxy's redshift (`label_pah_33_z`) or a good
+photo-z below 0.02; no ice label on a galaxy with a good photo-z; no `h2o_vapour` or `co_23` on a Gaia star with
+BP − RP ≥ 1.8 (an M dwarf, where they are expected). A Gaia DR3 star (G < 20) within 6″ at the source's epoch
+counts as a Gaia match (a blend), so `no_gaia` means none within 6″. At most 20 rows labelled `pah_33` alone. An object already
 listed from an earlier zone is not listed again, and the earlier entry's `zones` gets the later zone: movers
 within 6″ and 2 minutes (suspects.json's merge), high_pm and spectral within 4″. The pilot lies inside the
 hunt zone, which was run on the same photos: the hunt re-found all 27 pilot movers (the same ids as
@@ -541,11 +546,13 @@ shape (v3.7): every row of `results/<zone>/shape_candidates.parquet`, written by
 `python -m skyshift_pipeline.shape` (pipeline/src/skyshift_pipeline/shape.py; its report `shape_report.json`
 next to it); a zone without the file has none. A fixed source is listed when its dots, compared with single
 Gaia stars in the same photo and region of the detector, are stretched along one axis on the sky at ≥ 20σ
-(both visits along the same axis: `steady_pa`, or one visit only: `one_visit`), Gaia DR3 (G < 20) and
-CatWISE2020 list exactly one object within 15″ (any other entry there explains the stretch) and no entry
-within 35″ less than 2.5 mag fainter than it (the moments' background annulus reaches 34″), it is not
-saturated, not within 60″ of a G < 9 star, not flagged as an artefact on ≥ 25% of its dots, and classify
-doesn't call it a galaxy; at most the 150 most significant per zone. Within 4″ deduped like high_pm and
+(the short- and long-wavelength detectors along the same axis: `steady_pa`, or one visit only: `one_visit`),
+Gaia DR3 (G < 20), CatWISE2020 and 2MASS list exactly one object within 15″ (any other entry there explains the
+stretch; 2MASS at its own epoch) and no entry within 35″ less than 2.5 mag fainter than it (the moments'
+background annulus reaches 34″), the catalogued neighbours within 20″, weighted by flux ratio and the share of
+their light inside the moments' window, predict along its axis less than a quarter of the stretch (v3.10), it is
+not saturated, not within 60″ of a G < 9 star, not flagged as an artefact on ≥ 25% of its dots, and it is not a
+galaxy: not classify's galaxy, no good photo-z, and with no Gaia star not extended (v3.10); at most the 150 most significant per zone. Within 4″ deduped like high_pm and
 spectral. shape_report.json has the rule and its checks. Hunt (14 Nov, 38% of the photos): isolated single
 Gaia stars fire at 0.17% (10 of 5,803), Gaia pairs 3–10″ apart at 21% (383 of 1,809), along the pair's axis
 to 2° (median); 49 listed, of which about 23 would be expected from the single stars' rate. Single stars
@@ -611,12 +618,12 @@ candidate they are those of its (first) source.
 | unchecked | high_pm | No Gaia or CatWISE motion to check it against, and under 10σ or saturated (pipeline row only: not exported) |
 | gaia_slow | high_pm | Gaia agrees, but predicts under 150 mas/yr: a known slow star (pipeline row only: not exported) |
 | implausible_pm | high_pm | Faster than 12″/yr between visits: no star moves that fast (Barnard's Star, the fastest known, does 10.4″/yr), so it is almost certainly two different sources. In practice every pair (3–120″ apart about half a year apart; hunt 32–269″/yr) and the fits above 12″/yr; none is `vetted`. Hunt: 82 of 997 (55 pairs, 27 fits); pilot: 15 of 167 (12 pairs, 3 fits) |
-| no_gaia | spectral | No Gaia DR3 source here |
+| no_gaia | spectral | No Gaia DR3 source here (from v3.10: none with G < 20 within 6″) |
 | gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
 | class_star, class_galaxy, class_unsure | spectral | classify's `class` (unsure: point-like without a Gaia star) |
 | variable | spectral | Its brightness changes between visits (sources `variable`) |
 | elongated | shape | Its image is more stretched than single Gaia stars of the same S/N in the same photo and region of the detector (always set) |
-| steady_pa | shape | Two visits each show the stretch along the same axis on the sky (within 30°), although the detector turns between visits |
+| steady_pa | shape | The short-wavelength (D1–D3) and long-wavelength (D4–D6) detectors each show the stretch along the same axis on the sky (within 30°): two arrays with their own optics agree, which a PSF or detector effect would not (v3.10; before: two visits agreed) |
 | one_visit | shape | Only one visit shows the stretch; the others don't: something may have passed by, or that visit is noisier |
 | one_catalogue_source | shape | Gaia DR3 and CatWISE2020 list a single object within 15″ (always set): a second object would be new |
 | class_galaxy | shape | (also spectral) classify calls it a galaxy; galaxies are extended by nature. Not listed by the current rule; kept in the vocabulary |
@@ -924,3 +931,12 @@ single-process server only (scripts/run-local.sh).
   field or number changes. Files and answers without it (the static `object.json` files until the next
   precompute, cached live answers) read as `null`: unknown, never guessed from the player's frames.
   Proposed by 春。 (PR #66), adapted to v3.8.
+
+## Changes in v3.10 (15 Nov 2026): spectral and shape candidate rules
+
+- candidates.json spectral: the exporter cleans the labels (PAH from photoz at the galaxy's redshift, no ice on
+  a good-photo-z galaxy, no water vapour or CO 2.3 µm on Gaia M dwarfs), a Gaia G < 20 star within 6″ counts as a
+  Gaia match, and at most 20 PAH-only rows per zone. No field or code changes; fewer rows (hunt: 97 → about 9).
+- shape: `steady_pa` now means both detector arrays (D1–D3, D4–D6) show the stretch along the same axis; 2MASS
+  entries and flux-weighted neighbours to 20″ explain a stretch; galaxies (good photo-z, or extended with no Gaia
+  star) are not listed. No field or code changes; fewer rows (hunt: 49 → 5).
