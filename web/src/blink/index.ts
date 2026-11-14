@@ -1119,10 +1119,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       )
       .join("");
     const have = F ? detectorsIn(F) : [];
+    // A static file holds every detector prepared; a live answer only the one asked for, so any other is a request away.
+    const live = !!jsonUrl && new URL(jsonUrl, location.href).pathname.startsWith("/api/");
     $$<HTMLButtonElement>("[data-det]").forEach((b) => {
       const d = Number(b.dataset.det) as Det;
       b.setAttribute("aria-pressed", String(d === view!.det));
-      b.disabled = !!F && !have.includes(d) && d !== view!.det;
+      b.disabled = !!F && !live && !have.includes(d) && d !== view!.det;
     });
     root.style.setProperty("--det", `var(--d${view.det})`);
     markAvailable();
