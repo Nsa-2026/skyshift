@@ -152,3 +152,13 @@ export async function loadSuspects(signal?: AbortSignal): Promise<SuspectsRespon
     return null;
   }
 }
+
+/** Candidates for community review: /data/candidates.json (static, written by the pipeline export). */
+export async function loadCandidates(signal?: AbortSignal): Promise<import("./types").CandidatesResponse | null> {
+  try {
+    return await getJson<import("./types").CandidatesResponse>("/data/candidates.json", signal);
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    return null;
+  }
+}

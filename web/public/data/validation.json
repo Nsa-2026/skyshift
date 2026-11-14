@@ -58,9 +58,9 @@
           "visits": 7,
           "visits_recovered": 7,
           "stacks_expected": 22,
-          "stacks_recovered": 16,
-          "detectors": "D1,D2,D3,D5,D6",
-          "median_offset_px": 0.31
+          "stacks_recovered": 22,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.266
         }
       ]
     },
@@ -869,8 +869,8 @@
       "id": "V5",
       "claim": "Asteroids re-found, blind (S1)",
       "status": "pass",
-      "headline": "pilot: 63 of 68 known asteroid sessions at V < 16 found as movers (93%); control 0%; 7 of 7 objects",
-      "value": 0.926,
+      "headline": "pilot: 83 of 90 known asteroid sessions at V < 16 found as movers (92%); control 0%; 8 of 8 objects",
+      "value": 0.922,
       "unit": "recall",
       "expected": "Recall at V < 16 >= 50% (gate G2); control near 0",
       "note": "Zone pilot. A known object counts as found when a mover lies within the match radius of its prediction at the photo's MJD-AVG; control: every prediction moved 2'. Rows: v_min, v_max, n, found, recall, control_recall.",
@@ -894,33 +894,33 @@
         {
           "v_min": 14.0,
           "v_max": 15.0,
-          "n": 23,
-          "found": 21,
-          "recall": 0.913,
+          "n": 28,
+          "found": 25,
+          "recall": 0.893,
           "control_recall": 0.0
         },
         {
           "v_min": 15.0,
           "v_max": 16.0,
-          "n": 22,
-          "found": 20,
-          "recall": 0.909,
+          "n": 39,
+          "found": 36,
+          "recall": 0.923,
           "control_recall": 0.0
         },
         {
           "v_min": 16.0,
           "v_max": 17.0,
-          "n": 96,
-          "found": 80,
-          "recall": 0.833,
+          "n": 70,
+          "found": 58,
+          "recall": 0.829,
           "control_recall": 0.0
         },
         {
           "v_min": 17.0,
           "v_max": 18.0,
-          "n": 123,
-          "found": 54,
-          "recall": 0.439,
+          "n": 149,
+          "found": 59,
+          "recall": 0.396,
           "control_recall": 0.0
         }
       ]
@@ -1071,8 +1071,8 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "32,446 stars vs Gaia: proper-motion bias 20 (RA) and 0 (Dec) mas/yr, scatter 216 and 240 mas/yr; pull scatter 0.96, 1.07 (1 = honest error bars)",
-      "value": 216.072,
+      "headline": "32,446 stars vs Gaia: proper-motion bias 3 (RA) and -6 (Dec) mas/yr, scatter 147 and 145 mas/yr; pull scatter 0.98, 0.96 (1 = honest error bars)",
+      "value": 147.447,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
       "note": "Zone pilot; proper motions fitted over all dots with SPHEREx's own position as the observer. Pass when both pull scatters are 0.7-1.5. Rows: axis, n, bias, scatter, pull_scatter (mas/yr).",
@@ -1080,16 +1080,16 @@
         {
           "axis": "pmra",
           "n": 32446,
-          "bias": 19.559,
-          "scatter": 216.072,
-          "pull_scatter": 0.963
+          "bias": 3.194,
+          "scatter": 147.447,
+          "pull_scatter": 0.979
         },
         {
           "axis": "pmdec",
           "n": 32446,
-          "bias": 0.15,
-          "scatter": 239.838,
-          "pull_scatter": 1.066
+          "bias": -6.219,
+          "scatter": 145.401,
+          "pull_scatter": 0.962
         }
       ]
     },
@@ -1097,60 +1097,60 @@
       "id": "V10",
       "claim": "Galaxy distances match SDSS",
       "status": "pass",
-      "headline": "1227 bright galaxies: sigma_NMAD 0.023, outliers 2%",
-      "value": 0.0229,
+      "headline": "1211 bright galaxies: sigma_NMAD 0.021, outliers 2%",
+      "value": 0.0209,
       "unit": "dz/(1+z)",
       "expected": "sigma_NMAD ~0.02 for bright galaxies (AB < 17)",
       "note": "Zone pilot; EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts. Pass <= 0.05, partial <= 0.1. Rows: sample, n, sigma_nmad, outlier_frac, bias.",
       "rows": [
         {
           "sample": "all",
-          "n": 1413,
-          "sigma_nmad": 0.0246,
-          "outlier_frac": 0.0368,
-          "bias": 0.0071
+          "n": 1415,
+          "sigma_nmad": 0.0239,
+          "outlier_frac": 0.0417,
+          "bias": 0.005
         },
         {
           "sample": "good",
-          "n": 1054,
-          "sigma_nmad": 0.0224,
-          "outlier_frac": 0.0066,
-          "bias": 0.0066
+          "n": 1058,
+          "sigma_nmad": 0.0198,
+          "outlier_frac": 0.0113,
+          "bias": 0.0026
         },
         {
           "sample": "k_ab_lt_17",
-          "n": 1227,
-          "sigma_nmad": 0.0229,
-          "outlier_frac": 0.0171,
-          "bias": 0.006
+          "n": 1211,
+          "sigma_nmad": 0.0209,
+          "outlier_frac": 0.0223,
+          "bias": 0.003
         },
         {
           "sample": "K_AB -99..15",
-          "n": 133,
-          "sigma_nmad": 0.0334,
-          "outlier_frac": 0.0075,
-          "bias": 0.013
+          "n": 128,
+          "sigma_nmad": 0.0172,
+          "outlier_frac": 0.0078,
+          "bias": -0.005
         },
         {
           "sample": "K_AB 15..16",
-          "n": 506,
-          "sigma_nmad": 0.0245,
-          "outlier_frac": 0.0138,
-          "bias": 0.0061
+          "n": 500,
+          "sigma_nmad": 0.0201,
+          "outlier_frac": 0.022,
+          "bias": 0.0004
         },
         {
           "sample": "K_AB 16..17",
-          "n": 588,
-          "sigma_nmad": 0.0197,
-          "outlier_frac": 0.0221,
-          "bias": 0.0057
+          "n": 583,
+          "sigma_nmad": 0.0228,
+          "outlier_frac": 0.0257,
+          "bias": 0.0078
         },
         {
           "sample": "K_AB 17..18",
-          "n": 163,
-          "sigma_nmad": 0.0634,
-          "outlier_frac": 0.184,
-          "bias": 0.0184
+          "n": 181,
+          "sigma_nmad": 0.055,
+          "outlier_frac": 0.1713,
+          "bias": 0.0164
         },
         {
           "sample": "K_AB 18..99",
