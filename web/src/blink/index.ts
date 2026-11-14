@@ -1171,7 +1171,20 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (d.clock) {
       if (d.clock !== view.clock) {
         const clock = d.clock as Clock;
-        opts.onViewChange({ clock, fov: DEFAULT_FOV[clock] });
+        const fov = DEFAULT_FOV[clock];
+        const v = view;
+        // A featured target's other clock may lack this detector (WISE 0855 opens on D6; its hours
+        // frames are D2 and D5): switch to the nearest one it has instead of an empty plate.
+        if (!v.slug) opts.onViewChange({ clock, fov });
+        else
+          void targetIndex(v.slug).then((ix) => {
+            if (view !== v) return;
+            const dets = ix?.frames.find((f) => f.clock === clock && f.fov === fov)?.dets ?? [];
+            const det = dets.length && !dets.includes(v.det)
+              ? dets.reduce((a, b) => (Math.abs(b - v.det) < Math.abs(a - v.det) ? b : a))
+              : null;
+            opts.onViewChange(det ? { clock, fov, det } : { clock, fov });
+          });
       }
     } else if (d.fov) {
       if (Number(d.fov) !== view.fov) opts.onViewChange({ fov: Number(d.fov) });
