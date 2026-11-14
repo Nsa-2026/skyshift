@@ -1,6 +1,7 @@
 // The preview drawer (right on desktop, bottom sheet on phone): what the signal is, why it is on
 // the list, its key number with units, a live mini blink, votes so far (read only), and three
 // actions: Review it, Blink here, Next nearby. Also the small pin for a click on empty sky.
+import { GRADE_TEXT, failedGates, gradeCSentence, gradeLabel, gradeOf, isGate, votable } from "../api/grades";
 import type { Candidate, CandidateKind, FramesResponse } from "../api/types";
 import { DEFAULT_FOV, candidateFramesUrl, loadFrames } from "../api/client";
 import { formatRaDec } from "../app/astro";
@@ -47,6 +48,19 @@ export function votesText(c: Counts): string {
   return k
     ? `${head} People agree: ${ANSWER_TEXT[k.answer].label.toLowerCase()} (${Math.round(k.share * 100)} %).`
     : `${head} Consensus needs 5 votes with 70 % agreeing.`;
+}
+
+/** The vetting grade in one or two sentences, or nothing for a row without one (as before the vetting). */
+export function gradeLine(c: Candidate): string {
+  const g = gradeOf(c);
+  if (!g) return "";
+  const t = GRADE_TEXT[g];
+  const gates = g === "C" ? failedGates(c) : [];
+  const text =
+    g === "C"
+      ? `${gates.length ? gradeCSentence(gates) : "Grade C: it fails a pipeline check."} Most likely an artefact or a catalogued source, so it isn't put to a vote; you can still blink it.`
+      : `${gradeLabel(g)}. ${t.plain}`;
+  return `<p class="atl-dr-grade" data-grade="${g}">${esc(text)}</p>`;
 }
 
 function nearestKnownText(c: Candidate): string {
@@ -101,11 +115,15 @@ export function renderCandidate(
   const k = KIND_TEXT[c.kind];
   const key = keyNumber(c);
   const caution = flagsSentence(c.flags);
+  const grade = gradeOf(c);
+  const open = votable(c);
+  // A grade C's failed checks are in its grade line: don't repeat them as chips.
+  const reasons = grade === "C" ? c.reasons.filter((r) => !isGate(r)) : c.reasons;
   // Evidence and labels first, then the contract's "check first" codes, marked as cautions.
   const chips = [
     ...c.labels.map((l) => ({ text: labelText(l), caution: false })),
-    ...c.reasons.filter((r) => !isCaution(r)).map((r) => ({ text: reasonText(r), caution: false })),
-    ...c.reasons.filter(isCaution).map((r) => ({ text: reasonText(r), caution: true })),
+    ...reasons.filter((r) => !isCaution(r)).map((r) => ({ text: reasonText(r), caution: false })),
+    ...reasons.filter(isCaution).map((r) => ({ text: reasonText(r), caution: true })),
   ];
   const pos = formatRaDec(c);
   const scoreText = c.score != null && Number.isFinite(c.score) ? `, pipeline score ${c.score.toFixed(2)}` : "";
@@ -117,6 +135,7 @@ export function renderCandidate(
     </header>
     <p class="atl-dr-meaning">${esc(k.meaning)}</p>
     ${c.why ? `<p class="atl-dr-why">${esc(c.why)}</p>` : ""}
+    ${gradeLine(c)}
     ${
       key
         ? `<p class="atl-dr-key"><span class="atl-dr-num">${esc(key.value)}</span><span class="atl-dr-unit">${esc(key.unit)}</span></p>
@@ -142,7 +161,7 @@ export function renderCandidate(
     </dl>
     <p class="atl-dr-votes" data-votes aria-live="polite">Counting votes…</p>
     <div class="atl-dr-actions">
-      <a class="btn btn-primary" href="#/c/${encodeURIComponent(c.id)}" data-review>Review it</a>
+      <a class="btn btn-primary" href="#/c/${encodeURIComponent(c.id)}" data-review${open ? "" : ` title="Its page: every check it failed. Grade C isn't put to a vote."`}>${open ? "Review it" : "See why"}</a>
       <button class="btn" type="button" data-blink title="${
         c.frames_url ? "Blink its prepared frames, full size" : "Build frames of this spot live from NASA's archive (up to 15 s)"
       }">Blink here</button>
@@ -171,7 +190,11 @@ export function renderCandidate(
     .then((m) => {
       if (gone) return;
       const counts = m.get(c.id);
-      q<HTMLParagraphElement>("[data-votes]").textContent = counts ? votesText(counts) : "Votes couldn't be counted.";
+      q<HTMLParagraphElement>("[data-votes]").textContent = !open && (!counts || total(counts) === 0)
+        ? "Not put to a vote: grade C."
+        : counts
+          ? votesText(counts)
+          : "Votes couldn't be counted.";
     })
     .catch(() => {
       if (!gone) q<HTMLParagraphElement>("[data-votes]").textContent = "Votes couldn't be counted right now.";

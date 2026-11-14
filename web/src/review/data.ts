@@ -1,8 +1,9 @@
 import { candidateFramesUrl } from "../api/client";
 // Data for the review pages: the candidate list, each candidate's frames (static frames_url
 // first, then the live API) with a small preload cache, and the vote store.
-import { ApiFailure, epochsFor, loadCandidates, loadFrames } from "../api/client";
-import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames } from "../api/types";
+import { ApiFailure, epochsFor, loadCandidates, loadFrames, loadSuspects } from "../api/client";
+import { gradeOf } from "../api/grades";
+import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames, Suspect } from "../api/types";
 import type { View } from "../app/modules";
 import { safeStorage, type KV } from "../vote/model";
 import { getVoteStore, type VoteApi } from "../vote/store";
@@ -54,6 +55,8 @@ export function toCandidate(x: unknown): Candidate | null {
     why: typeof o.why === "string" ? o.why : "",
     flags: strings(o.flags),
     frames_url: typeof o.frames_url === "string" && o.frames_url ? o.frames_url : null,
+    // The vetting grade, only when the file has one (older exports: not vetted yet, never B).
+    ...(gradeOf(o) ? { grade: gradeOf(o) } : {}),
   };
 }
 
@@ -91,6 +94,21 @@ export function candidateSet(): Promise<CandidateSet | null> {
     if (!s && setPromise === p) setPromise = null;
   });
   return p;
+}
+
+// ---- the suspect behind a fast mover -------------------------------------------------------------
+
+let suspectsPromise: Promise<Map<string, Suspect>> | null = null;
+
+/**
+ * The suspects.json row of a fast mover (suspects and mover candidates share the id), for what the
+ * candidate list doesn't carry: near_source_arcsec. Read once; null when it isn't there.
+ */
+export function suspectFor(id: string): Promise<Suspect | null> {
+  suspectsPromise ??= loadSuspects()
+    .then((r) => new Map((Array.isArray(r?.suspects) ? r!.suspects : []).filter((s) => s && typeof s.id === "string").map((s) => [s.id, s])))
+    .catch(() => new Map<string, Suspect>());
+  return suspectsPromise.then((m) => m.get(id) ?? null);
 }
 
 // ---- frames ------------------------------------------------------------------------------------

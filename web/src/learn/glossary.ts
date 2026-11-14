@@ -5,6 +5,7 @@
 // Hover, focus or tap a term to see its sentence; Escape, a tap elsewhere or leaving closes it.
 // Facts follow CLAUDE.md "Domain facts" and web/DESIGN.md. Numbers carry units.
 import "./term.css";
+import { GATES, GATE_TEXT, GRADE_TEXT, type Gate } from "../api/grades";
 
 export interface GlossaryEntry {
   /** Stable id: #/learn/glossary/<slug>. */
@@ -16,6 +17,12 @@ export interface GlossaryEntry {
   /** Other spellings that find this entry (plurals are found without listing them). */
   aliases?: string[];
 }
+
+/** Catalogue checks read better as the catalogue first; the other checks use the lists' sentence. */
+const GATE_GLOSSARY: Partial<Record<Gate, string>> = {
+  "2mass": "An older infrared survey of the whole sky; the vetting grades C any mover with a 2MASS source within 6″, a star or galaxy that stays put.",
+  allwise: "A catalogue from NASA's WISE telescope; the vetting grades C any mover with an AllWISE source within 6″, a star or galaxy that stays put.",
+};
 
 export const GLOSSARY: GlossaryEntry[] = [
   {
@@ -244,6 +251,38 @@ export const GLOSSARY: GlossaryEntry[] = [
     def: "A planet some astronomers think may orbit far beyond Neptune to explain how distant icy bodies move; nobody has seen it yet.",
     aliases: ["Planet X", "Planet 9"],
   },
+  {
+    slug: "vetting-grade",
+    term: "Vetting grade",
+    def: "The pipeline's verdict on an unknown mover after its checks: A (candidate mover), B (unexplained single-session source) or C (fails a check).",
+    aliases: ["vetting", "grade", "vetted"],
+  },
+  {
+    slug: "grade-a",
+    term: "Grade A (candidate mover)",
+    def: `A vetting grade. ${GRADE_TEXT.A.plain}`,
+    aliases: ["grade A", "candidate mover"],
+  },
+  {
+    slug: "grade-b",
+    term: "Grade B (unexplained single-session source)",
+    def: `A vetting grade. ${GRADE_TEXT.B.plain}`,
+    aliases: ["grade B", "unexplained single-session source", "single-session source"],
+  },
+  {
+    slug: "grade-c",
+    term: "Grade C",
+    def: "A vetting grade: it fails a pipeline check or sits on a catalogued source, so it's most likely an artefact. It stays listed, greyed, with no vote.",
+  },
+  // The vetting's checks (gate reasons), in the words the lists use.
+  ...GATES.map(
+    (code): GlossaryEntry => ({
+      slug: code.replace(/_/g, "-"),
+      term: GATE_TEXT[code].term,
+      def: GATE_GLOSSARY[code] ?? GATE_TEXT[code].plain,
+      aliases: [code.replace(/_/g, " "), GATE_TEXT[code].label],
+    }),
+  ),
 ];
 
 const norm = (s: string): string =>

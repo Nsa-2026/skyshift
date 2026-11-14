@@ -2,6 +2,7 @@
 // Movers get a draft MPC report (ADES PSV), moving stars a Backyard Worlds post draft, everything a
 // citation and a permalink. Copy and download only: nothing is ever sent from here.
 import "./assist.css";
+import { gradeOf } from "../api/grades";
 import { ANSWER_TEXT, consensus, total, type Counts, type KV } from "../vote/model";
 import { esc, glyph } from "./checklist";
 import { copyText, downloadText, safeFileName } from "./clipboard";
@@ -52,6 +53,9 @@ function countsOf(c: AssistCandidate, votes: Counts | null | undefined): Counts 
 /** The opening sentence, from the votes so far. */
 export function leadSentence(c: AssistCandidate, votes: Counts | null): string {
   const report = c.kind === "mover" ? "report it to the Minor Planet Center" : c.kind === "high_pm" ? "tell the Backyard Worlds forum" : "share it";
+  // Grade C is never put to a vote: no consensus will come, so say so instead of asking for votes.
+  if (gradeOf(c) === "C")
+    return "Not put to a vote: the pipeline graded it C because it fails a check. There's nothing to report unless you confirm the motion yourself; the citation and link are below.";
   if (!votes) return `When the community agrees on it, ${report}. Until then the drafts are here to check.`;
   const n = total(votes);
   const con = consensus(votes);
@@ -131,6 +135,7 @@ export function mountWhatNext(el: HTMLElement, c: AssistCandidate, votes: Counts
     const title = opts.title ?? "What next";
     const blocks: string[] = [];
     const con = counts ? consensus(counts) : null;
+    const gradeC = gradeOf(cand) === "C";
     const holdBack = !!con && con.answer !== "mover";
     if (t.mpc) {
       const missing = html`<div class="wn-check">
@@ -141,7 +146,7 @@ export function mountWhatNext(el: HTMLElement, c: AssistCandidate, votes: Counts
         draftBlock(
           "mpc",
           "Report it to the Minor Planet Center",
-          html`${holdBack ? "Voters don't call this a mover, so don't send it. " : ""}A new asteroid or comet needs its positions at the MPC. Here is a report in ADES PSV, the MPC's format, for SPHEREx (observatory code 288): ${t.mpc.lines} line${t.mpc.lines === 1 ? "" : "s"}${t.mpc.fromMean ? ", from the mean position" : ""}. SkyShift never sends it: you check it and submit it through <a href="${MPC_ADES_URL}" target="_blank" rel="noopener noreferrer">the MPC's ADES page</a>.`,
+          html`${gradeC ? "Grade C: it fails a pipeline check, so don't send it unless you've confirmed the motion yourself. " : holdBack ? "Voters don't call this a mover, so don't send it. " : ""}A new asteroid or comet needs its positions at the MPC. Here is a report in ADES PSV, the MPC's format, for SPHEREx (observatory code 288): ${t.mpc.lines} line${t.mpc.lines === 1 ? "" : "s"}${t.mpc.fromMean ? ", from the mean position" : ""}. SkyShift never sends it: you check it and submit it through <a href="${MPC_ADES_URL}" target="_blank" rel="noopener noreferrer">the MPC's ADES page</a>.`,
           t.mpc.text,
           missing,
           "Draft MPC report, ADES pipe-separated values",

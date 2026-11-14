@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GATES, GATE_TEXT } from "../api/grades";
 import { mjdToDate } from "../app/astro";
 import { CONSENSUS } from "../vote/model";
 import { GLOSSARY, POP_ID, closeTermPopover, enhanceTerms, findTerm, openTerm, term, termState } from "./glossary";
@@ -37,6 +38,24 @@ describe("glossary entries", () => {
     const d = mjdToDate(61000);
     expect(d.toISOString().slice(0, 10)).toBe("2025-11-21");
     expect(findTerm("mjd")!.def).toContain("MJD 61000 is 21 November 2025");
+  });
+
+  it("explains the vetting grades and every gate reason in plain words", () => {
+    expect(findTerm("grade A")?.slug).toBe("grade-a");
+    expect(findTerm("candidate movers")?.slug).toBe("grade-a");
+    expect(findTerm("unexplained single-session source")?.slug).toBe("grade-b");
+    expect(findTerm("Grade C")?.slug).toBe("grade-c");
+    expect(findTerm("vetting grades")?.slug).toBe("vetting-grade");
+    expect(findTerm("grade-a")!.def).toContain("5σ");
+    expect(findTerm("grade-c")!.def).toMatch(/no vote/);
+    for (const code of GATES) {
+      const g = findTerm(code);
+      expect(g, code).toBeDefined();
+      expect(g!.def).not.toMatch(/_/);
+      expect(findTerm(GATE_TEXT[code].label)?.slug, code).toBe(g!.slug);
+    }
+    expect(findTerm("flux_ratio")?.term).toBe("Brightness jump");
+    expect(findTerm("2mass")!.def).toContain("6″");
   });
 
   it("finds words by slug, alias, case and simple plurals", () => {

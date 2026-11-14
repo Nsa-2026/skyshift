@@ -250,6 +250,9 @@ export interface ValidationResponse {
   checks: ValidationCheck[];
 }
 
+/** The pipeline's vetting grade (contracts/api.md, added 14 Nov). Words and ranking: ./grades.ts. */
+export type Grade = "A" | "B" | "C";
+
 export interface Suspect {
   id: string;
   ra: number;
@@ -264,6 +267,20 @@ export interface Suspect {
   /** 6″ sky-cell id (contracts/dots.md), an integer below 2^53. */
   cell: number;
   nearest_known_arcsec: number | null;
+  /** Vetting (added 14 Nov). Absent in older files: then the suspect is not vetted yet, never B. */
+  grade?: Grade;
+  /** The gates it fails, in contract order (empty for A and B). */
+  reasons?: string[];
+  /** Nearest catalogue or fixed source within 10″, arcsec: a warning, not a gate. */
+  near_source_arcsec?: number | null;
+  /** The track it is on (api v3.4, pipeline tracklets): sessions with a mover on it; null off a track, absent without tracks. */
+  n_sessions?: number | null;
+  /** The track's rate at this suspect's time, ″/h. */
+  rate_arcsec_h?: number | null;
+  /** The track's direction, degrees east of north. */
+  pa_deg?: number | null;
+  /** 1σ error of rate_arcsec_h, ″/h. */
+  rate_sigma?: number | null;
 }
 
 export interface SuspectsResponse {
@@ -271,6 +288,11 @@ export interface SuspectsResponse {
   data_release: string;
   zone: string;
   suspects: Suspect[];
+  /** Vetting (added 14 Nov), per zone. Absent in older files. */
+  vetoes?: string[];
+  provisional?: boolean;
+  grades?: Record<Grade, number>;
+  gates?: Record<string, number>;
 }
 
 /** /data/<slug>/index.json: written by scripts/precompute (P2), lists the frame sets of a featured target. */
@@ -340,6 +362,8 @@ export interface Candidate {
   flags: string[];
   /** Static blink frames for this candidate (frames.json shape), or null: then the live API is used. */
   frames_url: string | null;
+  /** Movers: the vetting grade (added 14 Nov). null or absent: not graded (other kinds, older exports). */
+  grade?: Grade | null;
 }
 
 export interface CandidatesResponse {

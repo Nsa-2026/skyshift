@@ -1,5 +1,6 @@
 // Plain words for the codes the pipeline writes (DESIGN.md "Candidates", "Smart filters").
 // Codes stay in title attributes and exports; people read these.
+import { GRADE_TEXT, gradeLabel } from "../api/grades";
 import type { CandidateKind } from "../api/types";
 
 export interface KindText {
@@ -123,6 +124,18 @@ export const FLAG_TEXT: Record<string, string> = {
 
 export const flagText = (code: string): string =>
   FLAG_TEXT[code.toLowerCase()] ?? (/repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary/i.test(code) ? FLAG_TEXT.repeat_position : humanize(code.toLowerCase()));
+
+/** The grade facet's values: the three grades, then "none" (not vetted yet, or a kind that isn't graded). */
+export const GRADE_VALUES = ["A", "B", "C", "none"] as const;
+
+/** A grade facet value in words, for the filter, the chips in use and their titles. */
+export function gradeFacetText(v: string): { label: string; title: string } {
+  if (v === "A" || v === "B" || v === "C") return { label: gradeLabel(v), title: `grade ${v}: ${GRADE_TEXT[v].plain}` };
+  return {
+    label: "No grade",
+    title: "No grade: fast movers found before the vetting ran, and every moving star and odd spectrum (only fast movers are graded).",
+  };
+}
 
 export type ReviewState = "none" | "some" | "consensus";
 export const REVIEW_TEXT: Record<ReviewState, string> = {

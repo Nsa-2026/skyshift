@@ -5,9 +5,10 @@ import real3 from "./fixtures/skyrun-real-1505Z.json";
 import sample from "./fixtures/skyrun-sample.json";
 import huntSuspects from "./fixtures/suspects-hunt-top30.json";
 import type { Suspect } from "../api/types";
-import { FeedError, httpSource, loadSkyrun, loadZoneSuspects, SKYRUN_URL } from "./load";
+import { FeedError, httpSource, loadSkyrun, loadZoneSuspects, SKYRUN_URL, toZoneSuspects } from "./load";
 import { parseSkyrun, type SkyRun } from "./model";
 import { createLivePage, mountLive, zonesToPolygons } from "./index";
+import { suspectsHtml } from "./render";
 import type { PageContext } from "../app/modules";
 
 const T = (iso: string) => Date.parse(iso);
@@ -145,6 +146,64 @@ describe("Live search page", () => {
     el.querySelector<SVGGElement>('g.z[data-zone="hunt"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(loadSuspects).toHaveBeenCalledTimes(1);
     expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    handle.destroy();
+  });
+
+  it("with vetting grades: 0 A said as expected, ranked by grade then S/N, grade C greyed with reasons, a near source as a warning", async () => {
+    // The 30 hunt suspects graded: the 3 brightest fail a check (C), the next 2 are B, the rest C.
+    const bySnr = [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr);
+    const graded = bySnr.map((s, i) =>
+      i === 3 || i === 4
+        ? { ...s, grade: "B", reasons: [], near_source_arcsec: i === 4 ? 4.1 : null }
+        : { ...s, grade: "C", reasons: i < 3 ? ["hot_pixel", "edge"] : ["2mass"], near_source_arcsec: null },
+    );
+    const file = {
+      ...huntSuspects,
+      vetoes: ["mpc", "gaia", "catwise", "allwise"],
+      provisional: false,
+      grades: { A: 0, B: 2, C: 28 },
+      gates: { hot_pixel: 3, edge: 3, "2mass": 25, bad_column: 0 },
+      suspects: [...graded].reverse(),
+    };
+    const loadSuspects = vi.fn(async () => toZoneSuspects(file));
+    const el = document.createElement("main");
+    document.body.append(el);
+    const ctx: PageContext = { navigate: vi.fn(), explore: vi.fn() };
+    const handle = createLivePage(el, ctx, { load: async () => parseSkyrun(real2), now: () => T("2026-11-14T14:41:00Z"), loadSuspects });
+    handle.show("hunt");
+    await flush();
+    await flush();
+    const panel = el.querySelector<HTMLElement>(".lv-panel")!;
+    const txt = (n: Element | null) => (n?.textContent ?? "").replace(/\s+/g, " ").trim();
+    expect(txt(panel.querySelector(".lv-grades-a"))).toBe(
+      "0 candidate movers (grade A). Expected: proving motion needs a track over several sessions.",
+    );
+    expect(txt(panel.querySelector(".lv-grades"))).toContain("2 unexplained single-session sources (grade B) and 28 that fail a check (grade C).");
+    expect(txt(panel.querySelector(".lv-grades"))).toContain(
+      "Every suspect here was checked against known asteroids and comets (MPC), Gaia, CatWISE and AllWISE.",
+    );
+    expect(txt(panel.querySelector(".lv-gates summary"))).toBe("Why 28 are grade C");
+    expect([...panel.querySelectorAll(".lv-gates li span:first-child")].map(txt)).toEqual([
+      "A 2MASS source sits here",
+      "At the detector edge",
+      "On a hot pixel",
+    ]);
+    const rows = [...panel.querySelectorAll(".lv-sus-row")];
+    expect(rows).toHaveLength(8);
+    // B first (S/N order), then C by S/N: the brightest C is third, not first.
+    expect(txt(rows[0].querySelector(".lv-sus-grade"))).toBe("Grade B: unexplained single-session source");
+    expect(rows[0].querySelector(".lv-sus-near")).toBeNull();
+    expect(txt(rows[1].querySelector(".lv-sus-near"))).toBe("A catalogued source sits 4.1″ away.");
+    expect(rows[2].classList.contains("is-gradec")).toBe(true);
+    expect(txt(rows[2])).toContain("S/N 290");
+    expect(txt(rows[2].querySelector(".lv-sus-grade"))).toBe("Grade C: on a hot pixel and at the detector edge.");
+    expect(txt(rows[5].querySelector(".lv-sus-grade"))).toBe("Grade C: a 2MASS source sits here.");
+    expect(panel.textContent).toMatch(/The first 8 of 30 by vetting grade, then S\/N, marked on the map in solid red \(grade C in grey\)\./);
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    expect(el.querySelectorAll(".lv-sus-marks circle.is-gradec")).toHaveLength(28);
+    // Grade C can still be blinked.
+    rows[2].querySelector<HTMLButtonElement>(".lv-sus-blink")!.click();
+    expect(ctx.explore).toHaveBeenCalledWith({ ra: 125.666546, dec: 14.973674, clock: "hours", det: 1 });
     handle.destroy();
   });
 
@@ -346,5 +405,26 @@ describe("the feed", () => {
 
   it("refuses a file that isn't schema 1 shaped", async () => {
     await expect(loadSkyrun(undefined, async () => ({ hello: 1 }))).rejects.toThrow(/schema/);
+  });
+});
+
+describe("a grade A suspect in the zone panel", () => {
+  it("leads the list and says its track in words", () => {
+    const hunt = parseSkyrun(real2).zones.find((z) => z.name === "hunt")!;
+    const [s1, s2] = [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr);
+    const file = toZoneSuspects({
+      grades: { A: 1, B: 1, C: 0 },
+      suspects: [
+        { ...s1, grade: "B", reasons: [], near_source_arcsec: null },
+        { ...s2, grade: "A", reasons: [], near_source_arcsec: null, n_sessions: 3, rate_arcsec_h: 42.04, pa_deg: 118.6, rate_sigma: 2.1 },
+      ],
+    });
+    const el = document.createElement("div");
+    el.innerHTML = suspectsHtml(hunt, { status: "ok", rows: file.rows, file });
+    const rows = [...el.querySelectorAll(".lv-sus-row")];
+    expect(rows[0].querySelector(".lv-sus-grade")?.textContent).toBe("Grade A: candidate mover");
+    expect(rows[0].querySelector(".lv-sus-track")?.textContent).toBe("On a track over 3 sessions, moving 42.0″ an hour (20σ) toward 119°.");
+    expect(rows[1].querySelector(".lv-sus-track")).toBeNull();
+    expect(el.querySelector(".lv-grades-a")?.textContent).toBe("1 candidate mover (grade A).");
   });
 });
