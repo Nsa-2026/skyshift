@@ -143,3 +143,66 @@ def test_valid_suspects():
     assert not bv.valid_suspects({"suspects": [s], "synthetic": True})
     assert not bv.valid_suspects({"suspects": [{**s, "evidence": "vibes"}]})
     assert not bv.valid_suspects({"suspects": [{k: v for k, v in s.items() if k != "cell"}]})
+
+
+def test_demo_check_path_default_and_override(tmp_path, monkeypatch):
+    """V8 speed reads data/demo_check.json without a flag, so a rebuild keeps it; --demo-check still wins."""
+    default = tmp_path / "demo_check.json"
+    monkeypatch.setattr(bv, "DEMO_CHECK", default)
+    assert bv.demo_check_path(None) is None  # no run yet: speed stays pending
+    default.write_text("{}")
+    assert bv.demo_check_path(None) == default
+    other = tmp_path / "other.json"
+    other.write_text("{}")
+    assert bv.demo_check_path(other) == other
+    with pytest.raises(SystemExit):
+        bv.demo_check_path(tmp_path / "missing.json")
+
+
+def test_committed_demo_check_gives_a_measured_speed_half():
+    """The committed demo_check.py run turns into a measured speed half (its numbers printed, never pending)."""
+    if not bv.DEMO_CHECK.exists():
+        pytest.skip("no data/demo_check.json")
+    d = json.loads(bv.DEMO_CHECK.read_text())
+    c = bv.v8(bv.DEMO_CHECK)
+    assert c["status"] in ("pass", "fail")
+    assert "speed not measured" not in c["headline"]
+    assert f"{d['n_random_ok']} of {d['n_random']}" in c["headline"] or "median time to first frame" in c["headline"]
+    assert sum(1 for r in c["rows"] if r.get("part") == "speed") == d["n_random"]
+
+
+def _v1_data(rdra_missed: list[tuple[int, int]]) -> dict:
+    """v1_targets.json with one target, R Draconis: 2 visits x D1-D6, `rdra_missed` = [(visit, detector)] not found."""
+    rows = [{"slug": "rdra", "visit": v, "detector": det, "photos": 5, "expected": True,
+             "recovered": (v, det) not in rdra_missed} for v in (1, 2) for det in range(1, 7)]
+    n_ok = sum(r["recovered"] for r in rows)
+    visits_ok = len({r["visit"] for r in rows if r["recovered"]})
+    return {"targets_tested": 1, "targets_recovered": 1, "rows": rows,
+            "targets": [{"slug": "rdra", "recovered": True, "visits": 2, "visits_recovered": visits_ok,
+                         "stacks_expected": 12, "stacks_recovered": n_ok, "detectors_recovered": [1, 2, 3, 4, 5, 6],
+                         "median_offset_px": 0.2}]}
+
+
+def test_v1_note_counts_misses_from_the_stack_rows(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)  # no targets.json: names fall back to the slug
+    text = bv.v1_stack_text(_v1_data([(1, 4), (2, 5)]))
+    assert text == (" rdra (expected in D1-D6): found in 10 of 12 stacks, 2 of 2 visits; "
+                    "missed in visit 1 D4 (5 photos), visit 2 D5 (5 photos).")
+    assert bv.v1_stack_text(_v1_data([])) == ""  # every stack found: no sentence, nothing left over
+
+
+def test_v1_note_agrees_with_rows():
+    """On the committed v1_targets.json, the V1 note quotes the same stack counts as the V1 rows."""
+    c = bv.v1()
+    if c["status"] == "pending":
+        pytest.skip("no data/v1_targets.json")
+    names = bv._target_names()
+    assert "not yet explained" not in c["note"]
+    for row in c["rows"]:
+        name = names.get(row["slug"], row["slug"])
+        claim = (f"found in {row['stacks_recovered']} of {row['stacks_expected']} stacks, "
+                 f"{row['visits_recovered']} of {row['visits']} visits")
+        if f" {name} (expected in" in c["note"]:
+            assert claim in c["note"], row["slug"]
+        else:  # no sentence only when every expected stack was found
+            assert row["stacks_recovered"] == row["stacks_expected"], row["slug"]
