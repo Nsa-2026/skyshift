@@ -282,9 +282,6 @@ def validation():
         pending("V6", "Fast stars (S2)", "slope near 1"),
         pending("V7", "Brown dwarfs (S3)", "a count"),
         pending("V8", "Spectra and speed", "within 20%; first frame under 15 s"),
-        pending("V9", "Astrometry matches Gaia", "bias near zero; pull scatter near 1"),
-        pending("V10", "Galaxy distances match SDSS", "sigma_NMAD ~0.02 for bright galaxies"),
-        pending("V11", "Asteroid sizes match published values", "diameter ratio near 1"),
     ]
     write_json("validation.json", {"synthetic": True, "note": NOTE, "generated": "2026-11-14T09:30:00Z",
                                    "data_release": RELEASE, "checks": checks})
