@@ -399,9 +399,10 @@ def fit_photo_poly(photo, x, y, e, n, sig, use, order: int, n_photos: int):
     CE = np.full((n_photos, NPOLY), np.nan)
     CN = np.full((n_photos, NPOLY), np.nan)
     used = np.full(n_photos, -1, np.int8)
-    idx = pd.Series(np.flatnonzero(use)).groupby(photo[use]).indices
+    rows = np.flatnonzero(use)
+    idx = pd.Series(rows).groupby(photo[use]).indices
     for p, ii in idx.items():
-        ii = np.flatnonzero(use)[ii]
+        ii = rows[ii]
         o = order
         while o >= 0 and ii.size < C.CALIB_PHOTO_MIN_STARS[o]:
             o -= 1
