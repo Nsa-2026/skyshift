@@ -314,7 +314,7 @@ def photo_check(p: pd.DataFrame, ref: np.ndarray, cal: np.ndarray) -> tuple[np.n
     bad = (nref >= C.LC_PHOTO_MIN_REF) & (np.abs(med) > C.LC_PHOTO_MAX_MEDIAN_CHI)
     rows = [{"origin": o, "detector": int(d), "mjd": round(float(t), 6), "ref_points": int(nref[i]),
              "median_chi": round(float(med[i]), 2)} for i, (o, d, t) in enumerate(uniq) if bad[i]]
-    return ~bad[code], rows
+    return ~bad[code], sorted(rows, key=lambda r: (r["origin"], r["detector"], r["mjd"]))
 
 
 def summarise(p: pd.DataFrame) -> pd.DataFrame:

@@ -136,6 +136,11 @@ def make_root(path) -> Store:
              "objects": {"name": ["2000 AA"], "number": [99999], "ra": [k_ra], "dec": [k_dec], "v": [15.0],
                          "dra_arcsec_h": [rate[0]], "ddec_arcsec_h": [rate[1]], "class": ["MB"]}}
     store.write_json(known.run_rel(ZONE, s1), cache)
+    for sess, gs in photos.groupby("session"):  # the other sessions: no known objects (so `known` has nothing to fetch)
+        if sess != 1:
+            store.write_json(known.run_rel(ZONE, gs), {**cache, "session": int(sess), "obs_ids": sorted(set(gs["obs_id"])),
+                                                       "mjd": float(gs["mjd"].iloc[0]),
+                                                      "objects": {k: [] for k in cache["objects"]}})
     pred = known.load_predictions(store, photos, ZONE)
     units = score.score_units(pred, ZONE, 18.0)
     ctl = score.control_shift(units)
@@ -282,11 +287,17 @@ def test_cores_partition_the_zone_and_borders_hold_them():
 
 
 def test_choose_tiling():
-    assert tiles.choose(C.ZONES["pilot"], "auto", None, 16) is None  # 12.6 deg² stays untiled
-    assert tiles.choose(C.ZONES["hunt"], "auto", None, 16) == C.TILE_DEG
-    assert tiles.choose(C.ZONES["hunt"], "off", None, 16) is None
-    assert tiles.choose(C.ZONES["hunt"], "16", None, 16) == pytest.approx(math.sqrt(tiles.area_deg2(C.ZONES["hunt"]) / 16))
-    assert tiles.choose(C.ZONES["pilot"], "off", 0.3, 16) == 0.3
+    hunt, pilot = C.ZONES["hunt"], C.ZONES["pilot"]
+    assert tiles.choose(pilot, "auto", None, 16) is None  # 12.6 deg² stays untiled
+    assert tiles.choose(hunt, "auto", None, 16) == (4, 4)  # one round of 16 tiles of 2.5°
+    assert tiles.choose(hunt, "off", None, 16) is None
+    assert tiles.choose(hunt, "16", None, 16) == (4, 4)
+    assert tiles.choose(pilot, "off", 0.3, 16) == tiles.grid_for_deg(pilot, 0.3) == (12, 12)
+    assert tiles.grid_for_workers(pilot, 8) == (2, 4)  # 8 tiles, not 9: a ninth would wait alone
+    big = C.Zone("big", 100.0, 130.0, 0.0, 30.0)
+    nx, ny = tiles.grid_for_workers(big, 16)
+    w, h = tiles.sides_deg(big)
+    assert w / nx <= C.TILE_MAX_DEG and h / ny <= C.TILE_MAX_DEG
 
 
 def test_tilestore_routes(tmp_path):
@@ -378,3 +389,19 @@ def test_zone_edge_is_a_tile_edge(tmp_path, skybot):
 
     assert n_dots(t) > n_dots(u)  # untiled clips the dots south of Dec 15.0
     assert n_dots(t) >= 28        # ~0.95 × 32 photos
+
+
+def test_all_runs_the_combining_steps_tiled(tmp_path, skybot, monkeypatch):
+    """`all --tile-deg` (photolist, refcat, dots and known find their files) → tiles.run → summary.json per step."""
+    from skyshift_pipeline import cli
+    store = make_root(tmp_path / "root")
+    monkeypatch.setitem(C.ZONES, ZONE.name, ZONE)
+    assert cli.main(["all", "--zone", ZONE.name, "--root", store.root, "--workers", "1", "--tile-deg", "0.5",
+                     "--known-source", "skybot", "--zone-edge", "clip", "--tile-dir", str(tmp_path / "work")]) == 0
+    summ = store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]
+    assert summ["tiles"]["grid"] == [2, 2] and summ["tiles"]["zone_edge_margin"] is False
+    for step in ("link", "calib", "highpm", "score", "suspects"):
+        assert step in summ
+    for name in ("fixed", "members", "sources", "classes", "lightcurves", "astrometry", "suspects"):
+        assert store.exists(results_rel(ZONE.name, f"{name}.parquet")), name
+    assert not list((tmp_path / "work").iterdir())  # the work dir is removed after a good run

@@ -90,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tile-deg", type=float, default=None, help="all: tile core side in degrees (tiles any zone)")
     ap.add_argument("--tile-dir", default=None, help="all, tiled: local work dir (default: the system temp dir); removed after")
     ap.add_argument("--keep-tiles", action="store_true", help="all, tiled: keep the work dir (per-tile tables)")
+    ap.add_argument("--zone-edge", choices=("border", "clip"), default="border" if C.TILE_ZONE_EDGE_MARGIN else "clip",
+                    help="all, tiled: load the 2′ border outside the zone box too (default), or clip there as untiled runs do")
     args = ap.parse_args(argv)
     C.KNOWN_SOURCE = args.known_source
     os.environ["SKYSHIFT_KNOWN_SOURCE"] = args.known_source  # worker processes read config afresh
@@ -97,17 +99,18 @@ def main(argv: list[str] | None = None) -> int:
     store = Store(args.root)
     zone = C.ZONES[args.zone]
     steps = STEPS if args.step == "all" else (args.step,)
-    tile_deg = None
+    grid = None
     if args.step == "all":
         from . import tiles
-        tile_deg = tiles.choose(zone, args.tiles, args.tile_deg, args.workers)
+        grid = tiles.choose(zone, args.tiles, args.tile_deg, args.workers)
     L.info("skyshift-pipeline %s --zone %s --root %s --workers %d --limit %s%s", args.step, zone.name, store.root, args.workers,
-           args.limit, f" --tile-deg {tile_deg:.3g}" if tile_deg else "")
+           args.limit, f", tiled {grid[0]} × {grid[1]}" if grid else "")
     for step in steps:
-        if tile_deg and step in TILED_STEPS:
+        if grid and step in TILED_STEPS:
             if step == TILED_STEPS[0]:
                 L.info("=== %s, tiled (%s) ===", " → ".join(TILED_STEPS), zone.name)
-                out = tiles.run(store, zone, tile_deg, args.workers, work_dir=args.tile_dir, keep_work=args.keep_tiles)
+                out = tiles.run(store, zone, grid, args.workers, work_dir=args.tile_dir, keep_work=args.keep_tiles,
+                                edge_margin=args.zone_edge == "border")
                 for k, v in out.items():
                     _update_summary(store, zone, k, v, v.pop("step_seconds", 0.0) if isinstance(v, dict) else 0.0)
             continue

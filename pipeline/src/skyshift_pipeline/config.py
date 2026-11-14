@@ -385,7 +385,11 @@ HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.
 # suspects run once on the merged tables. source_id is already sky-wide (6″ cell × 100 + rank in the cell), so tiles
 # need no renumbering.
 TILE_AUTO_MIN_DEG2 = 30.0      # `all` tiles zones larger than this (pilot 12.6 deg² stays untiled; hunt 100 deg² tiles)
-TILE_DEG = 2.0                 # core side (deg on the sky): the zone box is cut into nx × ny equal cores of about this
+# Grid: nx × ny equal cores, chosen to minimise rounds × cost per tile, rounds = ceil(tiles / workers) (each pass waits
+# for its slowest round) and cost ∝ (side_x + PAD)(side_y + PAD) (the tile's own dots, plus the photos it overlaps: a
+# photo's box is ~4.5°, so small tiles read the same photos many times). Hunt on 16 workers: 4 × 4 tiles of 2.5°.
+TILE_MAX_DEG = 2.5             # largest core side (memory: ~2.2 M in-zone dots at hunt density)
+TILE_COST_PAD_DEG = 2.0
 # Border: link's 4″ friends-of-friends chains reach 30–60″ from the source at full depth (pilot members: 19 of 175k
 # sampled dots at 30–60″, none further), mover pairs reach 16″ (smoke) and their 6″ veto needs complete fixed sources;
 # 2′ keeps every group the core touches complete. A tile whose border was too small is detected and redone (below).
