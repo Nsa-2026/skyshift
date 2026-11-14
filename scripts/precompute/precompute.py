@@ -171,7 +171,7 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache, zone: str |
 # An asteroid moves a few arcmin in a day, so its frames keep one fixed centre and it moves.
 
 COMET_CSV = ROOT / "scripts" / "validate" / "data" / "photolists" / "3i-atlas.csv"
-COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion), as in resolve.COMET
+COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion); resolve.MOVING has its middle
 COMET_DETS = [1, 2, 3, 4, 5, 6]
 # The two of MOST's asteroids 1-60 with the most images at V 11.5-14 (bright, not saturated):
 # (59) Elpis 454 images at V 12.6-13.6, (31) Euphrosyne 436 at V 13.0-13.7 (MOST, 14 Nov 2026).
