@@ -42,7 +42,7 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   repeat_position: { label: "Same spot days apart", tone: "caution", detail: "Something sits at nearly this spot in sessions days apart: a fixed artefact, not a mover." },
 
   // Codes the exporter sends that had no text, so they read as "Pm fit" and counted as doubt.
-  // Wording from contracts/dots.md, "Why it is listed".
+  // Wording from contracts/api.md, candidates.json "reasons".
   pm_fit: { label: "Motion fitted across visits", tone: "support", detail: "Its motion was fitted over every detection in every visit." },
   vetted: { label: "Passed every check", tone: "support", detail: "It came through all of the pipeline's checks with nothing against it." },
   catwise_pm_agrees: { label: "CatWISE agrees", tone: "support", detail: "CatWISE lists the same motion for the source here." },
@@ -63,6 +63,21 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   outlier_flag: { label: "Outlier pixels", tone: "caution", detail: "The OUTLIER flag is set on its pixels: often a cosmic ray or a bad pixel." },
   bad_pixels_near: { label: "Bad pixels nearby", tone: "caution", detail: "A masked pixel (cosmic ray, hot, dead or persistent) touches one of its detections." },
   detector_excess: { label: "From a detector with excess movers", tone: "caution", detail: "Seen only in detectors where this zone has at least 1.5 times its usual share of unexplained movers: those are likely artefacts." },
+
+  // The suspects' failed vetting gates: a mover with any of them is grade C. Wording from
+  // contracts/api.md, suspects.json "reasons". Artefact gates are cautions, so "hide artefact
+  // cautions" and "Check first" catch them; the catalogue gates and not_vetted are doubts.
+  hot_pixel: { label: "Hot pixel", tone: "caution", detail: "It sits on a detector pixel where the zone's movers turn up again and again: a hot pixel that NASA's HOT flag misses." },
+  bad_column: { label: "Bad column", tone: "caution", detail: "Three or more unpaired dots line up in one pixel column of the same photo: a detector column, not a source." },
+  edge: { label: "At the detector edge", tone: "caution", detail: "One of its detections is within 6 pixels of the detector edge, where false sources are common." },
+  masked_peak: { label: "Bad pixel at its peak", tone: "caution", detail: "A pixel flagged as bad sits at the peak of one of its detections." },
+  sharp_outlier: { label: "Sharper than a star", tone: "caution", detail: "One detection is narrower than a star of its brightness and has the OUTLIER flag at its peak: likely a cosmic ray." },
+  very_sharp: { label: "Far too sharp", tone: "caution", detail: "One detection is less than 0.4 times as wide as a star of its brightness: no real source is that narrow." },
+  flux_ratio: { label: "Brightness jumps", tone: "caution", detail: "Its brightest detection is more than 4 times its faintest in the same detector: likely not one steady source." },
+  red_photo: { label: "Only in bad photos", tone: "caution", detail: "Every detection comes from a photo the quality check graded red." },
+  "2mass": { label: "2MASS source here", tone: "doubt", detail: "2MASS lists a source within 6″: probably a catalogued star, not something new." },
+  allwise: { label: "AllWISE source here", tone: "doubt", detail: "AllWISE lists a source within 6″: probably a catalogued source, not something new." },
+  not_vetted: { label: "Not vetted", tone: "doubt", detail: "There was no pixel data to run the artefact checks on, so nothing was ruled out." },
 };
 
 /** Codes the exporter may use for the same two cautions (exact names still settling). */
