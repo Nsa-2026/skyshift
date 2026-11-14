@@ -4,7 +4,11 @@ Run from server/ (it imports skyshift_server and skyshift_core):
 
     cd server
     uv run python ../scripts/precompute/precompute.py --only barnard --sets months:15 --dets 2
+    uv run python ../scripts/precompute/precompute.py --only 3i-atlas,flora,psyche
     uv run python ../scripts/precompute/precompute.py                 # everything (slow, cached)
+
+Targets: barnard, epsindib, wise0855, rwaur, rdra (scripts/validate/data/targets.json), then
+comet 3i-atlas and the asteroids flora (8) and psyche (16), on the hours clock.
 
 Files per target (shapes of contracts/api.md; data_url is relative to the JSON):
 
@@ -28,9 +32,10 @@ import sys
 import time
 from pathlib import Path
 
-from skyshift_core import GAIA_EPOCH_MJD, propagate
-from skyshift_server import blink, cutouts
+from skyshift_core import GAIA_EPOCH_MJD, propagate, sessions
+from skyshift_server import blink, cutouts, gaia, obj, search
 from skyshift_server.cache import Cache
+from skyshift_server.search import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "web" / "public" / "data"
@@ -43,7 +48,9 @@ CENTERS = {"barnard": (269.44620, 4.76883)}  # Barnard's Star around 2026.3
 DEFAULT_SETS = ["months:5", "months:15", "hours:20", "hours:60"]
 OWN_SET = "months:5"  # frames.json for the stars
 # Detectors per set: every detector for the months clock, fewer for the heavier hours clock.
-SET_DETS = {"months:5": [1, 2, 3, 4, 5, 6], "months:15": [1, 2, 3, 4, 5, 6], "hours:20": [2, 5], "hours:60": [2]}
+# The 15' months frames cost 3 MB of download per image from S3, so only Barnard's Star has all six.
+SET_DETS = {"months:5": [1, 2, 3, 4, 5, 6], "months:15": [2, 5], "hours:20": [2, 5], "hours:60": [2]}
+SET_DETS_BY_SLUG = {"barnard": {"months:15": [1, 2, 3, 4, 5, 6]}}
 
 log = logging.getLogger("precompute")
 
@@ -119,6 +126,163 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
             "epochs": len(merged["epochs"]), "bytes": n_bytes}
 
 
+# --- moving objects: comet 3I/ATLAS and two asteroids ------------------------------------------
+#
+# Hours clock only. Positions per image come from NASA: IRSA's 3I/ATLAS table (already in
+# scripts/validate/data/photolists/3i-atlas.csv, source "irsa-3i") and IRSA MOST for the asteroids
+# (source "most"). The comet crosses 57' during its 13-hour December sequence, so its frames
+# FOLLOW it: every epoch has its own `center` (an addition to the contract) and the stars move.
+# An asteroid moves a few arcmin in a day, so its frames keep one fixed centre and it moves.
+
+COMET_CSV = ROOT / "scripts" / "validate" / "data" / "photolists" / "3i-atlas.csv"
+COMET_VISIT = 2  # the December 2025 sequence (after perihelion): 17-18 exposures per detector
+COMET_DETS = [1, 2, 3, 4, 5, 6]
+ASTEROIDS = {8: "flora", 16: "psyche"}  # V 10.5-11.8, bright and not saturated
+ASTEROID_DETS = [2, 5]
+ASTEROID_WINDOW_D = 1.0
+S3_ROOT = "https://nasa-irsa-spherex.s3.us-east-1.amazonaws.com/"
+
+
+def _image(obs_id: str, det: int, t_min: float, t_max: float, access_url: str, s3_key: str,
+           collection: str, visit: int = 0, session: int = 0) -> Image:
+    return Image(collection, obs_id, det, t_min, t_max, (t_min + t_max) / 2.0, access_url,
+                 S3_ROOT + s3_key if s3_key else None, visit, session)
+
+
+def comet_rows() -> list[dict]:
+    """Images of 3I/ATLAS with NASA's comet position per image."""
+    import csv
+
+    out = []
+    for r in csv.DictReader(COMET_CSV.open()):
+        if not r["s3_key"] and "/ibe/data/" not in r["access_url"]:
+            continue  # one image is in neither DR1 nor QR3
+        out.append({"image": _image(r["obs_id"], int(r["detector"]), float(r["t_min"]), float(r["t_max"]),
+                                    r["access_url"], r["s3_key"], r["collection"], int(r["visit"]), int(r["session"])),
+                    "ra": round(float(r["obj_ra"]), 5), "dec": round(float(r["obj_dec"]), 5), "v": None})
+    return out
+
+
+def most_rows(number: int) -> tuple[str, list[dict]]:
+    """(name, images of asteroid `number` with MOST's predicted position), via scripts/validate."""
+    sys.path.insert(0, str(ROOT / "scripts" / "validate"))
+    import most_asteroids  # noqa: PLC0415 - P1's MOST client and parser (cached in scripts/validate/.cache)
+
+    log_: list[str] = []
+    text = most_asteroids.fetch(number, log_)
+    if text is None:
+        raise RuntimeError(f"MOST failed for asteroid {number}: {log_}")
+    name, rows = most_asteroids.parse(number, text)
+    out = []
+    for r in rows:
+        out.append({"image": _image(r["obs_id"], r["detector"], r["mjd_start"], r["mjd_end"], r["access_url"],
+                                    r["s3_key"], "spherex_" + r["release"]),
+                    "ra": round(r["ra_obj"], 5), "dec": round(r["dec_obj"], 5), "v": r["vmag"]})
+    for r, s in zip(out, sessions([r["image"].mjd for r in out])):
+        r["image"].session = int(s)
+    return name, out
+
+
+def densest_window(rows: list[dict], det: int, days: float) -> list[dict]:
+    """The rows of one detector inside the `days`-long window that holds the most exposures."""
+    rs = sorted((r for r in rows if r["image"].det == det), key=lambda r: r["image"].mjd)
+    best: list[dict] = []
+    for i, r in enumerate(rs):
+        w = [q for q in rs[i:] if q["image"].mjd - r["image"].mjd <= days]
+        if len(w) > len(best):
+            best = w
+    return best
+
+
+def build_moving(slug: str, name: str, rows: list[dict], dets: list[int], source: str, cache: Cache,
+                 *, follow: bool, fov: float = 20.0, center: tuple[float, float] | None = None,
+                 spectrum_rows: list[dict] | None = None) -> None:
+    """frames (hours clock) + object.json for a solar-system object.
+    rows: [{image, ra, dec, v}] already limited to the exposures to show."""
+    folder = OUT / slug
+    t0 = time.time()
+    if center is None:
+        mid = sorted(rows, key=lambda r: r["image"].mjd)[len(rows) // 2]
+        center = (mid["ra"], mid["dec"])
+    epochs, known_, n_bytes, built = [], [], 0, []
+    grid = None
+    for det in dets:
+        rs = sorted((r for r in rows if r["image"].det == det), key=lambda r: r["image"].mjd)
+        if not rs:
+            continue
+        eps, blobs, grid = blink.exposure_epochs(
+            [r["image"] for r in rs], center[0], center[1], fov, cache, f"h{int(fov)}",
+            centers=[(r["ra"], r["dec"]) for r in rs] if follow else None)
+        for fname, data in blobs.items():
+            p = folder / fname
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+            n_bytes += len(data)
+        by_id = {f"d{det}-{r['image'].obs_id}": r for r in rs}
+        for e in eps:
+            r = by_id[e["id"]]
+            known_.append({"name": name, "epoch_id": e["id"], "ra": r["ra"], "dec": r["dec"], "v": r["v"],
+                           "source": source})
+        epochs += eps
+        built.append(det)
+        log.info("%s hours:%d d%d: %d epochs", slug, int(fov), det, len(eps))
+    if not epochs or grid is None:
+        log.warning("%s: no frames", slug)
+        return
+    epochs.sort(key=lambda e: (e["mjd_mid"], e["det"]))
+    # Gaia: around the whole track
+    import numpy as np
+    from skyshift_core import tangent_offset_arcsec
+
+    reach = max(float(np.hypot(*tangent_offset_arcsec(center[0], center[1], r["ra"], r["dec"]))) for r in rows) / 60.0
+    try:
+        stars = gaia.cone(center[0], center[1], round((reach if follow else 0.0) + fov / 2.0 * 2**0.5, 2), cache=cache)
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s: Gaia failed: %s", slug, e)
+        stars = []
+    meta = blink.frames_meta("hours", grid, epochs, stars, known_, search.today())
+    file = f"frames_hours_{int(fov)}.json"
+    n_bytes += write_json(folder / file, clean(meta), compact=True)
+    shutil.copyfile(folder / file, folder / "frames.json")
+
+    # object.json: the spectrum at NASA's position in every image given; no visit-to-visit measure
+    srows = spectrum_rows if spectrum_rows is not None else rows
+    images = [r["image"] for r in srows]
+    pos = [(r["ra"], r["dec"]) for r in srows]
+    l2s = cutouts.fetch_many(images, center[0], center[1], cutouts.tier_for_field(5), cache, centers=pos, variance=True)
+    spectrum = obj.spectrum_points(images, l2s, None, center[0], center[1], positions=pos)
+    write_json(folder / "object.json", clean({"name": name, "gaia": None, "known_ucd": None,
+                                              "spectrum": spectrum, "measure": None}), compact=True)
+    write_json(folder / "index.json", {
+        "slug": slug, "name": name, "center": {"ra": center[0], "dec": center[1]}, "own": file,
+        "follows_object": follow,
+        "frames": [{"file": file, "clock": "hours", "fov": int(fov), "dets": built, "epochs": len(epochs), "bytes": n_bytes}]})
+    log.info("%s done in %.0f s: %.2f MB on disk, %d spectrum points; downloads so far: %s", slug, time.time() - t0,
+             folder_bytes(folder) / 1e6, len(spectrum), cutouts.STATS)
+
+
+def build_comet(cache: Cache) -> None:
+    rows = comet_rows()
+    show = [r for r in rows if r["image"].visit == COMET_VISIT]
+    build_moving("3i-atlas", "3I/ATLAS", show, COMET_DETS, "irsa-3i", cache, follow=True, spectrum_rows=rows)
+
+
+def build_asteroid(number: int, slug: str, cache: Cache) -> None:
+    import numpy as np
+
+    name, rows = most_rows(number)
+    label = "(%d) %s" % (number, name.split("(")[0].replace(str(number), "", 1).strip() or slug.title())
+    win = densest_window(rows, ASTEROID_DETS[0], ASTEROID_WINDOW_D)
+    if not win:
+        log.warning("%s: no images", slug)
+        return
+    t_a, t_b = win[0]["image"].mjd, win[-1]["image"].mjd
+    show = [r for r in rows if t_a - 1e-6 <= r["image"].mjd <= t_b + 1e-6]
+    center = (round(float(np.median([r["ra"] for r in win])), 5), round(float(np.median([r["dec"] for r in win])), 5))
+    build_moving(slug, label, show, ASTEROID_DETS, "most", cache, follow=False, center=center,
+                 spectrum_rows=[r for r in rows if abs(r["image"].mjd - (t_a + t_b) / 2) <= 15.0])
+
+
 def folder_bytes(folder: Path) -> int:
     return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
 
@@ -147,7 +311,8 @@ def main() -> int:
         if index_path.exists():
             index["frames"] = json.loads(index_path.read_text()).get("frames", [])
         for s in sets:
-            dets = [int(d) for d in a.dets.split(",")] if a.dets else SET_DETS[s]
+            dets = ([int(d) for d in a.dets.split(",")] if a.dets
+                    else SET_DETS_BY_SLUG.get(t["slug"], {}).get(s, SET_DETS[s]))
             entry = build_set(t, s, dets, cache)
             if entry:
                 index["frames"] = [f for f in index["frames"] if f["file"] != entry["file"]] + [entry]
@@ -166,6 +331,11 @@ def main() -> int:
         write_json(index_path, index)
         log.info("%s done in %.0f s: %.2f MB on disk; downloads so far: %s", t["slug"], time.time() - t0,
                  folder_bytes(folder) / 1e6, cutouts.STATS)
+    if not only or "3i-atlas" in only:
+        build_comet(cache)
+    for number, slug in ASTEROIDS.items():
+        if not only or slug in only:
+            build_asteroid(number, slug, cache)
     return 0
 
 

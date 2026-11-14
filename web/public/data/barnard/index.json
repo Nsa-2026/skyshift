@@ -7,15 +7,56 @@
  },
  "frames": [
   {
+   "file": "frames_hours_20.json",
+   "clock": "hours",
+   "fov": 20,
+   "dets": [
+    2,
+    5
+   ],
+   "epochs": 49,
+   "bytes": 4087742
+  },
+  {
+   "file": "frames_hours_60.json",
+   "clock": "hours",
+   "fov": 60,
+   "dets": [
+    2
+   ],
+   "epochs": 25,
+   "bytes": 4682131
+  },
+  {
    "file": "frames_months_15.json",
    "clock": "months",
    "fov": 15,
    "dets": [
-    2
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
    ],
-   "epochs": 3,
-   "bytes": 848101
+   "epochs": 18,
+   "bytes": 3428350
+  },
+  {
+   "file": "frames_months_5.json",
+   "clock": "months",
+   "fov": 5,
+   "dets": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "epochs": 18,
+   "bytes": 824516
   }
  ],
- "own": "frames_months_15.json"
+ "own": "frames_months_5.json"
 }

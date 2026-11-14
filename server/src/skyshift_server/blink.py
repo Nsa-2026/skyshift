@@ -55,6 +55,7 @@ class Stacked:
     sat_frac: float
     um_min: float
     um_max: float
+    mjd_mean: float = float("nan")  # mean MJD-AVG of the exposures in the stack
 
     @property
     def mjd_mid(self) -> float:
@@ -99,6 +100,7 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
             mjd_start=min(mjds), mjd_end=max(mjds), n_exposures=len(parts), flag_frac=ff, sat_frac=sf,
             um_min=float(np.nanmin([rs.um_min for _, rs in parts])),
             um_max=float(np.nanmax([rs.um_max for _, rs in parts])),
+            mjd_mean=float(np.mean(mjds)),
         ))
     return out
 

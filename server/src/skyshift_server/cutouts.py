@@ -48,7 +48,7 @@ import numpy as np
 import requests
 from astropy.io import fits
 from astropy.wcs import WCS, FITSFixedWarning
-from skyshift_core import Level2, open_level2
+from skyshift_core import Level2, level2, open_level2
 
 from .cache import Cache
 from .errors import UpstreamError
@@ -59,7 +59,8 @@ log = logging.getLogger(__name__)
 BLOCK = 2880
 MAX_IN_FLIGHT = 8
 SIZE_TIERS_DEG = (0.12, 0.36, 0.48, 1.45)  # covers the diagonal of 5', 15', 20' and 60' fields
-KEEP_UNTIL = "VARIANCE"  # last HDU we need from the stream
+VARIANCE_UP_TO_DEG = 0.12  # small cutouts always carry VARIANCE (the spectrum's error bars)
+S3_BLOCK = 64 * 1024  # fsspec read-ahead for S3 region reads
 TIMEOUT_S = (10, 60)
 TRIES = 7  # patient mode (IRSA only)
 NATIVE_ARCSEC = 6.15
@@ -161,7 +162,7 @@ def _hdu_sizes(header_bytes: bytes) -> tuple[str, int]:
     return str(h.get("EXTNAME", "PRIMARY")).strip(), (n + BLOCK - 1) // BLOCK * BLOCK
 
 
-def take_until(chunks, last_hdu: str = KEEP_UNTIL) -> bytes:
+def take_until(chunks, last_hdu: str = "VARIANCE") -> bytes:
     """Read FITS bytes from an iterator of chunks and stop after the HDU named `last_hdu`.
 
     Returns the bytes of every HDU up to and including it (a valid FITS file).
@@ -205,9 +206,9 @@ def _wave_hdu_from(data: bytes) -> bytes | None:
     return None
 
 
-def _get(url: str, *, headers: dict[str, str] | None = None, truncate: bool = False,
+def _get(url: str, *, headers: dict[str, str] | None = None, truncate: str | None = None,
          tries: int = TRIES) -> bytes:
-    """GET with retries on 503 / broken connections. truncate: stop after VARIANCE.
+    """GET with retries on 503 / broken connections. truncate: stop after the HDU of that name.
     Raises Busy when every try was refused, FileNotFoundError on a 4xx."""
     last = ""
     for attempt in range(tries):
@@ -225,7 +226,7 @@ def _get(url: str, *, headers: dict[str, str] | None = None, truncate: bool = Fa
                 if r.status_code >= 400:
                     raise FileNotFoundError(f"HTTP {r.status_code} for {url}")
                 if truncate:
-                    data = take_until(r.iter_content(64 * 1024))
+                    data = take_until(r.iter_content(64 * 1024), truncate)
                 else:
                     data = r.content
                 STATS.add(requests=1, bytes=len(data))
@@ -302,7 +303,7 @@ def compact_fits(l2: Level2, wave: bytes) -> bytes:
     return to_fits_bytes(fits.HDUList(hdus)) + wave
 
 
-def _from_s3(im: Image, ra: float, dec: float, size_deg: float, cache: Cache) -> bytes | None:
+def _from_s3(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, variance: bool) -> bytes | None:
     """The cutout read from the S3 copy with range requests. None if the field misses the image."""
     assert im.s3_url
     last = ""
@@ -314,9 +315,13 @@ def _from_s3(im: Image, ra: float, dec: float, size_deg: float, cache: Cache) ->
             region = region_for(header, ra, dec, size_deg)
             if region is None:
                 return None
-            l2 = open_level2(im.s3_url, variance=True, region=region)
+            # core reads through fsspec with 256 kB read-ahead blocks, sized for whole frames; for
+            # a small region that is 1.5 MB of headers per image, so we shrink the block here
+            level2._FSSPEC_KWARGS["block_size"] = S3_BLOCK
+            l2 = open_level2(im.s3_url, variance=variance, region=region)
             rows = region[3] - region[2]
-            STATS.add(requests=1, s3=1, bytes=int(rows * FULL_FRAME * 4 * 2.4) + 6 * 256 * 1024)
+            STATS.add(requests=1, s3=1,
+                      bytes=int(rows * FULL_FRAME * 4 * (2.4 if variance else 1.4)) + 8 * S3_BLOCK)
             return compact_fits(l2, wave_hdu(im, cache))
         except FileNotFoundError:
             raise
@@ -327,19 +332,27 @@ def _from_s3(im: Image, ra: float, dec: float, size_deg: float, cache: Cache) ->
     raise UpstreamError(f"S3 read failed for {im.key}: {last}")
 
 
-def _from_irsa(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, tries: int) -> bytes:
-    head = _get(cutout_url(im, ra, dec, size_deg), truncate=True, tries=tries)
+def _from_irsa(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, tries: int,
+               variance: bool) -> bytes:
+    head = _get(cutout_url(im, ra, dec, size_deg), truncate="VARIANCE" if variance else "FLAGS", tries=tries)
     STATS.add(irsa=1)
     return head + wave_hdu(im, cache, cutout_url(im, ra, dec, 0.02))
 
 
-def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache) -> bytes | None:
-    """Compact cutout FITS (PRIMARY, IMAGE, FLAGS, VARIANCE, WCS-WAVE) of one image, or None if
-    the image has no pixels there. Uses a cached cutout of this size or larger at this centre."""
+def has_variance(data: bytes) -> bool:
+    return b"EXTNAME = 'VARIANCE'" in data
+
+
+def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, variance: bool = False) -> bytes | None:
+    """Compact cutout FITS (PRIMARY, IMAGE, FLAGS, [VARIANCE,] WCS-WAVE) of one image, or None
+    if the image has no pixels there. Uses a cached cutout of this size or larger at this centre.
+    variance: VARIANCE is needed (photometry). Cutouts up to 0.12 deg always carry it; larger
+    ones only when asked, because from S3 it costs as much again as the image."""
+    variance = variance or size_deg <= VARIANCE_UP_TO_DEG + 1e-9
     for s in SIZE_TIERS_DEG:
         if s >= size_deg - 1e-9:
             got = cache.get(cache_key(im, ra, dec, s))
-            if got is not None:
+            if got is not None and (not got or not variance or has_variance(got)):
                 STATS.add(cached=1)
                 return got or None  # b"" marks "no pixels here"
     mode = pixels_mode()
@@ -349,7 +362,7 @@ def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache) -> by
     try:
         if mode != "s3" and not (has_s3 and _irsa.open()):
             try:
-                data = _from_irsa(im, ra, dec, size_deg, cache, tries=1 if has_s3 else TRIES)
+                data = _from_irsa(im, ra, dec, size_deg, cache, 1 if has_s3 else TRIES, variance)
                 done = True
                 _irsa.record(True)
             except Busy:
@@ -357,7 +370,7 @@ def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache) -> by
                 if not has_s3:
                     raise
         if not done and has_s3:
-            data = _from_s3(im, ra, dec, size_deg, cache)
+            data = _from_s3(im, ra, dec, size_deg, cache, variance)
             done = True
     except FileNotFoundError as e:
         log.info("no cutout for %s: %s", im.key, e)
@@ -380,7 +393,7 @@ def open_bytes(data: bytes) -> Level2:
 
 
 def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cache: Cache,
-               centers: list[tuple[float, float]] | None = None) -> list[Level2 | None]:
+               centers: list[tuple[float, float]] | None = None, variance: bool = False) -> list[Level2 | None]:
     """Cutouts of many images, at most 8 requests in flight, in the order given.
     A failed image gives None (and is logged); it never fails the whole build.
     centers: one (ra, dec) per image when each cutout has its own centre (a moving object)."""
@@ -389,7 +402,7 @@ def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cach
         im = images[i]
         r, d = centers[i] if centers else (ra, dec)
         try:
-            data = fetch(im, r, d, size_deg, cache)
+            data = fetch(im, r, d, size_deg, cache, variance)
             return None if data is None else open_bytes(data)
         except Exception as e:  # noqa: BLE001
             STATS.add(failed=1)
