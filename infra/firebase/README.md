@@ -4,7 +4,7 @@ Firebase Hosting for the site and Firestore rules, project `nasa-glazing`.
 
 | file | what |
 |---|---|
-| `firebase.json` | Hosting site `skyshift-sky`: serves `dist/` (a copy of `web/dist`, made by `deploy.sh`), rewrites `/api/**` to Cloud Run `skyshift-api` (us-east4), SPA fallback to `/index.html`, cache headers (`/data/**/*.bin`: 1 day in browsers, 1 year on the CDN, which is purged on every deploy) |
+| `firebase.json` | Hosting site `skyshift` (https://skyshift.web.app): serves `dist/` (a copy of `web/dist`, made by `deploy.sh`), rewrites `/api/**` to Cloud Run `skyshift-api` (us-east4), SPA fallback to `/index.html`, cache headers (`/data/**/*.bin`: 1 day in browsers, 1 year on the CDN, which is purged on every deploy) |
 | `firestore.rules` | `candidates` and `votes`: read and create only, exact fields, types and values from contracts/api.md |
 | `.firebaserc` | default project `nasa-glazing` |
 | `deploy.sh` | copies `web/dist` here and runs `firebase deploy` |
@@ -14,7 +14,7 @@ Firebase Hosting for the site and Firestore rules, project `nasa-glazing`.
 ```sh
 npm install -g firebase-tools          # once
 firebase login                          # once, in a browser
-firebase hosting:sites:create skyshift-sky --project nasa-glazing   # once, if the site doesn't exist
+# site skyshift (https://skyshift.web.app) already exists (created 14 Nov)
 infra/run/deploy.sh                     # the API first, so the /api/** rewrite has a target
 (cd web && npm ci && npm run build)
 infra/firebase/deploy.sh                # hosting + firestore rules
