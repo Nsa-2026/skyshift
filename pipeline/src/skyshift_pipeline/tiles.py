@@ -1088,7 +1088,8 @@ class Run:
         # the saturated-dot offsets (pixels) on every tile's saturated reference dots, after the zone's frame offsets
         sres = _df(_read_parts(w, T, "sat_residuals.parquet"))
         self.sat = astrometry.sat_offsets(sres, self.offsets if C.ASTRO_FRAME_CORRECT else None) if C.ASTRO_SAT_OFFSET else None
-        st.update({"locus": {f"{k}_D{d}": round(v, 5) for (k, d), v in sorted(self.locus.items())}, **self.frame_stats})
+        st.update({"locus": {f"{k[0]}_D{k[1]}" + (f"_s{k[2]}" if len(k) > 2 else ""): round(v, 5)
+                             for k, v in sorted(self.locus.items(), key=lambda kv: tuple(map(str, kv[0])))}, **self.frame_stats})
         self._timed("reduce2", t0)
         return st
 

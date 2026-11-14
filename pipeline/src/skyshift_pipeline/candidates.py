@@ -13,6 +13,11 @@ Four kinds:
             (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
+            Labels first pass clean_labels (photoz.parquet, 15 Nov review): PAH 3.3 µm only from photoz's
+            label_pah_33_z (at the galaxy's redshift) or at a good photo-z below PHOTOZ_PAH_Z_MAX; no ice on a good
+            photo-z galaxy; a Gaia star with BP − RP >= LABEL_MDWARF_BP_RP keeps no LABEL_MDWARF_EXPECTED label (an
+            M dwarf's own water vapour and CO). And a Gaia DR3 star (G < BLEND_MAX_G) within BLEND_ARCSEC at the
+            source's epoch (refcat, pm-propagated) counts as a Gaia match: crossid's 2.5″ radius misses blends.
 - shape     results/<zone>/shape_candidates.parquet (`python -m skyshift_pipeline.shape`), every row, clock months:
             stretched like two objects where Gaia and CatWISE list one (contracts/api.md v3.7). Absent file: none.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
@@ -59,6 +64,7 @@ DEFAULT_OUT = REPO / "web" / "public" / "data" / "candidates.json"
 
 # --- selection --------------------------------------------------------------------------------
 SPECTRAL_CAP = 300             # spectral: keep the most promising this many per zone
+SPECTRAL_PAH_ONLY_CAP = 20     # ... of which rows labelled PAH 3.3 µm alone (galaxies; photoz's PAH at z: ~150 in the hunt)
 NEAR_PARALLAX_MAS = 20.0       # spectral: a Gaia star this close (<= 50 pc) is kept despite the Gaia match
 NEAR_PARALLAX_SNR = 5.0        # ... if its parallax is this significant
 RED_J_M46_AB = C.BD_MIN_J_M46_AB             # label "red": J_AB - [4.6]_AB above this (classify's brown-dwarf cut)
@@ -716,18 +722,105 @@ def spectral_score(c: pd.DataFrame) -> np.ndarray:
     return _clip01(best)
 
 
-def select_spectral(c: pd.DataFrame, cap: int = SPECTRAL_CAP) -> pd.DataFrame:
-    """Labelled or brown_dwarf_like, and no Gaia star (or a near one); the `cap` best by score."""
+def clean_labels(c: pd.DataFrame, pz: pd.DataFrame | None) -> pd.DataFrame:
+    """classes rows with the export's label rules applied to label_* and `labels` (module docstring). pz: photoz.parquet's
+    source_id, z_best, good, label_pah_33_z (None: no photo-z for the zone, so no PAH label)."""
+    from .classify import LABELS as CLASSIFY_LABELS
+
+    c = c.copy()
+    n = len(c)
+    if not n:
+        return c
+    good, zb, pah_z = np.zeros(n, bool), np.full(n, np.nan), np.zeros(n, bool)
+    if pz is not None and len(pz):
+        p = pz.drop_duplicates("source_id").set_index("source_id").reindex(c["source_id"].to_numpy(np.int64))
+        good = p["good"].fillna(False).to_numpy(bool)
+        zb = p["z_best"].to_numpy(np.float64)
+        if "label_pah_33_z" in p:
+            pah_z = p["label_pah_33_z"].fillna(False).to_numpy(bool)
+
+    def lab(name):
+        return c[f"label_{name}"].fillna(False).to_numpy(bool) if f"label_{name}" in c else np.zeros(n, bool)
+
+    with np.errstate(invalid="ignore"):
+        c["label_pah_33"] = pah_z | (lab("pah_33") & good & (zb < C.PHOTOZ_PAH_Z_MAX))
+        for ice in ("h2o_ice", "co2_ice", "co_ice"):
+            c[f"label_{ice}"] = lab(ice) & ~good
+        has_gaia = np.isfinite(_col(c, "gaia_sep_arcsec")) | np.isfinite(_col(c, "gaia_g"))
+        mdwarf = has_gaia & (_col(c, "gaia_bp_rp") >= C.LABEL_MDWARF_BP_RP)
+    for x in C.LABEL_MDWARF_EXPECTED:
+        c[f"label_{x}"] = lab(x) & ~mdwarf
+    on = np.stack([lab(x) for x in CLASSIFY_LABELS], 1)
+    names = np.array(CLASSIFY_LABELS)
+    c["labels"] = [",".join(names[b]) for b in on]
+    return c
+
+
+def gaia_blends(store: Store, zone: str, ids: np.ndarray) -> np.ndarray:
+    """The source_ids (of `ids`) with a Gaia DR3 star brighter than BLEND_MAX_G within BLEND_ARCSEC at the source's
+    epoch (crossids epoch_mjd, else the photo list's median): refcat/<zone>.parquet moved with its proper motion."""
+    from .crossid import ref_offset_at
+
+    ids = np.unique(np.asarray(ids, np.int64))
+    rel = next((r.format(zone=zone) for r in (C.REFCAT_REL, C.REFCAT_FALLBACK_REL) if store.exists(r.format(zone=zone))), None)
+    if not ids.size or rel is None:
+        return np.zeros(0, np.int64)
+    ref = read_columns(store, rel, ["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "g", "g_mag", "phot_g_mean_mag"])
+    g = next((pd.to_numeric(ref[k], errors="coerce").to_numpy(np.float64) for k in ("g", "g_mag", "phot_g_mean_mag")
+              if k in ref), np.full(len(ref), np.nan))
+    cat = ref["cat"].astype(str).str.lower() if "cat" in ref else pd.Series("", index=ref.index)
+    with np.errstate(invalid="ignore"):
+        ref = ref[cat.str.contains("gaia").to_numpy() & (g < C.BLEND_MAX_G)].reset_index(drop=True)
+    if not len(ref):
+        return np.zeros(0, np.int64)
+    for k in ("pmra", "pmdec"):
+        ref[k] = pd.to_numeric(ref[k], errors="coerce") if k in ref else np.nan
+    ref["epoch_mjd"] = pd.to_numeric(ref["epoch_mjd"], errors="coerce").fillna(57388.5) if "epoch_mjd" in ref else 57388.5
+    pos = read_columns(store, results_rel(zone, "sources.parquet"), ["source_id", "ra", "dec"], ids)
+    xrel = results_rel(zone, "crossids.parquet")
+    ep = (read_columns(store, xrel, ["source_id", "epoch_mjd"], ids).drop_duplicates("source_id").set_index("source_id")["epoch_mjd"]
+          if store.exists(xrel) else pd.Series(dtype=np.float64))
+    mjd = ep.reindex(pos["source_id"].to_numpy(np.int64)).to_numpy(np.float64)
+    if np.isnan(mjd).any():
+        fill = float(np.nanmedian(read_columns(store, photolist_rel(zone), ["mjd"])["mjd"])) if store.exists(photolist_rel(zone)) else 61000.0
+        mjd = np.where(np.isnan(mjd), fill, mjd)
+    span = np.nanmax(np.abs(mjd[:, None] - np.array([np.nanmin(ref["epoch_mjd"]), np.nanmax(ref["epoch_mjd"])])[None])) / 365.25
+    pm_max = float(np.nanmax(np.hypot(np.nan_to_num(ref["pmra"].to_numpy(np.float64)), np.nan_to_num(ref["pmdec"].to_numpy(np.float64))))) / 1000.0
+    tree = SkyTree(ref["ra"].to_numpy(np.float64), ref["dec"].to_numpy(np.float64))
+    near = tree.query_radius(pos["ra"].to_numpy(np.float64), pos["dec"].to_numpy(np.float64),
+                             C.BLEND_ARCSEC + 1.0 + pm_max * float(span))
+    out = []
+    for i, js in enumerate(near):
+        if not js:
+            continue
+        sub = ref.iloc[js]
+        e, nn = ref_offset_at(float(pos["ra"].iloc[i]), float(pos["dec"].iloc[i]), sub, mjd[i], parallax=False)
+        if (np.hypot(e, nn) <= C.BLEND_ARCSEC).any():
+            out.append(int(pos["source_id"].iloc[i]))
+    return np.asarray(out, np.int64)
+
+
+def select_spectral(c: pd.DataFrame, cap: int = SPECTRAL_CAP, blended: np.ndarray | None = None) -> pd.DataFrame:
+    """Labelled or brown_dwarf_like, and no Gaia star (or a near one); the `cap` best by score, at most
+    SPECTRAL_PAH_ONLY_CAP of them labelled PAH alone (star-forming galaxies, not the hunt's target). blended: source_ids
+    with a Gaia star within BLEND_ARCSEC (gaia_blends): they count as matched to it."""
     labelled = (c["labels"].fillna("").astype(str) != "").to_numpy() if "labels" in c else np.zeros(len(c), bool)
     if "brown_dwarf_like" in c:
         labelled = labelled | c["brown_dwarf_like"].to_numpy(bool)
     has_gaia = np.isfinite(_col(c, "gaia_sep_arcsec")) | np.isfinite(_col(c, "gaia_g"))
+    if blended is not None and len(blended):
+        has_gaia = has_gaia | c["source_id"].isin(blended).to_numpy()
     with np.errstate(invalid="ignore", divide="ignore"):
         plx = _col(c, "gaia_parallax")
         near = (plx >= NEAR_PARALLAX_MAS) & (plx / _col(c, "gaia_parallax_error") >= NEAR_PARALLAX_SNR)
     s = c[labelled & (~has_gaia | near)].copy()
     s["_score"] = spectral_score(s)
-    return s.sort_values(["_score", "source_id"], ascending=[False, True]).head(cap).reset_index(drop=True)
+    s = s.sort_values(["_score", "source_id"], ascending=[False, True])
+    pah_only = (s["labels"].fillna("").astype(str) == "pah_33").to_numpy() if "labels" in s else np.zeros(len(s), bool)
+    if "brown_dwarf_like" in s:
+        pah_only = pah_only & ~s["brown_dwarf_like"].to_numpy(bool)
+    over = pah_only & (np.cumsum(pah_only) > SPECTRAL_PAH_ONLY_CAP)
+    return s[~over].head(cap).reset_index(drop=True)
 
 
 def _band_phrase(lab: str, row) -> str:
@@ -808,7 +901,7 @@ def shape_candidates(store: Store, zone: str) -> list[dict]:
 
 # --- zones -------------------------------------------------------------------------------------------
 CLASS_COLUMNS = ["source_id", "class", "labels", "brown_dwarf_like", "bd_evidence", "j_m46_ab", "gaia_sep_arcsec",
-                 "gaia_g", "gaia_parallax", "gaia_parallax_error",
+                 "gaia_g", "gaia_bp_rp", "gaia_parallax", "gaia_parallax_error",
                  *[f"label_{x}" for x in LABEL_BANDS],
                  *sorted({f"{b}_sig" for bands in LABEL_BANDS.values() for b, _ in bands})]
 
@@ -820,7 +913,17 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
     h = highpm_leads(store.read_parquet(hrel)) if store.exists(hrel) else pd.DataFrame()
     crel = results_rel(zone, "classes.parquet")
     cls = read_columns(store, crel, CLASS_COLUMNS) if store.exists(crel) else pd.DataFrame(columns=CLASS_COLUMNS)
-    spec = select_spectral(cls, spectral_cap) if len(cls) else cls
+    prel = results_rel(zone, "photoz.parquet")
+    pz = read_columns(store, prel, ["source_id", "z_best", "good", "label_pah_33_z"]) if store.exists(prel) else None
+    cls = clean_labels(cls, pz)
+    blended = np.zeros(0, np.int64)
+    if len(cls):
+        pool = ((cls["labels"].fillna("").astype(str) != "").to_numpy() | cls["brown_dwarf_like"].to_numpy(bool)) & \
+            ~(np.isfinite(_col(cls, "gaia_sep_arcsec")) | np.isfinite(_col(cls, "gaia_g")))
+        blended = gaia_blends(store, zone, cls["source_id"].to_numpy(np.int64)[pool])
+        L.info("candidates %s: %d labelled no-Gaia sources, %d with a Gaia star within %.0f″ (counted as Gaia)",
+               zone, int(pool.sum()), len(blended), C.BLEND_ARCSEC)
+    spec = select_spectral(cls, spectral_cap, blended) if len(cls) else cls
     hp_ids = np.unique(np.r_[h["source_id"].to_numpy(np.int64), h["source_id_b"].to_numpy(np.int64)]) if len(h) else np.zeros(0, np.int64)
     sub = cls[cls["source_id"].isin(hp_ids)]
     cl = dict(zip(sub["source_id"].to_numpy(np.int64), class_labels(sub)))
