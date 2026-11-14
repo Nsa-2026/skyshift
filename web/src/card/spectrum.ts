@@ -1,5 +1,6 @@
-// Spectrum chart: flux (µJy, log) against wavelength (µm, 0.70–5.05), inline SVG.
-// Colour = detector (redundant with x position, so never the only channel) or visit (+ shape).
+// Spectrum chart: flux (µJy, log) against wavelength (µm, 0.70–5.05), inline SVG on glass.
+// Colour = detector (redundant with x position and the D1–D6 strip, so never the only channel)
+// or visit (graphite light → ink, plus shape).
 import type { SpectrumPoint } from "../api/types";
 import { DETECTORS, formatMjd } from "../app/astro";
 import { compactUjy, isUpperLimit, logTicks, median, upperLimitValue, visitsOf } from "./format";
@@ -12,17 +13,20 @@ export const UM_MAX = 5.05;
 /** A visit line breaks where its bins are further apart than this (µm). */
 const GAP_UM = 0.4;
 
-/** Main molecular bands (µm). Labels stay small; they are a hint, not a fit. */
-export const MOLECULES: { um: number; label: string; name: string }[] = [
-  { um: 1.4, label: "H₂O", name: "water" },
-  { um: 1.65, label: "CH₄", name: "methane" },
-  { um: 1.9, label: "H₂O", name: "water" },
-  { um: 2.3, label: "CH₄", name: "methane" },
-  { um: 2.7, label: "H₂O", name: "water" },
-  { um: 3.0, label: "ice", name: "water ice" },
-  { um: 3.3, label: "CH₄", name: "methane" },
-  { um: 4.27, label: "CO₂", name: "carbon dioxide" },
-  { um: 4.67, label: "CO", name: "carbon monoxide" },
+/**
+ * Main molecular bands (µm): centre and an approximate extent, drawn as faint bands.
+ * They are a hint of where to look, not a fit.
+ */
+export const MOLECULES: { um: number; lo: number; hi: number; label: string; name: string }[] = [
+  { um: 1.4, lo: 1.33, hi: 1.49, label: "H₂O", name: "water" },
+  { um: 1.65, lo: 1.6, hi: 1.72, label: "CH₄", name: "methane" },
+  { um: 1.9, lo: 1.8, hi: 1.98, label: "H₂O", name: "water" },
+  { um: 2.3, lo: 2.2, hi: 2.4, label: "CH₄", name: "methane" },
+  { um: 2.7, lo: 2.6, hi: 2.85, label: "H₂O", name: "water" },
+  { um: 3.0, lo: 2.9, hi: 3.12, label: "ice", name: "water ice" },
+  { um: 3.3, lo: 3.2, hi: 3.42, label: "CH₄", name: "methane" },
+  { um: 4.27, lo: 4.2, hi: 4.34, label: "CO₂", name: "carbon dioxide" },
+  { um: 4.67, lo: 4.55, hi: 4.8, label: "CO", name: "carbon monoxide" },
 ];
 
 /** A drawn point, for hover and keyboard reading. */
@@ -59,12 +63,12 @@ export function spectrumDomain(spectrum: SpectrumPoint[]): { min: number; max: n
   return logTicks(lo, hi);
 }
 
-/** Labels in rows so neighbours don't collide (≈ 5.5 px per character at 10 px). */
+/** Labels in rows so neighbours don't collide (≈ 5.6 px per character at 9.5 px). */
 export function moleculeRows(xOf: (um: number) => number): number[] {
   const rows: number[] = [];
   const lastEnd: number[] = [];
   for (const m of MOLECULES) {
-    const w = m.label.length * 5.5 + 4;
+    const w = m.label.length * 5.6 + 5;
     const x0 = xOf(m.um) - w / 2;
     let row = 0;
     while (lastEnd[row] != null && lastEnd[row] > x0) row++;
@@ -75,11 +79,14 @@ export function moleculeRows(xOf: (um: number) => number): number[] {
 }
 
 export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number; mode: SpectrumMode; id: string }): Chart {
-  const W = Math.max(280, Math.min(opts.width, 720));
-  const H = Math.round(Math.max(220, Math.min(W * 0.7, 320)));
-  const pad = { left: 38, right: 16, top: 34, bottom: 48 };
-  const box = { left: pad.left, top: pad.top, right: W - pad.right, bottom: H - pad.bottom };
-  const xOf = (um: number) => box.left + ((um - UM_MIN) / (UM_MAX - UM_MIN)) * (box.right - box.left);
+  const W = Math.round(Math.max(280, Math.min(opts.width, 720)));
+  const H = Math.round(Math.max(220, Math.min(W * 0.66, 300)));
+  const left = 36;
+  const right = W - 14;
+  const xOf = (um: number) => left + ((um - UM_MIN) / (UM_MAX - UM_MIN)) * (right - left);
+  const rows = moleculeRows(xOf);
+  const nRows = Math.max(...rows) + 1;
+  const box = { left, top: 6 + nRows * 11 + 4, right, bottom: H - 44 };
   const dom = spectrumDomain(spectrum);
   const lmin = Math.log10(dom.min);
   const lmax = Math.log10(dom.max);
@@ -89,49 +96,46 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
   const vIndex = new Map(visits.map((v, i) => [v, i]));
   const out: string[] = [];
 
-  // Detector bands: faint washes in the plot, a solid strip under the axis.
+  // Molecule bands: faint washes the full plot height, small labels on top.
+  MOLECULES.forEach((m, i) => {
+    const x0 = xOf(m.lo);
+    const x1 = xOf(m.hi);
+    const ly = 6 + rows[i] * 11 + 8;
+    out.push(
+      `<g class="cd-mol"><title>${esc(m.name)} band, near ${m.um} µm</title>` +
+        `<rect x="${r1(x0)}" y="${box.top}" width="${r1(x1 - x0)}" height="${r1(box.bottom - box.top)}" fill="var(--ink)" opacity="0.024"/>` +
+        `<text x="${r1(xOf(m.um))}" y="${r1(ly)}" class="cd-mol-t" text-anchor="middle">${m.label}</text></g>`,
+    );
+  });
+
+  // Y grid only on labelled ticks: hairlines.
+  for (const t of dom.ticks) {
+    const y = yOf(t);
+    out.push(`<line x1="${box.left}" x2="${box.right}" y1="${r1(y)}" y2="${r1(y)}" stroke="var(--hair)" stroke-width="1"/>`);
+    out.push(`<text x="${box.left - 6}" y="${r1(y + 3.5)}" class="cd-ax" text-anchor="end">${compactUjy(t)}</text>`);
+  }
+  // X: wavelength labels, then the detector strip with its names.
+  for (const um of [1, 2, 3, 4, 5]) {
+    const x = xOf(um);
+    out.push(`<text x="${r1(x)}" y="${box.bottom + 14}" class="cd-ax" text-anchor="middle">${um === 5 ? "5 µm" : um}</text>`);
+  }
   for (const [d, r] of Object.entries(DETECTORS)) {
     const x0 = xOf(r.min);
     const x1 = xOf(r.max);
-    if (Number(d) % 2 === 0) out.push(`<rect x="${r1(x0)}" y="${box.top}" width="${r1(x1 - x0)}" height="${box.bottom - box.top}" fill="var(--plate-3)" opacity="0.35"/>`);
-    out.push(`<rect x="${r1(x0 + 0.5)}" y="${box.bottom + 20}" width="${r1(x1 - x0 - 1)}" height="5" rx="1" fill="var(--d${d})"/>`);
-    out.push(`<text x="${r1((x0 + x1) / 2)}" y="${box.bottom + 38}" class="cd-ax" text-anchor="middle">D${d}</text>`);
+    out.push(`<rect x="${r1(x0 + 1)}" y="${box.bottom + 21}" width="${r1(x1 - x0 - 2)}" height="4" rx="2" fill="var(--d${d})"/>`);
+    out.push(`<text x="${r1((x0 + x1) / 2)}" y="${box.bottom + 38}" class="cd-ax cd-ax-d" text-anchor="middle">D${d}</text>`);
   }
-
-  // Y grid and ticks.
-  for (const t of dom.ticks) {
-    const y = yOf(t);
-    out.push(`<line x1="${box.left}" x2="${box.right}" y1="${r1(y)}" y2="${r1(y)}" stroke="var(--rule)" stroke-width="1"/>`);
-    out.push(`<text x="${box.left - 5}" y="${r1(y + 3.5)}" class="cd-ax" text-anchor="end">${compactUjy(t)}</text>`);
-  }
-  // X ticks.
-  for (const um of [1, 2, 3, 4, 5]) {
-    const x = xOf(um);
-    out.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${box.bottom}" y2="${box.bottom + 4}" stroke="var(--rule-strong)"/>`);
-    out.push(`<text x="${r1(x)}" y="${box.bottom + 15}" class="cd-ax" text-anchor="middle">${um === 5 ? "5 µm" : um}</text>`);
-  }
-  out.push(`<line x1="${box.left}" x2="${box.right}" y1="${box.bottom}" y2="${box.bottom}" stroke="var(--rule-strong)"/>`);
-
-  // Molecule marks along the top.
-  const rows = moleculeRows(xOf);
-  MOLECULES.forEach((m, i) => {
-    const x = xOf(m.um);
-    const ly = box.top - 6 - rows[i] * 11;
-    out.push(`<g class="cd-mol"><title>${esc(m.name)} band, ${m.um} µm</title>`);
-    out.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${r1(ly + 2)}" y2="${box.bottom}" stroke="var(--muted)" stroke-width="1" opacity="0.16"/>`);
-    out.push(`<text x="${r1(x)}" y="${r1(ly)}" class="cd-mol-t" text-anchor="middle">${m.label}</text></g>`);
-  });
 
   // Points: error bars first, then marks.
   const points: PlotPoint[] = [];
   const bars: string[] = [];
   const marks: string[] = [];
-  const faded = opts.mode === "visit";
+  const byVisit = opts.mode === "visit";
   for (const p of spectrum) {
     const x = xOf(p.um);
     const vi = vIndex.get(p.visit) ?? 0;
-    const colour = opts.mode === "det" ? `var(--d${p.det})` : visitColour(vi);
-    const shape = opts.mode === "det" ? "circle" : visitShape(vi);
+    const colour = byVisit ? visitColour(vi, visits.length) : `var(--d${p.det})`;
+    const shape = byVisit ? visitShape(vi) : "circle";
     if (isUpperLimit(p)) {
       const y = yOf(upperLimitValue(p));
       marks.push(caret(x, y, colour));
@@ -141,28 +145,28 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
     const y = yOf(p.flux_ujy);
     const yHi = yOf(p.flux_ujy + p.err_ujy);
     const yLo = yOf(p.flux_ujy - p.err_ujy);
-    if (yLo - yHi > 1.5) bars.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${r1(yHi)}" y2="${r1(yLo)}" stroke="${colour}"/>`);
-    marks.push(marker(shape, x, y, p.saturated ? 2.7 : 2.4, colour, p.saturated, faded ? `opacity="0.55"` : ""));
+    if (yLo - yHi > 2) bars.push(`<line x1="${r1(x)}" x2="${r1(x)}" y1="${r1(yHi)}" y2="${r1(yLo)}" stroke="${colour}"/>`);
+    marks.push(marker(shape, x, y, 2.5, colour, p.saturated, byVisit ? `opacity="0.5"` : ""));
     points.push({ x, y, p, limit: false });
   }
-  out.push(`<g stroke-width="1" opacity="${faded ? 0.25 : 0.45}">${bars.join("")}</g>`);
+  out.push(`<g stroke-width="1" stroke-linecap="round" opacity="${byVisit ? 0.2 : 0.45}">${bars.join("")}</g>`);
   out.push(`<g>${marks.join("")}</g>`);
 
   // By visit: a median line per visit through wavelength bins, so changes between visits read at a glance.
-  if (opts.mode === "visit") {
+  if (byVisit) {
     for (const v of visits) {
       const pts = visitCurve(spectrum.filter((p) => p.visit === v));
       if (pts.length < 2) continue;
       // Break the line across wavelength gaps: no data there, so no line either.
       const d = pts.map((q, i) => `${i && q.um - pts[i - 1].um < GAP_UM ? "L" : "M"}${r1(xOf(q.um))} ${r1(yOf(q.flux))}`).join("");
-      const c = visitColour(vIndex.get(v) ?? 0);
-      out.push(`<path d="${d}" fill="none" stroke="var(--plate-2)" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>`);
-      out.push(`<path d="${d}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+      const c = visitColour(vIndex.get(v) ?? 0, visits.length);
+      out.push(`<path d="${d}" fill="none" stroke="var(--glass)" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>`);
+      out.push(`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>`);
     }
   }
 
   // Hover ring (moved by the card).
-  out.push(`<circle class="cd-hover" r="6" cx="0" cy="0" visibility="hidden" fill="none" stroke="var(--emulsion)" stroke-width="1.5"/>`);
+  out.push(`<circle class="cd-hover" r="6" cx="0" cy="0" visibility="hidden" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`);
 
   const dets = [...new Set(spectrum.map((p) => p.det))].sort();
   const title = `Spectrum, ${spectrum.length} points`;
@@ -170,7 +174,7 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
     `Flux in microjansky on a log scale against wavelength in micrometres, ${UM_MIN} to 5 µm. ` +
     `Detectors ${dets.map((d) => `D${d}`).join(", ")}; ${visits.length} visit${visits.length === 1 ? "" : "s"}. ` +
     `Flux range ${compactUjy(dom.min)} to ${compactUjy(dom.max)} µJy.` +
-    (opts.mode === "visit" ? " Coloured by visit, with a median line per visit." : " Coloured by detector.");
+    (byVisit ? " Shaded by visit, light to dark, with a median line per visit." : " Coloured by detector.");
   const svg =
     `<svg class="cd-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="${opts.id}-t ${opts.id}-d" tabindex="0">` +
     `<title id="${opts.id}-t">${esc(title)}</title><desc id="${opts.id}-d">${esc(desc)}</desc>` +
@@ -179,7 +183,7 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
   return { svg, points, box };
 }
 
-/** Median flux of one visit in wavelength bins (about 8 bins per detector), skipping upper limits. */
+/** Median flux of one visit in wavelength bins (six bins per detector), skipping upper limits. */
 export function visitCurve(points: SpectrumPoint[]): { um: number; flux: number }[] {
   const out: { um: number; flux: number }[] = [];
   for (const r of Object.values(DETECTORS)) {
@@ -194,11 +198,10 @@ export function visitCurve(points: SpectrumPoint[]): { um: number; flux: number 
   return out.sort((a, b) => a.um - b.um);
 }
 
-/** Text for one point, for the readout line and the keyboard. */
+/** One line for a point, for the readout under the chart and the keyboard. */
 export function describePoint(p: SpectrumPoint, limit: boolean): string {
-  const flux = limit
-    ? `not detected, below ${Math.round(upperLimitValue(p)).toLocaleString("en-US")} µJy`
-    : `${Math.round(p.flux_ujy).toLocaleString("en-US")} ± ${Math.round(p.err_ujy).toLocaleString("en-US")} µJy`;
-  const visit = p.visit > 0 ? `, visit ${p.visit}` : "";
-  return `${p.um.toFixed(3)} µm: ${flux}. D${p.det}${visit}, ${formatMjd(p.mjd)}${p.saturated ? ". Core saturated" : ""}.`;
+  const n = (v: number) => Math.round(v).toLocaleString("en-US");
+  const flux = limit ? `not detected, under ${n(upperLimitValue(p))} µJy` : `${n(p.flux_ujy)} ± ${n(p.err_ujy)} µJy`;
+  const where = [`D${p.det}`, p.visit > 0 ? `visit ${p.visit}` : "", formatMjd(p.mjd), p.saturated ? "core saturated" : ""].filter(Boolean).join(", ");
+  return `${p.um.toFixed(2)} µm: ${flux} (${where})`;
 }
