@@ -250,6 +250,45 @@ def test_zone_choice_and_reasons(root, tmp_path):
         monkeypatch_env.undo()
 
 
+def test_zones_found_when_the_listing_shows_no_folders(root, monkeypatch):
+    """GCS through pyarrow lists no "folders" under results/: zones not in progress.json are then
+    still found by name (EXTRA_ZONES, SKYSHIFT_EXTRA_ZONES) from their summary.json."""
+    for name, box in (("t_barnard", [9.95, 10.05]), ("t_other", [9.97, 10.03])):
+        z = Path(root) / "results" / name
+        z.mkdir(parents=True)
+        (z / "summary.json").write_text(json.dumps({"zone": {"name": name, "ra": box, "dec": [19.95, 20.05]},
+                                                    "steps": {"link": {}, "crossid": {}}}))
+    monkeypatch.setattr(M.Store, "list_dirs", lambda self, key: [])
+    assert M.find_zone(10.0, 20.0, root=root)[0].name == "t_barnard"  # in EXTRA_ZONES
+    M.reset()
+    monkeypatch.setenv("SKYSHIFT_EXTRA_ZONES", "t_other, nope")
+    assert M.find_zone(10.0, 20.0, root=root)[0].name == "t_other"  # the smaller target zone
+    M.reset()
+
+    def broken(self, key):
+        raise OSError("listing down")
+
+    monkeypatch.setattr(M.Store, "list_dirs", broken)
+    assert M.find_zone(10.0, 20.0, root=root)[0].name == "t_other"
+
+
+def test_gcs_prefixes_reads_the_delimiter_listing(monkeypatch):
+    class Pages:
+        prefixes: set = set()
+
+        def __iter__(self):  # like the storage iterator: prefixes fill in while pages are read
+            Pages.prefixes = {"results/hunt/", "results/t_barnard/", "results/"}
+            yield from ()
+
+    class Client:
+        def list_blobs(self, bucket, prefix, delimiter):
+            assert (bucket, prefix, delimiter) == ("nasa-glazing-data", "results/", "/")
+            return Pages()
+
+    monkeypatch.setattr(M, "_gcs_client", lambda: Client())
+    assert M.gcs_prefixes("nasa-glazing-data", "results/") == ["hunt", "t_barnard"]
+
+
 @pytest.fixture
 def extracted(root):
     """The same photos, but the zone is only extracted: dot files, no results/zz/."""
