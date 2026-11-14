@@ -89,7 +89,7 @@
    "fov": 20,
    "det": 2,
    "kind": "asteroid",
-   "look_for": "A main-belt asteroid. The frames follow it; it should sit inside the predicted ring in every exposure.",
+   "look_for": "A main-belt asteroid. It crosses the field between exposures; the violet diamond marks where its known orbit puts it in each frame, so a dot sitting on the diamond is the asteroid.",
    "expected": "Predicted positions from known orbits."
   },
   {
@@ -102,7 +102,7 @@
    "fov": 20,
    "det": 2,
    "kind": "asteroid",
-   "look_for": "A large main-belt asteroid. The frames follow it; it should sit inside the predicted ring in every exposure.",
+   "look_for": "A large main-belt asteroid. It crosses the field between exposures; the violet diamond marks where its known orbit puts it in each frame, so a dot sitting on the diamond is the asteroid.",
    "expected": "Predicted positions from known orbits."
   }
  ]

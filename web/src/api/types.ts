@@ -140,8 +140,8 @@ export interface Suspect {
   n_dots: number;
   snr: number;
   flux_ujy: number;
-  /** fixtures use a number, the contract an id string: accept both until P1 decides. */
-  cell: string | number;
+  /** 6″ sky-cell id (contracts/dots.md), an integer below 2^53. */
+  cell: number;
   nearest_known_arcsec: number | null;
 }
 

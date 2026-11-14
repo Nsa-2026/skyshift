@@ -7,37 +7,40 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--plate);
-  color: var(--emulsion);
+  background: var(--glass);
+  color: var(--ink);
   font-family: var(--font);
   font-size: var(--step-0);
   line-height: var(--lh);
   font-variant-numeric: tabular-nums;
   font-variation-settings: "wdth" 100;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3 {
   margin: 0;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 1.15;
+  letter-spacing: -0.005em;
 }
 
 p {
   margin: 0;
-  max-width: 68ch;
+  max-width: 66ch;
 }
 
 a {
-  color: var(--gaia);
-  text-underline-offset: 2px;
+  color: var(--pencil-blue);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 
 button,
@@ -47,41 +50,85 @@ select {
   color: inherit;
 }
 
-/* Controls: real buttons, aria-pressed / aria-selected show state. */
+/* Buttons: quiet by default. State shows with aria-pressed / aria-selected. */
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--s2);
   min-height: 36px;
-  padding: 0 var(--s3);
-  border: 1px solid var(--rule-strong);
+  padding: 0 var(--s4);
+  border: 1px solid transparent;
   border-radius: var(--radius-ctl);
-  background: var(--plate-2);
-  color: var(--emulsion);
+  background: var(--sheet-2);
+  color: var(--ink);
   cursor: pointer;
   white-space: nowrap;
+  font-weight: 550;
 }
 .btn:hover {
-  background: var(--plate-3);
+  background: var(--hair);
 }
 .btn[aria-pressed="true"],
 .btn[aria-selected="true"] {
-  background: var(--emulsion);
-  border-color: var(--emulsion);
-  color: var(--plate);
+  background: var(--ink);
+  color: var(--glass);
 }
 .btn:disabled {
-  color: var(--faint);
+  color: var(--ink-3);
+  background: transparent;
   cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--ink);
+  color: var(--glass);
+}
+.btn-primary:hover {
+  background: #2b3445;
+}
+.btn-ghost {
+  background: transparent;
+  border-color: var(--hair-strong);
+}
+
+/* Segmented control: one capsule, options inside. */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--radius-ctl);
+  background: var(--sheet-2);
+}
+.seg > button {
+  min-height: 30px;
+  padding: 0 var(--s3);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.seg > button:hover {
+  color: var(--ink);
+}
+.seg > button[aria-pressed="true"],
+.seg > button[aria-selected="true"] {
+  background: var(--sheet);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(24, 32, 46, 0.18);
 }
 
 .input {
-  min-height: 40px;
-  padding: 0 var(--s3);
-  border: 1px solid var(--rule-strong);
+  min-height: 44px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--hair-strong);
   border-radius: var(--radius-ctl);
-  background: var(--plate);
-  color: var(--emulsion);
+  background: var(--sheet);
+  color: var(--ink);
+}
+.input::placeholder {
+  color: var(--ink-3);
 }
 
 :focus-visible {
@@ -89,14 +136,14 @@ select {
   box-shadow: var(--focus);
 }
 
+/* Panels: used sparingly. Most sections are separated by space, not boxes. */
 .panel {
-  background: var(--plate-2);
-  border: 1px solid var(--rule);
+  background: var(--sheet);
   border-radius: var(--radius-panel);
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 
 .visually-hidden {
