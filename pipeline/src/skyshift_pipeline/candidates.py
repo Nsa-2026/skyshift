@@ -95,7 +95,7 @@ HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipe
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
                         "implausible_pm": 0.01}  # implausible_pm: to the bottom of the list
-HIGHPM_KNOWN_STAR = 0.6        # status "gaia": a catalogued star
+HIGHPM_KNOWN_STAR = 0.6        # status "gaia" or "2mass" (highpm's deep check): a catalogued star
 SPECTRAL_SIG_SCALE = 10.0
 SPECTRAL_WEIGHT = {"brown_dwarf_like": 1.0, "ch4": 1.0, "h2o_ice": 0.8, "co2_ice": 0.8, "co_ice": 0.8,
                    "h2o_vapour": 0.6, "co_23": 0.4, "pah_33": 0.3}
@@ -598,7 +598,7 @@ def highpm_score(pipeline_score, reasons: list[list[str]], status) -> np.ndarray
     gaia_pm_disagrees, catwise_pm_disagrees 0.4; implausible_pm 0.01 (always last)."""
     q = np.exp(-np.nan_to_num(np.asarray(pipeline_score, np.float64), nan=1.0) / HIGHPM_SCORE_SCALE)
     w = np.array([np.prod([HIGHPM_REASON_WEIGHT.get(x, 1.0) for x in rs]) if rs else 1.0 for rs in reasons])
-    known = np.where(np.asarray(status) == "gaia", HIGHPM_KNOWN_STAR, 1.0)
+    known = np.where(np.isin(np.asarray(status, dtype=object), ["gaia", "2mass"]), HIGHPM_KNOWN_STAR, 1.0)
     return _clip01(q * w * known)
 
 
@@ -629,6 +629,8 @@ def highpm_why(r, reasons: list[str]) -> str:
     elif r.status == "gaia":
         tail = ("; Gaia lists this star with the same motion, a known nearby star that shows the method works"
                 if "vetted" in reasons else "; Gaia lists a star here")
+    elif r.status == "2mass":
+        tail = "; 2MASS saw a star where this motion puts it in 2000, so it is a known star"
     else:
         tail = "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion"
     cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "bad_fit", "few_dots", "short_span") if x in reasons]

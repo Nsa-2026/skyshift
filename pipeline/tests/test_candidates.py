@@ -133,6 +133,9 @@ def test_highpm_rows():
     assert g["reasons"] == ["pm_fit", "gaia_pm_disagrees", "catwise_pm_disagrees"]
     assert "Gaia lists a different motion for the star here" in g["why"]
     assert g["score"] == pytest.approx(np.exp(-(1 / 29.3) / 0.2) * 0.4 * 0.4 * 0.6)
+    t = K.high_pms(_hp(status="2mass"), "hunt", {})[0]  # highpm's deep check: 2MASS saw it on our track in 2000
+    assert "2MASS saw a star" in t["why"] and not t["gaia_match"]
+    assert t["score"] == pytest.approx(np.exp(-(1 / 29.3) / 0.2) * 0.6)
     p = K.high_pms(_hp(method="pair", source_id_b=9, sep_arcsec=40.0, vetted=False, reason="at_control_level"), "pilot", {})[0]
     assert p["id"] == "pilot-pm-7-9" and p["reasons"][0] == "pm_pair" and "by chance" in p["why"]
     # 40″ between visits half a year apart: 80″/yr, no star is that fast

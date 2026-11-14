@@ -239,7 +239,22 @@ ASTRO_DETECTOR_ROBUST_P = 0.95
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
+# Saturated dots (CALIB_SAT_BITS at the peak: centroided on the wings, left uncorrected by calib) sit 0.01–0.05 px
+# along the detector's −x axis, the same in both visits (hunt, 14 Nov: D1 −0.038, D2 −0.021, D3 −0.035, D4 −0.017,
+# D5 −0.014, D6 −0.016 px; |Δy| < 0.01). The 180° roll between visits turns that into fake RA motion: −110 mas/yr at
+# G 8–10, −81 at G 10–11, −32 at G 11–12. The median offset in pixels per detector and depth bin, over the zone's
+# saturated dots of quiet Gaia stars after the frame offset, is subtracted from every saturated dot (photo Jacobian).
+ASTRO_SAT_OFFSET = True
+ASTRO_SAT_MIN_DOTS = 200       # saturated reference dots needed for a detector's (or a depth bin's) offset; a bin with
+                               # fewer takes the detector's "all" value, a detector with fewer gets none
+# depth = the source's magnitude in the detector's band (crossids, Vega) + Vega→AB − the AB magnitude at which half the
+# stars saturate there (pilot, root CLAUDE.md); < 0 = deeper. Hunt: D4 −0.032 px at depth −1.5…−1, −0.009 at 0…0.5,
+# +0.009 beyond +2 (saturated peaks on faint sources: the G-based bins mixed those in).
+ASTRO_SAT_DEPTH_BANDS = {1: ("j", 0.91, 10.5), 2: ("j", 0.91, 10.8), 3: ("k", 1.85, 11.0), 4: ("w1", 2.70, 11.1),
+                         5: ("w2", 3.34, 9.6), 6: ("w2", 3.34, 9.0)}
+ASTRO_SAT_DEPTH_BINS = (-2.5, -1.0, -0.5, 0.0, 0.5, 1.5)  # bin edges (mag; open-ended both ways); NaN depth: "all"
 ASTRO_REPORT_SNR_BINS = (5.0, 10.0, 20.0, 50.0, 100.0, 1e9)  # median dot S/N bins of the report
+ASTRO_REPORT_G_BINS = (0.0, 8.0, 10.0, 11.0, 12.0, 14.0, 17.0, 21.0)  # Gaia G bins of the report (saturated: G < ~12)
 # highpm: "Planet X"-style search for nearby cold movers not in Gaia
 HIGHPM_MIN_SEP_ARCSEC = 3.0    # a source seen in one visit only, with a counterpart in another visit
 HIGHPM_MAX_SEP_ARCSEC = 120.0  # between these separations
@@ -493,6 +508,18 @@ HIGHPM_CW_PLX_PER_PM = 0.25    # CatWISE check: our pm may exceed CatWISE's by a
 HIGHPM_CW_PLX_PER_PM_SAT = 0.1 # ... for saturated sources (their centroid bias runs along RA like the leak): 27 Gaia
                                # fakes pass the blind route instead of 58, at the same 55 of 104 fast stars
 HIGHPM_CW_REL_TOL = 0.2        # CatWISE agrees when the residual <= max(3σ (ours ⊕ CatWISE), this × |pm_cw|, 100 mas/yr)
+HIGHPM_CW_SAT_W1_MAX = 8.0     # CatWISE's motion of a saturated source brighter than this W1 (Vega) neither checks nor
+                               # disproves ours (hunt: fp_control's 2 fakes, G 7.9–8.0 still stars, passed on it)
+# Deep checks before a vetted row counts as "new" (refcat stops at G 20; crossid's 2MASS match ignores motion). Hunt,
+# 14 Nov: the one vetted "new" row was Gaia DR3 664214600677732864 (G 20.40, 2MASSW J0825196+211552, L7.5, ϖ 92.6).
+HIGHPM_DEEP_CHECK = True
+HIGHPM_DEEP_ARCSEC = 5.0       # Gaia DR3, any G (ESA TAP sync): within this of our position and of the segment our position
+                               # takes moved to 2016.0 with our pm less a parallax leak ϖ·k, 0 <= ϖ <= HIGHPM_CW_PLX_PER_PM × |pm|
+HIGHPM_DEEP_MATCH_ARCSEC = 3.0 # a deep Gaia source is our object when its own motion puts it this close to us at our epoch;
+                               # a 2MASS source (refcat) when our motion (less such a leak) puts us this close at its epoch
+HIGHPM_DEEP_TMASS_MAX_DMAG = 1.5  # ... and its J (AB) is within this of our D2 flux (AB), where both are known
+HIGHPM_DEEP_BATCH = 20         # rows per ESA query (two circles each)
+HIGHPM_DEEP_TIMEOUT_S = 60     # per ESA request; a failure keeps the rows "new" (report deep_gaia_checked false)
 HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
 HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
