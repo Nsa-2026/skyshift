@@ -321,7 +321,10 @@
 /* On the colour sky the card is a pane of dark glass, so the sky still reads through it. */
 .atl-stage.is-positive .atl-tour {
   border-color: rgb(255 255 255 / 16%);
-  background: rgb(10 12 20 / 54%);
+  /* 62%, not less: over the brightest part of the galactic plane a thinner glass leaves the
+     body text at about 4.6:1, which passes AA with nothing to spare. This holds it near 6:1
+     wherever the card lands. */
+  background: rgb(10 12 20 / 62%);
   box-shadow: 0 10px 40px rgb(0 0 0 / 46%);
 }
 .atl-stage.is-positive .atl-tour-name {
