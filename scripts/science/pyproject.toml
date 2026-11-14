@@ -1,0 +1,25 @@
+[project]
+name = "skyshift-science"
+version = "0.1.0"
+description = "SkyShift solar-system science from SPHEREx cutouts: asteroid sizes and albedos, comet 3I/ATLAS gas"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "astropy>=6.1",
+    "astroquery>=0.4.10",
+    "requests>=2.32",
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "skyshift-core",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+skyshift-core = { path = "../../core", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

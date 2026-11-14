@@ -1,0 +1,22 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: designation, datatype: string, subtype: json}
+# - {name: ra, unit: deg, datatype: float64, format: '{:.6f}'}
+# - {name: dec, unit: deg, datatype: float64, format: '{:.6f}'}
+# - {name: j_m, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: j_msigcom, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: h_m, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: h_msigcom, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: k_m, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: k_msigcom, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: ph_qual, datatype: string, subtype: json}
+# - {name: jdate, unit: d, datatype: float64, format: '{:.4f}'}
+# schema: astropy-2.0
+designation ra dec j_m j_msigcom h_m h_msigcom k_m k_msigcom ph_qual jdate
+"""08040115+1502350""" 121.004795 15.043066 11.067 0.022 10.563 0.021 10.5 0.019 """AAA""" 2450754.9889
+"""08040139+1500066""" 121.005801 15.001861 14.743 0.038 14.163 0.051 14.086 0.072 """AAA""" 2450754.9889
+"""08040252+1501487""" 121.01054 15.030217 16.453 0.154 15.645 "" 15.31 0.228 """BUD""" 2450754.9889
+"""08040417+1501180""" 121.017381 15.021676 16.573 0.173 15.611 0.165 15.522 0.263 """CCD""" 2450754.9889
+"""08040573+1502489""" 121.02391 15.046926 13.934 0.027 13.432 0.033 13.363 0.039 """AAA""" 2450754.9889
+"""08040602+1502300""" 121.025115 15.041678 16.756 0.197 15.486 0.145 15.437 "" """CBU""" 2450754.9889

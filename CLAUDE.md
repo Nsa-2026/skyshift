@@ -43,9 +43,12 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   DETCOORD = 'sky': MWIR pixels are already flipped on X to match the SWIR view.
 - D1+D4, D2+D5, D3+D6 are exposed at the same moment: a D1→D4 flip is colour, not motion.
   Compare brightness only within one detector.
-- A file is one FITS: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE, 60.2 MB (measured). We read
-  IMAGE, FLAGS and WCS-WAVE: 22.9 MB (+ VARIANCE for error bars: 39.6 MB). The parts are contiguous,
-  so range reads can skip ZODI and EPSF. FLAGS is a tile-compressed HDU: let astropy decode it.
+- A file is one FITS: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE, 60–70 MB. The pipeline reads all
+  six (about 56 MB) so each photo is read once; cutouts read IMAGE, FLAGS, VARIANCE, WCS-WAVE.
+  FLAGS is a tile-compressed HDU: let astropy decode it.
+- ZODI (NASA's zodiacal-light model, MJy/sr) is NOT subtracted from IMAGE (Expsupp 2.2, 3.2.11).
+  EPSF is an effective PSF (pixel response included): evaluate it at pixel centres, don't integrate.
+  An r = 2 px aperture holds 96.8% of a star's light: aperture correction 1.033 (core photometry).
 - Units: IMAGE is in MJy/sr (BUNIT 'MJy / sr', float32). 1 MJy/sr = 889 µJy in a 6.15″ pixel.
   TELAPSE 118 s from start to stop.
 - Flags (contracts/flags.md). Mask for detection and photometry: TRANSIENT, OVERFLOW, SUR_ERROR,
@@ -54,7 +57,7 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   Never mask SOURCE (set on about 99% of pixels) or FULLSAMPLE.
   OVERFLOW or NONLINEAR in a source's core means saturated.
   Bit names and numbers confirmed on the first file (14 Nov, FLAGS header MSKNnnnn keys).
-  SOURCE was on 99.37% of pixels; the mask list removed about 2.1%.
+  SOURCE was on 99.37% of pixels (Cygnus, crowded); about 50% in the hunt zone. The mask list removed about 2.1%.
 - Saturation starts near AB 10–11 (to check on real data). Barnard's Star, RW Aurigae and
   R Draconis are expected to saturate: centroid on the wings and mark the core.
 - Collections: spherex_dr1 and spherex_qr3. Skip *_deep. Search with astroquery Irsa.query_sia;

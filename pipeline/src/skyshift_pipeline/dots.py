@@ -1,0 +1,830 @@
+"""Step 2, `dots`: every 5σ point in every photo, one Parquet per photo (contracts/dots.md).
+
+Per photo: stream IMAGE, FLAGS, VARIANCE, ZODI, EPSF and WCS-WAVE from the public S3 copy (never
+saved; the ePSF table is read once per worker and calibration file), core.detect with
+thresh=DETECT_THRESH per pixel (bad-pixel mask of contracts/flags.md, SOURCE never masked), keep
+aperture snr >= DOT_MIN_SNR; saturated dots (OVERFLOW/NONLINEAR under them) are re-centroided on their
+wings (core.centroid method="fit"); then sky position, µJy, wavelength, bandwidth, the flag bits in the
+3×3 pixels under the dot (`flags`) and at its peak pixel (`flags_peak`), the photo's session and visit,
+the 6″ cell, the ZODI model, the background detection subtracted, the peak, the second-moment shape
+(elong, a, b, theta), an ePSF fit (flux_psf_*, psf.py) and five aperture fluxes (flux_ap_*).
+Forced photometry: when refcat/<zone>_forced.parquet exists, every reference target in the photo
+(moved to MJD-AVG) gets the same ePSF fit at its fixed position and the r = 2 px aperture, detected
+or not, in forced/<obs_id>D<det>.parquet, written before the dot file.
+Every dot file carries the photo's metadata (header values, dot count, timings, zodi median,
+astrometric offset against Gaia, PSF size, 32 × 32 background and ZODI grids) as Parquet key-value
+metadata under `skyshift_photo` (JSON); `photo_meta(path)` reads it back.
+Photos with FINAST != 0 (bad astrometry) get an empty dot file (with metadata) and no forced file.
+Row order is stable (brightest aperture flux first, as core.detect returns it): link's members.parquet
+points at rows by index.
+One process per core; a photo whose dot file exists is skipped; a photo that keeps failing is logged
+and skipped.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import multiprocessing as mp
+import os
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import sep
+from scipy.spatial import cKDTree
+from skyshift_core import (SAT_BITS, background, build_mask, centroid, detect, open_level2, pixel_to_sky, propagate,
+                           sky_to_pixel, ujy_per_mjysr)
+from skyshift_core.level2 import EPSF
+
+from . import config as C
+from . import log
+from .psf import psf_photometry
+from .sky import cell_of
+from .store import Store, dots_rel, photolist_rel, results_rel
+
+L = log.get("dots")
+
+DOT_COLUMNS = {
+    "obs_id": "string", "detector": "int8", "mjd": "float64", "session": "int32", "visit": "int16",
+    "ra": "float64", "dec": "float64", "pos_err_arcsec": "float32", "x": "float32", "y": "float32",
+    "flux_ujy": "float32", "flux_err_ujy": "float32", "wavelength_um": "float32", "bandwidth_um": "float32",
+    "elong": "float32", "snr": "float32", "flags": "int32", "flags_peak": "int32", "cell": "int64",
+    # added 14 Nov (dots extras): NaN where the photo or the dot doesn't allow them
+    "zodi_mjysr": "float32", "bkg_mjysr": "float32", "peak_mjysr": "float32",
+    "a_arcsec": "float32", "b_arcsec": "float32", "theta_deg": "float32",
+    "flux_psf_ujy": "float32", "flux_psf_err_ujy": "float32", "psf_chi2_nu": "float32",
+}
+# fixed_size_list<float32>[len(C.AP_RADII_PX)] columns, after the scalar ones (dots_arrow writes them)
+DOT_LIST_COLUMNS = ("flux_ap_ujy", "flux_ap_err_ujy")
+
+
+def empty_dots() -> pd.DataFrame:
+    df = pd.DataFrame({c: pd.Series(dtype=t) for c, t in DOT_COLUMNS.items()})
+    for c in DOT_LIST_COLUMNS:
+        df[c] = pd.Series(dtype=object)
+    return df
+
+
+def as_dots(df: pd.DataFrame) -> pd.DataFrame:
+    """Columns in contract order and types; missing float columns become NaN (e.g. test frames)."""
+    df = df.copy()
+    for c, t in DOT_COLUMNS.items():
+        if c not in df:
+            if not t.startswith("float"):
+                raise KeyError(f"dot column {c!r} missing")
+            df[c] = np.nan
+    out = df[list(DOT_COLUMNS)].astype(DOT_COLUMNS)
+    n = len(C.AP_RADII_PX)
+    for c in DOT_LIST_COLUMNS:
+        out[c] = df[c] if c in df else pd.Series([np.full(n, np.nan, np.float32) for _ in range(len(df))],
+                                                   index=df.index, dtype=object)
+    return out
+
+
+def or3x3(flags: np.ndarray) -> np.ndarray:
+    """OR of each pixel's 3×3 neighbourhood (the r = 1.5 px disk of core.flags_under), whole frame."""
+    f = np.asarray(flags).astype(np.int32, copy=False)
+    ny, nx = f.shape
+    p = np.pad(f, 1)
+    out = np.zeros_like(f)
+    for dy in range(3):
+        for dx in range(3):
+            out |= p[dy:dy + ny, dx:dx + nx]
+    return out
+
+
+def pixel_of(x: np.ndarray, y: np.ndarray, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    ix = np.clip(np.rint(x).astype(np.int64), 0, shape[1] - 1)
+    iy = np.clip(np.rint(y).astype(np.int64), 0, shape[0] - 1)
+    return ix, iy
+
+
+def peak_pixel(data: np.ndarray, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Brightest pixel in the 3×3 around each dot's pixel."""
+    ny, nx = data.shape
+    ix, iy = pixel_of(x, y, data.shape)
+    best = np.full(ix.size, -np.inf)
+    bx, by = ix.copy(), iy.copy()
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            jx, jy = np.clip(ix + dx, 0, nx - 1), np.clip(iy + dy, 0, ny - 1)
+            v = np.nan_to_num(data[jy, jx].astype(np.float64), nan=-np.inf)
+            better = v > best
+            best = np.where(better, v, best)
+            bx, by = np.where(better, jx, bx), np.where(better, jy, by)
+    return bx, by
+
+
+def recentroid_saturated(data: np.ndarray, flags: np.ndarray, x: np.ndarray, y: np.ndarray,
+                         sat: np.ndarray, half: int = C.SAT_RECENTROID_HALF_PX) -> tuple[np.ndarray, np.ndarray, int]:
+    """Wings fit (core.centroid method="fit") on a stamp for the dots flagged saturated."""
+    x, y = x.copy(), y.copy()
+    ny, nx = data.shape
+    n = 0
+    for k in np.flatnonzero(sat):
+        ix, iy = int(round(x[k])), int(round(y[k]))
+        x0, y0 = max(ix - half, 0), max(iy - half, 0)
+        x1, y1 = min(ix + half + 1, nx), min(iy + half + 1, ny)
+        if x1 - x0 < 9 or y1 - y0 < 9:
+            continue
+        try:
+            c = centroid(data[y0:y1, x0:x1], x[k] - x0, y[k] - y0, flags=flags[y0:y1, x0:x1],
+                         method="fit", box=min(x1 - x0, y1 - y0) // 2)
+        except Exception:  # noqa: BLE001 - keep the original centroid
+            c = None
+        if c is not None:
+            x[k], y[k] = c[0] + x0, c[1] + y0
+            n += 1
+    return x, y, n
+
+
+def pos_err_arcsec(snr: np.ndarray) -> np.ndarray:
+    """contracts/dots.md: sqrt((1.4 × 3.2″ / snr)² + 0.25″²); NaN where snr <= 0."""
+    snr = np.asarray(snr, np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        e = np.sqrt((C.POS_ERR_K * C.PSF_SIGMA_ARCSEC / snr) ** 2 + C.POS_ERR_FLOOR_ARCSEC**2)
+    return np.where(snr > 0, e, np.nan)
+
+
+def shape_moments(data: np.ndarray, bad: np.ndarray, x: np.ndarray, y: np.ndarray,
+                  r: float = C.ELONG_R_PX, bkg: tuple[float, float] = C.ELONG_BKG_PX,
+                  chunk: int = 20000) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Shape of each dot from intensity-weighted second moments: good pixels within r px of (x, y),
+    minus the median of a local annulus, negative values clipped to 0. core.detect does not return
+    sep's a and b, so this stands in for them.
+    Returns (elong, a_px, b_px, theta_deg): a, b = √ of the moment matrix's eigenvalues (px; for an
+    undersampled star a ≈ b ≈ 0.6 px), elong = a / b (capped at 99), theta = major axis angle in
+    pixel coordinates, from +x towards +y, in (−90, 90]. NaN near the edge (stamp off the array),
+    with fewer than 5 annulus pixels, or no positive signal. Vectorised over dots."""
+    ny, nx = data.shape
+    h = int(np.ceil(bkg[1]))
+    k = np.arange(-h, h + 1)
+    out = [np.full(x.size, np.nan) for _ in range(4)]
+    for s0 in range(0, x.size, chunk):
+        sl = slice(s0, s0 + chunk)
+        xs, ys = np.asarray(x[sl], np.float64), np.asarray(y[sl], np.float64)
+        ix, iy = np.rint(xs).astype(np.int64), np.rint(ys).astype(np.int64)
+        inside = (ix - h >= 0) & (iy - h >= 0) & (ix + h + 1 <= nx) & (iy + h + 1 <= ny)
+        yy = np.clip(iy[:, None, None] + k[None, :, None], 0, ny - 1)
+        xx = np.clip(ix[:, None, None] + k[None, None, :], 0, nx - 1)
+        st = data[yy, xx].astype(np.float64)
+        good = ~bad[yy, xx] & np.isfinite(st)
+        dx = k[None, None, :] - (xs - ix)[:, None, None]
+        dy = k[None, :, None] - (ys - iy)[:, None, None]
+        rr = dx * dx + dy * dy
+        ann = good & (rr >= bkg[0] ** 2) & (rr <= bkg[1] ** 2)
+        n_ann = ann.reshape(len(xs), -1).sum(axis=1)
+        srt = np.sort(np.where(ann, st, np.inf).reshape(len(xs), -1), axis=1)
+        lo, hi = np.maximum((n_ann - 1) // 2, 0), np.maximum(n_ann // 2, 0)
+        rows = np.arange(len(xs))
+        med = 0.5 * (srt[rows, lo] + srt[rows, hi])
+        w = np.where(good & (rr <= r * r), st - med[:, None, None], 0.0)
+        w = np.clip(np.nan_to_num(w, nan=0.0, posinf=0.0, neginf=0.0), 0.0, None)
+        tot = w.sum(axis=(1, 2))
+        ok = inside & (n_ann >= 5) & (tot > 0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cxx = (w * dx * dx).sum(axis=(1, 2)) / tot
+            cyy = (w * dy * dy).sum(axis=(1, 2)) / tot
+            cxy = (w * dx * dy).sum(axis=(1, 2)) / tot
+            tr, det = cxx + cyy, cxx * cyy - cxy * cxy
+            disc = np.sqrt(np.maximum(tr * tr / 4.0 - det, 0.0))
+            l1, l2 = tr / 2.0 + disc, tr / 2.0 - disc
+            el = np.where(l2 > 1e-6, np.sqrt(l1 / l2), 99.0)
+            th = np.degrees(0.5 * np.arctan2(2.0 * cxy, cxx - cyy))
+        th = np.where(th <= -90.0, th + 180.0, th)
+        out[0][sl] = np.where(ok, np.minimum(el, 99.0), np.nan)
+        out[1][sl] = np.where(ok, np.sqrt(np.maximum(l1, 0.0)), np.nan)
+        out[2][sl] = np.where(ok, np.sqrt(np.maximum(l2, 0.0)), np.nan)
+        out[3][sl] = np.where(ok, th, np.nan)
+    return out[0], out[1], out[2], out[3]
+
+
+def elongation(data: np.ndarray, bad: np.ndarray, x: np.ndarray, y: np.ndarray,
+               r: float = C.ELONG_R_PX, bkg: tuple[float, float] = C.ELONG_BKG_PX) -> np.ndarray:
+    """a/b of each dot (shape_moments): ~1 for a point source, large for trails and streaks."""
+    return shape_moments(data, bad, x, y, r, bkg)[0]
+
+
+@dataclass
+class PhotoContext:
+    """Per-photo maps shared by the dot table and forced photometry (computed once)."""
+    bad: np.ndarray        # bad-pixel mask (contracts/flags.md)
+    f3: np.ndarray         # 3×3 OR of FLAGS
+    bkg_level: np.ndarray  # background map core.detect subtracts, MJy/sr
+    bkg_rms: np.ndarray
+    noise: np.ndarray      # per-pixel 1σ: max(√VARIANCE, background rms) (config PSF_NOISE)
+    conv: float            # µJy per MJy/sr in one pixel
+    sub: np.ndarray        # IMAGE minus the background map, bad pixels 0: what core.detect measures on
+    timing: dict
+
+
+def detection_background(l2) -> tuple[np.ndarray, np.ndarray]:
+    """(level, rms) maps of the background core.detect subtracts: same mask, same sep settings."""
+    m = build_mask(l2.data, l2.flags)
+    d = np.where(m, 0.0, np.asarray(l2.data, dtype=np.float64))
+    b = background(d, m, box=32)
+    return b.level, b.rms
+
+
+def psf_noise(l2, bkg_rms: np.ndarray) -> np.ndarray:
+    """Per-pixel 1σ for the ePSF fit (config PSF_NOISE): max(√VARIANCE, background rms) or √VARIANCE."""
+    if l2.variance is None:
+        return np.asarray(bkg_rms, np.float64)
+    v = np.asarray(l2.variance, np.float64)
+    sd = np.sqrt(np.where(np.isfinite(v) & (v > 0), v, np.nan))
+    if C.PSF_NOISE == "variance":
+        return sd
+    return np.fmax(sd, bkg_rms)
+
+
+def photo_context(l2, timing: dict | None = None) -> PhotoContext:
+    t0 = time.perf_counter()
+    bad = build_mask(l2.data, l2.flags)
+    level, rms = detection_background(l2)
+    sub = np.where(bad, 0.0, np.asarray(l2.data, dtype=np.float64)) - level
+    sub[bad] = 0.0
+    ctx = PhotoContext(bad=bad, f3=or3x3(l2.flags), bkg_level=level, bkg_rms=rms,
+                       noise=psf_noise(l2, rms), conv=ujy_per_mjysr(l2.wcs), sub=np.ascontiguousarray(sub),
+                       timing={} if timing is None else timing)
+    ctx.timing["context_s"] = time.perf_counter() - t0
+    return ctx
+
+
+def aperture_fluxes(l2, ctx: PhotoContext, x: np.ndarray, y: np.ndarray,
+                    radii=C.AP_RADII_PX, annulus=C.AP_BKG_ANNULUS_PX) -> tuple[np.ndarray, np.ndarray]:
+    """(N, len(radii)) fluxes and errors in µJy: sep circular apertures on IMAGE (bad pixels out),
+    local background = mean of the annulus (r_in, r_out) px, noise = ctx.noise."""
+    d = np.ascontiguousarray(np.where(ctx.bad, 0.0, np.asarray(l2.data, dtype=np.float64)))
+    err = np.ascontiguousarray(np.where(np.isfinite(ctx.noise), ctx.noise, 0.0))
+    m = np.ascontiguousarray(ctx.bad)
+    f = np.full((x.size, len(radii)), np.nan)
+    e = np.full((x.size, len(radii)), np.nan)
+    if x.size == 0:
+        return f, e
+    for k, r in enumerate(radii):
+        fk, ek, _ = sep.sum_circle(d, x, y, float(r), err=err, mask=m, bkgann=tuple(annulus), subpix=5)
+        f[:, k], e[:, k] = fk, ek
+    return f * ctx.conv, e * ctx.conv
+
+
+def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
+               thresh: float = C.DETECT_THRESH, min_snr: float = C.DOT_MIN_SNR,
+               timing: dict | None = None, ctx: PhotoContext | None = None) -> pd.DataFrame:
+    """The dot table of one opened Level 2 photo (or cutout). Uses l2.zodi and l2.epsf when present
+    (else those columns are NaN). `timing`, if given, receives seconds per stage."""
+    timing = {} if timing is None else timing
+    t0 = time.perf_counter()
+    det = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh)
+    det = det[det["snr"] >= min_snr]  # keeps detect's order (brightest first): members.parquet relies on it
+    timing["detect_s"] = time.perf_counter() - t0
+    if len(det) == 0:
+        return empty_dots()
+    if ctx is None:
+        ctx = photo_context(l2, timing)
+    data = np.asarray(l2.data)
+    f3 = ctx.f3
+    x, y = det["x"].astype(np.float64), det["y"].astype(np.float64)
+    ix, iy = pixel_of(x, y, data.shape)
+    sat = (f3[iy, ix] & SAT_BITS) != 0
+    t0 = time.perf_counter()
+    x, y, _ = recentroid_saturated(data, np.asarray(l2.flags), x, y, sat)
+    timing["recentroid_s"] = time.perf_counter() - t0
+    ix, iy = pixel_of(x, y, data.shape)
+    px, py = peak_pixel(data, x, y)
+    ra, dec = pixel_to_sky(l2.wcs, x, y)
+    ra = ra % 360.0
+    conv = ctx.conv
+    if l2.wave is not None:
+        wl, bw = l2.wave.wavelength(x, y), l2.wave.bandwidth(x, y)
+    else:
+        wl = bw = np.full(x.size, np.nan)
+    t0 = time.perf_counter()
+    elong, a_px, b_px, theta = shape_moments(data, ctx.bad, x, y)
+    timing["shape_s"] = time.perf_counter() - t0
+    zodi = np.asarray(l2.zodi)[iy, ix] if getattr(l2, "zodi", None) is not None else np.full(x.size, np.nan)
+    t0 = time.perf_counter()
+    psf_flux = psf_err = psf_chi2 = np.full(x.size, np.nan)
+    if getattr(l2, "epsf", None) is not None:
+        ph = psf_photometry(data, x, y, l2.epsf, noise=ctx.noise, bad=ctx.bad)
+        psf_flux, psf_err, psf_chi2 = ph.flux * conv, ph.flux_err * conv, ph.chi2_nu
+    timing["psf_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    apf, ape = aperture_fluxes(l2, ctx, x, y)
+    timing["apertures_s"] = time.perf_counter() - t0
+    df = pd.DataFrame({
+        "obs_id": obs_id,
+        "detector": detector,
+        "mjd": l2.mjd_avg,
+        "session": session,
+        "visit": visit,
+        "ra": ra,
+        "dec": dec,
+        "pos_err_arcsec": pos_err_arcsec(det["snr"]),
+        "x": x,
+        "y": y,
+        "flux_ujy": det["flux"] * conv,
+        "flux_err_ujy": det["flux_err"] * conv,
+        "wavelength_um": wl,
+        "bandwidth_um": bw,
+        "elong": elong,
+        "snr": det["snr"],
+        "flags": f3[iy, ix],
+        "flags_peak": np.asarray(l2.flags).astype(np.int32)[py, px],
+        "cell": cell_of(ra, dec),
+        "zodi_mjysr": zodi,
+        "bkg_mjysr": ctx.bkg_level[iy, ix],
+        "peak_mjysr": det["peak"],
+        "a_arcsec": a_px * C.PIXEL_ARCSEC,
+        "b_arcsec": b_px * C.PIXEL_ARCSEC,
+        "theta_deg": theta,
+        "flux_psf_ujy": psf_flux,
+        "flux_psf_err_ujy": psf_err,
+        "psf_chi2_nu": psf_chi2,
+    }).astype(DOT_COLUMNS)
+    df["flux_ap_ujy"] = list(apf.astype(np.float32))
+    df["flux_ap_err_ujy"] = list(ape.astype(np.float32))
+    return df
+
+
+# --- forced photometry at reference-catalogue positions ------------------------------------------
+FORCED_COLUMNS = {
+    "obs_id": "string", "detector": "int8", "mjd": "float64", "ref_id": "string",
+    "ra": "float64", "dec": "float64", "x": "float32", "y": "float32",
+    "flux_psf_ujy": "float32", "flux_psf_err_ujy": "float32", "psf_chi2_nu": "float32",
+    "flux_ap2_ujy": "float32", "flux_ap2_err_ujy": "float32",
+    "wavelength_um": "float32", "bandwidth_um": "float32", "zodi_mjysr": "float32", "bkg_mjysr": "float32",
+    "flags": "int32",
+}
+
+
+def forced_rel(obs_id: str, det: int) -> str:
+    return f"forced/{obs_id}D{int(det)}.parquet"
+
+
+def refcat_rel(zone: str) -> str:
+    return f"refcat/{zone}_forced.parquet"
+
+
+def empty_forced() -> pd.DataFrame:
+    return pd.DataFrame({c: pd.Series(dtype=t) for c, t in FORCED_COLUMNS.items()})
+
+
+@dataclass
+class RefCat:
+    ref_id: np.ndarray
+    ra: np.ndarray
+    dec: np.ndarray
+    epoch_mjd: np.ndarray
+    pmra: np.ndarray   # mas/yr incl. cos dec; NaN -> 0
+    pmdec: np.ndarray
+    xyz: np.ndarray    # unit vectors, for the cone pre-filter
+
+    @classmethod
+    def from_frame(cls, df: pd.DataFrame) -> "RefCat":
+        ra = df["ra"].to_numpy(np.float64)
+        dec = df["dec"].to_numpy(np.float64)
+        return cls(df["ref_id"].astype(str).to_numpy(), ra, dec, df["epoch_mjd"].to_numpy(np.float64),
+                   np.nan_to_num(df["pmra"].to_numpy(np.float64)) if "pmra" in df else np.zeros(ra.size),
+                   np.nan_to_num(df["pmdec"].to_numpy(np.float64)) if "pmdec" in df else np.zeros(ra.size),
+                   _unit(ra, dec))
+
+
+def _unit(ra, dec) -> np.ndarray:
+    r, d = np.deg2rad(ra), np.deg2rad(dec)
+    return np.stack([np.cos(d) * np.cos(r), np.cos(d) * np.sin(r), np.sin(d)], axis=-1)
+
+
+def forced_targets(l2, ref: RefCat, zone: C.Zone | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Reference targets in this photo: moved to MJD-AVG (proper motion only), inside the frame by
+    >= FORCED_EDGE_PX and inside the zone box + FORCED_ZONE_MARGIN_DEG. Returns (index, ra, dec, x, y)."""
+    ny, nx = l2.data.shape
+    cra, cdec = pixel_to_sky(l2.wcs, np.array([(nx - 1) / 2.0]), np.array([(ny - 1) / 2.0]))
+    half_diag = np.hypot(nx, ny) / 2.0 * C.PIXEL_ARCSEC / 3600.0 + 0.1
+    near = np.flatnonzero(ref.xyz @ _unit(cra[0], cdec[0]) > np.cos(np.deg2rad(half_diag)))
+    ra = np.empty(near.size)
+    dec = np.empty(near.size)
+    for ep in np.unique(ref.epoch_mjd[near]):
+        g = ref.epoch_mjd[near] == ep
+        k = near[g]
+        ra[g], dec[g] = propagate(ref.ra[k], ref.dec[k], ref.pmra[k], ref.pmdec[k], l2.mjd_avg, epoch_mjd=float(ep))
+    ra %= 360.0
+    keep = np.ones(near.size, bool)
+    if zone is not None:
+        m = C.FORCED_ZONE_MARGIN_DEG
+        keep &= (ra >= zone.ra_min - m) & (ra < zone.ra_max + m) & (dec >= zone.dec_min - m) & (dec < zone.dec_max + m)
+    x = np.full(near.size, np.nan)
+    y = np.full(near.size, np.nan)
+    if keep.any():
+        x[keep], y[keep] = sky_to_pixel(l2.wcs, ra[keep], dec[keep])
+    e = C.FORCED_EDGE_PX
+    keep &= np.isfinite(x) & np.isfinite(y) & (x >= e) & (x <= nx - 1 - e) & (y >= e) & (y <= ny - 1 - e)
+    return near[keep], ra[keep], dec[keep], x[keep], y[keep]
+
+
+def forced_table(l2, ctx: PhotoContext, obs_id: str, detector: int, ref: RefCat, zone: C.Zone | None) -> pd.DataFrame:
+    """ePSF fit at the fixed predicted position + the r = 2 px aperture (as flux_ujy of a dot) for
+    every reference target in the photo, detected or not (negative fluxes kept)."""
+    idx, ra, dec, x, y = forced_targets(l2, ref, zone)
+    if idx.size == 0:
+        return empty_forced()
+    if len(idx) > C.FORCED_WARN_TARGETS:
+        L.warning("%sD%d: %d forced targets (budget %d)", obs_id, detector, len(idx), C.FORCED_WARN_TARGETS)
+    n = idx.size
+    psf_flux = psf_err = psf_chi2 = np.full(n, np.nan)
+    if getattr(l2, "epsf", None) is not None:
+        ph = psf_photometry(np.asarray(l2.data), x, y, l2.epsf, noise=ctx.noise, bad=ctx.bad)
+        psf_flux, psf_err, psf_chi2 = ph.flux * ctx.conv, ph.flux_err * ctx.conv, ph.chi2_nu
+    err = np.ascontiguousarray(np.where(np.isfinite(ctx.noise), ctx.noise, 0.0))
+    f2, e2, _ = sep.sum_circle(ctx.sub, x, y, 2.0, err=err, mask=np.ascontiguousarray(ctx.bad), subpix=5)
+    ix, iy = pixel_of(x, y, l2.data.shape)
+    if l2.wave is not None:
+        wl, bw = l2.wave.wavelength(x, y), l2.wave.bandwidth(x, y)
+    else:
+        wl = bw = np.full(n, np.nan)
+    zodi = np.asarray(l2.zodi)[iy, ix] if getattr(l2, "zodi", None) is not None else np.full(n, np.nan)
+    return pd.DataFrame({
+        "obs_id": obs_id, "detector": detector, "mjd": l2.mjd_avg, "ref_id": ref.ref_id[idx],
+        "ra": ra, "dec": dec, "x": x, "y": y,
+        "flux_psf_ujy": psf_flux, "flux_psf_err_ujy": psf_err, "psf_chi2_nu": psf_chi2,
+        "flux_ap2_ujy": f2 * ctx.conv, "flux_ap2_err_ujy": e2 * ctx.conv,
+        "wavelength_um": wl, "bandwidth_um": bw, "zodi_mjysr": zodi, "bkg_mjysr": ctx.bkg_level[iy, ix],
+        "flags": ctx.f3[iy, ix],
+    }).astype(FORCED_COLUMNS)
+
+
+# --- photo metadata -----------------------------------------------------------------------------
+def _jsonable(v):
+    if isinstance(v, (bool, np.bool_)):
+        return bool(v)
+    if isinstance(v, (int, np.integer)):
+        return int(v)
+    if isinstance(v, (float, np.floating)):
+        return float(v) if np.isfinite(v) else None
+    if v is None:
+        return None
+    return str(v).strip()
+
+
+def header_meta(header) -> dict:
+    out = {k: _jsonable(header.get(k)) for k in C.PHOTO_META_HEADER_KEYS}
+    for k in header.keys():
+        if k.startswith(C.PHOTO_META_HEADER_PREFIXES):
+            out[k] = _jsonable(header[k])
+    return out
+
+
+def epsf_calib_id(header) -> str | None:
+    """The ePSF calibration file id from the IMAGE header HISTORY ('[CALIB] epsf <id>')."""
+    for v in header.get("HISTORY", []):
+        s = str(v).strip()
+        if s.startswith("[CALIB] epsf "):
+            return s.split()[-1]
+    return None
+
+
+def block_means(a: np.ndarray | None, n: int = C.PHOTO_META_GRID) -> list | None:
+    """n × n block means of a 2-D map (NaN ignored), rows = y; block edges round(linspace(0, size, n + 1))."""
+    if a is None:
+        return None
+    a = np.asarray(a, np.float64)
+    ey = np.round(np.linspace(0, a.shape[0], n + 1)).astype(int)[:-1]
+    ex = np.round(np.linspace(0, a.shape[1], n + 1)).astype(int)[:-1]
+    ok = np.isfinite(a)
+    s = np.add.reduceat(np.add.reduceat(np.where(ok, a, 0.0), ey, axis=0), ex, axis=1)
+    c = np.add.reduceat(np.add.reduceat(ok.astype(np.float64), ey, axis=0), ex, axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        m = s / c
+    return [[None if not np.isfinite(v) else float(f"{v:.5g}") for v in row] for row in m]
+
+
+def _robust_sigma(v: np.ndarray) -> float:
+    return float(1.4826 * np.median(np.abs(v - np.median(v)))) if v.size else float("nan")
+
+
+def calibration_meta(dots: pd.DataFrame, forced: pd.DataFrame | None) -> dict:
+    """Astrometric offset of the dots against forced Gaia targets, and the PSF size and ellipticity
+    from the second moments of bright unsaturated dots."""
+    out: dict = {}
+    if forced is not None and len(forced) and len(dots):
+        g = forced[forced["ref_id"].str.startswith("gaia:")]
+        d = dots[dots["snr"] > C.CALIB_ASTROM_MIN_SNR]
+        if len(g) and len(d):
+            gx = _unit(g["ra"].to_numpy(), g["dec"].to_numpy())
+            dx = _unit(d["ra"].to_numpy(), d["dec"].to_numpy())
+            dist, j = cKDTree(gx).query(dx, distance_upper_bound=np.deg2rad(C.CALIB_ASTROM_MATCH_ARCSEC / 3600.0))
+            m = np.isfinite(dist)
+            dra = ((d["ra"].to_numpy()[m] - g["ra"].to_numpy()[j[m]] + 180.0) % 360.0 - 180.0) \
+                * np.cos(np.deg2rad(d["dec"].to_numpy()[m])) * 3600.0
+            ddec = (d["dec"].to_numpy()[m] - g["dec"].to_numpy()[j[m]]) * 3600.0
+            out["astrometry_vs_gaia"] = {
+                "n": int(m.sum()),
+                "dra_cosdec_arcsec": float(np.median(dra)) if m.any() else None,
+                "ddec_arcsec": float(np.median(ddec)) if m.any() else None,
+                "sigma_ra_arcsec": _robust_sigma(dra) if m.any() else None,
+                "sigma_dec_arcsec": _robust_sigma(ddec) if m.any() else None,
+                "min_snr": C.CALIB_ASTROM_MIN_SNR, "match_arcsec": C.CALIB_ASTROM_MATCH_ARCSEC,
+            }
+    if len(dots):
+        s = dots[(dots["snr"] > C.CALIB_PSF_MIN_SNR) & ((dots["flags"] & SAT_BITS) == 0)
+                 & np.isfinite(dots["a_arcsec"]) & (dots["b_arcsec"] > 0)]
+        if len(s):
+            a, b = s["a_arcsec"].to_numpy(np.float64), s["b_arcsec"].to_numpy(np.float64)
+            out["psf_moments"] = {
+                "n": int(len(s)),
+                "fwhm_arcsec": float(np.median(2.3548 * np.sqrt(a * b))),
+                "ellipticity": float(np.median(1.0 - b / a)),
+                "theta_deg": float(np.median(s["theta_deg"])),
+                "min_snr": C.CALIB_PSF_MIN_SNR,
+            }
+        r = (dots["flux_psf_ujy"] / dots["flux_ujy"]).to_numpy(np.float64)
+        sel = (dots["snr"] > C.CALIB_PSF_MIN_SNR).to_numpy() & ((dots["flags"] & SAT_BITS) == 0).to_numpy() & np.isfinite(r)
+        if sel.any():
+            out["psf_over_aperture_flux"] = {"n": int(sel.sum()), "median": float(np.median(r[sel])),
+                                             "min_snr": C.CALIB_PSF_MIN_SNR}
+    return out
+
+
+def photo_meta_dict(l2, obs_id: str, detector: int, st: dict, ctx: PhotoContext | None,
+                    dots: pd.DataFrame, forced: pd.DataFrame | None) -> dict:
+    zodi = getattr(l2, "zodi", None)
+    meta = {
+        "schema": 1,
+        "obs_id": obs_id, "detector": int(detector), "status": st.get("status") or "done",
+        "pipeline_version": _jsonable(l2.primary_header.get("VERSION")) if hasattr(l2, "primary_header") else None,
+        "epsf_calib": epsf_calib_id(l2.header),
+        "n_dots": int(len(dots)),
+        "n_forced": None if forced is None else int(len(forced)),
+        "read_s": st.get("read_s"), "detect_s": st.get("detect_s"), "forced_s": st.get("forced_s"),
+        "stages_s": {k: round(float(v), 3) for k, v in (ctx.timing if ctx else {}).items()},
+        "zodi_median_mjysr": float(np.nanmedian(zodi)) if zodi is not None else None,
+        "bkg_median_mjysr": float(np.median(ctx.bkg_level)) if ctx is not None else None,
+        "ujy_per_mjysr": float(ctx.conv) if ctx is not None else None,
+        "aperture_radii_px": list(C.AP_RADII_PX), "aperture_bkg_annulus_px": list(C.AP_BKG_ANNULUS_PX),
+        "psf_fit": {"half_px": C.PSF_FIT_HALF_PX, "model_frac": C.PSF_MODEL_FRAC, "noise": C.PSF_NOISE},
+        "header": header_meta(l2.header),
+        "calibration": calibration_meta(dots, forced),
+        "grids": {"n": C.PHOTO_META_GRID, "unit": "MJy/sr",
+                  "bkg_mjysr": block_means(ctx.bkg_level) if ctx is not None else None,
+                  "zodi_mjysr": block_means(zodi)},
+    }
+    return _clean(meta)
+
+
+def _clean(v):
+    """JSON-safe copy: numpy scalars to Python, NaN/inf to None."""
+    if isinstance(v, dict):
+        return {str(k): _clean(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_clean(x) for x in v]
+    if isinstance(v, str) or v is None:
+        return v
+    return _jsonable(v)
+
+
+def dots_arrow(df: pd.DataFrame, meta: dict | None = None):
+    """The dot table as a pyarrow Table: list columns as fixed_size_list<float32>[len(AP_RADII_PX)],
+    photo metadata under C.PHOTO_META_KEY."""
+    df = as_dots(df)
+    scal = df[list(DOT_COLUMNS)]
+    t = pa.Table.from_pandas(scal, preserve_index=False)
+    n = len(C.AP_RADII_PX)
+    for c in DOT_LIST_COLUMNS:
+        flat = np.stack(df[c].to_numpy()).astype(np.float32).ravel() if len(df) else np.zeros(0, np.float32)
+        t = t.append_column(c, pa.FixedSizeListArray.from_arrays(pa.array(flat, pa.float32()), n))
+    md = dict(t.schema.metadata or {})
+    if meta is not None:
+        md[C.PHOTO_META_KEY.encode()] = json.dumps(_clean(meta), allow_nan=False).encode()
+    return t.replace_schema_metadata(md)
+
+
+def parquet_bytes(table) -> bytes:
+    """Parquet bytes for a dot or forced table: zstd, byte-stream-split floats, no dictionary for
+    numbers (unique noisy floats: 10.5 -> 6.5 MB on the Cygnus photo's dot file)."""
+    import pyarrow.parquet as pq
+
+    def is_float(t) -> bool:
+        return pa.types.is_floating(t) or (pa.types.is_fixed_size_list(t) and pa.types.is_floating(t.value_type))
+
+    floats = [f.name for f in table.schema if is_float(f.type)]
+    strings = [f.name for f in table.schema if pa.types.is_string(f.type) or pa.types.is_large_string(f.type)]
+    buf = io.BytesIO()
+    pq.write_table(table, buf, compression="zstd", compression_level=3, use_dictionary=strings,
+                   use_byte_stream_split=floats or False)
+    return buf.getvalue()
+
+
+def _write(store: Store, rel: str, table) -> int:
+    data = parquet_bytes(table)
+    store.write_bytes(rel, data)
+    return len(data)
+
+
+def photo_meta(src) -> dict | None:
+    """The `skyshift_photo` metadata of a dot file: a local path, an fsspec URL (gs://...), bytes or
+    a file object. None if the file has none."""
+    import fsspec
+    import pyarrow.parquet as pq
+
+    if isinstance(src, (bytes, bytearray)):
+        src = io.BytesIO(src)
+    if isinstance(src, (str, os.PathLike)):
+        with fsspec.open(str(src), "rb") as f:
+            md = pq.read_schema(f).metadata
+    else:
+        md = pq.read_schema(src).metadata
+    raw = (md or {}).get(C.PHOTO_META_KEY.encode())
+    return None if raw is None else json.loads(raw)
+
+
+def bad_finast(value) -> bool:
+    """IMAGE header FINAST != 0 means the astrometric solution failed (missing key = fine)."""
+    if value is None or str(value).strip() == "":
+        return False
+    try:
+        return int(value) != C.FINAST_OK
+    except (TypeError, ValueError):
+        return True
+
+
+# --- worker ------------------------------------------------------------------------------------
+_STORE: Store | None = None
+_EPSF_CACHE: dict[tuple[int, str], EPSF] = {}
+_REFCAT: dict[tuple[str, str], RefCat | None] = {}
+
+
+def _store(root: str) -> Store:
+    global _STORE
+    if _STORE is None or _STORE.root != root.rstrip("/"):
+        _STORE = Store(root)
+    return _STORE
+
+
+def _refcat(store: Store, zone: str) -> RefCat | None:
+    key = (store.root, zone)
+    if key not in _REFCAT:
+        rel = refcat_rel(zone)
+        if store.exists(rel):
+            _REFCAT[key] = RefCat.from_frame(store.read_parquet(rel))
+        else:
+            L.warning("dots: %s/%s missing: no forced photometry", store.root, rel)
+            _REFCAT[key] = None
+    return _REFCAT[key]
+
+
+def load_photo(url: str):
+    """open_level2 with VARIANCE, ZODI (config) and the ePSF (read once per worker per detector and
+    ePSF calibration file: it is the same table in every photo that names that file)."""
+    want = C.DOTS_READ_EPSF and not _EPSF_CACHE  # the first photo of a worker reads it with the rest
+    l2 = open_level2(url, variance=True, zodi=C.DOTS_READ_ZODI, epsf=want)
+    if not C.DOTS_READ_EPSF:
+        return l2
+    cid = epsf_calib_id(l2.header)
+    key = (int(l2.detector), cid) if cid else None
+    if l2.epsf is not None:
+        if key:
+            _EPSF_CACHE[key] = l2.epsf
+    elif key and key in _EPSF_CACHE:
+        l2.epsf = _EPSF_CACHE[key]
+    else:
+        l2.epsf = open_level2(url, region=(0, 1, 0, 1), epsf=True).epsf  # small reads + the table
+        if key and l2.epsf is not None:
+            _EPSF_CACHE[key] = l2.epsf
+    return l2
+
+
+def process_photo(root: str, obs_id: str, detector: int, url: str, session: int = 0, visit: int = 0,
+                  zone: str | None = None) -> dict:
+    """Do one photo: forced/<...>.parquet (if the zone has a refcat), then dots/<...>.parquet with the
+    photo metadata. Returns a stats dict; never raises."""
+    store = _store(root)
+    rel = dots_rel(obs_id, detector)
+    st = {"obs_id": obs_id, "detector": int(detector), "status": "", "n_dots": 0, "n_forced": 0, "read_s": 0.0,
+          "detect_s": 0.0, "forced_s": 0.0, "write_s": 0.0, "bytes": 0, "forced_bytes": 0, "error": ""}
+    try:
+        if store.exists(rel):
+            st["status"] = "skipped"
+            return st
+    except Exception as e:  # noqa: BLE001
+        st["error"] = f"exists check: {e}"
+    for attempt in range(1, C.NET_RETRIES + 1):
+        try:
+            t0 = time.time()
+            l2 = load_photo(url)
+            st["read_s"] = round(time.time() - t0, 2)
+            break
+        except Exception as e:  # noqa: BLE001 - network or decode errors: retry, then skip
+            st["error"] = f"{type(e).__name__}: {e}"[:300]
+            if attempt == C.NET_RETRIES:
+                st["status"] = "failed"
+                return st
+            time.sleep(5 * attempt)
+    try:
+        if int(l2.detector) != int(detector):
+            raise ValueError(f"header DETECTOR {l2.detector} != photo list {detector}")
+        t0 = time.time()
+        finast = l2.header.get("FINAST")
+        ctx = None
+        forced = None
+        if bad_finast(finast):
+            df = empty_dots()  # bad astrometry: an empty file marks the photo done
+            st["finast"] = str(finast)
+        else:
+            timing: dict = {}
+            ctx = photo_context(l2, timing)
+            df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx)
+        st["detect_s"] = round(time.time() - t0, 2)
+        st["n_dots"] = int(len(df))
+        zobj = C.ZONES.get(zone) if zone else None
+        ref = _refcat(store, zone) if (zone and ctx is not None) else None
+        if ref is not None:
+            t0 = time.time()
+            forced = forced_table(l2, ctx, obs_id, detector, ref, zobj)
+            st["forced_s"] = round(time.time() - t0, 2)
+            st["n_forced"] = int(len(forced))
+            ft = pa.Table.from_pandas(forced, preserve_index=False)
+            st["forced_bytes"] = _retry(lambda: _write(store, forced_rel(obs_id, detector), ft))
+        st["status"] = "done_finast" if "finast" in st else "done"
+        meta = photo_meta_dict(l2, obs_id, detector, st, ctx, df, forced)
+        table = dots_arrow(df, meta)
+        t0 = time.time()
+        st["bytes"] = _retry(lambda: _write(store, rel, table))  # last: a dot file = photo fully done
+        st["write_s"] = round(time.time() - t0, 2)
+        st["error"] = ""
+    except Exception as e:  # noqa: BLE001
+        st["status"] = "failed"
+        st["error"] = f"{type(e).__name__}: {e}"[:300]
+    return st
+
+
+def _retry(fn):
+    for attempt in range(1, C.NET_RETRIES + 1):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001
+            if attempt == C.NET_RETRIES:
+                raise
+            time.sleep(5 * attempt)
+
+
+def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> dict:
+    t_start = time.time()
+    photos = store.read_parquet(photolist_rel(zone.name)).sort_values(["mjd", "detector"]).reset_index(drop=True)
+    done = {n for n in store.listdir("dots") if n.endswith(".parquet")}
+    todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" not in done]
+    n_done_before = len(photos) - len(todo)
+    if limit is not None:
+        todo = todo[:limit]
+    L.info("dots %s: %d photos, %d already done, %d to do now, %d workers", zone.name, len(photos), n_done_before, len(todo), workers)
+    stats: list[dict] = []
+    if todo:
+        ctx = mp.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=max(1, workers), mp_context=ctx, initializer=log.setup) as ex:
+            futs = [ex.submit(process_photo, store.root, r.obs_id, int(r.detector), r.url,
+                              int(r.session), int(r.visit), zone.name) for r in todo]
+            for k, f in enumerate(as_completed(futs), 1):
+                st = f.result()
+                stats.append(st)
+                if st["status"] == "failed":
+                    L.warning("[%d/%d] %sD%d FAILED: %s", k, len(todo), st["obs_id"], st["detector"], st["error"])
+                else:
+                    L.info("[%d/%d] %sD%d %s: %d dots, %d forced, read %.1f s, detect %.1f s, forced %.1f s, "
+                           "write %.1f s, %.0f KB", k, len(todo), st["obs_id"], st["detector"], st["status"],
+                           st["n_dots"], st["n_forced"], st["read_s"], st["detect_s"], st["forced_s"],
+                           st["write_s"], st["bytes"] / 1e3)
+    done_now = [s for s in stats if s["status"] == "done"]
+    finast = [s for s in stats if s["status"] == "done_finast"]
+    failed = [s for s in stats if s["status"] == "failed"]
+    wall = time.time() - t_start
+    out = {
+        "photos": int(len(photos)), "done_before": n_done_before, "done_now": len(done_now),
+        "skipped_finast": len(finast),
+        "failed": len(failed), "failed_photos": [f"{s['obs_id']}D{s['detector']}" for s in failed][:50],
+        "remaining": int(len(photos) - n_done_before - len(done_now) - len(finast)),
+        "wall_s": round(wall, 1), "workers": workers,
+    }
+    if done_now:
+        a = pd.DataFrame(done_now)
+        out.update({
+            "dots_per_photo_median": float(a["n_dots"].median()),
+            "dots_total_now": int(a["n_dots"].sum()),
+            "read_s_median": float(a["read_s"].median()),
+            "detect_s_median": float(a["detect_s"].median()),
+            "forced_s_median": float(a["forced_s"].median()),
+            "forced_per_photo_median": float(a["n_forced"].median()),
+            "kb_per_photo_median": round(float(a["bytes"].median()) / 1e3, 1),
+            "forced_kb_per_photo_median": round(float(a["forced_bytes"].median()) / 1e3, 1),
+            "photos_per_minute": round(len(done_now) / wall * 60.0, 1),
+        })
+    if stats:
+        store.write_json(results_rel(zone.name, f"dots_runs/{time.strftime('%Y%m%dT%H%M%S')}.json"),
+                         {"summary": out, "photos": stats})
+    L.info("dots %s: %s", zone.name, {k: v for k, v in out.items() if k != "failed_photos"})
+    return out
+
+
+def cpu_count() -> int:
+    return os.cpu_count() or 1

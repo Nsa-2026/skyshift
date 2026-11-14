@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "skyshift-sky",
+    "site": "skyshift",
     "public": "dist",
     "ignore": ["firebase.json", "**/.*"],
     "cleanUrls": true,
