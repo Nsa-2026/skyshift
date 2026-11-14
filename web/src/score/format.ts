@@ -271,6 +271,10 @@ export const SUSPECT_COLUMNS = [
   "grade",
   "reasons",
   "near_source_arcsec",
+  "n_sessions",
+  "rate_arcsec_h",
+  "pa_deg",
+  "rate_sigma",
 ] as const;
 
 export function suspectsCsv(suspects: Suspect[]): string {

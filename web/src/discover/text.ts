@@ -1,6 +1,6 @@
 // Plain words for the codes the pipeline writes (DESIGN.md "Candidates", "Smart filters").
 // Codes stay in title attributes and exports; people read these.
-import { GRADE_TEXT, gateText, gradeLabel, isGate } from "../api/grades";
+import { GRADE_TEXT, gradeLabel } from "../api/grades";
 import type { CandidateKind } from "../api/types";
 
 export interface KindText {
@@ -87,9 +87,6 @@ const CAUTION_CODE = /outlier|repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|sta
 export function reasonText(code: string): ReasonText {
   const known = REASON_TEXT[code] ?? REASON_TEXT[code.toLowerCase()];
   if (known) return known;
-  // The vetting gates (grade C): the pipeline's own checks failed, so a doubt, in plain words.
-  // Before the caution patterns: "sharp_outlier" is a failed check, not an artefact flag.
-  if (isGate(code)) return { label: gateText(code).label, tone: "doubt", detail: gateText(code).plain };
   if (/repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary/i.test(code)) return { ...REASON_TEXT.repeat_position, detail: code };
   if (CAUTION_CODE.test(code)) return { label: flagText(code), tone: "caution", detail: code };
   // Unknown codes from a newer exporter: treat as a doubt, so "Most promising" and the pipeline-score

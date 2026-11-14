@@ -8,6 +8,7 @@ import type { Suspect } from "../api/types";
 import { FeedError, httpSource, loadSkyrun, loadZoneSuspects, SKYRUN_URL, toZoneSuspects } from "./load";
 import { parseSkyrun, type SkyRun } from "./model";
 import { createLivePage, mountLive, zonesToPolygons } from "./index";
+import { suspectsHtml } from "./render";
 import type { PageContext } from "../app/modules";
 
 const T = (iso: string) => Date.parse(iso);
@@ -404,5 +405,26 @@ describe("the feed", () => {
 
   it("refuses a file that isn't schema 1 shaped", async () => {
     await expect(loadSkyrun(undefined, async () => ({ hello: 1 }))).rejects.toThrow(/schema/);
+  });
+});
+
+describe("a grade A suspect in the zone panel", () => {
+  it("leads the list and says its track in words", () => {
+    const hunt = parseSkyrun(real2).zones.find((z) => z.name === "hunt")!;
+    const [s1, s2] = [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr);
+    const file = toZoneSuspects({
+      grades: { A: 1, B: 1, C: 0 },
+      suspects: [
+        { ...s1, grade: "B", reasons: [], near_source_arcsec: null },
+        { ...s2, grade: "A", reasons: [], near_source_arcsec: null, n_sessions: 3, rate_arcsec_h: 42.04, pa_deg: 118.6, rate_sigma: 2.1 },
+      ],
+    });
+    const el = document.createElement("div");
+    el.innerHTML = suspectsHtml(hunt, { status: "ok", rows: file.rows, file });
+    const rows = [...el.querySelectorAll(".lv-sus-row")];
+    expect(rows[0].querySelector(".lv-sus-grade")?.textContent).toBe("Grade A: candidate mover");
+    expect(rows[0].querySelector(".lv-sus-track")?.textContent).toBe("On a track over 3 sessions, moving 42.0″ an hour (20σ) toward 119°.");
+    expect(rows[1].querySelector(".lv-sus-track")).toBeNull();
+    expect(el.querySelector(".lv-grades-a")?.textContent).toBe("1 candidate mover (grade A).");
   });
 });

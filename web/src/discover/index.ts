@@ -885,7 +885,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
     // Cautions: artefact flags and caution reasons (outlier pixels, the same spot days apart), once each.
     const cautions = new Map<string, string>();
     for (const fl of c.flags) cautions.set(flagText(fl), fl);
-    for (const code of c.reasons.filter(isCautionCode)) {
+    // A grade C row names its failed checks in its own line: no caution chip for those.
+    for (const code of c.reasons.filter((x) => isCautionCode(x) && !(grade === "C" && isGate(x)))) {
       const t = reasonText(code);
       cautions.set(t.label, cautions.has(t.label) ? `${cautions.get(t.label)}, ${code}` : `${code}: ${t.detail}`);
     }

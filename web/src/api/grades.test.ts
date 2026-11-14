@@ -20,6 +20,8 @@ import {
   nearSourceOf,
   nearSourceText,
   rankByGrade,
+  trackOf,
+  trackText,
   vetoesText,
   votable,
 } from "./grades";
@@ -107,6 +109,18 @@ describe("words", () => {
   });
 });
 
+describe("the track behind a grade A", () => {
+  it("reads the track fields, and reads absent or null as no track", () => {
+    const t = trackOf(sus.suspects[0]);
+    expect(t).toEqual({ sessions: 4, rate: 31.25, pa: 252.4, sigma: 0.82 });
+    expect(trackText(t!)).toBe("On a track over 4 sessions, moving 31.3″ an hour (38σ) toward 252°.");
+    expect(trackOf(sus.suspects[1])).toBeNull(); // null: on no track
+    expect(trackOf({})).toBeNull(); // absent: a file written without tracks
+    expect(trackText({ sessions: 3, rate: null, pa: null, sigma: null })).toBe("On a track over 3 sessions.");
+    expect(trackText({ sessions: 2, rate: 5, pa: -10, sigma: null })).toBe("On a track over 2 sessions, moving 5.0″ an hour toward 350°.");
+  });
+});
+
 describe("totals", () => {
   it("says 0 grade A as the expected result, not a failure", () => {
     expect(gradeALine(0)).toBe(ZERO_A);
@@ -119,9 +133,9 @@ describe("totals", () => {
   });
 
   it("reads the file's totals, or counts rows, and returns null for an ungraded file", () => {
-    expect(gradeCounts(sus.grades)).toEqual({ A: 0, B: 1, C: 2 });
+    expect(gradeCounts(sus.grades)).toEqual({ A: 1, B: 0, C: 2 });
     expect(gradeCounts({ A: 0, B: "1", C: 2 })).toBeNull();
-    expect(countGrades(sus.suspects)).toEqual({ A: 0, B: 1, C: 2 });
+    expect(countGrades(sus.suspects)).toEqual({ A: 1, B: 0, C: 2 });
     expect(countGrades([{}, { grade: null }])).toBeNull();
   });
 

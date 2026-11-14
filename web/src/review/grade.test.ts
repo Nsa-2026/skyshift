@@ -22,7 +22,7 @@ describe("the vetting grade on the Candidate page", () => {
     const c = cand("c", { kind: "mover", grade: "C", reasons: ["two_exposures", "hot_pixel", "very_sharp"] });
     const d = dom(gradeHtml(c, true));
     const why = [...d.querySelectorAll(".rv-grade-why li b")].map((b) => b.textContent);
-    expect(why).toEqual(["On a hot pixel.", "Far too sharp for light from the sky."]);
+    expect(why).toEqual(["On a hot pixel.", "Far too sharp."]);
     expect(d.textContent).not.toMatch(/hot_pixel|very_sharp/);
   });
 

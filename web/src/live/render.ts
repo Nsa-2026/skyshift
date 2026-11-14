@@ -14,6 +14,8 @@ import {
   gradeOf,
   nearSourceOf,
   nearSourceText,
+  trackOf,
+  trackText,
   vetoesText,
 } from "../api/grades";
 import type { ZoneSuspects } from "./load";
@@ -369,6 +371,8 @@ function suspectGradeHtml(r: Suspect): string {
   if (g === "C") lines.push(html`<span class="lv-sus-grade">${esc(gradeCSentence(failedGates(r)))}</span>`);
   else if (g) lines.push(html`<span class="lv-sus-grade">${esc(gradeLabel(g))}</span>`);
   const near = nearSourceOf(r);
+  const t = trackOf(r);
+  if (t) lines.push(html`<span class="lv-sus-track">${esc(trackText(t))}</span>`);
   if (near != null) lines.push(html`<span class="lv-sus-near" title="${esc(NEAR_SOURCE_HINT)}">${esc(nearSourceText(near))}</span>`);
   return lines.join("");
 }

@@ -1,8 +1,8 @@
 // The pipeline's vetting grades (contracts/api.md, suspects.json and candidates.json, added 14 Nov)
 // in plain words, and the one ranking every page uses. Pure: no DOM.
 //
-//   A  "candidate mover": passes every gate and moves at ≥ 5σ over ≥ 2 sessions (none yet: that needs
-//      a multi-session linker).
+//   A  "candidate mover": passes every gate and is on a track over ≥ 2 sessions at ≥ 5σ (api v3.4: the
+//      pipeline's tracklets step; the track is in n_sessions, rate_arcsec_h, pa_deg, rate_sigma).
 //   B  "unexplained single-session source": passes every gate; its motion is not shown.
 //   C  fails a gate or sits on a catalogued source: shown greyed with its reasons, never put to a vote.
 //   no grade  a file (or zone) written before the vetting: "not vetted yet", never shown as B.
@@ -63,7 +63,7 @@ export const GRADE_TEXT: Record<Grade, GradeText> = {
   A: {
     short: "Grade A",
     name: "Candidate mover",
-    plain: "Passes every pipeline check and moves at 5σ or more over two or more sessions.",
+    plain: "Passes every pipeline check and sits on a track over two or more sessions, moving at 5σ or more.",
   },
   B: {
     short: "Grade B",
@@ -141,7 +141,7 @@ export const GATE_TEXT: Record<Gate, GateText> = {
   },
   masked_peak: {
     term: "Masked peak",
-    label: "Flagged pixel at its peak",
+    label: "Bad pixel at its peak",
     plain: "NASA's pipeline flags the pixel at a dot's peak as untrustworthy, for example a cosmic ray, persistence or a cold pixel.",
   },
   sharp_outlier: {
@@ -151,7 +151,7 @@ export const GATE_TEXT: Record<Gate, GateText> = {
   },
   very_sharp: {
     term: "Very sharp",
-    label: "Far too sharp for light from the sky",
+    label: "Far too sharp",
     plain: "A bright dot (S/N 15 or more) is less than 0.4 times a star's width. Light from the sky is never that sharp: it's a pixel event.",
   },
   flux_ratio: {
@@ -161,7 +161,7 @@ export const GATE_TEXT: Record<Gate, GateText> = {
   },
   red_photo: {
     term: "Red-graded photo",
-    label: "Only on poor photos",
+    label: "Only in bad photos",
     plain: "Every dot comes from photos our photo check graded red, the ones it can't trust.",
   },
   "2mass": {
@@ -222,6 +222,37 @@ export function nearSourceText(arcsec: number): string {
 
 export const NEAR_SOURCE_HINT =
   "Gaia, CatWISE, 2MASS or a fixed source within 10″: it may blend with it or sit in its glow. A warning, not a check it failed.";
+
+// ---- the track (api v3.4): what makes a grade A -------------------------------------------------------
+
+export interface Track {
+  /** Sessions of the visit with a mover on the track. */
+  sessions: number;
+  /** ″/h at this suspect's time, or null. */
+  rate: number | null;
+  /** Degrees east of north, or null. */
+  pa: number | null;
+  /** 1σ error of the rate, ″/h, or null. */
+  sigma: number | null;
+}
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** The track a suspect is on (n_sessions, rate_arcsec_h, pa_deg, rate_sigma); null off a track or in a file without tracks. */
+export function trackOf(x: { n_sessions?: unknown; rate_arcsec_h?: unknown; pa_deg?: unknown; rate_sigma?: unknown }): Track | null {
+  const n = num(x.n_sessions);
+  if (n == null || n < 1) return null;
+  const sigma = num(x.rate_sigma);
+  return { sessions: Math.round(n), rate: num(x.rate_arcsec_h), pa: num(x.pa_deg), sigma: sigma != null && sigma > 0 ? sigma : null };
+}
+
+/** "On a track over 4 sessions, moving 31.3″ an hour (38σ) toward 252°." */
+export function trackText(t: Track): string {
+  const rate = t.rate != null ? `, moving ${t.rate.toFixed(1)}″ an hour` : "";
+  const sig = t.rate != null && t.sigma != null ? ` (${Math.round(Math.abs(t.rate) / t.sigma)}σ)` : "";
+  const pa = t.pa != null ? ` toward ${Math.round(((t.pa % 360) + 360) % 360)}°` : "";
+  return `On a track over ${t.sessions} ${t.sessions === 1 ? "session" : "sessions"}${rate}${sig}${pa}.`;
+}
 
 // ---- totals --------------------------------------------------------------------------------------
 

@@ -273,6 +273,14 @@ export interface Suspect {
   reasons?: string[];
   /** Nearest catalogue or fixed source within 10″, arcsec: a warning, not a gate. */
   near_source_arcsec?: number | null;
+  /** The track it is on (api v3.4, pipeline tracklets): sessions with a mover on it; null off a track, absent without tracks. */
+  n_sessions?: number | null;
+  /** The track's rate at this suspect's time, ″/h. */
+  rate_arcsec_h?: number | null;
+  /** The track's direction, degrees east of north. */
+  pa_deg?: number | null;
+  /** 1σ error of rate_arcsec_h, ″/h. */
+  rate_sigma?: number | null;
 }
 
 export interface SuspectsResponse {

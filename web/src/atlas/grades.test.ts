@@ -35,7 +35,7 @@ describe("vetting grades on the Sky page", () => {
   it("explains a grade C in the drawer and says it isn't put to a vote", () => {
     const t = text(gradeLine(cand({ grade: "C", reasons: ["two_exposures", "masked_peak", "allwise"] })));
     expect(t).toBe(
-      "Grade C: flagged pixel at its peak and an AllWISE source sits here. Most likely an artefact or a catalogued source, so it isn't put to a vote; you can still blink it.",
+      "Grade C: bad pixel at its peak and an AllWISE source sits here. Most likely an artefact or a catalogued source, so it isn't put to a vote; you can still blink it.",
     );
     expect(text(gradeLine(cand({ grade: "B" })))).toMatch(/^Grade B: unexplained single-session source\. Passes every pipeline check/);
     expect(gradeLine(cand())).toBe("");

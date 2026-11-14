@@ -17,6 +17,8 @@ import {
   nearSourceOf,
   nearSourceText,
   rankByGrade,
+  trackOf,
+  trackText,
   vetoesText,
 } from "../api/grades";
 import type { CheckStatus, Suspect, SuspectsResponse, ValidationCheck, ValidationResponse } from "../api/types";
@@ -189,7 +191,9 @@ export function renderCheck(c: ValidationCheck, lead = false): string {
 function gradeCell(s: Suspect): string {
   const g = gradeOf(s);
   const near = nearSourceOf(s);
-  const warn = near != null ? html`<span class="sc-sub sc-near" title="${esc(NEAR_SOURCE_HINT)}">${esc(nearSourceText(near))}</span>` : "";
+  const t = trackOf(s);
+  const track = t ? html`<span class="sc-sub sc-track">${esc(trackText(t))}</span>` : "";
+  const warn = (near != null ? html`<span class="sc-sub sc-near" title="${esc(NEAR_SOURCE_HINT)}">${esc(nearSourceText(near))}</span>` : "") + track;
   if (!g) return html`<td class="sc-grade"><span class="sc-sub">Not vetted yet</span>${warn}</td>`;
   const sub = g === "C" ? gatesPhrase(failedGates(s)) || "fails a pipeline check" : GRADE_TEXT[g].name.toLowerCase();
   return html`<td class="sc-grade" data-grade="${g}"><span class="sc-grade-name">${esc(GRADE_TEXT[g].short)}</span><span class="sc-sub">${esc(sub.charAt(0).toUpperCase() + sub.slice(1))}</span>${warn}</td>`;
