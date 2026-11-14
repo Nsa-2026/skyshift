@@ -93,21 +93,9 @@ POS_ERR_FLOOR_ARCSEC = 0.25    # measured on the first photo; V3 will replace it
 ELONG_R_PX = 2.5               # elong: second moments of the pixels within this radius
 ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 
-# --- known (SkyBoT) ------------------------------------------------------------------------
-# One cone per session (time run), covering that run's footprints inside the zone, at the run's
-# mid-time; each object is moved to each photo's mid-time with SkyBoT's rates.
-SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
-SKYBOT_MAX_IN_FLIGHT = 4
-SKYBOT_PAD_DEG = 0.05
-SKYBOT_TIMEOUT_S = 300
-
 # --- known (MPC orbits with kete) ------------------------------------------------------------
-# KNOWN_SOURCE picks where `known` gets its objects: "mpc" (default; known_mpc.py: MPC orbits moved with
-# kete to each photo's MJD-AVG, seen from SPHEREx's header position) or "skybot" (the IMCCE service above). The CLI
-# flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
-# cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
-KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "mpc")
-KNOWN_SOURCES = ("skybot", "mpc")
+# known_mpc.py: MPC orbits moved with kete to each photo's MJD-AVG, seen from SPHEREx's header position.
+# One cache file per session in cache/mpc/<zone>/; score and suspects read it.
 MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
 MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
