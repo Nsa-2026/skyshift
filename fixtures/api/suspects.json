@@ -22,9 +22,11 @@
     "edge": 1,
     "masked_peak": 0,
     "sharp_outlier": 0,
+    "very_sharp": 0,
     "flux_ratio": 0,
     "red_photo": 0,
-    "2mass": 1
+    "2mass": 1,
+    "allwise": 0
   },
   "suspects": [
     {

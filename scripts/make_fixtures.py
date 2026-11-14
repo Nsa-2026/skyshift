@@ -325,7 +325,8 @@ def suspects():
                                  "vetoes": ["mpc", "gaia", "catwise"], "provisional": False,
                                  "grades": {"A": 0, "B": 1, "C": 2},
                                  "gates": {"not_vetted": 0, "hot_pixel": 1, "bad_column": 0, "edge": 1, "masked_peak": 0,
-                                           "sharp_outlier": 0, "flux_ratio": 0, "red_photo": 0, "2mass": 1},
+                                           "sharp_outlier": 0, "very_sharp": 0, "flux_ratio": 0, "red_photo": 0, "2mass": 1,
+                                           "allwise": 0},
                                  "suspects": out})
 
 
