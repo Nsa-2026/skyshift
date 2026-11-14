@@ -165,7 +165,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     <div class="atl-below">
       <p class="atl-key" data-key></p>
       <div class="atl-listbox">
-        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle></button>
+        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle disabled>Signals in view</button>
         <ol class="atl-list" id="atl-list" data-list hidden></ol>
       </div>
       <p class="atl-source" data-source></p>
