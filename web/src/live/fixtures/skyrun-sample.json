@@ -1,0 +1,7704 @@
+{
+ "_synthetic": "Synthetic test sample made by make-sample.mjs. Not real data: never publish it.",
+ "schema": 1,
+ "updated": "2026-11-14T19:12:40Z",
+ "started": "2026-11-14T13:49:34Z",
+ "ends": "2026-11-15T06:00:00Z",
+ "deadline": "2026-11-15T09:00:00Z",
+ "final_pass_at": null,
+ "totals": {
+  "zones": 333,
+  "extracted": 156,
+  "combined": 134,
+  "failed": 2,
+  "photos": 498935,
+  "dots": 3791990787,
+  "sources": 35250288,
+  "movers": 175708,
+  "suspects": 6913
+ },
+ "machines": [
+  {
+   "name": "skyshift-worker",
+   "cpus": 96,
+   "kind": "spot",
+   "status": "RUNNING",
+   "zone": "ecl20s1"
+  },
+  {
+   "name": "skyshift-od",
+   "cpus": 80,
+   "kind": "on-demand",
+   "status": "RUNNING",
+   "zone": "ecl05s3"
+  },
+  {
+   "name": "skyshift-od2",
+   "cpus": 40,
+   "kind": "on-demand",
+   "status": "RUNNING",
+   "zone": "ecl26n3"
+  }
+ ],
+ "zones": [
+  {
+   "name": "ecl00",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    -2.6,
+    7.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00n1",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    7.4,
+    17.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00n2",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    17.4,
+    27.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00n3",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    27.4,
+    37.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00n4",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    37.4,
+    47.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00s1",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    -12.6,
+    -2.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00s2",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    -22.6,
+    -12.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00s3",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    -32.6,
+    -22.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl00s4",
+   "ra": [
+    0.5,
+    10.5
+   ],
+   "dec": [
+    -42.6,
+    -32.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    1.6,
+    11.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01n1",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    11.6,
+    21.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01n2",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    21.6,
+    31.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01n3",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    31.6,
+    41.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01n4",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    41.6,
+    51.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01s1",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    -8.4,
+    1.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01s2",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    -18.4,
+    -8.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01s3",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    -28.4,
+    -18.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl01s4",
+   "ra": [
+    10.5,
+    20.5
+   ],
+   "dec": [
+    -38.4,
+    -28.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    5.6,
+    15.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02n1",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    15.6,
+    25.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02n2",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    25.6,
+    35.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02n3",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    35.6,
+    45.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02n4",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    45.6,
+    55.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02s1",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    -4.4,
+    5.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02s2",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    -14.4,
+    -4.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02s3",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    -24.4,
+    -14.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl02s4",
+   "ra": [
+    20.5,
+    30.5
+   ],
+   "dec": [
+    -34.4,
+    -24.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    9.1,
+    19.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03n1",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    19.1,
+    29.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03n2",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    29.1,
+    39.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03n3",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    39.1,
+    49.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03n4",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    49.1,
+    59.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03s1",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    -0.9,
+    9.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03s2",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    -10.9,
+    -0.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03s3",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    -20.9,
+    -10.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl03s4",
+   "ra": [
+    30.5,
+    40.5
+   ],
+   "dec": [
+    -30.9,
+    -20.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    12.2,
+    22.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04n1",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    22.2,
+    32.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04n2",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    32.2,
+    42.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04n3",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    42.2,
+    52.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04n4",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    52.2,
+    62.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04s1",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    2.2,
+    12.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04s2",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    -7.8,
+    2.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04s3",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    -17.8,
+    -7.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl04s4",
+   "ra": [
+    40.5,
+    50.5
+   ],
+   "dec": [
+    -27.8,
+    -17.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    14.7,
+    24.7
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 3580,
+   "dots": 13053466,
+   "extracted_at": "2026-11-14T18:44:50Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05n1",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    24.7,
+    34.7
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 3693,
+   "dots": 17267463,
+   "extracted_at": "2026-11-14T18:50:24Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05n2",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    34.7,
+    44.7
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 3253,
+   "dots": 23439754,
+   "extracted_at": "2026-11-14T19:00:57Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05n3",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    44.7,
+    54.7
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 3353,
+   "dots": 56656533,
+   "extracted_at": "2026-11-14T19:11:25Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05n4",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    54.7,
+    64.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05s1",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    4.7,
+    14.7
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 3901,
+   "dots": 13913656,
+   "extracted_at": "2026-11-14T18:55:55Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05s2",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    -5.3,
+    4.7
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 4533,
+   "dots": 14464406,
+   "extracted_at": "2026-11-14T19:06:54Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05s3",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    -15.3,
+    -5.3
+   ],
+   "state": "extracting",
+   "final": false,
+   "machine": "od",
+   "photos": 4133,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl05s4",
+   "ra": [
+    50.5,
+    60.5
+   ],
+   "dec": [
+    -25.3,
+    -15.3
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl06",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    16.5,
+    26.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3461,
+   "dots": 16516131,
+   "extracted_at": "2026-11-14T17:56:12Z",
+   "combined_at": "2026-11-14T18:36:17Z",
+   "sources": 155260,
+   "movers": 4694,
+   "suspects": 163,
+   "recall": 0.843,
+   "error": null
+  },
+  {
+   "name": "ecl06n1",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    26.5,
+    36.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3808,
+   "dots": 27805169,
+   "extracted_at": "2026-11-14T18:01:57Z",
+   "combined_at": "2026-11-14T18:40:06Z",
+   "sources": 295028,
+   "movers": 1211,
+   "suspects": 42,
+   "recall": 0.8995,
+   "error": null
+  },
+  {
+   "name": "ecl06n2",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    36.5,
+    46.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3278,
+   "dots": 49091951,
+   "extracted_at": "2026-11-14T18:13:04Z",
+   "combined_at": "2026-11-14T18:56:16Z",
+   "sources": 543279,
+   "movers": 716,
+   "suspects": 47,
+   "recall": 0.8171,
+   "error": null
+  },
+  {
+   "name": "ecl06n3",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    46.5,
+    56.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3026,
+   "dots": 79744958,
+   "extracted_at": "2026-11-14T18:23:47Z",
+   "combined_at": "2026-11-14T19:09:36Z",
+   "sources": 707786,
+   "movers": 591,
+   "suspects": 50,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl06n4",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    56.5,
+    66.5
+   ],
+   "state": "combining",
+   "final": false,
+   "machine": "od",
+   "photos": 2447,
+   "dots": 28603941,
+   "extracted_at": "2026-11-14T18:33:33Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl06s1",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    6.5,
+    16.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4086,
+   "dots": 16366007,
+   "extracted_at": "2026-11-14T18:08:12Z",
+   "combined_at": "2026-11-14T18:41:05Z",
+   "sources": 154864,
+   "movers": 1386,
+   "suspects": 48,
+   "recall": 0.7851,
+   "error": null
+  },
+  {
+   "name": "ecl06s2",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    -3.5,
+    6.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4131,
+   "dots": 13478937,
+   "extracted_at": "2026-11-14T18:19:07Z",
+   "combined_at": "2026-11-14T18:58:33Z",
+   "sources": 108541,
+   "movers": 348,
+   "suspects": 12,
+   "recall": 0.8914,
+   "error": null
+  },
+  {
+   "name": "ecl06s3",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    -13.5,
+    -3.5
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4059,
+   "dots": 14110526,
+   "extracted_at": "2026-11-14T18:29:30Z",
+   "combined_at": "2026-11-14T19:11:24Z",
+   "sources": 144404,
+   "movers": 99,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl06s4",
+   "ra": [
+    60.5,
+    70.5
+   ],
+   "dec": [
+    -23.5,
+    -13.5
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od",
+   "photos": 4531,
+   "dots": 15587679,
+   "extracted_at": "2026-11-14T18:39:52Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl07",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    17.8,
+    27.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3987,
+   "dots": 34356040,
+   "extracted_at": "2026-11-14T17:09:59Z",
+   "combined_at": "2026-11-14T17:40:49Z",
+   "sources": 409270,
+   "movers": 5730,
+   "suspects": 206,
+   "recall": 0.7974,
+   "error": null
+  },
+  {
+   "name": "ecl07n1",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    27.8,
+    37.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3616,
+   "dots": 56866882,
+   "extracted_at": "2026-11-14T17:15:01Z",
+   "combined_at": "2026-11-14T17:50:48Z",
+   "sources": 497341,
+   "movers": 1865,
+   "suspects": 87,
+   "recall": 0.8992,
+   "error": null
+  },
+  {
+   "name": "ecl07n2",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    37.8,
+    47.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3209,
+   "dots": 94094041,
+   "extracted_at": "2026-11-14T17:25:02Z",
+   "combined_at": "2026-11-14T18:05:44Z",
+   "sources": 795565,
+   "movers": 687,
+   "suspects": 51,
+   "recall": 0.8272,
+   "error": null
+  },
+  {
+   "name": "ecl07n3",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    47.8,
+    57.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3061,
+   "dots": 40906846,
+   "extracted_at": "2026-11-14T17:34:41Z",
+   "combined_at": "2026-11-14T18:14:20Z",
+   "sources": 308926,
+   "movers": 365,
+   "suspects": 36,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl07n4",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    57.8,
+    67.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2316,
+   "dots": 17383785,
+   "extracted_at": "2026-11-14T17:44:32Z",
+   "combined_at": "2026-11-14T18:18:31Z",
+   "sources": 139130,
+   "movers": 67,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl07s1",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    7.8,
+    17.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4011,
+   "dots": 19884330,
+   "extracted_at": "2026-11-14T17:20:39Z",
+   "combined_at": "2026-11-14T17:53:38Z",
+   "sources": 196706,
+   "movers": 1200,
+   "suspects": 46,
+   "recall": 0.875,
+   "error": null
+  },
+  {
+   "name": "ecl07s2",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    -2.2,
+    7.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3830,
+   "dots": 16842490,
+   "extracted_at": "2026-11-14T17:30:02Z",
+   "combined_at": "2026-11-14T18:02:14Z",
+   "sources": 125701,
+   "movers": 325,
+   "suspects": 10,
+   "recall": 0.887,
+   "error": null
+  },
+  {
+   "name": "ecl07s3",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    -12.2,
+    -2.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4428,
+   "dots": 16643020,
+   "extracted_at": "2026-11-14T17:40:47Z",
+   "combined_at": "2026-11-14T18:17:23Z",
+   "sources": 122193,
+   "movers": 110,
+   "suspects": 4,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl07s4",
+   "ra": [
+    70.5,
+    80.5
+   ],
+   "dec": [
+    -22.2,
+    -12.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 5012,
+   "dots": 18619411,
+   "extracted_at": "2026-11-14T17:51:03Z",
+   "combined_at": "2026-11-14T18:29:45Z",
+   "sources": 183706,
+   "movers": 75,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl08",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    18.4,
+    28.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3954,
+   "dots": 78080050,
+   "extracted_at": "2026-11-14T16:22:49Z",
+   "combined_at": "2026-11-14T17:05:41Z",
+   "sources": 947592,
+   "movers": 7321,
+   "suspects": 293,
+   "recall": 0.8112,
+   "error": null
+  },
+  {
+   "name": "ecl08n1",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    28.4,
+    38.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3820,
+   "dots": 90826243,
+   "extracted_at": "2026-11-14T16:28:40Z",
+   "combined_at": "2026-11-14T17:13:51Z",
+   "sources": 727467,
+   "movers": 2054,
+   "suspects": 99,
+   "recall": 0.9091,
+   "error": null
+  },
+  {
+   "name": "ecl08n2",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    38.4,
+    48.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2928,
+   "dots": 38002435,
+   "extracted_at": "2026-11-14T16:38:03Z",
+   "combined_at": "2026-11-14T17:22:23Z",
+   "sources": 343639,
+   "movers": 739,
+   "suspects": 46,
+   "recall": 0.8086,
+   "error": null
+  },
+  {
+   "name": "ecl08n3",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    48.4,
+    58.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2965,
+   "dots": 23178099,
+   "extracted_at": "2026-11-14T16:48:10Z",
+   "combined_at": "2026-11-14T17:27:37Z",
+   "sources": 173350,
+   "movers": 158,
+   "suspects": 7,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl08n4",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    58.4,
+    68.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2457,
+   "dots": 13846858,
+   "extracted_at": "2026-11-14T16:58:49Z",
+   "combined_at": "2026-11-14T17:33:55Z",
+   "sources": 110876,
+   "movers": 64,
+   "suspects": 4,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl08s1",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    8.4,
+    18.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3752,
+   "dots": 39718750,
+   "extracted_at": "2026-11-14T16:34:01Z",
+   "combined_at": "2026-11-14T17:11:38Z",
+   "sources": 388832,
+   "movers": 2085,
+   "suspects": 83,
+   "recall": 0.905,
+   "error": null
+  },
+  {
+   "name": "ecl08s2",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    -1.6,
+    8.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4243,
+   "dots": 27276257,
+   "extracted_at": "2026-11-14T16:43:36Z",
+   "combined_at": "2026-11-14T17:22:03Z",
+   "sources": 272685,
+   "movers": 401,
+   "suspects": 17,
+   "recall": 0.803,
+   "error": null
+  },
+  {
+   "name": "ecl08s3",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    -11.6,
+    -1.6
+   ],
+   "state": "failed",
+   "final": false,
+   "machine": "od",
+   "photos": 4309,
+   "dots": 21203006,
+   "extracted_at": "2026-11-14T16:54:39Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": "photolist: IRSA search timed out twice"
+  },
+  {
+   "name": "ecl08s4",
+   "ra": [
+    80.5,
+    90.5
+   ],
+   "dec": [
+    -21.6,
+    -11.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4332,
+   "dots": 18033813,
+   "extracted_at": "2026-11-14T17:04:40Z",
+   "combined_at": "2026-11-14T17:35:58Z",
+   "sources": 141869,
+   "movers": 74,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl09",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    18.3,
+    28.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3581,
+   "dots": 58298812,
+   "extracted_at": "2026-11-14T15:33:43Z",
+   "combined_at": "2026-11-14T16:09:08Z",
+   "sources": 536612,
+   "movers": 6925,
+   "suspects": 272,
+   "recall": 0.8996,
+   "error": null
+  },
+  {
+   "name": "ecl09n1",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    28.3,
+    38.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3534,
+   "dots": 37431809,
+   "extracted_at": "2026-11-14T15:38:38Z",
+   "combined_at": "2026-11-14T16:07:55Z",
+   "sources": 313720,
+   "movers": 1888,
+   "suspects": 64,
+   "recall": 0.868,
+   "error": null
+  },
+  {
+   "name": "ecl09n2",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    38.3,
+    48.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3265,
+   "dots": 22162154,
+   "extracted_at": "2026-11-14T15:49:54Z",
+   "combined_at": "2026-11-14T16:16:57Z",
+   "sources": 266359,
+   "movers": 314,
+   "suspects": 12,
+   "recall": 0.9101,
+   "error": null
+  },
+  {
+   "name": "ecl09n3",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    48.3,
+    58.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3140,
+   "dots": 15613620,
+   "extracted_at": "2026-11-14T15:59:59Z",
+   "combined_at": "2026-11-14T16:30:11Z",
+   "sources": 134372,
+   "movers": 167,
+   "suspects": 7,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl09n4",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    58.3,
+    68.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2302,
+   "dots": 11003527,
+   "extracted_at": "2026-11-14T16:10:54Z",
+   "combined_at": "2026-11-14T16:46:41Z",
+   "sources": 89633,
+   "movers": 61,
+   "suspects": 4,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl09s1",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    8.3,
+    18.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4250,
+   "dots": 126893707,
+   "extracted_at": "2026-11-14T15:44:54Z",
+   "combined_at": "2026-11-14T16:18:59Z",
+   "sources": 1415222,
+   "movers": 1445,
+   "suspects": 70,
+   "recall": 0.8693,
+   "error": null
+  },
+  {
+   "name": "ecl09s2",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    -1.7,
+    8.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3881,
+   "dots": 61396527,
+   "extracted_at": "2026-11-14T15:55:15Z",
+   "combined_at": "2026-11-14T16:32:42Z",
+   "sources": 690100,
+   "movers": 728,
+   "suspects": 52,
+   "recall": 0.8981,
+   "error": null
+  },
+  {
+   "name": "ecl09s3",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    -11.7,
+    -1.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4726,
+   "dots": 45620957,
+   "extracted_at": "2026-11-14T16:06:57Z",
+   "combined_at": "2026-11-14T16:39:10Z",
+   "sources": 553006,
+   "movers": 397,
+   "suspects": 18,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl09s4",
+   "ra": [
+    90.5,
+    100.5
+   ],
+   "dec": [
+    -21.7,
+    -11.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4819,
+   "dots": 32615699,
+   "extracted_at": "2026-11-14T16:17:32Z",
+   "combined_at": "2026-11-14T16:47:54Z",
+   "sources": 338178,
+   "movers": 95,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl10",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    17.7,
+    27.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3826,
+   "dots": 27042181,
+   "extracted_at": "2026-11-14T14:46:28Z",
+   "combined_at": "2026-11-14T15:01:03Z",
+   "sources": 261997,
+   "movers": 6124,
+   "suspects": 220,
+   "recall": 0.8449,
+   "error": null
+  },
+  {
+   "name": "ecl10n1",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    27.7,
+    37.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3660,
+   "dots": 22218012,
+   "extracted_at": "2026-11-14T14:52:12Z",
+   "combined_at": "2026-11-14T15:10:25Z",
+   "sources": 175266,
+   "movers": 1439,
+   "suspects": 45,
+   "recall": 0.8812,
+   "error": null
+  },
+  {
+   "name": "ecl10n2",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    37.7,
+    47.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3320,
+   "dots": 14750613,
+   "extracted_at": "2026-11-14T15:02:18Z",
+   "combined_at": "2026-11-14T15:21:28Z",
+   "sources": 119772,
+   "movers": 384,
+   "suspects": 16,
+   "recall": 0.8749,
+   "error": null
+  },
+  {
+   "name": "ecl10n3",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    47.7,
+    57.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2880,
+   "dots": 12812676,
+   "extracted_at": "2026-11-14T15:11:55Z",
+   "combined_at": "2026-11-14T15:27:58Z",
+   "sources": 92124,
+   "movers": 159,
+   "suspects": 9,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl10n4",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    57.7,
+    67.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2717,
+   "dots": 11044374,
+   "extracted_at": "2026-11-14T15:21:39Z",
+   "combined_at": "2026-11-14T15:42:54Z",
+   "sources": 115763,
+   "movers": 69,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl10s1",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    7.7,
+    17.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3587,
+   "dots": 42718696,
+   "extracted_at": "2026-11-14T14:57:22Z",
+   "combined_at": "2026-11-14T15:12:54Z",
+   "sources": 334057,
+   "movers": 2080,
+   "suspects": 71,
+   "recall": 0.9004,
+   "error": null
+  },
+  {
+   "name": "ecl10s2",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    -2.3,
+    7.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4309,
+   "dots": 85279292,
+   "extracted_at": "2026-11-14T15:07:57Z",
+   "combined_at": "2026-11-14T15:32:59Z",
+   "sources": 672408,
+   "movers": 946,
+   "suspects": 57,
+   "recall": 0.9057,
+   "error": null
+  },
+  {
+   "name": "ecl10s3",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    -12.3,
+    -2.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4166,
+   "dots": 113090184,
+   "extracted_at": "2026-11-14T15:17:51Z",
+   "combined_at": "2026-11-14T15:50:15Z",
+   "sources": 1340932,
+   "movers": 338,
+   "suspects": 40,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl10s4",
+   "ra": [
+    100.5,
+    110.5
+   ],
+   "dec": [
+    -22.3,
+    -12.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4753,
+   "dots": 73858180,
+   "extracted_at": "2026-11-14T15:28:35Z",
+   "combined_at": "2026-11-14T15:59:15Z",
+   "sources": 693588,
+   "movers": 354,
+   "suspects": 38,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl11",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    16.4,
+    26.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3582,
+   "dots": 15269568,
+   "extracted_at": "2026-11-14T13:58:51Z",
+   "combined_at": "2026-11-14T14:10:45Z",
+   "sources": 182289,
+   "movers": 6274,
+   "suspects": 216,
+   "recall": 0.8023,
+   "error": null
+  },
+  {
+   "name": "ecl11n1",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    26.4,
+    36.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3850,
+   "dots": 16534161,
+   "extracted_at": "2026-11-14T14:04:49Z",
+   "combined_at": "2026-11-14T14:15:08Z",
+   "sources": 159740,
+   "movers": 1575,
+   "suspects": 53,
+   "recall": 0.8384,
+   "error": null
+  },
+  {
+   "name": "ecl11n2",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    36.4,
+    46.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3368,
+   "dots": 12554390,
+   "extracted_at": "2026-11-14T14:15:04Z",
+   "combined_at": "2026-11-14T14:26:04Z",
+   "sources": 110714,
+   "movers": 452,
+   "suspects": 17,
+   "recall": 0.7906,
+   "error": null
+  },
+  {
+   "name": "ecl11n3",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    46.4,
+    56.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3261,
+   "dots": 12397300,
+   "extracted_at": "2026-11-14T14:25:14Z",
+   "combined_at": "2026-11-14T14:33:57Z",
+   "sources": 122267,
+   "movers": 158,
+   "suspects": 8,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl11n4",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    56.4,
+    66.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 2788,
+   "dots": 9221051,
+   "extracted_at": "2026-11-14T14:35:25Z",
+   "combined_at": "2026-11-14T14:46:52Z",
+   "sources": 86111,
+   "movers": 70,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl11s1",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    6.4,
+    16.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3797,
+   "dots": 20516093,
+   "extracted_at": "2026-11-14T14:10:03Z",
+   "combined_at": "2026-11-14T14:19:39Z",
+   "sources": 245401,
+   "movers": 1377,
+   "suspects": 48,
+   "recall": 0.9082,
+   "error": null
+  },
+  {
+   "name": "ecl11s2",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    -3.6,
+    6.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 3995,
+   "dots": 34127340,
+   "extracted_at": "2026-11-14T14:20:26Z",
+   "combined_at": "2026-11-14T14:31:44Z",
+   "sources": 354644,
+   "movers": 463,
+   "suspects": 20,
+   "recall": 0.9062,
+   "error": null
+  },
+  {
+   "name": "ecl11s3",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    -13.6,
+    -3.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4532,
+   "dots": 53750015,
+   "extracted_at": "2026-11-14T14:31:15Z",
+   "combined_at": "2026-11-14T14:52:07Z",
+   "sources": 387966,
+   "movers": 658,
+   "suspects": 43,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl11s4",
+   "ra": [
+    110.5,
+    120.5
+   ],
+   "dec": [
+    -23.6,
+    -13.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od",
+   "photos": 4283,
+   "dots": 95218846,
+   "extracted_at": "2026-11-14T14:41:14Z",
+   "combined_at": "2026-11-14T15:09:36Z",
+   "sources": 741255,
+   "movers": 693,
+   "suspects": 51,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "hunt",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    14.4,
+    24.4
+   ],
+   "state": "combined",
+   "final": true,
+   "machine": "worker",
+   "photos": 3692,
+   "dots": 33359558,
+   "extracted_at": "2026-11-14T11:30:00Z",
+   "combined_at": "2026-11-14T13:40:00Z",
+   "sources": 303056,
+   "movers": 6143,
+   "suspects": 228,
+   "recall": 0.9037,
+   "error": null
+  },
+  {
+   "name": "ecl12n1",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    24.4,
+    34.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12n2",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    34.4,
+    44.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12n3",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    44.4,
+    54.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12n4",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    54.4,
+    64.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12s1",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    4.4,
+    14.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12s2",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    -5.6,
+    4.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12s3",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    -15.6,
+    -5.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl12s4",
+   "ra": [
+    120.5,
+    130.5
+   ],
+   "dec": [
+    -25.6,
+    -15.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl13",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    11.9,
+    21.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3516,
+   "dots": 12416239,
+   "extracted_at": "2026-11-14T13:54:10Z",
+   "combined_at": "2026-11-14T14:04:34Z",
+   "sources": 108173,
+   "movers": 6477,
+   "suspects": 241,
+   "recall": 0.8853,
+   "error": null
+  },
+  {
+   "name": "ecl13n1",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    21.9,
+    31.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3679,
+   "dots": 11307261,
+   "extracted_at": "2026-11-14T13:59:05Z",
+   "combined_at": "2026-11-14T14:10:39Z",
+   "sources": 96635,
+   "movers": 1350,
+   "suspects": 49,
+   "recall": 0.7986,
+   "error": null
+  },
+  {
+   "name": "ecl13n2",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    31.9,
+    41.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3161,
+   "dots": 9973416,
+   "extracted_at": "2026-11-14T14:06:58Z",
+   "combined_at": "2026-11-14T14:15:19Z",
+   "sources": 82300,
+   "movers": 361,
+   "suspects": 10,
+   "recall": 0.8239,
+   "error": null
+  },
+  {
+   "name": "ecl13n3",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    41.9,
+    51.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 2982,
+   "dots": 9008230,
+   "extracted_at": "2026-11-14T14:15:28Z",
+   "combined_at": "2026-11-14T14:26:46Z",
+   "sources": 87177,
+   "movers": 182,
+   "suspects": 8,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl13n4",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    51.9,
+    61.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3080,
+   "dots": 9754352,
+   "extracted_at": "2026-11-14T14:24:11Z",
+   "combined_at": "2026-11-14T14:36:42Z",
+   "sources": 81878,
+   "movers": 48,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl13s1",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    1.9,
+    11.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3650,
+   "dots": 13115146,
+   "extracted_at": "2026-11-14T14:03:16Z",
+   "combined_at": "2026-11-14T14:13:40Z",
+   "sources": 102787,
+   "movers": 1239,
+   "suspects": 42,
+   "recall": 0.8396,
+   "error": null
+  },
+  {
+   "name": "ecl13s2",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    -8.1,
+    1.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4097,
+   "dots": 14605675,
+   "extracted_at": "2026-11-14T14:12:01Z",
+   "combined_at": "2026-11-14T14:21:03Z",
+   "sources": 162009,
+   "movers": 490,
+   "suspects": 21,
+   "recall": 0.8635,
+   "error": null
+  },
+  {
+   "name": "ecl13s3",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    -18.1,
+    -8.1
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4287,
+   "dots": 19194761,
+   "extracted_at": "2026-11-14T14:20:31Z",
+   "combined_at": "2026-11-14T14:34:55Z",
+   "sources": 150308,
+   "movers": 94,
+   "suspects": 6,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl13s4",
+   "ra": [
+    130.5,
+    140.5
+   ],
+   "dec": [
+    -28.1,
+    -18.1
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4678,
+   "dots": 30430339,
+   "extracted_at": "2026-11-14T14:29:25Z",
+   "combined_at": "2026-11-14T14:43:27Z",
+   "sources": 274451,
+   "movers": 103,
+   "suspects": 7,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl14",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    8.8,
+    18.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4273,
+   "dots": 14034369,
+   "extracted_at": "2026-11-14T14:35:04Z",
+   "combined_at": "2026-11-14T14:47:04Z",
+   "sources": 160361,
+   "movers": 6585,
+   "suspects": 241,
+   "recall": 0.784,
+   "error": null
+  },
+  {
+   "name": "ecl14n1",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    18.8,
+    28.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3829,
+   "dots": 12125591,
+   "extracted_at": "2026-11-14T14:40:06Z",
+   "combined_at": "2026-11-14T14:52:27Z",
+   "sources": 124715,
+   "movers": 1301,
+   "suspects": 45,
+   "recall": 0.8053,
+   "error": null
+  },
+  {
+   "name": "ecl14n2",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    28.8,
+    38.8
+   ],
+   "state": "failed",
+   "final": false,
+   "machine": "worker",
+   "photos": 3631,
+   "dots": 11331805,
+   "extracted_at": "2026-11-14T14:49:19Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": "combine: link step ran out of memory (exit=137)"
+  },
+  {
+   "name": "ecl14n3",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    38.8,
+    48.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3529,
+   "dots": 11148608,
+   "extracted_at": "2026-11-14T14:59:18Z",
+   "combined_at": "2026-11-14T15:20:56Z",
+   "sources": 116218,
+   "movers": 155,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl14n4",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    48.8,
+    58.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 2810,
+   "dots": 9142495,
+   "extracted_at": "2026-11-14T15:08:19Z",
+   "combined_at": "2026-11-14T15:29:32Z",
+   "sources": 80698,
+   "movers": 88,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl14s1",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    -1.2,
+    8.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4085,
+   "dots": 12986609,
+   "extracted_at": "2026-11-14T14:44:43Z",
+   "combined_at": "2026-11-14T14:54:23Z",
+   "sources": 136674,
+   "movers": 1274,
+   "suspects": 51,
+   "recall": 0.7804,
+   "error": null
+  },
+  {
+   "name": "ecl14s2",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    -11.2,
+    -1.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4428,
+   "dots": 13949749,
+   "extracted_at": "2026-11-14T14:54:56Z",
+   "combined_at": "2026-11-14T15:12:30Z",
+   "sources": 105917,
+   "movers": 468,
+   "suspects": 16,
+   "recall": 0.8532,
+   "error": null
+  },
+  {
+   "name": "ecl14s3",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    -21.2,
+    -11.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4483,
+   "dots": 17016368,
+   "extracted_at": "2026-11-14T15:05:05Z",
+   "combined_at": "2026-11-14T15:20:07Z",
+   "sources": 154097,
+   "movers": 167,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl14s4",
+   "ra": [
+    140.5,
+    150.5
+   ],
+   "dec": [
+    -31.2,
+    -21.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4667,
+   "dots": 22453222,
+   "extracted_at": "2026-11-14T15:13:36Z",
+   "combined_at": "2026-11-14T15:32:50Z",
+   "sources": 253874,
+   "movers": 73,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl15",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    5.2,
+    15.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3807,
+   "dots": 12084563,
+   "extracted_at": "2026-11-14T15:18:12Z",
+   "combined_at": "2026-11-14T15:39:52Z",
+   "sources": 91781,
+   "movers": 6728,
+   "suspects": 226,
+   "recall": 0.9092,
+   "error": null
+  },
+  {
+   "name": "ecl15n1",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    15.2,
+    25.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3926,
+   "dots": 12346178,
+   "extracted_at": "2026-11-14T15:22:36Z",
+   "combined_at": "2026-11-14T15:52:07Z",
+   "sources": 105793,
+   "movers": 1711,
+   "suspects": 68,
+   "recall": 0.7866,
+   "error": null
+  },
+  {
+   "name": "ecl15n2",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    25.2,
+    35.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3789,
+   "dots": 11228020,
+   "extracted_at": "2026-11-14T15:32:31Z",
+   "combined_at": "2026-11-14T16:02:25Z",
+   "sources": 87225,
+   "movers": 389,
+   "suspects": 18,
+   "recall": 0.8485,
+   "error": null
+  },
+  {
+   "name": "ecl15n3",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    35.2,
+    45.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3201,
+   "dots": 11008931,
+   "extracted_at": "2026-11-14T15:41:31Z",
+   "combined_at": "2026-11-14T16:06:44Z",
+   "sources": 101625,
+   "movers": 198,
+   "suspects": 9,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl15n4",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    45.2,
+    55.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3129,
+   "dots": 10533492,
+   "extracted_at": "2026-11-14T15:50:45Z",
+   "combined_at": "2026-11-14T16:19:11Z",
+   "sources": 123753,
+   "movers": 73,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl15s1",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    -4.8,
+    5.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3957,
+   "dots": 12356211,
+   "extracted_at": "2026-11-14T15:27:51Z",
+   "combined_at": "2026-11-14T15:52:18Z",
+   "sources": 102660,
+   "movers": 1513,
+   "suspects": 47,
+   "recall": 0.8844,
+   "error": null
+  },
+  {
+   "name": "ecl15s2",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    -14.8,
+    -4.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3798,
+   "dots": 12720854,
+   "extracted_at": "2026-11-14T15:37:01Z",
+   "combined_at": "2026-11-14T15:59:24Z",
+   "sources": 101916,
+   "movers": 484,
+   "suspects": 21,
+   "recall": 0.8841,
+   "error": null
+  },
+  {
+   "name": "ecl15s3",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    -24.8,
+    -14.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4101,
+   "dots": 13880870,
+   "extracted_at": "2026-11-14T15:46:21Z",
+   "combined_at": "2026-11-14T16:13:59Z",
+   "sources": 161527,
+   "movers": 102,
+   "suspects": 6,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl15s4",
+   "ra": [
+    150.5,
+    160.5
+   ],
+   "dec": [
+    -34.8,
+    -24.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3751,
+   "dots": 14701337,
+   "extracted_at": "2026-11-14T15:55:20Z",
+   "combined_at": "2026-11-14T16:29:26Z",
+   "sources": 172205,
+   "movers": 85,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl16",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    1.2,
+    11.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3647,
+   "dots": 12230809,
+   "extracted_at": "2026-11-14T15:59:40Z",
+   "combined_at": "2026-11-14T16:26:50Z",
+   "sources": 124209,
+   "movers": 5076,
+   "suspects": 166,
+   "recall": 0.9005,
+   "error": null
+  },
+  {
+   "name": "ecl16n1",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    11.2,
+    21.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3534,
+   "dots": 12002608,
+   "extracted_at": "2026-11-14T16:04:12Z",
+   "combined_at": "2026-11-14T16:34:06Z",
+   "sources": 112747,
+   "movers": 1267,
+   "suspects": 50,
+   "recall": 0.9259,
+   "error": null
+  },
+  {
+   "name": "ecl16n2",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    21.2,
+    31.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4180,
+   "dots": 13543754,
+   "extracted_at": "2026-11-14T16:14:11Z",
+   "combined_at": "2026-11-14T16:50:40Z",
+   "sources": 166153,
+   "movers": 335,
+   "suspects": 16,
+   "recall": 0.9228,
+   "error": null
+  },
+  {
+   "name": "ecl16n3",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    31.2,
+    41.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4012,
+   "dots": 13468973,
+   "extracted_at": "2026-11-14T16:24:22Z",
+   "combined_at": "2026-11-14T17:00:11Z",
+   "sources": 126488,
+   "movers": 99,
+   "suspects": 6,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl16n4",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    41.2,
+    51.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3286,
+   "dots": 10908436,
+   "extracted_at": "2026-11-14T16:33:31Z",
+   "combined_at": "2026-11-14T17:09:59Z",
+   "sources": 116324,
+   "movers": 63,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl16s1",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    -8.8,
+    1.2
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4387,
+   "dots": 14719354,
+   "extracted_at": "2026-11-14T16:09:04Z",
+   "combined_at": "2026-11-14T16:40:50Z",
+   "sources": 110428,
+   "movers": 1511,
+   "suspects": 60,
+   "recall": 0.8278,
+   "error": null
+  },
+  {
+   "name": "ecl16s2",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    -18.8,
+    -8.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4288,
+   "dots": 14271499,
+   "extracted_at": "2026-11-14T16:19:49Z",
+   "combined_at": "2026-11-14T16:52:14Z",
+   "sources": 105887,
+   "movers": 532,
+   "suspects": 18,
+   "recall": 0.8856,
+   "error": null
+  },
+  {
+   "name": "ecl16s3",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    -28.8,
+    -18.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3890,
+   "dots": 12481175,
+   "extracted_at": "2026-11-14T16:29:26Z",
+   "combined_at": "2026-11-14T17:03:39Z",
+   "sources": 128012,
+   "movers": 168,
+   "suspects": 8,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl16s4",
+   "ra": [
+    160.5,
+    170.5
+   ],
+   "dec": [
+    -38.8,
+    -28.8
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4269,
+   "dots": 17042960,
+   "extracted_at": "2026-11-14T16:38:58Z",
+   "combined_at": "2026-11-14T17:12:51Z",
+   "sources": 128478,
+   "movers": 66,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl17",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    -3.1,
+    6.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4114,
+   "dots": 12953426,
+   "extracted_at": "2026-11-14T16:43:43Z",
+   "combined_at": "2026-11-14T17:24:01Z",
+   "sources": 124512,
+   "movers": 5742,
+   "suspects": 211,
+   "recall": 0.8273,
+   "error": null
+  },
+  {
+   "name": "ecl17n1",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    6.9,
+    16.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4056,
+   "dots": 12631066,
+   "extracted_at": "2026-11-14T16:49:07Z",
+   "combined_at": "2026-11-14T17:30:11Z",
+   "sources": 155553,
+   "movers": 1862,
+   "suspects": 69,
+   "recall": 0.8121,
+   "error": null
+  },
+  {
+   "name": "ecl17n2",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    16.9,
+    26.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4128,
+   "dots": 14209921,
+   "extracted_at": "2026-11-14T17:13:26Z",
+   "combined_at": "2026-11-14T17:46:26Z",
+   "sources": 152267,
+   "movers": 547,
+   "suspects": 22,
+   "recall": 0.8794,
+   "error": null
+  },
+  {
+   "name": "ecl17n3",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    26.9,
+    36.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3627,
+   "dots": 11055481,
+   "extracted_at": "2026-11-14T17:23:03Z",
+   "combined_at": "2026-11-14T17:57:52Z",
+   "sources": 118832,
+   "movers": 158,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl17n4",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    36.9,
+    46.9
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3611,
+   "dots": 11248214,
+   "extracted_at": "2026-11-14T17:32:27Z",
+   "combined_at": "2026-11-14T18:07:05Z",
+   "sources": 106312,
+   "movers": 111,
+   "suspects": 4,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl17s1",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    -13.1,
+    -3.1
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4337,
+   "dots": 13937545,
+   "extracted_at": "2026-11-14T17:08:22Z",
+   "combined_at": "2026-11-14T17:42:31Z",
+   "sources": 146111,
+   "movers": 1408,
+   "suspects": 53,
+   "recall": 0.89,
+   "error": null
+  },
+  {
+   "name": "ecl17s2",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    -23.1,
+    -13.1
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3975,
+   "dots": 12678194,
+   "extracted_at": "2026-11-14T17:18:16Z",
+   "combined_at": "2026-11-14T17:52:39Z",
+   "sources": 112624,
+   "movers": 378,
+   "suspects": 12,
+   "recall": 0.8063,
+   "error": null
+  },
+  {
+   "name": "ecl17s3",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    -33.1,
+    -23.1
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4115,
+   "dots": 13455772,
+   "extracted_at": "2026-11-14T17:28:16Z",
+   "combined_at": "2026-11-14T17:58:15Z",
+   "sources": 128813,
+   "movers": 152,
+   "suspects": 8,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl17s4",
+   "ra": [
+    170.5,
+    180.5
+   ],
+   "dec": [
+    -43.1,
+    -33.1
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4015,
+   "dots": 18012843,
+   "extracted_at": "2026-11-14T17:37:02Z",
+   "combined_at": "2026-11-14T18:09:57Z",
+   "sources": 216699,
+   "movers": 52,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl18",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    -7.4,
+    2.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 4107,
+   "dots": 13882628,
+   "extracted_at": "2026-11-14T17:41:47Z",
+   "combined_at": "2026-11-14T18:14:10Z",
+   "sources": 102758,
+   "movers": 4695,
+   "suspects": 173,
+   "recall": 0.9187,
+   "error": null
+  },
+  {
+   "name": "ecl18n1",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    2.6,
+    12.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3611,
+   "dots": 11356064,
+   "extracted_at": "2026-11-14T17:46:00Z",
+   "combined_at": "2026-11-14T18:25:50Z",
+   "sources": 84636,
+   "movers": 1419,
+   "suspects": 51,
+   "recall": 0.9033,
+   "error": null
+  },
+  {
+   "name": "ecl18n2",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    12.6,
+    22.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3897,
+   "dots": 11703280,
+   "extracted_at": "2026-11-14T17:55:08Z",
+   "combined_at": "2026-11-14T18:25:44Z",
+   "sources": 90330,
+   "movers": 533,
+   "suspects": 22,
+   "recall": 0.8663,
+   "error": null
+  },
+  {
+   "name": "ecl18n3",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    22.6,
+    32.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3783,
+   "dots": 12629803,
+   "extracted_at": "2026-11-14T18:04:57Z",
+   "combined_at": "2026-11-14T18:40:15Z",
+   "sources": 137674,
+   "movers": 152,
+   "suspects": 8,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl18n4",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    32.6,
+    42.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3947,
+   "dots": 12876686,
+   "extracted_at": "2026-11-14T18:13:49Z",
+   "combined_at": "2026-11-14T18:52:48Z",
+   "sources": 152714,
+   "movers": 118,
+   "suspects": 7,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl18s1",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    -17.4,
+    -7.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3770,
+   "dots": 12909790,
+   "extracted_at": "2026-11-14T17:50:15Z",
+   "combined_at": "2026-11-14T18:23:48Z",
+   "sources": 102667,
+   "movers": 1695,
+   "suspects": 54,
+   "recall": 0.8131,
+   "error": null
+  },
+  {
+   "name": "ecl18s2",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    -27.4,
+    -17.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3879,
+   "dots": 13139607,
+   "extracted_at": "2026-11-14T18:00:11Z",
+   "combined_at": "2026-11-14T18:37:26Z",
+   "sources": 95646,
+   "movers": 390,
+   "suspects": 11,
+   "recall": 0.9101,
+   "error": null
+  },
+  {
+   "name": "ecl18s3",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    -37.4,
+    -27.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3649,
+   "dots": 13595927,
+   "extracted_at": "2026-11-14T18:09:08Z",
+   "combined_at": "2026-11-14T18:46:11Z",
+   "sources": 98162,
+   "movers": 146,
+   "suspects": 5,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl18s4",
+   "ra": [
+    180.5,
+    190.5
+   ],
+   "dec": [
+    -47.4,
+    -37.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3647,
+   "dots": 18178989,
+   "extracted_at": "2026-11-14T18:18:03Z",
+   "combined_at": "2026-11-14T18:58:38Z",
+   "sources": 130609,
+   "movers": 62,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    -11.6,
+    -1.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3592,
+   "dots": 11067387,
+   "extracted_at": "2026-11-14T18:22:20Z",
+   "combined_at": "2026-11-14T19:02:20Z",
+   "sources": 97787,
+   "movers": 6580,
+   "suspects": 229,
+   "recall": 0.9001,
+   "error": null
+  },
+  {
+   "name": "ecl19n1",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    -1.6,
+    8.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "worker",
+   "photos": 3931,
+   "dots": 13266411,
+   "extracted_at": "2026-11-14T18:27:05Z",
+   "combined_at": "2026-11-14T19:08:47Z",
+   "sources": 107749,
+   "movers": 1305,
+   "suspects": 41,
+   "recall": 0.8808,
+   "error": null
+  },
+  {
+   "name": "ecl19n2",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    8.4,
+    18.4
+   ],
+   "state": "combining",
+   "final": false,
+   "machine": "worker",
+   "photos": 4459,
+   "dots": 14481789,
+   "extracted_at": "2026-11-14T18:37:00Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19n3",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    18.4,
+    28.4
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 3710,
+   "dots": 11416015,
+   "extracted_at": "2026-11-14T18:45:07Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19n4",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    28.4,
+    38.4
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 4410,
+   "dots": 13848585,
+   "extracted_at": "2026-11-14T18:55:23Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19s1",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    -21.6,
+    -11.6
+   ],
+   "state": "combining",
+   "final": false,
+   "machine": "worker",
+   "photos": 3566,
+   "dots": 12221341,
+   "extracted_at": "2026-11-14T18:31:44Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19s2",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    -31.6,
+    -21.6
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 3476,
+   "dots": 11479793,
+   "extracted_at": "2026-11-14T18:40:59Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19s3",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    -41.6,
+    -31.6
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 3306,
+   "dots": 12408584,
+   "extracted_at": "2026-11-14T18:49:41Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl19s4",
+   "ra": [
+    190.5,
+    200.5
+   ],
+   "dec": [
+    -51.6,
+    -41.6
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 3773,
+   "dots": 20546204,
+   "extracted_at": "2026-11-14T19:00:25Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    -15.6,
+    -5.6
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 4303,
+   "dots": 14326217,
+   "extracted_at": "2026-11-14T19:06:01Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20n1",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    -5.6,
+    4.4
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "worker",
+   "photos": 4320,
+   "dots": 14643097,
+   "extracted_at": "2026-11-14T19:10:45Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20n2",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    4.4,
+    14.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20n3",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    14.4,
+    24.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20n4",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    24.4,
+    34.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20s1",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    -25.6,
+    -15.6
+   ],
+   "state": "extracting",
+   "final": false,
+   "machine": "worker",
+   "photos": 3457,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20s2",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    -35.6,
+    -25.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20s3",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    -45.6,
+    -35.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl20s4",
+   "ra": [
+    200.5,
+    210.5
+   ],
+   "dec": [
+    -55.6,
+    -45.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    -19.1,
+    -9.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21n1",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    -9.1,
+    0.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21n2",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    0.9,
+    10.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21n3",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    10.9,
+    20.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21n4",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    20.9,
+    30.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21s1",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    -29.1,
+    -19.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21s2",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    -39.1,
+    -29.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21s3",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    -49.1,
+    -39.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl21s4",
+   "ra": [
+    210.5,
+    220.5
+   ],
+   "dec": [
+    -59.1,
+    -49.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -22.2,
+    -12.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22n1",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -12.2,
+    -2.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22n2",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -2.2,
+    7.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22n3",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    7.8,
+    17.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22n4",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    17.8,
+    27.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22s1",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -32.2,
+    -22.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22s2",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -42.2,
+    -32.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22s3",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -52.2,
+    -42.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl22s4",
+   "ra": [
+    220.5,
+    230.5
+   ],
+   "dec": [
+    -62.2,
+    -52.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -24.7,
+    -14.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23n1",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -14.7,
+    -4.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23n2",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -4.7,
+    5.3
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23n3",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    5.3,
+    15.3
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23n4",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    15.3,
+    25.3
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23s1",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -34.7,
+    -24.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23s2",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -44.7,
+    -34.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23s3",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -54.7,
+    -44.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl23s4",
+   "ra": [
+    230.5,
+    240.5
+   ],
+   "dec": [
+    -64.7,
+    -54.7
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -26.5,
+    -16.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24n1",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -16.5,
+    -6.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24n2",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -6.5,
+    3.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24n3",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    3.5,
+    13.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24n4",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    13.5,
+    23.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24s1",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -36.5,
+    -26.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24s2",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -46.5,
+    -36.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24s3",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -56.5,
+    -46.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl24s4",
+   "ra": [
+    240.5,
+    250.5
+   ],
+   "dec": [
+    -66.5,
+    -56.5
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -27.8,
+    -17.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25n1",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -17.8,
+    -7.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25n2",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -7.8,
+    2.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25n3",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    2.2,
+    12.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25n4",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    12.2,
+    22.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25s1",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -37.8,
+    -27.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25s2",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -47.8,
+    -37.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25s3",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -57.8,
+    -47.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl25s4",
+   "ra": [
+    250.5,
+    260.5
+   ],
+   "dec": [
+    -67.8,
+    -57.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -28.4,
+    -18.4
+   ],
+   "state": "combining",
+   "final": false,
+   "machine": "od2",
+   "photos": 3766,
+   "dots": 65961330,
+   "extracted_at": "2026-11-14T18:26:19Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26n1",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -18.4,
+    -8.4
+   ],
+   "state": "combining",
+   "final": false,
+   "machine": "od2",
+   "photos": 3839,
+   "dots": 39559230,
+   "extracted_at": "2026-11-14T18:36:42Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26n2",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -8.4,
+    1.6
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od2",
+   "photos": 3905,
+   "dots": 26486495,
+   "extracted_at": "2026-11-14T18:56:45Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26n3",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    1.6,
+    11.6
+   ],
+   "state": "extracting",
+   "final": false,
+   "machine": "od2",
+   "photos": 4691,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26n4",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    11.6,
+    21.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26s1",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -38.4,
+    -28.4
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od2",
+   "photos": 3586,
+   "dots": 78066096,
+   "extracted_at": "2026-11-14T18:46:15Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26s2",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -48.4,
+    -38.4
+   ],
+   "state": "extracted",
+   "final": false,
+   "machine": "od2",
+   "photos": 3108,
+   "dots": 42360452,
+   "extracted_at": "2026-11-14T19:05:04Z",
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26s3",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -58.4,
+    -48.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl26s4",
+   "ra": [
+    260.5,
+    270.5
+   ],
+   "dec": [
+    -68.4,
+    -58.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl27",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -28.3,
+    -18.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3489,
+   "dots": 62099834,
+   "extracted_at": "2026-11-14T15:31:44Z",
+   "combined_at": "2026-11-14T16:02:46Z",
+   "sources": 544574,
+   "movers": 5232,
+   "suspects": 215,
+   "recall": 0.8117,
+   "error": null
+  },
+  {
+   "name": "ecl27n1",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -18.3,
+    -8.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4174,
+   "dots": 109208758,
+   "extracted_at": "2026-11-14T15:42:04Z",
+   "combined_at": "2026-11-14T16:15:57Z",
+   "sources": 1043118,
+   "movers": 1967,
+   "suspects": 88,
+   "recall": 0.8988,
+   "error": null
+  },
+  {
+   "name": "ecl27n2",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -8.3,
+    1.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3891,
+   "dots": 62467947,
+   "extracted_at": "2026-11-14T16:01:57Z",
+   "combined_at": "2026-11-14T16:45:27Z",
+   "sources": 667026,
+   "movers": 1091,
+   "suspects": 69,
+   "recall": 0.9122,
+   "error": null
+  },
+  {
+   "name": "ecl27n3",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    1.7,
+    11.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4044,
+   "dots": 38129684,
+   "extracted_at": "2026-11-14T16:20:14Z",
+   "combined_at": "2026-11-14T16:54:50Z",
+   "sources": 362273,
+   "movers": 553,
+   "suspects": 21,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl27n4",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    11.7,
+    21.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 5114,
+   "dots": 32550388,
+   "extracted_at": "2026-11-14T16:40:25Z",
+   "combined_at": "2026-11-14T17:19:04Z",
+   "sources": 295244,
+   "movers": 55,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl27s1",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -38.3,
+    -28.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3583,
+   "dots": 38379312,
+   "extracted_at": "2026-11-14T15:51:26Z",
+   "combined_at": "2026-11-14T16:26:31Z",
+   "sources": 361515,
+   "movers": 1869,
+   "suspects": 63,
+   "recall": 0.884,
+   "error": null
+  },
+  {
+   "name": "ecl27s2",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -48.3,
+    -38.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3100,
+   "dots": 20757484,
+   "extracted_at": "2026-11-14T16:10:05Z",
+   "combined_at": "2026-11-14T16:41:28Z",
+   "sources": 208010,
+   "movers": 423,
+   "suspects": 18,
+   "recall": 0.8292,
+   "error": null
+  },
+  {
+   "name": "ecl27s3",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -58.3,
+    -48.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 2935,
+   "dots": 16244858,
+   "extracted_at": "2026-11-14T16:27:37Z",
+   "combined_at": "2026-11-14T16:59:27Z",
+   "sources": 193592,
+   "movers": 156,
+   "suspects": 7,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl27s4",
+   "ra": [
+    270.5,
+    280.5
+   ],
+   "dec": [
+    -68.3,
+    -58.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 2453,
+   "dots": 10621792,
+   "extracted_at": "2026-11-14T16:47:27Z",
+   "combined_at": "2026-11-14T17:26:14Z",
+   "sources": 78970,
+   "movers": 51,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl28",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -27.7,
+    -17.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3650,
+   "dots": 29518388,
+   "extracted_at": "2026-11-14T14:07:45Z",
+   "combined_at": "2026-11-14T14:23:17Z",
+   "sources": 288125,
+   "movers": 5679,
+   "suspects": 193,
+   "recall": 0.911,
+   "error": null
+  },
+  {
+   "name": "ecl28n1",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -17.7,
+    -7.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3950,
+   "dots": 42882740,
+   "extracted_at": "2026-11-14T14:17:28Z",
+   "combined_at": "2026-11-14T14:30:24Z",
+   "sources": 309256,
+   "movers": 2027,
+   "suspects": 67,
+   "recall": 0.8182,
+   "error": null
+  },
+  {
+   "name": "ecl28n2",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -7.7,
+    2.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4281,
+   "dots": 82380601,
+   "extracted_at": "2026-11-14T14:37:08Z",
+   "combined_at": "2026-11-14T15:01:54Z",
+   "sources": 610462,
+   "movers": 1108,
+   "suspects": 67,
+   "recall": 0.8203,
+   "error": null
+  },
+  {
+   "name": "ecl28n3",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    2.3,
+    12.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4282,
+   "dots": 109718846,
+   "extracted_at": "2026-11-14T14:55:55Z",
+   "combined_at": "2026-11-14T15:15:46Z",
+   "sources": 941406,
+   "movers": 529,
+   "suspects": 48,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl28n4",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    12.3,
+    22.3
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4608,
+   "dots": 66320931,
+   "extracted_at": "2026-11-14T15:15:29Z",
+   "combined_at": "2026-11-14T15:44:24Z",
+   "sources": 496957,
+   "movers": 518,
+   "suspects": 41,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl28s1",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -37.7,
+    -27.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3607,
+   "dots": 20549938,
+   "extracted_at": "2026-11-14T14:26:26Z",
+   "combined_at": "2026-11-14T14:41:31Z",
+   "sources": 210262,
+   "movers": 1388,
+   "suspects": 55,
+   "recall": 0.8558,
+   "error": null
+  },
+  {
+   "name": "ecl28s2",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -47.7,
+    -37.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3205,
+   "dots": 15635793,
+   "extracted_at": "2026-11-14T14:45:18Z",
+   "combined_at": "2026-11-14T15:03:08Z",
+   "sources": 155260,
+   "movers": 446,
+   "suspects": 20,
+   "recall": 0.7857,
+   "error": null
+  },
+  {
+   "name": "ecl28s3",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -57.7,
+    -47.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 2868,
+   "dots": 12568693,
+   "extracted_at": "2026-11-14T15:03:30Z",
+   "combined_at": "2026-11-14T15:25:11Z",
+   "sources": 126361,
+   "movers": 93,
+   "suspects": 3,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl28s4",
+   "ra": [
+    280.5,
+    290.5
+   ],
+   "dec": [
+    -67.7,
+    -57.7
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 2623,
+   "dots": 10997194,
+   "extracted_at": "2026-11-14T15:22:23Z",
+   "combined_at": "2026-11-14T15:41:03Z",
+   "sources": 79383,
+   "movers": 80,
+   "suspects": 4,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl29",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -26.4,
+    -16.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3714,
+   "dots": 16733060,
+   "extracted_at": "2026-11-14T16:56:48Z",
+   "combined_at": "2026-11-14T17:31:23Z",
+   "sources": 126465,
+   "movers": 5330,
+   "suspects": 176,
+   "recall": 0.8017,
+   "error": null
+  },
+  {
+   "name": "ecl29n1",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -16.4,
+    -6.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4313,
+   "dots": 23393069,
+   "extracted_at": "2026-11-14T17:07:25Z",
+   "combined_at": "2026-11-14T17:39:13Z",
+   "sources": 190142,
+   "movers": 1333,
+   "suspects": 48,
+   "recall": 0.8964,
+   "error": null
+  },
+  {
+   "name": "ecl29n2",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -6.4,
+    3.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4418,
+   "dots": 35569290,
+   "extracted_at": "2026-11-14T17:28:44Z",
+   "combined_at": "2026-11-14T18:01:46Z",
+   "sources": 314470,
+   "movers": 442,
+   "suspects": 15,
+   "recall": 0.7971,
+   "error": null
+  },
+  {
+   "name": "ecl29n3",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    3.6,
+    13.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 4505,
+   "dots": 53574984,
+   "extracted_at": "2026-11-14T17:49:44Z",
+   "combined_at": "2026-11-14T18:32:44Z",
+   "sources": 516519,
+   "movers": 268,
+   "suspects": 37,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl29n4",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    13.6,
+    23.6
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 5016,
+   "dots": 116440708,
+   "extracted_at": "2026-11-14T18:09:15Z",
+   "combined_at": "2026-11-14T18:58:56Z",
+   "sources": 941608,
+   "movers": 504,
+   "suspects": 46,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl29s1",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -36.4,
+    -26.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3718,
+   "dots": 15988719,
+   "extracted_at": "2026-11-14T17:17:10Z",
+   "combined_at": "2026-11-14T17:48:00Z",
+   "sources": 122225,
+   "movers": 1454,
+   "suspects": 57,
+   "recall": 0.9296,
+   "error": null
+  },
+  {
+   "name": "ecl29s2",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -46.4,
+    -36.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 3595,
+   "dots": 12984290,
+   "extracted_at": "2026-11-14T17:38:18Z",
+   "combined_at": "2026-11-14T18:14:34Z",
+   "sources": 110919,
+   "movers": 376,
+   "suspects": 13,
+   "recall": 0.9086,
+   "error": null
+  },
+  {
+   "name": "ecl29s3",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -56.4,
+    -46.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 2769,
+   "dots": 9425495,
+   "extracted_at": "2026-11-14T17:56:45Z",
+   "combined_at": "2026-11-14T18:33:38Z",
+   "sources": 109350,
+   "movers": 138,
+   "suspects": 7,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl29s4",
+   "ra": [
+    290.5,
+    300.5
+   ],
+   "dec": [
+    -66.4,
+    -56.4
+   ],
+   "state": "combined",
+   "final": false,
+   "machine": "od2",
+   "photos": 2648,
+   "dots": 9394132,
+   "extracted_at": "2026-11-14T18:16:44Z",
+   "combined_at": "2026-11-14T18:50:30Z",
+   "sources": 108296,
+   "movers": 97,
+   "suspects": 2,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -24.4,
+    -14.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30n1",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -14.4,
+    -4.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30n2",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -4.4,
+    5.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30n3",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    5.6,
+    15.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30n4",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    15.6,
+    25.6
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30s1",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -34.4,
+    -24.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30s2",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -44.4,
+    -34.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30s3",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -54.4,
+    -44.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl30s4",
+   "ra": [
+    300.5,
+    310.5
+   ],
+   "dec": [
+    -64.4,
+    -54.4
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -21.9,
+    -11.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31n1",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -11.9,
+    -1.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31n2",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -1.9,
+    8.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31n3",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    8.1,
+    18.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31n4",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    18.1,
+    28.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31s1",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -31.9,
+    -21.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31s2",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -41.9,
+    -31.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31s3",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -51.9,
+    -41.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl31s4",
+   "ra": [
+    310.5,
+    320.5
+   ],
+   "dec": [
+    -61.9,
+    -51.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    -18.8,
+    -8.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32n1",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    -8.8,
+    1.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32n2",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    1.2,
+    11.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32n3",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    11.2,
+    21.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32n4",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    21.2,
+    31.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32s1",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    -28.8,
+    -18.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32s2",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    -38.8,
+    -28.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32s3",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    -48.8,
+    -38.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl32s4",
+   "ra": [
+    320.5,
+    330.5
+   ],
+   "dec": [
+    -58.8,
+    -48.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    -15.2,
+    -5.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33n1",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    -5.2,
+    4.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33n2",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    4.8,
+    14.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33n3",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    14.8,
+    24.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33n4",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    24.8,
+    34.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33s1",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    -25.2,
+    -15.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33s2",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    -35.2,
+    -25.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33s3",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    -45.2,
+    -35.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl33s4",
+   "ra": [
+    330.5,
+    340.5
+   ],
+   "dec": [
+    -55.2,
+    -45.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    -11.2,
+    -1.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34n1",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    -1.2,
+    8.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34n2",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    8.8,
+    18.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34n3",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    18.8,
+    28.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34n4",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    28.8,
+    38.8
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34s1",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    -21.2,
+    -11.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34s2",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    -31.2,
+    -21.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34s3",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    -41.2,
+    -31.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl34s4",
+   "ra": [
+    340.5,
+    350.5
+   ],
+   "dec": [
+    -51.2,
+    -41.2
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    -7.1,
+    2.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35n1",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    2.9,
+    12.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35n2",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    12.9,
+    22.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35n3",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    22.9,
+    32.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35n4",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    32.9,
+    42.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35s1",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    -17.1,
+    -7.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35s2",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    -27.1,
+    -17.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35s3",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    -37.1,
+    -27.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl35s4",
+   "ra": [
+    350.5,
+    360
+   ],
+   "dec": [
+    -47.1,
+    -37.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    -4.9,
+    5.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36n1",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    5.1,
+    15.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36n2",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    15.1,
+    25.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36n3",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    25.1,
+    35.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36n4",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    35.1,
+    45.1
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36s1",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    -14.9,
+    -4.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36s2",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    -24.9,
+    -14.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36s3",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    -34.9,
+    -24.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  },
+  {
+   "name": "ecl36s4",
+   "ra": [
+    0,
+    0.5
+   ],
+   "dec": [
+    -44.9,
+    -34.9
+   ],
+   "state": "queued",
+   "final": false,
+   "machine": null,
+   "photos": null,
+   "dots": null,
+   "extracted_at": null,
+   "combined_at": null,
+   "sources": null,
+   "movers": null,
+   "suspects": null,
+   "recall": null,
+   "error": null
+  }
+ ]
+}
