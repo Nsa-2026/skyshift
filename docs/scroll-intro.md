@@ -12,6 +12,8 @@ black skin, dress, headdress and jewellery use the supplied drawing without resh
 `web/src/intro/model.ts` maps normalized native scroll position directly to camera state.
 The scroll container is 650 svh; requestAnimationFrame batches scroll/resize painting without
 time-based interpolation. Scrolling backwards reverses the shot. Resize preserves progress.
+The opening's captions, accessible labels, skip/replay controls, sky credits, fallback states
+and query loading messages are all English. Header navigation uses “Play · Sky hunt”.
 
 | Progress | Scene |
 | --- | --- |
@@ -73,8 +75,8 @@ No planetary photograph, video or AI-generated bitmap is used.
 
 Fresh `#/` visits enter the opening. `#/explore`, `?target=<known slug>`, legacy `?t=`,
 coordinate links and embeds bypass it. Explicit Learn/Play and other page routes retain their
-meaning. Completion or the persistent “直接进入” button records `skyshift:intro:v1:seen` and
-enters `#/explore`. Storage failure is harmless. The dashboard's “重看开场” replays it in memory.
+meaning. Completion or the persistent “Skip intro” button records `skyshift:intro:v1:seen` and
+enters `#/explore`. Storage failure is harmless. The dashboard's “Replay intro” replays it in memory.
 Reduced-motion users enter Explore immediately and get a static loading eye.
 
 The dashboard rehomes the existing header/search and player DOM; there is still exactly one
@@ -119,7 +121,7 @@ overflow, skip/replay and completion into Explore. These are browser viewport ch
 physical-phone frame-rate certification.
 
 Run the existing Vite preview at <http://127.0.0.1:5173/>. Returning visitors can select
-“重看开场”. See `frontend-unification.md` for local API and dependency setup.
+“Replay intro”. See `frontend-unification.md` for local API and dependency setup.
 
 These captures are screenshots of the running local tool, not generated concept art:
 

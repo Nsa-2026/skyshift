@@ -19,7 +19,7 @@ describe('real-sky fallback', () => {
     const { mountEntrySky } = await import('./sky');
     const host = document.createElement('div'); document.body.append(host);
     const sky = mountEntrySky(host); sky.active(true);
-    await vi.waitFor(() => expect(host.textContent).toContain('本地真实观测'));
+    await vi.waitFor(() => expect(host.textContent).toContain('Local observation'));
     expect(putImageData).toHaveBeenCalledTimes(1); expect(drawImage).toHaveBeenCalled();
     expect(host.classList.contains('has-hips')).toBe(false);
     sky.active(false); expect(host.hidden).toBe(true);

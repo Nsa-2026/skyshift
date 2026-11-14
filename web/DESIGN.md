@@ -15,6 +15,8 @@ its centimetre coordinates to the existing camera; head and pupil anchors come f
 No other part of the separate opening prototype is loaded by this integration. There are no
 video files or AI-generated visual assets.
 The same live dashboard emerges at the end and becomes interactive at `#/explore`.
+Opening captions and accessibility labels, skip/replay controls, source/fallback credits and
+query loading messages use English throughout.
 
 The space opening now uses a spherical Earth with Natural Earth coastline vectors, procedural
 ocean/land/cloud materials, a curved terminator, ocean glint and atmosphere. Saturn (occluded
@@ -27,7 +29,7 @@ Entry/Explore-only styles live in `src/intro/intro.css`: persistent search/navig
 cards, the existing player and real candidate signals. The light shell leaves the sky visible
 between panels. On phones panels stack, target cards scroll horizontally and the original
 Details controls remain accessible. Deep links, returning visitors and reduced-motion users
-bypass the opening; “重看开场” is available on the dashboard.
+bypass the opening; “Replay intro” is available on the dashboard.
 
 See [scroll-intro.md](../docs/scroll-intro.md) for phase boundaries, provenance, tests and actual
 browser captures. The older atlas specification below describes the atlas route and product

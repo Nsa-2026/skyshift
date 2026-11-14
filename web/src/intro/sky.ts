@@ -34,7 +34,7 @@ export function observationTexture(): Promise<HTMLCanvasElement> {
 
 export function mountEntrySky(host: HTMLElement) {
   host.inert = true;
-  host.innerHTML = '<div class="entry-sky-field"><canvas class="entry-local-sky"></canvas><div class="entry-hips"></div></div><p class="entry-sky-credit">SPHEREx · NASA / JPL-Caltech / IPAC · 红外观测</p>';
+  host.innerHTML = '<div class="entry-sky-field"><canvas class="entry-local-sky"></canvas><div class="entry-hips"></div></div><p class="entry-sky-credit">SPHEREx · NASA / JPL-Caltech / IPAC · Infrared observations</p>';
   const field = host.querySelector<HTMLElement>('.entry-sky-field')!;
   const canvas = host.querySelector<HTMLCanvasElement>('canvas')!;
   const hips = host.querySelector<HTMLElement>('.entry-hips')!;
@@ -61,8 +61,8 @@ export function mountEntrySky(host: HTMLElement) {
     observationTexture().then(t => {
       if (destroyed) return;
       texture = t; resize();
-      if (!host.classList.contains('has-hips')) credit.textContent = 'SPHEREx · Barnard’s Star 天区 · NASA / IPAC · 本地真实观测';
-    }).catch(() => { if (!destroyed && !host.classList.contains('has-hips')) credit.textContent = '星图暂不可用 · 仍可直接进入探索'; });
+      if (!host.classList.contains('has-hips')) credit.textContent = 'SPHEREx · Barnard’s Star field · NASA / IPAC · Local observation';
+    }).catch(() => { if (!destroyed && !host.classList.contains('has-hips')) credit.textContent = 'Sky map unavailable · You can still enter Explore'; });
     const ticket = ++generation;
     try {
       const A = await loadAladinOnce({ timeoutMs: 5000 });
@@ -84,7 +84,7 @@ export function mountEntrySky(host: HTMLElement) {
           host.classList.add('has-hips');
           credit.textContent = 'SPHEREx DR1 · 1.38 μm · NASA / JPL-Caltech / IPAC (IRSA)';
         },
-        errorCallback() { host.classList.remove('has-hips'); credit.textContent = 'SPHEREx · Barnard’s Star 天区 · 本地真实观测'; },
+        errorCallback() { host.classList.remove('has-hips'); credit.textContent = 'SPHEREx · Barnard’s Star field · Local observation'; },
       });
       al.setBaseImageLayer(layer);
       al.gotoRaDec(266, -29);

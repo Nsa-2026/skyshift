@@ -59,7 +59,7 @@ export function startApp(root: HTMLElement): void {
         <a href="#/learn" data-route="learn">Learn</a>
         <a href="#/tools" data-route="tools">Tools &amp; data</a>
         <a href="#/about" data-route="about">About</a>
-        <a href="#/play" data-route="play">Play · 星空捉迷藏</a>
+        <a href="#/play" data-route="play">Play · Sky hunt</a>
       </nav>
       <div class="details-slot"></div>
     </header>
@@ -199,7 +199,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl?.abort();
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
-    const finishLoading = eyeLoading.begin(next.slug ? '正在读取 SPHEREx 观测…' : '正在查询新的天区，读取 SPHEREx 观测…');
+    const finishLoading = eyeLoading.begin(next.slug ? 'Loading SPHEREx observations…' : 'Searching this sky region and loading SPHEREx observations…');
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
 
     frames = null;
