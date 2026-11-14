@@ -1,6 +1,6 @@
 // Tools and data (#/tools, web/DESIGN.md "Pages" and "Two audiences"): for astronomers, teachers
-// and developers. Five quiet sections: download the candidates, batch coordinates, the API, how to
-// cite, and data versions. Everything runs in the browser; the only live API call is a per-row
+// and developers. Six quiet sections: download the candidates, batch coordinates, the API, how to
+// cite, data and methods (where the pixels come from and what happens to them), and data versions. Everything runs in the browser; the only live API call is a per-row
 // "Check" in the batch table, one at a time. Sections deep-link as #/tools/<section>.
 import "./tools.css";
 import "../prefs/details";
@@ -32,6 +32,7 @@ import {
   skyshiftBibtex,
   staticPython,
 } from "./docs";
+import { methodsHtml, validationHtml } from "./methods";
 import {
   KIND_NAMES,
   candidateColumns,
@@ -47,6 +48,7 @@ export const SECTIONS = [
   { id: "batch", title: "Batch coordinates" },
   { id: "api", title: "API" },
   { id: "cite", title: "Cite and acknowledge" },
+  { id: "methods", title: "Data and methods" },
   { id: "data", title: "Data and versions" },
 ] as const;
 
@@ -285,6 +287,11 @@ function pageHtml(base: string, lang: Lang): string {
     <p class="tl-note">Other data in SkyShift keep their own credit lines: 2MASS, AllWISE and CatWISE2020 (served by IRSA), Minor Planet Center orbits (computed with kete, BSD-3-Clause), and SDSS DR17. See <a href="${REPO_URL}#data-and-credits" target="_blank" rel="noopener">Data and credits</a> in the README.</p>
   </section>
 
+  <section class="tl-sec" id="tl-methods" aria-labelledby="tl-methods-h">
+    <h2 id="tl-methods-h" tabindex="-1">Data and methods</h2>
+    ${methodsHtml()}
+  </section>
+
   <section class="tl-sec" id="tl-data" aria-labelledby="tl-data-h">
     <h2 id="tl-data-h" tabindex="-1">Data and versions</h2>
     <p>What this site is built from, and when.</p>
@@ -479,6 +486,7 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
     suspects = s && Array.isArray(s.suspects) ? s : null;
     renderDownloads();
     $<HTMLElement>(".tl-versions").innerHTML = versionsHtml(candidates, v && Array.isArray(v.checks) ? v : null, suspects);
+    $<HTMLElement>(".tl-validation").innerHTML = validationHtml(v && Array.isArray(v.checks) ? v : null);
   }
 
   dlBox.addEventListener("click", (ev) => {
