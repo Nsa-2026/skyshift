@@ -125,6 +125,13 @@ FIXED_LINK_ARCSEC = 4.0       # friends-of-friends radius for fixed sources
 FIXED_SNAP_ARCSEC = 1.0       # dots are first snapped to cells this big (speed); FoF runs on cells
 FIXED_MIN_SESSIONS = 3        # a group in >= this many sessions is fixed
 FIXED_VETO_ARCSEC = 6.0       # dots this close to a fixed source are dropped before pairing
+# members.parquet (the dots spectra, calib, astrometry, lightcurves measure) keeps a fixed group's dots except
+# (hunt, 14 Nov: these made most of the fake proper motions of Gaia stars):
+FIXED_MEMBER_DROP_MASKED_PEAK = True  # a mask bit other than saturation at the peak (PERSIST, TRANSIENT, SUR_ERROR, …):
+                                      # the core is masked, the centroid sits on the wings 1.5–5″ off; saturated dots
+                                      # (OVERFLOW/NONLINEAR at the peak) stay, dots re-centroids them on purpose
+FIXED_MEMBER_ONE_PER_PHOTO = True     # one dot per photo: the nearest to the group's position; the others are a bright
+                                      # star's wing fragments or a neighbour chained in (they still veto movers)
 PAIR_BASE_ARCSEC = 3.0        # two exposures pair if separated <= base + rate x dt
 PAIR_RATE_ARCSEC_PER_MIN = 1.0
 SIMULTANEOUS_PAIR_ARCSEC = 3.0
