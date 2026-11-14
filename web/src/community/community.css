@@ -898,3 +898,15 @@
     display: none;
   }
 }
+
+/* ---- the list for astronomers alone, as a section of Results (variant "astronomers") ---- */
+.cm-embedded .cm-astro > .cm-sub {
+  order: -1;
+  max-width: 64ch;
+}
+.cm-embedded .cm-next > h3:not(:first-child) {
+  margin-top: var(--s4);
+}
+.cm-embedded .cm-next > p {
+  max-width: 72ch;
+}

@@ -1,14 +1,26 @@
-// Scoreboard page (#/score): checks V1–V11 from /data/validation.json, the unknown-mover
-// suspects from /data/suspects.json and the distant-planet search from /data/distant.json.
-// Missing files show a pending state, never fixtures.
-import { loadDistant, loadSuspects, loadValidation } from "../api/client";
+// Results (#/results, #/results/<section>): one page in sections (page.ts). "What we found" and
+// "How sure we are" read /data/candidates.json, /data/suspects.json, /data/distant.json and
+// /data/validation.json; missing files show a pending state, never fixtures.
 import type { DistantResponse, SuspectsResponse, ValidationResponse } from "../api/types";
-import type { MountScore } from "../app/modules";
-import { downloadText, suspectsCsv } from "./format";
+import { wireSuspectsCsv } from "./page";
 import { renderPage } from "./render";
 import "./score.css";
 
-/** Draw the page for already-loaded data (null = file not published) and wire its controls. */
+export {
+  SECTIONS,
+  createResultsPage,
+  mountResults,
+  parseResultsParam,
+  wireSuspectsCsv,
+  type ResultsDeps,
+  type ResultsPage,
+  type SectionId,
+} from "./page";
+// The shell mounts Results as before (mountScore(el)); the handle also has show(param) and hide(),
+// and mountScore(el, ctx) takes the shell's context once it passes one (see page.ts).
+export { mountResults as mountScore } from "./page";
+
+/** Draw "How sure we are" and "What we found" in one block for already-loaded data, and wire the CSV. */
 export function renderScore(
   el: HTMLElement,
   v: ValidationResponse | null,
@@ -16,23 +28,5 @@ export function renderScore(
   dist: DistantResponse | null = null,
 ): void {
   el.innerHTML = renderPage(v, sr, dist);
-  el.querySelector<HTMLButtonElement>("[data-csv]")?.addEventListener("click", () => {
-    if (!sr) return;
-    const day = (sr.generated || "").slice(0, 10) || "latest";
-    downloadText(suspectsCsv(sr.suspects), `skyshift-suspects-${day}.csv`);
-  });
+  wireSuspectsCsv(el, sr);
 }
-
-export const mountScore: MountScore = (el) => {
-  const ctl = new AbortController();
-  el.innerHTML = `<div class="sc"><p class="sc-loading" role="status">Loading the scoreboard…</p></div>`;
-  Promise.all([loadValidation(ctl.signal), loadSuspects(ctl.signal), loadDistant(ctl.signal)]).then(([v, sr, dist]) => {
-    if (!ctl.signal.aborted) renderScore(el, v, sr, dist);
-  });
-  return {
-    destroy() {
-      ctl.abort();
-      el.innerHTML = "";
-    },
-  };
-};

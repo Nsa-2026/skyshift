@@ -331,7 +331,8 @@
   margin-top: var(--s1);
 }
 /* the check classes reused here (claim, note) carry grid areas meant for .sc-check: one column here */
-.sc-distant > * {
+.sc-distant > *,
+.sc-suspects > .sc-rows {
   grid-area: auto;
 }
 .sc-distant .sc-claim {
@@ -457,10 +458,231 @@
   opacity: 0.5;
 }
 
+/* ---- Results: one page in sections (page.ts) ----
+   The title and a contents line, then each section under a strong hairline with a large heading
+   that opens and closes it. The parts inside keep their own look, one heading level down. */
+.rs-head {
+  display: grid;
+  gap: var(--s4);
+  padding-bottom: var(--s6);
+}
+.rs-head .sc-lede {
+  max-width: 62ch;
+}
+.rs-synthetic:empty {
+  display: none;
+}
+.rs-toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rs-toc li[hidden] {
+  display: none;
+}
+.rs-toc a {
+  color: var(--ink-2);
+  font-weight: 550;
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+}
+.rs-toc a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.rs-sec {
+  display: grid;
+  gap: var(--s4);
+  padding: var(--s6) 0 var(--s7);
+  border-top: 1px solid var(--hair-strong);
+  min-width: 0;
+  scroll-margin-top: var(--s4);
+}
+.rs-sec[hidden],
+.rs-body[hidden],
+.rs-gist[hidden] {
+  display: none;
+}
+.rs-h2 {
+  font-size: clamp(1.75rem, 1.4rem + 1vw, 2.25rem);
+  font-weight: 700;
+  font-variation-settings: "wdth" 108;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+.rs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rs-chev {
+  flex: none;
+  color: var(--ink-3);
+}
+.rs-toggle:hover .rs-chev {
+  color: var(--ink);
+}
+.rs-toggle[aria-expanded="false"] .rs-chev {
+  transform: rotate(-90deg);
+}
+.rs-gist {
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+.rs-body {
+  min-width: 0;
+}
+
+/* parts drawn inside a section: one level down, a quieter hairline */
+.rs .sc-h2 {
+  font-size: var(--step-2);
+  font-weight: 680;
+  font-variation-settings: "wdth" 100;
+  letter-spacing: -0.01em;
+}
+.rs .sc-suspects,
+.rs .sc-distant {
+  margin-top: var(--s7);
+  padding-top: var(--s6);
+  border-top-color: var(--hair);
+}
+.rs .sc-head {
+  padding-bottom: var(--s6);
+}
+.rs-found,
+.rs-sure {
+  display: grid;
+  min-width: 0;
+}
+
+/* the objects to check: the count, what they are, where to look */
+.rs-objects {
+  display: grid;
+  justify-items: start;
+  gap: var(--s3);
+}
+.rs-count {
+  max-width: 40em;
+  font-size: clamp(1.25rem, 1rem + 0.9vw, 1.625rem);
+  font-weight: 450;
+  line-height: 1.32;
+}
+.rs-count b {
+  font-weight: 700;
+  font-variation-settings: "wdth" 85;
+}
+.rs-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  font-weight: 550;
+}
+
+/* what the search can find: figure on the left, what it counts on the right */
+.rs-complete {
+  display: grid;
+  gap: var(--s4);
+  padding-bottom: var(--s6);
+}
+.rs-h3 {
+  font-size: var(--step-1);
+  font-weight: 650;
+}
+.rs-figures {
+  display: grid;
+  gap: var(--s5);
+  margin: 0;
+}
+.rs-figure {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  column-gap: var(--s6);
+  align-items: baseline;
+}
+.rs-fig {
+  font-size: 2.25rem;
+  font-weight: 640;
+  font-variation-settings: "wdth" 85;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+.rs-figure dd {
+  display: grid;
+  gap: var(--s1);
+  margin: 0;
+  max-width: 64ch;
+}
+.rs-fig-text {
+  font-size: var(--step-1);
+}
+.rs-fig-link {
+  justify-self: start;
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+
+/* the community's list and the live map inside their sections */
+.rs .cm-embedded {
+  gap: var(--s6);
+  padding-top: 0;
+}
+.rs .cm-embedded .cm-lead {
+  font-size: clamp(1.125rem, 1rem + 0.6vw, 1.375rem);
+}
+.rs .lv-embedded {
+  padding-top: 0;
+}
+.rs-methods {
+  max-width: 70rem;
+}
+
+/* with Advanced off: one quiet line where sections 5 and 6 would be */
+.rs-more {
+  max-width: none;
+  padding-top: var(--s6);
+  border-top: 1px solid var(--hair);
+  color: var(--ink-2);
+}
+.rs-more[hidden] {
+  display: none;
+}
+.rs-more-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
 /* ---- phone: one column; the id and status become a line above the claim ---- */
 @media (max-width: 720px) {
   .sc {
     padding-top: var(--s5);
+  }
+  .rs-figure {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--s2);
+  }
+  .rs-sec {
+    padding: var(--s5) 0 var(--s6);
   }
   .sc-head {
     padding-bottom: var(--s6);
