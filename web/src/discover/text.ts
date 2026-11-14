@@ -40,6 +40,29 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   short_span: { label: "Seen over a short time", tone: "doubt", detail: "Its detections cover too little time to trust the motion." },
   outlier: { label: "Outlier pixels", tone: "caution", detail: "The pipeline marked pixels here as outliers: often a cosmic ray or a bad pixel." },
   repeat_position: { label: "Same spot days apart", tone: "caution", detail: "Something sits at nearly this spot in sessions days apart: a fixed artefact, not a mover." },
+
+  // Codes the exporter sends that had no text, so they read as "Pm fit" and counted as doubt.
+  // Wording from contracts/dots.md, "Why it is listed".
+  pm_fit: { label: "Motion fitted across visits", tone: "support", detail: "Its motion was fitted over every detection in every visit." },
+  vetted: { label: "Passed every check", tone: "support", detail: "It came through all of the pipeline's checks with nothing against it." },
+  catwise_pm_agrees: { label: "CatWISE agrees", tone: "support", detail: "CatWISE lists the same motion for the source here." },
+  no_gaia: { label: "No Gaia source here", tone: "support", detail: "Gaia DR3 has nothing at this position." },
+  gaia_nearby: { label: "Within 50 pc", tone: "support", detail: "Gaia has it with a parallax of 20 mas or more, so it is closer than 50 parsecs." },
+  class_star: { label: "Point-like", tone: "support", detail: "The classifier calls it a star: a point source, not an extended one." },
+  variable: { label: "Brightness changes", tone: "support", detail: "Its brightness changes between visits." },
+
+  pm_pair: { label: "Paired across visits", tone: "doubt", detail: "Two sources, each seen in one visit only, paired across visits: it may be two different objects." },
+  implausible_pm: { label: "Too fast for a star", tone: "doubt", detail: "Faster than 12″ a year. Barnard's Star, the fastest known, does 10.4″, so this is almost certainly two different sources." },
+  motion_not_significant: { label: "Motion under 3σ", tone: "doubt", detail: "The motion is smaller than 3σ of its position errors: it may not move at all." },
+  known_object_near: { label: "Known object predicted nearby", tone: "doubt", detail: "A known asteroid or comet was predicted within 2′ at that time: this may be that object, slightly off its prediction." },
+  class_galaxy: { label: "Looks extended", tone: "doubt", detail: "The classifier calls it a galaxy, which would explain the spectrum without anything new." },
+  class_unsure: { label: "Shape unclear", tone: "doubt", detail: "Point-like but with no Gaia star, so the classifier could not decide what it is." },
+  gaia_unchecked: { label: "Gaia not checked", tone: "doubt", detail: "Gaia could not be checked when the pipeline ran." },
+  catwise_unchecked: { label: "CatWISE not checked", tone: "doubt", detail: "CatWISE could not be checked when the pipeline ran." },
+
+  outlier_flag: { label: "Outlier pixels", tone: "caution", detail: "The OUTLIER flag is set on its pixels: often a cosmic ray or a bad pixel." },
+  bad_pixels_near: { label: "Bad pixels nearby", tone: "caution", detail: "A masked pixel (cosmic ray, hot, dead or persistent) touches one of its detections." },
+  detector_excess: { label: "From a detector with excess movers", tone: "caution", detail: "Seen only in detectors where this zone has at least 1.5 times its usual share of unexplained movers: those are likely artefacts." },
 };
 
 /** Codes the exporter may use for the same two cautions (exact names still settling). */
