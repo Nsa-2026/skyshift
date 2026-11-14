@@ -7,7 +7,10 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, dots, known, link, spectra, classify, photoz, score, suspects; `all` runs them in order.
+Steps in order: photolist, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves, astrometry,
+highpm, score, suspects; `all` runs them in order.
+- crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
+  or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/skybot/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
