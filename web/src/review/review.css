@@ -498,9 +498,15 @@
   pointer-events: none;
 }
 
+/* The plate column is as wide as the blink's mat (blink.css: the plate is limited by the viewport
+   height), so no gap opens between the plate and the text; the text takes the rest. */
+.cd-main,
+.rq-main {
+  --rv-plate: calc(max(300px, 100svh - 236px) + 24px);
+}
 .cd-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  grid-template-columns: minmax(0, var(--rv-plate)) minmax(340px, 560px);
   gap: var(--s6) var(--s7);
   align-items: start;
 }
@@ -572,7 +578,7 @@
 }
 .rq-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  grid-template-columns: minmax(0, var(--rv-plate)) minmax(320px, 520px);
   gap: var(--s6) var(--s7);
   align-items: start;
 }
