@@ -287,9 +287,11 @@ export async function planField(
   fovArcmin: number,
   toSky: (x: number, y: number, n: number, pixelArcsec: number) => { ra: number; dec: number },
   infoFor: (tile: number) => Promise<TileInfo>,
+  /** Fit exactly `fovArcmin` (another picture's field): pixels within 5% of the cube's own size. */
+  exact = false,
 ): Promise<FieldPlan> {
-  const pixelArcsec = CUBE_PIXEL_ARCSEC;
-  const n = Math.max(9, Math.round((fovArcmin * 60) / pixelArcsec));
+  const n = Math.max(9, Math.round((fovArcmin * 60) / CUBE_PIXEL_ARCSEC));
+  const pixelArcsec = exact ? (fovArcmin * 60) / n : CUBE_PIXEL_ARCSEC;
   const sky = new Float64Array(2 * n * n);
   const tileIds = new Int32Array(n * n);
   const wanted = new Set<number>();

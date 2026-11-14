@@ -47,4 +47,14 @@ describe("why a colour isn't reliable", () => {
   it("names an unnamed position plainly", () => {
     expect(whyUnreliable({ ...base, name: null, saturated: true, kept: barnard })[0].text).toMatch(/^The object at the centre/);
   });
+  it("explains a hole at the core in a single-wavelength picture", () => {
+    const r = whyUnreliable({ ...base, holes: 3 });
+    expect(r.map((x) => x.key)).toEqual(["hole"]);
+    expect(r[0].text).toMatch(/no data at the core of Barnard's Star/);
+  });
+  it("explains a blend when the short and long wavelengths peak in different pixels", () => {
+    const r = whyUnreliable({ ...base, name: "WISE 0855−0714", blend: { shortUm: 1.24, longUm: 4.6 } });
+    expect(r.map((x) => x.key)).toEqual(["blend"]);
+    expect(r[0].text).toMatch(/1\.24 µm and the light at 4\.60 µm peak in different pixels/);
+  });
 });

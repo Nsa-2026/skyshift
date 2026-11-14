@@ -204,3 +204,22 @@ export function saturatedMask(deficits: Uint8Array, r: Channel, g: Channel, b: C
 export function colourWeight(snr: number): number {
   return Math.min(1, Math.max(0, (snr - GREY_BELOW_SIGMA) / (FULL_COLOUR_SIGMA - GREY_BELOW_SIGMA)));
 }
+
+/**
+ * Single-wavelength picture: white on black, asinh with a scale fixed for the field (`sigma`,
+ * `max` from a reference window), so brightness changes between wavelengths are real.
+ * NaN is transparent ("no data").
+ */
+export function greyImage(values: Float32Array, scale: { sigma: number; max: number }, knee = 1): Uint8ClampedArray<ArrayBuffer> {
+  const beta = Math.max(knee * scale.sigma, 1e-12);
+  const norm = Math.asinh(scale.max / beta);
+  const out = new Uint8ClampedArray(4 * values.length);
+  for (let k = 0; k < values.length; k++) {
+    const v = values[k];
+    if (!Number.isFinite(v)) continue;
+    const g = Math.round(255 * Math.min(1, Math.max(0, Math.asinh(v / beta) / norm)));
+    out[4 * k] = out[4 * k + 1] = out[4 * k + 2] = g;
+    out[4 * k + 3] = 255;
+  }
+  return out;
+}

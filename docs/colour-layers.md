@@ -1,7 +1,16 @@
 # Colour layers A1 and A2: algorithm and checks
 
-Owner: Alexandra. Code: `web/src/colour/` (A2, and the shared wavelength tables) and the
-wavelength slider in `web/src/sky/index.ts` (A1). Written 14 Nov 2026.
+Owner: Alexandra. Code: `web/src/colour/`. Written 14 Nov 2026.
+
+**Where they are on the site.** An "Add filters" button sits just above the main image (the blink
+plate). Its menu offers No filter, Cold bodies, 2MASS-like and Single wavelength (with a slider
+over all 102 wavelengths), plus "Mark saturated stars" and Stretch. The chosen filter replaces the
+picture on the plate, over the plate's own field and orientation (north up, east left), and a key
+under the plate says what each colour means. While a filter is on, the blink's date, caption and
+time strip are dimmed: the filtered picture merges all dates. "Remove filter" brings the blink
+back. Nothing is downloaded until a filter is chosen. The module adds its button, layer and key
+around the blink's plate from outside (`mountFilters` in `web/src/colour/index.ts`, mounted in
+`web/src/app/app.ts`); it doesn't edit `web/src/blink/`.
 
 The rule for every layer: it adds colour or marks to the picture and never removes a pixel. "Can't
 tell" (no data, too faint, saturated) is shown as its own state, never as "nothing there". Every
@@ -33,20 +42,25 @@ IRSA's HiPS cube `spherex_allsky_cube` (release 1 Nov 2026), FITS cube tiles at 
   and astropy_healpix on 35 positions from real tile headers, including both poles, the RA 0/360
   seam and tile corners, to 10⁻⁴ pixel (`web/src/colour/hpx.test.ts`, `make_hpx_ref.py`).
 
-## A1. Wavelength slider (sky view)
+## A1. Single wavelength
 
-Shows cube frame *k* as it is: no processing.
+The plate's field at one of the 102 wavelengths, white on black.
 
 - A slider over all 102 frames. The label gives wavelength, detector and channel, and the feature
   that falls there if any (e.g. "3.29 µm · D4 channel 12 · methane / PAH").
-- Frames 50 and 51 are skipped in the direction of travel, so the map never shows a blank frame as
-  black sky. A hatched tick marks the gap.
+- Frames 50 and 51 are skipped in the direction of travel, so the picture never shows a blank
+  frame as black sky. A hatched tick marks the gap.
 - Red ticks mark the feature wavelengths, the same windows as the pipeline's `INDEX_WINDOWS`:
   water vapour 1.4 / 1.9 µm, methane 1.67 / 3.3, CO 2.35, water ice 3.05, CO₂ 4.27, CO 4.67.
-- All PNG frames share one fixed brightness scale (asinh, cut 0–40), so brightness changes along
-  the slider are real.
+- The picture is the median of the chosen frame and its neighbours in the same detector (two or
+  three frames), so a single-frame glitch can't show as a dot.
+- Each frame's own background is subtracted, but the brightness scale is fixed for the field (asinh,
+  from the 2.0–2.3 µm window's noise and 99.5th percentile), so a star that fades as the slider
+  moves really is fainter there.
+- A hole at the target (no data in the 3 × 3 core while ≥ 12 of the 16 pixels around it have data)
+  is explained under the picture as saturation.
 
-## A2. Colour view (false-colour composite)
+## A2. Colour pictures (false-colour composites)
 
 The plate's spot as a picture from three wavelength windows. The windows are the pipeline's
 `MAG_WINDOWS`, so the site and the pipeline mean the same thing:
@@ -84,6 +98,14 @@ Steps (`web/src/colour/rgb.ts`):
    and say so in the readout; they are not hidden.
 8. **No data** (NaN in any window) is transparent over a hatch.
 
+**The key** (`web/src/colour/legend.ts`). Each colour swatch is drawn by the picture's own
+algorithm from what that kind of object looks like in the three windows: published typical colours
+(A0, Sun-like, M4, L5 and T6 dwarfs) converted to brightness per unit frequency, plus Epsilon Indi
+B as measured here. So the key can't drift from the picture. A named example must look like its
+swatch on its own plate: Barnard's Star (saturated) and WISE 0855 (blended) don't, so they aren't
+named. In 2MASS-like, methane T dwarfs come out blue like hot stars, and the key says to use Cold
+bodies to tell them apart.
+
 **Why a colour isn't reliable** (`web/src/colour/why.ts`). When the target itself is affected, a
 box under the picture says why, in plain words and with the numbers measured for that star:
 
@@ -95,6 +117,13 @@ box under the picture says why, in plain words and with the numbers measured for
   every wavelength, so the colour comes from the star's edge". Measured on 14 Nov: Barnard's Star
   kept 28% at 1.24 µm, 17% at 2.15 µm and 70% at 4.60 µm (looks too red); R Draconis kept 8%, 4%
   and 6% (core missing everywhere, no direction claimed).
+- *Blended with a neighbour* (colour pictures, not when saturated). In the 3 × 3 core the short
+  (1.2 µm) and long (4.6 µm) windows peak in different pixels, each ≥ 5σ, and at the other
+  window's peak one of them is at most half its own peak. One object puts both peaks in the same
+  pixel. Measured on 14 Nov: fires on WISE 0855 (its 1.2 µm light is a blue star one pixel away),
+  not on Epsilon Indi B, and on 5 of 219 field stars (2.3%) brighter than 10σ in both windows,
+  some of them real blends.
+- *Too bright for SPHEREx* in a single-wavelength picture: the hole at the core (see A1).
 - *Its brightness changes* (featured targets of kind "variable star"), with the map's dates.
 - *It moves* (asteroids, comets, and plates that follow their target).
 
@@ -109,12 +138,13 @@ span, so the colours of things that move or vary are not reliable.
 | HPX and HEALPix against astropy, 35 positions | All within 10⁻⁴ px. One exact four-tile corner is ambiguous, either tile is valid |
 | Field stars, 4.6 µm / J flux ratio | Median 0.16–0.19 in the Barnard, Eps Ind B and WISE 0855 fields (blue), as expected for stars |
 | Epsilon Indi B (T1 + T6) | Ratio 1.1: 6–7 × redder than the field stars. Near-white, while the stars around it are blue |
-| WISE 0855−0714 (Y dwarf) | 10σ at 4.6 µm at the centre (the targets file is already at the SPHEREx epoch). Blended with a blue star one pixel away, so it shows magenta |
+| WISE 0855−0714 (Y dwarf) | 10σ at 4.6 µm at the centre (the targets file is already at the SPHEREx epoch). Blended with a blue star one pixel away, so it shows magenta; the blend check says so under the picture |
+| Blend check on field stars | Fires on 5 of 219 stars brighter than 10σ at 1.2 and 4.6 µm (2.3%), on WISE 0855, not on Epsilon Indi B |
 | Barnard's Star, R Draconis, Eps Ind A | Saturated cores flagged (12, 24 and many deficit frames). Colours marked not reliable |
 | Chance saturation flags | Faint pixels never had more than 3 deficit frames in 19,600 pixels; saturated cores had 4–24 |
 | Noise test: pixels ≤ −5σ (noise is symmetric, sources are positive) | Mean of frames: 9–24 per field at 4.6 µm. Median of frames: 0 in every window of all three fields, against 270–1,200 at +5σ |
 | An early "pure red WISE 0855, 58″ west" | Withdrawn: one frame at +236σ. The median removes it |
-| Load time in Chromium (WISE 0855, 15′) | 42 s reading whole rows; 8 s reading only the needed pieces |
+| Load time in Chromium (WISE 0855, 15′) | 42 s reading whole rows; 8 s reading only the needed pieces; 3–5 s for the plate's 5′ field |
 
 ## Saturated stars: what we tried, and what might work
 

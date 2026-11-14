@@ -6,7 +6,7 @@ import { mountBlink } from "../blink";
 import { mountCard } from "../card";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
-import { mountColour } from "../colour";
+import { mountFilters } from "../colour";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
 import { mountAtlas } from "../atlas";
@@ -72,7 +72,6 @@ export function startApp(root: HTMLElement): void {
       <div class="below">
         <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
         <section id="sky" class="sky" aria-label="Sky around this spot"></section>
-        <section id="colour" class="colour" aria-label="Colour from SPHEREx wavelengths"></section>
       </div>
     </main>
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
@@ -110,9 +109,10 @@ export function startApp(root: HTMLElement): void {
       sky.epoch(e.mjd_mid);
     },
   });
+  // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
+  const filters = mountFilters($("#blink"));
   const card: CardHandle = mountCard($("#card"));
   const vote: VoteHandle = mountVote($("#vote"));
-  const colour = mountColour($("#colour"));
   const sky: SkyHandle = mountSky($("#sky"), {
     onClick(pos) {
       if (view) go({ ...view, ...pos, slug: null, name: null });
@@ -179,14 +179,14 @@ export function startApp(root: HTMLElement): void {
       if (fsig.aborted) return;
       frames = loaded.frames;
       sky.goto(next, frames);
-      colour.goto(next, frames);
+      filters.goto(next, frames);
       card.show(next, object, frames);
       await blink.show(next, loaded.frames, loaded.jsonUrl);
     } catch (e) {
       if (fsig.aborted) return;
       frames = null;
       sky.goto(next, null);
-      colour.goto(next, null);
+      filters.goto(next, null);
       blink.status("error", errorText(e));
     }
   }

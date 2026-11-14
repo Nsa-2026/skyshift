@@ -15,11 +15,21 @@ export interface TargetCheck {
   kept: { um: number; share: number }[];
   /** The plate follows the target (epochs carry their own centre), or the kind is a solar-system body. */
   moving: boolean;
+  /**
+   * Single-wavelength picture: pixels in the 3 × 3 core with no data while the ring around them has
+   * data (a hole where overfilled readings were left out). 0 when not checked.
+   */
+  holes?: number;
+  /**
+   * Colour picture: the short and long windows peak (≥ 5σ each) in different pixels of the 3 × 3
+   * core, so two objects share these coarse pixels. null when they agree or weren't checked.
+   */
+  blend?: { shortUm: number; longUm: number } | null;
   dates: { beg: string | null; end: string | null };
 }
 
 export interface Reason {
-  key: "saturated" | "variable" | "moving";
+  key: "saturated" | "hole" | "blend" | "variable" | "moving";
   title: string;
   text: string;
 }
@@ -31,6 +41,25 @@ export function whyUnreliable(c: TargetCheck): Reason[] {
   const out: Reason[] = [];
   if (c.saturated) {
     out.push({ key: "saturated", title: "Too bright for SPHEREx", text: saturationText(who, c.kept) });
+  } else if ((c.holes ?? 0) > 0) {
+    out.push({
+      key: "hole",
+      title: "Too bright for SPHEREx",
+      text:
+        `At this wavelength NASA's map has no data at the core of ${who} (the hatched pixels), though it has ` +
+        `data all around it. That is what happens when an object is so bright that it overfilled SPHEREx's ` +
+        `detector pixels (they saturated): the map leaves those readings out.`,
+    });
+  }
+  if (c.blend) {
+    out.push({
+      key: "blend",
+      title: "Blended with a neighbour",
+      text:
+        `Around ${who}, the light at ${c.blend.shortUm.toFixed(2)} µm and the light at ${c.blend.longUm.toFixed(2)} µm ` +
+        `peak in different pixels. These pixels are about 13″ wide, so two objects share them and the colour ` +
+        `at the centre mixes both. The blink's own frames are sharper and can separate them.`,
+    });
   }
   if (c.kind && /variable/i.test(c.kind)) {
     out.push({

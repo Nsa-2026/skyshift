@@ -20,8 +20,10 @@ export function framesIn(w: Pick<Window, "lo" | "hi">): number[] {
   return out;
 }
 
+export type PresetId = "cold" | "nir";
+
 export interface Preset {
-  id: "cold" | "nir";
+  id: PresetId;
   label: string;
   red: Window;
   green: Window;
@@ -56,7 +58,7 @@ export const PRESETS: readonly Preset[] = [
     blue: J,
     reads: [
       "The same three bands as the 2MASS layer, so the two can be compared.",
-      "Most stars look orange-white here; dust behind or around a star makes it redder.",
+      "Hot and Sun-like stars look blue-white, red dwarfs white; dust behind or around a star makes it orange.",
     ],
   },
 ];
@@ -89,4 +91,12 @@ export function featureAt(um: number): Feature | null {
 /** Detector (1–6) and channel (1–17) of a 0-based cube frame. */
 export function detChannel(frame: number): { det: number; channel: number } {
   return { det: Math.floor(frame / 17) + 1, channel: (frame % 17) + 1 };
+}
+
+/** Plain words for one cube frame: wavelength, detector and channel, and any feature there. */
+export function frameText(frame: number): string {
+  const um = CUBE_UM[frame];
+  const { det, channel } = detChannel(frame);
+  const f = featureAt(um);
+  return `${um.toFixed(2)} µm · D${det} channel ${channel}${f ? ` · ${f.name}: ${f.what}` : ""}`;
 }
