@@ -11,7 +11,10 @@ optical wavelengths for Gaia, but bright at 3–5 µm, where SPHEREx sees. Two r
    detector, and the spectrum shape agrees (rms of ln ratio across detectors <= HIGHPM_SHAPE_MAX).
    Each source keeps its best partner (smallest |ln ratio| + shape).
 2. "fit": astrometry.parquet's SPHEREx-only proper motion >= HIGHPM_FIT_MIN_MAS_YR at
-   >= HIGHPM_FIT_MIN_SNR (slower movers that stay linked as one source).
+   >= HIGHPM_FIT_MIN_SNR (slower movers that stay linked as one source); from HIGHPM_FIT_MIN_SNR_GAIA when Gaia
+   confirms a fast motion (its pm + ϖ·k >= HIGHPM_FIT_MIN_MAS_YR, agreeing with ours), from HIGHPM_FIT_MIN_SNR_CATWISE
+   when CatWISE does (no Gaia pm; CatWISE's own |pm| >= HIGHPM_FIT_MIN_MAS_YR and HIGHPM_CW_CONFIRM_SNR × its error,
+   agreeing). An unconfirmed motion never counts on weaker evidence than HIGHPM_FIT_MIN_SNR.
 `status` = "new" when neither side matches Gaia (crossids), else "gaia". A CatWISE match whose proper
 motion agrees with ours (parallax-aware, below) is a bonus (`catwise_pm_agree`); CatWISE's motion of a saturated
 source brighter than W1 HIGHPM_CW_SAT_W1_MAX counts for nothing (neither checks nor disproves). `red_ratio` =
@@ -313,9 +316,11 @@ def pair_vs_control(real_sep: np.ndarray, ctrl: list[np.ndarray]) -> list[dict]:
 
 
 def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
+    """astrometry fits >= HIGHPM_FIT_MIN_MAS_YR down to the lower, confirmed-only significance (compute drops those under
+    HIGHPM_FIT_MIN_SNR that no catalogue motion confirms)."""
     if ast is None or not len(ast):
         return pd.DataFrame()
-    m = (ast["pm"] >= C.HIGHPM_FIT_MIN_MAS_YR) & (ast["pm_snr"] >= C.HIGHPM_FIT_MIN_SNR)
+    m = (ast["pm"] >= C.HIGHPM_FIT_MIN_MAS_YR) & (ast["pm_snr"] >= min(C.HIGHPM_FIT_MIN_SNR, C.HIGHPM_FIT_MIN_SNR_GAIA))
     a = ast[m]
     err = np.hypot(a["pmra_err"], a["pmdec_err"]) / np.sqrt(2)
     return pd.DataFrame({
@@ -425,6 +430,7 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     gaia_dis = np.zeros(n, bool)
     cw_has = np.zeros(n, bool)
     cw_dis = np.zeros(n, bool)
+    cw_fast = np.zeros(n, bool)    # CatWISE's own motion is >= HIGHPM_FIT_MIN_MAS_YR (and HIGHPM_CW_CONFIRM_SNR) and agrees
     if crossids is not None and len(crossids):
         x = crossids.set_index("source_id")
         for col in ("source_id", "source_id_b"):
@@ -446,6 +452,9 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
             ok &= has
             agree |= ok
             cw_has |= has
+            pm_cw = np.hypot(r["catwise_pmra"].to_numpy(np.float64), r["catwise_pmdec"].to_numpy(np.float64))
+            with np.errstate(invalid="ignore"):
+                cw_fast |= ok & (pm_cw >= C.HIGHPM_FIT_MIN_MAS_YR) & (pm_cw >= C.HIGHPM_CW_CONFIRM_SNR * cerr)
             cw[(cw == "") & (nm != "")] = nm[(cw == "") & (nm != "")]
             cw_dis |= (nm != "") & has & ~ok
             if "gaia_pmra" in r and "gaia_pmdec" in r:
@@ -464,7 +473,14 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     # CatWISE judges only where Gaia has no motion to compare (Gaia: parallax known, far smaller errors)
     out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has,
               gaia_slow=g_slow & ~gaia_dis)
-    return _ordered(out)
+    # under HIGHPM_FIT_MIN_SNR a fit is a candidate only when a catalogue confirms a fast motion: Gaia's (pm + ϖ·k >=
+    # HIGHPM_FIT_MIN_MAS_YR, agreeing) from HIGHPM_FIT_MIN_SNR_GAIA, CatWISE's (no Gaia pm) from HIGHPM_FIT_MIN_SNR_CATWISE
+    fsnr = out["_pm_snr"].to_numpy(np.float64) if "_pm_snr" in out else np.full(n, np.inf)
+    with np.errstate(invalid="ignore"):
+        low_ok = ((confirmed & ~g_slow & (fsnr >= C.HIGHPM_FIT_MIN_SNR_GAIA))
+                  | (cw_fast & ~g_has & (fsnr >= C.HIGHPM_FIT_MIN_SNR_CATWISE)))
+        drop = (out["method"] == "fit").to_numpy() & ~(fsnr >= C.HIGHPM_FIT_MIN_SNR) & ~low_ok
+    return _ordered(out[~drop])
 
 
 def _ordered(out: pd.DataFrame) -> pd.DataFrame:

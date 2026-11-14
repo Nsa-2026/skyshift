@@ -1,6 +1,6 @@
 """Step `astrometry`: SPHEREx-only position, proper motion (and parallax) of every fixed source.
 
-Per source with >= ASTRO_MIN_DOTS member dots, a weighted least-squares fit on the tangent plane about
+Per source with >= ASTRO_MIN_DOTS member dots (and ASTRO_MIN_MOTION_DOF, below), a weighted least-squares fit on the tangent plane about
 the source's median position:
     east_i  = x0 + pmra  · t_i + ϖ · Pe_i
     north_i = y0 + pmdec · t_i + ϖ · Pn_i
@@ -26,6 +26,10 @@ The hunt tail (15 Nov: 622 Gaia-still stars at ≥ 150 mas/yr, ≥ 5σ; in a 2°
   the motion errors are also the session-clustered sandwich (≥ ASTRO_ROBUST_MIN_SESSIONS sessions), whichever is larger.
 - ASTRO_DETECTOR_ROBUST: detectors that disagree about the motion (a ghost or halo in some bands in one visit) inflate
   the errors to the detector-clustered sandwich where it beats its ASTRO_DETECTOR_ROBUST_P χ² quantile.
+- ASTRO_MIN_MOTION_DOF (motion_dof): with the zero points a detector seen in one visit only measures nothing between
+  the visits, so a fit is written only when the detectors seen in both visits leave the motion this many degrees of
+  freedom (2 × (their used dots − their number) − 2, − 1 with parallax). At 6 dots that was often 0–4: a χ² that
+  could not check the errors and a motion from one or two dots.
 ra/dec and their errors stay those of the plain fit (no zero points: the position is every detector's mean).
 
 Frame correction (ASTRO_FRAME_CORRECT): each photo's WCS can be off by a fraction of an arcsec as a
@@ -218,6 +222,37 @@ def _cluster_cov(s, N, cl, wk, t, re, rn, Pe, Pn, cov, k) -> tuple[np.ndarray, n
     with np.errstate(invalid="ignore", divide="ignore"):
         corr = np.where(G > k + 1, G / (G - k), np.nan)
     return np.einsum("nij,njk,nkl->nil", cov, M, cov) * corr[:, None, None], G
+
+
+def motion_dof(s: np.ndarray, N: int, keep: np.ndarray, visit: np.ndarray, use_plx: np.ndarray,
+               z: np.ndarray | None = None, okz: np.ndarray | None = None) -> np.ndarray:
+    """Per source, the degrees of freedom the motion keeps after its position zero points: 2 × (used dots − zero
+    points) − (2 + parallax), over the zero points whose used dots span two or more visits. In a source seen in several
+    visits, a detector seen in one of them only measures nothing between visits (its zero point takes up all its dots),
+    so it counts for nothing; a source seen in one visit counts every detector (its motion is within the visit).
+    z: each dot's source × detector zero point (None, or okz False for the source: one zero point, the plain fit).
+    Hunt (14 Nov): the 6-dot fits had 0–4 of them; 1.8×10⁶ mas/yr at 18.9σ on a G 16.7 star from none (−2)."""
+    keep = np.asarray(keep, bool)
+    vis = np.asarray(visit, np.int64) & 0xFFFF
+    plx = np.asarray(use_plx, bool).astype(np.int64)
+    sk = s[keep].astype(np.int64)
+    n_vis = np.bincount(np.unique((sk << 16) | vis[keep]) >> 16, minlength=N)  # visits with used dots, per source
+
+    def dof(zz: np.ndarray) -> np.ndarray:
+        Z = int(zz.max()) + 1 if zz.size else 0
+        zk = zz[keep].astype(np.int64)
+        nv = np.bincount(np.unique((zk << 16) | vis[keep]) >> 16, minlength=Z)  # distinct visits per zero point
+        zsrc = np.zeros(Z, np.int64)
+        zsrc[zz] = s
+        use = (nv >= 2) | ((nv >= 1) & (n_vis[zsrc] <= 1))
+        return 2 * (np.bincount(s, keep & use[zz], N) - np.bincount(zsrc, use, N)) - 2 - plx
+
+    if z is None:  # no zero points: the source's position is its one zero point
+        return dof(s).astype(np.int64)
+    out = dof(z)
+    if okz is not None and not np.all(okz):  # the zero-point fit failed for these: they keep the plain fit
+        out = np.where(okz, out, dof(s))
+    return out.astype(np.int64)
 
 
 def clean_mask(d: pd.DataFrame, s: np.ndarray, N: int, east: np.ndarray, north: np.ndarray) -> np.ndarray:
@@ -553,6 +588,8 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         if it == 0:
             infl = np.sqrt(np.maximum(1.0, chi2_nu))[s]
             keep = keep0 & (np.maximum(np.abs(re), np.abs(rn)) <= C.ASTRO_CLIP_SIGMA * err * infl)
+    vis_d = d["visit"].to_numpy(np.int64)
+    mdof = motion_dof(s, N, keep, vis_d, use_plx, z if zp else None, okz if zp else None)
     from scipy.stats import chi2 as chi2_dist
     dof = np.maximum(2 * n_used - npar, 1)
     excess = chi2_nu > chi2_dist.ppf(C.ASTRO_CHI2_INFLATE_P, dof) / dof
@@ -612,9 +649,13 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         "n_dots": n_dots.astype(np.int32), "n_used": n_used.astype(np.int32), "n_visits": n_visits.astype(np.int16),
         "span_yr": span.astype(np.float32), "chi2_nu": chi2_nu.astype(np.float32),
         "snr_median": group_median(s, snr, N).astype(np.float32), "frame_corrected": corrected,
+        "motion_dof": mdof.astype(np.int32),  # not written (COLUMNS): the fit's own diagnostics
     })
     good = (n_used >= C.ASTRO_MIN_DOTS) & np.isfinite(pmra) & (span > 0)  # used dots: clean_mask can leave 1 per visit
-    st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum())})
+    few_dof = good & (mdof < C.ASTRO_MIN_MOTION_DOF)  # the zero points leave the motion (almost) no freedom
+    good &= ~few_dof
+    st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum()),
+               "dropped_motion_dof": int(few_dof.sum())})
     return out[good].reset_index(drop=True)[COLUMNS], st
 
 

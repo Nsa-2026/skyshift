@@ -238,6 +238,11 @@ LC_VARIABLE_SCATTER = 0.05     # robust scatter of flux / model (fraction)
 LC_MIN_POINTS = 3              # summary rows need this many points
 # astrometry: weighted least squares on the tangent plane about each source's median position
 ASTRO_MIN_DOTS = 6             # dots needed for a fit (position + proper motion)
+ASTRO_MIN_MOTION_DOF = 8       # ... and degrees of freedom the motion keeps after the source × detector zero points:
+                               # 2 × (used dots − zero points) − 2 (− 1 with parallax), over detectors seen in >= 2
+                               # visits (astrometry.motion_dof). Hunt, Gaia stars with a fake pm (pull > 5) per fit:
+                               # 1–2.6% under 6, 0.3% at 6–10, 0.06% from 20; 8 drops 65 of 214 fakes and 2.7% of the
+                               # Gaia fits, no fast (> 200 mas/yr) Gaia star (the least free one has 8; 10 would lose it)
 ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (two are degenerate with pm)
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
 ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
@@ -281,6 +286,17 @@ HIGHPM_FIT_MIN_MAS_YR = 150.0  # fitted proper motion this fast ...
 HIGHPM_FIT_MIN_SNR = 4.5       # ... and this significant also makes a candidate (method "fit"). Hunt (Gaia as truth):
                                # 5σ found 55 of the 104 detected fast Gaia stars; 4.5σ with the catalogue checks below 55
                                # (46 of the 49 misses are precision-limited: Gaia's motion / our pm_err < 5)
+                               # Unconfirmed: 4.5σ is the lowest whose fp_control stays well under 1 expected new fake
+                               # (hunt, dof-cut fits: 5.0 0.00, 4.5 0.30, 4.25 0.91, 4.0 2.13, 3.5 8.8, 3.0 122).
+HIGHPM_FIT_MIN_SNR_GAIA = 3.0  # a fit whose fast motion Gaia confirms (pm + ϖ·k >= HIGHPM_FIT_MIN_MAS_YR, agreeing) is a
+                               # candidate from this significance. Hunt: fast Gaia stars counted 63 (4.5) → 68 (4.0), 74
+                               # (3.5), 77 (3.0), 80 (2.5); still stars given a random fast Gaia motion agree by chance at
+                               # 3.2e-3 (3.0) and 1.5e-2 (2.5): × the 277 fits Gaia calls fast = 0.88 and 4.1 miscounted
+HIGHPM_FIT_MIN_SNR_CATWISE = 3.5  # ... and one CatWISE confirms (no Gaia pm; CatWISE's own motion fast and significant,
+                               # agreeing). The same control with the motion as CatWISE's: 9.4e-4 (3.5), 4.1e-3 (3.0) × the
+                               # 235 such fits with no Gaia match = 0.22, 0.95 chance "new" rows on top of fp_control's 0.30
+HIGHPM_CW_CONFIRM_SNR = 3.0    # CatWISE confirms a fast motion only when its own |pm| is this many of its errors (a
+                               # low-significance fit "agrees" within 3σ with a still CatWISE source: that confirms nothing)
 HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in the zone
 HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
 HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)

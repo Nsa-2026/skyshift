@@ -131,7 +131,11 @@ def test_selection_threshold_is_the_calibrated_one():
     assert C.HIGHPM_FIT_MIN_SNR == 4.5 and C.HIGHPM_NOCAT_MIN_SNR == 10.0 and C.HIGHPM_FIT_MIN_SESSIONS == 3
     ast = pd.DataFrame([fit_rows(source_id=1, pm=400.0, pmra=400.0, pm_snr=4.6), fit_rows(source_id=2, pm=400.0, pmra=400.0, pm_snr=4.4),
                         fit_rows(source_id=3, pm=140.0, pmra=140.0, pm_snr=9.0)])
-    assert HP.fit_movers(ast)["source_id"].tolist() == [1]
+    assert HP.fit_movers(ast)["source_id"].tolist() == [1, 2]  # down to the confirmed-only cut (test_motion_dof)
+    xid = pd.DataFrame({"source_id": [1, 2, 3], "gaia_ref_id": "", "gaia_id": -1, "catwise_name": "",
+                        "catwise_pmra": np.nan, "catwise_pmdec": np.nan})
+    fits = HP.compute(hp_sources(), None, xid, ast, vstats=vstats([1, 2, 3])).query("method == 'fit'")
+    assert fits["source_id"].tolist() == [1]  # nothing confirms 4.4σ
 
 
 def test_uncatalogued_saturated_motion_is_unchecked():
