@@ -8,7 +8,7 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 ## Areas and owners
 - core/                Shared science: visit rule, flag masks, detect, centroid, shift, photometry. P1.
 - pipeline/            Pilot and hunt zone on the cloud machines. P1.
-- scripts/validate/    V1–V8, writes web/public/data/validation.json. P1.
+- scripts/validate/    V1–V11, writes web/public/data/validation.json. P1.
 - server/              FastAPI on Cloud Run. build_blink() for any coordinates. P2.
 - scripts/precompute/  Featured targets → web/public/data/<slug>/. P2.
 - web/                 Vite + TypeScript. src/app sky card api data score → P3. src/blink vote → P4.

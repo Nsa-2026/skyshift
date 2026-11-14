@@ -11,13 +11,17 @@ Steps in order: photolist, refcat, dots, known, link, spectra, crossid, classify
 highpm, score, suspects; `all` runs them in order.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
-- Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/skybot/<zone>/run_<obs_id>.json.
+- Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/<mpc|skybot>/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
 - `known` doesn't need `dots`: run it at the same time in a second process.
+- `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
+  geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
+  cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. `--known-source skybot` (or SKYSHIFT_KNOWN_SOURCE=skybot) uses the
+  SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms: C/2025 R2 was 4.5′ off SkyBoT a month after perihelion.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
@@ -39,7 +43,7 @@ highpm, score, suspects; `all` runs them in order.
 - macOS: uv may mark the editable .pth files hidden (Python then skips them); pytest adds ../core/src itself.
 - ESA Gaia TAP: async jobs stalled for minutes (14 Nov), sync answers a 1° tile in ~2 s. IRSA: ~35 s (Gaia, 2MASS) to
   ~60 s (CatWISE, ~35k rows/deg²) per 1° tile, sync or async alike.
-- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test.
+- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test and kete vs SkyBoT.
 
 ## Spectral science: what the outputs mean (for the web)
 - `classes.parquet` → `class`: star, galaxy or unsure. SPHEREx's 6″ pixels and 7.5″ PSF leave most galaxies

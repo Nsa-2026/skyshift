@@ -6,6 +6,7 @@ Tune after the pilot: change the numbers here, rerun `link`, `score` and `suspec
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -52,6 +53,8 @@ PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
 FINAST_OK = 0                  # IMAGE header FINAST != 0 means bad astrometry: skip the photo
+DOTS_TASK_PHOTOS = 4           # photos per worker task (one process per core); the run order is unchanged
+DOTS_PREFETCH = True           # read the next photo of a task while this one is measured (same results)
 # pos_err_arcsec = sqrt((POS_ERR_K * PSF_SIGMA_ARCSEC / snr)^2 + POS_ERR_FLOOR_ARCSEC^2)  (contracts/dots.md)
 POS_ERR_K = 1.4
 PSF_SIGMA_ARCSEC = 3.2
@@ -66,6 +69,21 @@ SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
 SKYBOT_MAX_IN_FLIGHT = 4
 SKYBOT_PAD_DEG = 0.05
 SKYBOT_TIMEOUT_S = 300
+
+# --- known (MPC orbits with kete) ------------------------------------------------------------
+# KNOWN_SOURCE picks where `known` gets its objects: "mpc" (default; known_mpc.py: MPC orbits moved with
+# kete to each photo's MJD-AVG, seen from SPHEREx's header position) or "skybot" (the IMCCE service above). The CLI
+# flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
+# cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
+KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "mpc")
+KNOWN_SOURCES = ("skybot", "mpc")
+MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
+MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
+MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
+MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
+MPC_HEADER_WORKERS = 32              # parallel IMAGE header reads (one per exposure; ~1 s each, I/O bound)
+MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
+MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly
 
 # --- link ----------------------------------------------------------------------------------
 FIXED_LINK_ARCSEC = 4.0       # friends-of-friends radius for fixed sources

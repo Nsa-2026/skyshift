@@ -3,6 +3,7 @@ import type { Clock, Det } from "../api/types";
 import { ALLOWED_FOV, DEFAULT_FOV } from "../api/client";
 import type { View } from "./modules";
 import targetsJson from "../data/targets.json";
+import { sepArcsec } from "./astro";
 
 export interface Target {
   slug: string;
@@ -63,4 +64,23 @@ export function writeView(v: View, replace = false): void {
 
 export function isEmbed(search: string = location.search): boolean {
   return new URLSearchParams(search).get("embed") === "1";
+}
+
+/**
+ * The featured target whose prepared field contains this position, if any (within half its
+ * field). The challenge's own string, 08h55m10.831s -7d14m42.53s, lands on WISE 0855.
+ * Only fixed-position targets: comet and asteroid frames follow the object.
+ */
+export function featuredNear(pos: { ra: number; dec: number }): Target | undefined {
+  let best: Target | undefined;
+  let bestSep = Infinity;
+  for (const t of TARGETS) {
+    if (t.clock !== "months") continue;
+    const sep = sepArcsec(pos, t);
+    if (sep <= (t.fov * 60) / 2 && sep < bestSep) {
+      best = t;
+      bestSep = sep;
+    }
+  }
+  return best;
 }
