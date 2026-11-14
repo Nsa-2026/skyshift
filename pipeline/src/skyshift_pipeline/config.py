@@ -120,3 +120,38 @@ SOURCE_PHOTO_MAX_FRAC = 0.9    # a photo with SOURCE at the peak of more than th
                                # (seen: 99.98% on 2025W42_2A_0111_1D1) carries no information: ignore it there
 CATALOG_BATCH = 50
 EVIDENCE_RANK = {"two_exposures": 0, "two_detectors": 1}
+
+# --- motion and time: crossid, colours, lightcurves, astrometry, highpm --------------------
+# All computed from stored dots (via members.parquet), sources.parquet, refcat/<zone>.parquet and
+# forced/<obs_id>D<det>.parquet; photos are never read again. Rerun freely: they always recompute.
+REFCAT_REL = "refcat/{zone}.parquet"     # Gaia DR3 / CatWISE / 2MASS unified, at the bucket root
+FORCED_DIR = "forced"                    # forced/<obs_id>D<det>.parquet
+CROSSID_ARCSEC = {"gaia": 2.5, "catwise": 3.0, "tmass": 3.0}  # match radius per catalogue
+CROSSID_SLACK_ARCSEC = 2.0     # extra search radius before the per-source epoch refinement
+# colours: simultaneous pairs only (same obs_id), so variability cancels
+COLOUR_MIN_PAIRS = 1           # simultaneous dot pairs needed for a colour
+# lightcurves: compare within a detector, normalised by the source's own spectrum
+LC_DETECTED_SNR = 5.0          # a forced point without a `detected` column is detected at this S/N
+LC_VARIABLE_CHI2_NU = 5.0      # variable = chi2_nu above this AND relative scatter above the next
+LC_VARIABLE_SCATTER = 0.05     # robust scatter of flux / model (fraction)
+LC_MIN_POINTS = 3              # summary rows need this many points
+# astrometry: weighted least squares on the tangent plane about each source's median position
+ASTRO_MIN_DOTS = 6             # dots needed for a fit (position + proper motion)
+ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (two are degenerate with pm)
+ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
+ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
+ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
+ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
+ASTRO_REPORT_SNR_BINS = (5.0, 10.0, 20.0, 50.0, 100.0, 1e9)  # median dot S/N bins of the report
+# highpm: "Planet X"-style search for nearby cold movers not in Gaia
+HIGHPM_MIN_SEP_ARCSEC = 3.0    # a source seen in one visit only, with a counterpart in another visit
+HIGHPM_MAX_SEP_ARCSEC = 120.0  # between these separations
+HIGHPM_FLUX_RATIO_MAX = 2.0    # same-detector flux ratio within this factor (either way)
+HIGHPM_SHAPE_MAX = 0.25        # rms of ln(flux ratio) across shared detectors (spectrum shape)
+HIGHPM_MIN_COVER_PHOTOS = 2    # the other visit must have this many photos covering each position
+HIGHPM_FIT_MIN_MAS_YR = 150.0  # fitted proper motion this fast ...
+HIGHPM_FIT_MIN_SNR = 5.0       # ... and this significant also makes a candidate (method "fit")
+HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in the zone
+HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
+HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)
+HIGHPM_CATWISE_PM_TOL = 0.3    # CatWISE pm agrees within 30% of |pm| (or 100 mas/yr) = bonus
