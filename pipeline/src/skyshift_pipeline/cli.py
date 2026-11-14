@@ -1,6 +1,6 @@
 """skyshift-pipeline <step> --zone pilot|hunt [--root ROOT] [--workers N] [--limit N]
 
-Steps: photolist, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves,
+Steps: photolist, refcat, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves,
 astrometry, highpm, score, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
@@ -18,7 +18,7 @@ from . import log
 from .store import Store, results_rel
 
 MOTION_STEPS = ("crossid", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
-STEPS = ("photolist", "dots", "known", "link", "spectra", "crossid", "classify", "photoz",
+STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "classify", "photoz",
          "colours", "lightcurves", "astrometry", "highpm", "score", "suspects")
 L = log.get("cli")
 
@@ -27,6 +27,9 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step == "photolist":
         from . import photolist
         return photolist.run(store, zone, force=args.force)
+    if step == "refcat":
+        from . import refcat
+        return refcat.run(store, zone)
     if step == "dots":
         from . import dots
         return dots.run(store, zone, workers=args.workers, limit=args.limit)

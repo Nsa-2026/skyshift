@@ -1,0 +1,25 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: source_name, datatype: string, subtype: json}
+# - {name: ra, unit: deg, datatype: float64, format: '{:.7f}'}
+# - {name: dec, unit: deg, datatype: float64, format: '{:.7f}'}
+# - {name: ra_pm, unit: deg, datatype: float64, format: '{:.7f}'}
+# - {name: dec_pm, unit: deg, datatype: float64, format: '{:.7f}'}
+# - {name: meanobsmjd, unit: d, datatype: float64, format: '{:.6f}'}
+# - {name: w1mpro, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: w1sigmpro, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: w2mpro, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: w2sigmpro, unit: mag, datatype: float32, format: '{:.3f}'}
+# - {name: pmra, unit: arcsec / yr, datatype: float32, format: '{:.5f}'}
+# - {name: pmdec, unit: arcsec / yr, datatype: float32, format: '{:.5f}'}
+# - {name: sigpmra, unit: arcsec / yr, datatype: float32, format: '{:.4f}'}
+# - {name: sigpmdec, unit: arcsec / yr, datatype: float32, format: '{:.4f}'}
+# schema: astropy-2.0
+source_name ra dec ra_pm dec_pm meanobsmjd w1mpro w1sigmpro w2mpro w2sigmpro pmra pmdec sigpmra sigpmdec
+"""J080404.10+150000.0""" 121.0171142 15.0000092 121.01713 15.00034 57431.243265 18.251 0.162 17.462 0.288 -0.23202 -0.994 0.208 0.2062
+"""J080402.89+150000.5""" 121.0120473 15.0001464 121.012044 15.0001459 57272.107386 16.605 0.043 15.907 0.069 0.04406 -0.0299 0.0431 0.0465
+"""J080401.39+150006.5""" 121.0057965 15.0018089 121.0057978 15.0018081 57229.303379 13.938 0.014 14.097 0.018 -0.00302 -0.00335 0.008 0.0084
+"""J080408.85+150007.1""" 121.0369064 15.0019956 121.0369225 15.0019898 57629.820543 18.39 0.185 17.716 0.366 -0.01046 0.0976 0.1998 0.2233
+"""J080404.47+150010.1""" 121.01863 15.0028218 121.0186367 15.0028207 57081.312085 17.369 0.078 17.393 0.277 -0.02701 0.0325 0.0853 0.0898
+"""J080406.52+150011.1""" 121.027204 15.0030936 121.0271726 15.0030592 56880.382789 17.855 0.114 17.482 "" 0.01304 -0.0363 0.1785 0.2048

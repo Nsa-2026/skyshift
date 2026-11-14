@@ -245,3 +245,20 @@ CALIB_ASTROM_MIN_SNR = 20.0     # photo metadata: dots used for the offset again
 CALIB_ASTROM_MATCH_ARCSEC = 2.0
 CALIB_PSF_MIN_SNR = 50.0        # photo metadata: unsaturated dots used for the PSF size / ellipticity
 PHOTO_META_GRID = 32            # photo metadata: 32 × 32 block means of the background and ZODI maps
+
+# --- refcat (Gaia DR3, CatWISE2020, 2MASS PSC) -----------------------------------------------
+REFCAT_MARGIN_DEG = 0.1        # around the zone box
+REFCAT_TILE_DEG = 1.0          # one async TAP query per catalogue per tile; each tile cached
+REFCAT_WORKERS = 8             # queries in flight
+REFCAT_MAXREC = 2_000_000      # a tile that returns this many rows is an error (truncated)
+REFCAT_GAIA_G_MAX = 20.0
+# forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
+# Asked for G < 19 and W1 < 16: that gave 5,400 targets/deg² (66,000 per photo) in the pilot (3,870 Gaia,
+# 1,540 CatWISE-only, mostly galaxies), over the 30,000 budget. Tightened (14 Nov) to G < 17.5 (2,110/deg²)
+# and CatWISE-only W1 < 16 with W1 - W2 >= 0.4 (the red ones: L/T dwarfs, cold objects).
+FORCED_GAIA_G_MAX = 17.5
+FORCED_CATWISE_W1_MAX = 16.0   # CatWISE-only (no Gaia within FORCED_DEDUP_ARCSEC): red/cold objects
+FORCED_CATWISE_W1_W2_MIN = 0.4
+FORCED_DEDUP_ARCSEC = 2.0
+FORCED_MAX_PER_PHOTO = 30_000  # in a 3.5° x 3.5° photo-sized box inside the zone
+PHOTO_SIDE_DEG = 3.5
