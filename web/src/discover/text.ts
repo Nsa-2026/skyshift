@@ -17,10 +17,14 @@ export const KIND_TEXT: Record<CandidateKind, KindText> = {
   spectral: { name: "Odd spectrum", plural: "Odd spectra", gist: "Molecule bands or colours worth a look." },
 };
 
-/** Why a candidate is listed (supports it) or why the pipeline is unsure (a doubt). */
+/**
+ * Why a candidate is listed (support), why the pipeline is unsure of it (doubt), or a sign it may
+ * be an artefact (caution: outlier pixels, the same spot seen days apart). Cautions count with the
+ * artefact flags: "hide artefact cautions" and "Check first" use both.
+ */
 export interface ReasonText {
   label: string;
-  tone: "support" | "doubt";
+  tone: "support" | "doubt" | "caution";
   detail: string;
 }
 
@@ -34,10 +38,20 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   at_control_level: { label: "As common as chance pairs", tone: "doubt", detail: "Pairs this far apart turn up as often in a shuffled control." },
   over_pm_cap: { label: "Faster than the motion limit", tone: "doubt", detail: "Faster than any star the fit is trusted for." },
   short_span: { label: "Seen over a short time", tone: "doubt", detail: "Its detections cover too little time to trust the motion." },
+  outlier: { label: "Outlier pixels", tone: "caution", detail: "The pipeline marked pixels here as outliers: often a cosmic ray or a bad pixel." },
+  repeat_position: { label: "Same spot days apart", tone: "caution", detail: "Something sits at nearly this spot in sessions days apart: a fixed artefact, not a mover." },
 };
 
+/** Codes the exporter may use for the same two cautions (exact names still settling). */
+const CAUTION_CODE = /outlier|repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary|persist|ghost|halo|crosstalk|bloom|artefact|artifact/i;
+
 export function reasonText(code: string): ReasonText {
-  return REASON_TEXT[code] ?? { label: humanize(code), tone: "support", detail: code };
+  const known = REASON_TEXT[code] ?? REASON_TEXT[code.toLowerCase()];
+  if (known) return known;
+  if (/repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary/i.test(code)) return { ...REASON_TEXT.repeat_position, detail: code };
+  if (CAUTION_CODE.test(code)) return { label: flagText(code), tone: "caution", detail: code };
+  // Unknown codes from a newer exporter: treat as a doubt, so "Most promising" stays conservative.
+  return { label: humanize(code), tone: "doubt", detail: code };
 }
 
 /** Spectral and colour labels (pipeline `labels`). */
@@ -64,9 +78,12 @@ export const FLAG_TEXT: Record<string, string> = {
   bloom: "Bloom nearby",
   halo: "In a bright star's halo",
   outlier: "Outlier pixels",
+  persist: "Persistence nearby",
+  repeat_position: "Same spot days apart",
 };
 
-export const flagText = (code: string): string => FLAG_TEXT[code.toLowerCase()] ?? humanize(code);
+export const flagText = (code: string): string =>
+  FLAG_TEXT[code.toLowerCase()] ?? (/repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary/i.test(code) ? FLAG_TEXT.repeat_position : humanize(code.toLowerCase()));
 
 export type ReviewState = "none" | "some" | "consensus";
 export const REVIEW_TEXT: Record<ReviewState, string> = {

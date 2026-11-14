@@ -51,6 +51,7 @@ export function paintNegative(
       if (x >= 0 && x < nx) crop[j * cropPx + i] = values[y * nx + x];
     }
   }
+  if (!crop.some((v) => Number.isFinite(v))) throw new Error("the candidate is outside its frame");
   const f = stretch(crop);
   const img = new ImageData(cropPx, cropPx);
   for (let p = 0; p < crop.length; p++) {

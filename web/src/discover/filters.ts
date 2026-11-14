@@ -1,7 +1,14 @@
-// Discover's pure parts: filter state, the URL it lives in, filtering, facet counts, presets and
-// sorting (DESIGN.md "Smart filters"). No DOM. Votes come in as counts per candidate id.
+// The candidate filter model, as pure functions: filter state, the URL it lives in, filtering,
+// facet counts, presets and sorting (DESIGN.md "Smart filters"). No DOM, so the Candidates page
+// (src/discover) and the Sky page (src/atlas) share one meaning of "filtered".
+//
+//   const state = queryToState(routeQuery(param));     // from #/candidates/<query>
+//   const rows = toRows(candidates, counts, votedOn);  // counts from src/vote's countsFor()
+//   const f = filterRows(rows, state);                 // f.rows passes; f.without(key) for facet counts
+//   const list = sortRows(f.rows, state.sort);
+//   const link = candidatesHash(state);                // shareable link to the same list
 import type { Candidate, CandidateKind } from "../api/types";
-import type { Answer, Counts } from "../vote/model";
+import { consensus as voteConsensus, type Answer, type Counts } from "../vote/model";
 import { reasonText, type ReviewState } from "./text";
 
 export type Tri = "any" | "yes" | "no";
@@ -41,8 +48,9 @@ export interface FilterState {
   catwise: Tri;
   /** Hide candidates with any reason the pipeline lists as a doubt. */
   hideDoubts: boolean;
-  /** Hide candidates with artefact flags near them. */
-  hideCautions: boolean;
+  /** Artefact cautions (flags near it, or a caution reason such as outlier pixels or a repeat
+   *  position): "no" hides them, "yes" shows only them (to check first), "any" both. */
+  cautions: Tri;
   /** Hide candidates this browser already voted on. */
   hideMine: boolean;
   ranges: Partial<Record<RangeKey, Range>>;
@@ -61,7 +69,7 @@ export function defaultState(): FilterState {
     gaia: "any",
     catwise: "any",
     hideDoubts: false,
-    hideCautions: false,
+    cautions: "any",
     hideMine: false,
     ranges: {},
     sort: "promising",
@@ -82,17 +90,12 @@ export interface Row {
 }
 
 const ANSWER_KEYS: Answer[] = ["mover", "changing", "junk", "unsure"];
-export const CONSENSUS_MIN_VOTES = 5;
-export const CONSENSUS_SHARE = 0.7;
 const zero = (): Counts => ({ mover: 0, changing: 0, junk: 0, unsure: 0 });
 const sum = (c: Counts) => c.mover + c.changing + c.junk + c.unsure;
 
-/** DESIGN.md "Votes and consensus": ≥ 5 votes and ≥ 70 % on one answer. */
-export function consensus(c: Counts): Answer | null {
-  const n = sum(c);
-  if (n < CONSENSUS_MIN_VOTES) return null;
-  for (const a of ANSWER_KEYS) if (c[a] / n >= CONSENSUS_SHARE) return a;
-  return null;
+/** The answer the community agreed on (src/vote's rule: at least 5 votes, 70 % on one answer), or null. */
+export function verdictOf(c: Counts): Answer | null {
+  return voteConsensus(c)?.answer ?? null;
 }
 
 /** The leading answer and its count, or null with no votes. Ties go to the first in answer order. */
@@ -106,7 +109,7 @@ export function toRows(cands: Candidate[], counts: Map<string, Counts>, votedOn:
   return cands.map((c) => {
     const votes = counts.get(c.id) ?? zero();
     const total = sum(votes);
-    const verdict = consensus(votes);
+    const verdict = verdictOf(votes);
     return { c, votes, total, verdict, review: verdict ? "consensus" : total > 0 ? "some" : "none", mine: votedOn(c.id) };
   });
 }
@@ -210,6 +213,12 @@ export const isActiveRange = (r: Range | undefined): r is Range => !!r && (r.min
 // ---- filtering --------------------------------------------------------------------------------
 
 export const isDoubtCode = (code: string): boolean => reasonText(code).tone === "doubt";
+export const isCautionCode = (code: string): boolean => reasonText(code).tone === "caution";
+
+/** An artefact may be behind it: flags near it, or a caution reason (outlier pixels, repeat position). */
+export function isCautioned(c: Candidate): boolean {
+  return c.flags.length > 0 || c.reasons.some(isCautionCode);
+}
 
 export function isDoubted(c: Candidate, doubts: (code: string) => boolean = isDoubtCode): boolean {
   return c.reasons.some(doubts);
@@ -238,7 +247,7 @@ function tests(s: FilterState, doubts: (code: string) => boolean): Test[] {
   if (s.gaia !== "any") out.push({ key: "gaia", pass: (r) => triPass(s.gaia, r.c.gaia_match) });
   if (s.catwise !== "any") out.push({ key: "catwise", pass: (r) => triPass(s.catwise, r.c.catwise_match) });
   if (s.hideDoubts) out.push({ key: "doubts", pass: (r) => !isDoubted(r.c, doubts) });
-  if (s.hideCautions) out.push({ key: "cautions", pass: (r) => r.c.flags.length === 0 });
+  if (s.cautions !== "any") out.push({ key: "cautions", pass: (r) => triPass(s.cautions, isCautioned(r.c)) });
   if (s.hideMine) out.push({ key: "mine", pass: (r) => !r.mine });
   for (const k of RANGE_KEYS) {
     const range = s.ranges[k];
@@ -301,7 +310,7 @@ export function activeCount(s: FilterState): number {
   if (s.gaia !== "any") n++;
   if (s.catwise !== "any") n++;
   if (s.hideDoubts) n++;
-  if (s.hideCautions) n++;
+  if (s.cautions !== "any") n++;
   if (s.hideMine) n++;
   for (const k of RANGE_KEYS) if (isActiveRange(s.ranges[k])) n++;
   return n;
@@ -312,8 +321,12 @@ export function activeCount(s: FilterState): number {
 /** Descending with nulls last. */
 const desc = (a: number | null, b: number | null) => (a == null ? (b == null ? 0 : 1) : b == null ? -1 : b - a);
 
+/** Most promising: anything an artefact may be behind goes last, then the pipeline's doubts; then
+ *  the score, how sure the motion is, and S/N. */
 function promising(a: Row, b: Row): number {
   return (
+    Number(isCautioned(a.c)) - Number(isCautioned(b.c)) ||
+    Number(isDoubted(a.c)) - Number(isDoubted(b.c)) ||
     desc(a.c.score, b.c.score) ||
     desc(significance(a.c), significance(b.c)) ||
     desc(a.c.snr, b.c.snr) ||
@@ -363,7 +376,7 @@ export function stateToQuery(s: FilterState): string {
   if (s.gaia !== "any") add("gaia", s.gaia);
   if (s.catwise !== "any") add("catwise", s.catwise);
   if (s.hideDoubts) add("doubts", "hide");
-  if (s.hideCautions) add("cautions", "hide");
+  if (s.cautions !== "any") add("cautions", s.cautions === "no" ? "hide" : "only");
   if (s.hideMine) add("mine", "hide");
   for (const k of RANGE_KEYS) {
     const r = s.ranges[k];
@@ -385,7 +398,8 @@ export function queryToState(q: string): FilterState {
   s.gaia = tri(p.get("gaia"));
   s.catwise = tri(p.get("catwise"));
   s.hideDoubts = p.get("doubts") === "hide";
-  s.hideCautions = p.get("cautions") === "hide";
+  const cau = p.get("cautions");
+  s.cautions = cau === "hide" ? "no" : cau === "only" ? "yes" : "any";
   s.hideMine = p.get("mine") === "hide";
   for (const k of RANGE_KEYS) {
     const v = p.get(k);
@@ -397,10 +411,24 @@ export function queryToState(q: string): FilterState {
   return s;
 }
 
-/** The query part of a Discover hash ("#/?kind=mover" → "kind=mover"). */
-export function hashQuery(hash: string): string {
-  const i = hash.indexOf("?");
-  return i < 0 ? "" : hash.slice(i + 1);
+/** The page's route. Filters follow it: #/candidates/kind=mover&sort=fewest. */
+export const CANDIDATES_ROUTE = "#/candidates";
+
+/** The filter query from the router's param ("kind=mover", "?kind=mover") or a whole hash. */
+export function routeQuery(paramOrHash: string | null | undefined): string {
+  if (!paramOrHash) return "";
+  let s = paramOrHash;
+  if (s.startsWith("#")) {
+    const m = /^#\/?(?:candidates|discover)(?:[/?](.*))?$/.exec(s);
+    s = m ? m[1] ?? "" : "";
+  }
+  return s.replace(/^[/?]+/, "");
+}
+
+/** The shareable hash for a filter state: "#/candidates" or "#/candidates/kind=mover&sort=fewest". */
+export function candidatesHash(s: FilterState): string {
+  const q = stateToQuery(s);
+  return q ? `${CANDIDATES_ROUTE}/${q}` : CANDIDATES_ROUTE;
 }
 
 export const sameState = (a: FilterState, b: FilterState) => stateToQuery(a) === stateToQuery(b);
@@ -420,7 +448,7 @@ export const PRESETS: Preset[] = [
     id: "promising",
     label: "Most promising",
     hint: "Highest pipeline score first, without the ones the pipeline doubts or artefacts are near.",
-    state: { sort: "promising", hideDoubts: true, hideCautions: true },
+    state: { sort: "promising", hideDoubts: true, cautions: "no" },
   },
   {
     id: "needs-vote",
@@ -445,6 +473,12 @@ export const PRESETS: Preset[] = [
     label: "Community says real",
     hint: "The community agreed it moves or changes: these go to astronomers.",
     state: { review: ["consensus"], verdict: ["mover", "changing"], sort: "most" },
+  },
+  {
+    id: "check-first",
+    label: "Check first",
+    hint: "Ones that may be artefacts (outlier pixels, the same spot days apart, ghosts): a quick look settles most.",
+    state: { cautions: "yes", review: ["none", "some"], sort: "fewest" },
   },
 ];
 
@@ -478,7 +512,7 @@ export function withoutTest(s: FilterState, key: TestKey): FilterState {
   if ((LIST_KEYS as readonly string[]).includes(key)) next[key as ListKey] = [];
   else if (key === "gaia" || key === "catwise") next[key] = "any";
   else if (key === "doubts") next.hideDoubts = false;
-  else if (key === "cautions") next.hideCautions = false;
+  else if (key === "cautions") next.cautions = "any";
   else if (key === "mine") next.hideMine = false;
   else delete next.ranges[key as RangeKey];
   return next;

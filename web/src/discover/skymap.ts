@@ -145,9 +145,6 @@ export interface SkyMapHandle {
   destroy(): void;
 }
 
-const esc = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
 export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle {
   let frame: Frame = opts.frame ?? "eq";
   let zoom: Zoom = opts.zoom ?? "fit";
@@ -156,8 +153,12 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   let filteredSet = new Set<string>();
   let pts: Pt[] = [];
   let byId = new Map<string, Pt>();
+  let byIdAll = new Map<string, Candidate>();
   let hot: string | null = null;
   let hotFrom: "map" | "list" | null = null;
+  /** Close up fits one pipeline zone at a time; null = the zone with the most filtered candidates. */
+  let zonePick: string | null = null;
+  let zones: string[] = [];
   let W = 0;
   let H = 0;
 
@@ -172,13 +173,17 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
         <button type="button" data-frame="eq" title="Equatorial: right ascension and declination">RA, Dec</button>
         <button type="button" data-frame="gal" title="Galactic: longitude l and latitude b">Galactic</button>
       </div>
+      <div class="seg skymap-zones" role="group" aria-label="Zone shown close up" hidden></div>
     </div>
     <div class="skymap-plot" tabindex="0" role="group"
       aria-roledescription="sky map" aria-describedby="skymap-help">
       <svg class="skymap-svg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
       <div class="skymap-tip" hidden></div>
     </div>
-    <p class="skymap-caption" id="skymap-help"></p>
+    <div class="skymap-foot">
+      <svg class="skymap-loc" viewBox="0 0 100 52" width="100" height="52" aria-hidden="true"></svg>
+      <p class="skymap-caption" id="skymap-help"></p>
+    </div>
     <ul class="skymap-legend" aria-label="Legend"></ul>
     <p class="visually-hidden" aria-live="polite" data-live></p>
   `;
@@ -186,8 +191,28 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   const svg = el.querySelector<SVGSVGElement>(".skymap-svg")!;
   const tip = el.querySelector<HTMLDivElement>(".skymap-tip")!;
   const caption = el.querySelector<HTMLParagraphElement>(".skymap-caption")!;
+  const loc = el.querySelector<SVGSVGElement>(".skymap-loc")!;
   const legend = el.querySelector<HTMLUListElement>(".skymap-legend")!;
   const live = el.querySelector<HTMLParagraphElement>("[data-live]")!;
+
+  const zonesEl = el.querySelector<HTMLDivElement>(".skymap-zones")!;
+  zonesEl.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-zone]");
+    if (!b) return;
+    zonePick = b.dataset.zone ?? null;
+    render();
+  });
+
+  /** The zone shown close up: the person's pick, else the one with the most filtered candidates. */
+  function activeZone(): string | null {
+    if (zonePick && zones.includes(zonePick)) return zonePick;
+    const n = new Map<string, number>();
+    const pool = filtered.length ? filtered.map((id) => byIdAll.get(id)).filter((c): c is Candidate => !!c) : all;
+    for (const c of pool) n.set(c.zone, (n.get(c.zone) ?? 0) + 1);
+    let best: string | null = null;
+    for (const [z, k] of n) if (best === null || k > (n.get(best) ?? 0)) best = z;
+    return best;
+  }
 
   function markSegs() {
     el.querySelectorAll<HTMLButtonElement>("[data-zoom]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.zoom === zoom)));
@@ -217,27 +242,34 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   function render() {
     markSegs();
     W = Math.max(240, Math.round(plot.clientWidth || 380));
-    H = Math.round(W * 0.56);
+    H = Math.round(W * 0.62);
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("width", String(W));
     svg.setAttribute("height", String(H));
 
     const raw = all.map((c) => ({ c, ...coords(c) }));
-    const centerLon = zoom === "fit" && raw.length ? meanLon(raw.map((p) => p.lon)) : frame === "gal" ? 0 : 0;
+    const zone = zones.length > 1 ? activeZone() : null;
+    const focus = zoom === "fit" ? raw.filter((p) => zone === null || p.c.zone === zone) : raw;
+    const centerLon = zoom === "fit" && focus.length ? meanLon(focus.map((p) => p.lon)) : 0;
     const proj = raw.map((p) => ({ ...p, u: aitoff(p.lon, p.lat, centerLon) }));
+    const fproj = zoom === "fit" ? proj.filter((p) => zone === null || p.c.zone === zone) : proj;
+    zonesEl.hidden = !(zoom === "fit" && zones.length > 1);
+    zonesEl.innerHTML = zones
+      .map((z) => html`<button type="button" data-zone="${escAttr(z)}" aria-pressed="${z === zone}">${escAttr(z[0]?.toUpperCase() + z.slice(1))}</button>`)
+      .join("");
 
     // Screen transform: unit Aitoff coordinates → px.
     let k: number;
     let cx: number;
     let cy: number;
     const m = 10;
-    if (zoom === "sky" || !proj.length) {
+    if (zoom === "sky" || !fproj.length) {
       k = Math.min((W - 2 * m) / (2 * Math.PI), (H - 2 * m) / Math.PI);
       cx = W / 2;
       cy = H / 2;
     } else {
-      const xs = proj.map((p) => p.u.x);
-      const ys = proj.map((p) => p.u.y);
+      const xs = fproj.map((p) => p.u.x);
+      const ys = fproj.map((p) => p.u.y);
       let x0 = Math.min(...xs);
       let x1 = Math.max(...xs);
       let y0 = Math.min(...ys);
@@ -271,7 +303,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     // Graticule
     const visLatSpan = H / k / D2R;
     const step = zoom === "sky" ? 30 : gratStep(visLatSpan);
-    const latC = proj.length && zoom === "fit" ? (Math.min(...proj.map((p) => p.lat)) + Math.max(...proj.map((p) => p.lat))) / 2 : 0;
+    const latC = fproj.length && zoom === "fit" ? (Math.min(...fproj.map((p) => p.lat)) + Math.max(...fproj.map((p) => p.lat))) / 2 : 0;
     const latLo = zoom === "sky" ? -90 : Math.max(-90, latC - visLatSpan);
     const latHi = zoom === "sky" ? 90 : Math.min(90, latC + visLatSpan);
     const lonHalf = zoom === "sky" ? 180 : Math.min(180, (W / k / D2R) / Math.max(0.2, Math.cos(latC * D2R)));
@@ -315,31 +347,53 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     parts.push(html`<path class="sm-grat" d="${lines.join("")}"/>`);
     if (zoom === "sky") parts.push(html`<path class="sm-edge" d="${outline(toS)}"/>`);
 
-    // Context first (not in the filtered set), then the filtered set by kind.
+    // Context first (not in the filtered set, one faint path), then each filtered point as its own
+    // element so its surface ring separates it from its neighbours. The list's first is drawn last,
+    // on top.
     const ctx: string[] = [];
-    const byKind: Record<string, string[]> = { mover: [], high_pm: [], spectral: [] };
-    const rr = zoom === "sky" ? 3.6 : 4.4;
-    for (const p of pts) {
-      if (filteredSet.has(p.c.id)) (byKind[p.c.kind] ??= []).push(glyphPath(p.c.kind, p.sx, p.sy, rr));
-      else ctx.push(`M${(p.sx - 1.8).toFixed(1)},${p.sy.toFixed(1)}a1.8,1.8 0 1,0 3.6,0a1.8,1.8 0 1,0 -3.6,0Z`);
-    }
+    const rr = zoom === "sky" ? 3 : 3.4;
+    for (const p of pts)
+      if (!filteredSet.has(p.c.id)) ctx.push(`M${(p.sx - 1.8).toFixed(1)},${p.sy.toFixed(1)}a1.8,1.8 0 1,0 3.6,0a1.8,1.8 0 1,0 -3.6,0Z`);
     parts.push(html`<path class="sm-ctx" d="${ctx.join("")}"/>`);
-    for (const kind of KINDS) if (byKind[kind]?.length) parts.push(html`<path class="sm-pt kind-${kind}" d="${byKind[kind].join("")}"/>`);
+    const marks: string[] = [];
+    for (let i = filtered.length - 1; i >= 0; i--) {
+      const p = byId.get(filtered[i]);
+      if (p) marks.push(html`<path class="sm-pt kind-${p.c.kind}" d="${glyphPath(p.c.kind, p.sx, p.sy, rr)}"/>`);
+    }
+    parts.push(`<g class="sm-pts">${marks.join("")}</g>`);
+    if (zoom === "sky") parts.push(zoneRings(pts));
     parts.push(`<g class="sm-hot"></g>`);
     parts.push(labels.join(""));
     parts.push(`</g>`);
 
-    if (zoom === "fit" && proj.length) parts.push(locator(W, H, frame, raw));
-
     svg.innerHTML = parts.join("");
+    loc.innerHTML = zoom === "fit" && fproj.length ? locator(frame, fproj) : "";
+    loc.style.display = loc.innerHTML ? "" : "none";
 
     const spanDeg = Math.round((W / k / D2R) * 10) / 10;
     caption.textContent =
       zoom === "fit"
-        ? `Zoomed to the candidates, about ${spanDeg}° across. North up, east left. The shaded band is the Milky Way plane.`
+        ? `${zone ? `The ${zone} zone` : "Zoomed to the candidates"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
         : "The whole sky, north up, east left. The shaded band is the Milky Way plane, where stars crowd.";
     renderLegend();
     drawHot();
+  }
+
+  /** On the whole sky a zone is a few pixels: ring each one and name it so the eye finds it. */
+  function zoneRings(points: Pt[]): string {
+    const groups = new Map<string, Pt[]>();
+    for (const p of points) groups.set(p.c.zone, [...(groups.get(p.c.zone) ?? []), p]);
+    const out: string[] = [];
+    for (const [zone, ps] of groups) {
+      const cx = ps.reduce((a, p) => a + p.sx, 0) / ps.length;
+      const cy = ps.reduce((a, p) => a + p.sy, 0) / ps.length;
+      const r = Math.min(40, Math.max(...ps.map((p) => Math.hypot(p.sx - cx, p.sy - cy))) + 8);
+      const right = cx + r + 4 + zone.length * 6.5 < W;
+      out.push(
+        html`<circle class="sm-zone" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"/><text class="sm-zone-name" x="${(right ? cx + r + 4 : cx - r - 4).toFixed(1)}" y="${(cy + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${escAttr(zone[0]?.toUpperCase() + zone.slice(1))}</text>`,
+      );
+    }
+    return out.join("");
   }
 
   function renderLegend() {
@@ -382,20 +436,34 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     why.className = "sm-tip-why";
     why.textContent = p.c.why;
     tip.append(head, pos, why);
-    if (!filteredSet.has(p.c.id)) {
+    const outside = p.sx < 0 || p.sx > W || p.sy < 0 || p.sy > H;
+    if (outside) {
+      const n = document.createElement("p");
+      n.className = "sm-tip-note";
+      n.textContent = zones.length > 1 ? `In the ${p.c.zone} zone, outside this close-up.` : "Outside this view.";
+      tip.append(n);
+    } else if (!filteredSet.has(p.c.id)) {
       const n = document.createElement("p");
       n.className = "sm-tip-note";
       n.textContent = "Outside the current filters.";
       tip.append(n);
     }
     tip.hidden = false;
-    // Place beside the point, flipped to stay inside the plot.
-    const tw = Math.min(260, W - 16);
+    // Beside the point (right, else left), else below or above it: never over the point itself.
+    const tw = Math.min(232, W - 16);
     tip.style.width = `${tw}px`;
-    const left = p.sx + 14 + tw > W ? Math.max(4, p.sx - 14 - tw) : p.sx + 14;
-    tip.style.left = `${left}px`;
     const th = tip.offsetHeight || 90;
-    const top = Math.min(Math.max(4, p.sy - th / 2), Math.max(4, H - th - 4));
+    const gap = 14;
+    const clampX = (x: number) => Math.min(Math.max(4, x), W - tw - 4);
+    const clampY = (y: number) => Math.min(Math.max(4, y), Math.max(4, H - th - 4));
+    let left: number;
+    let top: number;
+    if (outside) [left, top] = [4, 4];
+    else if (p.sx + gap + tw <= W - 4) [left, top] = [p.sx + gap, clampY(p.sy - th / 2)];
+    else if (p.sx - gap - tw >= 4) [left, top] = [p.sx - gap - tw, clampY(p.sy - th / 2)];
+    else if (p.sy + gap + th <= H - 4) [left, top] = [clampX(p.sx - tw / 2), p.sy + gap];
+    else [left, top] = [clampX(p.sx - tw / 2), Math.max(4, p.sy - gap - th)];
+    tip.style.left = `${left}px`;
     tip.style.top = `${top}px`;
     if (hotFrom === "map") live.textContent = `${name}, ${formatRaDec(p.c)}. ${p.c.why}`;
   }
@@ -489,6 +557,8 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   return {
     setData(next) {
       all = next;
+      byIdAll = new Map(next.map((c) => [c.id, c]));
+      zones = [...new Set(next.map((c) => c.zone))].sort();
       render();
     },
     setFiltered(ids) {
@@ -507,6 +577,9 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     },
   };
 }
+
+const escAttr = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** Sky outline: the Aitoff ellipse. */
 function outline(toS: (u: { x: number; y: number }) => { sx: number; sy: number }): string {
@@ -548,12 +621,12 @@ function raStep(decStep: number): number {
   return opts.find((s) => s >= decStep) ?? 30;
 }
 
-/** A small whole-sky inset with a mark where the candidates are. */
-function locator(W: number, H: number, frame: Frame, raw: { lon: number; lat: number }[]): string {
-  const w = Math.min(112, W * 0.28);
+/** A small whole-sky locator (100 × 52) with a mark where the candidates are. */
+function locator(frame: Frame, raw: { lon: number; lat: number }[]): string {
+  const w = 96;
   const h = w / 2;
-  const x0 = W - w - 8;
-  const y0 = 8;
+  const x0 = 2;
+  const y0 = 2;
   const k = (w - 4) / (2 * Math.PI);
   const toS = (u: { x: number; y: number }) => ({ sx: x0 + w / 2 + u.x * k, sy: y0 + h / 2 - u.y * k });
   const c = { lon: meanLon(raw.map((p) => p.lon)), lat: raw.reduce((a, p) => a + p.lat, 0) / raw.length };
@@ -565,4 +638,3 @@ function locator(W: number, H: number, frame: Frame, raw: { lon: number; lat: nu
   </g>`;
 }
 
-export { esc as escHtml };

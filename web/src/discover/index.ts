@@ -1,5 +1,6 @@
-// Discover (#/): the home page. What the pipeline found, filtered and sorted by anyone, on a list
-// and a sky map that share one filtered set. Every filter lives in the URL (#/?kind=…&sort=…).
+// Candidates (#/candidates, was "Discover"): what the pipeline found, filtered and sorted by anyone,
+// on a list and a small sky map that share one filtered set. Every filter lives in the URL
+// (#/candidates/kind=…&sort=…); the filter model itself is pure, in ./filters.ts.
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
 import { loadCandidates } from "../api/client";
@@ -7,8 +8,7 @@ import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
 import { isEmbed } from "../app/state";
-import { ANSWER_TEXT, type Answer } from "../vote/model";
-import type { Counts } from "../vote/model";
+import { ANSWER_TEXT, type Answer, type Counts } from "../vote/model";
 import { download, toCsv, toJson } from "./export";
 import { arcsecPerHour, arcsecPerYr, flux, fromSlider, num, plural, rangeText, rangeValue, roundNice, SLIDER_MAX, toSlider } from "./format";
 import {
@@ -24,15 +24,19 @@ import {
   domainOf,
   filterRows,
   FACET_VALUES,
-  hashQuery,
+  candidatesHash,
+  leading,
+  routeQuery,
   isActiveRange,
+  isCautionCode,
+  isCautioned,
+  isDoubtCode,
   isDoubted,
   presetState,
   queryToState,
   sameState,
   significance,
   sortRows,
-  stateToQuery,
   toRows,
   withoutTest,
   type FilterState,
@@ -44,17 +48,23 @@ import {
   type SortKey,
   type TestKey,
   type Tri,
-} from "./model";
+} from "./filters";
 import { glyphSvg, mountSkyMap } from "./skymap";
 import { KIND_TEXT, KINDS, REVIEW_TEXT, flagText, labelText, reasonText, zonesPhrase, type ReviewState } from "./text";
 import { thumbLoader } from "./thumb";
-import { openVoteReader, type VoteReader } from "./votes";
+import { onVoted, openVoteReader, type VoteReader } from "./votes";
 
 const html = String.raw;
 const PAGE = 50;
 const esc = (s: string) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const ANSWERS: Answer[] = ["mover", "changing", "junk", "unsure"];
+const TONE_ORDER = { support: 0, doubt: 1, caution: 2 } as const;
+const TONE_MARK = {
+  support: "",
+  doubt: '<span class="doubt-ring" aria-hidden="true"></span>',
+  caution: '<span class="caution-mark" aria-hidden="true"></span>',
+} as const;
 
 type VoteStatus = "idle" | "loading" | "ok" | "local" | "error";
 
@@ -103,7 +113,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <label class="dv-sort"><span>Sort by</span>
             <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}">${s.label}</option>`).join("")}</select>
           </label>
-          <div class="dv-export" role="group" aria-label="Download the filtered list">
+          <div class="dv-export dv-export-top" role="group" aria-label="Download the filtered list">
+            <span class="dv-export-label">Download</span>
             <button type="button" class="btn btn-ghost btn-sm" data-export="csv">CSV</button>
             <button type="button" class="btn btn-ghost btn-sm" data-export="json">JSON</button>
           </div>
@@ -112,6 +123,11 @@ export const mountDiscover: MountPage = (el, ctx) => {
         <div class="dv-cols" aria-hidden="true" hidden><span>Candidate</span><span>Measured</span><span>Score</span><span>Votes</span></div>
         <ol class="dv-list" aria-labelledby="dv-count"></ol>
         <div class="dv-more" hidden><p class="dv-more-n"></p><button type="button" class="btn" data-more>Show more</button></div>
+        <div class="dv-export dv-export-foot" role="group" aria-label="Download the filtered list" hidden>
+          <span class="dv-export-label">Download this list as</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-export="csv">CSV</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-export="json">JSON</button>
+        </div>
         <div class="dv-state" role="status"><p class="dv-state-title">Loading candidates…</p></div>
       </section>
     </div>
@@ -145,7 +161,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   let rows: Row[] = [];
   let f: Filtered = filterRows([], defaultState());
   let sorted: Row[] = [];
-  let state: FilterState = queryToState(hashQuery(location.hash));
+  let state: FilterState = queryToState(routeQuery(location.hash));
   let shown = PAGE;
   const updates: (() => void)[] = [];
   const open = (id: string) => ctx.navigate(`#/c/${encodeURIComponent(id)}`);
@@ -211,12 +227,11 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
   // ---- state ------------------------------------------------------------------------------------
 
+  /** Keep the address in step without a hashchange (which would re-route and scroll to the top). */
   function writeUrl() {
-    const q = stateToQuery(state);
-    const hash = `#/${q ? `?${q}` : ""}`;
-    if (location.hash !== hash && !(hash === "#/" && (location.hash === "" || location.hash === "#"))) {
-      history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
-    }
+    if (!/^#\/?(candidates|discover)\b/.test(location.hash)) return;
+    const hash = candidatesHash(state);
+    if (location.hash !== hash) history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
   }
 
   function setState(next: FilterState, opts: { keepPage?: boolean } = {}) {
@@ -262,8 +277,9 @@ export const mountDiscover: MountPage = (el, ctx) => {
       tail = html` <strong>${reviewed.toLocaleString("en-GB")}</strong> reviewed so far, with <strong>${votes.toLocaleString("en-GB")}</strong> ${votes === 1 ? "vote" : "votes"} cast.`;
     countsEl.innerHTML = lead + tail;
     const notes: string[] = [];
-    if (sample) notes.push("Sample data from the pilot zone: the full list appears here once the pipeline publishes it.");
-    if (voteStatus === "local") notes.push("Votes are counted on this device only, because the vote server isn't connected here.");
+    if (sample) notes.push("Sample data from the pilot zone, until the full list is published.");
+    if (reader?.notice) notes.push(reader.notice);
+    else if (voteStatus === "local") notes.push("Votes stay on this device for now.");
     noteEl.hidden = !notes.length;
     noteEl.textContent = notes.join(" ");
   }
@@ -316,12 +332,12 @@ export const mountDiscover: MountPage = (el, ctx) => {
       "Why it's listed",
       () =>
         uniq([...cands.flatMap((c) => c.reasons), ...state.reason])
-          .sort((a, b) => Number(reasonText(a).tone === "doubt") - Number(reasonText(b).tone === "doubt"))
+          .sort((a, b) => TONE_ORDER[reasonText(a).tone] - TONE_ORDER[reasonText(b).tone])
           .map((v) => ({ v, label: reasonText(v).label, title: `${v}: ${reasonText(v).detail}`, tone: reasonText(v).tone })),
       "No reason codes in this set.",
     );
     toggle(g3, "hideDoubts", "doubts", "Hide ones the pipeline doubts", (r) => isDoubted(r.c), "Any reason marked with a ring: a catalogue disagrees, a poor fit, few detections, or chance pairs.");
-    toggle(g3, "hideCautions", "cautions", "Hide artefact cautions", (r) => r.c.flags.length > 0, "Ghosts, halos, crosstalk or bloom near the candidate.");
+    tri(g3, "cautions", "Artefact cautions", "Flags near it (outlier pixels, ghosts, halos, crosstalk, bloom) or the same spot seen days apart. Many of these are junk.", isCautioned, ["With", "Without"]);
     tri(g3, "gaia", "In Gaia", "gaia_match", (c) => c.gaia_match);
     tri(g3, "catwise", "In CatWISE", "catwise_match", (c) => c.catwise_match);
     rangeCtl(g3, "known");
@@ -362,7 +378,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   function isOn(k: TestKey): boolean {
     if (k === "gaia" || k === "catwise") return state[k] !== "any";
     if (k === "doubts") return state.hideDoubts;
-    if (k === "cautions") return state.hideCautions;
+    if (k === "cautions") return state.cautions !== "any";
     if (k === "mine") return state.hideMine;
     if (k in RANGES) return isActiveRange(state.ranges[k as RangeKey]);
     return state[k as ListKey].length > 0;
@@ -373,7 +389,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     label: string;
     title?: string;
     glyph?: string;
-    tone?: "support" | "doubt";
+    tone?: "support" | "doubt" | "caution";
   }
 
   function checkList(parent: HTMLElement, key: ListKey, title: string, options: () => Opt[], o: { emptyText?: string; hideWhenEmpty?: boolean } = {}) {
@@ -440,7 +456,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
             ? html`<div class="fx-chips" role="group" aria-labelledby="${titleId}">${opts
                 .map(
                   (x) =>
-                    html`<button type="button" class="fchip${x.tone === "doubt" ? " is-doubt" : ""}" data-v="${esc(x.v)}" aria-pressed="false" title="${esc(x.title ?? x.v)}">${x.tone === "doubt" ? '<span class="doubt-ring" aria-hidden="true"></span>' : ""}<span>${esc(x.label)}</span><span class="fx-n"></span></button>`,
+                    html`<button type="button" class="fchip${x.tone && x.tone !== "support" ? ` is-${x.tone}` : ""}" data-v="${esc(x.v)}" aria-pressed="false" title="${esc(x.title ?? x.v)}">${TONE_MARK[x.tone ?? "support"]}<span>${esc(x.label)}</span><span class="fx-n"></span></button>`,
                 )
                 .join("")}</div>`
             : html`<p class="fx-empty">${esc(emptyText)}</p>`);
@@ -457,7 +473,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     });
   }
 
-  function toggle(parent: HTMLElement, field: "hideDoubts" | "hideCautions" | "hideMine", key: TestKey, label: string, hides: (r: Row) => boolean, hint: string) {
+  function toggle(parent: HTMLElement, field: "hideDoubts" | "hideMine", key: TestKey, label: string, hides: (r: Row) => boolean, hint: string) {
     const lab = document.createElement("label");
     lab.className = "fx-toggle";
     lab.title = hint;
@@ -497,15 +513,15 @@ export const mountDiscover: MountPage = (el, ctx) => {
     });
   }
 
-  function tri(parent: HTMLElement, key: "gaia" | "catwise", label: string, code: string, val: (c: Candidate) => boolean) {
+  function tri(parent: HTMLElement, key: "gaia" | "catwise" | "cautions", label: string, hint: string, val: (c: Candidate) => boolean, [yesText, noText] = ["Yes", "No"]) {
     const box = document.createElement("div");
     box.className = "fx-tri";
     const id = `fx-${key}-t`;
-    box.innerHTML = html`<span class="fx-name" id="${id}" title="${code}">${esc(label)}</span>
+    box.innerHTML = html`<span class="fx-name" id="${id}" title="${esc(hint)}">${esc(label)}</span>
       <div class="seg seg-sm" role="group" aria-labelledby="${id}">
         <button type="button" data-v="any" aria-pressed="false">Any</button>
-        <button type="button" data-v="yes" aria-pressed="false">Yes <span class="fx-n"></span></button>
-        <button type="button" data-v="no" aria-pressed="false">No <span class="fx-n"></span></button>
+        <button type="button" data-v="yes" aria-pressed="false">${esc(yesText)} <span class="fx-n"></span></button>
+        <button type="button" data-v="no" aria-pressed="false">${esc(noText)} <span class="fx-n"></span></button>
       </div>`;
     parent.append(box);
     box.addEventListener("click", (ev) => {
@@ -714,7 +730,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     if (s.gaia !== "any") out.push({ label: s.gaia === "yes" ? "In Gaia" : "Not in Gaia", remove: () => ({ ...s, gaia: "any" }) });
     if (s.catwise !== "any") out.push({ label: s.catwise === "yes" ? "In CatWISE" : "Not in CatWISE", remove: () => ({ ...s, catwise: "any" }) });
     if (s.hideDoubts) out.push({ label: "No pipeline doubts", remove: () => ({ ...s, hideDoubts: false }) });
-    if (s.hideCautions) out.push({ label: "No artefact cautions", remove: () => ({ ...s, hideCautions: false }) });
+    if (s.cautions !== "any") out.push({ label: s.cautions === "yes" ? "Only artefact cautions" : "No artefact cautions", remove: () => ({ ...s, cautions: "any" }) });
     if (s.hideMine) out.push({ label: "Not voted on by me", remove: () => ({ ...s, hideMine: false }) });
     for (const k of Object.keys(s.ranges) as RangeKey[]) {
       const r = s.ranges[k];
@@ -755,6 +771,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       if (byId.get(b.dataset.thumb ?? "")?.frames_url) thumbs.observe(b);
     });
     colsEl.hidden = items.length === 0;
+    $<HTMLDivElement>(".dv-export-foot").hidden = items.length === 0;
     const rest = sorted.length - items.length;
     moreEl.hidden = rest <= 0;
     if (rest > 0) {
@@ -769,6 +786,14 @@ export const mountDiscover: MountPage = (el, ctx) => {
     stateEl.hidden = false;
     const hint = bestRelaxation(f);
     const chip = hint ? activeChips(state).find((c) => sameState(c.remove(), withoutTest(state, hint.key))) : undefined;
+    if (activePreset(state)?.id === "check-first") {
+      stateEl.innerHTML = html`
+        <p class="dv-state-title">Nothing to check first.</p>
+        <p class="dv-state-text">No unsettled candidate here has an artefact caution: no outlier pixels, ghosts or halos near it, and no spot seen again days apart.</p>
+        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Show all candidates</button></div>`;
+      stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
+      return;
+    }
     stateEl.innerHTML = html`
       <p class="dv-state-title">No candidates match these filters.</p>
       <p class="dv-state-text">${
@@ -803,15 +828,32 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const href = `#/c/${encodeURIComponent(c.id)}`;
     const chips: string[] = [];
     for (const l of c.labels) chips.push(html`<li class="tag tag-label" title="${esc(l)}">${esc(labelText(l))}</li>`);
-    for (const code of c.reasons) {
+    const doubts = c.reasons.filter(isDoubtCode);
+    for (const code of c.reasons.filter((x) => reasonText(x).tone === "support")) {
       const t = reasonText(code);
+      chips.push(html`<li class="tag tag-support" title="${esc(code)}: ${esc(t.detail)}">${esc(t.label)}</li>`);
+    }
+    if (doubts.length) {
+      // One chip for the pipeline's doubts: the first in words, the rest counted (all in the title).
+      const [first, ...rest] = doubts.map(reasonText);
+      const all = doubts.map((d) => `${reasonText(d).label} (${d})`).join("; ");
       chips.push(
-        t.tone === "doubt"
-          ? html`<li class="tag tag-doubt" title="${esc(code)}: ${esc(t.detail)}"><span class="doubt-ring" aria-hidden="true"></span>${esc(t.label)}</li>`
-          : html`<li class="tag tag-support" title="${esc(code)}: ${esc(t.detail)}">${esc(t.label)}</li>`,
+        html`<li class="tag tag-doubt" title="Pipeline doubts: ${esc(all)}"><span class="doubt-ring" aria-hidden="true"></span>${esc(first.label)}${
+          rest.length
+            ? html`<span class="tag-more" aria-hidden="true">+${rest.length}</span><span class="visually-hidden">, and ${esc(rest.map((r) => r.label.toLowerCase()).join(", "))}</span>`
+            : ""
+        }</li>`,
       );
     }
-    for (const fl of c.flags) chips.push(html`<li class="tag tag-caution" title="${esc(fl)}"><span class="caution-mark" aria-hidden="true"></span>${esc(flagText(fl))}<span class="visually-hidden"> (caution)</span></li>`);
+    // Cautions: artefact flags and caution reasons (outlier pixels, the same spot days apart), once each.
+    const cautions = new Map<string, string>();
+    for (const fl of c.flags) cautions.set(flagText(fl), fl);
+    for (const code of c.reasons.filter(isCautionCode)) {
+      const t = reasonText(code);
+      cautions.set(t.label, cautions.has(t.label) ? `${cautions.get(t.label)}, ${code}` : `${code}: ${t.detail}`);
+    }
+    for (const [label, title] of cautions)
+      chips.push(html`<li class="tag tag-caution" title="${esc(title)}"><span class="caution-mark" aria-hidden="true"></span>${esc(label)}<span class="visually-hidden"> (caution)</span></li>`);
     const det = DETECTORS[c.det];
     return html`<li class="dv-row" data-id="${esc(c.id)}">
       <div class="dv-thumb" data-thumb="${esc(c.id)}" aria-hidden="true">${emptyPlate()}</div>
@@ -859,31 +901,29 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const segs = ANSWERS.filter((a) => r.votes[a] > 0)
       .map((a) => html`<span class="vseg vseg-${a}" style="flex:${r.votes[a]}" title="${ANSWER_TEXT[a].label}: ${r.votes[a]}"></span>`)
       .join("");
-    const lead = r.verdict ? { answer: r.verdict, n: r.votes[r.verdict] } : topAnswer(r.votes);
+    const lead = r.verdict ? { answer: r.verdict, n: r.votes[r.verdict] } : leading(r.votes) ?? { answer: "mover" as Answer, n: 0 };
     const text = r.verdict
       ? html`<span class="dv-verdict">Verdict: ${esc(ANSWER_TEXT[r.verdict].label.toLowerCase())}</span><span class="dv-vn">${lead.n} of ${r.total}</span>`
       : html`<span class="dv-vn">${plural(r.total, "vote", "votes")}, ${lead.n} ${esc(ANSWER_TEXT[lead.answer].label.toLowerCase())}</span>`;
     return html`<span class="dv-vbar" aria-hidden="true">${segs}</span>${text}${mine}`;
   }
 
-  function topAnswer(v: Counts): { answer: Answer; n: number } {
-    let best: Answer = "mover";
-    for (const a of ANSWERS) if (v[a] > v[best]) best = a;
-    return { answer: best, n: v[best] };
-  }
-
   // ---- page handle ------------------------------------------------------------------------------
 
   load();
+  // A vote cast on another page of this tab: refresh the counts next time this page shows.
+  const offVoted = onVoted(() => {
+    votesAt = 0;
+  });
 
   return {
-    show() {
-      const fromUrl = queryToState(hashQuery(location.hash));
+    show(param) {
+      const fromUrl = queryToState(routeQuery(param));
       if (!sameState(fromUrl, state)) {
         state = fromUrl;
         shown = PAGE;
         apply();
-      } else if (!location.hash.includes("?") && stateToQuery(state)) writeUrl();
+      }
       // Votes may have changed on the Review page: refresh at most every 20 s.
       if (data && voteStatus !== "loading" && Date.now() - votesAt > 20_000) loadVotes();
     },
@@ -892,6 +932,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       openSheet(false);
     },
     destroy() {
+      offVoted();
       thumbs.destroy();
       map.destroy();
       document.body.classList.remove("dv-sheet-open");

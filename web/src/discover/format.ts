@@ -1,5 +1,5 @@
 // Numbers with units for Discover (DESIGN.md "Numbers": units always, tabular figures).
-import type { Range, RangeSpec } from "./model";
+import type { Range, RangeSpec } from "./filters";
 
 const nf = (d: number) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
 

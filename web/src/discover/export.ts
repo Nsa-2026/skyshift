@@ -1,7 +1,7 @@
 // CSV and JSON of the filtered set: every field of the candidate plus the community's counts.
 import type { Candidate } from "../api/types";
 import { formatMjd } from "../app/astro";
-import type { Row } from "./model";
+import type { Row } from "./filters";
 
 /** One CSV cell (RFC 4180), with spreadsheet formula injection defused for text. */
 export function csvCell(v: string | number | boolean | null | undefined): string {
