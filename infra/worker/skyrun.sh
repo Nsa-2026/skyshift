@@ -8,6 +8,7 @@
 # time at nice 19: `all` with the Gaia-only refcat (provisional: zone edges, no CatWISE yet). Markers:
 #   combining -> combined | combine_failed
 # A restarted machine (spot preemption) runs this again from the top: finished steps skip, markers are rewritten.
+# Several machines may combine: a zone is claimed atomically (combining/<zone>.txt created only if absent).
 set -u
 W=$1; K=$2; shift 2; Z=("$@")
 B=gs://nasa-glazing-data/skyrun
@@ -38,6 +39,12 @@ extract() {
 }
 
 names() { gcloud storage ls "$B/$1/" 2>/dev/null | sed 's|.*/||; s|\.txt$||'; }
+# claim a zone for combining: creating combining/<zone>.txt only if it doesn't exist (atomic across machines)
+claim() { echo "$ME $(date -u +%FT%TZ)" | gcloud storage cp -q --if-generation-match=0 - "$B/combining/$1.txt" >/dev/null 2>&1; }
+# after a restart: our own stale claims go, so those zones can be combined again
+for f in $(gcloud storage ls "$B/combining/" 2>/dev/null); do
+  gcloud storage cat "$f" 2>/dev/null | grep -q "^$ME " && gcloud storage rm -q "$f" >/dev/null 2>&1
+done
 
 combine_loop() {
   declare -A running=()
@@ -54,12 +61,12 @@ combine_loop() {
     done
     # extracted zones, oldest marker first, not yet combined or failed
     ext=$(gcloud storage ls -l "$B/extracted/" 2>/dev/null | grep -v '^TOTAL' | sort -k2 | awk '{print $3}' | sed 's|.*/||; s|\.txt$||')
-    finished=$(names combined; names combine_failed)
+    finished=$(names combined; names combine_failed; names combining)
     for z in $ext; do
       [ "${#running[@]}" -ge "$K" ] && break
       [ -n "${running[$z]:-}" ] && continue
       printf '%s\n' "$finished" | grep -qx "$z" && continue
-      mark combining "$z"
+      claim "$z" || continue
       ( nice -n 19 uv run skyshift-pipeline all --zone "$z" --workers 8 > "/tmp/comb_$z.log" 2>&1 ) &
       running[$z]=$!
       echo "SKYRUN combining $z $(date -u +%H:%M)"
