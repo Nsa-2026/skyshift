@@ -1,0 +1,982 @@
+/* Sky, the home page (web/DESIGN.md "Sky" and "Lightbox").
+   One bold thing: the globe, a whole-sky plate negative with grease-pencil heat on it, edge to
+   edge under a short lede and one quiet row of controls. Everything else is ink on glass. */
+
+.page-atlas[hidden] {
+  display: none;
+}
+
+.atl {
+  display: grid;
+  gap: 0;
+}
+
+/* ---- lede: one sentence, the counts, one primary action ---- */
+.atl-intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--s3) var(--s6);
+  flex-wrap: wrap;
+  padding: var(--s2) 0 var(--s4);
+}
+.atl-lede {
+  max-width: 62ch;
+  font-size: var(--step-1);
+  font-weight: 620;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  text-wrap: pretty;
+}
+.atl-start {
+  text-decoration: none;
+}
+.atl-lede-2 {
+  display: block;
+  font-weight: 450;
+  color: var(--ink-2);
+}
+.atl-intro-side {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+.atl-count {
+  color: var(--ink-2);
+  font-variation-settings: "wdth" 92;
+  font-weight: 550;
+}
+
+/* ---- controls: one quiet row over the map ---- */
+.atl-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s5);
+  padding-bottom: var(--s3);
+}
+.atl-controls-main,
+.atl-controls-side {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s4);
+}
+.atl-kinds {
+  display: flex;
+  gap: var(--s2);
+}
+.atl-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--s3) 0 var(--s2);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--ink-3);
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.atl-kind:hover {
+  color: var(--ink);
+  border-color: var(--hair-strong);
+}
+.atl-kind[aria-pressed="true"] {
+  background: var(--sheet);
+  border-color: var(--hair);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(24, 32, 46, 0.12);
+}
+.atl-kind[aria-pressed="false"] .atl-ico {
+  opacity: 0.35;
+}
+.atl-kind-n {
+  color: var(--ink-3);
+  font-variation-settings: "wdth" 85;
+  font-variant-numeric: tabular-nums;
+}
+.atl-kind[aria-pressed="true"] .atl-kind-n {
+  color: var(--ink-2);
+}
+
+.atl-find {
+  display: flex;
+  gap: var(--s2);
+}
+.atl-find-input {
+  width: 15rem;
+  min-height: 36px;
+  padding: 0 var(--s3);
+}
+.atl-find-go {
+  min-height: 36px;
+}
+.atl-adjust {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--s1);
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.atl-adjust::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+.atl-adjust[aria-expanded="true"]::after {
+  transform: translateY(1px) rotate(-135deg);
+}
+.atl-adjust:hover {
+  color: var(--ink);
+}
+
+.atl-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s6);
+  padding: 0 0 var(--s4);
+}
+.atl-more-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s3);
+}
+.atl-more-label {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+.atl-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 36px;
+  padding: 0 var(--s1);
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.atl-switch::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--hair-strong);
+  border-radius: 3px;
+  background: var(--sheet);
+}
+.atl-switch[aria-pressed="true"] {
+  color: var(--ink);
+}
+.atl-switch[aria-pressed="true"]::before {
+  border-color: var(--ink);
+  background:
+    linear-gradient(45deg, transparent 44%, var(--glass) 44%, var(--glass) 56%, transparent 56%) no-repeat 2px 3px / 5px 6px,
+    linear-gradient(-45deg, transparent 44%, var(--glass) 44%, var(--glass) 56%, transparent 56%) no-repeat 4px 1px / 7px 9px,
+    var(--ink);
+}
+.atl .seg > button:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.atl-msg {
+  margin: 0 0 var(--s3);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.atl-msg:empty {
+  display: none;
+}
+.atl-msg[data-kind="error"] {
+  color: var(--warn);
+}
+
+/* ---- the stage: edge to edge, down to the bottom of the first screen ---- */
+.atl-stage {
+  position: relative;
+  /* Full bleed: out to the window's edges (--atl-vw is the page width without the scrollbar). */
+  margin-inline: calc(50% - var(--atl-vw, 100vw) / 2);
+  height: clamp(440px, calc(100dvh - var(--atl-top, 200px) - 8px), 900px);
+  overflow: hidden;
+  background: var(--sheet);
+  border-block: 1px solid var(--hair);
+}
+.atl-map {
+  position: absolute;
+  inset: 0;
+}
+.atl-map:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--pencil-blue);
+}
+/* Aladin makes its own div position: relative; it fills the map, in its own stacking layer. */
+.atl-aladin {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+/* The mat round the projection, and the plate's edge as one hairline. */
+.atl-limb {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.atl-limb-mat {
+  fill: var(--sheet);
+}
+.atl-limb-edge {
+  fill: none;
+  stroke: var(--hair-strong);
+  stroke-width: 1;
+}
+.atl-aladin.is-pointing,
+.atl-aladin.is-pointing canvas,
+.atl-svgmap.is-pointing {
+  cursor: pointer !important;
+}
+/* Aladin's own logo, kept but quiet, top right where no control floats. */
+.atl-aladin .aladin-logo-container {
+  top: var(--s3) !important;
+  bottom: auto !important;
+  right: var(--s3) !important;
+  opacity: 0.55;
+}
+
+.atl-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  color: var(--ink-2);
+  text-align: center;
+  pointer-events: none;
+}
+.atl-note p {
+  max-width: 44ch;
+}
+
+/* Floating sheets on the map share one look: a small sheet, lightly lifted. */
+.atl-hint,
+.atl-pin,
+.atl-tip,
+.atl-status,
+.atl-zoom,
+.atl-drawer {
+  position: absolute;
+  z-index: 3;
+  background: var(--sheet);
+  box-shadow: 0 1px 0 rgba(24, 32, 46, 0.06), 0 6px 18px -8px rgba(24, 32, 46, 0.35);
+}
+
+.atl-hint {
+  top: var(--s4);
+  left: var(--s4);
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s2) var(--s2) var(--s2) var(--s4);
+  border-radius: var(--radius-ctl);
+}
+.atl-hint ol {
+  display: flex;
+  gap: var(--s4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.atl-hint li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  counter-increment: step;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.atl-hint li::before {
+  content: counter(step);
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--pencil-red);
+  color: var(--sheet);
+  font-size: 12px;
+  font-weight: 700;
+  font-variation-settings: "wdth" 85;
+}
+.atl-hint-x {
+  min-height: 30px;
+}
+
+.atl-status {
+  left: var(--s4);
+  bottom: var(--s4);
+  max-width: calc(100% - 260px);
+  margin: 0;
+  padding: 6px var(--s3);
+  border-radius: var(--radius-ctl);
+  color: var(--ink);
+  font-size: var(--step--1);
+  font-weight: 550;
+  font-variation-settings: "wdth" 92;
+}
+.atl-status:empty {
+  display: none;
+}
+
+.atl-zoom {
+  right: var(--s4);
+  bottom: var(--s4);
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-ctl);
+}
+.atl-zoom button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0 var(--s3);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.atl-zoom button[data-zoom="all"] {
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+.atl-zoom button:hover {
+  background: var(--sheet-2);
+}
+.atl-stage.has-drawer .atl-zoom {
+  right: calc(min(400px, 42%) + var(--s4) * 2);
+}
+
+.atl-tip {
+  top: 0;
+  left: 0;
+  z-index: 4;
+  padding: 4px 10px;
+  border-radius: var(--radius-panel);
+  font-size: var(--step--1);
+  font-weight: 550;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.atl-pin {
+  top: 0;
+  left: 0;
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--radius-panel);
+}
+.atl-pin-coords {
+  font-weight: 600;
+  font-variation-settings: "wdth" 92;
+}
+.atl-pin-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.atl-pin-x,
+.atl-dr-x {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-2);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.atl-pin-x:hover,
+.atl-dr-x:hover {
+  background: var(--sheet-2);
+  color: var(--ink);
+}
+
+/* ---- the drawer: right on desktop ---- */
+.atl-drawer {
+  top: var(--s4);
+  right: var(--s4);
+  bottom: var(--s4);
+  width: min(400px, 42%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s4) var(--s5) var(--s5);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-plate);
+}
+.atl-dr-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-right: calc(-1 * var(--s2));
+}
+.atl-dr-title {
+  flex: 1;
+  font-size: var(--step-2);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+/* The title takes focus when the drawer opens, so a screen reader starts there; it isn't a control. */
+.atl-dr-title:focus,
+.atl-dr-title:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.atl-dr-meaning {
+  margin-top: var(--s1);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.atl-dr-why {
+  margin-top: var(--s4);
+  text-wrap: pretty;
+}
+.atl-dr-key {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: var(--s4);
+  color: var(--pencil-red);
+  line-height: 1;
+}
+.atl-dr-num {
+  font-size: 2.75rem;
+  font-weight: 650;
+  font-variation-settings: "wdth" 85;
+  letter-spacing: -0.02em;
+}
+.atl-dr-unit {
+  font-size: var(--step-1);
+  font-weight: 600;
+  font-variation-settings: "wdth" 85;
+}
+.atl-dr-keydetail {
+  margin-top: var(--s2);
+  color: var(--ink-2);
+  font-variation-settings: "wdth" 92;
+}
+.atl-dr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: var(--s3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.atl-dr-chips li {
+  padding: 2px 10px;
+  border-radius: var(--radius-ctl);
+  background: var(--sheet-2);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+/* "Check first" codes: the same chip, outlined in the warning colour rather than filled. */
+.atl-dr-chips li.is-caution {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--warn);
+}
+.atl-dr-caution {
+  margin-top: var(--s3);
+  color: var(--warn);
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+.atl-dr-mini {
+  margin-top: var(--s5);
+}
+.atl-mini-plate {
+  width: 100%;
+  max-width: 300px;
+  aspect-ratio: 1;
+  padding: 6px;
+  background: var(--sheet-2);
+  border-radius: var(--radius-plate);
+}
+.atl-mini-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.atl-mini-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s2);
+}
+.atl-mini-bar .btn {
+  min-height: 32px;
+  padding: 0 var(--s3);
+}
+.atl-mini-cap {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 92;
+}
+.atl-dr-mini-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--glass);
+  border-radius: var(--radius-plate);
+  /* A blank plate: fine diagonal hatch, never a checkerboard. */
+  background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(24, 32, 46, 0.045) 7px 8px);
+}
+.atl-dr-mini-empty p {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.atl-dr-facts {
+  display: grid;
+  gap: 6px;
+  margin: var(--s5) 0 0;
+}
+.atl-dr-facts > div {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: var(--s3);
+  align-items: baseline;
+}
+.atl-dr-facts dt {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+.atl-dr-facts dd {
+  margin: 0;
+  font-variation-settings: "wdth" 92;
+}
+.atl-dr-copy {
+  margin-left: var(--s1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pencil-blue);
+  font-size: var(--step--1);
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.atl-dr-votes {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.atl-dr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+.atl-dr-actions a.btn {
+  text-decoration: none;
+}
+.atl-dr-id {
+  margin-top: var(--s4);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variation-settings: "wdth" 85;
+  word-break: break-all;
+}
+
+/* ---- the SVG fallback: the same marks on a flat map ---- */
+.atl-svgmap {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+.atl-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font);
+}
+.atl-svg-sky {
+  fill: var(--glass);
+  stroke: var(--hair-strong);
+  stroke-width: 1;
+}
+.atl-svg-glass {
+  fill: var(--glass);
+}
+.atl-svg-grid {
+  fill: none;
+  stroke: var(--hair);
+  stroke-width: 0.75;
+}
+.atl-svg-plane {
+  fill: none;
+  stroke: var(--pencil-violet);
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.atl-svg-note {
+  fill: var(--pencil-violet);
+  font-size: 11px;
+  font-weight: 550;
+  paint-order: stroke;
+  stroke: var(--glass);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.atl-svg-cell {
+  fill: var(--pencil-red);
+  stroke: var(--pencil-red);
+  stroke-width: 1;
+  cursor: pointer;
+}
+.atl-svg-count {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  font-stretch: 87.5%;
+  text-anchor: middle;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--glass);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+.atl-svg-count.is-dark {
+  fill: var(--sheet);
+  stroke: var(--pencil-red);
+}
+.atl-svg-zone {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.7;
+  stroke-width: 1.25;
+  pointer-events: none;
+}
+.atl-svg-zone-label,
+.atl-svg-target text {
+  fill: var(--ink);
+  font-size: 12.5px;
+  font-weight: 650;
+  font-stretch: 87.5%;
+  paint-order: stroke;
+  stroke: var(--glass);
+  stroke-width: 3.5px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.atl-svg-target path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.atl-svg-mark path {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+.atl-svg-target path.atl-svg-halo,
+.atl-svg-mark path.atl-svg-halo {
+  stroke: var(--glass);
+  stroke-width: 4;
+  opacity: 0.75;
+}
+.atl-svg-mark.is-selected path {
+  stroke-width: 2.5;
+  opacity: 1;
+}
+.atl-svg-mark .atl-svg-reticle {
+  stroke: var(--ink);
+}
+.atl-svg-scale path {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.atl-svg-scale text {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  dominant-baseline: central;
+}
+/* The fallback has no projection or background to choose. */
+.is-fallback .atl-status {
+  max-width: calc(100% - 200px);
+}
+
+/* ---- under the map: the key, the list, the source ---- */
+.atl-below {
+  display: grid;
+  gap: var(--s3);
+  padding-top: var(--s4);
+}
+.atl-key {
+  max-width: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.9;
+}
+.atl-key .atl-ico {
+  vertical-align: -4px;
+}
+.atl-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin: 0 4px 0 2px;
+  vertical-align: -2px;
+  border: 1px solid rgba(207, 35, 56, calc(var(--a) + 0.2));
+  border-radius: 2px;
+  background: rgba(207, 35, 56, var(--a));
+}
+.atl-key-zone {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  border: 1.25px solid var(--ink);
+  opacity: 0.75;
+}
+.atl-list-toggle {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.atl-list-toggle::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+.atl-list-toggle[aria-expanded="true"]::after {
+  transform: translateY(1px) rotate(-135deg);
+}
+.atl-list-toggle:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.atl-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 2px var(--s5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.atl-list-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--s2);
+  width: 100%;
+  min-height: 44px;
+  padding: 6px var(--s2);
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.atl-list-item:hover {
+  background: var(--sheet-2);
+}
+.atl-list-item > .atl-ico,
+.atl-list-item > .atl-swatch {
+  grid-row: span 2;
+  align-self: center;
+}
+.atl-list-pos {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 92;
+}
+.atl-list-more {
+  padding: var(--s2);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.atl-source {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+.atl-source:empty {
+  display: none;
+}
+
+/* ---- pencil icons (chips, key, list, drawer) ---- */
+.atl-ico {
+  flex: none;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.atl-ico-red {
+  stroke: var(--pencil-red);
+}
+.atl-ico-violet {
+  stroke: var(--pencil-violet);
+}
+.atl-ico-ink {
+  stroke: var(--ink);
+}
+
+/* ---- narrower screens ---- */
+@media (max-width: 1100px) {
+  .atl-find-input {
+    width: 12rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .atl-intro {
+    padding-top: 0;
+  }
+  .atl-lede {
+    font-size: var(--step-0);
+  }
+  .atl-intro-side {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .atl-controls {
+    display: grid;
+    gap: var(--s2);
+  }
+  /* Choices scroll sideways rather than wrapping into a wall of buttons. */
+  .atl-controls-main {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 calc(-1 * var(--s4));
+    padding: 2px var(--s4);
+  }
+  .atl-controls-main > * {
+    flex: none;
+  }
+  .atl-controls-side {
+    flex-wrap: nowrap;
+  }
+  .atl-find {
+    flex: 1;
+    min-width: 0;
+  }
+  .atl-find-input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  /* Square-ish: the globe fills the width with a margin above and below, and fits on screen. */
+  .atl-stage {
+    height: min(70svh, calc(var(--atl-vw, 100vw) + 64px));
+    min-height: 380px;
+  }
+  /* The flat whole-sky map is 2:1; a tall stage would leave it floating in white. */
+  .atl-stage.is-fallback.is-whole {
+    height: calc(var(--atl-vw, 100vw) * 0.5 + 120px);
+    min-height: 0;
+  }
+  .atl-hint {
+    top: var(--s2);
+    left: var(--s2);
+    right: var(--s2);
+    flex-wrap: wrap;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+    border-radius: var(--radius-panel);
+  }
+  .atl-hint ol {
+    flex-wrap: wrap;
+    gap: var(--s1) var(--s3);
+  }
+  .atl-status {
+    left: var(--s2);
+    bottom: calc(var(--s2) + 44px);
+    max-width: calc(100% - 2 * var(--s2));
+  }
+  .atl-zoom {
+    right: var(--s2);
+    bottom: var(--s2);
+  }
+  .atl-stage.has-drawer .atl-zoom {
+    right: var(--s2);
+  }
+  /* The drawer becomes a bottom sheet over the page. */
+  .atl-drawer {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 56svh;
+    z-index: 40;
+    padding: var(--s3) var(--s4) var(--s5);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -12px 40px -12px rgba(24, 32, 46, 0.45);
+  }
+  .atl-drawer::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 0 auto var(--s2);
+    border-radius: 2px;
+    background: var(--hair-strong);
+  }
+  .atl-dr-facts > div {
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+  .atl-mini-plate {
+    max-width: 240px;
+  }
+}
