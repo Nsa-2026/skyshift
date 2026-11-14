@@ -41,7 +41,7 @@ it('offers feedback for uncertainty, resumes locally and completes without submi
   h.load('rwaur');h.click('[data-answer="changing"]');h.click('[data-practice="next"]');
   expect(h.task.textContent).toContain('Guided practice complete');
   expect(kv.get(PRACTICE_KEY)).toBe('done');
-  expect(h.panel.querySelector('a[href="#/review"]')).not.toBeNull();
+  expect(h.panel.querySelector('a[href="#/analyze/review"]')).not.toBeNull();
   expect(readPractice(kv)).toHaveLength(3);
   h.click('[data-practice="restart"]');
   expect(readPractice(kv)).toHaveLength(0);expect(h.target).toHaveBeenLastCalledWith('elpis');

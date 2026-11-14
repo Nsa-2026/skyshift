@@ -15,7 +15,7 @@ describe('workspace deep links',()=>{
   });
   it('provides direct links for every level',()=>{
     expect(workspaceHref('explore')).toBe('#/explore');
-    expect(workspaceHref('analyze','lightcurve')).toBe('#/explore/analyze/lightcurve');
-    expect(workspaceHref('research','validation')).toBe('#/explore/research/validation');
+    expect(workspaceHref('analyze','lightcurve')).toBe('#/analyze/lightcurve');
+    expect(workspaceHref('research','validation')).toBe('#/research/validation');
   });
 });

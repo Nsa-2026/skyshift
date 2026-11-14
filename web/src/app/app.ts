@@ -19,6 +19,7 @@ import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceState, workspaceHref} from "../product/workspace-state";
 import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
+import {AREA_FEATURES,AREA_LABELS,areaRoute} from './navigation';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
@@ -39,9 +40,6 @@ const PAGE_TITLES: Record<string, string> = {
   tools: "Tools and data",
   about: "About",
 };
-/** Flip to true when src/atlas replaces its placeholder. */
-const ATLAS_READY = true;
-
 export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
   root.innerHTML = html`
@@ -50,24 +48,22 @@ export function startApp(root: HTMLElement): void {
         <a class="wordmark" href="./" aria-label="SkyShift home">SkyShift</a>
         <p class="lede">Find what moves in NASA's SPHEREx sky, together.</p>
       </div>
-      <form class="find" role="search">
-        <label class="visually-hidden" for="q">Coordinates or a featured name</label>
-        <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
-          placeholder="Paste coordinates, e.g. 08h55m10.831s -7d14m42.53s" />
-        <button class="btn btn-primary find-go" type="submit">Blink</button>
-      </form>
-      <nav class="nav" aria-label="Pages">
-        <a href="#/sky" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
-        <a href="#/candidates" data-route="discover">To check</a>
-        <a href="#/review" data-route="review">Review</a>
-        <a href="#/explore" data-route="explore">Workspace</a>
-        <a href="#/live" data-route="live">Live search</a>
-        <a href="#/community" data-route="community">Community</a>
-        <a href="#/results" data-route="results">Results</a>
-        <a href="#/learn" data-route="learn">Learn</a>
+      <nav class="nav" aria-label="Workspace view">
+        <a href="#/explore" data-level="explore">Explore</a>
+        <a href="#/analyze" data-level="analyze">Analyze</a>
+        <a href="#/research" data-level="research">Research</a>
       </nav>
-      <div class="details-slot"></div>
     </header>
+    <div class="area-features" ${embed?'hidden':''}>
+      <nav class="feature-nav" aria-label="Explore features"></nav>
+      <div class="details-slot"></div>
+    </div>
+    <form class="find" role="search" ${embed?'hidden':''}>
+      <label class="visually-hidden" for="q">Coordinates or a featured name</label>
+      <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
+        placeholder="Paste coordinates, e.g. 08h55m10.831s -7d14m42.53s" />
+      <button class="btn btn-primary find-go" type="submit">Blink</button>
+    </form>
     <section class="featured" data-only="explore" aria-label="Featured targets" ${embed ? "hidden" : ""}>
       <span class="featured-label" id="featured-label">Try</span>
       <div class="featured-list" role="group" aria-labelledby="featured-label" style="display:contents">
@@ -85,11 +81,6 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-blink" data-page="explore" hidden>
       <header class="workspace-head">
         <div><p class="workspace-eyebrow">Your workspace</p><h1 id="blink-h1">Explore the sky</h1><p class="workspace-description"></p><a class="btn btn-primary workspace-practice" href="#/explore/play">Try guided practice →</a></div>
-        <nav class="workspace-modes" aria-label="Workspace view">
-          <a href="#/explore" data-level="explore">Explore</a>
-          <a href="#/explore/analyze" data-level="analyze">Analyze</a>
-          <a href="#/explore/research" data-level="research">Research</a>
-        </nav>
       </header>
       <section class="practice-task" aria-label="Practice task" hidden></section>
       <section class="practice-panel" aria-label="Guided practice" hidden></section>
@@ -206,7 +197,8 @@ export function startApp(root: HTMLElement): void {
     const { push = true, objectToo = true } = opts;
     if (current !== "explore") {
       exploreStarted = true;
-      history.replaceState(null, "", `${location.pathname}${location.search}#/explore`);
+      const mode=parseRoute().mode;
+      history.replaceState(null, "", `${location.pathname}${location.search}${workspaceHref(mode,lastTabs[mode]??'')}`);
       route();
     }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
@@ -369,20 +361,10 @@ export function startApp(root: HTMLElement): void {
   const lastTabs:Record<string,string>={analyze:'motion',research:'data'};
   let exploreStarted = false;
 
-  function parseRoute(): { page: string; param: string | null } {
-    const h = location.hash.replace(/^#\/?/, "");
-    const [head, ...rest] = h.split("/");
-    if (head === "c" && rest.length) return { page: "candidate", param: decodeURIComponent(rest.join("/")) };
-    if (head === "score" || head === "results") return { page: "results", param: null };
-    if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
-    if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
-    if (["review", "explore", "community", "about", "learn", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
-    // The first workspace level is the default entry. The atlas keeps its explicit /sky route.
-    return { page: "explore", param: null };
-  }
+  function parseRoute() {return areaRoute(location.hash);}
 
   function route() {
-    const { page, param } = parseRoute();
+    const { page, param, mode, feature } = parseRoute();
     const practicing=page==='explore' && workspaceState(param).tab==='play';
     if (current && current !== page) pages.get(current)?.hide?.();
     blink.active?.(page === 'explore');
@@ -394,10 +376,6 @@ export function startApp(root: HTMLElement): void {
     document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
-    const navKey = page === "candidate" ? "review" : page;
-    root.querySelectorAll<HTMLAnchorElement>(".nav a").forEach((a) =>
-      a.dataset.route === navKey ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
-    );
     if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
@@ -417,14 +395,22 @@ export function startApp(root: HTMLElement): void {
       $<HTMLElement>('.practice-panel').hidden=!practicing;
       $<HTMLElement>('.workspace-description').textContent=MODES[state.mode].description;
       $<HTMLHeadingElement>('#blink-h1').textContent=MODES[state.mode].title;
-      root.querySelectorAll<HTMLAnchorElement>('[data-level]').forEach(a=>{
-        const mode=a.dataset.level as typeof state.mode;
-        a.href=workspaceHref(mode,lastTabs[mode]??'');
-        if(a.dataset.level===state.mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
-      });
       workbench.mode(state);
       if(practicing)practice.show();
     }
+    root.querySelectorAll<HTMLAnchorElement>('[data-level]').forEach(a=>{
+      const area=a.dataset.level as typeof mode;
+      a.href=workspaceHref(area,lastTabs[area]??'');
+      if(area===mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
+    });
+    root.dataset.area=mode;
+    const featureNav=$<HTMLElement>('.feature-nav');
+    featureNav.setAttribute('aria-label',`${AREA_LABELS[mode]} features`);
+    featureNav.innerHTML=AREA_FEATURES[mode].map(item=>{
+      const href=item.id==='measurements'?workspaceHref('analyze',lastTabs.analyze):item.id==='methods'?workspaceHref('research',lastTabs.research):item.href;
+      return `<a href="${href}" data-feature="${item.id}" ${item.id===feature?'aria-current="page"':''}>${item.label}</a>`;
+    }).join('');
+    $<HTMLFormElement>('.find').hidden=embed||page!=='explore';
     $<HTMLElement>('.details-slot').hidden=page === 'explore';
     const mount = pageMounts[page];
     if (mount) {
