@@ -672,6 +672,9 @@ def stats_from_sources(sources: pd.DataFrame) -> pd.DataFrame:
 
     from .spectra import NCH_DET, NDET
 
+    if len(sources) == 0:  # nothing selected (pilot, 14 Nov): an empty list, not a crash in np.stack
+        return pd.DataFrame({"source_id": np.zeros(0, np.int64), "det": np.zeros(0, np.int64), "snr": np.zeros(0),
+                             "flux_ujy": np.zeros(0)})
     f = np.stack(sources["flux_ujy"].to_numpy()).astype(np.float64).reshape(len(sources), NDET, NCH_DET)
     e = np.stack(sources["err_ujy"].to_numpy()).astype(np.float64).reshape(len(sources), NDET, NCH_DET)
     with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
