@@ -59,5 +59,13 @@ def test_crop_centre_and_noop():
     f = np.ma.masked_array(np.arange(100.0).reshape(10, 10), mask=np.zeros((10, 10), bool))
     assert fr.crop(f, 6.0, None) is f
     assert fr.crop(f, 6.0, 10.0) is f  # larger than the frame
-    c = fr.crop(f, 6.0, 0.9)  # 54″ = 9 px → half 4 (minimum) → 9×9
-    assert c.shape == (9, 9) and c[4, 4] == f[4, 4]
+    # 54″ = 9 px → half 4 (minimum). The centre of an even frame (4.5, 4.5) falls between pixels,
+    # so the crop is 8×8 (rows/columns 1–8) and keeps that centre at its own centre (3.5, 3.5).
+    c = fr.crop(f, 6.0, 0.9)
+    assert c.shape == (8, 8) and c[0, 0] == f[1, 1] and c[7, 7] == f[8, 8]
+    assert fr.crop_origin(f.shape, 6.0, 0.9) == (1, 1)
+    # odd frame: centre pixel (5, 5) stays the centre pixel (4, 4) of a 9×9 crop
+    g = np.ma.masked_array(np.arange(121.0).reshape(11, 11), mask=np.zeros((11, 11), bool))
+    cg = fr.crop(g, 6.0, 0.9)
+    assert cg.shape == (9, 9) and cg[4, 4] == g[5, 5]
+    assert fr.crop_origin(g.shape, 6.0, None) == (0, 0)

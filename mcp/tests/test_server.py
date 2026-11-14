@@ -55,6 +55,13 @@ def test_blink_zoom(offline):
     assert meta["image_field_arcmin"] < meta["field_arcmin"]
 
 
+def test_blink_clock_without_fov_uses_default_field(offline):
+    meta, _ = _png(run(server.blink(target="Barnard's Star", clock="months")))
+    assert meta["source"].endswith("/data/barnard/frames_months_5.json")
+    meta, _ = _png(run(server.blink(target="Barnard's Star", clock="hours")))
+    assert meta["source"].endswith("/data/barnard/frames_hours_20.json")
+
+
 def test_blink_coordinates_go_live(offline):
     meta, _ = _png(run(server.blink(ra=10.0, dec=20.0)))
     assert meta["source"] == "live /api/frames"
