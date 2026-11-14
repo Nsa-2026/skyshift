@@ -22,8 +22,10 @@ export function legacyHash(hash: string): string | null {
   }
   if (head === "research") {
     if (feature === "live") return "#/live";
-    if (feature === "results") return "#/results";
-    // Data & methods, Tools & API.
+    if (feature === "results" || feature === "validation") return "#/results";
+    // Research opened on Data & methods: the Tools page's section of that name.
+    if (!feature || feature === "data" || feature === "processing") return "#/tools/methods";
+    // Sensitivity, export, Tools & API.
     return "#/tools";
   }
   return null;
