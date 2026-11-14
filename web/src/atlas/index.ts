@@ -570,7 +570,13 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     selected = null;
     chain = new Set();
     if (had) map?.update(model());
-    if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+    // The list re-renders when the map flies to a signal, so the button that opened the drawer may
+    // be gone: fall back to its new copy, then the map, never to the page's top.
+    const back =
+      lastFocus && document.contains(lastFocus)
+        ? lastFocus
+        : ([...listEl.querySelectorAll<HTMLElement>("button[data-id]")].find((b) => had && b.dataset.id === had.id) ?? mapEl);
+    back.focus({ preventScroll: true });
     lastFocus = null;
   }
 
