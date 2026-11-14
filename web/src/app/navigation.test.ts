@@ -1,7 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {SCREENS,siteRoute,viewerHref,viewerState} from './navigation';
 import {communityHash,legacyHash} from './legacy-routes';
-import {routeQuery} from '../discover/filters';
 
 /** What the shell does: rewrite an old link first, then resolve it. */
 const resolve=(hash:string,search='',advanced=false)=>{
@@ -27,6 +26,7 @@ describe('four screens',()=>{
     expect(siteRoute('#/c/shape%2Fexample')).toMatchObject({page:'candidate',param:'shape/example',screen:'viewer'});
     expect(siteRoute('#/candidates/kind=mover')).toMatchObject({page:'discover',param:'kind=mover',screen:'check'});
     expect(siteRoute('#/review')).toMatchObject({page:'review',screen:'check'});
+    expect(siteRoute('#/community')).toMatchObject({page:'community',screen:'check'});
     expect(siteRoute('#/results')).toMatchObject({page:'results',screen:'results'});
     expect(siteRoute('#/live')).toMatchObject({page:'live',screen:'results'});
     expect(siteRoute('#/tools/api')).toMatchObject({page:'tools',param:'api',screen:'results'});
@@ -49,7 +49,7 @@ describe('four screens',()=>{
 
 describe('old links',()=>{
   it('leave the site\'s own hashes alone',()=>{
-    for(const h of ['','#/','#/sky/1,2,3','#/explore','#/explore/spectrum','#/c/hunt-1','#/candidates/kind=mover','#/candidates/one=1','#/results','#/learn/stories','#/tools','#/live'])
+    for(const h of ['','#/','#/sky/1,2,3','#/explore','#/explore/spectrum','#/c/hunt-1','#/candidates/kind=mover','#/candidates/one=1','#/community','#/results','#/learn/stories','#/tools','#/live'])
       expect(legacyHash(h)).toBeNull();
   });
   it('map the area-first Explore links',()=>{
@@ -57,7 +57,7 @@ describe('old links',()=>{
     expect(resolve('#/explore/learn/stories')).toMatchObject({page:'learn',param:'stories'});
     expect(resolve('#/explore/play')).toMatchObject({page:'explore',workspace:{tab:'play'}});
     expect(legacyHash('#/explore/community')?.hash).toBe(communityHash());
-    expect(routeQuery(communityHash())).toContain('consensus');
+    expect(resolve('#/explore/community')).toMatchObject({page:'community',screen:'check'});
   });
   it('map Analyze to the Viewer\'s sections with Advanced on, and keep filters and ids',()=>{
     expect(legacyHash('#/analyze')).toEqual({hash:'#/explore',advanced:true});
@@ -77,8 +77,9 @@ describe('old links',()=>{
     expect(legacyHash('#/research/export')).toEqual({hash:'#/explore/export',advanced:true});
     expect(legacyHash('#/research')).toEqual({hash:'#/explore/data',advanced:true});
   });
-  it('map the community page and the score page',()=>{
-    expect(legacyHash('#/community')?.hash).toBe(communityHash());
+  it('keep the community page reachable and map the score page',()=>{
+    expect(communityHash()).toBe('#/community');
+    expect(resolve('#/community')).toMatchObject({page:'community',screen:'check'});
     expect(resolve('#/score')).toMatchObject({page:'results'});
   });
 });

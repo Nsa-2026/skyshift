@@ -110,6 +110,18 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
       </div>`
           : html`<header class="cm-head">
         <h1 class="cm-title">Community</h1>
+        <article class="cm-welcome" aria-labelledby="cm-welcome-h">
+          <h2 id="cm-welcome-h">A note to fellow sky explorers</h2>
+          <p>Welcome to SkyShift, an open astronomy platform for anyone curious about the universe. Here, you can
+            explore NASA's public SPHEREx infrared images, compare observations across time, and help look for
+            things that move or change.</p>
+          <p>Whether you're a lifelong astronomy enthusiast or looking at sky survey images for the first time,
+            you're welcome here. Take your time, follow your curiosity, and learn as you go. Every careful look
+            counts, and “not sure” is a useful answer too.</p>
+          <p>We built SkyShift to share the joy of exploring the sky. Thank you for being part of it. Have fun,
+            enjoy the unexpected, and happy skywatching!</p>
+          <p class="cm-welcome-signature">— The SkyShift team</p>
+        </article>
         <p class="cm-lead" aria-live="polite">Counting votes…</p>
         <p class="cm-source"></p>
         <p class="cm-cta">

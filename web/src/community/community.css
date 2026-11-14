@@ -1,5 +1,5 @@
 /* Community and About (web/DESIGN.md "Lightbox"). Quiet ink on glass, separated by space.
-   Community's one bold thing is the opening sentence: what people have done, in numbers.
+   Community opens with a welcome note, followed by what people have done, in numbers.
    About's is the two-clock drawing. Panels only under tables and the chart. */
 
 /* ---- shared ------------------------------------------------------------------------------- */
@@ -93,6 +93,21 @@
   display: grid;
   gap: var(--s4);
   justify-items: start;
+}
+.cm-welcome {
+  display: grid;
+  gap: var(--s3);
+  max-width: 68ch;
+  padding-block: var(--s3) var(--s6);
+  border-bottom: 1px solid var(--hair);
+}
+.cm-welcome p {
+  max-width: none;
+  color: var(--ink-2);
+}
+.cm-welcome .cm-welcome-signature {
+  color: var(--ink);
+  font-weight: 600;
 }
 .cm-lead {
   max-width: 31em;
