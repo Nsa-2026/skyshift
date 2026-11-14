@@ -38,7 +38,7 @@ P4 blink, votes and pitch.
 | NASA data named one by one | done | P4 | SPHEREx DR1 and QR3, all-sky cube, MOST, the 3I/ATLAS table, 2MASS, AllWISE, CatWISE2020, docs. |
 | Partner data (ESA Gaia DR3) listed | done | P4 | In its own field. |
 | Every library, service and paper listed | done | P4 | README "Data and credits" and the page's "Other references". Add any library added after 14 Nov. |
-| SPHEREx acknowledgement and its two citations, word for word | todo | P1 | From IRSA's SPHEREx mission page: Bock et al. 2026, Akeson et al. 2026. Also the standard Gaia acknowledgement. README and page both have a placeholder. |
+| SPHEREx acknowledgement and its citations, word for word | done | P1 | Copied 14 Nov from IRSA's SPHEREx mission page and DR1 overview (acknowledgement, IRSA statement, DOIs IRSA678/662/679, canonical papers Bock, Akeson, Korngut, Crill) plus the standard Gaia acknowledgement and DR3 citations. In README and project-page.md. |
 | Aladin Lite licence (GPL-3.0) stated | done | P3 | Loaded at run time, not bundled. |
 | Our licence (Apache-2.0) | done | P1 | `LICENSE` in the repo root. |
 
