@@ -12,7 +12,7 @@ export interface KindText {
 export const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral"];
 
 export const KIND_TEXT: Record<CandidateKind, KindText> = {
-  mover: { name: "Fast mover", plural: "Fast movers", gist: "Moves within hours: maybe an uncatalogued asteroid or comet." },
+  mover: { name: "Fast mover", plural: "Fast movers", gist: "Seems to move within hours: maybe an uncatalogued asteroid or comet. Most fast movers are seen in only two exposures of one session, which can't show motion by itself: blink it and look for a steady step." },
   high_pm: { name: "Moving star", plural: "Moving stars", gist: "Moves between visits: maybe a nearby star or brown dwarf." },
   spectral: { name: "Odd spectrum", plural: "Odd spectra", gist: "Molecule bands or colours worth a look." },
 };

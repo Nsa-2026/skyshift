@@ -166,7 +166,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   el.innerHTML = html`
     <div class="skymap-bar">
       <div class="seg" role="group" aria-label="Map extent">
-        <button type="button" data-zoom="fit" title="Zoom to the candidates">Close up</button>
+        <button type="button" data-zoom="fit" title="Zoom to the objects to check">Close up</button>
         <button type="button" data-zoom="sky" title="The whole sky">Whole sky</button>
       </div>
       <div class="seg" role="group" aria-label="Coordinates">
@@ -373,7 +373,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const spanDeg = Math.round((W / k / D2R) * 10) / 10;
     caption.textContent =
       zoom === "fit"
-        ? `${zone ? `The ${zone} zone` : "Zoomed to the candidates"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
+        ? `${zone ? `The ${zone} zone` : "Zoomed to the objects to check"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
         : "The whole sky, north up, east left. The shaded band is the Milky Way plane, where stars crowd.";
     renderLegend();
     drawHot();
@@ -533,8 +533,8 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     plot.setAttribute(
       "aria-label",
       filtered.length
-        ? `Sky map of ${filtered.length} candidates. Arrow keys step through them; Enter opens one.`
-        : "Sky map. No candidates match the filters.",
+        ? `Sky map of ${filtered.length} objects to check. Arrow keys step through them; Enter opens one.`
+        : "Sky map. Nothing matches the filters.",
     );
   }
 

@@ -131,6 +131,6 @@ describe("the whole-sky caption", () => {
   it("says why it shows fewer than the total", () => {
     expect(shownSentence(1250, 83, 2)).toBe("1,250 shown; 83 likely mismatches hidden.");
     expect(shownSentence(1250, 1, 2)).toBe("1,250 shown; 1 likely mismatch hidden.");
-    expect(shownSentence(1333, 0, 2)).toBe("1,333 candidates in 2 zones.");
+    expect(shownSentence(1333, 0, 2)).toBe("1,333 objects to check in 2 zones.");
   });
 });
