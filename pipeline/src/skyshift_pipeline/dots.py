@@ -873,14 +873,38 @@ def _retry(fn):
             time.sleep(5 * attempt)
 
 
+def spread_limit(todo: list, limit: int | None) -> list:
+    """At most `limit` photos of `todo` (rows with .detector, in (mjd, detector) order), spread over the
+    detectors (round-robin quota) and, within a detector, evenly over time (each detector shifted so they
+    don't all pick the same exposures). The first `limit` rows were all one visit and ~2 exposures."""
+    if limit is None or len(todo) <= limit:
+        return list(todo)
+    by_det: dict[int, list[int]] = {}
+    for i, r in enumerate(todo):
+        by_det.setdefault(int(r.detector), []).append(i)
+    dets = sorted(by_det)
+    quota = {d: 0 for d in dets}
+    left = limit
+    while left > 0:
+        for d in dets:
+            if left > 0 and quota[d] < len(by_det[d]):
+                quota[d] += 1
+                left -= 1
+    keep = []
+    for rank, d in enumerate(dets):
+        idx, q = by_det[d], quota[d]
+        shift = (rank + 0.5) / len(dets)
+        keep += [idx[min(len(idx) - 1, int((k + shift) * len(idx) / q))] for k in range(q)]
+    return [todo[i] for i in sorted(set(keep))]
+
+
 def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> dict:
     t_start = time.time()
     photos = store.read_parquet(photolist_rel(zone.name)).sort_values(["mjd", "detector"]).reset_index(drop=True)
     done = {n for n in store.listdir("dots") if n.endswith(".parquet")}
     todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" not in done]
     n_done_before = len(photos) - len(todo)
-    if limit is not None:
-        todo = todo[:limit]
+    todo = spread_limit(todo, limit)
     L.info("dots %s: %d photos, %d already done, %d to do now, %d workers", zone.name, len(photos), n_done_before, len(todo), workers)
     stats: list[dict] = []
     if todo:

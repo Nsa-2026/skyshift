@@ -30,6 +30,15 @@ class Zone:
 ZONES: dict[str, Zone] = {
     "hunt": Zone("hunt", 120.5, 130.5, 14.4, 24.4),     # 100 deg² on the ecliptic
     "pilot": Zone("pilot", 120.5, 124.1, 14.4, 17.9),   # 12 deg², the hunt zone's corner
+    # All-sky test (14 Nov, docs/research/2026-11-14-allsky-test.md): 0.5° × 0.5° on the sky around sky types the
+    # pilot never saw; run photolist, refcat, dots --limit only (every photo covers the whole box).
+    "t_cygnus": Zone("t_cygnus", 304.674, 305.326, 39.75, 40.25),    # Galactic plane, Cygnus (b ≈ +2.5°)
+    "t_gc": Zone("t_gc", 265.714, 266.286, -29.25, -28.75),          # towards the Galactic centre (b ≈ −0.3°)
+    "t_lmc": Zone("t_lmc", 80.176, 81.624, -70.05, -69.55),          # Large Magellanic Cloud bar
+    "t_smc": Zone("t_smc", 12.355, 14.045, -73.05, -72.55),          # Small Magellanic Cloud
+    "t_nep": Zone("t_nep", 269.372, 270.628, 66.31, 66.81),          # north ecliptic pole
+    "t_sep": Zone("t_sep", 89.372, 90.628, -66.81, -66.31),          # south ecliptic pole
+    "t_ngp": Zone("t_ngp", 192.579, 193.141, 26.88, 27.38),          # north Galactic pole
 }
 
 # --- photo search ----------------------------------------------------------------------------
