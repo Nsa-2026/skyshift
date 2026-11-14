@@ -1078,7 +1078,8 @@ class Run:
         self.offsets, self.frame_stats = (astrometry.photo_offsets(res) if len(res) else
                                           (pd.DataFrame({"obs_id": [], "detector": [], "oe": [], "on": [], "n_ref": [], "good": []}),
                                            {"photos_corrected": 0}))
-        st.update({"locus": {f"{k}_D{d}": round(v, 5) for (k, d), v in sorted(self.locus.items())}, **self.frame_stats})
+        st.update({"locus": {f"{k[0]}_D{k[1]}" + (f"_s{k[2]}" if len(k) > 2 else ""): round(v, 5)
+                             for k, v in sorted(self.locus.items(), key=lambda kv: tuple(map(str, kv[0])))}, **self.frame_stats})
         self._timed("reduce2", t0)
         return st
 

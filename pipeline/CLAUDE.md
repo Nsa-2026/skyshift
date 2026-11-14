@@ -21,6 +21,11 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   Hunt (14 Nov): ≥ 20σ fires on 0.17% of isolated single Gaia stars (10/5,803) and 21% of Gaia pairs 3–10″ (axis
   within 2° of the pair's); at 6σ 4% vs 77%: faint uncatalogued neighbours are common, so the cut is high. A bright
   catalogued star at 15–35″ also stretches the moments (the annulus): first try's top 4 had one at 15.2″. 49 listed.
+  Review fixes (15 Nov): steady_pa = the SWIR (D1–D3) and MWIR (D4–D6) arms each show it (≥ 2σ) at one PA (≤ 30°);
+  any 2MASS entry within 15″ that isn't the object's own (moved to 2MASS's epoch) explains it; catalogued neighbours to
+  20″ weighted by flux ratio × share of light in the window, summed as a vector, explain it when the projection on the
+  measured PA ≥ 0.25 × excess; galaxy veto (classify galaxy, a good photo-z, or no Gaia star and ext > 1 / size > 1.12).
+  The 49 listed → 5 (#2, #13, #25, #26, #29: the review's keepers): 28 galaxy-like, 17 neighbours (13 of them 2MASS).
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
@@ -223,6 +228,18 @@ The step never raises (errors go to its stats).
   star-forming galaxies (at z ≈ 0; photoz repeats it at the galaxy's redshift as `pah_33_sig_z`).
   Pilot before → after: ice 372 → 2, CO2 ice 3 → 0, CO ice 3 → 0, methane 52 → 0, water vapour 121 → 84,
   CO 2.3 µm 85 → 60, PAH 21 → 4.
+- Review fixes (15 Nov; config SPECTRA_*, LABEL_*, CLASSIFY_*, PHOTOZ_*): spectra errors per dot √((kσ)² + (floor ×
+  channel median)²), floors 1.7–2.5% per detector (k = 1 measured on pairs); single bad dots out (aperture/PSF > 2, or
+  √(a·b) < 0.7 × the stars' at that S/N); a channel > 5σ and > 50% off its ±2 neighbours' median is dropped unless its
+  deviating dots span ≥ 2 visits; `visit_bits` per channel, and a band label needs its window seen in ≥ 2 visits.
+  classify: stellar locus per S/N bin (S/N ≥ 8; stars are 1.23× wider at S/N 8–12 than above 80), parallax ≥ 3σ = star;
+  ice needs catalogue (else synthetic) Vega colours H − K ≥ 0.6, J − H ≥ 1.0 near the reddening line, W1 − W2 < 0.4,
+  no PAH label with it. photoz: `good` needs z > 0.01; `label_pah_33_z` (PAH at the galaxy's z, seen in ≥ 2 visits).
+  Export (clean_labels): PAH only from photoz (or z < 0.02), no ice on a good-photo-z galaxy, no h2o_vapour/co_23 on a
+  Gaia M dwarf (BP − RP ≥ 1.8: expected there); a Gaia G < 20 within 6″ at the epoch counts as a Gaia match (blend);
+  ≤ 20 PAH-only rows. crossid matches 2MASS at its own epoch (pm from Gaia, else CatWISE). The 97 listed (main, 19:07
+  tables) → 9: the two L dwarfs (brown_dwarf_like kept), 6 water vapour, 1 PAH; ice 5 → 0, CO 25 → 1.
+  Rerun per zone: spectra, classify, photoz, then shape and candidates (no re-extraction, no recombine).
 - `brown_dwarf_like`: methane or water seen, red (J − [4.6] AB > −0.5), and missing or very faint in Gaia.
   A lead for a human to check, not a discovery; `bd_evidence` says which bands fired.
 - `mag_ab_*`: brightness from our own spectrum in J, H, K, 3.5 and 4.6 µm windows (AB).

@@ -108,6 +108,21 @@ def all_indices(flux, err, windows: dict | None = None, scale=None) -> dict[str,
     return out
 
 
+def window_visits(vbits: np.ndarray, a: float, b: float, scale=None) -> np.ndarray:
+    """Number of visits that measured the window [a, b] (× scale): the OR of sources.parquet `visit_bits` (N, 102)
+    over the channels the window overlaps, counted."""
+    from .spectra import popcount
+
+    vb = np.atleast_2d(np.asarray(vbits, np.int64))
+    w = window_weights(a, b, scale) > 0
+    return popcount(np.bitwise_or.reduce(np.where(w, vb, 0), axis=1))
+
+
+def band_visits(vbits: np.ndarray, windows: dict | None = None, scale=None) -> dict[str, np.ndarray]:
+    """{index name: number of visits that measured its band window} for every index in config.INDEX_WINDOWS."""
+    return {name: window_visits(vbits, *band, scale=scale) for name, (_, band, _) in (windows or C.INDEX_WINDOWS).items()}
+
+
 def ab_mag(f_ujy) -> np.ndarray:
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(np.asarray(f_ujy) > 0, AB_ZP_UJY - 2.5 * np.log10(f_ujy), np.nan).astype(np.float32)

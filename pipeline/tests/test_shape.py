@@ -33,13 +33,14 @@ def test_photo_jacobians():
     assert np.allclose(out[0], J, atol=1e-6)
 
 
-def _dots(e, pa, n_per_visit, visits=(1, 2), seed=0, sigma=0.05):
+def _dots(e, pa, n_per_visit, visits=(1, 2), seed=0, sigma=0.05, dets=(2, 5)):
     rng = np.random.default_rng(seed)
     rows = []
     for v in visits:
         r1 = e * np.cos(np.deg2rad(2 * pa)) + rng.normal(0, sigma, n_per_visit)
         r2 = e * np.sin(np.deg2rad(2 * pa)) + rng.normal(0, sigma, n_per_visit)
-        rows.append(pd.DataFrame({"source_id": 7, "r1": r1, "r2": r2, "sigma": sigma, "visit": v}))
+        rows.append(pd.DataFrame({"source_id": 7, "r1": r1, "r2": r2, "sigma": sigma, "visit": v,
+                                  "det": np.resize(np.asarray(dets), n_per_visit)}))
     return pd.concat(rows, ignore_index=True)
 
 
@@ -47,14 +48,33 @@ def test_source_shapes_steady_and_noise():
     s = S.source_shapes(_dots(0.20, 40.0, 25))
     r = s.iloc[0]
     assert r["sig"] > S.SHAPE_SIG_MIN and abs(r["pa_deg"] - 40.0) < 5 and bool(r["steady_pa"]) and S.fires(s)[0]
+    assert r["sig_swir"] > 2 and r["sig_mwir"] > 2 and S.pa_diff(r["pa_swir"], r["pa_mwir"]) < 10
     noise = S.source_shapes(_dots(0.0, 0.0, 25, seed=3))
     assert noise.iloc[0]["sig"] < 4 and not S.fires(noise)[0]
+
+
+def test_steady_pa_needs_both_arms():
+    # the same stretch in both visits but only in the short-wavelength detectors: a PSF/detector stretch repeats in
+    # every visit (an ellipse turned 180° is the same ellipse), so the visits agreeing is not steady_pa
+    swir = _dots(0.20, 40.0, 25, dets=(1, 2, 3))
+    mwir = _dots(0.0, 0.0, 25, seed=6, dets=(4, 5, 6))
+    s = S.source_shapes(pd.concat([swir, mwir], ignore_index=True)).iloc[0]
+    assert s["n_visits_shown"] == 2 and s["sig_swir"] > 2 and s["sig_mwir"] < 2 and not bool(s["steady_pa"])
+    # both arms show it, at PAs 60° apart: not steady either
+    other = _dots(0.20, 100.0, 25, seed=6, dets=(4, 5, 6))
+    s2 = S.source_shapes(pd.concat([swir, other], ignore_index=True)).iloc[0]
+    assert s2["sig_mwir"] > 2 and not bool(s2["steady_pa"])
 
 
 def test_source_shapes_one_visit():
     d = pd.concat([_dots(0.10, 120.0, 25, visits=(1,), seed=1), _dots(0.0, 0.0, 25, visits=(2,), seed=2)], ignore_index=True)
     s = S.source_shapes(d)
-    assert bool(s.iloc[0]["one_visit"]) and not bool(s.iloc[0]["steady_pa"])
+    assert bool(s.iloc[0]["one_visit"]) and bool(s.iloc[0]["steady_pa"])  # something passing shows in both arms
+    w = S.shape_why(s.iloc[0].to_dict())
+    assert "in one visit only, as if something passed by, the same way in the short- and long-wavelength" in w
+    swir = pd.concat([_dots(0.10, 120.0, 25, visits=(1,), seed=1, dets=(1, 2)), _dots(0.0, 0.0, 25, visits=(2,), seed=2, dets=(1, 2))])
+    s2 = S.source_shapes(swir.reset_index(drop=True)).iloc[0]
+    assert bool(s2["one_visit"]) and not bool(s2["steady_pa"])  # no long-wavelength dots: the arms can't agree
 
 
 def test_source_shapes_pa_disagrees():
@@ -94,12 +114,40 @@ def test_catalogue_context_and_one_object():
 
 def test_bright_neighbour_beyond_15_arcsec_explains_it():
     d = 1 / 3600
-    ref = pd.DataFrame({"cat": ["gaia", "gaia", "gaia"], "ra": [150.0, 150.0, 150.3], "dec": [2.0, 2.0 + 20 * d, 2.0],
+    ref = pd.DataFrame({"cat": ["gaia", "gaia", "gaia"], "ra": [150.0, 150.0, 150.3], "dec": [2.0, 2.0 + 19.5 * d, 2.0],
                         "g_mag": [15.0, 16.0, 15.0], "w1_mag": [np.nan] * 3, "ruwe": [1.0] * 3, "galaxy_or_qso": [False] * 3})
     ctx = S.catalogue_context(np.array([150.0, 150.3]), np.array([2.0, 2.0]), ref)
     assert ctx["n_wide_explain"].tolist() == [1, 0] and list(S.one_object(ctx)) == [False, True]
-    faint = ref.assign(g_mag=[15.0, 18.0, 15.0])                       # 3 mag fainter at 20″: doesn't explain it
-    assert S.one_object(S.catalogue_context(np.array([150.0]), np.array([2.0]), faint))[0]
+    # 3 mag fainter at 19.5″: outside the wide rule's 2.5 mag, but ~10% of its light falls in the moments' window: e ≈ 0.05
+    faint = ref.assign(g_mag=[15.0, 18.0, 15.0])
+    c3 = S.catalogue_context(np.array([150.0]), np.array([2.0]), faint)
+    assert c3["n_wide_explain"].iloc[0] == 0 and 0.03 < c3["e_neighbours"].iloc[0] < 0.06 and not S.one_object(c3)[0]
+    fainter = ref.assign(g_mag=[15.0, 20.0, 15.0])                    # 5 mag fainter: e ≈ 0.009, doesn't
+    assert S.one_object(S.catalogue_context(np.array([150.0]), np.array([2.0]), fainter))[0]
+    assert np.allclose(S.neighbour_ellipticity([1.0, 0.0], [10.0, 10.0])[1], 0.0)
+
+
+def test_2mass_neighbour_explains_it_but_not_the_objects_own_entry():
+    d = 1 / 3600
+    dt = (51544.5 - 57388.5) / 365.25   # the primary moves 500 mas/yr east: its 2MASS entry sits 8″ west of its Gaia position
+    ref = pd.DataFrame({"cat": ["gaia", "2mass", "2mass"],
+                        "ra": [150.0, 150.0 + 500 * dt / 3.6e6 / np.cos(np.deg2rad(2.0)), 150.0], "dec": [2.0, 2.0, 2.0 + 9 * d],
+                        "epoch_mjd": [57388.5, 51544.5, 51544.5], "pmra": [500.0, np.nan, np.nan], "pmdec": [0.0, np.nan, np.nan],
+                        "g_mag": [15.0, np.nan, np.nan], "w1_mag": [np.nan] * 3, "j_mag": [np.nan, 14.0, 17.5],
+                        "ruwe": [1.0] * 3, "galaxy_or_qso": [False] * 3})
+    ctx = S.catalogue_context(np.array([150.0]), np.array([2.0]), ref)
+    assert ctx["n_tm_explain"].iloc[0] == 1 and not S.one_object(ctx)[0]      # the J 17.5 entry 9″ north
+    own = S.catalogue_context(np.array([150.0]), np.array([2.0]), ref.iloc[:2])
+    assert own["n_tm_explain"].iloc[0] == 0 and own["e_neighbours"].iloc[0] == 0 and S.one_object(own)[0]
+
+
+def test_galaxy_like():
+    t = pd.DataFrame({"class": ["unsure", "unsure", "star", "unsure", "galaxy", "star"],
+                      "galaxy_or_qso": [False] * 6, "gaia_g": [np.nan, np.nan, 17.0, np.nan, 15.0, 16.0],
+                      "extended_score": [1.6, 0.4, 1.6, 0.5, 0.0, 0.0], "size_ratio": [1.0, 1.0, 1.25, 1.2, 1.0, 1.0],
+                      "photoz_good": [False, False, False, False, False, True]})
+    # no Gaia and extended (or too big); a Gaia star may be extended (a pair is); classify's galaxy; a good photo-z
+    assert S.galaxy_like(t).tolist() == [True, False, False, True, True, True]
 
 
 def test_merge_into_is_a_pure_addition(tmp_path):
@@ -138,4 +186,20 @@ def test_score_reasons_why():
     row = {"pa_deg": 37.2, "sig": 8.04, "n_dots": 40, "steady_pa": True, "one_visit": False, "gaia_g": 15.0, "class": "star"}
     assert S.shape_reasons(row) == ["elongated", "steady_pa", "one_catalogue_source"]
     w = S.shape_why(row)
-    assert w.startswith("Looks like two objects here but the catalogues list one") and "PA 37°" in w and "both visits" in w
+    assert w.startswith("Looks like two objects here but the catalogues list one") and "PA 37°" in w
+    assert "short- and long-wavelength detectors" in w
+
+
+def test_neighbour_term_is_projected_on_the_measured_stretch():
+    d = 1 / 3600
+    # a CatWISE neighbour 3 mag fainter 12″ north (PA 0) of a Gaia + CatWISE primary
+    ref = pd.DataFrame({"cat": ["gaia", "catwise", "catwise"], "ra": [150.0, 150.0, 150.0], "dec": [2.0, 2.0, 2.0 + 12 * d],
+                        "g_mag": [15.0, np.nan, np.nan], "w1_mag": [np.nan, 13.0, 16.0], "ruwe": [1.0] * 3, "galaxy_or_qso": [False] * 3})
+    ctx = S.catalogue_context(np.array([150.0]), np.array([2.0]), ref)
+    assert ctx["e_neighbours"].iloc[0] > 0.1 and abs(ctx["e_neighbours_pa"].iloc[0]) < 1
+    t = pd.concat([ctx] * 3, ignore_index=True).assign(pa_deg=[2.0, 90.0, 2.0], excess=[0.2, 0.2, 2.0])
+    # along the neighbour: explained; perpendicular: it would stretch the other way; a stretch 10× the prediction: not
+    assert S.neighbours_explain(t).tolist() == [True, False, False]
+    # the primary has no W1: the CatWISE neighbour has nothing to be weighed against
+    no_w1 = S.catalogue_context(np.array([150.0]), np.array([2.0]), ref.drop(index=1))
+    assert no_w1["e_neighbours"].iloc[0] == 0
