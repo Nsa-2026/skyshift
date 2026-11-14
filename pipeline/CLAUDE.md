@@ -30,7 +30,8 @@ highpm, score, suspects; `all` runs them in order.
   files are never rewritten). spectra: 102 channels (ours, 17 log-spaced per detector), MASK bits out, clipped
   weighted mean per channel, chi2_nu and last/first visit ratio for variability; vectorised, no loop per source.
 - suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
-  no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″.
+  no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″ (from refcat/<zone>.parquet;
+  the services only if that file is missing: 50-circle ESA batches took 30+ min for 30k movers).
 
 ## Facts
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.

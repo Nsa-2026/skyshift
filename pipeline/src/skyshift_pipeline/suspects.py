@@ -7,9 +7,11 @@ A mover becomes a suspect when:
 - the SOURCE bit is not set at the peak pixel of every one of its dots (SOURCE marks catalogue
   stars and compact galaxies to AB ~19);
 - no Gaia DR3 star within GAIA_ARCSEC and no CatWISE2020 source within CATWISE_ARCSEC (faint
-  sources near our limit flicker in and out). Both are asked only around the remaining movers,
-  in batches. If a catalogue can't be reached the suspects are kept with gaia_checked /
-  catwise_checked = false and the summary says so.
+  sources near our limit flicker in and out). Checked locally against refcat/<zone>.parquet
+  (Gaia G < 20 and all of CatWISE2020 over the zone, both moved to the movers' median time).
+  Only without that file are the services asked, around the remaining movers in batches. If a
+  catalogue can't be reached the suspects are kept with gaia_checked / catwise_checked = false
+  and the summary says so.
 Ranked by evidence (two_exposures first), then snr. Written as results/<zone>/suspects.parquet
 and results/<zone>/suspects.json in the contracts/api.md suspects.json shape.
 """
@@ -129,6 +131,28 @@ def catalog_near(ra: np.ndarray, dec: np.ndarray, radius_arcsec: float, sources=
     return hit, ""
 
 
+def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
+                mjd: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """(gaia hit, catwise hit) from refcat/<zone>.parquet, each catalogue moved by proper motion to the
+    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing."""
+    from .refcat import move_to_epoch, refcat_rel
+    rel = refcat_rel(zone.name)
+    if not store.exists(rel):
+        return None
+    r = store.read_parquet(rel, columns=["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec"])
+    t = float(np.median(mjd)) if len(mjd) else 0.0
+    hits = []
+    for cat, arcsec in (("gaia", C.GAIA_ARCSEC), ("catwise", C.CATWISE_ARCSEC)):
+        c = r[r["cat"] == cat]
+        if len(c) == 0 or len(ra) == 0:
+            hits.append(np.zeros(len(ra), bool))
+            continue
+        cra, cdec = move_to_epoch(c, t)
+        sep, _ = SkyTree(cra, cdec).nearest(ra, dec)
+        hits.append(sep <= arcsec + 0.01)
+    return hits[0], hits[1]
+
+
 def gaia_near(ra, dec):
     return catalog_near(ra, dec, C.GAIA_ARCSEC, GAIA_SOURCES)
 
@@ -187,12 +211,20 @@ def run(store: Store, zone: C.Zone) -> dict:
     pred = load_predictions(store, photos, zone)
     s, st = select(movers, fixed, pred)
     st["predictions"] = int(len(pred))
-    gaia, source = gaia_near(s["ra"].to_numpy(float), s["dec"].to_numpy(float)) if len(s) else (np.zeros(0, bool), "none needed")
+    local = refcat_near(store, zone, s["ra"].to_numpy(float), s["dec"].to_numpy(float),
+                        s["mjd"].to_numpy(float)) if len(s) else None
+    if local is not None:
+        gaia, source = local[0], f"refcat/{zone.name}.parquet (Gaia DR3 G < {C.REFCAT_GAIA_G_MAX:g})"
+    else:
+        gaia, source = gaia_near(s["ra"].to_numpy(float), s["dec"].to_numpy(float)) if len(s) else (np.zeros(0, bool), "none needed")
     st["gaia_source"] = source or "unreachable"
     st["cut_gaia"] = int(gaia.sum())
     s = s[~gaia].reset_index(drop=True)
     s["gaia_checked"] = bool(source)
-    wise, wsource = catwise_near(s["ra"].to_numpy(float), s["dec"].to_numpy(float)) if len(s) else (np.zeros(0, bool), "none needed")
+    if local is not None:
+        wise, wsource = local[1][~gaia], f"refcat/{zone.name}.parquet (CatWISE2020)"
+    else:
+        wise, wsource = catwise_near(s["ra"].to_numpy(float), s["dec"].to_numpy(float)) if len(s) else (np.zeros(0, bool), "none needed")
     st["catwise_source"] = wsource or "unreachable"
     st["cut_catwise"] = int(wise.sum())
     s = s[~wise].reset_index(drop=True)
