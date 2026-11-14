@@ -13,6 +13,8 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
      SIMULTANEOUS_PAIR_ARCSEC (the two footprints are offset ~71″ but see the same sky).
    Pairs chain into one candidate (an asteroid seen in 3–5 exposures).
 4. A candidate is a mover if the sessions whose footprints contain it number >= MOVER_MIN_COVER_SESSIONS.
+5. nonfixed_dots.parquet: every dot in no fixed group with elong <= MOVER_MAX_ELONG (near_fixed: within
+   FIXED_VETO_ARCSEC of one), where `tracklets` looks for a track's missed sightings.
 Sessions are the zone's time runs (photolist); visit labels are never used here.
 """
 
@@ -173,6 +175,33 @@ def freedots_table(free: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["obs_id", "detector", "x", "y"], kind="stable").reset_index(drop=True)
 
 
+NONFIXED_DOTS_NAME = "nonfixed_dots.parquet"
+
+
+def nonfixed_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
+    """nonfixed_dots.parquet (for `tracklets`' recovery): every dot in no fixed group with elong <= MOVER_MAX_ELONG (the
+    mover dots included), `near_fixed` where within FIXED_VETO_ARCSEC of a fixed source; sorted by session, mjd, ra, dec."""
+    d = dots[dot_sid < 0]
+    elong = d["elong"].to_numpy(np.float64)
+    d = d[~(elong > C.MOVER_MAX_ELONG)]
+    near = np.zeros(len(d), bool)
+    if len(fixed) and len(d):
+        sep, _ = SkyTree(fixed["ra"].to_numpy(), fixed["dec"].to_numpy()).nearest(d["ra"].to_numpy(), d["dec"].to_numpy())
+        near = sep <= C.FIXED_VETO_ARCSEC
+    pos = photos.index.get_indexer(d["photo"].to_numpy())
+    obs = pd.Categorical(photos["obs_id"].astype(str))
+    out = pd.DataFrame({
+        "ra": d["ra"].to_numpy(np.float64), "dec": d["dec"].to_numpy(np.float64), "mjd": d["mjd"].to_numpy(np.float64),
+        "session": d["session"].to_numpy(np.int32), "visit": d["visit"].to_numpy(np.int16),
+        "obs_id": pd.Categorical.from_codes(obs.codes[pos], obs.categories) if len(d) else pd.Categorical([], obs.categories),
+        "detector": d["detector"].to_numpy(np.int8), "dot_row": d["dot_row"].to_numpy(np.int32),
+        "snr": d["snr"].to_numpy(np.float32), "flux_ujy": d["flux_ujy"].to_numpy(np.float32),
+        "flags": (d["flags"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
+        "flags_peak": (d["flags_peak"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
+        "elong": d["elong"].to_numpy(np.float32), "near_fixed": near})
+    return out.sort_values(["session", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
+
+
 def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Valid pairs (i, j) of dots in one session (row positions in d) and their kind
     (0 = two exposures, 1 = simultaneous detectors)."""
@@ -317,9 +346,17 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     if keep is not None:
         keep.update(dots=dots, dot_sid=fixed_result[1])
     stats["fixed_member_dots"] = int(len(members))
+    try:  # tracklets' input; never worth failing link for
+        free = nonfixed_dots_table(dots, fixed_result[1], fixed, photos)
+        stats["nonfixed_dots_written"] = int(len(free))
+    except Exception as e:  # noqa: BLE001
+        L.exception("link %s: nonfixed_dots.parquet not written (tracklets will link without recovery)", zone.name)
+        free, stats["nonfixed_dots_error"] = None, repr(e)[:300]
     L.info("link %s: classified in %.0f s: %s", zone.name, time.time() - t1, stats)
     store.write_parquet(results_rel(zone.name, "fixed.parquet"), fixed)
     store.write_parquet(results_rel(zone.name, "members.parquet"), members)
     store.write_parquet(results_rel(zone.name, "movers.parquet"), movers)
     store.write_parquet(results_rel(zone.name, FREEDOTS_NAME), freedots)
+    if free is not None:
+        store.write_parquet(results_rel(zone.name, NONFIXED_DOTS_NAME), free)
     return {**stats, "photos_missing_dots": int(missing), "wall_s": round(time.time() - t0, 1)}
