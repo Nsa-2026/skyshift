@@ -24,6 +24,9 @@ To do: docs/TODO.md (open items by owner; tick or delete an item in the PR that 
 - Static first: the site reads /data/<slug>/ before it calls /api/.
 - Match the contracts exactly: names, types, units (degrees, arcsec, µm, MJD, µJy), the visit rule.
 - Tests before commit: `uv run pytest` in core/, pipeline/, server/, mcp/; `npm test` in web/.
+- Deploy after every major change, whoever makes it (person or agent): once it is merged, deploy main right away.
+  Site and data: `git pull` on main, `(cd web && npm ci && npm run build) && infra/firebase/deploy.sh hosting`.
+  API (server/, core/): `infra/run/deploy.sh` first. Firestore rules only when they change. Name the deployed commit in the PR.
 - No secrets in the repo or in chat. Google access comes from gcloud. Anything else goes in .env.
 - All product code is written after Sat 14 Nov 09:00. Keep the Co-Authored-By line on commits.
 
