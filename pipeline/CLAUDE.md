@@ -8,7 +8,17 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
 Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
+fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
+- fragments (fragments.py, after crossid; tiled `all`: once on the merged tables after merge 2, before highpm, the dot
+  files' flags from the slim mirror): from stored tables only (members → the dot files' `flags`/`flags_peak`, sources,
+  fixed, crossids, refcat) tags each source `bright_fragment` (BLOOM on > 50% of its member dots, no Gaia/2MASS within
+  3″ of its spectrum or link position: a piece of a saturated star's ring), `saturated_star` (the same with a match),
+  `blend` (≥ 2 Gaia G < 18 within 8″), else "". Fragments carry their parent (brightest Gaia G < 12 within 60″, and that
+  star's own source); blends both Gaia ids, separation and ΔG → results/<zone>/fragments.parquet + fragments.json.
+  Consumers, each unchanged without the file: highpm (fragment → reason `fragment`, blend → status gaia), orphans
+  (drops both), shape (drops fragments), candidates.py (fragments never listed, blend → reason `blend`), server
+  measured.py. Rerun after it: highpm, orphans, shape, candidates. Hunt (14 Nov): 2,234 / 759 / 7,126 of 303,045
+  sources; 2,226 fragments have a parent (747 stars), 2,031 the parent's own source; ~45 s locally.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -110,7 +120,7 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
   Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
   light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets and saturated-dot offsets; photoz/lightcurves/astrometry reports on the merged tables;
-  tracklets (right after merge 1, next to calib), highpm, orphans, score and suspects run once on the merged tables
+  tracklets (right after merge 1, next to calib), fragments (after merge 2), highpm, orphans, score and suspects run once on the merged tables
   (tracks cross tiles; their 15′/2′ controls and orphans' 300–7200″ pairs need no border). link's nonfixed_dots.parquet is
   merged like movers (owner: the dot's position).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the

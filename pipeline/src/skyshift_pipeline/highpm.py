@@ -789,6 +789,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16, tap=None) -> dict:
             d2_ab = pd.Series(-2.5 * np.log10(dflux[:, 1] / 3631e6), index=src["source_id"].to_numpy(np.int64))
         cands, deep = deep_check(cands, vstats, refcat, d2_ab, tap)
         deep = {"enabled": True, **deep}
+    from . import fragments  # bright_fragment → reason `fragment` (never vetted); blend → not new (Gaia lists the stars)
+    cands, frag_st = fragments.apply_highpm(cands, fragments.load(store, zone))
     store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     mjd_ref = float(np.nanmedian(src["mjd"])) if len(src) else 61000.0
     v, new = cands["vetted"].to_numpy(bool), (cands["status"] == "new").to_numpy()
@@ -802,7 +804,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, tap=None) -> dict:
            "control_offsets_arcsec": [list(o) for o in C.HIGHPM_CONTROL_OFFSETS],
            "pair_vs_control": bins,
            "fp_control": fp_control(src, crossids, ast, vstats, cw_err),
-           "deep_check": deep,
+           "deep_check": deep, "fragments": frag_st,
            "recall": recall(cands, crossids, refcat, zone, mjd_ref)}
     store.write_json(results_rel(zone.name, "highpm_report.json"), rep)
     st = {k: v for k, v in rep.items() if k != "recall"}
