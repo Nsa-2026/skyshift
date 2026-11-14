@@ -4,7 +4,7 @@
 // and a zone panel (side column on desktop, bottom sheet on phone).
 import type { MountPage, PageContext, PageHandle } from "../app/modules";
 import type { Suspect } from "../api/types";
-import { FeedError, loadSkyrun, loadZoneSuspects } from "./load";
+import { FeedError, loadSkyrun, loadZoneSuspectsFile, toZoneSuspects, type ZoneSuspects } from "./load";
 import {
   axisLabels,
   buildGeometry,
@@ -35,7 +35,7 @@ import {
 import "./live.css";
 
 // For other pages (the Sky page's "Tonight's search" layer).
-export { FeedError, SKYRUN_URL, httpSource, loadSkyrun, loadZoneSuspects, type SkyrunSource } from "./load";
+export { FeedError, SKYRUN_URL, httpSource, loadSkyrun, loadZoneSuspects, loadZoneSuspectsFile, type SkyrunSource, type ZoneSuspects } from "./load";
 export { zonesToPolygons, type ZonePolygon, type Ring } from "./project";
 export { isProvisional, parseSkyrun, summarize, zoneCentre, zoneContains, type SkyRun, type SkyZone, type ZoneState } from "./model";
 
@@ -44,8 +44,13 @@ export interface LiveDeps {
   now?: () => number;
   intervalMs?: number;
   doc?: Document;
-  /** A zone's suspects from its suspects_url (default: loadZoneSuspects). */
-  loadSuspects?: (url: string, signal: AbortSignal) => Promise<Suspect[]>;
+  /** A zone's suspects from its suspects_url (default: loadZoneSuspectsFile). A plain list of rows works too. */
+  loadSuspects?: (url: string, signal: AbortSignal) => Promise<Suspect[] | ZoneSuspects>;
+}
+
+/** What a loader gave: a read file as is; a bare list as a file without the vetting's zone fields. */
+function asZoneSuspects(x: Suspect[] | ZoneSuspects): ZoneSuspects {
+  return Array.isArray(x) ? toZoneSuspects({ suspects: x }) : x;
 }
 
 const NAV_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
@@ -73,7 +78,7 @@ function errorTone(e: unknown, run: SkyRun | null): string {
 
 export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps = {}): PageHandle {
   const now = deps.now ?? Date.now;
-  const loadSuspects = deps.loadSuspects ?? ((url: string, signal: AbortSignal) => loadZoneSuspects(url, signal));
+  const loadSuspects = deps.loadSuspects ?? ((url: string, signal: AbortSignal) => loadZoneSuspectsFile(url, signal));
   const doc = deps.doc ?? document;
   el.innerHTML = html`
     <div class="lv">
@@ -198,7 +203,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
   }
 
   // ---- the selected zone's suspects: loaded on demand, cached for the page's life ------------------
-  const susCache = new Map<string, Suspect[]>();
+  const susCache = new Map<string, ZoneSuspects>();
   let susCtl: AbortController | null = null;
   let susRows: Suspect[] = [];
   let susProv = false;
@@ -221,16 +226,17 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
       return;
     }
     const cached = susCache.get(url);
-    if (cached) return paintSuspects(z, { status: "ok", rows: cached });
+    if (cached) return paintSuspects(z, { status: "ok", rows: cached.rows, file: cached });
     susCtl?.abort();
     const ctl = new AbortController();
     susCtl = ctl;
     paintSuspects(z, { status: "loading" });
     loadSuspects(url, ctl.signal).then(
-      (rows) => {
-        susCache.set(url, rows);
+      (got) => {
+        const file = asZoneSuspects(got);
+        susCache.set(url, file);
         if (ctl.signal.aborted || selected !== z.name) return;
-        paintSuspects(z, { status: "ok", rows });
+        paintSuspects(z, { status: "ok", rows: file.rows, file });
       },
       () => {
         if (ctl.signal.aborted || selected !== z.name) return;

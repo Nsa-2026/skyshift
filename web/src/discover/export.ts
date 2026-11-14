@@ -1,4 +1,5 @@
 // CSV and JSON of the filtered set: every field of the candidate plus the community's counts.
+import { gradeOf } from "../api/grades";
 import type { Candidate } from "../api/types";
 import { formatMjd } from "../app/astro";
 import type { Row } from "./filters";
@@ -14,7 +15,7 @@ export function csvCell(v: string | number | boolean | null | undefined): string
 }
 
 export const CSV_COLUMNS = [
-  "id", "kind", "ra_deg", "dec_deg", "mjd", "date_utc", "clock", "det", "zone",
+  "id", "kind", "ra_deg", "dec_deg", "mjd", "date_utc", "clock", "det", "zone", "grade",
   "score", "snr", "flux_ujy", "rate_arcsec_h", "pm_mas_yr", "pm_err_mas_yr", "pa_deg",
   "nearest_known_arcsec", "gaia_match", "catwise_match", "galactic_b",
   "labels", "reasons", "flags", "why",
@@ -32,7 +33,7 @@ export function toCsv(rows: Row[], origin: string): string {
   for (const { c, votes, total, verdict } of rows) {
     lines.push(
       [
-        c.id, c.kind, round(c.ra, 6), round(c.dec, 6), round(c.mjd, 6), formatMjd(c.mjd, true), c.clock, c.det, c.zone,
+        c.id, c.kind, round(c.ra, 6), round(c.dec, 6), round(c.mjd, 6), formatMjd(c.mjd, true), c.clock, c.det, c.zone, gradeOf(c),
         round(c.score, 4), round(c.snr, 2), round(c.flux_ujy, 1), round(c.rate_arcsec_h, 3), round(c.pm_mas_yr, 1),
         round(c.pm_err_mas_yr, 1), c.pa_deg, round(c.nearest_known_arcsec, 1), c.gaia_match, c.catwise_match, c.galactic_b,
         c.labels.join(";"), c.reasons.join(";"), c.flags.join(";"), c.why,

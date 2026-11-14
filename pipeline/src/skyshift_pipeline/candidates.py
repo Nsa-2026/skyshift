@@ -5,13 +5,16 @@ to review on the site's Discover and Review pages.
     uv run skyshift-candidates --zones hunt,pilot --out ../web/public/data/candidates.json
 
 A zone is finished when results/<zone>/suspects.parquet exists (`suspects` is the pipeline's last step).
-Three kinds:
+Four kinds:
 - mover     results/<zone>/suspects.parquet (movers no catalogue explains), clock hours. The rate and
             direction come from the mover's own dots, re-read from dots/ for the exposures it was seen in.
-- high_pm   results/<zone>/highpm_candidates.parquet, every row, clock months. The pipeline's vetting
-            reasons are kept as reason codes; nothing is dropped.
+- high_pm   results/<zone>/highpm_candidates.parquet, the `vetted` rows (highpm_leads), clock months: known
+            Gaia stars whose motion we confirm, and new ones that passed the catalogue checks. Unvetted rows
+            (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
+- shape     results/<zone>/shape_candidates.parquet (`python -m skyshift_pipeline.shape`), every row, clock months:
+            stretched like two objects where Gaia and CatWISE list one (contracts/api.md v3.7). Absent file: none.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
@@ -49,7 +52,7 @@ from .store import Store, dots_rel, photolist_rel, results_rel
 
 L = log.get("candidates")
 
-KINDS = ("mover", "high_pm", "spectral")
+KINDS = ("mover", "high_pm", "spectral", "shape")
 CACHE_DIR: Path | None = None  # --cache: column reads kept on disk between runs
 REPO =Path(__file__).resolve().parents[3]
 DEFAULT_OUT = REPO / "web" / "public" / "data" / "candidates.json"
@@ -72,6 +75,7 @@ REPEAT_ARCSEC = 30.0           # mover reason repeat_position: another suspect o
 REPEAT_MAX_RATE = 2.0          # session, at an implied rate under this (″/h): a fixed or very slow source
 EXCESS_RATIO = 1.5             # mover reason detector_excess: in its (detector, visit) the zone's suspects per
 EXCESS_MIN_SUSPECTS = 5        # mover are >= 1.5x the zone's average, with at least 5 suspects there
+DEFAULT_DET = 2                # high_pm, spectral without a usable spectrum: contracts/api.md's default detector (v2)
 
 # --- scores -------------------------------------------------------------------------------------
 MOVER_SNR_SCALE = 15.0
@@ -120,6 +124,7 @@ REASONS = {
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
                 "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
+    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy"),
 }
 FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
@@ -286,7 +291,9 @@ def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
 
 def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
     """Per source: best detector by S/N of its spectrum (channels' S/N added in quadrature), that S/N, the
-    median channel flux there (µJy), saturated, variable."""
+    median channel flux there (µJy), saturated, variable. A source with no channel of positive, finite S/N in
+    any detector has no best detector: det, snr and flux_ujy are None (hunt, 14 Nov: 65 high_pm rows had been
+    written as D1, S/N 0, the argmax of six zeros)."""
     src = read_columns(store, results_rel(zone, "sources.parquet"),
                        ["source_id", "flux_ujy", "err_ujy", "saturated", "variable"], ids)
     if not len(src):
@@ -302,9 +309,18 @@ def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
             flux = np.nanmedian(f, axis=2)
     best = np.argmax(snr, axis=1)
     k = np.arange(len(src))
-    return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": best + 1, "snr": snr[k, best],
-                         "flux_ujy": flux[k, best], "saturated": src["saturated"].to_numpy(bool),
+    ok = snr[k, best] > 0
+    det = pd.array(best + 1, dtype="Int64")
+    det[~ok] = pd.NA
+    return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": det,
+                         "snr": np.where(ok, snr[k, best], np.nan), "flux_ujy": np.where(ok, flux[k, best], np.nan),
+                         "saturated": src["saturated"].to_numpy(bool),
                          "variable": src["variable"].to_numpy(bool) if "variable" in src else False})
+
+
+def _opt(x, kind=float):
+    """kind(x), or None for a missing value (None, NaN, pd.NA)."""
+    return None if x is None or pd.isna(x) else kind(x)
 
 
 def member_info(store: Store, zone: str, ids: np.ndarray, workers: int = 32) -> pd.DataFrame:
@@ -510,6 +526,16 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
 
 
 # --- high proper motion ----------------------------------------------------------------------------
+def highpm_leads(h: pd.DataFrame) -> pd.DataFrame:
+    """The highpm rows worth a person's time: `vetted` only. The others are proven or likely fakes: a Gaia star
+    whose own motion (with its parallax) is not ours, a CatWISE motion that isn't ours, pairs at the chance level,
+    too few sessions, nothing to check an under-10σ motion against (highpm.py). Hunt, 14 Nov tables: 997 rows,
+    748 of them gaia_pm_disagrees; Gaia still stars with Gaia hidden show what the unvetted rows are."""
+    if not len(h) or "vetted" not in h:
+        return h
+    return h[h["vetted"].fillna(False).to_numpy(bool)].reset_index(drop=True)
+
+
 def highpm_reasons(r) -> list[str]:
     out = ["pm_pair" if r.method == "pair" else "pm_fit"]
     if bool(r.vetted):
@@ -709,6 +735,32 @@ def spectrals(s: pd.DataFrame, zone: str) -> list[dict]:
     return out
 
 
+# --- shape ---------------------------------------------------------------------------------------------
+SHAPE_FILE = "shape_candidates.parquet"
+
+
+def shape_candidates(store: Store, zone: str) -> list[dict]:
+    """kind `shape`: the rows of results/<zone>/shape_candidates.parquet (written by
+    `python -m skyshift_pipeline.shape`), already selected, scored and worded; [] when the file is missing."""
+    rel = results_rel(zone, SHAPE_FILE)
+    if not store.exists(rel):
+        return []
+    t = store.read_parquet(rel)
+    out = []
+    for r in t.to_dict("records"):
+        split = lambda v: [x for x in str(v or "").split(",") if x]  # noqa: E731
+        out.append({
+            "id": f"{zone}-sh-{int(r['source_id'])}", "kind": "shape", "ra": float(r["ra"]), "dec": float(r["dec"]),
+            "mjd": r.get("mjd"), "clock": "months", "det": int(r["det"]) if pd.notna(r.get("det")) else 2,
+            "zone": zone, "zones": [zone], "score": float(r["score"]), "snr": r.get("snr"), "flux_ujy": r.get("flux_ujy"),
+            "rate_arcsec_h": None, "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": r.get("pa_deg"),
+            "nearest_known_arcsec": None, "gaia_match": bool(r.get("gaia_match")), "catwise_match": bool(r.get("catwise_match")),
+            "labels": [], "reasons": [x for x in split(r.get("reasons")) if x in REASONS["shape"]], "why": str(r["why"]),
+            "flags": split(r.get("flags")), "_sources": [int(r["source_id"])],
+        })
+    return out
+
+
 # --- zones -------------------------------------------------------------------------------------------
 CLASS_COLUMNS = ["source_id", "class", "labels", "brown_dwarf_like", "bd_evidence", "j_m46_ab", "gaia_sep_arcsec",
                  "gaia_g", "gaia_parallax", "gaia_parallax_error",
@@ -720,7 +772,7 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
     """Everything cheap for one zone: suspects, highpm rows, the spectral selection, the zone's data release."""
     susp = store.read_parquet(results_rel(zone, "suspects.parquet"))
     hrel = results_rel(zone, "highpm_candidates.parquet")
-    h = store.read_parquet(hrel) if store.exists(hrel) else pd.DataFrame()
+    h = highpm_leads(store.read_parquet(hrel)) if store.exists(hrel) else pd.DataFrame()
     crel = results_rel(zone, "classes.parquet")
     cls = read_columns(store, crel, CLASS_COLUMNS) if store.exists(crel) else pd.DataFrame(columns=CLASS_COLUMNS)
     spec = select_spectral(cls, spectral_cap) if len(cls) else cls
@@ -790,7 +842,7 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
         sid = c["_sources"][0]
         if sid in st.index:
             r = st.loc[sid]
-            c["det"], c["snr"], c["flux_ujy"] = int(r["det"]), float(r["snr"]), float(r["flux_ujy"])
+            c["det"], c["snr"], c["flux_ujy"] = _opt(r["det"], int), _opt(r["snr"]), _opt(r["flux_ujy"])
             if c["kind"] == "spectral" and bool(r["variable"]):
                 c["reasons"].append("variable")
         names: list[str] = []
@@ -804,8 +856,8 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
             if sid in info.index:
                 c["mjd"] = float(info.loc[sid, "mjd"])
             c["catwise_match"] = bool(str(cw.get(sid, "") or "")) if len(cw) else False
-        if c["det"] is None:
-            c["det"] = 2
+        if c["det"] is None:  # no usable spectrum (or no sources row): contracts/api.md `det` is an int 1-6, never
+            c["det"] = DEFAULT_DET  # null, so the site's default detector; snr and flux_ujy stay null
 
 
 def build(store: Store, zones: list[str], frames_root: Path | None = None, workers: int = 32,
@@ -819,6 +871,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         b = zone_base(store, z, spectral_cap)
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
+        cands += shape_candidates(store, z)
         # spectral positions are needed for the dedupe: read them now (cheap)
         sp = [c for c in cands if c["kind"] == "spectral"]
         if sp:

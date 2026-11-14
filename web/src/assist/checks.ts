@@ -2,6 +2,7 @@
 // anyone through vetting one candidate. Each is answered by the data where it can be, and handed to
 // the person ("ask") where it can't. Pure: no DOM, no storage. Never invents a value: a null field
 // becomes a sentence saying what we don't know and how to look.
+import { failedGates, gatesPhrase, gradeOf } from "../api/grades";
 import type { CandidateKind, Det } from "../api/types";
 import { DETECTORS, SAME_MOMENT } from "../app/astro";
 import { SPHEREX_V_LIMIT } from "../blink/known";
@@ -19,6 +20,7 @@ export const MATCH_RADIUS_ARCSEC: Record<CandidateKind, { gaia: number; catwise:
   mover: { gaia: 6, catwise: 6 },
   high_pm: { gaia: 2.5, catwise: 3 },
   spectral: { gaia: 2.5, catwise: 3 },
+  shape: { gaia: 2.5, catwise: 3 },
 };
 /** A known object this close is probably the same object (suspects cut, config KNOWN_ARCSEC). */
 export const KNOWN_SAME_ARCSEC = 30;
@@ -199,7 +201,9 @@ function motionStep(c: AssistCandidate): CheckStep {
       finding:
         c.kind === "spectral"
           ? "It was picked for its spectrum; the pipeline measured no motion for it."
-          : "Its motion isn't on record.",
+          : c.kind === "shape"
+            ? "It was picked for its shape (wider or longer than one star); the pipeline measured no motion for it."
+            : "Its motion isn't on record.",
       details,
       howTo,
       ...(c.kind === "spectral" ? {} : { prompt: "Blink it on the Months clock. Does it step the same way at each visit?" }),
@@ -338,10 +342,16 @@ function artefactStep(c: AssistCandidate): CheckStep {
       parts.push(`it lies ${Math.abs(b).toFixed(0)}° from the Milky Way's plane, away from the crowded fields`);
     }
   }
+  // The pipeline's vetting (grade C): its failed checks settle this step.
+  const gates = failedGates(c);
+  if (gates.length) {
+    parts.push(`the pipeline's vetting failed it: ${gatesPhrase(gates)}`);
+    status = "fail";
+  }
   const first = parts[0];
   const rest = parts.slice(1);
   const finding = `${first}${rest.length ? (rest.length === 1 ? ", and " : "; ") + rest.join(rest.length === 1 ? "" : "; ") : ""}.`;
-  const details = `flags=${fmtList(c.flags)} (mask: ${fmtList(mask.map((w) => w.name))}, record: ${fmtList(record.map((w) => w.name))}); galactic_b=${raw(b, 2)}; snr=${raw(c.snr, 1)}; reasons=${fmtList(c.reasons)}`;
+  const details = `flags=${fmtList(c.flags)} (mask: ${fmtList(mask.map((w) => w.name))}, record: ${fmtList(record.map((w) => w.name))}); galactic_b=${raw(b, 2)}; snr=${raw(c.snr, 1)}; reasons=${fmtList(c.reasons)}; grade=${gradeOf(c) ?? "null"}`;
   const howTo = [
     "Look at the dot's shape: a real source is a soft round blob about 7.5″ (1.2 pixels) across; a cosmic ray is a sharp single pixel.",
     "Compare the detectors exposed together (D1 with D4, D2 with D5, D3 with D6): real light shows in both, allowing for colour.",
@@ -482,6 +492,15 @@ function colourStep(c: AssistCandidate): CheckStep {
 }
 
 function callStep(c: AssistCandidate): CheckStep {
+  if (gradeOf(c) === "C")
+    return {
+      id: "call",
+      question: "Your call: what is it?",
+      status: "fail",
+      finding: "Not put to a vote: the pipeline graded it C because it fails a check. Votes go to grade A and B objects; you can still blink it.",
+      details: `candidate_id=${c.id}; grade=C; reasons=${fmtList(c.reasons)}`,
+      howTo: ANSWERS.map((a) => `${ANSWER_TEXT[a].label}: ${lowerFirst(ANSWER_TEXT[a].meaning)}`),
+    };
   return {
     id: "call",
     question: "Your call: what is it?",

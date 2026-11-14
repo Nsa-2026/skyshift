@@ -125,12 +125,42 @@ FIXED_LINK_ARCSEC = 4.0       # friends-of-friends radius for fixed sources
 FIXED_SNAP_ARCSEC = 1.0       # dots are first snapped to cells this big (speed); FoF runs on cells
 FIXED_MIN_SESSIONS = 3        # a group in >= this many sessions is fixed
 FIXED_VETO_ARCSEC = 6.0       # dots this close to a fixed source are dropped before pairing
+# members.parquet (the dots spectra, calib, astrometry, lightcurves measure) keeps a fixed group's dots except
+# (hunt, 14 Nov: these made most of the fake proper motions of Gaia stars):
+FIXED_MEMBER_DROP_MASKED_PEAK = True  # a mask bit other than saturation at the peak (PERSIST, TRANSIENT, SUR_ERROR, …):
+                                      # the core is masked, the centroid sits on the wings 1.5–5″ off; saturated dots
+                                      # (OVERFLOW/NONLINEAR at the peak) stay, dots re-centroids them on purpose
+FIXED_MEMBER_ONE_PER_PHOTO = True     # one dot per photo: the nearest to the group's position; the others are a bright
+                                      # star's wing fragments or a neighbour chained in (they still veto movers)
 PAIR_BASE_ARCSEC = 3.0        # two exposures pair if separated <= base + rate x dt
 PAIR_RATE_ARCSEC_PER_MIN = 1.0
 SIMULTANEOUS_PAIR_ARCSEC = 3.0
 SIMULTANEOUS_PAIRS = ((1, 4), (2, 5), (3, 6))
+PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN = 5.0  # two dots that each have a simultaneous partner also pair up to 3″ + this × Δt
+                              # (fast movers, ~140–380″/h, step past the plain rule; their per-exposure D1+D4 pairs
+                              # would otherwise be one-exposure candidates that MOVER_MAX_MISSED_FEW drops)
 MOVER_MAX_ELONG = 3.0         # dots longer than this (trails, cosmic rays) don't pair
 MOVER_MIN_COVER_SESSIONS = 3  # sessions whose footprints contain the candidate
+# Fixed groups: an asteroid at ~40″/h moves ~1.4″ per exposure, so the 4″ FoF chains its dots, and a track passing a
+# star joins the star's fixed group. Hunt, 14 Nov, 36-session sample: 17 of 42 known V < 17 object-sessions that link
+# missed had their dots (≤ 1″ from the MPC position) inside a star's group, 3–13″ from its median. A would-be fixed
+# group's dots farther than this from its median are released and regrouped among themselves (a second star chained
+# to the first is fixed again with >= FIXED_MIN_SESSIONS sessions; a one-session track is left free). None = off.
+FIXED_RELEASE_ARCSEC = 6.0
+# Mover vetting (link.vet_reason, after the session-coverage test; stats vetoed_<rule>; SKYSHIFT_MOVER_VET=off keeps
+# every candidate, with the columns). Hunt, 14 Nov: of 6,143 movers 4,464 were seen in two exposures and 4,045 of those
+# matched no MPC object; 209 of the 228 suspects were two-dot pairs. Known asteroids with V < 17 showed a dot in every
+# exposure that covered them in 848 of 893 movers; chance pairs (two unrelated dots ≤ 3″ + 1″/min × Δt apart) don't.
+# On the sample (87 suspects): missed 43, both dots at a frame edge 21, flux jump 21, kept 2.
+MOVER_COVER_EDGE_PX = 10.0       # an exposure covers a track when one of its photos holds it this far inside (px)
+MOVER_COVER_FIXED_SLACK_ARCSEC = 2.0  # ... and the track isn't within FIXED_VETO_ARCSEC + this of a fixed source
+                                 # (link drops dots there: no dot is expected). None = no exclusion
+MOVER_MAX_MISSED_FEW = 0         # tracks seen in <= 2 exposures: covering exposures without a dot allowed
+MOVER_MAX_MISSED = 1             # tracks seen in >= 3 exposures: ... allowed (a masked pixel, a faint exposure)
+MOVER_LINE_MAX_ARCSEC = 4.0      # >= 3 exposures: largest distance of an exposure's position from the fitted line
+                                 # (known: max 3.2″, 99% < 2.6″)
+MOVER_FLUX_RATIO_MAX = 3.0       # largest max/min flux among one detector's dots (known: max 2.6, 99% < 2.2)
+MOVER_VET = os.environ.get("SKYSHIFT_MOVER_VET", "on") != "off"
 SOURCE_ID_PER_CELL = 100      # source_id = 6″ cell × this + rank of the source inside the cell
 
 # --- spectra -------------------------------------------------------------------------------
@@ -195,6 +225,16 @@ ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
 ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
                                # √max(1, χ²_ν) for every source inflated errors 1.5× at ~7 dots (pm pulls 0.85)
+# session-robust errors (15 Nov, hunt tail): dots of one session share errors, so pm errors also come from the scatter of
+# session means (cluster-robust sandwich over source x session), whichever is larger; sources with fewer sessions: x sqrt(max(1, chi2_nu))
+# dots left out of motion fits: a masked (not saturated) peak, and all but the nearest of several dots of one photo
+ASTRO_CLEAN_DOTS = True
+ASTRO_SESSION_ROBUST = True
+ASTRO_ROBUST_MIN_SESSIONS = 6  # sessions needed for the session-robust error
+# ... and detectors that disagree within a visit: sandwich over visit x detector clusters where beyond this chi2 quantile
+ASTRO_DETECTOR_ROBUST = True
+ASTRO_DETECTOR_ZEROPOINTS = True  # a position zero point per source x detector: pm only from changes within a detector
+ASTRO_DETECTOR_ROBUST_P = 0.95
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
@@ -206,7 +246,9 @@ HIGHPM_FLUX_RATIO_MAX = 2.0    # same-detector flux ratio within this factor (ei
 HIGHPM_SHAPE_MAX = 0.25        # rms of ln(flux ratio) across shared detectors (spectrum shape)
 HIGHPM_MIN_COVER_PHOTOS = 2    # the other visit must have this many photos covering each position
 HIGHPM_FIT_MIN_MAS_YR = 150.0  # fitted proper motion this fast ...
-HIGHPM_FIT_MIN_SNR = 5.0       # ... and this significant also makes a candidate (method "fit")
+HIGHPM_FIT_MIN_SNR = 4.5       # ... and this significant also makes a candidate (method "fit"). Hunt (Gaia as truth):
+                               # 5σ found 55 of the 104 detected fast Gaia stars; 4.5σ with the catalogue checks below 55
+                               # (46 of the 49 misses are precision-limited: Gaia's motion / our pm_err < 5)
 HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in the zone
 HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
 HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)
@@ -434,6 +476,24 @@ HIGHPM_FIT_MAX_CHI2_NU = 5.0   # fit: astrometric chi2_nu above this is a blend 
 HIGHPM_FIT_MAX_PM_MAS_YR = 10_500.0  # fit: faster than Barnard's Star (10.4″/yr, the fastest known star) is not a star
 HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees when |Δpm| > max(this × pm_err,
                                # HIGHPM_CATWISE_PM_TOL × pm, 100 mas/yr): the counterpart is a slow star, ours is an artefact
+# Parallax-aware checks (hunt, 14 Nov tables, Gaia DR3 as truth). Two visits half a year apart make parallax and proper
+# motion one thing: the fit's pm = true pm + ϖ·(k_e, k_n), k = cov(t, parallax factor) / var(t) over the source's
+# dots (hunt k_e ≈ −4.1, k_n ≈ +1.0 per mas). Gaia's motion is compared as pm + ϖ·k (real nearby stars were
+# "gaia_pm_disagrees" before: 16 of the 55 recovered fast stars). Gaia-5p stars: the blind 4.5σ selection's tail is
+# not Gaussian (pm_snr ≥ 5 on 584 of 211,690 still stars vs 0.8 expected): saturated stars (pmra ≈ −200…−300 mas/yr),
+# one-session visits and coherent ~0.5″ shifts with chi2_nu ≈ 1. Table-level cuts (chi2_nu, n_dots, neighbours) remove
+# < 30% of it; CatWISE's own 10-yr motion removes 95% (it agrees with Gaia for 100 of 101 fast stars).
+HIGHPM_FIT_MIN_SESSIONS = 3    # fit: at least this many sessions in each visit it is seen in (one-session visits
+                               # gave 6–12-dot fits at 5–10″/yr on Gaia still stars)
+HIGHPM_NOCAT_MIN_SNR = 10.0    # fit with no Gaia or CatWISE motion to check it against: this significant (the still
+                               # stars' tail without the CatWISE check: 1.9 per 100k at 10σ vs 276 per 100k at 5σ)
+HIGHPM_CW_PLX_PER_PM = 0.25    # CatWISE check: our pm may exceed CatWISE's by a parallax leak ϖ·k with 0 ≤ ϖ ≤ this ×
+                               # CatWISE's |pm| (tangential velocity ≥ 19 km/s); kept 140 of 143 Gaia-confirmed movers
+HIGHPM_CW_PLX_PER_PM_SAT = 0.1 # ... for saturated sources (their centroid bias runs along RA like the leak): 27 Gaia
+                               # fakes pass the blind route instead of 58, at the same 55 of 104 fast stars
+HIGHPM_CW_REL_TOL = 0.2        # CatWISE agrees when the residual <= max(3σ (ours ⊕ CatWISE), this × |pm_cw|, 100 mas/yr)
+HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
+HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
 HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
 HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls

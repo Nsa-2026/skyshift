@@ -207,6 +207,7 @@ const TITLE: Record<CandidateKind, string> = {
   mover: "Possible new asteroid or comet",
   high_pm: "Possible moving star",
   spectral: "Odd spectrum",
+  shape: "One object or two?",
 };
 
 /**

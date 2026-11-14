@@ -1,14 +1,15 @@
 // Review queue (#/review): one candidate at a time, big plate, vote with 1–4, S skips, ← goes
 // back. A practice round on featured targets comes first, once per browser.
+import { nearSourceOf } from "../api/grades";
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
 import { SPHEREX_V_LIMIT } from "../blink/known";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
 import { Ballot } from "./ballot";
-import { candidateSet, preload, votes, type CandidateSet, type Votes } from "./data";
-import { keyAction, queueOrder } from "./model";
+import { candidateSet, preload, suspectFor, votes, type CandidateSet, type Votes } from "./data";
+import { gradeCCount, keyAction, queueOrder } from "./model";
 import { lastDiscoverHash, trackDiscover } from "./nav";
-import { SAMPLE_NOTE, castVote, factsHtml, headHtml, motionHtml, visible } from "./parts";
+import { SAMPLE_NOTE, castVote, factsHtml, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
 import { PRACTICE, judge, markPracticeDone, practiceDone, practiceSummary, type PracticeResult } from "./practice";
 import { MOVER_CAUTION, answerLabel, esc } from "./text";
@@ -300,7 +301,13 @@ export const mountReview: MountPage = (el) => {
 
   function renderProgress() {
     const left = remaining();
-    progressEl.textContent = `${reviewed} reviewed this session. ${left.toLocaleString("en-GB")} ${left === 1 ? "object to check needs" : "objects to check need"} votes.`;
+    progressEl.textContent = `${reviewed} reviewed this session. ${left.toLocaleString("en-GB")} ${left === 1 ? "object to check needs" : "objects to check need"} votes.${skippedCText()}`;
+  }
+
+  /** Grade C never enters the queue: say so, once, in the progress line. */
+  function skippedCText(): string {
+    const n = set ? gradeCCount(set.candidates) : 0;
+    return n ? ` ${n.toLocaleString("en-GB")} grade C ${n === 1 ? "object isn't" : "objects aren't"} in the queue: ${n === 1 ? "it fails" : "they fail"} a pipeline check.` : "";
   }
 
   function showItem() {
@@ -317,9 +324,14 @@ export const mountReview: MountPage = (el) => {
     renderProgress();
     const caution = c.kind === "mover" ? `${MOVER_CAUTION} ` : "";
     const id = html`${caution}<a href="#/c/${encodeURIComponent(c.id)}">See every detail</a> of object <span class="rv-nowrap">${esc(c.id)}</span>.`;
-    cardEl.innerHTML = html`${headHtml(c, "h2", "")}${motionHtml(c)}${factsHtml(c)}<p class="rv-id">${id}</p>`;
+    cardEl.innerHTML = html`${headHtml(c, "h2", "")}${motionHtml(c)}${gradeHtml(c, false)}${factsHtml(c)}<p class="rv-id">${id}</p>`;
+    if (c.kind === "mover")
+      suspectFor(c.id).then((s) => {
+        if (current === c) fillNearSource(cardEl, nearSourceOf(s));
+      });
     ballot = new Ballot(ballotEl, {
       onVote: voteQueue,
+      kind: c.kind,
       full: false,
       after: html`<div class="rq-after"><button class="btn btn-primary" type="button" data-act="next">Next object</button><span class="rv-soft">or press Enter</span></div>`,
     });
@@ -405,7 +417,7 @@ export const mountReview: MountPage = (el) => {
   }
 
   function renderProgressEnd() {
-    progressEl.textContent = `${reviewed} reviewed this session.`;
+    progressEl.textContent = `${reviewed} reviewed this session.${skippedCText()}`;
   }
 
   function revisit() {

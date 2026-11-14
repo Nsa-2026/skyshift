@@ -13,6 +13,14 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
   Reads only some columns (range reads), the dot files' `flags` and the movers' dots: ~0.4 GB from the bucket for the hunt.
+- Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
+  --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
+  writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,
+  recall on Gaia pairs); the exporter lists every row. `--merge-into ../web/public/data/candidates.json --rows <parquet>`
+  adds the rows to an existing export without re-running it (other kinds untouched, same order).
+  Hunt (14 Nov): ≥ 20σ fires on 0.17% of isolated single Gaia stars (10/5,803) and 21% of Gaia pairs 3–10″ (axis
+  within 2° of the pair's); at 6σ 4% vs 77%: faint uncatalogued neighbours are common, so the cut is high. A bright
+  catalogued star at 15–35″ also stretches the moments (the annulus): first try's top 4 had one at 15.2″. 49 listed.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
@@ -60,6 +68,13 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   login; not part of `all`, no --zone). It writes today's mpcorb_/cometels_<date>.parquet, which then win; old ones stay.
   Without --force a snapshot already made today is kept. Sessions already in cache/mpc/<zone>/ keep their old positions:
   delete those run_*.json files to recompute them with the new orbits.
+- IRSA down (14 Nov evening, TAP and SIA 502): `uv run skyshift-pipeline s3index --root gs://nasa-glazing-data
+  [--workers 128] [--procs N] [--periods ...] [--force]` (a tool like mpc-orbits, no --zone, not in `all`) lists all
+  1.63 M Level 2 files on S3 (dr1 + qr3, 151 periods) and range-reads each IMAGE header (~34 KB): photolists/s3index/
+  <dr1|qr3>/<period>.parquet + .json sidecar (failed keys), _complete.json last; resumable. Rows = TAP's photo-list
+  columns and values (pilot: all 990 equal; s_region within 1 ulp). photolist uses it when TAP fails after its retries,
+  or always with SKYSHIFT_PHOTOLIST_SOURCE=s3index: footprints intersecting the zone box with great-circle edges (as
+  INTERSECTS), clean's dedupe, add_sessions; only if every period shard exists (stats `index_complete`, `index_failed_keys`).
 - History: SkyBoT was removed after #64 (docs/research/2026-11-14-mpc-vs-skybot-score.md): on the pilot MPC gave
   G2 recall 92.2% with predictions 0.27″ from the matched movers vs SkyBoT's 1.43″.
 - Every threshold lives in src/skyshift_pipeline/config.py.

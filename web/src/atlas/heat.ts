@@ -23,7 +23,7 @@ export function binCandidates(cands: readonly Candidate[], order: number, kinds?
     let cell = cells.get(pix);
     if (!cell) {
       const [ra, dec] = pix2angNest(order, pix);
-      cell = { order, pix, count: 0, center: { ra, dec }, byKind: { mover: 0, high_pm: 0, spectral: 0 } };
+      cell = { order, pix, count: 0, center: { ra, dec }, byKind: { mover: 0, high_pm: 0, spectral: 0, shape: 0 } };
       cells.set(pix, cell);
     }
     cell.count++;

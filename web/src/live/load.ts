@@ -1,6 +1,7 @@
 // Where the Live search page gets the run's progress: one public JSON file in Cloud Storage, rewritten
 // every 2 min by the run (CORS * for GET, no-cache). VITE_SKYRUN_URL overrides it. Cross-origin, so a
 // plain GET without credentials. The source is pluggable: a Firestore document or a test can stand in.
+import { countGrades, gateTotals, gradeCounts, rankByGrade, type GradeCounts } from "../api/grades";
 import type { Suspect, SuspectsResponse } from "../api/types";
 import { parseSkyrun, type SkyRun } from "./model";
 
@@ -50,16 +51,39 @@ export function httpSource(url: string = SKYRUN_URL, fetchFn: typeof fetch = (..
   };
 }
 
+/** A zone's suspects file, read: its rows ranked, and the vetting's zone-level fields when it has them. */
+export interface ZoneSuspects {
+  /** Grade A, B, C, then ungraded; then S/N, highest first. An ungraded file: S/N only, as before. */
+  rows: Suspect[];
+  /** Grades counted by the file (`grades`), else from its rows; null for a file without grades. */
+  grades: GradeCounts | null;
+  /** The zone-level checks every listed suspect passed (`vetoes`), or null. */
+  vetoes: string[] | null;
+  /** true: Gaia or every WISE catalogue couldn't be checked (`provisional`). */
+  provisional: boolean;
+  /** Gates that failed suspects, with counts, most first. */
+  gates: [string, number][];
+}
+
+/** Read a parsed suspects file (contracts/api.md suspects.json). Pure. */
+export function toZoneSuspects(raw: unknown): ZoneSuspects {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Partial<SuspectsResponse>;
+  const rows = rankByGrade((Array.isArray(o.suspects) ? o.suspects : []).filter((s): s is Suspect => !!s && Number.isFinite(s.ra) && Number.isFinite(s.dec)));
+  const vetoes = Array.isArray(o.vetoes) ? o.vetoes.filter((v): v is string => typeof v === "string") : null;
+  return { rows, grades: gradeCounts(o.grades) ?? countGrades(rows), vetoes, provisional: o.provisional === true, gates: gateTotals(o.gates) };
+}
+
 /**
- * One zone's suspects (suspects_url; the shape of SuspectsResponse in src/api/types.ts), brightest S/N first.
- * Rows without a finite position are dropped. Throws FeedError when the file is missing or failing.
+ * One zone's suspects file (suspects_url; the shape of SuspectsResponse in src/api/types.ts). Rows
+ * without a finite position are dropped. Throws FeedError when the file is missing or failing.
  */
+export async function loadZoneSuspectsFile(url: string, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<ZoneSuspects> {
+  return toZoneSuspects(await httpSource(url, fetchFn)(signal));
+}
+
+/** One zone's suspects, ranked: grade (A, B, C, ungraded), then S/N. An ungraded file is S/N order. */
 export async function loadZoneSuspects(url: string, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<Suspect[]> {
-  const raw = (await httpSource(url, fetchFn)(signal)) as Partial<SuspectsResponse> | null;
-  const rows = Array.isArray(raw?.suspects) ? raw!.suspects : [];
-  return rows
-    .filter((s): s is Suspect => !!s && Number.isFinite(s.ra) && Number.isFinite(s.dec))
-    .sort((a, b) => (Number(b.snr) || 0) - (Number(a.snr) || 0));
+  return (await loadZoneSuspectsFile(url, signal, fetchFn)).rows;
 }
 
 let defaultSource: SkyrunSource | null = null;

@@ -219,6 +219,99 @@ def test_astrometry_frame_correction_and_gaia_report(rng):
     assert sum(b["pmra"]["n"] for b in rep["by_snr"]) == 31
 
 
+def session_dots(rng, sid=1, err=0.05, n_sess=20, per=6, sess_sigma=0.0, det_offset=None, det_visit_offset=None,
+                 visits_mjd=VISITS3[:2], d1_extra_v2=0):
+    """A still star seen in n_sess sessions per visit, `per` dots each spread over detectors 1–6. sess_sigma: an offset
+    shared by a session's dots (″); det_offset {det: (e, n)}: a constant offset per detector; det_visit_offset
+    {(visit, det): (e, n)}: one visit only. d1_extra_v2: extra D1 dots per session in visit 2 (unequal weights)."""
+    rows, photo, sess = [], 0, 0
+    for v, t0 in enumerate(visits_mjd, start=1):
+        for k in range(n_sess):
+            sess += 1
+            se, sn = rng.normal(0, sess_sigma, 2)
+            dets = [1 + (i % 6) for i in range(per)] + [1] * (d1_extra_v2 if v == 2 else 0)
+            for det in dets:
+                photo += 1
+                e, n = rng.normal(0, err, 2) + (se, sn)
+                e, n = np.add((e, n), (det_offset or {}).get(det, (0.0, 0.0)))
+                e, n = np.add((e, n), (det_visit_offset or {}).get((v, det), (0.0, 0.0)))
+                r, d_ = tangent_deproject(STAR[0], STAR[1], e, n)
+                rows.append(dict(source_id=sid, ra=float(r), dec=float(d_), mjd=t0 + k + 0.001 * photo, pos_err_arcsec=err,
+                                 visit=v, session=sess, photo=photo, obs_id=f"o{photo}", detector=det, snr=50.0, flags_peak=0))
+    return pd.DataFrame(rows)
+
+
+def test_astrometry_session_robust_errors(rng):
+    """Dots of a session share an offset: the formal errors are far too small, the session-clustered ones are not."""
+    pulls = {True: [], False: []}
+    for robust in (False, True):
+        for i in range(40):
+            d = session_dots(np.random.default_rng(i), sess_sigma=0.15, per=12)
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(C, "ASTRO_SESSION_ROBUST", robust)
+                mp.setattr(C, "ASTRO_DETECTOR_ROBUST", False)
+                r = AS.fit(d, None, frame=False)[0].iloc[0]
+            pulls[robust].append(r["pmra"] / r["pmra_err"])
+    assert np.std(pulls[False]) > 2.2  # 0.15″ per session against 0.05″ per dot: errors ~3× too small (χ² inflation or not)
+    assert 0.6 < np.std(pulls[True]) < 1.5
+
+
+def test_astrometry_detector_zero_points(rng):
+    """A constant offset in one detector, with that detector weighing more in one visit, is not motion."""
+    d = session_dots(rng, det_offset={1: (0.6, 0.0)}, d1_extra_v2=4)
+    out = {}
+    for zp in (False, True):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(C, "ASTRO_DETECTOR_ZEROPOINTS", zp)
+            mp.setattr(C, "ASTRO_DETECTOR_ROBUST", False)
+            out[zp] = AS.fit(d, None, frame=False)[0].iloc[0]
+    assert out[False]["pm_snr"] > 5 and out[False]["pm"] > 150   # a fake mover without zero points
+    assert out[True]["pm_snr"] < 3
+
+
+def test_astrometry_detectors_that_disagree_inflate_the_error(rng):
+    """Two detectors pulled 0.5″ in one visit only (a ghost in some bands): the error grows, the motion is not significant."""
+    d = session_dots(rng, det_visit_offset={(2, 2): (0.5, 0.0), (2, 3): (0.5, 0.0)})
+    out = {}
+    for robust in (False, True):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(C, "ASTRO_DETECTOR_ROBUST", robust)
+            out[robust] = AS.fit(d, None, frame=False)[0].iloc[0]
+    assert out[False]["pm_snr"] > 5
+    assert out[True]["pm_snr"] < 5 and out[True]["pmra_err"] > 2 * out[False]["pmra_err"]
+    # a real mover moves in every detector: no inflation
+    mv = session_dots(rng, sid=2)
+    dt = (mv["mjd"] - mv["mjd"].mean()) / 365.25
+    r, d_ = tangent_deproject(mv["ra"].to_numpy(), mv["dec"].to_numpy(), 0.4 * dt.to_numpy(), 0.0 * dt.to_numpy())
+    mv["ra"], mv["dec"] = r, d_
+    a = AS.fit(mv, None, frame=False)[0].iloc[0]
+    assert abs(a["pmra"] - 400) < 4 * a["pmra_err"] and a["pm_snr"] > 20
+
+
+def test_astrometry_leaves_out_masked_peaks_and_photo_duplicates(rng):
+    d = session_dots(rng)
+    # visit 2: a third of the dots have PERSIST (bit 17) at the peak and sit 4″ east (centroid on the wings)
+    v2 = np.flatnonzero(d["visit"].to_numpy() == 2)[::3]
+    r, d_ = tangent_deproject(d["ra"].to_numpy()[v2], d["dec"].to_numpy()[v2], 4.0, 0.0)
+    d.loc[v2, "ra"], d.loc[v2, "dec"], d.loc[v2, "flags_peak"] = r, d_, 1 << 17
+    # visit 2: a wing fragment 3″ north in the same photo as some dots
+    frag = d[d["visit"] == 2].iloc[1::4].copy()
+    frag["ra"], frag["dec"] = tangent_deproject(frag["ra"].to_numpy(), frag["dec"].to_numpy(), 0.0, 3.0)
+    d = pd.concat([d, frag], ignore_index=True)
+    out = {}
+    for clean in (False, True):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(C, "ASTRO_CLEAN_DOTS", clean)
+            out[clean], st = AS.fit(d, None, frame=False)
+    a, b = out[False].iloc[0], out[True].iloc[0]
+    assert st["dots_cleaned"] == len(v2) + len(frag)
+    assert b["n_dots"] == a["n_dots"] == len(d) and b["n_used"] <= len(d) - len(v2) - len(frag)
+    assert b["pm"] < 3 * b["pmra_err"] and b["pm_snr"] < 3
+    # a saturated peak (OVERFLOW) is not left out; a source whose dots are all masked keeps them
+    keep = AS.clean_mask(pd.DataFrame({"flags_peak": [2, 1 << 17, 1 << 17]}), np.array([0, 1, 1]), 2, np.zeros(3), np.zeros(3))
+    assert keep.all()
+
+
 def test_observer_includes_spacecraft_offset():
     mjd = np.array([61000.0, 61000.0])
     xyz = AS.observer_xyz_au(mjd, np.array([[np.nan] * 3, [7000.0, 0.0, 0.0]]))

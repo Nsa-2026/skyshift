@@ -1,4 +1,5 @@
 // Formatting for the scoreboard: words, figures, table cells, suspects, CSV. Pure functions, tested.
+import { gradeOf, nearSourceOf } from "../api/grades";
 import type { Suspect } from "../api/types";
 import { formatMjd, formatRaDec } from "../app/astro";
 import { targetBySlug } from "../app/state";
@@ -267,6 +268,13 @@ export const SUSPECT_COLUMNS = [
   "flux_ujy",
   "cell",
   "nearest_known_arcsec",
+  "grade",
+  "reasons",
+  "near_source_arcsec",
+  "n_sessions",
+  "rate_arcsec_h",
+  "pa_deg",
+  "rate_sigma",
 ] as const;
 
 export function suspectsCsv(suspects: Suspect[]): string {
@@ -275,6 +283,10 @@ export function suspectsCsv(suspects: Suspect[]): string {
     const rec: Record<string, unknown> = {
       ...s,
       date_utc: Number.isFinite(s.mjd) ? new Date((s.mjd - 40587) * 86400000).toISOString() : null,
+      // Vetting (blank in an ungraded file): the grade, the failed checks joined with ";", the warning.
+      grade: gradeOf(s),
+      reasons: Array.isArray(s.reasons) ? s.reasons.join(";") : null,
+      near_source_arcsec: nearSourceOf(s),
     };
     lines.push(SUSPECT_COLUMNS.map((k) => csvField(rec[k])).join(","));
   }

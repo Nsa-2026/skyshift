@@ -14,6 +14,8 @@ Every check is printed even when its number is poor; a check with no input yet i
   V10 <results>/<zone>/photoz_report.json       (pipeline photoz)
   V11 scripts/science/data/asteroid_sizes.json  (scripts/science asteroids.py)
   suspects.json: <results>/<zone>/suspects.json of every zone, merged (merge_suspects)
+  distant.json: the distant-planet search (distant.py): <results>/<zone>/distant.json, else data/distant_<zone>.json,
+      + data/distant_injection_<zone>.json; the first zone with a run
 
 Zones (--zones, default hunt,pilot): V5, V8 spectra, V9, V10 and suspects.json take their headline from the first
 zone that has the input and keep the others in the rows (field `zone`) and the note. Without the hunt's reports the
@@ -32,6 +34,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import distant
 from _common import BUCKET, CACHE, DATA, today, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -44,7 +47,8 @@ TARGET_SLUGS = ("barnard", "epsindib", "wise0855", "rwaur", "rdra")
 DATA_RELEASE = "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)"
 ZONES = ("hunt", "pilot")  # headline first: the hunt is the bigger sample; the pilot holds gate G2
 G2_ZONE = "pilot"  # gate G2 was decided on the pilot before the hunt ran
-REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json")
+REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json",
+           "distant.json")
 
 
 def load(path: Path | None) -> dict | None:
@@ -640,13 +644,21 @@ def _sep_arcsec(a: dict, b: dict) -> float:
     return 3600.0 * math.hypot(dra, a["dec"] - b["dec"])
 
 
+ZONE_FIELDS = ("vetoes", "provisional", "grades", "gates")  # contracts/api.md suspects.json, zone level (vetting, 14 Nov)
+
+
 def merge_suspects(files: list[tuple[str, dict]], match_arcsec: float = 6.0, match_min: float = 2.0) -> dict | None:
     """The site's suspects.json from several zones' pipeline files, headline zone first.
 
     Every suspect gets `zone` (the run its entry comes from) and `zones` (every zone whose run found it). A suspect
     that an earlier zone already lists (same mover: within `match_arcsec` and `match_min` minutes; the pilot box lies
     inside the hunt zone) is not repeated: the earlier entry adds the zone to its `zones`. The top level keeps the
-    contract's `zone` (the headline zone) and adds `zones`. Files that don't match the contract are skipped."""
+    contract's `zone` (the headline zone) and adds `zones`. Files that don't match the contract are skipped.
+
+    Zone-level vetting fields (ZONE_FIELDS), exactly as each zone's file has them: the headline zone's at the top
+    level, like `generated` and `data_release` (so the file keeps the contract's one-zone shape), and every zone's
+    under `vetting` = {zone: {field: value}}, for the suspects whose `zone` is another. A zone whose file has none
+    (ungraded, written before 14 Nov evening) is left out of `vetting`; with no graded zone the key is absent."""
     files = [(z, d) for z, d in files if valid_suspects(d)]
     if not files:
         return None
@@ -661,8 +673,11 @@ def merge_suspects(files: list[tuple[str, dict]], match_arcsec: float = 6.0, mat
                 continue
             out.append({**s, "zone": z, "zones": [z]})
     z0, d0 = files[0]
+    vetting = {z: {k: d[k] for k in ZONE_FIELDS if k in d} for z, d in files}
+    vetting = {z: v for z, v in vetting.items() if v}
     return {"generated": d0.get("generated"), "data_release": d0.get("data_release"), "zone": z0,
-            "zones": [z for z, _ in files], "suspects": out}
+            **vetting.get(z0, {}), "zones": [z for z, _ in files], **({"vetting": vetting} if vetting else {}),
+            "suspects": out}
 
 
 def fetch_results(zone: str, dest: Path) -> None:
@@ -688,6 +703,8 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
                     help="write the zones' merged suspects here when the pipeline wrote real ones (default web/public/data)")
+    ap.add_argument("--distant-out", type=Path, default=SITE_DATA / "distant.json",
+                    help="write the distant-planet search here when a zone has a run (default web/public/data)")
     args = ap.parse_args()
 
     zones = as_zones(args.zone or args.zones)
@@ -715,6 +732,11 @@ def main() -> None:
         write_json(args.suspects_out, sus)
         per = ", ".join(f"{z} {len(d['suspects'])}" for z, d in files if valid_suspects(d))
         print(f"-> {args.suspects_out} ({len(sus['suspects'])} suspects, headline zone {sus['zone']}; per zone: {per})")
+    dist = distant.write_site_file(args.results, zones, args.distant_out, DATA_RELEASE)
+    if dist:
+        c, k = dist["counts"], dist["control"]
+        print(f"-> {args.distant_out} ({dist['zone']}: {c['pairs_tested']} pairs tested, {c['pairs']} passing, "
+              f"chance {k['expected_pairs']}, Poisson p {k['poisson_p']})")
 
 
 if __name__ == "__main__":

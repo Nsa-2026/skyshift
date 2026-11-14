@@ -1,5 +1,6 @@
 // Small pieces both review pages share: the candidate's headline (kind, why, motion), copy to
 // clipboard, the sample-data note and the casting of a vote.
+import { GRADE_TEXT, NEAR_SOURCE_HINT, UNGRADED_TEXT, failedGates, gateText, gradeCSentence, gradeOf, nearSourceText } from "../api/grades";
 import type { Candidate } from "../api/types";
 import { formatRaDec } from "../app/astro";
 import type { Answer, Counts } from "../vote/model";
@@ -37,11 +38,50 @@ export function motionHtml(c: Candidate): string {
 
 const sig = (s: number) => (s >= 100 ? Math.round(s).toLocaleString("en-US") : s.toFixed(1));
 
+/**
+ * The pipeline's vetting grade (src/api/grades.ts), for fast movers. "full" (the candidate page)
+ * also says why a grade C failed, check by check, and calls an ungraded mover "not vetted yet";
+ * the queue shows only a grade the file carries. A slot for the near-source warning follows
+ * (filled by fillNearSource once suspects.json has been read).
+ */
+export function gradeHtml(c: Candidate, full: boolean): string {
+  const g = gradeOf(c);
+  if (c.kind !== "mover" && !g) return "";
+  if (!g && !full) return nearSlot();
+  const t = g ? GRADE_TEXT[g] : UNGRADED_TEXT;
+  const gates = g === "C" ? failedGates(c) : [];
+  const why =
+    full && gates.length
+      ? html`<ul class="rv-grade-why">${gates.map((code) => html`<li><b>${esc(gateText(code).label)}.</b> ${esc(gateText(code).plain)}</li>`).join("")}</ul>`
+      : g === "C" && gates.length
+        ? html`<p class="rv-grade-text">${esc(gradeCSentence(gates))}</p>`
+        : "";
+  return html`<section class="rv-grade" data-grade="${g ?? "none"}" aria-label="Vetting grade">
+    <p class="rv-grade-head"><span class="rv-grade-badge">${esc(t.short)}</span>${g ? html` <span class="rv-grade-name">${esc(t.name)}</span>` : ""}</p>
+    <p class="rv-grade-text">${esc(t.plain)}</p>
+    ${why}
+    ${nearSlot()}
+  </section>`;
+}
+
+const nearSlot = () => html`<p class="rv-grade-near" data-near hidden></p>`;
+
+/** Fill a page's near-source slot: "A catalogued source sits 4.1″ away." (a warning, not a gate). */
+export function fillNearSource(root: ParentNode, arcsec: number | null): void {
+  const el = root.querySelector<HTMLElement>("[data-near]");
+  if (!el) return;
+  el.hidden = arcsec == null;
+  el.textContent = arcsec == null ? "" : `${nearSourceText(arcsec)} A warning only: the two may blend.`;
+  el.title = arcsec == null ? "" : NEAR_SOURCE_HINT;
+}
+
 /** Two or three quick facts for the queue: S/N, brightness, detector. */
 export function factsHtml(c: Candidate): string {
   const rows: [string, string][] = [];
   if (c.snr != null) rows.push(["Signal to noise", sig(c.snr)]);
   if (c.flux_ujy != null && c.flux_ujy > 0) rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">AB ${abMag(c.flux_ujy).toFixed(1)}</span>`]);
+  // shape: the sky direction of the stretch (an axis, 0–180° east of north).
+  if (c.kind === "shape" && c.pa_deg != null) rows.push(["Stretched along", `${Math.round(c.pa_deg)}° east of north`]);
   // The detector is on the plate's tabs already.
   if (!rows.length) return "";
   return html`<dl class="rv-facts">${rows.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;

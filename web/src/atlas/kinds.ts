@@ -1,9 +1,10 @@
 // The three kinds of candidate in plain words (web/DESIGN.md "Candidates"), the reason codes as
 // short phrases, and the one number that matters for each kind, with units. Pure.
+import { gateText, gradeOf, isGate, leadRank } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { DETECTORS, formatMjd } from "../app/astro";
 
-export const KINDS: readonly CandidateKind[] = ["mover", "high_pm", "spectral"];
+export const KINDS: readonly CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 
 export interface KindText {
   name: string;
@@ -34,10 +35,16 @@ export const KIND_TEXT: Record<CandidateKind, KindText> = {
     code: "s",
     meaning: "Its colours or molecule bands stand out: methane, water ice or CO₂.",
   },
+  shape: {
+    name: "One or two?",
+    plural: "One or two?",
+    code: "o",
+    meaning: "Wider or longer than a single star, where Gaia and CatWISE list one object. Could be a passing object or a companion.",
+  },
 };
 
 export function isKind(k: unknown): k is CandidateKind {
-  return k === "mover" || k === "high_pm" || k === "spectral";
+  return k === "mover" || k === "high_pm" || k === "spectral" || k === "shape";
 }
 
 /**
@@ -76,6 +83,11 @@ const REASON_TEXT: Record<string, string> = {
   class_galaxy: "Looks like a galaxy",
   class_unsure: "Star or galaxy unclear",
   variable: "Brightness changes",
+  // shape
+  elongated: "Stretched shape",
+  steady_pa: "Same direction every time",
+  one_visit: "Stretched in one visit only",
+  one_catalogue_source: "Catalogues list one object",
 };
 
 /** The "check first" codes of the contract: shown as cautions, not as evidence. */
@@ -96,10 +108,11 @@ const CAUTION_CODES = new Set([
   "catwise_pm_disagrees",
   "at_control_level",
   "implausible_pm",
+  "one_visit",
 ]);
 
 export function isCaution(code: string): boolean {
-  return CAUTION_CODES.has(code);
+  return CAUTION_CODES.has(code) || isGate(code);
 }
 
 /**
@@ -112,6 +125,7 @@ export function isLikelyMismatch(c: Pick<Candidate, "reasons">): boolean {
 
 export function reasonText(code: string): string {
   if (REASON_TEXT[code]) return REASON_TEXT[code];
+  if (isGate(code)) return gateText(code).label;
   const words = code.replace(/[_-]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -190,10 +204,23 @@ export function keyNumber(c: Candidate): KeyNumber | null {
 export function oneLine(c: Candidate): string {
   const k = keyNumber(c);
   const name = KIND_TEXT[c.kind]?.name ?? "Candidate";
-  if (!k) return name;
+  // The vetting grade, when the list carries one: in words, so grey is never the only cue.
+  const g = gradeOf(c);
+  const grade = g ? `, grade ${g}` : "";
+  if (!k) return `${name}${grade}`;
   const unit = k.unit ? (k.unit.startsWith("″") ? k.unit : ` ${k.unit}`) : "";
-  const pa = c.pa_deg != null && c.kind !== "spectral" ? `, toward ${Math.round(c.pa_deg)}°` : "";
-  return `${name}, ${k.value}${unit}${pa}`;
+  const pa = c.pa_deg != null && c.kind !== "spectral" ? (c.kind === "shape" ? `, stretched along ${Math.round(c.pa_deg)}°` : `, toward ${Math.round(c.pa_deg)}°`) : "";
+  return `${name}, ${k.value}${unit}${pa}${grade}`;
+}
+
+/** Grade C signals are greyed on the map and listed after the rest. */
+export function isGradeC(c: Pick<Candidate, "grade">): boolean {
+  return gradeOf(c) === "C";
+}
+
+/** Signals in view, nearest the centre first, but grade A ahead and grade C after the rest (C never leads). Stable. */
+export function gradeCLast<T extends Pick<Candidate, "grade">>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => leadRank(gradeOf(a)) - leadRank(gradeOf(b)));
 }
 
 export function detectorText(det: number): string {

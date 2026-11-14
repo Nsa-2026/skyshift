@@ -1,0 +1,27 @@
+[project]
+name = "skyshift-mcp"
+version = "0.1.0"
+description = "MCP server for SkyShift: candidates, blink frames, measurements and known objects for AI assistants (contracts/api.md)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2,<2",  # v1 FastMCP API (v2 renamed it MCPServer); clients only see the protocol
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "pillow>=10.0",
+]
+
+[project.scripts]
+skyshift-mcp = "skyshift_mcp.server:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["network: calls the live site (set SKYSHIFT_NETWORK=1 to run)"]

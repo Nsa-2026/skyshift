@@ -1,5 +1,6 @@
 // Plain words for the codes the pipeline writes (DESIGN.md "Candidates", "Smart filters").
 // Codes stay in title attributes and exports; people read these.
+import { GRADE_TEXT, gradeLabel } from "../api/grades";
 import type { CandidateKind } from "../api/types";
 
 export interface KindText {
@@ -9,12 +10,13 @@ export interface KindText {
   gist: string;
 }
 
-export const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral"];
+export const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 
 export const KIND_TEXT: Record<CandidateKind, KindText> = {
   mover: { name: "Fast mover", plural: "Fast movers", gist: "Seems to move within hours: maybe an uncatalogued asteroid or comet. Most fast movers are seen in only two exposures of one session, which can't show motion by itself: blink it and look for a steady step." },
   high_pm: { name: "Moving star", plural: "Moving stars", gist: "Moves between visits: maybe a nearby star or brown dwarf." },
   spectral: { name: "Odd spectrum", plural: "Odd spectra", gist: "Molecule bands or colours worth a look." },
+  shape: { name: "One or two?", plural: "One or two?", gist: "Wider or longer than a single star, where Gaia and CatWISE list one object: maybe a passing object or a companion." },
 };
 
 /**
@@ -55,7 +57,7 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   implausible_pm: { label: "Too fast for a star", tone: "doubt", detail: "Faster than 12″ a year. Barnard's Star, the fastest known, does 10.4″, so this is almost certainly two different sources." },
   motion_not_significant: { label: "Motion under 3σ", tone: "doubt", detail: "The motion is smaller than 3σ of its position errors: it may not move at all." },
   known_object_near: { label: "Known object predicted nearby", tone: "doubt", detail: "A known asteroid or comet was predicted within 2′ at that time: this may be that object, slightly off its prediction." },
-  class_galaxy: { label: "Looks extended", tone: "doubt", detail: "The classifier calls it a galaxy, which would explain the spectrum without anything new." },
+  class_galaxy: { label: "Looks extended", tone: "doubt", detail: "The classifier calls it a galaxy, which would explain the spectrum or the shape without anything new: galaxies look extended by nature." },
   class_unsure: { label: "Shape unclear", tone: "doubt", detail: "Point-like but with no Gaia star, so the classifier could not decide what it is." },
   gaia_unchecked: { label: "Gaia not checked", tone: "doubt", detail: "Gaia could not be checked when the pipeline ran." },
   catwise_unchecked: { label: "CatWISE not checked", tone: "doubt", detail: "CatWISE could not be checked when the pipeline ran." },
@@ -77,6 +79,11 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   red_photo: { label: "Only in bad photos", tone: "caution", detail: "Every detection comes from a photo the quality check graded red." },
   "2mass": { label: "2MASS source here", tone: "doubt", detail: "2MASS lists a source within 6″: probably a catalogued star, not something new." },
   allwise: { label: "AllWISE source here", tone: "doubt", detail: "AllWISE lists a source within 6″: probably a catalogued source, not something new." },
+  // shape: one object or two? (contracts/api.md, candidates.json "reasons")
+  elongated: { label: "Stretched shape", tone: "support", detail: "Its image is more stretched than single stars of the same brightness on the same detector." },
+  steady_pa: { label: "Same direction every time", tone: "support", detail: "Its photos show the stretch pointing the same way on the sky, in both visits, although the detector turns between visits. Noise points anywhere." },
+  one_catalogue_source: { label: "Catalogues list one object", tone: "support", detail: "Gaia DR3 and CatWISE2020 list a single object within 15″, so a second one would be new." },
+  one_visit: { label: "Stretched in one visit only", tone: "doubt", detail: "Only one of the two visits shows the stretch: something may have passed by, or one visit is noisier." },
   not_vetted: { label: "Not vetted", tone: "doubt", detail: "There was no pixel data to run the artefact checks on, so nothing was ruled out." },
 };
 
@@ -123,6 +130,18 @@ export const FLAG_TEXT: Record<string, string> = {
 
 export const flagText = (code: string): string =>
   FLAG_TEXT[code.toLowerCase()] ?? (/repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary/i.test(code) ? FLAG_TEXT.repeat_position : humanize(code.toLowerCase()));
+
+/** The grade facet's values: the three grades, then "none" (not vetted yet, or a kind that isn't graded). */
+export const GRADE_VALUES = ["A", "B", "C", "none"] as const;
+
+/** A grade facet value in words, for the filter, the chips in use and their titles. */
+export function gradeFacetText(v: string): { label: string; title: string } {
+  if (v === "A" || v === "B" || v === "C") return { label: gradeLabel(v), title: `grade ${v}: ${GRADE_TEXT[v].plain}` };
+  return {
+    label: "No grade",
+    title: "No grade: fast movers found before the vetting ran, and every moving star and odd spectrum (only fast movers are graded).",
+  };
+}
 
 export type ReviewState = "none" | "some" | "consensus";
 export const REVIEW_TEXT: Record<ReviewState, string> = {

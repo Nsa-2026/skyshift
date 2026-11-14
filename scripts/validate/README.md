@@ -14,6 +14,8 @@ this folder (`pyproject.toml` + `uv.lock`). Archive state: 14 Nov 2026 (SPHEREx 
 | `v4_asteroids.py` | V4: asteroids 1–60 at MOST's predicted position in up to 5 photos each (81 px boxes, D2–D3), absent from a reference stack of the same sky 0.25–12 days away; control 3′ away. | `data/v4_asteroids.json`, `data/v4_photos.csv` |
 | `v8_spectra.py` | V8 spectra half, per pipeline zone (default hunt and pilot): every star's 102-channel spectrum (pipeline `sources.parquet`) averaged over 2MASS Ks and WISE W1, against the catalogue magnitudes in `crossids.parquet`. | `data/v8_spectra_<zone>.json` |
 | `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `v8_spectra_<zone>.json` + `data/demo_check.json` (`demo_check.py --json`; `--demo-check PATH` overrides), V11 from `scripts/science`. Missing inputs → `pending`. Status rules are small pure functions (`v1_status` … `v10_status`, tested in `tests/test_build_validation.py`); every note ends with the row keys. Zones: see "Two zones" below. Also writes the zones' merged `suspects.json`. | `web/public/data/validation.json`, `web/public/data/suspects.json` |
+| `distant.py` | The distant-planet search for the results page (contracts/api.md v3.6): the pipeline step `orphans`' `distant.json` (`<results>/<zone>/distant.json` once `--fetch-results` finds it in the bucket, else the committed `data/distant_<zone>.json`) plus the injection below, mapped onto the contract. `build_validation.py` calls it too. Tested in `tests/test_distant.py`. | `web/public/data/distant.json` |
+| `distant_injection.py` | How sensitive the distant search is: 522 made-up planets at 70–1000 AU at the zone's real cadence, added to the real orphans and paired by the step's own code (table-level: detection and linking are not tested). Runs with the **pipeline's** environment on a local root holding the zone's photo list, `orphans.parquet` and `sources.parquet`; no other reads. | `data/distant_injection_<zone>.json` |
 | `_boxes.py` | Box reads from S3 (cached in `.cache/boxes/`), reference stacks resampled through the WCS, `source_near` (with the saturated-core fit). | |
 | `_common.py` | Shared helpers: linear proper motion, detector from `energy_bandpassname`, the visit/session rule (re-exported from `skyshift_core.visits`), polygon edge distance, `gcloud storage cp`. | |
 
@@ -28,8 +30,31 @@ uv run python v8_spectra.py              # hunt + pilot tables from the bucket (
 uv run python build_validation.py --site-data ../../web/public/data --fetch-results
                                          # both zones' reports (hunt headline, pilot kept); --zones pilot for one;
                                          # V8 speed from data/demo_check.json (--demo-check PATH overrides)
+uv run python distant.py                 # web/public/data/distant.json only (no other file touched)
 uv run pytest                            # offline
 ```
+
+**Distant planets (`distant.json`).** The hunt's `results/hunt/distant.json` is not in the bucket (the `orphans`
+step has only run locally), so its output is committed as `data/distant_hunt.json`. To redo it (14 Nov: ~168 MB from
+the bucket, 36 s for the step, ~7 min for the injection):
+
+```
+# <root>: a local folder with photolists/zones/hunt.parquet, results/hunt/{members,sources,crossids,fixed}.parquet,
+# cache/mpc/hunt/ and dots/<obs_id>D<det>.parquet for the clean orphans' 906 dot files (the step's DOT_COLUMNS only,
+# every row: footers + those columns ~0.2 MB a file)
+cd pipeline && uv run skyshift-pipeline orphans --zone hunt --root <root>
+cp <root>/results/hunt/distant.json ../scripts/validate/data/distant_hunt.json
+uv run python ../scripts/validate/distant_injection.py --root <root>         # -> data/distant_injection_hunt.json
+cd ../scripts/validate && uv run python distant.py                           # -> web/public/data/distant.json
+```
+
+Hunt (14 Nov tables, the same numbers as PR #132): 5,275 single-visit sources → 779 uncatalogued, all covered by
+the other visit → 447 orphans (314 bright-star fragments, 26 zone edge, 5 saturated) → 442 with a drift → 892
+pairs tested, **1 passing; chance gives 1.5 ± 1.2 (50 controls), Poisson p 0.78: nothing beyond chance.** The pair
+is 930″ along the ecliptic at r ≈ 404 AU (404–446), one shared detector (D3, ratio 0.81). Depth at S/N 5–6: AB 17.26
+(D1), 17.36 (D2), 17.51 (D3), 17.71 (D4): a Neptune-size planet with albedo 0.4 to ~283 AU, an Earth to ~144 AU.
+103 orphans have part of their partner track outside the zone. Injection: 504 of 522 found (97%), 90–100% per
+distance, 83% in the worst setting (150 and 200 AU, 6 dots a visit); fitted distance median 1.6% off.
 
 **Two zones.** `--zones` (default `hunt,pilot`) sets the zones for V5, V8 spectra, V9, V10 and
 `suspects.json`; the first zone with an input is the headline and gives `value`, and every zone's numbers
@@ -46,6 +71,10 @@ delete the local copies first when the bucket's are newer (`gcloud storage ls -l
 entry comes from) and `zones` (every zone whose run found it); the top level keeps the contract's `zone` (the
 headline zone) and adds `zones`. A later zone's suspect within 6″ and 2 minutes of an earlier zone's is the same
 mover and is not repeated. Both fields are optional additions; the contract shape is unchanged.
+The zone-level vetting fields (`vetoes`, `provisional`, `grades`, `gates`) are kept exactly as each zone's file has
+them: the headline zone's at the top level (the contract's one-zone shape), and every graded zone's under
+`vetting` = `{zone: {field: value}}`, for suspects whose `zone` is another. Ungraded zones (files written before the
+14 Nov vetting) are left out of `vetting`; with none graded the key is absent and the file is as before.
 
 `v4_asteroids.py` needs `data/most_1_60.csv` (`gcloud storage cp gs://nasa-glazing-data/results/most_1_60.csv data/`).
 

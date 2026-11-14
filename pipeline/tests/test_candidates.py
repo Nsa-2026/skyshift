@@ -241,7 +241,7 @@ def test_build_end_to_end(tmp_path):
     assert doc["zones"] == ["hunt", "pilot"]              # both searched, hunt first ...
     assert {c["zone"] for c in doc["candidates"]} == {"hunt"}   # ... and the pilot's objects all listed from the hunt
     assert doc["data_release"] == "DR1+QR3"
-    assert doc["counts"] == {"mover": 2, "high_pm": 1, "spectral": 2}
+    assert doc["counts"] == {"mover": 2, "high_pm": 1, "spectral": 2, "shape": 0}   # no shape_candidates.parquet: 0
     cs = doc["candidates"]
     for c in cs:
         assert list(c) == list(K.FIELDS)
@@ -273,6 +273,32 @@ def test_build_end_to_end(tmp_path):
     assert json.loads(text) == doc and text.count("\n") == len(cs) + 2
     small = K.sample(doc, per_kind=1)
     assert small["synthetic"] is False and small["counts"] == doc["counts"] and len(small["candidates"]) <= len(cs)
+
+
+def test_source_without_a_usable_spectrum(tmp_path):
+    """No channel with positive, finite S/N in any detector: det, snr and flux_ujy are None in source_stats (not D1,
+    S/N 0 from the argmax of six zeros); the export writes snr and flux_ujy null and the default detector."""
+    store = Store(str(tmp_path / "bucket"))
+    _zone_files(store, "hunt", 125.0, 20.0, with_extra_mover=False)
+    n = NDET * NCH_DET
+    good = np.full(n, 10.0)
+    good[5 * NCH_DET:] = 50.0                                         # brightest in D6
+    flux = np.stack([good, np.full(n, np.nan), np.full(n, -5.0), np.zeros(n), np.full(n, 5.0)])
+    err = np.stack([np.ones(n), np.ones(n), np.ones(n), np.ones(n), np.zeros(n)])
+    _write(store, results_rel("hunt", "sources.parquet"), pd.DataFrame({
+        # 100 is the zone's high_pm source: all NaN; 101 negative, 102 zero, 103 flux with zero errors; 99 the control
+        "source_id": [99, 100, 101, 102, 103], "ra": [125.3, 125.1, 125.2, 125.3, 125.4], "dec": [20.0] * 5,
+        "flux_ujy": list(flux), "err_ujy": list(err), "saturated": [False] * 5, "variable": [False] * 5}))
+    st = K.source_stats(store, "hunt", np.array([99, 100, 101, 102, 103])).set_index("source_id")
+    assert st.loc[99, "det"] == 6 and st.loc[99, "snr"] == pytest.approx(50.0 * np.sqrt(NCH_DET))
+    assert st.loc[99, "flux_ujy"] == 50.0
+    for sid in (100, 101, 102, 103):
+        assert pd.isna(st.loc[sid, "det"]) and np.isnan(st.loc[sid, "snr"]) and np.isnan(st.loc[sid, "flux_ujy"]), sid
+    doc = K.build(store, ["hunt"])
+    hp = next(c for c in doc["candidates"] if c["kind"] == "high_pm")
+    assert hp["id"] == "hunt-pm-100"
+    assert hp["snr"] is None and hp["flux_ujy"] is None and hp["det"] == K.DEFAULT_DET
+    assert json.loads(K.dumps(doc)) == doc                            # no NaN reaches the file
 
 
 def test_zone_boxes_order():
@@ -312,3 +338,20 @@ def test_grade_a_movers_name_their_track(monkeypatch):
     assert a["score"] == pytest.approx(b["score"] / K.MOVER_NO_MOTION)
     assert a["rate_arcsec_h"] == 1.0 and a["pa_deg"] == 45.0  # contract: from its own dots
     assert K.mover_track(next(s.drop(columns=["n_sessions"]).itertuples())) is None  # no track columns: as before
+
+
+def test_shape_candidates(tmp_path):
+    store = Store(str(tmp_path / "bucket"))
+    assert K.shape_candidates(store, "hunt") == []                     # no file: no shape candidates
+    store.write_parquet(results_rel("hunt", K.SHAPE_FILE), pd.DataFrame({
+        "source_id": [42], "ra": [125.5], "dec": [20.1], "mjd": [60800.5], "det": [3], "snr": [85.2], "flux_ujy": [310.0],
+        "score": [0.41], "sig": [8.0], "excess": [0.07], "pa_deg": [37.2], "n_dots": [40], "steady_pa": [True],
+        "one_visit": [False], "gaia_match": [True], "gaia_g": [15.1], "ruwe": [1.0], "catwise_match": [True],
+        "reasons": ["elongated,steady_pa,one_catalogue_source,not_a_code"],
+        "why": ["Looks like two objects here but the catalogues list one: worth a look."], "flags": [""]}))
+    (c,) = K.shape_candidates(store, "hunt")
+    assert c["id"] == "hunt-sh-42" and c["kind"] == "shape" and c["clock"] == "months" and c["det"] == 3
+    assert c["reasons"] == ["elongated", "steady_pa", "one_catalogue_source"] and c["flags"] == [] and c["labels"] == []
+    c["galactic_b"] = 30.0
+    out = K.finish(c)
+    assert list(out) == list(K.FIELDS) and out["pa_deg"] == 37.2 and out["gaia_match"] is True and out["rate_arcsec_h"] is None

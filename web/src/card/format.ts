@@ -119,8 +119,9 @@ export interface MissingVisit {
 
 /**
  * Visits the months blink shows that have no spectrum point: every exposure there was left out of
- * the photometry (a Gaia star too close to measure apart, a masked core). WISE 0855−0714 passes 4″
- * from a G = 16.3 star in visit 3, so its spectrum has visits 1–2 while the blink has 1–3.
+ * the photometry (a Gaia star too close to measure apart, a masked core). WISE 0855−0714 was the
+ * case (4″ from a G = 16.3 star in visit 3) until the server fitted both there; live answers at
+ * other coordinates can still lack a visit.
  * Both number visits by the same rule over the same search, so the numbers compare directly
  * (contracts/api.md: months epoch ids are `d<det>-v<visit>`). det: only that detector's stacks and
  * points (the light curve). [] without months frames near the view (hours clock, stale frames).

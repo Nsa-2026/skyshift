@@ -1,0 +1,163 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "generated": "2026-11-14T09:30:00Z",
+  "data_release": "DR1+QR3",
+  "zone": "hunt",
+  "zone_box": {
+    "ra": [
+      120.5,
+      130.5
+    ],
+    "dec": [
+      14.4,
+      24.4
+    ]
+  },
+  "run_created": "2026-11-14T09:00:00Z",
+  "searched": {
+    "distance_au": [
+      70.0,
+      1000.0
+    ],
+    "sep_arcsec": [
+      300.0,
+      7200.0
+    ],
+    "rate_arcsec_h": [
+      0.0,
+      1.0
+    ],
+    "pair_min_p": 0.01
+  },
+  "counts": {
+    "single_visit_sources": 5000,
+    "uncatalogued": 800,
+    "covered": 790,
+    "orphans": 450,
+    "dropped": {
+      "bright_fragment": 310,
+      "zone_edge": 30,
+      "saturated": 5
+    },
+    "drift_ok": 440,
+    "pairs_tested": 900,
+    "pairs": 1,
+    "known_orphans": 0,
+    "open_orphans": 100
+  },
+  "pairs": [
+    {
+      "source_id_a": 64900007030800,
+      "source_id_b": 64940007013300,
+      "visit_a": 1,
+      "visit_b": 2,
+      "ra_a": 123.33,
+      "dec_a": 18.17,
+      "mjd_a": 60975.29,
+      "ra_b": 123.07,
+      "dec_b": 18.23,
+      "mjd_b": 61145.0,
+      "sep_arcsec": 930.0,
+      "dlon_arcsec": -929.9,
+      "dlat_arcsec": 11.0,
+      "distance_au": 400.0,
+      "distance_lo_au": 390.0,
+      "distance_hi_au": 450.0,
+      "flux_ratio": 0.8,
+      "n_common_det": 1,
+      "n_dots_a": 3,
+      "n_dots_b": 3,
+      "snr_a": 6.5,
+      "snr_b": 15.0,
+      "p": 0.66,
+      "known_a": null,
+      "known_b": null
+    }
+  ],
+  "control": {
+    "n": 20,
+    "passing_per_control": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1,
+      1,
+      0,
+      2,
+      1,
+      0,
+      1,
+      1,
+      0,
+      1,
+      3
+    ],
+    "expected_pairs": 0.95,
+    "spread_pairs": 0.686,
+    "poisson_p": 0.6321,
+    "beyond_chance": false,
+    "method": "later visit's orphans shifted cyclically by 25-75% of the box in RA and Dec"
+  },
+  "injection": {
+    "method": "table-level: synthetic planets at the zone's cadence, paired with the real orphans",
+    "distances": [
+      {
+        "distance_au": 70.0,
+        "injected": 60,
+        "recovered": 58,
+        "recovered_frac": 0.967,
+        "distance_fit_median_au": 70.7
+      },
+      {
+        "distance_au": 150.0,
+        "injected": 60,
+        "recovered": 54,
+        "recovered_frac": 0.9,
+        "distance_fit_median_au": 152.7
+      },
+      {
+        "distance_au": 300.0,
+        "injected": 60,
+        "recovered": 58,
+        "recovered_frac": 0.967,
+        "distance_fit_median_au": 303.5
+      },
+      {
+        "distance_au": 1000.0,
+        "injected": 60,
+        "recovered": 60,
+        "recovered_frac": 1.0,
+        "distance_fit_median_au": 990.3
+      }
+    ],
+    "recovered_frac": 0.958,
+    "min_cell_recovered_frac": 0.85,
+    "distance_err_median_frac": 0.01
+  },
+  "limits": {
+    "depth_ab_snr5": {
+      "D1": 17.3,
+      "D2": 17.4,
+      "D3": 17.5,
+      "D4": 17.7
+    },
+    "reach_au": {
+      "neptune_p0.1": 200.0,
+      "neptune_p0.4": 280.0,
+      "super_earth_2re_p0.1": 140.0,
+      "super_earth_2re_p0.4": 200.0,
+      "earth_p0.1": 100.0,
+      "earth_p0.4": 140.0
+    },
+    "notes": [
+      "the object must be detected (S/N >= 5) in >= 3 sessions of each visit"
+    ]
+  }
+}
