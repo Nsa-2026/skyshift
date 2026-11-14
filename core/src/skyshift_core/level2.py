@@ -116,7 +116,8 @@ class EPSF:
     source position, and the samples sum to 1. The fraction of a point source's flux recorded in a
     native pixel whose centre is offset (dx, dy) from the source is
         P(dx, dy) = OVSMPX * OVSMPY * epsf[16 + 5 dy, 16 + 5 dx]
-    (cubic-spline interpolation between samples; 0 beyond +-3.2 px). Do not integrate over the
+    (cubic-spline interpolation between samples, each zone on its own; 0 beyond +-3.2 px;
+    evaluate_grad also gives the spline's derivatives, for position fits). Do not integrate over the
     pixel: the pixel response is already in the ePSF.
     Zone choice: the zone whose centre (XCENTER, YCENTER: 0-based detector pixels) is nearest,
     i.e. the zone containing the position (zones tile the detector uniformly). No interpolation
@@ -171,16 +172,60 @@ class EPSF:
 
     def evaluate(self, dx: ArrayLike, dy: ArrayLike, zone: ArrayLike) -> NDArray[np.float64]:
         """Fraction of the flux in a native pixel whose centre is (dx, dy) px from the source."""
+        return self._spline(dx, dy, zone, grad=False)[0]
+
+    def evaluate_grad(self, dx: ArrayLike, dy: ArrayLike,
+                      zone: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        """evaluate() and its derivatives (∂P/∂dx, ∂P/∂dy, per native pixel) from the same cubic spline.
+        A source moving by +δ in x changes a pixel's value by −δ ∂P/∂dx (dx = pixel − source)."""
+        return self._spline(dx, dy, zone, grad=True)
+
+    def _coefficients(self) -> NDArray[np.float64]:
+        """Cubic B-spline coefficients of each zone on its own (2-D, x and y only), zero-padded by
+        _SPLINE_PAD samples. (Until 14 Nov one 3-D spline also ran across the zone axis: exact inside,
+        but the first and last zone rows came out up to 17% of the peak wrong at the boundary.)"""
         if self._coef is None:
-            self._coef = ndimage.spline_filter(self.psf, order=3, mode="grid-constant")
-        nz, ny, nx = self.psf.shape
+            p = np.pad(self.psf, ((0, 0), (_SPLINE_PAD, _SPLINE_PAD), (_SPLINE_PAD, _SPLINE_PAD)))
+            c = ndimage.spline_filter1d(p, 3, axis=1, mode="grid-constant")
+            self._coef = np.ascontiguousarray(ndimage.spline_filter1d(c, 3, axis=2, mode="grid-constant"))
+        return self._coef
+
+    def _spline(self, dx: ArrayLike, dy: ArrayLike, zone: ArrayLike, grad: bool) -> tuple[NDArray[np.float64], ...]:
+        c = self._coefficients()
+        nz, sy, sx = c.shape
+        ny, nx = self.psf.shape[1:]
         ox, oy = self.oversample
         dx, dy, zone = np.broadcast_arrays(np.asarray(dx, np.float64), np.asarray(dy, np.float64), np.asarray(zone))
-        coords = np.stack([zone.astype(np.float64).ravel(),
-                           (ny - 1) / 2.0 + oy * dy.ravel(),
-                           (nx - 1) / 2.0 + ox * dx.ravel()])
-        v = ndimage.map_coordinates(self._coef, coords, order=3, mode="grid-constant", cval=0.0, prefilter=False)
-        return (v * (ox * oy)).reshape(dx.shape)
+        u = (nx - 1) / 2.0 + _SPLINE_PAD + ox * dx
+        v = (ny - 1) / 2.0 + _SPLINE_PAD + oy * dy
+        iu, iv = np.floor(u), np.floor(v)
+        inside = (iu >= 1) & (iu <= sx - 3) & (iv >= 1) & (iv <= sy - 3)  # 0 beyond the padded grid
+        iu = np.clip(iu, 1, sx - 3).astype(np.int64)
+        iv = np.clip(iv, 1, sy - 3).astype(np.int64)
+        wu, du = _bspline3(u - iu, grad)
+        wv, dv = _bspline3(v - iv, grad)
+        base = zone.astype(np.int64) * (sy * sx) + (iv - 1) * sx + (iu - 1)
+        flat = c.ravel()
+        val = np.zeros(dx.shape)
+        gx = np.zeros(dx.shape) if grad else None
+        gy = np.zeros(dx.shape) if grad else None
+        for j in range(4):
+            row = np.zeros(dx.shape)
+            drow = np.zeros(dx.shape) if grad else None
+            for i in range(4):
+                cc = flat.take(base + (j * sx + i))
+                row += wu[i] * cc
+                if grad:
+                    drow += du[i] * cc
+            val += wv[j] * row
+            if grad:
+                gx += wv[j] * drow
+                gy += dv[j] * row
+        s = float(ox * oy)
+        val = np.where(inside, val * s, 0.0)
+        if not grad:
+            return (val,)
+        return val, np.where(inside, gx * (s * ox), 0.0), np.where(inside, gy * (s * oy), 0.0)
 
     def stamps(self, x: ArrayLike, y: ArrayLike, half: int = 3) -> tuple[NDArray[np.float64], NDArray[np.int64], NDArray[np.int64]]:
         """Native-pixel model stamps for sources at 0-based (x, y): (N, 2h+1, 2h+1) flux fractions
@@ -197,6 +242,21 @@ class EPSF:
     def stamp(self, x: float, y: float, half: int = 3) -> NDArray[np.float64]:
         """One (2h+1, 2h+1) stamp, centred on the pixel nearest (x, y)."""
         return self.stamps([x], [y], half)[0][0]
+
+
+_SPLINE_PAD = 4  # zero samples around each zone's ePSF before the spline (its edge values are ~0)
+
+
+def _bspline3(t: NDArray[np.float64], grad: bool) -> tuple[tuple, tuple | None]:
+    """Cubic B-spline weights (and their t-derivatives) of the 4 coefficients at floor − 1 .. floor + 2,
+    for t = position − floor in [0, 1)."""
+    s = 1.0 - t
+    t2 = t * t
+    t3 = t2 * t
+    w = (s * s * s / 6.0, (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0, (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0, t3 / 6.0)
+    if not grad:
+        return w, None
+    return w, (-0.5 * s * s, 1.5 * t2 - 2.0 * t, -1.5 * t2 + t + 0.5, 0.5 * t2)
 
 
 def _nearest(centres: NDArray[np.float64], v: NDArray[np.float64]) -> NDArray[np.int64]:
