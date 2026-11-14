@@ -19,12 +19,22 @@ moving star sits where the star was at the median time, not at mjd_mid (the midd
 and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
 mjd_mid is 14.6 days (0.41") after the median. dt_yr is therefore the difference of the median
 times (contracts/api.md says mjd_mid: raised with P1). predicted_arcsec includes parallax.
+
+Live requests (a Budget) do the same work in a fixed time: the spectrum from at most
+SPECTRUM_LIVE_PER_DET exposures of each detector, downloaded most useful first (detectors in
+turn, each visit's exposures spread over its time), until OBJECT_MEASURE_S before the deadline;
+then the measurement from at most blink.LIVE_PER_VISIT exposures of each of the two visits. What
+did not arrive is left out (never filled in); budget.partial says so and the app does not cache
+it. The 0.12 deg cutouts are the same files GET /api/frames (months 5') uses, so the two share
+work through the cache. scripts/precompute passes no budget and gets every exposure.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from typing import Any
 
 import numpy as np
@@ -42,6 +52,7 @@ from skyshift_core import (
 )
 
 from . import blink, cutouts, gaia, resolve, search, stack
+from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import ApiError, NotFoundError
 
@@ -59,6 +70,38 @@ DETECTOR_PREFERENCE = (2, 1, 3, 4, 5, 6)  # on ties
 # win on signal and measure 0.7" instead of its 8"/yr. In D5 it measures 7.05" +- 0.90" (Gaia-free
 # prediction 8.06"), in D6 8.57" +- 3.3". (targets.json says "Expected only in D5-D6" in a note.)
 MEASURE_DETECTORS = {"wise0855": (5, 6)}
+SPECTRUM_LIVE_PER_DET = 12  # live: spectrum points asked per detector (precompute: every exposure)
+OBJECT_MEASURE_S = 16.0  # live: seconds of the budget kept for the measurement after the spectrum
+OBJECT_RESERVE_S = 3.0  # live: seconds kept after the measurement's downloads
+
+
+def spectrum_images(images: list[search.Image], per_det: int | None) -> list[search.Image]:
+    """Download order for the spectrum: the detectors in turn (D1..D6), and within a detector its
+    visits in turn, each visit's exposures spread over its time (blink.by_usefulness), at most
+    per_det of each detector (None: all). Whatever arrives by a deadline covers every detector."""
+    queues = []
+    for det in range(1, 7):
+        q = blink.by_usefulness([im for im in images if im.det == det])
+        queues.append(q[:per_det] if per_det else q)
+    out: list[search.Image] = []
+    for i in range(max((len(q) for q in queues), default=0)):
+        out += [q[i] for q in queues if i < len(q)]
+    return out
+
+
+def _result(f: Future, budget: Budget | None, reserve: float, what: str) -> list[dict[str, Any]]:
+    """A Gaia cone's result, waited for until `reserve` s before the deadline; [] if it failed or
+    is late (budget marked partial)."""
+    try:
+        return f.result(timeout=budget.until(reserve) if budget is not None else None)
+    except FutureTimeout:
+        if budget is not None:
+            budget.cut(f"{what} not in time")
+    except ApiError as e:
+        log.warning("%s failed: %s", what, e)
+        if budget is not None:
+            budget.cut(f"{what} failed")
+    return []
 
 
 def _builtin_targets() -> list[dict[str, Any]]:
@@ -232,18 +275,23 @@ def fill_saturated_core(image: np.ndarray, x: float, y: float, *, radius: float 
 
 
 def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[search.Image],
-            det: int, v1: int, v2: int, cache: Cache) -> dict[str, Any] | None:
+            det: int, v1: int, v2: int, cache: Cache, *, budget: Budget | None = None,
+            per_visit: int | None = None, ref_stars: Future | None = None) -> dict[str, Any] | None:
+    """per_visit: at most this many exposures of each visit (blink.pick_months_images; None: all).
+    ref_stars: the 15' Gaia cone, already asked (else asked here)."""
     grid = stack.Grid(ra, dec, MEASURE_PIXEL, int(round(MEASURE_FOV * 60 / MEASURE_PIXEL)) | 1)
-    stacks = blink.visit_stacks([im for im in images if im.det == det], grid,
-                                cutouts.tier_for_field(MEASURE_FOV), cache, visits_wanted={v1, v2})
+    mine = blink.pick_months_images([im for im in images if im.det == det and im.visit in (v1, v2)], per_visit)
+    stacks = blink.visit_stacks(mine, grid, cutouts.tier_for_field(MEASURE_FOV), cache,
+                                visits_wanted={v1, v2}, budget=budget, reserve=OBJECT_RESERVE_S)
     if len(stacks) < 2:
         return None
     s1, s2 = stacks[0], stacks[-1]
-    try:
-        stars = gaia.cone(ra, dec, MEASURE_FOV / 2.0 * 2**0.5, cache=cache)
-    except ApiError as e:
-        log.warning("Gaia failed, no reference stars: %s", e)
-        stars = []
+    if budget is not None and budget.partial and min(s1.n_exposures, s2.n_exposures) < MIN_VISIT_EXPOSURES:
+        budget.cut("too few exposures in time for the measurement")  # a thin stack keeps asteroids
+        return None
+    if ref_stars is None:
+        ref_stars = blink._side.submit(gaia.cone, ra, dec, MEASURE_FOV / 2.0 * 2**0.5, cache=cache)
+    stars = _result(ref_stars, budget, 1.0, "Gaia reference stars")
 
     def col(k: str) -> np.ndarray:
         return np.array([np.nan if s.get(k) is None else s[k] for s in stars], dtype=float)
@@ -285,31 +333,49 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
                  "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled}
 
 
-def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: dict | None = None) -> dict[str, Any]:
+def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: dict | None = None,
+                 budget: Budget | None = None) -> dict[str, Any]:
     """GET /api/object. `details` (optional dict) receives what the contract has no field for:
-    the detector and visits measured, the shift's east/north parts (used by scripts/precompute)."""
+    the detector and visits measured, the shift's east/north parts (used by scripts/precompute).
+    budget: a live request's time budget (None: every exposure, no limit). BudgetError (503) if
+    neither a spectrum point nor a measurement arrived in time."""
     cache = cache or Cache()
+    live = budget is not None and budget.limited
+    t = time.monotonic()
     found = search.search(ra, dec, cache=cache)
+    if budget is not None:
+        budget.add("search", time.monotonic() - t)
     images = found.images
     if not images:
         raise NotFoundError("no SPHEREx images at this position")
     mjd_a, mjd_b = min(im.mjd for im in images), max(im.mjd for im in images)
-    try:
-        stars = gaia.cone(ra, dec, GAIA_CONE_ARCMIN, cache=cache)
-    except ApiError as e:
-        log.warning("Gaia failed: %s", e)
-        stars = []
-    name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, _builtin_targets())
+    # both Gaia cones run while the cutouts download
+    near_f = blink._side.submit(blink._timed, budget, "gaia", gaia.cone, ra, dec, GAIA_CONE_ARCMIN, cache=cache)
+    ref_f = blink._side.submit(blink._timed, budget, "gaia_ref", gaia.cone, ra, dec,
+                               MEASURE_FOV / 2.0 * 2**0.5, cache=cache)
 
-    l2s = cutouts.fetch_many(images, ra, dec, cutouts.tier_for_field(5), cache, variance=True)
-    spectrum = spectrum_points(images, l2s, model, ra, dec)
+    spec_images = spectrum_images(images, SPECTRUM_LIVE_PER_DET if live else None)
+    l2s = cutouts.fetch_many(spec_images, ra, dec, cutouts.tier_for_field(5), cache, variance=True,
+                             budget=budget, reserve=OBJECT_MEASURE_S)
+    stars = _result(near_f, budget, OBJECT_MEASURE_S, "Gaia")
+    name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, _builtin_targets())
+    spectrum = spectrum_points(spec_images, l2s, model, ra, dec)
 
     result: dict[str, Any] | None = None
     pick = pick_detector(spectrum, images, MEASURE_DETECTORS.get((model or {}).get("slug", "")))
-    if pick is not None:
-        got = measure(ra, dec, model, images, *pick, cache)
+    if pick is not None and not (budget is not None and budget.expired(OBJECT_RESERVE_S)):
+        t = time.monotonic()
+        got = measure(ra, dec, model, images, *pick, cache, budget=budget,
+                      per_visit=blink.LIVE_PER_VISIT if live else None, ref_stars=ref_f)
+        if budget is not None:
+            budget.add("measure", time.monotonic() - t)
         if got is not None:
             result, extra = got
             if details is not None:
                 details.update(extra)
+    elif pick is not None and budget is not None:
+        budget.cut("no time left for the measurement")
+    if budget is not None and budget.partial and not spectrum and result is None:
+        raise BudgetError("the SPHEREx archive did not deliver in time "
+                          f"({budget.elapsed():.0f} s); try again in a minute: what arrived is kept")
     return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum, "measure": result}
