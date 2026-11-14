@@ -6,8 +6,8 @@ Endpoints: /api/frames, /api/object, /api/gaia, /api/known, /api/resolve, /api/h
 /api/data/<key>/<name> for the frame bytes that a live /api/frames response points to.
 
 - The engine (blink, gaia, known) is called in FastAPI's threadpool (plain `def` routes).
-- While an engine function is missing or raises NotImplementedError, the route returns its
-  example from fixtures/api/ ("synthetic": true), never cached, with `Cache-Control: no-store`.
+- Missing engines return 404 by default. SKYSHIFT_ALLOW_SYNTHETIC=1 explicitly enables
+  fixture examples ("synthetic": true), never cached, with `Cache-Control: no-store`.
 - Real responses are cached whole by request in `Cache` (SKYSHIFT_CACHE; gs://nasa-glazing-data/cache
   on Cloud Run): api/<endpoint>/<key>.json, and frames/<key>/frames.json + frames/<key>/<blob>.
   Bump ENGINE_VERSION to invalidate everything after an engine change. Frames and /api/known keys
@@ -321,10 +321,14 @@ def _json(content: Any, cache_control: str = CACHE_REAL, partial: list[str] | No
 
 
 def _fixture(name: str) -> dict[str, Any]:
+    if os.environ.get('SKYSHIFT_ALLOW_SYNTHETIC') != '1':
+        raise NotFoundError('This engine is not available. Choose a precomputed featured target.')
     return json.loads((fixtures_dir() / name).read_text())
 
 
 def _synthetic(content: dict[str, Any]) -> JSONResponse:
+    if os.environ.get('SKYSHIFT_ALLOW_SYNTHETIC') != '1':
+        raise NotFoundError('This engine is not available. Choose a precomputed featured target.')
     return _json(content, CACHE_NONE)
 
 
@@ -387,7 +391,7 @@ def resolve(q: str = "") -> JSONResponse:
 
 @app.get("/api/frames")
 async def frames(request: Request, ra: float, dec: float, fov: float | None = None, clock: str = "months",
-                 det: int = DET_DEFAULT) -> JSONResponse:
+                 det: int = DET_DEFAULT, view: str = 'raw') -> JSONResponse:
     ra, dec = _check_pos(ra, dec)
     if clock not in FOV_ALLOWED:
         raise bad_request("clock must be months or hours")
@@ -398,15 +402,17 @@ async def frames(request: Request, ra: float, dec: float, fov: float | None = No
     if not 1 <= det <= 6:
         raise bad_request("det must be 1-6")
 
+    if view not in ('raw', 'resid', 'model', 'refdiff'):
+        raise bad_request('view must be raw, resid, model or refdiff')
     key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY,
-               measured=measured_mod.VERSION)
+               measured=measured_mod.VERSION, **({'view': view} if view != 'raw' else {}))
     cached = await run_in_threadpool(_cache_get_json, f"frames/{key}/frames.json")
     # a cached answer is rebuilt (its cutouts are cached) when a zone has since got results here
     if cached is not None and not await run_in_threadpool(_measured_stale, cached):
         return _json(cached)
     content, cache_control, *why = await _shared(
         request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec})",
-        lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget))
+        lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget, view))
     return _json(content, cache_control, why[0] if why else None)
 
 
@@ -419,10 +425,10 @@ def _measured_stale(cached: dict) -> bool:
 
 
 def _build_frames(key: str, ra: float, dec: float, fov: float, clock: str, det: int,
-                  budget: Budget) -> tuple[dict, str]:
+                  budget: Budget, view: str = "raw") -> tuple[dict, str]:
     """(response JSON, Cache-Control) of a live frames build; caches a complete one whole."""
     try:
-        result = _call("blink", "build_frames", ra, dec, fov, clock, det, budget=budget)
+        result = _call("blink", "build_frames", ra, dec, fov, clock, det, budget=budget, **({"view": view} if view != "raw" else {}))
     except ApiError as e:
         budget.cut(f"error {e.status}: {e.message[:120]}")
         raise
@@ -545,3 +551,96 @@ def known(ra: float, dec: float, r: float, mjd: float) -> JSONResponse:
     content = {"mjd": mjd, "known": [{**k, "epoch_id": None} for k in result]}
     _cache_put_json(key, content)
     return _json(content)
+
+
+@app.get('/api/analysis')
+def analysis(ra: float, dec: float, det: int = 6) -> JSONResponse:
+    """Supplemental experimental result; proposal in docs/candidate-analysis.md."""
+    from .analysis import cached_analysis
+    ra, dec = _check_pos(ra, dec)
+    if not 1 <= det <= 6:
+        raise bad_request('det must be 1-6')
+    from .published_science import read
+    published = read(ra,dec,'analysis',det)
+    return _json(published if published is not None else cached_analysis(ra,dec,det,cache=get_cache()))
+
+
+
+@app.get('/api/science/capabilities')
+def science_capabilities() -> JSONResponse:
+    return _json({'analysis_jobs': os.environ.get('SKYSHIFT_ENABLE_SCIENCE_JOBS') == '1'}, CACHE_NONE)
+
+
+@app.post('/api/jobs')
+def start_job(ra: float, dec: float, size: float = 5) -> JSONResponse:
+    if os.environ.get('SKYSHIFT_ENABLE_SCIENCE_JOBS') != '1':
+        raise ApiError(503, 'upstream', 'New-field analysis is not enabled here. Explore a published featured target.')
+    from .jobs import start
+    ra, dec = _check_pos(ra,dec)
+    if size not in (5,15,20,60):raise bad_request('size must be 5, 15, 20 or 60 arcmin')
+    return _json(start(ra,dec,size),CACHE_NONE)
+
+
+@app.get('/api/jobs/{job_id}')
+def job_status(job_id: str) -> JSONResponse:
+    from .jobs import status
+    return _json(status(job_id),CACHE_NONE)
+
+
+@app.get('/api/science')
+def science(ra: float, dec: float) -> JSONResponse:
+    from .observations import science_result
+    ra,dec=_check_pos(ra,dec)
+    from .published_science import read
+    published = read(ra,dec,'science')
+    return _json(published if published is not None else science_result(ra,dec),CACHE_NONE)
+
+
+@app.post('/api/reference')
+def reference(ra: float, dec: float) -> JSONResponse:
+    from .observations import reference as fetch_reference
+    ra,dec=_check_pos(ra,dec)
+    from .published_science import read
+    published = read(ra,dec,'science')
+    if published is not None:
+        return _json(published,CACHE_NONE)
+    if os.environ.get('SKYSHIFT_ENABLE_SCIENCE_JOBS') != '1':
+        raise NotFoundError('No published DR1 reference at this position. Choose a featured target.')
+    try:return _json(fetch_reference(ra,dec),CACHE_NONE)
+    except ApiError:raise  # e.g. 404: no analysis cube at this position
+    except Exception as error:raise UpstreamError(str(error)[:300]) from error
+
+
+@app.get('/api/enrichment')
+def enrichment(ra: float, dec: float, kind: str) -> JSONResponse:
+    from .enrichment import enrich
+    ra,dec=_check_pos(ra,dec)
+    if kind not in ('relay','comovers','catwise','asteroids'):raise bad_request('unknown enrichment kind')
+    # asteroids: MPC orbits, so a new known-object index gets new answers
+    key=f"api/enrichment/{_key('enrichment',ra=ra,dec=dec,kind=kind,**({'known':known_mod.INDEX_KEY} if kind=='asteroids' else {}))}.json"
+    result=_cache_get_json(key)
+    if result is None:
+        try:result=enrich(ra,dec,kind)
+        except ApiError:raise
+        except Exception as error:raise UpstreamError(str(error)[:300]) from error
+        if not result.get('errors'):
+            _cache_put_json(key,result)
+    return _json(result)
+
+
+@app.get('/api/export')
+def export(ra: float, dec: float, det: int = 2, clock: str = 'months', format: str = 'json') -> Response:
+    from .exports import download
+    ra,dec=_check_pos(ra,dec)
+    if det not in range(1,7) or clock not in FOV_ALLOWED or format not in ('json','csv','gif','ades','mpc80'):
+        raise bad_request('invalid export parameters')
+    body,mime,name=download(ra,dec,det,clock,format)
+    return Response(body,media_type=mime,headers={'Content-Disposition':f'attachment; filename="{name}"'})
+
+
+# Local single-process use only (scripts/run-local.sh): the site from web/dist after every API route.
+# The Cloud Run image has no web/dist (.dockerignore), so there Firebase Hosting serves the site.
+_dist = _repo_root() / 'web' / 'dist'
+if _dist.is_dir():
+    from fastapi.staticfiles import StaticFiles
+    app.mount('/', StaticFiles(directory=_dist, html=True), name='web')

@@ -1,0 +1,111 @@
+{
+  "sharedObservation": {
+    "before": {
+      "label": "24 Apr 2025, 20:35 UTC exposure 2 of 32",
+      "query": "?t=epsindib&clock=hours&fov=20&det=2",
+      "selection": true,
+      "time": "2"
+    },
+    "analyze": {
+      "label": "24 Apr 2025, 20:35 UTC exposure 2 of 32",
+      "query": "?t=epsindib&clock=hours&fov=20&det=2",
+      "selection": true,
+      "spectrumPoints": 506,
+      "time": "2"
+    },
+    "research": {
+      "time": "2",
+      "query": "?t=epsindib&clock=hours&fov=20&det=2",
+      "selection": true,
+      "epoch": "d2-2025W17_4B_0017_2"
+    }
+  },
+  "researchSections": [
+    {
+      "chinese": false,
+      "depthRows": 6,
+      "downloads": [
+        "Analysis JSON",
+        "Exposure CSV"
+      ],
+      "panel": "validation",
+      "time": "2"
+    },
+    {
+      "chinese": false,
+      "depthRows": 6,
+      "downloads": [
+        "Analysis JSON",
+        "Exposure CSV"
+      ],
+      "panel": "sensitivity",
+      "time": "2"
+    },
+    {
+      "chinese": false,
+      "depthRows": 6,
+      "downloads": [
+        "Analysis JSON",
+        "Exposure CSV"
+      ],
+      "panel": "export",
+      "time": "2"
+    }
+  ],
+  "analyzeSections": [
+    {
+      "chinese": false,
+      "panel": "lightcurve",
+      "status": "",
+      "time": "2",
+      "title": "Analyze the evidence"
+    },
+    {
+      "chinese": false,
+      "panel": "compare",
+      "status": "",
+      "time": "2",
+      "title": "Analyze the evidence"
+    },
+    {
+      "chinese": false,
+      "panel": "crossmatch",
+      "status": "",
+      "time": "2",
+      "title": "Analyze the evidence"
+    },
+    {
+      "chinese": false,
+      "panel": "signals",
+      "status": "",
+      "time": "2",
+      "title": "Analyze the evidence"
+    }
+  ],
+  "mobile": [
+    {
+      "documentWidth": 390,
+      "mode": "explore",
+      "width": 390
+    },
+    {
+      "comparison": "Matched overlapping observation intervals · north up, east left",
+      "documentWidth": 390,
+      "mode": "analyze",
+      "width": 390
+    },
+    {
+      "chinese": false,
+      "documentWidth": 390,
+      "mode": "research",
+      "onePlayer": 1,
+      "width": 390
+    }
+  ],
+  "stories": {
+    "guestImages": 6,
+    "planetEvents": 14,
+    "englishOnly": true
+  },
+  "browserErrors": []
+}

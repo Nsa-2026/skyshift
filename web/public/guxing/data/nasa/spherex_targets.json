@@ -1,0 +1,425 @@
+{
+ "source": "NASA SPHEREx, motions measured by spherex-tm",
+ "targets": [
+  {
+   "id": "barnard",
+   "name": "Barnard's Star",
+   "name_zh": "巴纳德星",
+   "ra": 269.452,
+   "dec": 4.693,
+   "epoch": 2026.0,
+   "nasa_measurement": {
+    "mission": "SPHEREx",
+    "pmra_arcsec_yr": -1.01,
+    "pmdec_arcsec_yr": 10.23,
+    "pm_total_arcsec_yr": 10.28,
+    "error_arcsec_yr": 0.09,
+    "method": "per-frame PSF fits, 358 frames / 3 visits",
+    "pipeline": "spherex-tm (s3://nasa-irsa-spherex L2 frames)",
+    "note": null
+   },
+   "literature_pm": [
+    -0.8,
+    10.36
+   ],
+   "locate": {
+    "ra": 269.452,
+    "dec": 4.693,
+    "mansion": {
+     "index": 5,
+     "zh": "尾宿",
+     "zh_short": "尾",
+     "pinyin": "Wěi",
+     "en": "Tail Lodge",
+     "determinative_hip": 82514,
+     "du": 16.72,
+     "deg": 16.484,
+     "symbol_zh": "东方苍龙",
+     "symbol_en": "Azure Dragon of the East",
+     "epoch": 2000.0
+    },
+    "nearest": [
+     {
+      "asterism_zh": "宗人",
+      "asterism_en": "Official of Religious Ceremonies",
+      "asterism_pinyin": "Zōngrén",
+      "star_hip": 88149,
+      "star_zh": "宗人一",
+      "star_en": "Official of Religious Ceremonies I",
+      "star_mag": 4.79,
+      "sep_deg": 0.693,
+      "sep_du": 0.7,
+      "direction_zh": "西北",
+      "direction_en": "NW",
+      "relation": {
+       "zh": "犯",
+       "en": "trespassing on",
+       "pinyin": "fàn"
+      }
+     },
+     {
+      "asterism_zh": "宗正",
+      "asterism_en": "Official for the Royal Clan",
+      "asterism_pinyin": "Zōngzhèng",
+      "star_hip": 87108,
+      "star_zh": "宗正二",
+      "star_en": "Official for the Royal Clan II",
+      "star_mag": 3.75,
+      "sep_deg": 3.172,
+      "sep_du": 3.22,
+      "direction_zh": "东北",
+      "direction_en": "NE",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     },
+     {
+      "asterism_zh": "天市左垣",
+      "asterism_en": "Heavenly Market Left Wall",
+      "asterism_pinyin": "Tiānshì Zuǒyuán",
+      "star_hip": 89962,
+      "star_zh": "天市左垣八",
+      "star_en": "Heavenly Market Left Wall VIII",
+      "star_mag": 3.23,
+      "sep_deg": 9.597,
+      "sep_du": 9.74,
+      "direction_zh": "西北",
+      "direction_en": "NW",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     }
+    ],
+    "colour": {
+     "zh": "赤",
+     "en": "red"
+    },
+    "visibility": {
+     "zh": "非目力所及",
+     "en": "beyond the naked eye"
+    },
+    "log_zh": "公元2026年（丙午），客星见尾宿十七度，犯宗人一（西北0.7度），色赤，非目力所及。",
+    "log_en": "AD 2026: A guest star appears in the Tail Lodge (Wěi), 17 du, trespassing on Official of Religious Ceremonies I (宗人一), 0.7° NW, red in colour, beyond the naked eye.",
+    "note": "Playful, culturally-inspired description; asterisms follow Qing-era identifications (Stellarium, CC BY-SA)."
+   },
+   "years_to_next_lodge": 58557.9,
+   "next_lodge": "心宿",
+   "track_1000yr": {
+    "log_zh": "公元2026年（丙午），客星见尾宿十七度，犯宗人一（西北0.7度），色赤，非目力所及；北行，守宗人一；1000年间行三度。",
+    "log_en": "AD 2026: A guest star appears in the Tail Lodge (Wěi), 17 du, trespassing on Official of Religious Ceremonies I (宗人一), 0.7° NW, red in colour, beyond the naked eye; it moves northward, guarding Official of Religious Ceremonies I; it travels 2.86° in 1000 years.",
+    "events": [
+     {
+      "star_hip": 88149,
+      "star_zh": "宗人一",
+      "star_en": "Official of Religious Ceremonies I",
+      "relation": {
+       "zh": "守",
+       "en": "guarding",
+       "pinyin": "shǒu"
+      },
+      "closest_year": 2026.0,
+      "closest_deg": 0.693,
+      "days_within_1deg": 55062.8
+     }
+    ],
+    "lodges": [
+     {
+      "year": 2026.0,
+      "date": null,
+      "mansion": "尾宿",
+      "mansion_en": "Tail Lodge",
+      "du": 16.72
+     }
+    ]
+   },
+   "log_zh": "公元2026年（丙午），客星见尾宿十七度，犯宗人一（西北0.7度），色赤，非目力所及。按 SPHEREx 实测自行（每年 10.28″），五千年内不出尾宿。",
+   "log_en": "AD 2026: A guest star appears in the Tail Lodge (Wěi), 17 du, trespassing on Official of Religious Ceremonies I (宗人一), 0.7° NW, red in colour, beyond the naked eye. With the proper motion SPHEREx measured (10.28″/yr), it stays in the Tail Lodge for more than 5000 years."
+  },
+  {
+   "id": "eps_indi_b",
+   "name": "Epsilon Indi B",
+   "name_zh": "印第安座 ε B",
+   "ra": 330.84,
+   "dec": -56.8,
+   "epoch": 2026.0,
+   "nasa_measurement": {
+    "mission": "SPHEREx",
+    "pmra_arcsec_yr": 3.98,
+    "pmdec_arcsec_yr": -2.44,
+    "pm_total_arcsec_yr": 4.668,
+    "error_arcsec_yr": 0.04,
+    "method": "per-frame PSF fits, 457 frames / 4 visits",
+    "pipeline": "spherex-tm (s3://nasa-irsa-spherex L2 frames)",
+    "note": null
+   },
+   "literature_pm": [
+    3.98,
+    -2.47
+   ],
+   "locate": {
+    "ra": 330.84,
+    "dec": -56.8,
+    "mansion": {
+     "index": 10,
+     "zh": "虚宿",
+     "zh_short": "虚",
+     "pinyin": "Xū",
+     "en": "Emptiness Lodge",
+     "determinative_hip": 106278,
+     "du": 8.07,
+     "deg": 7.95,
+     "symbol_zh": "北方玄武",
+     "symbol_en": "Black Tortoise of the North",
+     "epoch": 2000.0
+    },
+    "nearest": [
+     {
+      "asterism_zh": "鸟喙",
+      "asterism_en": "Bird's Beak",
+      "asterism_pinyin": "Niǎohuì",
+      "star_hip": 110130,
+      "star_zh": "鸟喙一",
+      "star_en": "Bird's Beak I",
+      "star_mag": 2.87,
+      "sep_deg": 3.983,
+      "sep_du": 4.04,
+      "direction_zh": "西北",
+      "direction_en": "NW",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     },
+     {
+      "asterism_zh": "鹤",
+      "asterism_en": "Crane",
+      "asterism_pinyin": "Hè",
+      "star_hip": 112374,
+      "star_zh": "鹤四",
+      "star_en": "Crane IV",
+      "star_mag": 4.84,
+      "sep_deg": 6.871,
+      "sep_du": 6.97,
+      "direction_zh": "西南",
+      "direction_en": "SW",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     },
+     {
+      "asterism_zh": "孔雀",
+      "asterism_en": "Peafowl",
+      "asterism_pinyin": "Kǒngquè",
+      "star_hip": 105858,
+      "star_zh": "孔雀十",
+      "star_en": "Peafowl X",
+      "star_mag": 4.21,
+      "sep_deg": 9.636,
+      "sep_du": 9.78,
+      "direction_zh": "东北",
+      "direction_en": "NE",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     }
+    ],
+    "colour": {
+     "zh": "赤",
+     "en": "red"
+    },
+    "visibility": {
+     "zh": "非目力所及",
+     "en": "beyond the naked eye"
+    },
+    "log_zh": "公元2026年（丙午），客星见虚宿八度，在鸟喙之域，色赤，非目力所及。",
+    "log_en": "AD 2026: A guest star appears in the Emptiness Lodge (Xū), 8 du, in the region of Bird's Beak (鸟喙), red in colour, beyond the naked eye.",
+    "note": "Playful, culturally-inspired description; asterisms follow Qing-era identifications (Stellarium, CC BY-SA)."
+   },
+   "years_to_next_lodge": 300.1,
+   "next_lodge": "危宿",
+   "track_1000yr": {
+    "log_zh": "公元2026年（丙午），客星见虚宿八度，在鸟喙之域，色赤，非目力所及；顺行，自虚宿入危宿；1000年间行一度。",
+    "log_en": "AD 2026: A guest star appears in the Emptiness Lodge (Xū), 8 du, in the region of Bird's Beak (鸟喙), red in colour, beyond the naked eye; it moves prograde (eastward), passing from the Emptiness Lodge into Rooftop Lodge; it travels 1.29° in 1000 years.",
+    "events": [],
+    "lodges": [
+     {
+      "year": 2026.0,
+      "date": null,
+      "mansion": "虚宿",
+      "mansion_en": "Emptiness Lodge",
+      "du": 8.07
+     },
+     {
+      "year": 2327.5075,
+      "date": null,
+      "mansion": "危宿",
+      "mansion_en": "Rooftop Lodge",
+      "du": 0.0
+     }
+    ]
+   },
+   "log_zh": "公元2026年（丙午），客星见虚宿八度，在鸟喙之域，色赤，非目力所及。按 SPHEREx 实测自行（每年 4.67″），约300年后自虚宿入危宿。",
+   "log_en": "AD 2026: A guest star appears in the Emptiness Lodge (Xū), 8 du, in the region of Bird's Beak (鸟喙), red in colour, beyond the naked eye. With the proper motion SPHEREx measured (4.67″/yr), it will pass from the Emptiness Lodge into 危宿 in about 300 years."
+  },
+  {
+   "id": "wise0855",
+   "name": "WISE 0855-0714",
+   "name_zh": "WISE 0855−0714",
+   "ra": 133.79,
+   "dec": -7.24,
+   "epoch": 2026.0,
+   "nasa_measurement": {
+    "mission": "SPHEREx",
+    "pmra_arcsec_yr": null,
+    "pmdec_arcsec_yr": null,
+    "pm_total_arcsec_yr": 6.3,
+    "error_arcsec_yr": null,
+    "method": "auto-found in 3.8-5 µm visit stacks, 255 frames / 3 visits, P(false)=0.016",
+    "pipeline": "spherex-tm (s3://nasa-irsa-spherex L2 frames)",
+    "note": "SPHEREx gave |μ| only; direction taken from the literature"
+   },
+   "literature_pm": [
+    -8.12,
+    0.67
+   ],
+   "locate": {
+    "ra": 133.79,
+    "dec": -7.24,
+    "mansion": {
+     "index": 23,
+     "zh": "柳宿",
+     "zh_short": "柳",
+     "pinyin": "Liǔ",
+     "en": "Willow Lodge",
+     "determinative_hip": 42313,
+     "du": 4.44,
+     "deg": 4.376,
+     "symbol_zh": "南方朱雀",
+     "symbol_en": "Vermilion Bird of the South",
+     "epoch": 2000.0
+    },
+    "nearest": [
+     {
+      "asterism_zh": "外厨",
+      "asterism_en": "Outer Kitchen",
+      "asterism_pinyin": "Wàichú",
+      "star_hip": 42835,
+      "star_zh": "外厨二",
+      "star_en": "Outer Kitchen II",
+      "star_mag": 4.63,
+      "sep_deg": 2.849,
+      "sep_du": 2.89,
+      "direction_zh": "东",
+      "direction_en": "E",
+      "relation": {
+       "zh": "近",
+       "en": "near",
+       "pinyin": "jìn"
+      }
+     },
+     {
+      "asterism_zh": "星宿",
+      "asterism_en": "Star",
+      "asterism_pinyin": "Xīngxiù",
+      "star_hip": 45811,
+      "star_zh": "星宿五",
+      "star_en": "Star V",
+      "star_mag": 4.8,
+      "sep_deg": 6.677,
+      "sep_du": 6.77,
+      "direction_zh": "西",
+      "direction_en": "W",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     },
+     {
+      "asterism_zh": "柳宿",
+      "asterism_en": "Willow",
+      "asterism_pinyin": "Liǔxiù",
+      "star_hip": 45336,
+      "star_zh": "柳宿八",
+      "star_en": "Willow VIII",
+      "star_mag": 3.89,
+      "sep_deg": 10.688,
+      "sep_du": 10.84,
+      "direction_zh": "西南",
+      "direction_en": "SW",
+      "relation": {
+       "zh": "在",
+       "en": "in the region of",
+       "pinyin": "zài"
+      }
+     }
+    ],
+    "colour": {
+     "zh": "赤",
+     "en": "red"
+    },
+    "visibility": {
+     "zh": "非目力所及",
+     "en": "beyond the naked eye"
+    },
+    "log_zh": "公元2026年（丙午），客星见柳宿四度，近外厨二（东三度），色赤，非目力所及。",
+    "log_en": "AD 2026: A guest star appears in the Willow Lodge (Liǔ), 4 du, near Outer Kitchen II (外厨二), 2.8° E, red in colour, beyond the naked eye.",
+    "note": "Playful, culturally-inspired description; asterisms follow Qing-era identifications (Stellarium, CC BY-SA)."
+   },
+   "years_to_next_lodge": 2489.1,
+   "next_lodge": "鬼宿",
+   "track_1000yr": {
+    "log_zh": "公元2026年（丙午），客星见柳宿四度，近外厨二（东三度），色赤，非目力所及；逆行，守外厨增七，守外厨增六；1000年间行二度。",
+    "log_en": "AD 2026: A guest star appears in the Willow Lodge (Liǔ), 4 du, near Outer Kitchen II (外厨二), 2.8° E, red in colour, beyond the naked eye; it moves retrograde (westward), guarding Outer Kitchen Added VII, guarding Outer Kitchen Added VI; it travels 1.75° in 1000 years.",
+    "events": [
+     {
+      "star_hip": 43822,
+      "star_zh": "外厨增七",
+      "star_en": "Outer Kitchen Added VII",
+      "relation": {
+       "zh": "守",
+       "en": "guarding",
+       "pinyin": "shǒu"
+      },
+      "closest_year": 2026.0,
+      "closest_deg": 0.736,
+      "days_within_1deg": 113796.5
+     },
+     {
+      "star_hip": 43496,
+      "star_zh": "外厨增六",
+      "star_en": "Outer Kitchen Added VI",
+      "relation": {
+       "zh": "守",
+       "en": "guarding",
+       "pinyin": "shǒu"
+      },
+      "closest_year": 2533.5377,
+      "closest_deg": 0.011,
+      "days_within_1deg": 365250.0
+     }
+    ],
+    "lodges": [
+     {
+      "year": 2026.0,
+      "date": null,
+      "mansion": "柳宿",
+      "mansion_en": "Willow Lodge",
+      "du": 4.44
+     }
+    ]
+   },
+   "log_zh": "公元2026年（丙午），客星见柳宿四度，近外厨二（东三度），色赤，非目力所及。按 SPHEREx 实测自行（每年 6.30″），约2490年后自柳宿入鬼宿。",
+   "log_en": "AD 2026: A guest star appears in the Willow Lodge (Liǔ), 4 du, near Outer Kitchen II (外厨二), 2.8° E, red in colour, beyond the naked eye. With the proper motion SPHEREx measured (6.30″/yr), it will pass from the Willow Lodge into 鬼宿 in about 2490 years."
+  }
+ ]
+}
