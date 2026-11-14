@@ -6,9 +6,11 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, dots, known, link, spectra, score, suspects; `all` runs them in order.
+Steps in order: photolist, dots, known, link, spectra, classify, photoz, score, suspects; `all` runs them in order.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/skybot/<zone>/run_<obs_id>.json.
-  link, spectra, score and suspects are cheap and always recompute from what is there.
+  link, spectra, classify, photoz, score and suspects are cheap and always recompute from what is there.
+- classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
+  photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
@@ -29,3 +31,23 @@ Steps in order: photolist, dots, known, link, spectra, score, suspects; `all` ru
 - IRSA TAP doesn't accept OR'd CONTAINS; use a TAP_UPLOAD crossmatch (pyvo) for IRSA catalogues.
 - macOS: uv may mark the editable .pth files hidden (Python then skips them); pytest adds ../core/src itself.
 - Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test.
+
+## Spectral science: what the outputs mean (for the web)
+- `classes.parquet` → `class`: star, galaxy or unsure. SPHEREx's 6″ pixels and 7.5″ PSF leave most galaxies
+  fainter than ~AB 17 looking point-like, so "unsure" is common and honest: it means "point-like, no Gaia
+  star there" (compact galaxy, quasar, or a very red star such as a brown dwarf). A Gaia parallax makes it a star;
+  a profile clearly broader than the stars' around it (size, curve of growth, PSF misfit) makes it a galaxy.
+- Indices (`<name>_depth`/`_excess` and `<name>_sig`): how deep a known band is against the spectrum around it,
+  and how sure (σ). Show a feature only when sig ≥ 5. Depth 0.2 = the band is 20% below the continuum.
+  Ice (H2O 3.05, CO2 4.27, CO 4.67 µm): frozen molecules in a dark cloud in front of a background star.
+  CH4 3.3 / 1.6 µm: methane, only in the coldest brown dwarfs (T and Y types; the "Planet X"-like cold bodies).
+  H2O 1.4 / 1.9 µm: water vapour in M/L dwarfs (and pulsating giants such as R Draconis).
+  CO 2.3 µm: the bandhead of cool giants. PAH 3.3 µm emission: star-forming galaxies (at z ≈ 0; photoz
+  repeats it at the galaxy's redshift as `pah_33_sig_z`).
+- `brown_dwarf_like`: methane or water seen, red (J − [4.6] AB > −0.5), and missing or very faint in Gaia.
+  A lead for a human to check, not a discovery; `bd_evidence` says which bands fired.
+- `mag_ab_*`: brightness from our own spectrum in J, H, K, 3.5 and 4.6 µm windows (AB).
+- `photoz.parquet` → `z_best` with a 68% range `z_lo`–`z_hi`: a rough distance for galaxies from the shape of their
+  102-channel spectrum (the 1.6 µm stellar bump, PAH and line features shifting red). Trust it when `good` is true.
+  `photoz_report.json` says how close it came to SDSS spectroscopic redshifts in the zone (σ_NMAD of
+  Δz/(1+z); 0.02 is good for photo-z, outliers are > 0.15). Expect useful values only for bright galaxies (AB ≲ 17).

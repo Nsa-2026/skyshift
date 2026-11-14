@@ -120,3 +120,63 @@ SOURCE_PHOTO_MAX_FRAC = 0.9    # a photo with SOURCE at the peak of more than th
                                # (seen: 99.98% on 2025W42_2A_0111_1D1) carries no information: ignore it there
 CATALOG_BATCH = 50
 EVIDENCE_RANK = {"two_exposures": 0, "two_detectors": 1}
+
+# --- classify: star / galaxy / unsure, spectral indices, brown-dwarf-like (classify.py, indices.py) ----------
+# Index windows in µm (observed frame). A band value is the mean of the 102-channel spectrum over the window
+# (each channel weighted by the fraction of it inside the window); the continuum is a power law through the
+# two continuum windows (linear when a window is too faint for logs), evaluated at the band's wavelength.
+# kind "abs": depth = 1 − band / continuum, sig > 0 = absorption; "emis": excess = band / continuum − 1, sig > 0 = emission.
+INDEX_WINDOWS = {
+    #  name          kind    band            continuum windows
+    "h2o_ice_305": ("abs", (2.95, 3.15), ((2.45, 2.70), (3.65, 3.80))),   # H2O ice toward background stars
+    "co2_ice_427": ("abs", (4.23, 4.31), ((4.05, 4.17), (4.40, 4.50))),   # CO2 ice
+    "co_ice_467":  ("abs", (4.64, 4.70), ((4.50, 4.58), (4.76, 4.90))),   # CO ice (cool-star CO gas also lands here)
+    "ch4_33":      ("abs", (3.20, 3.45), ((2.40, 2.65), (3.90, 4.10))),   # CH4 fundamental: T/Y dwarfs
+    "ch4_16":      ("abs", (1.63, 1.72), ((1.53, 1.59), (2.06, 2.14))),   # CH4 overtone in H: T dwarfs
+    "co_23":       ("abs", (2.29, 2.40), ((2.06, 2.14), (2.19, 2.28))),   # CO bandhead: cool giants (continuum extrapolated)
+    "h2o_14":      ("abs", (1.34, 1.45), ((1.22, 1.30), (1.55, 1.65))),   # H2O: M/L dwarfs (and Miras)
+    "h2o_19":      ("abs", (1.84, 1.95), ((1.55, 1.65), (2.06, 2.14))),   # H2O: M/L dwarfs
+    "pah_33":      ("emis", (3.24, 3.34), ((3.00, 3.15), (3.50, 3.65))),  # PAH 3.3 µm at z ≈ 0 (photoz redoes it at z_best)
+}
+INDEX_MIN_COVER = 0.5          # a window needs at least this share of its channel weight measured, else NaN
+INDEX_LOG_CONT_MIN_SNR = 3.0   # both continuum windows at S/N >= this and > 0: power law; else linear in λ
+INDEX_SIG = 5.0                # an index counts as detected at |sig| >= this
+# synthetic AB magnitudes from the spectrum (window means), for colours and the web
+MAG_WINDOWS = {"j": (1.15, 1.33), "h": (1.50, 1.78), "k": (2.00, 2.30), "m34": (3.30, 3.70), "m46": (4.40, 4.80)}
+
+# star / galaxy from the member dots' shapes (dots extras: a_arcsec, b_arcsec, psf_chi2_nu, flux_psf_ujy,
+# flux_ap<r>_ujy). Each is divided by its detector's stellar locus (median over bright dots, of Gaia stars
+# with a parallax when there are enough), then the median over the source's dots.
+CLASSIFY_SHAPE_MIN_SNR = 8.0       # dots below this S/N don't vote on the shape
+CLASSIFY_LOCUS_MIN_SNR = 20.0      # dots at least this bright define the stellar locus per detector
+CLASSIFY_LOCUS_MIN_DOTS = 30       # Gaia-star dots needed to use them for the locus (else all bright dots)
+CLASSIFY_SIZE_TOL = 0.10           # extended score: (size ratio − 1) / this
+CLASSIFY_COG_TOL = 0.10            # ... (curve-of-growth ratio − 1) / this
+CLASSIFY_CHI2_FACTOR = 2.0         # ... log(psf chi2 ratio) / log(this)
+CLASSIFY_EXT_STAR = 1.0            # extended score <= this: point-like
+CLASSIFY_EXT_GALAXY = 2.0          # extended score >= this (and no significant parallax): galaxy
+CLASSIFY_PLX_SNR_STAR = 5.0        # Gaia parallax / error >= this: star, whatever the shape
+CLASSIFY_GAIA_MATCH_ARCSEC = 3.0   # own Gaia match from refcat when crossids.parquet has none
+
+# brown-dwarf-like: (methane or water) and red and (no Gaia or faint in Gaia) and not a galaxy, not saturated
+BD_CH4_33_MIN_DEPTH = 0.25
+BD_CH4_16_MIN_DEPTH = 0.15
+BD_H2O_MIN_DEPTH = 0.15
+BD_MIN_J_M46_AB = -0.5         # J_AB − [4.6]_AB above this is "red" (≈ J − W2 > 1.9 Vega; A0 star −2.4, M dwarfs ~ −1.4)
+BD_GAIA_FAINT_G = 19.0         # Gaia G fainter than this counts as faint
+BD_MIN_G_J_AB = 3.5            # ... or G − J_AB above this (L/T dwarfs are very red in G − J)
+
+# --- photoz: template photometric redshifts (photoz.py) -------------------------------------
+PHOTOZ_TEMPLATES = "eazy_fsps_qsf12_v3_rest_0p3_5p2um.csv"  # pipeline/data/, see its README
+PHOTOZ_Z_MIN, PHOTOZ_Z_MAX, PHOTOZ_Z_STEP = 0.0, 1.0, 0.005
+PHOTOZ_TEMPLATE_ERR = 0.05     # fractional model error added in quadrature to each channel's error
+PHOTOZ_CLASSES = ("galaxy", "unsure")  # classes fitted (all sources when classes.parquet is missing)
+PHOTOZ_MIN_CHANNELS = 20       # fewer measured channels: not fitted
+PHOTOZ_ODDS_DZ = 0.05          # odds = p(|z − z_best| < this × (1 + z_best))
+PHOTOZ_GOOD_ODDS = 0.8         # good = odds >= this, chi2_nu <= PHOTOZ_GOOD_CHI2_NU, n_channels >= PHOTOZ_GOOD_MIN_CHANNELS
+PHOTOZ_GOOD_CHI2_NU = 3.0
+PHOTOZ_GOOD_MIN_CHANNELS = 40
+PHOTOZ_CHUNK = 4000            # sources per matrix product
+PHOTOZ_SDSS_MATCH_ARCSEC = 3.0
+PHOTOZ_OUTLIER = 0.15          # |Δz| / (1 + z_spec) above this is an outlier
+PHOTOZ_BRIGHT_AB = 17.0        # report also for galaxies brighter than this (K-window AB)
