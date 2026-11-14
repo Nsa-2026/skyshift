@@ -123,6 +123,12 @@ objects yet); each pixel keeps at most its brightest 8,221 (= 30,000 per 3.5° p
 galactic plane gets a brighter G limit per pixel. `_complete.json` (written last): `nside`, `order`,
 `gaia_g_max`, `max_per_deg2` (null = no cap), `cap_per_partition`, `catalogues`, `rows`, `capped_partitions`,
 `rows_per_partition` (12,288 ints), `built`.
+CatWISE-only red objects, a second partition set read with the Gaia one when its own `_complete.json` exists:
+`refcat/sky/forced_cw_n32/p<pixel:05d>.parquet` (same columns; pixel of the CatWISE position), CatWISE2020
+W1 < 16 and W1 − W2 ≥ 0.4 with no target of the Gaia sky list (G < 17.5) within 2″. The zone list dedups against
+every Gaia G < 20 instead, so the sky list has ~10% more of them (pilot: every zone row, identical, plus 143 on 1,390):
+objects with a faint Gaia counterpart, which is not a forced target either way. Each pixel keeps at most its
+brightest-in-W1 1,678 (500/deg²).
 
 | column | type | unit | meaning |
 |---|---|---|---|

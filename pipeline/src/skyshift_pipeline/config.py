@@ -429,3 +429,11 @@ FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in fli
 FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
 FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
 FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
+# CatWISE-only red objects (forced_sky.cw_build; the zone list's second part), a second partition set read with the
+# Gaia one when its own manifest exists. Measured (14 Nov, CatWISE W1 < 16, W1 - W2 >= 0.4, no Gaia within 2″): ~180/deg²
+# at |b| > 20°, ~3,400/deg² in Cygnus (b = 2°), ~10,000/deg² at the galactic centre. Capped per partition (brightest W1).
+FORCED_SKY_CW_DIR = "refcat/sky/forced_cw_n32"
+FORCED_SKY_CW_MAX_PER_DEG2: float | None = 500.0   # 1,678 per partition, ~6,000 per photo on top of the Gaia 30,000
+FORCED_SKY_CW_WORKERS = 8                          # IRSA TAP async queries in flight
+FORCED_SKY_CW_QUERY_NSIDE = 16                     # one IRSA query per nside-16 pixel (3,072 of 13.4 deg²): ~100 deg²
+                                                   # boxes broke the connection at IRSA (14 Nov), 1-50 deg² answered in 11-150 s

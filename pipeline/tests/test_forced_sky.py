@@ -17,9 +17,11 @@ from conftest import CUTOUT
 
 @pytest.fixture(autouse=True)
 def _fresh_caches():
-    dots._SKY.clear(), dots._SKY_REF.clear(), dots._REFCAT.clear()
+    for c in (dots._SKY, dots._SKY_CW, dots._SKY_REF, dots._REFCAT):
+        c.clear()
     yield
-    dots._SKY.clear(), dots._SKY_REF.clear(), dots._REFCAT.clear()
+    for c in (dots._SKY, dots._SKY_CW, dots._SKY_REF, dots._REFCAT):
+        c.clear()
 
 
 # --- partitions ----------------------------------------------------------------------------------
@@ -219,3 +221,91 @@ def test_manifest_records_counts(tmp_path):
     forced_sky.build(store, workers=2, nside=1, max_per_deg2=None, tap=tap)
     man = json.loads((tmp_path / forced_sky.manifest_rel()).read_text())
     assert man["catalogues"] == ["gaia_dr3"] and man["gaia_g_max"] == C.FORCED_GAIA_G_MAX
+
+
+# --- CatWISE-only red list ------------------------------------------------------------------------
+@pytest.mark.parametrize("where", [(0, 90), (0, -90), (0.01, 10), (359.9, -40), (122, 16), (300, 35), (45, 70), (200, -60)])
+def test_cw_boxes_cover_the_pixel(where):
+    pix8 = int(forced_sky.pixel_of(*where, forced_sky.CW_QUERY_NSIDE))
+    import astropy.units as u
+    from astropy_healpix import HEALPix
+    h = HEALPix(nside=forced_sky.CW_QUERY_NSIDE, order="nested")
+    # points inside pix8: centres of its nside-256 descendants
+    k = (256 // forced_sky.CW_QUERY_NSIDE) ** 2
+    lon, lat = HEALPix(nside=256, order="nested").healpix_to_lonlat(np.arange(pix8 * k, (pix8 + 1) * k))
+    ra, dec = lon.to_value(u.deg), lat.to_value(u.deg)
+    assert (forced_sky.pixel_of(ra, dec, forced_sky.CW_QUERY_NSIDE) == pix8).all()
+    inside = np.zeros(ra.size, bool)
+    for r0, r1, d0, d1 in forced_sky.cw_boxes(pix8):
+        assert 0 <= r0 < r1 <= 360 and -90 <= d0 < d1 <= 90
+        inside |= (ra >= r0) & (ra < r1) & (dec >= d0) & (dec < d1)
+    assert inside.all()
+    assert h.npix == 12 * forced_sky.CW_QUERY_NSIDE ** 2
+
+
+def _fake_catwise_tap(per_deg2=2.0, seed=0):
+    import re
+
+    def tap(url, adql):
+        r0, r1, d0, d1 = (float(v) for v in re.search(
+            r"ra >= ([\d.\-]+) AND ra < ([\d.\-]+) AND dec >= ([\d.\-]+) AND dec < ([\d.\-]+)", adql).groups())
+        area = (r1 - r0) * (np.sin(np.deg2rad(d1)) - np.sin(np.deg2rad(d0))) * 180 / np.pi
+        n = int(per_deg2 * area)
+        rng = np.random.default_rng(int(r0 * 100 + d0 * 10) % 2 ** 31 + seed)
+        ra = rng.uniform(r0, r1, n)
+        dec = np.rad2deg(np.arcsin(rng.uniform(np.sin(np.deg2rad(d0)), np.sin(np.deg2rad(d1)), n)))
+        w1 = rng.uniform(10, 15.9, n)
+        return pd.DataFrame({"source_name": [f"J{a:09.5f}{d:+09.5f}" for a, d in zip(ra, dec)], "ra": ra, "dec": dec,
+                             "ra_pm": ra, "dec_pm": dec, "meanobsmjd": 57170.0, "w1mpro": w1, "w1sigmpro": 0.02,
+                             "w2mpro": w1 - 0.6, "w2sigmpro": 0.03, "pmra": 0.0, "pmdec": 0.0, "sigpmra": 0.01,
+                             "sigpmdec": 0.01})
+    return tap
+
+
+def test_cw_build_dedups_against_gaia_and_caps(tmp_path):
+    store = Store(str(tmp_path))
+    tap = _fake_catwise_tap(per_deg2=3.0)
+    pix8 = int(forced_sky.pixel_of(122.0, 16.0, forced_sky.CW_QUERY_NSIDE))
+    # the raw rows of pix8, and a Gaia list with a star on top of a third of them (and an empty rest)
+    raw = forced_sky.cw_fetch(pix8, tap)
+    assert len(raw) > 20 and (forced_sky.pixel_of(raw["ra"], raw["dec"], forced_sky.CW_QUERY_NSIDE) == pix8).all()
+    on = raw.iloc[::3]
+    gaia = pd.DataFrame({"ref_id": [f"gaia:{i}" for i in range(len(on))], "ra": on["ra"].to_numpy() + 0.5 / 3600,
+                         "dec": on["dec"].to_numpy(), "epoch_mjd": 57388.5, "pmra": 0.0, "pmdec": 0.0,
+                         "parallax": np.nan}).astype(FORCED_COLUMNS)
+    gp = forced_sky.pixel_of(gaia["ra"], gaia["dec"])
+    nb = set()
+    for c in forced_sky.cw_children(pix8):
+        nb |= set(forced_sky.cw_neighbourhood(c))
+    for p in nb:
+        store.write_parquet(forced_sky.partition_rel(p), gaia[gp == p].reset_index(drop=True))
+    out = forced_sky.cw_build(store, workers=2, pixels8=[pix8], max_per_deg2=None, tap=tap)
+    got = pd.concat([store.read_parquet(forced_sky.partition_rel(c, C.FORCED_SKY_CW_DIR))
+                     for c in forced_sky.cw_children(pix8)], ignore_index=True)
+    assert out["rows"] == len(got) == len(raw) - len(on)
+    assert not set(got["ref_id"]) & {"catwise:" + n for n in on["ref_id"].str[8:]}
+    assert got["ref_id"].str.startswith("catwise:").all() and list(got.columns) == list(FORCED_COLUMNS)
+    # rerun skips; a cap keeps the brightest in W1 per partition
+    assert forced_sky.cw_build(store, workers=2, pixels8=[pix8], tap=tap)["fetched"] == 0
+    capped = tmp_path / "capped"
+    cs = Store(str(capped))
+    forced_sky.cw_build(cs, workers=2, pixels8=[pix8], max_per_deg2=1.0, gaia_dir=C.FORCED_SKY_DIR, tap=tap)
+    for c in forced_sky.cw_children(pix8):
+        assert len(cs.read_parquet(forced_sky.partition_rel(c, C.FORCED_SKY_CW_DIR))) <= forced_sky.cap_per_partition(1.0)
+
+
+def test_dots_reads_the_catwise_list_with_the_gaia_one(tmp_path):
+    from skyshift_core import open_level2
+    l2 = open_level2(CUTOUT)
+    t = _targets_in(l2)
+    store = Store(str(tmp_path))
+    _write_sky(store, t.iloc[:200])
+    _complete(store, l2)
+    cw = t.iloc[200:].assign(ref_id=lambda d: "catwise:" + d["ref_id"].str[5:])
+    pix = forced_sky.pixel_of(cw["ra"], cw["dec"])
+    ra, dec, r = dots.photo_cone(l2)
+    for p in forced_sky.partitions_for_cone(ra, dec, r):
+        store.write_parquet(forced_sky.partition_rel(p, C.FORCED_SKY_CW_DIR), cw[pix == p].reset_index(drop=True))
+    store.write_json(forced_sky.manifest_rel(C.FORCED_SKY_CW_DIR), {"nside": 32})
+    st, f = _forced_rows(tmp_path, None)
+    assert f["ref_id"].str.startswith("catwise:").sum() > 50 and f["ref_id"].str.startswith("gaia:").sum() > 50
