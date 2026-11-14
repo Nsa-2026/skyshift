@@ -192,7 +192,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     out = {"zone": zone.name, "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "match_arcsec": C.MATCH_ARCSEC, "edge_px": C.SCORE_EDGE_PX, "control_offset_arcsec": C.CONTROL_OFFSET_ARCSEC,
            "control_seed": C.CONTROL_SEED, "unit": f"one known object in one session with >= {C.SCORE_MIN_EXPOSURES} exposures covering it",
-           "found": "a mover, or a dot tracklets recovered on a track's predicted path (recall_movers: movers alone)",
+           "found_by": "a mover, or a dot tracklets recovered on a track's predicted path (recall_movers: movers alone)",
            "recovered_dots": int(len(rec)), "photos_with_predictions": int(len(trees)), **rep}
     store.write_json(results_rel(zone.name, "recall.json"), out)
     store.write_parquet(results_rel(zone.name, "recall_units.parquet"), units)
