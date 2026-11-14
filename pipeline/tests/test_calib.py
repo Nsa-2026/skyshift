@@ -430,3 +430,64 @@ def test_use_psf_picks_the_position_with_the_smaller_calibrated_error(monkeypatc
     assert list(CB.use_psf(cal, det, ok, ra, ra)) == [True, True, False, False]  # no S/N given: no choice
     monkeypatch.setattr(C, "CALIB_PSF_CHOOSE_BY_ERROR", False)
     assert list(CB.use_psf(cal, det, ok, ra, ra, snr)) == [True, True, False, False]
+
+def test_relative_floor_leaves_out_each_stars_constant_offset(rng):
+    """Stars with a constant offset from Gaia (σ 0.12″) and per-dot noise √((4/snr)² + 0.06²): the absolute floor
+    holds both, floor_rel only the epoch-to-epoch 0.06″; pos_err_model(rel=True) uses it."""
+    n_star, n_dot = 4000, 8
+    sid = np.repeat(np.arange(n_star), n_dot)
+    snr = np.exp(rng.uniform(np.log(8), np.log(500), sid.size))
+    const = rng.normal(0, 0.12, (n_star, 2))[sid]
+    sig = np.hypot(4.0 / snr, 0.06)
+    ce, cn = const[:, 0] + rng.normal(0, 1, sid.size) * sig, const[:, 1] + rng.normal(0, 1, sid.size) * sig
+    det = np.full(sid.size, 2)
+    good = np.ones(sid.size, bool)
+    perr, _ = CB.pos_err_tables(det, snr, sid, good, ~good, ce, cn, ce, cn, sig)
+    m = perr["2"]
+    assert abs(m["floor_arcsec"] - np.hypot(0.12, 0.06)) < 0.02
+    assert abs(m["floor_rel_arcsec"] - 0.06) < 0.015
+    cal = {"pos_err": {"detectors": perr}}
+    rel = CB.pos_err_model(cal, det, snr, ~good, sig, rel=True)
+    ab = CB.pos_err_model(cal, det, snr, ~good, sig)
+    assert (rel < ab).all() and np.allclose(rel, np.hypot(m["a_arcsec"] / snr, m["floor_rel_arcsec"]))
+
+
+def test_gspc_anchors_only_from_stars_measured_in_the_band():
+    """z, y (Gaia GSPC, optional): a star without them gives no z/y anchor (no SED extrapolated from J, H), but
+    still its J anchor, interpolated between the bands it has."""
+    lam = np.log([c for (c, _, _) in C.CALIB_AP_BANDS.values()])
+    names = list(C.CALIB_AP_BANDS)
+    n = 120
+    lnf = np.tile(np.log(1000.0) + 0.0 * lam, (n, 1))  # flat SED, 1000 µJy
+    lnf[n // 2:, names.index("z")] = np.nan
+    lnf[n // 2:, names.index("y")] = np.nan
+    lnf[n // 2:] += np.log(2.0)  # the stars without GSPC are twice as bright in the catalogue: a wrong anchor if used
+    sed = (pd.Index(np.arange(n)), lnf, lam)
+    sid = np.repeat(np.arange(n), 2)
+    wl = np.tile([0.90, 1.24], n)
+    det = np.tile([1, 2], n)
+    flux = np.where(sid < n // 2, 1000.0, 2000.0) / np.where(det == 1, 1.03, 1.0)
+    anc = {(a["band"], a["detector"]): a for a in CB.anchors(sed, sid, det, wl, flux, flux, np.ones(sid.size, bool))}
+    assert anc[("z", 1)]["n_stars"] == n // 2 and anc[("z", 1)]["ratio_ap"] == pytest.approx(1.03, rel=1e-6)
+    assert anc[("J", 2)]["n_stars"] == n and anc[("J", 2)]["ratio_ap"] == pytest.approx(1.0, rel=1e-6)
+    assert np.isnan(CB.sed_at(np.array([[np.nan, 1.0, np.nan, np.nan, np.nan, np.nan, np.nan]]), lam, np.log([1.0])))[0]
+
+
+def test_load_forced_puts_forced_fluxes_on_the_corrected_scale(tmp_path):
+    """Forced PSF fluxes × forced factor_psf × exp(−phase_frac × the dots' PSF phase model); unchanged without calib."""
+    store = Store(str(tmp_path))
+    store.write_parquet(photolist_rel("pilot"), pd.DataFrame({"obs_id": ["P0"], "detector": [1], "mjd": [61000.0],
+                                                              "session": [1], "visit": [1]}))
+    x = np.array([10.0, 10.25, 10.5])
+    store.write_parquet("forced/P0D1.parquet", pd.DataFrame({
+        "obs_id": "P0", "detector": np.int8(1), "mjd": 61000.0, "ref_id": ["gaia:1", "gaia:2", "gaia:3"], "ra": 1.0, "dec": 1.0,
+        "x": x, "y": 5.0, "flux_psf_ujy": 100.0, "flux_psf_err_ujy": 2.0, "wavelength_um": 0.9, "flags": 0}))
+    raw = MI.load_forced(store, ZONE, workers=2)
+    assert raw.attrs["calib_applied"] is False and (raw["flux_ujy"] == 100.0).all()
+    cal = {"schema": 3, "flux_phase": {"detectors": {"1": {"psf": {"cos_x": [0.04, 0.0], "cos_y": [0.0, 0.0], "cross": 0.0}}}},
+           "forced": {"detectors": {"1": {"factor_psf": 0.95, "phase_frac": 0.25}}}}
+    store.write_json(results_rel("pilot", C.CALIB_REL), cal)
+    f = MI.load_forced(store, ZONE, workers=2)
+    want = 100.0 * 0.95 * np.exp(-0.25 * 0.04 * np.cos(2 * np.pi * CB.phase_of(x)))
+    assert f.attrs["calib_applied"] is True and np.allclose(f["flux_ujy"], want, rtol=1e-6)
+    assert np.allclose(f["flux_err_ujy"] / f["flux_ujy"], 0.02, rtol=1e-6)

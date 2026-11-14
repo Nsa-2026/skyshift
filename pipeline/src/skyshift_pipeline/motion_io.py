@@ -106,10 +106,12 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool 
         out = d.copy(deep=False)  # the cached raw frame stays as it is
         out["pos_psf"] = psf
         if not psf.any():
+            out["pos_err_rel_arcsec"] = out["pos_err_arcsec"]
             return out, {**st, "calib_applied": False}
         out["ra"] = np.where(psf, d["ra_psf"].to_numpy(), d["ra"].to_numpy())
         out["dec"] = np.where(psf, d["dec_psf"].to_numpy(), d["dec"].to_numpy())
         out["pos_err_arcsec"] = np.where(psf, d["pos_err_psf_arcsec"].to_numpy(), d["pos_err_arcsec"].to_numpy())
+        out["pos_err_rel_arcsec"] = out["pos_err_arcsec"]
         return out, {**st, "calib_applied": False}
     t0 = time.time()
     p = d["photo"].to_numpy(np.int64)
@@ -126,7 +128,9 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool 
     del ce, cn
     ra, dec, err, ok = calib.apply(cal, det, x, y, d["ra"].to_numpy(), d["dec"].to_numpy(), d["snr"].to_numpy(),
                                    d["flags_peak"].to_numpy(), d["pos_err_arcsec"].to_numpy(), J, pe, pn)
-    del J, pe, pn
+    del pe, pn
+    sat = (d["flags_peak"].to_numpy().astype(np.int64) & C.CALIB_SAT_BITS) != 0
+    err_rel = calib.pos_err_model(cal, det, d["snr"].to_numpy(), sat, d["pos_err_arcsec"].to_numpy(), rel=True)
     st_psf = {}
     if psf.any():  # dots v4: the ePSF positions with their own distortion and pos_err, never a phase term
         i = np.flatnonzero(psf)
@@ -134,14 +138,19 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool 
         ce, cn = np.where(k[i, None], ce[pk[i]], np.nan), np.where(k[i, None], cn[pk[i]], np.nan)
         pe, pn = calib.poly_offsets(ce, cn, x[i], y[i])
         ra[i], dec[i], err[i] = calib.apply_psf(cal, det[i], d["ra_psf"].to_numpy()[i], d["dec_psf"].to_numpy()[i],
-                                                d["snr"].to_numpy()[i], d["pos_err_psf_arcsec"].to_numpy()[i], pe, pn)
+                                                d["snr"].to_numpy()[i], d["pos_err_psf_arcsec"].to_numpy()[i], pe, pn,
+                                                J[i], y[i])
+        err_rel[i] = calib.pos_err_model(cal, det[i], d["snr"].to_numpy()[i], np.zeros(i.size, bool),
+                                         d["pos_err_psf_arcsec"].to_numpy()[i], "psf", rel=True)
         ok[i] = False
         psf_dist = np.isfinite(ce).all(axis=1)
         distorted[i] = psf_dist
         st_psf = {"calib_psf_distortion_corrected_dots": int(psf_dist.sum())}
         del ce, cn, pe, pn
+    del J
     out = d.copy(deep=False)  # the cached raw frame stays as it is
     out["ra"], out["dec"], out["pos_err_arcsec"] = ra, dec, err.astype(np.float32)
+    out["pos_err_rel_arcsec"] = err_rel.astype(np.float32)  # epoch-to-epoch (calib floor_rel): for motion fits
     out["pos_psf"] = psf
     for kind, cols in (("ap", ("flux_ujy", "flux_err_ujy")), ("psf", ("flux_psf_ujy", "flux_psf_err_ujy"))):
         f = calib.flux_factor(cal, det, x, y, kind)
@@ -256,6 +265,7 @@ MAG_ALIASES: dict[str, tuple[str, ...]] = {
     "bp_rp": ("bp_rp",),
     "w1": ("w1", "w1mpro", "w1_mag", "w1mpro_pm"), "w2": ("w2", "w2mpro", "w2_mag", "w2mpro_pm"),
     "j": ("j", "j_m", "jmag", "j_mag"), "h": ("h", "h_m", "hmag", "h_mag"), "k": ("k", "ks", "k_m", "kmag", "ks_mag", "k_mag"),
+    "z_ab": ("z_ab",), "y_ab": ("y_ab",),  # Gaia GSPC synthetic SDSS z, PS1 y (AB)
     "name": ("name", "source_name", "designation"),
 }
 CAT_NAMES = {"gaia": ("gaia",), "catwise": ("catwise", "cwise", "wise"), "tmass": ("2mass", "tmass", "twomass")}
@@ -327,12 +337,16 @@ FORCED_ALIASES: dict[str, tuple[str, ...]] = {
     "ref_id": ("ref_id", "source_id", "id"), "mjd": ("mjd",), "detector": ("detector",),
     "flux_ujy": ("flux_psf_ujy", "flux_ujy", "flux"), "flux_err_ujy": ("flux_psf_err_ujy", "err", "flux_err_ujy", "flux_err"),
     "wavelength_um": ("wavelength_um",), "detected": ("detected",), "flags": ("flags",),
+    "x": ("x",), "y": ("y",),
 }
 
 
-def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
+def load_forced(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool = True) -> pd.DataFrame:
     """Every forced/<obs_id>D<det>.parquet of the zone's photos, normalised (FORCED_ALIASES keys + obs_id,
-    session, visit). Empty when the step hasn't run."""
+    session, visit). Empty when the step hasn't run. With calib.json (and `calibrated`) flux_ujy and flux_err_ujy go
+    on the dots' corrected scale: a PSF flux × calib.forced_psf_factor (calib.json `forced`: its own level and the part
+    of the dots' phase term it carries; the forced fit at the true position lacks most of the dots' phase loss), an
+    r = 2 px aperture flux × the dots' full flux_factor 'ap' at the target's pixel. `attrs['calib_applied']`."""
     photos = store.read_parquet(photolist_rel(zone.name)).reset_index(drop=True)
     have = set(store.listdir(C.FORCED_DIR))
     cols = [*FORCED_ALIASES, "obs_id", "session", "visit"]
@@ -353,6 +367,7 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
         out["obs_id"] = str(r.obs_id)
         out["session"] = np.int32(r.session)
         out["visit"] = np.int16(r.visit)
+        out["_psf"] = has_any(f, FORCED_ALIASES["flux_ujy"][:1])  # which flux the file gave: PSF or aperture
         return out
 
     with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
@@ -360,6 +375,15 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
     f = pd.concat(parts, ignore_index=True)
     f["flux_ujy"] = pd.to_numeric(f["flux_ujy"], errors="coerce").astype(np.float32)
     f["flux_err_ujy"] = pd.to_numeric(f["flux_err_ujy"], errors="coerce").astype(np.float32)
+    cal = calib.load(store, zone) if calibrated else None
+    if cal is not None:
+        det = f["detector"].to_numpy(np.int64)
+        x = pd.to_numeric(f["x"], errors="coerce").to_numpy(np.float64)
+        y = pd.to_numeric(f["y"], errors="coerce").to_numpy(np.float64)
+        psf = f["_psf"].to_numpy(bool)
+        fac = np.where(psf, calib.forced_psf_factor(cal, det, x, y), calib.flux_factor(cal, det, x, y, "ap"))
+        for c in ("flux_ujy", "flux_err_ujy"):
+            f[c] = (f[c].to_numpy(np.float64) * fac).astype(np.float32)
     f["wavelength_um"] = pd.to_numeric(f["wavelength_um"], errors="coerce").astype(np.float32)
     f["flags"] = pd.to_numeric(f["flags"], errors="coerce").fillna(0).astype(np.int64)
     det = f["detected"]
@@ -368,4 +392,6 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
             f["detected"] = (f["flux_ujy"] / f["flux_err_ujy"]).to_numpy() >= C.LC_DETECTED_SNR
     else:
         f["detected"] = det.fillna(False).astype(bool)
-    return f[cols]
+    out = f[cols]
+    out.attrs["calib_applied"] = cal is not None
+    return out

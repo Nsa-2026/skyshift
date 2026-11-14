@@ -158,6 +158,8 @@ LC_MIN_POINTS = 3              # summary rows need this many points
 ASTRO_MIN_DOTS = 6             # dots needed for a fit (position + proper motion)
 ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (two are degenerate with pm)
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
+ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
+                               # √max(1, χ²_ν) for every source inflated errors 1.5× at ~7 dots (pm pulls 0.85)
 ASTRO_FRAME_CORRECT = True     # remove each photo's median offset against Gaia (quiet matched stars)
 ASTRO_FRAME_MIN_STARS = 10     # ... only with at least this many reference stars in the photo
 ASTRO_FRAME_PM_MAX = 50.0      # mas/yr: reference stars for the frame offset move less than this
@@ -322,6 +324,10 @@ CALIB_PSF_FIT_SIGMA = (2.5, 0.10)
 # centroid's: ePSF a ≈ 2.9–3.9″ vs 4.4–6.0″, but floor 0.13–0.20″ vs 0.08–0.21″ (36 pilot photos), so the
 # centroid wins above S/N ≈ 30–50 in D1, D2, D4–D6. False: every psf_pos_ok dot takes its ePSF position.
 CALIB_PSF_CHOOSE_BY_ERROR = True
+CALIB_YMAP_BIN_PX = 64          # detector y-map: fixed Δy(y) per detector (the wavelength axis), median per bin ...
+CALIB_YMAP_MIN_DOTS = 30        # ... from at least this many dots (else 0)
+CALIB_YMAP_MIN_RMS_PX = 0.008   # applied only where its rms beats this (D3 pilot ~0.035 px, D2 ~0.01, others ≲ 0.004)
+CALIB_REL_MIN_DOTS = 3          # pos_err floor_rel (motion): stars with at least this many dots, residuals about their mean
 # flux pixel phase: ln(flux / the source's smooth spectrum) = Σ_k a_k cos(2πkφx) + b_k cos(2πkφy) + c cos(2πφx)cos(2πφy)
 CALIB_FLUX_K = 2
 CALIB_FLUX_MIN_SNR = 50.0       # dots used for the flux phase fit
@@ -329,9 +335,12 @@ CALIB_FLUX_REF_MIN_CHANNELS = 8 # the source's spectrum needs this many channels
 # aperture / detector scale: one factor per detector so r = 2 px fluxes become total fluxes, consistent across detectors.
 # Anchors: catalogue SED (log-log between bands) at dots within CALIB_AP_WINDOW_UM of a band centre; stitching:
 # the source spectra on either side of each detector boundary extrapolated to it. Weighted least squares.
-CALIB_AP_BANDS = {"J": (1.235, "j", 0.91), "H": (1.662, "h", 1.39), "Ks": (2.159, "k", 1.85),
-                  "W1": (3.368, "w1", 2.699), "W2": (4.618, "w2", 3.339)}  # µm, crossids column, AB − Vega
+CALIB_AP_BANDS = {"z": (0.8932, "gaia_z_ab", 0.0), "y": (0.9633, "gaia_y_ab", 0.0),
+                  "J": (1.235, "j", 0.91), "H": (1.662, "h", 1.39), "Ks": (2.159, "k", 1.85),
+                  "W1": (3.368, "w1", 2.699), "W2": (4.618, "w2", 3.339)}  # µm (pivot), crossids column, AB − Vega
+CALIB_AP_OPTIONAL_BANDS = ("z", "y")  # Gaia GSPC (G < 17.65, ESA refcat only): used where present, else skipped
 CALIB_AP_WINDOW_UM = 0.1
+CALIB_AP_WINDOW_BAND_UM = {"z": 0.035, "y": 0.035}  # narrower: z and y sit 0.07 µm apart, no long interpolation
 CALIB_AP_MIN_SNR = 30.0
 CALIB_AP_STAR_JK = (0.25, 0.75)  # 2MASS J − Ks (Vega): F–K stars, smooth spectra
 CALIB_AP_STAR_W12_MAX = 0.1      # |W1 − W2| (Vega): no excess, no strong CO
@@ -341,6 +350,10 @@ CALIB_AP_MIN_DOTS = 50           # per (band, detector) anchor
 CALIB_AP_ANCHOR_SIGMA = 0.02     # systematic per anchor (bandpass and stellar colour terms), ln units
 CALIB_AP_STITCH_SIGMA = 0.01     # per boundary
 CALIB_AP_STITCH_CHANNELS = 4     # channels on each side of a boundary
+# Stitch a boundary only if one side has no catalogue anchor. Pilot: the 1.1 µm stitch put D1 at 0.951 while Gaia GSPC
+# z and y (two bands, 0.89 and 0.96 µm) both give 1.024; D1 and D2 slope ~4–5% inside the detector, so edges mislead.
+CALIB_AP_STITCH_ANCHORED = False
+CALIB_FORCED_MAX_PHOTOS = 200   # forced photometry's own PSF level (calib.fit_forced): photos read per detector
 CALIB_AP_PRIOR_SIGMA = 0.1       # weak prior ln factor = 0 (keeps a detector without constraints at 1)
 
 # --- pilot fixes (14 Nov): light-curve error model, band labels, fast-mover vetting ----------

@@ -47,6 +47,7 @@ REFCAT_COLUMNS: dict[str, str] = {
     "pmra": "float64", "pmdec": "float64", "parallax": "float64",
     "pmra_err": "float64", "pmdec_err": "float64", "parallax_err": "float64",
     "g_mag": "float32", "bp_mag": "float32", "rp_mag": "float32", "ruwe": "float32",
+    "z_ab": "float32", "y_ab": "float32",
     "galaxy_or_qso": "bool",
     "w1_mag": "float32", "w1_err": "float32", "w2_mag": "float32", "w2_err": "float32",
     "j_mag": "float32", "j_err": "float32", "h_mag": "float32", "h_err": "float32",
@@ -60,6 +61,8 @@ FORCED_COLUMNS: dict[str, str] = {
 
 GAIA_SELECT = ("source_id, ra, dec, pmra, pmra_error, pmdec, pmdec_error, parallax, parallax_error, "
                "phot_g_mean_mag, phot_bp_mean_mag, phot_rp_mean_mag, ruwe, in_qso_candidates, in_galaxy_candidates")
+# Gaia DR3 synthetic photometry (XP spectra → SDSS z, PS1 y; G < 17.65 only): an anchor for D1's flux scale (calib)
+GSPC_SELECT = "p.z_sdss_mag, p.z_sdss_flag, p.y_ps1_mag, p.y_ps1_flag"
 CATWISE_SELECT = ("source_name, ra, dec, ra_pm, dec_pm, meanobsmjd, w1mpro, w1sigmpro, w2mpro, w2sigmpro, "
                   "pmra, pmdec, sigpmra, sigpmdec")
 TMASS_SELECT = "designation, ra, dec, j_m, j_msigcom, h_m, h_msigcom, k_m, k_msigcom, ph_qual, jdate"
@@ -148,6 +151,9 @@ def parse_gaia(t) -> pd.DataFrame:
         "pmra_err": _col(df, "pmra_error"), "pmdec_err": _col(df, "pmdec_error"), "parallax_err": _col(df, "parallax_error"),
         "g_mag": _col(df, "phot_g_mean_mag"), "bp_mag": _col(df, "phot_bp_mean_mag"), "rp_mag": _col(df, "phot_rp_mean_mag"),
         "ruwe": _col(df, "ruwe"),
+        # GSPC, AB (SDSS z_AB = z + 0.02); NaN without it (IRSA fallback, G > 17.65) or when its flag isn't 1
+        "z_ab": np.where(_col(df, "z_sdss_flag") == 1, _col(df, "z_sdss_mag") + 0.02, np.nan),
+        "y_ab": np.where(_col(df, "y_ps1_flag") == 1, _col(df, "y_ps1_mag"), np.nan),
         "galaxy_or_qso": _bool(df, "in_qso_candidates") | _bool(df, "in_galaxy_candidates"),
     }, n)
 
@@ -186,7 +192,9 @@ def parse_2mass(t) -> pd.DataFrame:
 # catalogue -> [(service name, TAP url, ADQL template with {where}), ...] tried in order
 SOURCES: dict[str, list[tuple[str, str, str]]] = {
     "gaia": [
-        ("ESA Gaia", ESA_TAP, f"SELECT {GAIA_SELECT} FROM gaiadr3.gaia_source WHERE {{where}} AND phot_g_mean_mag < {{gmax}}"),
+        ("ESA Gaia", ESA_TAP, f"SELECT {', '.join('g.' + c.strip() for c in GAIA_SELECT.split(','))}, {GSPC_SELECT} "
+                              "FROM gaiadr3.gaia_source AS g LEFT OUTER JOIN gaiadr3.synthetic_photometry_gspc AS p "
+                              "ON p.source_id = g.source_id WHERE {where} AND g.phot_g_mean_mag < {gmax}"),
         ("IRSA Gaia", IRSA_TAP, f"SELECT {GAIA_SELECT} FROM gaia_dr3_source WHERE {{where}} AND phot_g_mean_mag < {{gmax}}"),
     ],
     "catwise": [("IRSA CatWISE2020", IRSA_TAP, f"SELECT {CATWISE_SELECT} FROM catwise_2020 WHERE {{where}}")],
