@@ -77,12 +77,30 @@ def test_asteroid_within_veto_radius_is_lost():
 
 
 def test_stray_dot_elsewhere_does_not_veto():
-    sc = Scene()
     pos = (122.0, 16.0)
-    sc.add(*pos, 2, 0).add(*offset_radec(*pos, 1.0, 0.0), 2, 1)
-    sc.add(*pos, 4, 0)  # a single stray dot at the same place in another session
-    _, movers, st = sc.run()
-    assert len(movers) == 1 and st["fixed"] == 0
+    for det, flux in ((4, 100.0), (1, 900.0)):  # a stray dot at the same place in another session: another detector,
+        sc = Scene()                             # or 9× brighter in its detector
+        sc.add(*pos, 2, 0).add(*offset_radec(*pos, 1.0, 0.0), 2, 1)
+        sc.add(*pos, 4, 0, det=det, flux=flux)
+        _, movers, st = sc.run()
+        assert len(movers) == 1 and st["fixed"] == 0 and not movers["still_free"].iloc[0]
+
+
+def test_still_free_star_is_not_a_mover():
+    """A star seen in < 3 sessions is never fixed: its dots pair inside a session (scatter) and the same spot shows a free
+    dot in other sessions (B4: 190 of 372 unmatched box candidates vs 3 of 101 known asteroids)."""
+    from skyshift_pipeline.link import still_free
+    pos = (122.0, 16.0)
+    for flux in (100.0, 150.0):  # one other session, in its detector, within 2× in flux
+        sc = Scene()
+        sc.add(*pos, 2, 0).add(*offset_radec(*pos, 1.0, 0.0), 2, 1)
+        sc.add(*pos, 4, 0, flux=flux)
+        _, movers, st = sc.run()
+        assert len(movers) == 0 and st["vetoed_still"] == 1, flux
+    # free dots of two other sessions (any detector, any flux); in classify such dots would mostly be a fixed group
+    mv = pd.DataFrame(dict(ra=[pos[0]], dec=[pos[1]], session=[3], dot_det=[[1, 1]], dot_flux=[[100.0, 100.0]]))
+    free = pd.DataFrame(dict(ra=[pos[0]] * 3, dec=[pos[1]] * 3, session=[3, 1, 5], detector=[1, 4, 4], flux_ujy=[100.0, 5.0, 5.0]))
+    assert still_free(mv, free).tolist() == [True] and still_free(mv, free.iloc[:2]).tolist() == [False]
 
 
 def test_glitch_and_too_fast_and_trail():
@@ -235,3 +253,150 @@ def test_movers_carry_their_dots_for_vetting():
     sc2.add(122.0, 16.0, 3, 0).add(*offset_radec(122.0, 16.0, 1.0, 0.0), 3, 1)
     m2 = sc2.run()[1].iloc[0]
     assert np.isnan(m2["dot_x"]).all() and len(m2["dot_obs"]) == 2
+
+
+def test_bright_asteroid_chained_into_a_fainter_star(monkeypatch):
+    """B1 (Alekto s75): an asteroid >= 3× a star's flux chained into its group (2.5″, 4″ off) is released and escapes the
+    6″ veto; the star keeps its dots."""
+    sc = Scene().star(*STAR)
+    sc.track(*offset_radec(*STAR, 2.5, 0.0), 2, 1.5, [0, 1], flux=600.0, snr=30.0)
+    fixed, movers, st = sc.run()
+    assert len(fixed) == 1 and fixed["n_sessions"].iloc[0] == 5 and len(movers) == 1, st
+    assert movers["n_exposures"].iloc[0] == 2 and movers["flux_ujy"].iloc[0] == 600.0
+    monkeypatch.setattr(C, "FIXED_VETO_BRIGHT_RATIO", None)
+    assert len(sc.run()[1]) == 0  # released, then dropped by the plain veto
+    monkeypatch.setattr(C, "FIXED_VETO_BRIGHT_RATIO", 3.0)
+    monkeypatch.setattr(C, "FIXED_RELEASE_FLUX_RATIO", None)
+    assert len(sc.run()[1]) == 0  # never released: a member of the star
+
+
+def test_saturated_dot_is_not_released_as_bright():
+    from skyshift_core import SAT_BITS
+    sc = Scene().star(*STAR)
+    sc.track(*offset_radec(*STAR, 2.5, 0.0), 2, 1.5, [0, 1], flux=600.0, snr=30.0, flags_peak=int(SAT_BITS & -SAT_BITS))
+    assert len(sc.run()[1]) == 0
+
+
+def test_offset_session_is_released_only_its_off_dots(monkeypatch):
+    """B1 (Ljuba s242): a session whose dots sit 2–6″ off the group's other sessions leaves the group; in a session with
+    the star's own dots too, those stay members."""
+    from skyshift_pipeline.link import fixed_groups
+    sc = Scene().star(*STAR, sessions=[0, 1, 3, 4])                       # rows 0–7
+    sc.track(*offset_radec(*STAR, 3.9, 0.0), 2, 1.0, [0, 1], snr=50.0)  # rows 8, 9: 3.9″, 4.9″ (chained, not far)
+    sc.add(*STAR, 2, 0, snr=200)                                        # row 10: the star in that session too
+    d = pd.DataFrame(sc.rows)
+    st: dict = {}
+    _, sid = fixed_groups(d, None, st)
+    ast = np.isin(np.arange(len(d)), [8, 9])
+    assert (sid[ast] == -1).all() and (sid[~ast] == sid[0]).all() and sid[0] >= 0
+    assert st["release_offset_dots"] == 2 and st["release_far_dots"] == 0
+    monkeypatch.setattr(C, "FIXED_RELEASE_SESSION_ARCSEC", None)
+    _, sid = fixed_groups(d)
+    assert (sid == sid[0]).all()
+
+
+def test_slow_mover_stays_one_fixed_source(monkeypatch):
+    """A slow mover (a distant planet, 1.2″ per session here) drifts through every session of its visit: no session is
+    an outlier (FIXED_RELEASE_SESSION_SPREAD), so it stays one single-visit fixed source for `orphans`."""
+    from skyshift_pipeline.link import fixed_groups
+    sc = Scene(n_sessions=8)
+    for s in range(8):
+        for e in range(2):
+            sc.add(*offset_radec(*STAR, 1.2 * s, 0.0), s, e, snr=50.0)
+    d = pd.DataFrame(sc.rows)
+    fixed, sid = fixed_groups(d)
+    assert len(fixed) == 1 and (sid == sid[0]).all()
+    monkeypatch.setattr(C, "FIXED_RELEASE_SESSION_SPREAD", None)
+    fixed, sid = fixed_groups(d)
+    assert (sid == -1).sum() == 4  # the two end sessions (4.2″ off the median) would have been cut off
+
+
+def test_released_fragment_group_is_undone_unless_catalogued():
+    """B3: released dots that form a group of >= 3 sessions stay a fixed source only when catalogued or seen in >= half
+    of the parent's sessions; wing fragments of a star go back to it."""
+    from skyshift_pipeline.link import release_far_members
+    sc = Scene(n_sessions=8).star(*STAR, sessions=range(8))
+    frag = offset_radec(*STAR, 7.5, 0.0)
+    for s in range(3):
+        sc.add(*frag, s, 0)
+    d = pd.DataFrame(sc.rows)
+    lab = np.zeros(len(d), np.int64)  # one FoF group (as if chained)
+    st: dict = {}
+    out = release_far_members(d, lab, None, st)
+    assert (out == 0).all() and st["release_far_dots"] == 3 and st["release_groups_undone"] == 1
+    cat = pd.DataFrame(dict(ra=[frag[0]], dec=[frag[1]], epoch_mjd=[t(0)], pmra=[0.0], pmdec=[0.0]))
+    out = release_far_members(d, lab, cat, st)
+    assert (out[-3:] != 0).all() and len(set(out[-3:])) == 1 and (out[:-3] == 0).all() and st["release_groups_kept"] == 1
+    bright = d.copy()
+    bright.loc[bright.index[-3:], "flux_ujy"] = 1000.0  # released by flux too: free, one label per session
+    out = release_far_members(bright, lab, None, st)
+    assert (out[-3:] != 0).all() and len(set(out[-3:])) == 3 and (out[:-3] == 0).all()
+
+
+def test_catalogued_moves_entries_by_proper_motion():
+    from skyshift_pipeline.link import catalogued
+    pos = (122.0, 16.0)
+    old = offset_radec(*pos, -10.0, 0.0)  # 10″ west at an epoch 10 years earlier, moving 1″/yr east
+    cat = pd.DataFrame(dict(ra=[old[0]], dec=[old[1]], epoch_mjd=[t(0) - 3652.5], pmra=[1000.0], pmdec=[0.0]))
+    assert catalogued(np.array([pos[0]]), np.array([pos[1]]), np.array([t(0)]), cat).tolist() == [True]
+    assert catalogued(np.array([pos[0]]), np.array([pos[1]]), np.array([t(0)]), cat[["ra", "dec"]]).tolist() == [False]
+    assert catalogued(np.array([pos[0]]), np.array([pos[1]]), np.array([t(0)]), None).tolist() == [False]
+
+
+def test_track_merged_into_another_dot_is_not_missed(monkeypatch):
+    """B2: in an exposure where the track passes within 15″ of another detection (a star here, 12″ off), the asteroid's
+    own dot merges into it: that exposure doesn't count as missed."""
+    sc = Scene(n_exp=3)
+    a = (122.0, 16.0)
+    sc.track(*a, 2, 1.5, [0, 1])
+    star = offset_radec(*a, 3.0, 12.0)  # 12″ from the track's place in exposure 2, in both detectors of each photo
+    for s in range(5):
+        for e in range(3):
+            sc.add(*star, s, e, snr=200).add(*star, s, e, det=4, snr=200)
+    _, movers, st = sc.run()
+    assert len(movers) == 1 and movers["missed_exposures"].iloc[0] == 0, st
+    monkeypatch.setattr(C, "MOVER_COVER_BLEND_ARCSEC", None)
+    monkeypatch.setattr(C, "MOVER_COVER_BRIGHT", None)
+    _, movers, st = sc.run()
+    assert len(movers) == 0 and st["vetoed_missed"] == 1
+
+
+def test_one_miss_allowed_when_both_exposures_have_a_detector_pair():
+    """B2: two exposures each confirmed by a simultaneous detector pair (D1+D4) may miss one covering exposure."""
+    sc = Scene(n_exp=3)
+    a = (122.0, 16.0)
+    for e in (0, 1):
+        p = offset_radec(*a, 1.5 * e, 0.0)
+        sc.add(*p, 2, e, det=1).add(*p, 2, e, det=4)
+    sc.track(122.1, 16.0, 2, 1.5, [0, 1])  # the same with one detector: vetoed
+    _, movers, st = sc.run()
+    assert len(movers) == 1 and movers["paired_exposures"].iloc[0] == 2 and movers["missed_exposures"].iloc[0] == 1
+    assert st["vetoed_missed"] == 1
+
+
+def test_track_near_a_photo_edge_does_not_cover():
+    """B2: a photo holding the track's place less than MOVER_COVER_EDGE_PX (25 px) inside doesn't count as a miss."""
+    sc = Scene(n_exp=3)
+    a = (122.0, 16.15)
+    sc.track(*a, 2, 1.5, [0, 1])
+    p2 = offset_radec(*a, 3.0, 0.0)
+    c = (1.75 - 15 * C.PIXEL_ARCSEC / 3600) / np.cos(np.deg2rad(16.15))  # exposure 2's photo: 15 px inside its east edge
+    photos = [dict(p, s_region=square(p2[0] - c, 16.15)) if p["obs_id"] == "S2E2" else p for p in sc.photos]
+    _, movers, st = sc.run(photos)
+    assert len(movers) == 1 and movers["cover_exposures"].iloc[0] == 2, st
+
+
+def test_track_leaving_the_zone_box_does_not_cover():
+    """B2/B5: link clips dots at the zone box, so an exposure whose track position is outside the box (less 10″) can't
+    show the asteroid."""
+    from skyshift_pipeline.link import classify as cls
+    zone = C.Zone("t", 120.0, 124.0, 14.0, 16.0 + 13.5 / 3600)
+    sc = Scene(n_exp=3)
+    a = (122.0, 16.0)
+    for e in (0, 1):  # north 2″ per exposure: 13.5″, 11.5″ inside the box's north edge; exposure 2 at 9.5″
+        sc.add(*offset_radec(*a, 0.0, 2.0 * e), 2, e)
+    d, p = pd.DataFrame(sc.rows), pd.DataFrame(sc.photos)
+    _, movers, st = cls(d, p, zone=zone)
+    assert len(movers) == 1 and movers["cover_exposures"].iloc[0] == 2, st
+    _, movers, st = cls(d, p)
+    assert len(movers) == 0 and st["vetoed_missed"] == 1

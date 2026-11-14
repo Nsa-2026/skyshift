@@ -157,6 +157,16 @@ The step never raises (errors go to its stats).
   use them where psf_pos_ok, never phase-correct them (contracts/dots.md, Versions).
 - link: fixed = FoF 4″ groups in >= 3 sessions; drop dots within 6″ of fixed; pair dots of one session
   (≤ 3″ + 1″/min × Δt, or a simultaneous D1+D4/D2+D5/D3+D6 pair ≤ 3″, elong ≤ 3); coverage ≥ 3 sessions from footprints.
+- link release (review of #176, 14 Nov; config FIXED_RELEASE_*, FIXED_VETO_BRIGHT_RATIO): out of a would-be fixed group
+  come dots > 6″ from its median, dots ≥ 3× its median flux in their detector (unsaturated), and the off dots of a
+  session 2″ + 3σ off the visit's other sessions (and > 5× their median offset: slow movers stay one group for orphans).
+  A released group of ≥ 3 sessions stays fixed only if catalogued (refcat ≤ 2.5″, proper motion applied; link reads
+  refcat/<zone>.parquet) or in ≥ half its parent's sessions; else its far dots rejoin the parent. A free dot ≥ 3× every
+  fixed source within 6″ escapes the veto. Coverage (missed rule): an exposure covers only ≥ 25 px inside a photo
+  (edge veto stays 10 px), ≥ 10″ inside the zone box, and not where that photo has another dot within 15″ (or S/N ≥ 100
+  within 30″); 2 exposures both with a detector pair may miss 1. `still`: a free dot at the mover's place (2″) in 2 other
+  sessions, or in 1 in its detector within 2× its flux. Boxes b1–b3 (4.1 deg², hunt zone): V < 16 movers 51 → 55
+  of 64, uncatalogued fixed fragments 176 → 55, movers 108 → 118. Changing these means rerunning link onward.
 - link also writes members.parquet (source_id, obs_id, detector, dot_row = row in the dot file as written; dot
   files are never rewritten) and nonfixed_dots.parquet (every dot in no fixed group with elong ≤ 3, `near_fixed` within 6″
   of one; ~0.8 M rows, ~20 MB for the hunt) for tracklets' recovery. spectra: 102 channels (ours, 17 log-spaced per detector), MASK bits out, clipped
