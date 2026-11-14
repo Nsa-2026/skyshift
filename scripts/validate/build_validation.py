@@ -8,8 +8,8 @@ Every check is printed even when its number is poor; a check with no input yet i
   V4  data/v4_asteroids.json                    (v4_asteroids.py)
   V5  <results>/<zone>/recall.json              (pipeline score; gs://nasa-glazing-data/results/)
   V6  cut (S2)          V7  cut (S3)
-  V8  --demo-check JSON (scripts/demo_check.py --json): median time to first frame
-      (the spectra half of V8 is not built: pending)
+  V8  data/v8_spectra.json (v8_spectra.py: pilot stars vs 2MASS Ks and CatWISE W1)
+      + --demo-check JSON (scripts/demo_check.py --json): median time to first frame
   V9  <results>/<zone>/astrometry_report.json   (pipeline astrometry)
   V10 <results>/<zone>/photoz_report.json       (pipeline photoz)
   V11 scripts/science/data/asteroid_sizes.json  (scripts/science asteroids.py)
@@ -161,7 +161,7 @@ def v4() -> dict:
     rows = [{k: a[k] for k in ("number", "name", "vmag_median", "photos", "found_photos", "found", "median_offset_px",
                                "control_photos", "control_found")} for a in d["rows"]]
     note = (f"MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is "
-            f"absent (4 sigma) from a reference stack of the same sky 0.25-12 days away. Control = the same test 3' away. "
+            f"absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. "
             f"Per photo: {d['photos_found']}/{d['photos_measured']} found, control {d['photos_control_found']}/{d['photos_measured']}; "
             f"per asteroid control {d['asteroids_control_found']}/{tot}. Rows: number, name, vmag_median, photos, found_photos, "
             f"found, median_offset_px, control_photos, control_found.")
@@ -237,18 +237,36 @@ def v10(res: Path | None, zone: str) -> dict:
 
 def v8(demo: Path | None) -> dict:
     claim, exp = "Spectra and speed", "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s"
+    sp = load(DATA / "v8_spectra.json")
     d = load(demo)
     med = (d or {}).get("median_first_frame_s")
-    note = "Speed: scripts/demo_check.py, random sky coordinates through /api/frames. Spectra half: not built yet."
-    if med is None:
-        return check("V8", claim, "pending", "Not measured yet", unit="s", expected=exp, note=note)
-    rnd = d.get("random", [])
-    rows = [{"ra": x.get("ra"), "dec": x.get("dec"), "clock": x.get("clock"), "ok": x.get("ok"),
-             "first_frame_s": x.get("first_frame_s")} for x in rnd]
-    n_ok = sum(1 for x in rnd if x.get("ok"))
-    return check("V8", claim, "partial" if med < 15 else "fail",
-                 f"Median time to first frame {med:.1f} s over {n_ok} random coordinates ({d.get('base')}); spectra check pending",
-                 value=r(med, 1), unit="s", expected=exp, note=note + " Rows: ra, dec, clock, ok, first_frame_s.", rows=rows)
+    if not sp and med is None:
+        return check("V8", claim, "pending", "Not measured yet", unit="ratio", expected=exp)
+    parts, rows, status = [], [], []
+    if sp:
+        for name, b in sp["bands"].items():
+            c = b["clean"]
+            parts.append(f"{name} {c['median']:.3f} (scatter {100 * c['scatter']:.1f}%, {c['n']:,} stars)")
+            rows += [{"part": "spectra", **r_} for r_ in b["by_mag"]]
+        status.append("pass" if sp["pass"] else "fail")
+    head = ("SPHEREx / catalogue flux, " + "; ".join(parts) + f" ({sp['zone']}, 10-13 mag)") if sp else "Spectra not measured yet"
+    if med is not None:
+        rnd = d.get("random", [])
+        n_ok = sum(1 for x in rnd if x.get("ok"))
+        head += f"; median time to first frame {med:.1f} s over {n_ok} random coordinates"
+        rows += [{"part": "speed", "ra": x.get("ra"), "dec": x.get("dec"), "clock": x.get("clock"), "ok": x.get("ok"),
+                  "first_frame_s": x.get("first_frame_s")} for x in rnd]
+        status.append("pass" if med < 15 else "fail")
+    else:
+        head += "; speed pending (site not deployed)"
+    st = "fail" if "fail" in status else ("pass" if len(status) == 2 else "partial")
+    value = sp["bands"]["Ks"]["clean"]["median"] if sp else None
+    note = ("Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx "
+            "channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and "
+            "309.54 Jy), no colour terms (scripts/validate/v8_spectra.py). Speed: scripts/demo_check.py, random coordinates "
+            "through /api/frames. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed "
+            "(ra, dec, clock, ok, first_frame_s).")
+    return check("V8", claim, st, head, value=value, unit="ratio", expected=exp, note=note, rows=rows)
 
 
 def v11() -> dict:

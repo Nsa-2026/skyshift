@@ -75,7 +75,7 @@ You need Git, Node 22, Python 3.12 and [uv](https://docs.astral.sh/uv/). Deploys
 Google Cloud CLI and the Firebase CLI.
 
 - Python areas (`core/`, `pipeline/`, `server/`): `uv sync`, then `uv run pytest`.
-- Web: `npm install`, then `npm test`.
+- Web: `pnpm install --frozen-lockfile`, then `pnpm test && pnpm build` (one pnpm lockfile).
 
 Read `CLAUDE.md` and the `CLAUDE.md` in your area's folder before you start, and match
 `contracts/` exactly. No secrets in the repo: Google access comes from `gcloud`; anything else

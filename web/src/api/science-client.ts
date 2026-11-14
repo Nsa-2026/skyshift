@@ -1,5 +1,5 @@
 import targetCatalog from '../data/targets.json';
-import {getJson as json,loadTargetIndex,loadFrames as loadRawFrames,loadFrameData,toMJySr,loadObject as loadRawObject,resolve as resolvePosition} from './client';
+import {getJson as json,loadTargetIndex,loadFrames as loadRawFrames,loadObject as loadRawObject,resolve as resolvePosition} from './client';
 import type {Det,Clock} from './types';
 export type Target = {slug:string;name:string;ra:number;dec:number;default_det:number;n_frames:number;n_visits:number;clock?:string;fov?:number;published?:boolean};
 export type Epoch = {id:string;det:number;kind:string;center?:{ra:number;dec:number};mjd_mid:number;mjd_start:number|null;mjd_end:number|null;n_exposures:number;data_url:string;scale:number;zero:number;flag_frac:number|null;sat_frac:number|null};
@@ -25,14 +25,13 @@ export async function loadFrames(target:Target,det:number,clock:string,signal:Ab
  let data:Frames|undefined;let base:string;
  if(view==='raw'){
    const result=await loadRawFrames({ra:target.ra,dec:target.dec,slug:target.slug||null,clock:clock as Clock,det:det as Det,fov},signal);
-   data={...result.frames,epochs:result.frames.epochs.filter(e=>e.det===det)} as Frames;base=result.jsonUrl;
+   data=result.frames as Frames;base=result.jsonUrl;
  }else{
    base=new URL(`/science-data/${target.slug}/${view}.json`,location.href).href;
-   if(target.slug&&view!=='refdiff'&&fov===5){try{const result=await json<Frames>(base,signal);if(result.clock===clock)data={...result,epochs:result.epochs.filter(e=>e.det===det)}}catch(e){if(signal.aborted)throw e}}
+   if(target.slug&&view!=='refdiff'&&fov===5){try{const result=await json<Frames>(base,signal);if(result.clock===clock)data=result}catch(e){if(signal.aborted)throw e}}
    if(!data){base=new URL(`/api/frames?ra=${target.ra}&dec=${target.dec}&clock=${clock}&det=${det}&view=${view}&fov=${fov}`,location.href).href;data=await json<Frames>(base,signal)}
  }
- const arrays=await Promise.all(data.epochs.map(async e=>{const raw=await loadFrameData(e as import('./types').Epoch,base,signal);if(raw.length!==data!.size[0]*data!.size[1])throw new Error('帧尺寸与接口不一致');return toMJySr(raw,e)}));
- return {data,arrays};
+ return {data,jsonUrl:base};
 }
 export async function loadObject(t:Target,signal:AbortSignal){
  return await loadRawObject({ra:t.ra,dec:t.dec,slug:t.slug||null},signal) as ObjectData;

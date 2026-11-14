@@ -16,8 +16,16 @@ optical wavelengths for Gaia, but bright at 3–5 µm, where SPHEREx sees. Two r
 motion agrees with ours (HIGHPM_CATWISE_PM_TOL) is a bonus (`catwise_pm_agree`). `red_ratio` =
 D6 / D2 flux (4.4–5.0 µm over 1.1–1.6 µm): large for cold objects (methane, CO absorption bluewards).
 
-Control (highpm_report.json `control_pairs`): the same pairing with one visit's sources moved
-HIGHPM_CONTROL_OFFSET_ARCSEC: the number of chance pairs to expect among the "pair" candidates.
+Control (highpm_report.json `control_pairs`, `pair_vs_control`): the same pairing, with the same coverage
+cut, after moving every even visit's single-visit sources by each HIGHPM_CONTROL_OFFSETS: the mean is the
+number of chance pairs to expect, per separation bin (HIGHPM_PAIR_SEP_BINS).
+
+Vetting (columns `vetted`, `reason`; every candidate is kept): a candidate is vetted when `reason` is empty.
+Reasons: short_span, few_dots, bad_fit, over_pm_cap (fit: HIGHPM_FIT_*); gaia_pm_disagrees /
+catwise_pm_disagrees (either side's Gaia / CatWISE counterpart has its own pm, and it is not ours: the
+counterpart is a slower star at that spot, HIGHPM_PM_AGREE_SIGMA); at_control_level (pair: its separation bin
+has no more pairs than the control, Poisson P >= HIGHPM_PAIR_MAX_P). The report counts "new" as status new and
+vetted; `new_unvetted` and `reasons` show what was cut.
 Recall check (highpm_report.json): Gaia DR3 stars faster than HIGHPM_RECALL_MAS_YR in the zone, how
 many we detected as a source, how many came out as candidates.
 
@@ -45,7 +53,9 @@ L = log.get("highpm")
 
 COLUMNS = ["method", "status", "source_id", "source_id_b", "ra", "dec", "ra_b", "dec_b", "mjd", "mjd_b", "visit", "visit_b",
            "sep_arcsec", "pmra", "pmdec", "pm", "pm_err", "flux_ratio", "shape_rms", "n_common_det", "red_ratio",
-           "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score"]
+           "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason"]
+REASONS = ("short_span", "few_dots", "bad_fit", "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees",
+           "at_control_level")
 
 
 def source_visits(store: Store, zone: C.Zone) -> pd.DataFrame:
@@ -160,16 +170,45 @@ def pair_movers(src: pd.DataFrame, dflux: np.ndarray, footprints_by_visit: dict[
     })
 
 
-def control_pairs(src: pd.DataFrame) -> int:
-    """Chance pairs: the same pairing with every even visit's single-visit sources moved
-    HIGHPM_CONTROL_OFFSET_ARCSEC east (no real mover survives that; coverage not tested)."""
+def control_separations(src: pd.DataFrame, footprints_by_visit=None) -> list[np.ndarray]:
+    """Chance pairs: for each HIGHPM_CONTROL_OFFSETS, the same pairing (and coverage cut) with every even
+    visit's single-visit sources moved by that offset (no real mover survives it). One array of pair
+    separations (″) per offset."""
     from .sky import offset_radec
-    c = src.copy()
-    even = (c["visit"].to_numpy() >= 0) & (c["visit"].to_numpy() % 2 == 0)
-    r, d = offset_radec(c["ra"].to_numpy()[even], c["dec"].to_numpy()[even], C.HIGHPM_CONTROL_OFFSET_ARCSEC, 0.0)
-    c.loc[even, "ra"], c.loc[even, "dec"] = r, d
-    spec = np.stack(c["flux_ujy"].to_numpy()).astype(np.float64) if len(c) else np.zeros((0, NDET * NCH_DET))
-    return int(len(pair_movers(c, detector_fluxes(spec), None)))
+    spec = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64) if len(src) else np.zeros((0, NDET * NCH_DET))
+    dflux = detector_fluxes(spec)
+    even = (src["visit"].to_numpy() >= 0) & (src["visit"].to_numpy() % 2 == 0)
+    out = []
+    for de, dn in C.HIGHPM_CONTROL_OFFSETS:
+        c = src.copy()
+        r, d = offset_radec(c["ra"].to_numpy()[even], c["dec"].to_numpy()[even], de, dn)
+        c.loc[even, "ra"], c.loc[even, "dec"] = r, d
+        pr = pair_movers(c, dflux, footprints_by_visit)
+        out.append(pr["sep_arcsec"].to_numpy(np.float64) if len(pr) else np.zeros(0))
+    return out
+
+
+def control_pairs(src: pd.DataFrame, footprints_by_visit=None) -> float:
+    """Mean number of chance pairs over the control offsets."""
+    seps = control_separations(src, footprints_by_visit)
+    return float(np.mean([len(x) for x in seps])) if seps else 0.0
+
+
+def pair_vs_control(real_sep: np.ndarray, ctrl: list[np.ndarray]) -> list[dict]:
+    """Per separation bin: real pairs, control mean, Poisson P(>= real), and whether the bin beats the control.
+    The control mean gets one chance pair added over all offsets (so an empty control is not a zero rate)."""
+    from scipy.stats import poisson
+    edges = np.asarray(C.HIGHPM_PAIR_SEP_BINS, np.float64)
+    k = max(len(ctrl), 1)
+    out = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        n = int(((real_sep >= lo) & (real_sep < hi)).sum())
+        tot = int(sum(((c >= lo) & (c < hi)).sum() for c in ctrl))
+        lam = (tot + 1) / k
+        p = float(poisson.sf(n - 1, lam)) if n > 0 else 1.0
+        out.append({"sep_arcsec": [float(lo), float(hi)], "real": n, "control_mean": round(tot / k, 2),
+                    "p": round(p, 4), "beats_control": bool(n > 0 and p < C.HIGHPM_PAIR_MAX_P)})
+    return out
 
 
 def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
@@ -186,10 +225,51 @@ def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
         "pm": a["pm"].to_numpy(np.float32), "pm_err": err.to_numpy(np.float32), "flux_ratio": np.float32(1.0),
         "shape_rms": np.float32(0.0), "n_common_det": np.int8(0), "red_ratio": np.float32(np.nan),
         "score": (1.0 / a["pm_snr"]).to_numpy(np.float32),
+        **{f"_{c}": (a[c].to_numpy(np.float64) if c in a else np.full(len(a), np.nan))
+           for c in ("n_visits", "span_yr", "chi2_nu", "n_dots")},
     })
 
 
-def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | None, ast: pd.DataFrame | None) -> pd.DataFrame:
+def pm_disagrees(pmra_c, pmdec_c, out: pd.DataFrame) -> np.ndarray:
+    """A counterpart's own proper motion (pmra_c, pmdec_c) disagrees with the candidate's (finite only)."""
+    d = np.hypot(np.asarray(pmra_c, np.float64) - out["pmra"].to_numpy(np.float64),
+                 np.asarray(pmdec_c, np.float64) - out["pmdec"].to_numpy(np.float64))
+    tol = np.maximum.reduce([C.HIGHPM_PM_AGREE_SIGMA * np.nan_to_num(out["pm_err"].to_numpy(np.float64)),
+                             C.HIGHPM_CATWISE_PM_TOL * out["pm"].to_numpy(np.float64), np.full(len(out), 100.0)])
+    return np.isfinite(d) & (d > tol)
+
+
+def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: list[dict] | None) -> pd.DataFrame:
+    """`vetted` and `reason` (module docstring). pair_bins None: pairs are not tested against the control."""
+    fit = (out["method"] == "fit").to_numpy()
+    col = lambda c: out[c].to_numpy(np.float64) if c in out else np.full(len(out), np.nan)  # noqa: E731
+    with np.errstate(invalid="ignore"):
+        bad = {
+            "short_span": fit & ((col("_n_visits") < C.HIGHPM_FIT_MIN_VISITS) | (col("_span_yr") < C.HIGHPM_FIT_MIN_SPAN_YR)),
+            "few_dots": fit & (col("_n_dots") < C.HIGHPM_FIT_MIN_DOTS),
+            "bad_fit": fit & (col("_chi2_nu") > C.HIGHPM_FIT_MAX_CHI2_NU),
+            "over_pm_cap": fit & (col("pm") > C.HIGHPM_FIT_MAX_PM_MAS_YR),
+            "gaia_pm_disagrees": gaia_dis,
+            "catwise_pm_disagrees": cw_dis,
+            "at_control_level": np.zeros(len(out), bool),
+        }
+    if pair_bins is not None:
+        sep = col("sep_arcsec")
+        ok_bin = np.zeros(len(out), bool)
+        for b in pair_bins:
+            lo, hi = b["sep_arcsec"]
+            if b["beats_control"]:
+                ok_bin |= (sep >= lo) & (sep < hi)
+        bad["at_control_level"] = ~fit & ~ok_bin
+    names = np.array(REASONS)
+    bits = np.stack([bad[k] for k in REASONS], 1) if len(out) else np.zeros((0, len(REASONS)), bool)
+    out["reason"] = [",".join(names[b]) for b in bits]
+    out["vetted"] = ~bits.any(axis=1) if len(out) else np.zeros(0, bool)
+    return out
+
+
+def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | None, ast: pd.DataFrame | None,
+            pair_bins: list[dict] | None = None) -> pd.DataFrame:
     spec = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64) if len(src) else np.zeros((0, NDET * NCH_DET))
     dflux = detector_fluxes(spec)
     pairs = pair_movers(src, dflux, footprints_by_visit)
@@ -202,12 +282,15 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
         fits["red_ratio"] = red.astype(np.float32)
     out = pd.concat([x for x in (pairs, fits) if len(x)], ignore_index=True) if (len(pairs) or len(fits)) else pd.DataFrame(columns=[*COLUMNS])
     if not len(out):
-        return pd.DataFrame({c: pd.Series(dtype="float64") for c in COLUMNS})
+        empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in COLUMNS})
+        return empty.astype({"vetted": bool, "reason": str, "method": str, "status": str})
     # Gaia and CatWISE, from either side
     gref = np.full(len(out), "", dtype=object)
     gid = np.full(len(out), -1, np.int64)
     cw = np.full(len(out), "", dtype=object)
     agree = np.zeros(len(out), bool)
+    gaia_dis = np.zeros(len(out), bool)
+    cw_dis = np.zeros(len(out), bool)
     if crossids is not None and len(crossids):
         x = crossids.set_index("source_id")
         for col in ("source_id", "source_id_b"):
@@ -222,14 +305,19 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
             tol = np.maximum(C.HIGHPM_CATWISE_PM_TOL * out["pm"].to_numpy(np.float64), 100.0)
             agree |= np.isfinite(dpm) & (dpm <= tol)
             cw[(cw == "") & (nm != "")] = nm[(cw == "") & (nm != "")]
+            cw_dis |= (nm != "") & pm_disagrees(cpm_ra, cpm_de, out)
+            if "gaia_pmra" in r and "gaia_pmdec" in r:
+                gaia_dis |= (g != "") & pm_disagrees(r["gaia_pmra"].to_numpy(np.float64), r["gaia_pmdec"].to_numpy(np.float64), out)
     out["gaia_ref_id"] = gref.astype(str)
     out["gaia_id"] = gid
     out["catwise_name"] = cw.astype(str)
     out["catwise_pm_agree"] = agree
     out["status"] = np.where(out["gaia_ref_id"] == "", "new", "gaia")
-    # new first, then pairs before fits, then best score
-    out["_r"] = (out["status"] != "new").astype(int) * 2 + (out["method"] != "pair").astype(int)
-    out = out.sort_values(["_r", "score"]).reset_index(drop=True)
+    out = vet(out, gaia_dis, cw_dis, pair_bins)
+    # vetted first, new before gaia, then pairs before fits, then best score
+    out["_r"] = ((~out["vetted"]).astype(int) * 4 + (out["status"] != "new").astype(int) * 2
+                 + (out["method"] != "pair").astype(int))
+    out = out.sort_values(["_r", "score"], kind="stable").reset_index(drop=True)
     return out[COLUMNS]
 
 
@@ -253,13 +341,23 @@ def recall(cands: pd.DataFrame, crossids: pd.DataFrame | None, refcat: pd.DataFr
                              cands["mjd"].to_numpy(np.float64), fast, C.HIGHPM_RECALL_ARCSEC)
         near[k[k >= 0]] = True
     rec = by_id | near
+    rec_v = np.zeros(len(ids), bool)
+    if len(cands) and "vetted" in cands and len(fast):
+        v = cands[cands["vetted"].to_numpy(bool)]
+        rec_v = np.isin(ids, v["gaia_ref_id"].astype(str).to_numpy()) if len(v) else rec_v
+        if len(v):
+            k, _, _ = crossmatch(v["ra"].to_numpy(np.float64), v["dec"].to_numpy(np.float64),
+                                 v["mjd"].to_numpy(np.float64), fast, C.HIGHPM_RECALL_ARCSEC)
+            rec_v[k[k >= 0]] = True
     pmf = np.hypot(fast["pmra"], fast["pmdec"]).to_numpy() if len(fast) else np.zeros(0)
     return {"gaia_fast_in_zone": int(len(fast)), "detected_as_source": int(detected.sum()), "recovered": int(rec.sum()),
+            "recovered_vetted": int(rec_v.sum()),
             "recall_of_detected": round(float(rec[detected].mean()), 3) if detected.any() else None,
             "pm_threshold_mas_yr": C.HIGHPM_RECALL_MAS_YR,
             "stars": [{"gaia_ref_id": i, "pm": round(float(p), 1), "g": None if not np.isfinite(gm) else round(float(gm), 2),
-                       "detected": bool(dd), "recovered": bool(rr)}
-                      for i, p, gm, dd, rr in zip(ids, pmf, fast["g"].to_numpy(np.float64) if len(fast) else [], detected, rec)][:200]}
+                       "detected": bool(dd), "recovered": bool(rr), "recovered_vetted": bool(vv)}
+                      for i, p, gm, dd, rr, vv in zip(ids, pmf, fast["g"].to_numpy(np.float64) if len(fast) else [],
+                                                      detected, rec, rec_v)][:200]}
 
 
 def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
@@ -276,15 +374,24 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     crossids = store.read_parquet(xid_rel) if store.exists(xid_rel) else None
     ast_rel = results_rel(zone.name, "astrometry.parquet")
     ast = store.read_parquet(ast_rel) if store.exists(ast_rel) else None
-    cands = compute(src, fps, crossids, ast)
-    ctrl = control_pairs(src)
+    ctrl = control_separations(src, fps)
+    spec = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64) if len(src) else np.zeros((0, NDET * NCH_DET))
+    real = pair_movers(src, detector_fluxes(spec), fps)
+    bins = pair_vs_control(real["sep_arcsec"].to_numpy(np.float64) if len(real) else np.zeros(0), ctrl)
+    cands = compute(src, fps, crossids, ast, bins)
     store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     refcat = load_refcat(store, zone)
     mjd_ref = float(np.nanmedian(src["mjd"])) if len(src) else 61000.0
-    rep = {"zone": zone.name, "candidates": int(len(cands)), "new": int((cands["status"] == "new").sum()),
+    v, new = cands["vetted"].to_numpy(bool), (cands["status"] == "new").to_numpy()
+    rep = {"zone": zone.name, "candidates": int(len(cands)), "vetted": int(v.sum()),
+           "new": int((new & v).sum()), "new_unvetted": int((new & ~v).sum()),
            "by_method": {m: int((cands["method"] == m).sum()) for m in ("pair", "fit")},
+           "by_method_vetted": {m: int(((cands["method"] == m).to_numpy() & v).sum()) for m in ("pair", "fit")},
+           "reasons": {r: int(cands["reason"].str.split(",").apply(lambda x, r=r: r in x).sum()) for r in REASONS},
            "single_visit_sources": int((src["visit"] >= 0).sum()),
-           "control_pairs": ctrl,
+           "control_pairs": round(float(np.mean([len(x) for x in ctrl])), 2) if ctrl else 0.0,
+           "control_offsets_arcsec": [list(o) for o in C.HIGHPM_CONTROL_OFFSETS],
+           "pair_vs_control": bins,
            "recall": recall(cands, crossids, refcat, zone, mjd_ref)}
     store.write_json(results_rel(zone.name, "highpm_report.json"), rep)
     st = {k: v for k, v in rep.items() if k != "recall"}

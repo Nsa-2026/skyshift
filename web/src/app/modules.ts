@@ -35,6 +35,7 @@ export interface BlinkHandle {
   show(view: View, frames: FramesResponse, jsonUrl: string): Promise<void>;
   /** Loading or error state while app fetches frames. message null clears it. */
   status(kind: "loading" | "error" | "idle", message?: string): void;
+  highlight?(pos:SkyPos|null):void;
   destroy(): void;
 }
 export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;

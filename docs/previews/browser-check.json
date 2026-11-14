@@ -2,76 +2,68 @@
   "report": [
     {
       "slug": "barnard",
-      "ms": 211,
-      "pixels": 255,
+      "ms": 249,
+      "pixels": 222,
       "status": "✓ Barnard's Star 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "wise0855",
-      "ms": 199,
-      "pixels": 251,
+      "ms": 232,
+      "pixels": 220,
       "status": "✓ WISE 0855−0714 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "epsindib",
-      "ms": 199,
-      "pixels": 247,
+      "ms": 232,
+      "pixels": 222,
       "status": "✓ Epsilon Indi B 已就绪 · 4 帧 · 巡天叠加"
     },
     {
       "slug": "rwaur",
-      "ms": 199,
-      "pixels": 233,
+      "ms": 234,
+      "pixels": 222,
       "status": "✓ RW Aurigae 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "rdra",
-      "ms": 199,
-      "pixels": 252,
+      "ms": 232,
+      "pixels": 220,
       "status": "✓ R Draconis 已就绪 · 3 帧 · 巡天叠加"
     },
     {
       "slug": "3i-atlas",
-      "ms": 499,
-      "pixels": 253,
+      "ms": 683,
+      "pixels": 219,
       "status": "✓ Comet 3I/ATLAS 已就绪 · 17 帧 · 逐次曝光"
     },
     {
       "slug": "elpis",
-      "ms": 449,
-      "pixels": 248,
+      "ms": 281,
+      "pixels": 220,
       "status": "✓ (59) Elpis 已就绪 · 18 帧 · 逐次曝光"
     },
     {
       "slug": "euphrosyne",
-      "ms": 317,
-      "pixels": 255,
+      "ms": 283,
+      "pixels": 220,
       "status": "✓ (31) Euphrosyne 已就绪 · 8 帧 · 逐次曝光"
     }
   ],
   "browserErrors": [],
   "mobile": "390px: no overflow",
   "checks": [
-    "five real targets",
-    "next frame",
-    "difference",
-    "play/pause",
-    "hours API",
-    "detector switch",
-    "coordinate error",
-    "name resolve",
-    "single player/spectrum",
-    "upstream measured object card",
+    "eight published real targets",
+    "one upstream player and one spectrum",
+    "subtract/add/play/clock/fov/detector",
+    "formal object card",
+    "native sky offline fallback (mocked CDN)",
     "validation scoreboard",
-    "local vote pick",
-    "residual/model views",
+    "local vote pick only",
+    "model/residual/reference views",
     "Guxing/history/planets",
-    "mocked Gaia overlay",
-    "mocked upstream failure recovery",
+    "mocked Gaia and upstream recovery",
     "real GIF export",
-    "upstream 15-arcmin field",
-    "following-object comet frames",
-    "DR1 reference difference",
-    "mocked new-coordinate job UI"
+    "pasted coordinates use featured static field",
+    "mocked background-job UI"
   ]
 }

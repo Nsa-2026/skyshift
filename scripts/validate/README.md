@@ -1,6 +1,6 @@
 # scripts/validate: V1–V11 and validation.json
 
-Data gathering (metadata), the checks we run here (V1, V4) and the file the scoreboard reads
+Data gathering (metadata), the checks we run here (V1, V4, V8 spectra) and the file the scoreboard reads
 (`web/public/data/validation.json`, contracts/api.md). Whole photos are never downloaded: V1 and
 V4 read small boxes from NASA's public S3 copy with HTTP range reads. Python 3.12, run with uv from
 this folder (`pyproject.toml` + `uv.lock`). Archive state: 14 Nov 2026 (SPHEREx DR1 + QR3).
@@ -12,6 +12,7 @@ this folder (`pyproject.toml` + `uv.lock`). Archive state: 14 Nov 2026 (SPHEREx 
 | `most_asteroids.py` | IRSA MOST (`catalog=spherex`, `output_mode=Brief`, by number) for asteroids 1–60: every SPHEREx image and MOST's predicted position, V magnitude, distances. Sequential, 1.5 s apart, cached in `.cache/most/`, one retry, failures logged. | `data/most_1_60.csv` (gitignored, ~8 MB), `data/most_1_60_summary.json` (committed); `gs://nasa-glazing-data/results/` |
 | `v1_targets.py` | V1: per target, visit and detector, a median stack of up to 5 photos (41 px boxes; every photo for WISE 0855) and a 5σ source within 2 px of the predicted position. | `data/v1_targets.json` |
 | `v4_asteroids.py` | V4: asteroids 1–60 at MOST's predicted position in up to 5 photos each (81 px boxes, D2–D3), absent from a reference stack of the same sky 0.25–12 days away; control 3′ away. | `data/v4_asteroids.json`, `data/v4_photos.csv` |
+| `v8_spectra.py` | V8 spectra half: every pilot star's 102-channel spectrum (pipeline `sources.parquet`) averaged over 2MASS Ks and WISE W1, against the catalogue magnitudes in `crossids.parquet`. | `data/v8_spectra.json` |
 | `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `demo_check.py --json`, V11 from `scripts/science`. Missing inputs → `pending`. | `web/public/data/validation.json` |
 | `_boxes.py` | Box reads from S3 (cached in `.cache/boxes/`), reference stacks resampled through the WCS, `source_near` (with the saturated-core fit). | |
 | `_common.py` | Shared helpers: linear proper motion, detector from `energy_bandpassname`, the visit/session rule (local copy), polygon edge distance, `gcloud storage cp`. | |
@@ -23,6 +24,7 @@ uv run python photolists.py              # ~1 min; --no-upload, --only barnard,3
 uv run python most_asteroids.py          # ~10 min cold (cached after); --first/--last, --no-upload
 uv run python v1_targets.py              # ~650 boxes, ~5 min cold; --only barnard
 uv run python v4_asteroids.py            # ~1,700 boxes, ~25 min cold from Europe; --first/--last/--per
+uv run python v8_spectra.py              # pilot tables from the bucket (~30 MB, gcloud); --zone hunt later
 uv run python build_validation.py --site-data ../../web/public/data --fetch-results pilot \
     --demo-check /path/to/demo_check.json
 uv run pytest                            # offline
@@ -93,12 +95,23 @@ D4 (4) and D5 (2), while D1–D3 find it in the same visits (not yet looked into
 S/N 9–10, 0.2–0.6 px); its first visit has only 8 D5 and 3 D6 photos. In D1–D4 a background star lies
 1–2 px from WISE 0855; those stacks are not counted (WISE 0855 is expected only in D5–D6).
 
-**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 274 of 300 photos (5 per
-asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 6 of 300 photos (2.0%),
-5 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 26
-photos not counted, 22 have a source in the reference stack at the asteroid's spot (a static star
-there, so the detection can't be told apart) and 4 have no detection. The control hits are all in
-D3, four of six in 2026 W09–W12 (not yet looked into).
+**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 249 of 300 photos (5 per
+asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 3 of 300 photos (1.0%),
+3 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 51
+photos not counted, 48 have a source within 3 px of the spot in the reference stack (a static star
+there, so the detection can't be told apart) and 3 more have no detection.
+"Absent from the stack" means nothing within 3 px, not 2: with 2 px the control hit 6 of 300, five
+of them real static stars at 1.4–2.0 px in the photo that the resampled stack put just beyond 2 px
+(S/N 12–97, no artefact flags).
+
+**V8, spectra: SPHEREx fluxes agree with 2MASS Ks to 1% and WISE W1 to 0.6%.** Pilot stars of
+10–13 mag matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable: SPHEREx/Ks
+1.010 (scatter 3.0%, 3,918 stars), SPHEREx/W1 0.994 (scatter 1.8%, 4,240 stars). This also checks
+the MJy/sr → µJy conversion on thousands of stars. Fainter than 13 mag the scatter grows (6–12%)
+and W1 drifts to 1.04 at 14–15 mag. The speed half (first frame < 15 s) waits for the deployed
+site: `uv run scripts/demo_check.py --random 10 --json demo.json`, then
+`build_validation.py --demo-check demo.json`. When the hunt zone finishes, rerun `v8_spectra.py
+--zone hunt` and `build_validation.py --fetch-results hunt`.
 
 What we learned:
 - **Saturated cores bias sep's centroid by 1–2 px.** Barnard's Star in D6: sep put it 1.75 px

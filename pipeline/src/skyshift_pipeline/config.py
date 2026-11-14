@@ -6,6 +6,7 @@ Tune after the pilot: change the numbers here, rerun `link`, `score` and `suspec
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -52,6 +53,8 @@ PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
 FINAST_OK = 0                  # IMAGE header FINAST != 0 means bad astrometry: skip the photo
+DOTS_TASK_PHOTOS = 4           # photos per worker task (one process per core); the run order is unchanged
+DOTS_PREFETCH = True           # read the next photo of a task while this one is measured (same results)
 # pos_err_arcsec = sqrt((POS_ERR_K * PSF_SIGMA_ARCSEC / snr)^2 + POS_ERR_FLOOR_ARCSEC^2)  (contracts/dots.md)
 POS_ERR_K = 1.4
 PSF_SIGMA_ARCSEC = 3.2
@@ -66,6 +69,21 @@ SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
 SKYBOT_MAX_IN_FLIGHT = 4
 SKYBOT_PAD_DEG = 0.05
 SKYBOT_TIMEOUT_S = 300
+
+# --- known (MPC orbits with kete) ------------------------------------------------------------
+# KNOWN_SOURCE picks where `known` gets its objects: "mpc" (default; known_mpc.py: MPC orbits moved with
+# kete to each photo's MJD-AVG, seen from SPHEREx's header position) or "skybot" (the IMCCE service above). The CLI
+# flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
+# cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
+KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "mpc")
+KNOWN_SOURCES = ("skybot", "mpc")
+MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
+MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
+MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
+MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
+MPC_HEADER_WORKERS = 32              # parallel IMAGE header reads (one per exposure; ~1 s each, I/O bound)
+MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
+MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly
 
 # --- link ----------------------------------------------------------------------------------
 FIXED_LINK_ARCSEC = 4.0       # friends-of-friends radius for fixed sources
@@ -262,3 +280,87 @@ FORCED_CATWISE_W1_W2_MIN = 0.4
 FORCED_DEDUP_ARCSEC = 2.0
 FORCED_MAX_PER_PHOTO = 30_000  # in a 3.5° x 3.5° photo-sized box inside the zone
 PHOTO_SIDE_DEG = 3.5
+
+# --- calib: pixel-phase correction and position errors (calib.py) ------------------------------
+# Learned per zone from member dots of sources matched to one Gaia star; written to
+# results/<zone>/calib.json and applied wherever the combining steps load dots (motion_io, spectra).
+CALIB_REL = "calib.json"        # under results/<zone>/
+CALIB_FOURIER_K = 3             # Δ(φ) = Σ_k s_k sin(2πkφ) + c_k cos(2πkφ), k = 1..K, per detector and axis
+CALIB_PHASE_MIN_SNR = 30.0      # dots used for the phase fit
+CALIB_ERR_MIN_SNR = 5.0         # dots used for the pos_err fit (all kept dots)
+CALIB_SAT_BITS = 0x00008002     # OVERFLOW | NONLINEAR at the peak: saturated, no phase correction
+CALIB_MAX_PARALLAX_MAS = 10.0   # Gaia stars nearer than this are left out (parallax not modelled here)
+CALIB_FRAME_MIN_SNR = 20.0      # each photo's median offset against Gaia from dots this bright ...
+CALIB_FRAME_MIN_STARS = 10      # ... at least this many, else the photo's dots are left out of the fit
+CALIB_CLIP_SIGMA = 4.0          # phase fit: one refit without dots beyond this many robust sigma
+CALIB_MIN_STARS = 200           # dots needed to fit a detector (phase or pos_err); else left raw
+CALIB_JAC_MIN_DOTS = 50         # photo Jacobian (arcsec per pixel): affine fit of its dots' (ra, dec) on (x, y)
+CALIB_JAC_MIN_SPREAD_PX = 100.0 # ... the dots must spread at least this far (std) in x and in y
+CALIB_ERR_SNR_BINS = (5.0, 7.0, 10.0, 14.0, 20.0, 30.0, 50.0, 100.0, 200.0, 500.0, 1e9)
+CALIB_PHASE_BINS = 10           # report: median residual in this many phase bins from -0.5 to 0.5
+CALIB_CHECK_SNR_BINS = (10.0, 30.0, 60.0, 150.0, 1e9)  # report: phase amplitude by S/N (is one table enough?)
+# per-photo distortion (after the phase correction): polynomial in u = (x − 1020)/1020, v = (y − 1020)/1020 of the
+# residual against Gaia, per photo; the order is chosen per zone by cross-validation (stars split in two halves)
+CALIB_PHOTO_MAX_ORDER = 2       # 0 = offset only, 1 = affine, 2 = quadratic
+CALIB_PHOTO_MIN_GAIN = 0.01     # a higher order is used only if it lowers the held-out scatter by > 1%
+CALIB_PHOTO_MIN_STARS = (10, 30, 60)  # stars needed per photo for order 0, 1, 2 (fewer: the next lower order)
+# flux pixel phase: ln(flux / the source's smooth spectrum) = Σ_k a_k cos(2πkφx) + b_k cos(2πkφy) + c cos(2πφx)cos(2πφy)
+CALIB_FLUX_K = 2
+CALIB_FLUX_MIN_SNR = 50.0       # dots used for the flux phase fit
+CALIB_FLUX_REF_MIN_CHANNELS = 8 # the source's spectrum needs this many channels in the dot's detector
+# aperture / detector scale: one factor per detector so r = 2 px fluxes become total fluxes, consistent across detectors.
+# Anchors: catalogue SED (log-log between bands) at dots within CALIB_AP_WINDOW_UM of a band centre; stitching:
+# the source spectra on either side of each detector boundary extrapolated to it. Weighted least squares.
+CALIB_AP_BANDS = {"J": (1.235, "j", 0.91), "H": (1.662, "h", 1.39), "Ks": (2.159, "k", 1.85),
+                  "W1": (3.368, "w1", 2.699), "W2": (4.618, "w2", 3.339)}  # µm, crossids column, AB − Vega
+CALIB_AP_WINDOW_UM = 0.1
+CALIB_AP_MIN_SNR = 30.0
+CALIB_AP_STAR_JK = (0.25, 0.75)  # 2MASS J − Ks (Vega): F–K stars, smooth spectra
+CALIB_AP_STAR_W12_MAX = 0.1      # |W1 − W2| (Vega): no excess, no strong CO
+CALIB_AP_STAR_J = (9.0, 14.5)    # 2MASS J range (good photometry, not saturated in 2MASS)
+CALIB_AP_STAR_W1_MIN = 8.5       # CatWISE W1 brighter than this saturates
+CALIB_AP_MIN_DOTS = 50           # per (band, detector) anchor
+CALIB_AP_ANCHOR_SIGMA = 0.02     # systematic per anchor (bandpass and stellar colour terms), ln units
+CALIB_AP_STITCH_SIGMA = 0.01     # per boundary
+CALIB_AP_STITCH_CHANNELS = 4     # channels on each side of a boundary
+CALIB_AP_PRIOR_SIGMA = 0.1       # weak prior ln factor = 0 (keeps a detector without constraints at 1)
+
+# --- pilot fixes (14 Nov): light-curve error model, band labels, fast-mover vetting ----------
+# lightcurves: per (detector, origin) σ_cal² = (k σ)² + (floor · model)², fitted on the Gaia-matched light curves
+# (lightcurves.py docstring). Pilot: the quoted errors gave median chi2_nu 1.96 (dots) / 1.28 (forced).
+LC_ERR_MODEL = True            # False: k = 1, floor = 0 (the quoted errors)
+LC_ERR_MIN_GROUPS = 30         # light curves needed per (detector, origin): Gaia-matched first, else all, else no model
+LC_ERR_SNR_BINS = 10           # S/N quantile bins for the shape (k vs floor)
+LC_ERR_MIN_BIN_POINTS = 200    # points needed in a bin
+LC_ERR_K_GRID = (0.5, 3.0, 0.01)       # grid (lo, hi, step) for k ...
+LC_ERR_FLOOR_GRID = (0.0, 0.15, 0.001)  # ... and for the fractional floor, before the median-chi2 rescale
+LC_PHOTO_MAX_MEDIAN_CHI = 2.0  # a photo whose Gaia-matched points sit this far off as a group (median σ_cal) ...
+LC_PHOTO_MIN_REF = 10          # ... over at least this many of them is left out of chi2_nu / scatter (photo_ok false)
+LC_VARIABLE_DROP_WORST = 1     # `variable` tests chi2_nu without each light curve's worst point(s): one hit isn't variability
+# classify: band labels the web shows instead of raw <index>_sig (classify.band_labels). Pilot (INDEX_SIG = 5, sig alone):
+# water ice fired on 372 sources (206 of 230 Gaia ones with BP − RP > 2: M dwarfs' own water vapour; 140 no-Gaia, mostly
+# galaxies' 1.6 µm bump and PAH), methane on 50 (15 Gaia stars: impossible). Each label = sig >= INDEX_SIG, depth >= the
+# minimum below, not saturated, plus the physical guards.
+LABEL_SUPPORT_SIG = 3.0        # "significant" for a supporting or vetoing band
+LABEL_MIN_DEPTH = {            # index depth (or PAH excess) needed for a label
+    "h2o_ice_305": 0.10, "co2_ice_427": 0.10, "co_ice_467": 0.10,
+    "ch4_33": 0.25, "ch4_16": 0.15,      # = BD_CH4_*_MIN_DEPTH: T dwarfs have deep methane
+    "h2o_14": 0.05, "h2o_19": 0.05, "co_23": 0.05, "pah_33": 0.10,
+}
+LABEL_ICE_MAX_BP_RP = 2.0      # ice: Gaia stars redder than this are M dwarfs (water vapour at 2.7–3.2 µm), not ice
+LABEL_ICE_MAX_EXT = 1.0        # ice: point-like (extended_score <= this; NaN passes): a star behind a cloud
+LABEL_ICE_MIN_J_M46 = 0.0      # ice: reddened by the cloud (J − [4.6] AB >= this; bare photospheres −1.4 to −2.4, M dwarfs −1.3)
+LABEL_CH4_MIN_G = 19.5         # methane: no Gaia counterpart, or fainter than this
+# highpm vetting: every candidate is kept; `vetted` false and `reason` (comma list) say why it was cut. Pilot: 241
+# candidates, the 10 "new" all artefacts (9 fits at 5,000–11,000 ± 900–2,200 mas/yr on 6–13 dots, sitting on a slow
+# CatWISE source; 1 pair at 171″/yr), and pairs at the control level (12 real vs 13 chance).
+HIGHPM_FIT_MIN_VISITS = 2      # fit: proper motion needs two visits ...
+HIGHPM_FIT_MIN_SPAN_YR = 0.25  # ... this far apart
+HIGHPM_FIT_MIN_DOTS = 20       # fit: fewer dots is a barely-detected source (pilot artefacts had 6–13; median source 120)
+HIGHPM_FIT_MAX_CHI2_NU = 5.0   # fit: astrometric chi2_nu above this is a blend or a bad fit
+HIGHPM_FIT_MAX_PM_MAS_YR = 10_500.0  # fit: faster than Barnard's Star (10.4″/yr, the fastest known star) is not a star
+HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees when |Δpm| > max(this × pm_err,
+                               # HIGHPM_CATWISE_PM_TOL × pm, 100 mas/yr): the counterpart is a slow star, ours is an artefact
+HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
+HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
+HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls

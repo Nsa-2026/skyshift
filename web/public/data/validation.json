@@ -197,11 +197,11 @@
       "id": "V4",
       "claim": "Asteroids re-found, targeted",
       "status": "pass",
-      "headline": "Re-found 60 of 60 asteroids where NASA predicted them; median offset 0.126 px (0.77\"); control 3' away: 2.0% of photos, 5 of 60 asteroids",
+      "headline": "Re-found 60 of 60 asteroids where NASA predicted them; median offset 0.125 px (0.77\"); control 3' away: 1.0% of photos, 3 of 60 asteroids",
       "value": 60,
       "unit": "asteroids",
       "expected": "N of 60; median offset under 1 px; control under 5%",
-      "note": "MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is absent (4 sigma) from a reference stack of the same sky 0.25-12 days away. Control = the same test 3' away. Per photo: 274/300 found, control 6/300; per asteroid control 5/60. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
+      "note": "MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. Per photo: 249/300 found, control 3/300; per asteroid control 3/60. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
       "rows": [
         {
           "number": 1,
@@ -219,9 +219,9 @@
           "name": "2 Pallas (A802 FA)",
           "vmag_median": 10.2,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.124,
+          "median_offset_px": 0.132,
           "control_photos": 0,
           "control_found": false
         },
@@ -241,9 +241,9 @@
           "name": "4 Vesta (A807 FA)",
           "vmag_median": 8.14,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.226,
+          "median_offset_px": 0.234,
           "control_photos": 0,
           "control_found": false
         },
@@ -310,7 +310,7 @@
           "found_photos": 3,
           "found": true,
           "median_offset_px": 0.081,
-          "control_photos": 2,
+          "control_photos": 1,
           "control_found": true
         },
         {
@@ -318,9 +318,9 @@
           "name": "11 Parthenope (A850 JA)",
           "vmag_median": 12.0,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.117,
+          "median_offset_px": 0.097,
           "control_photos": 0,
           "control_found": false
         },
@@ -340,9 +340,9 @@
           "name": "13 Egeria (A850 VA)",
           "vmag_median": 11.94,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.146,
+          "median_offset_px": 0.114,
           "control_photos": 0,
           "control_found": false
         },
@@ -351,9 +351,9 @@
           "name": "14 Irene (A851 KA)",
           "vmag_median": 11.26,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.253,
+          "median_offset_px": 0.151,
           "control_photos": 0,
           "control_found": false
         },
@@ -373,9 +373,9 @@
           "name": "16 Psyche (A852 FA)",
           "vmag_median": 11.51,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.13,
+          "median_offset_px": 0.114,
           "control_photos": 0,
           "control_found": false
         },
@@ -384,9 +384,9 @@
           "name": "17 Thetis (A852 HA)",
           "vmag_median": 13.48,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.171,
+          "median_offset_px": 0.102,
           "control_photos": 0,
           "control_found": false
         },
@@ -395,7 +395,7 @@
           "name": "18 Melpomene (A852 MA)",
           "vmag_median": 11.15,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 3,
           "found": true,
           "median_offset_px": 0.064,
           "control_photos": 0,
@@ -439,9 +439,9 @@
           "name": "22 Kalliope (A852 WA)",
           "vmag_median": 12.33,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.131,
+          "median_offset_px": 0.14,
           "control_photos": 0,
           "control_found": false
         },
@@ -472,9 +472,9 @@
           "name": "25 Phocaea (A853 GB)",
           "vmag_median": 12.74,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.218,
+          "median_offset_px": 0.223,
           "control_photos": 0,
           "control_found": false
         },
@@ -538,9 +538,9 @@
           "name": "31 Euphrosyne (A854 RA)",
           "vmag_median": 13.32,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.153,
+          "median_offset_px": 0.142,
           "control_photos": 0,
           "control_found": false
         },
@@ -549,9 +549,9 @@
           "name": "32 Pomona (A854 UA)",
           "vmag_median": 13.05,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.115,
+          "median_offset_px": 0.127,
           "control_photos": 0,
           "control_found": false
         },
@@ -604,9 +604,9 @@
           "name": "37 Fides (A855 TB)",
           "vmag_median": 12.67,
           "photos": 5,
-          "found_photos": 3,
+          "found_photos": 2,
           "found": true,
-          "median_offset_px": 0.124,
+          "median_offset_px": 0.07,
           "control_photos": 0,
           "control_found": false
         },
@@ -626,7 +626,7 @@
           "name": "39 Laetitia (A856 CA)",
           "vmag_median": 11.59,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 2,
           "found": true,
           "median_offset_px": 0.099,
           "control_photos": 0,
@@ -637,9 +637,9 @@
           "name": "40 Harmonia (A856 FA)",
           "vmag_median": 11.26,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.201,
+          "median_offset_px": 0.137,
           "control_photos": 0,
           "control_found": false
         },
@@ -659,9 +659,9 @@
           "name": "42 Isis (A856 KB)",
           "vmag_median": 12.96,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.075,
+          "median_offset_px": 0.123,
           "control_photos": 0,
           "control_found": false
         },
@@ -670,9 +670,9 @@
           "name": "43 Ariadne (A857 GA)",
           "vmag_median": 12.98,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.134,
+          "median_offset_px": 0.114,
           "control_photos": 0,
           "control_found": false
         },
@@ -725,9 +725,9 @@
           "name": "48 Doris (A857 SA)",
           "vmag_median": 12.86,
           "photos": 5,
-          "found_photos": 5,
+          "found_photos": 4,
           "found": true,
-          "median_offset_px": 0.143,
+          "median_offset_px": 0.136,
           "control_photos": 0,
           "control_found": false
         },
@@ -750,8 +750,8 @@
           "found_photos": 4,
           "found": true,
           "median_offset_px": 0.188,
-          "control_photos": 1,
-          "control_found": true
+          "control_photos": 0,
+          "control_found": false
         },
         {
           "number": 51,
@@ -780,9 +780,9 @@
           "name": "53 Kalypso (A858 GA)",
           "vmag_median": 14.27,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.122,
+          "median_offset_px": 0.074,
           "control_photos": 0,
           "control_found": false
         },
@@ -824,9 +824,9 @@
           "name": "57 Mnemosyne (A859 SA)",
           "vmag_median": 12.88,
           "photos": 5,
-          "found_photos": 3,
+          "found_photos": 2,
           "found": true,
-          "median_offset_px": 0.102,
+          "median_offset_px": 0.134,
           "control_photos": 0,
           "control_found": false
         },
@@ -838,17 +838,17 @@
           "found_photos": 3,
           "found": true,
           "median_offset_px": 0.172,
-          "control_photos": 1,
-          "control_found": true
+          "control_photos": 0,
+          "control_found": false
         },
         {
           "number": 59,
           "name": "59 Elpis (A860 RA)",
           "vmag_median": 13.21,
           "photos": 5,
-          "found_photos": 4,
+          "found_photos": 3,
           "found": true,
-          "median_offset_px": 0.116,
+          "median_offset_px": 0.082,
           "control_photos": 0,
           "control_found": false
         },
@@ -950,13 +950,122 @@
     {
       "id": "V8",
       "claim": "Spectra and speed",
-      "status": "pending",
-      "headline": "Not measured yet",
-      "value": null,
-      "unit": "s",
+      "status": "partial",
+      "headline": "SPHEREx / catalogue flux, Ks 1.010 (scatter 3.0%, 3,918 stars); W1 0.994 (scatter 1.8%, 4,240 stars) (pilot, 10-13 mag); speed pending (site not deployed)",
+      "value": 1.0103,
+      "unit": "ratio",
       "expected": "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
-      "note": "Speed: scripts/demo_check.py, random sky coordinates through /api/frames. Spectra half: not built yet.",
-      "rows": []
+      "note": "Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py). Speed: scripts/demo_check.py, random coordinates through /api/frames. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
+      "rows": [
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 15,
+          "median": 0.9938,
+          "scatter": 0.0251
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 451,
+          "median": 1.0008,
+          "scatter": 0.02
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 1142,
+          "median": 1.0081,
+          "scatter": 0.0253
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 2325,
+          "median": 1.0141,
+          "scatter": 0.0349
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 4865,
+          "median": 1.0207,
+          "scatter": 0.0609
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 7936,
+          "median": 1.0141,
+          "scatter": 0.1206
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 31,
+          "median": 0.9945,
+          "scatter": 0.0202
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 507,
+          "median": 0.9903,
+          "scatter": 0.0117
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 1200,
+          "median": 0.993,
+          "scatter": 0.0155
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 2533,
+          "median": 0.9961,
+          "scatter": 0.0211
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 5000,
+          "median": 1.0029,
+          "scatter": 0.044
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 7916,
+          "median": 1.0382,
+          "scatter": 0.0966
+        }
+      ]
     },
     {
       "id": "V9",

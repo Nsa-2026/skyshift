@@ -1,0 +1,338 @@
+/* Sky view. Quiet chrome around the map; colour only where it means something:
+   cyan Gaia, orange blink field and target, the detector ramp on the wavelength choice. */
+.sky-panel {
+  display: grid;
+}
+/* app.css gives the panel a min-height for the map; a closed or failed panel needs none. */
+.sky-panel.sky-closed,
+.sky-panel.sky-failed {
+  min-height: 0;
+}
+
+.sky-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+}
+.sky-title h2 {
+  font-size: var(--step-1);
+}
+.sky-explain {
+  max-width: none;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--step--1);
+}
+.sky-toggle {
+  display: none;
+  flex: none;
+}
+.sky-toggle[aria-expanded="true"] .sky-toggle-closed,
+.sky-toggle[aria-expanded="false"] .sky-toggle-open {
+  display: none;
+}
+
+.sky-body[hidden] {
+  display: none;
+}
+
+/* Controls: one row on desktop, wrapping on phones. */
+.sky-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s5);
+  padding: 0 var(--s4) var(--s3);
+}
+.sky-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.sky-group-label {
+  color: var(--muted);
+  font-size: var(--step--1);
+  margin-right: 2px;
+}
+.sky-layer {
+  min-height: 32px;
+  font-size: var(--step--1);
+  font-weight: 600;
+  font-variation-settings: "wdth" 90;
+}
+.sky-gaia-btn[aria-pressed="true"] {
+  background: transparent;
+  color: var(--gaia);
+  border-color: var(--gaia);
+}
+
+.sky-opacity input {
+  width: 96px;
+  accent-color: var(--emulsion);
+  vertical-align: middle;
+}
+.sky-opacity input:disabled {
+  opacity: 0.4;
+}
+
+.sky-dets {
+  display: inline-flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-ctl);
+  overflow: hidden;
+}
+.sky-det {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: var(--plate);
+  box-shadow: inset 0 -3px 0 var(--det);
+  font-size: var(--step--1);
+  font-weight: 600;
+  font-variation-settings: "wdth" 80;
+  color: var(--muted);
+  cursor: pointer;
+}
+.sky-det:last-child {
+  border-right: 0;
+}
+.sky-det:hover {
+  color: var(--emulsion);
+}
+.sky-det[aria-pressed="true"] {
+  background: var(--det);
+  color: var(--plate);
+}
+.sky-det:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.sky-det:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+.sky-um {
+  min-width: 5.5em;
+  color: var(--muted);
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 85;
+}
+
+/* Map */
+.sky-stage {
+  position: relative;
+  height: 460px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  background: var(--plate);
+}
+.sky-map {
+  position: absolute;
+  inset: 0;
+}
+/* Aladin makes its own div position: relative, so it fills a positioned wrapper. */
+.sky-aladin {
+  width: 100%;
+  height: 100%;
+}
+.sky-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  text-align: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+.sky-note[hidden] {
+  display: none;
+}
+.sky-note p {
+  max-width: 46ch;
+}
+.sky-failed .sky-stage {
+  height: auto;
+  min-height: 120px;
+}
+.sky-failed .sky-note {
+  position: static;
+  min-height: 120px;
+}
+.sky-failed .sky-explain,
+.sky-failed .sky-controls,
+.sky-failed .sky-foot {
+  display: none;
+}
+
+/* The pin: sits on the clicked spot, a stem down to it, the action above. */
+.sky-pin {
+  --pin-shift: 0px;
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 4px 4px 4px 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-ctl);
+  background: var(--plate-2);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+  transform: translate(calc(-50% + var(--pin-shift)), calc(-100% - 16px));
+  white-space: nowrap;
+}
+.sky-pin[hidden] {
+  display: none;
+}
+.sky-pin::before {
+  /* stem */
+  content: "";
+  position: absolute;
+  left: calc(50% - var(--pin-shift));
+  top: 100%;
+  width: 1px;
+  height: 11px;
+  background: var(--mover);
+}
+.sky-pin::after {
+  /* the clicked spot */
+  content: "";
+  position: absolute;
+  left: calc(50% - var(--pin-shift) - 5px);
+  top: calc(100% + 11px);
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--mover);
+  border-radius: 50%;
+}
+.sky-pin[data-below="true"] {
+  transform: translate(calc(-50% + var(--pin-shift)), 16px);
+}
+.sky-pin[data-below="true"]::before {
+  top: auto;
+  bottom: 100%;
+}
+.sky-pin[data-below="true"]::after {
+  top: auto;
+  bottom: calc(100% + 11px);
+}
+.sky-pin-go {
+  min-height: 32px;
+  padding: 0 var(--s3);
+  border: 0;
+  border-radius: 4px;
+  background: var(--mover);
+  color: var(--plate);
+  font-weight: 700;
+  cursor: pointer;
+}
+.sky-pin-go:hover {
+  background: #ffb066;
+}
+.sky-pin-coords {
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 85;
+  color: var(--emulsion);
+}
+.sky-pin-x {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sky-pin-x:hover {
+  color: var(--emulsion);
+  background: var(--plate-3);
+}
+
+/* Key and the keyboard-friendly action */
+.sky-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+}
+.sky-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+.sky-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.key-field {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--mover);
+}
+.key-gaia {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--gaia);
+  border-radius: 50%;
+}
+.key-target {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  background:
+    linear-gradient(var(--mover), var(--mover)) center top / 2px 4px no-repeat,
+    linear-gradient(var(--mover), var(--mover)) center bottom / 2px 4px no-repeat,
+    linear-gradient(var(--mover), var(--mover)) left center / 4px 2px no-repeat,
+    linear-gradient(var(--mover), var(--mover)) right center / 4px 2px no-repeat;
+}
+.sky-centre {
+  min-height: 32px;
+  font-size: var(--step--1);
+}
+
+/* Aladin's own chrome: match the plate. */
+.sky-map .aladin-location,
+.sky-map .aladin-fov {
+  font-variation-settings: "wdth" 85;
+}
+.sky-map .aladin-location .aladin-location-text,
+.sky-map .aladin-location input {
+  background: rgb(15 26 44 / 0.85) !important;
+  color: var(--emulsion) !important;
+}
+
+@media (max-width: 900px) {
+  .sky-toggle {
+    display: inline-flex;
+  }
+  .sky-head {
+    align-items: center;
+  }
+  .sky-closed .sky-explain {
+    display: none;
+  }
+  .sky-stage {
+    height: 340px;
+  }
+  .sky-controls {
+    gap: var(--s2) var(--s4);
+  }
+  .sky-explain {
+    max-width: 40ch;
+  }
+}
