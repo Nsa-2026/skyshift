@@ -102,7 +102,7 @@ export const LESSONS: Lesson[] = [
         <div><dt>Colour, not motion</dt><dd>D1 and D4, D2 and D5, D3 and D6 photograph the same sky at the same moment. A dot that is in D4 but not in D1 is a red object, not something that moved. Compare brightness only within one detector.</dd></div>
       </dl>`,
     figure: "fakes",
-    tryText: "Practise on real candidates: the Review queue starts with a short practice round.",
+    tryText: "Practise on real objects: the Review queue starts with a short practice round.",
     tryIt: [{ label: "Go to the Review queue", href: "#/review" }],
   },
   {
@@ -129,8 +129,8 @@ export const LESSONS: Lesson[] = [
     lede: () =>
       `<p>One person's eyes can be fooled. Many people looking at the same dot rarely are.</p>`,
     body: () => `
-      <p>The pipeline proposes candidates: fast movers, moving stars and odd spectra. You blink each one and answer Mover, Changing, Junk or Not sure.</p>
-      <p>A candidate reaches ${t("consensus")} with at least 5 votes and at least 70% on one answer. Consensus movers and changing sources go on the list for astronomers on the Community page, with CSV and JSON downloads.</p>
+      <p>The pipeline lists objects to check: fast movers, moving stars and odd spectra it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts, so Junk is often the right answer. You blink each one and answer Mover, Changing, Junk or Not sure.</p>
+      <p>An object reaches ${t("consensus")} with at least 5 votes and at least 70% on one answer. Consensus movers and changing sources go on the list for astronomers on the Community page, with CSV and JSON downloads.</p>
       <p>Then astronomers take over. A new asteroid or comet needs its positions reported to the ${t("MPC", "Minor Planet Center")}. A new nearby star or brown dwarf goes to the Backyard Worlds: Planet 9 forum, where volunteers who hunt brown dwarfs in NASA's WISE images check it against other surveys. SkyShift drafts the report; it never sends anything for you.</p>
       <p>No account needed: your votes carry a random id kept in your browser, never your name or email.</p>`,
     figure: "votes",
@@ -159,7 +159,7 @@ export const LESSONS: Lesson[] = [
     tryText: "Go hunting: zoom into the Sky map, or review what the pipeline found.",
     tryIt: [
       { label: "Explore the Sky", href: "#/" },
-      { label: "Review candidates", href: "#/review" },
+      { label: "Review objects to check", href: "#/review" },
     ],
   },
 ];

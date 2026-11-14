@@ -16,7 +16,13 @@ export interface CheckInfo {
   unit: string | null;
   /** Cut from the one-day build (S2, S3): stays pending. */
   cut?: boolean;
+  /** What the published number does and doesn't cover, shown under it once it's run. */
+  scope?: string;
 }
+
+/** What the asteroid recall (V5) actually tested; the 90% doesn't speak for slower movers. */
+export const RECALL_SCOPE =
+  "Tested on 30 distinct known asteroids moving 10–90″/h, brighter than V 16, counted once per session they were seen. Slower movers haven't been checked against real objects.";
 
 export const CHECKS: CheckInfo[] = [
   {
@@ -58,6 +64,7 @@ export const CHECKS: CheckInfo[] = [
       "Our blind search for moving dots, scored against known asteroids by brightness. Every prediction moved 2′ away gives the chance rate.",
     expected: "Recall at V < 16 ≥ 50% (gate G2); control near 0",
     unit: "recall",
+    scope: RECALL_SCOPE,
   },
   {
     id: "V6",

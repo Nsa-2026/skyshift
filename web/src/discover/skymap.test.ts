@@ -98,7 +98,7 @@ describe("the map", () => {
     expect(el.querySelector(".sm-ctx")?.getAttribute("d")).toMatch(/^M/);
     expect(el.querySelector(".skymap-legend")?.textContent).toContain("Moving stars1 of 2");
     const plot = el.querySelector<HTMLElement>(".skymap-plot")!;
-    expect(plot.getAttribute("aria-label")).toContain("2 candidates");
+    expect(plot.getAttribute("aria-label")).toContain("2 objects to check");
     plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
     expect(el.querySelector(".skymap-tip")?.textContent).toContain("Fast mover");
     plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));

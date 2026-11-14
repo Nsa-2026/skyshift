@@ -73,9 +73,9 @@ export const mountDiscover: MountPage = (el, ctx) => {
   el.innerHTML = html`
     <div class="dv">
       <section class="dv-intro" aria-labelledby="dv-title" ${embed ? "hidden" : ""}>
-        <h1 id="dv-title" class="dv-title">The pipeline found these in NASA's SPHEREx sky.</h1>
-        <p class="dv-sub">Each needs human eyes: blink it, say what you see, and the best go to astronomers.</p>
-        <p class="dv-counts" aria-live="polite">Loading candidates…</p>
+        <h1 id="dv-title" class="dv-title">Objects to check in NASA's SPHEREx sky.</h1>
+        <p class="dv-sub">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them: blink each one, say what you see, and the best go to astronomers.</p>
+        <p class="dv-counts" aria-live="polite">Loading the list…</p>
         <p class="dv-note" data-note hidden></p>
         <div class="dv-actions">
           <a class="btn btn-primary" href="#/review">Start reviewing</a>
@@ -103,7 +103,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <button type="button" class="btn btn-sm fx-close" data-close-sheet>Done</button>
         </div>
         <div class="fx-body"></div>
-        <div class="fx-sheet-foot"><button type="button" class="btn btn-primary" data-close-sheet data-show-n>Show candidates</button></div>
+        <div class="fx-sheet-foot"><button type="button" class="btn btn-primary" data-close-sheet data-show-n>Show the list</button></div>
       </section>
 
       <section class="dv-results" aria-labelledby="dv-count">
@@ -120,7 +120,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           </div>
         </div>
         <ul class="dv-active" aria-label="Filters in use" hidden></ul>
-        <div class="dv-cols" aria-hidden="true" hidden><span>Candidate</span><span>Measured</span><span>Score</span><span>Votes</span></div>
+        <div class="dv-cols" aria-hidden="true" hidden><span>Object</span><span>Measured</span><span>Score</span><span>Votes</span></div>
         <ol class="dv-list" aria-labelledby="dv-count"></ol>
         <div class="dv-more" hidden><p class="dv-more-n"></p><button type="button" class="btn" data-more>Show more</button></div>
         <div class="dv-export dv-export-foot" role="group" aria-label="Download the filtered list" hidden>
@@ -128,7 +128,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <button type="button" class="btn btn-ghost btn-sm" data-export="csv">CSV</button>
           <button type="button" class="btn btn-ghost btn-sm" data-export="json">JSON</button>
         </div>
-        <div class="dv-state" role="status"><p class="dv-state-title">Loading candidates…</p></div>
+        <div class="dv-state" role="status"><p class="dv-state-title">Loading the list…</p></div>
       </section>
     </div>
   `;
@@ -258,17 +258,17 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
   function renderIntro() {
     if (loading) {
-      countsEl.textContent = "Loading candidates…";
+      countsEl.textContent = "Loading the list…";
       return;
     }
     if (!data) {
-      countsEl.textContent = "No candidates are published yet.";
+      countsEl.textContent = "No objects to check are published yet.";
       return;
     }
     const n = data.candidates.length;
     const reviewed = rows.filter((r) => r.total > 0).length;
     const votes = rows.reduce((a, r) => a + r.total, 0);
-    const lead = html`<strong>${n.toLocaleString("en-GB")}</strong> ${n === 1 ? "candidate" : "candidates"} from ${esc(zonesPhrase(data.zones))}.`;
+    const lead = html`<strong>${n.toLocaleString("en-GB")}</strong> ${n === 1 ? "object to check" : "objects to check"} from ${esc(zonesPhrase(data.zones))}.`;
     let tail = "";
     if (voteStatus === "loading" || voteStatus === "idle") tail = " Counting votes…";
     else if (voteStatus === "error") tail = " Vote counts can't be reached right now; everything else works.";
@@ -639,7 +639,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       const vals = base.map((x) => spec.value(x.c)).filter((v): v is number => v != null && Number.isFinite(v));
       const measured = rows.filter((x) => spec.value(x.c) != null).length;
       cover.textContent = measured === rows.length ? "" : `${measured.toLocaleString("en-GB")} of ${rows.length.toLocaleString("en-GB")} measured`;
-      cover.title = spec.missing === "far" ? "No known object nearby counts as far away." : "Narrowing this hides candidates without a value.";
+      cover.title = spec.missing === "far" ? "No known object nearby counts as far away." : "Narrowing this hides objects without a value.";
       hist.innerHTML = histogram(vals, dom, spec.log, r);
     });
   }
@@ -687,14 +687,14 @@ export const mountDiscover: MountPage = (el, ctx) => {
   function renderToolbar() {
     const n = sorted.length;
     const all = rows.length;
-    countEl.textContent = n === all ? plural(all, "candidate", "candidates") : `${n.toLocaleString("en-GB")} of ${plural(all, "candidate", "candidates")}`;
+    countEl.textContent = n === all ? plural(all, "object", "objects") : `${n.toLocaleString("en-GB")} of ${plural(all, "object", "objects")}`;
     const on = activeCount(state);
     filtersBtn.textContent = on ? `Filters (${on})` : "Filters";
     sortSel.value = state.sort;
     const clear = $<HTMLButtonElement>("[data-clear]");
     clear.disabled = on === 0;
     const showN = $<HTMLButtonElement>("[data-show-n]");
-    showN.textContent = n ? `Show ${plural(n, "candidate", "candidates")}` : "No matches: change a filter";
+    showN.textContent = n ? `Show ${plural(n, "object", "objects")}` : "No matches: change a filter";
     el.querySelectorAll<HTMLButtonElement>("[data-export]").forEach((b) => {
       b.disabled = n === 0;
       b.title = `Download these ${n} as ${b.dataset.export?.toUpperCase()}`;
@@ -789,16 +789,16 @@ export const mountDiscover: MountPage = (el, ctx) => {
     if (activePreset(state)?.id === "check-first") {
       stateEl.innerHTML = html`
         <p class="dv-state-title">Nothing to check first.</p>
-        <p class="dv-state-text">No unsettled candidate here has an artefact caution: no outlier pixels, ghosts or halos near it, and no spot seen again days apart.</p>
-        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Show all candidates</button></div>`;
+        <p class="dv-state-text">Nothing unsettled here has an artefact caution: no outlier pixels, ghosts or halos near it, and no spot seen again days apart.</p>
+        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Show the whole list</button></div>`;
       stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
       return;
     }
     stateEl.innerHTML = html`
-      <p class="dv-state-title">No candidates match these filters.</p>
+      <p class="dv-state-title">Nothing matches these filters.</p>
       <p class="dv-state-text">${
         hint && chip
-          ? `Removing “${esc(chip.label)}” would bring back ${plural(hint.n, "candidate", "candidates")}.`
+          ? `Removing “${esc(chip.label)}” would bring back ${plural(hint.n, "object", "objects")}.`
           : "Loosen a range or switch off a filter on the left."
       }</p>
       <div class="dv-state-actions">
@@ -813,7 +813,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     renderIntro();
     stateEl.hidden = false;
     stateEl.innerHTML = html`
-      <p class="dv-state-title">The candidate list isn't published yet.</p>
+      <p class="dv-state-title">The list of objects to check isn't published yet.</p>
       <p class="dv-state-text">The pipeline's list appears here as soon as it's exported. Meanwhile, blink any spot of the SPHEREx sky yourself: paste coordinates above, or start from a featured target.</p>
       <div class="dv-state-actions"><a class="btn btn-primary" href="#/explore">Open Explore</a><a class="btn btn-ghost" href="#/results">See what the pipeline checked</a></div>`;
     el.querySelector<HTMLAnchorElement>('.dv-actions a[href="#/review"]')?.classList.replace("btn-primary", "btn-ghost");

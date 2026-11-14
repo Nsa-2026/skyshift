@@ -7,8 +7,8 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves, astrometry,
-highpm, orphans, score, suspects; `all` runs them in order.
+Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
+astrometry, highpm, orphans, score, suspects; `all` runs them in order.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -41,6 +41,16 @@ highpm, orphans, score, suspects; `all` runs them in order.
   share, applied in motion_io.load_forced (aperture fluxes take the dots' factors).
   refcat: Gaia tiles cached before the GSPC join (15 Nov) are refetched by the next full (not partial) refcat run, best
   effort (a failed refetch keeps the old tile; marker refcat/<zone>_catalogs.json `gspc`). Without GSPC, D1 keeps the stitch.
+- qa (after calib, zone-wide; tiled: once, before suspects starts): a grade per photo, green/amber/red + reasons, because
+  NASA's header QA passes every photo. Each photo against the zone's photos of its detector: dots per photo (vs detector
+  and visit), FWHM and PSF/aperture flux of S/N > 50 dots, raw offset and scatter vs forced Gaia, SAA distance, SATSTRKS
+  (all from the dot files' footers: one ranged read each), calib_photos.parquet's per-photo scatter after the distortion
+  fit, and, where the dot files are local (tiled mirror, local root), the share of bright dots much sharper than the
+  stars with OUTLIER at the peak (never OUTLIER alone). → results/<zone>/qa_photos.parquet (obs_id, detector, grade,
+  reasons, metrics) + qa.json; lightcurves gives red photos photo_ok false; suspects reads the grades. Thresholds:
+  config QA_*. ecl15 sample (1,209 photos): 14 red (1.2%: 4 SAA passages, 9 visit-3 D6 artefact photos, 1 bad WCS);
+  hunt: the 2 bad-WCS photos (0.99″, 0.74″ after calib). MWIR sharp artefacts grow with time (D6: 1% → 24% → 44% of
+  bright dots in visits 1–3): every visit-3 D6 photo is at least amber. In `all` a failing qa is logged and skipped.
 - `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
   cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. MPC is the only source of known objects (no flag, no env var).
@@ -71,9 +81,9 @@ highpm, orphans, score, suspects; `all` runs them in order.
 - Zone edges are tile edges (TILE_ZONE_EDGE_MARGIN): edge tiles load the border outside the zone box from the zone's
   photos, so stars on the zone edge aren't cut (untiled clips at the box). Photos touching only that 2′ strip are missing.
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
-  Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), classify's stellar locus, the light-curve error model
-  and bad photos, astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
-  highpm, orphans, score and suspects run once on the merged tables (their 15′/2′ controls and orphans' 300–6000″ pairs
+  Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
+  light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
+  highpm, orphans, score and suspects run once on the merged tables (their 15′/2′ controls and orphans' 300–7200″ pairs
   need no border).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
   combining steps, 3/4 of a full read); each tile reads every photo it overlaps. No mirror when the disk lacks room

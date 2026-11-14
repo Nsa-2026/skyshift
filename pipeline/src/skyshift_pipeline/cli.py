@@ -1,6 +1,6 @@
 """skyshift-pipeline <step> --zone pilot|hunt [--root ROOT] [--workers N] [--limit N]
 
-Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves,
+Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
 astrometry, highpm, orphans, score, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
@@ -24,7 +24,7 @@ from . import log
 from .store import Store, results_rel
 
 MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
-STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "classify", "photoz",
+STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "qa", "classify", "photoz",
          "colours", "lightcurves", "astrometry", "highpm", "orphans", "score", "suspects")
 TILED_STEPS = STEPS[STEPS.index("link"):]  # what `all` runs per tile (tiles.py) on a large zone
 TOOLS = ("mpc-orbits",)  # run by hand, never by `all`; no zone
@@ -53,6 +53,9 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step in MOTION_STEPS:
         import importlib
         return importlib.import_module(f".{step}", __package__).run(store, zone, workers=args.workers)
+    if step == "qa":  # in `all` a failure is logged and the run goes on (lightcurves, suspects: no new grades)
+        from . import qa
+        return qa.run(store, zone, workers=args.workers) if args.step == "qa" else qa.run_safe(store, zone, workers=args.workers)
     if step == "classify":
         from . import classify
         return classify.run(store, zone, workers=args.workers)

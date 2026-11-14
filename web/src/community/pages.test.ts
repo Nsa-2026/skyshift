@@ -138,7 +138,7 @@ describe("Community page", () => {
       ["pilot-p1", ["mover", "junk", "unsure"]],
     ]);
     const lead = el.querySelector(".cm-lead")!.textContent!.replace(/\s+/g, " ");
-    expect(lead).toContain("cast 8 votes on 2 of the 3 candidates the pipeline listed");
+    expect(lead).toContain("cast 8 votes on 2 of the 3 objects the pipeline listed to check");
     expect(lead).toContain("1 reached consensus, and 1 of them is on the list for astronomers");
     expect(el.querySelector(".cm-source")!.textContent).toMatch(/Local mode/);
   });
@@ -173,7 +173,7 @@ describe("Community page", () => {
       { "pilot-m1": "mover", "pilot-m2": "mover", "pilot-p1": "unsure" },
     );
     const you = el.querySelector(".cm-you-body")!.textContent!.replace(/\s+/g, " ");
-    expect(you).toContain("You've voted on 3 candidates");
+    expect(you).toContain("You've voted on 3 objects");
     expect(you).toContain("2 of them have reached consensus, and your answer matched it on 1 (50%)");
   });
 
@@ -221,7 +221,7 @@ describe("Community page", () => {
     const page = mountCommunityWith(el, ctx(), { kv: memKV(), load: async () => empty });
     page.show(null);
     await page.ready();
-    expect(el.querySelector(".cm-lead")!.textContent).toMatch(/No votes yet\. The pipeline has listed 194 candidates/);
+    expect(el.querySelector(".cm-lead")!.textContent).toMatch(/No votes yet\. The pipeline has listed 194 objects to check/);
     expect(el.querySelector(".cm-source")!.textContent).toMatch(/Everyone's votes/);
   });
 });
