@@ -113,7 +113,8 @@ def fixed_groups(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
                              for c in FIXED_COLUMNS}), np.zeros(0, np.int64)
     lab = fof_groups(dots["ra"].to_numpy(), dots["dec"].to_numpy(), C.FIXED_LINK_ARCSEC, C.FIXED_SNAP_ARCSEC)
     d = pd.DataFrame({"g": lab, "session": dots["session"].to_numpy(), "ra": dots["ra"].to_numpy(),
-                      "dec": dots["dec"].to_numpy(), "snr": dots["snr"].to_numpy(), "flux": dots["flux_ujy"].to_numpy()})
+                      "dec": dots["dec"].to_numpy(), "snr": dots["snr"].to_numpy(),
+                      "flux": dots["flux_ujy"].to_numpy(np.float64)})  # float64: pandas' median of float32 is float32 only sometimes
     agg = d.groupby("g").agg(n_sessions=("session", "nunique"), n_dots=("ra", "size"), ra=("ra", "median"),
                              dec=("dec", "median"), snr=("snr", "max"), flux_ujy=("flux", "median"))
     fixed = agg[agg["n_sessions"] >= C.FIXED_MIN_SESSIONS]
@@ -252,7 +253,9 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     return fixed, movers, st
 
 
-def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
+def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None) -> dict:
+    """keep: a dict that receives the zone's dots and their per-dot source_id (-1 = no fixed group); tiles.py
+    checks with them that its border was wide enough."""
     t0 = time.time()
     photos = store.read_parquet(photolist_rel(zone.name))
     dots, missing = load_dots(store, photos, zone, workers)
@@ -264,6 +267,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     fixed_result = fixed_groups(dots)
     fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result)
     members = members_table(dots, fixed_result[1], photos)
+    if keep is not None:
+        keep.update(dots=dots, dot_sid=fixed_result[1])
     stats["fixed_member_dots"] = int(len(members))
     L.info("link %s: classified in %.0f s: %s", zone.name, time.time() - t1, stats)
     store.write_parquet(results_rel(zone.name, "fixed.parquet"), fixed)

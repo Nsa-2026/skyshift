@@ -203,12 +203,14 @@ def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str) -> dict:
     }
 
 
-def run(store: Store, zone: C.Zone) -> dict:
+def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
+    """pred: known.load_predictions' result when already loaded (tiles.py loads it once, in parallel)."""
     t0 = time.time()
     photos = store.read_parquet(photolist_rel(zone.name))
     movers = store.read_parquet(results_rel(zone.name, "movers.parquet"))
     fixed = store.read_parquet(results_rel(zone.name, "fixed.parquet"))
-    pred = load_predictions(store, photos, zone)
+    if pred is None:
+        pred = load_predictions(store, photos, zone)
     s, st = select(movers, fixed, pred)
     st["predictions"] = int(len(pred))
     local = refcat_near(store, zone, s["ra"].to_numpy(float), s["dec"].to_numpy(float),

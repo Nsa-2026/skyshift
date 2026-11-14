@@ -138,11 +138,13 @@ def recall_report(units: pd.DataFrame, v_max: float = C.SCORE_V_MAX) -> dict:
     }
 
 
-def run(store: Store, zone: C.Zone) -> dict:
+def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
+    """pred: known.load_predictions' result when already loaded (tiles.py loads it once, in parallel)."""
     t0 = time.time()
     photos = store.read_parquet(photolist_rel(zone.name))
     movers = store.read_parquet(results_rel(zone.name, "movers.parquet"))
-    pred = load_predictions(store, photos, zone)
+    if pred is None:
+        pred = load_predictions(store, photos, zone)
     v_top = max(C.V_BINS[-1], C.SCORE_V_MAX)
     p = score_units(pred, zone, v_top)
     L.info("score %s: %d predictions inside photos, %d with V < %.0f in %d units", zone.name, len(pred), len(p), v_top, p["unit"].nunique() if len(p) else 0)
@@ -150,7 +152,7 @@ def run(store: Store, zone: C.Zone) -> dict:
     trees: dict[tuple[str, int], SkyTree] = {}
     for o, d in set(zip(p["obs_id"], p["detector"].astype(int))):
         try:
-            df = store.read_parquet(dots_rel(o, d))
+            df = store.read_parquet(dots_rel(o, d), columns=["ra", "dec"])
             trees[(o, d)] = SkyTree(df["ra"].to_numpy(float), df["dec"].to_numpy(float))
         except FileNotFoundError:
             pass

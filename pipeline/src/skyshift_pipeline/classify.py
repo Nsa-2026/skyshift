@@ -97,8 +97,49 @@ def dot_shape_ratios(d: pd.DataFrame) -> dict[str, np.ndarray]:
     return out
 
 
-def shape_features(d: pd.DataFrame | None, sources: np.ndarray, gaia_star_ids: np.ndarray | None = None) -> pd.DataFrame:
-    """Per source: size_ratio, psf_chi2_ratio, cog_ratio (each / the stellar locus), n_shape_dots, extended_score."""
+def locus_values(d: pd.DataFrame | None, gaia_star_ids: np.ndarray | None = None) -> pd.DataFrame:
+    """The dots that can define the stellar locus (S/N >= CLASSIFY_LOCUS_MIN_SNR, finite positive value): quantity,
+    detector, value, gaia (a Gaia star with a parallax). tiles.py collects them from every tile for one zone-wide locus."""
+    cols = {"q": pd.Series(dtype=str), "detector": pd.Series(dtype=np.int64), "v": pd.Series(dtype=np.float64),
+            "gaia": pd.Series(dtype=bool)}
+    if d is None or not len(d):
+        return pd.DataFrame(cols)
+    raw = dot_shape_ratios(d)
+    snr = d["snr"].to_numpy(np.float64) if "snr" in d else np.full(len(d), np.inf)
+    det = d["detector"].to_numpy(np.int64)
+    sid = d["source_id"].to_numpy(np.int64)
+    is_gaia = np.isin(sid, gaia_star_ids) if gaia_star_ids is not None and len(gaia_star_ids) else np.zeros(len(d), bool)
+    bright = snr >= C.CLASSIFY_LOCUS_MIN_SNR
+    parts = [pd.DataFrame(cols)]
+    for k, v in raw.items():
+        m = np.isfinite(v) & (v > 0) & bright
+        parts.append(pd.DataFrame({"q": k, "detector": det[m], "v": v[m], "gaia": is_gaia[m]}))
+    return pd.concat(parts, ignore_index=True)
+
+
+def stellar_locus(vals: pd.DataFrame) -> dict[tuple[str, int], float]:
+    """Per (quantity, detector): the median over Gaia stars' dots (CLASSIFY_LOCUS_MIN_DOTS of them), else over all."""
+    out: dict[tuple[str, int], float] = {}
+    for (k, dd), g in vals.groupby(["q", "detector"], sort=True):
+        ref = g["v"].to_numpy(np.float64)[g["gaia"].to_numpy(bool)]
+        if ref.size < C.CLASSIFY_LOCUS_MIN_DOTS:
+            ref = g["v"].to_numpy(np.float64)
+        if ref.size:
+            out[(str(k), int(dd))] = float(np.median(ref))
+    return out
+
+
+def gaia_star_ids(gaia: pd.DataFrame, sids: np.ndarray) -> np.ndarray:
+    """Sources whose Gaia parallax is significant (CLASSIFY_PLX_SNR_STAR): the stars the locus prefers."""
+    plx_snr = gaia["gaia_parallax"].to_numpy() / gaia["gaia_parallax_error"].to_numpy()
+    with np.errstate(invalid="ignore"):
+        return sids[plx_snr >= C.CLASSIFY_PLX_SNR_STAR]
+
+
+def shape_features(d: pd.DataFrame | None, sources: np.ndarray, gaia_star_ids: np.ndarray | None = None,
+                   locus: dict[tuple[str, int], float] | None = None) -> pd.DataFrame:
+    """Per source: size_ratio, psf_chi2_ratio, cog_ratio (each / the stellar locus), n_shape_dots, extended_score.
+    locus: stellar_locus fitted elsewhere (the whole zone, tiles.py); else from these dots."""
     N = sources.size
     out = pd.DataFrame({"source_id": sources})
     for c in ("size_ratio", "psf_chi2_ratio", "cog_ratio", "extended_score"):
@@ -115,21 +156,18 @@ def shape_features(d: pd.DataFrame | None, sources: np.ndarray, gaia_star_ids: n
     pos = np.searchsorted(sources, sid)
     pos = np.clip(pos, 0, max(N - 1, 0))
     known = (N > 0) & (sources[pos] == sid)
-    is_gaia_star = np.isin(sid, gaia_star_ids) if gaia_star_ids is not None and len(gaia_star_ids) else np.zeros(len(d), bool)
-    bright = snr >= C.CLASSIFY_LOCUS_MIN_SNR
     vote = known & (snr >= C.CLASSIFY_SHAPE_MIN_SNR)
+    if locus is None:
+        locus = stellar_locus(locus_values(d, gaia_star_ids))
 
     norm = {}
     for k, v in raw.items():
         r = np.full(v.size, np.nan)
         for dd in np.unique(det):
-            m = (det == dd) & np.isfinite(v) & (v > 0)
-            ref = m & bright & is_gaia_star
-            if ref.sum() < C.CLASSIFY_LOCUS_MIN_DOTS:
-                ref = m & bright
-            if ref.sum() == 0:
+            if (k, int(dd)) not in locus:
                 continue
-            r[m] = v[m] / np.median(v[ref])
+            m = (det == dd) & np.isfinite(v) & (v > 0)
+            r[m] = v[m] / locus[(k, int(dd))]
         norm[k] = r
 
     def per_source(r):
@@ -371,20 +409,21 @@ def band_labels(out: pd.DataFrame, saturated: np.ndarray) -> dict[str, np.ndarra
     }
 
 
-def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
+def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None,
+        dots: pd.DataFrame | None = None) -> dict:
+    """locus: a zone-wide stellar_locus (tiles.py); dots: load_shape_dots' result when already loaded."""
     t0 = time.time()
     src = store.read_parquet(results_rel(zone.name, "sources.parquet"))
     src = src.sort_values("source_id").reset_index(drop=True)
     sids = src["source_id"].to_numpy(np.int64)
     gaia, origin = load_gaia(store, zone, src)
-    plx_snr = gaia["gaia_parallax"].to_numpy() / gaia["gaia_parallax_error"].to_numpy()
-    with np.errstate(invalid="ignore"):
-        gaia_stars = sids[plx_snr >= C.CLASSIFY_PLX_SNR_STAR]
+    gaia_stars = gaia_star_ids(gaia, sids)
     t1 = time.time()
-    dots = load_shape_dots(store, zone, workers)
+    if dots is None:
+        dots = load_shape_dots(store, zone, workers)
     shape_cols = sorted(set(dot_shape_ratios(dots)) if dots is not None else [])
     t2 = time.time()
-    shape = shape_features(dots, sids, gaia_stars)
+    shape = shape_features(dots, sids, gaia_stars, locus)
     out = classify_frame(src, shape, gaia)
     t3 = time.time()
     nbytes = store.write_parquet(results_rel(zone.name, "classes.parquet"), out)

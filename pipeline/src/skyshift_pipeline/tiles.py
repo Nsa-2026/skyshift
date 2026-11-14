@@ -1,0 +1,991 @@
+"""The combining steps per sky tile, in parallel processes, merged into the zone's usual results.
+
+`all` on a zone larger than TILE_AUTO_MIN_DEG2 (or with --tiles / --tile-deg) runs link → spectra → crossid → calib →
+spectra → classify → photoz → colours → lightcurves → astrometry → highpm → score → suspects like this:
+
+  prepare   tile grid; per tile its photo list (photos whose footprint box meets the tile's core + border) and its slice
+            of refcat/<zone>.parquet; the zone's dot files mirrored into the work dir without the columns no combining
+            step reads (TILE_SLIM_DOTS: same rows, so dot_row holds); the known-object predictions, by session in parallel
+  pass 1    per tile, unchanged step code on a TileStore (the tile is a small zone): link, spectra, crossid. Keep what the
+            core owns: a fixed source whose link position (fixed.ra/dec) is in the core, its members, crossids and
+            spectrum; a mover whose position is in the core. Check that the border was wide enough (no fixed group
+            near the core reaches the border's outer edge); else redo the tile with a doubled border
+  merge 1   fixed, members, movers, sources, crossids → results/<zone>/ (source_id is sky-wide: no renumbering)
+  calib     once, zone-wide: calib.run on the tiles' Gaia-matched and bright member dots (raw), the merged raw spectra
+  pass 2a   per tile, calib.json shared: spectra, colours; light-curve points with their models; the classify shape dots;
+            the astrometry frame residuals of quiet Gaia stars
+  reduce    zone-wide: the classify stellar locus, the light-curve error model and bad photos, per-photo frame offsets
+  pass 2b   per tile, with those numbers: classify, photoz, light-curve errors and summaries, astrometry
+  merge 2   sources, classes, photoz, colours, lightcurves(+summary), astrometry → results/<zone>/; the zone reports
+            (photoz vs SDSS, lightcurves, astrometry) computed on the merged tables
+  zone      highpm, score and suspects once on the merged tables (their 120″–15′ controls need no tile border)
+
+The outputs have today's names and columns. Owned rows of a tile are exactly what the untiled run gives for them when
+the border holds every group the core touches (link's friends-of-friends chains, a mover's pairs and its 6″ veto,
+crossid's 2.5–3″, a forced target's ties), and every zone-wide number is fitted once on everything.
+With TILE_ZONE_EDGE_MARGIN the zone's own edge is a tile edge too: tiles there also load the border outside the zone
+box, so stars on the zone edge are not cut (untiled runs clip dots at the zone box). See pipeline/CLAUDE.md, Tiles.
+"""
+
+from __future__ import annotations
+
+import io
+import math
+import multiprocessing as mp
+import os
+import resource
+import shutil
+import sys
+import tempfile
+import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, replace
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from . import config as C
+from . import log
+from .sky import parse_polygon
+from .store import Store, dots_rel, photolist_rel, results_rel
+
+L = log.get("tiles")
+
+ZONE_SHARED = ("calib.json", "calib_photos.parquet")  # results/<tile>/ names that are the zone's own files (pass 2)
+ZONE_ROW = "_zone_row"  # extra photo-list column: the photo's row in the zone's photo list
+
+
+# --- the tile grid ---------------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Tile:
+    index: int
+    core: C.Zone   # the box this tile owns; cores partition the zone box (half-open, as Zone.contains)
+    ext: C.Zone    # core + border: the "zone" the steps see; name = the tile's name
+    margin_arcsec: float
+
+    @property
+    def name(self) -> str:
+        return self.ext.name
+
+
+def area_deg2(z: C.Zone) -> float:
+    return (z.ra_max - z.ra_min) * math.cos(math.radians((z.dec_min + z.dec_max) / 2)) * (z.dec_max - z.dec_min)
+
+
+def ext_box(zone: C.Zone, core: C.Zone, margin_arcsec: float, edge_margin: bool, name: str) -> C.Zone:
+    m = margin_arcsec / 3600.0
+    d0, d1 = core.dec_min - m, core.dec_max + m
+    cosd = math.cos(math.radians(min(89.0, max(abs(d0), abs(d1)))))
+    r0, r1 = core.ra_min - m / cosd, core.ra_max + m / cosd
+    if not edge_margin:
+        r0, r1 = max(r0, zone.ra_min), min(r1, zone.ra_max)
+        d0, d1 = max(d0, zone.dec_min), min(d1, zone.dec_max)
+    return C.Zone(name, r0, r1, max(d0, -90.0), min(d1, 90.0))
+
+
+def plan(zone: C.Zone, tile_deg: float, margin_arcsec: float = C.TILE_MARGIN_ARCSEC,
+         edge_margin: bool = C.TILE_ZONE_EDGE_MARGIN) -> list[Tile]:
+    """nx × ny equal cores of about tile_deg (on the sky) over the zone box, each with its border."""
+    cosd = math.cos(math.radians((zone.dec_min + zone.dec_max) / 2))
+    ny = max(1, round((zone.dec_max - zone.dec_min) / tile_deg))
+    nx = max(1, round((zone.ra_max - zone.ra_min) * cosd / tile_deg))
+    de = np.linspace(zone.dec_min, zone.dec_max, ny + 1)
+    re = np.linspace(zone.ra_min, zone.ra_max, nx + 1)
+    out = []
+    for j in range(ny):
+        for i in range(nx):
+            k = j * nx + i
+            name = f"{zone.name}__t{k:04d}"
+            core = C.Zone(name, float(re[i]), float(re[i + 1]), float(de[j]), float(de[j + 1]))
+            out.append(Tile(k, core, ext_box(zone, core, margin_arcsec, edge_margin, name), margin_arcsec))
+    return out
+
+
+def with_margin(zone: C.Zone, t: Tile, margin_arcsec: float, edge_margin: bool) -> Tile:
+    return replace(t, ext=ext_box(zone, t.core, margin_arcsec, edge_margin, t.name), margin_arcsec=margin_arcsec)
+
+
+def choose(zone: C.Zone, tiles: str | None, tile_deg: float | None, workers: int) -> float | None:
+    """Core side in degrees, or None for an untiled run. tiles: 'auto' (TILE_AUTO_MIN_DEG2), 'off', or a tile count."""
+    if tile_deg:
+        return float(tile_deg)
+    a = area_deg2(zone)
+    if tiles in (None, "auto"):
+        return C.TILE_DEG if a > C.TILE_AUTO_MIN_DEG2 else None
+    if str(tiles).lower() in ("off", "0", "no", "none"):
+        return None
+    n = max(1, int(tiles))
+    return math.sqrt(a / n)
+
+
+def box_distance_arcsec(ra, dec, box: C.Zone) -> np.ndarray:
+    """Distance (″, small-angle) from each position to the box; 0 inside."""
+    ra, dec = np.asarray(ra, np.float64), np.asarray(dec, np.float64)
+    cosd = np.cos(np.deg2rad(dec))
+    dx = np.maximum.reduce([box.ra_min - ra, np.zeros_like(ra), ra - box.ra_max]) * cosd
+    dy = np.maximum.reduce([box.dec_min - dec, np.zeros_like(dec), dec - box.dec_max])
+    return np.hypot(dx, dy) * 3600.0
+
+
+def inner_edge_distance_arcsec(ra, dec, t: Tile, zone: C.Zone, edge_margin: bool) -> np.ndarray:
+    """Distance (″) inside the tile's border to its outer edge; edges that are the zone's own box in a clipped run
+    (no border loaded there, as untiled) don't count."""
+    ra, dec = np.asarray(ra, np.float64), np.asarray(dec, np.float64)
+    cosd = np.cos(np.deg2rad(dec))
+    e = t.ext
+    out = np.full(ra.shape, np.inf)
+    sides = ((ra - e.ra_min) * cosd, e.ra_min, zone.ra_min), ((e.ra_max - ra) * cosd, e.ra_max, zone.ra_max), \
+            (dec - e.dec_min, e.dec_min, zone.dec_min), (e.dec_max - dec, e.dec_max, zone.dec_max)
+    for dist, edge, zedge in sides:
+        if edge_margin or edge != zedge:
+            out = np.minimum(out, dist * 3600.0)
+    return out
+
+
+# --- per-tile inputs -------------------------------------------------------------------------------------------
+def photo_boxes(photos: pd.DataFrame, pad_deg: float = 0.1) -> np.ndarray:
+    """(n, 4) ra_lo, ra_hi, dec_lo, dec_hi of each photo's footprint vertices (+ pad for the great-circle edges)."""
+    out = np.full((len(photos), 4), np.nan)
+    for k, (s, ra0) in enumerate(zip(photos["s_region"], photos["s_ra"] if "s_ra" in photos else photos["mjd"] * 0)):
+        v = parse_polygon(s)
+        ra = ra0 + ((v[:, 0] - ra0 + 180.0) % 360.0 - 180.0) if "s_ra" in photos else v[:, 0]
+        cosd = max(math.cos(math.radians(float(np.max(np.abs(v[:, 1]))))), 0.01)
+        out[k] = (ra.min() - pad_deg / cosd, ra.max() + pad_deg / cosd, v[:, 1].min() - pad_deg, v[:, 1].max() + pad_deg)
+    return out
+
+
+def tile_photos(photos: pd.DataFrame, boxes: np.ndarray, box: C.Zone) -> pd.DataFrame:
+    m = (boxes[:, 1] >= box.ra_min) & (boxes[:, 0] <= box.ra_max) & (boxes[:, 3] >= box.dec_min) & (boxes[:, 2] <= box.dec_max)
+    return photos[m].reset_index(drop=True)
+
+
+def moved(cat: pd.DataFrame, mjd: float) -> tuple[np.ndarray, np.ndarray]:
+    """Catalogue positions moved by proper motion (mas/yr, pmra × cos dec) to mjd; NaN pm or epoch = not moved."""
+    ra, dec = cat["ra"].to_numpy(np.float64), cat["dec"].to_numpy(np.float64)
+    if "epoch_mjd" not in cat:
+        return ra, dec
+    dt = np.nan_to_num((mjd - cat["epoch_mjd"].to_numpy(np.float64)) / 365.25)
+    pmra = np.nan_to_num(cat["pmra"].to_numpy(np.float64)) if "pmra" in cat else 0.0
+    pmdec = np.nan_to_num(cat["pmdec"].to_numpy(np.float64)) if "pmdec" in cat else 0.0
+    d2 = dec + pmdec * dt / 3.6e6
+    return ra + pmra * dt / 3.6e6 / np.cos(np.deg2rad(dec)), d2
+
+
+def refcat_slice(cat: pd.DataFrame, box: C.Zone, mjd: float, span_yr: float) -> pd.DataFrame:
+    """Rows whose position at the zone's median time lies within the box, give or take 10″ + their motion over the
+    zone's time span (Barnard's Star: 10″/yr)."""
+    if not len(cat):
+        return cat
+    ra, dec = moved(cat, mjd)
+    pm = np.hypot(np.nan_to_num(cat["pmra"].to_numpy(np.float64)) if "pmra" in cat else 0.0,
+                  np.nan_to_num(cat["pmdec"].to_numpy(np.float64)) if "pmdec" in cat else 0.0) / 1000.0
+    slack = 10.0 + pm * max(span_yr, 0.0)
+    return cat[box_distance_arcsec(ra, dec, box) <= slack].reset_index(drop=True)
+
+
+def forced_box(t: Tile, zone: C.Zone) -> C.Zone:
+    """Forced rows a tile loads: its core + border, and on the zone's own edges the strip forced targets may sit in
+    (FORCED_ZONE_MARGIN_DEG), so the edge tiles own them as the untiled run keeps them."""
+    e = t.ext
+    pad = C.FORCED_ZONE_MARGIN_DEG + 0.01
+    cosd = math.cos(math.radians(min(89.0, max(abs(e.dec_min), abs(e.dec_max)))))
+    r0 = min(e.ra_min, zone.ra_min - pad / cosd) if t.core.ra_min <= zone.ra_min else e.ra_min
+    r1 = max(e.ra_max, zone.ra_max + pad / cosd) if t.core.ra_max >= zone.ra_max else e.ra_max
+    d0 = min(e.dec_min, zone.dec_min - pad) if t.core.dec_min <= zone.dec_min else e.dec_min
+    d1 = max(e.dec_max, zone.dec_max + pad) if t.core.dec_max >= zone.dec_max else e.dec_max
+    return C.Zone(e.name, r0, r1, d0, d1)
+
+
+def owner_of(ra, dec, tiles: list[Tile], zone: C.Zone) -> np.ndarray:
+    """Tile index whose core contains each position, after clamping into the zone box (forced targets just outside
+    the zone belong to the edge tile); -1 for NaN."""
+    ra = np.clip(np.asarray(ra, np.float64), zone.ra_min, np.nextafter(zone.ra_max, -np.inf))
+    dec = np.clip(np.asarray(dec, np.float64), zone.dec_min, np.nextafter(zone.dec_max, -np.inf))
+    out = np.full(ra.shape, -1, np.int64)
+    for t in tiles:
+        out[t.core.contains(ra, dec)] = t.index
+    return out
+
+
+# --- the store a tile's steps see ------------------------------------------------------------------------------
+class _RouterFS:
+    """store.fs for a TileStore: info() on a routed path goes to the filesystem that holds it."""
+
+    def __init__(self, ts: "TileStore"):
+        self.ts = ts
+
+    def _fs(self, path: str):
+        return self.ts.work.fs if str(path).startswith(self.ts.work.base + "/") else self.ts.base.fs
+
+    def info(self, path: str, **kw):
+        return self._fs(path).info(path, **kw)
+
+    def exists(self, path: str, **kw):
+        return self._fs(path).exists(path, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self.ts.base.fs, name)
+
+
+class TileStore:
+    """A Store view in which the tile is a zone: photolists/zones/<tile>.parquet, refcat/<tile>.parquet and
+    results/<tile>/ live in the work dir; results/<tile>/calib.json is the zone's (pass 2 only); dots/ is the slim
+    mirror; forced/ rows are cut to the tile's forced box; cache/<…>/<tile> is the zone's; everything else the bucket's."""
+
+    def __init__(self, root: str, work_dir: str, zone: C.Zone, tile: Tile, slim: bool, forced_mirror: bool,
+                 zone_calib: bool, edge_margin: bool):
+        self.base = Store(root)
+        self.work = Store(work_dir)
+        self.zone, self.tile = zone, tile
+        self.slim, self.forced_mirror, self.zone_calib = slim, forced_mirror, zone_calib
+        self.root = f"{self.base.root}#{tile.name}"  # cache keys (calib.load, motion_io) per tile
+        self.local = self.work.local
+        self.fs = _RouterFS(self)
+        self.fbox = forced_box(tile, zone)
+
+    def tile_dir(self, *parts: str) -> str:
+        return "/".join(("tiles", self.tile.name, *parts))
+
+    def route(self, rel: str) -> tuple[Store, str]:
+        rel = rel.lstrip("/")
+        t, z = self.tile.name, self.zone.name
+        if rel == photolist_rel(t):
+            return self.work, self.tile_dir("photolist.parquet")
+        pre = f"results/{t}/"
+        if rel.startswith(pre):
+            name = rel[len(pre):]
+            if self.zone_calib and name in ZONE_SHARED:
+                return self.base, results_rel(z, name)
+            return self.work, self.tile_dir("results", name)
+        if rel in (f"refcat/{t}.parquet", f"refcat/{t}_forced.parquet"):
+            return self.work, self.tile_dir(rel)
+        if rel.startswith("dots/") and self.slim:
+            return self.work, rel
+        if rel.startswith(f"{C.FORCED_DIR}/") or rel == C.FORCED_DIR:
+            return (self.work if self.forced_mirror else self.base), rel
+        if rel.startswith("cache/"):
+            return self.base, "/".join(z if p == t else (z + p[len(t):] if p.startswith(t + ".") else p) for p in rel.split("/"))
+        return self.base, rel
+
+    def path(self, rel: str) -> str:
+        s, r = self.route(rel)
+        return s.path(r)
+
+    def exists(self, rel: str) -> bool:
+        s, r = self.route(rel)
+        return s.exists(r)
+
+    def read_bytes(self, rel: str) -> bytes:
+        s, r = self.route(rel)
+        return s.read_bytes(r)
+
+    def write_bytes(self, rel: str, data: bytes) -> None:
+        s, r = self.route(rel)
+        s.write_bytes(r, data)
+
+    def write_parquet(self, rel: str, df: pd.DataFrame) -> int:
+        s, r = self.route(rel)
+        return s.write_parquet(r, df)
+
+    def write_table(self, rel: str, table) -> int:
+        s, r = self.route(rel)
+        return s.write_table(r, table)
+
+    def read_parquet(self, rel: str, columns: list[str] | None = None) -> pd.DataFrame:
+        s, r = self.route(rel)
+        if not rel.startswith(f"{C.FORCED_DIR}/"):
+            return s.read_parquet(r, columns)
+        cols = None if columns is None else list(dict.fromkeys([*columns, "ra", "dec"]))
+        df = s.read_parquet(r, cols)
+        if "ra" in df and "dec" in df:
+            df = df[self.fbox.contains(df["ra"].to_numpy(np.float64), df["dec"].to_numpy(np.float64))].reset_index(drop=True)
+        return df if columns is None else df[[c for c in columns if c in df]]
+
+    def write_json(self, rel: str, obj) -> None:
+        s, r = self.route(rel)
+        s.write_json(r, obj)
+
+    def read_json(self, rel: str):
+        s, r = self.route(rel)
+        return s.read_json(r)
+
+    def listdir(self, rel: str) -> list[str]:
+        s, r = self.route(rel)
+        return s.listdir(r)
+
+
+# --- worker side -----------------------------------------------------------------------------------------------
+def _ctx_store(ctx: dict, tile: Tile, zone_calib: bool) -> TileStore:
+    return TileStore(ctx["root"], ctx["work"], ctx["zone"], tile, ctx["slim"], ctx["forced_mirror"], zone_calib,
+                     ctx["edge_margin"])
+
+
+def _owned_dir(ctx: dict, tile: Tile) -> Store:
+    return Store(os.path.join(ctx["work"], "tiles", tile.name, "owned"))
+
+
+def _peak_rss_mb() -> float:
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return round(r / 1e6 if sys.platform == "darwin" else r / 1e3, 1)
+
+
+def _gaia_ids(xid: pd.DataFrame) -> np.ndarray:
+    return xid.loc[xid["gaia_ref_id"].fillna("").astype(str) != "", "source_id"].to_numpy(np.int64)
+
+
+def border_check(dots: pd.DataFrame, dot_sid: np.ndarray, t: Tile, zone: C.Zone, edge_margin: bool) -> dict:
+    """Fixed groups with a dot within TILE_EDGE_TOUCH_ARCSEC of the border's outer edge may be cut there; it matters
+    when the group also comes within TILE_EDGE_CHECK_ARCSEC of the core (owned, or a veto of an owned mover)."""
+    if not len(dots):
+        return {"border_groups": 0, "border_threats": 0}
+    ra, dec = dots["ra"].to_numpy(np.float64), dots["dec"].to_numpy(np.float64)
+    near = inner_edge_distance_arcsec(ra, dec, t, zone, edge_margin) < C.TILE_EDGE_TOUCH_ARCSEC
+    touching = np.unique(dot_sid[near & (dot_sid >= 0)])
+    if not touching.size:
+        return {"border_groups": 0, "border_threats": 0}
+    m = np.isin(dot_sid, touching)
+    dc = pd.Series(box_distance_arcsec(ra[m], dec[m], t.core)).groupby(dot_sid[m]).min()
+    return {"border_groups": int(touching.size), "border_threats": int((dc < C.TILE_EDGE_CHECK_ARCSEC).sum()),
+            "border_threat_min_core_arcsec": round(float(dc.min()), 1)}
+
+
+def pass1(ctx: dict, tile: Tile) -> dict:
+    """link, spectra, crossid on the tile; owned rows and the calib inputs → the tile's owned/ dir."""
+    from . import crossid, link, motion_io, spectra
+    t0 = time.time()
+    ts = _ctx_store(ctx, tile, zone_calib=False)  # pass 1 is raw, as `all` before calib
+    tz, thr = tile.ext, ctx["threads"]
+    keep: dict = {}
+    st: dict = {"tile": tile.name, "margin_arcsec": tile.margin_arcsec}
+    st["link"] = link.run(ts, tz, thr, keep=keep)
+    st["border"] = border_check(keep["dots"], keep["dot_sid"], tile, ctx["zone"], ctx["edge_margin"])
+    del keep
+    st["spectra"] = spectra.run(ts, tz, thr)
+    st["crossid"] = crossid.run(ts, tz, thr)
+    own = _owned_dir(ctx, tile)
+    fixed = ts.read_parquet(results_rel(tz.name, "fixed.parquet"))
+    owned = fixed["source_id"].to_numpy(np.int64)[tile.core.contains(fixed["ra"].to_numpy(), fixed["dec"].to_numpy())]
+    own.write_parquet("fixed.parquet", fixed[fixed["source_id"].isin(owned)])
+    own.write_parquet("owned_ids.parquet", pd.DataFrame({"source_id": owned}))
+    m = ts.read_parquet(results_rel(tz.name, "members.parquet"))
+    own.write_parquet("members.parquet", m[m["source_id"].isin(owned)])
+    mv = ts.read_parquet(results_rel(tz.name, "movers.parquet"))
+    if len(mv):
+        mv = mv[tile.core.contains(mv["ra"].to_numpy(np.float64), mv["dec"].to_numpy(np.float64))]
+    own.write_parquet("movers.parquet", mv)
+    src = pq.read_table(io.BytesIO(ts.read_bytes(results_rel(tz.name, "sources.parquet"))))
+    own.write_table("sources.parquet", src.filter(pa.array(np.isin(src.column("source_id").to_numpy(), owned))))
+    xid = ts.read_parquet(results_rel(tz.name, "crossids.parquet"))
+    own.write_parquet("crossids.parquet", xid[xid["source_id"].isin(owned)])
+    # calib inputs: raw member dots of owned sources that calib can use, photo = row in the zone's photo list
+    d, _, jac = motion_io.member_dots_raw(ts, tz, thr)
+    photos = ts.read_parquet(photolist_rel(tz.name), columns=["obs_id", "detector", ZONE_ROW])
+    keep_rows = d["source_id"].isin(owned).to_numpy() & (
+        d["source_id"].isin(_gaia_ids(xid)).to_numpy() | (d["snr"].to_numpy(np.float64) >= C.TILE_CALIB_MIN_SNR))
+    d = d[keep_rows].reset_index(drop=True)
+    zr = photos[ZONE_ROW].to_numpy(np.int64)
+    p = d["photo"].to_numpy(np.int64)
+    d["photo"] = np.where(p >= 0, zr[np.clip(p, 0, max(len(zr) - 1, 0))] if len(zr) else -1, -1).astype(np.int32)
+    own.write_parquet("calib_dots.parquet", d)
+    ok = np.isfinite(jac).all(axis=(1, 2))
+    own.write_parquet("calib_jac.parquet", pd.DataFrame({ZONE_ROW: zr[ok], **{f"j{a}{b}": jac[ok, a, b] for a in (0, 1) for b in (0, 1)}}))
+    motion_io.clear_cache()
+    st.update({"owned_sources": int(len(owned)), "owned_movers": int(len(mv)), "calib_dots": int(len(d)),
+               "photos": int(len(photos)), "wall_s": round(time.time() - t0, 1), "peak_rss_mb": _peak_rss_mb()})
+    return st
+
+
+def _group_codes_with_ref(p: pd.DataFrame, ref: np.ndarray) -> np.ndarray:
+    """True for the points of light curves (lightcurves.group_codes) that hold a reference point."""
+    from .lightcurves import group_codes
+    g, G = group_codes(p)
+    has = np.zeros(G, bool)
+    has[g[ref]] = True
+    return has[g]
+
+
+def pass2a(ctx: dict, tile: Tile) -> dict:
+    """spectra (calibrated), colours; light-curve points; classify shape dots; astrometry frame residuals."""
+    from . import astrometry, classify, colours, lightcurves, motion_io, spectra
+    t0 = time.time()
+    ts = _ctx_store(ctx, tile, zone_calib=True)
+    tz, thr = tile.ext, ctx["threads"]
+    own = _owned_dir(ctx, tile)
+    owned = own.read_parquet("owned_ids.parquet")["source_id"].to_numpy(np.int64)
+    st: dict = {"tile": tile.name}
+    st["spectra"] = spectra.run(ts, tz, thr)
+    src = pq.read_table(io.BytesIO(ts.read_bytes(results_rel(tz.name, "sources.parquet"))))
+    own.write_table("sources_cal.parquet", src.filter(pa.array(np.isin(src.column("source_id").to_numpy(), owned))))
+    # classify, phase a: the shape dots (kept for phase b) and the locus inputs of the owned sources
+    sp = ts.read_parquet(results_rel(tz.name, "sources.parquet"), columns=["source_id"]).sort_values("source_id")
+    gaia, _ = classify.load_gaia(ts, tz, sp)
+    gstars = classify.gaia_star_ids(gaia, sp["source_id"].to_numpy(np.int64))
+    sdots = classify.load_shape_dots(ts, tz, thr)
+    if sdots is not None:
+        own.write_parquet("shape_dots.parquet", sdots)
+        own.write_parquet("locus_values.parquet", classify.locus_values(sdots[sdots["source_id"].isin(owned)], gstars))
+    st["colours"] = colours.run(ts, tz, thr)
+    co = ts.read_parquet(results_rel(tz.name, "colours.parquet"))
+    own.write_parquet("colours.parquet", co[co["source_id"].isin(owned)] if len(co) else co)
+    # light curves, phase a: points with their models, owned by source or (no source) by forced target
+    d, mst = motion_io.member_dots(ts, tz, thr)
+    forced = motion_io.load_forced(ts, tz, thr)
+    xid_rel = results_rel(tz.name, "crossids.parquet")
+    xid = ts.read_parquet(xid_rel) if ts.exists(xid_rel) else None
+    sources = ts.read_parquet(results_rel(tz.name, "sources.parquet"), columns=["source_id", "flux_ujy"])
+    p = lightcurves.points(d, forced, xid, sources)
+    st["lc_forced_rows"] = int(len(forced))
+    if p is not None:
+        sid = p["source_id"].to_numpy(np.int64)
+        mine = np.isin(sid, owned)
+        nos = sid < 0
+        if nos.any():
+            fo = own.read_parquet("forced_owned.parquet")["ref_id"].astype(str).to_numpy() if own.exists("forced_owned.parquet") else []
+            mine[nos] = np.isin(p["ref_id"].astype(str).to_numpy()[nos], fo)
+        ref = lightcurves.reference_points(p, xid)
+        p = p[mine].reset_index(drop=True)
+        ref = ref[mine]
+        p["ref"] = ref
+        p["ref_group"] = _group_codes_with_ref(p, ref) if len(p) else np.zeros(0, bool)
+        own.write_parquet("lc_points_a.parquet", p)
+        st["lc_points"] = int(len(p))
+        st["lc_pairs"] = sorted({f"{o}_D{int(k)}" for o, k in zip(p["origin"].astype(str), p["detector"])})
+    # astrometry, phase a: the frame residuals of quiet Gaia stars; the owned member dots for phase b
+    dd = d[d["source_id"].isin(owned)].reset_index(drop=True)
+    own.write_parquet("astro_dots.parquet", dd)
+    own.write_parquet("frame_residuals.parquet", astrometry.frame_residuals(dd, xid))
+    motion_io.clear_cache()
+    st.update({"member_dots": {k: v for k, v in mst.items() if not isinstance(v, (dict, list))},
+               "wall_s": round(time.time() - t0, 1), "peak_rss_mb": _peak_rss_mb()})
+    return st
+
+
+def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.DataFrame, offsets: pd.DataFrame | None) -> dict:
+    """classify (zone locus), photoz, light-curve errors (zone model) and summaries, astrometry (zone frame offsets)."""
+    from . import astrometry, classify, lightcurves, photoz
+    t0 = time.time()
+    ts = _ctx_store(ctx, tile, zone_calib=True)
+    tz, thr = tile.ext, ctx["threads"]
+    own = _owned_dir(ctx, tile)
+    owned = own.read_parquet("owned_ids.parquet")["source_id"].to_numpy(np.int64)
+    st: dict = {"tile": tile.name}
+    sdots = own.read_parquet("shape_dots.parquet") if own.exists("shape_dots.parquet") else None
+    st["classify"] = classify.run(ts, tz, thr, locus=locus, dots=sdots)
+    cl = ts.read_parquet(results_rel(tz.name, "classes.parquet"))
+    own.write_parquet("classes.parquet", cl[cl["source_id"].isin(owned)])
+    st["photoz"] = photoz.run(ts, tz, validate_sdss=False)
+    pz = ts.read_parquet(results_rel(tz.name, "photoz.parquet"))
+    own.write_parquet("photoz.parquet", pz[pz["source_id"].isin(owned)])
+    st["photoz_selection"] = st["photoz"].get("selection")
+    if own.exists("lc_points_a.parquet"):
+        p = own.read_parquet("lc_points_a.parquet")
+        ref = p.pop("ref").to_numpy(bool)
+        p.pop("ref_group")
+        cal = lightcurves.apply_error_model(p, lc_model)
+        key = pd.MultiIndex.from_arrays([p["origin"].astype(str).to_numpy(), p["detector"].to_numpy(np.int64),
+                                         p["mjd"].to_numpy(np.float64)])
+        bad = pd.MultiIndex.from_arrays([bad_keys["origin"].astype(str).to_numpy(), bad_keys["detector"].to_numpy(np.int64),
+                                         bad_keys["mjd"].to_numpy(np.float64)]) if len(bad_keys) else None
+        photo_ok = ~key.isin(bad) if bad is not None else np.ones(len(p), bool)
+        p, s = lightcurves.finish(p, cal, photo_ok)
+        own.write_parquet("lightcurves.parquet", p[lightcurves.POINT_COLUMNS])
+        own.write_parquet("lightcurves_summary.parquet", s)
+        rk = pd.DataFrame({"source_id": p["source_id"].to_numpy(np.int64)[ref], "ref_id": p["ref_id"].to_numpy()[ref],
+                           "detector": p["detector"].to_numpy(np.int8)[ref],
+                           "origin": p["origin"].astype(str).to_numpy()[ref]}).drop_duplicates()
+        own.write_parquet("lc_ref_keys.parquet", rk)
+    d = own.read_parquet("astro_dots.parquet")
+    xid_rel = results_rel(tz.name, "crossids.parquet")
+    xid = ts.read_parquet(xid_rel) if ts.exists(xid_rel) else None
+    raw, st_raw = astrometry.fit(d, xid, frame=False)
+    if C.ASTRO_FRAME_CORRECT and xid is not None:
+        cor, st_cor = astrometry.fit(d, xid, frame=True, offsets=offsets)
+    else:
+        cor, st_cor = raw, st_raw
+    own.write_parquet("astrometry.parquet", cor)
+    own.write_parquet("astrometry_raw.parquet", raw)
+    st["astrometry"] = {k: v for k, v in st_cor.items() if k in ("fitted", "with_parallax", "spacecraft_position_dots", "sources_in")}
+    st["astrometry"]["corrected"] = cor is not raw
+    st.update({"wall_s": round(time.time() - t0, 1), "peak_rss_mb": _peak_rss_mb()})
+    return st
+
+
+def prepare_photos(ctx: dict, names: list[str]) -> dict:
+    """Mirror dot files into the work dir without TILE_SLIM_DROP_COLUMNS (and forced files when the bucket is remote)."""
+    base, work = Store(ctx["root"]), Store(ctx["work"])
+    n = nb = 0
+    for name in names:
+        if ctx["slim"]:
+            try:
+                raw = base.read_bytes(f"dots/{name}")
+            except FileNotFoundError:
+                raw = None
+            if raw is not None:
+                t = pq.read_table(io.BytesIO(raw))
+                drop = [c for c in C.TILE_SLIM_DROP_COLUMNS if c in t.column_names]
+                if drop:
+                    t = t.drop_columns(drop)
+                    buf = io.BytesIO()
+                    pq.write_table(t, buf, compression="zstd")
+                    raw = buf.getvalue()
+                work.write_bytes(f"dots/{name}", raw)
+                n += 1
+                nb += len(raw)
+        if ctx["forced_mirror"]:
+            try:
+                work.write_bytes(f"{C.FORCED_DIR}/{name}", base.read_bytes(f"{C.FORCED_DIR}/{name}"))
+            except FileNotFoundError:
+                pass
+    return {"dots": n, "bytes": nb}
+
+
+def predictions_part(root: str, photos: pd.DataFrame, zone: C.Zone) -> pd.DataFrame:
+    from .known import load_predictions
+    return load_predictions(Store(root), photos, zone)
+
+
+def _run_task(fn, *a):
+    """Pool entry point: a crash says which tile."""
+    try:
+        return fn(*a)
+    except Exception as e:  # noqa: BLE001
+        who = a[1].name if len(a) > 1 and isinstance(a[1], Tile) else ""
+        raise RuntimeError(f"tile task {fn.__name__} {who} failed: {e!r}") from e
+
+
+# --- orchestration ---------------------------------------------------------------------------------------------
+class _Pool:
+    """A process pool (spawn, as dots), or inline calls with workers == 1."""
+
+    def __init__(self, workers: int):
+        self.workers = workers
+        self.ex = (ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn"), initializer=log.setup)
+                   if workers > 1 else None)
+
+    def map(self, fn, argsets: list[tuple]) -> list:
+        if self.ex is None:
+            return [_run_task(fn, *a) for a in argsets]
+        futs = {self.ex.submit(_run_task, fn, *a): i for i, a in enumerate(argsets)}
+        out: list = [None] * len(argsets)
+        for f in as_completed(futs):
+            out[futs[f]] = f.result()
+        return out
+
+    def close(self):
+        if self.ex is not None:
+            self.ex.shutdown()
+
+
+def _read_parts(work: str, tiles: list[Tile], name: str, columns: list[str] | None = None) -> list[pa.Table]:
+    out = []
+    for t in tiles:
+        p = os.path.join(work, "tiles", t.name, "owned", name)
+        if os.path.exists(p):
+            out.append(pq.read_table(p, columns=columns))
+    return out
+
+
+def _plain(t: pa.Table) -> pa.Table:
+    """Dictionary (category) columns as plain values, so tiles' tables concatenate."""
+    cols = [c.cast(c.type.value_type) if pa.types.is_dictionary(c.type) else c for c in t.columns]
+    return pa.Table.from_arrays(cols, names=t.column_names)
+
+
+def _concat(parts: list[pa.Table], sort: list[str] | None = None, category: tuple[str, ...] = ()) -> pa.Table | None:
+    if not parts:
+        return None
+    full = [p for p in parts if p.num_rows and p.num_columns]
+    if not full:
+        return parts[0]
+    t = pa.concat_tables([_plain(p).replace_schema_metadata(None) for p in full], promote_options="permissive")
+    if sort:
+        key = pd.DataFrame({c: t.column(c).to_numpy(zero_copy_only=False) for c in sort})
+        t = t.take(pa.array(key.sort_values(sort, kind="stable").index.to_numpy()))
+    for c in category:
+        if c in t.column_names:
+            t = t.set_column(t.column_names.index(c), c, t.column(c).dictionary_encode())
+    return t
+
+
+def _write(store: Store, zone: C.Zone, name: str, t: pa.Table | None) -> int:
+    if t is None:
+        return 0
+    store.write_bytes(results_rel(zone.name, name), _table_bytes(t))
+    return int(t.num_rows)
+
+
+def _table_bytes(t: pa.Table) -> bytes:
+    buf = io.BytesIO()
+    pq.write_table(t, buf, compression="zstd")
+    return buf.getvalue()
+
+
+def _write_stream(store: Store, zone: C.Zone, name: str, work: str, tiles: list[Tile], category: tuple[str, ...] = ()) -> int:
+    """Concatenate the tiles' owned/<name> into results/<zone>/<name> one tile at a time (bounded memory)."""
+    paths = [p for p in (os.path.join(work, "tiles", t.name, "owned", name) for t in tiles) if os.path.exists(p)]
+    if not paths:
+        return 0
+    tmp = os.path.join(work, f"merged-{name}")
+    n = 0
+
+    def norm(t: pa.Table) -> pa.Table:
+        t = _plain(t).replace_schema_metadata(None)
+        for c in category:
+            if c in t.column_names:
+                t = t.set_column(t.column_names.index(c), c, t.column(c).cast(pa.string()).dictionary_encode())
+        return t
+
+    first = next((p for p in paths if pq.read_metadata(p).num_rows), paths[0])
+    schema = norm(pq.read_table(first)).schema
+    with pq.ParquetWriter(tmp, schema, compression="zstd") as writer:
+        for p in paths:
+            t = pq.read_table(p)
+            if t.num_rows:
+                t = norm(t)
+                writer.write_table(t.cast(schema) if t.schema != schema else t)
+                n += t.num_rows
+    rel = results_rel(zone.name, name)
+    if store.local:
+        os.makedirs(os.path.dirname(store.path(rel)), exist_ok=True)
+        shutil.move(tmp, store.path(rel))
+    else:
+        store.fs.put_file(tmp, store.path(rel))
+        os.remove(tmp)
+    return n
+
+
+def _df(parts: list[pa.Table]) -> pd.DataFrame:
+    t = _concat(parts)
+    return t.to_pandas() if t is not None else pd.DataFrame()
+
+
+class Run:
+    """One tiled run of the combining steps of a zone."""
+
+    def __init__(self, store: Store, zone: C.Zone, tile_deg: float, workers: int, work_dir: str | None = None,
+                 margin_arcsec: float | None = None, edge_margin: bool | None = None, slim: bool | None = None,
+                 keep_work: bool = False):
+        self.store, self.zone, self.workers = store, zone, max(1, int(workers))
+        self.edge_margin = C.TILE_ZONE_EDGE_MARGIN if edge_margin is None else bool(edge_margin)
+        self.margin = C.TILE_MARGIN_ARCSEC if margin_arcsec is None else float(margin_arcsec)
+        self.tiles = plan(zone, tile_deg, self.margin, self.edge_margin)
+        self.tile_deg = tile_deg
+        base = work_dir or os.path.join(tempfile.gettempdir(), "skyshift-tiles")
+        self.work = os.path.abspath(os.path.join(base, f"{zone.name}-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"))
+        os.makedirs(self.work, exist_ok=True)
+        self.keep_work = keep_work
+        self.ctx = {"root": store.root, "work": self.work, "zone": zone, "slim": C.TILE_SLIM_DOTS if slim is None else bool(slim),
+                    "forced_mirror": not store.local, "edge_margin": self.edge_margin,
+                    "threads": max(C.TILE_THREADS, 1)}
+        self.times: dict[str, float] = {}
+        self.stats: dict = {"tiles": len(self.tiles), "tile_deg": round(tile_deg, 4), "margin_arcsec": self.margin,
+                            "zone_edge_margin": self.edge_margin, "workers": self.workers, "work_dir": self.work}
+
+    # -- helpers
+    def _timed(self, name: str, t0: float) -> None:
+        self.times[name] = round(time.time() - t0, 1)
+        L.info("tiles %s: %s done in %.1f s", self.zone.name, name, self.times[name])
+
+    def _tile_inputs(self, tiles: list[Tile]) -> None:
+        """Photo list and refcat slices for these tiles (work dir)."""
+        work = Store(self.work)
+        for t in tiles:
+            tp = tile_photos(self.photos, self.boxes, t.ext)
+            work.write_parquet(f"tiles/{t.name}/photolist.parquet", tp)
+            for rel, cat in self.refcats.items():
+                work.write_parquet(f"tiles/{t.name}/refcat/{t.name}{rel}", refcat_slice(cat, t.ext, self.t_med, self.span_yr))
+            own = Store(os.path.join(self.work, "tiles", t.name, "owned"))
+            if self.forced_owner is not None:
+                own.write_parquet("forced_owned.parquet", self.forced_owner[self.forced_owner["tile"] == t.index][["ref_id"]])
+
+    def prepare(self, pool: _Pool) -> None:
+        t0 = time.time()
+        z = self.zone
+        photos = self.store.read_parquet(photolist_rel(z.name)).reset_index(drop=True)
+        photos[ZONE_ROW] = np.arange(len(photos), dtype=np.int64)
+        self.photos = photos
+        self.boxes = photo_boxes(photos)
+        mjd = photos["mjd"].to_numpy(np.float64) if len(photos) else np.zeros(1)
+        self.t_med = float(np.median(mjd))
+        self.span_yr = float(np.max(np.abs(mjd - self.t_med))) / 365.25 if len(photos) else 0.0
+        self.refcats = {}
+        for suffix in (".parquet", "_forced.parquet"):
+            rel = f"refcat/{z.name}{suffix}"
+            if self.store.exists(rel):
+                self.refcats[suffix] = self.store.read_parquet(rel)
+        fr = self.refcats.get("_forced.parquet")
+        self.forced_owner = None
+        if fr is not None and len(fr):
+            ra, dec = moved(fr, self.t_med)
+            self.forced_owner = pd.DataFrame({"ref_id": fr["ref_id"].astype(str).to_numpy(), "tile": owner_of(ra, dec, self.tiles, z)})
+        self._tile_inputs(self.tiles)
+        # the zone's dot files, slimmed, into the work dir
+        have = set(self.store.listdir("dots"))
+        names = [n for n in (f"{o}D{int(d)}.parquet" for o, d in zip(photos["obs_id"], photos["detector"])) if n in have]
+        if self.ctx["slim"] or self.ctx["forced_mirror"]:
+            k = max(1, len(names) // (self.workers * 4) + 1)
+            res = pool.map(prepare_photos, [(self.ctx, names[i:i + k]) for i in range(0, len(names), k)])
+            self.stats["slim_dots"] = {"files": sum(r["dots"] for r in res), "bytes": sum(r["bytes"] for r in res)}
+        self.stats["photos"] = int(len(photos))
+        self.stats["tile_photos"] = [int(len(tile_photos(photos, self.boxes, t.ext))) for t in self.tiles]
+        self._timed("prepare", t0)
+
+    def load_predictions(self, pool: _Pool) -> pd.DataFrame:
+        """known.load_predictions over the zone, whole sessions per worker, concatenated in session order."""
+        t0 = time.time()
+        p = self.photos.drop(columns=[ZONE_ROW])
+        sess = np.sort(p["session"].unique())
+        chunks = [c for c in np.array_split(sess, min(len(sess), self.workers * 2)) if len(c)] if len(sess) else []
+        parts = pool.map(predictions_part, [(self.store.root, p[p["session"].isin(c)], self.zone) for c in chunks])
+        parts = [x for x in parts if len(x)]
+        pred = pd.concat(parts, ignore_index=True) if parts else predictions_part(self.store.root, p.iloc[:0], self.zone)
+        self._timed("predictions", t0)
+        return pred
+
+    def run_pass1(self, pool: _Pool) -> None:
+        t0 = time.time()
+        todo = list(self.tiles)
+        done: dict[int, dict] = {}
+        retries = 0
+        for attempt in range(C.TILE_MAX_RETRIES + 1):
+            res = pool.map(pass1, [(self.ctx, t) for t in todo])
+            redo = []
+            for t, r in zip(todo, res):
+                done[t.index] = r
+                if r["border"]["border_threats"] and attempt < C.TILE_MAX_RETRIES:
+                    redo.append(t)
+            if not redo:
+                break
+            L.warning("tiles %s: border too narrow on %d tiles (%s): redone with a doubled border", self.zone.name, len(redo),
+                      ", ".join(t.name for t in redo))
+            retries += len(redo)
+            todo = []
+            for t in redo:
+                shutil.rmtree(os.path.join(self.work, "tiles", t.name), ignore_errors=True)
+                nt = with_margin(self.zone, t, t.margin_arcsec * 2, self.edge_margin)
+                self.tiles[self.tiles.index(t)] = nt
+                todo.append(nt)
+            self._tile_inputs(todo)
+        self.pass1_stats = [done[t.index] for t in self.tiles]
+        left = [s["tile"] for s in self.pass1_stats if s["border"]["border_threats"]]
+        if left:
+            L.warning("tiles %s: border still too narrow after %d retries on %s: groups there may differ from an untiled run",
+                      self.zone.name, C.TILE_MAX_RETRIES, left)
+        self.stats["border"] = {"retried_tiles": retries, "unresolved_tiles": left,
+                                "groups_touching_border": sum(s["border"]["border_groups"] for s in self.pass1_stats)}
+        self._timed("pass1", t0)
+
+    def merge1(self) -> dict:
+        t0 = time.time()
+        z, w, T = self.zone, self.work, self.tiles
+        fixed = _concat(_read_parts(w, T, "fixed.parquet"), ["source_id"])
+        sid = fixed.column("source_id").to_numpy() if fixed is not None else np.zeros(0, np.int64)
+        if np.unique(sid).size != sid.size:
+            raise RuntimeError(f"tiles {z.name}: duplicate source_id after the merge ({sid.size - np.unique(sid).size})")
+        cells = pd.Series(fixed.column("cell").to_numpy()).value_counts() if fixed is not None and fixed.num_rows else pd.Series(dtype=int)
+        out = {"fixed": _write(self.store, z, "fixed.parquet", fixed),
+               "members": _write(self.store, z, "members.parquet",
+                                 # a source's members all come from one tile, already sorted by obs_id, detector, dot_row
+                                 _concat(_read_parts(w, T, "members.parquet"), ["source_id"], ("obs_id",))),
+               "movers": _write(self.store, z, "movers.parquet", _concat(_read_parts(w, T, "movers.parquet"), ["session", "mjd", "ra", "dec"])),
+               "sources": _write(self.store, z, "sources.parquet", _concat(_read_parts(w, T, "sources.parquet"), ["source_id"])),
+               "crossids": _write(self.store, z, "crossids.parquet", _concat(_read_parts(w, T, "crossids.parquet"), ["source_id"])),
+               "cells_with_2_or_more_sources": int((cells > 1).sum()), "max_sources_per_cell": int(cells.max()) if len(cells) else 0}
+        from .spectra import channels
+        self.store.write_json(results_rel(z.name, "channels.json"), channels())
+        self._timed("merge1", t0)
+        return out
+
+    def calib(self) -> dict:
+        """calib.run, unchanged, on the tiles' calib dots: member_dots_raw and the spectra it would rebuild from them are
+        handed over (calib.fit's own `spec` argument), so the fit sees exactly the untiled inputs it uses."""
+        from . import calib, motion_io
+        t0 = time.time()
+        z = self.zone
+        d = _df(_read_parts(self.work, self.tiles, "calib_dots.parquet"))
+        if len(d):
+            d = d.sort_values(["source_id", "mjd", "detector"], kind="stable").reset_index(drop=True)
+        jac = np.full((len(self.photos), 2, 2), np.nan, np.float32)
+        for t in _read_parts(self.work, self.tiles, "calib_jac.parquet"):
+            j = t.to_pandas()
+            r = j[ZONE_ROW].to_numpy(np.int64)
+            for a in (0, 1):
+                for b in (0, 1):
+                    jac[r, a, b] = j[f"j{a}{b}"].to_numpy(np.float32)
+        spec = self.store.read_parquet(results_rel(z.name, "sources.parquet")) if self.store.exists(results_rel(z.name, "sources.parquet")) else None
+        orig_mdr, orig_fit = motion_io.member_dots_raw, calib.fit
+        motion_io.member_dots_raw = lambda store, zone, workers=16: (d, {"member_dots_used": int(len(d))}, jac)
+        calib.fit = lambda d_, jac_, xid_, spec_=None: orig_fit(d_, jac_, xid_, spec)
+        try:
+            out = calib.run(self.store, z, self.workers)
+        finally:
+            motion_io.member_dots_raw, calib.fit = orig_mdr, orig_fit
+        out["tiled_calib_dots"] = int(len(d))
+        self._timed("calib", t0)
+        return out
+
+    def reduce2(self) -> dict:
+        """The zone-wide numbers of pass 2: stellar locus, light-curve error model and bad photos, frame offsets."""
+        from . import astrometry, classify, lightcurves
+        t0 = time.time()
+        w, T = self.work, self.tiles
+        lv = _df(_read_parts(w, T, "locus_values.parquet"))
+        self.locus = classify.stellar_locus(lv) if len(lv) else {}
+        # light-curve error model: the points of every light curve that holds a reference point (as untiled, the fit uses
+        # only those); a (origin, detector) whose fit falls back to all its points (basis "all"/"none": too few Gaia
+        # light curves) gets all of them and is fitted again
+        self.lc_model, self.bad_rows = {}, []
+        self.bad_keys = pd.DataFrame({"origin": pd.Series(dtype=str), "detector": pd.Series(dtype=np.int64), "mjd": pd.Series(dtype=np.float64)})
+        st: dict = {}
+        pairs = sorted({k for x in self.pass2a_stats for k in x.get("lc_pairs", [])})
+        if pairs:
+            P = self._lc_points([("ref_group", "=", True)])
+            model = lightcurves.fit_error_model(P, P["ref"].to_numpy(bool))[1] if len(P) else {}
+            need = [k for k in pairs if model.get(k, {}).get("basis") != "gaia"]
+            if need:
+                extra = [[("ref_group", "=", False), ("origin", "=", k.rsplit("_D", 1)[0]), ("detector", "=", int(k.rsplit("_D", 1)[1]))]
+                         for k in need]
+                P = pd.concat([P, *(self._lc_points(f) for f in extra)], ignore_index=True)
+                model = lightcurves.fit_error_model(P, P["ref"].to_numpy(bool))[1]
+            self.lc_model = model
+            ref = P["ref"].to_numpy(bool)
+            ok, self.bad_rows = lightcurves.photo_check(P, ref, lightcurves.apply_error_model(P, model))
+            b = P.loc[~ok, ["origin", "detector", "mjd"]].drop_duplicates()
+            self.bad_keys = b.assign(origin=b["origin"].astype(str), detector=b["detector"].astype(np.int64)).reset_index(drop=True)
+            st = {"lc_fit_points": int(len(P)), "lc_pairs_fitted_on_all_points": need, "lc_bad_photos": len(self.bad_rows)}
+        res = _df(_read_parts(w, T, "frame_residuals.parquet"))
+        self.offsets, self.frame_stats = (astrometry.photo_offsets(res) if len(res) else
+                                          (pd.DataFrame({"obs_id": [], "detector": [], "oe": [], "on": [], "n_ref": [], "good": []}),
+                                           {"photos_corrected": 0}))
+        st.update({"locus": {f"{k}_D{d}": round(v, 5) for (k, d), v in sorted(self.locus.items())}, **self.frame_stats})
+        self._timed("reduce2", t0)
+        return st
+
+    def _lc_points(self, filters: list) -> pd.DataFrame:
+        """Phase-a light-curve points of every tile matching a pyarrow filter, with what the zone fit reads. Each light
+        curve lives in one tile, in the untiled order, so the per-curve sums come out the same."""
+        cols = ["source_id", "ref_id", "origin", "detector", "mjd", "flux_ujy", "flux_err_ujy", "model_ujy", "ref", "ref_group"]
+        parts = []
+        for t in self.tiles:
+            f = os.path.join(self.work, "tiles", t.name, "owned", "lc_points_a.parquet")
+            if os.path.exists(f):
+                parts.append(_plain(pq.read_table(f, columns=cols, filters=filters)))
+        P = pa.concat_tables(parts, promote_options="permissive").to_pandas() if parts else pd.DataFrame(columns=cols)
+        P["ref_id"] = P["ref_id"].astype(str)
+        P["origin"] = P["origin"].astype(str)
+        return P
+
+    def merge2(self, xid: pd.DataFrame | None) -> dict:
+        from . import astrometry, lightcurves, photoz
+        t0 = time.time()
+        z, w, T, s = self.zone, self.work, self.tiles, self.store
+        out: dict = {}
+        src = _concat(_read_parts(w, T, "sources_cal.parquet"), ["source_id"])
+        out["sources"] = _write(s, z, "sources.parquet", src)
+        cl = _concat(_read_parts(w, T, "classes.parquet"), ["source_id"])
+        out["classes"] = _write(s, z, "classes.parquet", cl)
+        pz = _concat(_read_parts(w, T, "photoz.parquet"), ["source_id"])
+        out["photoz"] = _write(s, z, "photoz.parquet", pz)
+        out["colours"] = _write(s, z, "colours.parquet", _concat(_read_parts(w, T, "colours.parquet"), ["source_id", "det_a"]))
+        # light curves: one tile at a time into one file (the zone's points are the biggest table); rows in tile order,
+        # each tile's sorted by source_id, ref_id, detector, mjd as untiled
+        out["lightcurves"] = _write_stream(s, z, "lightcurves.parquet", w, T, ("origin",))
+        summ = _concat(_read_parts(w, T, "lightcurves_summary.parquet"), ["source_id", "ref_id", "detector", "origin"])
+        out["lightcurves_summary"] = _write(s, z, "lightcurves_summary.parquet", summ)
+        if summ is not None and self.lc_model:
+            sdf = summ.to_pandas()
+            rk = _df(_read_parts(w, T, "lc_ref_keys.parquet"))
+            rep = lightcurves.error_report(rk, sdf, np.ones(len(rk), bool), self.lc_model)
+            rep["bad_photos"] = self.bad_rows
+            s.write_json(results_rel(z.name, "lightcurves_report.json"), {"zone": z.name, **rep})
+            out["lightcurves_variable_share"] = {o: rep[o]["variable_share"] for o in ("dot", "forced") if o in rep}
+        # photoz report on the merged tables (SDSS DR17 once per zone)
+        if pz is not None:
+            pzd = pz.to_pandas()
+            srcd = src.to_pandas() if src is not None else pd.DataFrame()
+            sel = [st.get("photoz_selection") for st in self.pass2b_stats if st.get("photoz_selection")]
+            chosen = sel[0] if sel else "all sources (no classes.parquet)"
+            if chosen.startswith("classes") and "saturated" in srcd:
+                srcd = srcd[~srcd["saturated"].to_numpy(bool)]
+            rep = photoz.report(s, z, pzd, srcd, len(pzd), chosen)
+            s.write_json(results_rel(z.name, "photoz_report.json"), rep)
+            out["photoz_report"] = {k: v for k, v in rep.items() if k != "sdss_dr17"}
+        # astrometry
+        cor = _concat(_read_parts(w, T, "astrometry.parquet"), ["source_id"])
+        raw = _concat(_read_parts(w, T, "astrometry_raw.parquet"), ["source_id"])
+        out["astrometry"] = _write(s, z, "astrometry.parquet", cor)
+        corrected = any(st["astrometry"]["corrected"] for st in self.pass2b_stats)
+        sums = {k: sum(st["astrometry"].get(k, 0) for st in self.pass2b_stats) for k in ("fitted", "with_parallax", "spacecraft_position_dots")}
+        cor_df = cor.to_pandas() if cor is not None else pd.DataFrame(columns=astrometry.COLUMNS)
+        raw_df = raw.to_pandas() if raw is not None else pd.DataFrame(columns=astrometry.COLUMNS)
+        rep = {"zone": z.name, "frame_correction": self.frame_stats if corrected else {"photos_corrected": 0},
+               "fitted": sums["fitted"], "with_parallax": sums["with_parallax"],
+               "spacecraft_position_dots": sums["spacecraft_position_dots"],
+               "vs_gaia_frame_corrected": astrometry.report(cor_df, xid) if corrected else None,
+               "vs_gaia_raw": astrometry.report(raw_df, xid)}
+        s.write_json(results_rel(z.name, "astrometry_report.json"), rep)
+        self._timed("merge2", t0)
+        return out
+
+    # -- the whole run
+    def run(self) -> dict:
+        from . import highpm, score, suspects
+        t_all = time.time()
+        z, s = self.zone, self.store
+        L.info("tiles %s: %d tiles of %.2f° (border %.0f″, zone edge %s), %d workers, work dir %s", z.name, len(self.tiles),
+               self.tile_deg, self.margin, "bordered" if self.edge_margin else "clipped", self.workers, self.work)
+        pool = _Pool(self.workers)
+        steps: dict = {}
+        try:
+            self.prepare(pool)
+            self.run_pass1(pool)
+            steps["link"] = self.merge1()
+            steps["calib"] = self.calib()
+            t0 = time.time()
+            self.pass2a_stats = pool.map(pass2a, [(self.ctx, t) for t in self.tiles])
+            self._timed("pass2a", t0)
+            steps["reduce"] = self.reduce2()
+            t0 = time.time()
+            self.pass2b_stats = pool.map(pass2b, [(self.ctx, t, self.locus, self.lc_model, self.bad_keys, self.offsets) for t in self.tiles])
+            self._timed("pass2b", t0)
+            xid = s.read_parquet(results_rel(z.name, "crossids.parquet")) if s.exists(results_rel(z.name, "crossids.parquet")) else None
+            steps["merge"] = self.merge2(xid)
+            t0 = time.time()
+            steps["highpm"] = highpm.run(s, z, self.workers)
+            self._timed("highpm", t0)
+            pred = self.load_predictions(pool)
+            t0 = time.time()
+            steps["score"] = score.run(s, z, pred=pred)
+            self._timed("score", t0)
+            t0 = time.time()
+            steps["suspects"] = suspects.run(s, z, pred=pred)
+            self._timed("suspects", t0)
+        finally:
+            pool.close()
+            if not self.keep_work:
+                shutil.rmtree(self.work, ignore_errors=True)
+        kids = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+        self.stats.update({
+            "seconds": self.times, "wall_s": round(time.time() - t_all, 1),
+            "peak_rss_mb_orchestrator": _peak_rss_mb(),
+            "peak_rss_mb_worker": round(kids / 1e6 if sys.platform == "darwin" else kids / 1e3, 1),
+            "peak_rss_mb_tile_max": max([st.get("peak_rss_mb", 0) for st in [*self.pass1_stats, *self.pass2a_stats, *self.pass2b_stats]] or [0]),
+            "owned_sources": sum(st["owned_sources"] for st in self.pass1_stats),
+            "owned_movers": sum(st["owned_movers"] for st in self.pass1_stats)})
+        sec = self.times
+        for k, names in (("link", ("prepare", "pass1", "merge1")), ("calib", ("calib",)),
+                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("highpm", ("highpm",)),
+                         ("score", ("predictions", "score")), ("suspects", ("suspects",))):
+            if isinstance(steps.get(k), dict):
+                steps[k]["step_seconds"] = round(sum(sec.get(n, 0.0) for n in names), 1)
+        self.stats["step_seconds"] = self.stats["wall_s"]
+        steps["tiles"] = self.stats
+        L.info("tiles %s: done in %.1f s: %s", z.name, self.stats["wall_s"], self.times)
+        return steps
+
+
+def run(store: Store, zone: C.Zone, tile_deg: float, workers: int, **kw) -> dict:
+    """The combining steps of `zone`, tiled; returns per-step stats (for summary.json)."""
+    return Run(store, zone, tile_deg, workers, **kw).run()
