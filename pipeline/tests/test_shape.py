@@ -214,3 +214,10 @@ def test_nothing_selected_writes_an_empty_list():
     out = S.candidate_table(pd.DataFrame({k: np.zeros(0, np.int64 if k == "source_id" else np.float64) for k in cols}),
                             stats)
     assert len(out) == 0 and "score" in out and "why" in out
+
+
+def test_dots_of_sources_missing_from_sources_are_dropped():
+    # hunt (14 Nov): members.parquet from the combine, sources.parquet rewritten later by spectra without 2 of them
+    d = pd.DataFrame({"source_id": np.array([1, 1, 2, 3], np.int64), "photo": [0, 1, 0, 1]})
+    kept, n = S.known_sources_only(d, pd.DataFrame({"source_id": np.array([1, 3], np.int64)}))
+    assert n == 1 and kept["source_id"].tolist() == [1, 1, 3] and kept.index.tolist() == [0, 1, 2]
