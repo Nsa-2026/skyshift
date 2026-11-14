@@ -14,6 +14,8 @@ Every check is printed even when its number is poor; a check with no input yet i
   V10 <results>/<zone>/photoz_report.json       (pipeline photoz)
   V11 scripts/science/data/asteroid_sizes.json  (scripts/science asteroids.py)
   suspects.json: <results>/<zone>/suspects.json of every zone, merged (merge_suspects)
+  distant.json: the distant-planet search (distant.py): <results>/<zone>/distant.json, else data/distant_<zone>.json,
+      + data/distant_injection_<zone>.json; the first zone with a run
 
 Zones (--zones, default hunt,pilot): V5, V8 spectra, V9, V10 and suspects.json take their headline from the first
 zone that has the input and keep the others in the rows (field `zone`) and the note. Without the hunt's reports the
@@ -32,6 +34,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import distant
 from _common import BUCKET, CACHE, DATA, today, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -44,7 +47,8 @@ TARGET_SLUGS = ("barnard", "epsindib", "wise0855", "rwaur", "rdra")
 DATA_RELEASE = "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)"
 ZONES = ("hunt", "pilot")  # headline first: the hunt is the bigger sample; the pilot holds gate G2
 G2_ZONE = "pilot"  # gate G2 was decided on the pilot before the hunt ran
-REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json")
+REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json",
+           "distant.json")
 
 
 def load(path: Path | None) -> dict | None:
@@ -688,6 +692,8 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
                     help="write the zones' merged suspects here when the pipeline wrote real ones (default web/public/data)")
+    ap.add_argument("--distant-out", type=Path, default=SITE_DATA / "distant.json",
+                    help="write the distant-planet search here when a zone has a run (default web/public/data)")
     args = ap.parse_args()
 
     zones = as_zones(args.zone or args.zones)
@@ -715,6 +721,11 @@ def main() -> None:
         write_json(args.suspects_out, sus)
         per = ", ".join(f"{z} {len(d['suspects'])}" for z, d in files if valid_suspects(d))
         print(f"-> {args.suspects_out} ({len(sus['suspects'])} suspects, headline zone {sus['zone']}; per zone: {per})")
+    dist = distant.write_site_file(args.results, zones, args.distant_out, DATA_RELEASE)
+    if dist:
+        c, k = dist["counts"], dist["control"]
+        print(f"-> {args.distant_out} ({dist['zone']}: {c['pairs_tested']} pairs tested, {c['pairs']} passing, "
+              f"chance {k['expected_pairs']}, Poisson p {k['poisson_p']})")
 
 
 if __name__ == "__main__":

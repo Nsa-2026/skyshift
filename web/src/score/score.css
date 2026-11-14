@@ -283,8 +283,9 @@
   color: var(--ink-3);
 }
 
-/* ---- suspects ---- */
-.sc-suspects {
+/* ---- suspects (and the distant-planet search, laid out the same way) ---- */
+.sc-suspects,
+.sc-distant {
   display: grid;
   justify-items: start;
   gap: var(--s3);
@@ -324,9 +325,33 @@
 .sc-zone b {
   font-weight: 650;
 }
-.sc-suspects .sc-scroll {
+.sc-suspects .sc-scroll,
+.sc-distant .sc-scroll {
   justify-self: stretch;
   margin-top: var(--s1);
+}
+/* the check classes reused here (claim, note) carry grid areas meant for .sc-check: one column here */
+.sc-distant > * {
+  grid-area: auto;
+}
+.sc-distant .sc-claim {
+  margin-top: var(--s4);
+}
+.sc-distant .sc-note {
+  max-width: 66ch;
+  padding: 0;
+  font-size: var(--step-0);
+  line-height: var(--lh);
+}
+.sc-distant-funnel th {
+  min-width: 18ch;
+  white-space: normal;
+}
+.sc-distant .sc-distant-limits {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+  padding-left: 1.25em;
 }
 .sc-sid-id,
 .sc-blink {
