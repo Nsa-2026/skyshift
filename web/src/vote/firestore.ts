@@ -1,0 +1,84 @@
+// Firestore behind the VoteStore interface. index.ts imports this module dynamically, so the
+// Firebase SDK is a separate chunk that loads after the first frame.
+import { getApps, initializeApp } from "firebase/app";
+import {
+  addDoc,
+  collection,
+  getDocs,
+  getFirestore,
+  limit,
+  query,
+  serverTimestamp,
+  where,
+  type Firestore,
+} from "firebase/firestore";
+import type { SkyPos } from "../api/types";
+import { sepArcsec } from "../app/astro";
+import { candidateDoc, countVotes, toCandidate, voteDoc, type Answer, type Candidate, type CandidateDoc, type Counts } from "./model";
+import { toVoteError, withTimeout, type FirebaseConfig, type VoteStore } from "./store";
+
+const TIMEOUT_MS = 12_000;
+const MAX_NEAR = 500;
+const IN_CHUNK = 30; // Firestore "in" takes at most 30 values
+
+export class FirestoreStore implements VoteStore {
+  readonly mode = "firestore" as const;
+  private db: Firestore;
+
+  constructor(config: FirebaseConfig) {
+    const app = getApps()[0] ?? initializeApp(config);
+    this.db = getFirestore(app);
+  }
+
+  async near(center: SkyPos, radiusArcsec: number): Promise<Candidate[]> {
+    // Firestore has no cone search: query a declination band, then cut the circle here.
+    const r = radiusArcsec / 3600;
+    const q = query(
+      collection(this.db, "candidates"),
+      where("dec", ">=", Math.max(-90, center.dec - r)),
+      where("dec", "<=", Math.min(90, center.dec + r)),
+      limit(MAX_NEAR),
+    );
+    try {
+      const snap = await withTimeout(getDocs(q), TIMEOUT_MS);
+      return snap.docs
+        .map((d) => toCandidate(d.id, d.data()))
+        .filter((c): c is Candidate => c !== null && sepArcsec(c, center) <= radiusArcsec);
+    } catch (e) {
+      throw toVoteError(e);
+    }
+  }
+
+  async counts(ids: string[]): Promise<Map<string, Counts>> {
+    const votes: { candidate_id: string; answer: Answer }[] = [];
+    try {
+      for (let i = 0; i < ids.length; i += IN_CHUNK) {
+        const chunk = ids.slice(i, i + IN_CHUNK);
+        const snap = await withTimeout(getDocs(query(collection(this.db, "votes"), where("candidate_id", "in", chunk))), TIMEOUT_MS);
+        snap.forEach((d) => votes.push(d.data() as { candidate_id: string; answer: Answer }));
+      }
+    } catch (e) {
+      throw toVoteError(e);
+    }
+    return countVotes(votes);
+  }
+
+  async flag(doc: CandidateDoc): Promise<Candidate> {
+    const clean = candidateDoc(doc);
+    try {
+      const ref = await withTimeout(addDoc(collection(this.db, "candidates"), clean), TIMEOUT_MS);
+      return { id: ref.id, ...clean };
+    } catch (e) {
+      throw toVoteError(e);
+    }
+  }
+
+  async vote(candidateId: string, answer: Answer, voter: string): Promise<void> {
+    const doc = voteDoc(candidateId, answer, voter, serverTimestamp());
+    try {
+      await withTimeout(addDoc(collection(this.db, "votes"), doc), TIMEOUT_MS);
+    } catch (e) {
+      throw toVoteError(e);
+    }
+  }
+}

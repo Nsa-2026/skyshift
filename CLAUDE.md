@@ -8,7 +8,7 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 ## Areas and owners
 - core/                Shared science: visit rule, flag masks, detect, centroid, shift, photometry. P1.
 - pipeline/            Pilot and hunt zone on the cloud machines. P1.
-- scripts/validate/    V1–V8, writes web/public/data/validation.json. P1.
+- scripts/validate/    V1–V11, writes web/public/data/validation.json. P1.
 - server/              FastAPI on Cloud Run. build_blink() for any coordinates. P2.
 - scripts/precompute/  Featured targets → web/public/data/<slug>/. P2.
 - web/                 Vite + TypeScript. src/app sky card api data score → P3. src/blink vote → P4.
@@ -58,8 +58,10 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   OVERFLOW or NONLINEAR in a source's core means saturated.
   Bit names and numbers confirmed on the first file (14 Nov, FLAGS header MSKNnnnn keys).
   SOURCE was on 99.37% of pixels (Cygnus, crowded); about 50% in the hunt zone. The mask list removed about 2.1%.
-- Saturation: the brightest unsaturated asteroid points were AB 10.5 (D3), 10.9 (D4), 9.6 (D5), 8.6 (D6)
-  (scripts/science, 14 Nov); D1–D2 are not measured yet. Barnard's Star, RW Aurigae and
+- Saturation (pilot, 50% of stars with OVERFLOW/NONLINEAR at the peak): D1 J_AB 10.5, D2 J_AB 10.8,
+  D3 K_AB 11.0, D4 W1_AB 11.1, D5 W2_AB 9.6, D6 W2_AB 9.0. Units checked: our fluxes / 2MASS = 0.995 (J),
+  1.037 (H), 1.022 (Ks), so 889 µJy per MJy/sr and the 1.033 aperture correction hold to 2–4%.
+- pos_err_arcsec is 1.4–1.8× too small against Gaia (single-dot floor ~0.43″); scale it before use. Barnard's Star, RW Aurigae and
   R Draconis are expected to saturate: centroid on the wings and mark the core.
 - Collections: spherex_dr1 and spherex_qr3. Skip *_deep. Search with astroquery Irsa.query_sia;
   the TAP table name is unverified.
@@ -84,5 +86,4 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 
 ## Not yet verified (check on real data, then fix here and in contracts/)
 Facts measured on the first file: docs/research/2026-11-14-first-photo-facts.md.
-- Units to µJy: the 889 µJy per MJy/sr per pixel conversion, against a catalogue star.
-- Saturation level in D1–D2 (D3–D6 measured, see Domain facts).
+- Nothing open from the first list: the pilot (14 Nov) checked units and saturation (see Domain facts).

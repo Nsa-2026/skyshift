@@ -182,12 +182,13 @@ In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data
 
 ```
 { generated, data_release,
-  checks:[{ id:"V1".."V8", claim, status:"pass"|"partial"|"fail"|"pending",
+  checks:[{ id:"V1".."V11", claim, status:"pass"|"partial"|"fail"|"pending",
             headline, value|null, unit|null, expected, note|null, rows:[{…}] }] }
 ```
 
 `headline` is the text the scoreboard prints (a poor number is still printed). `rows` holds one
 flat object per item (a target, an asteroid, a star); P1 lists its keys per check in the note.
+V1–V11 as in the concept plan: V6 and V7 belong to cut work (S2, S3) and stay `pending`.
 
 ### suspects.json (proposal)
 
