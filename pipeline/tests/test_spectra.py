@@ -96,11 +96,75 @@ def flat(wl):
     return np.full_like(wl, 500.0)
 
 
-def test_constant_star_chi2_near_one_and_not_variable(rng):
+def test_constant_star_chi2_near_one_and_not_variable(rng, monkeypatch):
+    # exact quoted errors: chi2 ~ 1 without the floor
+    monkeypatch.setattr(C, "SPECTRA_ERR_FLOOR", {d: 0.0 for d in range(1, 7)})
     src = SP.compute(star_dots(rng, n_per_det=200, flux=flat)).iloc[0]
     assert 0.8 < src["chi2_nu"] < 1.25
     assert abs(src["visit_flux_ratio"] - 1) < 0.05
     assert not src["variable"]
+
+
+def test_error_floor_brings_underestimated_errors_to_chi2_one(rng):
+    # the real dots' scatter: the quoted error (1%) plus each detector's fractional floor
+    d = star_dots(rng, n_per_det=300, rel_err=0.01, flux=flat)
+    floor = d["detector"].map(C.SPECTRA_ERR_FLOOR).to_numpy()
+    d["flux_ujy"] += rng.normal(0, 1, len(d)) * floor * 500.0
+    src = SP.compute(d).iloc[0]
+    assert 0.75 < src["chi2_nu"] < 1.3
+    raw = SP.compute(d.assign(reject=False), {}).iloc[0]  # same with the reject column given
+    assert np.isclose(raw["chi2_nu"], src["chi2_nu"])
+
+
+def test_single_bad_dots_left_out(rng):
+    # 63085007137300 (hunt): one D4 dot at 3.25 µm 8.6× its neighbours (ap/PSF 1.3, √(a·b) 0.42× a star's) faked PAH
+    d = star_dots(rng, n_per_det=60, flux=flat)
+    d["flux_psf_ujy"] = d["flux_ujy"] / 1.033
+    d["a_arcsec"], d["b_arcsec"] = 4.0, 3.9
+    d["snr"] = d["flux_ujy"] / d["flux_err_ujy"]
+    i4 = np.flatnonzero(d["detector"].to_numpy() == 4)
+    spike, glitch, sharp = i4[:3]
+    d.loc[spike, ["flux_ujy", "flux_psf_ujy"]] = [500.0 * 8.6, 500.0 * 8.6 / 1.3]  # spike: against the neighbouring channels
+    d.loc[glitch, ["flux_ujy", "flux_psf_ujy"]] = [700.0, 300.0]  # aperture > 2 × PSF
+    d.loc[sharp, ["a_arcsec", "b_arcsec"]] = [1.5, 1.4]  # far sharper than a star at that S/N
+    st: dict = {}
+    src = SP.compute(d, st).iloc[0]
+    assert st["dots_left_out_ap_psf"] == 1 and st["dots_left_out_sharp"] == 1 and st["dots_left_out_spike"] == 1
+    assert np.asarray(src["n"]).sum() == len(d) - 3
+    f = np.asarray(src["flux_ujy"])
+    assert np.nanmax(np.abs(f / 500.0 - 1)) < 0.2
+
+
+def test_spike_seen_in_two_visits_is_kept(rng):
+    # a narrow feature repeated in both visits is real: kept (visit_bits says which visits saw each channel)
+    d = star_dots(rng, n_per_det=170, flux=flat, rel_err=0.01)
+    ch = SP.channel_of(d["detector"].to_numpy(), d["wavelength_um"].to_numpy())
+    k = 3 * 17 + 8  # a D4 channel
+    m = ch == k
+    assert set(d.loc[m, "visit"]) == {1, 2}
+    d.loc[m, "flux_ujy"] *= 3.0
+    st: dict = {}
+    src = SP.compute(d, st).iloc[0]
+    assert st["dots_left_out_spike"] == 0
+    assert np.asarray(src["flux_ujy"])[k] > 2.5 * 500
+    vb = np.asarray(src["visit_bits"])
+    assert vb[k] == 0b11 and SP.popcount(vb[k]) == 2
+    # the same in one visit only: a spike, left out
+    d2 = d[~(m & (d["visit"] == 2).to_numpy())].reset_index(drop=True)
+    src2 = SP.compute(d2, st).iloc[0]
+    assert st["dots_left_out_spike"] == int((m & (d["visit"] == 1).to_numpy()).sum())
+    assert np.isnan(np.asarray(src2["flux_ujy"])[k]) and np.asarray(src2["visit_bits"])[k] == 0
+
+
+def test_neighbour_median_and_visit_helpers():
+    src = np.array([0, 0, 0, 0, 0, 1])
+    chan = np.array([0, 1, 2, 3, 16, 17])
+    val = np.array([1.0, 2.0, 3.0, 100.0, 7.0, 5.0])
+    ref = SP.neighbour_median(src, chan, val, 2)
+    assert ref[0] == 2.5 and ref[1] == 3.0 and ref[2] == 2.0 and ref[3] == 2.5
+    assert np.isnan(ref[4]) and np.isnan(ref[5])  # < 2 neighbours; channel 17 is another detector than 16
+    assert SP.visit_bit([1, 2, 16, 0]).tolist() == [0, 1, 0, 0]
+    assert SP.popcount([0, 1, 3, 0b101010]).tolist() == [0, 1, 2, 3]
 
 
 def test_star_that_doubles_between_visits_is_flagged(rng):
@@ -120,6 +184,7 @@ def test_many_sources_vectorised_and_saturation(rng):
     tab = SP.to_arrow(src)
     assert str(tab.schema.field("flux_ujy").type) == "fixed_size_list<item: float>[102]"
     assert str(tab.schema.field("n").type) == "fixed_size_list<item: int16>[102]"
+    assert str(tab.schema.field("visit_bits").type) == "fixed_size_list<item: int16>[102]"
 
 
 # --- link -> members -> spectra round trip ---------------------------------------------------

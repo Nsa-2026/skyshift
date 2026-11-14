@@ -127,7 +127,10 @@ def poly_model(gl: np.ndarray, G: int, x: np.ndarray, y: np.ndarray, w: np.ndarr
             A[:, a, b] = A[:, b, a] = np.bincount(gl, w * xc ** (a + b), G)
     rhs = np.stack([np.bincount(gl, w * y * xc ** a, G) for a in range(k)], axis=1)
     n = np.bincount(gl, minlength=G)
-    few = n < LC_POLY_MIN_POINTS
+    # Repeated wavelengths can give a numerically nonzero determinant while the
+    # normal matrix is rank deficient. Use the weighted mean for those groups,
+    # as for sparse groups, so one unfit spectrum cannot crash an entire tile.
+    few = (n < LC_POLY_MIN_POINTS) | (np.linalg.matrix_rank(A, hermitian=True) < k)
     A[few, 1:, :] = 0.0
     A[few, :, 1:] = 0.0
     A[few, 1:, 1:] = np.eye(k - 1)

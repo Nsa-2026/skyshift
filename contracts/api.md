@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.8)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.11)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -7,7 +7,11 @@ targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the communi
 v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
 v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows only;
 v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json;
-v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental).
+v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
+v3.9: `measure.source`, which detector, visits and exposures the shift was measured in;
+v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree;
+v3.11: bright-star fragments and blends: candidates' `blend` reason, distant.json `dropped.blend`, the measured
+layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -35,7 +39,8 @@ GET /api/object?ra=&dec=
     spectrum:[{ um, flux_ujy, err_ujy, det, mjd, visit, saturated }],
     spectrum_reason?,                                # why spectrum is empty, else null
     measure:{ shift_arcsec, pa_deg, dt_yr, rate_arcsec_yr, sigma_arcsec,
-              n_ref_stars, predicted_arcsec|null },
+              n_ref_stars, predicted_arcsec|null,
+              source?:{ det, visits, mjd, n_exposures, fov, pixel_arcsec, core_filled }|null },
     measure_reason?,                                 # why measure is null, else null
     measure_hint?:{ name, ra, dec, mjd } }           # moved_away only: where the star is
 GET /api/gaia?ra=&dec=&r=
@@ -118,11 +123,13 @@ exposures than the static files. The static twins (scripts/precompute) use all o
 
 | clock | live `/api/frames` | static `/data/<slug>/` |
 |---|---|---|
-| months | at most **6 exposures per visit** in each stack, spread evenly over the visit (first and last included) | every exposure of the visit |
-| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions with 2 or more exposures preferred) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
+| months | at most **6 exposures per visit** in each stack, spread evenly over the visit's exposures that cover at least 90% of the field (from the search footprints; when too few, those plus the ones that fill most of the still-empty field) | every exposure of the visit |
+| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions whose exposures cover at least 90% of the field preferred, then sessions with 2 or more exposures) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
 
-The hours clock shows one visit: the one with the most exposures of that detector (the latest on
-a tie). `n_exposures` always reports the exposures really in the frame: a capped months stack of
+The hours clock shows one visit: the one with the most exposures of that detector covering at least half the
+field (from the search footprints; then the most covering 90%, then the most exposures, the latest on a tie).
+An exposure covering under half the field is left out when its session has better ones. Pixels with raw 0 are
+no data (the field's edge in that photo), never sky. `n_exposures` always reports the exposures really in the frame: a capped months stack of
 a 19-exposure visit says 6; an hours frame says 1.
 
 Response fields:
@@ -166,7 +173,8 @@ measured: { zone, stage, zone_box:{ra:[min,max], dec:[min,max]}, clock,
             counts:{ star, known, mover, suspect, artifact, other },
             detections:[{ epoch_id, ra, dec, snr, flux_ujy, n_dots, class,
                           source_id|null, gaia_id|null, known_name|null, track_id|null,
-                          grade|null, reasons:[code…] }],
+                          grade|null, reasons:[code…],
+                          parent_gaia_id?|null, blend_gaia_ids?|null }],    # v3.11, optional
             tracks:[{ id, class, suspect_id|null, known_name|null, evidence,
                       dots:[{ ra, dec, mjd, epoch_id }] }],
             shifts:[{ source_id, gaia_id|null, class, ra, dec, mjd_from, mjd_to, dt_yr,
@@ -203,7 +211,9 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`) |
 | track_id | string or null | `tracks[].id` of the mover it belongs to |
 | grade | `"A"` \| `"B"` \| `"C"` or null | Suspects only, from the zone's suspects table when it is graded (vetting); null otherwise |
-| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. Else `[]` |
+| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. `blend` (v3.11), on any class but `artifact`: its linked source is tagged `blend` by the pipeline's `fragments` step (two or more Gaia DR3 stars, G < 18, within 8″: one detection, several stars); the class stays. Else `[]` |
+| parent_gaia_id | string or null | **Optional** (v3.11). Class `artifact` with reason `bright_fragment`: Gaia DR3 source_id (a string like `gaia_id`) of the bright star whose ring this is a piece of (`fragments` step: the brightest Gaia star with G < 12 within 60″). All fragments of one star share it: draw that star once, not each piece. Null otherwise or when no such star is listed. Older responses lack the field: read as null |
+| blend_gaia_ids | [string] or null | **Optional** (v3.11). Reason `blend`: the Gaia DR3 source_ids (strings, nearest first) of the stars merged into this detection. Null otherwise. Older responses lack the field: read as null |
 
 **class**, first rule that applies:
 
@@ -211,7 +221,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 |---|---|---|
 | suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
 | known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
-| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3 | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star |
+| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` |
 | mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
 | star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
 | other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else |
@@ -219,7 +229,9 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
 3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
 `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`, and from 14 Nov
-evening `few_sessions`, `unchecked`, `gaia_slow`).
+evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`), and (v3.11, both clocks) `bright_fragment`: a piece
+of a saturated star's ring (the pipeline's `fragments` step, `results/<zone>/fragments.parquet`: BLOOM on most of its
+dots and no Gaia DR3 or 2MASS entry within 3″), with `parent_gaia_id`.
 Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
 in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-matched movers have it at the peak).
 
@@ -317,11 +329,18 @@ The object nearest a position (search radius 6″).
 | spectrum_reason | **Optional.** Why `spectrum` is empty: `"saturated"` (a star saturated so deeply that no exposure had a usable aperture and background annulus, e.g. R Draconis) or `"no_data"`; `null` when there are points. Files without it: read as `null` |
 | measure | Motion between the first and last visit stack, or null with fewer than two visits or when no single source stands out clearly in both stacks (`measure_reason` says why). The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
 | measure.shift_arcsec, pa_deg | Size and direction of the shift; position angle east of north |
-| measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks, years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
+| measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks (`source.mjd`), years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
 | measure.rate_arcsec_yr | shift_arcsec / dt_yr |
 | measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
 | measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
+| measure.source | **Optional** (v3.9). What the shift was measured on, below. The server picks its own detector and visit pair, whatever the player shows: changing the player's detector, clock or field doesn't change `measure`. Files and answers without it, and `null`: unknown. Readers then say less (no detector, the visits as "first and last") and never take the detector or visits from the frames on screen |
+| measure.source.det | Detector 1–6 of both stacks |
+| measure.source.visits | `[first, last]`: the two visit numbers compared, as in the frames' epoch ids (`d<det>-v<visit>`). Not always 1 and the last visit: a visit with fewer than 3 exposures in that detector is skipped |
+| measure.source.mjd | `[first, last]`: the median MJD-AVG (UTC) of each stack's exposures, the times the fit uses. `dt_yr` = (mjd[1] − mjd[0]) / 365.25. They can differ from the epochs' `mjd_mid` (above) |
+| measure.source.n_exposures | `[first, last]`: exposures in each stack. A live answer may use fewer than the visit has (the months live cap above: at most 6 per visit) |
+| measure.source.fov, pixel_arcsec | The measurement's own grid: field in arcmin (15) and sampling in arcsec per pixel (6.15, native). Not the player's field |
+| measure.source.core_filled | `[first, last]`: true when the star had a hole in that stack (saturated in every exposure) and a round profile fitted to its wings filled it before the centroid (Barnard's Star). Real pixels are never changed |
 | measure_reason | **Optional.** Why `measure` is null: one of the codes below. When it is set, `measure` is null; with a measure it is null. Files and answers without it: read as `null` (the site then gives its general sentence) |
 | measure_hint | **Optional.** `{ name, ra, dec, mjd }` with `measure_reason` `moved_away`, else null: the fast star that was catalogued here and its position (degrees) at `mjd`, the middle of SPHEREx's first and last exposures at this position, so the site can open it where it is. `name`: the built-in name or `Gaia DR3 <id>` |
 
@@ -523,7 +542,11 @@ the `vetted` rows of `highpm_candidates.parquet` (from 14 Nov evening; before, e
 fakes or not movers: a Gaia or CatWISE motion that isn't ours, chance-level pairs, too few sessions, nothing to
 check against, or a known slow Gaia star (contracts/dots.md, highpm_candidates).
 spectral: sources of `classes.parquet` with a band label or `brown_dwarf_like`, and either no Gaia match or
-a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. An object already
+a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. From v3.10 the exporter
+first cleans the labels: `pah_33` only from photoz's PAH at the galaxy's redshift (`label_pah_33_z`) or a good
+photo-z below 0.02; no ice label on a galaxy with a good photo-z; no `h2o_vapour` or `co_23` on a Gaia star with
+BP − RP ≥ 1.8 (an M dwarf, where they are expected). A Gaia DR3 star (G < 20) within 6″ at the source's epoch
+counts as a Gaia match (a blend), so `no_gaia` means none within 6″. At most 20 rows labelled `pah_33` alone. An object already
 listed from an earlier zone is not listed again, and the earlier entry's `zones` gets the later zone: movers
 within 6″ and 2 minutes (suspects.json's merge), high_pm and spectral within 4″. The pilot lies inside the
 hunt zone, which was run on the same photos: the hunt re-found all 27 pilot movers (the same ids as
@@ -532,11 +555,13 @@ shape (v3.7): every row of `results/<zone>/shape_candidates.parquet`, written by
 `python -m skyshift_pipeline.shape` (pipeline/src/skyshift_pipeline/shape.py; its report `shape_report.json`
 next to it); a zone without the file has none. A fixed source is listed when its dots, compared with single
 Gaia stars in the same photo and region of the detector, are stretched along one axis on the sky at ≥ 20σ
-(both visits along the same axis: `steady_pa`, or one visit only: `one_visit`), Gaia DR3 (G < 20) and
-CatWISE2020 list exactly one object within 15″ (any other entry there explains the stretch) and no entry
-within 35″ less than 2.5 mag fainter than it (the moments' background annulus reaches 34″), it is not
-saturated, not within 60″ of a G < 9 star, not flagged as an artefact on ≥ 25% of its dots, and classify
-doesn't call it a galaxy; at most the 150 most significant per zone. Within 4″ deduped like high_pm and
+(the short- and long-wavelength detectors along the same axis: `steady_pa`, or one visit only: `one_visit`),
+Gaia DR3 (G < 20), CatWISE2020 and 2MASS list exactly one object within 15″ (any other entry there explains the
+stretch; 2MASS at its own epoch) and no entry within 35″ less than 2.5 mag fainter than it (the moments'
+background annulus reaches 34″), the catalogued neighbours within 20″, weighted by flux ratio and the share of
+their light inside the moments' window, predict along its axis less than a quarter of the stretch (v3.10), it is
+not saturated, not within 60″ of a G < 9 star, not flagged as an artefact on ≥ 25% of its dots, and it is not a
+galaxy: not classify's galaxy, no good photo-z, and with no Gaia star not extended (v3.10); at most the 150 most significant per zone. Within 4″ deduped like high_pm and
 spectral. shape_report.json has the rule and its checks. Hunt (14 Nov, 38% of the photos): isolated single
 Gaia stars fire at 0.17% (10 of 5,803), Gaia pairs 3–10″ apart at 21% (383 of 1,809), along the pair's axis
 to 2° (median); 49 listed, of which about 23 would be expected from the single stars' rate. Single stars
@@ -547,13 +572,15 @@ Nothing is dropped for being doubtful (except high_pm, above): doubts become `re
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
 `outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` and the vetting gates (mover);
 `short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
-`at_control_level`, `implausible_pm` (high_pm); `one_visit`, `class_galaxy` (shape).
+`at_control_level`, `implausible_pm` (high_pm); `one_visit`, `class_galaxy` (shape); `blend` (high_pm, spectral,
+shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (either side of a pair) the pipeline's
+`fragments` step tagged `bright_fragment` is not listed at all: it is a piece of a saturated star's ring.
 
 **score** (0–1; the formulas are in the exporter and its tests):
 
 | kind | score |
 |---|---|
-| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.1 with `grade` C |
+| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.5 with a dot within 6 px of the detector edge (reason `edge`, added by the exporter too when the vetting didn't run) × 0.1 with `grade` C. "Motion not significant" uses the dots' pos_err × 1.6 |
 | high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
 | shape | (1 − e^(−s/15)) × 0.8 with `one_visit`; s = significance of the stretch (\|mean excess ellipticity\| / its error; Rayleigh, P(> s) = e^(−s²/2) for noise) |
@@ -602,15 +629,16 @@ candidate they are those of its (first) source.
 | unchecked | high_pm | No Gaia or CatWISE motion to check it against, and under 10σ or saturated (pipeline row only: not exported) |
 | gaia_slow | high_pm | Gaia agrees, but predicts under 150 mas/yr: a known slow star (pipeline row only: not exported) |
 | implausible_pm | high_pm | Faster than 12″/yr between visits: no star moves that fast (Barnard's Star, the fastest known, does 10.4″/yr), so it is almost certainly two different sources. In practice every pair (3–120″ apart about half a year apart; hunt 32–269″/yr) and the fits above 12″/yr; none is `vetted`. Hunt: 82 of 997 (55 pairs, 27 fits); pilot: 15 of 167 (12 pairs, 3 fits) |
-| no_gaia | spectral | No Gaia DR3 source here |
+| no_gaia | spectral | No Gaia DR3 source here (from v3.10: none with G < 20 within 6″) |
 | gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
 | class_star, class_galaxy, class_unsure | spectral | classify's `class` (unsure: point-like without a Gaia star) |
 | variable | spectral | Its brightness changes between visits (sources `variable`) |
 | elongated | shape | Its image is more stretched than single Gaia stars of the same S/N in the same photo and region of the detector (always set) |
-| steady_pa | shape | Two visits each show the stretch along the same axis on the sky (within 30°), although the detector turns between visits |
+| steady_pa | shape | The short-wavelength (D1–D3) and long-wavelength (D4–D6) detectors each show the stretch along the same axis on the sky (within 30°): two arrays with their own optics agree, which a PSF or detector effect would not (v3.10; before: two visits agreed) |
 | one_visit | shape | Only one visit shows the stretch; the others don't: something may have passed by, or that visit is noisier |
 | one_catalogue_source | shape | Gaia DR3 and CatWISE2020 list a single object within 15″ (always set): a second object would be new |
 | class_galaxy | shape | (also spectral) classify calls it a galaxy; galaxies are extended by nature. Not listed by the current rule; kept in the vocabulary |
+| blend | high_pm, spectral, shape | v3.11. Two or more Gaia DR3 stars (G < 18) within 8″ of its source (the pipeline's `fragments` step): the detection may be two stars merged by the 7.5″ PSF, so a shift, colour or stretch may come from the pair. A high_pm row with a blend on either side also counts as a Gaia star (`status` gaia) |
 
 **why**, examples (from the hunt export): "Seen at different places in 2 exposures 4.3 minutes apart,
 moving about 55″ an hour; no known asteroid or comet was predicted within 10′." · "Seen at different
@@ -640,7 +668,7 @@ the page leaves the section out or says it is pending.
 { generated, data_release, zone, zone_box:{ra:[min,max], dec:[min,max]}|null, run_created,
   searched:{ distance_au:[min,max], sep_arcsec:[min,max], rate_arcsec_h:[min,max], pair_min_p },
   counts:{ single_visit_sources, uncatalogued, covered, orphans,
-           dropped:{ bright_fragment, zone_edge, saturated }, drift_ok, pairs_tested, pairs,
+           dropped:{ bright_fragment, zone_edge, saturated, blend? }, drift_ok, pairs_tested, pairs,
            known_orphans, open_orphans },
   pairs:[{ source_id_a, source_id_b, visit_a, visit_b, ra_a, dec_a, mjd_a, ra_b, dec_b, mjd_b,
            sep_arcsec, dlon_arcsec, dlat_arcsec, distance_au, distance_lo_au, distance_hi_au,
@@ -667,7 +695,7 @@ the page leaves the section out or says it is pending.
 | counts.uncatalogued | int | Of those, with no Gaia DR3, CatWISE2020 or 2MASS entry within the cross-match radius |
 | counts.covered | int | Of those, whose spot the other visit photographed (≥ 6 photos), so the absence is real |
 | counts.orphans | int | Of those, kept after the drops below |
-| counts.dropped | {reason: int} | Covered sources dropped, per reason: `bright_fragment` (a source with S/N ≥ 100 within 15″: a piece of a bright star), `zone_edge` (within 3′ of the zone's edge), `saturated`. A source can have several reasons, so these may add up to more than `covered − orphans` |
+| counts.dropped | {reason: int} | Covered sources dropped, per reason: `bright_fragment` (a source with S/N ≥ 100 within 15″, or (v3.11) tagged `bright_fragment` by the pipeline's `fragments` step: a piece of a bright star), `zone_edge` (within 3′ of the zone's edge), `saturated`, `blend` (v3.11, `fragments` step: two or more Gaia stars within 8″; older files lack it: read as 0). A source can have several reasons, so these may add up to more than `covered − orphans` |
 | counts.drift_ok | int | Orphans whose drift inside their visit was measured (≥ 3 dots over ≥ 6 h, rate error ≤ 0.1″/h) and fits `searched.rate_arcsec_h`: the ones paired |
 | counts.pairs_tested | int | Pairs of `drift_ok` orphans of two visits ≥ 60 days apart, `searched.sep_arcsec` apart, mostly along the ecliptic |
 | counts.pairs | int | Pairs that passed: one distance and a bound orbit explain both positions and both drifts, and the brightness agrees in a shared detector. Listed in `pairs` (at most 300) |
@@ -906,3 +934,37 @@ single-process server only (scripts/run-local.sh).
   Cloud Run). Additive: no existing endpoint, file or field changes; nothing here is scored.
 - A missing engine now answers 404; the fixture examples (`"synthetic": true`) are served only with
   `SKYSHIFT_ALLOW_SYNTHETIC=1` (tests). Every engine is real, so no live answer changes.
+
+## Changes in v3.9 (14 Nov 2026): where the measured shift comes from
+
+- `/api/object` and `object.json`: optional `measure.source = { det, visits:[first,last], mjd:[first,last],
+  n_exposures:[first,last], fov, pixel_arcsec, core_filled:[first,last] }`, the detector, visit pair,
+  median times and exposure counts of the two stacks the shift was measured on. Additive: no existing
+  field or number changes. Files and answers without it (the static `object.json` files until the next
+  precompute, cached live answers) read as `null`: unknown, never guessed from the player's frames.
+  Proposed by 春。 (PR #66), adapted to v3.8.
+
+## Changes in v3.10 (15 Nov 2026): spectral and shape candidate rules
+
+- candidates.json spectral: the exporter cleans the labels (PAH from photoz at the galaxy's redshift, no ice on
+  a good-photo-z galaxy, no water vapour or CO 2.3 µm on Gaia M dwarfs), a Gaia G < 20 star within 6″ counts as a
+  Gaia match, and at most 20 PAH-only rows per zone. No field or code changes; fewer rows (hunt: 97 → about 9).
+- shape: `steady_pa` now means both detector arrays (D1–D3, D4–D6) show the stretch along the same axis; 2MASS
+  entries and flux-weighted neighbours to 20″ explain a stretch; galaxies (good photo-z, or extended with no Gaia
+  star) are not listed. No field or code changes; fewer rows (hunt: 49 → 5).
+
+## Changes in v3.11 (14 Nov 2026): bright-star fragments and blends
+
+The pipeline's new `fragments` step (contracts/dots.md, `fragments`)
+tags each linked source `bright_fragment` (a piece of a saturated star's ring), `saturated_star`, `blend`
+(two or more Gaia stars within 8″) or nothing. One big star must not read as many small ones, and two blended
+stars must not read as one plain star. All additive:
+- candidates.json: new reason `blend` (high_pm, spectral, shape); high_pm, spectral and shape candidates whose
+  source is a `bright_fragment` are no longer listed.
+- distant.json: `counts.dropped.blend`; `bright_fragment` also counts the step's tag. Older files lack `blend`.
+- measured layer (`/api/frames`, frames files): artifact reason `bright_fragment` on both clocks with the new
+  optional detection field `parent_gaia_id`; reason `blend` on a source's detections of any other class (the
+  class stays) with the new optional field `blend_gaia_ids`. Both fields are null when they don't apply;
+  older responses lack them (read as null). Readers: draw one mark for a fragment's parent star and strike
+  the fragments through; label a blend as more than one star.
+- Without `results/<zone>/fragments.parquet` (a zone the step hasn't run on) nothing changes.

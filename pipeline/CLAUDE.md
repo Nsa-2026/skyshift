@@ -8,7 +8,17 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
 Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
+fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
+- fragments (fragments.py, after crossid; tiled `all`: once on the merged tables after merge 2, before highpm, the dot
+  files' flags from the slim mirror): from stored tables only (members → the dot files' `flags`/`flags_peak`, sources,
+  fixed, crossids, refcat) tags each source `bright_fragment` (BLOOM on > 50% of its member dots, no Gaia/2MASS within
+  3″ of its spectrum or link position: a piece of a saturated star's ring), `saturated_star` (the same with a match),
+  `blend` (≥ 2 Gaia G < 18 within 8″), else "". Fragments carry their parent (brightest Gaia G < 12 within 60″, and that
+  star's own source); blends both Gaia ids, separation and ΔG → results/<zone>/fragments.parquet + fragments.json.
+  Consumers, each unchanged without the file: highpm (fragment → reason `fragment`, blend → status gaia), orphans
+  (drops both), shape (drops fragments), candidates.py (fragments never listed, blend → reason `blend`), server
+  measured.py. Rerun after it: highpm, orphans, shape, candidates. Hunt (14 Nov): 2,234 / 759 / 7,126 of 303,045
+  sources; 2,226 fragments have a parent (747 stars), 2,031 the parent's own source; ~45 s locally.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -21,8 +31,20 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   Hunt (14 Nov): ≥ 20σ fires on 0.17% of isolated single Gaia stars (10/5,803) and 21% of Gaia pairs 3–10″ (axis
   within 2° of the pair's); at 6σ 4% vs 77%: faint uncatalogued neighbours are common, so the cut is high. A bright
   catalogued star at 15–35″ also stretches the moments (the annulus): first try's top 4 had one at 15.2″. 49 listed.
+  Review fixes (15 Nov): steady_pa = the SWIR (D1–D3) and MWIR (D4–D6) arms each show it (≥ 2σ) at one PA (≤ 30°);
+  any 2MASS entry within 15″ that isn't the object's own (moved to 2MASS's epoch) explains it; catalogued neighbours to
+  20″ weighted by flux ratio × share of light in the window, summed as a vector, explain it when the projection on the
+  measured PA ≥ 0.25 × excess; galaxy veto (classify galaxy, a good photo-z, or no Gaia star and ext > 1 / size > 1.12).
+  The 49 listed → 5 (#2, #13, #25, #26, #29: the review's keepers): 28 galaxy-like, 17 neighbours (13 of them 2MASS).
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
+- astrometry (14 Nov night, ASTRO_SAT_OFFSET): saturated dots sit ~0.01–0.06 px off the star along −x (fixed in pixels,
+  the 180° roll made it a fake westward pm: −110 mas/yr at G 8–10). Per detector × depth bin (band mag − 50% saturation
+  mag) the median pixel offset vs Gaia is removed via each photo's Jacobian; frame offsets use unsaturated dots only.
+  Hunt: G 8–10 −112 → −33, G 10–11 −81 → −28 mas/yr (pm − Gaia − ϖ·k); the rest is bright unsaturated dots (~−0.001 px).
+- highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
+  asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
+  status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, tracklets, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
@@ -97,8 +119,8 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   photos, so stars on the zone edge aren't cut (untiled clips at the box). Photos touching only that 2′ strip are missing.
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
   Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
-  light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
-  tracklets (right after merge 1, next to calib), highpm, orphans, score and suspects run once on the merged tables
+  light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets and saturated-dot offsets; photoz/lightcurves/astrometry reports on the merged tables;
+  tracklets (right after merge 1, next to calib), fragments (after merge 2), highpm, orphans, score and suspects run once on the merged tables
   (tracks cross tiles; their 15′/2′ controls and orphans' 300–7200″ pairs need no border). link's nonfixed_dots.parquet is
   merged like movers (owner: the dot's position).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
@@ -223,6 +245,18 @@ The step never raises (errors go to its stats).
   star-forming galaxies (at z ≈ 0; photoz repeats it at the galaxy's redshift as `pah_33_sig_z`).
   Pilot before → after: ice 372 → 2, CO2 ice 3 → 0, CO ice 3 → 0, methane 52 → 0, water vapour 121 → 84,
   CO 2.3 µm 85 → 60, PAH 21 → 4.
+- Review fixes (15 Nov; config SPECTRA_*, LABEL_*, CLASSIFY_*, PHOTOZ_*): spectra errors per dot √((kσ)² + (floor ×
+  channel median)²), floors 1.7–2.5% per detector (k = 1 measured on pairs); single bad dots out (aperture/PSF > 2, or
+  √(a·b) < 0.7 × the stars' at that S/N); a channel > 5σ and > 50% off its ±2 neighbours' median is dropped unless its
+  deviating dots span ≥ 2 visits; `visit_bits` per channel, and a band label needs its window seen in ≥ 2 visits.
+  classify: stellar locus per S/N bin (S/N ≥ 8; stars are 1.23× wider at S/N 8–12 than above 80), parallax ≥ 3σ = star;
+  ice needs catalogue (else synthetic) Vega colours H − K ≥ 0.6, J − H ≥ 1.0 near the reddening line, W1 − W2 < 0.4,
+  no PAH label with it. photoz: `good` needs z > 0.01; `label_pah_33_z` (PAH at the galaxy's z, seen in ≥ 2 visits).
+  Export (clean_labels): PAH only from photoz (or z < 0.02), no ice on a good-photo-z galaxy, no h2o_vapour/co_23 on a
+  Gaia M dwarf (BP − RP ≥ 1.8: expected there); a Gaia G < 20 within 6″ at the epoch counts as a Gaia match (blend);
+  ≤ 20 PAH-only rows. crossid matches 2MASS at its own epoch (pm from Gaia, else CatWISE). The 97 listed (main, 19:07
+  tables) → 9: the two L dwarfs (brown_dwarf_like kept), 6 water vapour, 1 PAH; ice 5 → 0, CO 25 → 1.
+  Rerun per zone: spectra, classify, photoz, then shape and candidates (no re-extraction, no recombine).
 - `brown_dwarf_like`: methane or water seen, red (J − [4.6] AB > −0.5), and missing or very faint in Gaia.
   A lead for a human to check, not a discovery; `bd_evidence` says which bands fired.
 - `mag_ab_*`: brightness from our own spectrum in J, H, K, 3.5 and 4.6 µm windows (AB).

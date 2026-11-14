@@ -470,6 +470,10 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
       const moved = !view || view.ra !== v.ra || view.dec !== v.dec || view.fov !== v.fov;
       view = v;
       if (!moved) return;
+      if (pending && !busy) {
+        pending = null; // the blink drops its pick when the spot moves: don't offer to flag a dot no longer shown
+        renderDesk();
+      }
       if (loadTimer) clearTimeout(loadTimer);
       loadTimer = setTimeout(() => void load(), 250);
     },

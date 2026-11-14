@@ -5,7 +5,7 @@ import { LIST_HASH, discoverQuery, isDiscoverUrl } from "./model";
 const KEY = "skyshift.discover.last";
 let memo: { hash: string; search: string } | null = null;
 
-function record(): void {
+export function rememberDiscover(): void {
   if (typeof location === "undefined") return;
   if (!isDiscoverUrl(location.hash)) return;
   memo = { hash: location.hash, search: location.search };
@@ -32,8 +32,8 @@ let started = false;
 export function trackDiscover(): void {
   if (started || typeof window === "undefined") return;
   started = true;
-  record();
-  window.addEventListener("hashchange", record);
+  rememberDiscover();
+  window.addEventListener("hashchange", rememberDiscover);
 }
 
 /** Discover's filter query from the last Discover URL, or "" (every candidate, score order). */

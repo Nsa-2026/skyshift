@@ -19,6 +19,7 @@ export async function copyText(text: string): Promise<boolean> {
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     const active = document.activeElement as HTMLElement | null;
+    ta.focus();
     ta.select();
     let ok = false;
     try {

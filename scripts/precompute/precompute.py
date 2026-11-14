@@ -45,7 +45,7 @@ from collections import Counter
 from pathlib import Path
 
 from skyshift_core import GAIA_EPOCH_MJD, propagate
-from skyshift_server import blink, cutouts, gaia, measured, obj, search
+from skyshift_server import blink, coverage, cutouts, gaia, measured, obj, search
 from skyshift_server.cache import Cache
 from skyshift_server.search import Image
 
@@ -102,9 +102,10 @@ def clean(o):
     return o
 
 
-def set_visit(t: dict, clock: str, dets: list[int], cache: Cache) -> int | None:
+def set_visit(t: dict, clock: str, dets: list[int], cache: Cache, fov: float | None = None) -> int | None:
     """The one visit an hours file shows for all its detectors: the hours clock's choice (most
-    exposures, the latest on a tie) for the file's first detector that has exposures here. D1+D4,
+    exposures, the latest on a tie; with fov, counting those that cover the field: blink.best_hours_visit)
+    for the file's first detector that has exposures here. D1+D4,
     D2+D5, D3+D6 are exposed at the same moment, so they must show the same exposures; chosen per
     detector, RW Aurigae's D2 (visit 2: 19 exposures, visit 3: 18) and D5 (19 and 19, so the later)
     showed different visits. None for the months clock (every visit)."""
@@ -112,7 +113,9 @@ def set_visit(t: dict, clock: str, dets: list[int], cache: Cache) -> int | None:
         return None
     images = search.search(t["ra"], t["dec"], cache=cache).images
     for det in dets:
-        v = blink.best_hours_visit([im for im in images if im.det == det])
+        mine = [im for im in images if im.det == det]
+        cover = coverage.for_frames(mine, t["ra"], t["dec"], clock, fov) if fov else None
+        v = blink.best_hours_visit(mine, cover)
         if v is not None:
             return v
     return None
@@ -129,7 +132,7 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache, zone: str |
     epoch_keys: dict[str, list[str]] = {}
     n_bytes = 0
     built = []
-    visit = set_visit(t, clock, dets, cache)
+    visit = set_visit(t, clock, dets, cache, fov)
     for det in dets:
         t0 = time.time()
         try:
@@ -171,7 +174,7 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache, zone: str |
 # An asteroid moves a few arcmin in a day, so its frames keep one fixed centre and it moves.
 
 COMET_CSV = ROOT / "scripts" / "validate" / "data" / "photolists" / "3i-atlas.csv"
-COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion), as in resolve.COMET
+COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion); resolve.MOVING has its middle
 COMET_DETS = [1, 2, 3, 4, 5, 6]
 # The two of MOST's asteroids 1-60 with the most images at V 11.5-14 (bright, not saturated):
 # (59) Elpis 454 images at V 12.6-13.6, (31) Euphrosyne 436 at V 13.0-13.7 (MOST, 14 Nov 2026).

@@ -183,7 +183,7 @@ def test_spectra_loader_uses_calib_and_is_unchanged_without(tmp_path, rng):
     assert sa["calib_applied"] is False
     m = a.merge(d[["source_id", "ra", "dec"]], on="source_id", suffixes=("", "_file"))
     assert (m["ra"] == m["ra_file"]).all() and (m["dec"] == m["dec_file"]).all()
-    assert list(a.columns) == ["source_id", "detector", "session", "visit", *SP.DOT_COLUMNS]
+    assert list(a.columns) == ["source_id", "detector", "session", "visit", *SP.DOT_COLUMNS, "reject"]
     assert main(["calib", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
     b, sb = SP.load_members(store, ZONE, workers=2)
     assert sb["calib_applied"] is True and sb["calib_phase_corrected_dots"] == len(d) - 3 * 20
@@ -417,6 +417,27 @@ def test_calib_fits_psf_positions_separately_and_loaders_use_them(tmp_path, rng)
     c, st = MI.member_dots(store, ZONE, workers=2)
     assert st["calib_applied"] and st["pos_psf_dots"] == 0 and not c["pos_psf"].any()
     assert st["calib_phase_corrected_dots"] == ok.sum()
+
+
+def test_spectra_parallel_psf_counts_do_not_lose_photos(tmp_path, rng, monkeypatch):
+    """NumPy reductions can release the GIL while several photos update their counts."""
+    from threading import Barrier
+
+    d, xid = make_v4(rng, n_photos=4, per_photo=30)
+    store = write_store(tmp_path, d, xid)
+    store.write_parquet(results_rel("pilot", "fixed.parquet"), d[["source_id", "ra", "dec"]])
+    barrier = Barrier(4)
+    use_psf = CB.use_psf
+
+    class ConcurrentMask(np.ndarray):
+        def sum(self, *args, **kwargs):
+            barrier.wait(timeout=10)
+            return super().sum(*args, **kwargs)
+
+    monkeypatch.setattr(CB, "use_psf", lambda *a, **kw: use_psf(*a, **kw).view(ConcurrentMask))
+    _, stats = SP.load_members(store, ZONE, workers=4)
+    assert stats["pos_psf_dots"] == int(d["psf_pos_ok"].sum()) == 40
+    assert stats["member_rows_missing"] == 0
 
 
 def test_use_psf_picks_the_position_with_the_smaller_calibrated_error(monkeypatch):
