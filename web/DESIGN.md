@@ -168,3 +168,14 @@ it can be and by the person where it can't:
 Then **What next**: for consensus movers, a draft MPC observation report (ADES PSV, clearly marked
 "draft, not submitted"); for moving stars, a Backyard Worlds forum post draft; for anything, a citation
 and a permalink. Copy buttons, never auto-submit.
+
+## Opening (`src/intro`, by 春。, #200)
+"The sky is never still": a scroll-driven overlay from the SPHEREx sky down to one person's eye and
+back out, fading into the Sky map. The one exception to "Motion"; it has its own night palette.
+- Plays **every time** someone opens the home page itself (no hash; no query beyond `utm_*`, `fbclid`,
+  `gclid`; not an embed). Any hash (`#/sky`, `#/explore`, `#/c/<id>`…), `?t=` or `?ra=&dec=` skips it.
+- Focus starts on **Skip intro**; Escape skips from anywhere. Skip, Escape and the end land on the Sky
+  map (focus on the map). The map loads underneath meanwhile.
+- Reduced motion: a still title card, same Skip; scrolling down also moves on.
+- Images: `public/opening/manifest.json` (slots `sky`, `earth`, `horizon`; see its README). The sky is
+  always real SPHEREx data with its credit; anything else is labelled "Illustration".

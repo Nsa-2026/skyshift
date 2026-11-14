@@ -21,7 +21,8 @@ Four kinds:
 - shape     results/<zone>/shape_candidates.parquet (`python -m skyshift_pipeline.shape`), every row, clock months:
             stretched like two objects where Gaia and CatWISE list one (contracts/api.md v3.7). Absent file: none.
 high_pm, spectral and shape (results/<zone>/fragments.parquet, step `fragments`, when present): a source tagged
-bright_fragment (a piece of a saturated star's ring) is never listed; a `blend` (two Gaia stars within 8″) gets that reason.
+bright_fragment (a piece of a saturated star's ring) or `duplicate` (a second source of one star) is never listed; a
+`blend` (two Gaia stars within 8″) gets that reason.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
@@ -1022,7 +1023,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
         cands += shape_candidates(store, z)
-        from . import fragments  # results/<zone>/fragments.parquet: bright_fragment never listed, blend gets a reason
+        from . import fragments  # results/<zone>/fragments.parquet: bright_fragment, duplicate never listed; blend: a reason
         cands, fst = fragments.apply_candidates(cands, fragments.load(store, z))
         if fst["applied"]:
             L.info("candidates %s: fragments tags: %s", z, fst)

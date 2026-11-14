@@ -817,9 +817,10 @@ def main(argv: list[str] | None = None) -> int:
     if a.keep and a.out:
         t.to_parquet(Path(a.out) / "shape_all.parquet", index=False)
     chk = checks(t)
-    try:  # the fragments step's bright_fragment tags (a piece of a saturated star's ring): never listed
+    try:  # the fragments step's bright_fragment and duplicate tags (a piece or a second source of a star): never listed
+        from .fragments import DROPPED
         fr = table("fragments.parquet", results_rel(a.zone, "fragments.parquet"), ["source_id", "tag"])
-        frag = fr["source_id"].to_numpy(np.int64)[fr["tag"].astype(str).to_numpy() == "bright_fragment"]
+        frag = fr["source_id"].to_numpy(np.int64)[np.isin(fr["tag"].astype(str).to_numpy(), DROPPED)]
     except Exception:  # noqa: BLE001  not run for this zone yet: nothing dropped
         frag = None
     c, sel = select(t, a.cap, exclude=frag)

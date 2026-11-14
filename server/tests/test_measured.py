@@ -430,3 +430,24 @@ def test_fragments_tags_v3_11(root):
     assert v1[222]["parent_gaia_id"] == "4242424242424242424"
     assert v1[111]["class"] == "star" and v1[111]["reasons"] == ["blend"]
     assert v1[333]["class"] == "suspect" and v1[333]["reasons"] == [] and v1[333]["blend_gaia_ids"] is None
+
+
+def test_duplicate_reads_as_a_piece_of_its_star(root):
+    """A `duplicate` (a second source of one star, contracts/dots.md `fragments`) is drawn like a bright_fragment: an
+    artifact whose parent_gaia_id is that star, so the site draws one circle for the star (no new API reason)."""
+    _write(Path(root) / "results" / "zz" / "fragments.parquet", {
+        "source_id": np.array([111, 222], np.int64), "tag": ["", "duplicate"],
+        "duplicate_of": np.array([-1, 111], np.int64), "parent_gaia_id": np.array([-1, 4242424242424242424], np.int64),
+        "blend_ids": pa.array([[], []], pa.list_(pa.int64()))})
+    M.reset()
+    m, reason = M.build(_hours_meta(KNOWN), root=root)
+    assert reason is None
+    dup = _find(m, "d2-OBS_1", S2)
+    assert dup["class"] == "artifact" and dup["reasons"] == ["bright_fragment"] and dup["source_id"] == 222
+    assert dup["parent_gaia_id"] == "4242424242424242424"
+    assert _find(m, "d2-OBS_1", S1)["class"] == "star"
+    keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
+    mm, _ = M.build(_months_meta(), keys, root=root)
+    v1 = {d["source_id"]: d for d in mm["detections"] if d["epoch_id"] == "d2-v1"}
+    assert v1[222]["class"] == "artifact" and v1[222]["reasons"][-1] == "bright_fragment"
+    assert v1[222]["parent_gaia_id"] == "4242424242424242424"

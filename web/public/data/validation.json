@@ -1428,7 +1428,7 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "215,412 stars vs Gaia (hunt zone): proper-motion bias -3 (RA) and -2 (Dec) mas/yr, scatter 141 and 142 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 32,446 stars, bias 3 (RA) and -6 (Dec) mas/yr, scatter 147 and 145 mas/yr, pull scatter 0.98, 0.96",
+      "headline": "215,412 stars vs Gaia (hunt zone): proper-motion bias -3 (RA) and -2 (Dec) mas/yr, scatter 141 and 142 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 32,427 stars, bias -1 (RA) and -5 (Dec) mas/yr, scatter 141 and 142 mas/yr, pull scatter 0.92, 0.91",
       "value": 140.691,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
@@ -1453,18 +1453,18 @@
         {
           "zone": "pilot",
           "axis": "pmra",
-          "n": 32446,
-          "bias": 3.194,
-          "scatter": 147.447,
-          "pull_scatter": 0.979
+          "n": 32427,
+          "bias": -1.465,
+          "scatter": 141.183,
+          "pull_scatter": 0.919
         },
         {
           "zone": "pilot",
           "axis": "pmdec",
-          "n": 32446,
-          "bias": -6.219,
-          "scatter": 145.401,
-          "pull_scatter": 0.962
+          "n": 32427,
+          "bias": -5.181,
+          "scatter": 141.852,
+          "pull_scatter": 0.912
         }
       ]
     },
@@ -1472,8 +1472,8 @@
       "id": "V10",
       "claim": "Galaxy distances match SDSS",
       "status": "pass",
-      "headline": "8,634 bright galaxies (hunt zone): sigma_NMAD 0.023, outliers 3%. Pilot zone: 1,211, sigma_NMAD 0.021, outliers 2%",
-      "value": 0.0234,
+      "headline": "8,425 bright galaxies (hunt zone): sigma_NMAD 0.023, outliers 2%. Pilot zone: 1,182, sigma_NMAD 0.02, outliers 2%",
+      "value": 0.0227,
       "unit": "dz/(1+z)",
       "expected": "sigma_NMAD ~0.02 for bright galaxies (AB < 17)",
       "note": "EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts; bright = K_AB < 17. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass <= 0.05, partial <= 0.1, in every zone. Rows: zone, sample, n, sigma_nmad, outlier_frac, bias.",
@@ -1481,58 +1481,58 @@
         {
           "zone": "hunt",
           "sample": "all",
-          "n": 10466,
-          "sigma_nmad": 0.0259,
-          "outlier_frac": 0.054,
-          "bias": 0.0058
+          "n": 10154,
+          "sigma_nmad": 0.025,
+          "outlier_frac": 0.0469,
+          "bias": 0.0049
         },
         {
           "zone": "hunt",
           "sample": "good",
-          "n": 7482,
-          "sigma_nmad": 0.0221,
-          "outlier_frac": 0.0111,
-          "bias": 0.0036
+          "n": 7249,
+          "sigma_nmad": 0.0219,
+          "outlier_frac": 0.0099,
+          "bias": 0.0032
         },
         {
           "zone": "hunt",
           "sample": "k_ab_lt_17",
-          "n": 8634,
-          "sigma_nmad": 0.0234,
-          "outlier_frac": 0.0252,
-          "bias": 0.0042
+          "n": 8425,
+          "sigma_nmad": 0.0227,
+          "outlier_frac": 0.022,
+          "bias": 0.0034
         },
         {
           "zone": "hunt",
           "sample": "K_AB -99..15",
-          "n": 804,
-          "sigma_nmad": 0.0182,
-          "outlier_frac": 0.0299,
-          "bias": -0.0032
+          "n": 786,
+          "sigma_nmad": 0.0173,
+          "outlier_frac": 0.0305,
+          "bias": -0.0037
         },
         {
           "zone": "hunt",
           "sample": "K_AB 15..16",
-          "n": 3220,
-          "sigma_nmad": 0.0224,
-          "outlier_frac": 0.0143,
-          "bias": 0.0006
+          "n": 3158,
+          "sigma_nmad": 0.0223,
+          "outlier_frac": 0.0149,
+          "bias": 0.0007
         },
         {
           "zone": "hunt",
           "sample": "K_AB 16..17",
-          "n": 4610,
-          "sigma_nmad": 0.0231,
-          "outlier_frac": 0.0321,
-          "bias": 0.0084
+          "n": 4481,
+          "sigma_nmad": 0.0225,
+          "outlier_frac": 0.0254,
+          "bias": 0.0073
         },
         {
           "zone": "hunt",
           "sample": "K_AB 17..18",
-          "n": 1637,
-          "sigma_nmad": 0.0581,
-          "outlier_frac": 0.1949,
-          "bias": 0.0174
+          "n": 1500,
+          "sigma_nmad": 0.0481,
+          "outlier_frac": 0.1693,
+          "bias": 0.0148
         },
         {
           "zone": "hunt",
@@ -1545,58 +1545,58 @@
         {
           "zone": "pilot",
           "sample": "all",
-          "n": 1415,
-          "sigma_nmad": 0.0239,
-          "outlier_frac": 0.0417,
-          "bias": 0.005
+          "n": 1386,
+          "sigma_nmad": 0.0227,
+          "outlier_frac": 0.0397,
+          "bias": 0.0039
         },
         {
           "zone": "pilot",
           "sample": "good",
-          "n": 1058,
-          "sigma_nmad": 0.0198,
-          "outlier_frac": 0.0113,
-          "bias": 0.0026
+          "n": 1020,
+          "sigma_nmad": 0.0194,
+          "outlier_frac": 0.0127,
+          "bias": 0.0022
         },
         {
           "zone": "pilot",
           "sample": "k_ab_lt_17",
-          "n": 1211,
-          "sigma_nmad": 0.0209,
-          "outlier_frac": 0.0223,
-          "bias": 0.003
+          "n": 1182,
+          "sigma_nmad": 0.0203,
+          "outlier_frac": 0.022,
+          "bias": 0.0023
         },
         {
           "zone": "pilot",
           "sample": "K_AB -99..15",
-          "n": 128,
-          "sigma_nmad": 0.0172,
-          "outlier_frac": 0.0078,
-          "bias": -0.005
+          "n": 126,
+          "sigma_nmad": 0.0178,
+          "outlier_frac": 0.0079,
+          "bias": -0.0048
         },
         {
           "zone": "pilot",
           "sample": "K_AB 15..16",
-          "n": 500,
-          "sigma_nmad": 0.0201,
-          "outlier_frac": 0.022,
-          "bias": 0.0004
+          "n": 491,
+          "sigma_nmad": 0.0192,
+          "outlier_frac": 0.0265,
+          "bias": 0.0005
         },
         {
           "zone": "pilot",
           "sample": "K_AB 16..17",
-          "n": 583,
-          "sigma_nmad": 0.0228,
-          "outlier_frac": 0.0257,
-          "bias": 0.0078
+          "n": 565,
+          "sigma_nmad": 0.0211,
+          "outlier_frac": 0.0212,
+          "bias": 0.0064
         },
         {
           "zone": "pilot",
           "sample": "K_AB 17..18",
-          "n": 181,
-          "sigma_nmad": 0.055,
-          "outlier_frac": 0.1713,
-          "bias": 0.0164
+          "n": 170,
+          "sigma_nmad": 0.0448,
+          "outlier_frac": 0.1412,
+          "bias": 0.0159
         },
         {
           "zone": "pilot",
