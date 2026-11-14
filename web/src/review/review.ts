@@ -2,6 +2,7 @@
 // back. A practice round on featured targets comes first, once per browser.
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
+import { SPHEREX_V_LIMIT } from "../blink/known";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
 import { Ballot } from "./ballot";
 import { candidateSet, preload, votes, type CandidateSet, type Votes } from "./data";
@@ -18,7 +19,7 @@ const SESSION_KEY = "skyshift.review.session";
 /** Pencil-mark legend: what the marks on the plate mean (DESIGN.md). */
 const LEGEND = html`<ul class="rq-legend" aria-label="Marks on the plate">
   <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3.5M8 11v3.5M1.5 8H5M11 8h3.5" stroke="var(--pencil-red)" stroke-width="1.6" stroke-linecap="round"/></svg>The spot to judge</li>
-  <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z" fill="none" stroke="var(--pencil-violet)" stroke-width="1.5"/></svg>Known asteroid, predicted</li>
+  <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z" fill="none" stroke="var(--pencil-violet)" stroke-width="1.5"/></svg>Known asteroid, predicted (V ${SPHEREX_V_LIMIT} or brighter)</li>
   <li><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="var(--pencil-blue)" stroke-width="1.3"/></svg>Star Gaia already knows</li>
 </ul>`;
 

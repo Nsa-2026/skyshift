@@ -59,6 +59,10 @@ log = logging.getLogger("skyshift.api")
 
 VERSION = "0.1.0"
 ENGINE_VERSION = "4"  # part of every cache key
+# Part of the /api/object key only. Answers cached before the measurement's detection guard
+# (core.measure_shift, 14 Nov) gave shifts for spots with nothing on them (RA 125.5, Dec 19.4:
+# "30.15" in 0.45 years", two noise peaks); a new rule must not serve them again. Frames keep theirs.
+OBJECT_RULE = "detect-guard-1"
 FOV_ALLOWED = {"months": (5.0, 15.0), "hours": (20.0, 60.0)}
 FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2
@@ -458,7 +462,7 @@ def data(key: str, name: str) -> Response:
 @app.get("/api/object")
 async def object_(request: Request, ra: float, dec: float) -> JSONResponse:
     ra, dec = _check_pos(ra, dec)
-    key = f"api/object/{_key('object', ra=ra, dec=dec)}.json"
+    key = f"api/object/{_key('object', ra=ra, dec=dec, rule=OBJECT_RULE)}.json"
     cached = await run_in_threadpool(_cache_get_json, key)
     if cached is not None:
         return _json(cached)

@@ -229,6 +229,11 @@ export function noMeasureReason(opts: {
   if (n != null && n < 2) {
     return `SPHEREx has seen this spot in ${n === 0 ? "no visits" : "one visit"} so far. A shift needs two visits, about six months apart.`;
   }
+  // The server measured nothing although there are two visits: its detection guard found no single
+  // source standing out clearly in both (or the live answer ran out of time).
+  if (object) {
+    return "No shift measured here: SkyShift shows one only when a single source stands out clearly at this spot in both the first and last visits. Blink the visits and flag anything that steps.";
+  }
   return "Nothing has been measured at this spot yet. Blink the visits and flag anything that steps.";
 }
 

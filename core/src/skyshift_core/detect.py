@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import sep
 from numpy.typing import ArrayLike, NDArray
+from scipy.ndimage import binary_dilation, gaussian_filter, label
 from scipy.optimize import least_squares
 from scipy.special import erf
 
@@ -26,6 +27,9 @@ sep.set_extract_pixstack(2_000_000)
 _WINPOS_OK_FLAGS = 0x0010 | 0x0020  # sep APER_TRUNC, APER_HASMASKED: informational  # full 2040 x 2040 frames in crowded fields
 APERTURE_R_PX = 2.0  # default photometry radius (1.6 x FWHM)
 PSF_SIGMA_PX = 1.22 / 2.3548  # SPHEREx PSF FWHM 7.53" = 1.22 px
+# The largest hole a saturated core leaves in a stack (masked in every exposure): Barnard's Star's
+# is 5-7 px wide at 6.15"/px, under 40 px. A bigger no-data area is missing sky (no_data_near).
+MAX_HOLE_PX = 100
 
 DETECTION_DTYPE = np.dtype([
     ("x", "f8"), ("y", "f8"),  # windowed centroid, 0-based pixels
@@ -139,6 +143,86 @@ def detect(
     out["npix"] = objs["npix"]
     out["sep_flag"] = objs["flag"]
     return np.sort(out, order="flux")[::-1]
+
+
+def detection_snr(
+    data: ArrayLike,
+    x: float,
+    y: float,
+    *,
+    flags: ArrayLike | None = None,
+    mask: ArrayLike | None = None,
+    r: float = 2.0,
+    box: int = 32,
+) -> float:
+    """How clearly a point source stands out at (x, y): S/N of the PSF-matched filter.
+
+    The frame (bad pixels masked, sep background subtracted as in centroid) is smoothed with the
+    PSF; the signal is the highest smoothed value within r px of (x, y), the noise the robust
+    scatter (1.4826 MAD) of the same smoothed frame over all its good pixels. Measuring the noise
+    on the smoothed frame itself keeps it honest on resampled stacks, whose neighbouring pixels
+    are correlated, and in crowded fields, where confusion adds to it. A saturated core masked in
+    every exposure (a hole at the centre) is read on the hole's rim, its bright wings.
+    Returns 0 where nothing stands out, inf on a noise-free frame (synthetic tests).
+    """
+    m = build_mask(data, flags, mask)
+    d = _native(data)
+    d = np.where(m, 0.0, d)
+    sub = d - background(d, m, box=box).level
+    sub[m] = 0.0
+    sm = gaussian_filter(sub, PSF_SIGMA_PX, mode="constant")
+    good = ~m
+    if not good.any():
+        return 0.0
+    v = sm[good]
+    noise = 1.4826 * float(np.median(np.abs(v - np.median(v))))
+    ny, nx = sm.shape
+    yy, xx = np.ogrid[:ny, :nx]
+    r2 = (xx - x) ** 2 + (yy - y) ** 2
+    near = r2 <= r**2
+    core = m & (r2 <= 1.5**2)
+    if core.any():  # a masked core (a small hole, not the edge of the data): its rim joins the search
+        lab, _ = label(m, structure=np.ones((3, 3), bool))
+        sizes = np.bincount(lab.ravel())
+        ids = np.unique(lab[core])
+        ids = ids[(ids > 0) & (sizes[ids] <= MAX_HOLE_PX)]
+        if ids.size:
+            near |= binary_dilation(np.isin(lab, ids), iterations=2) & good
+    if not near.any():
+        return 0.0
+    peak = float(np.max(sm[near]))
+    if peak <= 0:
+        return 0.0
+    return peak / noise if noise > 0 else float("inf")
+
+
+def no_data_near(data: ArrayLike, x: float, y: float, r: float, *, max_hole: int = MAX_HOLE_PX) -> bool:
+    """Is part of the frame within r px of (x, y) outside the data: the edge of the area the
+    exposures covered (no value: NaN)?
+
+    A small hole (at most max_hole px) that does not reach the frame's border is a star's core
+    masked in every exposure (saturated), not missing sky, and doesn't count.
+    """
+    d = np.asarray(data)
+    nan = ~np.isfinite(d)
+    if not nan.any():
+        return False
+    ny, nx = d.shape
+    x0, x1 = max(int(np.floor(x - r)), 0), min(int(np.ceil(x + r)) + 1, nx)
+    y0, y1 = max(int(np.floor(y - r)), 0), min(int(np.ceil(y + r)) + 1, ny)
+    if x0 >= x1 or y0 >= y1:
+        return True  # (x, y) is off the frame
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    disc = (xx - x) ** 2 + (yy - y) ** 2 <= r**2
+    if not (nan[y0:y1, x0:x1] & disc).any():
+        return False
+    lab, n = label(nan, structure=np.ones((3, 3), bool))
+    sizes = np.bincount(lab.ravel(), minlength=n + 1)
+    edge = np.zeros(n + 1, bool)
+    edge[np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]])] = True
+    big = (sizes > max_hole) | edge
+    big[0] = False
+    return bool(big[lab[y0:y1, x0:x1][disc]].any())
 
 
 def _gauss_model(p: NDArray[np.float64], ex: NDArray[np.float64], ey: NDArray[np.float64]) -> NDArray[np.float64]:

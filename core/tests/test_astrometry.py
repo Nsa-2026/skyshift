@@ -3,6 +3,7 @@ import pytest
 
 from skyshift_core import (
     GAIA_EPOCH_MJD,
+    ShiftError,
     measure_shift,
     parallax_offset_arcsec,
     pixel_to_sky,
@@ -134,6 +135,94 @@ def test_measure_shift_with_gaia_prediction():
     assert res.predicted_arcsec == pytest.approx(10.393 * 182.6 / 365.25, abs=0.01)
     assert res.shift_arcsec == pytest.approx(res.predicted_arcsec, abs=0.15)
     assert res.rate_arcsec_yr == pytest.approx(10.39, rel=0.03)
+
+
+def _refs_scene(seed: int = 5, n: int = 14, shape=(101, 101)):
+    """Quiet reference stars well away from the centre, as sky positions on a TAN grid."""
+    ra0, dec0 = 125.5, 19.4
+    w0 = tan_wcs(ra0, dec0, shape)
+    rng = np.random.default_rng(seed)
+    rx, ry = rng.uniform(10, shape[1] - 10, n), rng.uniform(10, shape[0] - 10, n)
+    keep = np.hypot(rx - shape[1] // 2, ry - shape[0] // 2) > 12
+    rra, rdec = pixel_to_sky(w0, rx[keep], ry[keep])
+    return ra0, dec0, w0, rra, rdec
+
+
+def test_measure_shift_refuses_an_empty_spot():
+    """Nothing at the target: without the guard the centroid takes the brightest noise pixel near
+    the guess in each stack, two different ones (RA 125.5, Dec 19.4 'moved' 30"). With it: refused."""
+    ra0, dec0, w0, rra, rdec = _refs_scene()
+    shape = (101, 101)
+    f = np.full(rra.size, 100.0)
+    img1, w1 = _scene(ra0, dec0, shape, (rra, rdec), f, seed=21)
+    img2, w2 = _scene(ra0, dec0, shape, (rra, rdec), f, seed=22)
+    mjd1, mjd2 = 61000.0, 61000.0 + 165.9  # 0.45 years
+    kw = dict(ref_ra=rra, ref_dec=rdec, search_r=3.0)
+    old = measure_shift(img1, img2, w1, w2, mjd1, mjd2, ra0, dec0, min_snr=None, edge_r=None, max_pm_arcsec_yr=None, **kw)
+    assert old.shift_arcsec > 3 * old.sigma_arcsec  # a confident-looking shift of noise
+    with pytest.raises(ShiftError) as e:
+        measure_shift(img1, img2, w1, w2, mjd1, mjd2, ra0, dec0, **kw)
+    assert e.value.reason == "not_detected"
+
+
+def test_measure_shift_refuses_two_different_sources():
+    """A dot 1 px east of the guess in the first stack, another 1 px west in the second: both clear,
+    12.3" apart. In 0.45 years that is faster than any star (12"/yr) and wider than the PSF: two
+    sources. In 1.4 years it is a fast but possible star: measured."""
+    ra0, dec0, w0, rra, rdec = _refs_scene()
+    shape = (101, 101)
+    a = pixel_to_sky(w0, 49.0, 50.0)
+    b = pixel_to_sky(w0, 51.0, 50.0)
+    f = np.r_[200.0, np.full(rra.size, 100.0)]
+    img1, w1 = _scene(ra0, dec0, shape, (np.r_[a[0], rra], np.r_[a[1], rdec]), f, seed=23)
+    img2, w2 = _scene(ra0, dec0, shape, (np.r_[b[0], rra], np.r_[b[1], rdec]), f, seed=24)
+    mjd1 = 61000.0
+    kw = dict(ref_ra=rra, ref_dec=rdec, search_r=3.0)
+    with pytest.raises(ShiftError) as e:
+        measure_shift(img1, img2, w1, w2, mjd1, mjd1 + 0.45 * 365.25, ra0, dec0, **kw)
+    assert e.value.reason == "different_sources"
+    res = measure_shift(img1, img2, w1, w2, mjd1, mjd1 + 1.4 * 365.25, ra0, dec0, **kw)
+    assert res.shift_arcsec == pytest.approx(2 * PIXEL_ARCSEC, abs=0.3)
+    assert min(res.target_snr) > 50
+    assert res.match_r_arcsec == pytest.approx(12.0 * 1.4 + 3 * res.sigma_arcsec)
+
+
+def test_measure_shift_refuses_a_target_at_the_edge_of_the_data():
+    """The second stack has no sky east of x = 53 (the detector's edge): the target 3 px away is refused."""
+    ra0, dec0, w0, rra, rdec = _refs_scene()
+    shape = (101, 101)
+    t = pixel_to_sky(w0, 50.0, 50.0)
+    f = np.r_[200.0, np.full(rra.size, 100.0)]
+    img1, w1 = _scene(ra0, dec0, shape, (np.r_[t[0], rra], np.r_[t[1], rdec]), f, seed=25)
+    img2, w2 = _scene(ra0, dec0, shape, (np.r_[t[0], rra], np.r_[t[1], rdec]), f, seed=26)
+    img2[:, 53:] = np.nan
+    mjd1, mjd2 = 61000.0, 61000.0 + 182.6
+    kw = dict(ref_ra=rra, ref_dec=rdec, search_r=3.0)
+    with pytest.raises(ShiftError) as e:
+        measure_shift(img1, img2, w1, w2, mjd1, mjd2, float(t[0]), float(t[1]), **kw)
+    assert e.value.reason == "edge"
+    # a saturated core, a hole on a bright star with broad wings, is not missing sky
+    wings = gaussian_image(shape, [50.0], [50.0], [400.0], 1.5)
+    img2b, _ = _scene(ra0, dec0, shape, (np.r_[t[0], rra], np.r_[t[1], rdec]), f, seed=26)
+    img1b, img2b = img1 + wings, img2b + wings
+    img2b[48:53, 48:53] = np.nan
+    res = measure_shift(img1b, img2b, w1, w2, mjd1, mjd2, float(t[0]), float(t[1]), **kw)  # not refused
+    assert min(res.target_snr) > 50  # read on the hole's rim
+
+
+def test_measure_shift_keeps_a_faint_but_clear_target():
+    """A faint dot (S/N about 10, like WISE 0855-0714 in D5) that moves 3": measured, not refused."""
+    ra0, dec0, w0, rra, rdec = _refs_scene()
+    shape = (101, 101)
+    t1 = pixel_to_sky(w0, 50.2, 49.8)
+    t2 = tangent_deproject(t1[0], t1[1], -1.0, 2.8)
+    f = np.r_[0.25, np.full(rra.size, 100.0)]
+    img1, w1 = _scene(ra0, dec0, shape, (np.r_[t1[0], rra], np.r_[t1[1], rdec]), f, seed=27)
+    img2, w2 = _scene(ra0, dec0, shape, (np.r_[t2[0], rra], np.r_[t2[1], rdec]), f, seed=28)
+    res = measure_shift(img1, img2, w1, w2, 61000.0, 61000.0 + 182.6, float(t1[0]), float(t1[1]),
+                        ref_ra=rra, ref_dec=rdec, search_r=3.0)
+    assert 5.0 <= min(res.target_snr) < 30.0
+    assert res.shift_arcsec == pytest.approx(np.hypot(1.0, 2.8), abs=1.0)
 
 
 def test_fixture_matches_gaia(cutout_path):

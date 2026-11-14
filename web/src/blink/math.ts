@@ -135,6 +135,36 @@ export function mean(frames: Float32Array[]): Float32Array {
   return out;
 }
 
+/**
+ * Is image pixel (x, y) in the plate's no-data area, where the hatch shows through? A pixel there
+ * has no value (NaN, raw 0) and is not a burnt core (`burnt`, painted as ink). Most of the 3 × 3
+ * around (x, y) must be like that, so a lone masked pixel inside the data doesn't count. A position
+ * just off the frame (a ring peeking in at the plate's edge) is judged at the nearest edge pixel.
+ */
+export function noDataAt(
+  vals: ArrayLike<number>,
+  burnt: ArrayLike<number> | null,
+  nx: number,
+  ny: number,
+  x: number,
+  y: number,
+): boolean {
+  const ix = Math.min(Math.max(Math.round(x), 0), nx - 1);
+  const iy = Math.min(Math.max(Math.round(y), 0), ny - 1);
+  let inside = 0;
+  let empty = 0;
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      const xx = ix + dx;
+      const yy = iy + dy;
+      if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+      inside++;
+      const k = yy * nx + xx;
+      if (Number.isNaN(vals[k]) && !burnt?.[k]) empty++;
+    }
+  return inside > 0 && empty * 2 > inside;
+}
+
 /** Nice scale-bar length (arcsec) close to `targetArcsec`. */
 export function niceArcsec(targetArcsec: number): { arcsec: number; label: string } {
   const steps = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600];
