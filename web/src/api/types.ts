@@ -321,8 +321,9 @@ export interface LoadedFrames {
 // ---- Community discovery: candidates for people to review (contracts/api.md, candidates.json, proposal v2.2)
 
 /** mover: moves within hours (possible new asteroid or comet); high_pm: moves between visits
- *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look. */
-export type CandidateKind = "mover" | "high_pm" | "spectral";
+ *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look;
+ *  shape: wider or longer than a single star where the catalogues list one object (one or two?). */
+export type CandidateKind = "mover" | "high_pm" | "spectral" | "shape";
 
 export interface Candidate {
   id: string;
@@ -370,7 +371,8 @@ export interface CandidatesResponse {
   generated: string;
   data_release: string;
   zones: string[];
-  counts: Record<CandidateKind, number>;
+  /** Files written before the shape kind (api v3.7) have no `shape` key: read it as 0. */
+  counts: Record<Exclude<CandidateKind, "shape">, number> & { shape?: number };
   candidates: Candidate[];
 }
 

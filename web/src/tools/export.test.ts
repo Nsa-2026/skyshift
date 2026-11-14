@@ -160,7 +160,7 @@ describe("candidate exports", () => {
   it("subsets by kind with matching counts, and names files by date and kind", () => {
     const movers = candidateSubset(FIXTURE, "mover");
     expect(movers.candidates.every((c) => c.kind === "mover")).toBe(true);
-    expect(movers.counts).toEqual({ mover: movers.candidates.length, high_pm: 0, spectral: 0 });
+    expect(movers.counts).toEqual({ mover: movers.candidates.length, high_pm: 0, spectral: 0, shape: 0 });
     expect(candidateSubset(FIXTURE, "all").candidates.length).toBe(FIXTURE.candidates.length);
     expect(candidatesFileStem(FIXTURE, "all")).toBe("skyshift-candidates-2026-11-14");
     expect(candidatesFileStem(FIXTURE, "high_pm")).toBe("skyshift-candidates-2026-11-14-moving-stars");

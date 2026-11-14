@@ -20,6 +20,7 @@ export const KIND_TEXT: Record<CandidateKind, Words> = {
   mover: { short: "Fast mover", plain: "Moves within hours: it could be an uncatalogued asteroid or comet." },
   high_pm: { short: "Moving star", plain: "Moves between visits: it could be a nearby star or brown dwarf." },
   spectral: { short: "Odd spectrum", plain: "Its colours or molecule bands are worth a look." },
+  shape: { short: "One or two?", plain: "Wider or longer than a single star, where the catalogues list one object." },
 };
 
 /** Pipeline reason codes (Candidate.reasons). */

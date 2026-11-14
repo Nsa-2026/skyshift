@@ -331,6 +331,7 @@ export const mountReview: MountPage = (el) => {
       });
     ballot = new Ballot(ballotEl, {
       onVote: voteQueue,
+      kind: c.kind,
       full: false,
       after: html`<div class="rq-after"><button class="btn btn-primary" type="button" data-act="next">Next object</button><span class="rv-soft">or press Enter</span></div>`,
     });
