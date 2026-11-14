@@ -405,3 +405,6 @@ def test_all_runs_the_combining_steps_tiled(tmp_path, skybot, monkeypatch):
     for name in ("fixed", "members", "sources", "classes", "lightcurves", "astrometry", "suspects"):
         assert store.exists(results_rel(ZONE.name, f"{name}.parquet")), name
     assert not list((tmp_path / "work").iterdir())  # the work dir is removed after a good run
+    assert cli.main(["all", "--zone", ZONE.name, "--root", store.root, "--workers", "1", "--from", "link", "--tiles", "4",
+                     "--known-source", "skybot", "--tile-dir", str(tmp_path / "work")]) == 0
+    assert store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]["tiles"]["zone_edge_margin"] is True

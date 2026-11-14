@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--force", action="store_true", help="photolist, refcat: query the services again even if the files exist")
     ap.add_argument("--known-source", choices=C.KNOWN_SOURCES, default=C.KNOWN_SOURCE,
                     help="known, score, suspects: MPC orbits with kete (default) or the SkyBoT service")
+    ap.add_argument("--from", dest="from_step", choices=STEPS, default=None,
+                    help="all: start at this step (e.g. --from link: combine again without photolist, refcat, dots, known)")
     ap.add_argument("--tiles", default="auto",
                     help="all: link … suspects per sky tile: auto (zones over config TILE_AUTO_MIN_DEG2 deg²), off, or about N tiles")
     ap.add_argument("--tile-deg", type=float, default=None, help="all: tile core side in degrees (tiles any zone)")
@@ -98,11 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     log.setup()
     store = Store(args.root)
     zone = C.ZONES[args.zone]
-    steps = STEPS if args.step == "all" else (args.step,)
+    steps = (STEPS[STEPS.index(args.from_step):] if args.from_step else STEPS) if args.step == "all" else (args.step,)
     grid = None
     if args.step == "all":
         from . import tiles
         grid = tiles.choose(zone, args.tiles, args.tile_deg, args.workers)
+        if grid and TILED_STEPS[0] not in steps:  # tiles run the whole chain from link; later starts run untiled
+            L.info("all --from %s: after link, so untiled", args.from_step)
+            grid = None
     L.info("skyshift-pipeline %s --zone %s --root %s --workers %d --limit %s%s", args.step, zone.name, store.root, args.workers,
            args.limit, f", tiled {grid[0]} × {grid[1]}" if grid else "")
     for step in steps:
