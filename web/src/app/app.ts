@@ -15,6 +15,7 @@ import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
+import { mountField } from "../field";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountOpening } from "../intro";
@@ -86,6 +87,7 @@ export function startApp(root: HTMLElement): void {
       <section class="stage" aria-label="Blink"><div id="blink"></div></section>
       <section id="card" class="side-card" aria-label="Object"></section>
       <div class="below">
+        <div id="field"></div>
         <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
         <section id="sky" class="sky" aria-label="Sky around this spot"></section>
       </div>
@@ -123,9 +125,11 @@ export function startApp(root: HTMLElement): void {
     },
     onPick(pick) {
       vote.pick(pick);
+      field.picked();
     },
     onEpoch(e) {
       sky.epoch(e.mjd_mid);
+      field.epoch(e.mjd_mid);
     },
   });
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
@@ -138,6 +142,8 @@ export function startApp(root: HTMLElement): void {
       if (view) go({ ...view, ...pos, slug: null, name: null });
     },
   });
+  // Signals and Planet X sensitivity of this field (src/field), under the card; load when scrolled to.
+  const field = mountField($("#field"), { highlight: (p) => blink.highlight?.(p), plate: $<HTMLElement>(".stage") });
   let score: { destroy(): void } | null = null;
 
   function say(text: string, kind: "info" | "error" = "info") {
@@ -173,6 +179,7 @@ export function startApp(root: HTMLElement): void {
     input.value = next.name ?? formatRaDec(next);
     say("");
     vote.view(next);
+    field.view(next);
 
     frameCtl?.abort();
     frameCtl = new AbortController();
