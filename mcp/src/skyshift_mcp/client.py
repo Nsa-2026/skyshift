@@ -13,6 +13,7 @@ DEFAULT_BASE = "https://skyshift.web.app"
 API_TIMEOUT = 75.0        # the API answers by 48 s (503 "upstream" after that); leave room for a cold start
 STATIC_TIMEOUT = 30.0
 CANDIDATES_TTL = 600.0    # seconds to keep candidates.json in memory
+RETRY_S = 1.0             # wait before asking again after a connection error
 
 
 class SkyShiftError(Exception):
@@ -30,21 +31,34 @@ class Client:
     def url(self, path: str) -> str:
         return urljoin(self.base + "/", path.lstrip("/"))
 
-    async def get_json(self, path_or_url: str, params: dict[str, Any] | None = None,
-                       timeout: float = STATIC_TIMEOUT) -> dict[str, Any]:
-        url = path_or_url if "://" in path_or_url else self.url(path_or_url)
-        params = {k: v for k, v in (params or {}).items() if v is not None}
+    async def _get(self, url: str, params: dict[str, Any] | None = None,
+                   timeout: float = STATIC_TIMEOUT) -> httpx.Response:
+        """GET, asked once more after a connection error (refused, reset, dropped) or a 503 with
+        Retry-After. A timeout is not retried: it already waited `timeout` seconds."""
         for attempt in (0, 1):
+            last = attempt == 1
             try:
                 r = await self.http.get(url, params=params, timeout=timeout)
             except httpx.TimeoutException as e:
                 raise SkyShiftError(f"{url} did not answer in {timeout:.0f} s") from e
+            except (httpx.NetworkError, httpx.RemoteProtocolError) as e:
+                if not last:
+                    await asyncio.sleep(RETRY_S)
+                    continue
+                raise SkyShiftError(f"could not reach {url} (tried twice): {e}") from e
             except httpx.HTTPError as e:
                 raise SkyShiftError(f"could not reach {url}: {e}") from e
-            if r.status_code == 503 and attempt == 0 and "retry-after" in r.headers:
+            if r.status_code == 503 and not last and "retry-after" in r.headers:
                 await asyncio.sleep(min(10.0, float(r.headers.get("retry-after") or 5)))
                 continue
-            break
+            return r
+        raise AssertionError("unreachable")
+
+    async def get_json(self, path_or_url: str, params: dict[str, Any] | None = None,
+                       timeout: float = STATIC_TIMEOUT) -> dict[str, Any]:
+        url = path_or_url if "://" in path_or_url else self.url(path_or_url)
+        params = {k: v for k, v in (params or {}).items() if v is not None}
+        r = await self._get(url, params, timeout)
         if r.status_code >= 400:
             msg = r.text[:300]
             try:
@@ -60,9 +74,9 @@ class Client:
 
     async def get_bytes(self, url: str, timeout: float = STATIC_TIMEOUT) -> bytes:
         try:
-            r = await self.http.get(url, timeout=timeout)
-        except httpx.HTTPError as e:
-            raise SkyShiftError(f"could not fetch frame {url}: {e}") from e
+            r = await self._get(url, timeout=timeout)
+        except SkyShiftError as e:
+            raise SkyShiftError(f"could not fetch frame: {e}") from e.__cause__
         if r.status_code >= 400:
             raise SkyShiftError(f"HTTP {r.status_code} for frame {url}")
         return r.content
