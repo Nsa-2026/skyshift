@@ -491,3 +491,76 @@ def test_load_forced_puts_forced_fluxes_on_the_corrected_scale(tmp_path):
     want = 100.0 * 0.95 * np.exp(-0.25 * 0.04 * np.cos(2 * np.pi * CB.phase_of(x)))
     assert f.attrs["calib_applied"] is True and np.allclose(f["flux_ujy"], want, rtol=1e-6)
     assert np.allclose(f["flux_err_ujy"] / f["flux_ujy"], 0.02, rtol=1e-6)
+
+
+# --- final pass: instrument terms borrowed from a reference zone -------------------------------
+def reference_calib():
+    """A reference zone's calib.json (as results/hunt/calib.json): tables for D5 only, a full total-flux scale."""
+    tab = {"x": {"sin": [-0.05, 0.0, 0.0], "cos": [0.0, 0.0, 0.0]}, "y": {"sin": [-0.04, 0.0, 0.0], "cos": [0.0, 0.0, 0.0]},
+           "check": {"big": "dropped when borrowed"}}
+    return {"schema": 3, "zone": "hunt", "created": "2026-11-14T13:22:19Z",
+            "phase": {"detectors": {"5": tab}},
+            "ymap": {"detectors": {"5": {"bin_px": 64, "dy_px": [0.01] * 32, "applied": True, "rms_px": 0.01}}},
+            "flux_phase": {"detectors": {"5": {"ap": {"cos_x": [0.01, 0.0], "cos_y": [0.0, 0.0], "cross": 0.0}}}},
+            "aperture": {"factor_ap": {str(k): 1.0 + 0.01 * k for k in range(1, 7)},
+                         "ap_over_psf": {str(k): 0.96 for k in range(1, 7)}},
+            "forced": {"detectors": {"5": {"factor_psf": 0.99, "phase_frac": 0.5}}}}
+
+
+def test_calib_borrows_instrument_terms_when_the_zone_has_no_anchors(tmp_path, rng, monkeypatch):
+    MI.clear_cache()
+    d, xid = make(rng, n_photos=3, per_photo=1500, distort=0.3)  # D2 only, Gaia crossids only: no flux anchors
+    store = write_store(tmp_path, d, xid)
+    store.write_json(results_rel("hunt", C.CALIB_REL), reference_calib())
+    monkeypatch.setattr(C, "CALIB_BORROW", "auto")
+    monkeypatch.setattr(C, "CALIB_REF_ZONE", "hunt")
+    assert main(["calib", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
+    cal = json.loads((tmp_path / "results/pilot/calib.json").read_text())
+    b = cal["borrowed"]
+    assert b["from"] == "results/hunt/calib.json" and b["zone"] == "hunt" and b["own_anchor_detectors"] == []
+    assert b["terms"]["aperture.factor_ap"] == [1, 2, 3, 4, 5, 6]
+    assert b["terms"]["phase"] == [5] and b["terms"]["ymap"] == [5] and b["terms"]["flux_phase.ap"] == [5]
+    assert b["terms"]["forced"] == [5] and b["terms"]["aperture.ap_over_psf"] == [1, 2, 3, 4, 5, 6]
+    # the zone's own fits stay its own: D2's phase table, pos_err and distortion
+    assert "check" in cal["phase"]["detectors"]["2"] and "check" not in cal["phase"]["detectors"]["5"]
+    assert set(cal["pos_err"]["detectors"]) == {"2"} and cal["distortion"]["order"] >= 0
+    assert cal["aperture"]["factor_ap"] == {str(k): round(1.0 + 0.01 * k, 4) for k in range(1, 7)}
+    assert cal["aperture"]["factor_psf"]["5"] == pytest.approx(1.05 * 0.96, abs=1e-4)
+    assert cal["aperture"]["source"] == "borrowed: results/hunt/calib.json"
+    assert cal["forced"]["detectors"]["5"]["factor_psf"] == 0.99
+    # the loaders apply the borrowed scale
+    cor, st = MI.member_dots(store, ZONE, workers=2)
+    assert st["calib_applied"] is True and np.allclose(cor["flux_ujy"], 100.0 * 1.02, rtol=1e-6)
+
+    # off: nothing borrowed, the scale stays 1
+    MI.clear_cache()
+    monkeypatch.setattr(C, "CALIB_BORROW", "off")
+    assert main(["calib", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
+    cal = json.loads((tmp_path / "results/pilot/calib.json").read_text())
+    assert "borrowed" not in cal and not cal["aperture"].get("factor_ap") and set(cal["phase"]["detectors"]) == {"2"}
+
+
+def test_fit_fluxes_keeps_own_anchored_scale_unless_always(rng, monkeypatch):
+    """A zone with anchors in enough detectors keeps its own scale ("auto"); "always" takes the reference's and
+    keeps the own solution under `own`; anchors_after then measure the borrowed scale on the zone's own anchors."""
+    ref = reference_calib()
+    ref["_rel"] = "results/hunt/calib.json"
+    fake_anc = [{"band": b, "detector": k, "n": 100, "n_stars": 50, "ln_ratio": 0.0, "ratio_ap": 1.0, "ratio_psf": None}
+                for b, k in (("J", 2), ("H", 3), ("W1", 4), ("W2", 6))]
+    monkeypatch.setattr(CB, "anchors", lambda *a, **k: [dict(x) for x in fake_anc])
+    spec, xid, A, al = synthetic_spectra(rng, n_src=300)
+    n = len(spec)
+    d = pd.DataFrame({"source_id": np.repeat(np.arange(n), 6), "detector": np.tile(np.arange(1, 7), n),
+                      "wavelength_um": np.tile([0.9, 1.3, 2.0, 3.0, 4.1, 4.7], n), "x": 100.3, "y": 200.7,
+                      "snr": 100.0, "flags_peak": 0, "flux_ujy": 1000.0, "flux_psf_ujy": 1040.0})
+    monkeypatch.setattr(C, "CALIB_BORROW", "auto")
+    bor: dict = {}
+    _, ap = CB.fit_fluxes(d, xid, spec, ref, bor)
+    assert "aperture.factor_ap" not in bor and "source" not in ap and ap["factor_ap"]["2"] == pytest.approx(1.0, abs=0.01)
+    monkeypatch.setattr(C, "CALIB_BORROW", "always")
+    bor = {}
+    _, ap = CB.fit_fluxes(d, xid, spec, ref, bor)
+    assert bor["aperture.factor_ap"] == [1, 2, 3, 4, 5, 6] and ap["own"]["factor_ap"]["2"] == pytest.approx(1.0, abs=0.01)
+    assert ap["factor_ap"]["4"] == 1.04
+    assert {(a["band"], a["detector"]): a["ratio_ap"] for a in ap["anchors_after"]}[("W1", 4)] == pytest.approx(1 / 1.04, abs=1e-4)
+    assert len(ap["stitches_after"]) == 5
