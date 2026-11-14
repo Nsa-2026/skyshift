@@ -15,7 +15,7 @@ import {
   subtract,
   symmetricLimits,
 } from "./math";
-import { buildLut, paint, type Palette } from "./paint";
+import { buildLut, diffIndex, paint, plainIndex, type Palette } from "./paint";
 
 const f32 = (a: number[]) => Float32Array.from(a);
 
@@ -122,29 +122,48 @@ describe("subtract and add", () => {
 
 describe("paint", () => {
   const p: Palette = {
-    plate: [0, 0, 0],
-    emulsion: [255, 255, 255],
-    neg: [0, 0, 255],
-    pos: [255, 128, 0],
-    nodataA: [40, 50, 60],
-    nodataB: [70, 80, 90],
+    glass: [240, 240, 240],
+    ink: [20, 30, 40],
+    arrived: [200, 30, 50],
+    left: [30, 80, 200],
   };
-  it("draws no data as a checker, not as black", () => {
-    const out = new Uint8ClampedArray(4 * 4);
-    paint(f32([NaN, NaN, 0, 10]), 2, out, { lo: 0, hi: 10 }, "linear", false, buildLut(p, false, false), p);
-    expect(Array.from(out.slice(0, 3))).toEqual([70, 80, 90]);
-    expect(Array.from(out.slice(4, 7))).toEqual([40, 50, 60]);
-    expect(Array.from(out.slice(8, 11))).toEqual([0, 0, 0]);
-    expect(Array.from(out.slice(12, 15))).toEqual([255, 255, 255]);
+  const lin = { lo: 0, hi: 10 };
+  it("is a negative by default: sky on glass, bright stars in ink", () => {
+    const out = new Uint8ClampedArray(4 * 2);
+    paint(f32([0, 10]), out, buildLut(p, false, false), plainIndex(lin, "linear"));
+    expect(Array.from(out.slice(0, 4))).toEqual([240, 240, 240, 255]);
+    expect(Array.from(out.slice(4, 8))).toEqual([20, 30, 40, 255]);
   });
-  it("inverts and uses a diverging map for differences", () => {
-    const inv = buildLut(p, false, true);
-    expect(Array.from(inv.slice(0, 3))).toEqual([255, 255, 255]);
+  it("flips to a positive on request", () => {
+    const out = new Uint8ClampedArray(4 * 2);
+    paint(f32([0, 10]), out, buildLut(p, false, true), plainIndex(lin, "linear"));
+    expect(Array.from(out.slice(0, 3))).toEqual([20, 30, 40]);
+    expect(Array.from(out.slice(4, 7))).toEqual([240, 240, 240]);
+  });
+  it("leaves no data transparent (the hatch shows through) and burns saturated cores to ink", () => {
     const out = new Uint8ClampedArray(4 * 3);
-    paint(f32([-10, 0, 10]), 3, out, { lo: -10, hi: 10 }, "linear", true, buildLut(p, true, false), p);
-    expect(Array.from(out.slice(0, 3))).toEqual([0, 0, 255]);
-    expect(Array.from(out.slice(4, 7))).toEqual([0, 0, 0]);
-    expect(Array.from(out.slice(8, 11))).toEqual([255, 128, 0]);
+    paint(f32([NaN, NaN, 5]), out, buildLut(p, false, false), plainIndex(lin, "linear"), Uint8Array.from([0, 1, 0]));
+    expect(out[3]).toBe(0);
+    expect(Array.from(out.slice(4, 8))).toEqual([20, 30, 40, 255]);
+    expect(out[11]).toBe(255);
+  });
+  it("paints differences on glass: blue for light that left, red for light that arrived", () => {
+    const out = new Uint8ClampedArray(4 * 3);
+    paint(f32([-10, 0, 10]), out, buildLut(p, true, false), diffIndex({ lo: -10, hi: 10 }));
+    expect(Array.from(out.slice(0, 3))).toEqual([30, 80, 200]);
+    expect(Array.from(out.slice(4, 7))).toEqual([240, 240, 240]);
+    expect(Array.from(out.slice(8, 11))).toEqual([200, 30, 50]);
+    // A positive plate does not change the difference map.
+    expect(Array.from(buildLut(p, true, true))).toEqual(Array.from(buildLut(p, true, false)));
+  });
+  it("scales differences in sigma, keeping noise on glass", () => {
+    const idx = diffIndex({ lo: -5, hi: 5, sigma: 1, n: 5 });
+    expect(idx(0.8)).toBe(128);
+    expect(idx(-1.2)).toBe(128);
+    expect(idx(5)).toBe(255);
+    expect(idx(-9)).toBe(1);
+    expect(idx(3)).toBeGreaterThan(128);
+    expect(idx(3)).toBeLessThan(255);
   });
 });
 
