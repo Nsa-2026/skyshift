@@ -150,7 +150,7 @@ dismissible, remembered in localStorage.
 A short checklist that walks anyone through vetting one candidate, each step answered by the data where
 it can be and by the person where it can't:
 1. **Does it move in a straight line at a steady rate?** (from the measured positions; pass/caution)
-2. **Is it already known?** Gaia / CatWISE match, nearest known asteroid (MPC/SkyBoT) and its distance.
+2. **Is it already known?** Gaia / CatWISE match, nearest known asteroid or comet (MPC orbits with kete) and its distance.
 3. **Could it be an artefact?** flags at its position (ghost, crosstalk, persistence, edge), in plain words.
 4. **Is it the same object in every frame?** brightness steady within errors, same detector only.
 5. **What does its colour say?** red / methane / water hints from the spectrum, when there is one.
