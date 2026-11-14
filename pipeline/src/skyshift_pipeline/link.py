@@ -296,11 +296,16 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     if keep is not None:
         keep.update(dots=dots, dot_sid=fixed_result[1])
     stats["fixed_member_dots"] = int(len(members))
-    free = free_dots_table(dots, fixed_result[1], fixed, photos)
-    stats["free_dots_written"] = int(len(free))
+    try:  # tracklets' input; never worth failing link for
+        free = free_dots_table(dots, fixed_result[1], fixed, photos)
+        stats["free_dots_written"] = int(len(free))
+    except Exception as e:  # noqa: BLE001
+        L.exception("link %s: free_dots.parquet not written (tracklets will link without recovery)", zone.name)
+        free, stats["free_dots_error"] = None, repr(e)[:300]
     L.info("link %s: classified in %.0f s: %s", zone.name, time.time() - t1, stats)
     store.write_parquet(results_rel(zone.name, "fixed.parquet"), fixed)
     store.write_parquet(results_rel(zone.name, "members.parquet"), members)
     store.write_parquet(results_rel(zone.name, "movers.parquet"), movers)
-    store.write_parquet(results_rel(zone.name, "free_dots.parquet"), free)
+    if free is not None:
+        store.write_parquet(results_rel(zone.name, "free_dots.parquet"), free)
     return {**stats, "photos_missing_dots": int(missing), "wall_s": round(time.time() - t0, 1)}

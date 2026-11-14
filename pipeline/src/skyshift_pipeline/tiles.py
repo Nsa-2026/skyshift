@@ -428,10 +428,11 @@ def pass1(ctx: dict, tile: Tile) -> dict:
     if len(mv):
         mv = mv[tile.core.contains(mv["ra"].to_numpy(np.float64), mv["dec"].to_numpy(np.float64))]
     own.write_parquet("movers.parquet", mv)
-    fd = ts.read_parquet(results_rel(tz.name, "free_dots.parquet"))  # tracklets' recovery: owned by the dot's position
-    if len(fd):
-        fd = fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))]
-    own.write_parquet("free_dots.parquet", fd)
+    if ts.exists(results_rel(tz.name, "free_dots.parquet")):  # tracklets' recovery: owned by the dot's position
+        fd = ts.read_parquet(results_rel(tz.name, "free_dots.parquet"))
+        if len(fd):
+            fd = fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))]
+        own.write_parquet("free_dots.parquet", fd)
     src = pq.read_table(io.BytesIO(ts.read_bytes(results_rel(tz.name, "sources.parquet"))))
     own.write_table("sources.parquet", src.filter(pa.array(np.isin(src.column("source_id").to_numpy(), owned))))
     xid = ts.read_parquet(results_rel(tz.name, "crossids.parquet"))

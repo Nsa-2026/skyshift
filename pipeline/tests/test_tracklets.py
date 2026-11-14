@@ -183,3 +183,26 @@ def test_no_movers(tmp_path):
     assert st["movers"] == 0 and st["tracks"] == 0
     tr = store.read_parquet(results_rel(ZONE.name, "tracklets.parquet"))
     assert len(tr) == 0 and list(tr.columns) == T.TRACK_COLUMNS
+
+
+def test_time_budget(monkeypatch):
+    m, photos, _ = scene()
+    monkeypatch.setattr(C, "TRACK_VISIT_MAX_S", -1.0)
+    tr, _, st = T.build(m.drop(columns="truth"), photos, ZONE, None, control=False)
+    assert st["tracks"] == 0 and st["visits"]["1"]["seeds_skipped_time"] > 0 and (tr["tracklet_id"] < 0).all()
+
+
+def test_failure_leaves_empty_tables(tmp_path, monkeypatch):
+    store = Store(str(tmp_path))
+    m, photos, _ = scene()
+    store.write_parquet(photolist_rel(ZONE.name), photos)
+    store.write_parquet(results_rel(ZONE.name, "movers.parquet"), m.drop(columns="truth"))
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(T, "build", boom)
+    st = T.run(store, ZONE)
+    assert "boom" in st["error"]
+    assert len(store.read_parquet(results_rel(ZONE.name, "tracklet_dots.parquet"))) == 0
+    assert list(store.read_parquet(results_rel(ZONE.name, "tracklets.parquet")).columns) == T.TRACK_COLUMNS

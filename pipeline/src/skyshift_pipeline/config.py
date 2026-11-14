@@ -687,7 +687,7 @@ TRACK_R_MAX_ARCSEC = 30.0
 TRACK_MIN_SESSIONS = 3           # a tracklet: movers in >= 3 sessions (2 sessions alone are any pair in the rate range)
 TRACK_SHORT_MAX_SPAN_H = 36.0    # ... and with exactly 3, over at most this long (hunt control: chance 3-session tracks
                                  # all spanned 37-72 h, their third mover far out on the extrapolated path)
-TRACK_MAX_CHI2_NU = 9.0          # local-fit chi2 per degree of freedom above this: the worst member is dropped
+TRACK_VISIT_MAX_S = 30.0         # time budget of one linking pass over a visit (hunt: ~1 s); then the weakest seeds are skipped
 # recovery: link's unpaired dots (results/<zone>/free_dots.parquet: not in a fixed group, elong <= MOVER_MAX_ELONG).
 # Hunt (V < 16, free dots rebuilt from the missed units' photos): recall 90.4% (movers) → 93.0% with 24 h and no
 # near-fixed dots, 94.7% with the settings below; control 0; the dots moved 120″ gave 3 chance track-sessions vs 56.
