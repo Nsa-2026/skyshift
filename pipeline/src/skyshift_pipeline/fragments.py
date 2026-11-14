@@ -351,7 +351,12 @@ def compute(store: Store, zone: C.Zone, workers: int = 16, dots_store: Store | N
         x = x.drop_duplicates("source_id").set_index("source_id")
         mjd = x["epoch_mjd"].reindex(sid).to_numpy(np.float64)
     if mjd is None or not np.isfinite(mjd).all():
-        ep = source_epochs(store, zone, sid)
+        try:
+            ep = source_epochs(store, zone, sid)
+        except Exception:  # noqa: BLE001  no photo list here: the zone's median epoch (Gaia moves ≲ 0.1″ in half a year)
+            if mjd is None or not np.isfinite(mjd).any():
+                raise
+            ep = np.full(len(sid), float(np.nanmedian(mjd)))
         mjd = ep if mjd is None else np.where(np.isfinite(mjd), mjd, ep)
     st: dict = {"sources": int(len(sid)), "crossids": store.exists(xrel)}
     shares, st["dots"] = member_flag_shares(store, zone, sid, workers, dots_store)
