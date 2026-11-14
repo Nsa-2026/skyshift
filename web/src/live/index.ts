@@ -17,7 +17,7 @@ import {
   type MapGeometry,
   type NavKey,
 } from "./map";
-import { SkyrunInvalid, changedZones, summarize, zoneCentre, type RunSummary, type SkyRun, type SkyZone } from "./model";
+import { SkyrunInvalid, changedZones, isProvisional, summarize, zoneCentre, type RunSummary, type SkyRun, type SkyZone } from "./model";
 import { createMinuteTicker, createRefresher } from "./refresh";
 import { fmtDuration, fmtTimePair } from "./format";
 import {
@@ -37,7 +37,7 @@ import "./live.css";
 // For other pages (the Sky page's "Tonight's search" layer).
 export { FeedError, SKYRUN_URL, httpSource, loadSkyrun, loadZoneSuspects, type SkyrunSource } from "./load";
 export { zonesToPolygons, type ZonePolygon, type Ring } from "./project";
-export { parseSkyrun, summarize, zoneCentre, zoneContains, type SkyRun, type SkyZone, type ZoneState } from "./model";
+export { isProvisional, parseSkyrun, summarize, zoneCentre, zoneContains, type SkyRun, type SkyZone, type ZoneState } from "./model";
 
 export interface LiveDeps {
   load?: (signal: AbortSignal) => Promise<SkyRun>;
@@ -162,7 +162,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     }
     geom = next;
     ring(svg()!, "lv-sel", selected, geom);
-    markSuspects(svg()!, selected ? susRows : [], geom);
+    markSuspects(svg()!, selected ? susRows : [], geom, susProv);
     svg()!
       .querySelectorAll<SVGGElement>("g.z")
       .forEach((g) => {
@@ -190,7 +190,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     }
     const active = doc.activeElement as HTMLElement | null;
     const key = active && panel.contains(active) ? active.dataset?.key : undefined;
-    fill("panel", zonePanelHtml(z, now()));
+    fill("panel", zonePanelHtml(z, now(), run!.notes));
     panel.hidden = false;
     el.querySelector(".lv")?.classList.add("has-panel");
     showSuspects(z);
@@ -201,12 +201,14 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
   const susCache = new Map<string, Suspect[]>();
   let susCtl: AbortController | null = null;
   let susRows: Suspect[] = [];
+  let susProv = false;
 
   function paintSuspects(z: SkyZone, state: SuspectsState) {
     const section = slot("panel").querySelector<HTMLElement>("[data-sus]");
-    if (section) section.innerHTML = suspectsHtml(z, state);
+    if (section) section.innerHTML = suspectsHtml(z, state, run?.notes);
     susRows = state.status === "ok" ? state.rows : [];
-    if (svg() && geom) markSuspects(svg()!, susRows, geom);
+    susProv = isProvisional(z);
+    if (svg() && geom) markSuspects(svg()!, susRows, geom, susProv);
   }
 
   function showSuspects(z: SkyZone | null) {
@@ -241,7 +243,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     if (!run) return;
     sum = summarize(run, now());
     fill("lede", ledeText(run, sum));
-    fill("progress", progressHtml(sum, now()));
+    fill("progress", progressHtml(sum, now(), run.notes));
     fill("counters", countersHtml(sum));
     fill("machines", machinesHtml(sum));
     fill("lists", listsHtml(sum, now()));

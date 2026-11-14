@@ -72,9 +72,17 @@ const machines = [
   { name: "skyshift-od2", label: "od2", cpus: 40, kind: "on-demand", start: STARTED + 9 * 60e3, cols: [28, 27, 29, 26, 30, 25, 31, 32, 33, 34] },
 ];
 const byName = new Map(zones.map((z) => [z.name, z]));
+// The 25 Galactic bulge zones of the real run (deferred: true), last in every machine's list.
+const DEFERRED = new Set([
+  "ecl23s2", "ecl23s3", "ecl24s1", "ecl24s2", "ecl24s3", "ecl24s4", "ecl25", "ecl25s1", "ecl25s2", "ecl25s3", "ecl25s4",
+  "ecl26", "ecl26n1", "ecl26n2", "ecl26s1", "ecl26s2", "ecl26s3", "ecl27", "ecl27n1", "ecl27n2", "ecl27s1", "ecl27s2",
+  "ecl28", "ecl28n1", "ecl28n2",
+]);
 const rowOrder = [0, 1, -1, 2, -2, 3, -3, 4, -4];
 for (const m of machines) {
-  m.queue = m.cols.flatMap((k) => rowOrder.map((r) => zones.find((z) => z.k === k && z.row === r)).filter((z) => z && z.name !== "hunt"));
+  m.queue = m.cols
+    .flatMap((k) => rowOrder.map((r) => zones.find((z) => z.k === k && z.row === r)).filter((z) => z && z.name !== "hunt"))
+    .sort((a, b) => DEFERRED.has(a.name) - DEFERRED.has(b.name));
   m.t = m.start;
 }
 // the worker is a spot machine: preempted once for 14 minutes
@@ -174,6 +182,9 @@ const outZones = zones.map((z) => {
     recall: n.recall,
     error: z.error ?? null,
     suspects_url: state === "combined" ? `https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/${z.name}.json` : null,
+    deferred: DEFERRED.has(z.name),
+    // the hunt zone had the WISE check; every other zone has Gaia only until the final pass
+    checks: z.name === "hunt" ? "gaia+catwise" : "gaia",
   };
 });
 
@@ -184,7 +195,8 @@ const ENDS = Date.parse("2026-11-15T05:00:00Z");
 const DEADLINE = Date.parse("2026-11-15T09:00:00Z");
 const hoursIn = (UPDATED - STARTED) / 3600e3;
 const zonesPerHour = (done.length - 1) / hoursIn; // the hunt zone was done before the start
-const projected = Math.min(outZones.length, Math.round(done.length + (zonesPerHour * (ENDS - UPDATED)) / 3600e3));
+// the bulge zones come last and are about 14x slower: the projection stops short of them
+const projected = Math.min(outZones.length - DEFERRED.size, Math.round(done.length + (zonesPerHour * (ENDS - UPDATED)) / 3600e3));
 const r1 = (x) => Math.round(x * 10) / 10;
 const sample = {
   _synthetic: "Synthetic test sample made by make-sample.mjs. Not real data: never publish it.",
@@ -216,6 +228,12 @@ const sample = {
     sources: sum(combined, "sources"),
     movers: sum(combined, "movers"),
     suspects: sum(combined, "suspects"),
+    deferred: DEFERRED.size,
+  },
+  notes: {
+    deferred: "Galactic bulge zones: very crowded, about 14x slower to extract, so they come last.",
+    provisional:
+      "Provisional results (overnight): checked against Gaia only. The WISE infrared check and the calibration come in the final pass from 06:00 CET; provisional suspect lists are several times longer than the final ones (about 8x on the hunt zone).",
   },
   machines: machines
     .map((m) => ({ name: m.name, label: m.label, cpus: m.cpus, kind: m.kind, status: "RUNNING", zone: m.current ?? null }))

@@ -2,7 +2,7 @@
 // filled by state with colour AND pattern, the ecliptic, the hunt zone outlined. Zones are buttons with a
 // roving tabindex; arrow keys move between them in sky order (see neighbour()).
 import { esc, fmtCount, fmtDec, fmtRa } from "./format";
-import { workerOf, type SkyZone } from "./model";
+import { isProvisional, workerOf, type SkyZone } from "./model";
 import {
   DEFAULT_FRAME,
   eclipticPath,
@@ -164,9 +164,12 @@ export function zoneTitle(z: Pick<SkyZone, "name">): string {
 /** What a screen reader hears on a zone. */
 export function zoneLabel(z: SkyZone): string {
   let s = `${zoneTitle(z)}: ${STATE_WORDS[z.state]}`;
+  if (z.deferred && z.state === "queued") s += " last, a Galactic bulge zone";
   const who = workerOf(z);
   if ((z.state === "extracting" || z.state === "combining") && who) s += ` on ${who}`;
-  if (z.state === "combined" && z.suspects !== null) s += `, ${fmtCount(z.suspects)} ${z.suspects === 1 ? "suspect" : "suspects"}`;
+  if (z.state === "combined" && z.suspects !== null) {
+    s += `, ${fmtCount(z.suspects)} ${isProvisional(z) ? "provisional " : ""}${z.suspects === 1 ? "suspect" : "suspects"}`;
+  }
   return `${s}. RA ${fmtRa(z.ra[0])} to ${fmtRa(z.ra[1])}, Dec ${fmtDec(z.dec[0])} to ${fmtDec(z.dec[1])}.`;
 }
 
@@ -197,6 +200,7 @@ function zoneAttrs(z: SkyZone): Record<string, string> {
   return {
     "data-state": z.state,
     "data-level": z.state === "combined" ? suspectLevel(z.suspects) : "",
+    "data-deferred": z.deferred ? "1" : "",
     "aria-label": zoneLabel(z),
   };
 }
@@ -211,6 +215,9 @@ export const PATTERNS = `
   </pattern>
   <pattern id="lv-p-extracted" patternUnits="userSpaceOnUse" width="3.6" height="3.6">
     <rect class="lv-pat-dotbg" width="3.6" height="3.6"/><circle class="lv-pat-dot" cx="1.8" cy="1.8" r="0.75"/>
+  </pattern>
+  <pattern id="lv-p-deferred" patternUnits="userSpaceOnUse" width="2.2" height="2.2">
+    <rect class="lv-pat-bg" width="2.2" height="2.2"/><circle class="lv-pat-stipple" cx="0.55" cy="0.55" r="0.42"/><circle class="lv-pat-stipple" cx="1.65" cy="1.65" r="0.42"/>
   </pattern>`;
 
 export interface MapOptions {
@@ -302,10 +309,19 @@ export function markChanged(svg: SVGSVGElement, names: Iterable<string>, geom: M
     .join("");
 }
 
-/** Small red marks at the suspects of the selected zone (empty list clears them). */
-export function markSuspects(svg: SVGSVGElement, points: Array<{ ra: number; dec: number }>, geom: MapGeometry): void {
+/**
+ * Small red marks at the suspects of the selected zone (empty list clears them): solid once the WISE check
+ * has run, hollow and dimmer while provisional (Gaia check only).
+ */
+export function markSuspects(
+  svg: SVGSVGElement,
+  points: Array<{ ra: number; dec: number }>,
+  geom: MapGeometry,
+  provisional = false,
+): void {
   const layer = svg.querySelector(".lv-sus-marks");
   if (!layer) return;
+  layer.setAttribute("data-provisional", provisional && points.length ? "1" : "");
   layer.innerHTML = points
     .map((p) => {
       const [x, y] = skyToXY(p.ra, p.dec, geom.frame);
