@@ -11,12 +11,16 @@ Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, c
 highpm, score, suspects; `all` runs them in order.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
-- Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/<mpc|skybot>/<zone>/run_<obs_id>.json.
+- Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
+- forced_sky (not a CLI step): `uv run python -m skyshift_pipeline.forced_sky --root gs://nasa-glazing-data --workers 16`
+  builds the sky-wide forced list refcat/sky/forced_n32/p<pixel>.parquet (Gaia DR3 G<17.5, HEALPix nside 32 by source_id,
+  ESA TAP sync, brightest 8,221 per partition) and _complete.json last; resumable. dots uses it for every photo's whole
+  footprint once _complete.json exists, else refcat/<zone>_forced.parquet (SKYSHIFT_FORCED_SKY=off forces the zone list).
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - calib (after crossid; `all` reruns spectra after it): from the raw member dots, per detector the pixel-phase centroid
   bias (Fourier in φ = x − round(x)), per photo a distortion polynomial vs Gaia (order by cross-validation), pos_err =
@@ -25,17 +29,23 @@ highpm, score, suspects; `all` runs them in order.
   when present (stats `calib_applied`); dot files stay raw; link stays raw (4″ FoF ≫ 0.6″ bias). Rerun after crossid.
 - `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
-  cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. `--known-source skybot` (or SKYSHIFT_KNOWN_SOURCE=skybot) uses the
-  SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″ (SkyBoT was 4.5′ off).
+  cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. MPC is the only source of known objects (no flag, no env var).
+  Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″.
 - minorplanetcenter.net times out from GCP machines (14 Nov). The newest snapshot in cache/mpc/orbits/ is always reused,
-  so make it from a laptop: `uv run python -c "from skyshift_pipeline.store import Store; from skyshift_pipeline import
-  known_mpc; known_mpc.orbit_table(Store('gs://nasa-glazing-data'))"` (~1 min; the newest snapshot wins, so delete a stale one first).
+  so refresh it from a laptop: `uv run skyshift-pipeline mpc-orbits --root gs://nasa-glazing-data [--force]` (~1 min, gcloud
+  login; not part of `all`, no --zone). It writes today's mpcorb_/cometels_<date>.parquet, which then win; old ones stay.
+  Without --force a snapshot already made today is kept. Sessions already in cache/mpc/<zone>/ keep their old positions:
+  delete those run_*.json files to recompute them with the new orbits.
+- History: SkyBoT was removed after #64 (docs/research/2026-11-14-mpc-vs-skybot-score.md): on the pilot MPC gave
+  G2 recall 92.2% with predictions 0.27″ from the matched movers vs SkyBoT's 1.43″.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
 - Session = run of the zone's exposure times with gaps < 10 min (core.sessions over all photos), one per photo; visit = core.visits.
 - dots: core.detect thresh=2 (per pixel), keep snr >= 5; saturated dots re-centroided on the wings; flags = 3×3 OR,
-  flags_peak = bits at the peak pixel; FINAST != 0 → empty dot file.
+  flags_peak = bits at the peak pixel; FINAST != 0 → empty dot file. Dots v4 (14 Nov) add an ePSF position fit
+  (x_psf, y_psf, ra_psf, dec_psf, pos_err_psf_arcsec, psf_pos_ok; no pixel-phase pull, ~2× smaller scatter vs Gaia):
+  use them where psf_pos_ok, never phase-correct them (contracts/dots.md, Versions).
 - link: fixed = FoF 4″ groups in >= 3 sessions; drop dots within 6″ of fixed; pair dots of one session
   (≤ 3″ + 1″/min × Δt, or a simultaneous D1+D4/D2+D5/D3+D6 pair ≤ 3″, elong ≤ 3); coverage ≥ 3 sessions from footprints.
 - link also writes members.parquet (source_id, obs_id, detector, dot_row = row in the dot file as written; dot
@@ -51,7 +61,8 @@ highpm, score, suspects; `all` runs them in order.
 - macOS: uv may mark the editable .pth files hidden (Python then skips them); pytest adds ../core/src itself.
 - ESA Gaia TAP: async jobs stalled for minutes (14 Nov), sync answers a 1° tile in ~2 s. IRSA: ~35 s (Gaia, 2MASS) to
   ~60 s (CatWISE, ~35k rows/deg²) per 1° tile, sync or async alike.
-- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test and kete vs SkyBoT.
+- Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live kete test (MPC orbits, rates
+  vs positions an hour apart) and the SDSS query.
 
 ## Spectral science: what the outputs mean (for the web)
 - `classes.parquet` → `class`: star, galaxy or unsure. SPHEREx's 6″ pixels and 7.5″ PSF leave most galaxies

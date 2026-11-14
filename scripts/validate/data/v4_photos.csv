@@ -37,7 +37,7 @@ False,False,False,none,,,4.195681,2,61174.4818593,3,7 Iris (A847 PA),7,2026W20_1
 False,False,True,none,,,13.484669,3,60796.1414165,3,8 Flora (A847 UA),8,2025W18_1B_0399_1,True,True,False,detect,0.861,244.2,168.523783,ok,11.04
 False,False,False,none,,,13.356589,2,60799.1310751,3,8 Flora (A847 UA),8,2025W18_2B_0398_1,True,True,False,wings,0.094,303.2,168.530895,ok,11.11
 False,False,False,none,,,-19.01685,2,61147.7715838,3,8 Flora (A847 UA),8,2026W16_2A_0241_3,True,True,False,wings,0.106,279.8,291.066195,ok,11.45
-False,False,False,none,,,-25.01241,3,61287.0985408,3,8 Flora (A847 UA),8,2026W36_2A_0152_2,True,True,False,wings,0.28,84.3,280.577643,ok,10.54
+False,False,False,none,,,-25.01241,3,61287.0985408,3,8 Flora (A847 UA),8,2026W36_2A_0152_2,False,True,True,wings,0.28,84.3,280.577643,ok,10.54
 False,False,True,none,,,-25.197189,2,61295.7160997,3,8 Flora (A847 UA),8,2026W37_2A_0466_1,False,True,True,wings,0.054,214.1,281.61755,ok,10.69
 False,False,False,none,,,-13.857445,3,60854.1632321,3,9 Metis (A848 HA),9,2025W26_2A_0354_1,True,True,False,detect,0.368,345.4,218.828235,ok,10.91
 False,False,False,none,,,-14.278737,2,60864.4925986,3,9 Metis (A848 HA),9,2025W28_1B_0279_3,True,True,False,wings,0.108,327.9,219.016347,ok,11.12
@@ -167,7 +167,7 @@ False,False,False,none,,,19.014266,2,61165.0420323,3,33 Polyhymnia (A854 UB),33,
 False,False,False,none,,,17.815082,2,60944.1368301,3,34 Circe (A855 GA),34,2025W39_2A_0138_1,True,True,False,detect,0.108,100.6,97.524266,ok,14.11
 False,False,False,none,,,17.686865,2,60946.6523099,3,34 Circe (A855 GA),34,2025W39_2A_0636_1,True,True,False,detect,0.19,103.5,98.199118,ok,14.08
 False,False,False,none,,,17.390814,3,60952.2215825,3,34 Circe (A855 GA),34,2025W40_2B_0400_1,True,True,False,detect,0.102,94.1,99.602195,ok,14.0
-True,True,False,detect,1.427,14.7,17.435508,3,61114.4691541,3,34 Circe (A855 GA),34,2026W11_2A_0577_3,True,True,False,detect,0.037,117.6,94.326211,ok,13.63
+False,True,True,detect,1.427,14.7,17.435508,3,61114.4691541,3,34 Circe (A855 GA),34,2026W11_2A_0577_3,True,True,False,detect,0.037,117.6,94.326211,ok,13.63
 False,False,False,none,,,17.749908,2,61122.7477912,3,34 Circe (A855 GA),34,2026W13_1A_0144_1,True,True,False,detect,0.161,125.5,96.221333,ok,13.74
 False,False,False,none,,,12.886773,2,61008.3840529,3,35 Leukothea (A855 HA),35,2025W48_2A_0430_1,True,True,False,detect,0.201,105.0,162.174022,ok,14.1
 False,False,False,none,,,12.665598,3,61010.6959819,3,35 Leukothea (A855 HA),35,2025W49_1A_0161_3,True,True,False,detect,0.118,89.2,162.716525,ok,14.07
@@ -200,7 +200,7 @@ False,False,False,none,,,25.690156,3,61113.8543985,3,40 Harmonia (A856 FA),40,20
 False,False,True,none,,,25.673152,2,61117.3177792,3,40 Harmonia (A856 FA),40,2026W12_1A_0416_3,True,True,False,wings,0.07,303.0,98.621298,ok,11.21
 False,True,True,detect,1.8,164.3,25.555856,2,61127.9749457,3,40 Harmonia (A856 FA),40,2026W13_2A_0484_1,True,True,False,wings,0.072,220.5,101.371877,ok,11.38
 False,False,False,none,,,1.029697,2,60989.0251727,3,41 Daphne (A856 KA),41,2025W46_1A_0010_1,True,True,False,detect,0.118,199.6,139.887883,ok,13.15
-False,False,True,none,,,0.358165,2,60995.0689119,3,41 Daphne (A856 KA),41,2025W46_2A_0533_2,True,True,False,detect,0.213,169.6,141.137171,ok,13.07
+False,False,False,none,,,0.358165,2,60995.0689119,3,41 Daphne (A856 KA),41,2025W46_2A_0533_2,True,True,False,detect,0.213,169.6,141.137171,ok,13.07
 False,False,False,none,,,-0.022774,3,60998.5992138,3,41 Daphne (A856 KA),41,2025W47_1A_0563_1,True,True,False,detect,0.16,181.6,141.80527,ok,13.01
 False,False,False,none,,,11.064067,3,61158.660938,3,41 Daphne (A856 KA),41,2026W18_1A_0349_1,True,True,False,wings,0.156,159.0,137.573279,ok,12.2
 False,False,True,none,,,11.662822,2,61174.4783064,3,41 Daphne (A856 KA),41,2026W20_1A_1239_1,True,True,False,detect,0.146,281.6,141.889905,ok,12.36
@@ -208,7 +208,7 @@ False,False,True,none,,,21.822178,2,60947.3978511,3,42 Isis (A856 KB),42,2025W40
 False,False,False,none,,,21.871356,3,60950.7277644,3,42 Isis (A856 KB),42,2025W40_2B_0052_1,True,True,False,detect,0.061,208.1,100.333049,ok,12.93
 False,True,True,detect,1.225,83.2,21.891396,3,60952.0189556,3,42 Isis (A856 KB),42,2025W40_2B_0357_2,True,True,False,detect,0.203,231.3,100.606764,ok,12.91
 False,True,True,detect,1.709,34.6,27.395538,2,61106.0449859,3,42 Isis (A856 KB),42,2026W10_2B_0286_1,False,True,True,detect,0.038,202.7,87.740132,ok,13.14
-False,False,False,none,,,27.470374,2,61116.7034499,3,42 Isis (A856 KB),42,2026W12_1A_0315_1,True,True,False,detect,0.075,185.2,89.48478,ok,13.31
+False,False,False,none,,,27.470374,2,61116.7034499,3,42 Isis (A856 KB),42,2026W12_1A_0315_1,False,True,True,detect,0.075,185.2,89.48478,ok,13.31
 False,False,False,none,,,24.864886,2,60926.9553285,3,43 Ariadne (A857 GA),43,2025W37_1A_0198_1,False,True,True,detect,0.214,235.7,78.888222,ok,13.01
 False,False,False,none,,,24.973645,2,60936.4658588,2,43 Ariadne (A857 GA),43,2025W38_1A_0788_2,True,True,False,detect,0.154,266.5,81.21912,ok,12.91
 False,False,False,none,,,25.005349,3,60941.4187946,3,43 Ariadne (A857 GA),43,2025W39_1A_0265_1,False,True,True,detect,0.22,225.0,82.238478,ok,12.84
@@ -251,7 +251,7 @@ False,False,False,none,,,-17.964457,3,60956.5292957,3,50 Virginia (A857 TA),50,2
 False,False,True,none,,,-17.860593,2,60961.0136104,3,50 Virginia (A857 TA),50,2025W42_1A_0002_1,True,True,False,detect,0.205,174.8,306.529485,ok,13.35
 False,False,False,none,,,-13.065053,2,61120.9547053,3,51 Nemausa (A858 BA),51,2026W12_2A_0446_1,True,True,False,detect,0.415,68.9,270.043931,ok,12.51
 False,True,True,detect,1.844,38.1,-12.637363,3,61125.982555,3,51 Nemausa (A858 BA),51,2026W13_2A_0100_4,True,True,False,detect,0.236,45.5,271.433247,ok,12.45
-False,False,True,none,,,-8.358662,3,61169.2899489,3,51 Nemausa (A858 BA),51,2026W19_2A_0688_1,True,True,False,wings,0.323,27.9,277.003713,ok,11.7
+False,False,True,none,,,-8.358662,3,61169.2899489,3,51 Nemausa (A858 BA),51,2026W19_2A_0688_1,False,True,True,wings,0.323,27.9,277.003713,ok,11.7
 False,True,True,detect,1.612,24.2,-9.824873,3,61264.8293899,3,51 Nemausa (A858 BA),51,2026W33_1A_0550_1,True,True,False,wings,0.041,161.8,263.200582,ok,12.02
 False,False,False,none,,,-10.187573,2,61268.2963777,3,51 Nemausa (A858 BA),51,2026W33_2A_0533_4,True,True,False,wings,0.051,202.5,263.386501,ok,12.09
 False,False,False,none,,,11.130041,2,60899.0341765,3,52 Europa (A858 CA),52,2025W33_1B_0190_1,True,True,False,detect,0.095,259.2,52.944471,ok,12.53
@@ -293,7 +293,7 @@ False,False,False,none,,,-9.361942,2,60794.7531412,3,59 Elpis (A860 RA),59,2025W
 False,True,True,detect,1.627,17.2,-8.553094,3,60803.7923946,3,59 Elpis (A860 RA),59,2025W19_2B_0046_4,True,True,False,detect,0.082,156.9,315.565282,ok,13.43
 False,False,False,none,,,-14.715392,2,60965.158615,3,59 Elpis (A860 RA),59,2025W42_2A_0145_4,True,True,False,detect,0.068,220.9,311.189744,ok,12.9
 False,True,True,detect,1.565,29.8,14.475543,2,61302.4753748,3,59 Elpis (A860 RA),59,2026W38_2A_0410_4,False,True,True,wings,0.818,323.2,88.758454,ok,13.21
-False,False,True,none,,,14.209991,3,61306.951784,3,59 Elpis (A860 RA),59,2026W39_1A_0622_2,False,True,True,detect,0.322,159.1,89.932385,ok,13.17
+False,False,False,none,,,14.209991,3,61306.951784,3,59 Elpis (A860 RA),59,2026W39_1A_0622_2,False,True,True,detect,0.322,159.1,89.932385,ok,13.17
 False,False,False,none,,,0.301384,3,60811.9065048,3,60 Echo (A860 RB),60,2025W20_2D_0234_1,True,True,False,detect,0.08,180.3,181.585015,ok,12.82
 False,False,False,none,,,-2.606085,2,60861.6362631,2,60 Echo (A860 RB),60,2025W27_2A_0485_1,True,True,False,detect,0.025,147.0,189.781466,ok,13.8
 False,False,False,none,,,-17.108955,2,61153.746926,3,60 Echo (A860 RB),60,2026W17_2A_0054_4,True,True,False,detect,0.12,142.0,296.524277,ok,14.12

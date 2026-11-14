@@ -12,10 +12,10 @@ this folder (`pyproject.toml` + `uv.lock`). Archive state: 14 Nov 2026 (SPHEREx 
 | `most_asteroids.py` | IRSA MOST (`catalog=spherex`, `output_mode=Brief`, by number) for asteroids 1–60: every SPHEREx image and MOST's predicted position, V magnitude, distances. Sequential, 1.5 s apart, cached in `.cache/most/`, one retry, failures logged. | `data/most_1_60.csv` (gitignored, ~8 MB), `data/most_1_60_summary.json` (committed); `gs://nasa-glazing-data/results/` |
 | `v1_targets.py` | V1: per target, visit and detector, a median stack of up to 5 photos (41 px boxes; every photo for WISE 0855) and a 5σ source within 2 px of the predicted position. | `data/v1_targets.json` |
 | `v4_asteroids.py` | V4: asteroids 1–60 at MOST's predicted position in up to 5 photos each (81 px boxes, D2–D3), absent from a reference stack of the same sky 0.25–12 days away; control 3′ away. | `data/v4_asteroids.json`, `data/v4_photos.csv` |
-| `v8_spectra.py` | V8 spectra half: every pilot star's 102-channel spectrum (pipeline `sources.parquet`) averaged over 2MASS Ks and WISE W1, against the catalogue magnitudes in `crossids.parquet`. | `data/v8_spectra.json` |
-| `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `demo_check.py --json`, V11 from `scripts/science`. Missing inputs → `pending`. | `web/public/data/validation.json` |
+| `v8_spectra.py` | V8 spectra half, per pipeline zone (default hunt and pilot): every star's 102-channel spectrum (pipeline `sources.parquet`) averaged over 2MASS Ks and WISE W1, against the catalogue magnitudes in `crossids.parquet`. | `data/v8_spectra_<zone>.json` |
+| `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `v8_spectra_<zone>.json` + `data/demo_check.json` (`demo_check.py --json`; `--demo-check PATH` overrides), V11 from `scripts/science`. Missing inputs → `pending`. Status rules are small pure functions (`v1_status` … `v10_status`, tested in `tests/test_build_validation.py`); every note ends with the row keys. Zones: see "Two zones" below. Also writes the zones' merged `suspects.json`. | `web/public/data/validation.json`, `web/public/data/suspects.json` |
 | `_boxes.py` | Box reads from S3 (cached in `.cache/boxes/`), reference stacks resampled through the WCS, `source_near` (with the saturated-core fit). | |
-| `_common.py` | Shared helpers: linear proper motion, detector from `energy_bandpassname`, the visit/session rule (local copy), polygon edge distance, `gcloud storage cp`. | |
+| `_common.py` | Shared helpers: linear proper motion, detector from `energy_bandpassname`, the visit/session rule (re-exported from `skyshift_core.visits`), polygon edge distance, `gcloud storage cp`. | |
 
 ```
 cd scripts/validate
@@ -24,11 +24,28 @@ uv run python photolists.py              # ~1 min; --no-upload, --only barnard,3
 uv run python most_asteroids.py          # ~10 min cold (cached after); --first/--last, --no-upload
 uv run python v1_targets.py              # ~650 boxes, ~5 min cold; --only barnard
 uv run python v4_asteroids.py            # ~1,700 boxes, ~25 min cold from Europe; --first/--last/--per
-uv run python v8_spectra.py              # pilot tables from the bucket (~30 MB, gcloud); --zone hunt later
-uv run python build_validation.py --site-data ../../web/public/data --fetch-results pilot \
-    --demo-check /path/to/demo_check.json
+uv run python v8_spectra.py              # hunt + pilot tables from the bucket (~180 + 30 MB, gcloud); --zones pilot
+uv run python build_validation.py --site-data ../../web/public/data --fetch-results
+                                         # both zones' reports (hunt headline, pilot kept); --zones pilot for one;
+                                         # V8 speed from data/demo_check.json (--demo-check PATH overrides)
 uv run pytest                            # offline
 ```
+
+**Two zones.** `--zones` (default `hunt,pilot`) sets the zones for V5, V8 spectra, V9, V10 and
+`suspects.json`; the first zone with an input is the headline and gives `value`, and every zone's numbers
+stay in the rows (field `zone`) and the note. The status is the poorest of the zones. The pilot box
+(RA 120.5–124.1, Dec +14.4 to +17.9) lies inside the hunt zone (RA 120.5–130.5, Dec +14.4 to +24.4), so the
+hunt's numbers include the pilot's sky; the notes say so. Without the hunt's reports the pilot is the
+headline by itself. `--fetch-results` copies `recall.json`, `astrometry_report.json`, `photoz_report.json`,
+`suspects.json` and `summary.json` of every zone (or `--fetch-results hunt`). V5 publishes a zone only when its
+known objects came from MPC: `recall.json`'s own `known_source`, else `summary.json`'s `steps.known.source` from
+the same run (same score time). `v8_spectra.py` and `fetch` skip tables already in `.cache/results/<zone>/`:
+delete the local copies first when the bucket's are newer (`gcloud storage ls -l`).
+
+**suspects.json.** The zones' pipeline files merged, headline zone first. Each suspect gets `zone` (the run its
+entry comes from) and `zones` (every zone whose run found it); the top level keeps the contract's `zone` (the
+headline zone) and adds `zones`. A later zone's suspect within 6″ and 2 minutes of an earlier zone's is the same
+mover and is not repeated. Both fields are optional additions; the contract shape is unchanged.
 
 `v4_asteroids.py` needs `data/most_1_60.csv` (`gcloud storage cp gs://nasa-glazing-data/results/most_1_60.csv data/`).
 
@@ -44,9 +61,8 @@ URL), s3_bucket, s3_key, s3_region, cloud_access (raw JSON), access_estsize_kb, 
 qr2_datalink (comet only)`. One row per image (exposure × detector); an (obs_id, detector) in both
 DR1 and QR3 keeps DR1 (none overlapped).
 
-Visit and session ids come from a small local copy of the contracts/api.md rule in `_common.py`,
-same semantics as `skyshift_core.visits`. **Replace it with `skyshift_core.visits` after p1/core
-merges.**
+Visit and session ids come from the contracts/api.md rule in `skyshift_core.visits` (core/), which
+`_common.py` imports: one copy of the rule for the pipeline, the server and these scripts.
 
 ## Row counts (14 Nov 2026)
 
@@ -89,29 +105,115 @@ Still to check: whether MOST's `ra_obj/dec_obj` is for the exposure start or mid
 
 ## Checks run here (14 Nov)
 
-**V1, five test objects: 5 of 5 found where predicted, in 19 of 20 visits.** Median offsets
-0.15–0.31 px per target. 77 of 86 expected stacks recovered; R Draconis misses 6 of 22, all in
-D4 (4) and D5 (2), while D1–D3 find it in the same visits (not yet looked into). WISE 0855−0714 is found in D5–D6 in its two full visits (aperture
-S/N 9–10, 0.2–0.6 px); its first visit has only 8 D5 and 3 D6 photos. In D1–D4 a background star lies
+**V1, five test objects: 5 of 5 found where predicted, in 20 of 20 visits.** Median offsets
+0.15–0.25 px per target. 85 of 86 expected stacks recovered; the one miss is WISE 0855's first-visit
+D6 stack (3 photos). R Draconis 22 of 22 in all six detectors, after the masked-core fix below (it
+missed all 4 D4 and 2 of 3 D5 stacks before). WISE 0855−0714 is found in D5–D6 in all three visits
+(aperture S/N 6.9–11, 0.15–0.58 px), including its first visit's 8 D5 photos (S/N 9.5, 0.39 px). In D1–D4 a background star lies
 1–2 px from WISE 0855; those stacks are not counted (WISE 0855 is expected only in D5–D6).
 
-**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 249 of 300 photos (5 per
-asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 3 of 300 photos (1.0%),
-3 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 51
-photos not counted, 48 have a source within 3 px of the spot in the reference stack (a static star
+**V4, asteroids 1–60: all 60 re-found where MOST predicts them.** 246 of 300 photos (5 per
+asteroid, D2–D3, V 7–15); median offset 0.13 px (0.77″). Control 3′ away: 2 of 300 photos (0.7%),
+2 of 60 asteroids in any of their 5 photos. 1,736 boxes, ~30 min cold from Europe. Of the 54
+photos not counted, 51 have a source within 3 px of the spot in the reference stack (a static star
 there, so the detection can't be told apart) and 3 more have no detection.
 "Absent from the stack" means nothing within 3 px, not 2: with 2 px the control hit 6 of 300, five
 of them real static stars at 1.4–2.0 px in the photo that the resampled stack put just beyond 2 px
 (S/N 12–97, no artefact flags).
 
-**V8, spectra: SPHEREx fluxes agree with 2MASS Ks to 1% and WISE W1 to 0.6%.** Pilot stars of
-10–13 mag matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable: SPHEREx/Ks
-1.010 (scatter 3.0%, 3,918 stars), SPHEREx/W1 0.994 (scatter 1.8%, 4,240 stars). This also checks
-the MJy/sr → µJy conversion on thousands of stars. Fainter than 13 mag the scatter grows (6–12%)
-and W1 drifts to 1.04 at 14–15 mag. The speed half (first frame < 15 s) waits for the deployed
-site: `uv run scripts/demo_check.py --random 10 --json demo.json`, then
-`build_validation.py --demo-check demo.json`. When the hunt zone finishes, rerun `v8_spectra.py
---zone hunt` and `build_validation.py --fetch-results hunt`.
+**Pipeline zones (14 Nov).** Both runs are `main` at 1477f8e: the pilot (`all --zone pilot`, 990 photos,
+reports 13:06–13:12Z) and the hunt zone (`known` + `all --zone hunt` on skyshift-worker, 3,692 DR1 photos in
+2 visits, reports 13:05–13:40Z, exit 0; its dots are from the 12:28Z `dots --zone hunt` run, de2c1a1, plus
+988 photos already done). Both took their known objects from MPC orbits (`summary.json`
+`steps.known.source = "mpc"`; the hunt's 291 sessions came from cache/mpc/hunt). The hunt's 3,692 photos
+include the pilot's 990, and its 27 suspects inside the pilot box are exactly the pilot's 27.
+
+**V5, blind asteroid recall: 90% in the hunt zone, 92% in the pilot (gate G2).** Recall of known asteroids
+at V < 16 (one object in one session with 2 or more exposures, a blind-search mover within 12″), control
+(every prediction moved 2′) 0% in both:
+
+| zone | V < 16 | objects | V < 12 | V 12–14 | V 14–15 | V 15–16 | V 16–17 | V 17–18 |
+|---|---|---|---|---|---|---|---|---|
+| hunt | 413 / 457 (90.4%) | 30 / 30 | 40 / 41 | 52 / 56 | 93 / 102 | 228 / 258 | 291 / 349 (83%) | 574 / 1,359 (42%) |
+| pilot | 83 / 90 (92.2%) | 8 / 8 | 17 / 18 | 5 / 5 | 25 / 28 | 36 / 39 | 58 / 70 (83%) | 59 / 149 (40%) |
+
+V 12–16 alone: hunt 373 of 416, pilot 66 of 72. No V = 0.0 or comet units in the hunt's
+`recall_units.parquet` at V < 16 (all 30 objects are numbered asteroids, V 10.8–15.97).
+
+**V8, spectra: SPHEREx fluxes agree with 2MASS Ks to 0.8% and WISE W1 to 2.9% (hunt zone).** Stars of
+10–13 mag matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable. This also checks
+the MJy/sr → µJy conversion on tens of thousands of stars.
+
+| zone | sources | SPHEREx/Ks (10–13 mag) | SPHEREx/W1 (10–13 mag) |
+|---|---|---|---|
+| hunt | 303,045 | 0.9925, scatter 2.9%, 25,696 stars | 1.0291, scatter 1.9%, 27,860 stars |
+| pilot | 45,189 | 0.9933, scatter 2.9%, 3,918 stars | 1.0265, scatter 1.8%, 4,240 stars |
+
+The two zones agree to 0.1% (Ks) and 0.3% (W1). Fainter than 13 mag the scatter grows (hunt: Ks 5.4% at
+13–14 and 10.3% at 14–15 mag; W1 4.2% and 9.4%) and W1 drifts to 1.07 at 14–15 mag in both zones.
+The pilot numbers come from the pilot tables regenerated after dots v4 (#52, bucket copies of
+13:06–13:09Z). The first pilot run gave Ks 1.010 and W1 0.994 on the same 45,189 sources and the same
+star counts. Every magnitude bin moved by the same amount (Ks −1.7%, W1 +3.3%), so the new tables
+changed the D3 and D4 fluxes, not the matching. The hunt's `crossids.parquet` comes from the first
+spectra pass (303,041 sources) and its `sources.parquet` from the second, calibrated one (303,045): every
+crossid `source_id` is in `sources.parquet`, and the positions agree (median 0.09″).
+
+**V8, speed (14 Nov, live site): fail, the API saturated during the test.** `data/demo_check.json` is
+`uv run scripts/demo_check.py --random 10 --json scripts/validate/data/demo_check.json`, run from the
+repo root at 13:26–13:37Z (seed 297754). `build_validation.py` reads it without a flag. The next official
+run, after the API speed-up is deployed, replaces the file. The 8 featured targets load from /data with the
+first frame in 0.04–0.53 s. Only 2 of the 20 random /api/frames requests (10 coordinates × 2 clocks,
+one at a time) answered: 28.7 s (months) and 8.1 s (hours), both for the last coordinate. The other 18
+failed: 14 HTTP 429 "Rate exceeded." and 4 timeouts at 60 s. Only 1 of 10 /api/object requests
+answered (17.8 s). An earlier run at 13:12Z (seed 849302) failed the same way: 2 of 20, 32.1 and
+33.0 s. Cloud Run's request logs show the cause:
+- A request still running after about 60 s reaches Cloud Run again 1–3 more times, about a minute later.
+  `demo_check.py` doesn't retry, so the copies come from the hosting layer.
+- Each copy keeps computing up to Cloud Run's 300 s timeout. With at most 2 instances × concurrency 8
+  and CPU-bound work, the copies fill the service, and every other request gets an immediate 429.
+- Another demo check (the run behind #69) and curl calls hit the API during both runs.
+- Revision `skyshift-api-00002` went live at 13:35:08Z. After that, /api/frames took 7–28 s and
+  /api/object 17–43 s; both successes above are from that revision.
+
+**V9, proper motions vs Gaia: honest error bars in both zones.** Frame-corrected fits against Gaia DR3:
+
+| zone | stars | bias RA / Dec (mas/yr) | scatter RA / Dec (mas/yr) | pull scatter RA / Dec |
+|---|---|---|---|---|
+| hunt | 211,326 | 2.5 / −6.6 | 146 / 144 | 0.97 / 0.96 |
+| pilot | 32,446 | 3.2 / −6.2 | 147 / 145 | 0.98 / 0.96 |
+
+The scatter is set by one year between two visits: 425–458 mas/yr at S/N 5–10, 41–60 at S/N > 100. Above
+S/N 100 the RA bias is −26 mas/yr (hunt; pilot −23) and the RA pull 1.36–1.38, in both zones: the
+brightest stars are the least well modelled.
+
+**V10, photometric redshifts vs SDSS DR17: σ_NMAD 0.023 for 8,552 bright hunt galaxies.** EAZY on the
+102-channel spectra, K_AB < 17:
+
+| zone | galaxies | σ_NMAD | outliers (\|dz\|/(1+z) > 0.15) | bias |
+|---|---|---|---|---|
+| hunt | 8,552 | 0.0228 | 2.7% | 0.004 |
+| pilot | 1,211 | 0.0209 | 2.2% | 0.003 |
+
+All hunt matches (10,328): σ_NMAD 0.026, 5.6% outliers; at K_AB 17–18 (1,627) it is 0.059 with 20% outliers.
+
+**Suspects (unknown movers): 228 in the hunt zone, 27 in the pilot.** Both runs used MPC known objects. The
+density is the same, about 2 per deg² (6,143 movers → 228 in the hunt; 873 → 27 in the pilot); the hunt's 27
+suspects inside the pilot box are exactly the pilot's 27, so `suspects.json` holds 228 (27 of them with
+`zones: ["hunt", "pilot"]`). Every suspect is at least 45″ from a known object (54 have none within 600″);
+225 are `two_exposures`, 3 `two_detectors`. Things to look at before trusting them:
+- D4 is 41% of the hunt's suspects against 28% of its movers, mostly in visit 2 (73 of 138 suspects there,
+  20 of 90 in visit 1). The pilot has the same lean (10 of 27).
+- Bit 19 (OUTLIER, recorded, not masked) is set near 40% of the suspects (92 of 228).
+- Three sky positions repeat on different days, 7 suspects in all: 2 suspects 4.2″ and 168.6 days apart
+  (one is the brightest suspect, S/N 290 in D1), 2 suspects 6.9″ and 3.4 days apart, and 3 within 27″ over
+  2.5 days (D3/D6, RA 122.55, Dec +17.00, inside the pilot box). These are fixed or very slow sources
+  (under 0.5″/h), not fast movers. Two other suspects 27″ and 1.6 h apart (D3) look like one mover
+  (17″/h) seen in two sessions.
+The previous site file (12:13Z, 26 pilot suspects) predates the MPC rerun; the 13:12Z pilot run gives 27.
+
+**High proper motion (no check of its own, V6 is cut).** Hunt: 997 candidates, 64 vetted, 0 new; the
+pair method doesn't beat its control in any separation bin. 55 of the 104 Gaia stars faster than 200 mas/yr
+that were detected are recovered (pilot 7 of 13).
 
 What we learned:
 - **Saturated cores bias sep's centroid by 1–2 px.** Barnard's Star in D6: sep put it 1.75 px
@@ -120,6 +222,43 @@ What we learned:
   Gaussian to the unmasked wings (13 × 13 px stamp started at the prediction, ±2 px bounds), or
   takes the centre of the masked core when too few wing pixels are left (Barnard D3–D4).
   With it, Barnard's Star is at 0.19 px median in all 18 stacks.
+- **R Draconis saturates so hard in D4–D5 that sep sees only a rim around the masked core.** Its
+  wings (10–13 px out) are 13× Barnard's in D4 and 26× in D5 (6–8× in D1–D3). The pipeline flags a
+  round hole of TRANSIENT + SUR_ERROR + OVERFLOW (all mask bits; BLOOM on nearly every pixel, IMAGE
+  NaN on the 17–38 px OVERFLOW core in D4) of 134–266 px in D4 (equivalent radius 6.5–9.2 px) and
+  120–162 px in the missed D5 stacks (6.2–7.2 px), against 32–81 px (3.2–5.1 px) for Barnard's Star in
+  D3–D4. 71–100% of the 13 × 13 fit stamp is masked; the Gaussian wing fit never leaves its start, even
+  on a stamp scaled to the hole. The only sep detections are rim fragments (aperture S/N 12–108)
+  0.7–1.1 px outside the hole in photos (up to 1.7 px in stacks), so 6.0–9.1 px from the prediction:
+  beyond the old gate of radius + 4 = 6 px, and the saturated-core branch never ran ("none"). Not the
+  cause: the box (hole and rim fit inside 41 px), the S/N gate, image edges (all used photos ≥ 25 px
+  in), the stack's OVERFLOW/NONLINEAR union (27–54 px per D4 photo, inside the hole), or the prediction. `source_near` now also takes a detection within 2 px of the masked
+  core; the position is then the core's centre, 0.05–0.57 px from the prediction in the six stacks that
+  were missed (0.06–0.63 px in single photos). Nothing else in V1 or V4 changed. The core's centre is
+  only geometric: a fit of the real PSF halo (ePSF or a power law, in skyshift_core) would be better.
+- **Stack holes grew 1 px on one side (fixed).** `map_coordinates(order=1)` turned a pixel NaN
+  when either neighbour it read was NaN, even at weight 0, so every masked pixel of every resampled
+  photo spread to a neighbour: holes grew one pixel towards +x or −x, and pixels next to any flag
+  became medians of fewer photos. R Draconis visit 3 D1 (one photo) gave 1.35 px from its stack and
+  0.25 px from the photo itself. `reference_stack` now resamples the good pixels and a validity weight
+  separately and masks only where bad pixels carry more than half the weight. Effects:
+  - V1: R Dra visit 3 D1 1.355 → 0.251 px. WISE 0855 found in 2 more stacks (visit 1 D5, visit 3 D6;
+    20 of 20 visits). The peak at the target is unchanged, but the stack's background rms drops 9–17%
+    (0.0204 → 0.0170 and 0.0275 → 0.0250 MJy/sr) without the noisier few-photo pixels. Target medians:
+    Barnard 0.191 → 0.177, Eps Ind B 0.154 → 0.153, WISE 0855 0.207 → 0.237 (two more stacks), RW Aur
+    0.212 → 0.253, R Dra 0.266 → 0.191 px. Stacks now agree better with their own single photos
+    (median stack-vs-photos disagreement: Barnard 0.154 → 0.089 px, R Dra 0.267 → 0.228, Eps Ind B
+    0.049 → 0.042; RW Aur 0.096 → 0.112, rows move both ways). Two R Dra stack fits get worse
+    (visit 3 D2 0.20 → 0.68 px, visit 5 D3 0.42 → 0.70 px, where the photos say 0.15 and 0.12), and visit 2
+    D1 stays at 1.36 px (photos 0.13): the stack wing fit on a ring medianed from photos with different
+    hole sizes. All still pass.
+  - V4: 249 → 246 photos found, still 60 of 60 asteroids; control 3 → 2 photos (1.0% → 0.7%), 3 → 2
+    asteroids; median offset unchanged. The 3 lost photos have a real static source within 3 px in the
+    references that the old stack hid: a saturated star at asteroids 8 and 51 (OVERFLOW in 2–3 of 3
+    references, detected 0.5–2.6 px from the spot, S/N 29–77; the old stack had 19 and 6 px with no
+    photo left there), and a faint star at asteroid 42 (seen alone in 2 of 3 references, 2.1–2.2 px, S/N
+    12–14; the old stack took a 2-photo mean there). The lost control hit (asteroid 34) is a faint
+    static source at 1.5 px in the new stack, matching the photo's detection at 1.43 px.
 - **5σ per pixel is too strict for faint targets.** WISE 0855 has aperture S/N 6–10 in D5–D6
   stacks but no pixel at 5σ. V1 uses sep at 2.5σ per pixel and aperture S/N ≥ 5.
 - **A stack's mask keeps saturated pixels if any photo saturated** (else a less saturated photo

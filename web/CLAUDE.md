@@ -4,7 +4,7 @@ Vite + TypeScript, no heavy framework unless agreed. Two owners:
 - P4: src/blink, src/vote.
 Don't edit the other owner's folders.
 - Data: src/api tries /data/<slug>/*.json first, then /api/*. Shapes from contracts/api.md.
-- Aladin Lite 3.8.2 from https://cdn.jsdelivr.net/npm/aladin-lite@3.8.2/dist/aladin.js, unpkg as second. Layers by IRSA URL only. showSimbadPointerControl: false. No gotoObject, catalogFromSimbad, catalogFromVizieR, catalogFromSkyBot.
+- Aladin Lite 3.8.2 from https://cdn.jsdelivr.net/npm/aladin-lite@3.8.2/dist/aladin.js, unpkg as second. Layers by IRSA URL only. showSimbadPointerControl: false. No gotoObject and no Aladin catalogFrom* loaders (Simbad, VizieR or any other): known objects come from /api/known (MPC orbits with kete).
 - The blink must work without Aladin (no WebGL2, or tiles down).
 - Real buttons with aria-pressed or aria-selected; works at phone width.
 - Tests: npm test.

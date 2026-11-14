@@ -13,7 +13,9 @@ from conftest import CUTOUT
 CONTRACT = ["obs_id", "detector", "mjd", "session", "visit", "ra", "dec", "pos_err_arcsec", "x", "y", "flux_ujy",
             "flux_err_ujy", "wavelength_um", "bandwidth_um", "elong", "snr", "flags", "flags_peak", "cell",
             "zodi_mjysr", "bkg_mjysr", "peak_mjysr", "a_arcsec", "b_arcsec", "theta_deg",
-            "flux_psf_ujy", "flux_psf_err_ujy", "psf_chi2_nu", "flux_ap_ujy", "flux_ap_err_ujy"]
+            "flux_psf_ujy", "flux_psf_err_ujy", "psf_chi2_nu",
+            "x_psf", "y_psf", "ra_psf", "dec_psf", "pos_err_psf_arcsec", "psf_pos_ok", "sep_flag",  # v4
+            "flux_ap_ujy", "flux_ap_err_ujy"]
 
 
 def test_dots_on_real_cutout(tmp_path):
@@ -46,6 +48,11 @@ def test_dots_on_real_cutout(tmp_path):
     assert (np.diff(df["flux_ujy"].to_numpy()) <= 0).all()
     # the cutout has no ZODI / EPSF HDU: those columns are NaN, the rest are filled
     assert df["zodi_mjysr"].isna().all() and df["flux_psf_ujy"].isna().all()
+    # ... and no ePSF position fit: the v4 position columns carry the centroid
+    assert not df["psf_pos_ok"].any()
+    np.testing.assert_array_equal(df["x_psf"], df["x"])
+    np.testing.assert_array_equal(df["ra_psf"], df["ra"])
+    np.testing.assert_array_equal(df["pos_err_psf_arcsec"], df["pos_err_arcsec"])
     assert df["bkg_mjysr"].notna().all() and (df["peak_mjysr"] > 0).all()
     ok = df["elong"].notna()
     np.testing.assert_allclose(df["elong"][ok], (df["a_arcsec"] / df["b_arcsec"])[ok], rtol=1e-4)

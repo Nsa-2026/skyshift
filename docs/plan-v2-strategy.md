@@ -131,7 +131,7 @@ Scripts in `scripts/validate/` write `validation.json`; the page reads it. A poo
 | V2 | Motion matches Gaia | Centroid the target in each visit stack (wings if saturated); median over detectors. Shift = last visit − first. Rate = shift ÷ time. Compare with Gaia `pmra`, `pmdec`. | Barnard's Star: within 15% and 10° of 10.39″/yr | Sat 14:00 |
 | V3 | Position error floor | In the same cutouts, take 10 or more Gaia stars with G 13–17 and motion under 20 mas/yr. The RMS of their visit-to-visit shifts is V2's error bar, and gives the slowest motion visible at 3σ. | Unknown; hoping for 0.6–1.2″ | Sat 14:00 |
 | V4 | Asteroids re-found, targeted | For asteroids numbered 1–60, ask IRSA MOST (`catalog=spherex`, `output_mode=Brief`, numbers not names) for exposures and predicted positions. Fetch 5′ cutouts for up to 5 exposures each. Success: a detection within 2 px that is absent from the visit stack. **Control:** repeat 3′ away; that is the chance rate. | N of 60; median offset under 1 px; control under 5% | Sat 15:00 |
-| V5 | Asteroids re-found, blind (S1) | In the hunt zone, query SkyBoT (`ssp.imcce.fr`, geocentre, `-from=SkyShift`, cached) once per 6 h of observing, about 200 queries. Move objects to each exposure's MJD-AVG with the returned rates; check 20 against MOST. Match within 2 px. Report recall by V magnitude, with the same control. | Roughly 70–150 asteroids with V < 18; recall falls with V | Sun 03:00 |
+| V5 | Asteroids re-found, blind (S1) | In the hunt zone, predict known asteroids and comets from Minor Planet Center orbits, moved with kete to each exposure's MJD-AVG and seen from SPHEREx's header position (orbit snapshots cached; no web service per photo); check 20 against MOST. Match within 2 px. Report recall by V magnitude, with the same control. | Roughly 70–150 asteroids with V < 18; recall falls with V | Sun 03:00 |
 | V6 | Fast stars (S2) | ESA Gaia TAP: `pm > 1500 AND phot_g_mean_mag > 12`, top 40 by `pm`. Run V2 on each; report the slope and RMS of measured against predicted. | Slope near 1 | Sun 08:00 |
 | V7 | Brown dwarfs (S3) | For Gagné et al. 2026 entries faster than 1″/yr, run V2; count those shifting in the predicted direction. If the list isn't loaded in 30 min, use a hand list of 10. | A count | Sun 03:00 |
 | V8 | Spectra and speed | Two unsaturated stars: our spectrum averaged over 2MASS Ks and WISE W1 vs the catalogue. Median time to first frame for 10 random coordinates. | Within 20%; under 15 s | Sun 08:00 |
@@ -161,7 +161,7 @@ Save a complete version on Saturday at 21:00, so a valid submission always exist
   "We used Claude (Anthropic) through Claude Code as a coding and research assistant. It wrote most of the code from our instructions. We reviewed it, ran it and tested it against known objects. It also helped us read NASA documentation, plan the work and edit this text. Commits made with it carry a `Co-Authored-By` line. Every image, GIF and video here is a screen recording of the running tool on real SPHEREx data; none is AI-generated. The numbers come from our pipeline's output files. The planted object in the drill is simulated and labelled. Before the event we prepared only a cloud account, planning notes and an empty repository."
 - **NASA data, named one by one:** SPHEREx Level 2 spectral images, DR1 and QR3, from NASA/IPAC IRSA (image search, cutouts, `s3://nasa-irsa-spherex`); the IRSA SPHEREx all-sky cube; IRSA's Moving Object Search Tool; IRSA's SPHEREx table for comet 3I/ATLAS; 2MASS and AllWISE layers from IRSA; the SPHEREx Explanatory Supplement and IRSA tutorials; WiseView and Backyard Worlds as the model.
 - **Partner data:** ESA Gaia DR3, through the ESA Gaia Archive. Don't list CSA; we don't use it.
-- **Other references:** IMCCE SkyBoT; Aladin Lite 3.8.2 (CDS, GPL-3.0, loaded from jsDelivr); astropy, astroquery, sep, reproject, FastAPI, DuckDB, Vite; Gagné et al. 2026 (arXiv:2604.22012) and MOCAdb; Kuchner et al. 2017; WiseView (ASCL 1806.004); the Lisse et al. 3I/ATLAS papers; Claude Code.
+- **Other references:** Minor Planet Center orbits, computed with kete (BSD-3-Clause, first written at Caltech/IPAC); Aladin Lite 3.8.2 (CDS, GPL-3.0, loaded from jsDelivr); astropy, astroquery, sep, reproject, FastAPI, DuckDB, Vite; Gagné et al. 2026 (arXiv:2604.22012) and MOCAdb; Kuchner et al. 2017; WiseView (ASCL 1806.004); the Lisse et al. 3I/ATLAS papers; Claude Code.
 - **Acknowledgements:** copy the SPHEREx acknowledgement and its two required citations (Bock et al. 2026, Akeson et al. 2026) word for word from IRSA's mission page. Add the standard Gaia acknowledgement. Licence: Apache-2.0.
 
 ---
@@ -174,7 +174,7 @@ Save a complete version on Saturday at 21:00, so a valid submission always exist
 IRSA image search ─► cutouts ─► stack and measure ─► frames.json + frame data
    featured targets: scripts/precompute ─► Firebase Hosting /data/…  (static)
    any coordinates:  Cloud Run /api/…   ─► bucket cache              (live)
-ESA Gaia · SkyBoT · MOST · 3I/ATLAS table ─► same server, cached
+ESA Gaia · MPC orbits (kete) · MOST · 3I/ATLAS table ─► same server, cached
 Flags and votes ─► Firestore
 ```
 
@@ -183,7 +183,7 @@ Flags and votes ─► Firestore
 **3. No CDS.**
 - Aladin Lite pinned: `cdn.jsdelivr.net/npm/aladin-lite@3.8.2/dist/aladin.js`, unpkg as the second source. Never install it unpinned; `latest` is a beta.
 - Layers by IRSA URL only: 2MASS colour as the base; the SPHEREx cube (`https://irsa.ipac.caltech.edu/data/hips/SPHEREx/spherex_allsky_cube`, 102 frames, about 12.9″/px) on top; AllWISE optional. Never a CDS survey id: the default `P/DSS2/color` is broken.
-- `showSimbadPointerControl: false`. No `gotoObject`, `catalogFromSimbad`, `catalogFromVizieR`, `catalogFromSkyBot`.
+- `showSimbadPointerControl: false`. No `gotoObject` and no Aladin `catalogFrom…` loaders (Simbad, VizieR or any other): known objects come from our `/api/known` (MPC orbits with kete).
 - Names from a built-in list behind `/api/resolve`. Gaia dots from our own `/api/gaia`.
 
 **4. Contract changes.**
@@ -205,7 +205,7 @@ GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6
               um_min, um_max, n_exposures, flag_frac, sat_frac,
               data_url, scale, zero }],
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
-    known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"most"|"irsa-3i" }],
+    known:[{ name, epoch_id, ra, dec, v, source:"mpc"|"most"|"irsa-3i" }],
     data_release, archive_checked }
 GET /api/object?ra=&dec=
 → { name|null, gaia|null, known_ucd|null,
@@ -222,7 +222,7 @@ Firestore: candidates { ra, dec, mjd, clock, source:"user"|"pipeline" }
 Dot table: obs_id, detector, mjd, session, visit, ra, dec, x, y, flux_ujy,
            flux_err_ujy, wavelength_um, snr, flags, cell (6″ sky cell)
 Derived:   fixed (cell seen in 3+ sessions) · movers (one session only, in
-           2 exposures or 2 detectors) · suspects (movers with no SkyBoT match)
+           2 exposures or 2 detectors) · suspects (movers with no MPC match)
 ```
 
 **5. Also.**
@@ -249,10 +249,10 @@ Derived:   fixed (cell seen in 3+ sessions) · movers (one session only, in
 | 14:00 | Motion vs Gaia (V2). MOST asteroid test (V4). | RW Aurigae, R Draconis. Live `/api/frames`. | Spectrum chart, molecule marks. | Field-of-view picker. |
 | **15:00 · G1** | *Gate: five targets blink; one motion measured.* Photometry. | `/api/object`; spectra for the five. | Spectrum wired; "what to look for" text. | Hours clock on a fixture. |
 | 16:00 | Pilot: 12 deg², about 230 photos, test machine. | 3I/ATLAS: NASA's table → cutouts → static movie. | Embed mode, data badge, gallery. | Comet movie with its path ring. |
-| 17:00 | SkyBoT match and control for the pilot. | Deploy; cache; time to first frame. | Scoreboard page layout. | Flag-a-dot; candidate list. |
+| 17:00 | MPC (kete) match and control for the pilot. | Deploy; cache; time to first frame. | Scoreboard page layout. | Flag-a-dot; candidate list. |
 | **18:00 · G2** | *Gate: pilot recall at V < 16 is 50% or more.* Yes: start the hunt zone on the worker. No: stop S1. Dinner in turns. | Two asteroid movies from V4. | Phone-width check. | Votes to Firestore; counts. |
 | 19:00 | All: integration hour. Open every target on the public site; write the bug list. | | | |
-| **20:00 · M2** | *Any coordinates work live; five targets and the comet are static.* SkyBoT queries for the hunt zone. | Bug list. | Bug list. | CSV export. |
+| **20:00 · M2** | *Any coordinates work live; five targets and the comet are static.* MPC (kete) predictions for the hunt zone. | Bug list. | Bug list. | CSV export. |
 | 21:00 | All, 15 min: 60-second pitch dry run. Then `validation.json` v1. | Start S2; it runs unattended. | Scoreboard reads `validation.json`. | Save project page v0 with working links. |
 | 22:00 | Hunt-zone matching. | Static export script; handover note. | Card polish; handover note. | Walk the storyboard on the real site; list missing shots. |
 | 23:00–04:00 | Suspects and recall chart (V5). S3. Spectrum check. Numbers frozen 03:30; handover note. | Sleep. | Sleep. | Votes on real suspects. S4 or S5. Page text; handover note. |
@@ -317,7 +317,7 @@ For the live pitch, the presenting laptop carries an offline copy of the site an
 | Screens | "✓ Real ✕ Junk ? Not sure" | "Mover · Changing · Junk · Not sure"; the click marks the position |
 | Features row 2 | "Every search asks NASA's archive live … photos it hasn't seen before." | "Any coordinates query IRSA live, so new weekly data appears without code changes. A badge shows 'Data: DR1 + QR3, checked ⟨date⟩'. Featured targets are static files." |
 | Feature cards | "Full-sky run", "3D neighbourhood", "GIF export", "Beginner tour" | Delete |
-| Tech steps 6–7 | "within one pass, then follow them between passes"; "for each photo's date" | "Group dots by sky position: many sessions = fixed, one session = mover candidate"; "SkyBoT at each exposure's MJD-AVG, spot-checked with NASA's MOST" |
+| Tech steps 6–7 | "within one pass, then follow them between passes"; "for each photo's date" | "Group dots by sky position: many sessions = fixed, one session = mover candidate"; "MPC orbits moved with kete to each exposure's MJD-AVG, spot-checked with NASA's MOST" |
 | On demand | "sends back PNG frames … so the demo is instant" | "sends back frame data. Featured targets are static files: they load at once and keep working after the credit ends." |
 | Data table | "none yet, so ours would be the first" | "No general public catalogue yet. Related work exists: IRSA's Source Discovery Tool, SPLICES, and the Gagné et al. 2026 brown-dwarf library. We don't claim a first." |
 | Team | "blinking photos first, then the suspect list, then voting"; P4 "Demo video and slides" | The order in section 2; "29-second video (30 s is a hard limit), project page, live pitch" |

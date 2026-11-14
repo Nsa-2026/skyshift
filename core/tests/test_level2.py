@@ -178,3 +178,31 @@ def test_epsf_stamps_are_normalised_and_centred():
     S, ix, iy = E.stamps([1000.2, 990.7], [1000.1, 1003.4], half=3)
     np.testing.assert_allclose(S[1], E.stamp(990.7, 1003.4, half=3))
     assert (ix == [1000, 991]).all() and (iy == [1000, 1003]).all()
+
+
+def test_epsf_spline_gradient_and_separable_stamps():
+    from scipy import ndimage
+    from skyshift_core.level2 import EPSF
+    E = EPSF.from_hdu(epsf_hdu(EPSF_FILE))
+    rng = np.random.default_rng(3)
+    dx, dy = rng.uniform(-3.4, 3.4, 500), rng.uniform(-3.4, 3.4, 500)
+    z = rng.integers(0, E.psf.shape[0], 500)
+    P, gx, gy = E.evaluate_grad(dx, dy, z)
+    h = 1e-5
+    np.testing.assert_allclose(gx, (E.evaluate(dx + h, dy, z) - E.evaluate(dx - h, dy, z)) / (2 * h), atol=1e-7)
+    np.testing.assert_allclose(gy, (E.evaluate(dx, dy + h, z) - E.evaluate(dx, dy - h, z)) / (2 * h), atol=1e-7)
+    # every zone, the first and last included, is its own 2-D spline (scipy's per-zone interpolation)
+    for zz in (0, 4, E.psf.shape[0] - 1):
+        ref = ndimage.map_coordinates(E.psf[zz], [16 + 5 * dy, 16 + 5 * dx], order=3, mode="grid-constant") * 25
+        np.testing.assert_allclose(E.evaluate(dx, dy, np.full(500, zz)), ref, atol=1e-6)
+    # separable stamps (fixed pixel grid, moved source) = evaluate on the same pixels
+    x, y = 1000 + rng.uniform(-0.5, 0.5, 50), 1000 + rng.uniform(-0.5, 0.5, 50)
+    ix, iy = np.rint(x).astype(int) + rng.integers(-1, 2, 50), np.rint(y).astype(int)
+    S, Sx, Sy = E.stamps_at(x, y, ix, iy, 3, grad=True)
+    k = np.arange(-3, 4)
+    ddx = (ix - x)[:, None, None] + k[None, None, :]
+    ddy = (iy - y)[:, None, None] + k[None, :, None]
+    P, gx, gy = E.evaluate_grad(ddx, ddy, E.zone(x, y)[:, None, None])
+    np.testing.assert_allclose(S, P, atol=1e-12)
+    np.testing.assert_allclose(Sx, gx, atol=1e-12)
+    np.testing.assert_allclose(Sy, gy, atol=1e-12)

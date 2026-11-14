@@ -1,6 +1,7 @@
 // Sky view (P3): the sky around the blink in Aladin Lite with NASA IRSA layers, the blink's field
 // outline, Gaia stars at the shown epoch, and the target. Click the sky, then "Blink here".
-// Aladin loads only when the panel is on screen, and the page never depends on it.
+// Closed by default on every width (web/DESIGN.md): Aladin downloads only after "Show the sky
+// around it", and the page never depends on it.
 import "./sky.css";
 import type { Det, FramesResponse, SkyPos } from "../api/types";
 import { formatMjd, formatRaDec, sepArcsec } from "../app/astro";
@@ -15,6 +16,7 @@ const DETS: Det[] = [1, 2, 3, 4, 5, 6];
 /** Ignore a second "Blink here" within this long: one deliberate action, one re-blink. */
 const CLICK_LOCK_MS = 900;
 
+/** A design token's current value (so the marks follow tokens.css), or the fallback. */
 function token(name: string, fallback: string): string {
   try {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -55,61 +57,53 @@ function reticle(color: string, size = 30): HTMLCanvasElement | "plus" {
 }
 
 export const mountSky: MountSky = (el, opts) => {
-  el.classList.add("sky-panel");
+  el.classList.add("sky-panel", "sky-closed");
   el.innerHTML = html`
     <header class="sky-head">
-      <div class="sky-title">
-        <h2 id="sky-h">Sky around this spot</h2>
-        <p class="sky-explain">NASA infrared surveys around the blink. Click the sky, then Blink here to blink that spot.</p>
-      </div>
-      <button class="btn sky-toggle" type="button" aria-expanded="true" aria-controls="sky-body">
-        <span class="sky-toggle-open">Hide</span><span class="sky-toggle-closed">Show sky</span>
-      </button>
+      <h2 id="sky-h">Sky around this spot</h2>
+      <p class="sky-explain">NASA's infrared maps around the plate. Click the map, then Blink here to blink that spot.</p>
     </header>
-    <div class="sky-body" id="sky-body">
+    <button class="btn sky-toggle" type="button" aria-expanded="false" aria-controls="sky-body">
+      <span class="sky-toggle-closed">Show the sky around it</span><span class="sky-toggle-open">Hide the sky</span>
+    </button>
+    <div class="sky-body" id="sky-body" hidden>
+      <div class="sky-mat">
+        <div class="sky-stage">
+          <div class="sky-map"><div class="sky-aladin" data-map></div></div>
+          <div class="sky-note" data-note role="status"><p>Loading the sky map…</p></div>
+          <div class="sky-pin" data-pin hidden>
+            <button class="sky-pin-go" type="button" data-pin-go>Blink here</button>
+            <span class="sky-pin-coords" data-pin-coords></span>
+            <button class="sky-pin-x" type="button" data-pin-x aria-label="Cancel">×</button>
+          </div>
+        </div>
+      </div>
       <div class="sky-controls" role="group" aria-label="Sky layers">
-        <div class="sky-group" role="group" aria-label="Background survey">
-          <span class="sky-group-label" aria-hidden="true">Background</span>
+        <div class="seg" role="group" aria-label="Background survey">
           ${BASE_LAYERS.map(
-            (l) => html`<button class="btn sky-layer" type="button" data-base="${l.id}" title="${l.about}"
+            (l) => html`<button type="button" data-base="${l.id}" title="${l.about}"
               aria-pressed="${l.id === TWO_MASS.id}">${l.label}</button>`,
           ).join("")}
         </div>
-        <div class="sky-group sky-group-spherex" role="group" aria-label="SPHEREx layer">
-          <button class="btn sky-layer" type="button" data-spherex title="${SPHEREX.about}" aria-pressed="true">SPHEREx</button>
-          <label class="sky-opacity">
-            <span class="visually-hidden">SPHEREx opacity</span>
-            <input type="range" min="0" max="100" step="5" value="50" data-opacity aria-label="SPHEREx opacity" />
-          </label>
-          <div class="sky-dets" role="group" aria-label="SPHEREx wavelength, by detector">
+        <div class="sky-spherex">
+          <button class="sky-switch" type="button" data-spherex title="${SPHEREX.about}" aria-pressed="true">SPHEREx</button>
+          <input class="sky-opacity" type="range" min="0" max="100" step="5" value="50" data-opacity aria-label="SPHEREx opacity" />
+        </div>
+        <button class="sky-adjust" type="button" aria-expanded="false" aria-controls="sky-more">Adjust</button>
+        <button class="btn btn-ghost sky-centre" type="button" data-centre disabled>Blink the map centre</button>
+        <div class="sky-more" id="sky-more" hidden>
+          <span class="sky-more-label" id="sky-wl">SPHEREx wavelength</span>
+          <div class="seg sky-dets" role="group" aria-labelledby="sky-wl">
             ${DETS.map(
               (d) => html`<button class="sky-det det-${d}" type="button" data-det="${d}" aria-pressed="false"
                 title="D${d}: ${cubeFrameUm(cubeFrameForDet(d)).toFixed(2)} µm">D${d}</button>`,
             ).join("")}
           </div>
           <span class="sky-um" data-um aria-live="polite"></span>
-        </div>
-        <button class="btn sky-layer sky-gaia-btn" type="button" data-gaia aria-pressed="true" title="Gaia DR3 stars, moved to the shown epoch">
-          Gaia stars
-        </button>
-      </div>
-      <div class="sky-stage">
-        <div class="sky-map"><div class="sky-aladin" data-map></div></div>
-        <div class="sky-note" data-note role="status"><p>The sky view loads when you scroll here.</p></div>
-        <div class="sky-pin" data-pin hidden>
-          <button class="sky-pin-go" type="button" data-pin-go>Blink here</button>
-          <span class="sky-pin-coords" data-pin-coords></span>
-          <button class="sky-pin-x" type="button" data-pin-x aria-label="Cancel">×</button>
+          <button class="sky-switch" type="button" data-gaia aria-pressed="true" title="Gaia DR3 stars, moved to the shown epoch">Gaia stars</button>
         </div>
       </div>
-      <div class="sky-foot">
-        <ul class="sky-key" aria-label="Key">
-          <li><span class="key-field" aria-hidden="true"></span><span data-field-label>Blink field</span></li>
-          <li><span class="key-gaia" aria-hidden="true"></span><span data-epoch-label>Gaia DR3 stars</span></li>
-          <li><span class="key-target" aria-hidden="true"></span>Target</li>
-        </ul>
-        <button class="btn sky-centre" type="button" data-centre disabled>Blink the map centre</button>
-      </div>
+      <p class="sky-key" data-key></p>
     </div>
   `;
 
@@ -122,9 +116,10 @@ export const mountSky: MountSky = (el, opts) => {
   const centreBtn = q<HTMLButtonElement>("[data-centre]");
   const toggle = q<HTMLButtonElement>(".sky-toggle");
   const body = q<HTMLDivElement>(".sky-body");
+  const adjust = q<HTMLButtonElement>(".sky-adjust");
+  const more = q<HTMLDivElement>(".sky-more");
   const umLabel = q<HTMLSpanElement>("[data-um]");
-  const epochLabel = q<HTMLSpanElement>("[data-epoch-label]");
-  const fieldLabel = q<HTMLSpanElement>("[data-field-label]");
+  const keyEl = q<HTMLParagraphElement>("[data-key]");
   const opacityIn = q<HTMLInputElement>("[data-opacity]");
 
   // State that outlives Aladin: kept until it loads, then applied.
@@ -141,6 +136,8 @@ export const mountSky: MountSky = (el, opts) => {
   let lockedUntil = 0;
   let destroyed = false;
   let state: "idle" | "loading" | "ready" | "failed" = "idle";
+  let fieldText = "the plate's field";
+  let gaiaText = "Gaia DR3 stars";
 
   let A: AladinStatic | null = null;
   let al: AladinInstance | null = null;
@@ -161,7 +158,7 @@ export const mountSky: MountSky = (el, opts) => {
     el.classList.add("sky-failed");
     hidePin();
     centreBtn.disabled = true;
-    showNote(`Sky view unavailable: ${reason}; the blink above still works.`, "fail");
+    showNote(`The sky map can't open here: ${reason}. The plate above works without it.`, "fail");
   }
 
   // ---- layers ---------------------------------------------------------------------------
@@ -231,11 +228,20 @@ export const mountSky: MountSky = (el, opts) => {
   }
 
   // ---- overlays -------------------------------------------------------------------------
+  /** The key, as one sentence with the pencil marks inline. */
+  function renderKey() {
+    const mark = (k: string) => `<span class="key key-${k}" aria-hidden="true"></span>`;
+    const parts = [mark("field") + fieldText.charAt(0).toUpperCase() + fieldText.slice(1)];
+    if (gaiaOn) parts.push(mark("gaia") + gaiaText);
+    keyEl.innerHTML = `${parts.join(", ")} and ${mark("target")}the target.`;
+  }
+
   function drawField() {
     if (!view) return;
     const field = blinkFieldArcmin(view, frames);
     const fmt = field >= 10 ? field.toFixed(0) : field.toFixed(1).replace(/\.0$/, "");
-    fieldLabel.textContent = `Blink field, ${fmt}′`;
+    fieldText = `the plate's ${fmt}′ field`;
+    renderKey();
     if (!A || !fieldOv || !targetCat) return;
     const c = centerAt(frames, mjd, view);
     fieldOv.removeAll();
@@ -258,7 +264,8 @@ export const mountSky: MountSky = (el, opts) => {
 
   function drawGaia() {
     const date = mjd != null ? ` on ${formatMjd(mjd)}` : "";
-    epochLabel.textContent = `Gaia DR3 stars${date}`;
+    gaiaText = `Gaia DR3 stars${date}`;
+    renderKey();
     if (!A || !gaiaCat) return;
     gaiaCat.removeAll();
     if (!frames || mjd == null || !gaiaOn) return;
@@ -266,7 +273,10 @@ export const mountSky: MountSky = (el, opts) => {
     const all = gaiaDots(frames.gaia, mjd);
     shownBudget = currentBudget();
     const dots = brightest(all, shownBudget);
-    if (dots.length < all.length) epochLabel.textContent = `Brightest ${dots.length} of ${all.length} Gaia DR3 stars${date}`;
+    if (dots.length < all.length) {
+      gaiaText = `the brightest ${dots.length} of ${all.length} Gaia DR3 stars${date}`;
+      renderKey();
+    }
     gaiaCat.addSources(dots.map((s) => Al.source(s.ra, s.dec, { id: s.id, G: s.g })));
   }
 
@@ -362,7 +372,7 @@ export const mountSky: MountSky = (el, opts) => {
   async function start() {
     if (state !== "idle" || destroyed) return;
     state = "loading";
-    showNote("Loading the sky viewer…");
+    showNote("Loading the sky map…");
     try {
       A = await loadAladinOnce();
     } catch (e) {
@@ -370,6 +380,9 @@ export const mountSky: MountSky = (el, opts) => {
       return;
     }
     if (destroyed) return;
+    // Grease pencil, read from the tokens at run time so the marks follow tokens.css.
+    const red = token("--pencil-red", "#cf2338");
+    const blue = token("--pencil-blue", "#2556c8");
     try {
       const c = frames?.center ?? view ?? { ra: 0, dec: 0 };
       al = A.aladin(mapEl, {
@@ -378,7 +391,8 @@ export const mountSky: MountSky = (el, opts) => {
         fov: skyFovDeg(view ? blinkFieldArcmin(view, frames) : 5, aspect()),
         cooFrame: "ICRS",
         projection: "TAN",
-        backgroundColor: token("--plate", "#0f1a2c"),
+        // The surveys are bright-on-dark: an ink background keeps tiles from flashing in white.
+        backgroundColor: token("--ink", "#18202e"),
         showSimbadPointerControl: false,
         showLayersControl: false,
         showFullscreenControl: false,
@@ -398,9 +412,11 @@ export const mountSky: MountSky = (el, opts) => {
       });
       hips = {};
       applyBase();
-      gaiaCat = A.catalog({ name: "Gaia DR3", color: token("--gaia", "#62c9e6"), sourceSize: 11, shape: "circle" });
-      targetCat = A.catalog({ name: "Target", color: token("--mover", "#ff9b3d"), sourceSize: 30, shape: reticle(token("--mover", "#ff9b3d")) });
-      fieldOv = A.graphicOverlay({ name: "Blink field", color: token("--mover", "#ff9b3d"), lineWidth: 2 });
+      // Hover and selection stay in pencil too (Aladin's default selection is green).
+      const pencil = (color: string) => ({ color, hoverColor: color, selectionColor: color });
+      gaiaCat = A.catalog({ name: "Gaia DR3", ...pencil(blue), sourceSize: 11, shape: "circle" });
+      targetCat = A.catalog({ name: "Target", ...pencil(red), sourceSize: 30, shape: reticle(red) });
+      fieldOv = A.graphicOverlay({ name: "Blink field", color: red, lineWidth: 1.5 });
       al.addOverlay(fieldOv);
       al.addCatalog(gaiaCat);
       al.addCatalog(targetCat);
@@ -424,9 +440,14 @@ export const mountSky: MountSky = (el, opts) => {
     updateCentreBtn();
   }
 
-  // Lazy: load only when the map is on screen (and not collapsed), so the blink's first frame isn't slowed.
+  // Lazy: Aladin loads only once the person opens the map and it is on screen.
   let io: IntersectionObserver | null = null;
-  if (typeof IntersectionObserver === "function") {
+  function startWhenVisible() {
+    if (state !== "idle" || io) return;
+    if (typeof IntersectionObserver !== "function") {
+      void start();
+      return;
+    }
     io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
@@ -438,20 +459,23 @@ export const mountSky: MountSky = (el, opts) => {
       { rootMargin: "200px 0px" },
     );
     io.observe(mapEl);
-  } else {
-    void start();
   }
 
   // ---- controls ------------------------------------------------------------------------------
-  const narrow = () => typeof matchMedia === "function" && matchMedia("(max-width: 900px)").matches;
   function setOpen(open: boolean) {
     toggle.setAttribute("aria-expanded", String(open));
+    toggle.classList.toggle("is-open", open);
     body.hidden = !open;
     el.classList.toggle("sky-closed", !open);
+    if (open) startWhenVisible();
+    else hidePin();
   }
-  // Collapsed by default on phones: the blink comes first.
-  if (narrow()) setOpen(false);
   toggle.addEventListener("click", () => setOpen(toggle.getAttribute("aria-expanded") !== "true"));
+  adjust.addEventListener("click", () => {
+    const open = adjust.getAttribute("aria-expanded") !== "true";
+    adjust.setAttribute("aria-expanded", String(open));
+    more.hidden = !open;
+  });
 
   el.querySelectorAll<HTMLButtonElement>("[data-base]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -507,6 +531,7 @@ export const mountSky: MountSky = (el, opts) => {
 
   applySpherex();
   applySlice();
+  renderKey();
 
   return {
     goto(v, f) {

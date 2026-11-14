@@ -12,7 +12,9 @@ that detector (the latest on a tie), at most HOURS_MAX_FRAMES frames (whole sess
 start). `known` is asked from SkyBoT once per epoch (months: at the visit's mjd_mid, where it
 only tells which asteroids crossed the field around then; the median removes them), at the times
 the search gives, while the cutouts download (reconcile_known re-asks an epoch whose time moved).
-The live months clock stacks at most LIVE_PER_VISIT exposures a visit; precompute stacks all.
+The live months clock stacks at most LIVE_PER_VISIT exposures a visit, and the live hours clock
+shows at most LIVE_HOURS_FRAMES exposures (whole runs of a few sessions spread over the visit:
+pick_hours_live); precompute stacks all and keeps every hours frame (up to HOURS_MAX_FRAMES).
 
 Live builds carry a Budget (budget.py): cutouts are downloaded most useful first (months: every
 visit's first and last exposures before the ones between; hours: in time order), and what is not
@@ -51,6 +53,17 @@ SIDE_RESERVE_S = 4.0  # Gaia and SkyBoT are waited for until this long before th
 
 _side = ThreadPoolExecutor(16, thread_name_prefix="side")  # Gaia cones and SkyBoT epoch lists
 _skybot = ThreadPoolExecutor(16, thread_name_prefix="skybot")  # single SkyBoT cones (leaves)
+# Live hours clock (GET /api/frames): at most this many exposures, at most LIVE_PER_SESSION from
+# each session, the sessions spread over the whole visit (pick_hours_live): three pairs 2 min
+# apart, at the visit's start, middle and end. At most MAX_IN_FLIGHT (8) cutouts, so one wave of downloads.
+# Measured on a laptop line of ~0.5-1 MB/s (14 Nov, hours 20' D2, fresh cache, IRSA half busy):
+# uncapped 26 frames 106 s cold (92 MB), 1.3 s warm; 12 frames 113 s; 8 frames 29-49 s;
+# 6 frames 25-54 s cold (11-23 MB), 0.4-0.5 s warm; 4 frames 25 s. Below ~8 frames the laptop's
+# cold time is set by one slow IRSA answer and the line, not the count; Cloud Run (us-east4, next
+# to S3 us-east-1) reads the same bytes many times faster.
+# scripts/precompute passes hours_frames=None (every frame, up to HOURS_MAX_FRAMES).
+LIVE_HOURS_FRAMES = 6
+LIVE_PER_SESSION = 2
 
 
 @dataclass
@@ -163,14 +176,19 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
     return out
 
 
-def pick_hours_images(images: list[Image]) -> list[Image]:
-    """The hours clock's exposures: the visit with the most exposures (latest on a tie),
-    whole sessions from its start, at most HOURS_MAX_FRAMES."""
+def hours_visit(images: list[Image]) -> list[Image]:
+    """The hours clock's visit: the one with the most exposures (latest on a tie), in time order."""
     if not images:
         return []
     counts = Counter(im.visit for im in images)
     best = max(counts, key=lambda v: (counts[v], v))
-    chosen = sorted((im for im in images if im.visit == best), key=lambda im: im.mjd)
+    return sorted((im for im in images if im.visit == best), key=lambda im: im.mjd)
+
+
+def pick_hours_images(images: list[Image]) -> list[Image]:
+    """The hours clock's exposures: the visit with the most exposures (latest on a tie),
+    whole sessions from its start, at most HOURS_MAX_FRAMES."""
+    chosen = hours_visit(images)
     if len(chosen) > HOURS_MAX_FRAMES:
         keep: list[Image] = []
         for s in sorted({im.session for im in chosen}):
@@ -180,6 +198,33 @@ def pick_hours_images(images: list[Image]) -> list[Image]:
             keep += part
         chosen = keep[:HOURS_MAX_FRAMES]
     return chosen
+
+
+def pick_hours_live(images: list[Image], max_frames: int = LIVE_HOURS_FRAMES,
+                    per_session: int = LIVE_PER_SESSION) -> list[Image]:
+    """The live hours clock: at most `max_frames` exposures of the hours clock's visit. The hours
+    blink compares exposures minutes apart inside one session, so runs are kept whole: the first
+    `per_session` exposures of as many sessions as fit, spread evenly over the visit's sessions
+    (its first and last included), using only sessions with at least two exposures when there are
+    any. A visit with a single session gives its first `max_frames` exposures. max_frames 0 or a
+    visit that fits: what pick_hours_images shows."""
+    chosen = hours_visit(images)
+    if not max_frames or len(chosen) <= max_frames:
+        return pick_hours_images(images)
+    per_session = max(1, min(per_session or max_frames, max_frames))
+    runs: dict[int, list[Image]] = {}
+    for im in chosen:
+        runs.setdefault(im.session, []).append(im)
+    order = sorted(runs.values(), key=lambda r: r[0].mjd)
+    pool = [r for r in order if len(r) >= 2] or order
+    best: list[list[Image]] = [pool[0][:max_frames]]
+    for k in range(2, len(pool) + 1):
+        idx = np.unique(np.rint(np.linspace(0, len(pool) - 1, k)).astype(int))
+        pick = [pool[i][:per_session] for i in idx]
+        if sum(len(r) for r in pick) > max_frames:
+            break
+        best = pick
+    return sorted((im for r in best for im in r), key=lambda im: im.mjd)
 
 
 def pick_months_images(images: list[Image], per_visit: int | None) -> list[Image]:
@@ -340,9 +385,11 @@ def _timed(budget: Budget | None, name: str, fn, *a, **k):
 
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
-                 budget: Budget | None = None) -> Frames:
+                 hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None) -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
+    hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
+    The live API uses the defaults; scripts/precompute passes None for both.
     budget: a live request's time budget (None: no limit). What did not fit is in Frames.partial;
     BudgetError (503) if not one frame did."""
     _check(clock, fov, det)
@@ -354,7 +401,8 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         raise NotFoundError(f"no SPHEREx images of detector {det} at this position"
                             if found.images else "no SPHEREx images at this position")
     prefix = f"{clock[0]}{fov_i}"
-    chosen = pick_months_images(images, per_visit) if clock == "months" else pick_hours_images(images)
+    chosen = (pick_months_images(images, per_visit) if clock == "months"
+              else pick_hours_live(images, hours_frames or 0))
     planned = planned_epochs(chosen, det, clock)
     # Gaia and SkyBoT run while the cutouts download
     stars_f = _side.submit(_timed, budget, "gaia", gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)

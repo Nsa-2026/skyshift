@@ -1,135 +1,69 @@
-/* Sky view. Quiet chrome around the map; colour only where it means something:
-   cyan Gaia, orange blink field and target, the detector ramp on the wavelength choice. */
+/* Sky around this spot (web/DESIGN.md, "Lightbox"). Closed by default. Open, the map sits on a
+   sheet mat like a print on the lightbox; one quiet row of controls under it and a one-sentence
+   key with the grease-pencil marks: red the plate's field and the target, blue Gaia. */
 .sky-panel {
   display: grid;
-}
-/* app.css gives the panel a min-height for the map; a closed or failed panel needs none. */
-.sky-panel.sky-closed,
-.sky-panel.sky-failed {
-  min-height: 0;
+  justify-items: start;
 }
 
 .sky-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s3);
-  padding: var(--s3) var(--s4);
+  display: grid;
+  gap: var(--s2);
 }
-.sky-title h2 {
+.sky-head h2 {
   font-size: var(--step-1);
 }
 .sky-explain {
-  max-width: none;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: var(--step--1);
+  color: var(--ink-2);
+  max-width: 52ch;
+  text-wrap: pretty;
 }
+
+/* One toggle: a quiet button while closed, a text button once the map is open. */
 .sky-toggle {
-  display: none;
-  flex: none;
+  margin-top: var(--s4);
 }
 .sky-toggle[aria-expanded="true"] .sky-toggle-closed,
 .sky-toggle[aria-expanded="false"] .sky-toggle-open {
   display: none;
 }
+.btn.sky-toggle.is-open {
+  min-height: 32px;
+  margin-top: var(--s2);
+  padding: 0 2px;
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  text-decoration: underline;
+  text-decoration-color: var(--hair-strong);
+  text-underline-offset: 4px;
+}
+.btn.sky-toggle.is-open:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
 
+.sky-body {
+  width: 100%;
+  margin-top: var(--s3);
+}
 .sky-body[hidden] {
   display: none;
 }
 
-/* Controls: one row on desktop, wrapping on phones. */
-.sky-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s2) var(--s5);
-  padding: 0 var(--s4) var(--s3);
+/* ---- the map on its mat ---- */
+.sky-mat {
+  padding: var(--s2);
+  background: var(--sheet);
+  border-radius: var(--radius-plate);
+  box-shadow: var(--shadow-plate);
 }
-.sky-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s2);
-}
-.sky-group-label {
-  color: var(--muted);
-  font-size: var(--step--1);
-  margin-right: 2px;
-}
-.sky-layer {
-  min-height: 32px;
-  font-size: var(--step--1);
-  font-weight: 600;
-  font-variation-settings: "wdth" 90;
-}
-.sky-gaia-btn[aria-pressed="true"] {
-  background: transparent;
-  color: var(--gaia);
-  border-color: var(--gaia);
-}
-
-.sky-opacity input {
-  width: 96px;
-  accent-color: var(--emulsion);
-  vertical-align: middle;
-}
-.sky-opacity input:disabled {
-  opacity: 0.4;
-}
-
-.sky-dets {
-  display: inline-flex;
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-ctl);
-  overflow: hidden;
-}
-.sky-det {
-  min-width: 34px;
-  min-height: 32px;
-  padding: 0 6px;
-  border: 0;
-  border-right: 1px solid var(--rule);
-  background: var(--plate);
-  box-shadow: inset 0 -3px 0 var(--det);
-  font-size: var(--step--1);
-  font-weight: 600;
-  font-variation-settings: "wdth" 80;
-  color: var(--muted);
-  cursor: pointer;
-}
-.sky-det:last-child {
-  border-right: 0;
-}
-.sky-det:hover {
-  color: var(--emulsion);
-}
-.sky-det[aria-pressed="true"] {
-  background: var(--det);
-  color: var(--plate);
-}
-.sky-det:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.sky-det:focus-visible {
-  position: relative;
-  z-index: 1;
-}
-.sky-um {
-  min-width: 5.5em;
-  color: var(--muted);
-  font-size: var(--step--1);
-  font-variation-settings: "wdth" 85;
-}
-
-/* Map */
 .sky-stage {
   position: relative;
-  height: 460px;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  background: var(--plate);
+  height: 420px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--ink);
 }
 .sky-map {
   position: absolute;
@@ -147,7 +81,7 @@
   place-items: center;
   padding: var(--s5);
   text-align: center;
-  color: var(--muted);
+  color: var(--hair);
   pointer-events: none;
 }
 .sky-note[hidden] {
@@ -155,22 +89,205 @@
 }
 .sky-note p {
   max-width: 46ch;
+  text-wrap: balance;
 }
+
+/* Fallback: a calm sentence on the bare mat; the controls and key go away. */
 .sky-failed .sky-stage {
   height: auto;
-  min-height: 120px;
+  background: transparent;
+}
+.sky-failed .sky-map {
+  display: none;
 }
 .sky-failed .sky-note {
   position: static;
-  min-height: 120px;
+  min-height: 132px;
+  color: var(--ink-2);
 }
-.sky-failed .sky-explain,
 .sky-failed .sky-controls,
-.sky-failed .sky-foot {
+.sky-failed .sky-more,
+.sky-failed .sky-key {
   display: none;
 }
 
-/* The pin: sits on the clicked spot, a stem down to it, the action above. */
+/* ---- controls: one quiet row under the map ---- */
+.sky-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s4);
+  margin-top: var(--s4);
+}
+.sky-spherex {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* A toggle that reads as one: a small box, filled when on. */
+.sky-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 36px;
+  padding: 0 var(--s1);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.sky-switch::before {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--hair-strong);
+  border-radius: 3px;
+  background: var(--sheet);
+}
+.sky-switch:hover {
+  color: var(--ink);
+}
+.sky-switch[aria-pressed="true"] {
+  color: var(--ink);
+}
+.sky-switch[aria-pressed="true"]::before {
+  border-color: var(--ink);
+  background: var(--ink);
+  box-shadow: inset 0 0 0 2.5px var(--sheet);
+}
+
+.sky-opacity {
+  width: 96px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.sky-opacity:disabled {
+  opacity: 0.4;
+}
+
+.sky-adjust {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--s1);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.sky-adjust::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.sky-adjust[aria-expanded="true"]::after {
+  margin-top: 3px;
+  transform: rotate(-135deg);
+}
+.sky-adjust:hover,
+.sky-adjust[aria-expanded="true"] {
+  color: var(--ink);
+}
+
+.btn.sky-centre {
+  min-height: 32px;
+  margin-left: auto;
+  padding: 0 var(--s3);
+  font-size: var(--step--1);
+}
+
+/* Adjust: the SPHEREx wavelength and the Gaia rings, on its own line inside the control row. */
+.sky-more {
+  order: 10;
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+.sky-more[hidden] {
+  display: none;
+}
+.sky-more-label {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.sky-dets > .sky-det {
+  position: relative;
+  min-width: 38px;
+  padding: 0 var(--s2);
+  font-variation-settings: "wdth" 88;
+}
+/* The detector ramp marks wavelength: a short stroke under each name. */
+.sky-dets > .sky-det::after {
+  content: "";
+  position: absolute;
+  left: 32%;
+  right: 32%;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--det);
+}
+.sky-dets > .sky-det:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.sky-um {
+  min-width: 4.5em;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 88;
+}
+
+/* ---- key: one sentence, pencil marks inline ---- */
+.sky-key {
+  margin-top: var(--s3);
+  max-width: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.7;
+}
+.key {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -1px;
+  opacity: 0.85;
+}
+.key-field {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--pencil-red);
+}
+.key-gaia {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--pencil-blue);
+  border-radius: 50%;
+}
+.key-target {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+  background:
+    linear-gradient(var(--pencil-red), var(--pencil-red)) center top / 1.5px 4px no-repeat,
+    linear-gradient(var(--pencil-red), var(--pencil-red)) center bottom / 1.5px 4px no-repeat,
+    linear-gradient(var(--pencil-red), var(--pencil-red)) left center / 4px 1.5px no-repeat,
+    linear-gradient(var(--pencil-red), var(--pencil-red)) right center / 4px 1.5px no-repeat;
+}
+
+/* ---- the pin: sits on the clicked spot, a stem down to it, the action above ---- */
 .sky-pin {
   --pin-shift: 0px;
   position: absolute;
@@ -178,11 +295,10 @@
   display: flex;
   align-items: center;
   gap: var(--s2);
-  padding: 4px 4px 4px 4px;
-  border: 1px solid var(--rule-strong);
+  padding: 4px;
   border-radius: var(--radius-ctl);
-  background: var(--plate-2);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+  background: var(--sheet);
+  box-shadow: 0 1px 0 rgba(24, 32, 46, 0.08), 0 8px 24px -8px rgba(0, 0, 0, 0.55);
   transform: translate(calc(-50% + var(--pin-shift)), calc(-100% - 16px));
   white-space: nowrap;
 }
@@ -195,9 +311,9 @@
   position: absolute;
   left: calc(50% - var(--pin-shift));
   top: 100%;
-  width: 1px;
+  width: 1.5px;
   height: 11px;
-  background: var(--mover);
+  background: var(--pencil-red);
 }
 .sky-pin::after {
   /* the clicked spot */
@@ -207,7 +323,7 @@
   top: calc(100% + 11px);
   width: 10px;
   height: 10px;
-  border: 2px solid var(--mover);
+  border: 1.5px solid var(--pencil-red);
   border-radius: 50%;
 }
 .sky-pin[data-below="true"] {
@@ -225,114 +341,83 @@
   min-height: 32px;
   padding: 0 var(--s3);
   border: 0;
-  border-radius: 4px;
-  background: var(--mover);
-  color: var(--plate);
-  font-weight: 700;
+  border-radius: var(--radius-ctl);
+  background: var(--ink);
+  color: var(--glass);
+  font-weight: 600;
   cursor: pointer;
 }
 .sky-pin-go:hover {
-  background: #ffb066;
+  background: #2b3445;
 }
 .sky-pin-coords {
   font-size: var(--step--1);
+  font-weight: 550;
   font-variation-settings: "wdth" 85;
-  color: var(--emulsion);
+  color: var(--ink);
 }
 .sky-pin-x {
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 50%;
   background: transparent;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
 .sky-pin-x:hover {
-  color: var(--emulsion);
-  background: var(--plate-3);
+  color: var(--ink);
+  background: var(--sheet-2);
 }
 
-/* Key and the keyboard-friendly action */
-.sky-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s3);
-  padding: var(--s3) var(--s4);
+/* ---- Aladin's own chrome, toned to the lightbox: Archivo, no monospace, soft round buttons ---- */
+.sky-map .aladin-location .aladin-tooltip-container {
+  display: none; /* the copy button: the pin shows the clicked position */
 }
-.sky-key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2) var(--s5);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.sky-map .aladin-location input.aladin-input-text {
+  height: 30px;
+  padding: 0 var(--s3);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: rgb(24 32 46 / 0.72);
+  /* Aladin colours and fonts this box inline: these two must win. */
+  color: var(--glass) !important;
+  font-family: var(--font) !important;
   font-size: var(--step--1);
-  color: var(--muted);
-}
-.sky-key li {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s2);
-}
-.key-field {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--mover);
-}
-.key-gaia {
-  width: 11px;
-  height: 11px;
-  border: 1.5px solid var(--gaia);
-  border-radius: 50%;
-}
-.key-target {
-  position: relative;
-  width: 14px;
-  height: 14px;
-  background:
-    linear-gradient(var(--mover), var(--mover)) center top / 2px 4px no-repeat,
-    linear-gradient(var(--mover), var(--mover)) center bottom / 2px 4px no-repeat,
-    linear-gradient(var(--mover), var(--mover)) left center / 4px 2px no-repeat,
-    linear-gradient(var(--mover), var(--mover)) right center / 4px 2px no-repeat;
-}
-.sky-centre {
-  min-height: 32px;
-  font-size: var(--step--1);
-}
-
-/* Aladin's own chrome: match the plate. */
-.sky-map .aladin-location,
-.sky-map .aladin-fov {
   font-variation-settings: "wdth" 85;
+  font-variant-numeric: tabular-nums;
 }
-.sky-map .aladin-location .aladin-location-text,
-.sky-map .aladin-location input {
-  background: rgb(15 26 44 / 0.85) !important;
-  color: var(--emulsion) !important;
+.sky-map .aladin-fov .aladin-monospace-text {
+  color: var(--glass);
+  font-family: var(--font);
+  font-size: var(--step--1);
+  font-variation-settings: "wdth" 85;
+  font-variant-numeric: tabular-nums;
+}
+.sky-map .aladin-btn.aladin-zoom-in,
+.sky-map .aladin-btn.aladin-zoom-out {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
+.sky-map .aladin-btn.aladin-zoom-in:hover,
+.sky-map .aladin-btn.aladin-zoom-out:hover {
+  background: var(--sheet-2);
 }
 
-@media (max-width: 900px) {
-  .sky-toggle {
-    display: inline-flex;
-  }
-  .sky-head {
-    align-items: center;
-  }
-  .sky-closed .sky-explain {
-    display: none;
-  }
+@media (max-width: 720px) {
   .sky-stage {
-    height: 340px;
+    height: 320px;
   }
-  .sky-controls {
-    gap: var(--s2) var(--s4);
-  }
-  .sky-explain {
-    max-width: 40ch;
+  /* Phone: the Adjust panel opens right under its button; the centre action comes last. */
+  .btn.sky-centre {
+    order: 20;
+    margin-left: 0;
   }
 }

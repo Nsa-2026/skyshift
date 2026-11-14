@@ -7,9 +7,12 @@ aperture snr >= DOT_MIN_SNR; saturated dots (OVERFLOW/NONLINEAR under them) are 
 wings (core.centroid method="fit"); then sky position, µJy, wavelength, bandwidth, the flag bits in the
 3×3 pixels under the dot (`flags`) and at its peak pixel (`flags_peak`), the photo's session and visit,
 the 6″ cell, the ZODI model, the background detection subtracted, the peak, the second-moment shape
-(elong, a, b, theta), an ePSF fit (flux_psf_*, psf.py) and five aperture fluxes (flux_ap_*).
-Forced photometry: when refcat/<zone>_forced.parquet exists, every reference target in the photo
-(moved to MJD-AVG) gets the same ePSF fit at its fixed position and the r = 2 px aperture, detected
+(elong, a, b, theta), an ePSF fit (flux_psf_*, psf.py), an ePSF position fit (x_psf, y_psf, ra_psf, dec_psf,
+pos_err_psf_arcsec, psf_pos_ok; config DOTS_PSF_POSITION; not for saturated dots), sep's flags and five
+aperture fluxes (flux_ap_*).
+Forced photometry: targets from the sky-wide list refcat/sky/forced_n32/ (forced_sky.py; the partitions
+the photo's cone overlaps, no zone box) when it is complete, else from refcat/<zone>_forced.parquet inside
+the zone box + 0.05° as before; every reference target in the photo (moved to MJD-AVG) gets the same ePSF fit at its fixed position and the r = 2 px aperture, detected
 or not, in forced/<obs_id>D<det>.parquet, written before the dot file.
 Every dot file carries the photo's metadata (header values, dot count, timings, zodi median,
 astrometric offset against Gaia, PSF size, 32 × 32 background and ZODI grids) as Parquet key-value
@@ -43,8 +46,8 @@ from skyshift_core import (SAT_BITS, background, build_mask, centroid, detect, o
 from skyshift_core.level2 import EPSF
 
 from . import config as C
-from . import log
-from .psf import psf_photometry
+from . import forced_sky, log
+from .psf import dot_positions, psf_photometry
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -59,7 +62,13 @@ DOT_COLUMNS = {
     "zodi_mjysr": "float32", "bkg_mjysr": "float32", "peak_mjysr": "float32",
     "a_arcsec": "float32", "b_arcsec": "float32", "theta_deg": "float32",
     "flux_psf_ujy": "float32", "flux_psf_err_ujy": "float32", "psf_chi2_nu": "float32",
+    # added 14 Nov (dots v4): ePSF position fit (or the centroid where it didn't run), sep's flags
+    "x_psf": "float32", "y_psf": "float32", "ra_psf": "float64", "dec_psf": "float64",
+    "pos_err_psf_arcsec": "float32", "psf_pos_ok": "bool", "sep_flag": "int16",
 }
+# v4 columns a frame may lack (test frames, v3 tables): copied from these columns, or these values
+DOT_V4_FALLBACK = {"x_psf": "x", "y_psf": "y", "ra_psf": "ra", "dec_psf": "dec", "pos_err_psf_arcsec": "pos_err_arcsec"}
+DOT_V4_DEFAULT = {"psf_pos_ok": False, "sep_flag": 0}
 # fixed_size_list<float32>[len(C.AP_RADII_PX)] columns, after the scalar ones (dots_arrow writes them)
 DOT_LIST_COLUMNS = ("flux_ap_ujy", "flux_ap_err_ujy")
 
@@ -75,6 +84,8 @@ def as_dots(df: pd.DataFrame) -> pd.DataFrame:
     """Columns in contract order and types; missing float columns become NaN (e.g. test frames)."""
     df = df.copy()
     for c, t in DOT_COLUMNS.items():
+        if c not in df and (c in DOT_V4_DEFAULT or DOT_V4_FALLBACK.get(c) in df):
+            df[c] = DOT_V4_DEFAULT[c] if c in DOT_V4_DEFAULT else df[DOT_V4_FALLBACK[c]]
         if c not in df:
             if not t.startswith("float"):
                 raise KeyError(f"dot column {c!r} missing")
@@ -331,6 +342,14 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
         psf_flux, psf_err, psf_chi2 = ph.flux * conv, ph.flux_err * conv, ph.chi2_nu
     timing["psf_s"] = time.perf_counter() - t0
     t0 = time.perf_counter()
+    pos_err = pos_err_arcsec(det["snr"])
+    x_psf, y_psf, pos_err_psf, psf_ok = x, y, pos_err, np.zeros(x.size, bool)
+    if C.DOTS_PSF_POSITION and getattr(l2, "epsf", None) is not None:  # saturated dots keep the wings centroid
+        x_psf, y_psf, pos_err_psf, psf_ok = dot_positions(data, x, y, l2.epsf, noise=ctx.noise, bad=ctx.bad, pos_err=pos_err,
+                                                          fit=~sat & (det["snr"] >= C.PSF_POS_MIN_SNR))
+    ra_psf, dec_psf = pixel_to_sky(l2.wcs, x_psf, y_psf)
+    timing["psf_pos_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter()
     apf, ape = aperture_fluxes(l2, ctx, x, y)
     timing["apertures_s"] = time.perf_counter() - t0
     df = pd.DataFrame({
@@ -341,7 +360,7 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
         "visit": visit,
         "ra": ra,
         "dec": dec,
-        "pos_err_arcsec": pos_err_arcsec(det["snr"]),
+        "pos_err_arcsec": pos_err,
         "x": x,
         "y": y,
         "flux_ujy": det["flux"] * conv,
@@ -362,6 +381,13 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
         "flux_psf_ujy": psf_flux,
         "flux_psf_err_ujy": psf_err,
         "psf_chi2_nu": psf_chi2,
+        "x_psf": x_psf,
+        "y_psf": y_psf,
+        "ra_psf": ra_psf % 360.0,
+        "dec_psf": dec_psf,
+        "pos_err_psf_arcsec": pos_err_psf,
+        "psf_pos_ok": psf_ok,
+        "sep_flag": det["sep_flag"],
     }).astype(DOT_COLUMNS)
     df["flux_ap_ujy"] = list(apf.astype(np.float32))
     df["flux_ap_err_ujy"] = list(ape.astype(np.float32))
@@ -416,13 +442,20 @@ def _unit(ra, dec) -> np.ndarray:
     return np.stack([np.cos(d) * np.cos(r), np.cos(d) * np.sin(r), np.sin(d)], axis=-1)
 
 
-def forced_targets(l2, ref: RefCat, zone: C.Zone | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Reference targets in this photo: moved to MJD-AVG (proper motion only), inside the frame by
-    >= FORCED_EDGE_PX and inside the zone box + FORCED_ZONE_MARGIN_DEG. Returns (index, ra, dec, x, y)."""
+def photo_cone(l2) -> tuple[float, float, float]:
+    """(ra, dec, radius) in degrees of a cone holding the whole photo: centre pixel, half diagonal + 0.1°."""
     ny, nx = l2.data.shape
     cra, cdec = pixel_to_sky(l2.wcs, np.array([(nx - 1) / 2.0]), np.array([(ny - 1) / 2.0]))
-    half_diag = np.hypot(nx, ny) / 2.0 * C.PIXEL_ARCSEC / 3600.0 + 0.1
-    near = np.flatnonzero(ref.xyz @ _unit(cra[0], cdec[0]) > np.cos(np.deg2rad(half_diag)))
+    return float(cra[0]), float(cdec[0]), float(np.hypot(nx, ny) / 2.0 * C.PIXEL_ARCSEC / 3600.0 + 0.1)
+
+
+def forced_targets(l2, ref: RefCat, zone: C.Zone | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Reference targets in this photo: moved to MJD-AVG (proper motion only), inside the frame by
+    >= FORCED_EDGE_PX and (zone list only, zone not None) inside the zone box + FORCED_ZONE_MARGIN_DEG.
+    Returns (index, ra, dec, x, y)."""
+    ny, nx = l2.data.shape
+    cra, cdec, half_diag = photo_cone(l2)
+    near = np.flatnonzero(ref.xyz @ _unit(cra, cdec) > np.cos(np.deg2rad(half_diag)))
     ra = np.empty(near.size)
     dec = np.empty(near.size)
     for ep in np.unique(ref.epoch_mjd[near]):
@@ -581,7 +614,9 @@ def photo_meta_dict(l2, obs_id: str, detector: int, st: dict, ctx: PhotoContext 
         "bkg_median_mjysr": float(np.median(ctx.bkg_level)) if ctx is not None else None,
         "ujy_per_mjysr": float(ctx.conv) if ctx is not None else None,
         "aperture_radii_px": list(C.AP_RADII_PX), "aperture_bkg_annulus_px": list(C.AP_BKG_ANNULUS_PX),
-        "psf_fit": {"half_px": C.PSF_FIT_HALF_PX, "model_frac": C.PSF_MODEL_FRAC, "noise": C.PSF_NOISE},
+        "psf_fit": {"half_px": C.PSF_FIT_HALF_PX, "model_frac": C.PSF_MODEL_FRAC, "noise": C.PSF_NOISE,
+                    "position": bool(C.DOTS_PSF_POSITION and getattr(l2, "epsf", None) is not None),
+                    "pos_min_snr": C.PSF_POS_MIN_SNR, "pos_err_floor_arcsec": C.PSF_POS_ERR_FLOOR_ARCSEC},
         "header": header_meta(l2.header),
         "calibration": calibration_meta(dots, forced),
         "grids": {"n": C.PHOTO_META_GRID, "unit": "MJy/sr",
@@ -680,6 +715,45 @@ def _store(root: str) -> Store:
     return _STORE
 
 
+_SKY: dict[str, "forced_sky.SkyList"] = {}
+_SKY_REF: dict[tuple, RefCat] = {}  # the last photo's partition set -> RefCat (neighbouring photos share it)
+
+
+def sky_list(store: Store) -> "forced_sky.SkyList | None":
+    """The sky-wide forced list of this store if it is complete (its manifest exists) and
+    C.FORCED_SKY_MODE isn't "off"; checked once per process."""
+    if C.FORCED_SKY_MODE == "off":
+        return None
+    if store.root not in _SKY:
+        _SKY[store.root] = forced_sky.SkyList(store)
+        if _SKY[store.root].available:
+            L.info("dots: forced targets from the sky list %s/%s", store.root, C.FORCED_SKY_DIR)
+    sk = _SKY[store.root]
+    return sk if sk.available else None
+
+
+def _sky_refcat(sk: "forced_sky.SkyList", l2) -> RefCat:
+    """RefCat of the partitions this photo's cone overlaps (photo_cone + FORCED_SKY_PAD_DEG)."""
+    ra, dec, r = photo_cone(l2)
+    pix = tuple(int(p) for p in forced_sky.partitions_for_cone(ra, dec, r, sk.nside))
+    key = (sk.store.root, pix)
+    if key not in _SKY_REF:
+        _SKY_REF.clear()
+        _SKY_REF[key] = RefCat.from_frame(sk.frame(pix))
+    return _SKY_REF[key]
+
+
+def forced_reference(store: Store, l2, zone: str | None) -> tuple[RefCat | None, C.Zone | None, str]:
+    """Where a photo's forced targets come from: the sky list for its whole footprint (no zone box) when it is
+    complete, else refcat/<zone>_forced.parquet limited to the zone box as before. Returns (ref, zone box, origin)."""
+    sk = sky_list(store)
+    if sk is not None:
+        return _sky_refcat(sk, l2), None, "sky"
+    if not zone:
+        return None, None, ""
+    return _refcat(store, zone), C.ZONES.get(zone), "zone"
+
+
 def _refcat(store: Store, zone: str) -> RefCat | None:
     key = (store.root, zone)
     if key not in _REFCAT:
@@ -766,9 +840,9 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
             df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx)
         st["detect_s"] = round(time.time() - t0, 2)
         st["n_dots"] = int(len(df))
-        zobj = C.ZONES.get(zone) if zone else None
-        ref = _refcat(store, zone) if (zone and ctx is not None) else None
+        ref, zobj, origin = forced_reference(store, l2, zone) if ctx is not None else (None, None, "")
         if ref is not None:
+            st["forced_from"] = origin
             t0 = time.time()
             forced = forced_table(l2, ctx, obs_id, detector, ref, zobj)
             st["forced_s"] = round(time.time() - t0, 2)
