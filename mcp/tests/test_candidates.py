@@ -48,6 +48,21 @@ def test_rank_rate_uses_pm_for_stars():
         cands.rank(rows, "brightness")
 
 
+def test_rank_rate_never_compares_arcsec_per_hour_with_mas_per_year():
+    rows = [{"id": "fast_star", "kind": "high_pm", "rate_arcsec_h": None, "pm_mas_yr": 9000.0, "score": 0.9},
+            {"id": "slow_mover", "kind": "mover", "rate_arcsec_h": 0.5, "pm_mas_yr": None, "score": 0.1},
+            {"id": "spec", "kind": "spectral", "rate_arcsec_h": None, "pm_mas_yr": None, "score": 0.99},
+            {"id": "star", "kind": "high_pm", "rate_arcsec_h": None, "pm_mas_yr": 300.0, "score": 0.2},
+            {"id": "mover", "kind": "mover", "rate_arcsec_h": 40.0, "pm_mas_yr": None, "score": 0.3}]
+    assert [r["id"] for r in cands.rank(rows, "rate")] == ["mover", "slow_mover", "fast_star", "star", "spec"]
+    assert "mas/yr" in cands.RATE_NOTE and "″/h" in cands.RATE_NOTE
+
+
+def test_has_grades(sample):
+    assert not cands.has_grades(sample)
+    assert cands.has_grades([{"grade": None}, {"grade": "B"}])
+
+
 def test_summarise_flags_static_frames(sample):
     s = cands.summarise({**sample[0], "frames_url": "cand/x/frames.json"})
     assert s["has_static_frames"] is True and "frames_url" not in s

@@ -8,6 +8,8 @@ numpy coarse cut over all orbits plus kete n-body on the short list: 0.2-2 s war
 Entries have the contract's `known[]` shape: {name, epoch_id, ra, dec, v, source: "mpc"}, nearest
 first per time. Predicted from the Earth's centre: SPHEREx is in low Earth orbit, so the parallax
 against a main-belt asteroid is under 10" (under 2 native pixels). V <= 21; comets have no V.
+position(name, mjd): one object's place by its MPC name, the same way (GET /api/resolve for the
+comet and the asteroids among the built-in targets).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import threading
 import time
 from typing import Any, Sequence
 
+import numpy as np
 from skyshift_core import known_index
 
 from .cache import Cache
@@ -68,6 +71,43 @@ def near(ra: float, dec: float, r_arcmin: float, mjds: Sequence[float], *, epoch
     idx = mpc_index(cache)
     with _slots:
         return known_index.known_near(ra, dec, r_arcmin / 60.0, list(mjds), index=idx, epoch_ids=epoch_ids)
+
+
+def row_of(idx: known_index.KnownIndex, name: str) -> int | None:
+    """Index row of the object called exactly `name` (the index's names: "Elpis", "3I/ATLAS", "(12345)"),
+    or None."""
+    blob, off = idx.data["name_blob"].tobytes(), idx.data["name_off"]
+    want = name.encode("utf-8")
+    k = blob.find(want)
+    while k >= 0:
+        row = int(np.searchsorted(off, k, side="right")) - 1
+        if off[row] == k and off[row + 1] == k + len(want):
+            return row
+        k = blob.find(want, k + 1)
+    return None
+
+
+def position(name: str, mjd: float, *, cache: Cache | None = None) -> tuple[float, float]:
+    """(ra, dec) in degrees of the MPC object `name` (as the index names it) at `mjd` (UTC), seen from
+    the Earth's centre with light time: kete n-body from the MPC orbit, the computation known.near
+    makes. Raises KeyError for a name not in the index, ValueError for a time outside its range or an
+    orbit kete can't move, UpstreamError when the index is missing."""
+    idx = mpc_index(cache)
+    if not idx.mjd_lo <= mjd <= idx.mjd_hi:
+        raise ValueError(f"MJD {mjd} outside the known index's range {idx.mjd_lo:.0f}-{idx.mjd_hi:.0f}")
+    row = row_of(idx, name)
+    if row is None:
+        raise KeyError(f"{name!r} is not in the known-object index {INDEX_KEY}")
+    kete = known_index._kete()
+    with _slots:
+        obs = known_index.observer_state(kete, mjd)
+        states = kete.propagate_n_body(known_index.kete_states(kete, idx, np.array([row])), obs.jd,
+                                       suppress_errors=True)
+        seen = kete.fov_state_check([s for s in states if s.is_finite], [kete.OmniDirectionalFOV(obs)])
+    if not seen or not len(seen[0].states):
+        raise ValueError(f"kete could not move {name!r} to MJD {mjd}")
+    ra, dec = np.asarray(seen[0].ra_dec_with_rates, float).reshape(-1, 4)[0, :2]
+    return float(ra) % 360.0, float(dec)
 
 
 def cone(ra: float, dec: float, r_arcmin: float, mjd: float, *, cache: Cache | None = None) -> list[dict[str, Any]]:

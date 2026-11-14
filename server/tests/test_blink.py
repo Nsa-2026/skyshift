@@ -165,6 +165,30 @@ def test_hours_frames_one_visit_in_time_order(world):
     assert abs(x - 3) <= 1 and abs(y - 3) <= 1  # the star is at the centre
 
 
+def test_hours_frames_of_a_given_visit(world):
+    """precompute passes the file's visit to every detector: the hours clock then shows that visit,
+    not the one with the most exposures of this detector (visit 2 here, the later of two equal ones)."""
+    rule = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None)
+    fixed = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None, visit=1)
+    assert [e["mjd_mid"] for e in rule.meta["epochs"]] == pytest.approx([MJD1 + VISIT2 + d for d in (0, 0.0015, 0.003)])
+    assert [e["mjd_mid"] for e in fixed.meta["epochs"]] == pytest.approx([MJD1 + d for d in (0, 0.0015, 3.0)])
+    same = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None, visit=2)
+    assert same.meta == rule.meta  # the rule's own visit: the same answer
+    with pytest.raises(NotFoundError):
+        blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], visit=3)
+
+
+def test_best_hours_visit_most_exposures_latest_on_a_tie():
+    def ims(*visits):
+        return [search.Image("spherex_dr1", f"O{i}", 2, 0.0, 0.0, float(i), "", None, visit=v)
+                for i, v in enumerate(visits)]
+
+    assert blink.best_hours_visit(ims(1, 1, 2)) == 1
+    assert blink.best_hours_visit(ims(1, 2, 2, 3, 3)) == 3
+    assert blink.best_hours_visit([]) is None
+    assert [im.visit for im in blink.hours_visit(ims(1, 1, 2), visit=2)] == [2]
+
+
 def test_hours_60_is_binned(world):
     fr = blink.build_frames(STAR_RA, STAR_DEC, 60, "hours", 1, cache=world["cache"])
     assert fr.meta["size"] == [293, 293] and fr.meta["pixel_arcsec"] == pytest.approx(12.3)
@@ -266,14 +290,39 @@ def test_object_spectrum_and_zero_shift(world):
     assert sorted({p["visit"] for p in sp}) == [1, 2]
     m = o["measure"]
     assert set(m) == {"shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec",
-                      "n_ref_stars", "predicted_arcsec"}
+                      "n_ref_stars", "predicted_arcsec", "source"}
     assert m["shift_arcsec"] < 0.05  # the same pixels in both visits
     assert m["dt_yr"] == pytest.approx((VISIT2 + 0.0015 - 0.0015) / 365.25, abs=1e-4)
     assert m["n_ref_stars"] >= 3 and m["sigma_arcsec"] < 0.05
     assert m["predicted_arcsec"] is not None and m["predicted_arcsec"] < 0.05  # a slow star
     assert details["det"] == 1 and details["visits"] == [1, 2]
+    # contracts/api.md v3.9: the same detector, visits and times the fit used
+    src = m["source"]
+    assert src == {"det": 1, "visits": [1, 2], "mjd": pytest.approx(details["mjd"], abs=1e-6),
+                   "n_exposures": details["n_exposures"], "fov": 15, "pixel_arcsec": 6.15,
+                   "core_filled": details["core_filled"]}
+    assert src["n_exposures"] == [3, 3]
+    assert m["dt_yr"] == pytest.approx((src["mjd"][1] - src["mjd"][0]) / 365.25, abs=1e-4)
+    json.dumps(o, allow_nan=False)  # plain JSON types (bools, not numpy)
     # photometry is done on IMAGE as it is: the zodi model is only taken off the stacks
     assert len(world["zodi_calls"]) == 6
+
+
+def test_predicted_shift_is_null_without_gaia(world, monkeypatch):
+    """contracts/api.md: measure.predicted_arcsec is Gaia's prediction, or null without Gaia. A
+    built-in target Gaia doesn't see (WISE 0855: published proper motion and parallax) is still
+    measured, but gets no predicted_arcsec (14 Nov site review: WISE 0855 had 8.06)."""
+    builtin = {"name": "Test dwarf", "slug": "testbd", "id": None, "ra": STAR_RA, "dec": STAR_DEC,
+               "pmra": 0.0, "pmdec": 0.0, "parallax": 0.0, "g": None, "epoch_mjd": obj.GAIA_EPOCH_MJD, "dets": None}
+    monkeypatch.setattr(obj, "_builtin_targets", lambda: [builtin])
+    o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert o["name"] == "Test dwarf" and o["gaia"] is None
+    m = o["measure"]
+    assert m is not None and m["shift_arcsec"] < 0.05 and m["predicted_arcsec"] is None
+    # the same built-in with a Gaia id keeps Gaia's prediction
+    monkeypatch.setattr(obj, "_builtin_targets", lambda: [dict(builtin, id=STAR_GAIA_ID, g=12.0)])
+    o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert o["gaia"]["id"] == STAR_GAIA_ID and o["measure"]["predicted_arcsec"] is not None
 
 
 def test_object_on_an_empty_spot_has_no_shift(world, monkeypatch):

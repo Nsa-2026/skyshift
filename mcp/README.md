@@ -28,10 +28,10 @@ Another site (a local server, a preview channel): set `SKYSHIFT_BASE`, e.g.
 
 | tool | reads | gives |
 |---|---|---|
-| `top_candidates` | `/data/candidates.json` | Best candidates, filtered (kind, grade, score, S/N, detector, zone, Gaia match, flags, distance to known objects) and ranked |
+| `top_candidates` | `/data/candidates.json` | Best candidates, filtered (kind, grade, score, S/N, detector, zone, Gaia match, flags, distance to known objects) and ranked; `sort=rate` ranks movers by ″/h, then high_pm by mas/yr; `notes` says when a file has no grades |
 | `candidates_near` | `/data/candidates.json` | Cone search around a name or position, nearest first |
 | `get_candidate` | `/data/candidates.json` | One candidate's full record, its frames URL and a link to its page |
-| `blink` | `/data/cand/<id>/`, `/data/<slug>/`, else `/api/frames` | One PNG: the epochs in time order (same stretch) and a last − first difference, with marks: Gaia DR3 stars moved to each date (cyan circles), known asteroids and comets (green diamonds), the pipeline's detections by class, and a legend. `zoom_arcmin` crops in; `animate` adds a looping GIF. Plus the epochs' dates, flags, known objects and the measured layer |
+| `blink` | `/data/cand/<id>/`, `/data/<slug>/`, else `/api/frames` | One PNG: the epochs in time order (same stretch) and a last − first difference, with marks: Gaia DR3 stars moved to each date (cyan circles), known asteroids and comets (green diamonds), the pipeline's detections by class, and a legend. A featured target opens on its own detector (D6 for WISE 0855−0714); an hours-clock candidate on the frames nearest its find, with `find_session` (nearest frame, and a warning when live frames miss its session). `zoom_arcmin` crops in; `animate` adds a looping GIF. Plus the epochs' dates, flags, known objects and the measured layer |
 | `spectrum` | `/data/<slug>/object.json`, else `/api/object` | The SPHEREx spectrum as a PNG: flux against wavelength by detector, error bars, saturated points hollow, the classifier's molecule bands shaded (H2O, CH4, CO, ices, PAH); `visit`, `scale` |
 | `measure` | `/data/<slug>/object.json`, else `/api/object` | Shift, position angle, rate ″/yr with sigma, Gaia's prediction, spectrum points |
 | `measured_dots` | the `measured` layer of the frames (static, else live) | The pipeline's own detections in a field by class (star, known, mover, suspect, artifact, other), hours-clock tracks, months-clock fitted motions |
@@ -41,7 +41,7 @@ Another site (a local server, a preview channel): set `SKYSHIFT_BASE`, e.g.
 | `top_voted`, `votes_for` | Firestore `votes` (public, read-only) | Community votes per candidate (mover, changing, junk, unsure) and distinct voters; voter ids are never returned |
 | `featured_targets` | bundled `targets.json` | The featured targets: what to look for, what to expect, links |
 | `validation` | `/data/validation.json` | The checks V1–V11 in plain words, or one check in full |
-| `resolve` | `/api/resolve` | A name or coordinate string → ICRS degrees |
+| `resolve` | `/api/resolve`, else bundled `targets.json` | A name or coordinate string → ICRS degrees; featured names (the asteroids too, e.g. `Elpis`) without case |
 
 Units follow contracts/api.md: degrees, arcmin for fields and radii, arcsec for shifts, mas/yr,
 MJD (UTC), µJy, µm.

@@ -1,0 +1,439 @@
+/* Filters on the main image: a button above the plate, a menu under it, the filtered picture on
+   the plate, and its key under the plate. Same quiet lightbox language as the blink. */
+
+/* ---- button and active-filter line, above the plate ---- */
+.flt-bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+}
+/* The blink sizes its plate so the time strip ends inside the first screen (blink.css, .bk-col:
+   100svh − 236 px, or − 280 px up to 1480 px wide). The bar adds its own height above the plate,
+   so the plate gives that height back. Phones (under 600 px) keep the full-width plate. */
+.bk-col.has-flt {
+  width: min(100%, calc(max(300px, 100svh - 236px - 34px - var(--s2)) + 2 * var(--mat)));
+}
+@media (max-width: 1480px) {
+  .bk-col.has-flt {
+    width: min(100%, calc(max(300px, 100svh - 280px - 34px - var(--s2)) + 2 * var(--mat)));
+  }
+}
+@container (max-width: 600px) {
+  .bk-col.has-flt {
+    width: 100%;
+  }
+}
+.flt-add {
+  min-height: 34px;
+  padding: 0 var(--s4);
+  font-weight: 600;
+}
+.flt-add-icon {
+  font-size: 1.05em;
+  line-height: 1;
+}
+.flt-add[aria-expanded="true"] {
+  background: var(--ink);
+  color: var(--glass);
+}
+.flt-active {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ink);
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.flt-active[hidden] {
+  display: none;
+}
+.flt-off {
+  min-height: 30px;
+  padding: 0 var(--s2);
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  text-decoration: underline;
+  text-decoration-color: var(--hair-strong);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.flt-off:hover {
+  color: var(--ink);
+}
+
+/* ---- the menu: a sheet that drops over the plate ---- */
+.flt-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--sheet);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-plate), 0 18px 40px -20px rgba(24, 32, 46, 0.45);
+}
+.flt-menu[hidden] {
+  display: none;
+}
+/* Room beside the plate (index.ts placeMenu): the plate stays in view while choosing. */
+.flt-menu.is-right {
+  top: 0;
+  left: calc(100% + var(--s4));
+}
+.flt-h {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.flt-opts {
+  display: grid;
+  gap: var(--s1);
+}
+.flt-opts > button {
+  display: grid;
+  gap: 2px;
+  padding: var(--s2) var(--s3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-panel);
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.flt-opts > button:hover {
+  background: var(--sheet-2);
+}
+.flt-opts > button[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--glass);
+}
+.flt-opts b {
+  font-weight: 650;
+}
+.flt-opts span {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.4;
+}
+
+/* The wavelength slider: a full-width row of the bar, just above the plate. */
+.flt-wave {
+  position: relative;
+  flex: 1 1 100%;
+  display: grid;
+  gap: var(--s2);
+  padding: 0 var(--mat, 12px);
+}
+.flt-wave[hidden] {
+  display: none;
+}
+.flt-frame {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.flt-ticks {
+  position: relative;
+  height: 8px;
+  margin: -6px 8px 0;
+}
+.flt-tick {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  background: var(--pencil-red);
+}
+.flt-tick-gap {
+  width: 6px;
+  margin-left: -3px;
+  background: repeating-linear-gradient(45deg, var(--ink-3) 0 1px, transparent 1px 3px);
+}
+.flt-wave-text {
+  min-height: 2.6em;
+  color: var(--ink);
+  font-size: var(--step--1);
+  line-height: 1.3;
+}
+
+.flt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s4);
+}
+.flt-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+.flt-switch::before {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--hair-strong);
+  border-radius: 3px;
+  background: var(--sheet);
+}
+.flt-switch[aria-pressed="true"] {
+  color: var(--ink);
+}
+.flt-switch[aria-pressed="true"]::before {
+  border-color: var(--ink);
+  background: var(--ink);
+  box-shadow: inset 0 0 0 2.5px var(--sheet);
+}
+.flt-range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.flt-range input {
+  width: 110px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.flt-src {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+/* ---- the filtered picture, laid over the plate ---- */
+.flt-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  /* "No data" shows through transparent pixels as a hatch. */
+  background: repeating-linear-gradient(45deg, #2a3140 0 4px, #1b212c 4px 8px);
+  /* A phone can still scroll the page past the picture; a tap reads the pixel. */
+  touch-action: pan-y pinch-zoom;
+}
+.flt-layer[hidden] {
+  display: none;
+}
+.flt-canvas,
+.flt-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.flt-canvas {
+  image-rendering: pixelated;
+  cursor: crosshair;
+}
+.flt-overlay {
+  pointer-events: none;
+}
+.flt-overlay .ov-sat {
+  fill: none;
+  stroke: #ff3b4e;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.flt-overlay .ov-box {
+  fill: none;
+  stroke: #fff;
+  stroke-opacity: 0.8;
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.flt-overlay .ov-target {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2px;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.flt-compass {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  color: #fff;
+  font-size: var(--step--1);
+  font-weight: 600;
+  text-shadow: 0 0 3px #000;
+  pointer-events: none;
+}
+.flt-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s5);
+  background: rgba(24, 32, 46, 0.72);
+  color: #fff;
+  text-align: center;
+  text-wrap: balance;
+}
+.flt-note[hidden],
+.flt-note-title[hidden] {
+  display: none;
+}
+.flt-note p {
+  max-width: 40ch;
+}
+.flt-note-title {
+  color: var(--ink);
+  font-size: var(--step-1);
+  font-weight: 650;
+}
+.flt-note-title::before {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 2px;
+  margin: 0 auto var(--s3);
+  border-radius: 1px;
+  background: var(--pencil-red);
+}
+.flt-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s2);
+  margin-top: var(--s1);
+}
+.flt-note[data-kind="info"] .btn-ghost {
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+}
+.flt-note[data-kind="info"] .btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.flt-note[data-kind="fail"] {
+  background: var(--sheet);
+  color: var(--ink-2);
+}
+
+/* While a filter is on, the blink's date, caption and time strip don't describe the picture (all
+   dates are merged): dim them. */
+.bk.flt-on .bk-strip {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.bk.flt-on .bk-label,
+.bk.flt-on .bk-caption {
+  opacity: 0.35;
+}
+.flt-switch[hidden] {
+  display: none;
+}
+
+/* ---- the key, under the plate ---- */
+.flt-key {
+  display: grid;
+  gap: var(--s3);
+  margin: var(--s3) 0 var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--sheet);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-plate);
+  font-size: var(--step--1);
+}
+.flt-key[hidden] {
+  display: none;
+}
+.flt-key-title {
+  color: var(--ink);
+  font-weight: 650;
+}
+.flt-key-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-2);
+}
+.flt-key-list li {
+  display: grid;
+  grid-template-columns: 18px auto 1fr;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.flt-key-list b {
+  color: var(--ink);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.flt-key .sw {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  align-self: center;
+  box-shadow: inset 0 0 0 1px rgba(24, 32, 46, 0.25);
+}
+.flt-key .sw-grey { background: #8a8f98; }
+.flt-key .sw-none { background: repeating-linear-gradient(45deg, #2a3140 0 2px, #1b212c 2px 4px); }
+.flt-key .sw-saturated { border: 2px solid #ff3b4e; background: #1b212c; }
+.flt-key .sw-ramp { background: linear-gradient(90deg, #000, #fff); }
+.flt-key .sw-box { border: 1.5px dashed #4f5867; background: transparent; box-shadow: none; }
+.flt-key .sw-wide { border: 1.5px solid #4f5867; background: transparent; box-shadow: none; }
+.flt-key-lead {
+  color: var(--ink-2);
+}
+.flt-key-note {
+  color: var(--ink-3);
+}
+.flt-readout {
+  min-height: 1.5em;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.flt-why {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-left: 3px solid var(--warn);
+  background: var(--glass);
+  color: var(--ink);
+  font-size: var(--step-0);
+}
+.flt-why h3 {
+  font-size: var(--step-0);
+  font-weight: 650;
+}
+.flt-how summary {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.flt-how p {
+  margin-top: var(--s2);
+  color: var(--ink-2);
+}
+
+@media (max-width: 640px) {
+  .flt-key-list li {
+    grid-template-columns: 18px 1fr;
+  }
+  .flt-key-list li > :last-child {
+    grid-column: 2;
+  }
+}

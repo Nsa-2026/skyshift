@@ -589,7 +589,7 @@ def highpm_why(r, reasons: list[str]) -> str:
         tail = ("; Gaia lists this star with the same motion, a known nearby star that shows the method works"
                 if "vetted" in reasons else "; Gaia lists a star here")
     else:
-        tail = "; no catalogue lists this motion"
+        tail = "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion"
     cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "bad_fit", "few_dots", "short_span") if x in reasons]
     if cautions and "gaia_pm_disagrees" not in reasons and "catwise_pm_disagrees" not in reasons:
         tail += f", but {cautions[0]}"
