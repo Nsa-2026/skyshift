@@ -31,21 +31,45 @@ Another site (a local server, a preview channel): set `SKYSHIFT_BASE`, e.g.
 | `top_candidates` | `/data/candidates.json` | Best candidates, filtered (kind, grade, score, S/N, detector, zone, Gaia match, flags, distance to known objects) and ranked |
 | `candidates_near` | `/data/candidates.json` | Cone search around a name or position, nearest first |
 | `get_candidate` | `/data/candidates.json` | One candidate's full record, its frames URL and a link to its page |
-| `blink` | `/data/cand/<id>/`, `/data/<slug>/`, else `/api/frames` | One PNG: the epochs in time order (same stretch) and a last − first difference, plus the epochs' dates, flags, known objects and the measured layer |
-| `measure` | `/data/<slug>/object.json`, else `/api/object` | Shift, position angle, rate ″/yr with sigma, Gaia's prediction, spectrum |
+| `blink` | `/data/cand/<id>/`, `/data/<slug>/`, else `/api/frames` | One PNG: the epochs in time order (same stretch) and a last − first difference, with marks: Gaia DR3 stars moved to each date (cyan circles), known asteroids and comets (green diamonds), the pipeline's detections by class, and a legend. `zoom_arcmin` crops in; `animate` adds a looping GIF. Plus the epochs' dates, flags, known objects and the measured layer |
+| `spectrum` | `/data/<slug>/object.json`, else `/api/object` | The SPHEREx spectrum as a PNG: flux against wavelength by detector, error bars, saturated points hollow, the classifier's molecule bands shaded (H2O, CH4, CO, ices, PAH); `visit`, `scale` |
+| `measure` | `/data/<slug>/object.json`, else `/api/object` | Shift, position angle, rate ″/yr with sigma, Gaia's prediction, spectrum points |
+| `measured_dots` | the `measured` layer of the frames (static, else live) | The pipeline's own detections in a field by class (star, known, mover, suspect, artifact, other), hours-clock tracks, months-clock fitted motions |
 | `known_objects` | `/api/known` | Asteroids and comets predicted near a position at an MJD (MPC orbits) |
 | `gaia_stars` | `/api/gaia` | Gaia DR3 stars near a position, brightest first |
+| `batch_check` | `/api/resolve`, `/data/candidates.json` | Up to 50 names or positions: featured field, candidates nearby, a site link; `measure` for the first 5 |
+| `top_voted`, `votes_for` | Firestore `votes` (public, read-only) | Community votes per candidate (mover, changing, junk, unsure) and distinct voters; voter ids are never returned |
+| `featured_targets` | bundled `targets.json` | The featured targets: what to look for, what to expect, links |
+| `validation` | `/data/validation.json` | The checks V1–V11 in plain words, or one check in full |
 | `resolve` | `/api/resolve` | A name or coordinate string → ICRS degrees |
 
 Units follow contracts/api.md: degrees, arcmin for fields and radii, arcsec for shifts, mas/yr,
 MJD (UTC), µJy, µm.
+
+## Resources and prompts
+
+Resources: `skyshift://facts` (one page: the two clocks, detectors, pixel and PSF, the visit rule,
+units, what candidate kinds, grades and reasons mean, honest limits), `skyshift://contracts/api`
+and `skyshift://contracts/flags`. Run from a checkout they read the repo's files; an installed
+package uses the copies in `src/skyshift_mcp/data/`.
+
+Prompts (in Claude Code: `/skyshift:<name>`):
+
+| prompt | does |
+|---|---|
+| `explain_candidate(candidate_id)` | Record → zoomed blink → known asteroids → motion → spectrum, then one verdict: likely artefact, known object, known star motion, or worth a human look. Never claims a discovery |
+| `triage_movers(limit)` | The best unflagged movers, each explained briefly, ranked for a human vote |
+| `check_my_target(target)` | Your own object: measurement, months blink, candidates nearby, how far to trust it |
 
 ## Try it
 
 - "What are the five best fast movers SkyShift found that no known asteroid explains? Show me the
   best one."
 - "Blink Barnard's Star on the months clock and tell me which way it moved."
+- "Show me the spectrum of WISE 0855−0714. Which molecule bands do you see?"
 - "Is there any candidate within 20′ of RA 123.6, Dec 20.7?"
+- "How do we know SkyShift's measurements are right?"
+- `/skyshift:explain_candidate hunt-648380072434-87805628`
 
 ## Tests
 

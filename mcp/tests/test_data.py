@@ -356,3 +356,7 @@ def test_live_data_tools():
     assert batch["resolved"] == 3 and batch["rows"][0]["featured_slug"] == "barnard"
     assert batch["rows"][1]["featured_slug"] == "wise0855"
     assert "zone" in m or "measured_reason" in m
+
+
+def test_featured_fields_from_targets_json():
+    assert tools_data.FEATURED_FIELDS == ("barnard", "epsindib", "wise0855", "rwaur", "rdra")

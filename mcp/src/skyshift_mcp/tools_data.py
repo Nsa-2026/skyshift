@@ -17,6 +17,7 @@ from pydantic import Field
 from . import candidates as cands
 from .client import Client, SkyShiftError
 from .server import _frames_source, _json, app, client
+from .tools_reference import targets
 
 # ---------------------------------------------------------------- measured layer (contracts/api.md v3.3)
 
@@ -166,9 +167,11 @@ BATCH_MAX = 50
 MEASURE_MAX = 5
 RESOLVE_CONCURRENCY = 4
 MEASURE_CONCURRENCY = 2
-# web/src/data/targets.json's fixed-position (months clock) targets, as web/src/app/state.ts
+# targets.json's fixed-position targets (not the comet or asteroids), as web/src/app/state.ts
 # featuredNear uses them. Centres and fields come from the site's /data/<slug>/index.json.
-FEATURED_FIELDS = ("barnard", "epsindib", "wise0855", "rwaur", "rdra")
+MOVING_KINDS = ("comet", "asteroid")
+FEATURED_FIELDS = tuple(t["slug"] for t in targets()
+                        if not any(k in (t.get("kind") or "") for k in MOVING_KINDS))
 _featured: weakref.WeakKeyDictionary[Client, list[dict[str, Any]]] = weakref.WeakKeyDictionary()
 
 
