@@ -205,7 +205,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
   <div class="wrap nav-inner">
     <a class="brand" href="#top">Sky<span>Shift</span><small>DEV v2</small></a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#arch">Architecture</a><a href="#areas">Areas</a><a href="#repo">Repo</a><a href="#contract">Contracts</a><a href="#data">Data</a><a href="#workflow">Workflow</a><a href="#setup">Setup</a><a href="#schedule">Schedule</a><a href="#rules">Rules</a>
+      <a href="#arch">Architecture</a><a href="#areas">Areas</a><a href="#repo">Repo</a><a href="#contract">Contracts</a><a href="#data">Data</a><a href="#known">Known</a><a href="#workflow">Workflow</a><a href="#setup">Setup</a><a href="#schedule">Schedule</a><a href="#rules">Rules</a>
     </nav>
   </div>
 </header>
@@ -227,6 +227,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
               <li><span>The 5% deep zone is cut. A 100 deg² hunt zone runs only if gate G2 passes at Sat 18:00.</span></li>
               <li><span>Frames are 16-bit data, not pictures. The browser does stretch, invert, subtract and add.</span></li>
               <li><span>No CDS: Aladin Lite 3.8.2 from jsDelivr, IRSA layer URLs only, SIMBAD features off.</span></li>
+              <li><span>Known asteroids and comets come from MPC orbits computed in-house with kete, not from SkyBoT queries.</span></li>
             </ul>
           </div>
         </div>
@@ -259,7 +260,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
       <div class="diagram">
         <svg viewBox="0 0 1000 450" role="img" aria-labelledby="arch-title arch-desc">
           <title id="arch-title">SkyShift architecture, version 2</title>
-          <desc id="arch-desc">IRSA image search and cutouts feed the cloud machines and the Cloud Run API. SPHEREx files on Amazon S3 feed the machines for the hunt zone. Gaia, SkyBoT, MOST and the 3I/ATLAS table feed the API, cached. The machines write photo lists and results to Cloud Storage and precompute static target files for Firebase Hosting. Hosting serves the web app and the static files and forwards /api to Cloud Run. Browsers write flags and votes to Firestore. Developers push to GitHub, which deploys.</desc>
+          <desc id="arch-desc">IRSA image search and cutouts feed the cloud machines and the Cloud Run API. SPHEREx files on Amazon S3 feed the machines for the hunt zone. Gaia, MPC orbits (computed with kete), MOST and the 3I/ATLAS table feed the API and the machines, cached. The machines write photo lists and results to Cloud Storage and precompute static target files for Firebase Hosting. Hosting serves the web app and the static files and forwards /api to Cloud Run. Browsers write flags and votes to Firestore. Developers push to GitHub, which deploys.</desc>
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/></marker></defs>
           <style>
             .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
@@ -279,7 +280,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
 
           <rect x="20" y="44" width="210" height="96" rx="10" class="bx"/><text x="34" y="68" class="t">SPHEREx files on S3</text><text x="34" y="88" class="s">s3://nasa-irsa-spherex</text><text x="34" y="106" class="s">about 66 MB per file</text><text x="34" y="124" class="s">needed parts only</text>
           <rect x="20" y="156" width="210" height="84" rx="10" class="bx"/><text x="34" y="180" class="t">IRSA (NASA/IPAC)</text><text x="34" y="200" class="s">image search · cutouts</text><text x="34" y="218" class="s">MOST · 3I/ATLAS table</text>
-          <rect x="20" y="262" width="210" height="84" rx="10" class="bx"/><text x="34" y="286" class="t">ESA Gaia DR3 · SkyBoT</text><text x="34" y="306" class="s">gea.esac.esa.int TAP</text><text x="34" y="324" class="s">ssp.imcce.fr (IMCCE)</text>
+          <rect x="20" y="262" width="210" height="84" rx="10" class="bx"/><text x="34" y="286" class="t">ESA Gaia DR3 · MPC orbits</text><text x="34" y="306" class="s">gea.esac.esa.int TAP</text><text x="34" y="324" class="s">minorplanetcenter.net (kete)</text>
 
           <rect x="280" y="44" width="200" height="140" rx="10" class="bx"/><text x="294" y="68" class="t">Cloud machines</text><text x="294" y="88" class="s">e2-standard-8: most work</text><text x="294" y="106" class="s">n2-highcpu-64 spot:</text><text x="294" y="124" class="s">hunt zone after G2</text><text x="294" y="146" class="s">core/ · pipeline/</text><text x="294" y="164" class="s">scripts/precompute</text>
           <rect x="280" y="214" width="200" height="96" rx="10" class="bx"/><text x="294" y="238" class="t">Cloud Run API</text><text x="294" y="258" class="s">server/ · imports core/</text><text x="294" y="276" class="s">any coordinates, live</text><text x="294" y="294" class="s">caches in bucket cache/</text>
@@ -522,7 +523,7 @@ Then run this area's tests and report the result.</pre></div>
               um_min, um_max, n_exposures, flag_frac, sat_frac,
               data_url, scale, zero }],
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
-    known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"most"|"irsa-3i" }],
+    known:[{ name, epoch_id, ra, dec, v, source:"mpc"|"most"|"irsa-3i" }],
     data_release, archive_checked }
 <span class="k">GET</span> /api/object?ra=&amp;dec=
 → { name|null, gaia|null, known_ucd|null,
@@ -609,7 +610,7 @@ session = run of exposures with gaps under 10 minutes
             <tbody>
               <tr><td class="m">fixed</td><td>Cell seen in 3 or more sessions</td></tr>
               <tr><td class="m">movers</td><td>Seen in one session only, in 2 exposures or in 2 detectors exposed at the same moment (D1+D4, D2+D5, D3+D6)</td></tr>
-              <tr><td class="m">suspects</td><td>Movers with no SkyBoT match. Exported to <span class="mono">/data/suspects.json</span> and the candidate list.</td></tr>
+              <tr><td class="m">suspects</td><td>Movers with no known-object match (MPC orbits). Exported to <span class="mono">/data/suspects.json</span> and the candidate list.</td></tr>
             </tbody></table></div>
           <p class="small muted">We measure motion only where people look. No linking of every dot across visits.</p>
         </div>
@@ -675,7 +676,7 @@ session = run of exposures with gaps under 10 minutes
           <tbody>
             <tr><td>Motion of nearby stars and brown dwarfs (Barnard's Star, WISE 0855)</td><td>Visit-to-visit position shift against Gaia</td><td><span class="chip good">built</span> Months clock, V2</td></tr>
             <tr><td>Asteroid and comet tracks</td><td>Same spot, sessions hours apart</td><td><span class="chip good">built</span> Hours clock, hunt zone</td></tr>
-            <tr><td>Recovery of known asteroids, and unknown suspects</td><td>Match to SkyBoT and MOST</td><td><span class="chip good">built</span> the gate, suspects list</td></tr>
+            <tr><td>Recovery of known asteroids, and unknown suspects</td><td>Match to MPC orbits (kete) and MOST</td><td><span class="chip good">built</span> the gate, suspects list</td></tr>
             <tr><td>Full 0.75–5.0 µm spectrum, 102 channels</td><td>One wavelength per photo; ~100+ photos per visit fill the spectrum</td><td><span class="chip good">built</span> spectrum chart</td></tr>
             <tr><td>Molecules</td><td>Spectrum bands: water ~1.4 and 1.9 µm, methane 3.3 µm, CO₂ 4.26 µm, CO 4.6 µm, water ice 3.0 µm</td><td><span class="chip good">built</span> marked on the chart, not fitted</td></tr>
             <tr><td>True colour at one instant</td><td>D1+D4, D2+D5 and D3+D6 photograph the same sky at the same moment</td><td><span class="chip good">built</span> evidence for movers · <span class="chip info">possible</span> colour readout</td></tr>
@@ -685,6 +686,69 @@ session = run of exposures with gaps under 10 minutes
             <tr><td>Comet gas (3I/ATLAS)</td><td>CO₂ and water bands in the comet's spectrum</td><td><span class="chip info">possible</span> visible in the spectrum, not measured</td></tr>
             <tr><td>Galaxy distances, interstellar ice</td><td>SPHEREx's own main science</td><td><span class="chip">out of scope</span></td></tr>
           </tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- KNOWN OBJECTS -->
+  <section id="known">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Known objects · decided 14 Nov</p>
+        <h2>MPC orbits replace SkyBoT</h2>
+        <p class="muted">We work out where every known asteroid and comet was in each photo ourselves, from the Minor Planet Center's orbit file and the open-source <span class="mono">kete</span> library, instead of asking the SkyBoT web service. It runs offline, has no rate limit, sees the sky from SPHEREx itself, and scales to the whole sky.</p>
+      </div>
+
+      <div class="stack">
+        <h3>Who tells us what</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Source</th><th>What it knows</th><th>What we use it for</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Gaia DR3 (ESA)</td><td>1.8 billion <b>stars</b>: position in 2016, proper motion, parallax, brightness. Nothing on asteroids at our dates.</td><td>Which dots are stars; how far a star should have moved (V2, V3); rings in the blink; distances on the cards</td><td><span class="chip good">keep</span></td></tr>
+            <tr><td class="m">MPC (Minor Planet Center, IAU)</td><td>Orbits of about 1.5 million known asteroids, plus comets; updated daily</td><td>Where each known asteroid or comet was at each photo's time, seen from SPHEREx; its expected V</td><td><span class="chip good">new</span></td></tr>
+            <tr><td class="m">kete (Caltech/IPAC, BSD-3)</td><td>Python library that loads MPC orbits, moves them with full n-body physics, and checks which fall inside a survey frame. Has a built-in SPHEREx frame type.</td><td>The calculation behind the MPC step</td><td><span class="chip good">new</span></td></tr>
+            <tr><td class="m">SkyBoT (IMCCE)</td><td>Web service that does the same calculation on its servers, one cone at a time (13–23 s each), seen from the Earth's centre</td><td>Only as a cross-check on the pilot, then dropped</td><td><span class="chip warn">replaced</span></td></tr>
+            <tr><td class="m">IRSA MOST</td><td>For one named asteroid: which SPHEREx photos caught it and where</td><td>V4 test on asteroids 1–60</td><td><span class="chip good">keep</span></td></tr>
+          </tbody></table></div>
+      </div>
+
+      <div class="two">
+        <div class="stack">
+          <h3>Why switch</h3>
+          <ul class="small">
+            <li><b>Scale.</b> The whole sky has about 100,000 sessions. At 13–23 s per SkyBoT cone that is hundreds of hours, and an unfair load on a free service. Local orbits take minutes to hours on our own machines.</li>
+            <li><b>Accuracy.</b> SkyBoT answers from the Earth's centre. Each photo's header holds SPHEREx's own position and speed (<span class="mono">X_SC</span>, <span class="mono">VX_SC</span>…, already copied into every dot file), so we predict positions as SPHEREx saw them, at each photo's own <span class="mono">MJD-AVG</span>, with light-time correction.</li>
+            <li><b>No rate extrapolation.</b> SkyBoT gives one position per session and we move it with its rates; kete computes each photo's time directly.</li>
+            <li><b>Offline and fixed.</b> One dated copy of the orbits in the bucket, so every machine and every rerun uses the same catalogue.</li>
+          </ul>
+        </div>
+        <div class="stack">
+          <h3>What stays the same</h3>
+          <ul class="small">
+            <li>The <span class="mono">known</span> step writes the same cache shape it writes today: per session, <span class="mono">objects: {name, number, ra, dec, v, dra_arcsec_h, ddec_arcsec_h, class}</span>. <span class="mono">load_predictions</span>, <span class="mono">link</span>, <span class="mono">score</span> and <span class="mono">suspects</span> don't change.</li>
+            <li>Matching rules: a known object within 2 px (about 12″) of a mover; suspects have no known object within 30″.</li>
+            <li>A config switch, <span class="mono">KNOWN_SOURCE = "skybot" | "mpc"</span>, so the pilot can run both and compare.</li>
+            <li>Contract: <span class="mono">known[].source</span> gains <span class="mono">"mpc"</span> in <span class="mono">contracts/api.md</span> (its own contract PR, P1).</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="stack">
+        <h3>The plan</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>#</th><th>Step</th><th>How</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td class="m">1</td><td>Get the orbits</td><td><span class="mono">kete.mpc.fetch_known_orbit_data()</span> (about 1.5 million asteroids, over 100 MB) and <span class="mono">kete.mpc.fetch_known_comet_orbit_data()</span>. Save a dated copy to <span class="mono">gs://nasa-glazing-data/cache/mpc/&lt;date&gt;/</span>; every machine reads that copy.</td><td>P1</td></tr>
+            <tr><td class="m">2</td><td>Move them to the survey</td><td>One n-body run (<span class="mono">kete.propagate_n_body</span>) from the orbit epoch to the middle of each visit; save the states. kete downloads its planet ephemerides (DE440) once; bake them into the VM start-up.</td><td>P1</td></tr>
+            <tr><td class="m">3</td><td>Describe each photo</td><td>Frame from the photo's WCS corners (<span class="mono">RectangleFOV.from_corners</span>, or kete's SPHEREx frame type) and SPHEREx's position from the header, converted from Earth-centred to Sun-centred.</td><td>P1</td></tr>
+            <tr><td class="m">4</td><td>Find what's inside</td><td><span class="mono">kete.fov_state_check(states, frames)</span>: objects in each frame with RA, Dec and rates, light-time corrected. V from H and G with <span class="mono">kete.flux.hg_apparent_mag</span>; keep V &lt; 20.</td><td>P1</td></tr>
+            <tr><td class="m">5</td><td>Write the same cache</td><td>One file per session in the existing <span class="mono">known</span> format (<span class="mono">cache/mpc/&lt;zone&gt;/run_&lt;obs_id&gt;.json</span>), so the later steps run unchanged.</td><td>P1</td></tr>
+            <tr><td class="m">6</td><td>Check against SkyBoT on the pilot</td><td>Same objects (V &lt; 18), positions within 2 px, median offset reported; IRSA MOST for asteroids 1–60 as a second check. <b>Switch when at least 95% of SkyBoT's objects are found and the median offset is under 2″.</b> Otherwise the hunt zone stays on SkyBoT.</td><td>P1</td></tr>
+            <tr><td class="m">7</td><td>Live API</td><td><span class="mono">/api/known</span> and <span class="mono">frames.json</span> <span class="mono">known[]</span> from the same orbit copy, <span class="mono">source: "mpc"</span>.</td><td>P2</td></tr>
+            <tr><td class="m">8</td><td>Credits</td><td>MPC and kete on the project page and in the README; SkyBoT stays listed while it is the cross-check.</td><td>P1, P4</td></tr>
+          </tbody></table></div>
+        <p class="small muted">Effort: about 3 hours of P1 work, plus 1 hour for P2's endpoint. Time to run: kete's own tests check a year of NEOWISE frames against all numbered asteroids in about 3–10 minutes on one computer; ours is to be measured on the pilot. Gate G2 at 18:00 uses whichever source has passed step 6; SkyBoT's pilot results remain valid until then.</p>
+        <p class="note small"><b>To verify on first use:</b> kete's SPHEREx frame type and <span class="mono">kete.spherex.fetch_fovs</span> (not read in the docs yet), and how the header's spacecraft position is framed (Earth-centred, km). UTC must be converted to TDB for kete, or positions shift by over a minute of motion.</p>
       </div>
     </div>
   </section>
@@ -907,10 +971,10 @@ gcloud run deploy skyshift-api --source . --region us-east4 \
           <tr><td>14:00</td><td>Motion vs Gaia (V2). MOST asteroid test (V4).</td><td>RW Aurigae, R Draconis. Live <span class="mono">/api/frames</span>.</td><td>Spectrum chart, molecule marks.</td><td>Field-of-view picker.</td></tr>
           <tr class="gate"><td>15:00 · G1</td><td><b>Gate: five targets blink; one motion measured.</b> Photometry.</td><td><span class="mono">/api/object</span>; spectra for the five.</td><td>Spectrum wired; "what to look for" text.</td><td>Hours clock on a fixture.</td></tr>
           <tr><td>16:00</td><td>Pilot: 12 deg², about 230 photos, test machine.</td><td>3I/ATLAS: NASA's table → cutouts → static movie.</td><td>Embed mode, data badge, gallery.</td><td>Comet movie with its path ring.</td></tr>
-          <tr><td>17:00</td><td>SkyBoT match and control for the pilot.</td><td>Deploy; cache; time to first frame.</td><td>Scoreboard page layout.</td><td>Flag-a-dot; candidate list.</td></tr>
+          <tr><td>17:00</td><td>Known-object match from MPC orbits, checked against SkyBoT, and control for the pilot.</td><td>Deploy; cache; time to first frame.</td><td>Scoreboard page layout.</td><td>Flag-a-dot; candidate list.</td></tr>
           <tr class="gate"><td>18:00 · G2</td><td><b>Gate: pilot recall at V &lt; 16 is 50% or more.</b> Yes: start the hunt zone on the worker. No: stop S1. Dinner in turns.</td><td>Two asteroid movies from V4.</td><td>Phone-width check.</td><td>Votes to Firestore; counts.</td></tr>
           <tr><td>19:00</td><td colspan="4" class="all">All: integration hour. Open every target on the public site; write the bug list.</td></tr>
-          <tr class="ms"><td>20:00 · M2</td><td><b>Any coordinates work live; five targets and the comet are static.</b> SkyBoT queries for the hunt zone.</td><td>Bug list.</td><td>Bug list.</td><td>CSV export.</td></tr>
+          <tr class="ms"><td>20:00 · M2</td><td><b>Any coordinates work live; five targets and the comet are static.</b> Known-object positions from MPC orbits for the hunt zone.</td><td>Bug list.</td><td>Bug list.</td><td>CSV export.</td></tr>
           <tr class="ms"><td>21:00 · Page v0</td><td>All, 15 min: 60-second pitch dry run. Then <span class="mono">validation.json</span> v1.</td><td>Start S2; it runs unattended.</td><td>Scoreboard reads <span class="mono">validation.json</span>.</td><td>Save project page v0 with working links.</td></tr>
           <tr><td>22:00</td><td>Hunt-zone matching.</td><td>Static export script; handover note.</td><td>Card polish; handover note.</td><td>Walk the storyboard on the real site; list missing shots.</td></tr>
           <tr><td>23:00–04:00</td><td>Suspects and recall chart (V5). S3. Spectrum check. Numbers frozen 03:30; handover note.</td><td class="sleep">Sleep.</td><td class="sleep">Sleep.</td><td>Votes on real suspects. S4 or S5. Page text; handover note.</td></tr>
@@ -975,7 +1039,7 @@ const AREAS=[
   short:"core/, the first-photo facts, validation V1–V8, the pilot and the gated hunt zone. Owns the repo and contracts.",
   mission:"Write the shared science code everyone imports, check the real data facts at 10:00, and produce the numbers that prove the tool works. As lead, also own the repo, the contracts and the cloud machines.",
   owns:"core/, pipeline/, scripts/validate/, contracts/, fixtures/, infra/worker/, .claude/, CLAUDE.md",
-  gets:"The first photo and P2's photo lists, cutouts and visit stacks; SPHEREx files from s3://nasa-irsa-spherex; Gaia DR3 (ESA TAP); MOST; SkyBoT.",
+  gets:"The first photo and P2's photo lists, cutouts and visit stacks; SPHEREx files from s3://nasa-irsa-spherex; Gaia DR3 (ESA TAP); MOST; MPC orbits (kete).",
   gives:"`core/` (visit rule, masks, centroid, shift, photometry) for server and pipeline; contracts v2 and `contracts/flags.md`; `web/public/data/validation.json` and `suspects.json`; the first-photo facts at 10:00.",
   must:[
    "09:00 · With the team, ask the Local Lead for the deadline, pitch length and night access. Then the public repo, contracts v2 (`api.md`, `flags.md`, `dots.md`) and the `CLAUDE.md` files.",
@@ -986,20 +1050,20 @@ const AREAS=[
    "15:00 · Gate G1. Then photometry for the spectrum: µJy per cutout, by wavelength and visit.",
    "21:00 · `validation.json` v1 with V1–V4 for P3's scoreboard. A poor number is still printed."],
   should:[
-   "16:00 · S1 pilot: 12 deg², about 230 photos, on the test machine. 17:00: SkyBoT match and control.",
+   "16:00 · S1 pilot: 12 deg², about 230 photos, on the test machine. 17:00: known-object match from MPC orbits (SkyBoT as the cross-check) and control.",
    "18:00 · Gate G2: pilot recall at V < 16 of 50% or more starts the hunt zone on the worker. Otherwise check the time keyword, OUTLIER mask and match radius for 30 min, then stop S1.",
-   "20:00–03:00 · SkyBoT queries (`ssp.imcce.fr`, geocentre, `-from=SkyShift`, cached), matching, suspects and the recall chart (V5).",
+   "20:00–03:00 · Known objects from MPC orbits with kete (seen from SPHEREx, orbits cached in the bucket), matching, suspects and the recall chart (V5).",
    "Overnight · S3 Gagné brown-dwarf list (V7; a hand list of 10 if it isn't loaded in 30 min). Spectrum check (V8). Numbers frozen 03:30.",
    "Sun 09:00 · README, licence, AI section, references. 10:00: page text on data, validation and limits."],
   done:"`validation.json` holds the five targets, Barnard's motion vs Gaia, and N of 60 asteroids re-found.",
   watch:"Never mask SOURCE: it is set on about 99% of pixels. Three of the five targets saturate: centroid on the wings and mark the core. Use the visit rule, never fixed date bins. Parallax (at most 1.1″) is below what we can measure: show Gaia's distance. Stop the worker when it's idle.",
-  claude:"# core/CLAUDE.md\nShared science code, imported by server/ and pipeline/. No web or cloud code here.\n- visits(mjds), sessions(mjds): the visit rule in contracts/api.md.\n- bad_pixel_mask(flags): exactly the 'mask' bits in contracts/flags.md. Never SOURCE or FULLSAMPLE.\n- detect, centroid (wings when saturated), shift between visit stacks, aperture photometry in µJy.\n- Time = MJD-AVG (UTC). Detector = energy_bandpassname. IMAGE in MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel.\n- Pure functions: numpy in, numpy or dicts out. Tests: uv run pytest on fixtures/fits/.\n\n# pipeline/CLAUDE.md\nPilot and hunt zone. Reads IMAGE, FLAGS, WCS-WAVE from s3://nasa-irsa-spherex (anonymous).\n- One Parquet file per photo in gs://nasa-glazing-data/dots/ (contracts/dots.md). Its existence marks the photo done; skip it on restart. No job list, no locks.\n- SkyBoT: ssp.imcce.fr, geocentre (500), -from=SkyShift, cached, a few requests at a time.",
+  claude:"# core/CLAUDE.md\nShared science code, imported by server/ and pipeline/. No web or cloud code here.\n- visits(mjds), sessions(mjds): the visit rule in contracts/api.md.\n- bad_pixel_mask(flags): exactly the 'mask' bits in contracts/flags.md. Never SOURCE or FULLSAMPLE.\n- detect, centroid (wings when saturated), shift between visit stacks, aperture photometry in µJy.\n- Time = MJD-AVG (UTC). Detector = energy_bandpassname. IMAGE in MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel.\n- Pure functions: numpy in, numpy or dicts out. Tests: uv run pytest on fixtures/fits/.\n\n# pipeline/CLAUDE.md\nPilot and hunt zone. Reads IMAGE, FLAGS, WCS-WAVE from s3://nasa-irsa-spherex (anonymous).\n- One Parquet file per photo in gs://nasa-glazing-data/dots/ (contracts/dots.md). Its existence marks the photo done; skip it on restart. No job list, no locks.\n- Known objects: MPC orbits with kete, seen from SPHEREx (header X_SC...), one dated orbit copy in cache/mpc/; SkyBoT only as the pilot cross-check.",
   prompt:"Read CLAUDE.md, core/CLAUDE.md, contracts/api.md and contracts/flags.md. In core/, build a small Python package skyshift_core with pure functions and pytest tests that use fixtures/fits/:\n1. visits(mjds) using the visit rule in contracts/api.md: sort the times, start a new visit where the gap exceeds 60 days, cut any visit longer than 45 days into 30-day bins. sessions(mjds) for runs with gaps under 10 minutes.\n2. bad_pixel_mask(flags) that masks exactly the bits listed under 'mask' in contracts/flags.md and never SOURCE or FULLSAMPLE.\n3. detect(image, mask) with sep, returning x, y and flux in µJy (IMAGE is MJy/sr; 1 MJy/sr = 889 µJy per 6.15″ pixel), with saturated = True when OVERFLOW or NONLINEAR is set in the core.\n4. centroid(image, x, y, saturated) that uses the wings when saturated.\n5. shift(stack_a, stack_b, wcs, ref_stars) returning shift_arcsec, pa_deg and sigma_arcsec from the reference stars, matching the measure fields in contracts/api.md.\nThen add scripts/validate/v2_barnard.py that reads the static frames in web/public/data/barnard/ and prints measured motion vs Gaia (10.39″/yr at position angle 355.6°). Start in plan mode and show me the plan before writing code."},
  {id:"p2",color:"var(--p2)",who:"P2",name:"Server and deploys",
   short:"Image search, photo lists, cutouts, visit stacks, static export, Cloud Run, the 3I/ATLAS movie, the public Hosting site.",
   mission:"Build the one function that turns a position into blink frames, run it ahead of time for the featured targets, and serve it live for any coordinates. Own Cloud Run, Firebase Hosting and CI.",
   owns:"server/, Dockerfile, scripts/precompute/, web/public/data/ (generated), infra/run/, infra/firebase/, .github/workflows/",
-  gets:"IRSA image search and cutouts; `core/` from P1; Gaia (ESA TAP), SkyBoT, MOST and NASA's 3I/ATLAS table; P1's V4 asteroid list.",
+  gets:"IRSA image search and cutouts; `core/` from P1; Gaia (ESA TAP), MPC orbits (kete), MOST and NASA's 3I/ATLAS table; P1's V4 asteroid list.",
   gives:"Photo lists in `photolists/` at 10:00; static files in `web/public/data/<slug>/`; live `/api/frames`, `/api/object`, `/api/gaia`, `/api/known`, `/api/resolve`; the public Hosting site.",
   must:[
    "09:00 · Public Hosting site `skyshift` (https://skyshift.web.app, created). Empty site and an API stub live.",
