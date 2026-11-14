@@ -52,7 +52,7 @@ export function startApp(root: HTMLElement): void {
         <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
-        <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
+        <a href="#/sky" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
         <a href="#/candidates" data-route="discover">To check</a>
         <a href="#/review" data-route="review">Review</a>
         <a href="#/explore" data-route="explore">Blink</a>
