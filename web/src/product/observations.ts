@@ -6,14 +6,14 @@ import {paint,readPalette,buildLut,plainIndex} from '../blink/paint';
 export type Observation={epoch:Epoch;values:Float32Array;set:LoadedFrames};
 export async function observation(set:LoadedFrames,epoch:Epoch,signal:AbortSignal):Promise<Observation>{
   const raw=await loadFrameData(epoch,set.jsonUrl,signal);
-  if(raw.length!==set.frames.size[0]*set.frames.size[1])throw new Error('帧数据长度与图像尺寸不一致');
+  if(raw.length!==set.frames.size[0]*set.frames.size[1])throw new Error('Frame data length does not match the image dimensions');
   const values=toMJySr(raw,epoch);return {epoch,values:offset(values,median(values)),set};
 }
 export async function lessonObservations(target:Target,det:3|6|2,signal:AbortSignal,options:{fov?:5|15;all?:boolean}={}){
   const set=await loadFrames({...target,slug:target.slug,clock:'months',fov:options.fov??5,det},signal);
   const epochs=set.frames.epochs.filter(e=>e.det===det).sort((a,b)=>a.mjd_mid-b.mjd_mid);
-  if(epochs.length<2)throw new Error('这个波段不足两次巡天，暂不能进入巡天关卡。请换一关或稍后重试。');
-  if(options.all&&epochs.length<3)throw new Error('这个天区不足三次观测，暂时不能进行跟踪任务。');
+  if(epochs.length<2)throw new Error('This band has fewer than two visits. Choose another field or try again later.');
+  if(options.all&&epochs.length<3)throw new Error('This field has fewer than three observations, so tracking is unavailable.');
   const selected=options.all?[epochs[0],epochs[Math.floor((epochs.length-1)/2)],epochs.at(-1)!]:[epochs[0],epochs.at(-1)!];
   return Promise.all(selected.map(epoch=>observation(set,epoch,signal)));
 }

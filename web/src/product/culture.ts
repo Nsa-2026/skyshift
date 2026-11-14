@@ -10,8 +10,13 @@ let pending:Promise<void>|undefined;
 export function loadCulture(){
   if(!pending)pending=(async()=>{for(const name of ['guxing-data','guxing','guxing-nasa','guxing-widget']){
     if(document.querySelector(`script[data-culture="${name}"]`))continue;
-    await new Promise<void>((resolve,reject)=>{const script=document.createElement('script');script.src=`/guxing/${name}.js`;script.dataset.culture=name;script.onload=()=>resolve();script.onerror=()=>{script.remove();reject(new Error('古星模块加载失败，请重试'))};document.head.append(script)});
+    await new Promise<void>((resolve,reject)=>{const script=document.createElement('script');script.src=`/guxing/${name}.js`;script.dataset.culture=name;script.onload=()=>resolve();script.onerror=()=>{script.remove();reject(new Error('Could not load the historical sky module. Please try again.'))};document.head.append(script)});
   }})().catch(e=>{pending=undefined;throw e});
   return pending;
 }
 export function culture(){const w=window as unknown as CultureWindow;return {gx:new w.Guxing(),nasa:w.GUXING_NASA}}
+export function englishCultureText(text:string){
+  const {gx}=culture();
+  for(const [name,,english] of gx.mansions)text=text.replaceAll(`${name}宿`,`${english} Lodge`);
+  return text.replace(/\s*\([^()]*\p{Script=Han}[^()]*\)/gu,'');
+}

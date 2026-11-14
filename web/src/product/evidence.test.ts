@@ -19,7 +19,7 @@ describe('scientific evidence shown to beginners',()=>{
   });
   it('wraps RA and ignores insignificant apparent directions',()=>{
     expect(separation({ra:359.999,dec:0},{ra:.001,dec:0})).toBeCloseTo(7.2);
-    expect(motionDirection({shift_arcsec:1,sigma_arcsec:1,pa_deg:270})).toBe('未测得显著移动');expect(motionDirection({shift_arcsec:5,sigma_arcsec:1,pa_deg:270})).toBe('西行');
+    expect(motionDirection({shift_arcsec:1,sigma_arcsec:1,pa_deg:270})).toBe('No significant motion measured');expect(motionDirection({shift_arcsec:5,sigma_arcsec:1,pa_deg:270})).toBe('West');
   });
   it('does not turn saturation or nondetection into an infrared colour',()=>{
     const base={mjd:60000,visit:1,um:2,err_ujy:1,saturated:false};

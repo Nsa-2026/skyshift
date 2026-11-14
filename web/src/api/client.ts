@@ -42,7 +42,7 @@ export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> 
     throw new ApiFailure(message, res.status, code);
   }
   const data=await res.json();
-  if(data?.synthetic)throw new ApiFailure('模拟样例不能作为真实观测加载',502,'upstream');
+  if(data?.synthetic)throw new ApiFailure('Synthetic examples cannot be loaded as real observations',502,'upstream');
   return data as T;
 }
 

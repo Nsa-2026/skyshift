@@ -19,7 +19,7 @@ export function mountWorkbench(host: HTMLElement, opts: {
   rebuilt(view: View): void;
 }) {
   host.innerHTML = `<details class="wb-main">
-    <summary>Scientific analysis <span>模型、误报检验、光变与灵敏度</span></summary>
+    <summary>Scientific analysis <span>Models, false-alarm checks, light curves and sensitivity</span></summary>
     <p class="wb-intro">Compare models, inspect a signal, or follow the same sky through other surveys.</p>
     <div class="wb-controls">
       <label>Image source <select class="input wb-layer" aria-label="Image source">
@@ -31,11 +31,11 @@ export function mountWorkbench(host: HTMLElement, opts: {
     <p class="wb-source">Models and residuals use the analysis cube. Its coverage and quality can differ from the original observations.</p>
     <p class="wb-status" role="status" aria-live="polite"></p>
     <div class="wb-quality"></div>
-    <details class="wb-findings"><summary>Motion and cold-source checks <span>线索与误报检验</span></summary>
+    <details class="wb-findings"><summary>Motion and cold-source checks <span>Signals and false-alarm checks</span></summary>
       <div class="wb-findings-body"></div><p class="source">Background frequencies rank follow-up checks; they are not probabilities that an object is real. Cold-source false alarms remain uncalibrated.</p>
     </details>
     <details class="wb-comparison"></details>
-    <details class="wb-calibration"><summary>Calibration evidence <span>校准依据</span></summary><div class="wb-calibration-body"></div></details>
+    <details class="wb-calibration"><summary>Calibration evidence <span>Validation results</span></summary><div class="wb-calibration-body"></div></details>
     <div class="wb-science"></div>
   </details>`;
   const $ = <T extends HTMLElement = HTMLElement>(selector: string) => host.querySelector<T>(selector)!;

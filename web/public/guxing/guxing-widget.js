@@ -55,6 +55,7 @@
 
   function num(el, k) { var v = el.getAttribute(k); return v === null || v === '' ? undefined : +v; }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function englishOnly(s) { return s.replace(/\s*\([^()]*\p{Script=Han}[^()]*\)/gu, ''); }
 
   GuxingCard.prototype.render = function () {
     var root = this.shadowRoot;
@@ -76,15 +77,17 @@
         res = gx.locate(ra, dec, opts); res.locate = res;
       }
       var m = res.locate.mansion, lang = this.getAttribute('lang') || 'both';
+      var english = lang === 'en';
       var src = this.getAttribute('source'), srcUrl = this.getAttribute('source-url');
       var html = '<style>' + CSS + '</style><div class="card" part="card">' +
-        '<div class="top"><span class="xiu">' + esc(m.zh) + '</span><span class="du">' + m.du.toFixed(1) + ' 度</span>' +
-        '<span class="sym">' + esc(m.symbol_zh) + ' · ' + esc(m.en) + '</span></div>' +
-        chart(gx, ra, dec, num(this, 'radius') || 7, res.locate, path) +
+        '<div class="top"><span class="xiu">' + esc(english ? m.en : m.zh) + '</span><span class="du">' + m.du.toFixed(1) + (english ? ' du' : ' 度') + '</span>' +
+        '<span class="sym">' + esc(english ? m.symbol_en : m.symbol_zh) + (english ? '' : ' · ' + esc(m.en)) + '</span></div>' +
+        chart(gx, ra, dec, num(this, 'radius') || 7, res.locate, path, english) +
         (lang !== 'en' ? '<div class="zh" part="zh">' + esc(res.log_zh) + '</div>' : '') +
-        (lang !== 'zh' ? '<div class="en" part="en">' + esc(res.log_en) + '</div>' : '') +
-        '<div class="src">' + (src ? '<b>数据 Data:</b> ' + (srcUrl ? '<a href="' + esc(srcUrl) + '" target="_blank" rel="noopener">' + esc(src) + '</a>' : esc(src)) + '<br>' : '') +
-        '星官 Asterisms: Stellarium "chinese" sky culture (CC BY-SA, 清代认证). 趣味文化解读，非检测结果。</div></div>';
+        (lang !== 'zh' ? '<div class="en" part="en">' + esc(english ? englishOnly(res.log_en) : res.log_en) + '</div>' : '') +
+        '<div class="src">' + (src ? '<b>' + (english ? 'Data:' : '数据 Data:') + '</b> ' + (srcUrl ? '<a href="' + esc(srcUrl) + '" target="_blank" rel="noopener">' + esc(src) + '</a>' : esc(src)) + '<br>' : '') +
+        (english ? 'Asterisms: Stellarium "chinese" sky culture (CC BY-SA; Qing-era identifications). A cultural interpretation, not a detection result.' :
+          '星官 Asterisms: Stellarium "chinese" sky culture (CC BY-SA, 清代认证). 趣味文化解读，非检测结果。') + '</div></div>';
       root.innerHTML = html;
       this.dispatchEvent(new CustomEvent('guxing:result', { detail: res, bubbles: true }));
     } catch (e) {
@@ -93,7 +96,7 @@
   };
 
   // Gnomonic star chart centred on the target, north up, east LEFT (as on the sky).
-  function chart(gx, ra0, dec0, R, loc, path) {
+  function chart(gx, ra0, dec0, R, loc, path, english) {
     var W = 360, H = 300, S = Math.min(W, H) / 2 / Math.tan(R * D2R);
     function P(ra, dec) {
       var o = Guxing.util.offsetDeg(ra0, dec0, ra, dec);
@@ -114,7 +117,7 @@
         out.push('<polyline points="' + vis.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') +
           '" fill="none" stroke="var(--_accent)" stroke-opacity=".45" stroke-dasharray="4 4"/>');
         var lp = vis.reduce(function (a, b) { return Math.abs(b[1] - H + 14) < Math.abs(a[1] - H + 14) ? b : a; });  // label near the bottom edge
-        out.push('<text x="' + (lp[0] + 3).toFixed(1) + '" y="' + Math.min(H - 6, lp[1]).toFixed(1) + '" font-size="11" fill="var(--_accent)" fill-opacity=".85">' + mm[0] + '宿</text>');
+        out.push('<text x="' + (lp[0] + 3).toFixed(1) + '" y="' + Math.min(H - 6, lp[1]).toFixed(1) + '" font-size="11" fill="var(--_accent)" fill-opacity=".85">' + esc(english ? mm[2] : mm[0] + '宿') + '</text>');
       }
     });
     // asterism lines + labels
@@ -129,7 +132,7 @@
         [p1, p2].forEach(function (p) { if (inside(p)) { sx += p[0]; sy += p[1]; n++; } });
       });
       var nz = loc.nearest && loc.nearest[0] && loc.nearest[0].asterism_zh === a.zh && n <= 2;  // the ring label already names it
-      if (n && !nz) out.push('<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n - 6).toFixed(1) + '" font-size="12" text-anchor="middle" fill="var(--_line)">' + a.zh + '</text>');
+      if (n && !nz) out.push('<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n - 6).toFixed(1) + '" font-size="12" text-anchor="middle" fill="var(--_line)">' + esc(english ? a.en : a.zh) + '</text>');
     });
     // stars
     gx.hips.forEach(function (h) {
@@ -144,7 +147,7 @@
     if (n0 && n0.sep_deg < R) {
       var ns = gx.stars[n0.star_hip], pn = P(ns[0], ns[1]);
       out.push('<circle cx="' + pn[0].toFixed(1) + '" cy="' + pn[1].toFixed(1) + '" r="7" fill="none" stroke="var(--_accent)" stroke-width="1"/>');
-      out.push('<text x="' + (pn[0] + 9).toFixed(1) + '" y="' + (pn[1] + 4).toFixed(1) + '" font-size="12" fill="var(--_accent)">' + n0.star_zh + '</text>');
+      out.push('<text x="' + (pn[0] + 9).toFixed(1) + '" y="' + (pn[1] + 4).toFixed(1) + '" font-size="12" fill="var(--_accent)">' + esc(english ? n0.star_en : n0.star_zh) + '</text>');
     }
     // path of a moving object
     if (path && path.length > 1) {
@@ -157,7 +160,7 @@
       '<line x1="' + (W / 2 + 4) + '" y1="' + H / 2 + '" x2="' + (W / 2 + 12) + '" y2="' + H / 2 + '"/>' +
       '<line x1="' + W / 2 + '" y1="' + (H / 2 - 12) + '" x2="' + W / 2 + '" y2="' + (H / 2 - 4) + '"/>' +
       '<line x1="' + W / 2 + '" y1="' + (H / 2 + 4) + '" x2="' + W / 2 + '" y2="' + (H / 2 + 12) + '"/></g>');
-    out.push('<text x="8" y="16" font-size="11" fill="var(--_muted)">北 N ↑　东 E ←　半径 ' + R + '°</text>');
+    out.push('<text x="8" y="16" font-size="11" fill="var(--_muted)">' + (english ? 'N ↑  E ←  Radius ' : '北 N ↑　东 E ←　半径 ') + R + '°</text>');
     out.push('</svg>');
     return out.join('');
   }

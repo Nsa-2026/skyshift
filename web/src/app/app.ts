@@ -177,7 +177,7 @@ export function startApp(root: HTMLElement): void {
     workbench.select(next, layer);
     const layerCaption = $<HTMLElement>('.science-layer-caption');
     layerCaption.hidden = layer === 'raw';
-    layerCaption.textContent = ({raw:'',model:'Static sky model · 科学模型',resid:'Model residual · 模型残差',refdiff:'DR1 reference difference · 参考差图'})[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
+    layerCaption.textContent = ({raw:'',model:'Static sky model',resid:'Model residual',refdiff:'DR1 reference difference'})[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
     if (push) writeView(next);
     blinkName = next.name ?? formatRaDec(next);
     $<HTMLHeadingElement>("#blink-h1").textContent = `Blink: ${blinkName}`;
