@@ -153,3 +153,42 @@ def test_esa_failure_falls_back_to_irsa(monkeypatch):
 
     df, name = R.fetch_tile("gaia", R.Tile(120.5, 121.5, 14.3, 15.3), tap)
     assert name == "IRSA Gaia" and len(df) > 0
+
+
+def test_gaia_only_refcat_then_full_run_adds_the_rest(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_tap(url, adql):
+        calls.append(adql)
+        if "gaia" in adql:
+            return sample("gaia")
+        if "catwise" in adql:
+            return sample("catwise")
+        return sample("2mass")
+
+    store = Store(str(tmp_path))
+    z = C.ZONES["pilot"]
+    n_tiles = len(R.tiles(*R.query_box(z)))
+    monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia",))
+    R.run(store, z, workers=2, tap=fake_tap)
+    assert len(calls) == n_tiles and all("gaia" in a for a in calls)
+    assert store.exists(R.refcat_rel("pilot", forced=True)) and store.exists(R.refcat_rel("pilot"))
+    assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia"} and R.catalogs_in(store, "pilot") == ["gaia"]
+    forced = store.read_parquet(R.refcat_rel("pilot", forced=True))
+    assert len(forced) > 0 and forced["ref_id"].str.startswith("gaia:").all()
+    assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == n_tiles
+    monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia", "catwise", "2mass"))
+    st = R.run(store, z, workers=2, tap=fake_tap)  # full refcat missing: reuses the Gaia tiles, adds the rest
+    assert st["fetched"] == 2 * n_tiles and len(calls) == 3 * n_tiles
+    assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia", "catwise", "2mass"}
+    assert R.catalogs_in(store, "pilot") == ["gaia", "catwise", "2mass"]
+    assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == 3 * n_tiles
+
+
+def test_ecliptic_zones_align_on_the_hunt_zone():
+    z = C.ecliptic_zones()
+    assert "ecl12" not in z and C.ZONES["hunt"] == C.Zone("hunt", 120.5, 130.5, 14.4, 24.4)
+    assert z["ecl13"].ra_min == 130.5 and z["ecl11"].ra_max == 120.5
+    assert z["ecl12n1"].dec_min == 24.4 and z["ecl12s1"].dec_max == 14.4  # rows stack on the hunt zone
+    assert z["ecl35"].ra_max == 360.0 and z["ecl36"].ra_min == 0.0 and z["ecl36"].ra_max == 0.5
+    assert all(-90 <= v.dec_min < v.dec_max <= 90 for v in z.values())

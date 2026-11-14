@@ -32,6 +32,37 @@ ZONES: dict[str, Zone] = {
     "pilot": Zone("pilot", 120.5, 124.1, 14.4, 17.9),   # 12 deg², the hunt zone's corner
 }
 
+# Sky run (14 Nov): 10° x 10° zones stacked along the ecliptic, aligned on the hunt zone. Column k covers
+# RA 0.5 + 10k .. 10.5 + 10k (k = 0..35; column 36 is the RA 0-0.5 strip); its row 0 is centred on the
+# ecliptic's Dec at the column's middle RA (rounded to 0.1°, as the hunt zone), rows ±1, ±2, ... are the
+# 10° boxes above/below. Names: ecl<kk> (row 0), ecl<kk>n<r> / ecl<kk>s<r>. Column 12 row 0 IS "hunt".
+ECLIPTIC_OBLIQUITY_DEG = 23.4393
+ECLIPTIC_MAX_ROW = 4
+
+
+def _ecliptic_dec(ra_deg: float) -> float:
+    import math
+    return math.degrees(math.atan(math.sin(math.radians(ra_deg)) * math.tan(math.radians(ECLIPTIC_OBLIQUITY_DEG))))
+
+
+def ecliptic_zones(max_row: int = ECLIPTIC_MAX_ROW) -> dict[str, Zone]:
+    out: dict[str, Zone] = {}
+    cols = [(k, 0.5 + 10.0 * k, min(10.5 + 10.0 * k, 360.0)) for k in range(36)] + [(36, 0.0, 0.5)]
+    for k, r0, r1 in cols:
+        c = round(_ecliptic_dec((r0 + r1) / 2.0), 1)
+        for row in range(-max_row, max_row + 1):
+            if (k, row) == (12, 0):
+                continue  # the hunt zone
+            d0, d1 = round(c - 5.0 + 10.0 * row, 1), round(c + 5.0 + 10.0 * row, 1)
+            if d1 <= -90.0 or d0 >= 90.0:
+                continue
+            name = f"ecl{k:02d}" + ("" if row == 0 else ("n" if row > 0 else "s") + str(abs(row)))
+            out[name] = Zone(name, r0, r1, max(d0, -90.0), min(d1, 90.0))
+    return out
+
+
+ZONES.update(ecliptic_zones())
+
 # --- photo search ----------------------------------------------------------------------------
 COLLECTIONS = ("spherex_dr1", "spherex_qr3")  # in order of preference on duplicates; *_deep skipped
 PHOTO_HALF_DIAG_DEG = 2.6  # a 3.5° photo reaches ~2.5° from its centre
@@ -62,21 +93,9 @@ POS_ERR_FLOOR_ARCSEC = 0.25    # measured on the first photo; V3 will replace it
 ELONG_R_PX = 2.5               # elong: second moments of the pixels within this radius
 ELONG_BKG_PX = (3.5, 5.5)      # local background annulus for elong
 
-# --- known (SkyBoT) ------------------------------------------------------------------------
-# One cone per session (time run), covering that run's footprints inside the zone, at the run's
-# mid-time; each object is moved to each photo's mid-time with SkyBoT's rates.
-SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
-SKYBOT_MAX_IN_FLIGHT = 4
-SKYBOT_PAD_DEG = 0.05
-SKYBOT_TIMEOUT_S = 300
-
 # --- known (MPC orbits with kete) ------------------------------------------------------------
-# KNOWN_SOURCE picks where `known` gets its objects: "mpc" (default; known_mpc.py: MPC orbits moved with
-# kete to each photo's MJD-AVG, seen from SPHEREx's header position) or "skybot" (the IMCCE service above). The CLI
-# flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
-# cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
-KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "mpc")
-KNOWN_SOURCES = ("skybot", "mpc")
+# known_mpc.py: MPC orbits moved with kete to each photo's MJD-AVG, seen from SPHEREx's header position.
+# One cache file per session in cache/mpc/<zone>/; score and suspects read it.
 MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
 MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
@@ -280,6 +299,10 @@ REFCAT_TILE_DEG = 1.0          # one async TAP query per catalogue per tile; eac
 REFCAT_WORKERS = 8             # queries in flight
 REFCAT_MAXREC = 2_000_000      # a tile that returns this many rows is an error (truncated)
 REFCAT_GAIA_G_MAX = 20.0
+# Catalogues refcat fetches (env SKYSHIFT_REFCAT_CATALOGS, comma list). "gaia" alone: only the forced list
+# refcat/<zone>_forced.parquet is written (Gaia part), so extraction can start fast; a later normal
+# refcat run sees the full refcat missing, reuses the cached Gaia tiles and adds CatWISE + 2MASS.
+REFCAT_CATALOGS = tuple(c.strip() for c in os.environ.get("SKYSHIFT_REFCAT_CATALOGS", "gaia,catwise,2mass").split(",") if c.strip())
 # forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
 # Asked for G < 19 and W1 < 16: that gave 5,400 targets/deg² (66,000 per photo) in the pilot (3,870 Gaia,
 # 1,540 CatWISE-only, mostly galaxies), over the 30,000 budget. Tightened (14 Nov) to G < 17.5 (2,110/deg²)
@@ -382,3 +405,23 @@ HIGHPM_PM_AGREE_SIGMA = 3.0    # a Gaia / CatWISE counterpart's own pm disagrees
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
 HIGHPM_PAIR_MAX_P = 0.01       # a bin's pairs pass when P(>= n real | Poisson, control mean) < this
 HIGHPM_CONTROL_OFFSETS = ((900.0, 0.0), (-900.0, 0.0), (0.0, 900.0), (0.0, -900.0))  # ″ east, north: 4 controls
+
+# --- forced-photometry sky list (forced_sky.py; contracts/dots.md, forced) ------------------------
+# One target list for the whole sky, HEALPix-partitioned (nested, nside FORCED_SKY_NSIDE: 12,288 partitions of
+# 3.36 deg²), so a photo reads only the ~9–12 partitions its footprint overlaps and gets every target in it,
+# whatever zone it was extracted under. Built by `python -m skyshift_pipeline.forced_sky` (resumable); dots uses it
+# only when FORCED_SKY_DIR/FORCED_SKY_MANIFEST exists (written once every partition is done), else falls back to
+# refcat/<zone>_forced.parquet exactly as before. SKYSHIFT_FORCED_SKY=off forces the zone list.
+# Gaia DR3 G < FORCED_GAIA_G_MAX is 221 M targets whole sky (Gaia random_index sample, 14 Nov); 45% of the sky is
+# denser than the 30,000-per-photo budget (2,449/deg²), up to ~250,000/deg² near the galactic centre (2.8 M per photo).
+# So each partition keeps at most its brightest FORCED_SKY_MAX_PER_DEG2 × area targets (a per-partition G limit,
+# recorded in the manifest): 71 M targets. None = no cap (221 M targets; plane photos up to ~2.8 M targets each).
+FORCED_SKY_MODE = os.environ.get("SKYSHIFT_FORCED_SKY", "auto")   # "auto" (use it if complete) or "off"
+FORCED_SKY_NSIDE = 32
+FORCED_SKY_DIR = "refcat/sky/forced_n32"           # p<pixel:05d>.parquet, FORCED_COLUMNS of refcat.py
+FORCED_SKY_MANIFEST = "_complete.json"             # written last: the list is complete
+FORCED_SKY_MAX_PER_DEG2: float | None = FORCED_MAX_PER_PHOTO / PHOTO_SIDE_DEG ** 2   # 2,449/deg² -> 8,222 per partition
+FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in flight (16 measured fine, 14 Nov)
+FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
+FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
+FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)

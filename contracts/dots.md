@@ -7,7 +7,7 @@ Units: degrees, arcsec, µm, µJy, MJD (UTC).
 
 One Parquet file per photo in `gs://nasa-glazing-data/dots/`. Its existence marks the photo done;
 skip it on restart. No job list, no locks, no tiles.
-**Proposal:** file name `dots/<obs_id>D<detector>.parquet`, e.g. `dots/2025W18_1B_0074_2D1.parquet`.
+File name `dots/<obs_id>D<detector>.parquet`, e.g. `dots/2025W18_1B_0074_2D1.parquet`.
 
 | column | type | unit | meaning |
 |---|---|---|---|
@@ -27,7 +27,7 @@ skip it on restart. No job list, no locks, no tiles.
 | snr | float32 | | Signal-to-noise. Detection runs at `thresh=2.0` (about S/N 9 for a point source); only dots with snr ≥ 5 are kept |
 | flags | int32 | | OR of the flag bits in the 3×3 pixels around the dot, including recorded ones (contracts/flags.md) |
 | flags_peak | int32 | | Flag bits at the dot's peak pixel. SOURCE here means a catalogued star or compact galaxy (to AB 19); used only to filter suspects |
-| cell | int64 | | 6″ sky cell, used to group dots by position |
+| cell | int64 | | 6″ sky cell id (no unit), used to group dots by position; rule below |
 | zodi_mjysr | float32 | MJy/sr | ZODI model (zodiacal light) at the dot's pixel. IMAGE is **not** zodi-subtracted (Expsupp 2.2, 3.2.11); NaN if the file has no ZODI |
 | bkg_mjysr | float32 | MJy/sr | Background map core.detect subtracted (sep, 32 px mesh) at the dot's pixel; includes zodi and any diffuse light |
 | peak_mjysr | float32 | MJy/sr | Peak pixel above that background (sep `peak`) |
@@ -104,17 +104,33 @@ zone's exposure times with gaps under 10 minutes (`core.sessions`), a visit come
 on the same times. How many sessions covered a position is counted from the photos' footprints
 when a candidate is checked. (Changed 14 Nov after review: per-tile sessions left 3.4% of dots without one.)
 
-**Proposal for `cell`:** `band = floor((dec + 90) × 600)`, `col = floor(ra × cos(dec_band_centre) × 600)`,
-`cell = band × 10_000_000 + col` (600 = 3600″ / 6″). Group with the neighbouring cells too, so a
-dot on a cell edge isn't split.
+**`cell`** (pipeline `sky.cell_of`): `band = floor((dec + 90) × 600)`, `col = floor(ra × cos(dec_band_centre) × 600)`,
+`cell = band × 10_000_000 + col` (600 = 3600″ / 6″; `dec_band_centre = (band + 0.5) / 600 − 90`).
+An id, not a quantity: the largest is ~1.08 × 10¹², below 2⁵³, so JSON exports (suspects.json) write it
+as a plain number. Group with the neighbouring cells too (`sky.neighbour_cells`), so a dot on a cell
+edge isn't split; adjacent bands' columns don't line up, so a neighbour in the next band comes from
+the position, not from the column number.
 
 ## forced: one row per reference target per photo, detected or not
 
 One Parquet file per photo, `forced/<obs_id>D<detector>.parquet`, written before the dot file (so a
-dot file still means "photo fully done"), only when `refcat/<zone>_forced.parquet` exists (else a warning;
-the photo is still done). Targets: the refcat rows moved to the photo's MJD-AVG by proper motion only
-(core.propagate; NaN proper motion = 0; parallax ignored), kept if ≥ 3 px inside the frame and inside the
-zone box + 0.05°. Negative and low fluxes are kept: they are the non-detections.
+dot file still means "photo fully done"), only when a target list exists (else a warning;
+the photo is still done). Target list: the sky-wide list `refcat/sky/forced_n32/` when it is complete
+(its `_complete.json` exists), else `refcat/<zone>_forced.parquet` as before. Targets: the list's rows moved
+to the photo's MJD-AVG by proper motion only (core.propagate; NaN proper motion = 0; parallax ignored), kept
+if ≥ 3 px inside the frame and, with the zone list only, inside the zone box + 0.05° (the sky list has no zone
+box: every target in the photo's footprint, whatever zone it was extracted under). Negative and low fluxes
+are kept: they are the non-detections.
+
+**Sky-wide list (added 14 Nov)**, written by `python -m skyshift_pipeline.forced_sky`: one file per nested
+HEALPix pixel at nside 32, `refcat/sky/forced_n32/p<pixel:05d>.parquet` (12,288 files, 3.357 deg² each), with
+exactly the columns of `refcat/<zone>_forced.parquet` (below), sorted by G. A Gaia source sits in the pixel of
+its source_id (`source_id >> 49`, the level-12 HEALPix index in the id taken to nside 32); dots reads every
+pixel within the photo's cone (half diagonal + 0.1° + 0.05°). Content: Gaia DR3 G < 17.5 (no CatWISE-only
+objects yet); each pixel keeps at most its brightest 8,221 (= 30,000 per 3.5° photo, 2,449/deg²), so the
+galactic plane gets a brighter G limit per pixel. `_complete.json` (written last): `nside`, `order`,
+`gaia_g_max`, `max_per_deg2` (null = no cap), `cap_per_partition`, `catalogues`, `rows`, `capped_partitions`,
+`rows_per_partition` (12,288 ints), `built`.
 
 | column | type | unit | meaning |
 |---|---|---|---|
@@ -138,7 +154,7 @@ zone box + 0.05°. Negative and low fluxes are kept: they are the non-detections
 | sources | `results/<zone>/sources.parquet`, written by `spectra`: one row per fixed source. `source_id` int64, `ra`, `dec` float64 (median of its dots), `pos_err_arcsec` float32 (dot scatter / √n per axis, floor 0.05″), `n_dots` int32, `n_sessions` int16, `n_visits` int16, `detectors` int8 (bit d−1 set if seen by detector d), `cell` int64, `saturated` bool (≥ 2 dots with OVERFLOW/NONLINEAR in their 3×3), `flux_ujy` fixed_size_list<float32>[102] (NaN where empty), `err_ujy` fixed_size_list<float32>[102], `n` fixed_size_list<int16>[102] (dots used), `chi2_nu` float32 (kept dots against their channel values; ≈ 1 constant, ≫ 1 variable or bad errors), `visit_flux_ratio` float32 (last visit / first visit: per detector the median of flux ÷ channel value; median over detectors; NaN with one visit), `variable` bool (chi2_nu > 5 and ratio beyond ×/÷ 1.25). Per channel: dots with MASK bits (contracts/flags.md) in their 3×3 left out; gross outliers clipped (> 5 × max(error, MAD) and > 1.5 × |median| from the median); inverse-variance weighted mean, error 1/√Σw × √max(1, χ²/(n−1)) |
 | channels | `results/<zone>/channels.json`: the 102 channels as a list of `{channel, detector, index, um_lo, um_hi, um_centre}`. **Our definition, not NASA's official channels:** 17 log-spaced channels per detector over D1 0.75–1.1, D2 1.1–1.6, D3 1.6–2.4, D4 2.4–3.8, D5 3.8–4.4, D6 4.4–5.0 µm; centre = √(lo × hi); a dot outside its detector's range (D1 measured 0.735–1.126) goes to that detector's end channel. Channel = (detector − 1) × 17 + index |
 | refcat | `refcat/<zone>.parquet` (Gaia DR3 G < 20, CatWISE2020, 2MASS PSC over the zone + 0.1°, unified, NaN where not applicable) and `refcat/<zone>_forced.parquet`, written by `refcat`, read by `dots`: the forced-photometry targets, exactly `ref_id` string (`gaia:<source_id>` / `catwise:<source_name>`), `ra`, `dec` float64 (deg at `epoch_mjd`), `epoch_mjd` float64, `pmra`, `pmdec` float64 (mas/yr, pmra × cos dec, NaN allowed), `parallax` float64 (mas, NaN allowed). Gaia G < 17.5 plus CatWISE W1 < 16 and W1 − W2 ≥ 0.4 with no Gaia source within 2″ (limits in pipeline config.py, sized to ≤ 30,000 targets per 3.5° photo) |
-| suspects | Movers with no known-object match (SkyBoT or MPC, pipeline `known --known-source`) within 30″, no SOURCE bit at the peak, no ghost/crosstalk/halo/bloom bits, not near a Gaia star (6″) or CatWISE source (6″). Exported to `web/public/data/suspects.json` (contracts/api.md) and the candidate list |
+| suspects | Movers with no known-object match (MPC, pipeline `known`) within 30″, no SOURCE bit at the peak, no ghost/crosstalk/halo/bloom bits, not near a Gaia star (6″) or CatWISE source (6″). Exported to `web/public/data/suspects.json` (contracts/api.md) and the candidate list |
 | classes | `results/<zone>/classes.parquet`, written by `classify` from `sources` only (no photo re-read), plus the member dots' shape columns and Gaia when present. One row per source: `source_id` int64; `class` string `star`/`galaxy`/`unsure`; `mag_ab_j`, `mag_ab_h`, `mag_ab_k`, `mag_ab_m34`, `mag_ab_m46` float32 (AB of the spectrum's mean over 1.15–1.33, 1.50–1.78, 2.00–2.30, 3.30–3.70, 4.40–4.80 µm; NaN if < 50% covered or ≤ 0); `j_m46_ab` float32; per index `<name>_depth` (absorption, 1 − band/continuum) or `<name>_excess` (emission, band/continuum − 1) and `<name>_sig` (σ, > 0 = the feature is there) float32, for `h2o_ice_305`, `co2_ice_427`, `co_ice_467`, `ch4_33`, `ch4_16`, `co_23`, `h2o_14`, `h2o_19` (absorption) and `pah_33` (emission; windows in pipeline config `INDEX_WINDOWS`, continuum = power law through two neighbouring windows); `size_ratio`, `psf_chi2_ratio`, `cog_ratio` float32 (median over the source's dots with S/N ≥ 8 of √(a·b), PSF χ²_ν, large/small aperture (or aperture/PSF) flux, each ÷ its detector's stellar locus; NaN without dot shape columns); `n_shape_dots` int16; `extended_score` float32 (mean of (size−1)/0.1, (cog−1)/0.1, log₂ χ² ratio: ~0 star, ≥ 2 extended); `gaia_sep_arcsec`, `gaia_g`, `gaia_bp_rp`, `gaia_parallax`, `gaia_parallax_error`, `gaia_parallax_snr` float32 (NaN = no Gaia); `brown_dwarf_like` bool (CH4 or H2O detected at ≥ 5σ with depth thresholds, J−[4.6] AB > −0.5, no Gaia or G > 19 or G − J_AB > 3.5, not a galaxy, not saturated); `bd_evidence` string (comma list of `ch4_33`, `ch4_16`, `h2o_14`, `h2o_19`). Added 14 Nov, the band labels the web shows (the raw sig fires on the wrong objects): `label_h2o_ice`, `label_co2_ice`, `label_co_ice`, `label_ch4`, `label_h2o_vapour`, `label_co_23`, `label_pah_33` bool and `labels` string (comma list of `h2o_ice`, `co2_ice`, `co_ice`, `ch4`, `h2o_vapour`, `co_23`, `pah_33`). Each needs sig ≥ 5, a minimum depth (config `LABEL_MIN_DEPTH`) and no saturation; ices: not a galaxy, point-like, no Gaia or BP − RP < 2, no water vapour (1.4/1.9 µm sig < 3), reddened (J − [4.6] AB ≥ 0), CO ice also no CO 2.3 µm; methane: no Gaia or G > 19.5, not a galaxy, J − [4.6] AB > −0.5, and the other CH4 band or water at sig ≥ 3; water vapour and CO 2.3 µm: not a galaxy; PAH: not a star. Class: parallax/error ≥ 5 → star; extended_score ≥ 2 → galaxy; ≤ 1 with a Gaia match → star; else unsure |
 | photoz | `results/<zone>/photoz.parquet`, written by `photoz` for sources classed galaxy or unsure, not saturated (all sources without `classes`): `source_id` int64, `z_best` float32 (peak of p(z), z = 0–1 step 0.005), `z_lo`, `z_hi` float32 (16th/84th percentile of p(z)), `chi2`, `chi2_nu` float32, `odds` float32 (p within ±0.05(1+z)), `template` int16 (1–12, best EAZY template; 0 = not fitted), `n_channels` int16, `good` bool (odds ≥ 0.8, chi2_nu ≤ 3, ≥ 40 channels), `pah_33_excess_z`, `pah_33_sig_z` float32 (PAH 3.3 µm index moved to z_best), `mag_ab_k` float32. NaN z = fewer than 20 measured channels. Templates: pipeline/data/README.md. `results/<zone>/photoz_report.json`: counts, and against SDSS DR17 spectroscopic galaxies (matched ≤ 3″) `n`, `sigma_nmad` (1.4826 × median abs. deviation of Δz/(1+z)), `outlier_frac` (|Δz|/(1+z) > 0.15), `bias` for all, `good`, K_AB < 17 and K_AB bins |
 | crossids (input to classify) | `results/<zone>/crossids.parquet`, from the cross-match step. classify reads one row per `source_id` with any of `gaia_sep_arcsec`, `gaia_g` (or `phot_g_mean_mag`), `gaia_bp_rp`, `gaia_parallax`, `gaia_parallax_error` (NaN = no match); a long table with a `catalog` column (`gaia…` rows, `sep_arcsec`) also works. Without it classify matches `refcat/<zone>.parquet` Gaia rows (`ra`, `dec`, `phot_g_mean_mag`/`gaia_g`, …) itself within 3″ |

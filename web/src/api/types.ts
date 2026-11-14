@@ -48,7 +48,7 @@ export interface KnownObject {
   ra: number;
   dec: number;
   v: number | null;
-  source: "skybot" | "most" | "irsa-3i" | string;
+  source: "mpc" | "most" | "irsa-3i" | string;
 }
 
 export interface FramesResponse {
@@ -140,8 +140,8 @@ export interface Suspect {
   n_dots: number;
   snr: number;
   flux_ujy: number;
-  /** fixtures use a number, the contract an id string: accept both until P1 decides. */
-  cell: string | number;
+  /** 6″ sky-cell id (contracts/dots.md), an integer below 2^53. */
+  cell: number;
   nearest_known_arcsec: number | null;
 }
 
@@ -173,4 +173,58 @@ export interface LoadedFrames {
   jsonUrl: string;
   /** Where it came from: static file of a featured target, or the live API. */
   origin: "static" | "api";
+}
+
+// ---- Community discovery: candidates for people to review (contracts/api.md, candidates.json, proposal v2.2)
+
+/** mover: moves within hours (possible new asteroid or comet); high_pm: moves between visits
+ *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look. */
+export type CandidateKind = "mover" | "high_pm" | "spectral";
+
+export interface Candidate {
+  id: string;
+  kind: CandidateKind;
+  ra: number;
+  dec: number;
+  /** MJD of the frame that shows it best. */
+  mjd: number;
+  clock: Clock;
+  det: Det;
+  /** Pipeline zone it came from, e.g. "pilot", "hunt". */
+  zone: string;
+  /** Pipeline's promise score 0–1 (higher = more promising), or null when the step has none. */
+  score: number | null;
+  snr: number | null;
+  flux_ujy: number | null;
+  /** Movers: apparent rate in ″/h. */
+  rate_arcsec_h: number | null;
+  /** High-PM: total proper motion and its 1σ error, mas/yr; position angle east of north. */
+  pm_mas_yr: number | null;
+  pm_err_mas_yr: number | null;
+  pa_deg: number | null;
+  /** Distance to the nearest known solar-system object at that time, arcsec (null = none checked). */
+  nearest_known_arcsec: number | null;
+  /** A Gaia / CatWISE source sits here (its catalogue motion may still disagree: see reasons). */
+  gaia_match: boolean;
+  catwise_match: boolean;
+  /** Galactic latitude, degrees (crowding: |b| < 10 is the Milky Way plane). */
+  galactic_b: number;
+  /** Short machine labels for filters: "red", "ch4", "h2o_ice", "co2_ice", "co_ice", "h2o_vapour", "brown_dwarf_like", … */
+  labels: string[];
+  /** Pipeline reason codes, e.g. "two_exposures", "gaia_pm_disagrees", "few_dots", "bad_fit". */
+  reasons: string[];
+  /** One plain sentence: why this is on the list. */
+  why: string;
+  /** Artefact flags near it (ghost, halo, crosstalk, …): a reason for caution. */
+  flags: string[];
+  /** Static blink frames for this candidate (frames.json shape), or null: then the live API is used. */
+  frames_url: string | null;
+}
+
+export interface CandidatesResponse {
+  generated: string;
+  data_release: string;
+  zones: string[];
+  counts: Record<CandidateKind, number>;
+  candidates: Candidate[];
 }
