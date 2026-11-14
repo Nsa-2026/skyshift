@@ -1,19 +1,18 @@
-// Colour maps and painting a frame into RGBA. Colours come from the design tokens.
-import { stretch, stretchSigned, type Limits, type StretchKind } from "./math";
+// Colour maps and painting a frame into RGBA. Colours come from the design tokens (web/DESIGN.md):
+// a plate negative by default (sky --glass, stars --ink), a positive on request, and differences
+// in grease pencil (--pencil-red: light arrived, --pencil-blue: light left) on glass.
+import { sigmaStretch, stretch, stretchSigned, type Limits, type StretchKind } from "./math";
 
 export type RGB = [number, number, number];
 
 export interface Palette {
-  /** Faint end of the plain map (the sky). */
-  plate: RGB;
-  /** Bright end (stars). */
-  emulsion: RGB;
-  /** Difference map: negative (where light was), positive (where light is now). */
-  neg: RGB;
-  pos: RGB;
-  /** No data: a two-tone checker, so it never reads as dark sky. */
-  nodataA: RGB;
-  nodataB: RGB;
+  /** The lightbox glass: sky in a negative, zero in a difference. */
+  glass: RGB;
+  /** Ink: stars in a negative, sky in a positive. */
+  ink: RGB;
+  /** Difference: light arrived (positive) and light left (negative). */
+  arrived: RGB;
+  left: RGB;
 }
 
 export function parseHex(s: string, fallback: RGB): RGB {
@@ -27,69 +26,81 @@ export function readPalette(el: Element = document.documentElement): Palette {
   const cs = getComputedStyle(el);
   const v = (name: string, fb: RGB) => parseHex(cs.getPropertyValue(name), fb);
   return {
-    plate: v("--plate", [15, 26, 44]),
-    emulsion: v("--emulsion", [233, 228, 214]),
-    neg: v("--d2", [75, 159, 242]),
-    pos: v("--mover", [255, 155, 61]),
-    nodataA: v("--rule-strong", [52, 69, 106]),
-    nodataB: v("--plate-3", [27, 44, 72]),
+    glass: v("--glass", [237, 240, 239]),
+    ink: v("--ink", [24, 32, 46]),
+    arrived: v("--pencil-red", [207, 35, 56]),
+    left: v("--pencil-blue", [37, 86, 200]),
   };
 }
 
-const lerp = (a: RGB, b: RGB, t: number): RGB => [
+export const lerp = (a: RGB, b: RGB, t: number): RGB => [
   Math.round(a[0] + (b[0] - a[0]) * t),
   Math.round(a[1] + (b[1] - a[1]) * t),
   Math.round(a[2] + (b[2] - a[2]) * t),
 ];
 
-/** 256-entry RGB lookup for 0–1 (plain) or −1…+1 (signed, entry 128 = zero). */
-export function buildLut(p: Palette, signed: boolean, invert: boolean): Uint8ClampedArray {
+/**
+ * 256-entry RGB lookup. Plain: index 0 is the sky, 255 the brightest star (ink on glass in a
+ * negative, glass on ink in a positive). Signed: index 128 is zero (glass), 0 light left, 255 light
+ * arrived. Differences always sit on glass.
+ */
+export function buildLut(p: Palette, signed: boolean, positive: boolean): Uint8ClampedArray {
   const lut = new Uint8ClampedArray(256 * 3);
   for (let i = 0; i < 256; i++) {
     let c: RGB;
     if (signed) {
       const s = (i - 128) / 127;
-      const t = Math.min(1, Math.abs(s));
-      const zero = invert ? p.emulsion : p.plate;
-      c = lerp(zero, s < 0 ? p.neg : p.pos, t);
+      c = lerp(p.glass, s < 0 ? p.left : p.arrived, Math.min(1, Math.abs(s)));
     } else {
-      const t = invert ? 1 - i / 255 : i / 255;
-      c = lerp(p.plate, p.emulsion, t);
+      const t = i / 255;
+      c = positive ? lerp(p.ink, p.glass, t) : lerp(p.glass, p.ink, t);
     }
     lut.set(c, i * 3);
   }
   return lut;
 }
 
-/** Paint values (row 0 = north, col 0 = east) into RGBA. */
+/** Value → LUT index for a plain image: 0 sky … 255 brightest. */
+export function plainIndex(lim: Limits, kind: StretchKind): (v: number) => number {
+  return (v) => Math.round(stretch(v, lim, kind) * 255);
+}
+
+/**
+ * Value → LUT index for a difference, 128 = no change. With a noise sigma, colour starts at 1σ
+ * (below that is noise) and is full at nσ; without one, a plain linear signed stretch.
+ */
+export function diffIndex(lim: Limits & { sigma?: number; n?: number }): (v: number) => number {
+  const { sigma, n } = lim;
+  if (sigma && sigma > 0 && n && n > 1) return (v) => Math.round(128 + sigmaStretch(v, sigma, n) * 127);
+  return (v) => Math.round(128 + stretchSigned(v, lim, "linear") * 127);
+}
+
+/**
+ * Paint values (row 0 = north, col 0 = east) into RGBA through `index` and the LUT. No-data
+ * pixels become transparent, so the hatch drawn under the image shows through; pixels marked in
+ * `burnt` (saturated cores) take the brightest colour instead, a burnt plate.
+ */
 export function paint(
   values: Float32Array,
-  nx: number,
   out: Uint8ClampedArray,
-  lim: Limits,
-  kind: StretchKind,
-  signed: boolean,
   lut: Uint8ClampedArray,
-  p: Palette,
+  index: (v: number) => number,
+  burnt: Uint8Array | null = null,
 ): void {
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     const o = i * 4;
+    let k: number;
     if (Number.isNaN(v)) {
-      const x = i % nx;
-      const y = (i - x) / nx;
-      const c = (x + y) & 1 ? p.nodataA : p.nodataB;
-      out[o] = c[0];
-      out[o + 1] = c[1];
-      out[o + 2] = c[2];
-    } else {
-      const k = signed
-        ? Math.round(128 + stretchSigned(v, lim, kind) * 127)
-        : Math.round(stretch(v, lim, kind) * 255);
-      out[o] = lut[k * 3];
-      out[o + 1] = lut[k * 3 + 1];
-      out[o + 2] = lut[k * 3 + 2];
-    }
+      if (!burnt?.[i]) {
+        out[o] = out[o + 1] = out[o + 2] = out[o + 3] = 0;
+        continue;
+      }
+      k = 255;
+    } else k = index(v);
+    out[o] = lut[k * 3];
+    out[o + 1] = lut[k * 3 + 1];
+    out[o + 2] = lut[k * 3 + 2];
     out[o + 3] = 255;
   }
 }

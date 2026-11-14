@@ -6,16 +6,21 @@ Every check is printed even when its number is poor; a check with no input yet i
   V2  <site-data>/<slug>/object.json `measure`   (scripts/precompute, PR #13) + data/targets.json
   V3  the same `measure`: sigma_arcsec from the reference stars
   V4  data/v4_asteroids.json                    (v4_asteroids.py)
-  V5  <results>/<zone>/recall.json              (pipeline score; gs://nasa-glazing-data/results/)
+  V5  <results>/<zone>/recall.json + summary.json (pipeline score; gs://nasa-glazing-data/results/)
   V6  cut (S2)          V7  cut (S3)
-  V8  data/v8_spectra.json (v8_spectra.py: pilot stars vs 2MASS Ks and CatWISE W1)
+  V8  data/v8_spectra_<zone>.json (v8_spectra.py: the zone's stars vs 2MASS Ks and CatWISE W1)
       + data/demo_check.json (scripts/demo_check.py --json; --demo-check PATH overrides): median time to first frame
   V9  <results>/<zone>/astrometry_report.json   (pipeline astrometry)
   V10 <results>/<zone>/photoz_report.json       (pipeline photoz)
   V11 scripts/science/data/asteroid_sizes.json  (scripts/science asteroids.py)
+  suspects.json: <results>/<zone>/suspects.json of every zone, merged (merge_suspects)
 
-  uv run python build_validation.py --site-data ../../web/public/data --results .cache/results --zone pilot
-  uv run python build_validation.py --fetch-results pilot      # gcloud storage cp the zone's reports first
+Zones (--zones, default hunt,pilot): V5, V8 spectra, V9, V10 and suspects.json take their headline from the first
+zone that has the input and keep the others in the rows (field `zone`) and the note. Without the hunt's reports the
+pilot becomes the headline by itself.
+
+  uv run python build_validation.py --site-data ../../web/public/data --fetch-results   # copy both zones' reports first
+  uv run python build_validation.py --zones pilot                                       # one zone only
 """
 
 from __future__ import annotations
@@ -37,12 +42,64 @@ SIZES = REPO / "scripts" / "science" / "data" / "asteroid_sizes.json"
 DEMO_CHECK = DATA / "demo_check.json"  # scripts/demo_check.py --random 10 --json <this> (V8 speed)
 TARGET_SLUGS = ("barnard", "epsindib", "wise0855", "rwaur", "rdra")
 DATA_RELEASE = "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)"
+ZONES = ("hunt", "pilot")  # headline first: the hunt is the bigger sample; the pilot holds gate G2
+G2_ZONE = "pilot"  # gate G2 was decided on the pilot before the hunt ran
+REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json")
 
 
 def load(path: Path | None) -> dict | None:
     if path is None or not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def as_zones(zones: str | list[str] | tuple[str, ...]) -> list[str]:
+    """'hunt,pilot' or ['hunt', 'pilot'] -> ['hunt', 'pilot']."""
+    if isinstance(zones, str):
+        zones = zones.split(",")
+    return [z.strip() for z in zones if z.strip()]
+
+
+def zone_inputs(res: Path | None, zones, name: str) -> list[tuple[str, dict]]:
+    """[(zone, <res>/<zone>/<name>)] in the order of `zones`, for the zones that have the file."""
+    out = []
+    for z in as_zones(zones):
+        d = load(res / z / name) if res else None
+        if d:
+            out.append((z, d))
+    return out
+
+
+def inside(res: Path | None, zone: str, other: str) -> bool:
+    """True when `zone`'s box (summary.json) lies inside `other`'s: then `other`'s numbers include `zone`'s sky."""
+    a = ((load(res / zone / "summary.json") if res else None) or {}).get("zone") or {}
+    b = ((load(res / other / "summary.json") if res else None) or {}).get("zone") or {}
+    if zone == other or not all(x.get(k) for x in (a, b) for k in ("ra", "dec")):
+        return False
+    return all(b[k][0] <= a[k][0] and a[k][1] <= b[k][1] for k in ("ra", "dec"))
+
+
+def zone_text(res: Path | None, zone: str, zones=(), cap: bool = True) -> str:
+    """'Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers
+    include it)' from the zones' summary.json; just 'Pilot zone' without one."""
+    s = load(res / zone / "summary.json") if res else None
+    box, photos = (s or {}).get("zone") or {}, (((s or {}).get("steps") or {}).get("photolist") or {}).get("photos")
+    parts = []
+    if box.get("ra") and box.get("dec"):
+        parts.append(f"RA {box['ra'][0]:g}-{box['ra'][1]:g}, Dec {box['dec'][0]:+g} to {box['dec'][1]:+g}")
+    if photos:
+        parts.append(f"{photos:,} photos")
+    txt = ", ".join(parts)
+    host = next((o for o in as_zones(zones) if inside(res, zone, o)), None)
+    if host:
+        txt += ("; " if txt else "") + f"inside the {host} zone, so the {host}'s numbers include it"
+    return f"{zone.capitalize() if cap else zone} zone" + (f" ({txt})" if txt else "")
+
+
+def missing_text(zones, reported: list[str]) -> str:
+    """' No hunt zone report yet.' for the zones asked for that have no input."""
+    miss = [z for z in as_zones(zones) if z not in reported]
+    return f" No {', '.join(miss)} zone report yet." if miss else ""
 
 
 def demo_check_path(arg: Path | None) -> Path | None:
@@ -107,6 +164,20 @@ def v8_status(spectra_pass: bool | None, median_first_frame_s: float | None, spe
     if "fail" in halves:
         return "fail"
     return "pass" if len(halves) == 2 else "partial"
+
+
+def v10_status(sigma_nmad: float | None) -> str:
+    """Bright-galaxy sigma_NMAD: pass <= 0.05, partial <= 0.1."""
+    if sigma_nmad is None:
+        return "fail"
+    return "pass" if sigma_nmad <= 0.05 else ("partial" if sigma_nmad <= 0.1 else "fail")
+
+
+def worst(statuses: list[str]) -> str:
+    """The poorest status of several zones (pending ones ignored): nothing is rounded up to a pass."""
+    order = ("fail", "partial", "pass")
+    seen = [s for s in statuses if s in order]
+    return min(seen, key=order.index) if seen else "pending"
 
 
 def dev_sigma(shift: float | None, predicted: float | None, sigma: float | None) -> float | None:
@@ -287,73 +358,143 @@ def v4() -> dict:
                  value=n, unit="asteroids", expected=exp, note=note, rows=rows)
 
 
-# --- V5, V9, V10 (pipeline reports) -----------------------------------------------------------
+# --- V5, V9, V10 (pipeline reports, one or more zones) ------------------------------------------
 
-def v5(res: Path | None, zone: str) -> dict:
-    claim, exp = "Asteroids re-found, blind (S1)", "Recall at V < 16 >= 50% (gate G2); control near 0"
-    d = load(res / zone / "recall.json") if res else None
-    if not d:
-        return check("V5", claim, "pending", "Numbers after the pilot", expected=exp)
-    rows = [{"v_min": b.get("v_min"), "v_max": b.get("v_max"), "n": b.get("n"), "found": b.get("found"),
+KNOWN_SOURCE = "mpc"  # V5 publishes only recall reports scored with MPC known objects
+
+
+def known_source(rec: dict, summary: dict | None) -> tuple[str | None, str | None]:
+    """(source, orbit snapshot) behind a recall.json: its own `known_source` if the pipeline wrote one, else the known
+    step of the same run's summary.json (the run whose score time matches). (None, None) when neither says."""
+    if rec.get("known_source"):
+        return rec["known_source"], rec.get("known_orbits")
+    st = (summary or {}).get("steps") or {}
+    known = st.get("known") or {}
+    if (st.get("score") or {}).get("generated") == rec.get("generated") and known.get("source"):
+        return known["source"], known.get("orbits")
+    return None, None
+
+
+def recall_rows(d: dict) -> list[dict]:
+    return [{"v_min": b.get("v_min"), "v_max": b.get("v_max"), "n": b.get("n"), "found": b.get("found"),
              "recall": r(b.get("recall"), 3), "control_recall": r(b.get("control_recall"), 3)} for b in d.get("by_v", [])]
-    rec, ctl = d.get("recall"), d.get("control_recall")
-    po = d.get("per_object") or {}
-    v12 = d.get("v_12_to_16") or {}
-    return check("V5", claim, v5_status(rec, ctl, d.get("g2_threshold") or 0.5),
-                 f"{zone}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {d.get('v_max'):g} found "
-                 f"as movers ({100 * (rec or 0):.0f}%); control {100 * (ctl or 0):.0f}%"
-                 + (f"; {po.get('found')} of {po.get('n')} objects" if po.get("n") else ""),
-                 value=r(rec, 3), unit="recall", expected=exp,
-                 note=f"Zone {zone} ({d.get('photos_with_predictions')} photos with predictions; pipeline report of "
-                      f"{d.get('generated')}). Unit: {d.get('unit')}. Known asteroids from SkyBoT, moved to each photo's MJD-AVG; "
-                      f"one counts as found when a blind-search mover lies within {d.get('match_arcsec'):g}\" of the prediction; "
-                      f"control: every prediction moved {(d.get('control_offset_arcsec') or 120) / 60:g}'. Gate G2 is recall "
-                      f">= {100 * (d.get('g2_threshold') or 0.5):.0f}% at V < {d.get('v_max'):g}"
-                      + (f"; V 12-16 alone: {v12.get('found')} of {v12.get('n')}" if v12.get("n") else "")
-                      + ". Objects brighter than V 12 saturate but are still counted. "
-                      + ("The hunt zone is not finished; these are pilot numbers. " if zone == "pilot" else "")
-                      + "Rows: v_min, v_max, n, found, recall, control_recall.",
-                 rows=rows)
 
 
-def v9(res: Path | None, zone: str) -> dict:
+def bright_unsaturated(rows: list[dict], v_max: float) -> tuple[int, int]:
+    """(found, n) summed over the rows from V 12 to v_max: the unsaturated part of the gate sample."""
+    sel = [x for x in rows if x["v_min"] is not None and x["v_min"] >= 12 and x["v_max"] is not None and x["v_max"] <= v_max]
+    return sum(x["found"] or 0 for x in sel), sum(x["n"] or 0 for x in sel)
+
+
+def _pct(x) -> str:
+    return f"{100 * (x or 0):.0f}%"
+
+
+def v5(res: Path | None, zones=ZONES) -> dict:
+    claim, exp = "Asteroids re-found, blind (S1)", "Recall at V < 16 >= 50% (gate G2); control near 0"
+    reps, left_out = [], []
+    for z, d in zone_inputs(res, zones, "recall.json"):
+        src, orbits = known_source(d, load(res / z / "summary.json"))
+        if src != KNOWN_SOURCE:
+            print(f"V5: {z} recall.json ({d.get('generated')}) was scored with known objects from {src or 'an unrecorded source'}, "
+                  f"not {KNOWN_SOURCE}: left out (rescore the zone with MPC)")
+            left_out.append(z)
+            continue
+        reps.append((z, d, orbits))
+    skipped = "".join(f" The {z} zone's report is left out: its known objects are not recorded as MPC's." for z in left_out)
+    if not reps:
+        return check("V5", claim, "pending", "Numbers after the pilot", expected=exp, note=skipped.strip() or None)
+    zs = [z for z, _, _ in reps]
+    rows, heads, zone_notes, statuses = [], [], [], []
+    for i, (z, d, orbits) in enumerate(reps):
+        zr = recall_rows(d)
+        rows += [{"zone": z, **x} for x in zr]
+        rec, ctl, vmax = d.get("recall"), d.get("control_recall"), d.get("v_max") or 16
+        statuses.append(v5_status(rec, ctl, d.get("g2_threshold") or 0.5))
+        po = d.get("per_object") or {}
+        objs = f"{po.get('found')} of {po.get('n')} objects" if po.get("n") else ""
+        label = z.capitalize() + " zone" + (" (gate G2)" if z == G2_ZONE and len(reps) > 1 else "")
+        if i == 0:
+            heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {vmax:g} found as "
+                         f"movers ({_pct(rec)}); control {_pct(ctl)}" + (f"; {objs}" if objs else ""))
+        else:
+            heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} ({_pct(rec)}), control {_pct(ctl)}"
+                         + (f", {objs}" if objs else ""))
+        f12, n12 = bright_unsaturated(zr, vmax)
+        zone_notes.append(f" {zone_text(res, z, zs)}: {d.get('photos_with_predictions'):,} photos with predictions, pipeline "
+                          f"report of {d.get('generated')}"
+                          + (f", MPC orbit snapshot {orbits}" if orbits else "")
+                          + (f"; V 12-{vmax:g} alone: {f12} of {n12}" if n12 else "") + ".")
+    d0 = reps[0][1]
+    note = (f"Unit: {d0.get('unit')}. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as "
+            f"seen from SPHEREx. One counts as found when a blind-search mover lies within {d0.get('match_arcsec'):g}\" of "
+            f"its predicted position; control: every prediction moved {(d0.get('control_offset_arcsec') or 120) / 60:g}'. "
+            f"Gate G2 is recall >= {100 * (d0.get('g2_threshold') or 0.5):.0f}% at V < {d0.get('v_max'):g}"
+            + (f", decided on the {G2_ZONE} zone before the hunt ran" if len(reps) > 1 and G2_ZONE in zs else "")
+            + ". Objects brighter than V 12 saturate but are still counted."
+            + "".join(zone_notes) + skipped + missing_text(zones, zs + left_out)
+            + " Rows: zone, v_min, v_max, n, found, recall, control_recall.")
+    return check("V5", claim, worst(statuses), ". ".join(heads), value=r(d0.get("recall"), 3), unit="recall",
+                 expected=exp, note=note, rows=rows)
+
+
+def v9(res: Path | None, zones=ZONES) -> dict:
     claim, exp = "Astrometry matches Gaia", "Bias near zero; pull scatter near 1"
-    d = load(res / zone / "astrometry_report.json") if res else None
-    best = (d or {}).get("vs_gaia_frame_corrected") or (d or {}).get("vs_gaia_raw")
-    if not best or not best.get("matched"):
+    reps = [(z, b) for z, d in zone_inputs(res, zones, "astrometry_report.json")
+            if (b := d.get("vs_gaia_frame_corrected") or d.get("vs_gaia_raw")) and b.get("matched")]
+    if not reps:
         return check("V9", claim, "pending", "Numbers after the pilot", expected=exp)
-    pa, pd_ = best.get("pmra", {}), best.get("pmdec", {})
-    pulls = [x.get("pull_scatter") for x in (pa, pd_) if x.get("pull_scatter") is not None]
-    ok = pulls and all(0.7 <= p <= 1.5 for p in pulls)
-    rows = [{"axis": k, **{kk: v.get(kk) for kk in ("n", "bias", "scatter", "pull_scatter")}} for k, v in (("pmra", pa), ("pmdec", pd_))]
-    return check("V9", claim, "pass" if ok else "partial",
-                 f"{best.get('matched'):,} stars vs Gaia: proper-motion bias {r(pa.get('bias'), 0):g} (RA) and "
-                 f"{r(pd_.get('bias'), 0):g} (Dec) mas/yr, scatter {r(pa.get('scatter'), 0):g} and {r(pd_.get('scatter'), 0):g} mas/yr; "
-                 f"pull scatter {', '.join(f'{p:.2f}' for p in pulls)} (1 = honest error bars)",
-                 value=pa.get("scatter"), unit="mas/yr", expected=exp,
-                 note=f"Zone {zone}; proper motions fitted over all dots with SPHEREx's own position as the observer. "
-                      "Pass when both pull scatters are 0.7-1.5. Rows: axis, n, bias, scatter, pull_scatter (mas/yr).",
+    zs = [z for z, _ in reps]
+    rows, heads, statuses = [], [], []
+    for i, (z, best) in enumerate(reps):
+        pa, pd_ = best.get("pmra", {}), best.get("pmdec", {})
+        pulls = [x.get("pull_scatter") for x in (pa, pd_) if x.get("pull_scatter") is not None]
+        statuses.append("pass" if pulls and all(0.7 <= p <= 1.5 for p in pulls) else "partial")
+        rows += [{"zone": z, "axis": k, **{kk: v.get(kk) for kk in ("n", "bias", "scatter", "pull_scatter")}}
+                 for k, v in (("pmra", pa), ("pmdec", pd_))]
+        bias = f"{r(pa.get('bias'), 0):g} (RA) and {r(pd_.get('bias'), 0):g} (Dec) mas/yr"
+        scat = f"{r(pa.get('scatter'), 0):g} and {r(pd_.get('scatter'), 0):g} mas/yr"
+        pull = ", ".join(f"{p:.2f}" for p in pulls)
+        if i == 0:
+            heads.append(f"{best.get('matched'):,} stars vs Gaia ({z} zone): proper-motion bias {bias}, scatter {scat}; "
+                         f"pull scatter {pull} (1 = honest error bars)")
+        else:
+            heads.append(f"{z.capitalize()} zone: {best.get('matched'):,} stars, bias {bias}, scatter {scat}, pull scatter {pull}")
+    return check("V9", claim, worst(statuses), ". ".join(heads), value=reps[0][1].get("pmra", {}).get("scatter"),
+                 unit="mas/yr", expected=exp,
+                 note="Proper motions fitted over all dots with SPHEREx's own position as the observer, against Gaia DR3. "
+                      + "Zones: " + "; ".join(zone_text(res, z, zs, cap=False) for z in zs) + "." + missing_text(zones, zs)
+                      + " Pass when both pull scatters are 0.7-1.5 in every zone. "
+                        "Rows: zone, axis, n, bias, scatter, pull_scatter (mas/yr).",
                  rows=rows)
 
 
-def v10(res: Path | None, zone: str) -> dict:
+def v10(res: Path | None, zones=ZONES) -> dict:
     claim, exp = "Galaxy distances match SDSS", "sigma_NMAD ~0.02 for bright galaxies (AB < 17)"
-    d = load(res / zone / "photoz_report.json") if res else None
-    d = (d or {}).get("sdss_dr17") or d  # the pipeline nests the SDSS comparison
-    if not d or not (d.get("all") or {}).get("n"):
+    reps = [(z, s) for z, d in zone_inputs(res, zones, "photoz_report.json")
+            if (s := d.get("sdss_dr17") or d) and (s.get("all") or {}).get("n")]  # the pipeline nests the SDSS comparison
+    if not reps:
         return check("V10", claim, "pending", "Numbers after the pilot", expected=exp)
-    bright = next((v for k, v in d.items() if k.startswith("k_ab_lt_")), None) or d["all"]
-    s = bright.get("sigma_nmad")
-    status = "pass" if s is not None and s <= 0.05 else ("partial" if s is not None and s <= 0.1 else "fail")
-    rows = [{"sample": k, **{kk: r(v.get(kk), 4) if kk != "n" else v.get("n") for kk in ("n", "sigma_nmad", "outlier_frac", "bias")}}
-            for k, v in d.items() if isinstance(v, dict) and "sigma_nmad" in v]
-    rows += [{"sample": f"K_AB {k}", **{kk: r(v.get(kk), 4) if kk != "n" else v.get("n") for kk in ("n", "sigma_nmad", "outlier_frac", "bias")}}
-             for k, v in (d.get("by_k_ab") or {}).items()]
-    return check("V10", claim, status,
-                 f"{bright.get('n')} bright galaxies: sigma_NMAD {r(s, 3)}, outliers {100 * (bright.get('outlier_frac') or 0):.0f}%",
-                 value=r(s, 4), unit="dz/(1+z)", expected=exp,
-                 note=f"Zone {zone}; EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts. "
-                      "Pass <= 0.05, partial <= 0.1. Rows: sample, n, sigma_nmad, outlier_frac, bias.", rows=rows)
+    zs = [z for z, _ in reps]
+    keys = ("n", "sigma_nmad", "outlier_frac", "bias")
+    rows, heads, statuses, values = [], [], [], []
+    for i, (z, d) in enumerate(reps):
+        bright = next((v for k, v in d.items() if k.startswith("k_ab_lt_")), None) or d["all"]
+        s = bright.get("sigma_nmad")
+        statuses.append(v10_status(s))
+        values.append(r(s, 4))
+        rows += [{"zone": z, "sample": k, **{kk: r(v.get(kk), 4) if kk != "n" else v.get("n") for kk in keys}}
+                 for k, v in d.items() if isinstance(v, dict) and "sigma_nmad" in v]
+        rows += [{"zone": z, "sample": f"K_AB {k}", **{kk: r(v.get(kk), 4) if kk != "n" else v.get("n") for kk in keys}}
+                 for k, v in (d.get("by_k_ab") or {}).items()]
+        txt = f"sigma_NMAD {r(s, 3)}, outliers {100 * (bright.get('outlier_frac') or 0):.0f}%"
+        heads.append(f"{bright.get('n'):,} bright galaxies ({z} zone): {txt}" if i == 0
+                     else f"{z.capitalize()} zone: {bright.get('n'):,}, {txt}")
+    return check("V10", claim, worst(statuses), ". ".join(heads), value=values[0], unit="dz/(1+z)", expected=exp,
+                 note="EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts; bright = K_AB < 17. "
+                      + "Zones: " + "; ".join(zone_text(res, z, zs, cap=False) for z in zs) + "." + missing_text(zones, zs)
+                      + " Pass <= 0.05, partial <= 0.1, in every zone. Rows: zone, sample, n, sigma_nmad, outlier_frac, bias.",
+                 rows=rows)
 
 
 # --- V8, V11 ----------------------------------------------------------------------------------
@@ -371,21 +512,33 @@ def _failure_causes(rows: list[dict]) -> str:
     return ", ".join(f"{n} {k}" for k, n in sorted(causes.items(), key=lambda kv: -kv[1]))
 
 
-def v8(demo: Path | None) -> dict:
+def spectra_path(zone: str) -> Path:
+    """V8 spectra of one zone, written by `v8_spectra.py --zones <zone>`."""
+    return DATA / f"v8_spectra_{zone}.json"
+
+
+def v8(demo: Path | None, zones=ZONES, res: Path | None = None) -> dict:
     claim, exp = "Spectra and speed", "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s"
-    sp = load(DATA / "v8_spectra.json")
+    sps = [(z, sp) for z in as_zones(zones) if (sp := load(spectra_path(z)))]
+    sp = sps[0][1] if sps else None  # the headline zone
     d = load(demo)
     med = (d or {}).get("median_first_frame_s")
     speed_measured = bool(d and d.get("n_random"))
     if not sp and not speed_measured:
         return check("V8", claim, "pending", "Not measured yet", unit="ratio", expected=exp)
-    parts, rows = [], []
-    if sp:
-        for name, b in sp["bands"].items():
-            c = b["clean"]
-            parts.append(f"{name} {c['median']:.3f} (scatter {100 * c['scatter']:.1f}%, {c['n']:,} stars)")
-            rows += [{"part": "spectra", **r_} for r_ in b["by_mag"]]
-    head = ("SPHEREx / catalogue flux, " + "; ".join(parts) + f" ({sp['zone']}, 10-13 mag)") if sp else "Spectra not measured yet"
+    parts, rows, zone_notes = [], [], []
+    for i, (z, s) in enumerate(sps):
+        for name, b in s["bands"].items():
+            rows += [{"part": "spectra", "zone": z, **r_} for r_ in b["by_mag"]]
+        clean = [f"{name} {b['clean']['median']:.3f} (scatter {100 * b['clean']['scatter']:.1f}%, {b['clean']['n']:,} stars)"
+                 for name, b in s["bands"].items()]
+        if i == 0:
+            parts = clean
+        zone_notes.append(f" {zone_text(res, z, [x for x, _ in sps])}: {', '.join(clean)} of {s['sources']:,} sources.")
+    others = "".join(f"; {z} zone " + ", ".join(f"{name} {b['clean']['median']:.3f}" for name, b in s["bands"].items())
+                     for z, s in sps[1:])
+    head = (("SPHEREx / catalogue flux, " + "; ".join(parts) + f" ({sps[0][0]} zone, 10-13 mag{others})") if sp
+            else "Spectra not measured yet")
     speed_note = ""
     if speed_measured:
         rnd = d.get("random", [])
@@ -417,16 +570,18 @@ def v8(demo: Path | None) -> dict:
                            f"frame in {st_t[0]:.2f}-{st_t[-1]:.2f} s.")
     else:
         head += "; speed not measured yet (needs scripts/demo_check.py on the live site)"
-    st = v8_status(sp["pass"] if sp else None, med, speed_measured)
+    # every zone's spectra must pass (nothing rounded up); the headline zone gives the value
+    st = v8_status(all(s["pass"] for _, s in sps) if sps else None, med, speed_measured)
     value = sp["bands"]["Ks"]["clean"]["median"] if sp else None
-    faint = sorted(100 * x["scatter"] for x in rows if x["part"] == "spectra" and x.get("mag_min", 0) >= 13
-                   and x.get("scatter") is not None)
-    note = ("Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx "
-            "channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and "
-            "309.54 Jy), no colour terms (scripts/validate/v8_spectra.py)"
+    faint = sorted(100 * x["scatter"] for x in rows if x["part"] == "spectra" and x["zone"] == sps[0][0]
+                   and x.get("mag_min", 0) >= 13 and x.get("scatter") is not None) if sps else []
+    note = ("Spectra: every star of the zone matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; "
+            "SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points "
+            "666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py)"
             + (f"; fainter than 13 mag the scatter grows to {faint[0]:.1f}-{faint[-1]:.1f}%." if faint else ".")
+            + "".join(zone_notes) + (missing_text(zones, [z for z, _ in sps]) if sps else "")
             + speed_note
-            + " Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed "
+            + " Rows: part=spectra (zone, band, mag_min, mag_max, n, median, scatter) or part=speed "
             "(ra, dec, clock, ok, first_frame_s).")
     return check("V8", claim, st, head, value=value, unit="ratio", expected=exp, note=note, rows=rows)
 
@@ -467,12 +622,43 @@ def valid_suspects(d: dict) -> bool:
                     for s in d["suspects"]))
 
 
+def _sep_arcsec(a: dict, b: dict) -> float:
+    """Small-angle separation of two suspects, arcsec (they are at most a few arcsec apart when they match)."""
+    dra = ((a["ra"] - b["ra"] + 180.0) % 360.0 - 180.0) * math.cos(math.radians((a["dec"] + b["dec"]) / 2))
+    return 3600.0 * math.hypot(dra, a["dec"] - b["dec"])
+
+
+def merge_suspects(files: list[tuple[str, dict]], match_arcsec: float = 6.0, match_min: float = 2.0) -> dict | None:
+    """The site's suspects.json from several zones' pipeline files, headline zone first.
+
+    Every suspect gets `zone` (the run its entry comes from) and `zones` (every zone whose run found it). A suspect
+    that an earlier zone already lists (same mover: within `match_arcsec` and `match_min` minutes; the pilot box lies
+    inside the hunt zone) is not repeated: the earlier entry adds the zone to its `zones`. The top level keeps the
+    contract's `zone` (the headline zone) and adds `zones`. Files that don't match the contract are skipped."""
+    files = [(z, d) for z, d in files if valid_suspects(d)]
+    if not files:
+        return None
+    out: list[dict] = []
+    for z, d in files:
+        for s in d["suspects"]:
+            twin = next((o for o in out if o["zone"] != z and abs(o["mjd"] - s["mjd"]) * 1440 <= match_min
+                         and _sep_arcsec(o, s) <= match_arcsec), None)
+            if twin is not None:
+                if z not in twin["zones"]:
+                    twin["zones"].append(z)
+                continue
+            out.append({**s, "zone": z, "zones": [z]})
+    z0, d0 = files[0]
+    return {"generated": d0.get("generated"), "data_release": d0.get("data_release"), "zone": z0,
+            "zones": [z for z, _ in files], "suspects": out}
+
+
 def fetch_results(zone: str, dest: Path) -> None:
     gcloud = shutil.which("gcloud")
     if not gcloud:
         raise SystemExit("gcloud not on PATH: copy the reports by hand into " + str(dest / zone))
     (dest / zone).mkdir(parents=True, exist_ok=True)
-    for name in ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json"):
+    for name in REPORTS:
         subprocess.run([gcloud, "storage", "cp", f"{BUCKET}/results/{zone}/{name}", str(dest / zone / name)], check=False)
 
 
@@ -480,36 +666,43 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--site-data", type=Path, default=SITE_DATA, help="folder with <slug>/object.json (default web/public/data)")
     ap.add_argument("--results", type=Path, default=CACHE / "results", help="folder with <zone>/recall.json etc.")
-    ap.add_argument("--zone", default="pilot", help="pipeline zone for V5, V9, V10 (pilot or hunt)")
-    ap.add_argument("--fetch-results", metavar="ZONE", help="gcloud storage cp the zone's reports into --results first")
+    ap.add_argument("--zones", default=",".join(ZONES),
+                    help="pipeline zones for V5, V8 spectra, V9, V10 and suspects.json, headline first (default hunt,pilot)")
+    ap.add_argument("--zone", help="one zone only (same as --zones ZONE)")
+    ap.add_argument("--fetch-results", nargs="?", const="", metavar="ZONES",
+                    help="gcloud storage cp the reports of ZONES (default: every --zones zone) into --results first")
     ap.add_argument("--demo-check", type=Path,
                     help="JSON written by scripts/demo_check.py --json (V8 speed; default data/demo_check.json if it exists)")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
-                    help="copy the zone's real suspects.json here when the pipeline wrote one (default web/public/data)")
+                    help="write the zones' merged suspects here when the pipeline wrote real ones (default web/public/data)")
     args = ap.parse_args()
 
-    if args.fetch_results:
-        fetch_results(args.fetch_results, args.results)
-        args.zone = args.fetch_results
+    zones = as_zones(args.zone or args.zones)
+    if args.fetch_results is not None:
+        for z in as_zones(args.fetch_results) or zones:
+            fetch_results(z, args.results)
     c2, c3 = v2_v3(args.site_data)
     checks = [
-        v1(), c2, c3, v4(), v5(args.results, args.zone),
+        v1(), c2, c3, v4(), v5(args.results, zones),
         check("V6", "Fast stars (S2)", "pending", "Cut for the one-day build", expected="Slope near 1",
               note="S2 was cut on Saturday; the pipeline's high-PM search (V9 data) covers fast stars in the zone."),
         check("V7", "Brown dwarfs (S3)", "pending", "Cut for the one-day build", expected="A count", note="S3 was cut on Saturday."),
-        v8(demo_check_path(args.demo_check)), v9(args.results, args.zone), v10(args.results, args.zone), v11(),
+        v8(demo_check_path(args.demo_check), zones, args.results), v9(args.results, zones), v10(args.results, zones), v11(),
     ]
     write_json(args.out, {"generated": today(), "data_release": DATA_RELEASE, "checks": checks})
     for c in checks:
         print(f"{c['id']:4s} {c['status']:8s} {c['headline']}")
     print(f"-> {args.out}")
-    sus = load(args.results / args.zone / "suspects.json")
-    if sus and valid_suspects(sus):
+    files = zone_inputs(args.results, zones, "suspects.json")
+    for z, d in files:
+        if not valid_suspects(d):
+            print(f"suspects.json for {z} does not match contracts/api.md; left out")
+    sus = merge_suspects(files)
+    if sus:
         write_json(args.suspects_out, sus)
-        print(f"-> {args.suspects_out} ({len(sus['suspects'])} suspects, zone {sus.get('zone')})")
-    elif sus:
-        print(f"suspects.json for {args.zone} does not match contracts/api.md; not copied")
+        per = ", ".join(f"{z} {len(d['suspects'])}" for z, d in files if valid_suspects(d))
+        print(f"-> {args.suspects_out} ({len(sus['suspects'])} suspects, headline zone {sus['zone']}; per zone: {per})")
 
 
 if __name__ == "__main__":

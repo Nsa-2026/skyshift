@@ -1,13 +1,13 @@
-"""Step 3, `known --known-source mpc`: the known asteroids and comets each photo saw, from the Minor
-Planet Center's orbits propagated with kete (Caltech/IPAC, BSD-3) instead of the SkyBoT web service.
+"""Step 3, `known`: the known asteroids and comets each photo saw, from the Minor Planet Center's
+orbits propagated with kete (Caltech/IPAC, BSD-3). The only source of known objects.
+History: #64 compared MPC with SkyBoT on the pilot (docs/research/2026-11-14-mpc-vs-skybot-score.md).
 
 - Orbits: MPC mpcorb_extended.json.gz (~1.6 million asteroids) and cometels.json.gz (~1,000 comets;
   no interstellar objects, no non-gravitational terms). The first run keeps dated copies in
   cache/mpc/orbits/{mpcorb,cometels}_<YYYY-MM-DD>.parquet; every run uses the newest of each, so all
   machines and reruns use the same orbits. `skyshift-pipeline mpc-orbits` (refresh_orbits) adds newer
   snapshots, from a laptop: the GCP machines can't reach the MPC. Comets have no V (the MPC comet file's magnitudes aren't kept
-  by kete): they count for the suspects' known-object cut and stay out of score's V cuts (SkyBoT gives some
-  comets V = 0.0, which score then counts as bright asteroids: docs/research/2026-11-14-mpc-vs-skybot-score.md).
+  by kete): they count for the suspects' known-object cut and stay out of score's V cuts.
 - Observer: SPHEREx itself. IMAGE header X_SC, Y_SC, Z_SC (km) and VX_SC, VY_SC, VZ_SC (km/s) are
   geocentric, equatorial J2000, at MJD-AVG (UTC). On one D2 photo this put the 8 known asteroids
   brighter than V 17 on their dots with a median offset of 1.0″ (1.7″ from the Earth's centre).
@@ -18,13 +18,13 @@ Planet Center's orbits propagated with kete (Caltech/IPAC, BSD-3) instead of the
   object once with n-body physics across all that visit's photos and corrects for light time.
 - V from H and G (MPC_G_DEFAULT when missing) with kete's H-G model; fainter than MPC_V_MAX is dropped.
 
-Cache per session, cache/mpc/<zone>/run_<first obs_id>.json, in the SkyBoT shape (known.py) so score
-and suspects read it unchanged, plus two keys:
+Cache per session, cache/mpc/<zone>/run_<first obs_id>.json, in the shape known.py describes, which
+score and suspects read through known.load_predictions:
   per_photo: {obs_id, detector, name, ra, dec} (columns), each object at that photo's own time;
-             load_predictions uses these instead of moving `objects` with the rates.
+             load_predictions takes the positions from these.
   observers: {obs_id: {mjd_avg, X_SC, ..., VZ_SC, observer: "spacecraft" | "geocentre"}}.
 `objects` lists each object once, moved with its rates from the first photo that saw it to the
-session mid-time. Rates are on-sky (dRA·cos dec), arcsec per hour, as SkyBoT's.
+session mid-time. Rates are on-sky (dRA·cos dec), arcsec per hour.
 """
 
 from __future__ import annotations
