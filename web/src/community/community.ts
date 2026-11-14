@@ -7,6 +7,7 @@ import { ANSWERS, ANSWER_TEXT, safeStorage, type Counts, type KV } from "../vote
 import { VOTED_EVENT } from "../vote/store";
 import { mountActivityChart, votesWord, type ChartHandle } from "./chart";
 import { loadSnapshot, type Snapshot } from "./source";
+import { REPO_URL } from "../tools/docs";
 import {
   CONSENSUS,
   CONSENSUS_PCT,
@@ -134,6 +135,21 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
             and they report. The CSV and JSON give them positions, times and vote counts to start from; the full list
             of objects to check can be downloaded from <a href="#/tools">Tools and data</a>.</p>
         </div>
+      </section>
+
+      <section class="cm-open cm-next" aria-labelledby="cm-open-h">
+        <h2 id="cm-open-h">Anyone can use this list</h2>
+        <p class="cm-sub">The objects to check, their positions and times, the measured motion with its error, the
+          cautions against each one, and the vote counts are all public. No account, no API key.</p>
+        <p class="cm-honest">Download the current list as CSV or JSON above. The site's own data files are plain
+          JSON at stable addresses, so a script can fetch exactly what this page reads.
+          <a href="#/tools">Tools and data</a> has working examples, the endpoints the live service exposes, and the
+          commands to rerun the pipeline from <a href="${REPO_URL}" target="_blank" rel="noopener">the
+          repository</a>.</p>
+        <p class="cm-honest">The SPHEREx images are already open at IRSA. What SkyShift adds is the layer on top:
+          positions matched across visits, motion measured with its error, catalogue cross-checks, the artefact
+          cautions, and the judgement of the people who looked. We publish that layer as it stands, including the
+          entries people have voted down.</p>
       </section>
 
       <div class="cm-pair">

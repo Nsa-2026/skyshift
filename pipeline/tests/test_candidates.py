@@ -275,7 +275,66 @@ def test_build_end_to_end(tmp_path):
     assert small["synthetic"] is False and small["counts"] == doc["counts"] and len(small["candidates"]) <= len(cs)
 
 
+def test_source_without_a_usable_spectrum(tmp_path):
+    """No channel with positive, finite S/N in any detector: det, snr and flux_ujy are None in source_stats (not D1,
+    S/N 0 from the argmax of six zeros); the export writes snr and flux_ujy null and the default detector."""
+    store = Store(str(tmp_path / "bucket"))
+    _zone_files(store, "hunt", 125.0, 20.0, with_extra_mover=False)
+    n = NDET * NCH_DET
+    good = np.full(n, 10.0)
+    good[5 * NCH_DET:] = 50.0                                         # brightest in D6
+    flux = np.stack([good, np.full(n, np.nan), np.full(n, -5.0), np.zeros(n), np.full(n, 5.0)])
+    err = np.stack([np.ones(n), np.ones(n), np.ones(n), np.ones(n), np.zeros(n)])
+    _write(store, results_rel("hunt", "sources.parquet"), pd.DataFrame({
+        # 100 is the zone's high_pm source: all NaN; 101 negative, 102 zero, 103 flux with zero errors; 99 the control
+        "source_id": [99, 100, 101, 102, 103], "ra": [125.3, 125.1, 125.2, 125.3, 125.4], "dec": [20.0] * 5,
+        "flux_ujy": list(flux), "err_ujy": list(err), "saturated": [False] * 5, "variable": [False] * 5}))
+    st = K.source_stats(store, "hunt", np.array([99, 100, 101, 102, 103])).set_index("source_id")
+    assert st.loc[99, "det"] == 6 and st.loc[99, "snr"] == pytest.approx(50.0 * np.sqrt(NCH_DET))
+    assert st.loc[99, "flux_ujy"] == 50.0
+    for sid in (100, 101, 102, 103):
+        assert pd.isna(st.loc[sid, "det"]) and np.isnan(st.loc[sid, "snr"]) and np.isnan(st.loc[sid, "flux_ujy"]), sid
+    doc = K.build(store, ["hunt"])
+    hp = next(c for c in doc["candidates"] if c["kind"] == "high_pm")
+    assert hp["id"] == "hunt-pm-100"
+    assert hp["snr"] is None and hp["flux_ujy"] is None and hp["det"] == K.DEFAULT_DET
+    assert json.loads(K.dumps(doc)) == doc                            # no NaN reaches the file
+
+
 def test_zone_boxes_order():
     # the hunt box contains the pilot box: hunt first
     h, p = ZONES["hunt"], ZONES["pilot"]
     assert h.ra_min <= p.ra_min and h.ra_max >= p.ra_max and h.dec_min <= p.dec_min and h.dec_max >= p.dec_max
+
+
+def test_movers_carry_the_suspects_grade():
+    """grade and the failed gates come from suspects.parquet; grade C scores x MOVER_GRADE_C; ungraded zones give null."""
+    s = _suspects([{"id": "a", "ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1,
+                    "grade": "B", "reasons": np.array([], dtype=object)},
+                   {"id": "b", "ra": 125.1, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1,
+                    "grade": "C", "reasons": np.array(["hot_pixel", "edge"], dtype=object)}])
+    a, b = K.movers(s, "hunt", None)
+    assert a["grade"] == "B" and b["grade"] == "C" and b["reasons"][-2:] == ["hot_pixel", "edge"]
+    assert b["score"] == pytest.approx(a["score"] * K.MOVER_GRADE_C)
+    assert set(b["reasons"]) <= set(K.REASONS["mover"])
+    old = K.movers(s.drop(columns=["grade", "reasons"]), "hunt", None)
+    assert old[0]["grade"] is None and old[1]["score"] == pytest.approx(a["score"])
+
+
+def test_grade_a_movers_name_their_track(monkeypatch):
+    """grade A (suspects.py: on a tracklets track): kept as A, `why` names the track, and its own two dots' weak motion
+    gives no motion_not_significant; a B with the same dots does get it."""
+    row = {"ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1,
+           "reasons": np.array([], dtype=object)}
+    s = _suspects([{**row, "id": "a", "grade": "A"}, {**row, "id": "b", "ra": 125.1, "grade": "B"}])
+    s["n_sessions"] = pd.array([3, None], dtype="Int16")  # as suspects.parquet: null off a track
+    s["rate_arcsec_h"], s["pa_deg"], s["rate_sigma"] = [25.0, np.nan], [80.0, np.nan], [0.5, np.nan]
+    monkeypatch.setattr(K, "match_mover", lambda *a, **k: pd.DataFrame({"mjd": [61000.0, 61000.0 + 2.1 / 1440]}))
+    monkeypatch.setattr(K, "motion", lambda d: (1.0, 1.0, 45.0))  # 1″/h ± 1″/h: not significant on its own
+    a, b = K.movers(s, "hunt", pd.DataFrame({"sid": [0, 1]}))
+    assert a["grade"] == "A" and "motion_not_significant" not in a["reasons"]
+    assert "followed over 3 sessions of its visit at 25.0″ an hour, 50σ" in a["why"]
+    assert b["grade"] == "B" and "motion_not_significant" in b["reasons"] and "followed" not in b["why"]
+    assert a["score"] == pytest.approx(b["score"] / K.MOVER_NO_MOTION)
+    assert a["rate_arcsec_h"] == 1.0 and a["pa_deg"] == 45.0  # contract: from its own dots
+    assert K.mover_track(next(s.drop(columns=["n_sessions"]).itertuples())) is None  # no track columns: as before

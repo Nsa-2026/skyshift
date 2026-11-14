@@ -21,6 +21,12 @@
 .kind-glyph path {
   fill: var(--kind-c, var(--ink-2));
 }
+/* Grade C (failed a vetting check): the same shape, in grey. */
+.kind-glyph.is-gradec path,
+.sm-pt.is-gradec {
+  fill: var(--ink-3);
+  fill-opacity: 0.75;
+}
 
 .page-discover {
   padding-top: var(--s4);
@@ -778,6 +784,53 @@
 .fchip.is-caution {
   color: var(--ink);
   box-shadow: inset 0 0 0 1px rgba(207, 35, 56, 0.45);
+}
+/* The vetting grade (src/api/grades.ts). A: ink, the strongest; B: a quiet outline; C: grey text.
+   The words carry the grade: colour is never the only cue. */
+.tag-grade {
+  white-space: normal;
+  line-height: 1.3;
+  padding: 2px 8px;
+}
+.tag-grade.is-A {
+  background: var(--ink);
+  color: var(--glass);
+}
+.tag-grade.is-B {
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1.5px var(--ink-2);
+}
+.tag-grade.is-C {
+  color: var(--ink-2);
+  background: var(--sheet-2);
+}
+/* Grade C rows: greyed (quieter ink and a faded plate), still readable and still a link. */
+.dv-row.is-gradec .dv-kind,
+.dv-row.is-gradec .dv-why,
+.dv-row.is-gradec .m1 {
+  color: var(--ink-2);
+}
+.dv-row.is-gradec .dv-thumb {
+  opacity: 0.55;
+}
+.dv-row.is-gradec .kind-glyph {
+  opacity: 0.6;
+}
+.dv-gradec {
+  margin-top: 3px;
+  max-width: 62ch;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+.dv-grades {
+  max-width: 68ch;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.dv-grades-a {
+  color: var(--ink);
+  font-weight: 600;
 }
 .fchip.is-caution[aria-pressed="true"] .caution-mark {
   border-color: #ff8a98;

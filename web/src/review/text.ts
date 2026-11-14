@@ -1,5 +1,6 @@
 // Plain words and numbers for candidates: kind names and icons, reason chips, caution footnotes,
 // measurements with units. Pure (strings only), so the pages and the tests share one wording.
+import { gateText, isGate } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { DETECTORS, formatMjd } from "../app/astro";
 import { paWord } from "../card/format";
@@ -91,6 +92,8 @@ export const REASON_TEXT: Record<string, { chip: string; tone: "for" | "doubt" |
 };
 
 export function reasonText(code: string): { chip: string; tone: "for" | "doubt" | "info"; tip: string } {
+  // A failed vetting check (grade C): a reason for doubt, in plain words.
+  if (!REASON_TEXT[code] && isGate(code)) return { chip: gateText(code).label, tone: "doubt", tip: gateText(code).plain };
   return (
     REASON_TEXT[code] ?? {
       chip: code.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),

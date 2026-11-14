@@ -3,6 +3,23 @@
 import { esc, fmtAbout, fmtAgo, fmtClock, fmtCount, fmtDec, fmtDuration, fmtPct, fmtRa, fmtTimePair, numberWord } from "./format";
 import type { Suspect } from "../api/types";
 import {
+  FILE_PROVISIONAL_TEXT,
+  NEAR_SOURCE_HINT,
+  failedGates,
+  gateText,
+  gradeALine,
+  gradeBCLine,
+  gradeCSentence,
+  gradeLabel,
+  gradeOf,
+  nearSourceOf,
+  nearSourceText,
+  trackOf,
+  trackText,
+  vetoesText,
+} from "../api/grades";
+import type { ZoneSuspects } from "./load";
+import {
   isProvisional,
   workerOf,
   zoneArea,
@@ -322,11 +339,45 @@ export function zonePanelHtml(z: SkyZone, now: number, notes: SkyNotes = NO_NOTE
 }
 
 /** What the zone panel's suspects list shows while it loads, if it fails, and once it's there. */
-export type SuspectsState = { status: "loading" } | { status: "error" } | { status: "ok"; rows: Suspect[] };
+export type SuspectsState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ok"; rows: Suspect[]; file?: Pick<ZoneSuspects, "grades" | "vetoes" | "provisional" | "gates"> };
 
 export const TOP_SUSPECTS = 8;
 
-/** The top suspects by S/N, each with a Blink on the Hours clock at its detector. */
+/** The vetting's zone totals: 0 A said as the expected result, B and C, what was checked, why C. */
+export function gradesHtml(file: Pick<ZoneSuspects, "grades" | "vetoes" | "provisional" | "gates">): string {
+  const n = file.grades;
+  const vetoes = vetoesText(file.vetoes);
+  const parts: string[] = [];
+  if (n) {
+    parts.push(html`<p class="lv-grades-a">${esc(gradeALine(n.A))}</p>`);
+    parts.push(html`<p class="lv-note lv-grades-bc">${esc(gradeBCLine(n))} Grade C stays listed, greyed, with its reasons.</p>`);
+  }
+  if (vetoes) parts.push(html`<p class="lv-note">Every suspect here was checked against ${esc(vetoes)}.</p>`);
+  if (file.provisional) parts.push(html`<p class="lv-prov-note">${esc(FILE_PROVISIONAL_TEXT)}</p>`);
+  if (n && n.C > 0 && file.gates.length)
+    parts.push(html`<details class="lv-gates"><summary>Why ${fmtCount(n.C)} ${n.C === 1 ? "is" : "are"} grade C</summary>
+      <ul>${file.gates.map(([code, k]) => html`<li title="${esc(gateText(code).plain)}"><span>${esc(gateText(code).label)}</span><span class="lv-gates-n">${fmtCount(k)}</span></li>`).join("")}</ul>
+      <p class="lv-note">A suspect can fail several checks.</p></details>`);
+  return parts.length ? html`<div class="lv-grades">${parts.join("")}</div>` : "";
+}
+
+/** One suspect's grade and warnings, in words (grey for C): nothing for an ungraded row. */
+function suspectGradeHtml(r: Suspect): string {
+  const g = gradeOf(r);
+  const lines: string[] = [];
+  if (g === "C") lines.push(html`<span class="lv-sus-grade">${esc(gradeCSentence(failedGates(r)))}</span>`);
+  else if (g) lines.push(html`<span class="lv-sus-grade">${esc(gradeLabel(g))}</span>`);
+  const near = nearSourceOf(r);
+  const t = trackOf(r);
+  if (t) lines.push(html`<span class="lv-sus-track">${esc(trackText(t))}</span>`);
+  if (near != null) lines.push(html`<span class="lv-sus-near" title="${esc(NEAR_SOURCE_HINT)}">${esc(nearSourceText(near))}</span>`);
+  return lines.join("");
+}
+
+/** The top suspects (by grade, then S/N), each with a Blink on the Hours clock at its detector. */
 export function suspectsHtml(z: SkyZone, s: SuspectsState, notes: SkyNotes = NO_NOTES): string {
   const prov = isProvisional(z);
   const note = prov
@@ -335,14 +386,18 @@ export function suspectsHtml(z: SkyZone, s: SuspectsState, notes: SkyNotes = NO_
   const head = `<h3 class="lv-h">${prov ? "Provisional suspects, before the WISE check" : "Top suspects"}</h3>${note}`;
   if (s.status === "loading") return `${head}<p class="lv-note">Loading this zone's suspects…</p>`;
   if (s.status === "error") return `${head}<p class="lv-note">This zone's suspects couldn't be loaded. They appear here once the file is published.</p>`;
-  if (!s.rows.length) return `${head}<p class="lv-note">No suspects in this zone.</p>`;
+  const vetting = s.file ? gradesHtml(s.file) : "";
+  if (!s.rows.length) return `${head}${vetting}<p class="lv-note">No suspects in this zone.</p>`;
+  const graded = s.rows.some((r) => gradeOf(r) !== null);
   const top = s.rows.slice(0, TOP_SUSPECTS);
   const items = top
     .map((r, i) => {
       const flux = Number.isFinite(r.flux_ujy) ? `, ${fmtCount(Math.round(r.flux_ujy))} µJy` : "";
-      return html`<li class="lv-sus-row">
-        <span class="lv-sus-pos">RA ${r.ra.toFixed(4)}°, Dec ${r.dec < 0 ? "\u2212" : "+"}${Math.abs(r.dec).toFixed(4)}°</span>
+      const c = gradeOf(r) === "C";
+      return html`<li class="lv-sus-row${c ? " is-gradec" : ""}">
+        <span class="lv-sus-pos">RA ${r.ra.toFixed(4)}°, Dec ${r.dec < 0 ? "−" : "+"}${Math.abs(r.dec).toFixed(4)}°</span>
         <span class="lv-sus-meta">D${esc(r.det)}, S/N ${fmtCount(Math.round(r.snr))}${flux}</span>
+        ${suspectGradeHtml(r)}
         <button type="button" class="btn btn-ghost lv-sus-blink" data-sus="${i}" data-key="s-${esc(r.id)}" aria-label="Blink ${prov ? "provisional " : ""}suspect ${i + 1} on the Hours clock">Blink</button>
       </li>`;
     })
@@ -350,7 +405,10 @@ export function suspectsHtml(z: SkyZone, s: SuspectsState, notes: SkyNotes = NO_
   const all = z.suspects_url
     ? ` <a href="${esc(z.suspects_url)}" target="_blank" rel="noopener">All ${fmtCount(s.rows.length)} as JSON</a>.`
     : "";
-  return html`${head}
-    <p class="lv-note">The ${top.length} with the highest S/N of ${fmtCount(s.rows.length)}, marked on the map ${prov ? "as hollow red rings" : "in solid red"}.${all} High S/N doesn't mean real: in the hunt zone, all 8 brightest were artefacts, so blink before you trust one.</p>
+  const lead = graded
+    ? `The first ${top.length} of ${fmtCount(s.rows.length)} by vetting grade, then S/N, marked on the map ${prov ? "as hollow red rings" : "in solid red"} (grade C in grey).${all} Grade B passes every check but can't show motion yet: blink before you trust one.`
+    : `The ${top.length} with the highest S/N of ${fmtCount(s.rows.length)}, marked on the map ${prov ? "as hollow red rings" : "in solid red"}.${all} High S/N doesn't mean real: in the hunt zone, all 8 brightest were artefacts, so blink before you trust one.`;
+  return html`${head}${vetting}
+    <p class="lv-note">${lead}</p>
     <ol class="lv-sus-list">${items}</ol>`;
 }

@@ -8,14 +8,19 @@ A zone is finished when results/<zone>/suspects.parquet exists (`suspects` is th
 Three kinds:
 - mover     results/<zone>/suspects.parquet (movers no catalogue explains), clock hours. The rate and
             direction come from the mover's own dots, re-read from dots/ for the exposures it was seen in.
-- high_pm   results/<zone>/highpm_candidates.parquet, every row, clock months. The pipeline's vetting
-            reasons are kept as reason codes; nothing is dropped.
+- high_pm   results/<zone>/highpm_candidates.parquet, the `vetted` rows (highpm_leads), clock months: known
+            Gaia stars whose motion we confirm, and new ones that passed the catalogue checks. Unvetted rows
+            (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
 Movers carry three zone-level "check first" codes: outlier_flag, detector_excess, repeat_position.
+Movers also carry the suspects' vetting (vet.py): `grade` (A/B/C; null for other kinds and ungraded zones) and the failed
+gates as reason codes; grade C scores × MOVER_GRADE_C and the list puts movers in grade order, so C never leads.
+Grade A (suspects.py: on a tracklets track over >= 2 sessions at >= 5σ) leads; its `why` names the track and it never
+gets motion_not_significant (its own one-session dots may not show the motion; the track does).
 `score` (0-1, higher = more promising) is defined per kind in mover_score, highpm_score and
 spectral_score (formulas also in contracts/api.md). frames_url is set for candidates whose static frames
 exist next to the output (cand/<id>/frames.json, written by scripts/candidates/frames.py).
@@ -68,6 +73,7 @@ REPEAT_ARCSEC = 30.0           # mover reason repeat_position: another suspect o
 REPEAT_MAX_RATE = 2.0          # session, at an implied rate under this (″/h): a fixed or very slow source
 EXCESS_RATIO = 1.5             # mover reason detector_excess: in its (detector, visit) the zone's suspects per
 EXCESS_MIN_SUSPECTS = 5        # mover are >= 1.5x the zone's average, with at least 5 suspects there
+DEFAULT_DET = 2                # high_pm, spectral without a usable spectrum: contracts/api.md's default detector (v2)
 
 # --- scores -------------------------------------------------------------------------------------
 MOVER_SNR_SCALE = 15.0
@@ -80,6 +86,8 @@ MOVER_EXCESS = 0.6             # detector_excess
 MOVER_REPEAT = 0.3             # repeat_position
 MOVER_BAD_PIXELS = 0.8
 MOVER_NO_MOTION = 0.85
+MOVER_GRADE_C = 0.1            # the suspects' vetting graded it C (a failed gate or a catalogue source within 6″)
+GRADE_RANK = {"A": 0, "B": 1, "C": 2}  # list order inside each zone and kind; null (other kinds, ungraded) sorts with B
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
@@ -109,12 +117,13 @@ LABEL_TEXT = {"ch4": "methane", "h2o_ice": "water ice", "co2_ice": "CO₂ ice", 
 RECORD_FLAG_NAMES = {b: n.lower() for b, n in BIT_NAMES.items() if RECORD_BITS & (1 << b)}
 REASONS = {
     "mover": ("two_exposures", "two_detectors", "known_object_near", "motion_not_significant", "bad_pixels_near",
-              "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked"),
+              "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked",
+              *C.VET_GATES),  # the suspects' failed vetting gates (vet.py, contracts/api.md suspects.json)
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
                 "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
 }
-FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "snr", "flux_ujy", "rate_arcsec_h",
+FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
           "galactic_b", "labels", "reasons", "why", "flags", "frames_url")
 
@@ -279,7 +288,9 @@ def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
 
 def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
     """Per source: best detector by S/N of its spectrum (channels' S/N added in quadrature), that S/N, the
-    median channel flux there (µJy), saturated, variable."""
+    median channel flux there (µJy), saturated, variable. A source with no channel of positive, finite S/N in
+    any detector has no best detector: det, snr and flux_ujy are None (hunt, 14 Nov: 65 high_pm rows had been
+    written as D1, S/N 0, the argmax of six zeros)."""
     src = read_columns(store, results_rel(zone, "sources.parquet"),
                        ["source_id", "flux_ujy", "err_ujy", "saturated", "variable"], ids)
     if not len(src):
@@ -295,9 +306,18 @@ def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
             flux = np.nanmedian(f, axis=2)
     best = np.argmax(snr, axis=1)
     k = np.arange(len(src))
-    return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": best + 1, "snr": snr[k, best],
-                         "flux_ujy": flux[k, best], "saturated": src["saturated"].to_numpy(bool),
+    ok = snr[k, best] > 0
+    det = pd.array(best + 1, dtype="Int64")
+    det[~ok] = pd.NA
+    return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": det,
+                         "snr": np.where(ok, snr[k, best], np.nan), "flux_ujy": np.where(ok, flux[k, best], np.nan),
+                         "saturated": src["saturated"].to_numpy(bool),
                          "variable": src["variable"].to_numpy(bool) if "variable" in src else False})
+
+
+def _opt(x, kind=float):
+    """kind(x), or None for a missing value (None, NaN, pd.NA)."""
+    return None if x is None or pd.isna(x) else kind(x)
 
 
 def member_info(store: Store, zone: str, ids: np.ndarray, workers: int = 32) -> pd.DataFrame:
@@ -411,8 +431,21 @@ def _fmt_days(d: float) -> str:
     return f"{d * 24:.0f} hours" if d < 1.0 else f"{d:.1f} days"
 
 
+def mover_track(r) -> tuple[int, float, float] | None:
+    """(sessions, rate ″/h, rate / σ) of the tracklets track a grade A suspect is on (suspects.parquet's track columns);
+    None for other grades or without them."""
+    if getattr(r, "grade", None) != "A":
+        return None
+    n, rate, sig = getattr(r, "n_sessions", None), getattr(r, "rate_arcsec_h", None), getattr(r, "rate_sigma", None)
+    if n is None or rate is None or pd.isna(n) or pd.isna(rate):
+        return None
+    snr = float(rate) / float(sig) if sig is not None and pd.notna(sig) and float(sig) > 0 else math.inf
+    return int(n), float(rate), snr
+
+
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
-              no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None) -> str:
+              no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
+              track: tuple[int, float, float] | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -421,6 +454,10 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         if rate is not None:
             seen += (f", moving about {rate:.0f}″ an hour" if not no_motion
                      else f" (about {rate:.0f}″ an hour, not clearly more than its position errors)")
+    if track is not None:
+        n, trate, snr = track
+        sig = f", {snr:.0f}σ" if math.isfinite(snr) else ""
+        seen += f"; followed over {n} sessions of its visit at {trate:.1f}″ an hour{sig}"
     if nearest_known is None or not math.isfinite(nearest_known):
         known = "no known asteroid or comet was predicted within 10′"
     else:
@@ -444,7 +481,8 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             dots = match_mover(r.ra, r.dec, r.mjd, int(r.n_dots), near[near["sid"] == i])
         mo = motion(dots) if dots is not None else None
         rate, rate_err, pa = mo if mo else (None, None, None)
-        no_motion = bool(mo is not None and rate < RATE_SIGMA_MIN * rate_err)
+        track = mover_track(r)  # grade A: its motion is shown over sessions, whatever its own dots say
+        no_motion = bool(track is None and mo is not None and rate < RATE_SIGMA_MIN * rate_err)
         span_min = float((dots["mjd"].max() - dots["mjd"].min()) * 1440.0) if dots is not None else None
         nk = float(r.nearest_known_arcsec) if pd.notna(r.nearest_known_arcsec) else None
         f = int(r.flags) & 0xFFFFFFFF
@@ -467,20 +505,34 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             reasons.append("gaia_unchecked")
         if not getattr(r, "catwise_checked", True):
             reasons.append("catwise_unchecked")
+        grade = getattr(r, "grade", None)
+        grade = grade if isinstance(grade, str) and grade else None
+        vet_reasons = getattr(r, "reasons", None)
+        reasons += [str(x) for x in (vet_reasons if vet_reasons is not None and not isinstance(vet_reasons, float) else [])]
         score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion],
-                                  [excess], [rep_ is not None])[0])
+                                  [excess], [rep_ is not None])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
         out.append({
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
-            "zone": zone, "zones": [zone], "score": score, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
+            "zone": zone, "zones": [zone], "score": score, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
-            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_),
+            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track),
             "flags": record_flag_names(f), "_dets": dets,
         })
     return out
 
 
 # --- high proper motion ----------------------------------------------------------------------------
+def highpm_leads(h: pd.DataFrame) -> pd.DataFrame:
+    """The highpm rows worth a person's time: `vetted` only. The others are proven or likely fakes: a Gaia star
+    whose own motion (with its parallax) is not ours, a CatWISE motion that isn't ours, pairs at the chance level,
+    too few sessions, nothing to check an under-10σ motion against (highpm.py). Hunt, 14 Nov tables: 997 rows,
+    748 of them gaia_pm_disagrees; Gaia still stars with Gaia hidden show what the unvetted rows are."""
+    if not len(h) or "vetted" not in h:
+        return h
+    return h[h["vetted"].fillna(False).to_numpy(bool)].reset_index(drop=True)
+
+
 def highpm_reasons(r) -> list[str]:
     out = ["pm_pair" if r.method == "pair" else "pm_fit"]
     if bool(r.vetted):
@@ -691,7 +743,7 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
     """Everything cheap for one zone: suspects, highpm rows, the spectral selection, the zone's data release."""
     susp = store.read_parquet(results_rel(zone, "suspects.parquet"))
     hrel = results_rel(zone, "highpm_candidates.parquet")
-    h = store.read_parquet(hrel) if store.exists(hrel) else pd.DataFrame()
+    h = highpm_leads(store.read_parquet(hrel)) if store.exists(hrel) else pd.DataFrame()
     crel = results_rel(zone, "classes.parquet")
     cls = read_columns(store, crel, CLASS_COLUMNS) if store.exists(crel) else pd.DataFrame(columns=CLASS_COLUMNS)
     spec = select_spectral(cls, spectral_cap) if len(cls) else cls
@@ -761,7 +813,7 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
         sid = c["_sources"][0]
         if sid in st.index:
             r = st.loc[sid]
-            c["det"], c["snr"], c["flux_ujy"] = int(r["det"]), float(r["snr"]), float(r["flux_ujy"])
+            c["det"], c["snr"], c["flux_ujy"] = _opt(r["det"], int), _opt(r["snr"]), _opt(r["flux_ujy"])
             if c["kind"] == "spectral" and bool(r["variable"]):
                 c["reasons"].append("variable")
         names: list[str] = []
@@ -775,8 +827,8 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
             if sid in info.index:
                 c["mjd"] = float(info.loc[sid, "mjd"])
             c["catwise_match"] = bool(str(cw.get(sid, "") or "")) if len(cw) else False
-        if c["det"] is None:
-            c["det"] = 2
+        if c["det"] is None:  # no usable spectrum (or no sources row): contracts/api.md `det` is an int 1-6, never
+            c["det"] = DEFAULT_DET  # null, so the site's default detector; snr and flux_ujy stay null
 
 
 def build(store: Store, zones: list[str], frames_root: Path | None = None, workers: int = 32,
@@ -822,7 +874,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     for c, b_ in zip(kept, gb):
         c["galactic_b"] = float(b_)
     order = {z: i for i, z in enumerate(used_zones)}
-    kept.sort(key=lambda c: (order[c["zone"]], KINDS.index(c["kind"]), -c["score"], c["id"]))
+    kept.sort(key=lambda c: (order[c["zone"]], KINDS.index(c["kind"]), GRADE_RANK.get(c.get("grade"), 1), -c["score"], c["id"]))
     ids = [c["id"] for c in kept]
     if len(set(ids)) != len(ids):
         raise ValueError("candidate ids are not unique")

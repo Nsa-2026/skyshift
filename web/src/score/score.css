@@ -375,6 +375,63 @@
   white-space: normal !important;
 }
 
+/* ---- vetting grades: totals above the table, a grade column, grade C greyed ---- */
+.sc-vetting {
+  display: grid;
+  gap: var(--s1);
+  max-width: 72ch;
+}
+.sc-grades-a {
+  font-weight: 650;
+}
+.sc-gates {
+  margin-top: var(--s1);
+}
+.sc-gates summary {
+  cursor: pointer;
+  width: fit-content;
+  font-weight: 560;
+}
+.sc-gates dl {
+  display: grid;
+  gap: 2px;
+  margin: var(--s2) 0;
+  max-width: 44ch;
+}
+.sc-gates dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s4);
+  border-bottom: 1px solid var(--hair);
+  padding: 2px 0;
+}
+.sc-gates dd {
+  font-variant-numeric: tabular-nums;
+}
+.sc-grade {
+  min-width: 14ch;
+  max-width: 26ch;
+  white-space: normal !important;
+}
+.sc-grade-name {
+  display: block;
+  font-weight: 650;
+}
+.sc-near {
+  font-style: italic;
+}
+.sc-table tr.is-gradec > * {
+  color: var(--ink-2);
+}
+.sc-table tr.is-gradec .sc-sid-id,
+.sc-table tr.is-gradec .sc-grade-name {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.sc-table tr.is-gradec .sc-det i {
+  opacity: 0.5;
+}
+
 /* ---- phone: one column; the id and status become a line above the claim ---- */
 @media (max-width: 720px) {
   .sc {

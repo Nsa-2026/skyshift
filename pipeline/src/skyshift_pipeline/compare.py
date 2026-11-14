@@ -19,7 +19,8 @@ import pandas as pd
 from .store import Store, results_rel
 
 KEYS = {"fixed": ["source_id"], "members": ["source_id", "obs_id", "detector", "dot_row"],
-        "movers": ["session", "mjd", "ra", "dec"], "sources": ["source_id"], "crossids": ["source_id"],
+        "movers": ["session", "mjd", "ra", "dec"], "freedots": ["obs_id", "detector", "x", "y"],
+        "sources": ["source_id"], "crossids": ["source_id"],
         "classes": ["source_id"], "photoz": ["source_id"], "colours": ["source_id", "pair"],
         "lightcurves": ["source_id", "ref_id", "origin", "detector", "mjd", "flux_ujy"],
         "lightcurves_summary": ["source_id", "ref_id", "detector", "origin"], "astrometry": ["source_id"],
@@ -43,7 +44,10 @@ def _norm(df: pd.DataFrame) -> pd.DataFrame:
 
 def _values(x: np.ndarray) -> np.ndarray:
     if len(x) and isinstance(x[0], (list, np.ndarray)):
-        return np.concatenate([np.asarray(v, np.float64).ravel() for v in x]) if len(x) else np.zeros(0)
+        parts = [np.asarray(v).ravel() for v in x]
+        if any(p.dtype.kind in "OUS" for p in parts):  # lists of strings (movers' dot_obs, suspects' reasons)
+            return np.concatenate([p.astype(str) for p in parts])
+        return np.concatenate([p.astype(np.float64) for p in parts])
     return x
 
 

@@ -107,7 +107,20 @@ The server caches in `~/.cache/skyshift` unless `SKYSHIFT_CACHE` is set. Without
 settings (`VITE_FIREBASE_*` in `web/.env`) the vote panel runs in local mode: flags and votes stay
 in your browser.
 
-Tests: `uv run pytest` in `core/`, `pipeline/`, `server/` and `scripts/validate/`; `npm test` in `web/`.
+### Use SkyShift from an AI assistant (MCP)
+
+`mcp/` is an MCP server that lets Claude, Cursor or any MCP client browse the candidates, look at
+blink frames (as images), measure motion and check known asteroids. It reads the public site, so
+it needs no key and runs on your machine:
+
+```sh
+claude mcp add skyshift -- uv run --project mcp skyshift-mcp
+```
+
+Then ask, for example, "Show me SkyShift's best fast mover that no known asteroid explains."
+Tools and setup for Claude Desktop: [mcp/README.md](mcp/README.md).
+
+Tests: `uv run pytest` in `core/`, `pipeline/`, `server/`, `mcp/` and `scripts/validate/`; `npm test` in `web/`.
 Deploys also need the Google Cloud CLI and the Firebase CLI (`infra/`).
 
 ## Repository layout
@@ -117,6 +130,7 @@ Deploys also need the Google Cloud CLI and the Firebase CLI (`infra/`).
 | `core/` | Shared science code: visit rule, flag masks, detection, centroids, shifts, photometry |
 | `pipeline/` | The pilot run and the asteroid hunt zone on cloud machines |
 | `server/` | FastAPI app on Cloud Run; builds blink frames for any coordinates |
+| `mcp/` | MCP server: SkyShift's candidates, blink frames and measurements as tools for AI assistants |
 | `web/` | Vite + TypeScript app: sky view, blink player, cards, votes, scoreboard |
 | `scripts/` | Validation (`validate/`), static export of the featured targets (`precompute/`), science checks (`science/`) |
 | `contracts/` | The interfaces every part agrees on: `api.md`, `flags.md`, `dots.md` |

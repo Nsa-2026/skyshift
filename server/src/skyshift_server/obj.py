@@ -16,9 +16,11 @@ visit, saturated (OVERFLOW or NONLINEAR in the core). Three ways to measure, per
   R Draconis's aperture is masked in every exposure, so it had no spectrum at all;
 - a Gaia star 5-15" away at that time: a joint fit of both at their known positions
   (blended_photometry). WISE 0855-0714 passes a G = 16.3 star (11" -> 4" over the visits),
-  which put ~1 mJy into D1-D3, where a 250 K brown dwarf is dark.
+  which put ~1 mJy into D1-D3, where a 250 K brown dwarf is dark. For a built-in target Gaia
+  doesn't see, with its own proper motion and parallax, the fit goes down to 3.5" (blend_min_arcsec):
+  that brings back WISE 0855's visit 3, when the star is 3.9-4.3" away.
 A point that can't be measured honestly (a masked but unsaturated core, a neighbour closer than
-5" to a source Gaia doesn't see) is left out rather than shown wrong.
+5" to a source Gaia doesn't see, 3.5" for such a built-in target) is left out rather than shown wrong.
 
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
 native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. Its detection guard
@@ -174,6 +176,10 @@ WING_SYSTEMATIC = 0.5
 # --- Photometry next to a Gaia star: a joint fit --------------------------------------------------
 BLEND_ARCSEC = 15.0  # a Gaia star closer than this puts light into the r = 2 px (12.3") aperture
 BLEND_MIN_ARCSEC = 5.0  # closer than this, two sources can't be told apart at 6.15" pixels
+# ... unless both positions are known to well under a pixel: a built-in target Gaia doesn't see,
+# with its own proper motion and parallax (blend_min_arcsec). WISE 0855 in visit 3, its Gaia
+# neighbour 3.9-4.3" away: the fit agrees with visits 1-2, errors grow 1.3-1.4x against 8" (#143).
+BLEND_MIN_ARCSEC_BUILTIN = 3.5
 BLEND_IGNORE_DMAG = 4.0  # a neighbour this much fainter in G than a Gaia target is ignored
 BLEND_FIT_R_PX = 3.5
 # Pixel-integrated Gaussian per detector (sigma px, aperture flux / Gaussian amplitude), fitted to
@@ -395,10 +401,29 @@ def blend_candidates(stars: list[dict[str, Any]], model: dict[str, Any] | None, 
     return out
 
 
+def blend_min_arcsec(model: dict[str, Any] | None) -> float:
+    """Closest Gaia neighbour the joint fit is trusted at, for this target.
+
+    BLEND_MIN_ARCSEC_BUILTIN for a built-in target (a `slug` from targets.json) that Gaia doesn't
+    see (no Gaia id) and has its own proper motion and parallax: its position at each exposure
+    comes from its own astrometry (WISE 0855: 8.1"/yr, parallax 449 mas, from the literature), as
+    the neighbour's comes from Gaia, so a fit with both positions fixed can split them at 0.6 px.
+    BLEND_MIN_ARCSEC for everything else: a typed position
+    or a Gaia-less source found by chance can be off by an arcsec, and with a fixed position that
+    far off the fit moves flux between the two sources. (A Gaia target keeps its closer companions
+    inside its own aperture, as one blend, whatever this says: point_photometry.)"""
+    m = model or {}
+    if (m.get("slug") and not m.get("id")
+            and all(m.get(k) is not None for k in ("pmra", "pmdec", "parallax"))):
+        return BLEND_MIN_ARCSEC_BUILTIN
+    return BLEND_MIN_ARCSEC
+
+
 def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, float, float]],
-                     target_in_gaia: bool) -> tuple[float, float] | None:
+                     target_in_gaia: bool, min_sep: float = BLEND_MIN_ARCSEC) -> tuple[float, float] | None:
     """(flux, error) in uJy for one spectrum point, or None when it can't be measured honestly.
-    See the module docstring for the three ways."""
+    See the module docstring for the three ways. min_sep: neighbours at least this far are fitted
+    jointly (blend_min_arcsec); a closer one next to a target Gaia doesn't see drops the point."""
     conv = ujy_per_mjysr(l2.wcs, x, y)
     det = int(l2.detector)
     ny, nx = l2.data.shape
@@ -413,10 +438,10 @@ def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, 
         # A masked core that isn't saturated (a cosmic ray, a bad pixel): the aperture would read
         # low, and a wing estimate's 50% error would draw a detected source as an upper limit.
         return None
-    close = [n for n in neighbours if n[0] < BLEND_MIN_ARCSEC]
+    close = [n for n in neighbours if n[0] < min_sep]
     if close and not target_in_gaia:
-        return None  # e.g. WISE 0855 4" from a G = 16 star: the blend is mostly the star
-    fit = [n for n in neighbours if n[0] >= BLEND_MIN_ARCSEC]
+        return None  # e.g. a typed position 4" from a G = 16 star: the blend is mostly the star
+    fit = [n for n in neighbours if n[0] >= min_sep]
     if fit:  # (a Gaia target's companion closer than 5" stays in, as one blend: RW Aur A+B)
         others = [tuple(float(v) for v in sky_to_pixel(l2.wcs, n[1], n[2])) for n in fit]
         return blended_photometry(l2.data, l2.flags, l2.variance, x, y, others, det, conv)
@@ -437,7 +462,8 @@ def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any]
     gave no point, as "saturated" (OVERFLOW or NONLINEAR in the core) or "other"."""
     out = []
     target_in_gaia = bool(model and model.get("g") is not None)
-    mjds = [l2.mjd_avg for l2 in l2s if l2 is not None]
+    min_sep = blend_min_arcsec(model)
+    mjds =[l2.mjd_avg for l2 in l2s if l2 is not None]
     near = blend_candidates(stars or [], model, min(mjds), max(mjds)) if mjds and positions is None else []
     for i, (im, l2) in enumerate(zip(images, l2s)):
         if l2 is None:
@@ -458,7 +484,7 @@ def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any]
             continue
         nb = neighbours_at(near, model, l2.mjd_avg, r, d) if near else []
         try:
-            got = point_photometry(l2, x, y, nb, target_in_gaia)
+            got = point_photometry(l2, x, y, nb, target_in_gaia, min_sep)
         except Exception as e:  # noqa: BLE001 - one bad cutout must not lose the spectrum
             log.warning("photometry failed on %s: %s", im.key, e)
             if dropped is not None:
@@ -710,6 +736,8 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     if budget is not None and budget.partial and not spectrum and result is None:
         raise BudgetError("the SPHEREx archive did not deliver in time "
                           f"({budget.elapsed():.0f} s); try again in a minute: what arrived is kept")
+    if found.note and budget is not None:  # photos not from IRSA (search_fallback.py): never cached
+        budget.cut(found.note)
     return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum,
             "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result,
             "measure_reason": reason, "measure_hint": hint}

@@ -510,7 +510,9 @@ def limits(u: pd.DataFrame, det_sigma: dict[int, float]) -> dict:
 def vs_recall(store: Store, zone: C.Zone, u: pd.DataFrame) -> dict | None:
     """The zone's measured known-asteroid recall (recall.json, V < SCORE_V_MAX) next to the synthetic one at the rates
     and S/N of those asteroids (INJECT_RECALL_RATES, S/N >= INJECT_PLATEAU_SNR): their ratio is how optimistic the
-    injection is (missing dots, masks and artefacts it doesn't model)."""
+    injection is (missing dots, masks and artefacts it doesn't model). Synthetic objects count as found by a mover only,
+    so the measured side is `recall_movers` (movers alone) when recall.json has it; `recall` also counts the dots
+    tracklets recovered (older files have only `recall`, which was movers alone). `recall_field` says which."""
     rel = results_rel(zone.name, "recall.json")
     try:
         rec = store.read_json(rel) if store.exists(rel) else None
@@ -520,10 +522,13 @@ def vs_recall(store: Store, zone: C.Zone, u: pd.DataFrame) -> dict | None:
     m = (u["rate"].to_numpy() >= lo) & (u["rate"].to_numpy() < hi) & (u["snr"].to_numpy() >= C.INJECT_PLATEAU_SNR)
     syn = _frac(u["outcome"].to_numpy()[m] == "mover")
     out = {"rates_arcsec_h": [lo, hi], "snr_min": C.INJECT_PLATEAU_SNR, "n_units": int(m.sum()), "synthetic": syn}
-    if rec and rec.get("recall") is not None:
-        out.update({"recall": rec["recall"], "recall_n": rec.get("n_known"), "recall_v_max": rec.get("v_max"),
+    field = "recall_movers" if rec and rec.get("recall_movers") is not None else "recall"
+    if rec and rec.get(field) is not None:
+        r = rec[field]
+        out.update({"recall": r, "recall_field": field, "recall_n": rec.get("n_known"), "recall_v_max": rec.get("v_max"),
                     "dot_share": rec.get("dot_share"),
-                    "ratio": round(rec["recall"] / syn, 4) if syn else None})
+                    **({"recall_with_tracks": rec.get("recall")} if field == "recall_movers" else {}),
+                    "ratio": round(r / syn, 4) if syn else None})
     return out
 
 

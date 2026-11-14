@@ -183,3 +183,21 @@ def test_vs_recall_reads_the_zone_recall(root):
     inject.run(root, ZONE, workers=2, rounds=1, n_objects=200, side_deg=0.8)
     v = root.read_json(results_rel(ZONE.name, "completeness.json"))["vs_recall"]
     assert v["recall"] == 0.9 and v["n_units"] > 0 and v["ratio"] == pytest.approx(0.9 / v["synthetic"], abs=1e-3)
+
+
+def test_vs_recall_compares_movers_alone_when_recall_json_has_them(tmp_path):
+    """recall.json `recall` also counts tracklets' recovered dots; the synthetic side is movers only, so vs_recall uses
+    `recall_movers` when present and the old `recall` otherwise."""
+    store = Store(str(tmp_path))
+    u = pd.DataFrame({"rate": [20.0] * 4 + [200.0], "snr": [50.0] * 5, "outcome": ["mover"] * 3 + ["fixed", "mover"]})
+    rel = results_rel(ZONE.name, "recall.json")
+    store.write_json(rel, {"recall": 0.947, "recall_movers": 0.904, "n_known": 457, "v_max": 16.0, "dot_share": 0.97})
+    v = inject.vs_recall(store, ZONE, u)
+    assert v["synthetic"] == 0.75 and v["n_units"] == 4
+    assert v["recall"] == 0.904 and v["recall_field"] == "recall_movers" and v["recall_with_tracks"] == 0.947
+    assert v["ratio"] == pytest.approx(0.904 / 0.75, abs=1e-4) and v["recall_n"] == 457
+    store.write_json(rel, {"recall": 0.9, "n_known": 100, "v_max": 16.0})  # before tracklets: recall was movers alone
+    v = inject.vs_recall(store, ZONE, u)
+    assert v["recall"] == 0.9 and v["recall_field"] == "recall" and "recall_with_tracks" not in v
+    assert inject.vs_recall(Store(str(tmp_path / "none")), ZONE, u) == {
+        "rates_arcsec_h": list(C.INJECT_RECALL_RATES), "snr_min": C.INJECT_PLATEAU_SNR, "n_units": 4, "synthetic": 0.75}

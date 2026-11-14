@@ -137,3 +137,85 @@ describe("the Candidates page", () => {
     expect(el.querySelector("[data-note]")?.textContent).toContain("Sample data from the pilot zone");
   });
 });
+
+describe("the Candidates page with vetting grades", () => {
+  /** The fixture's 27 fast movers graded: one C (hot pixel, edge), one left ungraded, the rest B; 0 A. */
+  function graded(): CandidatesResponse {
+    const d = structuredClone(data);
+    const movers = d.candidates.filter((c) => c.kind === "mover");
+    movers.forEach((m, i) => {
+      if (i === 1) {
+        m.grade = "C";
+        m.reasons = ["two_exposures", "hot_pixel", "edge"];
+      } else if (i !== 2) m.grade = "B";
+    });
+    return d;
+  }
+  const ids = (el: HTMLElement) => [...el.querySelectorAll(".dv-row")].map((r) => r.getAttribute("data-id"));
+
+  beforeEach(() => loadCandidates.mockResolvedValue(graded()));
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("says 0 grade A as the expected result, with the B and C totals", async () => {
+    const { el } = await mount();
+    const g = el.querySelector<HTMLElement>("[data-grades]")!;
+    expect(g.hidden).toBe(false);
+    expect(g.querySelector(".dv-grades-a")?.textContent).toBe(
+      "0 candidate movers (grade A). Expected: proving motion needs a track over several sessions.",
+    );
+    expect(g.textContent).toContain("25 unexplained single-session sources (grade B) and 1 that fails a check (grade C), shown greyed and not put to a vote.");
+    expect(g.textContent).toContain("1 fast mover isn't vetted yet.");
+  });
+
+  it("greys a grade C row, says what it failed in words, and asks no vote", async () => {
+    const { el } = await mount("#/candidates/grade=C");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("1 of 194 objects");
+    const row = el.querySelector(".dv-row")!;
+    expect(row.classList.contains("is-gradec")).toBe(true);
+    expect(row.querySelector(".tag-grade")?.textContent).toBe("Grade C");
+    expect(row.querySelector(".dv-gradec")?.textContent).toBe(
+      "Fails a check: on a hot pixel and at the detector edge. Open it to blink; it isn't put to a vote.",
+    );
+    expect(row.textContent).not.toMatch(/hot_pixel/);
+    expect(row.querySelector(".dv-votes")?.textContent).toContain("Not put to a vote");
+    expect([...el.querySelectorAll(".achip")].map((b) => b.textContent)).toEqual(["Grade C: fails a check"]);
+  });
+
+  it("filters by grade, with counts, and keeps 'No grade' for everything not vetted", async () => {
+    const { el } = await mount();
+    const b = el.querySelector<HTMLInputElement>('.fx input[value="B"]')!;
+    expect(b.closest("label")?.querySelector(".fx-n")?.textContent).toBe("25");
+    expect(el.querySelector('.fx[data-facet="grade"] input[value="none"]')?.closest("label")?.querySelector(".fx-n")?.textContent).toBe("168");
+    b.checked = true;
+    b.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(location.hash).toBe("#/candidates/grade=B");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("25 of 194 objects");
+    expect(el.querySelector(".dv-row .tag-grade")?.textContent).toBe("Grade B: unexplained single-session source");
+  });
+
+  it("puts grade C last under 'Pipeline score' and orders A, B, C, then ungraded under 'Vetting grade'", async () => {
+    const d = graded();
+    const movers = d.candidates.filter((c) => c.kind === "mover");
+    const [c, none] = [movers[1].id, movers[2].id];
+    let { el } = await mount("#/candidates/kind=mover");
+    expect(el.querySelector<HTMLSelectElement>(".dv-select")!.value).toBe("promising");
+    expect(ids(el).at(-1)).toBe(c);
+    document.body.innerHTML = "";
+    ({ el } = await mount("#/candidates/kind=mover&sort=grade"));
+    expect(el.querySelector<HTMLSelectElement>(".dv-select")!.value).toBe("grade");
+    expect(ids(el).slice(-2)).toEqual([c, none]);
+    const snr = (id: string | null) => d.candidates.find((x) => x.id === id)!.snr ?? 0;
+    const bs = ids(el).slice(0, 25).map(snr);
+    expect(bs).toEqual([...bs].sort((x, y) => y - x));
+  });
+
+  it("without grades in the list, shows no grade line, chip or greyed row (today's behaviour)", async () => {
+    loadCandidates.mockResolvedValue(structuredClone(data));
+    const { el } = await mount();
+    expect(el.querySelector<HTMLElement>("[data-grades]")!.hidden).toBe(true);
+    expect(el.querySelectorAll(".tag-grade, .is-gradec, .dv-gradec")).toHaveLength(0);
+    expect(el.querySelector('.fx input[value="B"]')).toBeNull();
+  });
+});

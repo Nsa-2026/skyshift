@@ -2,9 +2,13 @@
 // candidates. Every candidate is a point shaped by kind (circle, triangle, square: colour is never
 // the only cue); the filtered set is drawn in colour, the rest as faint context. Hover, focus and
 // the list highlight the same point.
+import { GRADE_TEXT, gradeLabel, gradeOf } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { formatRaDec } from "../app/astro";
 import { KIND_TEXT, KINDS } from "./text";
+
+/** Grade C points are greyed (the list and the tooltip say why in words). */
+const gradeCls = (c: Candidate) => (gradeOf(c) === "C" ? " is-gradec" : "");
 
 const D2R = Math.PI / 180;
 const html = String.raw;
@@ -358,7 +362,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const marks: string[] = [];
     for (let i = filtered.length - 1; i >= 0; i--) {
       const p = byId.get(filtered[i]);
-      if (p) marks.push(html`<path class="sm-pt kind-${p.c.kind}" d="${glyphPath(p.c.kind, p.sx, p.sy, rr)}"/>`);
+      if (p) marks.push(html`<path class="sm-pt kind-${p.c.kind}${gradeCls(p.c)}" d="${glyphPath(p.c.kind, p.sx, p.sy, rr)}"/>`);
     }
     parts.push(`<g class="sm-pts">${marks.join("")}</g>`);
     if (zoom === "sky") parts.push(zoneRings(pts));
@@ -407,6 +411,14 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const items = KINDS.filter((k) => total.get(k)).map(
       (k) => html`<li>${glyphSvg(k, 12)}<span>${KIND_TEXT[k].plural}</span><span class="sm-n">${(shown.get(k) ?? 0).toLocaleString("en-GB")} of ${(total.get(k) ?? 0).toLocaleString("en-GB")}</span></li>`,
     );
+    const gradeC = filtered.filter((id) => {
+      const p = byId.get(id);
+      return !!p && gradeOf(p.c) === "C";
+    }).length;
+    if (gradeC)
+      items.push(
+        html`<li>${glyphSvg("mover", 12, "is-gradec")}<span title="${escAttr(GRADE_TEXT.C.plain)}">Grey: grade C, fails a check</span><span class="sm-n">${gradeC.toLocaleString("en-GB")}</span></li>`,
+      );
     if (filtered.length < all.length)
       items.push(html`<li><svg class="kind-glyph" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle class="sm-ctx" cx="6" cy="6" r="2"/></svg><span>Not matching the filters</span></li>`);
     legend.innerHTML = items.join("");
@@ -422,7 +434,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       return;
     }
     const r = 7;
-    g.innerHTML = html`<circle class="sm-halo" cx="${p.sx.toFixed(1)}" cy="${p.sy.toFixed(1)}" r="${r + 5}"/><path class="sm-pt sm-pt-hot kind-${p.c.kind}" d="${glyphPath(p.c.kind, p.sx, p.sy, r)}"/>`;
+    g.innerHTML = html`<circle class="sm-halo" cx="${p.sx.toFixed(1)}" cy="${p.sy.toFixed(1)}" r="${r + 5}"/><path class="sm-pt sm-pt-hot kind-${p.c.kind}${gradeCls(p.c)}" d="${glyphPath(p.c.kind, p.sx, p.sy, r)}"/>`;
     const name = KIND_TEXT[p.c.kind]?.name ?? p.c.kind;
     tip.innerHTML = "";
     const head = document.createElement("p");
@@ -436,6 +448,13 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     why.className = "sm-tip-why";
     why.textContent = p.c.why;
     tip.append(head, pos, why);
+    const grade = gradeOf(p.c);
+    if (grade) {
+      const g = document.createElement("p");
+      g.className = "sm-tip-note";
+      g.textContent = grade === "C" ? `${GRADE_TEXT.C.short}: fails a check.` : `${gradeLabel(grade)}.`;
+      tip.append(g);
+    }
     const outside = p.sx < 0 || p.sx > W || p.sy < 0 || p.sy > H;
     if (outside) {
       const n = document.createElement("p");
