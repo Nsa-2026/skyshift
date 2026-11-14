@@ -91,12 +91,13 @@ MOVER_REPEAT = 0.3             # repeat_position
 MOVER_BAD_PIXELS = 0.8
 MOVER_NO_MOTION = 0.85
 MOVER_GRADE_C = 0.1            # the suspects' vetting graded it C (a failed gate or a catalogue source within 6″)
+MOVER_EDGE = 0.5               # a dot within VET_EDGE_PX of the detector edge (edge_dot), graded or not
 GRADE_RANK = {"A": 0, "B": 1, "C": 2}  # list order inside each zone and kind; null (other kinds, ungraded) sorts with B
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
                         "implausible_pm": 0.01}  # implausible_pm: to the bottom of the list
-HIGHPM_KNOWN_STAR = 0.6        # status "gaia": a catalogued star
+HIGHPM_KNOWN_STAR = 0.6        # status "gaia" or "2mass" (highpm's deep check): a catalogued star
 SPECTRAL_SIG_SCALE = 10.0
 SPECTRAL_WEIGHT = {"brown_dwarf_like": 1.0, "ch4": 1.0, "h2o_ice": 0.8, "co2_ice": 0.8, "co_ice": 0.8,
                    "h2o_vapour": 0.6, "co_23": 0.4, "pah_33": 0.3}
@@ -275,13 +276,14 @@ def match_mover(ra: float, dec: float, mjd: float, n_dots: int, near: pd.DataFra
 
 def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
     """(rate ″/h, its 1σ error, position angle east of north) from a weighted straight-line fit of
-    position against time; None with fewer than two distinct times."""
+    position against time; None with fewer than two distinct times. Position errors are the dots' pos_err_arcsec ×
+    POS_ERR_SCALE (raw pos_err is 1.4–1.8× too small against Gaia), 0.3″ × that where missing."""
     t = dots["mjd"].to_numpy(np.float64) * 24.0
     if len(np.unique(np.round(t, 6))) < 2:
         return None
     e, n = tangent_offset_arcsec(dots["ra"].mean(), dots["dec"].mean(), dots["ra"].to_numpy(), dots["dec"].to_numpy())
     err = dots["pos_err_arcsec"].to_numpy(np.float64) if "pos_err_arcsec" in dots else np.full(len(dots), 0.3)
-    err = np.where(np.isfinite(err) & (err > 0), err, 0.3)
+    err = np.where(np.isfinite(err) & (err > 0), err, 0.3) * C.POS_ERR_SCALE
     w = 1.0 / err**2
     tm = np.sum(w * t) / np.sum(w)
     stt = np.sum(w * (t - tm) ** 2)
@@ -363,12 +365,13 @@ def fixed_flag_names(info_row: pd.Series | dict) -> list[str]:
 
 
 # --- movers ----------------------------------------------------------------------------------------
-def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=None, repeat=None) -> np.ndarray:
+def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=None, repeat=None, edge=None) -> np.ndarray:
     """score = S/N term x evidence x known-object term x caution terms (contracts/api.md):
     (1 - exp(-snr / 15)) x {two_exposures 1, two_detectors 0.6} x (0.85 with only two dots)
     x (1 if no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″)
     x 0.6 if OUTLIER x 0.7 if another record-only flag (ghost, halo, …) x 0.8 if a masked pixel touches a dot
-    x 0.85 if the motion is not significant x 0.6 if detector_excess x 0.3 if repeat_position."""
+    x 0.85 if the motion is not significant x 0.6 if detector_excess x 0.3 if repeat_position
+    x 0.5 if a dot is within VET_EDGE_PX of the detector edge (edge_dot)."""
     snr = np.asarray(snr, np.float64)
     s = 1.0 - np.exp(-np.maximum(snr, 0.0) / MOVER_SNR_SCALE)
     s = s * np.array([MOVER_EVIDENCE.get(e, 0.5) for e in evidence])
@@ -383,7 +386,22 @@ def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=N
     n = len(s)
     s = s * np.where(np.asarray(excess if excess is not None else [False] * n, bool), MOVER_EXCESS, 1.0)
     s = s * np.where(np.asarray(repeat if repeat is not None else [False] * n, bool), MOVER_REPEAT, 1.0)
+    s = s * np.where(np.asarray(edge if edge is not None else [False] * n, bool), MOVER_EDGE, 1.0)
     return _clip01(s)
+
+
+def edge_dot(r) -> bool:
+    """A suspect with a dot within VET_EDGE_PX of the detector edge (its dot lists dot_x, dot_y; False without them):
+    the vetting's `edge` gate, also for zones graded before it or not graded at all."""
+    x, y = getattr(r, "dot_x", None), getattr(r, "dot_y", None)
+    if x is None or y is None or isinstance(x, float) or isinstance(y, float):
+        return False
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    if not x.size or x.size != y.size:
+        return False
+    hi = C.VET_DETECTOR_PX - 1 - C.VET_EDGE_PX
+    ok = np.isfinite(x) & np.isfinite(y)
+    return bool(np.any(ok & ((x < C.VET_EDGE_PX) | (x > hi) | (y < C.VET_EDGE_PX) | (y > hi))))
 
 
 def excess_cells(susp: pd.DataFrame, mov: pd.DataFrame | None) -> dict[tuple[int, int], float]:
@@ -448,9 +466,29 @@ def mover_track(r) -> tuple[int, float, float] | None:
     return int(n), float(rate), snr
 
 
+VET_TEXT = {"not_vetted": "it could not be vetted (no data on its dots)", "hot_pixel": "a dot sits on a hot pixel",
+            "bad_column": "a dot sits on a bad detector column", "edge": "a dot is at the detector's edge",
+            "masked_peak": "a dot has a masked pixel at its peak",
+            "sharp_outlier": "a dot is sharper than a star (a cosmic ray?)", "very_sharp": "a dot is sharper than any star",
+            "flux_ratio": "its brightness jumps more than 4× in one detector",
+            "red_photo": "a dot comes from a photo that failed our quality check",
+            "2mass": "a 2MASS source lies within 6″", "allwise": "an AllWISE source lies within 6″"}
+
+
+def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
+    """The vetting's verdict in words, put first in `why`: grade C with its failed gates; a gate found here on a mover the
+    vetting passed or never saw (edge_dot) as a caution; "" otherwise."""
+    if grade != "C" and not vet_reasons:
+        return ""
+    gates = [VET_TEXT.get(x, x.replace("_", " ")) for x in vet_reasons]
+    head = "Failed the vetting, most likely an artefact or a catalogued source" if grade == "C" else "Possibly an artefact"
+    return f"{head}: {'; '.join(gates)}. " if gates else f"{head}. "
+
+
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
               no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
-              track: tuple[int, float, float] | None = None) -> str:
+              track: tuple[int, float, float] | None = None, grade: str | None = None,
+              vet_reasons: list[str] | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -470,7 +508,7 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
     if repeat is not None:
         known += (f", but another unexplained mover was seen {_fmt_dist(repeat[0])} from here {_fmt_days(repeat[1])} "
                   "apart, so it may be a fixed source")
-    return f"{seen}; {known}."
+    return f"{vet_text(grade, list(vet_reasons or []))}{seen}; {known}."
 
 
 def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
@@ -513,15 +551,20 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         grade = getattr(r, "grade", None)
         grade = grade if isinstance(grade, str) and grade else None
         vet_reasons = getattr(r, "reasons", None)
-        reasons += [str(x) for x in (vet_reasons if vet_reasons is not None and not isinstance(vet_reasons, float) else [])]
+        vet_reasons = [str(x) for x in (vet_reasons if vet_reasons is not None and not isinstance(vet_reasons, float) else [])]
+        edge = edge_dot(r)
+        if edge and "edge" not in vet_reasons:
+            vet_reasons.append("edge")
+        reasons += vet_reasons
         score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion],
-                                  [excess], [rep_ is not None])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
+                                  [excess], [rep_ is not None], [edge])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
         out.append({
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
             "zone": zone, "zones": [zone], "score": score, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
-            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track),
+            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track, grade,
+                             vet_reasons),
             "flags": record_flag_names(f), "_dets": dets,
         })
     return out
@@ -557,7 +600,7 @@ def highpm_score(pipeline_score, reasons: list[list[str]], status) -> np.ndarray
     gaia_pm_disagrees, catwise_pm_disagrees 0.4; implausible_pm 0.01 (always last)."""
     q = np.exp(-np.nan_to_num(np.asarray(pipeline_score, np.float64), nan=1.0) / HIGHPM_SCORE_SCALE)
     w = np.array([np.prod([HIGHPM_REASON_WEIGHT.get(x, 1.0) for x in rs]) if rs else 1.0 for rs in reasons])
-    known = np.where(np.asarray(status) == "gaia", HIGHPM_KNOWN_STAR, 1.0)
+    known = np.where(np.isin(np.asarray(status, dtype=object), ["gaia", "2mass"]), HIGHPM_KNOWN_STAR, 1.0)
     return _clip01(q * w * known)
 
 
@@ -588,6 +631,8 @@ def highpm_why(r, reasons: list[str]) -> str:
     elif r.status == "gaia":
         tail = ("; Gaia lists this star with the same motion, a known nearby star that shows the method works"
                 if "vetted" in reasons else "; Gaia lists a star here")
+    elif r.status == "2mass":
+        tail = "; 2MASS saw a star where this motion puts it in 2000, so it is a known star"
     else:
         tail = "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion"
     cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "bad_fit", "few_dots", "short_span") if x in reasons]
