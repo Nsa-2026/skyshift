@@ -69,12 +69,12 @@ export const ENDPOINTS: Endpoint[] = [
       ["pixel_arcsec, size", "Pixel size in arcsec; [nx, ny], each at most 300"],
       ["epochs[]", "id, kind (visit or exposure), mjd_mid, mjd_start, mjd_end (MJD, UTC, from each exposure's MJD-AVG), det, um_min and um_max (µm), n_exposures, flag_frac and sat_frac (0 to 1), data_url, scale, zero; center {ra, dec} only when the frames follow a moving object"],
       ["gaia[]", "Gaia DR3 stars in the frame at J2016.0: id (a string), ra, dec (deg), pmra and pmdec (mas/yr, pmra × cos dec), parallax (mas), g (mag)"],
-      ["known[]", "Known asteroids and comets at an epoch's mjd_mid: name, epoch_id, ra, dec (deg), v (mag), source (skybot, mpc, most or irsa-3i)"],
+      ["known[]", "Known asteroids and comets at an epoch's mjd_mid: name, epoch_id, ra, dec (deg), v (mag), source (mpc, most or irsa-3i)"],
       ["data_release, archive_checked", "Collections searched (e.g. DR1+QR3) and the date of the IRSA search"],
     ],
     note:
       "Pixels: data_url, resolved against the JSON's URL, holds nx × ny little-endian uint16 values, row by row, north up and east left. Value = raw × scale + zero, in MJy/sr; raw 0 means no data. To fit in 60 s the live API stacks at most 6 exposures per visit (Months) and serves at most 6 exposures (Hours); the static files of the featured targets use all of them.",
-    timeout: 120,
+    timeout: 60,
     curlMore: (url) =>
       `# one frame's pixels (needs jq): nx × ny little-endian uint16\ncurl -s "${new URL("/", url).href.replace(/\/$/, "")}$(curl -s "${url}" | jq -r '.epochs[0].data_url')" -o frame.bin`,
     pyMore: `import numpy as np
@@ -103,7 +103,7 @@ for e in data["epochs"]:
       ["spectrum_reason", "Why the spectrum is empty (saturated or no_data), else null"],
       ["measure", "shift_arcsec (″), pa_deg (° east of north), dt_yr (yr), rate_arcsec_yr (″/yr), sigma_arcsec (″, 1σ), n_ref_stars, predicted_arcsec (″, from Gaia, or null). Null with fewer than two visits"],
     ],
-    timeout: 120,
+    timeout: 60,
     pyMore: `m = data["measure"]
 if m:
     print(f'{m["shift_arcsec"]:.2f} ± {m["sigma_arcsec"]:.2f} arcsec in {m["dt_yr"]:.3f} yr; Gaia predicts {m["predicted_arcsec"]}')`,
@@ -166,7 +166,7 @@ if m:
     exampleNote: "Comet 3I/ATLAS during SPHEREx's sequence of 14 Dec 2025.",
     fields: [
       ["mjd", "As asked"],
-      ["known[]", "name, ra, dec (deg), v (mag, or null), source (skybot: IMCCE SkyBoT; mpc: MPC orbits with kete; most: IRSA MOST; irsa-3i: IRSA's 3I/ATLAS list); epoch_id is null here"],
+      ["known[]", "name, ra, dec (deg), v (mag, or null), source (mpc: Minor Planet Center orbits computed with kete; most: IRSA MOST; irsa-3i: IRSA's 3I/ATLAS list); epoch_id is null here"],
     ],
     timeout: 60,
   },
@@ -192,7 +192,7 @@ export function pythonSnippet(ep: Endpoint, base: string): string {
     "r = requests.get(",
     `    "${new URL(ep.path.replace(/^\//, ""), base).href}",`,
     `    params={${params}},`,
-    `    timeout=${ep.timeout},  # a spot nobody asked for yet takes up to a minute`,
+    `    timeout=${ep.timeout},${ep.id === "frames" || ep.id === "object" ? "  # a spot nobody asked for yet takes up to 48 s" : ""}`,
     ")",
     "r.raise_for_status()",
     "data = r.json()",

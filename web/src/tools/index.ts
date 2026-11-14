@@ -250,13 +250,13 @@ function pageHtml(base: string, lang: Lang): string {
     <dl class="tl-fields">
       <div><dt>Units</dt><dd>Positions in ICRS degrees. Field (fov) and radius (r) in arcmin. Shifts and errors in arcsec. Wavelength in µm. Time in MJD (UTC). Flux in µJy. Frame values in MJy/sr. Gaia keeps Gaia's units: pmra and pmdec in mas/yr, parallax in mas.</dd></div>
       <div><dt>Nulls</dt><dd>A missing value is null, never left out. Gaia ids are strings, because they exceed 2⁵³.</dd></div>
-      <div><dt>Errors</dt><dd>An HTTP status with {"error": {"code", "message"}}: 400 bad_request (the message says which parameter), 404 not_found (no SPHEREx frames there, or an unknown name), 502 upstream (IRSA, Gaia or SkyBoT didn't answer), 500 internal.</dd></div>
+      <div><dt>Errors</dt><dd>An HTTP status with {"error": {"code", "message"}}: 400 bad_request (the message says which parameter), 404 not_found (no SPHEREx frames there, or an unknown name), 502 upstream (IRSA or the Gaia archive didn't answer), 503 upstream (the build ran past 48 s; Retry-After says when to ask again), 500 internal.</dd></div>
       <div><dt>Schema</dt><dd><a href="${esc(new URL("api/openapi.json", base).href)}" target="_blank" rel="noopener">OpenAPI JSON</a>, and <a href="${esc(new URL("api/docs", base).href)}" target="_blank" rel="noopener">interactive docs</a> to try a call. Health: <a href="${esc(new URL("api/health", base).href)}" target="_blank" rel="noopener">/api/health</a>.</dd></div>
       <div><dt>Contract</dt><dd><a href="${REPO_URL}/blob/main/contracts/api.md" target="_blank" rel="noopener">contracts/api.md</a> in the repository is the full specification; fixtures/api/ holds an example of every answer.</dd></div>
     </dl>
 
     <h3 class="tl-h3">Limits, honestly</h3>
-    <p>The live API is one small service with no quota per person: at most 2 machines, each working on 8 requests at a time. A spot nobody has asked for before takes 10 to 60 seconds, because the server cuts SPHEREx images out of NASA's archive and stacks them. When it is full you may get HTTP 429 or 503; when IRSA is busy, 502 upstream. Please send one request at a time, wait for it, and keep what you get. For many positions, use the static files or SPHEREx itself through <a href="https://irsa.ipac.caltech.edu/Missions/spherex.html" target="_blank" rel="noopener">IRSA</a>.</p>
+    <p>The live API is one small service with no quota per person: up to 8 machines, each working on 8 requests at a time. A spot nobody has asked for before takes from a few seconds to about 45, because the server cuts SPHEREx images out of NASA's archive and stacks them; identical requests share one build, so a retry joins the one already running. A build that runs out of its 40 s answers with what it has, sent with Cache-Control: no-store and not kept: ask again later for the whole answer. Past 48 s you get 503 upstream; when every machine is busy, HTTP 429. Please send one request at a time, wait for it, and keep what you get. For many positions, use the static files, or SPHEREx itself through <a href="https://irsa.ipac.caltech.edu/Missions/spherex.html" target="_blank" rel="noopener">IRSA</a>.</p>
 
     <h3 class="tl-h3">Embed a blink</h3>
     <p>Any blink can sit in another page. embed=1 hides the header and footer. Use ra and dec (degrees), clock (months or hours), fov (arcmin) and det (1 to 6), or t=&lt;slug&gt; for a featured target.</p>
@@ -283,7 +283,7 @@ function pageHtml(base: string, lang: Lang): string {
       <p>${esc(ACK_GAIA)}</p>
       <button type="button" class="btn btn-ghost" data-copy-ack>Copy all three</button>
     </div>
-    <p class="tl-note">Other data in SkyShift keep their own credit lines: 2MASS, AllWISE and CatWISE2020 (served by IRSA), Minor Planet Center orbits (propagated with kete), IMCCE SkyBoT, and SDSS DR17. See <a href="${REPO_URL}#data-and-credits" target="_blank" rel="noopener">Data and credits</a> in the README.</p>
+    <p class="tl-note">Other data in SkyShift keep their own credit lines: 2MASS, AllWISE and CatWISE2020 (served by IRSA), Minor Planet Center orbits (computed with kete, BSD-3-Clause), and SDSS DR17. See <a href="${REPO_URL}#data-and-credits" target="_blank" rel="noopener">Data and credits</a> in the README.</p>
   </section>
 
   <section class="tl-sec" id="tl-data" aria-labelledby="tl-data-h">
@@ -439,7 +439,7 @@ function batchTable(res: BatchResult, cov: Map<string, Coverage>, busy: boolean)
         <tbody>${body}</tbody>
       </table>
     </div>
-    <p class="tl-note">Check asks the live API to build the Months frames there (5′ field, D2), which takes up to a minute, so it runs one row at a time. A later Blink of that row is then quick.</p>
+    <p class="tl-note">Check asks the live API to build the Months frames there (5′ field, D2), which can take about 45 seconds, so it runs one row at a time. A later Blink of that row is then quick.</p>
     <div class="tl-actions"><button type="button" class="btn" data-act="batch-csv">Download the table (CSV)</button></div>`;
 }
 
@@ -557,9 +557,9 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
     busy = true;
     coverage.set(key, { state: "running", html: "" });
     updateCoverage(row.line);
-    status.textContent = `Checking line ${row.line} on the live API. This can take up to a minute.`;
+    status.textContent = `Checking line ${row.line} on the live API. This can take about 45 seconds.`;
     const timer = new AbortController();
-    const stop = setTimeout(() => timer.abort(), 120_000);
+    const stop = setTimeout(() => timer.abort(), 75_000);
     try {
       const { frames } = await loadFrames(
         { ra: Number(row.pos.ra.toFixed(5)), dec: Number(row.pos.dec.toFixed(5)), clock: "months", fov: 5, det: 2 },
@@ -581,7 +581,7 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
       status.textContent = `Line ${row.line} checked.`;
     } catch (e) {
       let msg = "The live service can't be reached. Try again later.";
-      if (timer.signal.aborted) msg = "No answer within two minutes. Try again later.";
+      if (timer.signal.aborted) msg = "No answer within 75 seconds. Try again later.";
       else if (e instanceof ApiFailure) {
         if (e.code === "not_found") msg = "SPHEREx has no frames here yet.";
         else if (e.code === "upstream") msg = "NASA's archive didn't answer. Try again in a minute.";
