@@ -11,13 +11,13 @@ Each point: wavelength of that pixel from WCS-WAVE, flux and error in uJy, detec
 visit, saturated (OVERFLOW or NONLINEAR in the core). Three ways to measure, per point
 (docs/research/2026-11-14-target-data-check.md has the numbers):
 - the r = 2 px aperture of core.aperture_photometry, when its core is clean (most points);
-- a saturated or masked core: the flux from the PSF wings (wing_photometry), with a 50%
+- a saturated core: the flux from the PSF wings (wing_photometry), with a 50%
   systematic error. The aperture there leaves the core out and read 4-10x low (Barnard's Star);
   R Draconis's aperture is masked in every exposure, so it had no spectrum at all;
 - a Gaia star 5-15" away at that time: a joint fit of both at their known positions
   (blended_photometry). WISE 0855-0714 passes a G = 16.3 star (11" -> 4" over the visits),
   which put ~1 mJy into D1-D3, where a 250 K brown dwarf is dark.
-A point that can't be measured honestly (masked core on a faint source, a neighbour closer than
+A point that can't be measured honestly (a masked but unsaturated core, a neighbour closer than
 5" to a source Gaia doesn't see) is left out rather than shown wrong.
 
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
@@ -108,7 +108,6 @@ WING_BAD_BITS = MASK_BITS & ~(TRANSIENT | SUR_ERROR)
 # Checked on Barnard's Star against 2MASS J and AllWISE W1/W2: D2 +23%, D5 +9%, D6 -9%, but
 # D3 +70-80% and D4 about 2x, and the result moves 25% with the outer radius. 1 sigma = 50%.
 WING_SYSTEMATIC = 0.5
-WING_MIN_SNR = 5.0  # an unsaturated source with a masked core: below this, no point
 
 # --- Photometry next to a Gaia star: a joint fit --------------------------------------------------
 BLEND_ARCSEC = 15.0  # a Gaia star closer than this puts light into the r = 2 px (12.3") aperture
@@ -309,14 +308,13 @@ def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, 
     core = (xx - x) ** 2 + (yy - y) ** 2 <= 1.5**2
     core_bad = bool((~np.isfinite(l2.data[core])).any() or bad_pixel_mask(l2.flags[core]).any())
     saturated = is_saturated_core(l2.flags, x, y)
-    if saturated or core_bad:
+    if saturated:
         got = wing_photometry(l2.data, l2.flags, x, y, det, conv)
-        if got is None:
-            return None
-        flux, err, stat = got
-        if not saturated and not (flux > WING_MIN_SNR * stat):
-            return None  # a faint source with a masked core (a cosmic ray, a bad pixel)
-        return flux, err
+        return None if got is None else got[:2]
+    if core_bad:
+        # A masked core that isn't saturated (a cosmic ray, a bad pixel): the aperture would read
+        # low, and a wing estimate's 50% error would draw a detected source as an upper limit.
+        return None
     close = [n for n in neighbours if n[0] < BLEND_MIN_ARCSEC]
     if close and not target_in_gaia:
         return None  # e.g. WISE 0855 4" from a G = 16 star: the blend is mostly the star
@@ -327,8 +325,7 @@ def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, 
     try:
         ph = aperture_photometry(l2.data, x, y, l2.wcs, flags=l2.flags, variance=l2.variance)
     except ValueError:  # sep: the sky annulus is fully masked
-        got = wing_photometry(l2.data, l2.flags, x, y, det, conv)
-        return None if got is None or not (got[0] > WING_MIN_SNR * got[2]) else got[:2]
+        return None
     return float(ph.flux_ujy[0]), float(ph.err_ujy[0])
 
 

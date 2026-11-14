@@ -12,9 +12,9 @@ J 5.24, H 4.83, Ks 4.52 (2MASS, Cutri et al. 2003) are used. Code: server/src/sk
 | Target | Was | Cause | Now |
 |---|---|---|---|
 | R Draconis | 0 spectrum points | r = 2 px aperture fully masked in every exposure (NaN + OVERFLOW core, SUR_ERROR/TRANSIENT around it); sep then gave NaN or raised on a fully masked sky annulus | 500 points from the PSF wings, all `saturated`, ±50% |
-| Barnard's Star | 101 points (D1, D3, D5, D6), 100 saturated, 0.13–1.3 Jy | Aperture with its core masked: reads 4–10× low. D2 and D4 had none (aperture fully masked) | 354 points in all six detectors from the wings, all `saturated`, 5–20 Jy, ±50% |
+| Barnard's Star | 101 points (D1, D3, D5, D6), 100 saturated, 0.13–1.3 Jy | Aperture with its core masked: reads 4–10× low. D2 and D4 had none (aperture fully masked) | 353 points in all six detectors from the wings, all `saturated`, 5–20 Jy, ±50% |
 | WISE 0855−0714 | ~1 mJy in D1–D3 | A Gaia DR3 star (G = 16.3) 11″ → 8″ → 4″ from it in visits 1 → 2 → 3, inside the 12.3″ aperture | Joint fit of both: D1–D4 0.00 ± 0.04 mJy (not detected), D5 0.33, D6 0.34–0.46 mJy. Visit 3 (4″) left out |
-| Epsilon Indi B | "10 mJy, too bright for G = 18" | Nothing wrong: a T dwarf pair is very red. Matches 2MASS and AllWISE | Unchanged except 32 points with a masked core (left out) and 11 (wing estimate) |
+| Epsilon Indi B | "10 mJy, too bright for G = 18" | Nothing wrong: a T dwarf pair is very red. Matches 2MASS and AllWISE | Unchanged except 41 points with a masked but unsaturated core, now left out |
 | Asteroids | `visit: 0` | precompute never numbered MOST's images | Visit numbers by core's rule over the asteroid's own exposure times (contract: visit number) |
 
 ## 1. R Draconis: empty spectrum
@@ -73,10 +73,17 @@ R Draconis (Mira; 2MASS 1999 single epoch J 45, H 58, Ks 71 Jy; WISE W2 153 Jy, 
 wings give D2 59–102, D3 71–178, D5 91–121, D6 103–190 Jy, falling steadily over the visits in every
 detector (D3 178 → 168 → 115 → 71 Jy; D6 190 → 158 → 128 → 103 Jy): the pulsation is visible.
 
-RW Aurigae (variable T Tauri star, deep dimmings since 2010) also moved to the wings in 313 of 331
+RW Aurigae (variable T Tauri star, deep dimmings since 2010) also moved to the wings in 303 of 321
 points: D2 0.16–0.23, D3 0.39–0.46, D4 1.3–2.1, D5 1.0–2.1, D6 1.9–3.8 Jy (old aperture 0.07–0.98 Jy;
 2MASS J 0.71, H 0.92, Ks 1.04; AllWISE W1 0.98, W2 1.39 Jy). Its 18 unsaturated D1 points are ~1.3×
 the old values (masked pixels no longer left inside the aperture). D4–D6 fall from visit 1 to 3.
+
+The wings are used only when the core is saturated (OVERFLOW or NONLINEAR within 1.5 px). A core
+masked for another reason (a cosmic ray, a bad pixel) on an unsaturated source drops the point: a
+wing estimate there carries ±50%, so the card's 2σ test would draw a clear detection as an upper limit.
+The card (web/src/card/format.ts `isUpperLimit`) now also treats a saturated point with positive flux
+as a detection, never as an upper limit; before that, every wing point was drawn as a limit and the
+light curves of Barnard's Star, RW Aurigae and R Draconis were empty.
 
 ## 3. WISE 0855−0714: light in D1–D3
 
@@ -114,8 +121,8 @@ against our D4 9–14 mJy at 2.5–3.4 µm rising to 46 at 3.8 µm, D5 50–73 m
 mJy at 4.4–5.0 µm: consistent. (The brief's W1 ≈ 9.5 and W2 ≈ 7.9 are not AllWISE's values.) A T dwarf
 pair at 3.6 pc is ~10⁴× brighter at 1–4 µm than at G, so 20–50 mJy for G = 18 is expected.
 The earlier "visit 1 is different" was wavelength sampling (D1 visit 1 has 3 points, all at 1.07–1.09 µm,
-the Y-band peak). Change: 32 points whose core had a masked pixel (cosmic ray, bad pixel) and too little
-signal in the wings are left out (they read low), 11 such points with enough signal use the wings.
+the Y-band peak). Change: 41 points whose core had a masked pixel (cosmic ray, bad pixel) are left
+out (the aperture read them low); 425 → 416 points against the first version of this fix.
 Side effect: pick_detector ranks detectors by the spectrum's S/N, so the motion measurement moved to
 another detector: 6.05″ ± 0.42″ (4.27″/yr) → 6.12″ ± 0.49″ (4.35″/yr); Gaia predicts 6.49″.
 Barnard's Star, WISE 0855 and R Draconis keep the same measurement.
