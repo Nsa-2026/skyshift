@@ -275,6 +275,32 @@ def test_build_end_to_end(tmp_path):
     assert small["synthetic"] is False and small["counts"] == doc["counts"] and len(small["candidates"]) <= len(cs)
 
 
+def test_source_without_a_usable_spectrum(tmp_path):
+    """No channel with positive, finite S/N in any detector: det, snr and flux_ujy are None in source_stats (not D1,
+    S/N 0 from the argmax of six zeros); the export writes snr and flux_ujy null and the default detector."""
+    store = Store(str(tmp_path / "bucket"))
+    _zone_files(store, "hunt", 125.0, 20.0, with_extra_mover=False)
+    n = NDET * NCH_DET
+    good = np.full(n, 10.0)
+    good[5 * NCH_DET:] = 50.0                                         # brightest in D6
+    flux = np.stack([good, np.full(n, np.nan), np.full(n, -5.0), np.zeros(n), np.full(n, 5.0)])
+    err = np.stack([np.ones(n), np.ones(n), np.ones(n), np.ones(n), np.zeros(n)])
+    _write(store, results_rel("hunt", "sources.parquet"), pd.DataFrame({
+        # 100 is the zone's high_pm source: all NaN; 101 negative, 102 zero, 103 flux with zero errors; 99 the control
+        "source_id": [99, 100, 101, 102, 103], "ra": [125.3, 125.1, 125.2, 125.3, 125.4], "dec": [20.0] * 5,
+        "flux_ujy": list(flux), "err_ujy": list(err), "saturated": [False] * 5, "variable": [False] * 5}))
+    st = K.source_stats(store, "hunt", np.array([99, 100, 101, 102, 103])).set_index("source_id")
+    assert st.loc[99, "det"] == 6 and st.loc[99, "snr"] == pytest.approx(50.0 * np.sqrt(NCH_DET))
+    assert st.loc[99, "flux_ujy"] == 50.0
+    for sid in (100, 101, 102, 103):
+        assert pd.isna(st.loc[sid, "det"]) and np.isnan(st.loc[sid, "snr"]) and np.isnan(st.loc[sid, "flux_ujy"]), sid
+    doc = K.build(store, ["hunt"])
+    hp = next(c for c in doc["candidates"] if c["kind"] == "high_pm")
+    assert hp["id"] == "hunt-pm-100"
+    assert hp["snr"] is None and hp["flux_ujy"] is None and hp["det"] == K.DEFAULT_DET
+    assert json.loads(K.dumps(doc)) == doc                            # no NaN reaches the file
+
+
 def test_zone_boxes_order():
     # the hunt box contains the pilot box: hunt first
     h, p = ZONES["hunt"], ZONES["pilot"]
