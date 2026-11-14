@@ -120,7 +120,7 @@ const CHEVRON = `<svg class="sc-chev" width="12" height="12" viewBox="0 0 12 12"
 function rowsBlock(c: ValidationCheck): string {
   const rows = Array.isArray(c.rows) ? c.rows : [];
   if (!rows.length) return "";
-  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length} rows`;
+  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length.toLocaleString("en-GB")} rows`;
   const hide = rows.length === 1 ? "Hide the row" : "Hide the rows";
   return html`<details class="sc-rows">
     <summary><span class="sc-show">${show}</span><span class="sc-hide">${hide}</span>${CHEVRON}</summary>
@@ -224,7 +224,7 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
     <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
     ${intro}
     <div class="sc-suspects-bar">
-      <p class="sc-zone"><b>${n}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
+      <p class="sc-zone"><b>${n.toLocaleString("en-GB")}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
         ${esc(prettyText(sr.data_release))}, published ${esc(formatGenerated(sr.generated))}.</p>
       <button type="button" class="btn btn-ghost sc-csv" data-csv ${n ? "" : "disabled"}>Download CSV</button>
     </div>

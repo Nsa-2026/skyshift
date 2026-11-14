@@ -111,7 +111,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <h2 id="dv-count" class="dv-count" aria-live="polite"></h2>
           <button type="button" class="btn btn-sm dv-filters-btn" aria-haspopup="dialog">Filters</button>
           <label class="dv-sort"><span>Sort by</span>
-            <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}">${s.label}</option>`).join("")}</select>
+            <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}"${s.hint ? ` title="${esc(s.hint)}"` : ""}>${s.label}</option>`).join("")}</select>
           </label>
           <div class="dv-export dv-export-top" role="group" aria-label="Download the filtered list">
             <span class="dv-export-label">Download</span>
@@ -697,8 +697,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
     showN.textContent = n ? `Show ${plural(n, "object", "objects")}` : "No matches: change a filter";
     el.querySelectorAll<HTMLButtonElement>("[data-export]").forEach((b) => {
       b.disabled = n === 0;
-      b.title = `Download these ${n} as ${b.dataset.export?.toUpperCase()}`;
-      b.setAttribute("aria-label", `Download ${n} as ${b.dataset.export?.toUpperCase()}`);
+      b.title = `Download these ${n.toLocaleString("en-GB")} as ${b.dataset.export?.toUpperCase()}`;
+      b.setAttribute("aria-label", `Download ${n.toLocaleString("en-GB")} as ${b.dataset.export?.toUpperCase()}`);
     });
   }
 

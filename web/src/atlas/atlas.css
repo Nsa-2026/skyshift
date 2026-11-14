@@ -69,6 +69,8 @@
   gap: var(--s2);
 }
 .atl-kind {
+  /* Holds the chip's visually hidden note inside the chip row's scroller at phone width. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;

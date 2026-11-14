@@ -50,7 +50,8 @@ export function reasonText(code: string): ReasonText {
   if (known) return known;
   if (/repeat|same_?(spot|pos)|near_?fixed|fixed_?pos|stationary/i.test(code)) return { ...REASON_TEXT.repeat_position, detail: code };
   if (CAUTION_CODE.test(code)) return { label: flagText(code), tone: "caution", detail: code };
-  // Unknown codes from a newer exporter: treat as a doubt, so "Most promising" stays conservative.
+  // Unknown codes from a newer exporter: treat as a doubt, so "Most promising" and the pipeline-score
+  // order stay conservative.
   return { label: humanize(code), tone: "doubt", detail: code };
 }
 

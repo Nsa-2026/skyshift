@@ -210,9 +210,14 @@ export function zoneName(zone: string): string {
   return `${z.charAt(0).toUpperCase()}${z.slice(1)} zone`;
 }
 
+/** A count with thousands separators: "1,008". */
+export function countText(n: number): string {
+  return new Intl.NumberFormat("en-GB").format(n);
+}
+
 /** "194 objects to check in 1 zone", "1 object to check in 2 zones". */
 export function countSentence(n: number, zones: number): string {
-  const c = `${new Intl.NumberFormat("en-GB").format(n)} object${n === 1 ? "" : "s"} to check`;
+  const c = `${countText(n)} object${n === 1 ? "" : "s"} to check`;
   return zones > 0 ? `${c} in ${zones} zone${zones === 1 ? "" : "s"}` : c;
 }
 
@@ -222,6 +227,16 @@ export const LIST_NOTE =
 
 export function plural(n: number, one: string, many: string): string {
   return `${new Intl.NumberFormat("en-GB").format(n)} ${n === 1 ? one : many}`;
+}
+
+/**
+ * A kind chip's tooltip: what the kind is and, when likely mismatches are hidden, why its count is
+ * lower than on To check: "… 925 shown; 83 likely mismatches hidden …".
+ */
+export function kindChipTitle(kind: CandidateKind, shown: number, hidden: number): string {
+  const m = KIND_TEXT[kind].meaning;
+  if (!(hidden > 0)) return m;
+  return `${m} ${countText(shown)} shown; ${plural(hidden, "likely mismatch", "likely mismatches")} hidden: too fast to be one star. Turn on Likely mismatches under Adjust to show them.`;
 }
 
 /**
