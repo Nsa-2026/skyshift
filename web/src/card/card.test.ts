@@ -127,7 +127,13 @@ describe("every real object.json", () => {
     expect(el.querySelector(".cd-hero")?.getAttribute("data-seen")).toBe("false");
     expect(el.querySelector(".cd-arrow")).toBeNull();
     expect(el.querySelector(".cd-says")?.textContent).toMatch(/so it stays put/);
-    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/No spectrum measured/);
+    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/^No spectrum: it is so bright/); // spectrum_reason "saturated"
+  });
+
+  it("says plainly when a spectrum is missing for no known reason", () => {
+    const el = document.createElement("section");
+    mountCard(el).show(spot, { ...load("rdra"), spectrum_reason: null } as ObjectResponse, null);
+    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/^No spectrum measured here yet\./);
   });
 
   it("compares WISE 0855 with the published motion, since Gaia can't see it", () => {

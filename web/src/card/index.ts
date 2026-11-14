@@ -262,7 +262,7 @@ export const mountCard: MountCard = (el) => {
     if (!sp.length) {
       return html`<section class="cd-sec cd-spec" aria-labelledby="${id}-s">
         <h3 class="cd-h" id="${id}-s">Spectrum</h3>
-        <p class="cd-cap">No spectrum measured here yet.${object.measure ? " The shift above comes from the visit stacks." : ""}</p>
+        <p class="cd-cap">${emptySpectrumSentence(object)}</p>
       </section>`;
     }
     const visits = visitsOf(sp);
@@ -291,6 +291,15 @@ export const mountCard: MountCard = (el) => {
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
+  }
+
+  /** Why the spectrum is empty, from the optional spectrum_reason (contracts/api.md v3; absent reads as null). */
+  function emptySpectrumSentence(object: ObjectResponse): string {
+    const reason = (object as ObjectResponse & { spectrum_reason?: string | null }).spectrum_reason ?? null;
+    const shift = object.measure ? " The shift above comes from the visit stacks." : "";
+    if (reason === "saturated") return `No spectrum: it is so bright that no exposure left a usable aperture around its saturated core.${shift}`;
+    if (reason === "no_data") return `No spectrum: no usable exposure covers it yet.${shift}`;
+    return `No spectrum measured here yet.${shift}`;
   }
 
   function keysHtml(sp: SpectrumPoint[], visits: number[]): string {
