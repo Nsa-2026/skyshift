@@ -13,7 +13,7 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
      SIMULTANEOUS_PAIR_ARCSEC (the two footprints are offset ~71″ but see the same sky).
    Pairs chain into one candidate (an asteroid seen in 3–5 exposures).
 4. A candidate is a mover if the sessions whose footprints contain it number >= MOVER_MIN_COVER_SESSIONS.
-5. free_dots.parquet: every dot in no fixed group with elong <= MOVER_MAX_ELONG (near_fixed: within
+5. nonfixed_dots.parquet: every dot in no fixed group with elong <= MOVER_MAX_ELONG (near_fixed: within
    FIXED_VETO_ARCSEC of one), where `tracklets` looks for a track's missed sightings.
 Sessions are the zone's time runs (photolist); visit labels are never used here.
 """
@@ -178,7 +178,7 @@ def freedots_table(free: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
 NONFIXED_DOTS_NAME = "nonfixed_dots.parquet"
 
 
-def free_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
+def nonfixed_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
     """nonfixed_dots.parquet (for `tracklets`' recovery): every dot in no fixed group with elong <= MOVER_MAX_ELONG (the
     mover dots included), `near_fixed` where within FIXED_VETO_ARCSEC of a fixed source; sorted by session, mjd, ra, dec."""
     d = dots[dot_sid < 0]
@@ -347,11 +347,11 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
         keep.update(dots=dots, dot_sid=fixed_result[1])
     stats["fixed_member_dots"] = int(len(members))
     try:  # tracklets' input; never worth failing link for
-        free = free_dots_table(dots, fixed_result[1], fixed, photos)
-        stats["free_dots_written"] = int(len(free))
+        free = nonfixed_dots_table(dots, fixed_result[1], fixed, photos)
+        stats["nonfixed_dots_written"] = int(len(free))
     except Exception as e:  # noqa: BLE001
-        L.exception("link %s: free_dots.parquet not written (tracklets will link without recovery)", zone.name)
-        free, stats["free_dots_error"] = None, repr(e)[:300]
+        L.exception("link %s: nonfixed_dots.parquet not written (tracklets will link without recovery)", zone.name)
+        free, stats["nonfixed_dots_error"] = None, repr(e)[:300]
     L.info("link %s: classified in %.0f s: %s", zone.name, time.time() - t1, stats)
     store.write_parquet(results_rel(zone.name, "fixed.parquet"), fixed)
     store.write_parquet(results_rel(zone.name, "members.parquet"), members)

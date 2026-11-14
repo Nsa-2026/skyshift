@@ -230,7 +230,7 @@ KEYS = {"fixed": ["source_id"], "members": ["source_id", "obs_id", "detector", "
         "lightcurves_summary": ["source_id", "ref_id", "detector", "origin"], "astrometry": ["source_id"],
         "highpm_candidates": ["method", "source_id", "source_id_b"], "suspects": ["id"], "recall_units": ["unit"],
         "calib_photos": ["obs_id", "detector"], "qa_photos": ["obs_id", "detector"], "orphans": ["source_id"],
-        "free_dots": ["session", "mjd", "ra", "dec"], "tracklets": ["mover_id"], "tracklet_dots": ["tracklet_id", "mjd", "ra", "dec"]}
+        "nonfixed_dots": ["session", "mjd", "ra", "dec"], "tracklets": ["mover_id"], "tracklet_dots": ["tracklet_id", "mjd", "ra", "dec"]}
 
 
 def _norm(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:

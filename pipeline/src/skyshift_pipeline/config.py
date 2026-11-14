@@ -715,7 +715,7 @@ INJECT_DET_WIDTH = 0.7
 # tracklets links movers of different sessions of one visit into tracks (positions on a local tangent plane, linear
 # motion, quadratic once a local fit spans >= TRACK_QUAD_MIN_SPAN_H with >= 4 members), measures each mover's rate
 # from the track, then looks in the visit's other sessions at the predicted positions for link's unpaired dots
-# (results/<zone>/free_dots.parquet) and keeps them as recovered detections. score counts a known sighting found when
+# (results/<zone>/nonfixed_dots.parquet) and keeps them as recovered detections. score counts a known sighting found when
 # a mover or a recovered dot matches it. Hunt (known asteroids' predicted session positions, V < 18): linear fits leave
 # <= 1.9″ (99%) over 1 day, 14″ over 3 days; quadratic <= 1.9″ over 3 days (SPHEREx's orbital parallax included).
 TRACK_RATE_MIN_ARCSEC_H = 0.5    # slower: not linked (stars, galaxies, fixed junk)
@@ -742,7 +742,7 @@ TRACK_MIN_SESSIONS = 3           # a tracklet: movers in >= 3 sessions (2 sessio
 TRACK_SHORT_MAX_SPAN_H = 36.0    # ... and with exactly 3, over at most this long (hunt control: chance 3-session tracks
                                  # all spanned 37-72 h, their third mover far out on the extrapolated path)
 TRACK_VISIT_MAX_S = 30.0         # time budget of one linking pass over a visit (hunt: ~1 s); then the weakest seeds are skipped
-# recovery: link's unpaired dots (results/<zone>/free_dots.parquet: not in a fixed group, elong <= MOVER_MAX_ELONG).
+# recovery: link's dots in no fixed group (results/<zone>/nonfixed_dots.parquet: not in a fixed group, elong <= MOVER_MAX_ELONG).
 # Hunt (V < 16, free dots rebuilt from the missed units' photos): recall 90.4% (movers) → 93.0% with 24 h and no
 # near-fixed dots, 94.7% with the settings below; control 0; the dots moved 120″ gave 3 chance track-sessions vs 56.
 # Most of the rest pass within 4″ of a star: their dot is in the star's fixed group, not a free dot.

@@ -26,7 +26,7 @@ movers.parquet):
    parallax, model).
 2. per mover on a track: the local fit's rate (″/h), position angle (east of north), rate σ, chi2_nu, residual.
 3. recovery: at each other session of the visit within TRACK_RECOVER_EXT_H of the track, the predicted position at each
-   unpaired dot's own time (link's free_dots.parquet: not in a fixed group, not within FIXED_VETO_ARCSEC of one,
+   unpaired dot's own time (link's nonfixed_dots.parquet: not in a fixed group, not within FIXED_VETO_ARCSEC of one,
    elong <= MOVER_MAX_ELONG) within TRACK_RECOVER_R_MIN..MAX_ARCSEC: those dots are recovered detections.
 4. control: the same linking with every session's movers shifted by its own random 0.5-1.5° offset (fixed seed), so no
    real track survives: the chance-track count at this density, in the summary.
@@ -47,6 +47,7 @@ from scipy.spatial import cKDTree
 
 from . import config as C
 from . import log
+from .link import NONFIXED_DOTS_NAME
 from .sky import chord, radec_to_xyz
 from .store import Store, photolist_rel, results_rel
 
@@ -57,7 +58,7 @@ TRACK_COLUMNS = ["mover_id", "session", "visit", "mjd", "ra", "dec", "cell", "tr
                  "vdec_arcsec_h", "fit_chi2_nu", "track_chi2_nu", "resid_arcsec", "fit_degree"]
 DOT_COLUMNS = ["tracklet_id", "visit", "session", "obs_id", "detector", "dot_row", "ra", "dec", "mjd", "snr", "flux_ujy",
                "flags", "flags_peak", "sep_arcsec", "r_arcsec", "pred_ra", "pred_dec"]
-FREE_DOTS = "free_dots.parquet"
+FREE_DOTS = NONFIXED_DOTS_NAME  # link's table of the dots in no fixed group
 
 
 class Accel(NamedTuple):
@@ -651,7 +652,7 @@ def build(movers: pd.DataFrame, photos: pd.DataFrame, zone: C.Zone, fd: pd.DataF
     per = out[lab >= 0].groupby("tracklet_id")["n_sessions"].first()
     st.update({"movers": int(n), "movers_on_tracklets": int((lab >= 0).sum()),
                "tracklets_by_sessions": {str(k): int(v) for k, v in per.value_counts().sort_index().items()},
-               "free_dots": None if fd is None else int(len(fd)), "recovered_dots": int(len(rec)),
+               "nonfixed_dots": None if fd is None else int(len(fd)), "recovered_dots": int(len(rec)),
                "recovered_sessions": int(rec.groupby(["tracklet_id", "session"]).ngroups) if len(rec) else 0,
                "tracklets_with_recovery": int(rec["tracklet_id"].nunique()) if len(rec) else 0})
     if control and n:

@@ -8,7 +8,7 @@ import pytest
 
 from skyshift_pipeline import config as C
 from skyshift_pipeline import tracklets as T
-from skyshift_pipeline.link import free_dots_table
+from skyshift_pipeline.link import nonfixed_dots_table
 from skyshift_pipeline.score import recall_report, summarize_units
 from skyshift_pipeline.sky import cell_of
 from skyshift_pipeline.store import Store, photolist_rel, results_rel
@@ -144,8 +144,8 @@ def test_run_writes_tables_and_score_counts_recovered(tmp_path):
     store = Store(str(tmp_path))
     store.write_parquet(photolist_rel(ZONE.name), photos)
     store.write_parquet(results_rel(ZONE.name, "movers.parquet"), m.drop(columns="truth"))
-    st = T.run(store, ZONE)  # no free_dots.parquet: tracks only
-    assert st["free_dots"] is None and store.exists(results_rel(ZONE.name, "tracklets.parquet"))
+    st = T.run(store, ZONE)  # no nonfixed_dots.parquet: tracks only
+    assert st["nonfixed_dots"] is None and store.exists(results_rel(ZONE.name, "tracklets.parquet"))
     assert len(store.read_parquet(results_rel(ZONE.name, "tracklet_dots.parquet"))) == 0
     # score: a unit found only by a recovered dot counts in recall, not in recall_movers
     p = pd.DataFrame({"unit": [0, 0, 1, 2], "name": ["a", "a", "b", "c"], "number": [1, 1, 2, 3], "v": [14.0, 14.0, 15.0, 13.0],
@@ -160,7 +160,7 @@ def test_run_writes_tables_and_score_counts_recovered(tmp_path):
     assert recall_report(u_old)["recall"] == recall_report(u_old)["recall_movers"]
 
 
-def test_free_dots_table():
+def test_nonfixed_dots_table():
     dots = pd.DataFrame({"ra": [121.0, 121.0 + 5 / 3600, 121.5, 121.6, 121.7], "dec": [16.0] * 5,
                          "mjd": [T0] * 5, "session": np.int32(1), "visit": np.int16(1), "photo": [0, 0, 0, 1, 1],
                          "dot_row": np.arange(5, dtype=np.int32), "detector": np.int8(1), "snr": 9.0, "flux_ujy": 80.0,
@@ -168,7 +168,7 @@ def test_free_dots_table():
     sid = np.array([7, -1, -1, -1, -1])
     fixed = pd.DataFrame({"source_id": [7], "ra": [121.0], "dec": [16.0]})
     photos = pd.DataFrame({"obs_id": ["A", "B"], "detector": [1, 1]})
-    fd = free_dots_table(dots, sid, fixed, photos)
+    fd = nonfixed_dots_table(dots, sid, fixed, photos)
     assert fd["dot_row"].tolist() == [1, 2, 4]  # member and elongated dots left out, NaN elong kept
     assert fd["near_fixed"].tolist() == [True, False, False]
     assert fd["obs_id"].astype(str).tolist() == ["A", "A", "B"] and fd["flags"].iloc[1] < 0  # bit 31 as int32
