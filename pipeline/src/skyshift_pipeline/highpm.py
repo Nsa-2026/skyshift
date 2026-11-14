@@ -572,6 +572,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     real = pair_movers(src, detector_fluxes(spec), fps)
     bins = pair_vs_control(real["sep_arcsec"].to_numpy(np.float64) if len(real) else np.zeros(0), ctrl)
     cands = compute(src, fps, crossids, ast, bins, vstats, cw_err)
+    from . import fragments  # bright_fragment → reason `fragment` (never vetted); blend → not new (Gaia lists the stars)
+    cands, frag_st = fragments.apply_highpm(cands, fragments.load(store, zone))
     store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     refcat = load_refcat(store, zone)
     mjd_ref = float(np.nanmedian(src["mjd"])) if len(src) else 61000.0
@@ -585,7 +587,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
            "control_pairs": round(float(np.mean([len(x) for x in ctrl])), 2) if ctrl else 0.0,
            "control_offsets_arcsec": [list(o) for o in C.HIGHPM_CONTROL_OFFSETS],
            "pair_vs_control": bins,
-           "fp_control": fp_control(src, crossids, ast, vstats, cw_err),
+           "fp_control": fp_control(src, crossids, ast, vstats, cw_err), "fragments": frag_st,
            "recall": recall(cands, crossids, refcat, zone, mjd_ref)}
     store.write_json(results_rel(zone.name, "highpm_report.json"), rep)
     st = {k: v for k, v in rep.items() if k != "recall"}

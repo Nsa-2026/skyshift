@@ -15,6 +15,8 @@ Four kinds:
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
 - shape     results/<zone>/shape_candidates.parquet (`python -m skyshift_pipeline.shape`), every row, clock months:
             stretched like two objects where Gaia and CatWISE list one (contracts/api.md v3.7). Absent file: none.
+high_pm, spectral and shape (results/<zone>/fragments.parquet, step `fragments`, when present): a source tagged
+bright_fragment (a piece of a saturated star's ring) is never listed; a `blend` (two Gaia stars within 8″) gets that reason.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
@@ -122,9 +124,9 @@ REASONS = {
               "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked",
               *C.VET_GATES),  # the suspects' failed vetting gates (vet.py, contracts/api.md suspects.json)
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
-                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
-    "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
-    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy"),
+                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm", "blend"),
+    "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable", "blend"),
+    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy", "blend"),
 }
 FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
@@ -872,6 +874,10 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
         cands += shape_candidates(store, z)
+        from . import fragments  # results/<zone>/fragments.parquet: bright_fragment never listed, blend gets a reason
+        cands, fst = fragments.apply_candidates(cands, fragments.load(store, z))
+        if fst["applied"]:
+            L.info("candidates %s: fragments tags: %s", z, fst)
         # spectral positions are needed for the dedupe: read them now (cheap)
         sp = [c for c in cands if c["kind"] == "spectral"]
         if sp:

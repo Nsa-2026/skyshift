@@ -505,14 +505,17 @@ def checks(t: pd.DataFrame, sig_min: float | None = None) -> dict:
     return out
 
 
-def select(t: pd.DataFrame, cap: int = SHAPE_CAP) -> tuple[pd.DataFrame, dict]:
-    """The candidates: the shape test fires, one catalogue object, clean, not a galaxy; the `cap` most significant."""
+def select(t: pd.DataFrame, cap: int = SHAPE_CAP, exclude=None) -> tuple[pd.DataFrame, dict]:
+    """The candidates: the shape test fires, one catalogue object, clean, not a galaxy; the `cap` most significant.
+    exclude: source_ids never listed (the fragments step's bright_fragment tags; None: that step hasn't run)."""
     f = fires(t)
     one = one_object(t) & clean_sources(t)
     gal = (t["class"] == "galaxy").to_numpy() | t["galaxy_or_qso"].astype(bool).to_numpy()
-    keep = f & one & ~gal
+    frag = np.isin(t["source_id"].to_numpy(np.int64), np.asarray([] if exclude is None else exclude, np.int64))
+    keep = f & one & ~gal & ~frag
     c = t[keep].sort_values("sig", ascending=False).head(cap).copy()
     info = {"one_object_clean": int(one.sum()), "fire": int((one & f).sum()), "galaxies_dropped": int((one & f & gal).sum()),
+            "fragments_dropped": int((one & f & ~gal & frag).sum()), "fragment_tags": exclude is not None,
             "kept_before_cap": int(keep.sum()), "kept": len(c)}
     return c, info
 
@@ -651,7 +654,12 @@ def main(argv: list[str] | None = None) -> int:
     if a.keep and a.out:
         t.to_parquet(Path(a.out) / "shape_all.parquet", index=False)
     chk = checks(t)
-    c, sel = select(t, a.cap)
+    try:  # the fragments step's bright_fragment tags (a piece of a saturated star's ring): never listed
+        fr = table("fragments.parquet", results_rel(a.zone, "fragments.parquet"), ["source_id", "tag"])
+        frag = fr["source_id"].to_numpy(np.int64)[fr["tag"].astype(str).to_numpy() == "bright_fragment"]
+    except Exception:  # noqa: BLE001  not run for this zone yet: nothing dropped
+        frag = None
+    c, sel = select(t, a.cap, exclude=frag)
     # the list's own threshold (the cap makes it stricter than the rule) and the checks there
     sel["list_sig_min"] = float(c["sig"].min()) if len(c) else None
     chk_list = checks(t, sel["list_sig_min"]) if len(c) else None

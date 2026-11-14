@@ -695,6 +695,25 @@ QA_OFFSET_AMBER_ARCSEC = 0.6
 QA_LIGHTCURVES = True          # lightcurves: red photos' points get photo_ok false (as its own bad photos)
 QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
 
+# --- fragments: bright-star ring fragments, saturated stars, blended pairs (fragments.py) --------------------------
+# IRSA flags 30–180 px around a saturated core TRANSIENT, SUR_ERROR and BLOOM; the mask zeroes the island and sep finds
+# the wings as a ring of "fixed sources" without a catalogue entry (hunt review, 14 Nov: 16 per G < 6 star within 60″,
+# 1.5 at G 8–9). Their member dots carry BLOOM in 98% (Gaia stars' dots: 0%). Two stars < 8″ apart merge into one source
+# that crossid's 2.5″ may match to neither. Tags (first that applies): bright_fragment, saturated_star, blend.
+FRAGMENTS_BLOOM_FRAC = 0.5         # BLOOM (3×3 `flags`) on more than this share of the member dots ...
+FRAGMENTS_MATCH_ARCSEC = 3.0       # ... and no Gaia / 2MASS entry this close: bright_fragment; one this close: saturated_star
+FRAGMENTS_MATCH_CATALOGUES = ("gaia", "tmass")  # the catalogues of that test (match_dist_arcsec)
+FRAGMENTS_CAT_SEARCH_ARCSEC = 15.0  # cat_dist_arcsec: nearest Gaia / 2MASS / CatWISE entry searched this far (NaN beyond)
+FRAGMENTS_BRIGHT_G = 10.0          # bright_neighbour: Gaia G brighter than this ...
+FRAGMENTS_BRIGHT_K = 7.0           # ... or 2MASS K (G misses red giants: K 3.4 at G 10.2 in the hunt) ...
+FRAGMENTS_BRIGHT_W1 = 7.0          # ... or CatWISE W1 ...
+FRAGMENTS_BRIGHT_ARCSEC = 120.0    # ... searched this far (NaN beyond)
+FRAGMENTS_BLEND_ARCSEC = 8.0       # blend: at least FRAGMENTS_BLEND_MIN_GAIA Gaia stars this close (PSF FWHM 7.5″) ...
+FRAGMENTS_BLEND_G_MAX = 18.0       # ... brighter than this
+FRAGMENTS_BLEND_MIN_GAIA = 2
+FRAGMENTS_PARENT_G = 12.0          # a bright_fragment's parent: the brightest Gaia star brighter than this (nearer on a tie) ...
+FRAGMENTS_PARENT_ARCSEC = 60.0     # ... this close (hunt: 2,226 of 2,234 have one; the ring sits ~10″ out at G 8–11, ~30″ at G < 6)
+
 # --- orphans: the distant-planet route (orphans.py) ---------------------------------------------------------------
 # A planet at 70–1000 AU drifts 0.5–0.03″/h inside a visit (Earth's reflex), so link's 4″ FoF chains it into a fixed
 # source seen in ONE visit; six months later it sits 4,800–390″ away along ecliptic longitude (Earth's 2 AU parallax

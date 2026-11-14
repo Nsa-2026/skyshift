@@ -1,8 +1,8 @@
 """The combining steps per sky tile, in parallel processes, merged into the zone's usual results.
 
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (or with --tiles / --tile-deg) runs link → spectra → crossid → calib →
-spectra → classify → photoz → colours → lightcurves → astrometry → highpm → orphans → tracklets → score → suspects like
-this:
+spectra → classify → photoz → colours → lightcurves → (fragments) → astrometry → highpm → orphans → tracklets → score →
+suspects like this:
 
   prepare   tile grid; per tile its photo list (photos whose footprint box meets the tile's core + border) and its slice
             of refcat/<zone>.parquet; the zone's dot files mirrored into the work dir without the columns no combining
@@ -21,8 +21,9 @@ this:
   pass 2b   per tile, with those numbers: classify, photoz, light-curve errors and summaries, astrometry
   merge 2   sources, classes, photoz, colours, lightcurves(+summary), astrometry → results/<zone>/; the zone reports
             (photoz vs SDSS, lightcurves, astrometry) computed on the merged tables
-  zone      tracklets (after merge 1, next to calib; before score), highpm, orphans, score and suspects once on the
-            merged tables (tracks cross tiles; their 120″–15′ controls and orphans' 300–6000″ pairs need no tile border)
+  zone      tracklets (after merge 1, next to calib; before score), fragments (after merge 2, the dot files' flags from
+            the slim mirror), highpm, orphans, score and suspects once on the merged tables (tracks cross tiles; their
+            120″–15′ controls and orphans' 300–6000″ pairs need no tile border)
 
 The outputs have today's names and columns. Owned rows of a tile are exactly what the untiled run gives for them when
 the border holds every group the core touches (link's friends-of-friends chains, a mover's pairs and its 6″ veto,
@@ -1138,7 +1139,7 @@ class Run:
 
     # -- the whole run
     def run(self) -> dict:
-        from . import highpm, orphans
+        from . import fragments, highpm, orphans
         t_all = time.time()
         z, s = self.zone, self.store
         L.info("tiles %s: %d × %d tiles of %.2f° × %.2f° (border %.0f″, zone edge %s), %d workers, work dir %s", z.name,
@@ -1169,6 +1170,9 @@ class Run:
             xid = s.read_parquet(results_rel(z.name, "crossids.parquet")) if s.exists(results_rel(z.name, "crossids.parquet")) else None
             steps["merge"] = self.merge2(xid)
             t0 = time.time()
+            steps["fragments"] = fragments.run(s, z, self.workers, dots_store=Store(self.work) if self.ctx["slim"] else None)
+            self._timed("fragments", t0)
+            t0 = time.time()
             steps["highpm"] = highpm.run(s, z, self.workers)
             self._timed("highpm", t0)
             t0 = time.time()
@@ -1196,8 +1200,8 @@ class Run:
             "owned_movers": sum(st["owned_movers"] for st in self.pass1_stats)})
         sec = self.times
         for k, names in (("link", ("prepare", "pass1", "merge1")), ("calib", ("calib",)),
-                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("highpm", ("highpm",)),
-                         ("orphans", ("orphans",))):
+                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("fragments", ("fragments",)),
+                         ("highpm", ("highpm",)), ("orphans", ("orphans",))):
             if isinstance(steps.get(k), dict):
                 steps[k]["step_seconds"] = round(sum(sec.get(n, 0.0) for n in names), 1)
         self.stats["step_seconds"] = self.stats["wall_s"]
