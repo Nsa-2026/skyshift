@@ -73,6 +73,20 @@ describe("vote panel (local store)", () => {
     expect(el2.querySelector("[data-act=vote]")).toBeNull();
   });
 
+  it("drops a picked dot when the page moves to another spot, as the blink does (#57)", async () => {
+    const v = mountVoteWith(el, { store, kv });
+    v.view(view);
+    await v.settle();
+    v.pick(dot);
+    v.view({ ...view, det: 5 }); // same spot, another detector: the dot is still on screen
+    expect(el.querySelector(".vt-pick [data-act=flag]")).not.toBeNull();
+    v.view({ ...view, ra: 133.75969, dec: -7.24216, slug: "wise0855", name: "WISE 0855−0714" });
+    expect(desk().hidden).toBe(true);
+    expect(el.querySelector("[data-act=flag]")).toBeNull();
+    await v.settle();
+    expect(store.written.candidates ?? []).toEqual([]);
+  });
+
   it("opens the ballot from a list row, and Not now closes it", async () => {
     const c = await store.flag(fields);
     const v = mountVoteWith(el, { store, kv });

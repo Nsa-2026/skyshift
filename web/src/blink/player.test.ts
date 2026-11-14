@@ -133,4 +133,20 @@ describe("blink player", () => {
     expect(onViewChange).toHaveBeenLastCalledWith({ det: 5 });
     h.destroy();
   });
+
+  it("keeps every detector requestable after a live answer, which holds only the one asked for", async () => {
+    // /api/frames?det=2 returns D2 epochs only; D6 at this spot is one more request away (#57).
+    const onViewChange = vi.fn();
+    const h = mountBlink(el, { onViewChange, onPick: vi.fn() });
+    const live = { ...frames, epochs: frames.epochs.filter((e) => e.det === 2) };
+    await h.show(view, live, "https://example.test/api/frames?ra=269.4462&dec=4.76883&clock=months&fov=5&det=2");
+    const off = [...el.querySelectorAll<HTMLButtonElement>("[data-det]")].filter((b) => b.disabled);
+    expect(off.map((b) => b.dataset.det)).toEqual([]);
+    el.querySelector<HTMLButtonElement>("[data-det='6']")!.click();
+    expect(onViewChange).toHaveBeenLastCalledWith({ det: 6 });
+    // A static file holds every detector prepared: the others stay off there.
+    await h.show(view, frames, "https://example.test/data/x/frames.json");
+    expect(el.querySelector<HTMLButtonElement>("[data-det='6']")!.disabled).toBe(true);
+    h.destroy();
+  });
 });
