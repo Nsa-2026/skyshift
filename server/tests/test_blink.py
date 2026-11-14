@@ -334,6 +334,64 @@ def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_p
     assert [k["epoch_id"] for k in blink.reconcile_known(found, planned, epochs[:1], 1.0, 2.0, 5, c)] == ["d2-v1"]
 
 
+# ---------------------------------------------------------------- live time budget
+
+def test_by_usefulness_gives_every_visit_its_ends_first():
+    rows = [sia_row(f"A{s}", 2, 60900.0 + s) for s in range(5)] + [sia_row(f"B{s}", 2, 61100.0 + s) for s in range(3)]
+    order = [im.obs_id for im in blink.by_usefulness(search.rows_to_images(rows))]
+    assert order == ["A0", "B0", "A4", "B2", "A2", "B1", "A1", "A3"]
+
+
+def test_spectrum_images_take_detectors_in_turn_and_cap_each():
+    rows = [sia_row(f"E{k}", d, 60900.0 + k * 0.01) for k in range(4) for d in (1, 2, 5)]
+    order = obj.spectrum_images(search.rows_to_images(rows), 2)
+    assert [im.det for im in order] == [1, 2, 5, 1, 2, 5]
+    assert len(obj.spectrum_images(search.rows_to_images(rows), None)) == 12
+
+
+def test_months_frames_partial_when_cutouts_are_late(world, monkeypatch):
+    import time
+
+    from skyshift_server.budget import Budget
+
+    real = cutouts.fetch
+
+    def fetch(im, ra, dec, size, cache, variance=False, **kw):
+        if im.obs_id.endswith(("0001_1", "0004_1")):  # the middle exposure of each visit
+            time.sleep(1.5)
+        return real(im, ra, dec, size, cache, variance, **kw)
+
+    monkeypatch.setattr(cutouts, "fetch", fetch)
+    b = Budget(blink.FRAMES_RESERVE_S + 0.7)
+    t = time.monotonic()
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=b)
+    assert time.monotonic() - t < 1.4
+    assert [e["n_exposures"] for e in fr.meta["epochs"]] == [2, 2]  # each visit's first and last
+    assert fr.partial == ["2 of 6 cutouts not in time"]
+    assert len(fr.meta["gaia"]) > 0 and fr.meta["known"]  # Gaia and SkyBoT answered in time
+    full = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
+    assert full.partial == [] and [e["n_exposures"] for e in full.meta["epochs"]] == [3, 3]
+
+
+def test_nothing_in_time_is_a_503(world, monkeypatch):
+    from skyshift_server.budget import Budget, BudgetError
+
+    with pytest.raises(BudgetError) as e:
+        blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(0))
+    assert e.value.status == 503 and e.value.code == "upstream"
+    with pytest.raises(BudgetError):
+        obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=Budget(0))
+
+
+def test_object_with_a_budget_is_the_same_when_there_is_time(world):
+    from skyshift_server.budget import Budget
+
+    b = Budget(60)
+    live = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=b)
+    full = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert b.partial == [] and live == full
+
+
 def test_spectrum_reason():
     assert obj.spectrum_reason([{"um": 1.0}], Counter(saturated=3)) is None
     assert obj.spectrum_reason([], Counter(saturated=2, other=1)) == "saturated"  # R Draconis
