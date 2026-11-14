@@ -32,8 +32,7 @@
   inset: 0;
   background: linear-gradient(180deg, #050b1533, #050b1570 70%, #050b1599);
 }
-#app.cosmic-shell .top,
-#app.cosmic-shell .area-features {
+#app.cosmic-shell .top {
   background: var(--cosmic-surface);
   margin-inline: calc(-1 * var(--cosmic-gutter));
   padding-inline: var(--cosmic-gutter);

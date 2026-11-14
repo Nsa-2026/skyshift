@@ -1,50 +1,34 @@
-// When the opening plays. It must never get in the way: once per browser, on the bare home
-// URL only, never for a deep link or an embed, never with reduced motion, and never when
-// storage can't remember that it has played.
+// Show the opening on every home visit. Observation links, area routes and embeds keep
+// their direct entry; reduced motion gets the still title card instead of the journey.
 
-export const SEEN_KEY = "skyshift.opening.v1";
-
-/** The part of Storage the rules use (localStorage in the browser, a fake in tests). */
-export interface SeenStore {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
+/** Attribution tags do not turn a home visit into an observation/deep link. */
+const TRACKING = /^(utm_\w+|fbclid|gclid|msclkid)$/i;
 
 export interface OpeningEnv {
   hash: string;
   search: string;
   reducedMotion: boolean;
-  /** Returns the store, or throws when the browser denies storage. */
-  store(): SeenStore | null;
 }
 
-/** The bare home URL: no query (deep links, embeds) and no route beyond the home itself. */
+/** The home itself, optionally carrying only attribution tags. */
 export function isBareHome(hash: string, search: string): boolean {
-  return (search === "" || search === "?") && (hash === "" || hash === "#" || hash === "#/");
+  return (hash === "" || hash === "#" || hash === "#/") &&
+    [...new URLSearchParams(search).keys()].every(key => TRACKING.test(key));
 }
 
 /** Explicit local-review/replay link. Observation links retain their normal entry. */
 export function isOpeningPreview(hash: string, search: string): boolean {
   const query = new URLSearchParams(search);
-  return query.get('intro') === '1' && [...query.keys()].every(key => key === 'intro') &&
+  return query.get('intro') === '1' && [...query.keys()].every(key => key === 'intro' || TRACKING.test(key)) &&
     (isBareHome(hash, '') || hash === '#/sky' || hash.startsWith('#/sky/'));
 }
 
-/**
- * True when the opening should play now. It also records the play, so a reload or a second
- * tab never shows it again. Any storage error means "don't show": better to skip it for
- * someone than to show it on every visit.
- */
-export function claimOpening(env: OpeningEnv): boolean {
-  if (!isBareHome(env.hash, env.search) || env.reducedMotion) return false;
-  try {
-    const store = env.store();
-    if (!store || store.getItem(SEEN_KEY) !== null) return false;
-    store.setItem(SEEN_KEY, "1");
-    return store.getItem(SEEN_KEY) === "1";
-  } catch {
-    return false;
-  }
+export type OpeningMode = "play" | "still";
+
+/** Visiting the home is sufficient; no persistent storage gate is read or written. */
+export function openingMode(env: OpeningEnv): OpeningMode | null {
+  if (!isBareHome(env.hash, env.search)) return null;
+  return env.reducedMotion ? "still" : "play";
 }
 
 export function browserEnv(): OpeningEnv {
@@ -52,12 +36,11 @@ export function browserEnv(): OpeningEnv {
   try {
     reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   } catch {
-    /* no matchMedia: treat as reduced, so the opening stays out of the way */
+    /* no matchMedia: keep the opening still */
   }
   return {
     hash: location.hash,
     search: location.search,
     reducedMotion,
-    store: () => window.localStorage,
   };
 }

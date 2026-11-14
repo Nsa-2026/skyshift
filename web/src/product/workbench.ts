@@ -15,6 +15,15 @@ export const targetFor = (view: View): Target => ({
   default_det:view.det, clock:view.clock, fov:view.fov, n_frames:0, n_visits:0,
 });
 
+/** Where the derived images (sky model, residual, DR1 difference) exist: the five featured stars'
+ *  prepared fields, on the Months clock at 5′. Elsewhere /api/frames?view= answers 404, so the
+ *  options are greyed out with the reason instead of failing and snapping back. */
+export function layerAvailability(view:Pick<View,'slug'|'clock'|'fov'>):{ok:boolean;reason:string} {
+  if(!hasScience(view.slug))return {ok:false,reason:"Sky model, residual and DR1 difference exist only for the five featured stars: Barnard's Star, Eps Indi B, WISE 0855, RW Aur and R Dra."};
+  if(view.clock!=='months'||view.fov!==5)return {ok:false,reason:'These images are made on the Months clock at 5′. Switch the player to Months and 5′ to use them.'};
+  return {ok:true,reason:''};
+}
+
 export function mountWorkbench(host:HTMLElement, opts:{
   card:CardHandle; cardElement:HTMLElement;
   layer(layer:Layer):void; locate(candidate:Candidate):void;
@@ -27,8 +36,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
     <div class="wb-card-slot"></div>
     <div class="wb-guide" data-wb="explore">
       <p>Follow the marked target as the dates change. A jump may be motion; a change in brightness needs a closer look.</p>
-      <a class="btn" href="#/analyze">Analyze this target <span aria-hidden="true">→</span></a>
-      <a class="wb-learn" href="#/explore/learn">New to blinking? Start with a lesson.</a>
+      <a class="btn" href="#/explore/motion">Measure this target <span aria-hidden="true">→</span></a>
+      <a class="wb-learn" href="#/learn">New to blinking? Start with a lesson.</a>
     </div>
     <section data-wb="signals" hidden><h2>Signals to check</h2><div class="wb-findings-body"></div>
       <p class="source">Background frequencies rank follow-up checks; they are not probabilities that an object is real. Cold-source false alarms remain uncalibrated.</p>
@@ -40,6 +49,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
         <option value="raw">SPHEREx observations</option><option value="model">Static sky model</option>
         <option value="resid">Model residual</option><option value="refdiff">DR1 reference difference</option>
       </select></label>
+      <p class="wb-layer-note" role="status"></p>
       <p class="source">Published models, residuals and DR1 differences use the analysis cube. They currently support the five featured science targets at 5′ on the Months clock; their measured footprint can be smaller. Original object measurements remain separate.</p>
       <p class="wb-capability" role="status"></p><button class="btn wb-build" type="button" hidden>Build an analysis for this sky</button>
     </section>
@@ -169,6 +179,9 @@ export function mountWorkbench(host:HTMLElement, opts:{
         if(!view||view.ra!==next.ra||view.dec!==next.dec)comparison.setTarget(targetFor(next));
       }
       view=next;layer.value=selectedLayer;build.disabled=false;
+      const available=layerAvailability(next);
+      layer.querySelectorAll<HTMLOptionElement>('option:not([value="raw"])').forEach(o=>{o.disabled=!available.ok;});
+      $('.wb-layer-note').textContent=available.reason;
       // Static first: a featured field's products are files; elsewhere the API answers (or says why not).
       const published=hasScience(next.slug);
       $<HTMLAnchorElement>('.wb-science-json').href=published?`/science-data/${next.slug}/science.json`:`/api/science?ra=${next.ra}&dec=${next.dec}`;

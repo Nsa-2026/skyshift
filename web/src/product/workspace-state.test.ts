@@ -5,7 +5,7 @@ describe('workspace deep links',()=>{
     expect(workspaceState(null)).toEqual({mode:'explore',tab:''});
     expect(workspaceState('science')).toEqual({mode:'research',tab:'processing'});
     expect(workspaceState('play')).toEqual({mode:'explore',tab:'play'});
-    expect(workspaceHref('explore','play')).toBe('#/explore/play');
+    expect(workspaceHref('explore','play')).toBe('#/learn/practice');
   });
   it('uses only sections that belong to the selected level',()=>{
     expect(workspaceState('analyze/spectrum')).toEqual({mode:'analyze',tab:'spectrum'});
@@ -15,7 +15,8 @@ describe('workspace deep links',()=>{
   });
   it('provides direct links for every level',()=>{
     expect(workspaceHref('explore')).toBe('#/explore');
-    expect(workspaceHref('analyze','lightcurve')).toBe('#/analyze/lightcurve');
-    expect(workspaceHref('research','validation')).toBe('#/research/validation');
+    expect(workspaceHref('analyze','lightcurve')).toBe('#/explore/lightcurve');
+    expect(workspaceHref('analyze')).toBe('#/explore/motion');
+    expect(workspaceHref('research','validation')).toBe('#/explore/validation');
   });
 });
