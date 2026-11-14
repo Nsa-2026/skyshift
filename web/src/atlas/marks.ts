@@ -115,6 +115,8 @@ export interface Ink {
 export interface MarkStyle {
   selected?: boolean;
   hovered?: boolean;
+  /** Grade C (failed a vetting check): the same mark in grey pencil, fainter. */
+  muted?: boolean;
 }
 
 function line(ctx: CanvasRenderingContext2D, a: Vec, b: Vec) {
@@ -136,11 +138,12 @@ export function drawSignal(
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  const color = kind === "spectral" ? ink.violet : ink.red;
+  const color = style.muted ? ink.ink2 : kind === "spectral" ? ink.violet : ink.red;
+  const alpha = style.hovered || style.selected ? 1 : style.muted ? 0.6 : 0.85;
   // A glass halo under the stroke keeps the mark legible on busy sky.
   const passes: [string, number, number][] = [
-    [ink.glass, style.selected ? 6 : 4, 0.75],
-    [color, style.selected ? 2.5 : 1.5, style.hovered || style.selected ? 1 : 0.85],
+    [ink.glass, style.selected ? 6 : 4, style.muted ? 0.5 : 0.75],
+    [color, style.selected ? 2.5 : 1.5, alpha],
   ];
   for (const [stroke, width, alpha] of passes) {
     ctx.strokeStyle = stroke;

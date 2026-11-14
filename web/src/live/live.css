@@ -131,6 +131,13 @@
   stroke-opacity: 0.7;
   stroke-width: 1;
 }
+.lv-sus-marks circle.is-gradec,
+.lv-sus-marks[data-provisional="1"] circle.is-gradec {
+  fill: var(--ink-3);
+  fill-opacity: 0.6;
+  stroke: var(--sheet);
+  stroke-opacity: 1;
+}
 .lv-prov-note {
   margin: 0;
   padding: var(--s2) var(--s3);
@@ -172,10 +179,62 @@
   font-size: var(--step--1);
 }
 .lv-sus-blink {
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 4;
   grid-column: 2;
+  align-self: center;
   min-height: 30px;
   padding: 0 var(--s3);
+}
+/* The vetting grade on each row, in words; grade C greyed. */
+.lv-sus-grade,
+.lv-sus-near {
+  grid-column: 1;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.lv-sus-row:not(.is-gradec) .lv-sus-grade {
+  color: var(--ink);
+  font-weight: 550;
+}
+.lv-sus-row.is-gradec .lv-sus-pos {
+  color: var(--ink-2);
+  font-weight: 450;
+}
+.lv-grades {
+  display: grid;
+  gap: var(--s1);
+}
+.lv-grades-a {
+  margin: 0;
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.45;
+}
+.lv-grades .lv-note {
+  margin: 0;
+}
+.lv-gates summary {
+  cursor: pointer;
+  font-size: var(--step--1);
+  color: var(--ink);
+}
+.lv-gates ul {
+  list-style: none;
+  margin: var(--s1) 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: var(--step--1);
+}
+.lv-gates li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  color: var(--ink-2);
+}
+.lv-gates-n {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 
 /* Desktop: what is happening (left) and the facts (right) over the map and its side column.

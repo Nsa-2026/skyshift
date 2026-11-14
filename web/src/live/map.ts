@@ -1,6 +1,7 @@
 // The all-sky map of tonight's zones: an SVG Mollweide (RA increasing to the left), each zone a box
 // filled by state with colour AND pattern, the ecliptic, the hunt zone outlined. Zones are buttons with a
 // roving tabindex; arrow keys move between them in sky order (see neighbour()).
+import { gradeOf } from "../api/grades";
 import { esc, fmtCount, fmtDec, fmtRa } from "./format";
 import { isProvisional, workerOf, type SkyZone } from "./model";
 import {
@@ -315,17 +316,19 @@ export function markChanged(svg: SVGSVGElement, names: Iterable<string>, geom: M
  */
 export function markSuspects(
   svg: SVGSVGElement,
-  points: Array<{ ra: number; dec: number }>,
+  points: Array<{ ra: number; dec: number; grade?: unknown }>,
   geom: MapGeometry,
   provisional = false,
 ): void {
   const layer = svg.querySelector(".lv-sus-marks");
   if (!layer) return;
   layer.setAttribute("data-provisional", provisional && points.length ? "1" : "");
-  layer.innerHTML = points
+  // Grade C (failed a vetting check) in grey, drawn first so the others sit on top.
+  const order = [...points].sort((a, b) => Number(gradeOf(b) === "C") - Number(gradeOf(a) === "C"));
+  layer.innerHTML = order
     .map((p) => {
       const [x, y] = skyToXY(p.ra, p.dec, geom.frame);
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.7"/>`;
+      return `<circle${gradeOf(p) === "C" ? ' class="is-gradec"' : ""} cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.7"/>`;
     })
     .join("");
 }

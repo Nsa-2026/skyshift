@@ -347,10 +347,66 @@ describe("CSV", () => {
     const lines = csv.trimEnd().split("\r\n");
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(
-      "id,ra,dec,mjd,date_utc,clock,det,evidence,n_dots,snr,flux_ujy,cell,nearest_known_arcsec",
+      "id,ra,dec,mjd,date_utc,clock,det,evidence,n_dots,snr,flux_ujy,cell,nearest_known_arcsec,grade,reasons,near_source_arcsec",
     );
     expect(lines[1].startsWith("SYNTH-S1,125.45238,5.559772,60968.284842,2025-")).toBe(true);
-    expect(lines[1].endsWith(",two_exposures,2,10.1,262.3,573350074917,")).toBe(true);
-    expect(lines[2].endsWith(",88.5")).toBe(true);
+    expect(lines[1].endsWith(",two_exposures,2,10.1,262.3,573350074917,,B,,8.4")).toBe(true);
+    expect(lines[2].endsWith(",88.5,C,hot_pixel;edge,")).toBe(true);
+    expect(lines[3].endsWith(",112.5,C,2mass,4.1")).toBe(true);
+  });
+  it("leaves the vetting columns blank for an ungraded file", () => {
+    const old = suspects.suspects.map(({ grade: _g, reasons: _r, near_source_arcsec: _n, ...s }) => s);
+    const lines = suspectsCsv(old).trimEnd().split("\r\n");
+    expect(lines[1].endsWith(",573350074917,,,,")).toBe(true);
+    expect(lines[2].endsWith(",88.5,,,")).toBe(true);
+  });
+});
+
+describe("vetting grades on the suspects table", () => {
+  it("shows 0 grade A as expected, B and C totals, the checks and why C failed", () => {
+    const d = el();
+    renderScore(d, validation, suspects);
+    const v = d.querySelector(".sc-vetting")!;
+    expect(text(v.querySelector(".sc-grades-a"))).toBe(
+      "0 candidate movers (grade A). Expected: proving motion needs a track over several sessions.",
+    );
+    expect(text(v)).toContain("1 unexplained single-session source (grade B) and 2 that fail a check (grade C).");
+    expect(text(v)).toContain("known asteroids and comets (MPC), Gaia and CatWISE");
+    const gates = [...v.querySelectorAll(".sc-gates dt")].map((x) => text(x));
+    expect(gates).toEqual(["A 2MASS source sits here", "At the detector edge", "On a hot pixel"]);
+  });
+
+  it("adds a grade column, ranks A, B, C then S/N, and greys grade C with its reasons", () => {
+    const d = el();
+    // Shuffle the file: the table ranks by grade (B before C), then S/N within C.
+    const shuffled = { ...suspects, suspects: [suspects.suspects[2], suspects.suspects[0], suspects.suspects[1]] };
+    renderScore(d, validation, shuffled);
+    expect(text(d.querySelector(".sc-suspect-table thead"))).toContain("Vetting grade");
+    const rows = [...d.querySelectorAll(".sc-suspect-table tbody tr")];
+    expect(rows.map((r) => text(r.querySelector(".sc-sid-id")))).toEqual(["SYNTH-S1", "SYNTH-S2", "SYNTH-S3"]);
+    expect(rows[0].classList.contains("is-gradec")).toBe(false);
+    expect(text(rows[0].querySelector(".sc-grade"))).toContain("Grade B");
+    expect(text(rows[0].querySelector(".sc-grade"))).toContain("Unexplained single-session source");
+    expect(text(rows[0].querySelector(".sc-near"))).toBe("A catalogued source sits 8.4″ away.");
+    expect(rows[1].classList.contains("is-gradec")).toBe(true);
+    expect(text(rows[1].querySelector(".sc-grade"))).toContain("On a hot pixel and at the detector edge");
+    expect(rows[1].querySelector(".sc-near")).toBeNull();
+    expect(text(rows[2].querySelector(".sc-grade"))).toContain("A 2MASS source sits here");
+    expect(text(rows[2].querySelector(".sc-near"))).toBe("A catalogued source sits 4.1″ away.");
+  });
+
+  it("keeps today's table for a file without grades", () => {
+    const d = el();
+    const old = {
+      ...suspects,
+      grades: undefined,
+      gates: undefined,
+      vetoes: undefined,
+      suspects: suspects.suspects.map(({ grade: _g, reasons: _r, near_source_arcsec: _n, ...s }) => s),
+    };
+    renderScore(d, validation, old);
+    expect(d.querySelector(".sc-vetting")).toBeNull();
+    expect(text(d.querySelector(".sc-suspect-table thead"))).not.toContain("Vetting grade");
+    expect(d.querySelectorAll(".sc-suspect-table .is-gradec")).toHaveLength(0);
   });
 });

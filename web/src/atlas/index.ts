@@ -16,7 +16,21 @@ import { kindIcon, renderCandidate, renderTarget, type DrawerHandle } from "./dr
 import { createFallbackMap } from "./fallback";
 import { parseState, preparedBlinkHash, sameState, stateHash, type AtlasState } from "./hash";
 import { binCandidates, rampLabels, rampSteps, zoneBoxes, type Cell, type ZoneBox } from "./heat";
-import { KINDS, KIND_TEXT, LIST_NOTE, countSentence, countText, isLikelyMismatch, kindChipTitle, oneLine, plural, shownSentence, zoneName } from "./kinds";
+import {
+  KINDS,
+  KIND_TEXT,
+  LIST_NOTE,
+  countSentence,
+  countText,
+  gradeCLast,
+  isGradeC,
+  isLikelyMismatch,
+  kindChipTitle,
+  oneLine,
+  plural,
+  shownSentence,
+  zoneName,
+} from "./kinds";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
@@ -442,7 +456,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones with objects to check. ` : ""
       }${kindIcon("target", 16)} Featured targets.${searchKey()}`;
     } else {
-      keyEl.innerHTML = `${KINDS.map((k) => `${kindIcon(k, 16)} ${KIND_TEXT[k].name}`).join(", ")}, ${kindIcon("target", 16)} featured target. A moving star's arrow shows where it will be in 100 years.${provisionalKey()}`;
+      const gradeC = shown.some(isGradeC)
+        ? ` <span class="atl-key-group is-gradec">${kindIcon("mover", 16)} Grey: grade C, fails a pipeline check (not put to a vote).</span>`
+        : "";
+      keyEl.innerHTML = `${KINDS.map((k) => `${kindIcon(k, 16)} ${KIND_TEXT[k].name}`).join(", ")}, ${kindIcon("target", 16)} featured target. A moving star's arrow shows where it will be in 100 years.${gradeC}${provisionalKey()}`;
     }
   }
 
@@ -499,13 +516,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
     listToggle.disabled = false;
     if (showsSignals(level)) {
-      const items = inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight });
+      // Nearest the centre first, grade C after the rest (C never leads a list).
+      const items = gradeCLast(inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }));
       listToggle.textContent = `Signals in view (${countText(items.length)})`;
       listEl.innerHTML = items.length
         ? items
             .slice(0, LIST_MAX)
             .map(
-              (c) => html`<li><button type="button" class="atl-list-item" data-id="${esc(c.id)}">${kindIcon(c.kind, 16)}<span>${esc(oneLine(c))}</span><span class="atl-list-pos">${esc(formatRaDec(c))}</span></button></li>`,
+              (c) => html`<li><button type="button" class="atl-list-item${isGradeC(c) ? " is-gradec" : ""}" data-id="${esc(c.id)}">${kindIcon(c.kind, 16)}<span>${esc(oneLine(c))}</span><span class="atl-list-pos">${esc(formatRaDec(c))}</span></button></li>`,
             )
             .join("") + (items.length > LIST_MAX ? `<li class="atl-list-more">${countText(items.length - LIST_MAX)} more: zoom in to narrow the list.</li>` : "")
         : `<li class="atl-list-more">No signals in view.</li>`;

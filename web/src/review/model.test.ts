@@ -7,6 +7,7 @@ import {
   consensus,
   discoverQuery,
   forAstronomers,
+  gradeCCount,
   isDiscoverUrl,
   keyAction,
   needsCounts,
@@ -87,6 +88,19 @@ describe("queueOrder", () => {
     expect(ids(queueOrder([a, b, c, d, e], k, mine))).toEqual(["a", "d", "c", "e"]);
   });
 
+  it("skips grade C, leads with grade A, and queues B and ungraded as before", () => {
+    const gA = cand("gA", { kind: "mover", grade: "A", score: null, snr: 6 });
+    const gB = cand("gB", { kind: "mover", grade: "B", score: null, snr: 30 });
+    const gC = cand("gC", { kind: "mover", grade: "C", score: null, snr: 99, reasons: ["hot_pixel"] });
+    const old = cand("old", { kind: "mover", score: null, snr: 20 });
+    expect(ids(queueOrder([gC, old, gB, gA, a], new Map()))).toEqual(["gA", "a", "gB", "old"]);
+    expect(gradeCCount([gC, old, gB, gA])).toBe(1);
+    // Grade A leads until it reaches consensus, even with a vote already.
+    const k = new Map([["gA", counts({ mover: 1 })]]);
+    expect(ids(queueOrder([gB, gA], k))).toEqual(["gA", "gB"]);
+    expect(ids(queueOrder([gA, gB], new Map([["gA", counts({ mover: 5 })]])))).toEqual(["gB", "gA"]);
+  });
+
   it("score order breaks ties by S/N, then id", () => {
     const x = cand("x", { score: 0.5, snr: 10 });
     const y = cand("y", { score: 0.5, snr: 20 });
@@ -138,6 +152,20 @@ describe("the Candidates filter from its URL", () => {
     expect(ids(applyFilter(all, parseFilter("sort=fewest"), k))).toEqual(["m", "q", "p"]);
     const mine = (id: string): Answer | null => (id === "p" ? "mover" : null);
     expect(ids(applyFilter(all, parseFilter("mine=hide"), k, mine))).toEqual(["q", "m"]);
+  });
+
+  it("reads the grade filter and both grade orders like the Candidates page", () => {
+    const b = cand("b", { kind: "mover", grade: "B", snr: 8 });
+    const c = cand("c", { kind: "mover", grade: "C", snr: 50, score: 0.99 });
+    const n = cand("n", { kind: "mover", snr: 40 });
+    const p = cand("p", { score: 0.5, snr: 9 });
+    const all = [c, n, b, p];
+    expect(parseFilter("grade=C,none").lists.grade).toEqual(["C", "none"]);
+    expect(ids(applyFilter(all, parseFilter("grade=C,none")))).toEqual(["p", "n", "c"]);
+    // Pipeline score: C last, even with the highest score.
+    expect(ids(applyFilter(all, parseFilter("")))).toEqual(["p", "n", "b", "c"]);
+    // Vetting grade: A, B, C, then no grade; S/N within each.
+    expect(ids(applyFilter(all, parseFilter("sort=grade")))).toEqual(["b", "c", "n", "p"]);
   });
 
   it("finds the neighbours in a list", () => {
