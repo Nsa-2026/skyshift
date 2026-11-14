@@ -10,7 +10,7 @@ from astropy.wcs import WCS
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from _boxes import Box, angsep_arcsec, offset_position, reference_stack, source_near  # noqa: E402
-from skyshift_core import SAT_BITS  # noqa: E402
+from skyshift_core import MASK_BITS, SAT_BITS, detect  # noqa: E402
 
 PIX_DEG = 6.15 / 3600
 
@@ -80,3 +80,45 @@ def test_saturated_core_uses_wings_not_the_ring():
     hit = source_near(img, x, y, flags=flags, variance=np.full((n, n), 1e-4), wings=True)
     assert hit.found and hit.method in ("wings", "core")
     assert hit.offset_px < 0.5
+
+
+def _bright_star_with_big_hole(n=41, x=20.3, y=19.6, hole_r=8.0):
+    """R Draconis in D4: a halo bright out to ~17 px and a masked core 8 px in radius (OVERFLOW in
+    the middle, other mask bits such as TRANSIENT/SUR_ERROR around it), so sep sees only the rim."""
+    rng = np.random.default_rng(5)
+    yy, xx = np.mgrid[:n, :n]
+    r = np.hypot(xx - x, yy - y)
+    img = 5000.0 / (1 + (r / 1.5) ** 2) ** 1.5 + rng.normal(0, 0.02, (n, n))
+    other = MASK_BITS & ~SAT_BITS
+    flags = np.zeros((n, n), np.int32)
+    flags[r <= hole_r] = other & -other
+    flags[r <= 3.0] = SAT_BITS & -SAT_BITS
+    return img, flags
+
+
+def test_very_bright_star_rim_beyond_6px_uses_masked_core():
+    n, x, y = 41, 20.3, 19.6
+    img, flags = _bright_star_with_big_hole(n, x, y)
+    var = np.full((n, n), 1e-4)
+    dets = detect(img, flags, variance=var, thresh=2.5)
+    nearest = float(np.hypot(dets["x"] - x, dets["y"] - y).min())
+    assert nearest > 6.0  # beyond the old radius_px + 4 gate: only the rim is detected
+    hit = source_near(img, x, y, flags=flags, variance=var, thresh=2.5, min_snr=5.0, wings=True)
+    assert hit.found and hit.method == "core" and hit.offset_px < 0.3
+
+
+def test_big_masked_core_off_the_prediction_is_not_a_match():
+    n, x, y = 41, 20.3, 19.6
+    img, flags = _bright_star_with_big_hole(n, x, y)
+    # predicted 3 px from the star, still inside its masked core: the core's centre is 3 px away
+    hit = source_near(img, x + 3.0, y, flags=flags, variance=np.full((n, n), 1e-4), thresh=2.5, min_snr=5.0, wings=True)
+    assert not hit.found and hit.offset_px > 2.5
+
+
+def test_small_masked_blob_does_not_borrow_a_distant_star():
+    n = 41
+    img = _star(n, 29.0, 20.0, 1.0)  # an ordinary star 9 px from the prediction
+    flags = np.zeros((n, n), np.int32)
+    flags[19:22, 19:22] = SAT_BITS & -SAT_BITS  # a small saturated blob under the prediction
+    hit = source_near(img, 20.0, 20.0, flags=flags, variance=np.full((n, n), 1e-4), thresh=2.5, wings=True)
+    assert not hit.found

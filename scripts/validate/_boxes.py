@@ -185,15 +185,18 @@ def source_near(image: np.ndarray, x: float, y: float, *, flags: np.ndarray | No
     is biased by 1-2 px (Barnard's Star, D6: 1.75 px while Gaia field stars in the same box agree to
     0.03 px). Then the position is skyshift_core's Gaussian fit to the unmasked wings of a 13 x 13 px
     stamp, started at the prediction and bounded to +-2 px (a fit stopped at the bound is not a
-    match), and the sep detection only has to be within radius_px + 4 of the prediction.
+    match), and the sep detection only has to be within radius_px + 4 of the prediction, or within
+    radius_px of the masked core: around a very bright star (R Draconis in D4-D5) the masked core is
+    6-9 px in radius and sep finds only its unmasked rim, 0.7-1.7 px outside it.
     """
     dets = detect(image, flags, variance=variance, mask=mask, thresh=thresh)
     if min_snr > 0 and len(dets):
         dets = dets[dets["snr"] >= min_snr]  # aperture S/N (skyshift_core.detect: 2 px aperture)
     d = np.hypot(dets["x"] - x, dets["y"] - y) if len(dets) else np.zeros(0)
     i = int(np.argmin(d)) if len(d) else -1
-    if wings and i >= 0 and d[i] <= radius_px + 4.0 and _core_masked(image, x, y, flags, mask):
-        m = build_mask(image, flags, mask)
+    m = build_mask(image, flags, mask) if wings and i >= 0 and _core_masked(image, x, y, flags, mask) else None
+    if m is not None and (d[i] <= radius_px + 4.0
+                          or _borders_core(m, x, y, float(dets["x"][i]), float(dets["y"][i]), radius_px)):
         sub = np.where(m, 0.0, image)
         sub = sub - background(sub, m).level
         c = fit_centroid(sub, m, x, y, half=6)
@@ -213,8 +216,8 @@ def source_near(image: np.ndarray, x: float, y: float, *, flags: np.ndarray | No
     return Hit(False, None, None, None, "none")
 
 
-def _masked_core_centre(m: np.ndarray, x: float, y: float) -> tuple[float, float] | None:
-    """Centroid of the connected masked region touching the 2 px disc around (x, y) (>= 3 px)."""
+def _masked_core(m: np.ndarray, x: float, y: float) -> tuple[np.ndarray, np.ndarray] | None:
+    """Pixels (px, py) of the largest connected masked region touching the 2 px disc around (x, y), >= 3 px."""
     lab, _ = label(m)
     ny, nx = m.shape
     yy, xx = np.ogrid[:ny, :nx]
@@ -225,7 +228,19 @@ def _masked_core_centre(m: np.ndarray, x: float, y: float) -> tuple[float, float
     py, px = np.nonzero(lab == best)
     if px.size < 3:
         return None
-    return float(px.mean()), float(py.mean())
+    return px, py
+
+
+def _masked_core_centre(m: np.ndarray, x: float, y: float) -> tuple[float, float] | None:
+    """Centroid of the connected masked region touching the 2 px disc around (x, y) (>= 3 px)."""
+    core = _masked_core(m, x, y)
+    return None if core is None else (float(core[0].mean()), float(core[1].mean()))
+
+
+def _borders_core(m: np.ndarray, x: float, y: float, dx: float, dy: float, radius_px: float) -> bool:
+    """Is the detection at (dx, dy) within radius_px of a pixel of the masked core at (x, y)?"""
+    core = _masked_core(m, x, y)
+    return core is not None and float(np.hypot(core[0] - dx, core[1] - dy).min()) <= radius_px
 
 
 def _core_masked(image: np.ndarray, x: float, y: float, flags: np.ndarray | None, mask: np.ndarray | None) -> bool:

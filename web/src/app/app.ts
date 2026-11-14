@@ -19,33 +19,38 @@ export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
   root.innerHTML = html`
     <header class="top" ${embed ? "hidden" : ""}>
-      <a class="wordmark" href="./" aria-label="SkyShift home">SkyShift</a>
+      <div class="brand">
+        <a class="wordmark" href="./" aria-label="SkyShift home">SkyShift</a>
+        <p class="lede">Blink NASA's SPHEREx infrared sky and see what moved.</p>
+      </div>
       <form class="find" role="search">
         <label class="visually-hidden" for="q">Coordinates or a featured name</label>
         <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
           placeholder="Paste coordinates, e.g. 08h55m10.831s -7d14m42.53s" />
-        <button class="btn find-go" type="submit">Blink</button>
+        <button class="btn btn-primary find-go" type="submit">Blink</button>
       </form>
       <nav class="nav" aria-label="Pages">
         <a href="#/" data-route="blink">Blink</a>
         <a href="#/score" data-route="score">Scoreboard</a>
       </nav>
     </header>
-    <div class="chips" role="list" aria-label="Featured targets" ${embed ? "hidden" : ""}>
-      ${TARGETS.map(
-        (t) => html`<button class="chip" role="listitem" type="button" data-slug="${t.slug}" aria-pressed="false">
-          <span class="chip-name">${t.short}</span><span class="chip-kind">${t.kind}</span>
-        </button>`,
-      ).join("")}
+    <div class="featured" ${embed ? "hidden" : ""}>
+      <span class="featured-label" id="featured-label">Try</span>
+      <div class="featured-list" role="group" aria-labelledby="featured-label" style="display:contents">
+        ${TARGETS.map(
+          (t) => html`<button class="chip" type="button" data-slug="${t.slug}" aria-pressed="false"
+            title="${t.name}, ${t.kind}">${t.short}<span class="chip-kind">, ${t.kind}</span></button>`,
+        ).join("")}
+      </div>
     </div>
     <p class="find-msg" role="status" aria-live="polite"></p>
     <main class="page page-blink" data-page="blink">
       <section class="stage" aria-label="Blink"><div id="blink"></div></section>
-      <aside class="side">
-        <section id="card" class="panel side-card" aria-label="Object"></section>
-        <section id="vote" class="panel side-vote" aria-label="Flag and vote"></section>
-      </aside>
-      <section id="sky" class="panel sky" aria-label="Sky view"></section>
+      <section id="card" class="side-card" aria-label="Object"></section>
+      <div class="below">
+        <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
+        <section id="sky" class="sky" aria-label="Sky around this spot"></section>
+      </div>
     </main>
     <main class="page page-score" data-page="score" hidden><div id="score"></div></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
