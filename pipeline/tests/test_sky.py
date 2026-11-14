@@ -3,7 +3,7 @@ import pytest
 
 from skyshift_pipeline import config as C
 from skyshift_pipeline.sky import (Footprint, SkyTree, angsep, cell_of, neighbour_cells, offset_radec,
-                                   parse_polygon, tile_of, zone_tiles)
+                                   fof_groups, parse_polygon, sessions_covering)
 
 S_REGION = ("POLYGON ICRS 122.95841479319971 13.183534969834449 119.44737670053233 13.841104799139334 "
             "120.22816802854675 17.2435508884762 123.82521817133913 16.572008077517623 "
@@ -29,17 +29,18 @@ def test_neighbour_cells_cover_an_edge():
         assert int(cell_of(r2, d2)) in nb
 
 
-def test_zone_tiles():
-    tid, ra, dec = zone_tiles(C.ZONES["hunt"])
-    assert tid.size == 40 * 40
-    tid_p, _, _ = zone_tiles(C.ZONES["pilot"])
-    assert tid_p.size == 14 * 14
-    assert set(tid_p) <= set(tid)  # one grid: pilot tiles are hunt tiles
-    assert int(tile_of(120.6, 14.5)) == 0
-    assert int(tile_of(120.6 + 0.25, 14.5 + 0.25)) == 10_001
-    assert int(tile_of(119.0, 15.0, C.ZONES["pilot"])) == -1
-    assert int(tile_of(125.0, 15.0, C.ZONES["pilot"])) == -1
-    assert int(tile_of(125.0, 15.0, C.ZONES["hunt"])) >= 0
+def test_fof_groups():
+    ra0, dec0 = 121.0, 15.0
+    pts = [offset_radec(ra0, dec0, e, 0.0) for e in (0.0, 3.0, 6.0, 30.0)]  # chain 0-3-6″, then far away
+    ra = np.array([p[0] for p in pts]); dec = np.array([p[1] for p in pts])
+    lab = fof_groups(ra, dec, 4.0, 1.0)
+    assert lab[0] == lab[1] == lab[2] != lab[3]
+
+
+def test_sessions_covering():
+    fps = [Footprint(parse_polygon(S_REGION))] * 3 + [Footprint(parse_polygon(S_REGION))]
+    n = sessions_covering([121.6, 140.0], [15.2, 15.2], fps, [1, 1, 2, 3])
+    assert list(n) == [3, 0]
 
 
 def test_footprint():

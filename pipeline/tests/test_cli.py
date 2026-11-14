@@ -9,10 +9,10 @@ from skyshift_pipeline import config as C
 from skyshift_pipeline import suspects as S
 from skyshift_pipeline.cli import main
 from skyshift_pipeline.dots import DOT_COLUMNS
-from skyshift_pipeline.known import OBJ_KEYS
-from skyshift_pipeline.photolist import tile_map
+from skyshift_pipeline.known import OBJ_KEYS, run_rel
+from skyshift_pipeline.photolist import add_sessions
 from skyshift_pipeline.sky import cell_of
-from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel, skybot_rel
+from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel
 
 from conftest import t
 from test_photolist import square
@@ -28,7 +28,7 @@ def dots_df(obs_id, det, mjd, pts):
     return pd.DataFrame({
         "obs_id": obs_id, "detector": det, "mjd": mjd, "session": 0, "visit": 0, "ra": ra, "dec": dec,
         "pos_err_arcsec": 0.3, "x": 1.0, "y": 1.0, "flux_ujy": 100.0, "flux_err_ujy": 5.0, "wavelength_um": 1.0,
-        "bandwidth_um": 0.02, "elong": 1.1, "snr": np.full(n, 20.0), "flags": 0, "cell": cell_of(ra, dec),
+        "bandwidth_um": 0.02, "elong": 1.1, "snr": np.full(n, 20.0), "flags": 0, "flags_peak": 0, "cell": cell_of(ra, dec),
     }).astype(DOT_COLUMNS)
 
 
@@ -40,9 +40,7 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
         for e in range(2):
             rows.append(dict(obs_id=f"S{s}E{e}", detector=1, mjd=t(s, e), s_region=square(122.3, 16.15),
                              collection="spherex_dr1", url="", s3_key="", size_bytes=1))
-    photos, tm, tiles = tile_map(pd.DataFrame(rows), zone)
-    store.write_parquet(photolist_rel("pilot", "tilemap"), tm)
-    store.write_parquet(photolist_rel("pilot", "tiles"), tiles)
+    photos = add_sessions(pd.DataFrame(rows))
     store.write_parquet(photolist_rel("pilot"), photos)
     for p in photos.itertuples():
         s, e = int(p.obs_id[1]), int(p.obs_id[3])
@@ -52,20 +50,22 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
         if s == 3:
             pts.append(NEW)
         store.write_parquet(dots_rel(p.obs_id, 1), dots_df(p.obs_id, 1, p.mjd, pts))
+    for _, g in photos.groupby("session"):
         objs = {k: [] for k in OBJ_KEYS}
-        if s == 2:
-            for k, v in zip(OBJ_KEYS, ["Known", 1234, KNOWN[0] + e * 1e-4, KNOWN[1], 15.2, 0.0, 0.0, "MB"]):
+        if int(g["obs_id"].iloc[0][1]) == 2:
+            for k, v in zip(OBJ_KEYS, ["Known", 1234, KNOWN[0], KNOWN[1], 15.2, 0.0, 0.0, "MB"]):
                 objs[k].append(v)
-        store.write_json(skybot_rel(p.obs_id, 1), {"obs_id": p.obs_id, "detector": 1, "mjd": p.mjd, "objects": objs})
+        store.write_json(run_rel(zone, g), {"mjd": float(g["mjd"].iloc[0]), "objects": objs})
 
     monkeypatch.setattr(S, "gaia_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
+    monkeypatch.setattr(S, "catwise_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
     for step in ("link", "score", "suspects"):
         assert main([step, "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
 
     movers = store.read_parquet(results_rel("pilot", "movers.parquet"))
     fixed = store.read_parquet(results_rel("pilot", "fixed.parquet"))
     assert len(fixed) == 1 and len(movers) == 2
-    assert set(movers["session"]) == {3, 4} and (movers["visit"] == 1).all()  # sessions 3 and 4 of 5 at the tile
+    assert set(movers["session"]) == {3, 4} and (movers["visit"] == 1).all()  # sessions 3 and 4 of 5
     rec = json.loads((tmp_path / "results/pilot/recall.json").read_text())
     assert rec["n_known"] == 1 and rec["recall"] == 1.0 and rec["g2_pass"] is True
     sus = json.loads((tmp_path / "results/pilot/suspects.json").read_text())

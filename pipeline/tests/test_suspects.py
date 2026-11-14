@@ -11,20 +11,27 @@ def movers():
     for k, (ev, snr) in enumerate([("two_detectors", 50.0), ("two_exposures", 9.0), ("two_exposures", 20.0),
                                    ("two_exposures", 30.0), ("two_exposures", 40.0)]):
         rows.append(dict(ra=121.0 + 0.1 * k, dec=15.0, mjd=61000.3, det=1, evidence=ev, n_dots=2, snr=snr,
-                         flux_ujy=100.0, flags=0, cell=k, session=3, visit=1))
+                         flux_ujy=100.0, flags=0, flags_peak_all=0, cell=k, session=3, visit=1))
     m = pd.DataFrame(rows)
     m.loc[3, "flags"] = 1 << 22  # GHOST
     return m
+
+
+def test_source_bit_at_peak_drops():
+    m = movers()
+    m.loc[1, "flags_peak_all"] = 1 << 21
+    s, st = S.select(m, pd.DataFrame(columns=["ra", "dec", "snr"]), pd.DataFrame(columns=["ra", "dec", "mjd", "session"]))
+    assert st["cut_source_bit"] == 1 and 1 not in set(s["cell"])
 
 
 def test_select_and_rank():
     m = movers()
     # a known asteroid 10″ from mover 4 at the mover's time
     ra, dec = offset_radec(m.loc[4, "ra"], m.loc[4, "dec"], 10.0, 0.0)
-    pred = pd.DataFrame([dict(name="X", ra=ra, dec=dec, mjd=61000.3, dra_arcsec_h=0.0, ddec_arcsec_h=0.0, v=18.0)])
+    pred = pd.DataFrame([dict(name="X", ra=ra, dec=dec, mjd=61000.3, dra_arcsec_h=0.0, ddec_arcsec_h=0.0, v=18.0, session=3)])
     fixed = pd.DataFrame([dict(ra=m.loc[2, "ra"], dec=m.loc[2, "dec"] + 10 / 3600, snr=500.0)])
     s, st = S.select(m, fixed, pred)
-    assert st == {"movers": 5, "cut_known": 1, "cut_flags": 1, "cut_bright_fixed": 1}
+    assert st == {"movers": 5, "cut_known": 1, "cut_flags": 1, "cut_bright_fixed": 1, "cut_source_bit": 0}
     assert sorted(s["cell"]) == [0, 1]
     r = S.rank(s)
     assert list(r["evidence"]) == ["two_exposures", "two_detectors"]

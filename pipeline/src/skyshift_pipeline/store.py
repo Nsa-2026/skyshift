@@ -1,9 +1,9 @@
 """The bucket (or a local folder) as an fsspec root, with atomic writes.
 
 Layout (docs/cloud-architecture.md):
-    photolists/zones/<zone>.parquet, photolists/zones/<zone>_tiles.parquet, ..._tilemap.parquet
+    photolists/zones/<zone>.parquet
     dots/<obs_id>D<det>.parquet
-    cache/skybot/<obs_id>D<det>.json
+    cache/skybot/<zone>/run_<first obs_id>.json
     results/<zone>/...
 A file's existence means its step is done. Writes are atomic: a local file is written under a
 temporary name and renamed; a GCS object only appears once its upload has completed.
@@ -90,9 +90,6 @@ def _json_default(o: Any) -> Any:
 def dots_rel(obs_id: str, det: int) -> str:
     return f"dots/{obs_id}D{int(det)}.parquet"
 
-
-def skybot_rel(obs_id: str, det: int) -> str:
-    return f"cache/skybot/{obs_id}D{int(det)}.json"
 
 
 def photolist_rel(zone: str, part: str = "") -> str:

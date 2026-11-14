@@ -1,16 +1,16 @@
-"""Step 1, `photolist`: every Level 2 photo touching the zone, and the 0.25° tile map.
+"""Step 1, `photolist`: every Level 2 photo touching the zone, with its session and visit.
 
-Source: IRSA TAP. `spherex.obscore` gives the footprint, time and band; its `cloud_access` column
-is empty over TAP, so the S3 key comes from `spherex.artifact.uri` ('ibe/data/spherex/' + key),
-joined through `spherex.plane.obs_publisher_did`. DR1 and QR3 only (no *_deep); one row per
+Source: IRSA TAP. Photos whose footprint (spherex.plane.poly) INTERSECTS the zone box, joined to
+spherex.obscore (s_region, time, band) and spherex.artifact (S3 key: uri = 'ibe/data/spherex/' +
+key; obscore's cloud_access is empty over TAP). DR1 and QR3 only (no *_deep); one row per
 (obs_id, detector), DR1 preferred. Time = (t_min + t_max) / 2. Detector from energy_bandpassname.
+If IRSA refuses the INTERSECTS query, a box on the photo centres plus a local footprint test is used.
 
-Outputs (under photolists/zones/):
-- <zone>.parquet          one row per photo
-- <zone>_tilemap.parquet  (tile, obs_id, detector) -> mjd, session, visit, covers_centre
-- <zone>_tiles.parquet    one row per tile: centre, photos and sessions covering the centre
-Sessions and visits are numbered per tile from every photo touching the tile (core.sessions,
-core.visits); coverage counts only photos that contain the tile centre.
+Sessions: a run of the zone's exposure times with gaps under 10 minutes (core.sessions on every
+photo of the zone), one value per photo. Visits: core.visits on the same times. Coverage of a
+position is counted later from the footprints (sky.sessions_covering).
+
+Output: photolists/zones/<zone>.parquet, one row per photo.
 """
 
 from __future__ import annotations
@@ -24,40 +24,66 @@ from skyshift_core import detector_from_bandpass, sessions, visits
 
 from . import config as C
 from . import log
-from .sky import Footprint, zone_tiles
+from .sky import Footprint
 from .store import Store, photolist_rel
 
 L = log.get("photolist")
 
-TILE_HALF_DIAG_DEG = C.TILE_DEG / np.sqrt(2.0)
+_SELECT = """SELECT o.obs_id, o.obs_collection, o.energy_bandpassname, o.t_min, o.t_max,
+       o.s_ra, o.s_dec, o.s_region, a.uri, a.contentlength"""
 
 
-def tap_query(zone: C.Zone) -> pd.DataFrame:
-    from astroquery.ipac.irsa import Irsa
+def _poly(zone: C.Zone) -> str:
+    return (f"POLYGON('ICRS',{zone.ra_min},{zone.dec_min},{zone.ra_max},{zone.dec_min},"
+            f"{zone.ra_max},{zone.dec_max},{zone.ra_min},{zone.dec_max})")
 
+
+def _cols() -> str:
+    return ", ".join(f"'{c}'" for c in C.COLLECTIONS)
+
+
+def query_intersects(zone: C.Zone) -> str:
+    return f"""{_SELECT}
+FROM spherex.plane AS p JOIN spherex.artifact AS a ON a.planeid = p.planeid
+JOIN spherex.obscore AS o ON o.obs_publisher_did = p.obs_publisher_did
+WHERE INTERSECTS(p.poly, {_poly(zone)}) = 1 AND o.obs_collection IN ({_cols()})"""
+
+
+def query_box(zone: C.Zone) -> str:
     m = C.PHOTO_HALF_DIAG_DEG
     dec_lo, dec_hi = zone.dec_min - m, zone.dec_max + m
     cosd = np.cos(np.deg2rad(max(abs(dec_lo), abs(dec_hi))))
     ra_lo, ra_hi = zone.ra_min - m / cosd, zone.ra_max + m / cosd
-    cols = ", ".join(f"'{c}'" for c in C.COLLECTIONS)
-    q = f"""SELECT o.obs_id, o.obs_collection, o.energy_bandpassname, o.t_min, o.t_max,
-       o.s_ra, o.s_dec, o.s_region, a.uri, a.contentlength
+    return f"""{_SELECT}
 FROM spherex.obscore AS o
 JOIN spherex.plane AS p ON p.obs_publisher_did = o.obs_publisher_did
 LEFT OUTER JOIN spherex.artifact AS a ON a.planeid = p.planeid AND a.producttype = 'science'
-WHERE o.obs_collection IN ({cols}) AND o.dataproduct_type = 'image'
+WHERE o.obs_collection IN ({_cols()}) AND o.dataproduct_type = 'image'
   AND o.s_dec BETWEEN {dec_lo:.4f} AND {dec_hi:.4f} AND o.s_ra BETWEEN {ra_lo:.4f} AND {ra_hi:.4f}"""
+
+
+def _tap(q: str):
+    from astroquery.ipac.irsa import Irsa
+
     for attempt in range(1, C.NET_RETRIES + 1):
         try:
             t0 = time.time()
             tab = Irsa.query_tap(q).to_table()
             L.info("TAP: %d rows in %.1f s", len(tab), time.time() - t0)
-            break
+            return tab
         except Exception as e:  # noqa: BLE001
-            L.warning("TAP failed (%s), attempt %d", e, attempt)
+            L.warning("TAP failed (%s), attempt %d", str(e)[:200], attempt)
             if attempt == C.NET_RETRIES:
                 raise
             time.sleep(10 * attempt)
+
+
+def tap_query(zone: C.Zone) -> tuple[pd.DataFrame, str]:
+    try:
+        tab, how = _tap(query_intersects(zone)), "intersects"
+    except Exception:  # noqa: BLE001
+        L.warning("INTERSECTS query failed; falling back to a box on photo centres + local footprint test")
+        tab, how = _tap(query_box(zone)), "box"
     df = pd.DataFrame({
         "obs_id": [str(x) for x in tab["obs_id"]],
         "collection": [str(x) for x in tab["obs_collection"]],
@@ -70,7 +96,7 @@ WHERE o.obs_collection IN ({cols}) AND o.dataproduct_type = 'image'
         "uri": ["" if np.ma.is_masked(x) else str(x) for x in tab["uri"]],
         "size_bytes": [0 if np.ma.is_masked(x) else int(x) for x in tab["contentlength"]],
     })
-    return df
+    return df, how
 
 
 def s3_key_from_uri(uri: str) -> str:
@@ -103,89 +129,61 @@ def clean(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return df.reset_index(drop=True), stats
 
 
-def tile_map(photos: pd.DataFrame, zone: C.Zone) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Keep photos touching the zone, then map (tile, photo) -> session, visit."""
-    tid, tra, tdec = zone_tiles(zone)
-    # zone sample points for the "touches the zone" test: tile centres and corners
-    h = C.TILE_DEG / 2.0
-    sra = np.concatenate([tra, tra - h, tra + h, tra - h, tra + h])
-    sdec = np.concatenate([tdec, tdec - h, tdec - h, tdec + h, tdec + h])
-    rows = []
+def touches_zone(photos: pd.DataFrame, zone: C.Zone, step_deg: float = 0.1) -> np.ndarray:
+    """Local footprint test (used after the box fallback): a vertex in the zone, or a zone grid
+    point inside the footprint."""
+    gr, gd = np.meshgrid(np.arange(zone.ra_min, zone.ra_max + 1e-9, step_deg),
+                         np.arange(zone.dec_min, zone.dec_max + 1e-9, step_deg))
+    gr, gd = gr.ravel(), gd.ravel()
     keep = np.zeros(len(photos), dtype=bool)
-    for k, (s_region, obs_id, det, mjd) in enumerate(zip(photos["s_region"], photos["obs_id"], photos["detector"], photos["mjd"])):
-        fp = Footprint.from_s_region(s_region)
+    for k, s in enumerate(photos["s_region"]):
+        fp = Footprint.from_s_region(s)
         v = fp.vertices
-        touches = bool(fp.contains(sra, sdec).any() or zone.contains(v[:, 0], v[:, 1]).any())
-        if not touches:
-            continue
-        keep[k] = True
-        d = fp.edge_distance_deg(tra, tdec)
-        near = d >= -TILE_HALF_DIAG_DEG
-        for t, dd in zip(tid[near], d[near]):
-            rows.append((int(t), obs_id, int(det), float(mjd), bool(dd >= 0)))
-    kept = photos[keep].reset_index(drop=True)
-    tm = pd.DataFrame(rows, columns=["tile", "obs_id", "detector", "mjd", "covers_centre"])
-    tm["session"] = np.int32(0)
-    tm["visit"] = np.int16(0)
-    tiles = []
-    for t, g in tm.groupby("tile", sort=True):
-        s = sessions(g["mjd"].to_numpy())
-        v = visits(g["mjd"].to_numpy())
-        tm.loc[g.index, "session"] = s.astype(np.int32)
-        tm.loc[g.index, "visit"] = v.astype(np.int16)
-        c = g["covers_centre"].to_numpy()
-        tiles.append((t, int(c.sum()), int(np.unique(s[c]).size), int(np.unique(v[c]).size),
-                      int(np.unique(s).size), int(np.unique(v).size)))
-    tiles_df = pd.DataFrame(tiles, columns=["tile", "n_photos", "n_sessions", "n_visits",
-                                            "n_sessions_touching", "n_visits_touching"])
-    centres = pd.DataFrame({"tile": tid, "ra": tra, "dec": tdec})
-    tiles_df = centres.merge(tiles_df, on="tile", how="left").fillna(0)
-    for c in ("n_photos", "n_sessions", "n_visits", "n_sessions_touching", "n_visits_touching"):
-        tiles_df[c] = tiles_df[c].astype("int32")
-    tm["session"] = tm["session"].astype("int32")
-    tm["visit"] = tm["visit"].astype("int16")
-    tm["detector"] = tm["detector"].astype("int8")
-    return kept, tm, tiles_df
+        keep[k] = bool(zone.contains(v[:, 0], v[:, 1]).any() or fp.contains(gr, gd).any())
+    return keep
 
 
-def describe(photos: pd.DataFrame, tiles: pd.DataFrame) -> dict:
+def add_sessions(photos: pd.DataFrame) -> pd.DataFrame:
+    """session and visit per photo from the zone's exposure times (core.sessions, core.visits)."""
+    p = photos.copy()
+    t = p["mjd"].to_numpy(np.float64)
+    p["session"] = sessions(t).astype(np.int32) if len(p) else np.zeros(0, np.int32)
+    p["visit"] = visits(t).astype(np.int16) if len(p) else np.zeros(0, np.int16)
+    return p.sort_values(["mjd", "detector"]).reset_index(drop=True)
+
+
+def describe(photos: pd.DataFrame) -> dict:
+    if len(photos) == 0:
+        return {"photos": 0}
+    per_s = photos.groupby("session")["obs_id"].nunique()
+    span = photos.groupby("session")["mjd"].agg(lambda x: (x.max() - x.min()) * 1440.0)
     return {
         "photos": int(len(photos)),
         "exposures": int(photos["obs_id"].nunique()),
         "per_detector": {str(k): int(v) for k, v in sorted(Counter(photos["detector"]).items())},
         "per_collection": {str(k): int(v) for k, v in sorted(Counter(photos["collection"]).items())},
-        "mjd_range": [float(photos["mjd"].min()), float(photos["mjd"].max())] if len(photos) else None,
+        "mjd_range": [float(photos["mjd"].min()), float(photos["mjd"].max())],
+        "sessions": int(photos["session"].nunique()),
+        "visits": int(photos["visit"].nunique()),
+        "exposures_per_session": {"min": int(per_s.min()), "median": float(per_s.median()), "max": int(per_s.max())},
+        "session_minutes": {"median": round(float(span.median()), 1), "max": round(float(span.max()), 1)},
+        "file_mb": {"min": round(float(photos["size_bytes"].min()) / 1e6, 1), "max": round(float(photos["size_bytes"].max()) / 1e6, 1)},
         "gigabytes_full_files": round(float(photos["size_bytes"].sum()) / 1e9, 1),
-        "tiles": int(len(tiles)),
-        "sessions_per_tile": _quantiles(tiles["n_sessions"]),
-        "visits_per_tile": _quantiles(tiles["n_visits"]),
-        "photos_per_tile": _quantiles(tiles["n_photos"]),
-        "tiles_with_3plus_sessions": int((tiles["n_sessions"] >= C.MOVER_MIN_COVER_SESSIONS).sum()),
     }
-
-
-def _quantiles(s: pd.Series) -> dict:
-    if len(s) == 0:
-        return {}
-    q = np.percentile(s.to_numpy(), [0, 10, 50, 90, 100])
-    return dict(zip(["min", "p10", "median", "p90", "max"], [float(x) for x in q]))
 
 
 def run(store: Store, zone: C.Zone, force: bool = False) -> dict:
     rel = photolist_rel(zone.name)
-    rel_tm, rel_tiles = photolist_rel(zone.name, "tilemap"), photolist_rel(zone.name, "tiles")
-    if not force and all(store.exists(r) for r in (rel, rel_tm, rel_tiles)):
+    if not force and store.exists(rel):
         L.info("photolist for %s exists, skipping", zone.name)
-        photos, tiles = store.read_parquet(rel), store.read_parquet(rel_tiles)
-        return {"skipped": True, **describe(photos, tiles)}
+        return {"skipped": True, **describe(store.read_parquet(rel))}
     t0 = time.time()
-    raw = tap_query(zone)
+    raw, how = tap_query(zone)
     photos, stats = clean(raw)
-    photos, tm, tiles = tile_map(photos, zone)
-    # tilemap and tiles first: the photo list's existence marks the step done
-    store.write_parquet(rel_tm, tm)
-    store.write_parquet(rel_tiles, tiles)
+    if how == "box":
+        photos = photos[touches_zone(photos, zone)].reset_index(drop=True)
+    photos = add_sessions(photos)
     store.write_parquet(rel, photos)
-    out = {**stats, **describe(photos, tiles), "tilemap_rows": int(len(tm)), "seconds": round(time.time() - t0, 1)}
+    out = {"query": how, **stats, **describe(photos), "seconds": round(time.time() - t0, 1)}
     L.info("photolist %s: %s", zone.name, out)
     return out

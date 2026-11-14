@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from . import config as C
@@ -55,34 +57,54 @@ def neighbour_cells(ra: ArrayLike, dec: ArrayLike) -> NDArray[np.int64]:
     return np.stack(out, axis=1)
 
 
-# --- tiles -----------------------------------------------------------------------------------
-def tile_index(ra: ArrayLike, dec: ArrayLike) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
-    i = np.floor((np.asarray(ra, np.float64) - C.TILE_RA0) / C.TILE_DEG).astype(np.int64)
-    j = np.floor((np.asarray(dec, np.float64) - C.TILE_DEC0) / C.TILE_DEG).astype(np.int64)
-    return i, j
+# --- grouping ---------------------------------------------------------------------------------
+def snap_cells(ra: ArrayLike, dec: ArrayLike, arcsec: float) -> NDArray[np.int64]:
+    """Cell id on a grid of `arcsec` cells (same construction as the contract's 6″ cell)."""
+    k = 3600.0 / arcsec
+    band = np.floor((np.asarray(dec, np.float64) + 90.0) * k).astype(np.int64)
+    cosd = np.cos(np.deg2rad((band + 0.5) / k - 90.0))
+    col = np.floor(np.asarray(ra, np.float64) * cosd * k).astype(np.int64)
+    return band * 100_000_000 + col
 
 
-def tile_of(ra: ArrayLike, dec: ArrayLike, zone: C.Zone | None = None) -> NDArray[np.int64]:
-    """Tile id (j·10000 + i) of each position; -1 outside the zone (if given)."""
+def fof_groups(ra: ArrayLike, dec: ArrayLike, link_arcsec: float, snap_arcsec: float = 1.0) -> NDArray[np.int64]:
+    """Friends-of-friends group id per point, linking points closer than link_arcsec.
+
+    Points are first snapped to snap_arcsec cells (a star's dots pile into a few cells), and the
+    linking runs on cell centres, so a crowded field doesn't explode into millions of pairs.
+    Accuracy is about ±snap_arcsec on the linking length.
+    """
     ra = np.asarray(ra, np.float64)
     dec = np.asarray(dec, np.float64)
-    i, j = tile_index(ra, dec)
-    t = j * C.TILE_ID_STRIDE + i
-    if zone is not None:
-        t = np.where(zone.contains(ra, dec), t, -1)
-    return t
+    if ra.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    cells, inv = np.unique(snap_cells(ra, dec, snap_arcsec), return_inverse=True)
+    inv = inv.ravel()
+    xyz = radec_to_xyz(ra, dec)
+    cen = np.zeros((cells.size, 3))
+    np.add.at(cen, inv, xyz)
+    cen /= np.linalg.norm(cen, axis=1, keepdims=True)
+    pairs = cKDTree(cen).query_pairs(chord(link_arcsec), output_type="ndarray")
+    g = coo_matrix((np.ones(len(pairs), dtype=np.int8), (pairs[:, 0], pairs[:, 1])), shape=(cells.size, cells.size))
+    _, lab = connected_components(g, directed=False)
+    return lab[inv].astype(np.int64)
 
 
-def zone_tiles(zone: C.Zone) -> tuple[NDArray[np.int64], NDArray[np.float64], NDArray[np.float64]]:
-    """(tile ids, centre ra, centre dec) of every tile whose centre lies in the zone."""
-    i0, j0 = tile_index(zone.ra_min + 1e-9, zone.dec_min + 1e-9)
-    i1, j1 = tile_index(zone.ra_max - 1e-9, zone.dec_max - 1e-9)
-    ii, jj = np.meshgrid(np.arange(i0, i1 + 1), np.arange(j0, j1 + 1))
-    ii, jj = ii.ravel(), jj.ravel()
-    ra = C.TILE_RA0 + (ii + 0.5) * C.TILE_DEG
-    dec = C.TILE_DEC0 + (jj + 0.5) * C.TILE_DEG
-    keep = zone.contains(ra, dec)
-    return (jj * C.TILE_ID_STRIDE + ii)[keep], ra[keep], dec[keep]
+def sessions_covering(ra: ArrayLike, dec: ArrayLike, footprints: list["Footprint"], photo_sessions: ArrayLike) -> NDArray[np.int64]:
+    """Number of distinct sessions whose photo footprints contain each position."""
+    ra = np.atleast_1d(np.asarray(ra, np.float64))
+    dec = np.atleast_1d(np.asarray(dec, np.float64))
+    ps = np.asarray(photo_sessions, np.int64)
+    if ra.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    sess = np.unique(ps)
+    pos = {s: i for i, s in enumerate(sess)}
+    seen = np.zeros((ra.size, sess.size), dtype=bool)
+    for fp, s in zip(footprints, ps):
+        inside = fp.contains(ra, dec)
+        if inside.any():
+            seen[inside, pos[int(s)]] = True
+    return seen.sum(axis=1).astype(np.int64)
 
 
 # --- projection and polygons -----------------------------------------------------------------
