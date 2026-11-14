@@ -18,6 +18,10 @@ CALIB_SAT_BITS == 0), Gaia moved to each dot's MJD by its proper motion:
    (astrometry's frame correction then finds ≈ 0). Coefficients: results/<zone>/calib_photos.parquet.
 3. pos_err, per detector, on the final residuals: robust per-axis scatter in S/N bins fitted as
    σ² = (a/snr)² + floor², so pulls scatter ≈ 1 at every S/N. Saturated: σ ≥ their own scatter.
+ePSF positions (dots v4: ra_psf, dec_psf where psf_pos_ok) get their own 2 and 3 (calib.json `psf`, schema 3;
+calib_photos.parquet psf_*), fitted on the same stars, never a phase term: the fit has no pixel-phase pull, and
+its per-photo offset against Gaia differs from the centroid's by up to 0.2″. The centroid set is still fitted on
+every unsaturated dot and applies to dots without an ePSF position (saturated, failed fits, v3 files).
 
 Fluxes, against each source's own spectrum (spectra.compute on the raw member dots) and catalogues:
 4. Flux pixel phase, per detector, for flux_ujy (r = 2 px aperture) and flux_psf_ujy (ePSF fit) separately:
@@ -35,7 +39,7 @@ Fluxes, against each source's own spectrum (spectra.compute on the raw member do
 Writes results/<zone>/calib.json (tables, constants, before/after numbers, stars used, date) and
 calib_photos.parquet. Dot files are never rewritten: their ra/dec/pos_err/fluxes stay raw; the combining steps
 (motion_io.member_dots, spectra.load_members) return corrected values when calib.json exists and exactly the
-dot files' values when it doesn't. `link` keeps raw positions (its 4″ friends-of-friends and 3″ pairing are
+dot files' values when it doesn't (the ePSF position where use_psf, else the centroid). `link` keeps raw positions (its 4″ friends-of-friends and 3″ pairing are
 far above the ≤ 0.6″ corrections).
 """
 
@@ -53,7 +57,8 @@ from . import log
 from .store import Store, results_rel
 
 L = log.get("calib")
-SCHEMA = 2
+SCHEMA = 3  # 3 (14 Nov): + `psf`, the ePSF positions' own distortion and pos_err (dots v4)
+READ_SCHEMAS = (2, 3)  # a schema-2 file (no `psf`) still applies: every dot stays on the centroid path
 PHOTOS_REL = "calib_photos.parquet"
 NPOLY = 6  # 1, u, v, u², uv, v²
 _LOADED: dict[tuple[str, str], tuple[str, dict | None]] = {}
@@ -133,14 +138,22 @@ def phase_offsets(cal: dict, det, x, y) -> tuple[np.ndarray, np.ndarray]:
     return dx, dy
 
 
-def pos_err_model(cal: dict, det, snr, saturated, pos_err) -> np.ndarray:
+def _section(cal: dict | None, kind: str) -> dict:
+    """The position calibration of one kind: 'centroid' (top level) or 'psf' (cal['psf'], schema 3)."""
+    if not cal:
+        return {}
+    return cal if kind == "centroid" else (cal.get("psf") or {})
+
+
+def pos_err_model(cal: dict, det, snr, saturated, pos_err, kind: str = "centroid") -> np.ndarray:
     """Calibrated 1σ per axis (″): sqrt((a/snr)² + floor²) per detector; saturated dots at least their
-    detector's measured scatter; the raw value for detectors without a model or a NaN S/N."""
+    detector's measured scatter; the raw value for detectors without a model or a NaN S/N.
+    kind 'psf': the model fitted on the ePSF positions (pos_err: the dots' pos_err_psf_arcsec)."""
     det = np.asarray(det, np.int64)
     snr = np.asarray(snr, np.float64)
     out = np.asarray(pos_err, np.float64).copy()
     sat = np.asarray(saturated, bool)
-    for k, m_ in (cal.get("pos_err", {}).get("detectors") or {}).items():
+    for k, m_ in (_section(cal, kind).get("pos_err", {}).get("detectors") or {}).items():
         if m_.get("a_arcsec") is None:
             continue
         m = (det == int(k)) & np.isfinite(snr) & (snr > 0)
@@ -151,21 +164,52 @@ def pos_err_model(cal: dict, det, snr, saturated, pos_err) -> np.ndarray:
     return out
 
 
-def photo_coefs(cal: dict, obs_id, detector) -> tuple[np.ndarray, np.ndarray]:
-    """Per-photo distortion coefficients (len, NPOLY) east and north for the given photos (NaN rows: none)."""
+def photo_coefs(cal: dict, obs_id, detector, kind: str = "centroid") -> tuple[np.ndarray, np.ndarray]:
+    """Per-photo distortion coefficients (len, NPOLY) east and north for the given photos (NaN rows: none).
+    kind 'psf': the ePSF positions' own (calib_photos.parquet psf_ce*, psf_cn*)."""
     obs_id = np.asarray(obs_id).astype(str)
     detector = np.asarray(detector, np.int64)
     ce = np.full((obs_id.size, NPOLY), np.nan)
     cn = np.full((obs_id.size, NPOLY), np.nan)
     ph = cal.get("_photos")
-    if ph is None or not len(ph) or not obs_id.size:
+    pre = "" if kind == "centroid" else "psf_"
+    if ph is None or not len(ph) or not obs_id.size or f"{pre}ce0" not in ph:
         return ce, cn
     key = pd.MultiIndex.from_arrays([ph["obs_id"].astype(str), ph["detector"].astype(np.int64)])
     pos = key.get_indexer(pd.MultiIndex.from_arrays([obs_id, detector]))
     ok = pos >= 0
-    ce[ok] = ph[[f"ce{j}" for j in range(NPOLY)]].to_numpy(np.float64)[pos[ok]]
-    cn[ok] = ph[[f"cn{j}" for j in range(NPOLY)]].to_numpy(np.float64)[pos[ok]]
+    ce[ok] = ph[[f"{pre}ce{j}" for j in range(NPOLY)]].to_numpy(np.float64)[pos[ok]]
+    cn[ok] = ph[[f"{pre}cn{j}" for j in range(NPOLY)]].to_numpy(np.float64)[pos[ok]]
     return ce, cn
+
+
+def psf_detectors(cal: dict | None) -> set[int]:
+    """Detectors with an ePSF position calibration (pos_err model) in calib.json; empty for schema 2."""
+    return {int(k) for k, m in ((_section(cal, "psf").get("pos_err") or {}).get("detectors") or {}).items()
+            if m.get("a_arcsec") is not None}
+
+
+def use_psf(cal: dict | None, det, psf_ok, ra_psf, dec_psf, snr=None) -> np.ndarray:
+    """Dots that take their ePSF position (dots v4): psf_pos_ok and finite. With a calib.json only on detectors
+    it calibrated ePSF positions for: a calib.json fitted on centroids alone (schema 2, or v3 dot files) keeps
+    every dot on the centroid path, so a zone never mixes calibrated centroids with uncalibrated ePSF positions.
+    With `snr` and CALIB_PSF_CHOOSE_BY_ERROR, only where the ePSF model's calibrated pos_err is the smaller one: the
+    ePSF fit wins at low S/N (smaller a), the corrected centroid at high S/N in most detectors (smaller floor; pilot)."""
+    if psf_ok is None:
+        return np.zeros(np.shape(det), bool)
+    ok = (np.asarray(psf_ok, bool) & np.isfinite(np.asarray(ra_psf, np.float64))
+          & np.isfinite(np.asarray(dec_psf, np.float64)))
+    if cal is not None and ok.any():
+        dets = psf_detectors(cal)
+        det = np.asarray(det, np.int64)
+        ok &= np.isin(det, list(dets)) if dets else False
+        if snr is not None and C.CALIB_PSF_CHOOSE_BY_ERROR and ok.any():
+            snr = np.asarray(snr, np.float64)
+            nan = np.full(det.shape, np.nan)
+            sp = pos_err_model(cal, det, snr, np.zeros(det.shape, bool), nan, "psf")
+            sc = pos_err_model(cal, det, snr, np.zeros(det.shape, bool), nan)
+            ok &= ~(sc < sp)  # centroid only where its model says it is better (NaN: no centroid model → ePSF)
+    return ok
 
 
 def poly_offsets(ce: np.ndarray, cn: np.ndarray, x, y) -> tuple[np.ndarray, np.ndarray]:
@@ -197,6 +241,21 @@ def apply(cal: dict, det, x, y, ra, dec, snr, flags_peak, pos_err, J, poly_e=Non
         ra2[mv], dec2[mv] = tangent_deproject(ra[mv], dec[mv], -de[mv], -dn[mv])
     err = pos_err_model(cal, det, snr, sat, pos_err)
     return ra2, dec2, err, ok
+
+
+def apply_psf(cal: dict, det, ra_psf, dec_psf, snr, pos_err_psf, poly_e=None, poly_n=None):
+    """Corrected (ra, dec, pos_err_arcsec) for ePSF positions: the ePSF per-photo distortion (poly_e, poly_n from
+    poly_offsets on photo_coefs(..., 'psf')) subtracted, pos_err from the ePSF model. Never a phase term."""
+    ra = np.asarray(ra_psf, np.float64).copy()
+    dec = np.asarray(dec_psf, np.float64).copy()
+    if poly_e is not None:
+        de = np.nan_to_num(np.asarray(poly_e, np.float64))
+        dn = np.nan_to_num(np.asarray(poly_n, np.float64))
+        mv = (de != 0) | (dn != 0)
+        if mv.any():
+            ra[mv], dec[mv] = tangent_deproject(ra[mv], dec[mv], -de[mv], -dn[mv])
+    err = pos_err_model(cal, det, snr, np.zeros(ra.shape, bool), pos_err_psf, "psf")
+    return ra, dec, err
 
 
 def flux_factor(cal: dict, det, x, y, kind: str = "ap") -> np.ndarray:
@@ -233,8 +292,8 @@ def load(store: Store, zone: C.Zone) -> dict | None:
     except Exception as e:  # noqa: BLE001
         L.warning("%s unreadable (%s): dots stay raw", rel, e)
         cal = None
-    if cal is not None and cal.get("schema") != SCHEMA:
-        L.warning("%s has schema %s, expected %s: dots stay raw (rerun calib)", rel, cal.get("schema"), SCHEMA)
+    if cal is not None and cal.get("schema") not in READ_SCHEMAS:
+        L.warning("%s has schema %s, expected one of %s: dots stay raw (rerun calib)", rel, cal.get("schema"), READ_SCHEMAS)
         cal = None
     if cal is not None:
         prel = results_rel(zone.name, PHOTOS_REL)
@@ -267,9 +326,17 @@ def gaia_residuals(d: pd.DataFrame, crossids: pd.DataFrame) -> pd.DataFrame:
     e, n = tangent_offset_arcsec(g["gaia_ra"].to_numpy(np.float64), g["gaia_dec"].to_numpy(np.float64),
                                  s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64))
     dt = (s["mjd"].to_numpy(np.float64) - g["gaia_epoch_mjd"].to_numpy(np.float64)) / DAYS_PER_JYEAR
-    s["e"] = e - np.nan_to_num(g["gaia_pmra"].to_numpy(np.float64)) * np.nan_to_num(dt) / 1000.0
-    s["n"] = n - np.nan_to_num(g["gaia_pmdec"].to_numpy(np.float64)) * np.nan_to_num(dt) / 1000.0
+    pm_e = np.nan_to_num(g["gaia_pmra"].to_numpy(np.float64)) * np.nan_to_num(dt) / 1000.0
+    pm_n = np.nan_to_num(g["gaia_pmdec"].to_numpy(np.float64)) * np.nan_to_num(dt) / 1000.0
+    s["e"] = e - pm_e
+    s["n"] = n - pm_n
     s["sat"] = (s["flags_peak"].fillna(0).to_numpy().astype(np.int64) & C.CALIB_SAT_BITS) != 0
+    if "psf_pos_ok" in s and s["psf_pos_ok"].to_numpy(bool).any():  # dots v4: the ePSF positions too
+        ok = s["psf_pos_ok"].to_numpy(bool) & np.isfinite(s["ra_psf"].to_numpy(np.float64))
+        ep, np_ = tangent_offset_arcsec(g["gaia_ra"].to_numpy(np.float64), g["gaia_dec"].to_numpy(np.float64),
+                                        s["ra_psf"].to_numpy(np.float64), s["dec_psf"].to_numpy(np.float64))
+        s["e_psf"] = np.where(ok, ep - pm_e, np.nan)
+        s["n_psf"] = np.where(ok, np_ - pm_n, np.nan)
     return s
 
 
@@ -440,6 +507,104 @@ def choose_photo_order(photo, x, y, e, n, sig, use, sid, n_photos: int) -> tuple
         if rows[o]["dots"] and rows[o]["heldout_scatter"] < rows[best]["heldout_scatter"] * (1 - C.CALIB_PHOTO_MIN_GAIN):
             best = o
     return best, rows
+
+
+def pos_err_tables(det, snr, sid, good, sat, raw_e, raw_n, ce, cn, sig_raw, mid_e=None, mid_n=None) -> tuple[dict, dict]:
+    """Per detector: robust per-axis scatter of the final residuals (ce, cn ″) in S/N bins, the fitted
+    σ² = (a/snr)² + floor², pulls raw (raw_e/n, the photo's offset removed, over the dots' own pos_err sig_raw) and
+    corrected; and a summary at S/N ≥ CALIB_PHASE_MIN_SNR (mid_e/n: an intermediate stage, e.g. phase only).
+    Returns (pos_err detectors, summary)."""
+    perr: dict[str, dict] = {}
+    summary: dict[str, dict] = {}
+    bins = C.CALIB_ERR_SNR_BINS
+    for k in range(1, 7):
+        mk = (det == k) & good & np.isfinite(ce) & np.isfinite(cn) & np.isfinite(raw_e)
+        if mk.sum() < C.CALIB_MIN_STARS:
+            continue
+        rows = []
+        for lo, hi_ in zip(bins[:-1], bins[1:]):
+            m = mk & (snr >= lo) & (snr < hi_)
+            row = {"snr": [lo, hi_ if hi_ < 1e8 else None], "n": int(m.sum()), "scatter_corrected": float("nan")}
+            if m.sum() >= 30:
+                row.update({"snr_median": round(float(np.median(snr[m])), 1), "inv_snr2": float(np.mean(1.0 / snr[m] ** 2)),
+                            "scatter_raw": rob2(raw_e[m], raw_n[m]), "scatter_corrected": rob2(ce[m], cn[m]),
+                            "pos_err_raw_median": float(np.median(sig_raw[m]))})
+            rows.append(row)
+        a, f = fit_pos_err(rows)
+        if a is None:
+            continue
+        model = {"a_arcsec": round(a, 4), "floor_arcsec": round(f, 4)}
+        ms = (det == k) & sat & np.isfinite(raw_e)
+        model["n_saturated"] = int(ms.sum())
+        if ms.sum() >= 30:  # saturated: no phase correction; distortion-corrected scatter against Gaia
+            model["saturated_arcsec"] = round(rob2(ce[ms], cn[ms]), 4)
+        sig_cal = np.hypot(a / snr, f)
+        for row in rows:
+            m = mk & (snr >= row["snr"][0]) & (snr < (row["snr"][1] or np.inf))
+            if row["n"] >= 30:
+                row["pull_raw"] = round(rob2(raw_e[m] / sig_raw[m], raw_n[m] / sig_raw[m]), 3)
+                row["pull_corrected"] = round(rob2(ce[m] / sig_cal[m], cn[m] / sig_cal[m]), 3)
+                row["pos_err_calibrated"] = round(float(np.median(sig_cal[m])), 4)
+                for c in ("scatter_raw", "scatter_corrected", "pos_err_raw_median"):
+                    row[c] = round(row[c], 4)
+                row.pop("inv_snr2")
+        model["bins"] = rows
+        perr[str(k)] = model
+        h = mk & (snr >= C.CALIB_PHASE_MIN_SNR)
+        summary[str(k)] = {
+            "n_dots": int(mk.sum()), "n_stars": int(np.unique(sid[mk]).size),
+            f"snr_ge_{int(C.CALIB_PHASE_MIN_SNR)}": {
+                "n": int(h.sum()),
+                "scatter_raw_east_north": [round(rob(raw_e[h]), 4), round(rob(raw_n[h]), 4)],
+                **({"scatter_phase_east_north": [round(rob(mid_e[h]), 4), round(rob(mid_n[h]), 4)]} if mid_e is not None else {}),
+                "scatter_corrected_east_north": [round(rob(ce[h]), 4), round(rob(cn[h]), 4)]},
+            "pull_raw": round(rob2(raw_e[mk] / sig_raw[mk], raw_n[mk] / sig_raw[mk]), 3),
+            "pull_corrected": round(rob2(ce[mk] / sig_cal[mk], cn[mk] / sig_cal[mk]), 3)}
+
+    return perr, summary
+
+
+def fit_psf(s: pd.DataFrame, photo, xs, ys, snr, det, sat, sid, P: int) -> tuple[dict | None, dict | None]:
+    """The ePSF positions' calibration (dots v4, psf_pos_ok): per-photo distortion (order by cross-validation, the
+    photo's offset against Gaia included) and pos_err per detector, both on e_psf, n_psf from gaia_residuals. No
+    phase term: the fit has no pixel-phase pull. (calib.json `psf`, per-photo table) or (None, None) without them."""
+    if "e_psf" not in s:
+        return None, None
+    e0, n0 = s["e_psf"].to_numpy(np.float64), s["n_psf"].to_numpy(np.float64)
+    ok = np.isfinite(e0) & np.isfinite(n0)
+    good = ok & ~sat & (snr >= C.CALIB_ERR_MIN_SNR)
+    frame_use = good & (snr >= C.CALIB_FRAME_MIN_SNR)
+    sig_fit = np.hypot(C.CALIB_PSF_FIT_SIGMA[0] / snr, C.CALIB_PSF_FIT_SIGMA[1])
+    raw_e, raw_n = remove_photo_offsets(photo, e0, n0, frame_use, P)
+    order, cv = choose_photo_order(photo, xs, ys, e0, n0, sig_fit, frame_use, sid, P)
+    CE, CN, used = fit_photo_poly(photo, xs, ys, e0, n0, sig_fit, frame_use, order, P)
+    pe, pn = poly_offsets(CE[photo], CN[photo], xs, ys)
+    nofit = ~np.isfinite(CE[photo]).all(1)
+    ce, cn = np.where(nofit, raw_e, e0 - pe), np.where(nofit, raw_n, n0 - pn)
+    sig_raw = s["pos_err_psf_arcsec"].to_numpy(np.float64)
+    perr, summary = pos_err_tables(det, snr, sid, good, np.zeros_like(sat), raw_e, raw_n, ce, cn, sig_raw)
+    for m in perr.values():
+        m.pop("n_saturated", None)
+    h = good & (snr >= C.CALIB_FRAME_MIN_SNR) & np.isfinite(ce)
+    scat = np.full(P, np.nan)
+    if h.any():
+        g = pd.DataFrame({"p": photo[h], "e": ce[h], "n": cn[h]}).groupby("p")
+        sc = g.apply(lambda z: rob2(z["e"].to_numpy(), z["n"].to_numpy()), include_groups=False)
+        scat[sc.index.to_numpy()] = sc.to_numpy()
+    fitted = used >= 0
+    sec = {
+        "model": "ra_psf, dec_psf where psf_pos_ok: east, north (″) of the photo's ePSF distortion subtracted (no phase term); "
+                 "pos_err_arcsec = sqrt((a / snr)² + floor²) per axis",
+        "distortion": {"order": order, "cross_validation": cv, "file": PHOTOS_REL, "columns": "psf_order, psf_ce0..5, psf_cn0..5",
+                       "photos_by_order": {str(o): int((used == o).sum()) for o in range(-1, C.CALIB_PHOTO_MAX_ORDER + 1)},
+                       "offset_median_arcsec": round(float(np.nanmedian(np.hypot(CE[fitted, 0], CN[fitted, 0]))), 4) if fitted.any() else None,
+                       "scatter_photo_median_corrected": round(float(np.nanmedian(scat[fitted])), 4) if fitted.any() else None},
+        "pos_err": {"min_snr": C.CALIB_ERR_MIN_SNR, "detectors": perr},
+        "summary": summary,
+        "selection": {"dots_matched": int(ok.sum()), "dots_used": int((good & np.isfinite(ce)).sum()),
+                      "stars": int(np.unique(sid[good & np.isfinite(ce)]).size)}}
+    return sec, {"CE": CE, "CN": CN, "used": used, "scatter": scat,
+                 "n_stars": np.bincount(photo[frame_use], minlength=P)}
 
 
 # --- learning: fluxes --------------------------------------------------------------------------
@@ -645,7 +810,7 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
     raw_e, raw_n = remove_photo_offsets(photo, e0, n0, frame_use, P)
     sig_raw = s["pos_err_arcsec"].to_numpy(np.float64)
     sig_px = sig_raw / np.where(scale > 0, scale, np.nan)
-    sig_fit = np.hypot(5.0 / snr, 0.15)  # ″, roughly the calibrated error: weights only
+    sig_fit = np.hypot(C.CALIB_FIT_SIGMA[0] / snr, C.CALIB_FIT_SIGMA[1])  # ″, roughly the calibrated error: weights only
 
     def corrected(tables):
         dx, dy = phase_offsets({"phase": {"detectors": tables}}, det, xs, ys)
@@ -680,56 +845,15 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
     phase_only_e, phase_only_n = oe, on
 
     # pos_err on the final residuals
-    perr: dict[str, dict] = {}
-    summary: dict[str, dict] = {}
-    bins = C.CALIB_ERR_SNR_BINS
-    for k in range(1, 7):
-        mk = (det == k) & good & np.isfinite(ce) & np.isfinite(cn) & np.isfinite(raw_e)
-        if mk.sum() < C.CALIB_MIN_STARS:
-            continue
-        rows = []
-        for lo, hi_ in zip(bins[:-1], bins[1:]):
-            m = mk & (snr >= lo) & (snr < hi_)
-            row = {"snr": [lo, hi_ if hi_ < 1e8 else None], "n": int(m.sum()), "scatter_corrected": float("nan")}
-            if m.sum() >= 30:
-                row.update({"snr_median": round(float(np.median(snr[m])), 1), "inv_snr2": float(np.mean(1.0 / snr[m] ** 2)),
-                            "scatter_raw": rob2(raw_e[m], raw_n[m]), "scatter_corrected": rob2(ce[m], cn[m]),
-                            "pos_err_raw_median": float(np.median(sig_raw[m]))})
-            rows.append(row)
-        a, f = fit_pos_err(rows)
-        if a is None:
-            continue
-        model = {"a_arcsec": round(a, 4), "floor_arcsec": round(f, 4)}
-        ms = (det == k) & sat & np.isfinite(raw_e)
-        model["n_saturated"] = int(ms.sum())
-        if ms.sum() >= 30:  # saturated: no phase correction; distortion-corrected scatter against Gaia
-            model["saturated_arcsec"] = round(rob2(ce[ms], cn[ms]), 4)
-        sig_cal = np.hypot(a / snr, f)
-        for row in rows:
-            m = mk & (snr >= row["snr"][0]) & (snr < (row["snr"][1] or np.inf))
-            if row["n"] >= 30:
-                row["pull_raw"] = round(rob2(raw_e[m] / sig_raw[m], raw_n[m] / sig_raw[m]), 3)
-                row["pull_corrected"] = round(rob2(ce[m] / sig_cal[m], cn[m] / sig_cal[m]), 3)
-                row["pos_err_calibrated"] = round(float(np.median(sig_cal[m])), 4)
-                for c in ("scatter_raw", "scatter_corrected", "pos_err_raw_median"):
-                    row[c] = round(row[c], 4)
-                row.pop("inv_snr2")
-        model["bins"] = rows
-        perr[str(k)] = model
-        h = mk & (snr >= C.CALIB_PHASE_MIN_SNR)
-        summary[str(k)] = {
-            "n_dots": int(mk.sum()), "n_stars": int(np.unique(sid[mk]).size),
-            f"snr_ge_{int(C.CALIB_PHASE_MIN_SNR)}": {
-                "n": int(h.sum()),
-                "scatter_raw_east_north": [round(rob(raw_e[h]), 4), round(rob(raw_n[h]), 4)],
-                "scatter_phase_east_north": [round(rob(phase_only_e[h]), 4), round(rob(phase_only_n[h]), 4)],
-                "scatter_corrected_east_north": [round(rob(ce[h]), 4), round(rob(cn[h]), 4)]},
-            "pull_raw": round(rob2(raw_e[mk] / sig_raw[mk], raw_n[mk] / sig_raw[mk]), 3),
-            "pull_corrected": round(rob2(ce[mk] / sig_cal[mk], cn[mk] / sig_cal[mk]), 3)}
+    perr, summary = pos_err_tables(det, snr, sid, good, sat, raw_e, raw_n, ce, cn, sig_raw, phase_only_e, phase_only_n)
+
+    # ePSF positions (dots v4): their own distortion and pos_err, no phase term
+    psf, ps = fit_psf(s, photo, xs, ys, snr, det, sat, sid, P)
 
     # per-photo table
     keys = d.drop_duplicates("photo")[["photo", "obs_id", "detector"]]
-    keys = keys[(keys["photo"] >= 0) & (used[keys["photo"].to_numpy()] >= 0)].sort_values("photo")
+    has = used >= 0 if ps is None else (used >= 0) | (ps["used"] >= 0)
+    keys = keys[(keys["photo"] >= 0) & has[keys["photo"].clip(lower=0).to_numpy()]].sort_values("photo")
     pp = keys["photo"].to_numpy(np.int64)
     photos = pd.DataFrame({"obs_id": keys["obs_id"].astype(str).to_numpy(), "detector": keys["detector"].to_numpy(np.int8),
                            "order": used[pp], "n_stars": np.bincount(photo[frame_use], minlength=P)[pp].astype(np.int32)})
@@ -740,6 +864,13 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
         h = good & (snr >= C.CALIB_FRAME_MIN_SNR) & np.isfinite(ee)
         g = pd.DataFrame({"p": photo[h], "e": ee[h], "n": nn[h]}).groupby("p")
         photos[f"scatter_{name}"] = g.apply(lambda z: rob2(z["e"].to_numpy(), z["n"].to_numpy()), include_groups=False).reindex(pp).to_numpy(np.float32)
+    if ps is not None:  # the ePSF positions' own coefficients (NaN: no fit for that photo)
+        photos["psf_order"] = ps["used"][pp]
+        photos["psf_n_stars"] = ps["n_stars"][pp].astype(np.int32)
+        for j in range(NPOLY):
+            photos[f"psf_ce{j}"] = ps["CE"][pp, j]
+            photos[f"psf_cn{j}"] = ps["CN"][pp, j]
+        photos["psf_scatter_corrected"] = ps["scatter"][pp].astype(np.float32)
     distortion = {
         "model": "east, north (″) = Σ c_j · [1, u, v, u², uv, v²]_j, u = (x − 1020)/1020, v = (y − 1020)/1020; subtracted",
         "order": order, "cross_validation": cv, "file": PHOTOS_REL,
@@ -762,6 +893,7 @@ def fit(d: pd.DataFrame, jac: np.ndarray, crossids: pd.DataFrame, spec: pd.DataF
         "flux_phase": flux_phase,
         "aperture": aperture,
         "summary": summary,
+        "psf": psf,
         "selection": {"dots_matched": int(len(s)), "dots_with_jacobian": int(hasJ.sum()),
                       "dots_used": int((good & np.isfinite(ce)).sum()), "saturated_dots": int(sat.sum()),
                       "stars": int(np.unique(sid[good & np.isfinite(ce)]).size),
@@ -869,5 +1001,17 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
                pe["a_arcsec"], pe["floor_arcsec"])
         out[f"D{k}"] = {"scatter_raw": hs["scatter_raw_east_north"], "scatter_corrected": hs["scatter_corrected_east_north"],
                         "pull_raw": v["pull_raw"], "pull_corrected": v["pull_corrected"]}
+    psf = cal.get("psf") or {}
+    for k, v in (psf.get("summary") or {}).items():
+        hs = v[f"snr_ge_{int(C.CALIB_PHASE_MIN_SNR)}"]
+        pe = psf["pos_err"]["detectors"][k]
+        L.info("calib %s D%s ePSF: S/N≥%g scatter E/N %.3f/%.3f″ → + distortion %.3f/%.3f″; pull %.2f → %.2f; "
+               "pos_err = √((%.2f/snr)² + %.3f²)", zone.name, k, C.CALIB_PHASE_MIN_SNR, *hs["scatter_raw_east_north"],
+               *hs["scatter_corrected_east_north"], v["pull_raw"], v["pull_corrected"], pe["a_arcsec"], pe["floor_arcsec"])
+        out[f"D{k}_psf"] = {"scatter_raw": hs["scatter_raw_east_north"], "scatter_corrected": hs["scatter_corrected_east_north"],
+                            "pull_raw": v["pull_raw"], "pull_corrected": v["pull_corrected"]}
+    if psf:
+        out["psf_distortion_order"] = psf["distortion"]["order"]
+        out["psf_dots_used"] = psf["selection"]["dots_used"]
     L.info("calib %s: %s", zone.name, {k: v for k, v in out.items() if not k.startswith("D")})
     return out

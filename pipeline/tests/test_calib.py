@@ -276,3 +276,157 @@ def test_detector_scale_from_anchors_and_stitching(rng):
     assert np.allclose(np.exp(lnf), 1 / np.array(gain), rtol=3e-3)  # D1 and D5 from stitching alone
     assert max(abs(r["residual"]) for r in res) < 3e-3
     # without stitching, D1 and D5 have no constraint: they take their arm neighbours' factor in fit_fluxes
+
+
+# --- dots v4: ePSF positions ------------------------------------------------------------------
+PSF_A, PSF_FLOOR = 2.5, 0.08  # ″: the ePSF positions' real scatter, no pixel-phase pull
+
+
+def make_v4(rng, n_photos=6, per_photo=3000, distort=0.3):
+    """make() plus ePSF positions: the true position + smaller noise, no S-curve, and a per-photo offset of
+    their own (the fit's offset against Gaia differs from the centroid's). Saturated dots: psf_pos_ok False."""
+    d, xid = make(rng, n_photos, per_photo, distort=distort)
+    g = xid.set_index("source_id").loc[d["source_id"]]
+    dt = (d["mjd"].to_numpy() - GAIA_EPOCH) / 365.25
+    # true position at the dot's epoch, then the ePSF error: noise + the photo's own offset
+    gra, gdec = tangent_deproject(g["gaia_ra"].to_numpy(), g["gaia_dec"].to_numpy(),
+                                  g["gaia_pmra"].to_numpy() * dt / 1000, g["gaia_pmdec"].to_numpy() * dt / 1000)
+    snr = d["snr"].to_numpy()
+    sig = np.hypot(PSF_A / snr, PSF_FLOOR)
+    off = {o: rng.normal(0, 0.2, 2) for o in d["obs_id"].unique()}
+    aff = {o: rng.normal(0, distort, 4) for o in d["obs_id"].unique()}  # an affine WCS error of their own
+    u, v = (d["x"].to_numpy() - 1020) / 1020, (d["y"].to_numpy() - 1020) / 1020
+    A = np.stack([aff[o] for o in d["obs_id"]])
+    oe = np.array([off[o][0] for o in d["obs_id"]]) + A[:, 0] * u + A[:, 1] * v
+    on = np.array([off[o][1] for o in d["obs_id"]]) + A[:, 2] * u + A[:, 3] * v
+    ra_p, dec_p = tangent_deproject(gra, gdec, oe + rng.normal(0, 1, len(d)) * sig, on + rng.normal(0, 1, len(d)) * sig)
+    ok = d["flags_peak"].to_numpy() == 0
+    d["ra_psf"] = np.where(ok, ra_p, d["ra"])
+    d["dec_psf"] = np.where(ok, dec_p, d["dec"])
+    d["x_psf"], d["y_psf"] = d["x"], d["y"]
+    d["pos_err_psf_arcsec"] = np.where(ok, np.hypot(0.8 * PSF_A / snr, 0.13), d["pos_err_arcsec"])
+    d["psf_pos_ok"] = ok
+    d["sep_flag"] = 0
+    return d, xid
+
+
+def gaia_offsets(d, xid):
+    """dot − Gaia at the dot's epoch (″), no photo offset removed."""
+    x = xid.set_index("source_id").loc[d["source_id"]]
+    dt = (d["mjd"].to_numpy() - GAIA_EPOCH) / 365.25
+    e, n = tangent_offset_arcsec(x["gaia_ra"].to_numpy(), x["gaia_dec"].to_numpy(), d["ra"].to_numpy(), d["dec"].to_numpy())
+    return e - x["gaia_pmra"].to_numpy() * dt / 1000, n - x["gaia_pmdec"].to_numpy() * dt / 1000
+
+
+def test_v3_dot_files_load_exactly_as_before(tmp_path, rng):
+    """v3 files (no *_psf columns), and v4 files whose fits all failed, give the centroid path bit for bit: the
+    dot files' values without calib.json, calib.apply's with it (the formulas the loaders used before v4)."""
+    MI.clear_cache()
+    d, xid = make(rng, n_photos=3, per_photo=1500, distort=0.3)
+    store = write_store(tmp_path, d, xid)
+    store.write_parquet(results_rel("pilot", "fixed.parquet"), d[["source_id", "ra", "dec"]])
+    a, st = MI.member_dots(store, ZONE, workers=2)
+    assert st["pos_psf_dots"] == 0 and not a["pos_psf"].any() and not a["psf_pos_ok"].any()
+    m = a.merge(d[["source_id", "ra", "dec", "pos_err_arcsec"]], on="source_id", suffixes=("", "_file"))
+    assert (m["ra"] == m["ra_file"]).all() and (m["dec"] == m["dec_file"]).all()
+    assert (m["pos_err_arcsec"] == m["pos_err_arcsec_file"].astype(np.float32)).all()
+    s0, ss = SP.load_members(store, ZONE, workers=2)
+    assert ss["pos_psf_dots"] == 0
+    assert main(["calib", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
+    cal = CB.load(store, ZONE)
+    assert cal["schema"] == 3 and cal["psf"] is None and "psf_ce0" not in cal["_photos"]
+    b, st = MI.member_dots(store, ZONE, workers=2)
+    raw, _, jac = MI.member_dots_raw(store, ZONE, workers=2)
+    ce, cn = CB.photo_coefs(cal, raw["obs_id"], raw["detector"])
+    pe, pn = CB.poly_offsets(ce, cn, raw["x"].to_numpy(), raw["y"].to_numpy())
+    ra, dec, err, _ = CB.apply(cal, raw["detector"].to_numpy(), raw["x"].to_numpy(), raw["y"].to_numpy(), raw["ra"].to_numpy(),
+                               raw["dec"].to_numpy(), raw["snr"].to_numpy(), raw["flags_peak"].to_numpy(),
+                               raw["pos_err_arcsec"].to_numpy(), jac[raw["photo"].to_numpy()], pe, pn)
+    assert (b["ra"].to_numpy() == ra).all() and (b["dec"].to_numpy() == dec).all()
+    assert (b["pos_err_arcsec"].to_numpy() == err.astype(np.float32)).all() and st["pos_psf_dots"] == 0
+    # the same dots as v4 files whose fits all failed (psf_* = centroid): identical results
+    MI.clear_cache()
+    d4 = d.assign(ra_psf=d["ra"], dec_psf=d["dec"], x_psf=d["x"], y_psf=d["y"], pos_err_psf_arcsec=d["pos_err_arcsec"],
+                  psf_pos_ok=False, sep_flag=0)
+    store4 = write_store(tmp_path / "v4", d4, xid)
+    store4.write_parquet(results_rel("pilot", "fixed.parquet"), d[["source_id", "ra", "dec"]])
+    for rel in (C.CALIB_REL, CB.PHOTOS_REL):
+        store4.write_bytes(results_rel("pilot", rel), store.read_bytes(results_rel("pilot", rel)))
+    b4, st4 = MI.member_dots(store4, ZONE, workers=2)
+    for c in ("ra", "dec", "pos_err_arcsec", "flux_ujy", "flux_err_ujy"):
+        assert (b4[c].to_numpy() == b[c].to_numpy()).all(), c
+    s1, _ = SP.load_members(store, ZONE, workers=2)
+    s4, _ = SP.load_members(store4, ZONE, workers=2)
+    assert list(s4.columns) == list(s1.columns) == list(s0.columns)
+    for c in s1.columns:
+        assert (s4[c].to_numpy() == s1[c].to_numpy()).all(), c
+
+
+def test_calib_fits_psf_positions_separately_and_loaders_use_them(tmp_path, rng):
+    MI.clear_cache()
+    d, xid = make_v4(rng)
+    store = write_store(tmp_path, d, xid)
+    store.write_parquet(results_rel("pilot", "fixed.parquet"), d[["source_id", "ra", "dec"]])
+    # no calib.json: the raw ePSF positions where psf_pos_ok, the centroid elsewhere
+    a, st = MI.member_dots(store, ZONE, workers=2)
+    ok = a["psf_pos_ok"].to_numpy()
+    assert st["pos_psf_dots"] == ok.sum() == len(d) - 6 * 20 and (a["pos_psf"].to_numpy() == ok).all()
+    assert (a["ra"].to_numpy()[ok] == a["ra_psf"].to_numpy()[ok]).all()
+    assert (a["pos_err_arcsec"].to_numpy()[ok] == a["pos_err_psf_arcsec"].to_numpy()[ok]).all()
+
+    assert main(["calib", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
+    cal = CB.load(store, ZONE)
+    assert cal["schema"] == 3 and set(cal["psf"]["pos_err"]["detectors"]) == {"2"}
+    pp = cal["psf"]["pos_err"]["detectors"]["2"]
+    assert abs(pp["a_arcsec"] - PSF_A) < 0.4 and abs(pp["floor_arcsec"] - PSF_FLOOR) < 0.03
+    assert cal["psf"]["distortion"]["order"] == 1  # the injected affine error
+    assert {"psf_order", "psf_ce0", "psf_cn5"} <= set(cal["_photos"].columns)
+    # the two sets of per-photo offsets differ by the injected ePSF offsets (~0.2″)
+    ph = cal["_photos"]
+    assert np.median(np.abs(ph["psf_ce0"] - ph["ce0"])) > 0.05
+    b, st = MI.member_dots(store, ZONE, workers=2)
+    assert st["calib_applied"] and st["pos_psf_dots"] == ok.sum() and st["calib_psf_distortion_corrected_dots"] == ok.sum()
+    assert st["calib_phase_corrected_dots"] == 0  # every unsaturated dot took its ePSF position
+    e, n = gaia_offsets(b, xid)
+    snr, err = b["snr"].to_numpy(), b["pos_err_arcsec"].to_numpy()
+    for lo, hi in ((5, 15), (15, 60), (60, 1e9)):
+        m = ok & (snr >= lo) & (snr < hi)
+        assert 0.9 < CB.rob(np.r_[e[m] / err[m], n[m] / err[m]]) < 1.1, lo
+        assert abs(np.median(e[m])) < 0.02 and abs(np.median(n[m])) < 0.02  # each photo's own offset removed
+    bright = ok & (snr > 100)
+    assert CB.rob(e[bright]) < 0.12 and CB.rob(n[bright]) < 0.12
+    # never a phase term on ePSF positions: the S-curve would come back
+    px = CB.phase_of(b["x"].to_numpy())
+    hi = bright & (np.abs(px) > 0.2) & (np.abs(px) < 0.3)
+    assert abs(np.median(e[hi & (px > 0)]) - np.median(e[hi & (px < 0)])) < 0.03
+    # saturated dots stay on the centroid path
+    assert not b["pos_psf"].to_numpy()[~ok].any()
+    sat_err = CB.pos_err_model(cal, b["detector"].to_numpy()[~ok], snr[~ok], np.ones((~ok).sum(), bool), a["pos_err_arcsec"].to_numpy()[~ok])
+    assert np.allclose(err[~ok], sat_err)
+    # spectra's loader: the same positions
+    s, ss = SP.load_members(store, ZONE, workers=2)
+    assert ss["pos_psf_dots"] == ok.sum()
+    sm = s.merge(b[["source_id", "ra", "dec"]], on="source_id", suffixes=("", "_m"))
+    assert np.allclose(sm["ra"], sm["ra_m"], rtol=0, atol=1e-10) and np.allclose(sm["dec"], sm["dec_m"], rtol=0, atol=1e-10)
+
+    # a calib.json without a `psf` section (schema 2, fitted before v4): every dot on the centroid path
+    cal2 = json.loads((tmp_path / "results/pilot/calib.json").read_text())
+    cal2["schema"] = 2
+    cal2.pop("psf")
+    (tmp_path / "results/pilot/calib.json").write_text(json.dumps(cal2) + "  ")
+    c, st = MI.member_dots(store, ZONE, workers=2)
+    assert st["calib_applied"] and st["pos_psf_dots"] == 0 and not c["pos_psf"].any()
+    assert st["calib_phase_corrected_dots"] == ok.sum()
+
+
+def test_use_psf_picks_the_position_with_the_smaller_calibrated_error(monkeypatch):
+    """ePSF a 2.5″ floor 0.15″ vs centroid a 5″ floor 0.08″: crossover at S/N √((25 − 6.25)/(0.0225 − 0.0064)) ≈ 34."""
+    cal = {"pos_err": {"detectors": {"2": {"a_arcsec": 5.0, "floor_arcsec": 0.08}}},
+           "psf": {"pos_err": {"detectors": {"2": {"a_arcsec": 2.5, "floor_arcsec": 0.15}}}}}
+    det, ok, ra = np.array([2, 2, 2, 3]), np.array([True, True, False, True]), np.full(4, 122.0)
+    snr = np.array([10.0, 100.0, 10.0, 10.0])
+    assert list(CB.use_psf(cal, det, ok, ra, ra, snr)) == [True, False, False, False]  # D3: no ePSF model
+    assert list(CB.use_psf(None, det, ok, ra, ra, snr)) == [True, True, False, True]  # no calib: psf_pos_ok
+    assert list(CB.use_psf(cal, det, ok, ra, ra)) == [True, True, False, False]  # no S/N given: no choice
+    monkeypatch.setattr(C, "CALIB_PSF_CHOOSE_BY_ERROR", False)
+    assert list(CB.use_psf(cal, det, ok, ra, ra, snr)) == [True, True, False, False]
