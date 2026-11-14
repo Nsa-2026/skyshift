@@ -778,7 +778,6 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
         "known": [{"source_id": int(x.source_id), "name": x.known_name, "v": _r(x.known_v), "sep_arcsec": _r(x.known_sep_arcsec, 1),
                    "visit": int(x.visit), "reason": x.reason, "drift_ok": bool(x.drift_ok), "in_pair": bool(x.in_pair),
                    "rate_arcsec_h": _r(x.rate, 4)} for x in known.head(C.ORPHANS_REPORT_MAX).itertuples()],
-        "known_predictions": st.get("known_predictions"),
         "skipped": skipped,
         "limits": [
             "within-visit drift up to 1 arcsec/h: faster objects are movers (score/suspects); below ~0.3 arcsec/h a planet chains "
