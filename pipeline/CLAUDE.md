@@ -27,6 +27,9 @@ highpm, score, suspects; `all` runs them in order.
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
   cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. `--known-source skybot` (or SKYSHIFT_KNOWN_SOURCE=skybot) uses the
   SkyBoT service instead (cache/skybot/<zone>/). Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″ (SkyBoT was 4.5′ off).
+- minorplanetcenter.net times out from GCP machines (14 Nov). The newest snapshot in cache/mpc/orbits/ is always reused,
+  so make it from a laptop: `uv run python -c "from skyshift_pipeline.store import Store; from skyshift_pipeline import
+  known_mpc; known_mpc.orbit_table(Store('gs://nasa-glazing-data'))"` (~1 min; the newest snapshot wins, so delete a stale one first).
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
