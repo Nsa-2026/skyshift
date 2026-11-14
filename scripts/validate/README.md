@@ -13,7 +13,7 @@ this folder (`pyproject.toml` + `uv.lock`). Archive state: 14 Nov 2026 (SPHEREx 
 | `v1_targets.py` | V1: per target, visit and detector, a median stack of up to 5 photos (41 px boxes; every photo for WISE 0855) and a 5σ source within 2 px of the predicted position. | `data/v1_targets.json` |
 | `v4_asteroids.py` | V4: asteroids 1–60 at MOST's predicted position in up to 5 photos each (81 px boxes, D2–D3), absent from a reference stack of the same sky 0.25–12 days away; control 3′ away. | `data/v4_asteroids.json`, `data/v4_photos.csv` |
 | `v8_spectra.py` | V8 spectra half: every pilot star's 102-channel spectrum (pipeline `sources.parquet`) averaged over 2MASS Ks and WISE W1, against the catalogue magnitudes in `crossids.parquet`. | `data/v8_spectra.json` |
-| `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `demo_check.py --json`, V11 from `scripts/science`. Missing inputs → `pending`. | `web/public/data/validation.json` |
+| `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `demo_check.py --json`, V11 from `scripts/science`. Missing inputs → `pending`. Status rules are small pure functions (`v1_status` … `v8_status`, tested in `tests/test_build_validation.py`); every note ends with the row keys. Also copies the zone's `suspects.json` when the pipeline wrote a real one in the contract shape. | `web/public/data/validation.json`, `web/public/data/suspects.json` |
 | `_boxes.py` | Box reads from S3 (cached in `.cache/boxes/`), reference stacks resampled through the WCS, `source_near` (with the saturated-core fit). | |
 | `_common.py` | Shared helpers: linear proper motion, detector from `energy_bandpassname`, the visit/session rule (local copy), polygon edge distance, `gcloud storage cp`. | |
 
@@ -90,8 +90,9 @@ Still to check: whether MOST's `ra_obj/dec_obj` is for the exposure start or mid
 ## Checks run here (14 Nov)
 
 **V1, five test objects: 5 of 5 found where predicted, in 19 of 20 visits.** Median offsets
-0.15–0.31 px per target. 77 of 86 expected stacks recovered; R Draconis misses 6 of 22, all in
-D4 (4) and D5 (2), while D1–D3 find it in the same visits (not yet looked into). WISE 0855−0714 is found in D5–D6 in its two full visits (aperture
+0.15–0.27 px per target. 83 of 86 expected stacks recovered (the 3 misses are WISE 0855's); R Draconis
+22 of 22 in all six detectors, after the masked-core fix below (it missed all 4 D4 and 2 of 3 D5
+stacks before). WISE 0855−0714 is found in D5–D6 in its two full visits (aperture
 S/N 9–10, 0.2–0.6 px); its first visit has only 8 D5 and 3 D6 photos. In D1–D4 a background star lies
 1–2 px from WISE 0855; those stacks are not counted (WISE 0855 is expected only in D5–D6).
 
@@ -120,6 +121,26 @@ What we learned:
   Gaussian to the unmasked wings (13 × 13 px stamp started at the prediction, ±2 px bounds), or
   takes the centre of the masked core when too few wing pixels are left (Barnard D3–D4).
   With it, Barnard's Star is at 0.19 px median in all 18 stacks.
+- **R Draconis saturates so hard in D4–D5 that sep sees only a rim around the masked core.** Its
+  wings (10–13 px out) are 13× Barnard's in D4 and 26× in D5 (6–8× in D1–D3). The pipeline flags a
+  round hole of TRANSIENT + SUR_ERROR + OVERFLOW (all mask bits; BLOOM on nearly every pixel, IMAGE
+  NaN on the 17–38 px OVERFLOW core in D4) of 134–266 px in D4 (equivalent radius 6.5–9.2 px) and
+  120–162 px in the missed D5 stacks (6.2–7.2 px), against 32–81 px (3.2–5.1 px) for Barnard's Star in
+  D3–D4. 71–100% of the 13 × 13 fit stamp is masked; the Gaussian wing fit never leaves its start, even
+  on a stamp scaled to the hole. The only sep detections are rim fragments (aperture S/N 12–108)
+  0.7–1.1 px outside the hole in photos (up to 1.7 px in stacks), so 6.0–9.1 px from the prediction:
+  beyond the old gate of radius + 4 = 6 px, and the saturated-core branch never ran ("none"). Not the
+  cause: the box (hole and rim fit inside 41 px), the S/N gate, image edges (all used photos ≥ 25 px
+  in), the stack's OVERFLOW/NONLINEAR union (27–54 px per D4 photo, inside the hole), or the prediction. `source_near` now also takes a detection within 2 px of the masked
+  core; the position is then the core's centre, 0.05–0.57 px from the prediction in the six stacks that
+  were missed (0.06–0.63 px in single photos). Nothing else in V1 or V4 changed. The core's centre is
+  only geometric: a fit of the real PSF halo (ePSF or a power law, in skyshift_core) would be better.
+- **Stack holes grow 1 px on one side (not fixed).** `map_coordinates(order=1)` turns a pixel NaN
+  when either neighbour it reads is NaN, even with weight 0, so each resampled photo's masked core grows
+  by one pixel towards +x or −x. R Draconis visit 3 D1 (one photo) gives 1.35 px from its stack and
+  0.25 px from the photo itself; visit 2 D1 gives 1.37 px. Resampling a validity weight instead (mask
+  where < 0.5) fixes both and finds WISE 0855 in 2 more stacks (20 of 20 visits). It also moves RW
+  Aurigae's median from 0.21 to 0.25 px and changes every V4 stack, so it is not in.
 - **5σ per pixel is too strict for faint targets.** WISE 0855 has aperture S/N 6–10 in D5–D6
   stacks but no pixel at 5σ. V1 uses sep at 2.5σ per pixel and aperture S/N ≥ 5.
 - **A stack's mask keeps saturated pixels if any photo saturated** (else a less saturated photo

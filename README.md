@@ -152,8 +152,23 @@ Four people at one local event. Roles, not names:
 - Libraries: astropy, astroquery, pyvo, sep, reproject, numpy, scipy, pandas, pyarrow, FastAPI, uvicorn, Vite, TypeScript, Vitest.
 - Modelled on WiseView and the Backyard Worlds: Planet 9 project.
 
-<!-- TODO (P1, Sun 09:00): paste the SPHEREx acknowledgement and its two required citations word
-     for word from IRSA's SPHEREx mission page, and the standard Gaia acknowledgement. -->
+## Acknowledgements
+
+This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.
+
+This research has made use of the NASA/IPAC Infrared Science Archive, which is funded by the National Aeronautics and Space Administration and operated by the California Institute of Technology.
+
+This work has made use of data from the European Space Agency (ESA) mission Gaia (https://www.cosmos.esa.int/gaia), processed by the Gaia Data Processing and Analysis Consortium (DPAC, https://www.cosmos.esa.int/web/gaia/dpac/consortium). Funding for the DPAC has been provided by national institutions, in particular the institutions participating in the Gaia Multilateral Agreement.
+
+SPHEREx data sets (IRSA): DR1 Spectral Images, doi:10.26131/IRSA678 · QR3 Spectral Images, doi:10.26131/IRSA662 · Spectral All-Sky Cube, doi:10.26131/IRSA679.
+
+SPHEREx canonical papers, as listed on IRSA's SPHEREx mission page (https://irsa.ipac.caltech.edu/Missions/spherex.html):
+- Mission: Bock et al. 2026, ApJ 999, 139 (https://ui.adsabs.harvard.edu/abs/2026ApJ...999..139B/abstract)
+- Pipeline: Akeson et al. 2026, ApJS 285, 67 (https://ui.adsabs.harvard.edu/abs/2026ApJS..285...67A/abstract)
+- Instrument and calibration: Korngut et al. 2026, arXiv:2603.29835 (https://ui.adsabs.harvard.edu/abs/2026arXiv260329835K/abstract)
+- Sky simulator: Crill et al. 2025, ApJS 281, 10 (https://ui.adsabs.harvard.edu/abs/2025ApJS..281...10C/abstract)
+
+Gaia: Gaia Collaboration, Prusti et al. 2016, A&A 595, A1 (the mission); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 (Data Release 3).
 
 ## Use of AI ("Super Intelligence")
 

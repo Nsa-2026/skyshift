@@ -1,20 +1,26 @@
-// HTML for the scoreboard. Every value from the JSON goes through esc().
+// HTML for the scoreboard (web/DESIGN.md, "Lightbox"). A page that reads top to bottom: the
+// title, what was checked, one summary sentence, then one section per check and the suspects.
+// Every value from the JSON goes through esc().
 import type { CheckStatus, Suspect, SuspectsResponse, ValidationCheck, ValidationResponse } from "../api/types";
 import { DETECTORS } from "../app/astro";
-import { checkInfo, countStatuses, normStatus, pendingChecks, STATUSES, withAllChecks } from "./checks";
+import { checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
 import {
+  bigValue,
   blinkHref,
+  candidateHref,
   esc,
   evidenceText,
-  formatCell,
   formatDecimalPos,
   formatGenerated,
   formatNumber,
   formatPos,
-  formatValue,
+  formatRowCell,
   isNumericColumn,
   keyLabel,
+  noteText,
+  prettyText,
   rowKeys,
+  sentence,
   suspectDate,
 } from "./format";
 
@@ -27,51 +33,61 @@ export const STATUS_WORD: Record<CheckStatus, string> = {
   pending: "Pending",
 };
 
-/** A shape per status, so the status never rests on colour alone. */
-export function statusMark(status: CheckStatus, size = 16): string {
-  const s = size;
+/**
+ * Grease-pencil status marks, one shape per status so colour is never the only cue:
+ * a tick (pass), a half-filled ring (partial), a cross (fail), a dashed ring (pending).
+ */
+export function statusMark(status: CheckStatus, size = 20): string {
   const inner: Record<CheckStatus, string> = {
-    // filled disc with a tick
-    pass: `<circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M4.6 8.3l2.3 2.3 4.6-4.9" fill="none" stroke="var(--plate)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
-    // ring with the left half filled
-    partial: `<circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8a6.2 6.2 0 0 0 0 12.4z" fill="currentColor"/>`,
-    // filled square with a cross
-    fail: `<rect x="1.5" y="1.5" width="13" height="13" rx="1.5" fill="currentColor"/><path d="M5.2 5.2l5.6 5.6M10.8 5.2l-5.6 5.6" stroke="var(--plate)" stroke-width="1.8" stroke-linecap="round"/>`,
-    // dashed open ring
-    pending: `<circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2.2"/>`,
+    pass: `<path d="M3.6 10.9c1.5 1.1 2.8 2.4 3.9 4C9.6 10.8 12.4 7.4 16.6 4.4" />`,
+    partial: `<circle cx="10" cy="10" r="6.6" /><path d="M10 3.4a6.6 6.6 0 0 0 0 13.2z" fill="currentColor" stroke="none" />`,
+    fail: `<path d="M5 5.2c3.4 3 6.6 6.4 10 9.8M15.2 5c-3.3 3.3-6.7 6.6-10.2 10" />`,
+    pending: `<circle cx="10" cy="10" r="6.6" stroke-dasharray="2.6 2.6" />`,
   };
-  return `<svg class="sc-mark sc-${status}" width="${s}" height="${s}" viewBox="0 0 16 16" aria-hidden="true" focusable="false">${inner[status]}</svg>`;
+  return `<svg class="sc-mark" width="${size}" height="${size}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${inner[status]}</svg>`;
 }
 
-function statusBadge(status: CheckStatus): string {
-  return html`<span class="sc-badge sc-${status}">${statusMark(status)}<span>${STATUS_WORD[status]}</span></span>`;
+// ---- head --------------------------------------------------------------------------------
+
+function isSynthetic(x: unknown): boolean {
+  return !!x && typeof x === "object" && (x as { synthetic?: unknown }).synthetic === true;
 }
 
-// ---- summary -----------------------------------------------------------------------------
-
-export function renderSummary(checks: ValidationCheck[], v: ValidationResponse | null): string {
-  const n = countStatuses(checks);
-  const counts = STATUSES.map(
-    (s) => html`<li class="sc-count sc-${s}${n[s] ? "" : " sc-zero"}">${statusMark(s, 18)}<b>${n[s]}</b> <span>${STATUS_WORD[s].toLowerCase()}</span></li>`,
-  ).join("");
-  const tally = checks
-    .map((c) => {
-      const st = normStatus(c.status);
-      return html`<li><button type="button" class="sc-tick sc-${st}" data-jump="${esc(c.id)}"
-        aria-label="${esc(c.id)} ${esc(c.claim)}: ${STATUS_WORD[st]}">${statusMark(st, 20)}<span class="sc-tick-id">${esc(c.id)}</span></button></li>`;
-    })
+/** The one summary sentence, each count led by its status mark (the page's legend). */
+export function renderSummary(checks: ValidationCheck[]): string {
+  const clauses = summaryClauses(countStatuses(checks))
+    .map(
+      (c) =>
+        html`<span class="sc-clause sc-${c.status}">${statusMark(c.status)}${esc(c.text)}</span>${
+          c.after.length > 6
+            ? html`${esc(c.after.slice(0, 1))} <span class="sc-summary-more">${esc(c.after.slice(1).trim())}</span>`
+            : esc(c.after)
+        }`,
+    )
     .join("");
+  return html`<p class="sc-summary">${clauses}</p>`;
+}
+
+function renderHead(checks: ValidationCheck[], v: ValidationResponse | null, synthetic: boolean): string {
   const meta = v
-    ? html`<div><dt>Data release</dt><dd>${esc(v.data_release)}</dd></div>
-        <div><dt>Generated</dt><dd><time datetime="${esc(v.generated)}">${esc(formatGenerated(v.generated))}</time></dd></div>`
-    : html`<div><dt>Data release</dt><dd>not published yet</dd></div>
-        <div><dt>Generated</dt><dd>waiting for the validation run</dd></div>`;
+    ? html`<p class="sc-meta">Results from ${esc(prettyText(v.data_release))}, published
+        <time datetime="${esc(v.generated)}">${esc(formatGenerated(v.generated))}</time>.</p>`
+    : "";
   return html`
-    <section class="sc-summary" aria-label="Summary">
-      <ul class="sc-counts" aria-label="Checks by status">${counts}</ul>
-      <ol class="sc-tally" aria-label="Jump to a check">${tally}</ol>
-      <dl class="sc-meta">${meta}</dl>
-    </section>`;
+    <header class="sc-head">
+      <h1 class="sc-title">How we know it works</h1>
+      <p class="sc-lede">We checked SkyShift's measurements against what is already known: star motions from
+        ESA's Gaia, NASA's asteroid predictions and catalogue brightness. Every result is printed as measured,
+        beside the target we set before running it, including the poor ones.</p>
+      ${
+        synthetic
+          ? html`<p class="sc-synthetic" role="note">These are synthetic example numbers, made up to test this page.
+              They are not SPHEREx results.</p>`
+          : ""
+      }
+      ${renderSummary(checks)}
+      ${meta}
+    </header>`;
 }
 
 // ---- checks ------------------------------------------------------------------------------
@@ -89,7 +105,7 @@ export function renderRowsTable(rows: Record<string, unknown>[], caption: string
           .map((k) => {
             const v = r[k];
             const cls = [num.has(k) ? "num" : "", v === null || v === undefined ? "nil" : ""].filter(Boolean).join(" ");
-            return `<td${cls ? ` class="${cls}"` : ""}>${esc(formatCell(v))}</td>`;
+            return `<td${cls ? ` class="${cls}"` : ""}>${esc(formatRowCell(k, v))}</td>`;
           })
           .join("")}</tr>`,
     )
@@ -99,35 +115,52 @@ export function renderRowsTable(rows: Record<string, unknown>[], caption: string
       <thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-export function renderCheck(c: ValidationCheck): string {
+const CHEVRON = `<svg class="sc-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>`;
+
+function rowsBlock(c: ValidationCheck): string {
+  const rows = Array.isArray(c.rows) ? c.rows : [];
+  if (!rows.length) return "";
+  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length} rows`;
+  const hide = rows.length === 1 ? "Hide the row" : "Hide the rows";
+  return html`<details class="sc-rows">
+    <summary><span class="sc-show">${show}</span><span class="sc-hide">${hide}</span>${CHEVRON}</summary>
+    ${renderRowsTable(rows, `${c.id}, ${c.claim}: one row per item`)}
+  </details>`;
+}
+
+export function renderCheck(c: ValidationCheck, lead = false): string {
   const st = normStatus(c.status);
   const info = checkInfo(c.id);
-  const rows = Array.isArray(c.rows) ? c.rows : [];
-  const rowsBlock = rows.length
-    ? html`<details class="sc-rows">
-        <summary>Show ${rows.length} ${rows.length === 1 ? "row" : "rows"}</summary>
-        ${renderRowsTable(rows, `${c.id} rows`)}
-      </details>`
-    : st === "pending"
-      ? ""
-      : html`<p class="sc-norows">No per-item rows published for this check.</p>`;
+  const id = esc(c.id);
+  const headline = typeof c.headline === "string" ? c.headline.trim() : "";
+  const pending = st === "pending";
+  const big = pending ? null : bigValue(c.value, c.unit, headline);
+  const figure = big
+    ? html`<p class="sc-num"><span class="sc-num-v">${esc(big.num)}</span>${
+        big.unit ? html`<span class="sc-num-u">${esc(prettyText(big.unit))}</span>` : ""
+      }</p>`
+    : "";
+  const measured = headline ? html`<span class="sc-measured">${esc(sentence(prettyText(headline)))}</span> ` : "";
+  const target = c.expected
+    ? html`<span class="sc-target">Target set before the run: ${esc(sentence(prettyText(c.expected)))}</span>`
+    : "";
+  const note = noteText(c.note);
+  // A check not run yet says what it will do, in plain words, where its figure would be.
+  const plain = info && (pending || !note) ? info.plain : "";
   return html`
-    <article class="sc-check sc-${st}" id="sc-${esc(c.id)}" tabindex="-1" aria-labelledby="sc-${esc(c.id)}-claim">
+    <article class="sc-check sc-${st}${lead && big ? " sc-lead" : ""}" id="sc-${id}" aria-labelledby="sc-${id}-claim">
       <div class="sc-rail">
-        <span class="sc-id">${esc(c.id)}</span>
-        ${statusBadge(st)}
+        <span class="sc-id">${id}</span>
+        <span class="sc-status">${statusMark(st)}<span class="sc-word">${STATUS_WORD[st]}</span></span>
       </div>
-      <div class="sc-body">
-        <h2 class="sc-claim" id="sc-${esc(c.id)}-claim">${esc(c.claim)}</h2>
-        ${info ? html`<p class="sc-plain">${esc(info.plain)}</p>` : ""}
-        <p class="sc-headline">${esc(c.headline)}</p>
-        ${c.note ? html`<p class="sc-note">${esc(c.note)}</p>` : ""}
+      <h2 class="sc-claim" id="sc-${id}-claim">${esc(prettyText(c.claim))}</h2>
+      <div class="sc-main">
+        ${figure}
+        ${pending && plain ? html`<p class="sc-plain">${esc(plain)}</p>` : ""}
+        ${measured || target ? html`<p class="sc-vs">${measured}${target}</p>` : ""}
       </div>
-      <dl class="sc-vs">
-        <div><dt>Measured</dt><dd class="sc-value${c.value === null ? " nil" : ""}">${esc(formatValue(c.value, c.unit))}</dd></div>
-        <div><dt>Expected</dt><dd>${esc(c.expected)}</dd></div>
-      </dl>
-      ${rowsBlock ? html`<div class="sc-more">${rowsBlock}</div>` : ""}
+      ${note ? html`<p class="sc-note">${esc(prettyText(note))}</p>` : !pending && plain ? html`<p class="sc-note">${esc(plain)}</p>` : ""}
+      ${rowsBlock(c)}
     </article>`;
 }
 
@@ -136,30 +169,38 @@ export function renderCheck(c: ValidationCheck): string {
 function suspectRow(s: Suspect): string {
   const det = DETECTORS[s.det as keyof typeof DETECTORS];
   return html`<tr>
-    <th scope="row" class="sc-sid"><span>${esc(s.id)}</span>
-      <a class="btn sc-blink" href="${esc(blinkHref(s))}" aria-label="Blink ${esc(s.id)} on the Hours clock">Blink this</a></th>
-    <td class="sc-pos"><span>${esc(formatPos(s))}</span><span class="muted">${esc(formatDecimalPos(s))}</span></td>
+    <th scope="row" class="sc-sid"><a class="sc-sid-id" href="${esc(candidateHref(s.id))}"
+        title="Candidate page: why it's listed, cautions and votes">${esc(s.id)}</a>
+      <a class="sc-blink" href="${esc(blinkHref(s))}" aria-label="Blink ${esc(s.id)} on the Hours clock">Blink this</a></th>
     <td>${esc(suspectDate(s.mjd))}</td>
+    <td class="sc-pos"><span>${esc(formatPos(s))}</span><span class="sc-sub">${esc(formatDecimalPos(s))}</span></td>
     <td class="det-${esc(s.det)}"><span class="sc-det"><i aria-hidden="true"></i>D${esc(s.det)}</span>${
-      det ? html`<span class="muted sc-det-um">${det.min}–${det.max} µm</span>` : ""
+      det ? html`<span class="sc-sub">${det.min}–${det.max} µm</span>` : ""
     }</td>
     <td class="sc-evidence">${esc(evidenceText(s.evidence))}</td>
     <td class="num">${esc(formatNumber(s.snr))}</td>
     <td class="num">${esc(formatNumber(s.flux_ujy))}</td>
     <td class="num${s.nearest_known_arcsec === null ? " nil" : ""}">${
-      s.nearest_known_arcsec === null ? "none found" : `${esc(formatNumber(s.nearest_known_arcsec))}″`
+      s.nearest_known_arcsec === null ? "none within 600″" : `${esc(formatNumber(s.nearest_known_arcsec))}″`
     }</td>
   </tr>`;
 }
 
+function zoneName(zone: string): string {
+  const z = (zone || "").trim();
+  if (z === "pilot") return "the pilot zone";
+  if (z === "hunt") return "the hunt zone";
+  return /^[a-z]/.test(z) ? `the ${z}` : z;
+}
+
 export function renderSuspects(sr: SuspectsResponse | null): string {
-  const intro = html`<p class="sc-lede">Moving dots the pipeline found where no known asteroid or comet should be. Each could be
-    a new object or an artefact: open one in the blink, look, and vote.</p>`;
+  const intro = html`<p class="sc-intro">A suspect is a dot that moved where no known asteroid or comet was predicted:
+    it may be a new object or an artefact, and people decide which by blinking it and voting.</p>`;
   if (!sr) {
     return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
       <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
       ${intro}
-      <p class="sc-empty">${statusMark("pending")} The suspect list is published after the hunt-zone run. Nothing to show yet.</p>
+      <p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of suspects comes after the hunt-zone run.</p>
     </section>`;
   }
   const list = Array.isArray(sr.suspects) ? sr.suspects : [];
@@ -167,55 +208,36 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
   const table = n
     ? html`<div class="sc-scroll" tabindex="0" role="region" aria-label="Suspects table">
         <table class="sc-table sc-suspect-table">
-          <caption class="visually-hidden">Unknown-mover suspects in ${esc(sr.zone)}</caption>
+          <caption class="visually-hidden">Unknown-mover suspects in ${esc(zoneName(sr.zone))}</caption>
           <thead><tr>
-            <th scope="col">ID</th><th scope="col">Position (RA, Dec)</th><th scope="col">Date (UTC)</th>
+            <th scope="col">Suspect</th><th scope="col">Date (UTC)</th><th scope="col">Position (RA, Dec)</th>
             <th scope="col">Detector</th><th scope="col">Evidence</th><th scope="col" class="num">S/N</th>
-            <th scope="col" class="num">Flux µJy</th><th scope="col" class="num">Nearest known</th>
+            <th scope="col" class="num">Flux (µJy)</th><th scope="col" class="num">Nearest known</th>
           </tr></thead>
           <tbody>${list.map(suspectRow).join("")}</tbody>
         </table></div>`
-    : html`<p class="sc-empty">No suspects in this zone: every mover matched a known object or was filtered out.</p>`;
+    : html`<p class="sc-wait">No suspects here: every mover matched a known object or was filtered out.</p>`;
   return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
-    <div class="sc-suspects-head">
-      <h2 class="sc-h2" id="sc-suspects-h"><span class="sc-big">${n}</span> unknown ${n === 1 ? "mover" : "movers"}</h2>
-      <button type="button" class="btn sc-csv" data-csv ${n ? "" : "disabled"}>Download CSV</button>
-    </div>
-    <p class="sc-zone">Zone: ${esc(sr.zone)}. Data release ${esc(sr.data_release)}, generated ${esc(formatGenerated(sr.generated))}.</p>
+    <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
     ${intro}
+    <div class="sc-suspects-bar">
+      <p class="sc-zone"><b>${n}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
+        ${esc(prettyText(sr.data_release))}, published ${esc(formatGenerated(sr.generated))}.</p>
+      <button type="button" class="btn btn-ghost sc-csv" data-csv ${n ? "" : "disabled"}>Download CSV</button>
+    </div>
     ${table}
   </section>`;
 }
 
 // ---- page --------------------------------------------------------------------------------
 
-function isSynthetic(x: unknown): boolean {
-  return !!x && typeof x === "object" && (x as { synthetic?: unknown }).synthetic === true;
-}
-
 export function renderPage(v: ValidationResponse | null, sr: SuspectsResponse | null): string {
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
   const synthetic = isSynthetic(v) || isSynthetic(sr);
   return html`
     <div class="sc">
-      <header class="sc-head">
-        <h1 class="sc-title">How we know it works</h1>
-        <p class="sc-lede">Eight checks of SkyShift's measurements against Gaia, NASA's asteroid predictions and
-          catalogue brightness. Every number is printed as measured, including the poor ones.</p>
-        ${
-          synthetic
-            ? html`<p class="sc-synthetic" role="note">Synthetic example data: these numbers are made up to test the page.</p>`
-            : ""
-        }
-        ${
-          v
-            ? ""
-            : html`<p class="sc-pending-note" role="status">${statusMark("pending")} The validation run hasn't published its results
-                yet. The eight checks are listed below and fill in when it does.</p>`
-        }
-      </header>
-      ${renderSummary(checks, v)}
-      <section class="sc-checks" aria-label="Checks">${checks.map(renderCheck).join("")}</section>
+      ${renderHead(checks, v, synthetic)}
+      <section class="sc-checks" aria-label="Checks">${checks.map((c, i) => renderCheck(c, i === 0)).join("")}</section>
       ${renderSuspects(sr)}
     </div>`;
 }

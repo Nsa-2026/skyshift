@@ -133,6 +133,56 @@ def test_orbit_snapshots_are_saved_once_and_reused(tmp_path, monkeypatch):
     assert known_mpc._snapshot(store, "cometels", lambda: pd.DataFrame({"desig": ["C/2025 N1 "]}))[1].startswith("cometels_")
 
 
+def _no_network():
+    raise AssertionError("fetched from the MPC")
+
+
+def test_refresh_orbits_adds_a_newer_snapshot_that_known_then_uses(tmp_path, monkeypatch):
+    store = Store(str(tmp_path))
+    old = pd.DataFrame({"desig": ["1"], "epoch": [2460000.5]})
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/mpcorb_2000-01-01.parquet", old)
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/cometels_2000-01-01.parquet", pd.DataFrame({"desig": ["2P "]}))
+    calls = []
+
+    def fake(prefix, desig):
+        def fetch():
+            calls.append(prefix)
+            return pd.DataFrame({"desig": pd.Series(desig, dtype=object), "epoch": 2461200.5})
+        return fetch
+
+    fetchers = {"mpcorb": fake("mpcorb", [1, 2, "2021 AU1"]), "cometels": fake("cometels", ["2P ", "C/2025 N1 "])}
+    out = known_mpc.refresh_orbits(store, fetchers=fetchers)
+    assert calls == ["mpcorb", "cometels"]
+    assert out["mpcorb"]["fetched"] and out["mpcorb"]["objects"] == 3 and out["cometels"]["objects"] == 2
+    new = out["mpcorb"]["snapshot"]
+    assert new.startswith("mpcorb_") and new > "mpcorb_2000-01-01.parquet"
+    assert "mpcorb_2000-01-01.parquet" in store.listdir(C.MPC_ORBITS_DIR)  # old snapshots stay
+    # known's orbit_table now reads the new snapshots and never fetches
+    monkeypatch.setattr(known_mpc, "_fetch_asteroids", _no_network)
+    monkeypatch.setattr(known_mpc, "_fetch_comets", _no_network)
+    tab, names = known_mpc.orbit_table(store)
+    assert names == f"{new} + {out['cometels']['snapshot']}" and tab["desig"].tolist() == ["1", "2", "2021 AU1", "2P ", "C/2025 N1 "]
+    # today's snapshot is kept unless force
+    again = known_mpc.refresh_orbits(store, fetchers=fetchers)
+    assert len(calls) == 2 and not again["mpcorb"]["fetched"] and again["mpcorb"]["snapshot"] == new
+    known_mpc.refresh_orbits(store, force=True, fetchers=fetchers)
+    assert calls == ["mpcorb", "cometels"] * 2
+
+
+def test_cli_mpc_orbits_is_a_laptop_tool_outside_all(tmp_path, monkeypatch):
+    from skyshift_pipeline import cli
+
+    assert "mpc-orbits" not in cli.STEPS  # `all` runs STEPS only
+    monkeypatch.setattr(known_mpc, "_fetch_asteroids", lambda: pd.DataFrame({"desig": pd.Series([1], dtype=object)}))
+    monkeypatch.setattr(known_mpc, "_fetch_comets", lambda: pd.DataFrame({"desig": ["2P "]}))
+    assert cli.main(["mpc-orbits", "--root", str(tmp_path)]) == 0
+    names = sorted(Store(str(tmp_path)).listdir(C.MPC_ORBITS_DIR))
+    assert [n.split("_")[0] for n in names] == ["cometels", "mpcorb"]
+    assert not (tmp_path / "results").exists()  # no zone, no summary.json
+    with pytest.raises(SystemExit):
+        cli.main(["score", "--root", str(tmp_path)])  # every other step still needs --zone
+
+
 def test_padded_corners_move_each_corner_out_by_the_pad():
     s = _square(359.8, 15.0, 0.5)  # crosses RA 0
     fp = Footprint.from_s_region(s)

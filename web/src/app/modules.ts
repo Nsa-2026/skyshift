@@ -66,3 +66,19 @@ export type MountVote = (el: HTMLElement) => VoteHandle;
 
 // ---- P3: src/score/index.ts exports mountScore (the scoreboard page) -----------------------
 export type MountScore = (el: HTMLElement) => { destroy(): void };
+
+// ---- Pages (DESIGN.md "Pages"). The shell routes by hash and mounts each page on first visit.
+export interface PageContext {
+  /** Go to a route, e.g. "#/c/pilot-pm-0003" or "#/review". */
+  navigate(hash: string): void;
+  /** Open the Explore page (blink) at a position. clock/det/fov default from the current view. */
+  explore(at: SkyPos & Partial<Pick<View, "clock" | "det" | "fov">>): void;
+}
+export interface PageHandle {
+  /** The page became visible. param is the route's argument (the candidate id for #/c/<id>), or null. */
+  show(param: string | null): void;
+  /** The page was hidden (stop timers, pause blinks). */
+  hide?(): void;
+  destroy(): void;
+}
+export type MountPage = (el: HTMLElement, ctx: PageContext) => PageHandle;

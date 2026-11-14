@@ -10,7 +10,7 @@
       "value": 5,
       "unit": "targets",
       "expected": "5 of 5; WISE 0855 only in D5-D6",
-      "note": "Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos of one visit and one expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core. Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, median_offset_px. WISE 0855-0714 (D5-D6 only, every photo of a visit stacked): 2 of 3 visits; its first visit has only 8 D5 and 3 D6 photos. In D1-D4 a background star lies 1-2 px from it: those stacks are not counted.",
+      "note": "Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos of one visit and one expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core (scripts/validate/v1_targets.py, 41 px boxes read from NASA's S3 copy). WISE 0855-0714 (D5-D6 only, every photo of a visit stacked): 2 of 3 visits; its first visit has only 8 D5 and 3 D6 photos. In D1-D4 a background star lies 1-2 px from it: those stacks are not counted. R Draconis is found in 16 of 22 stacks; the misses are in D4-D5 while D1-D3 find it in the same visits (not yet explained). Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, median_offset_px.",
       "rows": [
         {
           "slug": "barnard",
@@ -58,9 +58,9 @@
           "visits": 7,
           "visits_recovered": 7,
           "stacks_expected": 22,
-          "stacks_recovered": 16,
-          "detectors": "D1,D2,D3,D5,D6",
-          "median_offset_px": 0.31
+          "stacks_recovered": 22,
+          "detectors": "D1,D2,D3,D4,D5,D6",
+          "median_offset_px": 0.266
         }
       ]
     },
@@ -68,11 +68,11 @@
       "id": "V2",
       "claim": "Motion matches Gaia",
       "status": "pass",
-      "headline": "Barnard's Star moved 10.83\" ± 0.36\" at PA 357.8° in 0.986 yr; Gaia predicts 10.27\" (+5.5%, 2.2°)",
+      "headline": "Barnard's Star moved 10.83\" ± 0.36\" at PA 357.8° in 0.986 yr; Gaia predicts 10.27\" (+5.5%, 2.2°, 1.6 sigma); 5 of 5 targets within 3 sigma",
       "value": 10.83,
       "unit": "arcsec",
       "expected": "Barnard's Star within 15% and 10 deg of Gaia (10.39\"/yr)",
-      "note": "Shift = position in the last visit stack minus the first, against reference stars in the same cutouts; predicted = Gaia DR3 proper motion and parallax over the same dates (WISE 0855: published astrometry). Rows: slug, shift_arcsec, predicted_arcsec, sigma_arcsec, pa_deg, predicted_pa_deg, dt_yr, shift_error_pct, pa_error_deg.",
+      "note": "Shift = the target's position in the last visit stack minus the first, measured against reference stars in the same cutouts (site data <slug>/object.json, field measure); predicted = Gaia DR3 proper motion and parallax over the same dates (WISE 0855: published astrometry). dev_sigma = |shift - predicted| / sigma_arcsec. The pass rule is set on Barnard's Star; RW Aurigae and R Draconis barely move, so for them only dev_sigma means anything. 5 of 5 measured targets agree with the prediction within 3 sigma (largest: barnard at 1.6 sigma). Rows: slug, measured, shift_arcsec, predicted_arcsec, sigma_arcsec, dev_sigma, pa_deg, predicted_pa_deg, dt_yr, rate_arcsec_yr, n_ref_stars, shift_error_pct, pa_error_deg.",
       "rows": [
         {
           "slug": "barnard",
@@ -85,6 +85,7 @@
           "dt_yr": 0.986,
           "rate_arcsec_yr": 10.99,
           "n_ref_stars": 344,
+          "dev_sigma": 1.6,
           "shift_error_pct": 5.5,
           "pa_error_deg": 2.2
         },
@@ -99,6 +100,7 @@
           "dt_yr": 1.418,
           "rate_arcsec_yr": 4.27,
           "n_ref_stars": 51,
+          "dev_sigma": 1.0,
           "shift_error_pct": -6.7,
           "pa_error_deg": 4.0
         },
@@ -113,6 +115,7 @@
           "dt_yr": 0.99,
           "rate_arcsec_yr": 7.12,
           "n_ref_stars": 87,
+          "dev_sigma": 1.1,
           "shift_error_pct": -12.6,
           "pa_error_deg": 3.4
         },
@@ -127,6 +130,7 @@
           "dt_yr": 1.012,
           "rate_arcsec_yr": 0.31,
           "n_ref_stars": 255,
+          "dev_sigma": 0.6,
           "shift_error_pct": null,
           "pa_error_deg": null
         },
@@ -141,6 +145,7 @@
           "dt_yr": 0.997,
           "rate_arcsec_yr": 0.04,
           "n_ref_stars": 37,
+          "dev_sigma": 0.1,
           "shift_error_pct": null,
           "pa_error_deg": null
         }
@@ -154,7 +159,7 @@
       "value": 0.36,
       "unit": "arcsec",
       "expected": "Floor ~0.25\" (first photo); 10 or more reference stars",
-      "note": "sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, < 20 mas/yr) in the same cutouts; it is V2's error bar. Slowest motion visible at 3 sigma = 3 sigma / dt. Rows: slug, sigma_arcsec, n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.",
+      "note": "sigma_arcsec is the scatter of the visit-to-visit shifts of quiet Gaia stars (G 13-17, under 20 mas/yr) in the same cutouts as the target; it is V2's error bar. The slowest motion visible at 3 sigma is 3 sigma / dt. The headline is Barnard's Star's field; across the 5 measured fields sigma runs 0.36-0.9\" (fewer reference stars or a fainter target give a larger error). Rows: slug, sigma_arcsec, n_ref_stars, dt_yr, min_rate_3sigma_arcsec_yr.",
       "rows": [
         {
           "slug": "barnard",
@@ -201,7 +206,7 @@
       "value": 60,
       "unit": "asteroids",
       "expected": "N of 60; median offset under 1 px; control under 5%",
-      "note": "MOST's predicted position in up to 5 photos per asteroid (D2-D3). Found = a 5 sigma detection within 2 px that is absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. Per photo: 249/300 found, control 3/300; per asteroid control 3/60. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
+      "note": "Asteroids numbered 1-60 at IRSA MOST's predicted position in up to 5 photos each (D2-D3, 81 px boxes read from NASA's S3 copy). Found = a 5 sigma detection within 2 px that is absent from a reference stack of the same sky 0.25-12 days away (nothing at 4 sigma within 3 px). Control = the same test 3' away. Per photo: 249/300 found, control 3/300; per asteroid control 3/60. Photos not counted mostly have a static star within 3 px in the reference stack, so a detection there can't be told apart. Rows: number, name, vmag_median, photos, found_photos, found, median_offset_px, control_photos, control_found.",
       "rows": [
         {
           "number": 1,
@@ -869,11 +874,11 @@
       "id": "V5",
       "claim": "Asteroids re-found, blind (S1)",
       "status": "pass",
-      "headline": "pilot: 63 of 68 known asteroid sessions at V < 16 found as movers (93%); control 0%; 7 of 7 objects",
-      "value": 0.926,
+      "headline": "pilot: 83 of 90 known asteroid sessions at V < 16 found as movers (92%); control 0%; 8 of 8 objects",
+      "value": 0.922,
       "unit": "recall",
       "expected": "Recall at V < 16 >= 50% (gate G2); control near 0",
-      "note": "Zone pilot. A known object counts as found when a mover lies within the match radius of its prediction at the photo's MJD-AVG; control: every prediction moved 2'. Rows: v_min, v_max, n, found, recall, control_recall.",
+      "note": "Zone pilot (593 photos with predictions; pipeline report of 2026-11-14T12:11:26Z). Unit: one known object in one session with >= 2 exposures covering it. Known asteroids from SkyBoT, moved to each photo's MJD-AVG; one counts as found when a blind-search mover lies within 12\" of the prediction; control: every prediction moved 2'. Gate G2 is recall >= 50% at V < 16; V 12-16 alone: 46 of 50. Objects brighter than V 12 saturate but are still counted. The hunt zone is not finished; these are pilot numbers. Rows: v_min, v_max, n, found, recall, control_recall.",
       "rows": [
         {
           "v_min": null,
@@ -894,33 +899,33 @@
         {
           "v_min": 14.0,
           "v_max": 15.0,
-          "n": 23,
-          "found": 21,
-          "recall": 0.913,
+          "n": 28,
+          "found": 25,
+          "recall": 0.893,
           "control_recall": 0.0
         },
         {
           "v_min": 15.0,
           "v_max": 16.0,
-          "n": 22,
-          "found": 20,
-          "recall": 0.909,
+          "n": 39,
+          "found": 36,
+          "recall": 0.923,
           "control_recall": 0.0
         },
         {
           "v_min": 16.0,
           "v_max": 17.0,
-          "n": 96,
-          "found": 80,
-          "recall": 0.833,
+          "n": 70,
+          "found": 58,
+          "recall": 0.829,
           "control_recall": 0.0
         },
         {
           "v_min": 17.0,
           "v_max": 18.0,
-          "n": 123,
-          "found": 54,
-          "recall": 0.439,
+          "n": 149,
+          "found": 59,
+          "recall": 0.396,
           "control_recall": 0.0
         }
       ]
@@ -950,12 +955,12 @@
     {
       "id": "V8",
       "claim": "Spectra and speed",
-      "status": "partial",
-      "headline": "SPHEREx / catalogue flux, Ks 1.010 (scatter 3.0%, 3,918 stars); W1 0.994 (scatter 1.8%, 4,240 stars) (pilot, 10-13 mag); speed pending (site not deployed)",
+      "status": "fail",
+      "headline": "SPHEREx / catalogue flux, Ks 1.010 (scatter 3.0%, 3,918 stars); W1 0.994 (scatter 1.8%, 4,240 stars) (pilot, 10-13 mag); live speed: only 2 of 20 requests answered (9.9-10.0 s to first frame), the rest 16 HTTP 429, 2 no answer within the timeout (2026-11-14 13:37 UTC)",
       "value": 1.0103,
       "unit": "ratio",
       "expected": "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
-      "note": "Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py). Speed: scripts/demo_check.py, random coordinates through /api/frames. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
+      "note": "Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py); fainter than 13 mag the scatter grows to 6-12%. Speed measured 2026-11-14T13:37:23+00:00 against https://skyshift.web.app/api: 10 random coordinates (uniform on the sphere, seed 521937), each on both clocks, timed from the /api/frames request to the first frame received; a failed request counts as slower than any success. 18 request(s) failed (16 HTTP 429, 2 no answer within the timeout). The API was being sped up while this ran, so the number can change. For comparison, the 8 featured targets, served as static files, showed their first frame in 0.03-0.07 s. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
       "rows": [
         {
           "part": "spectra",
@@ -1064,6 +1069,166 @@
           "n": 7916,
           "median": 1.0382,
           "scatter": 0.0966
+        },
+        {
+          "part": "speed",
+          "ra": 239.92421,
+          "dec": 12.73819,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 239.92421,
+          "dec": 12.73819,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 323.22454,
+          "dec": -15.7672,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 323.22454,
+          "dec": -15.7672,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 276.11796,
+          "dec": 36.70845,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 276.11796,
+          "dec": 36.70845,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 31.52802,
+          "dec": -25.60811,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 31.52802,
+          "dec": -25.60811,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 149.84465,
+          "dec": -55.27734,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 149.84465,
+          "dec": -55.27734,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 351.33404,
+          "dec": -16.87905,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 351.33404,
+          "dec": -16.87905,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 223.75925,
+          "dec": 37.69408,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 223.75925,
+          "dec": 37.69408,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 277.53542,
+          "dec": 16.02664,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 277.53542,
+          "dec": 16.02664,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 116.70452,
+          "dec": 30.86102,
+          "clock": "months",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 116.70452,
+          "dec": 30.86102,
+          "clock": "hours",
+          "ok": false,
+          "first_frame_s": null
+        },
+        {
+          "part": "speed",
+          "ra": 40.57468,
+          "dec": 38.1906,
+          "clock": "months",
+          "ok": true,
+          "first_frame_s": 9.881
+        },
+        {
+          "part": "speed",
+          "ra": 40.57468,
+          "dec": 38.1906,
+          "clock": "hours",
+          "ok": true,
+          "first_frame_s": 9.956
         }
       ]
     },
@@ -1071,8 +1236,8 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "32,446 stars vs Gaia: proper-motion bias 20 (RA) and 0 (Dec) mas/yr, scatter 216 and 240 mas/yr; pull scatter 0.96, 1.07 (1 = honest error bars)",
-      "value": 216.072,
+      "headline": "32,446 stars vs Gaia: proper-motion bias 3 (RA) and -6 (Dec) mas/yr, scatter 147 and 145 mas/yr; pull scatter 0.98, 0.96 (1 = honest error bars)",
+      "value": 147.447,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
       "note": "Zone pilot; proper motions fitted over all dots with SPHEREx's own position as the observer. Pass when both pull scatters are 0.7-1.5. Rows: axis, n, bias, scatter, pull_scatter (mas/yr).",
@@ -1080,16 +1245,16 @@
         {
           "axis": "pmra",
           "n": 32446,
-          "bias": 19.559,
-          "scatter": 216.072,
-          "pull_scatter": 0.963
+          "bias": 3.194,
+          "scatter": 147.447,
+          "pull_scatter": 0.979
         },
         {
           "axis": "pmdec",
           "n": 32446,
-          "bias": 0.15,
-          "scatter": 239.838,
-          "pull_scatter": 1.066
+          "bias": -6.219,
+          "scatter": 145.401,
+          "pull_scatter": 0.962
         }
       ]
     },
@@ -1097,60 +1262,60 @@
       "id": "V10",
       "claim": "Galaxy distances match SDSS",
       "status": "pass",
-      "headline": "1227 bright galaxies: sigma_NMAD 0.023, outliers 2%",
-      "value": 0.0229,
+      "headline": "1211 bright galaxies: sigma_NMAD 0.021, outliers 2%",
+      "value": 0.0209,
       "unit": "dz/(1+z)",
       "expected": "sigma_NMAD ~0.02 for bright galaxies (AB < 17)",
       "note": "Zone pilot; EAZY templates on 102-channel spectra vs SDSS DR17 spectroscopic redshifts. Pass <= 0.05, partial <= 0.1. Rows: sample, n, sigma_nmad, outlier_frac, bias.",
       "rows": [
         {
           "sample": "all",
-          "n": 1413,
-          "sigma_nmad": 0.0246,
-          "outlier_frac": 0.0368,
-          "bias": 0.0071
+          "n": 1415,
+          "sigma_nmad": 0.0239,
+          "outlier_frac": 0.0417,
+          "bias": 0.005
         },
         {
           "sample": "good",
-          "n": 1054,
-          "sigma_nmad": 0.0224,
-          "outlier_frac": 0.0066,
-          "bias": 0.0066
+          "n": 1058,
+          "sigma_nmad": 0.0198,
+          "outlier_frac": 0.0113,
+          "bias": 0.0026
         },
         {
           "sample": "k_ab_lt_17",
-          "n": 1227,
-          "sigma_nmad": 0.0229,
-          "outlier_frac": 0.0171,
-          "bias": 0.006
+          "n": 1211,
+          "sigma_nmad": 0.0209,
+          "outlier_frac": 0.0223,
+          "bias": 0.003
         },
         {
           "sample": "K_AB -99..15",
-          "n": 133,
-          "sigma_nmad": 0.0334,
-          "outlier_frac": 0.0075,
-          "bias": 0.013
+          "n": 128,
+          "sigma_nmad": 0.0172,
+          "outlier_frac": 0.0078,
+          "bias": -0.005
         },
         {
           "sample": "K_AB 15..16",
-          "n": 506,
-          "sigma_nmad": 0.0245,
-          "outlier_frac": 0.0138,
-          "bias": 0.0061
+          "n": 500,
+          "sigma_nmad": 0.0201,
+          "outlier_frac": 0.022,
+          "bias": 0.0004
         },
         {
           "sample": "K_AB 16..17",
-          "n": 588,
-          "sigma_nmad": 0.0197,
-          "outlier_frac": 0.0221,
-          "bias": 0.0057
+          "n": 583,
+          "sigma_nmad": 0.0228,
+          "outlier_frac": 0.0257,
+          "bias": 0.0078
         },
         {
           "sample": "K_AB 17..18",
-          "n": 163,
-          "sigma_nmad": 0.0634,
-          "outlier_frac": 0.184,
-          "bias": 0.0184
+          "n": 181,
+          "sigma_nmad": 0.055,
+          "outlier_frac": 0.1713,
+          "bias": 0.0164
         },
         {
           "sample": "K_AB 18..99",
