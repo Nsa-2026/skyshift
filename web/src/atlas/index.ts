@@ -259,7 +259,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   let searchAbort: AbortController | null = null;
   let searchAt = 0;
-  /** Suspects per suspects_url, so panning about a zone fetches its list once. */
+  /** Suspects per suspects_url and check, so panning about a zone fetches its list once. */
   const provCache = new Map<string, Promise<ProvisionalSet["suspects"]>>();
   let provWant: string | null = null;
 
@@ -341,22 +341,24 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       setProvisional(null);
       return;
     }
+    // The list is rewritten when the WISE check runs: a new key then, so it's fetched again.
     const url = z.suspectsUrl;
-    if (provisional?.zone === z.name && provWant === url) return;
-    provWant = url;
-    let p = provCache.get(url);
+    const key = `${url}#${z.provisional ? "gaia" : "wise"}`;
+    if (provWant === key) return;
+    provWant = key;
+    let p = provCache.get(key);
     if (!p) {
       p = loadZoneSuspects(url);
-      provCache.set(url, p);
-      p.catch(() => provCache.delete(url));
+      provCache.set(key, p);
+      p.catch(() => provCache.delete(key));
     }
     p.then(
       (suspects) => {
-        if (destroyed || provWant !== url) return;
-        setProvisional({ zone: z.name, suspects, final: z.final });
+        if (destroyed || provWant !== key) return;
+        setProvisional({ zone: z.name, suspects, provisional: z.provisional });
       },
       () => {
-        if (destroyed || provWant !== url) return;
+        if (destroyed || provWant !== key) return;
         setProvisional(null);
       },
     );
@@ -366,7 +368,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function provisionalSentence(): string {
     if (!provisional || !layers.provisional || !showsSignals(level) || !provisional.suspects.length) return "";
     const n = plural(provisional.suspects.length, "provisional suspect", "provisional suspects");
-    return ` Dashed: ${n} in ${zoneLabel(provisional.zone)}, ${provisional.final ? "not yet reviewed" : "before the WISE check"}.`;
+    return ` Dashed: ${n} in ${zoneLabel(provisional.zone)}, ${provisional.provisional ? "before the WISE check" : "after the WISE check, not yet reviewed"}.`;
   }
 
   const zoneLabel = (name: string) => (/^ecl/i.test(name) ? `zone ${name}` : zoneName(name));
@@ -448,9 +450,9 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   /** Close in on a zone of tonight's run: what the dashed rings are, and aren't. */
   function provisionalKey(): string {
     if (!provisional || !layers.provisional || !provisional.suspects.length) return "";
-    const note = provisional.final ? "" : (search?.provisionalNote ?? "Checked against Gaia only; the WISE check in the final pass removes most of them.");
+    const note = !provisional.provisional ? "" : (search?.provisionalNote ?? "Checked against Gaia only; the WISE check in the final pass removes most of them.");
     return ` <span class="atl-key-group"><span class="atl-key-prov" aria-hidden="true"></span>Dashed rings: tonight's suspects in ${esc(zoneLabel(provisional.zone))}, ${
-      provisional.final ? "not yet reviewed" : "provisional, before the WISE check"
+      provisional.provisional ? "provisional, before the WISE check" : "after the WISE check, not yet reviewed"
     }. Not candidates. ${esc(note)}</span>`;
   }
 

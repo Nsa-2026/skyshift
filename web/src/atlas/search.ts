@@ -1,11 +1,9 @@
 // "Tonight's search": the sky run's zones along the ecliptic, drawn faintly on the whole sky by
 // state, and a combined zone's provisional suspects when zoomed in on it. Data from src/live (read
-// only): loadSkyrun() for the progress file, zonesToPolygons() for the zone outlines. The file's
-// `notes` and each zone's `deferred` flag aren't in src/live's model yet, so the raw JSON is kept
-// beside the parsed run and read here.
+// only): loadSkyrun() for the progress file, zonesToPolygons() for the zone outlines.
 import type { SkyPos, Suspect } from "../api/types";
 import {
-  httpSource,
+  isProvisional,
   loadSkyrun,
   loadZoneSuspects,
   zoneCentre,
@@ -30,8 +28,8 @@ export interface SearchZone {
   center: SkyPos;
   suspects: number | null;
   suspectsUrl: string | null;
-  /** Edges merged and the WISE check done: its suspects are final. */
-  final: boolean;
+  /** Its suspects had the Gaia check only: the WISE check hasn't run yet. */
+  provisional: boolean;
 }
 
 export interface SearchLayer {
@@ -43,6 +41,7 @@ export interface SearchLayer {
   /** Zones a machine is reading or combining right now. */
   atWork: number;
   failed: number;
+  /** Bulge zones still waiting, left for last. */
   deferred: number;
   /** Most suspects in one combined zone, for the red wash. */
   maxSuspects: number;
@@ -51,28 +50,22 @@ export interface SearchLayer {
   updated: number | null;
 }
 
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** Build the layer from a parsed run and the raw file it came from. Pure. */
-export function toSearchLayer(run: SkyRun, raw: unknown): SearchLayer {
-  const rawZones = isObj(raw) && Array.isArray(raw.zones) ? (raw.zones as unknown[]) : [];
-  const deferredNames = new Set(rawZones.filter((z): z is Obj => isObj(z) && z.deferred === true).map((z) => String(z.name)));
-  const notes = isObj(raw) && isObj(raw.notes) ? raw.notes : {};
+/** Build the layer from a parsed run. Pure. */
+export function toSearchLayer(run: SkyRun): SearchLayer {
   const polys = zonesToPolygons(run.zones, { stepDeg: 2 });
   const zones: SearchZone[] = polys.map((p) => {
     const z = p.zone;
-    const state: SearchState = z.state === "queued" && deferredNames.has(z.name) ? "deferred" : z.state;
     return {
       name: z.name,
-      state,
+      // A bulge zone looks deferred until a machine takes it; then it shows its state like any other.
+      state: z.state === "queued" && z.deferred ? "deferred" : z.state,
       rings: p.rings,
       ra: z.ra,
       dec: z.dec,
       center: zoneCentre(z),
       suspects: z.suspects,
       suspectsUrl: z.suspects_url,
-      final: z.final,
+      provisional: isProvisional(z),
     };
   });
   const count = (s: SearchState) => zones.filter((z) => z.state === s).length;
@@ -84,7 +77,7 @@ export function toSearchLayer(run: SkyRun, raw: unknown): SearchLayer {
     failed: count("failed"),
     deferred: count("deferred"),
     maxSuspects: zones.reduce((m, z) => (z.state === "combined" ? Math.max(m, z.suspects ?? 0) : m), 0),
-    provisionalNote: typeof notes.provisional === "string" && notes.provisional.trim() ? notes.provisional.trim() : null,
+    provisionalNote: run.notes.provisional,
     updated: run.updated,
   };
 }
@@ -116,20 +109,17 @@ export function provisionalZone(l: SearchLayer | null, at: SkyPos, candidateZone
   );
 }
 
-/** What the map shows of one zone's provisional suspects. */
+/** What the map shows of one zone's suspects from tonight's run. */
 export interface ProvisionalSet {
   zone: string;
   suspects: readonly Suspect[];
-  /** True when the run has merged the zone's edges and run the WISE check. */
-  final: boolean;
+  /** Gaia check only, before the WISE check (most of them go then). */
+  provisional: boolean;
 }
 
-/** The progress file, parsed, with its notes and deferred flags. */
+/** The progress file, as a layer. */
 export async function loadSearch(signal?: AbortSignal): Promise<SearchLayer> {
-  let raw: unknown = null;
-  const source = httpSource();
-  const run = await loadSkyrun(signal, async (s) => (raw = await source(s)));
-  return toSearchLayer(run, raw);
+  return toSearchLayer(await loadSkyrun(signal));
 }
 
 export { loadZoneSuspects };

@@ -1,32 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseSkyrun } from "../live";
-import real from "../live/fixtures/skyrun-real-1440Z.json";
+import real from "../live/fixtures/skyrun-real-1505Z.json";
 import sample from "../live/fixtures/skyrun-sample.json";
 import { shownSentence } from "./kinds";
 import { liveLine, provisionalZone, suspectAlpha, toSearchLayer } from "./search";
 import { paintSearch, zoneLook } from "./searchdraw";
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
-
-/** The sample run with two queued zones flagged deferred and the file's notes, as the live feed has them. */
-function withNotes() {
-  const raw = clone(sample) as { zones: { name: string; state: string; deferred?: boolean }[]; notes?: Record<string, string> };
-  const queued = raw.zones.filter((z) => z.state === "queued").slice(0, 2);
-  for (const z of queued) z.deferred = true;
-  raw.notes = { provisional: "  Provisional results: checked against Gaia only.  ", deferred: "Galactic bulge zones come last." };
-  return { raw, deferred: queued.map((z) => z.name) };
-}
+type RawZone = { name: string; state: string; deferred?: boolean; checks?: string };
 
 describe("tonight's search layer", () => {
+  const l = toSearchLayer(parseSkyrun(sample));
+
   it("counts the run's zones by state", () => {
-    const l = toSearchLayer(parseSkyrun(sample), sample);
     expect(l.total).toBe(333);
     expect(l.zones).toHaveLength(333);
-    expect(l.searched).toBe(134);
-    expect(l.atWork).toBe(3 + 5);
-    expect(l.failed).toBe(2);
-    expect(l.deferred).toBe(0);
-    expect(l.provisionalNote).toBeNull();
+    expect(l.searched).toBe(sample.zones.filter((z) => z.state === "combined").length);
+    expect(l.atWork).toBe(sample.zones.filter((z) => z.state === "extracting" || z.state === "combining").length);
+    expect(l.failed).toBe(sample.zones.filter((z) => z.state === "failed").length);
+    expect(l.searched).toBeGreaterThan(0);
+    expect(l.failed).toBeGreaterThan(0);
     // Every zone has a closed outline in degrees.
     for (const z of l.zones) {
       expect(z.rings.length).toBeGreaterThan(0);
@@ -35,27 +28,30 @@ describe("tonight's search layer", () => {
     expect(l.maxSuspects).toBe(Math.max(...l.zones.filter((z) => z.state === "combined").map((z) => z.suspects ?? 0)));
   });
 
-  it("reads deferred zones and the provisional note from the raw file", () => {
-    const { raw, deferred } = withNotes();
-    const l = toSearchLayer(parseSkyrun(raw), raw);
-    expect(l.deferred).toBe(2);
-    expect(l.zones.filter((z) => z.state === "deferred").map((z) => z.name)).toEqual(deferred);
-    expect(l.provisionalNote).toBe("Provisional results: checked against Gaia only.");
+  it("draws queued bulge zones as deferred and keeps the file's note on provisional results", () => {
+    const queuedBulge = (sample.zones as RawZone[]).filter((z) => z.deferred && z.state === "queued").map((z) => z.name);
+    expect(queuedBulge.length).toBeGreaterThan(0);
+    expect(l.deferred).toBe(queuedBulge.length);
+    expect(l.zones.filter((z) => z.state === "deferred").map((z) => z.name)).toEqual(queuedBulge);
+    expect(l.provisionalNote).toMatch(/Gaia/);
   });
 
-  it("only a queued zone can be deferred", () => {
-    const raw = clone(sample) as { zones: { name: string; state: string; deferred?: boolean }[] };
-    const combined = raw.zones.find((z) => z.state === "combined")!;
-    combined.deferred = true;
-    const l = toSearchLayer(parseSkyrun(raw), raw);
-    expect(l.zones.find((z) => z.name === combined.name)!.state).toBe("combined");
+  it("a bulge zone a machine has taken shows its state, not deferred", () => {
+    const raw = clone(sample) as { zones: RawZone[] };
+    const z = raw.zones.find((x) => x.deferred)!;
+    z.state = "extracting";
+    const next = toSearchLayer(parseSkyrun(raw));
+    expect(next.zones.find((x) => x.name === z.name)!.state).toBe("extracting");
+    expect(next.deferred).toBe(l.deferred - 1);
   });
 
-  it("survives a raw file without zones or notes", () => {
-    const l = toSearchLayer(parseSkyrun(real), null);
-    expect(l.total).toBe(333);
-    expect(l.searched).toBe(1);
-    expect(l.provisionalNote).toBeNull();
+  it("knows which zones' suspects are still provisional", () => {
+    const run = toSearchLayer(parseSkyrun(real));
+    expect(run.searched).toBe(1);
+    const hunt = run.zones.find((z) => z.name === "hunt")!;
+    expect(hunt.state).toBe("combined");
+    expect(hunt.provisional).toBe(false); // gaia+catwise: the WISE check has run
+    expect(l.zones.find((z) => z.name === "ecl06")!.provisional).toBe(true); // gaia only
   });
 
   it("writes the intro's live line", () => {
@@ -76,7 +72,7 @@ describe("tonight's search layer", () => {
 });
 
 describe("provisional suspects", () => {
-  const l = toSearchLayer(parseSkyrun(sample), sample);
+  const l = toSearchLayer(parseSkyrun(sample));
 
   it("finds the combined zone under the view's centre", () => {
     // ecl06: RA 60.5–70.5, Dec 16.5–26.5, combined, with a suspects file.
@@ -86,10 +82,9 @@ describe("provisional suspects", () => {
   });
 
   it("never shows the hunt zone's: they are candidates already", () => {
-    const realLayer = toSearchLayer(parseSkyrun(real), real);
-    expect(realLayer.zones.find((z) => z.name === "hunt")?.state).toBe("combined");
-    expect(provisionalZone(realLayer, { ra: 125.5, dec: 19.4 }, ["hunt", "pilot"])).toBeNull();
-    expect(provisionalZone(realLayer, { ra: 125.5, dec: 19.4 }, [])?.name).toBe("hunt");
+    const run = toSearchLayer(parseSkyrun(real));
+    expect(provisionalZone(run, { ra: 125.5, dec: 19.4 }, ["hunt", "pilot"])).toBeNull();
+    expect(provisionalZone(run, { ra: 125.5, dec: 19.4 }, [])?.name).toBe("hunt");
   });
 
   it("is null off the run, on a zone not yet combined, or with no layer", () => {
@@ -111,7 +106,7 @@ describe("how each state is drawn", () => {
   });
 
   it("skips rings it can't project and draws the rest", () => {
-    const l = toSearchLayer(parseSkyrun(sample), sample);
+    const l = toSearchLayer(parseSkyrun(sample));
     const calls: string[] = [];
     const ctx = new Proxy(
       {},
