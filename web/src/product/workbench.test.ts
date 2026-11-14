@@ -48,3 +48,21 @@ it('describes a combined plate with its loaded members and sky-noise units, then
   wb.frames(null);
   expect(metadata()).toMatchObject({display:null,epoch:null});
 });
+
+it('offers derived images only where they exist, and says why elsewhere',()=>{
+  const {host,wb}=setup(),barnard=viewForTarget(targetBySlug('barnard')!);
+  const derived=()=>[...host.querySelectorAll<HTMLOptionElement>('.wb-layer option:not([value="raw"])')];
+  const note=()=>host.querySelector('.wb-layer-note')!.textContent;
+  wb.select(barnard,'raw');
+  expect(derived().every(o=>!o.disabled)).toBe(true);
+  expect(note()).toBe('');
+  wb.select({...barnard,clock:'hours',fov:20},'raw');
+  expect(derived().every(o=>o.disabled)).toBe(true);
+  expect(note()).toMatch(/Months and 5′/);
+  const elpis=viewForTarget(targetBySlug('elpis')!);
+  wb.select(elpis,'raw');
+  expect(derived().every(o=>o.disabled)).toBe(true);
+  expect(note()).toMatch(/five featured stars/);
+  wb.select({ra:130.5,dec:10.2,clock:'months',fov:5,det:2,slug:null,name:null},'raw');
+  expect(derived().every(o=>o.disabled)).toBe(true);
+});

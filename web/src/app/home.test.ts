@@ -1,7 +1,9 @@
-// The home page is the Sky map (#119), before any area is chosen; Watch opens on shared target links.
+// The home page is the Sky (#119); the Viewer opens on shared target links. Four screens (15 Nov).
 import { afterEach, expect, it, vi } from "vitest";
 
 const atlas = vi.hoisted(() => ({ show: vi.fn(), ctx: null as null | import("./modules").PageContext }));
+const opening = vi.hoisted(() => ({ mount:vi.fn() }));
+vi.mock('../intro',()=>({mountOpening:opening.mount}));
 vi.mock("../atlas", () => ({
   mountAtlas: (_el: HTMLElement, ctx: import("./modules").PageContext) => {
     atlas.ctx = ctx;
@@ -31,43 +33,54 @@ const visible = (root: HTMLElement) =>
 afterEach(() => {
   document.body.replaceChildren();
   vi.mocked(loadFrames).mockClear();
+  opening.mount.mockClear();
 });
 
-it("opens on the Sky map with the three areas one click away, and loads no frames", () => {
+it("opens on the Sky with the four screens one click away, and loads no frames", () => {
   history.replaceState(null, "", "/");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
   expect(visible(root)).toEqual(["atlas"]);
   expect(atlas.show).toHaveBeenCalledTimes(1);
-  expect(root.querySelector(".nav [aria-current]")).toBeNull();
-  expect(root.querySelector<HTMLElement>(".area-features")!.hidden).toBe(true);
+  expect(root.querySelector(".nav [aria-current]")!.textContent).toBe("Sky");
   expect([...root.querySelectorAll<HTMLAnchorElement>(".nav a")].map((a) => a.getAttribute("href"))).toEqual([
+    "#/sky",
     "#/explore",
-    "#/analyze/motion",
-    "#/research/data",
+    "#/candidates",
+    "#/results",
   ]);
+  expect(root.querySelector(".top .details-switch")!.textContent).toBe("Advanced");
+  expect([...root.querySelectorAll<HTMLAnchorElement>(".foot-links a")].map((a) => a.textContent)).toEqual(["Learn", "About"]);
   expect(loadFrames).not.toHaveBeenCalled();
 });
 
-it("opens Explore → Watch for a target deep link without a hash", () => {
+it("opens the Viewer for a target deep link without a hash", () => {
   history.replaceState(null, "", "/?t=wise0855");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
   expect(visible(root)).toEqual(["explore"]);
-  expect(root.querySelector(".feature-nav [aria-current]")!.textContent).toBe("Watch");
+  expect(root.querySelector(".nav [aria-current]")!.textContent).toBe("Viewer");
   expect(loadFrames).toHaveBeenCalledTimes(1);
   expect(vi.mocked(loadFrames).mock.calls[0][0]).toMatchObject({ slug: "wise0855" });
 });
 
-it("from the whole-sky view (nothing picked), Explore opens a featured target, not the map centre", async () => {
+it('keeps the original home entry when the atlas rewrites the URL during startup',()=>{
+  history.replaceState(null,'','/?utm_source=entry-test');
+  atlas.show.mockImplementationOnce(()=>history.replaceState(null,'','#/sky/42,10,360,mol'));
+  const root=document.createElement('div');document.body.append(root);startApp(root);
+  expect(location.hash).toBe('#/sky/42,10,360,mol');
+  expect(opening.mount).toHaveBeenCalledWith(root,expect.objectContaining({hash:'',search:'?utm_source=entry-test'}));
+});
+
+it("from the whole-sky view (nothing picked), Viewer opens a featured target, not the map centre", async () => {
   history.replaceState(null, "", "/");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
   atlas.ctx!.skySelection?.(null, "#/sky/125.6315,19.2541,220");
-  root.querySelector<HTMLAnchorElement>('.nav a[data-level="explore"]')!.click();
+  root.querySelector<HTMLAnchorElement>('.nav a[data-screen="viewer"]')!.click();
   await vi.waitFor(() => expect(visible(root)).toEqual(["explore"]));
   // Earlier tests' shells still listen to hashchange, so check every call, not their count.
   expect(loadFrames).toHaveBeenCalled();
