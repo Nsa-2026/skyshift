@@ -1161,14 +1161,18 @@ def fit_forced(store: Store, d: pd.DataFrame, crossids: pd.DataFrame, cal: dict)
     m = m[(m["snr"] >= C.CALIB_FLUX_MIN_SNR) & ((m["flags_peak"].to_numpy().astype(np.int64) & C.CALIB_SAT_BITS) == 0)]
     if not len(m):
         return {}
-    have = set(store.listdir(C.FORCED_DIR)) if store.exists(C.FORCED_DIR) else set()
     out: dict[str, dict] = {}
     for k in range(1, 7):
         mk = m[m["detector"] == k]
-        photos = [o for o in mk["obs_id"].drop_duplicates() if f"{o}D{k}.parquet" in have][: C.CALIB_FORCED_MAX_PHOTOS]
-        parts = []
-        for o in photos:
-            f = store.read_parquet(f"{C.FORCED_DIR}/{o}D{k}.parquet", columns=["ref_id", "x", "y", "flux_psf_ujy", "flags"])
+        photos, parts = [], []
+        for o in mk["obs_id"].drop_duplicates():  # no listing of forced/ (sky-wide: far too many files)
+            if len(photos) >= C.CALIB_FORCED_MAX_PHOTOS:
+                break
+            try:
+                f = store.read_parquet(f"{C.FORCED_DIR}/{o}D{k}.parquet", columns=["ref_id", "x", "y", "flux_psf_ujy", "flags"])
+            except Exception:  # noqa: BLE001  (no forced file for that photo, or an older layout)
+                continue
+            photos.append(o)
             f = f[(f["flags"].to_numpy().astype(np.int64) & C.CALIB_SAT_BITS) == 0]
             parts.append(mk[mk["obs_id"] == o].merge(f, left_on="gaia_ref_id", right_on="ref_id", suffixes=("", "_f")))
         if not parts:
@@ -1213,9 +1217,14 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     if not cal["phase"]["detectors"] and not cal["pos_err"]["detectors"]:
         L.warning("calib %s: too few Gaia-matched dots (%d): no calib.json, dots stay raw", zone.name, cal["selection"]["dots_used"])
         return {"calib": "skipped: too few stars", **cal["selection"]}
-    if store.exists(C.FORCED_DIR):
+    try:  # optional: never fails calib
+        forced = fit_forced(store, d, store.read_parquet(xid_rel), cal)
+    except Exception as e:  # noqa: BLE001
+        L.warning("calib %s: forced photometry's level not fitted (%s): forced fluxes take the dots' scale", zone.name, e)
+        forced = {}
+    if forced:
         cal["forced"] = {"model": "forced flux_psf_ujy × factor_psf[d] × exp(−phase_frac[d] × the dots' PSF phase model at the "
-                                  "target's pixel); forced aperture fluxes: the dots' flux_factor 'ap'", "detectors": fit_forced(store, d, store.read_parquet(xid_rel), cal)}
+                                  "target's pixel); forced aperture fluxes: the dots' flux_factor 'ap'", "detectors": forced}
     store.write_parquet(results_rel(zone.name, PHOTOS_REL), photos)
     store.write_json(results_rel(zone.name, C.CALIB_REL), cal)  # last: its existence means calib is done
     out = {"detectors_phase": sorted(cal["phase"]["detectors"]), "detectors_pos_err": sorted(cal["pos_err"]["detectors"]),

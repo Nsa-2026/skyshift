@@ -244,6 +244,29 @@ def catalogs_rel(zone: str) -> str:
     return f"refcat/{zone}_catalogs.json"
 
 
+def gspc_in(store: Store, zone: str) -> bool:
+    """True if refcat/<zone>.parquet's Gaia rows carry the GSPC columns (z_ab, y_ab; marker key `gspc`, 15 Nov)."""
+    rel = catalogs_rel(zone)
+    return bool(store.read_json(rel).get("gspc")) if store.exists(rel) else False
+
+
+def tile_has_gspc(store: Store, rel: str) -> bool:
+    """A cached Gaia tile written with the GSPC join (columns z_ab, y_ab; values may be NaN, e.g. from IRSA)."""
+    import io
+
+    import pyarrow.parquet as pq
+    return {"z_ab", "y_ab"} <= set(pq.read_schema(io.BytesIO(store.read_bytes(rel))).names)
+
+
+def _read_tile(store: Store, rel: str) -> pd.DataFrame:
+    """A cached tile in today's REFCAT_COLUMNS (columns a tile cached by older code lacks: NaN / defaults)."""
+    df = store.read_parquet(rel)
+    for c in REFCAT_COLUMNS:
+        if c not in df:
+            df[c] = _default(c, len(df))
+    return df[list(REFCAT_COLUMNS)]
+
+
 def catalogs_in(store: Store, zone: str) -> list[str] | None:
     """The catalogues refcat/<zone>.parquet was built from (None: no marker, i.e. built before 14 Nov 15:00 with all)."""
     rel = catalogs_rel(zone)
@@ -256,11 +279,14 @@ def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_
     cats = [c for c in SOURCES if c in C.REFCAT_CATALOGS]
     jobs = [(cat, t) for cat in cats for t in ts]
     todo = [(c, t) for c, t in jobs if not store.exists(tile_rel(zone.name, c, t))]
-    L.info("refcat %s: box ra %.3f-%.3f dec %.3f-%.3f, %d tiles x %d catalogues (%s), %d to fetch",
-           zone.name, *box, len(ts), len(cats), ",".join(cats), len(todo))
+    # Gaia tiles cached before the GSPC join (15 Nov; z_ab, y_ab): fetched again, best effort (a failure keeps the old tile)
+    upgrade = [(c, t) for c, t in jobs if c == "gaia" and C.REFCAT_GSPC_UPGRADE and (c, t) not in todo
+               and not tile_has_gspc(store, tile_rel(zone.name, c, t))]
+    L.info("refcat %s: box ra %.3f-%.3f dec %.3f-%.3f, %d tiles x %d catalogues (%s), %d to fetch, %d Gaia tiles to upgrade (GSPC)",
+           zone.name, *box, len(ts), len(cats), ",".join(cats), len(todo), len(upgrade))
     seconds = {c: 0.0 for c in SOURCES}
     services: dict[str, set] = {c: set() for c in SOURCES}
-    failed = []
+    failed, kept_old = [], []
 
     def job(cat, t):
         t0 = time.time()
@@ -269,23 +295,28 @@ def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_
         return cat, t, name, len(df), time.time() - t0
 
     with ThreadPoolExecutor(max(1, workers)) as ex:
-        futs = {ex.submit(job, c, t): (c, t) for c, t in todo}
+        futs = {ex.submit(job, c, t): (c, t) for c, t in todo + upgrade}
         for i, f in enumerate(as_completed(futs), 1):
             c, t = futs[f]
             try:
                 cat, _, name, n, dt = f.result()
                 seconds[cat] += dt
                 services[cat].add(name)
-                L.info("refcat %s [%d/%d] %s %s: %d rows in %.1f s (%s)", zone.name, i, len(todo), cat, t.key, n, dt, name)
+                L.info("refcat %s [%d/%d] %s %s: %d rows in %.1f s (%s)", zone.name, i, len(futs), cat, t.key, n, dt, name)
             except Exception as e:  # noqa: BLE001
+                if (c, t) in upgrade:  # the old tile is still there and complete apart from z/y
+                    kept_old.append(f"{c}_{t.key}")
+                    L.warning("refcat %s %s %s: GSPC upgrade failed, old tile kept (D1 anchors fewer): %s", zone.name, c, t.key, str(e)[:200])
+                    continue
                 failed.append(f"{c}_{t.key}")
                 L.error("refcat %s %s %s failed: %s", zone.name, c, t.key, str(e)[:300])
     if failed:
         raise RuntimeError(f"refcat {zone.name}: {len(failed)} tiles failed ({failed[:5]}...); rerun to retry them")
-    out = {c: (pd.concat([store.read_parquet(tile_rel(zone.name, c, t)) for t in ts], ignore_index=True) if c in cats
+    out = {c: (pd.concat([_read_tile(store, tile_rel(zone.name, c, t)) for t in ts], ignore_index=True) if c in cats
                else pd.DataFrame({k: pd.Series(dtype=v) for k, v in REFCAT_COLUMNS.items()})).astype(REFCAT_COLUMNS)
            for c in SOURCES}
-    st = {"tiles": len(ts), "fetched": len(todo),
+    st = {"tiles": len(ts), "fetched": len(todo), "gspc_upgraded": len(upgrade) - len(kept_old), "gspc_kept_old": len(kept_old),
+          "gspc": "gaia" in cats and not kept_old and all(tile_has_gspc(store, tile_rel(zone.name, "gaia", t)) for t in ts),
           "query_seconds": {c: round(s, 1) for c, s in seconds.items()},
           "services": {c: sorted(s) for c, s in services.items()}}
     return out, st
@@ -353,7 +384,8 @@ def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap, f
     partial = bool(set(SOURCES) - set(C.REFCAT_CATALOGS))  # e.g. SKYSHIFT_REFCAT_CATALOGS=gaia
     have = store.exists(refcat_rel(zone.name)) and store.exists(refcat_rel(zone.name, forced=True))
     made = catalogs_in(store, zone.name)  # None: written before the marker existed (all catalogues)
-    if not force and have and (partial or made is None or set(SOURCES) <= set(made)):
+    gspc_ok = gspc_in(store, zone.name) or not C.REFCAT_GSPC_UPGRADE
+    if not force and have and (partial or made is None or set(SOURCES) <= set(made)) and (gspc_ok or partial):
         L.info("refcat %s: both files exist (catalogues %s), skipping (delete them or pass force=True to rebuild)",
                zone.name, ",".join(made) if made else "all")
         return {"skipped": True, "fetched": 0}
@@ -362,7 +394,7 @@ def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap, f
     allrows = pd.concat([cats["gaia"], cats["catwise"], cats["2mass"]], ignore_index=True).astype(REFCAT_COLUMNS)
     allrows = allrows.drop_duplicates("ref_id").reset_index(drop=True)
     size = store.write_parquet(refcat_rel(zone.name), allrows)
-    store.write_json(catalogs_rel(zone.name), {"catalogs": [c for c in SOURCES if c in C.REFCAT_CATALOGS]})
+    store.write_json(catalogs_rel(zone.name), {"catalogs": [c for c in SOURCES if c in C.REFCAT_CATALOGS], "gspc": st["gspc"]})
     if partial:
         L.info("refcat %s: catalogues %s only (a later full run adds the rest, reusing the cached tiles)", zone.name,
                ",".join(C.REFCAT_CATALOGS))

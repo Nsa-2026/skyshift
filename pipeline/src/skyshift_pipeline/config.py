@@ -305,6 +305,9 @@ REFCAT_GAIA_G_MAX = 20.0
 # refcat/<zone>_forced.parquet is written (Gaia part), so extraction can start fast; a later normal
 # refcat run sees the full refcat missing, reuses the cached Gaia tiles and adds CatWISE + 2MASS.
 REFCAT_CATALOGS = tuple(c.strip() for c in os.environ.get("SKYSHIFT_REFCAT_CATALOGS", "gaia,catwise,2mass").split(",") if c.strip())
+# Gaia DR3 synthetic photometry (GSPC z, y: calib's D1 anchors) joins the ESA Gaia query since 15 Nov. A full (not
+# partial) refcat run over a zone whose Gaia tiles were cached without it refetches those tiles only, best effort.
+REFCAT_GSPC_UPGRADE = os.environ.get("SKYSHIFT_REFCAT_GSPC_UPGRADE", "1") != "0"
 # forced-photometry target list (refcat/<zone>_forced.parquet), read by `dots`
 # Asked for G < 19 and W1 < 16: that gave 5,400 targets/deg² (66,000 per photo) in the pilot (3,870 Gaia,
 # 1,540 CatWISE-only, mostly galaxies), over the 30,000 budget. Tightened (14 Nov) to G < 17.5 (2,110/deg²)
@@ -376,7 +379,7 @@ CALIB_AP_STITCH_CHANNELS = 4     # channels on each side of a boundary
 # Stitch a boundary only if one side has no catalogue anchor. Pilot: the 1.1 µm stitch put D1 at 0.951 while Gaia GSPC
 # z and y (two bands, 0.89 and 0.96 µm) both give 1.024; D1 and D2 slope ~4–5% inside the detector, so edges mislead.
 CALIB_AP_STITCH_ANCHORED = False
-CALIB_FORCED_MAX_PHOTOS = 200   # forced photometry's own PSF level (calib.fit_forced): photos read per detector
+CALIB_FORCED_MAX_PHOTOS = 30    # forced photometry's own PSF level (calib.fit_forced): photos read per detector (~2,000 pairs each)
 CALIB_AP_PRIOR_SIGMA = 0.1       # weak prior ln factor = 0 (keeps a detector without constraints at 1)
 
 # --- pilot fixes (14 Nov): light-curve error model, band labels, fast-mover vetting ----------
