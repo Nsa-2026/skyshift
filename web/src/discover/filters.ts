@@ -461,9 +461,20 @@ export function routeQuery(paramOrHash: string | null | undefined): string {
   return s.replace(/^[/?]+/, "");
 }
 
-/** The shareable hash for a filter state: "#/candidates" or "#/candidates/kind=mover&sort=fewest". */
-export function candidatesHash(s: FilterState): string {
-  const q = stateToQuery(s);
+/** The "One at a time" view's key: the same filter, the review queue in place of the list.
+ *  It is not a filter (queryToState ignores it), so presets and counts never see it. */
+export const ONE_KEY = "one";
+
+/** Is "One at a time" on in this query or hash? ("one=1", "kind=mover&one=1", "#/candidates/one=1") */
+export function isOneAtATime(paramOrHash: string | null | undefined): boolean {
+  const q = paramOrHash?.startsWith("#") ? routeQuery(paramOrHash) : (paramOrHash ?? "");
+  return new URLSearchParams(q.replace(/^[#/?]+/, "")).get(ONE_KEY) === "1";
+}
+
+/** The shareable hash for a filter state: "#/candidates" or "#/candidates/kind=mover&sort=fewest";
+ *  with one: true, the "One at a time" view of it: "#/candidates/one=1", "#/candidates/kind=mover&one=1". */
+export function candidatesHash(s: FilterState, opts: { one?: boolean } = {}): string {
+  const q = [stateToQuery(s), opts.one ? `${ONE_KEY}=1` : ""].filter(Boolean).join("&");
   return q ? `${CANDIDATES_ROUTE}/${q}` : CANDIDATES_ROUTE;
 }
 
