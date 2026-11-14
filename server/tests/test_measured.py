@@ -451,3 +451,28 @@ def test_duplicate_reads_as_a_piece_of_its_star(root):
     v1 = {d["source_id"]: d for d in mm["detections"] if d["epoch_id"] == "d2-v1"}
     assert v1[222]["class"] == "artifact" and v1[222]["reasons"][-1] == "bright_fragment"
     assert v1[222]["parent_gaia_id"] == "4242424242424242424"
+
+
+def test_zone_reads_the_dots_folder_its_link_read(root):
+    """A target zone re-extracted with finer deblending (pipeline config DOTS_FINE_ZONES) is read from the folder its
+    link recorded (summary.json steps.link.dots_dir), never from dots/; a zone without the entry reads dots/."""
+    import shutil
+
+    r = Path(root)
+    shutil.copytree(r / "results" / "zz", r / "results" / "t_zz")
+    steps = {"link": {"dots_dir": "dots_deblend1e-4"}, "crossid": {}, "calib": {}}
+    (r / "results" / "t_zz" / "summary.json").write_text(json.dumps({"zone": {"ra": [9.5, 10.5], "dec": [19.5, 20.5]},
+                                                                        "steps": steps}))
+    neighbour = off(-30, 40)  # split off a bright star's glow: only in the zone's own folder
+    fine = r / "dots_deblend1e-4"
+    _dots(fine / "OBS_1D2.parquet", T1, [(off(0.5, 0, *S1), 300.0, 0, 0), (neighbour, 40.0, 0, 0)])
+    _dots(fine / "OBS_2D2.parquet", T2, [(off(0.5, 0, *S1), 310.0, 0, 0), (off(0.3, 0, *neighbour), 41.0, 0, 0)])
+    M.reset()
+    m, reason = M.build(_hours_meta(), root=root)
+    assert reason is None and m["zone"] == "t_zz"
+    assert m["photos"] == 2 and m["photos_missing"] == 0
+    assert _find(m, "d2-OBS_1", neighbour) and _find(m, "d2-OBS_2", S1)["class"] == "star"
+    assert len(m["detections"]) == 4  # dots/ (10 and 6 dots) is not read for this zone
+    m2, _ = M.build(_hours_meta(), zone="zz", root=root)
+    assert m2["zone"] == "zz" and len(m2["detections"]) == 15
+    assert M._zone_from_summary("old", {"zone": {"ra": [0, 1], "dec": [0, 1]}, "steps": {"link": {}}}).dots_dir == "dots"
