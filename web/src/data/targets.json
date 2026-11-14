@@ -37,7 +37,7 @@
    "fov": 5,
    "det": 6,
    "kind": "brown dwarf",
-   "look_for": "The coldest known brown dwarf. Absent in D1–D3; in D5–D6 a dot with no Gaia ring steps west about 4″ per visit. By visit 3 it is 4″ from a Gaia star, too close to measure apart, so its spectrum and brightness stop at visit 2.",
+   "look_for": "The coldest known brown dwarf. Absent in D1–D3; in D5–D6 a dot with no Gaia ring steps west about 4″ per visit. By visit 3 it passes 4″ from a Gaia star: there both are fitted at their known positions, so the visit 3 points have larger error bars.",
    "expected": "Luhman & Esplin 2016: 8.15″/yr."
   },
   {
