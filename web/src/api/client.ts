@@ -3,6 +3,7 @@
 import type {
   Clock,
   Det,
+  DistantResponse,
   Epoch,
   FramesResponse,
   LoadedFrames,
@@ -150,6 +151,15 @@ export async function loadValidation(signal?: AbortSignal): Promise<ValidationRe
 export async function loadSuspects(signal?: AbortSignal): Promise<SuspectsResponse | null> {
   try {
     return await getJson<SuspectsResponse>("/data/suspects.json", signal);
+  } catch {
+    return null;
+  }
+}
+
+/** The distant-planet search (contracts/api.md v3.6), written by scripts/validate; null when not published. */
+export async function loadDistant(signal?: AbortSignal): Promise<DistantResponse | null> {
+  try {
+    return await getJson<DistantResponse>("/data/distant.json", signal);
   } catch {
     return null;
   }

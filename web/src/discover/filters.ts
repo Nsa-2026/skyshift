@@ -554,4 +554,4 @@ export function withoutTest(s: FilterState, key: TestKey): FilterState {
   return next;
 }
 
-export const KIND_ORDER: CandidateKind[] = ["mover", "high_pm", "spectral"];
+export const KIND_ORDER: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];

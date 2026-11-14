@@ -80,6 +80,8 @@ export function factsHtml(c: Candidate): string {
   const rows: [string, string][] = [];
   if (c.snr != null) rows.push(["Signal to noise", sig(c.snr)]);
   if (c.flux_ujy != null && c.flux_ujy > 0) rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">AB ${abMag(c.flux_ujy).toFixed(1)}</span>`]);
+  // shape: the sky direction of the stretch (an axis, 0–180° east of north).
+  if (c.kind === "shape" && c.pa_deg != null) rows.push(["Stretched along", `${Math.round(c.pa_deg)}° east of north`]);
   // The detector is on the plate's tabs already.
   if (!rows.length) return "";
   return html`<dl class="rv-facts">${rows.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;

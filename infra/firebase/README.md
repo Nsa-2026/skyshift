@@ -9,7 +9,7 @@ Firebase Hosting for the site and Firestore rules, project `nasa-glazing`.
 | `.firebaserc` | default project `nasa-glazing` |
 | `deploy.sh` | copies `web/dist` here and runs `firebase deploy` |
 
-## Deploy (you run these; the agents never deploy)
+## Deploy (after every major change, by whoever merged it: people and agents; see the root CLAUDE.md)
 
 ```sh
 npm install -g firebase-tools          # once

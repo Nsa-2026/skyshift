@@ -1,11 +1,12 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.4)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.7)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
 targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages;
 v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
-v3.4: suspects.json track fields and grade A).
+v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows only;
+v3.6: `/data/distant.json`, the distant-planet search; v3.7: kind shape in candidates.json).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -45,6 +46,7 @@ GET /api/resolve?q=        # any coordinate format, or a built-in name
 /data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
 /data/validation.json      /data/suspects.json
 /data/candidates.json      /data/cand/<id>/frames.json   # candidates to review
+/data/distant.json                                       # v3.6: the distant-planet search
 
 # frames are data, not pictures
 # 16-bit arrays, at most 300 px a side; value = raw × scale + zero (MJy/sr)
@@ -350,6 +352,7 @@ for an unknown name.
 | `/data/suspects.json` | pipeline export (P1) | below |
 | `/data/candidates.json` | pipeline exporter `skyshift-candidates` (P1) | below |
 | `/data/cand/<id>/frames.json` + frame files | scripts/candidates/frames.py (P1, with the P2 engine) | `GET /api/frames` for one candidate (its clock, field and detectors); frame files `frames/<c><fov>_d<det>_…bin` as above. Only for candidates whose `frames_url` is set |
+| `/data/distant.json` | scripts/validate (P1), from the pipeline's `orphans` step | below (v3.6) |
 
 In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data/`.
 
@@ -453,8 +456,8 @@ fixtures/api/candidates_sample.json (fixtures/api/candidates.json is an older ha
 web tests still use; it predates `zones` and the high_pm id rule).
 
 ```
-{ generated, data_release, zones:[zone…], counts:{ mover, high_pm, spectral },
-  candidates:[{ id, kind:"mover"|"high_pm"|"spectral", ra, dec, mjd, clock:"hours"|"months", det, zone, zones,
+{ generated, data_release, zones:[zone…], counts:{ mover, high_pm, spectral, shape },
+  candidates:[{ id, kind:"mover"|"high_pm"|"spectral"|"shape", ra, dec, mjd, clock:"hours"|"months", det, zone, zones,
                 score, snr, flux_ujy, rate_arcsec_h, pm_mas_yr, pm_err_mas_yr, pa_deg,
                 nearest_known_arcsec, gaia_match, catwise_match, galactic_b,
                 labels:[label…], reasons:[code…], why, flags:[flag…], frames_url|null }] }
@@ -465,36 +468,36 @@ web tests still use; it predates `zones` and the high_pm id rule).
 | generated | string | Time of the export, ISO 8601 UTC (`2026-11-14T15:20:00Z`) |
 | data_release | string | Collections the zones' photos came from, e.g. `"DR1+QR3"` |
 | zones | [string] | Zones searched, in the order used: the larger first (`["hunt", "pilot"]`). A zone appears even when all its objects were already listed from an earlier one |
-| counts | {kind: int} | Candidates of each kind in the file (all three keys, 0 if none) |
-| candidates | [object] | Sorted by zone (in `zones` order), then kind (mover, high_pm, spectral), then `grade` (A, B or null, C; added 14 Nov), then `score` descending |
+| counts | {kind: int} | Candidates of each kind in the file (every kind's key, 0 if none; `shape` added in v3.7: older files lack it, read it as 0) |
+| candidates | [object] | Sorted by zone (in `zones` order), then kind (mover, high_pm, spectral, shape), then `grade` (A, B or null, C; added 14 Nov), then `score` descending |
 
 Each candidate: every field is present; a missing value is `null`, never omitted.
 
 | field | type | meaning |
 |---|---|---|
-| id | string | Unique in the file and stable across runs; Firestore `votes.candidate_id`. Treat as opaque. mover: the pipeline's suspect id `<zone>-<cell>-<minute>` (suspects.json); high_pm: `<zone>-pm-<source_id>` (fit) or `<zone>-pm-<source_id>-<source_id_b>` (pair); spectral: `<zone>-sp-<source_id>`. `source_id` is link's id from the source's median position (contracts/dots.md) |
-| kind | string | `mover` "Fast mover": moves within hours (an uncatalogued asteroid or comet?). `high_pm` "Moving star": moves between visits (a nearby star or brown dwarf?). `spectral` "Odd spectrum": molecule bands worth a look |
-| ra, dec | float, deg | mover: mean of its dots (as suspects.json). high_pm: the pipeline's position: fit, at the fit's epoch; pair, the first visit's source. spectral: the source's median position |
-| mjd | float, MJD | mover: mean MJD-AVG of its dots. high_pm: fit, the astrometric fit's epoch; pair, the first visit's mean time. spectral: mean MJD-AVG of the source's dots |
-| clock | string | `hours` for mover, `months` for high_pm and spectral: the clock to blink it on |
-| det | int 1–6 | mover: detector of its highest-S/N dot. high_pm, spectral: the detector where the source's spectrum has the highest S/N (pair: the first visit's source) |
+| id | string | Unique in the file and stable across runs; Firestore `votes.candidate_id`. Treat as opaque. mover: the pipeline's suspect id `<zone>-<cell>-<minute>` (suspects.json); high_pm: `<zone>-pm-<source_id>` (fit) or `<zone>-pm-<source_id>-<source_id_b>` (pair); spectral: `<zone>-sp-<source_id>`; shape: `<zone>-sh-<source_id>`. `source_id` is link's id from the source's median position (contracts/dots.md) |
+| kind | string | `mover` "Fast mover": moves within hours (an uncatalogued asteroid or comet?). `high_pm` "Moving star": moves between visits (a nearby star or brown dwarf?). `spectral` "Odd spectrum": molecule bands worth a look. `shape` "One or two?": its image is stretched like two objects, but Gaia DR3 and CatWISE2020 list only one (a moving object passing a star, or an unknown companion?); v3.7 |
+| ra, dec | float, deg | mover: mean of its dots (as suspects.json). high_pm: the pipeline's position: fit, at the fit's epoch; pair, the first visit's source. spectral, shape: the source's median position |
+| mjd | float, MJD | mover: mean MJD-AVG of its dots. high_pm: fit, the astrometric fit's epoch; pair, the first visit's mean time. spectral: mean MJD-AVG of the source's dots. shape: mean MJD-AVG of the dots the shape was measured on |
+| clock | string | `hours` for mover, `months` for high_pm, spectral and shape: the clock to blink it on |
+| det | int 1–6 | mover: detector of its highest-S/N dot. high_pm, spectral, shape: the detector where the source's spectrum has the highest S/N (pair: the first visit's source) |
 | zone | string | Pipeline zone it came from, one of `zones` |
 | zones | [string] | Every zone that found it, `zone` first: `["hunt", "pilot"]` for an object the pilot found too (as suspects.json's `zones`). **Not yet in types.ts** (proposal: `zones?: string[]`); readers that don't know it ignore it |
 | score | float 0–1 | How promising: **higher = more promising**, in 0..1, sorted descending. Defined per kind below; where the pipeline's own score is lower-is-better (high_pm) the exporter inverts it (e^(−s/0.2)). Never null in the export (the type allows it) |
-| snr | float or null | mover: its highest dot S/N. high_pm, spectral: S/N of the spectrum in `det` (its 17 channels' S/N added in quadrature) |
-| flux_ujy | float µJy or null | mover: median of its dots. high_pm, spectral: median of the spectrum's 17 channels in `det` |
+| snr | float or null | mover: its highest dot S/N. high_pm, spectral, shape: S/N of the spectrum in `det` (its 17 channels' S/N added in quadrature) |
+| flux_ujy | float µJy or null | mover: median of its dots. high_pm, spectral, shape: median of the spectrum's 17 channels in `det` |
 | rate_arcsec_h | float ″/h or null | mover: apparent rate from a weighted straight-line fit of its dots' positions against time (dot positions re-read from dots/). null for `two_detectors` (one moment) and other kinds |
 | pm_mas_yr, pm_err_mas_yr | float mas/yr or null | high_pm only: total proper motion and its 1σ error (the pipeline's `pm`, `pm_err`) |
-| pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover from its dots (null without a rate). null for spectral |
+| pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover from its dots (null without a rate). null for spectral. shape: not a motion but the axis of the stretch on the sky, east of north, **0–180** (where the second object would sit, on either side) |
 | nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known asteroid or comet predicted in the same session, moved to `mjd`; **null = none within 600″**. Always null for high_pm and spectral (not checked) |
-| gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: false (suspects have no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match |
-| catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one |
+| gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: false (suspects have no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match. shape: a Gaia DR3 star within 6″ is the one listed object |
+| catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one. shape: a CatWISE2020 source within 6″ (the listed object, or its infrared entry) |
 | galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
-| labels | [string] | Filter labels, vocabulary below; order as listed there. [] for movers |
-| grade | string or null | Movers: the suspects' vetting grade, `A`, `B` or `C` (suspects.json `grade`; A = a candidate mover on a track over ≥ 2 sessions at ≥ 5σ, its `why` names the track and it never gets `motion_not_significant`; C = a failed gate or a catalogue source within 6″, its gates are in `reasons`). null for high_pm and spectral, and for zones run before the vetting. Grade C movers come after the zone's other movers and score × 0.1. Added 14 Nov |
+| labels | [string] | Filter labels, vocabulary below; order as listed there. [] for movers and shape |
+| grade | string or null | Movers: the suspects' vetting grade, `A`, `B` or `C` (suspects.json `grade`; A = a candidate mover on a track over ≥ 2 sessions at ≥ 5σ, its `why` names the track and it never gets `motion_not_significant`; C = a failed gate or a catalogue source within 6″, its gates are in `reasons`). null for high_pm, spectral and shape, and for zones run before the vetting. Grade C movers come after the zone's other movers and score × 0.1. Added 14 Nov |
 | reasons | [string] | Codes, vocabulary below: why it was listed and what to be careful about |
 | why | string | One plain English sentence: why it is on the list (examples below) |
-| flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair) |
+| flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair); shape: [] (dots with these flags are not used, and a source with them on ≥ 25% of its dots is not listed) |
 | frames_url | string or null | Static blink frames, resolved against the URL of candidates.json like `data_url` (`new URL(frames_url, jsonUrl)`): `cand/<id>/frames.json`, a `GET /api/frames` response whose `data_url`s resolve against that file. null: call `/api/frames?ra=&dec=&clock=&fov=&det=` live |
 
 **Static frames** (`/data/cand/<id>/`, scripts/candidates/frames.py) exist for the highest-scoring of
@@ -514,12 +517,26 @@ listed from an earlier zone is not listed again, and the earlier entry's `zones`
 within 6″ and 2 minutes (suspects.json's merge), high_pm and spectral within 4″. The pilot lies inside the
 hunt zone, which was run on the same photos: the hunt re-found all 27 pilot movers (the same ids as
 suspects.json), so the pilot adds only objects the hunt didn't list.
+shape (v3.7): every row of `results/<zone>/shape_candidates.parquet`, written by
+`python -m skyshift_pipeline.shape` (pipeline/src/skyshift_pipeline/shape.py; its report `shape_report.json`
+next to it); a zone without the file has none. A fixed source is listed when its dots, compared with single
+Gaia stars in the same photo and region of the detector, are stretched along one axis on the sky at ≥ 20σ
+(both visits along the same axis: `steady_pa`, or one visit only: `one_visit`), Gaia DR3 (G < 20) and
+CatWISE2020 list exactly one object within 15″ (any other entry there explains the stretch) and no entry
+within 35″ less than 2.5 mag fainter than it (the moments' background annulus reaches 34″), it is not
+saturated, not within 60″ of a G < 9 star, not flagged as an artefact on ≥ 25% of its dots, and classify
+doesn't call it a galaxy; at most the 150 most significant per zone. Within 4″ deduped like high_pm and
+spectral. shape_report.json has the rule and its checks. Hunt (14 Nov, 38% of the photos): isolated single
+Gaia stars fire at 0.17% (10 of 5,803), Gaia pairs 3–10″ apart at 21% (383 of 1,809), along the pair's axis
+to 2° (median); 49 listed, of which about 23 would be expected from the single stars' rate. Single stars
+that fire mostly have faint uncatalogued neighbours (at 6σ: 4% of them, and 77% of the pairs), so a shape
+candidate is a lead for a human, not a detection.
 
 Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
 `outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` and the vetting gates (mover);
 `short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
-`at_control_level`, `implausible_pm` (high_pm).
+`at_control_level`, `implausible_pm` (high_pm); `one_visit`, `class_galaxy` (shape).
 
 **score** (0–1; the formulas are in the exporter and its tests):
 
@@ -528,6 +545,7 @@ codes (show them as cautions): `known_object_near`, `motion_not_significant`, `b
 | mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.1 with `grade` C |
 | high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
+| shape | (1 − e^(−s/15)) × 0.8 with `one_visit`; s = significance of the stretch (\|mean excess ellipticity\| / its error; Rayleigh, P(> s) = e^(−s²/2) for noise) |
 
 **labels**
 
@@ -577,6 +595,11 @@ candidate they are those of its (first) source.
 | gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
 | class_star, class_galaxy, class_unsure | spectral | classify's `class` (unsure: point-like without a Gaia star) |
 | variable | spectral | Its brightness changes between visits (sources `variable`) |
+| elongated | shape | Its image is more stretched than single Gaia stars of the same S/N in the same photo and region of the detector (always set) |
+| steady_pa | shape | Two visits each show the stretch along the same axis on the sky (within 30°), although the detector turns between visits |
+| one_visit | shape | Only one visit shows the stretch; the others don't: something may have passed by, or that visit is noisier |
+| one_catalogue_source | shape | Gaia DR3 and CatWISE2020 list a single object within 15″ (always set): a second object would be new |
+| class_galaxy | shape | (also spectral) classify calls it a galaxy; galaxies are extended by nature. Not listed by the current rule; kept in the vocabulary |
 
 **why**, examples (from the hunt export): "Seen at different places in 2 exposures 4.3 minutes apart,
 moving about 55″ an hour; no known asteroid or comet was predicted within 10′." · "Seen at different
@@ -588,7 +611,91 @@ different motion for the source here — likely a mismatch, worth a look." · "S
 (171″ a year), with matching brightness, but no star moves that fast (Barnard's Star, the fastest known,
 does 10.4″ a year): almost certainly two different sources." · "Water vapour at 1.4/1.9 µm and CO at
 2.3 µm (23σ) in a point source with no Gaia star, and red: what a brown dwarf would look like, a lead to
-check."
+check." · shape: "Looks like two objects here but the catalogues list one: the image is stretched along PA 37°
+(8.0σ over 40 detections), the same way in both visits; worth a look."
+
+### distant.json (v3.6)
+
+The distant-planet search, for the "How we know it works" page (`#/results`). A planet 70–1000 AU away drifts only
+0.5–0.002″/h inside a visit, so the pipeline links it into a fixed source seen in **one visit only**; six months later
+it sits 390″ (1000 AU) to 4,800″ (70 AU) away along the ecliptic. The pipeline step `orphans` (pipeline/CLAUDE.md,
+"Distant planets") lists such sources without a catalogue entry ("orphans"), pairs those of two visits when one
+distance explains both positions and both measured drifts, and repeats the pairing on shifted copies to count chance
+pairs. Written by scripts/validate (P1) from the step's `results/<zone>/distant.json` and the table-level injection
+(scripts/validate/distant_injection.py). One zone, the headline zone (`hunt`). A missing file means not published:
+the page leaves the section out or says it is pending.
+
+```
+{ generated, data_release, zone, zone_box:{ra:[min,max], dec:[min,max]}|null, run_created,
+  searched:{ distance_au:[min,max], sep_arcsec:[min,max], rate_arcsec_h:[min,max], pair_min_p },
+  counts:{ single_visit_sources, uncatalogued, covered, orphans,
+           dropped:{ bright_fragment, zone_edge, saturated }, drift_ok, pairs_tested, pairs,
+           known_orphans, open_orphans },
+  pairs:[{ source_id_a, source_id_b, visit_a, visit_b, ra_a, dec_a, mjd_a, ra_b, dec_b, mjd_b,
+           sep_arcsec, dlon_arcsec, dlat_arcsec, distance_au, distance_lo_au, distance_hi_au,
+           flux_ratio, n_common_det, n_dots_a, n_dots_b, snr_a, snr_b, p, known_a|null, known_b|null }],
+  control:{ n, passing_per_control:[int…], expected_pairs, spread_pairs, poisson_p, beyond_chance, method },
+  injection:{ method, distances:[{ distance_au, injected, recovered, recovered_frac,
+                                   distance_fit_median_au|null }],
+              recovered_frac, min_cell_recovered_frac, distance_err_median_frac } | null,
+  limits:{ depth_ab_snr5:{ "D1".."D6": AB mag }, reach_au:{ <planet>_p<albedo>: AU }, notes:[string] } }
+```
+
+| field | type | meaning |
+|---|---|---|
+| generated | string | Time the site file was written, ISO 8601 UTC |
+| data_release | string | Collections searched, as validation.json |
+| zone | string | Pipeline zone searched (`hunt`) |
+| zone_box | object, deg, or null | The zone's box (pipeline config), as `measured.zone_box`; null when unknown |
+| run_created | string | Time the `orphans` step ran (its `created`), ISO 8601 UTC |
+| searched.distance_au | [float, float], AU | Distances the search is built for: 70–1000 |
+| searched.sep_arcsec | [float, float], arcsec | Separations between the two visits' sources that were paired: 300–7,200 (a retrograde orbit at 70 AU lands 6,900″ away) |
+| searched.rate_arcsec_h | [float, float], ″/h | Drift inside one visit accepted for an orphan: 0–1 (faster movers are the suspects' route) |
+| searched.pair_min_p | float | A pair passes when the χ² of its drifts and fluxes has p ≥ this (0.01) |
+| counts.single_visit_sources | int | Linked sources seen in one visit only |
+| counts.uncatalogued | int | Of those, with no Gaia DR3, CatWISE2020 or 2MASS entry within the cross-match radius |
+| counts.covered | int | Of those, whose spot the other visit photographed (≥ 6 photos), so the absence is real |
+| counts.orphans | int | Of those, kept after the drops below |
+| counts.dropped | {reason: int} | Covered sources dropped, per reason: `bright_fragment` (a source with S/N ≥ 100 within 15″: a piece of a bright star), `zone_edge` (within 3′ of the zone's edge), `saturated`. A source can have several reasons, so these may add up to more than `covered − orphans` |
+| counts.drift_ok | int | Orphans whose drift inside their visit was measured (≥ 3 dots over ≥ 6 h, rate error ≤ 0.1″/h) and fits `searched.rate_arcsec_h`: the ones paired |
+| counts.pairs_tested | int | Pairs of `drift_ok` orphans of two visits ≥ 60 days apart, `searched.sep_arcsec` apart, mostly along the ecliptic |
+| counts.pairs | int | Pairs that passed: one distance and a bound orbit explain both positions and both drifts, and the brightness agrees in a shared detector. Listed in `pairs` (at most 300) |
+| counts.known_orphans | int | Orphans matched to a known slow body (MPC orbits): a recovered distant object, not dropped |
+| counts.open_orphans | int | `drift_ok` orphans whose partner could lie outside the zone (part of their 70–1000 AU track leaves the zone): not fully searched; no cross-zone pass yet |
+| pairs[] | object | One passing pair, highest `p` first. `_a` is the earlier visit's source, `_b` the later one's |
+| pairs[].source_id_a, source_id_b | int | The pipeline's linked sources (contracts/dots.md `source_id`, below 2⁵³) |
+| pairs[].visit_a, visit_b | int | Visit numbers |
+| pairs[].ra_a, dec_a, ra_b, dec_b | float, deg | Fitted positions at `mjd_a`, `mjd_b` (raw dots, no calib) |
+| pairs[].mjd_a, mjd_b | float, MJD | Weighted mean time of each source's dots |
+| pairs[].sep_arcsec, dlon_arcsec, dlat_arcsec | float, arcsec | B − A: total, along ecliptic longitude, along latitude |
+| pairs[].distance_au | float, AU | The implied distance from the Sun (best on the model's grid) |
+| pairs[].distance_lo_au, distance_hi_au | float, AU | Its range (χ² within 4 of the best) |
+| pairs[].flux_ratio | float | Flux B / A, geometric mean over the detectors measured in both |
+| pairs[].n_common_det | int | Detectors measured in both visits |
+| pairs[].n_dots_a, n_dots_b | int | Dots in each drift fit |
+| pairs[].snr_a, snr_b | float or null | Each source's highest dot S/N |
+| pairs[].p | float | χ² probability of the pair (drifts + fluxes) |
+| pairs[].known_a, known_b | string or null | MPC name of a known body matched to that side, else null |
+| control.n | int | Control runs: the later visit's orphans shifted together by 25–75% of the box in RA and Dec, then paired the same way (no real pair survives a shift) |
+| control.passing_per_control | [int] | Passing pairs in each control run |
+| control.expected_pairs | float | Their mean: the number of passing pairs chance alone gives |
+| control.spread_pairs | float | Their standard deviation |
+| control.poisson_p | float or null | Probability of `counts.pairs` or more passing pairs from chance alone (Poisson, mean (Σ + 1)/n over the controls); 1 when no pair passed; null without controls |
+| control.beyond_chance | bool | true when `poisson_p` < 0.01: more passing pairs than chance explains. false: nothing beyond chance |
+| control.method | string | One sentence |
+| injection | object or null | How often the pairing finds a planet that both visits saw as an orphan. null: not run |
+| injection.method | string | One sentence (table-level: synthetic planets at the zone's real cadence and the fit's error model, added to the real orphans, paired by the step's code; detection, linking and catalogue cuts are not tested) |
+| injection.distances[] | object | Per injected distance, every orbit direction and dots-per-visit setting together: `distance_au` (AU), `injected`, `recovered` (its two halves formed a passing pair), `recovered_frac` (0–1), `distance_fit_median_au` (median implied distance of the recovered, AU; null if none) |
+| injection.recovered_frac | float, 0–1 | Recovered share of every injected planet together |
+| injection.min_cell_recovered_frac | float, 0–1 | Lowest recovered share of a single (distance, dots per visit) setting: the worst case |
+| injection.distance_err_median_frac | float | Median \|implied / true distance − 1\| of the recovered planets |
+| limits.depth_ab_snr5 | {"D<det>": float}, AB mag | Single-exposure depth: median AB magnitude of the orphans' own dots at S/N 5–6, per detector with enough dots (no stacking) |
+| limits.reach_au | {key: float}, AU | Farthest distance at which a planet is as bright as `depth_ab_snr5.D2`. Keys `<planet>_p<albedo>`: `neptune` (3.88 Earth radii), `super_earth_2re` (2), `earth` (1), geometric albedo 0.1 or 0.4 (V = H + 5 log₁₀(r·Δ) at quadrature, J_AB ≈ V − 0.3) |
+| limits.notes | [string] | The step's own limits, as it wrote them (technical) |
+
+The page shows what was searched, the result against chance (`counts.pairs` vs `control.expected_pairs` ±
+`spread_pairs`, `poisson_p`), the injection by distance and the limits. A passing pair at chance level is not a
+candidate: say so (`beyond_chance` false).
 
 ## Firestore: flags and votes (no API endpoint)
 
@@ -600,6 +707,9 @@ check."
 - Rules are **create-only**: anyone may read and create; nobody may update or delete. Each create
   must have exactly these fields, with the right types and allowed values.
 - `ra`, `dec` in degrees, `mjd` of the frame that was clicked, `clock` `months` or `hours`.
+- Candidates of kind `shape` (v3.7) ask "One object or two?" with the same four stored answers, so the
+  rules don't change: `mover` is shown as "Two objects", `changing` as "Changes", `junk` as "One object",
+  `unsure` as "Not sure". Consensus (≥ 5 votes, 70% mover or changing) reads as "two objects or changing".
 - `candidate_id` is a Firestore `candidates` document id or a candidates.json `id` (at most 128 characters,
   as the rules require).
 - `ts` is set with `serverTimestamp()`. `voter` is a random id kept in the browser, never a
@@ -672,3 +782,18 @@ check."
 - contracts/dots.md: astrometry leaves out masked-peak and second-in-photo dots, fits a zero point per
   detector and uses session-robust pm errors; highpm compares with Gaia and CatWISE including the
   parallax leak, selects at 4.5σ, adds `few_sessions`, `unchecked`, `gaia_slow` and `fp_control`.
+
+## Changes in v3.6 (14 Nov 2026): the distant-planet search
+
+- New static file `/data/distant.json` (scripts/validate, P1): the pipeline's `orphans` step for one zone (what was
+  searched, passing pairs with their implied distance, the chance controls, the table-level injection by distance,
+  the depth and reach). Type `DistantResponse` in web/src/api/types.ts. Example: fixtures/api/distant.json.
+  Additive: no existing file or field changes.
+
+## Changes in v3.7 (14 Nov 2026): shape candidates
+
+- candidates.json: new kind `shape` ("One or two?"; id `<zone>-sh-<source_id>`, clock `months`) from
+  `results/<zone>/shape_candidates.parquet`, `counts.shape`, reason codes `elongated`, `steady_pa`,
+  `one_visit`, `one_catalogue_source` (and `class_galaxy`), `pa_deg` = the stretch's axis (0–180) for shape.
+  Additive: the other kinds and every field are unchanged; files without `shape` read as 0 of them.
+- Firestore votes: shape candidates use the same four answers with other labels (above); rules unchanged.

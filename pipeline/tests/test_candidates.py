@@ -241,7 +241,7 @@ def test_build_end_to_end(tmp_path):
     assert doc["zones"] == ["hunt", "pilot"]              # both searched, hunt first ...
     assert {c["zone"] for c in doc["candidates"]} == {"hunt"}   # ... and the pilot's objects all listed from the hunt
     assert doc["data_release"] == "DR1+QR3"
-    assert doc["counts"] == {"mover": 2, "high_pm": 1, "spectral": 2}
+    assert doc["counts"] == {"mover": 2, "high_pm": 1, "spectral": 2, "shape": 0}   # no shape_candidates.parquet: 0
     cs = doc["candidates"]
     for c in cs:
         assert list(c) == list(K.FIELDS)
@@ -338,3 +338,20 @@ def test_grade_a_movers_name_their_track(monkeypatch):
     assert a["score"] == pytest.approx(b["score"] / K.MOVER_NO_MOTION)
     assert a["rate_arcsec_h"] == 1.0 and a["pa_deg"] == 45.0  # contract: from its own dots
     assert K.mover_track(next(s.drop(columns=["n_sessions"]).itertuples())) is None  # no track columns: as before
+
+
+def test_shape_candidates(tmp_path):
+    store = Store(str(tmp_path / "bucket"))
+    assert K.shape_candidates(store, "hunt") == []                     # no file: no shape candidates
+    store.write_parquet(results_rel("hunt", K.SHAPE_FILE), pd.DataFrame({
+        "source_id": [42], "ra": [125.5], "dec": [20.1], "mjd": [60800.5], "det": [3], "snr": [85.2], "flux_ujy": [310.0],
+        "score": [0.41], "sig": [8.0], "excess": [0.07], "pa_deg": [37.2], "n_dots": [40], "steady_pa": [True],
+        "one_visit": [False], "gaia_match": [True], "gaia_g": [15.1], "ruwe": [1.0], "catwise_match": [True],
+        "reasons": ["elongated,steady_pa,one_catalogue_source,not_a_code"],
+        "why": ["Looks like two objects here but the catalogues list one: worth a look."], "flags": [""]}))
+    (c,) = K.shape_candidates(store, "hunt")
+    assert c["id"] == "hunt-sh-42" and c["kind"] == "shape" and c["clock"] == "months" and c["det"] == 3
+    assert c["reasons"] == ["elongated", "steady_pa", "one_catalogue_source"] and c["flags"] == [] and c["labels"] == []
+    c["galactic_b"] = 30.0
+    out = K.finish(c)
+    assert list(out) == list(K.FIELDS) and out["pa_deg"] == 37.2 and out["gaia_match"] is True and out["rate_arcsec_h"] is None

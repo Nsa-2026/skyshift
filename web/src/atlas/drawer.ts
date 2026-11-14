@@ -28,6 +28,9 @@ export function kindIcon(kind: CandidateKind | "target", size = 18): string {
   } else if (kind === "spectral") {
     cls = "atl-ico-violet";
     d = `<path d="M${m} ${m - r - 1.5}L${m + r + 1.5} ${m}L${m} ${m + r + 1.5}L${m - r - 1.5} ${m}Z"/>`;
+  } else if (kind === "shape") {
+    // Two overlapping dots: one object or two?
+    d = `<circle cx="${m - 2}" cy="${m}" r="${r}"/><circle cx="${m + 2.5}" cy="${m}" r="${r * 0.75}"/>`;
   } else {
     cls = "atl-ico-ink";
     d = `<path d="M${m + 2.5} ${m}h4M${m - 2.5} ${m}h-4M${m} ${m + 2.5}v4M${m} ${m - 2.5}v-4"/>`;

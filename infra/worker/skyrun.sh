@@ -9,7 +9,11 @@
 # ("machine UTC [detail] sha=<commit>"):
 #   extracting -> extracted | extract_failed
 # Combining, only when COMBINE_SLOTS > 0: every extracted zone from ANY machine, oldest first, up to COMBINE_SLOTS at a
-# time at nice 19, `all` with SKYRUN_COMBINE_WORKERS workers (default 8). SKYRUN_STAGE picks the pass:
+# time, `all` with SKYRUN_COMBINE_WORKERS workers (default 8). Once this machine's extraction has ended (or with
+# EXTRACT_WORKERS 0), up to SKYRUN_COMBINE_SLOTS_AFTER at a time (default COMBINE_SLOTS): extraction's memory is free then.
+# CPU priority: combines at nice SKYRUN_COMBINE_NICE (default 19), dots at nice SKYRUN_DOTS_NICE (default 0). For
+# combines that keep pace with extraction, swap them (COMBINE_NICE=0, DOTS_NICE=19) and give dots about every core:
+# the combines take what they need and extraction soaks up the rest, so no core idles either way. SKYRUN_STAGE picks the pass:
 #   provisional (default): Gaia-only refcat, markers in skyrun/<state>/       (zone edges, no WISE check, no calib)
 #   final: + calib borrowed from the hunt zone, AllWISE veto in suspects, markers in skyrun/final/<state>/
 #   combining -> combined | combine_failed
@@ -24,6 +28,9 @@ W=$1; K=$2; shift 2; Z=("$@")
 B=gs://nasa-glazing-data/skyrun
 STAGE=${SKYRUN_STAGE:-provisional}
 CW=${SKYRUN_COMBINE_WORKERS:-8}
+KX=${SKYRUN_COMBINE_SLOTS_AFTER:-$K}
+CNICE=${SKYRUN_COMBINE_NICE:-19}
+DNICE=${SKYRUN_DOTS_NICE:-0}
 UNTIL=$(date -u -d "${SKYRUN_EXTRACT_UNTIL:-2026-11-15T05:00:00Z}" +%s)
 export SKYSHIFT_REFCAT_CATALOGS=gaia
 case $STAGE in
@@ -35,7 +42,7 @@ case $STAGE in
 esac
 SHA=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 ME=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name 2>/dev/null || hostname)
-echo "SKYRUN start $ME sha=$SHA stage=$STAGE extract_workers=$W combine_slots=$K combine_workers=$CW zones=${#Z[@]}"
+echo "SKYRUN start $ME sha=$SHA stage=$STAGE extract_workers=$W combine_slots=$K after_extraction=$KX combine_workers=$CW nice_combine=$CNICE nice_dots=$DNICE zones=${#Z[@]}"
 
 # mark ROOT STATE ZONE [DETAIL]
 mark() { echo "$ME $(date -u +%FT%TZ) ${4:+$4 }sha=$SHA" | gcloud storage cp -q - "$1/$2/$3.txt" >/dev/null 2>&1 || true; }
@@ -68,7 +75,7 @@ extract() {
     p=""
     if [ -n "$n" ]; then ( prep "$n" > "/tmp/prep_$n.log" 2>&1 ) & p=$!; fi
     mark "$B" extracting "$z"
-    if timeout "${SKYRUN_DOTS_TIMEOUT:-5h}" uv run skyshift-pipeline dots --zone "$z" --workers "$W"; then
+    if timeout "${SKYRUN_DOTS_TIMEOUT:-5h}" nice -n "$DNICE" uv run skyshift-pipeline dots --zone "$z" --workers "$W"; then
       mark "$B" extracted "$z"; gcloud storage rm -q "$B/extract_failed/$z.txt" >/dev/null 2>&1 || true
       echo "SKYRUN done $z $(date -u +%H:%M)"
     else
@@ -90,7 +97,7 @@ done
 
 combine_loop() {
   declare -A running=()
-  local idle=0 z rc ext finished
+  local idle=0 z rc ext finished slots
   while true; do
     for z in "${!running[@]}"; do
       if ! kill -0 "${running[$z]}" 2>/dev/null; then
@@ -105,13 +112,14 @@ combine_loop() {
     # extracted zones, oldest marker first, not yet combined, failed or claimed in this stage
     ext=$(gcloud storage ls -l "$B/extracted/" 2>/dev/null | grep -v '^TOTAL' | sort -k2 | awk '{print $3}' | sed 's|.*/||; s|\.txt$||')
     finished=$(names "$CB" combined; names "$CB" combine_failed; names "$CB" combining)
+    slots=$K; kill -0 "$EXTRACTOR" 2>/dev/null || slots=$KX   # extraction over: its cores and memory go to combining
     for z in $ext; do
-      [ "${#running[@]}" -ge "$K" ] && break
+      [ "${#running[@]}" -ge "$slots" ] && break
       if [ -n "${SKYRUN_COMBINE_ONLY:-}" ]; then printf '%s\n' $SKYRUN_COMBINE_ONLY | grep -qx "$z" || continue; fi
       [ -n "${running[$z]:-}" ] && continue
       printf '%s\n' "$finished" | grep -qx "$z" && continue
       claim "$z" || continue
-      ( timeout "${SKYRUN_COMBINE_TIMEOUT:-3h}" nice -n 19 uv run skyshift-pipeline all --zone "$z" --workers "$CW" > "/tmp/comb_$z.log" 2>&1 ) &
+      ( timeout "${SKYRUN_COMBINE_TIMEOUT:-3h}" nice -n "$CNICE" uv run skyshift-pipeline all --zone "$z" --workers "$CW" > "/tmp/comb_$z.log" 2>&1 ) &
       running[$z]=$!
       echo "SKYRUN combining $z $(date -u +%H:%M) stage=$STAGE"
     done
@@ -127,5 +135,5 @@ combine_loop() {
 
 if [ "$W" -gt 0 ]; then extract & else true & fi
 EXTRACTOR=$!
-if [ "$K" -gt 0 ]; then combine_loop; fi
+if [ "$K" -gt 0 ] || [ "$KX" -gt 0 ]; then combine_loop; fi
 wait "$EXTRACTOR"

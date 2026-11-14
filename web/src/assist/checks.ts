@@ -20,6 +20,7 @@ export const MATCH_RADIUS_ARCSEC: Record<CandidateKind, { gaia: number; catwise:
   mover: { gaia: 6, catwise: 6 },
   high_pm: { gaia: 2.5, catwise: 3 },
   spectral: { gaia: 2.5, catwise: 3 },
+  shape: { gaia: 2.5, catwise: 3 },
 };
 /** A known object this close is probably the same object (suspects cut, config KNOWN_ARCSEC). */
 export const KNOWN_SAME_ARCSEC = 30;
@@ -200,7 +201,9 @@ function motionStep(c: AssistCandidate): CheckStep {
       finding:
         c.kind === "spectral"
           ? "It was picked for its spectrum; the pipeline measured no motion for it."
-          : "Its motion isn't on record.",
+          : c.kind === "shape"
+            ? "It was picked for its shape (wider or longer than one star); the pipeline measured no motion for it."
+            : "Its motion isn't on record.",
       details,
       howTo,
       ...(c.kind === "spectral" ? {} : { prompt: "Blink it on the Months clock. Does it step the same way at each visit?" }),
