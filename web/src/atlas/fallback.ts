@@ -7,7 +7,7 @@ import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
 import { ang2pixNest } from "./healpix";
 import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
-import { zoneName } from "./kinds";
+import { countText, isGradeC, zoneName } from "./kinds";
 import type { MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, diamond, moverTick, nearestHit, paToScreen, starArrow, MARK_R, type Vec } from "./marks";
 import { suspectAlpha } from "./search";
@@ -133,7 +133,8 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   }
 
   function markSvg(c: Candidate, at: Vec, p: Projector, selected: boolean): string {
-    const color = c.kind === "spectral" ? "var(--pencil-violet)" : "var(--pencil-red)";
+    const muted = isGradeC(c);
+    const color = muted ? "var(--ink-2)" : c.kind === "spectral" ? "var(--pencil-violet)" : "var(--pencil-red)";
     let dir: Vec | null = null;
     if (c.pa_deg != null && Number.isFinite(c.pa_deg)) {
       const step = Math.max(1e-4, v.fov / 40);
@@ -160,7 +161,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
     const reticle = selected
       ? `<path class="atl-svg-reticle" d="M${f1(at.x + 13)} ${f1(at.y)}h6M${f1(at.x - 13)} ${f1(at.y)}h-6M${f1(at.x)} ${f1(at.y + 13)}v6M${f1(at.x)} ${f1(at.y - 13)}v-6"/>`
       : "";
-    return `<g class="atl-svg-mark${selected ? " is-selected" : ""}"><path class="atl-svg-halo" d="${d}"/><path d="${d}" stroke="${color}"/>${reticle}</g>`;
+    return `<g class="atl-svg-mark${selected ? " is-selected" : ""}${muted ? " is-gradec" : ""}"><path class="atl-svg-halo" d="${d}"/><path d="${d}" stroke="${color}"/>${reticle}</g>`;
   }
 
   function render() {
@@ -256,7 +257,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           const a = rampAlpha(rampIndex(cell.count, steps), steps.length);
           if (d) {
             parts.push(
-              `<path class="atl-svg-cell" data-cell="${cell.pix}" d="${d}" fill-opacity="${a.toFixed(3)}" stroke-opacity="${Math.min(1, a + 0.2).toFixed(3)}"><title>${cell.count} object${cell.count === 1 ? "" : "s"} to check</title></path>`,
+              `<path class="atl-svg-cell" data-cell="${cell.pix}" d="${d}" fill-opacity="${a.toFixed(3)}" stroke-opacity="${Math.min(1, a + 0.2).toFixed(3)}"><title>${countText(cell.count)} object${cell.count === 1 ? "" : "s"} to check</title></path>`,
             );
           } else {
             const q = p.project(cell.center);
@@ -264,7 +265,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           }
           if (labelled) {
             const q = p.project(cell.center);
-            if (q) parts.push(`<text class="atl-svg-count${a > 0.5 ? " is-dark" : ""}" x="${f1(q.x)}" y="${f1(q.y)}">${cell.count}</text>`);
+            if (q) parts.push(`<text class="atl-svg-count${a > 0.5 ? " is-dark" : ""}" x="${f1(q.x)}" y="${f1(q.y)}">${countText(cell.count)}</text>`);
           }
         }
       }

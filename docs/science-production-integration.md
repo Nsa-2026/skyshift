@@ -3,17 +3,17 @@
 Prepared 14 November 2026 on `codex/science-production-integration`.
 This is the current integration record; older handoff documents describe earlier local prototypes.
 
-The user subsequently requested: retain the integration and do not deploy for now. No deployment should proceed until the user resumes it.
+The user resumed publication on 14 November 2026, requesting the three workspace views and guided game be pushed. Code publication is authorized; production release still requires a project-authorized deployment account and the preview checks below.
 
 ## Source and scope
 
-- Started from upstream `8522cd7`, then incorporated the latest fetched main, `84b0f1c` (including the QA pipeline, honest UI copy, featured zones and measured-layer contract).
+- Started from upstream `8522cd7`, incorporated `84b0f1c`, and subsequently merged `6ad0394` (including the measured image overlays, candidate vetting, moved-away target navigation, updated pipeline and MCP server). Merge resolutions retain both the canonical measured-layer cache version and the separate derived science view key, both server dependencies, and the card's navigation and scientific sections.
 - Imported the user's scientific work from `9b1c775`, retaining its history. The original prototype and working copies were not changed.
 - Preserved main's Lightbox UI, sky atlas, original blink observations, object measurements, review, live search, courses, votes and tools.
 - Replaced the long Science disclosure with three task-based workspace views: Explore, Analyze and Research. They share one player and canonical measurements. The view switcher uses task names without audience labels or numbered ranks. The home page opens Explore; the atlas remains at `#/sky`.
 - Included motion and cold-source checks, D3/D6 comparison, DR1 reference spectrum, synthetic W1/W2 and experimental halo light curves, spectral audio, sensitivity estimates, catalogue checks, cultural modules and exports.
 - The retained preview uses English throughout, including scientific messages, accessibility labels, historical sky charts, guest-star captions and planet events. English cultural displays use the existing English names and records; scientific data and the bilingual source records are preserved.
-- This release does not import the prototype's game or API inspector.
+- Guided practice is now integrated at `#/explore/play` using the same player and actual prepared SPHEREx observations. It replaces the proposed schematic with real images; the prototype's separate game and API inspector are not imported.
 
 The change spans core (legacy analysis adapter), server, web, precompute scripts and container packaging. Repeated wavelengths now use the weighted-mean fallback when the polynomial normal matrix is rank deficient; a regression test also checks that full-rank spectra retain their polynomial fit. The first remote Linux CI run exposed a pre-existing race in spectra loader statistics: shared counter updates occasionally omitted a photo. Workers now return their own counts for serial aggregation. A barrier-based regression reproduces the loss before the fix (10 instead of 40) and passes after it. No new formal contract fields are introduced by this integration.
 
@@ -22,6 +22,7 @@ The change spans core (legacy analysis adapter), server, web, precompute scripts
 | View | Route | Reading surface |
 | --- | --- | --- |
 | Explore | `#/explore` | Original observations, a short target/motion summary, quality warnings and a guided next step. Advanced player controls and dense charts stay out of this view. |
+| Guided practice | `#/explore/play` | An Explore activity: Elpis, Barnard's Star and RW Aurigae, with observation choices, hints, image stepping/differences, explanatory feedback and a recap. |
 | Analyze | `#/explore/analyze/<section>` | Motion, Spectrum, Light curve, Compare bands, Cross-match or Signals; one section at a time beside the same player. |
 | Research | `#/explore/research/<section>` | Data/provenance, Processing, Validation, Sensitivity or Export. Local-only computation remains gated by actual server capability. |
 
@@ -30,6 +31,8 @@ Switching views keeps the target, detector, clock, current frame, highlighted po
 The former `#/explore/science` link opens Research → Processing. Historical asterisms, guest-star images and planet events now live at `#/learn/stories`, linked from Learn. They load only when opened and return to the same workspace observation. Stories do not affect scientific scoring.
 
 Browser checks exercised all sections, the real model layer, source metadata, a paused second exposure retained across all three views and Stories, and the 390px layout. Current screenshots are in `docs/previews/workspace`; earlier science-release screenshots document the previous UI.
+
+Guided practice opens from the Explore heading. On mobile the task precedes the image, followed by controls, choices and feedback. Answers remain disabled until at least two real frame arrays have loaded for the expected target, detector, clock and field; selecting another field requires returning to the practice target. Progress is stored only in this browser and restored as an ordered list of valid answers. It never writes practice answers to Firestore. Completing the examples marks the shared review practice complete and offers real candidate review or Analyze. No audience ranks, forced unlocks, timed scores or discovery claims are added. Browser checks covered uncertainty feedback, image differences, all three examples, reload/resume, completion, transition into Analyze/Research and a 390px layout without horizontal overflow. Desktop and mobile captures are `practice-desktop.jpg` and `practice-mobile.jpg`.
 
 ## Data and deployment boundaries
 
@@ -44,6 +47,8 @@ Cold-source false-alarm estimates remain uncalibrated. A detectable reference mo
 Arbitrary-field background analysis is local-only by default. `SKYSHIFT_ENABLE_SCIENCE_JOBS=1` enables the single-process queue, reference generation and draft exports for a local server. It must remain off for the current multi-worker Cloud Run service until jobs have shared storage and a distributed queue. Existing main live observations continue to use the bounded canonical API.
 
 ## Verification
+
+The resumed release merged through `6ad0394` and passed 1,606 tests locally: web 835, server 312, core 61, pipeline 267, MCP 77, scientific helpers 19 and validation utilities 35. Eight optional tests were skipped. The production TypeScript/Vite build passed. New regressions cover a wrong-target/unfinished-image answer gate, uncertainty feedback, local progress/resume and completion, corrupt saved scores, and entry/exit through the shared workspace player. CI now runs the production web build as well as its tests.
 
 Locked Python environments and `npm ci` were used. Logs are under the ignored `.runtime/release` directory. The production TypeScript/Vite build succeeds; the existing bundle-size warning remains.
 
@@ -69,4 +74,4 @@ After a project-authorized Google account is available:
 4. Only after these checks pass, promote the tested API revision and matching hosting build. Do not redeploy Firestore rules as part of this change.
 5. Check the public science entry and an original sky URL. On failure, restore the captured API traffic and hosting version.
 
-Deployment is now deferred at the user’s request. Project access, cloud build and preview verification remain outstanding for a future release.
+Publication is requested again. Project access, cloud build and matching hosted preview verification remain outstanding; do not treat a source push as a verified production release. The current account still receives `run.services.get` denied and Firebase Hosting reports that login is required.

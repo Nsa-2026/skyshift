@@ -38,6 +38,10 @@ export interface BlinkHandle {
   highlight?(pos:SkyPos|null):void;
   gaia?(stars: FramesResponse['gaia']): void;
   active?(visible: boolean): void;
+  /** Guided observation controls use the same player and calibrated image data. */
+  display?(mode: 'blink' | 'difference'): void;
+  step?(): void;
+  canCompare?(): boolean;
   destroy(): void;
 }
 export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;
@@ -49,7 +53,12 @@ export interface CardHandle {
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;
 }
-export type MountCard = (el: HTMLElement, options?: {plots?:boolean}) => CardHandle;
+export interface CardOptions {
+  plots?: boolean;
+  /** Open the blink at another position (the card's "open it where it is now" for a star that moved away). */
+  onExplore?(at: SkyPos): void;
+}
+export type MountCard = (el: HTMLElement, opts?: CardOptions) => CardHandle;
 
 // ---- P3: src/sky/index.ts exports mountSky ----------------------------------------------
 export interface SkyHandle {

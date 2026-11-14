@@ -16,8 +16,15 @@ A mover becomes a suspect when:
   instead, read from IRSA's HEALPix Parquet on AWS S3: only the partitions around the remaining movers
   (config SUSPECTS_ALLWISE, ALLWISE_*). catwise_checked then means "checked against AllWISE" and the
   summary's catwise_source says which catalogue it was.
-Ranked by evidence (two_exposures first), then snr. Written as results/<zone>/suspects.parquet
-and results/<zone>/suspects.json in the contracts/api.md suspects.json shape.
+Then the vetting gates (vet.py: hot pixel, bad column, detector edge, masked bit at the peak, sharp + OUTLIER, flux
+ratio, red photo, 2MASS within 6″, AllWISE within 6″ where CatWISE was the veto) grade every suspect: C fails one
+(kept, with `reasons`), B passes all (motion not shown). A = B and on a track of `tracklets` (results/<zone>/
+tracklets.parquet, joined on the suspect id = its `mover_id`) with movers in >= VET_A_MIN_SESSIONS sessions and
+rate_snr >= VET_MOTION_SIGMA: a candidate mover. Suspects on a track carry its n_sessions, rate_arcsec_h, pa_deg,
+rate_sigma (rate_snr, tracklet_id in the parquet); without a readable tracklets.parquet nothing changes.
+Ranked by grade, then snr. Written as results/<zone>/suspects.parquet and results/<zone>/suspects.json in the
+contracts/api.md suspects.json shape (+ grade, reasons, near_source_arcsec, the track's fields; zone-level vetoes,
+provisional, grades).
 """
 
 from __future__ import annotations
@@ -29,11 +36,18 @@ import pandas as pd
 
 from . import config as C
 from . import log
+from . import vet as V
 from .known import load_predictions
 from .sky import SkyTree, angsep, offset_radec
 from .store import Store, photolist_rel, results_rel
+from .tracklets import mover_ids
 
 L = log.get("suspects")
+
+TRACKLETS_NAME = "tracklets.parquet"
+# tracklets.parquet columns a suspect on a track takes over (NaN / null when on no track); the JSON gets TRACK_JSON
+TRACK_COLUMNS = ("tracklet_id", "n_sessions", "rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr")
+TRACK_JSON = (("n_sessions", None), ("rate_arcsec_h", 2), ("pa_deg", 1), ("rate_sigma", 2))  # (field, decimals; None = int)
 
 
 def nearest_known_arcsec(movers: pd.DataFrame, pred: pd.DataFrame, search_arcsec: float = 600.0) -> np.ndarray:
@@ -135,16 +149,40 @@ def catalog_near(ra: np.ndarray, dec: np.ndarray, radius_arcsec: float, sources=
     return hit, ""
 
 
-def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
-                mjd: np.ndarray) -> tuple[np.ndarray, np.ndarray | None] | None:
-    """(gaia hit, catwise hit) from refcat/<zone>.parquet, each catalogue moved by proper motion to the
-    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing;
-    catwise hit None when the file has no CatWISE rows (a Gaia-only refcat: nothing was checked)."""
-    from .refcat import move_to_epoch, refcat_rel
+def load_refcat(store: Store, zone: C.Zone) -> pd.DataFrame | None:
+    """refcat/<zone>.parquet's cat, ra, dec, epoch_mjd, pmra, pmdec; None if the file is missing."""
+    from .refcat import refcat_rel
     rel = refcat_rel(zone.name)
     if not store.exists(rel):
         return None
-    r = store.read_parquet(rel, columns=["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec"])
+    return store.read_parquet(rel, columns=["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec"])
+
+
+def refcat_seps(r: pd.DataFrame | None, ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray) -> dict[str, np.ndarray]:
+    """Nearest separation (arcsec, inf if none) per catalogue in the refcat (gaia, catwise, tmass, ...), each moved by
+    proper motion to the movers' median time."""
+    from .refcat import move_to_epoch
+    out: dict[str, np.ndarray] = {}
+    if r is None or len(ra) == 0:
+        return out
+    t = float(np.median(mjd))
+    for cat, c in r.groupby("cat"):
+        cra, cdec = move_to_epoch(c, t)
+        sep, _ = SkyTree(np.asarray(cra, np.float64), np.asarray(cdec, np.float64)).nearest(ra, dec)
+        out[str(cat)] = np.where(np.isfinite(sep), sep, np.inf)
+    return out
+
+
+def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
+                mjd: np.ndarray, ref: pd.DataFrame | None = None) -> tuple[np.ndarray, np.ndarray | None] | None:
+    """(gaia hit, catwise hit) from refcat/<zone>.parquet, each catalogue moved by proper motion to the
+    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing;
+    catwise hit None when the file has no CatWISE rows (a Gaia-only refcat: nothing was checked).
+    ref: the refcat when already loaded (load_refcat)."""
+    from .refcat import move_to_epoch
+    r = ref if ref is not None else load_refcat(store, zone)
+    if r is None:
+        return None
     t = float(np.median(mjd)) if len(mjd) else 0.0
     hits = []
     for cat, arcsec in (("gaia", C.GAIA_ARCSEC), ("catwise", C.CATWISE_ARCSEC)):
@@ -301,27 +339,130 @@ def select(movers: pd.DataFrame, fixed: pd.DataFrame, pred: pd.DataFrame) -> tup
 
 
 def rank(s: pd.DataFrame) -> pd.DataFrame:
+    """By grade (A, B, C) when graded, else by evidence (two_exposures first); then snr, highest first."""
     if len(s) == 0:
         return s
-    s = s.assign(_ev=s["evidence"].map(C.EVIDENCE_RANK).fillna(9))
-    return s.sort_values(["_ev", "snr"], ascending=[True, False]).drop(columns="_ev").reset_index(drop=True)
+    if "grade" in s:
+        s = s.assign(_ev=s["grade"].map(C.VET_GRADE_RANK).fillna(9))
+    else:
+        s = s.assign(_ev=s["evidence"].map(C.EVIDENCE_RANK).fillna(9))
+    return s.sort_values(["_ev", "snr"], ascending=[True, False], kind="stable").drop(columns="_ev").reset_index(drop=True)
 
 
-def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str) -> dict:
+def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str, vetting: dict | None = None) -> dict:
+    """vetting: the zone-level fields (vetoes, provisional, grades, gates) when the suspects were graded."""
     def num(x, nd):
         return None if x is None or not np.isfinite(x) else round(float(x), nd)
 
-    return {
+    def track(r) -> dict:
+        """The track's fields (null when on no track); {} when the suspects weren't joined to tracklets.parquet."""
+        if "tracklet_id" not in s.columns:
+            return {}
+        on = int(r.tracklet_id) >= 0
+        out = {}
+        for k, nd in TRACK_JSON:
+            v = getattr(r, k)
+            v = float(v) if on and pd.notna(v) else np.nan
+            out[k] = (int(v) if np.isfinite(v) else None) if nd is None else num(v, nd)
+        return out
+
+    graded = "grade" in s.columns
+    out = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "data_release": data_release,
         "zone": zone.name,
+        **(vetting or {}),
         "suspects": [{
             "id": r.id, "ra": round(float(r.ra), 6), "dec": round(float(r.dec), 6), "mjd": round(float(r.mjd), 6),
             "clock": "hours", "det": int(r.det), "evidence": r.evidence, "n_dots": int(r.n_dots),
             "snr": round(float(r.snr), 1), "flux_ujy": round(float(r.flux_ujy), 1), "cell": int(r.cell),
             "nearest_known_arcsec": num(r.nearest_known_arcsec, 1),
+            **({"grade": r.grade, "reasons": [str(x) for x in r.reasons],
+                "near_source_arcsec": num(getattr(r, "near_source_arcsec", np.nan), 1)} if graded else {}),
+            **track(r),
         } for r in s.itertuples()],
     }
+    return out
+
+
+def near_source(seps: dict[str, np.ndarray], fixed: pd.DataFrame, ra: np.ndarray, dec: np.ndarray) -> np.ndarray:
+    """Nearest refcat (any catalogue) or fixed source within VET_NEAR_SOURCE_ARCSEC (arcsec; NaN beyond)."""
+    best = np.full(len(ra), np.inf)
+    for v in seps.values():
+        best = np.minimum(best, v)
+    if len(fixed) and len(ra):
+        sep, _ = SkyTree(fixed["ra"].to_numpy(np.float64), fixed["dec"].to_numpy(np.float64)).nearest(ra, dec)
+        best = np.minimum(best, np.where(np.isfinite(sep), sep, np.inf))
+    return np.where(best <= C.VET_NEAR_SOURCE_ARCSEC, best, np.nan)
+
+
+def load_tracklets(store: Store, zone: C.Zone) -> pd.DataFrame | None:
+    """tracklets.parquet's mover_id and TRACK_COLUMNS, one row per mover_id (a row on a track wins). None when the file
+    is missing or can't be read (then no suspect is graded A)."""
+    rel = results_rel(zone.name, TRACKLETS_NAME)
+    try:
+        if not store.exists(rel):
+            return None
+        t = store.read_parquet(rel, columns=["mover_id", *TRACK_COLUMNS])
+        t = t.assign(mover_id=t["mover_id"].astype(str),
+                     tracklet_id=pd.to_numeric(t["tracklet_id"]).fillna(-1).astype(np.int64))
+        return t.sort_values("tracklet_id", ascending=False, kind="stable").drop_duplicates("mover_id").reset_index(drop=True)
+    except Exception as e:  # noqa: BLE001  (a malformed tracklets file must not stop the suspects)
+        L.warning("suspects %s: %s unreadable, no grade A: %s", zone.name, rel, e)
+        return None
+
+
+def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
+    """Joins each graded suspect (ids: its suspect id, row by row) to its tracklets row (tr: load_tracklets) and sets
+    grade A where the grade is B, tracklet_id >= 0, n_sessions >= VET_A_MIN_SESSIONS and rate_snr >= VET_MOTION_SIGMA.
+    Adds TRACK_COLUMNS: tracklet_id (-1 = on no track), the others NaN / null off a track. tr None: s unchanged."""
+    if tr is None or not len(s):
+        return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0}
+    j = pd.DataFrame({"mover_id": [str(x) for x in ids]}).merge(tr, on="mover_id", how="left")
+    s = s.copy()
+    tid = j["tracklet_id"].fillna(-1).astype(np.int64).to_numpy()
+    on = tid >= 0
+    s["tracklet_id"] = tid
+    nsess = pd.to_numeric(j["n_sessions"]).to_numpy(np.float64)
+    s["n_sessions"] = pd.array(np.where(on & np.isfinite(nsess), nsess, np.nan), dtype="Int16")
+    for c in ("rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr"):
+        s[c] = np.where(on, pd.to_numeric(j[c]).to_numpy(np.float64), np.nan)
+    a = ((s["grade"].to_numpy() == "B") & on & (np.nan_to_num(nsess, nan=0.0) >= C.VET_A_MIN_SESSIONS)
+         & (np.nan_to_num(s["rate_snr"].to_numpy(np.float64), nan=-np.inf) >= C.VET_MOTION_SIGMA))
+    s.loc[a, "grade"] = "A"
+    return s, {"source": TRACKLETS_NAME, "on_track": int(on.sum()), "graded_a": int(a.sum())}
+
+
+def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fixed: pd.DataFrame,
+          ref: pd.DataFrame | None, wise_source: str = "", allwise_reader=None) -> tuple[pd.DataFrame, dict]:
+    """vet.vet on the suspects s, with the catalogue checks (2MASS from the refcat; AllWISE where CatWISE was the WISE
+    veto: wise_source names it), near_source_arcsec from the refcat and fixed sources, then grade A from tracklets
+    (track_grades)."""
+    t0 = time.time()
+    ra, dec, mjd = s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64), s["mjd"].to_numpy(np.float64)
+    seps = refcat_seps(ref, ra, dec, mjd)
+    cats: dict[str, np.ndarray] = {}
+    if "tmass" in seps:
+        cats["2mass"] = seps["tmass"] <= C.VET_CATALOG_ARCSEC + 0.01
+    ast: dict = {}
+    if C.VET_ALLWISE and "CatWISE" in wise_source and len(s):
+        hit, name, ast = allwise_near(store, ra, dec, C.VET_CATALOG_ARCSEC, reader=allwise_reader)
+        ast = {**ast, "source": name or "unreachable"}
+        if name:
+            cats["allwise"] = hit
+    free = V.load_free(store, zone) if len(s) else None
+    red = V.load_red(store, zone)
+    s, st = V.vet(s, movers, free, red, cats)
+    s["near_source_arcsec"] = near_source(seps, fixed, ra, dec)
+    tr = load_tracklets(store, zone) if len(s) else None
+    s, st["tracklets"] = track_grades(s, mover_ids(zone, s) if len(s) else [], tr)
+    st["grades"] = {g_: int((s["grade"] == g_).sum()) if len(s) else 0 for g_ in ("A", "B", "C")}
+    st["catalogs_checked"] = sorted(cats)
+    if ast:
+        st["allwise"] = ast
+    st["near_source"] = int(np.isfinite(s["near_source_arcsec"].to_numpy(np.float64)).sum())
+    st["wall_s"] = round(time.time() - t0, 1)
+    return s, st
 
 
 def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
@@ -334,8 +475,9 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
         pred = load_predictions(store, photos, zone)
     s, st = select(movers, fixed, pred)
     st["predictions"] = int(len(pred))
+    ref = load_refcat(store, zone)
     local = refcat_near(store, zone, s["ra"].to_numpy(float), s["dec"].to_numpy(float),
-                        s["mjd"].to_numpy(float)) if len(s) else None
+                        s["mjd"].to_numpy(float), ref=ref) if len(s) and ref is not None else None
     if local is not None:
         gaia, source = local[0], f"refcat/{zone.name}.parquet (Gaia DR3 G < {C.REFCAT_GAIA_G_MAX:g})"
     else:
@@ -352,15 +494,21 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     st["cut_catwise"] = int(wise.sum())
     s = s[~wise].reset_index(drop=True)
     s["catwise_checked"] = bool(wsource)
+    s, vst = grade(store, zone, s, movers, fixed, ref, wsource)
+    st["vetting"] = vst
+    wcat = "catwise" if "CatWISE" in wsource else "allwise" if "AllWISE" in wsource else ""
+    vetting = {"vetoes": ["mpc", *(["gaia"] if source else []), *([wcat] if wcat else [])],
+               # Gaia-only refcat with no WISE veto (or Gaia unreachable): red WISE-only sources may still be in the list
+               "provisional": not (source and wsource), "grades": vst["grades"], "gates": vst["gates"]}
     s = rank(s)
     if len(s):
-        s.insert(0, "id", [f"{zone.name}-{int(c)}-{int(round(m * 1440))}" for c, m in zip(s["cell"], s["mjd"])])
+        s.insert(0, "id", list(mover_ids(zone, s)))  # = tracklets.parquet's mover_id
     else:
         s["id"] = pd.Series(dtype=str)
     collections = sorted(set(photos["collection"]))
     release = "+".join(c.replace("spherex_", "").upper() for c in collections)
     store.write_parquet(results_rel(zone.name, "suspects.parquet"), s)
-    store.write_json(results_rel(zone.name, "suspects.json"), to_json(s, zone, release))
+    store.write_json(results_rel(zone.name, "suspects.json"), to_json(s, zone, release, vetting))
     st.update({"suspects": int(len(s)), "data_release": release, "wall_s": round(time.time() - t0, 1)})
     if not source:
         L.warning("suspects %s: Gaia unreachable; suspects are NOT checked against Gaia (gaia_checked=false)", zone.name)

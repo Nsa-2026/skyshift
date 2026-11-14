@@ -69,6 +69,8 @@
   gap: var(--s2);
 }
 .atl-kind {
+  /* Holds the chip's visually hidden note inside the chip row's scroller at phone width. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1012,6 +1014,29 @@
 }
 .atl-ico-ink {
   stroke: var(--ink);
+}
+/* Grade C (failed a vetting check): grey pencil, said in words next to it. */
+.atl-ico.is-gradec,
+.is-gradec > .atl-ico {
+  stroke: var(--ink-2);
+  opacity: 0.75;
+}
+.atl-svg-mark.is-gradec path:not(.atl-svg-halo) {
+  opacity: 0.6;
+}
+.atl-list-item.is-gradec {
+  color: var(--ink-2);
+}
+.atl-dr-grade {
+  margin-top: var(--s3);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.atl-dr-grade[data-grade="A"],
+.atl-dr-grade[data-grade="B"] {
+  color: var(--ink);
 }
 
 /* ---- narrower screens ---- */

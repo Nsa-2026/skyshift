@@ -192,8 +192,24 @@ def object_barnard(mids):
         "measure": {"shift_arcsec": r(shift, 3), "pa_deg": 356.1, "dt_yr": r(dt_yr, 4),
                     "rate_arcsec_yr": r(shift / dt_yr, 3), "sigma_arcsec": 0.9, "n_ref_stars": 12,
                     "predicted_arcsec": r(pm_total * dt_yr, 3)},
+        "measure_reason": None, "measure_hint": None,
     }
     write_json("object_barnard.json", obj)
+
+
+def object_moved_away(mids):
+    """GET /api/object at Barnard's Star's Gaia (2016.0) position: by SPHEREx's visits the star is
+    ~100" north, nothing is measured there, and measure_hint says where it went."""
+    mid = (mids[0] + mids[-1]) / 2
+    ra, dec = move(BARNARD, mid)
+    obj = {
+        "synthetic": True, "note": NOTE + " The position asked: Barnard's Star's Gaia DR3 position "
+                                          "(269.4485, 4.7394, epoch 2016.0).",
+        "name": None, "gaia": None, "known_ucd": None, "spectrum": [], "spectrum_reason": "no_data",
+        "measure": None, "measure_reason": "moved_away",
+        "measure_hint": {"name": "Barnard's Star", "ra": r(ra, 6), "dec": r(dec, 6), "mjd": r(mid, 2)},
+    }
+    write_json("object_moved_away.json", obj)
 
 
 # ---------------------------------------------------------------- Hours clock: comet-like mover
@@ -300,15 +316,29 @@ def suspects():
                     "mjd": r(rng.uniform(60968.1, 60968.3), 6), "clock": "hours", "det": rng.choice([1, 2, 3]),
                     "evidence": ["two_exposures", "two_detectors"][i % 2], "n_dots": 2,
                     "snr": r(rng.uniform(6, 15), 1), "flux_ujy": r(rng.uniform(40, 300), 1), "cell": cell,
-                    "nearest_known_arcsec": None if i == 0 else r(rng.uniform(40, 200), 1)})
+                    "nearest_known_arcsec": None if i == 0 else r(rng.uniform(40, 200), 1),
+                    # vetting (14 Nov): one A (passes every gate and is on a track), two C with their reasons;
+                    # near_source_arcsec a warning only
+                    "grade": "A" if i == 0 else "C", "reasons": [[], ["hot_pixel", "edge"], ["2mass"]][i],
+                    "near_source_arcsec": [8.4, None, 4.1][i],
+                    # the track (v3.4, optional): set on a suspect on a track, null off one
+                    "n_sessions": [4, None, None][i], "rate_arcsec_h": [31.25, None, None][i],
+                    "pa_deg": [252.4, None, None][i], "rate_sigma": [0.82, None, None][i]})
     write_json("suspects.json", {"synthetic": True, "note": NOTE, "generated": "2026-11-14T09:30:00Z",
-                                 "data_release": RELEASE, "zone": "hunt zone (synthetic)", "suspects": out})
+                                 "data_release": RELEASE, "zone": "hunt zone (synthetic)",
+                                 "vetoes": ["mpc", "gaia", "catwise"], "provisional": False,
+                                 "grades": {"A": 1, "B": 0, "C": 2},
+                                 "gates": {"not_vetted": 0, "hot_pixel": 1, "bad_column": 0, "edge": 1, "masked_peak": 0,
+                                           "sharp_outlier": 0, "very_sharp": 0, "flux_ratio": 0, "red_photo": 0, "2mass": 1,
+                                           "allwise": 0},
+                                 "suspects": out})
 
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     mids, _ = months_barnard()
     object_barnard(mids)
+    object_moved_away(mids)
     hours_comet()
     resolve()
     validation()

@@ -8,7 +8,7 @@ import type { AladinCatalog, AladinClick, AladinHiPS, AladinInstance, AladinOver
 import { ALLWISE, SPHEREX, TWO_MASS, cubeFrameForDet, type SkyLayer } from "../sky/layers";
 import { ang2pixNest } from "./healpix";
 import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
-import { oneLine, zoneName } from "./kinds";
+import { countText, isGradeC, oneLine, zoneName } from "./kinds";
 import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, drawLabel, drawSignal, drawTarget, nearestHit, paToScreen, type Ink, type Vec } from "./marks";
 import { paintSearch, type SearchInk } from "./searchdraw";
@@ -261,7 +261,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     }
     const pxPerArcsec = width / (fov * 3600);
     const selected = model?.selectedId === c.id;
-    drawSignal(ctx, ink, c.kind, s.x, s.y, dir, arrowLengthPx(c.pm_mas_yr, pxPerArcsec), { selected, hovered: hoverId === c.id });
+    drawSignal(ctx, ink, c.kind, s.x, s.y, dir, arrowLengthPx(c.pm_mas_yr, pxPerArcsec), { selected, hovered: hoverId === c.id, muted: isGradeC(c) });
     if (level === "detail") {
       drawLabel(ctx, ink, s.x + 12, s.y + 14, oneLine(c), { color: ink.ink2, align: "left", weight: 550, size: 11.5 });
     }
@@ -352,7 +352,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
             opacity: 1,
           }),
         );
-        if (labelled) labels.push(A.source(cell.center.ra, cell.center.dec, { kind: "count", text: String(cell.count), alpha: a }));
+        if (labelled) labels.push(A.source(cell.center.ra, cell.center.dec, { kind: "count", text: countText(cell.count), alpha: a }));
       }
       if (labels.length) labelCat.addSources(labels);
     }

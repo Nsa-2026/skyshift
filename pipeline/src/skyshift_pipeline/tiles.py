@@ -1,7 +1,8 @@
 """The combining steps per sky tile, in parallel processes, merged into the zone's usual results.
 
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (or with --tiles / --tile-deg) runs link → spectra → crossid → calib →
-spectra → classify → photoz → colours → lightcurves → astrometry → highpm → score → suspects like this:
+spectra → classify → photoz → colours → lightcurves → astrometry → highpm → orphans → tracklets → score → suspects like
+this:
 
   prepare   tile grid; per tile its photo list (photos whose footprint box meets the tile's core + border) and its slice
             of refcat/<zone>.parquet; the zone's dot files mirrored into the work dir without the columns no combining
@@ -20,7 +21,8 @@ spectra → classify → photoz → colours → lightcurves → astrometry → h
   pass 2b   per tile, with those numbers: classify, photoz, light-curve errors and summaries, astrometry
   merge 2   sources, classes, photoz, colours, lightcurves(+summary), astrometry → results/<zone>/; the zone reports
             (photoz vs SDSS, lightcurves, astrometry) computed on the merged tables
-  zone      highpm, score and suspects once on the merged tables (their 120″–15′ controls need no tile border)
+  zone      tracklets (after merge 1, next to calib; before score), highpm, orphans, score and suspects once on the
+            merged tables (tracks cross tiles; their 120″–15′ controls and orphans' 300–6000″ pairs need no tile border)
 
 The outputs have today's names and columns. Owned rows of a tile are exactly what the untiled run gives for them when
 the border holds every group the core touches (link's friends-of-friends chains, a mover's pairs and its 6″ veto,
@@ -51,6 +53,7 @@ import pyarrow.parquet as pq
 
 from . import config as C
 from . import log
+from .link import FREEDOTS_NAME, NONFIXED_DOTS_NAME
 from .sky import parse_polygon
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -426,6 +429,14 @@ def pass1(ctx: dict, tile: Tile) -> dict:
     if len(mv):
         mv = mv[tile.core.contains(mv["ra"].to_numpy(np.float64), mv["dec"].to_numpy(np.float64))]
     own.write_parquet("movers.parquet", mv)
+    frel = results_rel(tz.name, link.FREEDOTS_NAME)
+    if ts.exists(frel):  # free dots (suspects' hot-pixel and column maps), owned by position like the movers
+        fd = ts.read_parquet(frel)
+        own.write_parquet(link.FREEDOTS_NAME, fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))])
+    nrel = results_rel(tz.name, link.NONFIXED_DOTS_NAME)
+    if ts.exists(nrel):  # tracklets' recovery: owned by the dot's position
+        fd = ts.read_parquet(nrel)
+        own.write_parquet(link.NONFIXED_DOTS_NAME, fd[tile.core.contains(fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64))])
     src = pq.read_table(io.BytesIO(ts.read_bytes(results_rel(tz.name, "sources.parquet"))))
     own.write_table("sources.parquet", src.filter(pa.array(np.isin(src.column("source_id").to_numpy(), owned))))
     xid = ts.read_parquet(results_rel(tz.name, "crossids.parquet"))
@@ -640,13 +651,24 @@ def lc_fit_pair(work: str, tile_names: list[str], key: str) -> dict:
 
 
 def zone_step(step: str, root: str, zone: C.Zone, pred_path: str) -> dict:
-    """score or suspects on the merged tables (they need only movers, fixed and the predictions: merge 1), in a pool
-    process while calib and pass 2 go on."""
-    from . import score, suspects
+    """tracklets, score or suspects on the merged tables (they need only movers, free dots, fixed, tracklets and the
+    predictions: merge 1), in a pool process while calib and pass 2 go on."""
+    from . import score, suspects, tracklets
     t0 = time.time()
-    pred = pd.read_parquet(pred_path)
-    out = (score if step == "score" else suspects).run(Store(root), zone, pred=pred)
+    if step == "tracklets":
+        out = tracklets.run(Store(root), zone)
+    else:
+        pred = pd.read_parquet(pred_path)
+        out = (score if step == "score" else suspects).run(Store(root), zone, pred=pred)
     return {**out, "step_seconds": round(time.time() - t0, 1)}
+
+
+def _read_or_none(path: str) -> pd.DataFrame | None:
+    """The predictions parquet for orphans' known-object tags; None when unreadable (orphans then loads them itself)."""
+    try:
+        return pd.read_parquet(path)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _run_task(fn, *a):
@@ -984,6 +1006,10 @@ class Run:
                                  # a source's members all come from one tile, already sorted by obs_id, detector, dot_row
                                  _concat(_read_parts(w, T, "members.parquet"), ["source_id"], ("obs_id",))),
                "movers": _write(self.store, z, "movers.parquet", _concat(_read_parts(w, T, "movers.parquet"), ["session", "mjd", "ra", "dec"])),
+               "freedots": _write(self.store, z, FREEDOTS_NAME, _concat(_read_parts(w, T, FREEDOTS_NAME),
+                                                                         ["obs_id", "detector", "x", "y"], ("obs_id",))),
+               "nonfixed_dots": _write(self.store, z, NONFIXED_DOTS_NAME, _concat(_read_parts(w, T, NONFIXED_DOTS_NAME),
+                                                                                   ["session", "mjd", "ra", "dec"], ("obs_id",))),
                "sources": _write(self.store, z, "sources.parquet", _concat(_read_parts(w, T, "sources.parquet"), ["source_id"])),
                "crossids": _write(self.store, z, "crossids.parquet", _concat(_read_parts(w, T, "crossids.parquet"), ["source_id"])),
                "cells_with_2_or_more_sources": int((cells > 1).sum()), "max_sources_per_cell": int(cells.max()) if len(cells) else 0}
@@ -1112,7 +1138,7 @@ class Run:
 
     # -- the whole run
     def run(self) -> dict:
-        from . import highpm
+        from . import highpm, orphans
         t_all = time.time()
         z, s = self.zone, self.store
         L.info("tiles %s: %d × %d tiles of %.2f° × %.2f° (border %.0f″, zone edge %s), %d workers, work dir %s", z.name,
@@ -1124,10 +1150,13 @@ class Run:
             self.prepare(pool)
             self.run_pass1(pool)
             steps["link"] = self.merge1()
+            trk = pool.submit(zone_step, "tracklets", s.root, z, "")  # movers + free dots only: next to calib
             pred_futs = self.submit_predictions(pool)  # in the pool while calib runs here
             steps["calib"] = self.calib()
             steps["qa"] = self.qa()  # before suspects starts: it reads qa_photos.parquet
             pred_path = self.collect_predictions(pred_futs)
+            steps["tracklets"] = trk.result()  # score reads its recovered dots (suspects may read tracklets.parquet)
+            self.times["tracklets"] = steps["tracklets"]["step_seconds"]
             tail = {k: pool.submit(zone_step, k, s.root, z, pred_path) for k in ("score", "suspects")}
             t0 = time.time()
             self.pass2a_stats = pool.map(pass2a, [(self.ctx, t) for t in self.tiles])
@@ -1142,6 +1171,9 @@ class Run:
             t0 = time.time()
             steps["highpm"] = highpm.run(s, z, self.workers)
             self._timed("highpm", t0)
+            t0 = time.time()
+            steps["orphans"] = orphans.run(s, z, self.workers, pred=_read_or_none(pred_path))  # never raises
+            self._timed("orphans", t0)
             t_wait = time.time()
             for k, f in tail.items():  # score and suspects ran next to pass 2; only what is left is waited for
                 steps[k] = f.result()
@@ -1164,7 +1196,8 @@ class Run:
             "owned_movers": sum(st["owned_movers"] for st in self.pass1_stats)})
         sec = self.times
         for k, names in (("link", ("prepare", "pass1", "merge1")), ("calib", ("calib",)),
-                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("highpm", ("highpm",))):
+                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("highpm", ("highpm",)),
+                         ("orphans", ("orphans",))):
             if isinstance(steps.get(k), dict):
                 steps[k]["step_seconds"] = round(sum(sec.get(n, 0.0) for n in names), 1)
         self.stats["step_seconds"] = self.stats["wall_s"]

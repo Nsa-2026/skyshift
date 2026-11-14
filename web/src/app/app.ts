@@ -18,6 +18,7 @@ import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceState, workspaceHref} from "../product/workspace-state";
 import {loadCultureStories} from "../product/stories";
+import {mountGuidedPractice} from '../product/practice';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
@@ -83,13 +84,15 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-candidate" data-page="candidate" hidden></main>
     <main class="page page-blink" data-page="explore" hidden>
       <header class="workspace-head">
-        <div><p class="workspace-eyebrow">Your workspace</p><h1 id="blink-h1">Explore the sky</h1><p class="workspace-description"></p></div>
+        <div><p class="workspace-eyebrow">Your workspace</p><h1 id="blink-h1">Explore the sky</h1><p class="workspace-description"></p><a class="btn btn-primary workspace-practice" href="#/explore/play">Try guided practice →</a></div>
         <nav class="workspace-modes" aria-label="Workspace view">
           <a href="#/explore" data-level="explore">Explore</a>
           <a href="#/explore/analyze" data-level="analyze">Analyze</a>
           <a href="#/explore/research" data-level="research">Research</a>
         </nav>
       </header>
+      <section class="practice-task" aria-label="Practice task" hidden></section>
+      <section class="practice-panel" aria-label="Guided practice" hidden></section>
       <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
       <section class="stage" aria-label="Blink"><div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div><div id="blink"></div></section>
       <section id="card" class="side-card" aria-label="Object"></section>
@@ -143,6 +146,7 @@ export function startApp(root: HTMLElement): void {
       go({ ...view, ...change }, { objectToo: false });
     },
     onPick(pick) {
+      if(workspaceState(parseRoute().param).tab==='play')return;
       vote.pick(pick);
       selectSignal(pick);
     },
@@ -153,7 +157,8 @@ export function startApp(root: HTMLElement): void {
       workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id));
     },
   });
-  const card: CardHandle = mountCard($("#card"));
+  // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
+  const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
   const vote: VoteHandle = mountVote($("#vote"));
   const sky: SkyHandle = mountSky($("#sky"), {
     onClick(pos) {
@@ -169,6 +174,11 @@ export function startApp(root: HTMLElement): void {
       $("#blink").scrollIntoView({ block: 'start', behavior: 'auto' });
     },
     rebuilt(next) { layer = 'raw'; void go(next); },
+  });
+  const practice=mountGuidedPractice($('.practice-task'),$('.practice-panel'),{
+    target(slug){const t=targetBySlug(slug);if(t){layer='raw';blink.display?.('blink');void go(viewForTarget(t),{push:false});writeView(viewForTarget(t),true);}},
+    display(mode){blink.display?.(mode);},
+    step(){blink.step?.();},
   });
   $('[data-clear-selection]').addEventListener('click',()=>selectSignal(null));
   $('[data-raw-source]').addEventListener('click',()=>{if(view){layer='raw';void go(view,{objectToo:false});}});
@@ -202,6 +212,7 @@ export function startApp(root: HTMLElement): void {
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
     if (moved) {layer = 'raw';selectSignal(null);}
     view = next;
+    practice.selection(next);
     workbench.select(next, layer);
     const layerCaption = $<HTMLElement>('.science-layer-caption');
     layerCaption.hidden = layer === 'raw';
@@ -262,6 +273,7 @@ export function startApp(root: HTMLElement): void {
       await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl);
       if (fsig.aborted) return;
       blink.status('idle');
+      practice.ready(blink.canCompare?.() ?? false);
       highlightSelected();
     } catch (e) {
       if (fsig.aborted) return;
@@ -371,15 +383,17 @@ export function startApp(root: HTMLElement): void {
 
   function route() {
     const { page, param } = parseRoute();
+    const practicing=page==='explore' && workspaceState(param).tab==='play';
     if (current && current !== page) pages.get(current)?.hide?.();
     blink.active?.(page === 'explore');
-    workbench.active(page === 'explore');
+    workbench.active(page === 'explore' && !practicing);
+    if(!practicing)practice.hide();
     current = page;
     // Pages with their own title (Review, a candidate) set it in show(), after this.
     const name = page === "explore" && blinkName ? blinkName : PAGE_TITLES[page];
     document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
-    root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
+    root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
     const navKey = page === "candidate" ? "review" : page;
     root.querySelectorAll<HTMLAnchorElement>(".nav a").forEach((a) =>
       a.dataset.route === navKey ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
@@ -387,14 +401,20 @@ export function startApp(root: HTMLElement): void {
     if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
-      const first = readView() ?? viewForTarget(TARGETS[0]);
-      void go(first, { push: false });
-      writeView(first, true);
+      if(!practicing){
+        const first = readView() ?? viewForTarget(TARGETS[0]);
+        void go(first, { push: false });
+        writeView(first, true);
+      }
     }
     if(page === 'explore'){
       const state=workspaceState(param);
       if(state.mode!=='explore')lastTabs[state.mode]=state.tab;
       $<HTMLElement>('.page-blink').dataset.workspaceMode=state.mode;
+      $<HTMLElement>('.page-blink').dataset.practice=String(practicing);
+      $<HTMLElement>('#science-workbench').hidden=practicing;
+      $<HTMLElement>('.practice-task').hidden=!practicing;
+      $<HTMLElement>('.practice-panel').hidden=!practicing;
       $<HTMLElement>('.workspace-description').textContent=MODES[state.mode].description;
       $<HTMLHeadingElement>('#blink-h1').textContent=MODES[state.mode].title;
       root.querySelectorAll<HTMLAnchorElement>('[data-level]').forEach(a=>{
@@ -403,6 +423,7 @@ export function startApp(root: HTMLElement): void {
         if(a.dataset.level===state.mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
       });
       workbench.mode(state);
+      if(practicing)practice.show();
     }
     $<HTMLElement>('.details-slot').hidden=page === 'explore';
     const mount = pageMounts[page];

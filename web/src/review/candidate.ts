@@ -1,16 +1,17 @@
 // Candidate page (#/c/<id>): the plate at the candidate's spot with the candidate in the red
 // reticle; beside it why it's listed, the measurements, the vote and what happens next.
+import { failedGates, gatesPhrase, gradeOf, isGate, nearSourceOf, votable } from "../api/grades";
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
 import { AssistSlot, detailsOn, loadAssist, votesSummary } from "./assist";
 import { Ballot } from "./ballot";
-import { candidateSet, votes, type CandidateSet, type Votes } from "./data";
+import { candidateSet, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { LIST_HASH, keyAction, neighbours, parseCandidateParam, withVote } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
-import { SAMPLE_NOTE, castVote, copyWithFeedback, headHtml, motionHtml, visible } from "./parts";
+import { SAMPLE_NOTE, castVote, copyWithFeedback, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
 import {
   KIND_TEXT,
@@ -103,12 +104,14 @@ function cataloguesHtml(c: Candidate): string {
 const dl = (rows: [string, string][]) =>
   html`<dl class="rv-dl">${rows.map(([k, v]) => html`<div${k ? "" : ` class="rv-dl-cont"`}><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
 
-/** Reasons as chips. Each chip is a button: it opens one plain sentence on what the reason means. */
+/** Reasons as chips. Each chip is a button: it opens one plain sentence on what the reason means.
+ *  A grade C candidate's failed checks are listed under its grade, so they aren't repeated here. */
 export function reasonsHtml(c: Candidate): string {
-  if (!c.reasons.length) return html`<p class="rv-soft">The pipeline gave no extra reasons.</p>`;
+  const reasons = gradeOf(c) === "C" ? c.reasons.filter((r) => !isGate(r)) : c.reasons;
+  if (!reasons.length) return html`<p class="rv-soft">The pipeline gave no extra reasons.</p>`;
   const toneWord = { for: "supports it", doubt: "a reason for doubt", info: "context" } as const;
   return html`<ul class="rv-chips">
-    ${c.reasons
+    ${reasons
       .map((code, i) => {
         const r = reasonText(code);
         return html`<li><button class="rv-chip" type="button" data-tone="${r.tone}" data-tip="${esc(r.tip)}"
@@ -119,6 +122,17 @@ export function reasonsHtml(c: Candidate): string {
       .join("")}
   </ul>
   <p class="rv-chip-tip" id="rv-chip-tip" aria-live="polite">Tap a reason to read what it means.</p>`;
+}
+
+/** Grade C: no ballot. Say why, and that the plate is still there to blink. */
+export function noVoteHtml(c: Candidate): string {
+  const gates = failedGates(c);
+  const why = gates.length ? ` (${esc(gatesPhrase(gates))})` : "";
+  return html`<section class="rv-ballot rv-novote" aria-labelledby="cd-novote-h" data-state="closed">
+    <h2 class="rv-h" id="cd-novote-h">No vote on this one</h2>
+    <p class="rv-novote-text">The pipeline graded it C: it fails a check${why}, so it is most likely an artefact or a catalogued source. Votes go to grade A and B objects.</p>
+    <p class="rv-soft">You can still blink it and read every reason below.</p>
+  </section>`;
 }
 
 function cautionsHtml(c: Candidate): string {
@@ -243,10 +257,12 @@ export const mountCandidate: MountPage = (el, ctx) => {
 
   function renderSide(c: Candidate) {
     const id = html`Object <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
+    const open = votable(c);
     sideEl.innerHTML = html`
       ${headHtml(c, "h1", id)}
       ${motionHtml(c)}
-      <div class="cd-ballot"></div>
+      ${gradeHtml(c, true)}
+      <div class="cd-ballot">${open ? "" : noVoteHtml(c)}</div>
       <!-- Slot: src/assist mountWhatNext (report drafts, citation), mounted only if src/assist exists. -->
       <section class="cand-next" aria-label="What next" hidden></section>
       <section class="rv-sec" aria-labelledby="cd-why-h">
@@ -290,8 +306,13 @@ export const mountCandidate: MountPage = (el, ctx) => {
     nextSlot?.clear();
     nextSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-next")!);
     lastSummary = "";
-    ballot = new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true });
+    // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
+    ballot = open ? new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true }) : null;
     renderBallot();
+    if (c.kind === "mover")
+      suspectFor(c.id).then((s) => {
+        if (cand === c) fillNearSource(sideEl, nearSourceOf(s));
+      });
   }
 
   sideEl.addEventListener("click", (ev) => {
@@ -347,7 +368,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     link(prevEl, prev);
     link(nextEl, next);
     countEl.textContent =
-      index >= 0 ? `${index + 1} of ${items.length} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
+      index >= 0 ? `${(index + 1).toLocaleString("en-GB")} of ${items.length.toLocaleString("en-GB")} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
     backEl.href = lastDiscoverHash();
   }
 

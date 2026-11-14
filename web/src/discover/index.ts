@@ -4,6 +4,7 @@
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
 import { loadCandidates } from "../api/client";
+import { GRADE_TEXT, countGrades, failedGates, gatesPhrase, gradeALine, gradeBCLine, gradeLabel, gradeOf, isGate } from "../api/grades";
 import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
@@ -18,6 +19,7 @@ import {
   SORTS,
   activeCount,
   activePreset,
+  anyGraded,
   bestRelaxation,
   countBy,
   defaultState,
@@ -50,7 +52,7 @@ import {
   type Tri,
 } from "./filters";
 import { glyphSvg, mountSkyMap } from "./skymap";
-import { KIND_TEXT, KINDS, REVIEW_TEXT, flagText, labelText, reasonText, zonesPhrase, type ReviewState } from "./text";
+import { GRADE_VALUES, KIND_TEXT, KINDS, REVIEW_TEXT, flagText, gradeFacetText, labelText, reasonText, zonesPhrase, type ReviewState } from "./text";
 import { thumbLoader } from "./thumb";
 import { onVoted, openVoteReader, type VoteReader } from "./votes";
 
@@ -76,6 +78,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
         <h1 id="dv-title" class="dv-title">Objects to check in NASA's SPHEREx sky.</h1>
         <p class="dv-sub">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them: blink each one, say what you see, and the best go to astronomers.</p>
         <p class="dv-counts" aria-live="polite">Loading the list…</p>
+        <p class="dv-grades" data-grades hidden></p>
         <p class="dv-note" data-note hidden></p>
         <div class="dv-actions">
           <a class="btn btn-primary" href="#/review">Start reviewing</a>
@@ -111,7 +114,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <h2 id="dv-count" class="dv-count" aria-live="polite"></h2>
           <button type="button" class="btn btn-sm dv-filters-btn" aria-haspopup="dialog">Filters</button>
           <label class="dv-sort"><span>Sort by</span>
-            <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}">${s.label}</option>`).join("")}</select>
+            <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}"${s.hint ? ` title="${esc(s.hint)}"` : ""}>${s.label}</option>`).join("")}</select>
           </label>
           <div class="dv-export dv-export-top" role="group" aria-label="Download the filtered list">
             <span class="dv-export-label">Download</span>
@@ -136,6 +139,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const countsEl = $<HTMLParagraphElement>(".dv-counts");
   const noteEl = $<HTMLParagraphElement>("[data-note]");
+  const gradesEl = $<HTMLParagraphElement>("[data-grades]");
   const presetsEl = $<HTMLDivElement>(".dv-presets");
   const mapAside = $<HTMLElement>(".dv-map");
   const filtersEl = $<HTMLElement>(".dv-filters");
@@ -276,12 +280,27 @@ export const mountDiscover: MountPage = (el, ctx) => {
     else
       tail = html` <strong>${reviewed.toLocaleString("en-GB")}</strong> reviewed so far, with <strong>${votes.toLocaleString("en-GB")}</strong> ${votes === 1 ? "vote" : "votes"} cast.`;
     countsEl.innerHTML = lead + tail;
+    renderGrades();
     const notes: string[] = [];
     if (sample) notes.push("Sample data from the pilot zone, until the full list is published.");
     if (reader?.notice) notes.push(reader.notice);
     else if (voteStatus === "local") notes.push("Votes stay on this device for now.");
     noteEl.hidden = !notes.length;
     noteEl.textContent = notes.join(" ");
+  }
+
+  /** The fast movers' vetting grades, counted from the list (only when it carries grades). */
+  function renderGrades() {
+    const movers = data ? data.candidates.filter((c) => c.kind === "mover") : [];
+    const n = countGrades(movers);
+    gradesEl.hidden = !n;
+    if (!n) {
+      gradesEl.textContent = "";
+      return;
+    }
+    const ungraded = movers.filter((c) => gradeOf(c) === null).length;
+    const rest = ungraded ? ` ${plural(ungraded, "fast mover isn't", "fast movers aren't")} vetted yet.` : "";
+    gradesEl.innerHTML = html`<span class="dv-grades-a">${esc(gradeALine(n.A))}</span> ${esc(gradeBCLine(n).replace(/\.$/, ""))}, shown greyed and not put to a vote.${esc(rest)}`;
   }
 
   // ---- presets ----------------------------------------------------------------------------------
@@ -325,7 +344,15 @@ export const mountDiscover: MountPage = (el, ctx) => {
     );
     toggle(g2, "hideMine", "mine", "Hide ones I voted on", (r) => r.mine, "From this browser's memory; nothing leaves your device.");
 
-    const g3 = group("Evidence", ["reason", "doubts", "cautions", "gaia", "catwise", "known"]);
+    const g3 = group("Evidence", ["grade", "reason", "doubts", "cautions", "gaia", "catwise", "known"]);
+    const graded = anyGraded(cands);
+    checkList(
+      g3,
+      "grade",
+      "Vetting grade",
+      () => (graded ? [...GRADE_VALUES] : state.grade).map((v) => ({ v, ...gradeFacetText(v) })),
+      { emptyText: "No grades in this list yet: the pipeline's vetting grades show here once the list is exported with them.", hideWhenEmpty: true },
+    );
     chipList(
       g3,
       "reason",
@@ -395,6 +422,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   function checkList(parent: HTMLElement, key: ListKey, title: string, options: () => Opt[], o: { emptyText?: string; hideWhenEmpty?: boolean } = {}) {
     const fs = document.createElement("fieldset");
     fs.className = "fx";
+    fs.dataset.facet = key;
     parent.append(fs);
     let sig = "";
     fs.addEventListener("change", () => {
@@ -697,8 +725,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
     showN.textContent = n ? `Show ${plural(n, "object", "objects")}` : "No matches: change a filter";
     el.querySelectorAll<HTMLButtonElement>("[data-export]").forEach((b) => {
       b.disabled = n === 0;
-      b.title = `Download these ${n} as ${b.dataset.export?.toUpperCase()}`;
-      b.setAttribute("aria-label", `Download ${n} as ${b.dataset.export?.toUpperCase()}`);
+      b.title = `Download these ${n.toLocaleString("en-GB")} as ${b.dataset.export?.toUpperCase()}`;
+      b.setAttribute("aria-label", `Download ${n.toLocaleString("en-GB")} as ${b.dataset.export?.toUpperCase()}`);
     });
   }
 
@@ -727,6 +755,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     for (const v of s.reason) out.push({ label: reasonText(v).label, remove: drop("reason", v) });
     for (const v of s.det) out.push({ label: `D${v}`, remove: drop("det", v) });
     for (const v of s.zone) out.push({ label: `${v} zone`, remove: drop("zone", v) });
+    for (const v of s.grade) out.push({ label: gradeFacetText(v).label, remove: drop("grade", v) });
     if (s.gaia !== "any") out.push({ label: s.gaia === "yes" ? "In Gaia" : "Not in Gaia", remove: () => ({ ...s, gaia: "any" }) });
     if (s.catwise !== "any") out.push({ label: s.catwise === "yes" ? "In CatWISE" : "Not in CatWISE", remove: () => ({ ...s, catwise: "any" }) });
     if (s.hideDoubts) out.push({ label: "No pipeline doubts", remove: () => ({ ...s, hideDoubts: false }) });
@@ -827,8 +856,16 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const pos = formatRaDec(c);
     const href = `#/c/${encodeURIComponent(c.id)}`;
     const chips: string[] = [];
+    // The vetting grade leads (movers only; an ungraded row shows none, as before the vetting).
+    const grade = gradeOf(c);
+    const gates = grade === "C" ? failedGates(c) : [];
+    if (grade)
+      chips.push(
+        html`<li class="tag tag-grade is-${grade}" title="${esc(`${GRADE_TEXT[grade].short}: ${GRADE_TEXT[grade].plain}`)}">${esc(grade === "C" ? GRADE_TEXT.C.short : gradeLabel(grade))}</li>`,
+      );
     for (const l of c.labels) chips.push(html`<li class="tag tag-label" title="${esc(l)}">${esc(labelText(l))}</li>`);
-    const doubts = c.reasons.filter(isDoubtCode);
+    // A grade C row says its failed checks in its own line: keep them out of the doubts chip.
+    const doubts = c.reasons.filter((x) => isDoubtCode(x) && !(grade === "C" && isGate(x)));
     for (const code of c.reasons.filter((x) => reasonText(x).tone === "support")) {
       const t = reasonText(code);
       chips.push(html`<li class="tag tag-support" title="${esc(code)}: ${esc(t.detail)}">${esc(t.label)}</li>`);
@@ -848,18 +885,24 @@ export const mountDiscover: MountPage = (el, ctx) => {
     // Cautions: artefact flags and caution reasons (outlier pixels, the same spot days apart), once each.
     const cautions = new Map<string, string>();
     for (const fl of c.flags) cautions.set(flagText(fl), fl);
-    for (const code of c.reasons.filter(isCautionCode)) {
+    // A grade C row names its failed checks in its own line: no caution chip for those.
+    for (const code of c.reasons.filter((x) => isCautionCode(x) && !(grade === "C" && isGate(x)))) {
       const t = reasonText(code);
       cautions.set(t.label, cautions.has(t.label) ? `${cautions.get(t.label)}, ${code}` : `${code}: ${t.detail}`);
     }
     for (const [label, title] of cautions)
       chips.push(html`<li class="tag tag-caution" title="${esc(title)}"><span class="caution-mark" aria-hidden="true"></span>${esc(label)}<span class="visually-hidden"> (caution)</span></li>`);
     const det = DETECTORS[c.det];
-    return html`<li class="dv-row" data-id="${esc(c.id)}">
+    const failed =
+      grade === "C"
+        ? html`<p class="dv-gradec">${esc(gates.length ? `Fails a check: ${gatesPhrase(gates)}.` : "Fails a pipeline check.")} Open it to blink; it isn't put to a vote.</p>`
+        : "";
+    return html`<li class="dv-row${grade === "C" ? " is-gradec" : ""}" data-id="${esc(c.id)}">
       <div class="dv-thumb" data-thumb="${esc(c.id)}" aria-hidden="true">${emptyPlate()}</div>
       <div class="dv-main">
         <h3 class="dv-name"><a class="dv-link" href="${href}" title="${esc(c.id)}">${glyphSvg(c.kind, 12)}<span class="dv-kind">${esc(kind.name)}</span><span class="dv-pos">${esc(pos)}</span></a></h3>
         <p class="dv-why">${esc(c.why)}</p>
+        ${failed}
         ${chips.length ? html`<ul class="dv-tags" aria-label="Labels and reasons">${chips.join("")}</ul>` : ""}
       </div>
       <div class="dv-meas">${measured(c)}<p class="m3 det-${c.det}" title="Detector ${c.det}, ${det?.min}–${det?.max} µm. Seen best on ${esc(formatMjd(c.mjd))}."><span class="det-dot" aria-hidden="true"></span>D${c.det} <span class="m-um">${det?.min}–${det?.max} µm</span></p></div>
@@ -897,6 +940,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   function votesHtml(r: Row): string {
     const mine = r.mine ? html`<span class="dv-mine">You voted</span>` : "";
     if (voteStatus === "error") return html`<span class="dv-none">Votes unavailable</span>${mine}`;
+    if (r.total === 0 && gradeOf(r.c) === "C") return html`<span class="dv-none" title="Grade C objects failed a pipeline check: they aren't put to a vote">Not put to a vote</span>${mine}`;
     if (r.total === 0) return html`<span class="dv-none">No votes yet</span>${mine}`;
     const segs = ANSWERS.filter((a) => r.votes[a] > 0)
       .map((a) => html`<span class="vseg vseg-${a}" style="flex:${r.votes[a]}" title="${ANSWER_TEXT[a].label}: ${r.votes[a]}"></span>`)

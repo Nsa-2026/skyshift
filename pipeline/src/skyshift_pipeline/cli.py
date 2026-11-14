@@ -1,15 +1,23 @@
 """skyshift-pipeline <step> --zone pilot|hunt [--root ROOT] [--workers N] [--limit N]
 
 Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-astrometry, highpm, score, suspects, all (in that order).
+astrometry, highpm, orphans, tracklets, score, completeness, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (config) runs link … suspects per sky tile in parallel processes
 and merges them into the same results/<zone>/ files (tiles.py); --tiles off|N and --tile-deg D override that.
+completeness (synthetic movers in a 1° sub-area, inject.py) always runs once per zone, after the tiles; env
+SKYSHIFT_COMPLETENESS=off skips it.
 
 skyshift-pipeline mpc-orbits [--root ROOT] [--force]
   Laptop only, not part of `all`: new dated MPC orbit snapshots in cache/mpc/orbits/ (the GCP machines
   can't reach minorplanetcenter.net). Keeps a snapshot already made today unless --force.
+
+skyshift-pipeline s3index [--root ROOT] [--collections dr1,qr3] [--workers 64] [--procs N] [--periods P1,P2*] [--force]
+  Not part of `all`, no zone: the photo index from NASA's S3 copy (s3index.py), for when IRSA TAP is down. Lists every
+  Level 2 file, reads its headers (--workers concurrent reads over --procs processes, default one per CPU) and writes
+  photolists/s3index/<dr1|qr3>/<period>.parquet + .json, then _complete.json. Resumable: done periods are skipped
+  (their failed files are tried again) unless --force. photolist falls back to it when TAP fails.
 """
 
 from __future__ import annotations
@@ -25,9 +33,10 @@ from .store import Store, results_rel
 
 MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "astrometry", "highpm")  # from stored dots only
 STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "qa", "classify", "photoz",
-         "colours", "lightcurves", "astrometry", "highpm", "score", "suspects")
-TILED_STEPS = STEPS[STEPS.index("link"):]  # what `all` runs per tile (tiles.py) on a large zone
-TOOLS = ("mpc-orbits",)  # run by hand, never by `all`; no zone
+         "colours", "lightcurves", "astrometry", "highpm", "orphans", "tracklets", "score", "completeness", "suspects")
+ZONE_STEPS = ("completeness",)  # once per zone on its own sub-area, also in a tiled `all` (after the tiles)
+TILED_STEPS = tuple(s for s in STEPS[STEPS.index("link"):] if s not in ZONE_STEPS)  # what `all` runs per tile (tiles.py)
+TOOLS = ("mpc-orbits", "s3index")  # run by hand, never by `all`; no zone
 L = log.get("cli")
 
 
@@ -62,12 +71,25 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step == "photoz":
         from . import photoz
         return photoz.run(store, zone)
+    if step == "orphans":
+        from . import orphans
+        return orphans.run(store, zone, workers=args.workers)
+    if step == "tracklets":
+        from . import tracklets
+        return tracklets.run(store, zone)
     if step == "score":
         from . import score
         return score.run(store, zone)
     if step == "suspects":
         from . import suspects
         return suspects.run(store, zone)
+    if step == "completeness":
+        from . import inject
+        try:
+            return inject.run(store, zone, workers=args.workers)
+        except Exception as e:  # noqa: BLE001  a report only: it never stops the zone's run
+            L.exception("completeness %s failed; the zone's run goes on", zone.name)
+            return {"error": repr(e)}
     raise ValueError(step)
 
 
@@ -88,10 +110,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("step", choices=(*STEPS, "all", *TOOLS))
     ap.add_argument("--zone", choices=sorted(C.ZONES), help="required for every step except mpc-orbits")
     ap.add_argument("--root", default="gs://nasa-glazing-data")
-    ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
+    ap.add_argument("--workers", type=int, default=None, help="default: one per CPU (s3index: 64 concurrent reads)")
     ap.add_argument("--limit", type=int, default=None, help="testing: dots does at most N photos, known at most N sessions")
     ap.add_argument("--force", action="store_true",
-                    help="photolist, refcat, mpc-orbits: query the services again even if the files exist")
+                    help="photolist, refcat, mpc-orbits, s3index: query the services again even if the files exist")
+    ap.add_argument("--collections", default="dr1,qr3", help="s3index: S3 prefixes to index (dr1, qr3)")
+    ap.add_argument("--periods", default=None, help="s3index: only these planning periods (comma list, globs allowed)")
+    ap.add_argument("--procs", type=int, default=None, help="s3index: processes (default one per CPU)")
     ap.add_argument("--from", dest="from_step", choices=STEPS, default=None,
                     help="all: start at this step (e.g. --from link: combine again without photolist, refcat, dots, known)")
     ap.add_argument("--tiles", default=os.environ.get("SKYSHIFT_TILES", "auto"),
@@ -106,8 +131,18 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.step not in TOOLS and args.zone is None:
         ap.error(f"{args.step} needs --zone")
+    if args.workers is None:
+        args.workers = 64 if args.step == "s3index" else (os.cpu_count() or 1)
     log.setup()
     store = Store(args.root)
+    if args.step == "s3index":
+        from . import s3index
+        cols = tuple(c.strip() for c in args.collections.split(",") if c.strip())
+        periods = [p.strip() for p in args.periods.split(",") if p.strip()] if args.periods else None
+        L.info("skyshift-pipeline s3index --root %s --collections %s --workers %d --procs %s --periods %s --force %s",
+               store.root, ",".join(cols), args.workers, args.procs, periods, args.force)
+        out = s3index.run(store, cols, workers=args.workers, procs=args.procs, periods=periods, force=args.force)
+        return 0 if out["complete"] or periods else 1
     if args.step == "mpc-orbits":
         from . import known_mpc
         L.info("skyshift-pipeline mpc-orbits --root %s --force %s", store.root, args.force)

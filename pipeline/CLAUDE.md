@@ -8,7 +8,7 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
 Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-astrometry, highpm, score, suspects; `all` runs them in order.
+astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -16,7 +16,7 @@ astrometry, highpm, score, suspects; `all` runs them in order.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
-  link, spectra, classify, photoz, score and suspects are cheap and always recompute from what is there.
+  link, spectra, classify, photoz, tracklets, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
@@ -60,6 +60,13 @@ astrometry, highpm, score, suspects; `all` runs them in order.
   login; not part of `all`, no --zone). It writes today's mpcorb_/cometels_<date>.parquet, which then win; old ones stay.
   Without --force a snapshot already made today is kept. Sessions already in cache/mpc/<zone>/ keep their old positions:
   delete those run_*.json files to recompute them with the new orbits.
+- IRSA down (14 Nov evening, TAP and SIA 502): `uv run skyshift-pipeline s3index --root gs://nasa-glazing-data
+  [--workers 128] [--procs N] [--periods ...] [--force]` (a tool like mpc-orbits, no --zone, not in `all`) lists all
+  1.63 M Level 2 files on S3 (dr1 + qr3, 151 periods) and range-reads each IMAGE header (~34 KB): photolists/s3index/
+  <dr1|qr3>/<period>.parquet + .json sidecar (failed keys), _complete.json last; resumable. Rows = TAP's photo-list
+  columns and values (pilot: all 990 equal; s_region within 1 ulp). photolist uses it when TAP fails after its retries,
+  or always with SKYSHIFT_PHOTOLIST_SOURCE=s3index: footprints intersecting the zone box with great-circle edges (as
+  INTERSECTS), clean's dedupe, add_sessions; only if every period shard exists (stats `index_complete`, `index_failed_keys`).
 - History: SkyBoT was removed after #64 (docs/research/2026-11-14-mpc-vs-skybot-score.md): on the pilot MPC gave
   G2 recall 92.2% with predictions 0.27″ from the matched movers vs SkyBoT's 1.43″.
 - Every threshold lives in src/skyshift_pipeline/config.py.
@@ -83,11 +90,56 @@ astrometry, highpm, score, suspects; `all` runs them in order.
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
   Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
   light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
-  highpm, score and suspects run once on the merged tables (their 15′/2′ controls need no border).
+  tracklets (right after merge 1, next to calib), highpm, orphans, score and suspects run once on the merged tables
+  (tracks cross tiles; their 15′/2′ controls and orphans' 300–7200″ pairs need no border). link's nonfixed_dots.parquet is
+  merged like movers (owner: the dot's position).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
   combining steps, 3/4 of a full read); each tile reads every photo it overlaps. No mirror when the disk lacks room
   (TILE_DISK_RESERVE_GB; hunt: ~6 GB slim dots + 1.9 GB forced): tiles then read the root, slower, same results.
 - Equality (tests/test_tiles.py; pilot photos with 0.3° tiles): tiled == untiled table by table and report by report.
+
+## Distant planets (orphans.py): what the route can and cannot find
+SPHEREx looks ~90° from the Sun, so a planet at 70–1000 AU drifts 0.5–0.002″/h inside a visit and link chains it into a
+fixed source seen in ONE visit; six months later it is 4,800″ (70 AU) to 390″ (1000 AU) away along ecliptic longitude.
+`orphans` (after highpm, once on the merged tables) lists single-visit sources with no Gaia/CatWISE/2MASS entry whose
+spot the other visit covered (>= 6 photos), minus bright-star fragments and the zone's 3′ edge; fits each one's drift
+from its member dots (projected column reads, ~900 dot files for the hunt); pairs orphans of the two visits 300–7,200″
+apart when one heliocentric distance r explains both positions with a bound orbit AND both measured drifts (Earth's
+reflex at that r) AND the same-detector fluxes; and repeats the pairing 50× with the later visit shifted cyclically in
+its box: the mean is the chance expectation. results/<zone>/orphans.parquet (every candidate, `reason`, drift, `in_pair`,
+`track_in_zone`) and distant.json (passing pairs with distance, fluxes, positions, times; control counts; the depth
+and reach searched; `open` orphans). Can find: a planet detected (S/N >= 5) in >= 3 sessions of BOTH visits, with no
+catalogue entry within crossid's radius at either spot (~8% of the ecliptic sky is lost to CatWISE alone). Brightness:
+single-exposure depth AB ~17.4–17.7 (D1–D4), no stacking: a Neptune-size planet (albedo 0.4) to ~290 AU, an Earth
+much nearer (distant.json `reach_au_at_d2_depth`). Cannot find: anything fainter; movers > ~1″/h (score/suspects do
+those); a planet whose 70–100 AU fragments have < 3 sessions each; one blended with a star; a partner beyond the zone
+edge. Zone edge: the partner can be up to 2° away, so each drift-fitted orphan gets `track_in_zone` (share of its
+70–1000 AU parallax track inside the zone box less the 3′ margin); those < 1 are listed in distant.json `open` with the
+track's 70 and 1000 AU ends. No cross-zone pass yet: it would read every zone's orphans.parquet and pair `open` orphans
+with the neighbours' orphans using the same model (orphans.pair_model). Known bodies: an MPC object (the `known`
+predictions; tiles pass theirs) moving like an orphan (rate within 0.3″/h + 3σ) and within 30″ of it is tagged
+`known_name` (distant.json `known`, `known_a/b`): a recovered TNO validates the route, it is not dropped. Hunt (14 Nov
+tables): 447 orphans, 892 pairs tested, 1 passing vs 1.5 expected by chance (p 0.78), no known slow body bright enough.
+Table-level injection at the hunt's cadence (70–1000 AU, 3–20 dots per visit): 83–100 % recovered, r within ~2 %.
+The step never raises (errors go to its stats).
+
+## Completeness (inject.py, step `completeness`): what "found nothing" means
+- Once per zone after score (a tiled `all` runs it after the tiles; env SKYSHIFT_COMPLETENESS=off skips it). A 1° × 1°
+  sub-area at the zone's centre (INJECT_*; smaller when it holds > 2 M real dots): its real dots from every photo that
+  overlaps it, plus synthetic dots of 8 × 400 objects on straight tracks (0.01–300″/h log-uniform, any direction, S/N 5–100
+  per dot in a median-noise photo of each detector) at the real exposure times, detectors and footprints. Flux from the
+  photo's own noise; kept with the zone's own detection probability (dot S/N counts against a power law: hunt 0.3 at
+  S/N 5.25, 0.7 at 6.75, ~1 from 9); position scatter 1.6 × pos_err; elong drawn from real dots, stretched by the trail.
+  Real + synthetic dots go through link.fixed_groups/classify unchanged; nothing is written but
+  results/<zone>/completeness.json (grid rate × S/N, by_rate, by_snr, limits, headline, vs_recall) and a summary entry.
+- Unit = score's (one object in one session, ≥ 2 exposures, ≥ 10 px inside); found = a mover within 12″ of the object at
+  the mover's time. Other outcomes: fixed (own fixed source: too slow), merged (joined a real star), undetected, vetoed,
+  unlinked; `fixed_single_visit` per object and visit (its own fixed source seen in that visit only: the slow route,
+  orphans). Hunt centre (1.0 deg², 445 photos, 329k real dots; 12 s, ~0.5 GB on a laptop from local files; a run on
+  the bucket adds the read of ~445 dot files): ≥ 50% found per session at 0.46–300″/h, ≥ 90% at 2.2–300″/h (S/N ≥ 20);
+  0.1–0.2″/h 7%, 0.2–0.5″/h 30% (these become single-visit fixed sources, 87–99%); 10–90″/h S/N ≥ 20 94% vs the
+  measured known-asteroid recall 90.4% (`vs_recall` ratio 0.96: missing dots, masks and artefacts aren't modelled).
+  Same S/N in every detector by default (INJECT_MWIR_SNR_FACTOR; asteroids are fainter in D4–D6: 0.3 → S/N 5–7 49%).
 
 ## Rules (summary)
 - Session = run of the zone's exposure times with gaps < 10 min (core.sessions over all photos), one per photo; visit = core.visits.
@@ -98,11 +150,41 @@ astrometry, highpm, score, suspects; `all` runs them in order.
 - link: fixed = FoF 4″ groups in >= 3 sessions; drop dots within 6″ of fixed; pair dots of one session
   (≤ 3″ + 1″/min × Δt, or a simultaneous D1+D4/D2+D5/D3+D6 pair ≤ 3″, elong ≤ 3); coverage ≥ 3 sessions from footprints.
 - link also writes members.parquet (source_id, obs_id, detector, dot_row = row in the dot file as written; dot
-  files are never rewritten). spectra: 102 channels (ours, 17 log-spaced per detector), MASK bits out, clipped
+  files are never rewritten) and nonfixed_dots.parquet (every dot in no fixed group with elong ≤ 3, `near_fixed` within 6″
+  of one; ~0.8 M rows, ~20 MB for the hunt) for tracklets' recovery. spectra: 102 channels (ours, 17 log-spaced per detector), MASK bits out, clipped
   weighted mean per channel, chi2_nu and last/first visit ratio for variability; vectorised, no loop per source.
+- tracklets (tracklets.py, zone level after link, before score; ~5 s on the hunt): links movers of different sessions of
+  one visit into tracks: seed pairs ≤ 36 h apart at 0.5–150″/h, tested in nearby sessions, grown session by session
+  with local fits (linear + the visit's acceleration, quadratic with ≥ 4 members over ≥ 24 h), leave-one-out pruned;
+  a track needs movers in ≥ 3 sessions (exactly 3: span ≤ 36 h). Main-belt asteroids share one apparent acceleration
+  per visit (hunt: 0.028″/h², 99% within 0.016 of the visit's vector), measured from the first pass's long tracks.
+  Then, in every other session of the visit within 60 h, link's non-fixed dots at the predicted position (3–8″) are
+  recovered detections. Writes tracklets.parquet (one row per mover: mover_id = suspects' id
+  `<zone>-<cell>-<round(mjd×1440)>`, tracklet_id (−1 = none), n_sessions, rate_arcsec_h, pa_deg, rate_sigma, rate_snr,
+  fit chi2…) and tracklet_dots.parquet (recovered dots: obs_id, detector, dot_row, sep_arcsec…). score counts a known
+  sighting found when a mover OR a recovered dot matches it (`recall`; movers alone: `recall_movers`).
+  Hunt: 124 tracks (all known asteroids, none mixed), 1245 of 6143 movers; control (each session's movers moved
+  0.5–1.5°) 0 tracks in 4 runs; recall at V < 16 90.4% → 94.7% (433/457), control 0; 0 of 228 suspects on a track.
+  The rest of the misses: no dot (12), or a dot inside a star's fixed group (≤ 4″, not a free dot).
+  Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
+  stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over nonfixed_dots (not suspects' freedots.parquet: that one
+  has pixel x, y and no near-fixed dots, for vet's hot-pixel maps).
 - suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
   no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″ (from refcat/<zone>.parquet;
   the services only if that file is missing: 50-circle ESA batches took 30+ min for 30k movers).
+- Vetting (vet.py, 14 Nov; config VET_*): after those cuts every suspect gets `grade` and `reasons`. Gates on its own dots
+  (link carries each mover's dots as lists dot_obs, dot_det, dot_x, dot_y, dot_flux, dot_snr, dot_size, dot_fpk, …) and on
+  zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y; tiles merge it): hot_pixel (±1 px with
+  movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure), edge
+  (6 px), masked_peak, sharp_outlier (√(a·b) < 0.7 × stellar at that S/N with OUTLIER; OUTLIER alone never: 52% of real
+  asteroids), flux_ratio (> 4× within a detector), red_photo (qa_photos.parquet, if present), 2mass (refcat, 6″).
+  C = any reason (kept in the file), B = none, A = candidate mover: on a track over ≥2 sessions with motion ≥5σ, no
+  catalogue or known match (suspects.track_grades after vet: B, and its tracklets.parquet row, joined on suspect id =
+  mover_id, has tracklet_id ≥ 0, n_sessions ≥ VET_A_MIN_SESSIONS, rate_snr ≥ VET_MOTION_SIGMA). Suspects on a track
+  carry its n_sessions, rate_arcsec_h, pa_deg, rate_sigma (suspects.json; null off a track); a missing or unreadable
+  tracklets.parquet changes nothing (stats vetting.tracklets). candidates.py lists A first and names the track in `why`.
+  Gates run on the suspects only, never before pairing: recall is unchanged. completeness' vs_recall compares the
+  synthetic movers with recall.json `recall_movers` (movers alone) when present.
 
 ## Facts
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.

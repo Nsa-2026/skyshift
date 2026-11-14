@@ -1,5 +1,6 @@
 // The three kinds of candidate in plain words (web/DESIGN.md "Candidates"), the reason codes as
 // short phrases, and the one number that matters for each kind, with units. Pure.
+import { gateText, gradeOf, isGate, leadRank } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { DETECTORS, formatMjd } from "../app/astro";
 
@@ -99,7 +100,7 @@ const CAUTION_CODES = new Set([
 ]);
 
 export function isCaution(code: string): boolean {
-  return CAUTION_CODES.has(code);
+  return CAUTION_CODES.has(code) || isGate(code);
 }
 
 /**
@@ -112,6 +113,7 @@ export function isLikelyMismatch(c: Pick<Candidate, "reasons">): boolean {
 
 export function reasonText(code: string): string {
   if (REASON_TEXT[code]) return REASON_TEXT[code];
+  if (isGate(code)) return gateText(code).label;
   const words = code.replace(/[_-]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -190,10 +192,23 @@ export function keyNumber(c: Candidate): KeyNumber | null {
 export function oneLine(c: Candidate): string {
   const k = keyNumber(c);
   const name = KIND_TEXT[c.kind]?.name ?? "Candidate";
-  if (!k) return name;
+  // The vetting grade, when the list carries one: in words, so grey is never the only cue.
+  const g = gradeOf(c);
+  const grade = g ? `, grade ${g}` : "";
+  if (!k) return `${name}${grade}`;
   const unit = k.unit ? (k.unit.startsWith("″") ? k.unit : ` ${k.unit}`) : "";
   const pa = c.pa_deg != null && c.kind !== "spectral" ? `, toward ${Math.round(c.pa_deg)}°` : "";
-  return `${name}, ${k.value}${unit}${pa}`;
+  return `${name}, ${k.value}${unit}${pa}${grade}`;
+}
+
+/** Grade C signals are greyed on the map and listed after the rest. */
+export function isGradeC(c: Pick<Candidate, "grade">): boolean {
+  return gradeOf(c) === "C";
+}
+
+/** Signals in view, nearest the centre first, but grade A ahead and grade C after the rest (C never leads). Stable. */
+export function gradeCLast<T extends Pick<Candidate, "grade">>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => leadRank(gradeOf(a)) - leadRank(gradeOf(b)));
 }
 
 export function detectorText(det: number): string {
@@ -210,9 +225,14 @@ export function zoneName(zone: string): string {
   return `${z.charAt(0).toUpperCase()}${z.slice(1)} zone`;
 }
 
+/** A count with thousands separators: "1,008". */
+export function countText(n: number): string {
+  return new Intl.NumberFormat("en-GB").format(n);
+}
+
 /** "194 objects to check in 1 zone", "1 object to check in 2 zones". */
 export function countSentence(n: number, zones: number): string {
-  const c = `${new Intl.NumberFormat("en-GB").format(n)} object${n === 1 ? "" : "s"} to check`;
+  const c = `${countText(n)} object${n === 1 ? "" : "s"} to check`;
   return zones > 0 ? `${c} in ${zones} zone${zones === 1 ? "" : "s"}` : c;
 }
 
@@ -222,6 +242,16 @@ export const LIST_NOTE =
 
 export function plural(n: number, one: string, many: string): string {
   return `${new Intl.NumberFormat("en-GB").format(n)} ${n === 1 ? one : many}`;
+}
+
+/**
+ * A kind chip's tooltip: what the kind is and, when likely mismatches are hidden, why its count is
+ * lower than on To check: "… 925 shown; 83 likely mismatches hidden …".
+ */
+export function kindChipTitle(kind: CandidateKind, shown: number, hidden: number): string {
+  const m = KIND_TEXT[kind].meaning;
+  if (!(hidden > 0)) return m;
+  return `${m} ${countText(shown)} shown; ${plural(hidden, "likely mismatch", "likely mismatches")} hidden: too fast to be one star. Turn on Likely mismatches under Adjust to show them.`;
 }
 
 /**

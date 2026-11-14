@@ -268,6 +268,20 @@ def test_v5_hunt_headline_pilot_kept(tmp_path):
     assert c["note"].endswith("Rows: zone, v_min, v_max, n, found, recall, control_recall.")
 
 
+def test_v5_says_recovered_on_a_track_when_recall_counts_tracklets(tmp_path):
+    """A recall.json with recall_movers (tracklets, #150): `recall` also counts dots recovered on a track."""
+    _zone(tmp_path, "hunt", "2026-11-14T13:39:27Z", HUNT_BY_V, HUNT_BOX, 3692, 30)
+    rec = json.loads((tmp_path / "hunt" / "recall.json").read_text())
+    rec.update({"n_found": 433, "recall": 433 / 457, "n_found_movers": 413, "recall_movers": 413 / 457,
+                "control_recall_movers": 0.0})
+    (tmp_path / "hunt" / "recall.json").write_text(json.dumps(rec))
+    c = bv.v5(tmp_path, "hunt")
+    assert c["headline"].startswith("Hunt zone: 433 of 457 known asteroid sessions at V < 16 found (as movers or "
+                                    "recovered on a track) (95%); control 0%")
+    assert "movers alone: 413 of 457 (90%)" in c["note"] and "a dot recovered on a mover track's predicted path" in c["note"]
+    assert c["value"] == pytest.approx(433 / 457, abs=1e-3)
+
+
 def test_v5_falls_back_to_the_pilot_without_hunt_reports(tmp_path):
     _zone(tmp_path, "pilot", "2026-11-14T13:12:08Z", PILOT_BY_V, PILOT_BOX, 990, 8)
     c = bv.v5(tmp_path, "hunt,pilot")
@@ -363,7 +377,39 @@ def test_merge_suspects_hunt_first_pilot_kept_no_repeats():
     assert [s["zones"] for s in m["suspects"]] == [["hunt", "pilot"], ["hunt"], ["pilot"]]
     assert [s["zone"] for s in m["suspects"]] == ["hunt", "hunt", "pilot"]
     assert bv.valid_suspects(m)  # still the contract's shape: two optional fields added
+    # ungraded files (no zone-level vetting fields): nothing added
+    assert not set(bv.ZONE_FIELDS) & set(m) and "vetting" not in m
     # a file that doesn't match the contract is skipped; nothing valid gives None
     bad = {"suspects": [{"id": "x"}]}
     assert bv.merge_suspects([("hunt", bad), ("pilot", pilot)])["zone"] == "pilot"
     assert bv.merge_suspects([("hunt", bad)]) is None
+
+
+def test_merge_suspects_keeps_each_zones_vetting():
+    """vetoes, provisional, grades, gates (contracts/api.md suspects.json, 14 Nov) survive the merge per zone, as the
+    zone's file has them: the headline zone's at the top level, every graded zone's under `vetting`."""
+    def graded(s, grade, reasons):
+        return {**s, "grade": grade, "reasons": reasons, "near_source_arcsec": None}
+
+    hunt_v = {"vetoes": ["mpc", "gaia", "catwise"], "provisional": False, "grades": {"A": 0, "B": 1, "C": 1},
+              "gates": {"edge": 1, "hot_pixel": 0}}
+    pilot_v = {"vetoes": ["mpc", "gaia"], "provisional": True, "grades": {"A": 0, "B": 1, "C": 0}, "gates": {}}
+    hunt = {"generated": "2026-11-15T01:00:00Z", "data_release": "DR1", "zone": "hunt", **hunt_v,
+            "suspects": [graded(_suspect("hunt-1-1", 121.0, 15.0, 60970.0), "B", []),
+                         graded(_suspect("hunt-2-2", 128.0, 22.0, 61140.0), "C", ["edge"])]}
+    pilot = {"generated": "2026-11-15T00:30:00Z", "data_release": "DR1", "zone": "pilot", **pilot_v,
+             "suspects": [graded(_suspect("pilot-3-3", 122.0, 16.0, 60971.0), "B", [])]}
+    m = bv.merge_suspects([("hunt", hunt), ("pilot", pilot)])
+    assert {k: m[k] for k in bv.ZONE_FIELDS} == hunt_v               # the headline zone's, as in a one-zone file
+    assert m["vetting"] == {"hunt": hunt_v, "pilot": pilot_v}
+    assert list(m) == ["generated", "data_release", "zone", *bv.ZONE_FIELDS, "zones", "vetting", "suspects"]
+    assert [(s["id"], s["grade"], s["reasons"]) for s in m["suspects"]] == [
+        ("hunt-1-1", "B", []), ("hunt-2-2", "C", ["edge"]), ("pilot-3-3", "B", [])]
+    assert bv.valid_suspects(m)
+    # an ungraded headline zone with a graded one after it: nothing at the top level, the graded zone in `vetting`
+    old = {k: v for k, v in hunt.items() if k not in bv.ZONE_FIELDS}
+    m2 = bv.merge_suspects([("hunt", old), ("pilot", pilot)])
+    assert not set(bv.ZONE_FIELDS) & set(m2) and m2["vetting"] == {"pilot": pilot_v}
+    # a partial file keeps what it has, nothing invented
+    m3 = bv.merge_suspects([("hunt", {**old, "provisional": True})])
+    assert m3["provisional"] is True and m3["vetting"] == {"hunt": {"provisional": True}} and "vetoes" not in m3

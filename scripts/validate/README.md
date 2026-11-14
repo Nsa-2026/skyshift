@@ -46,6 +46,10 @@ delete the local copies first when the bucket's are newer (`gcloud storage ls -l
 entry comes from) and `zones` (every zone whose run found it); the top level keeps the contract's `zone` (the
 headline zone) and adds `zones`. A later zone's suspect within 6″ and 2 minutes of an earlier zone's is the same
 mover and is not repeated. Both fields are optional additions; the contract shape is unchanged.
+The zone-level vetting fields (`vetoes`, `provisional`, `grades`, `gates`) are kept exactly as each zone's file has
+them: the headline zone's at the top level (the contract's one-zone shape), and every graded zone's under
+`vetting` = `{zone: {field: value}}`, for suspects whose `zone` is another. Ungraded zones (files written before the
+14 Nov vetting) are left out of `vetting`; with none graded the key is absent and the file is as before.
 
 `v4_asteroids.py` needs `data/most_1_60.csv` (`gcloud storage cp gs://nasa-glazing-data/results/most_1_60.csv data/`).
 

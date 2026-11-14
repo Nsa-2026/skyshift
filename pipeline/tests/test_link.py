@@ -130,3 +130,23 @@ def test_source_bit_ignored_in_photos_where_it_is_everywhere(tmp_path):
     a = d[d["photo"] == 0]["flags_peak"].to_numpy()
     b = d[d["photo"] == 1]["flags_peak"].to_numpy()
     assert not (a & C.SOURCE_BIT).any() and ((b & C.SOURCE_BIT) != 0).sum() == 5
+    assert {"x", "y", "size", "psf_chi2_nu"} <= set(d.columns)  # carried for the suspects' gates
+
+
+def test_movers_carry_their_dots_for_vetting():
+    """Each mover lists its dots in time order (dot_obs names, detector, pixel, flux, S/N, size, χ², flags at the peak);
+    columns a scene lacks come out NaN."""
+    sc = Scene()
+    sc.add(*offset_radec(122.0, 16.0, 2.0, 0.0), 3, 1, snr=8, flags_peak=1 << 19).add(122.0, 16.0, 3, 0, snr=9)
+    sc.rows[0].update(x=10.0, y=20.0, size=4.5, psf_chi2_nu=2.0)
+    sc.rows[1].update(x=11.0, y=135.0, size=4.6, psf_chi2_nu=2.5)
+    p = pd.DataFrame(sc.photos)
+    _, movers, _ = classify(pd.DataFrame(sc.rows), p, exposure_names=[f"X{i}" for i in range(40)])
+    m = movers.iloc[0]
+    assert list(m["dot_obs"]) == ["X30", "X31"] and list(m["dot_det"]) == [1, 1]
+    assert list(m["dot_x"]) == [11.0, 10.0] and list(m["dot_y"]) == [135.0, 20.0] and list(m["dot_snr"]) == [9.0, 8.0]
+    assert list(m["dot_fpk"]) == [0, 1 << 19] and list(m["dot_size"]) == [4.6, 4.5] and list(m["dot_row"]) == [-1, -1]
+    sc2 = Scene()
+    sc2.add(122.0, 16.0, 3, 0).add(*offset_radec(122.0, 16.0, 1.0, 0.0), 3, 1)
+    m2 = sc2.run()[1].iloc[0]
+    assert np.isnan(m2["dot_x"]).all() and len(m2["dot_obs"]) == 2

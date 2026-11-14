@@ -7,15 +7,27 @@
 //   const f = filterRows(rows, state);                 // f.rows passes; f.without(key) for facet counts
 //   const list = sortRows(f.rows, state.sort);
 //   const link = candidatesHash(state);                // shareable link to the same list
+import { gradeOf, gradeRank, leadRank } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { consensus as voteConsensus, type Answer, type Counts } from "../vote/model";
 import { reasonText, type ReviewState } from "./text";
 
 export type Tri = "any" | "yes" | "no";
-export type SortKey = "promising" | "fewest" | "most" | "brightest" | "fastest" | "newest";
+export type SortKey = "promising" | "grade" | "fewest" | "most" | "brightest" | "fastest" | "newest";
 
-export const SORTS: { key: SortKey; label: string }[] = [
-  { key: "promising", label: "Most promising" },
+/** Sorts only reorder the list, so their names say what they order by. "Most promising" is the
+ *  preset (a narrowed set), not a sort: the default order is "Pipeline score". */
+export const SORTS: { key: SortKey; label: string; hint?: string }[] = [
+  {
+    key: "promising",
+    label: "Pipeline score",
+    hint: "Grade A first and grade C last; then the highest pipeline score, with possible artefacts and the pipeline's doubts after the rest. Nothing is hidden.",
+  },
+  {
+    key: "grade",
+    label: "Vetting grade",
+    hint: "Fast movers by the pipeline's vetting grade: A, then B, then C, then everything without a grade; each by S/N, highest first.",
+  },
   { key: "fewest", label: "Fewest votes" },
   { key: "most", label: "Most votes" },
   { key: "brightest", label: "Brightest" },
@@ -32,8 +44,9 @@ export interface Range {
 export const RANGE_KEYS = ["score", "sig", "pm", "rate", "snr", "flux", "known", "b"] as const;
 export type RangeKey = (typeof RANGE_KEYS)[number];
 
-/** Multi-choice facets (OR within a facet, AND between facets). Values are strings, as in the URL. */
-export const LIST_KEYS = ["kind", "review", "verdict", "label", "reason", "det", "zone"] as const;
+/** Multi-choice facets (OR within a facet, AND between facets). Values are strings, as in the URL.
+ *  "grade" is last so links written before it keep their order. */
+export const LIST_KEYS = ["kind", "review", "verdict", "label", "reason", "det", "zone", "grade"] as const;
 export type ListKey = (typeof LIST_KEYS)[number];
 
 export interface FilterState {
@@ -44,6 +57,8 @@ export interface FilterState {
   reason: string[];
   det: string[];
   zone: string[];
+  /** Vetting grades: "A", "B", "C", or "none" (no grade). */
+  grade: string[];
   gaia: Tri;
   catwise: Tri;
   /** Hide candidates with any reason the pipeline lists as a doubt. */
@@ -66,6 +81,7 @@ export function defaultState(): FilterState {
     reason: [],
     det: [],
     zone: [],
+    grade: [],
     gaia: "any",
     catwise: "any",
     hideDoubts: false,
@@ -244,6 +260,7 @@ function tests(s: FilterState, doubts: (code: string) => boolean): Test[] {
   if (s.reason.length) out.push({ key: "reason", pass: (r) => r.c.reasons.some((l) => has(s.reason, l)) });
   if (s.det.length) out.push({ key: "det", pass: (r) => has(s.det, String(r.c.det)) });
   if (s.zone.length) out.push({ key: "zone", pass: (r) => has(s.zone, r.c.zone) });
+  if (s.grade.length) out.push({ key: "grade", pass: (r) => has(s.grade, gradeKey(r.c)) });
   if (s.gaia !== "any") out.push({ key: "gaia", pass: (r) => triPass(s.gaia, r.c.gaia_match) });
   if (s.catwise !== "any") out.push({ key: "catwise", pass: (r) => triPass(s.catwise, r.c.catwise_match) });
   if (s.hideDoubts) out.push({ key: "doubts", pass: (r) => !isDoubted(r.c, doubts) });
@@ -301,7 +318,18 @@ export const FACET_VALUES: Record<ListKey, (r: Row) => string[]> = {
   reason: (r) => r.c.reasons,
   det: (r) => [String(r.c.det)],
   zone: (r) => [r.c.zone],
+  grade: (r) => [gradeKey(r.c)],
 };
+
+/** The grade facet's value for a candidate: its grade, or "none" (read from the file, never guessed). */
+export function gradeKey(c: Candidate): string {
+  return gradeOf(c) ?? "none";
+}
+
+/** Does any candidate carry a grade? (An older export carries none: then the grade filter says so.) */
+export function anyGraded(cands: readonly Candidate[]): boolean {
+  return cands.some((c) => gradeOf(c) !== null);
+}
 
 /** How many filters are on (sort is not a filter). */
 export function activeCount(s: FilterState): number {
@@ -321,10 +349,12 @@ export function activeCount(s: FilterState): number {
 /** Descending with nulls last. */
 const desc = (a: number | null, b: number | null) => (a == null ? (b == null ? 0 : 1) : b == null ? -1 : b - a);
 
-/** Most promising: anything an artefact may be behind goes last, then the pipeline's doubts; then
- *  the score, how sure the motion is, and S/N. */
+/** The "Pipeline score" order: grade A first and grade C last (candidates.json: A, then B or no
+ *  grade, then C); then anything an artefact may be behind goes last, then the pipeline's doubts;
+ *  then the score, how sure the motion is, and S/N. Without grades it is the order it always was. */
 function promising(a: Row, b: Row): number {
   return (
+    leadRank(gradeOf(a.c)) - leadRank(gradeOf(b.c)) ||
     Number(isCautioned(a.c)) - Number(isCautioned(b.c)) ||
     Number(isDoubted(a.c)) - Number(isDoubted(b.c)) ||
     desc(a.c.score, b.c.score) ||
@@ -334,8 +364,14 @@ function promising(a: Row, b: Row): number {
   );
 }
 
+/** The "Vetting grade" order: A, B, C, then no grade; then S/N, highest first. */
+function byGrade(a: Row, b: Row): number {
+  return gradeRank(gradeOf(a.c)) - gradeRank(gradeOf(b.c)) || desc(a.c.snr, b.c.snr) || promising(a, b);
+}
+
 const SORTERS: Record<SortKey, (a: Row, b: Row) => number> = {
   promising,
+  grade: byGrade,
   fewest: (a, b) => a.total - b.total || promising(a, b),
   most: (a, b) => b.total - a.total || promising(a, b),
   brightest: (a, b) => desc(a.c.flux_ujy, b.c.flux_ujy) || promising(a, b),

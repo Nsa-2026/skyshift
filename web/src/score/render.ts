@@ -1,6 +1,26 @@
 // HTML for the scoreboard (web/DESIGN.md, "Lightbox"). A page that reads top to bottom: the
 // title, what was checked, one summary sentence, then one section per check and the suspects.
 // Every value from the JSON goes through esc().
+import {
+  FILE_PROVISIONAL_TEXT,
+  GRADE_TEXT,
+  NEAR_SOURCE_HINT,
+  countGrades,
+  failedGates,
+  gateText,
+  gateTotals,
+  gatesPhrase,
+  gradeALine,
+  gradeBCLine,
+  gradeCounts,
+  gradeOf,
+  nearSourceOf,
+  nearSourceText,
+  rankByGrade,
+  trackOf,
+  trackText,
+  vetoesText,
+} from "../api/grades";
 import type { CheckStatus, Suspect, SuspectsResponse, ValidationCheck, ValidationResponse } from "../api/types";
 import { DETECTORS } from "../app/astro";
 import { checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
@@ -120,7 +140,7 @@ const CHEVRON = `<svg class="sc-chev" width="12" height="12" viewBox="0 0 12 12"
 function rowsBlock(c: ValidationCheck): string {
   const rows = Array.isArray(c.rows) ? c.rows : [];
   if (!rows.length) return "";
-  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length} rows`;
+  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length.toLocaleString("en-GB")} rows`;
   const hide = rows.length === 1 ? "Hide the row" : "Hide the rows";
   return html`<details class="sc-rows">
     <summary><span class="sc-show">${show}</span><span class="sc-hide">${hide}</span>${CHEVRON}</summary>
@@ -167,12 +187,25 @@ export function renderCheck(c: ValidationCheck, lead = false): string {
 
 // ---- suspects ----------------------------------------------------------------------------
 
-function suspectRow(s: Suspect): string {
+/** The grade cell: the grade in words, why a C failed, and the near-source warning (quiet). */
+function gradeCell(s: Suspect): string {
+  const g = gradeOf(s);
+  const near = nearSourceOf(s);
+  const t = trackOf(s);
+  const track = t ? html`<span class="sc-sub sc-track">${esc(trackText(t))}</span>` : "";
+  const warn = (near != null ? html`<span class="sc-sub sc-near" title="${esc(NEAR_SOURCE_HINT)}">${esc(nearSourceText(near))}</span>` : "") + track;
+  if (!g) return html`<td class="sc-grade"><span class="sc-sub">Not vetted yet</span>${warn}</td>`;
+  const sub = g === "C" ? gatesPhrase(failedGates(s)) || "fails a pipeline check" : GRADE_TEXT[g].name.toLowerCase();
+  return html`<td class="sc-grade" data-grade="${g}"><span class="sc-grade-name">${esc(GRADE_TEXT[g].short)}</span><span class="sc-sub">${esc(sub.charAt(0).toUpperCase() + sub.slice(1))}</span>${warn}</td>`;
+}
+
+function suspectRow(s: Suspect, graded: boolean): string {
   const det = DETECTORS[s.det as keyof typeof DETECTORS];
-  return html`<tr>
+  return html`<tr${gradeOf(s) === "C" ? ` class="is-gradec"` : ""}>
     <th scope="row" class="sc-sid"><a class="sc-sid-id" href="${esc(candidateHref(s.id))}"
         title="Its page: why it's listed, cautions and votes">${esc(s.id)}</a>
       <a class="sc-blink" href="${esc(blinkHref(s))}" aria-label="Blink ${esc(s.id)} on the Hours clock">Blink this</a></th>
+    ${graded ? gradeCell(s) : ""}
     <td>${esc(suspectDate(s.mjd))}</td>
     <td class="sc-pos"><span>${esc(formatPos(s))}</span><span class="sc-sub">${esc(formatDecimalPos(s))}</span></td>
     <td class="det-${esc(s.det)}"><span class="sc-det"><i aria-hidden="true"></i>D${esc(s.det)}</span>${
@@ -194,6 +227,31 @@ function zoneName(zone: string): string {
   return /^[a-z]/.test(z) ? `the ${z}` : z;
 }
 
+/**
+ * The vetting's totals for the file: 0 grade A said as the expected result (not a failure), B and C,
+ * the zone-level checks, provisional, and why the C failed. Nothing for an ungraded file.
+ */
+export function vettingHtml(sr: SuspectsResponse, list: readonly Suspect[]): string {
+  const n = gradeCounts(sr.grades) ?? countGrades(list);
+  if (!n) return "";
+  const vetoes = vetoesText(sr.vetoes);
+  const gates = n.C > 0 ? gateTotals(sr.gates) : [];
+  return html`<div class="sc-vetting">
+    <p class="sc-grades-a">${esc(gradeALine(n.A))}</p>
+    <p class="sc-grades-bc">${esc(gradeBCLine(n))} Grade C rows stay in the table, greyed, with what they failed; they aren't put to a vote.</p>
+    ${vetoes ? html`<p class="sc-sub">Every suspect was checked against ${esc(vetoes)}.</p>` : ""}
+    ${sr.provisional === true ? html`<p class="sc-sub sc-provisional">${esc(FILE_PROVISIONAL_TEXT)}</p>` : ""}
+    ${
+      gates.length
+        ? html`<details class="sc-gates"><summary>Why ${n.C.toLocaleString("en-GB")} ${n.C === 1 ? "is" : "are"} grade C</summary>
+            <dl>${gates.map(([code, k]) => html`<div title="${esc(gateText(code).plain)}"><dt>${esc(gateText(code).label)}</dt><dd>${k.toLocaleString("en-GB")}</dd></div>`).join("")}</dl>
+            <p class="sc-sub">A suspect can fail several checks. Hover a line for what it means, or see the <a href="#/learn/glossary">glossary</a>.</p>
+          </details>`
+        : ""
+    }
+  </div>`;
+}
+
 export function renderSuspects(sr: SuspectsResponse | null): string {
   const intro = html`<p class="sc-intro">A suspect is a dot that seemed to move where no known asteroid or comet was
     predicted. Most are artefacts: in the hunt zone, 211 of 228 rest on just two dots in one session, which can't show
@@ -206,25 +264,29 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
       <p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of suspects comes after the hunt-zone run.</p>
     </section>`;
   }
-  const list = Array.isArray(sr.suspects) ? sr.suspects : [];
+  const raw = Array.isArray(sr.suspects) ? sr.suspects : [];
+  // A graded file is ranked by grade (A, B, C), then S/N; an older, ungraded one stays in file order.
+  const graded = raw.some((s) => gradeOf(s) !== null);
+  const list = graded ? rankByGrade(raw) : raw;
   const n = list.length;
   const table = n
     ? html`<div class="sc-scroll" tabindex="0" role="region" aria-label="Suspects table">
         <table class="sc-table sc-suspect-table">
           <caption class="visually-hidden">Unknown-mover suspects in ${esc(zoneName(sr.zone))}</caption>
           <thead><tr>
-            <th scope="col">Suspect</th><th scope="col">Date (UTC)</th><th scope="col">Position (RA, Dec)</th>
+            <th scope="col">Suspect</th>${graded ? html`<th scope="col">Vetting grade</th>` : ""}<th scope="col">Date (UTC)</th><th scope="col">Position (RA, Dec)</th>
             <th scope="col">Detector</th><th scope="col">Evidence</th><th scope="col" class="num">S/N</th>
             <th scope="col" class="num">Flux (µJy)</th><th scope="col" class="num">Nearest known</th>
           </tr></thead>
-          <tbody>${list.map(suspectRow).join("")}</tbody>
+          <tbody>${list.map((s) => suspectRow(s, graded)).join("")}</tbody>
         </table></div>`
     : html`<p class="sc-wait">No suspects here: every mover matched a known object or was filtered out.</p>`;
   return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
     <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
     ${intro}
+    ${vettingHtml(sr, list)}
     <div class="sc-suspects-bar">
-      <p class="sc-zone"><b>${n}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
+      <p class="sc-zone"><b>${n.toLocaleString("en-GB")}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
         ${esc(prettyText(sr.data_release))}, published ${esc(formatGenerated(sr.generated))}.</p>
       <button type="button" class="btn btn-ghost sc-csv" data-csv ${n ? "" : "disabled"}>Download CSV</button>
     </div>

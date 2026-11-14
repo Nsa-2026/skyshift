@@ -55,5 +55,14 @@ it('keeps the observation, selected signal and player instance through level and
   expect(root.querySelectorAll('#card .cd-spec circle')).toHaveLength(spectrumPoints);
   expect(engine.show).toHaveBeenCalledTimes(1);
   expect(new URLSearchParams(location.search).get('t')).toBe('barnard');
+  await change('#/explore/play');
+  expect(root.querySelector('.page-blink')!.getAttribute('data-practice')).toBe('true');
+  expect(root.querySelector<HTMLElement>('.practice-panel')!.hidden).toBe(false);
+  expect(root.querySelector<HTMLElement>('#science-workbench')!.hidden).toBe(true);
+  expect(new URLSearchParams(location.search).get('t')).toBe('elpis');
+  const practiceLoads=engine.show.mock.calls.length;
+  await change('#/explore/analyze/motion');
+  expect(root.querySelector<HTMLElement>('.practice-panel')!.hidden).toBe(true);
+  expect(engine.show).toHaveBeenCalledTimes(practiceLoads);
   root.remove();
 });
