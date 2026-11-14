@@ -1,7 +1,7 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>SkyShift Hackathon Plan</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="SkyShift plan v2: what we build for the Planet X and SPHEREx challenge, why it wins, and how we prove it works.">
+<meta name="description" content="SkyShift plan v3: what we build for the Planet X and SPHEREx challenge, what we deliver, why it wins, how we prove it works, and what it costs to scale.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -219,7 +219,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
   <div class="wrap nav-inner">
     <a class="brand" href="#top">Sky<span>Shift</span></a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#win">Why we win</a><a href="#clocks">Two clocks</a><a href="#light">102 colours</a><a href="#scope">Scope</a><a href="#demo">Demo</a><a href="#validation">Validation</a><a href="#page">Project page</a><a href="#milestones">Milestones</a><a href="#risks">Risks</a><a href="#decisions">Decisions</a>
+      <a href="#deliver">What we deliver</a><a href="#win">Why we win</a><a href="#clocks">Two clocks</a><a href="#light">102 colours</a><a href="#scope">Scope</a><a href="#demo">Demo</a><a href="#validation">Validation</a><a href="#scale">Scale</a><a href="#page">Project page</a><a href="#milestones">Milestones</a><a href="#risks">Risks</a><a href="#decisions">Decisions</a>
     </nav>
   </div>
 </header>
@@ -230,16 +230,18 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
     <div class="wrap">
       <div class="hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow">NASA Space Apps 2026 · Planet X and SPHEREx · Team plan v2</p>
+          <p class="eyebrow">NASA Space Apps 2026 · Planet X and SPHEREx · Team plan v3, Sat 14 Nov</p>
           <h1>SkyShift</h1>
-          <p class="lede">SkyShift is a WiseView for SPHEREx that blinks each kind of object on the clock that suits it, measures what moved, and checks that measurement against Gaia and known asteroid positions.</p>
+          <p class="lede">SkyShift is a WiseView for SPHEREx that blinks each kind of object on the clock that suits it, measures what moved, and checks that measurement against Gaia and known asteroid positions. Underneath, a pipeline turns every photo it reads into a database of dots, a star catalogue with 102-colour spectra, motions, and a search for fast movers that no catalogue knows.</p>
           <dl class="kv event">
             <dt>Start</dt><dd>Sat 14 Nov, 09:00</dd>
-            <dt>Submit</dt><dd>Sun 15 Nov, 15:00 local (the global form closes 23:59). Assumed until the Local Lead confirms.</dd>
+            <dt>Build</dt><dd>Saturday only: freeze 20:00, first full submission 22:00, no night shift</dd>
+            <dt>Submit</dt><dd>Final save Sun 15 Nov, 14:30, before the 15:00 local deadline (the global form closes 23:59)</dd>
             <dt>Pitch</dt><dd>Sun 15:30, live</dd>
             <dt>Demo</dt><dd>Video of 30 s or less (we cut to 29 s), or at most 7 slides</dd>
+            <dt>Site</dt><dd><a href="https://skyshift.web.app">skyshift.web.app</a></dd>
           </dl>
-          <p class="muted small">4 people · 30 hours · the demos on this page use simulated stars. This demo code predates the event and is not used in the product.</p>
+          <p class="muted small">4 people · one build day · the demos on this page use simulated stars. This demo code predates the event and is not used in the product.</p>
           <div class="seg"><a class="btn primary" href="#lab" style="text-decoration:none">Try the two clocks</a><a class="btn" href="skyshift-dev-plan.html" style="text-decoration:none">Developer plan</a></div>
         </div>
         <figure class="hero-fig" style="margin:0">
@@ -256,6 +258,25 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
     </div>
   </section>
 
+  <!-- WHAT WE DELIVER -->
+  <section id="deliver">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">What we deliver</p>
+        <h2>Two clocks on top, a sky database underneath</h2>
+        <p class="muted">The site is what a judge touches: paste coordinates, blink, measure, vote. Behind it, a pipeline reads each SPHEREx photo once from NASA's public copy and keeps only what it measured: about 4.5 MB per photo, never the photo itself. Combined across photos, those measurements become a catalogue of the sky. <span class="chip good">built</span> code done · <span class="chip core">after the pilot</span> built, numbers come from the pilot run · <span class="chip edge">in progress</span> being built today.</p>
+      </div>
+      <div class="three">
+        <div class="idea-card"><span class="chip good" style="align-self:flex-start">built</span><h3>Two clocks</h3><p class="small">Months blinks one stacked frame per visit, for stars and brown dwarfs. Hours blinks single exposures, for comets and asteroids. Barnard's Star, measured on real data: 10.83″ ± 0.36″ between visits 1 and 3, against Gaia's 10.27″.</p></div>
+        <div class="idea-card"><span class="chip good" style="align-self:flex-start">built</span><h3>A dot database</h3><p class="small">Every point of light in every photo: position and error, brightness from apertures and from NASA's star shape, colour channel, shape, background, quality flags. Plus the brightness at every catalogue star, seen or not. One test photo gave 28,583 dots from AB 10.6 to 17.5.</p></div>
+        <div class="idea-card"><span class="chip core" style="align-self:flex-start">after the pilot</span><h3>A star catalogue with 102-colour spectra</h3><p class="small">Dots seen in the same place in 3 or more sessions become a source with its own 0.75–5 µm spectrum, matched to Gaia, CatWISE and 2MASS, and classed as star, galaxy or unsure. Light curves and true colours come with it.</p></div>
+        <div class="idea-card"><span class="chip core" style="align-self:flex-start">after the pilot</span><h3>Motion, and a Planet X search</h3><p class="small">Proper motion for every source, and parallax where there are 3 or more visits. A search for fast movers that Gaia doesn't know, checked by re-finding known fast stars. Known asteroids re-found, unknown movers listed as suspects for people to vote on.</p></div>
+        <div class="idea-card"><span class="chip edge" style="align-self:flex-start">in progress</span><h3>Asteroid sizes and comet gas</h3><p class="small">An asteroid's reflected sunlight (short wavelengths) against its heat glow (long wavelengths) gives its size and how dark it is, compared with published values. For comet 3I/ATLAS: the CO₂, water and CO bands.</p></div>
+        <div class="idea-card"><span class="chip core" style="align-self:flex-start">after the pilot</span><h3>Ices and galaxy distances</h3><p class="small">Ice bands (water, CO₂, CO) in front of background stars; methane and water in cold brown dwarfs. Rough distances to galaxies from the shape of their spectrum, checked against 2,755 SDSS galaxies with measured redshifts in the pilot zone.</p></div>
+      </div>
+    </div>
+  </section>
+
   <!-- WHY WE WIN -->
   <section id="win">
     <div class="wrap stack-lg">
@@ -268,7 +289,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
         <h3>What a judge sees in 30 seconds</h3>
         <div class="uses" style="margin-top:0">
           <div class="use"><span class="chip core" style="align-self:flex-start">1 · Two clocks</span><p class="small"><b>Months</b> blinks one stacked frame per visit: nearby stars and brown dwarfs step. <b>Hours</b> blinks single exposures: comets and asteroids cross.</p></div>
-          <div class="use"><span class="chip core" style="align-self:flex-start">2 · A number under every movie</span><p class="small">"Moved 5.1″ north in 6 months. Gaia predicts 5.2″." (Example wording; the real numbers come from our validation run.)</p></div>
+          <div class="use"><span class="chip core" style="align-self:flex-start">2 · A number under every movie</span><p class="small">"Barnard's Star moved 10.83″ ± 0.36″ between visits 1 and 3. Gaia predicts 10.27″." Measured on real SPHEREx data on Saturday: 5.5% off, inside our 15% target.</p></div>
           <div class="use"><span class="chip core" style="align-self:flex-start">3 · 3I/ATLAS</span><p class="small">The interstellar comet crossing the stars, next to a counter: "⟨N⟩ known asteroids re-found".</p></div>
           <div class="use"><span class="chip core" style="align-self:flex-start">4 · Spectrum by visit</span><p class="small">Built on the fly, coloured by visit, with water, methane, CO₂ and CO marked. It says what the mover is and how a variable star changed.</p></div>
         </div>
@@ -281,8 +302,8 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <thead><tr><th>Criterion</th><th>How we earn it</th><th>Evidence we show</th></tr></thead>
             <tbody>
               <tr><td><b>Impact</b></td><td>Anyone can paste coordinates, watch, flag a dot and vote, on a phone too.</td><td>Candidate list with vote counts and CSV export; people and votes from a venue test.</td></tr>
-              <tr><td><b>Creativity</b></td><td>Clocks matched to SPHEREx's timing; spectrum by visit; a planted-object drill.</td><td>The Months/Hours switch in the video.</td></tr>
-              <tr><td><b>Validity</b></td><td>The tool checks itself and states its limits.</td><td>A "How we know it works" page (<a href="#validation">V1–V8</a>), with a control test.</td></tr>
+              <tr><td><b>Creativity</b></td><td>Clocks matched to SPHEREx's timing; spectrum by visit; 102 colours used to tell stars from galaxies, find ices and methane, and size asteroids from their heat glow.</td><td>The Months/Hours switch in the video; the spectrum card.</td></tr>
+              <tr><td><b>Validity</b></td><td>The tool checks itself and states its limits.</td><td>A "How we know it works" page (<a href="#validation">V1–V11</a>) with control tests: motion and astrometry against Gaia, asteroids against NASA's predictions, galaxy distances against SDSS, asteroid sizes against published values.</td></tr>
               <tr><td><b>Relevance</b></td><td>Every objective and consideration is answered; the five test objects are one click away.</td><td>A <a href="#challenge-map">challenge-text-to-feature table</a>; the challenge's own coordinate string works when pasted.</td></tr>
               <tr><td><b>Presentation</b></td><td>One story: Pluto was found by blinking → volunteers found comets and brown dwarfs the same way → SPHEREx re-images the sky every six months → anyone can blink it.</td><td>GIF at the top of the project page; a 29-second video.</td></tr>
             </tbody>
@@ -416,14 +437,14 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <p class="chart-title">SPECTRUM BUILT FROM THE 102 MEASUREMENTS (SIMULATED SHAPE)</p>
           <div class="chart" id="scan-spec"></div>
           <p class="caption" id="scan-note"></p>
-          <p class="caption">Marked molecules: water (1.4, 1.9, 2.7–3.0 µm), methane (1.65, 2.2, 3.3 µm), CO₂ (4.27 µm), CO (2.3, 4.6–4.7 µm). Positions are approximate; we check them against SPHEREx material before showing them.</p>
+          <p class="caption">Bands the pipeline measures: water ice 3.05, CO₂ ice 4.27, CO ice 4.67 µm; methane 3.3 and 1.6 µm; water vapour 1.4 and 1.9 µm; CO 2.3 µm; PAH 3.3 µm. A feature is shown only when it is 5σ or stronger.</p>
         </div>
       </div>
       <div class="det-list" id="det-list"></div>
       <div class="uses">
         <div class="use"><h3>1 · Six clean channels per visit</h3><p class="small">Within one visit we median-stack every exposure from the same detector, aligned and oversampled (3× on the 5′ field, 2× on the 15′ field). That gives six sharp, low-noise frames per visit, the approach NASA suggested. The Months clock compares the same detector across visits.</p></div>
         <div class="use"><h3>2 · A spectrum on the fly, coloured by visit</h3><p class="small">Each photo carries a wavelength map, so every pixel knows its colour. We measure the object's brightness in every cutout (aperture photometry, no model fitting), sort by wavelength and colour the points by visit.</p></div>
-        <div class="use"><h3>3 · False colour, as a still</h3><p class="small">A false-colour picture per visit is a Should item (S5), not a blink mode. Switching D1 → D6 on WISE 0855 gives the same effect for free: it is absent at short wavelengths and bright at long ones.</p></div>
+        <div class="use"><h3>3 · False colour, as a still</h3><p class="small">A false-colour picture per visit was a Should item (S5) and is cut in the one-day plan. Switching D1 → D6 on WISE 0855 gives the same effect for free: it is absent at short wavelengths and bright at long ones.</p></div>
         <div class="use"><h3>4 · Fair comparisons only</h3><p class="small">One spot is seen in a different colour in every exposure, so brightness changes between raw exposures are mostly colour, not real change. We compare the same detector, visit to visit.</p></div>
       </div>
       <div class="two" style="margin-top:28px">
@@ -436,7 +457,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
                 <tr><td>Data Release 1 photos (late Apr 2025 to mid May 2026)</td><td>945,725</td></tr>
                 <tr><td>Quick Release 3 photos (mid May to early Oct 2026)</td><td>362,124</td></tr>
                 <tr><td>One exposure</td><td>113 s · 2040 × 2040 pixels · about 6.15″ per pixel</td></tr>
-                <tr><td>One photo file</td><td>about 66 MB in 6 parts; the parts we need are an estimated 28 MB, to be measured</td></tr>
+                <tr><td>One photo file</td><td>60.2 MB in 6 parts (measured). We stream all six once (~56 MB) and keep ~4.5 MB of measurements; NASA's photos are never copied</td></tr>
                 <tr><td>IRSA's SPHEREx all-sky cube</td><td>102 frames, about 12.9″ per pixel, coarser than the 6.15″ photos</td></tr>
                 <tr><td>Public SPHEREx catalogue of moving sources</td><td>No general public catalogue yet. Related work exists: IRSA's Source Discovery Tool, SPLICES, and the Gagné et al. 2026 brown-dwarf library. We don't claim a first.</td></tr>
               </tbody>
@@ -448,7 +469,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <h3>Quality flags</h3>
           <p class="small">We mask a named list of bad-pixel flags (cosmic rays, hot and dead pixels, saturation, persistence, streaks), kept in <code>contracts/flags.md</code>. We never mask SOURCE, which is set on about 99% of pixels. Ghost, halo and crosstalk flags are recorded on the dot. A saturation flag in a source's core marks it as saturated.</p>
           <h3>Two limits we state up front</h3>
-          <p class="small">Parallax is at most 1.1″ between visits, below what we can measure, so the card shows Gaia's distance instead. SPHEREx saturates near AB magnitude 10–11 (one paper quotes 9.7–11.7; to check on real data), so three of the five test objects are expected to saturate. The tool marks saturated cores.</p>
+          <p class="small">Parallax is at most about 1.1″ between visits, close to our errors. The pipeline fits it only where a source has 3 or more visits, and the card shows Gaia's distance. SPHEREx saturates near AB magnitude 10–11 (one paper quotes 9.7–11.7; to check on real data), so three of the five test objects are expected to saturate. The tool marks saturated cores.</p>
         </div>
       </div>
     </div>
@@ -477,10 +498,10 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <div class="mock-screen" aria-hidden="true">
             <div class="bar"><span class="mb hot">Months</span><span class="mb">Hours</span><span style="margin-left:auto;opacity:.7">D6</span></div>
             <span class="pin" style="left:48%;top:46%;width:7px;height:7px;opacity:.45"></span><span class="pin" style="left:48%;top:40%;width:7px;height:7px"></span>
-            <div class="sheet"><span>Moved 5.1″ north in 6 months</span><span>Gaia predicts 5.2″ · 6 light-years</span></div>
+            <div class="sheet"><span>Moved 10.83″ ± 0.36″ · PA 357.8°</span><span>Gaia predicts 10.27″ · 6 light-years</span></div>
           </div>
           <h3>2 · Blink and measure</h3>
-          <p class="small muted">Pick the clock. The readout gives shift, rate, error and Gaia's prediction. Mock-up values, not results.</p>
+          <p class="small muted">Pick the clock. The readout gives shift, rate, error and Gaia's prediction. Mock-up layout; the numbers are Barnard's Star's, measured on real data (visits 1 and 3).</p>
         </div>
         <div class="mock">
           <div class="mock-screen" aria-hidden="true">
@@ -493,7 +514,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
       </div>
 
       <div class="stack">
-        <h3>Must: polished by the Sunday 09:00 freeze</h3>
+        <h3>Must: polished by the Saturday 20:00 freeze</h3>
         <div class="tablewrap">
           <table class="mid">
             <thead><tr><th>#</th><th>Feature</th><th>Owner</th></tr></thead>
@@ -507,7 +528,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
               <tr><td class="k">M7</td><td>Featured targets as static files: the five, 3I/ATLAS, two asteroids.</td><td class="k">P2</td></tr>
               <tr><td class="k">M8</td><td>Sky view: Aladin Lite 3.8.2 from jsDelivr, with IRSA layer URLs and SIMBAD features off, plus Gaia dots. The blink works without it.</td><td class="k">P3</td></tr>
               <tr><td class="k">M9</td><td>Flag and vote: flag a dot in any blink; candidate list; votes (mover / changing / junk / not sure); counts; CSV export.</td><td class="k">P4</td></tr>
-              <tr><td class="k">M10</td><td>"How we know it works" page with V1–V4.</td><td class="k">P1</td></tr>
+              <tr><td class="k">M10</td><td>"How we know it works" page with V1–V4, plus the pilot's recall and the new checks as they land.</td><td class="k">P1, P3</td></tr>
               <tr><td class="k">M11</td><td>Project page, 29-second video, public repo with README, licence, AI disclosure.</td><td class="k">P4, all</td></tr>
             </tbody>
           </table>
@@ -515,17 +536,16 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
       </div>
 
       <div class="stack">
-        <h3>Should: in this order, after the Saturday gates</h3>
+        <h3>Should: only S1 survives the one-day plan</h3>
         <div class="tablewrap">
           <table class="mid">
             <thead><tr><th>#</th><th>Feature</th><th>Owner</th><th>Cost</th></tr></thead>
             <tbody>
-              <tr><td class="k">S1</td><td><b>Hunt zone.</b> 100 deg² on the ecliptic, where asteroids are densest (RA 120.5–130.5, Dec +14.4 to +24.4). Known asteroids are matched; suspects join the candidate list.</td><td class="k">P1</td><td class="k">gated, Sat 18:00</td></tr>
-              <tr><td class="k">S2</td><td><b>Fast Gaia stars.</b> Measured vs predicted shift for about 40 stars.</td><td class="k">P2</td><td class="k">1.5 h</td></tr>
-              <tr><td class="k">S3</td><td><b>Gagné brown-dwarf list.</b> A "known brown dwarf" label and a recovery count.</td><td class="k">P1</td><td class="k">1.5 h</td></tr>
-              <tr><td class="k">S4</td><td><b>"Hidden neighbour" drill.</b> A simulated WISE 0855-like object planted in real frames, labelled as simulated.</td><td class="k">P4</td><td class="k">2 h</td></tr>
-              <tr><td class="k">S5</td><td><b>False-colour still</b> per visit.</td><td class="k">P4</td><td class="k">1.5 h</td></tr>
-              <tr><td class="k">S6</td><td>Flag-pixel overlay, AllWISE layer, light-curve chart.</td><td class="k">P3</td><td class="k">1 h each</td></tr>
+              <tr><td class="k">S1</td><td><b>Hunt zone.</b> 100 deg² on the ecliptic, where asteroids are densest (RA 120.5–130.5, Dec +14.4 to +24.4). Known asteroids are matched; suspects join the candidate list.</td><td class="k">P1</td><td class="k">gated, G2 ~14:30</td></tr>
+              <tr><td class="k">+</td><td><b>Asteroid sizes and albedos</b> from reflected light plus heat glow (NEATM), compared with published values.</td><td class="k">P1</td><td class="k">in progress</td></tr>
+              <tr><td class="k">+</td><td><b>Comet 3I/ATLAS gas:</b> CO₂, H₂O and CO bands.</td><td class="k">P1</td><td class="k">in progress</td></tr>
+              <tr><td class="k">+</td><td><b>Light-curve chart and colour readout</b> in the app (the pipeline has the data).</td><td class="k">P3</td><td class="k">Sat afternoon</td></tr>
+              <tr><td class="k">S2–S6</td><td>Fast Gaia stars, Gagné brown-dwarf list, "hidden neighbour" drill, false-colour still, flag-pixel overlay and AllWISE layer.</td><td class="k">—</td><td class="k">cut; only if someone is idle after 18:00</td></tr>
             </tbody>
           </table>
         </div>
@@ -537,9 +557,9 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <p class="small muted">This replaces the old "5% of the sky, then the whole sky" plan. We only scale up once a small test proves we can find known asteroids.</p>
         </div>
         <div class="phases">
-          <div class="phase"><span class="chip edge" style="align-self:flex-start">Pilot · Sat 16:00–18:00</span><h3>12 deg², about 230 photos</h3><p class="small">Runs on the 8-core test machine. We look up known asteroids with SkyBoT at each exposure's MJD-AVG, spot-checked with NASA's MOST, and run a control 3′ away.</p><p class="gate"><span class="ms gate-ms">G2 · Sat 18:00</span><br>Recall at V &lt; 16 must be 50% or more.</p></div>
-          <div class="phase b"><span class="chip core" style="align-self:flex-start">S1 · only if G2 passes</span><h3>Hunt zone: 100 deg²</h3><p class="small">About 3,400 photos, under an hour on the <code>n2-highcpu-64</code> spot worker (to be measured). Dots are grouped by sky position: many sessions = fixed; one session only = mover candidate. Candidates with no known asteroid there become suspects.</p><p class="gate">Result: V5, asteroid recall by brightness, due Sun 03:00.</p></div>
-          <div class="phase cut"><span class="chip" style="align-self:flex-start">Not attempted</span><h3>Larger areas</h3><p class="small">The 5% zone (2,000 deg², about 37,000 photos) was cut: unmeasured speed, and its linking step didn't fit the real cadence. The whole sky is not attempted; the project page gives one projected-cost sentence.</p><p class="gate">If G2 fails: check for 30 minutes, then stop S1 and rely on V4 and the comet.</p></div>
+          <div class="phase"><span class="chip edge" style="align-self:flex-start">Pilot · Sat ~13:45–14:30</span><h3>12 deg², 990 photos</h3><p class="small">From 352 exposures, on the 8-core test machine. We look up known asteroids with SkyBoT once per session, move them to each exposure's MJD-AVG, and run a control with every prediction moved 2′. The pilot holds only about 9 known asteroids brighter than V 16, so the counts are printed with the rate.</p><p class="gate"><span class="ms gate-ms">G2 · right after, ~14:30</span><br>Recall at V &lt; 16 must be 50% or more.</p></div>
+          <div class="phase b"><span class="chip core" style="align-self:flex-start">S1 · only if G2 passes</span><h3>Hunt zone: 100 deg²</h3><p class="small">3,692 photos, under an hour on the <code>n2-highcpu-64</code> spot worker. Dots seen within 4″ in 3 or more sessions are fixed sources. A mover is a pair of dots inside one session, or in two detectors exposed at the same moment, away from any fixed source. Movers with no known asteroid there become suspects.</p><p class="gate">Result: V5, asteroid recall by brightness, Saturday afternoon.</p></div>
+          <div class="phase cut"><span class="chip" style="align-self:flex-start">Costed, not run</span><h3>Larger areas</h3><p class="small">Not run this weekend. Costed from the measured speed: 5% of the sky about €4 and 4 hours; the whole sky about €75 of compute (<a href="#scale">Scale</a>).</p><p class="gate">If G2 fails: check for 30 minutes, then stop S1 and rely on V4 and the comet.</p></div>
         </div>
       </div>
 
@@ -550,10 +570,10 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <table>
               <thead><tr><th>Cut</th><th>Why</th></tr></thead>
               <tbody>
-                <tr><td>The 5% deep zone (2,000 deg²)</td><td>About 37,000 photos at unmeasured speed. S1 replaces it at one-twentieth the size.</td></tr>
-                <tr><td>Whole-sky run</td><td>Adds nothing to any criterion.</td></tr>
-                <tr><td>Linking every dot across visits</td><td>We measure motion only where people look.</td></tr>
-                <tr><td>Job list with locks, sky tiling</td><td>Not needed for 3,400 photos. Each photo's output file marks it done.</td></tr>
+                <tr><td>The 5% zone and the whole sky this weekend</td><td>Costed instead (<a href="#scale">Scale</a>). S1 shows the method on 100 deg².</td></tr>
+                <tr><td>S2–S6</td><td>Cut when the build was condensed to one day.</td></tr>
+                <tr><td>Night shift</td><td>Everything is built on Saturday; Sunday is for the video and rehearsals.</td></tr>
+                <tr><td>Job list with locks, sky tiling</td><td>Not needed for 3,692 photos. Each photo's output file marks it done.</td></tr>
                 <tr><td>False colour as a blink mode, 3D neighbourhood, tour overlay, in-app GIF export, NEOSSat, accounts</td><td>Not worth the hours.</td></tr>
               </tbody>
             </table>
@@ -565,11 +585,14 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <li><b>Deep zone shrinks</b> to the S1 hunt zone.</li>
             <li><b>Voting stays, smaller</b> (M9). Any visitor can flag a dot, so it no longer depends on the pipeline.</li>
             <li><b>Spectrum stays, simpler</b> (M6): no model fitting.</li>
-            <li><b>False colour shrinks</b> to a still (S5).</li>
+            <li><b>False colour</b> as a still (S5) is cut; switching D1 → D6 shows colour well enough.</li>
             <li><b>Blink becomes two clocks</b> (see <a href="#clocks">above</a>).</li>
+            <li><b>One build day:</b> freeze Sat 20:00, first full submission 22:00.</li>
+            <li><b>Public address:</b> <code>skyshift.web.app</code>.</li>
+            <li><b>NASA's photos are never copied:</b> each is read once from NASA's public copy and only our measurements are kept.</li>
           </ul>
           <h3>How the parts fit</h3>
-          <p class="small">Featured targets are static files: they load at once and keep working after the cloud credit ends. Any other coordinates query IRSA live and the server sends back frame data, so new weekly data appears without code changes. Gaia, known asteroids and the 3I/ATLAS table come through the same server. Architecture, contracts and per-person build plans are on the <a href="skyshift-dev-plan.html">developer plan</a>.</p>
+          <p class="small">Featured targets are static files: they load at once and keep working after the cloud credit ends. The pipeline runs on two cloud machines that stop themselves after each job and writes its tables to one bucket. Any other coordinates query IRSA live and the server sends back frame data, so new weekly data appears without code changes. Gaia, known asteroids and the 3I/ATLAS table come through the same server. Architecture, contracts and per-person build plans are on the <a href="skyshift-dev-plan.html">developer plan</a>.</p>
         </div>
       </div>
 
@@ -583,15 +606,16 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
               <tr><td>Enter the coordinates of a patch of sky; see a little video</td><td>Coordinate box first, accepting <code>08h55m10.831s -7d14m42.53s</code> and decimal degrees. The movie plays one stacked frame per visit (six months apart) for slow movers, or single exposures inside a visit for comets and asteroids.</td></tr>
               <tr><td>Test on Barnard's Star, Epsilon Indi B, WISE 0855, RW Aurigae, R Draconis</td><td>Five one-click chips; each is a static featured target with expected values and caveats (<a href="#demo">table below</a>); V1 counts the recoveries.</td></tr>
               <tr><td>Easy to update with new data</td><td>Any coordinates query IRSA live, so new weekly data appears without code changes. A badge shows "Data: DR1 + QR3, checked ⟨date⟩". Featured targets are static files.</td></tr>
-              <tr><td>Use the 102 bands creatively; add each detector separately</td><td>Median stack per detector within each visit; spectrum coloured by visit; false-colour still (S5).</td></tr>
+              <tr><td>Use the 102 bands creatively; add each detector separately</td><td>Median stack per detector within each visit; spectrum coloured by visit; a 102-channel spectrum for every star in the hunt zone, used to tell stars from galaxies, find ices and methane, estimate galaxy distances, and size asteroids from reflected light and heat glow.</td></tr>
               <tr><td>Spectra on the fly ("extra kudos")</td><td>M6: aperture photometry on every cutout, molecules marked.</td></tr>
               <tr><td>Add or subtract images</td><td>Blink, subtract and add, done in the browser.</td></tr>
               <tr><td>Choose the field of view</td><td>5′ or 15′ (Months), 20′ or 60′ (Hours). The larger field catches faster movers but loads more data.</td></tr>
               <tr><td>Overlays from Gaia or WISE</td><td>Gaia DR3 dots and predicted positions (ESA partner data); 2MASS and AllWISE layers from IRSA; known asteroid positions.</td></tr>
               <tr><td>Coordinates in the URL, for embedding</td><td>Every view's state is in the URL; <code>&amp;embed=1</code> gives a minimal view for other sites.</td></tr>
-              <tr><td>Show metadata such as contamination flags</td><td>Frame dates and detector; saturated cores marked; flag-pixel overlay (S6).</td></tr>
+              <tr><td>Show metadata such as contamination flags</td><td>Frame dates and detector; saturated cores marked; every measured dot keeps NASA's flag bits around and at its centre.</td></tr>
               <tr><td>Use Astropy and CDS Aladin</td><td>astropy and astroquery on the server; Aladin Lite 3.8.2 from jsDelivr, IRSA layer URLs, SIMBAD features off (CDS is down).</td></tr>
-              <tr><td>Earth's orbit shifts nearby objects; motion measures distance</td><td>Gaia's distance on the card. Parallax between visits is at most 1.1″, below what we can measure, and we say so.</td></tr>
+              <tr><td>Earth's orbit shifts nearby objects; motion measures distance</td><td>Gaia's distance on the card. The pipeline fits proper motion for every source, and parallax where there are 3 or more visits, using SPHEREx's own position in space. Between two visits parallax is at most about 1.1″, close to our errors, and we say so.</td></tr>
+              <tr><td>Planet X: find what moves and isn't catalogued</td><td>A search for fast movers across visits that Gaia doesn't know, checked by re-finding Gaia stars faster than 200 mas/yr and by a control; a brown-dwarf-like flag from methane and water bands. These are leads for a person to check, not discoveries.</td></tr>
               <tr><td>Help as many people as possible pitch in</td><td>Flag and vote, on a phone too; counts, CSV export, and a route to astronomers through the Backyard Worlds forum.</td></tr>
             </tbody>
           </table>
@@ -612,7 +636,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
         <table class="wide">
           <thead><tr><th>Target</th><th>Clock</th><th>Expected</th><th>Caveat</th><th><span class="sr">Lab</span></th></tr></thead>
           <tbody>
-            <tr><td><b>Barnard's Star</b></td><td>Months</td><td>Steps north 5.2″ (0.84 px) per visit; 10.39″/yr at position angle 355.6° (Gaia DR3)</td><td>K ≈ 4.5: the core saturates. Measure from the wings.</td><td><button class="btn" type="button" data-open="months:barnard">Open in lab</button></td></tr>
+            <tr><td><b>Barnard's Star</b></td><td>Months</td><td>Steps north 5.2″ (0.84 px) per visit; 10.39″/yr at position angle 355.6° (Gaia DR3). <b>Measured</b> (D2, visits 1→3): 10.83″ ± 0.36″ at PA 357.8°; Gaia with parallax predicts 10.27″</td><td>K ≈ 4.5: the core saturates. Measure from the wings.</td><td><button class="btn" type="button" data-open="months:barnard">Open in lab</button></td></tr>
             <tr><td><b>WISE 0855−0714</b></td><td>Months, D6</td><td>Absent in D1–D3. In D5–D6 a dot with no Gaia ring, stepping west 4.1″ (0.66 px) per visit</td><td>Faint. If weak, add D5+D6 and shift-and-add along its known motion.</td><td><button class="btn" type="button" data-open="months:wise0855">Open in lab</button></td></tr>
             <tr><td><b>Epsilon Indi B</b></td><td>Months, subtract</td><td>One dot (the pair is under 1″ apart), 2.3″ (0.38 px) per visit</td><td>Epsilon Indi A, 7′ away, is very bright.</td><td><button class="btn" type="button" data-open="months:epsindib">Open in lab</button></td></tr>
             <tr><td><b>RW Aurigae</b></td><td>Months, spectrum</td><td>Same place; brightness and spectrum change between visits</td><td>May saturate in the short bands.</td><td><button class="btn" type="button" data-open="months:rwaur">Open in lab</button></td></tr>
@@ -622,7 +646,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           </tbody>
         </table>
       </div>
-      <p class="small muted">Two limits go on the cards: parallax (show Gaia's distance) and saturation (marked cores). At the Sunday 09:00 stand-up, pick the cleaner of WISE 0855 and Barnard's Star as the hero.</p>
+      <p class="small muted">Two limits go on the cards: parallax (show Gaia's distance) and saturation (marked cores). Before the 19:30 number freeze on Saturday, pick the cleaner of WISE 0855 and Barnard's Star as the hero.</p>
 
       <div class="stack">
         <div class="sub-head">
@@ -636,7 +660,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
               <tr><td class="k">0:00–0:03</td><td>Title over the sky view</td><td>"SkyShift" · team and four names · "NASA Space Apps 2026 · Planet X and SPHEREx"</td></tr>
               <tr><td class="k">0:03–0:06</td><td>Paste <code>08h55m10.831s -7d14m42.53s</code>, press Enter</td><td>"Pluto was found by blinking two photos. Now blink NASA's infrared sky."</td></tr>
               <tr><td class="k">0:06–0:11</td><td>WISE 0855: D1 empty; switch to D6; a dot appears and steps west</td><td>"A brown dwarf at −20 °C. Invisible until 4.5 µm. No Gaia star here."</td></tr>
-              <tr><td class="k">0:11–0:15</td><td>Barnard's Star steps north; the readout fills in</td><td>"Measured: ⟨x⟩″ a year. Gaia: 10.4″ a year."</td></tr>
+              <tr><td class="k">0:11–0:15</td><td>Barnard's Star steps north; the readout fills in</td><td>"Measured: 10.83″ between visits. Gaia: 10.27″."</td></tr>
               <tr><td class="k">0:15–0:20</td><td>Hours clock: 3I/ATLAS crosses; then an asteroid in its ring</td><td>"Interstellar comet 3I/ATLAS, 20 hours, 14 Dec 2025." · "⟨N⟩ known asteroids re-found."</td></tr>
               <tr><td class="k">0:20–0:24</td><td>Spectrum by visit with molecule marks; flag a dot; the count ticks</td><td>"102 colours say what it is. People decide what is real."</td></tr>
               <tr><td class="k">0:24–0:29</td><td>Zoom out to the whole sky</td><td>"New SPHEREx data every week. The next neighbour may already be in it." · URL</td></tr>
@@ -661,7 +685,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
         </div>
         <div class="stack">
           <h3>The live pitch</h3>
-          <p class="small">P4 presents; P1 answers data questions. Dry run Saturday 21:00. Timed rehearsals Sunday 13:00 and 14:15, all four present. The presenting laptop carries an offline copy of the site and the video.</p>
+          <p class="small">P4 presents; P1 answers data questions. Dry run Saturday 21:30. Rehearsals Sunday 11:00 and 13:00, all four present. The presenting laptop carries an offline copy of the site and the video.</p>
         </div>
       </div>
     </div>
@@ -672,28 +696,68 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
     <div class="wrap stack-lg">
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">How we know it works</p>
-        <h2>Eight checks, printed even when the number is poor</h2>
-        <p class="muted">Scripts in <code>scripts/validate/</code> write <code>validation.json</code>, and the page reads it. The "Expected" column is a forecast from catalogues; the page shows the measured value next to it.</p>
+        <h2>Eleven checks, printed even when the number is poor</h2>
+        <p class="muted">Scripts in <code>scripts/validate/</code> and the pipeline's reports feed <code>validation.json</code>, and the page reads it. The "Expected" column is a forecast from catalogues; the page shows the measured value next to it. V9–V11 are new on Saturday; V6 and V7 belonged to S2 and S3, which are cut.</p>
       </div>
       <div class="tablewrap">
         <table class="wide">
           <thead><tr><th>#</th><th>Claim</th><th>How we compute it</th><th>Expected</th><th>Due</th></tr></thead>
           <tbody>
             <tr><td class="k">V1</td><td>Five test objects recovered</td><td>Per target and visit, predict the position (Gaia DR3 position and proper motion moved to the visit's mid-time; published astrometry for WISE 0855). Count a detection within 2 px.</td><td>5 of 5; WISE 0855 only in D5–D6</td><td class="k">Sat 15:00</td></tr>
-            <tr><td class="k">V2</td><td>Motion matches Gaia</td><td>Centroid the target in each visit stack (wings if saturated); median over detectors. Shift = last visit − first. Rate = shift ÷ time. Compare with Gaia's proper motion.</td><td>Barnard's Star within 15% and 10° of 10.39″/yr</td><td class="k">Sat 14:00</td></tr>
-            <tr><td class="k">V3</td><td>Position error floor</td><td>In the same cutouts, take 10 or more Gaia stars with G 13–17 and motion under 20 mas/yr. The RMS of their visit-to-visit shifts is V2's error bar, and gives the slowest motion visible at 3σ.</td><td>Unknown; hoping for 0.6–1.2″</td><td class="k">Sat 14:00</td></tr>
+            <tr><td class="k">V2</td><td>Motion matches Gaia</td><td>Centroid the target in each visit stack (wings if saturated); median over detectors. Shift = last visit − first. Rate = shift ÷ time. Compare with Gaia's proper motion.</td><td>Barnard's Star within 15% and 10° of 10.39″/yr. <b>Measured:</b> 10.83″ ± 0.36″ at PA 357.8° between visits 1 and 3, against Gaia's 10.27″ with parallax: 5.5% and 2.2°</td><td class="k">Sat 14:00</td></tr>
+            <tr><td class="k">V3</td><td>Position error floor</td><td>In the same cutouts, take 10 or more Gaia stars with G 13–17 and motion under 20 mas/yr. The RMS of their visit-to-visit shifts is V2's error bar, and gives the slowest motion visible at 3σ.</td><td>Per-dot errors 0.25–0.93″ on the first photo; floor 0.25″ against Gaia there. V3's own value after the run</td><td class="k">Sat 14:00</td></tr>
             <tr><td class="k">V4</td><td>Asteroids re-found, targeted</td><td>For asteroids numbered 1–60, ask IRSA's MOST for exposures and predicted positions. Fetch 5′ cutouts for up to 5 exposures each. Success: a detection within 2 px that is absent from the visit stack. <b>Control:</b> repeat 3′ away; that is the chance rate.</td><td>N of 60; median offset under 1 px; control under 5%</td><td class="k">Sat 15:00</td></tr>
-            <tr><td class="k">V5</td><td>Asteroids re-found, blind (S1)</td><td>In the hunt zone, query SkyBoT once per 6 h of observing (about 200 queries, cached). Move objects to each exposure's MJD-AVG; check 20 against MOST. Match within 2 px. Report recall by V magnitude, with the same control.</td><td>Roughly 70–150 asteroids with V &lt; 18; recall falls with V</td><td class="k">Sun 03:00</td></tr>
-            <tr><td class="k">V6</td><td>Fast stars (S2)</td><td>ESA Gaia archive: the 40 fastest stars with G &gt; 12. Run V2 on each; report the slope and RMS of measured against predicted.</td><td>Slope near 1</td><td class="k">Sun 08:00</td></tr>
-            <tr><td class="k">V7</td><td>Brown dwarfs (S3)</td><td>For Gagné et al. 2026 entries faster than 1″/yr, run V2; count those shifting in the predicted direction. If the list isn't loaded in 30 min, use a hand list of 10.</td><td>A count</td><td class="k">Sun 03:00</td></tr>
-            <tr><td class="k">V8</td><td>Spectra and speed</td><td>Two unsaturated stars: our spectrum averaged over 2MASS Ks and WISE W1 vs the catalogue. Median time to first frame for 10 random coordinates.</td><td>Within 20%; under 15 s</td><td class="k">Sun 08:00</td></tr>
+            <tr><td class="k">V5</td><td>Asteroids re-found, blind (S1)</td><td>In the pilot and the hunt zone, query SkyBoT once per session (cached). Move objects to each exposure's MJD-AVG. A known asteroid counts as found when a mover lies within 12″. Report recall by V magnitude, with a control: every prediction moved 2′. The pilot's recall at V &lt; 16 is gate G2.</td><td>Recall falls with V; the pilot has only about 9 asteroids brighter than V 16. Numbers after the pilot</td><td class="k">Sat ~14:30 (pilot), afternoon (zone)</td></tr>
+            <tr><td class="k">V6</td><td>Fast stars (S2)</td><td>ESA Gaia archive: the 40 fastest stars with G &gt; 12. Run V2 on each; report the slope and RMS of measured against predicted.</td><td>Slope near 1</td><td class="k">cut</td></tr>
+            <tr><td class="k">V7</td><td>Brown dwarfs (S3)</td><td>For Gagné et al. 2026 entries faster than 1″/yr, run V2; count those shifting in the predicted direction. If the list isn't loaded in 30 min, use a hand list of 10.</td><td>A count</td><td class="k">cut</td></tr>
+            <tr><td class="k">V8</td><td>Spectra and speed</td><td>Two unsaturated stars: our spectrum averaged over 2MASS Ks and WISE W1 vs the catalogue. Median time to first frame for 10 random coordinates.</td><td>Within 20%; under 15 s</td><td class="k">Sat 19:30</td></tr>
+            <tr><td class="k">V9</td><td>Astrometry matches Gaia</td><td>Proper motion of every source in the zone, fitted over all its dots with SPHEREx's own position as the observer, each photo's offset against quiet Gaia stars removed. Compare with Gaia: bias, scatter, and the pull (difference ÷ stated error).</td><td>Bias near zero; pull scatter near 1, so our error bars are honest. After the pilot</td><td class="k">Sat afternoon</td></tr>
+            <tr><td class="k">V10</td><td>Galaxy distances match SDSS</td><td>Photometric redshifts from EAZY templates fitted to each galaxy's 102-channel spectrum, against SDSS DR17 spectroscopic redshifts: 2,755 galaxies with redshifts in the pilot zone. Report σ_NMAD of Δz/(1+z) and the outlier share (&gt; 0.15).</td><td>Useful only for bright galaxies (AB ≲ 17); 0.02 would be good. After the pilot</td><td class="k">Sat afternoon</td></tr>
+            <tr><td class="k">V11</td><td>Asteroid sizes match published values</td><td>Reflected sunlight (D1–D3) and heat glow (D5–D6) fitted with the NEATM thermal model, giving a diameter and an albedo. Compare with published values for the same asteroids.</td><td>In progress; no number yet</td><td class="k">Sat evening</td></tr>
           </tbody>
         </table>
       </div>
       <div class="expect">
         <p class="eyebrow" style="margin-bottom:6px">Pitch headline, from V2 and V4</p>
-        <p style="font-size:1.05rem">"Barnard's Star moves ⟨x⟩″ a year in our tool; Gaia says 10.4. We re-found ⟨N⟩ of 60 asteroids where NASA predicted them."</p>
-        <p class="small muted" style="margin-top:6px">The ⟨x⟩ and ⟨N⟩ are filled from <code>validation.json</code> on Saturday. Until then they are blanks, not estimates.</p>
+        <p style="font-size:1.05rem">"Barnard's Star moved 10.83″ ± 0.36″ between two visits in our tool; Gaia predicts 10.27″. We re-found ⟨N⟩ of 60 asteroids where NASA predicted them."</p>
+        <p class="small muted" style="margin-top:6px">The Barnard's Star numbers are measured on real SPHEREx data. ⟨N⟩ is filled from <code>validation.json</code> after V4; until then it is a blank, not an estimate.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCALE -->
+  <section id="scale">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Scale and cost</p>
+        <h2>From one corner of the sky to all of it</h2>
+        <p class="muted">We run a 12 deg² pilot and a 100 deg² hunt zone this weekend. Larger areas are costed from the same pipeline, not run. Prices from Google's price list, in euros, region us-east4.</p>
+      </div>
+      <div class="tablewrap">
+        <table class="mid num">
+          <thead><tr><th>Area</th><th>Photos</th><th>Compute</th><th>Time</th><th>Stored</th></tr></thead>
+          <tbody>
+            <tr><td><b>Hunt zone</b>, 100 deg² (this weekend)</td><td>3,692</td><td>~€0.30</td><td>under an hour</td><td>~17 GB</td></tr>
+            <tr><td><b>5% of the sky</b></td><td>—</td><td>~€4</td><td>~4 h</td><td>~300 GB</td></tr>
+            <tr><td><b>Whole sky</b></td><td>≈ 1.32 million (~2,500 a day, 24 Apr 2025 – 5 Oct 2026)</td><td>~€75 (€55–110) + ~€18 of writes; ~7,300 core-hours</td><td>~3 days on today's quota; ~15 h with 480 spot cores</td><td>dots ~5.5 TB (€114/month, or €30/month in cold storage); star catalogue 50–100 GB (€1–2/month)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="two">
+        <div class="stack">
+          <h3>Why it stays cheap</h3>
+          <p class="small">NASA's photos are never copied. Each is read once, straight from NASA's public copy on Amazon, which costs us nothing to read, and only our measurements are kept. Photos are independent, so the work spreads over as many cheap spot cores as we can get, and a reclaimed machine simply carries on where it stopped. A whole-sky run needs larger quotas (spot CPUs 96 → 480, CPUs 128 → 512, N2 CPUs 200 → 512), not new code.</p>
+        </div>
+        <div class="stack">
+          <h3>After the credit (ends 17 Jan 2027)</h3>
+          <ul class="olist small">
+            <li>The account becomes a paid one: nothing is deleted, usage is billed.</li>
+            <li>The site, featured targets and votes run on Firebase's free tier.</li>
+            <li>Results are published on Zenodo (with a DOI) and Hugging Face.</li>
+            <li>A teammate's own $300, 90-day trial can be linked to the project later (8-core cap).</li>
+            <li>A free domain from the Space Apps offers.</li>
+          </ul>
+        </div>
       </div>
     </div>
   </section>
@@ -704,7 +768,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">Project page</p>
         <h2>What judges read</h2>
-        <p class="muted">Most of the score comes from this page. Save a complete version on Saturday at 21:00, so a valid submission always exists.</p>
+        <p class="muted">Most of the score comes from this page. Save a complete version on Saturday at 22:00, so a valid submission always exists.</p>
       </div>
       <div class="two">
         <div class="stack">
@@ -720,26 +784,27 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
             <li>What it does, in three sentences, then seven "try it" links with coordinates in the URL.</li>
             <li>How it answers the challenge: the <a href="#challenge-map">challenge-to-feature table</a>.</li>
             <li>Why two clocks: four sentences and a diagram.</li>
-            <li>How we know it works: the V numbers, the control, a screenshot.</li>
+            <li>How we know it works: the V numbers, the controls, a screenshot.</li>
+            <li>What the pipeline found: the dot database, spectra, star and galaxy classes, motions, the fast-mover search, asteroid sizes and comet gas, each marked measured or in progress.</li>
             <li>Limits: saturation, the blended Epsilon Indi pair, parallax, and which "Planet X" SPHEREx could see (a cold brown dwarf, not a faint distant planet).</li>
             <li>How it works: data flow, tools, languages.</li>
             <li>After a vote: counts, the CSV, a route to astronomers (Backyard Worlds forum).</li>
-            <li>What's next: weekly data, the embed mode, a larger hunt zone.</li>
+            <li>What's next: weekly data, the embed mode, the whole sky (costed at about €75 of compute), results published on Zenodo and Hugging Face.</li>
           </ol>
         </div>
         <div class="stack">
           <h3>AI ("Super Intelligence") disclosure: draft</h3>
           <p class="small muted">Edit until every sentence is true.</p>
-          <blockquote class="expect" style="margin:0">"We used Claude (Anthropic) through Claude Code as a coding and research assistant. It wrote most of the code from our instructions. We reviewed it, ran it and tested it against known objects. It also helped us read NASA documentation, plan the work and edit this text. Commits made with it carry a <code>Co-Authored-By</code> line. Every image, GIF and video here is a screen recording of the running tool on real SPHEREx data; none is AI-generated. The numbers come from our pipeline's output files. The planted object in the drill is simulated and labelled. Before the event we prepared only a cloud account, planning notes and an empty repository."</blockquote>
+          <blockquote class="expect" style="margin:0">"We used Claude (Anthropic) through Claude Code as a coding and research assistant. It wrote most of the code from our instructions. We reviewed it, ran it and tested it against known objects. It also helped us read NASA documentation, plan the work and edit this text. Commits made with it carry a <code>Co-Authored-By</code> line. Every image, GIF and video here is a screen recording of the running tool on real SPHEREx data; none is AI-generated. The numbers come from our pipeline's output files. Before the event we prepared only a cloud account, planning notes and an empty repository."</blockquote>
         </div>
       </div>
       <div class="tablewrap">
         <table class="wide">
           <thead><tr><th>Field</th><th>What we list</th></tr></thead>
           <tbody>
-            <tr><td><b>NASA data</b>, named one by one</td><td>SPHEREx Level 2 spectral images, DR1 and QR3, from NASA/IPAC IRSA (image search, cutouts, <code>s3://nasa-irsa-spherex</code>); the IRSA SPHEREx all-sky cube; IRSA's Moving Object Search Tool (MOST); IRSA's SPHEREx table for comet 3I/ATLAS; 2MASS and AllWISE layers from IRSA; the SPHEREx Explanatory Supplement and IRSA tutorials; WiseView and Backyard Worlds as the model.</td></tr>
+            <tr><td><b>NASA data</b>, named one by one</td><td>SPHEREx Level 2 spectral images, DR1 and QR3, from NASA/IPAC IRSA (image search, cutouts, <code>s3://nasa-irsa-spherex</code>); the IRSA SPHEREx all-sky cube; IRSA's Moving Object Search Tool (MOST); IRSA's SPHEREx table for comet 3I/ATLAS; 2MASS and AllWISE layers from IRSA; the CatWISE2020 and 2MASS catalogues from IRSA; the SPHEREx Explanatory Supplement and IRSA tutorials; WiseView and Backyard Worlds as the model.</td></tr>
             <tr><td><b>Partner data</b></td><td>ESA Gaia DR3, through the ESA Gaia Archive. We don't list CSA, because we don't use its data.</td></tr>
-            <tr><td><b>Other references</b></td><td>IMCCE SkyBoT; Aladin Lite 3.8.2 (CDS, GPL-3.0, loaded from jsDelivr); astropy, astroquery, sep, reproject, FastAPI, DuckDB, Vite; Gagné et al. 2026 (arXiv:2604.22012) and MOCAdb; Kuchner et al. 2017; WiseView (ASCL 1806.004); the Lisse et al. 3I/ATLAS papers; Claude Code.</td></tr>
+            <tr><td><b>Other references</b></td><td>IMCCE SkyBoT; Aladin Lite 3.8.2 (CDS, GPL-3.0, loaded from jsDelivr); astropy, astroquery, sep, reproject, FastAPI, DuckDB, Vite; SDSS DR17 spectroscopic redshifts; EAZY templates; the NEATM thermal model (Harris 1998); Gagné et al. 2026 (arXiv:2604.22012) and MOCAdb; Kuchner et al. 2017; WiseView (ASCL 1806.004); the Lisse et al. 3I/ATLAS papers; Claude Code.</td></tr>
             <tr><td><b>Acknowledgements</b></td><td>The SPHEREx acknowledgement and its two required citations (Bock et al. 2026, Akeson et al. 2026), copied word for word from IRSA's mission page. The standard Gaia acknowledgement. Licence: Apache-2.0.</td></tr>
           </tbody>
         </table>
@@ -752,46 +817,39 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
     <div class="wrap stack-lg">
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">Milestones and gates</p>
-        <h2>Nine checkpoints from kickoff to pitch</h2>
-        <p class="muted">A milestone (◆) is something that must be true by that time. A gate (▲) decides whether optional work goes ahead. The hour-by-hour table per person is on the <a href="skyshift-dev-plan.html">developer plan</a>. Times assume the 15:00 local deadline; if the Local Lead gives another, every time moves by the difference.</p>
+        <h2>One build day, then the pitch</h2>
+        <p class="muted">A milestone (◆) is something that must be true by that time. A gate (▲) decides whether optional work goes ahead. Everything is built on Saturday; there is no night shift. The hour-by-hour table per person is on the <a href="skyshift-dev-plan.html">developer plan</a>. Times assume the 15:00 local deadline; if the Local Lead gives another, every time moves by the difference.</p>
       </div>
       <div class="tablewrap">
         <table class="mid">
           <thead><tr><th>When</th><th>Checkpoint</th><th>What must be true</th></tr></thead>
           <tbody>
             <tr><td class="k">Sat 13:00</td><td><span class="ms">M1</span></td><td>Barnard's Star blinks from real data on the public site.</td></tr>
+            <tr><td class="k">Sat ~14:30</td><td><span class="ms gate-ms">G2</span></td><td>Right after the pilot (~13:45–14:30): recall at V &lt; 16 is 50% or more. Yes: the hunt zone runs on the spot worker. No: stop S1.</td></tr>
             <tr><td class="k">Sat 15:00</td><td><span class="ms gate-ms">G1</span></td><td>Five targets blink; one motion measured. If not, all hands on the five before anything else.</td></tr>
-            <tr><td class="k">Sat 18:00</td><td><span class="ms gate-ms">G2</span></td><td>Pilot recall at V &lt; 16 is 50% or more. Yes: start the hunt zone on the worker. No: stop S1.</td></tr>
-            <tr><td class="k">Sat 20:00</td><td><span class="ms">M2</span></td><td>Any coordinates work live; the five targets and the comet are static files.</td></tr>
-            <tr><td class="k">Sat 21:00</td><td><span class="ms">Page v0</span></td><td>Project page saved with working links. 60-second pitch dry run.</td></tr>
-            <tr><td class="k">Sun 09:00</td><td><span class="ms">M3 · Freeze</span></td><td>Feature freeze. Stand-up; choose the hero target. From here: page, video, slides, fixes only.</td></tr>
-            <tr><td class="k">Sun 12:00</td><td><span class="ms">M4</span></td><td>First full submission saved. Everyone reads the page once.</td></tr>
-            <tr><td class="k">Sun 14:30</td><td><span class="ms">M5</span></td><td>Final submission saved and checked in a private window. Hard stop 14:45.</td></tr>
+            <tr><td class="k">Sat 17:00</td><td><span class="ms">M2</span></td><td>Any coordinates work live; all featured targets are static; suspects are listed. Integration hour.</td></tr>
+            <tr><td class="k">Sat 19:30</td><td><span class="ms">Numbers</span></td><td>Numbers frozen.</td></tr>
+            <tr><td class="k">Sat 20:00</td><td><span class="ms">Freeze</span></td><td>Feature freeze. From here: page, video, slides, fixes only.</td></tr>
+            <tr><td class="k">Sat 21:30</td><td><span class="ms">Dry run</span></td><td>15-minute pitch dry run, all four.</td></tr>
+            <tr><td class="k">Sat 22:00</td><td><span class="ms">M4</span></td><td>First full submission saved. Go home.</td></tr>
+            <tr><td class="k">Sun 09:00–13:00</td><td><span class="ms">Rehearse</span></td><td>Stand-up; everyone opens the submission in a private window. Rehearsals at 11:00 and 13:00.</td></tr>
+            <tr><td class="k">Sun 14:30</td><td><span class="ms">Final</span></td><td>Final submission saved and checked in a private window. Hard stop 14:45.</td></tr>
             <tr><td class="k">Sun 15:30</td><td><span class="ms">Pitch</span></td><td>Live pitch, after the 15:00 local deadline.</td></tr>
           </tbody>
         </table>
       </div>
       <div class="two">
         <div class="stack">
-          <h3>Sleep plan</h3>
-          <p class="small">Five hours each, in two shifts, so one backend and one frontend person are always awake. If the venue closes at night, the same plan runs from home.</p>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Shift</th><th>Asleep</th><th>Awake and on</th></tr></thead>
-              <tbody>
-                <tr><td class="k">23:00–04:00</td><td>P2, P3</td><td>P1: suspects, recall chart (V5), S3, numbers frozen 03:30. P4: votes on real suspects, S4 or S5, page text.</td></tr>
-                <tr><td class="k">04:00–09:00</td><td>P1, P4</td><td>P2: static export, deploy, S2 results, open every target at 08:00. P3: final numbers on the page, gallery, phone layout, S6.</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="small muted">Each person writes a handover note before sleeping. Owners merge their own area when tests pass; only contract changes wait for P1.</p>
+          <h3>What the one-day plan cut</h3>
+          <p class="small">The first plan spread the build over Saturday and a night shift, with the freeze on Sunday morning. It now freezes on Saturday at 20:00. S2–S6 are cut (fast Gaia stars, brown-dwarf list, hidden-neighbour drill, false-colour still, overlays); someone idle after 18:00 may pick one up. S1, the hunt zone, stays only as machine time behind gate G2.</p>
+          <p class="small muted">Branch → PR → tests → merge after every change to main. Owners merge their own area when tests pass; only contract changes wait for P1.</p>
         </div>
         <div class="stack">
           <h3>Who owns what</h3>
           <div class="roles" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-            <div class="role" style="--rc:var(--d6)"><span class="who">P1</span><h3>Lead, science, pipeline</h3><ul><li>Shared science code</li><li>Validation V1–V8</li><li>Pilot and hunt zone</li><li>Answers data questions at the pitch</li></ul></div>
+            <div class="role" style="--rc:var(--d6)"><span class="who">P1</span><h3>Lead, science, pipeline</h3><ul><li>Shared science code</li><li>The pipeline: dots, spectra, motion</li><li>Validation, pilot and hunt zone</li><li>Answers data questions at the pitch</li></ul></div>
             <div class="role" style="--rc:var(--d4)"><span class="who">P2</span><h3>Server, deploys</h3><ul><li>Image search, cutouts, stacks</li><li>Live API, static files</li><li>3I/ATLAS movie</li></ul></div>
-            <div class="role" style="--rc:var(--d2)"><span class="who">P3</span><h3>Sky, cards</h3><ul><li>Coordinate box, chips, URL</li><li>Aladin, Gaia dots</li><li>Readout and spectrum card</li></ul></div>
+            <div class="role" style="--rc:var(--d2)"><span class="who">P3</span><h3>Sky, cards</h3><ul><li>Coordinate box, chips, URL</li><li>Aladin, Gaia dots</li><li>Readout and spectrum card</li><li>Light-curve chart, colour readout</li></ul></div>
             <div class="role" style="--rc:var(--d1)"><span class="who">P4</span><h3>Blink, votes, pitch</h3><ul><li>Blink player, both clocks</li><li>Flag and vote, CSV</li><li>29-second video (30 s is a hard limit), project page, live pitch</li></ul></div>
           </div>
         </div>
@@ -811,30 +869,29 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
           <thead><tr><th>#</th><th>Risk</th><th>Trigger</th><th>Fallback</th></tr></thead>
           <tbody>
             <tr><td class="k">1</td><td>IRSA slow or down</td><td>Search or cutouts over 20 s, or one in five failing, for 15 minutes</td><td>Use the saved photo lists; read files from <code>s3://nasa-irsa-spherex</code> on the cloud machine. The site keeps serving static targets.</td></tr>
-            <tr><td class="k">2</td><td>Spot machine reclaimed</td><td>The instance stops</td><td>Restart; finished photos are skipped. After two stops, use the 8-core machine.</td></tr>
-            <tr><td class="k">3</td><td>No asteroids found</td><td>Pilot recall under 50% at V &lt; 16, Sat 18:00</td><td>Check the time keyword, the OUTLIER mask and the match radius for 30 minutes. Then stop S1; rely on V4 and the comet, where NASA supplies positions.</td></tr>
+            <tr><td class="k">2</td><td>Spot machine reclaimed</td><td>The instance stops</td><td>The machine stops; <code>vm.sh run</code> again and finished photos are skipped. After two stops, use the 8-core machine.</td></tr>
+            <tr><td class="k">3</td><td>No asteroids found</td><td>Pilot recall under 50% at V &lt; 16, Sat ~14:30</td><td>Check the time keyword, the OUTLIER mask and the match radius for 30 minutes. Then stop S1; rely on V4 and the comet, where NASA supplies positions.</td></tr>
             <tr><td class="k">4</td><td>CDS still down, or Aladin fails</td><td>Aladin doesn't start, or tiles return 404</td><td>CDS has a security incident (notice of 9 Nov): SIMBAD, Aladin's own CDN and CDS sky tiles are down. We load Aladin 3.8.2 from jsDelivr with IRSA layers. If that fails, switch to unpkg. If it still fails, ship the coordinate box and gallery without the sky sphere.</td></tr>
-            <tr><td class="k">5</td><td>Local deadline earlier, or venue closed at night</td><td>The Local Lead says so at 09:00</td><td>Move every time by the difference. Drop in order: S1, S4–S6, S2–S3, M8. Page v0 is saved early regardless.</td></tr>
-            <tr><td class="k">6</td><td>Test stars saturate, or WISE 0855 is too faint</td><td>First cutouts, Sat 11:00–13:00</td><td>Centroid on the wings; mark the core. WISE 0855: add D5+D6 and shift-and-add. Use S2's fast stars as the clean measurement.</td></tr>
-            <tr><td class="k">7</td><td>Frontend and backend don't meet</td><td>M2 missed at Sat 20:00</td><td>The static file format is the contract. P2 writes static files by script; the frontend reads them; the live API waits.</td></tr>
-            <tr><td class="k">8</td><td>Submission ineligible</td><td>Any item fails the Sunday 12:00 checklist: video over 30 s, private link, missing AI disclosure, unlisted source, pre-event code</td><td>Fix from the checklist. The seven slides are ready as the demo. The simulated demo on this plan page is never reused.</td></tr>
+            <tr><td class="k">5</td><td>Local deadline earlier, or venue closed at night</td><td>The Local Lead says so at 09:00</td><td>Move every time by the difference. S2–S6 are already cut. Drop in order: S1, the science extras (asteroid sizes, comet gas), M8. The 22:00 save happens regardless.</td></tr>
+            <tr><td class="k">6</td><td>Test stars saturate, or WISE 0855 is too faint</td><td>First cutouts, Sat 11:00–13:00</td><td>Centroid on the wings; mark the core. WISE 0855: add D5+D6 and shift-and-add. Barnard's Star is already measured from its wings on real data.</td></tr>
+            <tr><td class="k">7</td><td>Frontend and backend don't meet</td><td>M2 missed at Sat 17:00</td><td>The static file format is the contract. P2 writes static files by script; the frontend reads them; the live API waits.</td></tr>
+            <tr><td class="k">8</td><td>Submission ineligible</td><td>Any item fails the checklist at the Saturday 22:00 save: video over 30 s, private link, missing AI disclosure, unlisted source, pre-event code</td><td>Fix from the checklist. The seven slides are ready as the demo. The simulated demo on this plan page is never reused.</td></tr>
           </tbody>
         </table>
       </div>
       <div class="two">
         <div class="panel stack">
-          <p class="eyebrow">Before 09:00 on Saturday</p>
-          <ul class="todo">
-            <li>Read the SPHEREx tutorial notebooks. Open the first photo at 09:00 on Saturday, not before.</li>
-            <li>Everyone has Claude Code installed and logged in; follow the developer plan's checklist.</li>
-            <li>Decide who is P1 to P4.</li>
-            <li>Team lead: open the budget alert and check that it covers credits ("Promotions and others" unticked).</li>
-            <li>Prepare the questions for the Local Lead (see <a href="#decisions">decision 1</a>).</li>
+          <p class="eyebrow">Cloud, set up and tested on Saturday</p>
+          <ul class="small" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+            <li>One bucket for everything we compute: photo lists, reference catalogues, dots, forced photometry, caches, results, logs.</li>
+            <li>Two machines (8-core for the pilot, 64-core spot for the hunt zone) that install, run one job, save the log and stop themselves.</li>
+            <li>Two service accounts with no keys; Firestore create-only rules deployed; the Cloud Run deploy script ready.</li>
+            <li>The public site at <code>skyshift.web.app</code>.</li>
           </ul>
         </div>
         <div class="panel stack">
           <p class="eyebrow">Already done</p>
-          <p class="small">Cloud quota is in place: N2 200 CPUs, preemptible 96, all regions 128. The worker is <code>n2-highcpu-64</code> spot; N2D was denied and isn't needed. Expected cloud cost is under €15 of the €264 credit. A budget alert has been set in the Google Cloud console since 13 Nov. No project code exists before kickoff: the rules say teams may not start work on the challenge before the hackathon.</p>
+          <p class="small">Cloud quota is in place: N2 200 CPUs, preemptible 96, all regions 128. The worker is <code>n2-highcpu-64</code> spot; N2D was denied and isn't needed. This weekend's runs cost a few euros of the €264 credit (the hunt zone about €0.30). A budget alert has been set since 13 Nov. No project code existed before kickoff: the rules say teams may not start work on the challenge before the hackathon.</p>
         </div>
       </div>
     </div>
@@ -844,15 +901,15 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
   <section id="decisions">
     <div class="wrap">
       <div class="sec-head">
-        <p class="eyebrow">Open decisions for the team</p>
-        <h2>Five things to agree at kickoff</h2>
-        <p class="muted">Each has a recommendation. The team reviews and owns these decisions.</p>
+        <p class="eyebrow">Decisions for the team</p>
+        <h2>Five things agreed at kickoff, and where they landed</h2>
+        <p class="muted">Each had a recommendation. The team reviews and owns these decisions.</p>
       </div>
       <div class="risk-grid">
-        <div class="risk"><b>1 · Which local event, and its real times</b><p>Ask the Local Lead at 09:00: the deadline, pitch length, whether judges watch the online demo, and night access.</p><p class="small muted"><b>Recommendation:</b> assume 15:00 and a 3-minute pitch until told otherwise.</p></div>
-        <div class="risk"><b>2 · Rename the public address</b><p><code>nasa-glazing.web.app</code> puts "nasa" in a non-NASA address and reads oddly.</p><p class="small muted"><b>Recommendation:</b> add a second Hosting site at 09:00, for example <code>skyshift-sky.web.app</code>, with neither "nasa" nor "spherex" in it.</p></div>
-        <div class="risk"><b>3 · Billing after 17 Jan 2027</b><p>The credit ends on 17 January; winners are announced on 26 January.</p><p class="small muted"><b>Recommendation:</b> keep a card on the account and set the existing budget alert to about €10, so any-coordinates search works through the announcement. Without it, only the static site stays up.</p></div>
-        <div class="risk"><b>4 · Hunt zone instead of the 5% zone</b><p>100 deg² behind a gate, instead of 2,000 deg².</p><p class="small muted"><b>Recommendation:</b> accept the cut. The freed time goes to the five targets, the comet, the validation numbers and the project page.</p></div>
+        <div class="risk"><b>1 · Which local event, and its real times</b><p>Ask the Local Lead at 09:00: the deadline, pitch length, whether judges watch the online demo, and night access.</p><p class="small muted"><b>Plan:</b> assume 15:00 and a 3-minute pitch until told otherwise; the final save is at 14:30.</p></div>
+        <div class="risk"><b>2 · The public address</b><p>The project's default address would put "nasa" in a non-NASA address.</p><p class="small muted"><b>Decided:</b> <a href="https://skyshift.web.app">skyshift.web.app</a>, with neither "nasa" nor "spherex" in it. A free domain from the Space Apps offers may follow.</p></div>
+        <div class="risk"><b>3 · Billing after 17 Jan 2027</b><p>The credit ends on 17 January; winners are announced on 26 January.</p><p class="small muted"><b>Decided:</b> the account becomes a paid one; nothing is deleted and usage is billed. The site, featured targets and votes run on Firebase's free tier, and results go to Zenodo and Hugging Face (<a href="#scale">after the credit</a>).</p></div>
+        <div class="risk"><b>4 · Hunt zone instead of the 5% zone</b><p>100 deg² behind a gate, instead of 2,000 deg².</p><p class="small muted"><b>Decided:</b> accepted. The pilot runs first and the hunt zone only if G2 passes; larger areas are costed, not run.</p></div>
         <div class="risk" style="grid-column:1/-1"><b>5 · How to describe AI's part in the idea</b><p>The rules say AI must not come up with the idea. The concept (WiseView-style blink, spectra, public vetting) is the team's. The v2 strategy, written with AI help, reshapes scope and schedule.</p><p class="small muted"><b>Recommendation:</b> the team reviews and owns these decisions at kickoff, and the disclosure says plainly that AI helped with research, planning and code.</p></div>
       </div>
     </div>
@@ -861,7 +918,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
 
 <footer>
   <div class="wrap">
-    <p>Facts checked 14 November 2026. Demos on this page use simulated stars, and spectrum and light-curve shapes are illustrative, not measurements. This demo code predates the event and is not used in the product. Values marked "expected" are computed from catalogues, not measured.</p>
+    <p>Facts checked and updated on Saturday 14 November 2026, to match what the team built. Anything marked "after the pilot" or "in progress" has no real-data number yet. Demos on this page use simulated stars, and spectrum and light-curve shapes are illustrative, not measurements. This demo code predates the event and is not used in the product. Values marked "expected" are computed from catalogues, not measured.</p>
     <ul>
       <li><a href="https://www.spaceappschallenge.org/2026/challenges/planet-x-and-spherex/">Space Apps 2026 · Planet X and SPHEREx challenge</a></li>
       <li><a href="https://irsa.ipac.caltech.edu/Missions/spherex.html">IRSA · SPHEREx data, tools and acknowledgement</a></li>
