@@ -46,3 +46,31 @@ def test_json_shape():
     keys = {"id", "ra", "dec", "mjd", "clock", "det", "evidence", "n_dots", "snr", "flux_ujy", "cell", "nearest_known_arcsec"}
     assert all(set(x) == keys for x in j["suspects"])
     assert j["suspects"][0]["clock"] == "hours" and j["suspects"][0]["nearest_known_arcsec"] is None
+
+
+def test_refcat_used_instead_of_services(tmp_path, monkeypatch):
+    from skyshift_pipeline.store import Store
+    z = C.ZONES["pilot"]
+    store = Store(str(tmp_path))
+    m = movers()
+    # Gaia star 2″ from mover 0 at J2016 with no motion; CatWISE source 3″ from mover 1; a fast Gaia star that has
+    # moved onto mover 2 by the movers' time (1″/yr in Dec over ~13.8 yr)
+    g0 = offset_radec(m.loc[0, "ra"], m.loc[0, "dec"], 2.0, 0.0)
+    c1 = offset_radec(m.loc[1, "ra"], m.loc[1, "dec"], 0.0, 3.0)
+    dt_yr = (61000.3 - 57388.5) / 365.25
+    g2 = (m.loc[2, "ra"], m.loc[2, "dec"] - 1000.0 * dt_yr / 3.6e6)
+    ref = pd.DataFrame([
+        dict(cat="gaia", ra=g0[0], dec=g0[1], epoch_mjd=57388.5, pmra=0.0, pmdec=0.0),
+        dict(cat="catwise", ra=c1[0], dec=c1[1], epoch_mjd=57170.0, pmra=np.nan, pmdec=np.nan),
+        dict(cat="gaia", ra=g2[0], dec=g2[1], epoch_mjd=57388.5, pmra=0.0, pmdec=1000.0),
+    ])
+    store.write_parquet("refcat/pilot.parquet", ref)
+
+    def boom(*a, **k):
+        raise AssertionError("services must not be asked when refcat exists")
+
+    monkeypatch.setattr(S, "gaia_near", boom)
+    monkeypatch.setattr(S, "catwise_near", boom)
+    g, w = S.refcat_near(store, z, m["ra"].to_numpy(), m["dec"].to_numpy(), m["mjd"].to_numpy())
+    assert list(g) == [True, False, True, False, False] and list(w) == [False, True, False, False, False]
+    assert S.refcat_near(Store(str(tmp_path / "empty")), z, m["ra"].to_numpy(), m["dec"].to_numpy(), m["mjd"].to_numpy()) is None
