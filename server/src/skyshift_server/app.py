@@ -10,7 +10,8 @@ Endpoints: /api/frames, /api/object, /api/gaia, /api/known, /api/resolve, /api/h
   example from fixtures/api/ ("synthetic": true), never cached, with `Cache-Control: no-store`.
 - Real responses are cached whole by request in `Cache` (SKYSHIFT_CACHE; gs://nasa-glazing-data/cache
   on Cloud Run): api/<endpoint>/<key>.json, and frames/<key>/frames.json + frames/<key>/<blob>.
-  Bump ENGINE_VERSION to invalidate everything after an engine change.
+  Bump ENGINE_VERSION to invalidate everything after an engine change. Frames and /api/known keys
+  also hold the known-object index's name (known.INDEX_KEY): a new MPC index means new entries.
 
 Live builds (frames, object) must answer inside Firebase Hosting's 60 s limit for rewrites:
 - Each build gets a Budget of LIVE_BUDGET_S (budget.py). What did not arrive in time is left out
@@ -48,6 +49,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import known as known_mod
 from . import resolve as resolve_mod
 from .budget import Budget, BudgetError
 from .cache import Cache
@@ -100,6 +102,7 @@ def warm_up() -> None:
 async def _lifespan(_: FastAPI):
     if os.environ.get("SKYSHIFT_WARM_UP", "1") != "0":
         warm_up()
+        known_mod.warm_up_in_background(get_cache())  # MPC index + kete, in a thread
     yield
 
 
@@ -377,7 +380,7 @@ async def frames(request: Request, ra: float, dec: float, fov: float | None = No
     if not 1 <= det <= 6:
         raise bad_request("det must be 1-6")
 
-    key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det)
+    key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY)
     cached = await run_in_threadpool(_cache_get_json, f"frames/{key}/frames.json")
     if cached is not None:
         return _json(cached)
@@ -504,7 +507,7 @@ def known(ra: float, dec: float, r: float, mjd: float) -> JSONResponse:
     if not MJD_RANGE[0] <= mjd <= MJD_RANGE[1]:
         raise bad_request("mjd must be between 33282 (1900) and 88069 (2100)")
     mjd = round(mjd, 6)
-    key = f"api/known/{_key('known', ra=ra, dec=dec, r=r, mjd=mjd)}.json"
+    key = f"api/known/{_key('known', ra=ra, dec=dec, r=r, mjd=mjd, known=known_mod.INDEX_KEY)}.json"
     cached = _cache_get_json(key)
     if cached is not None:
         return _json(cached)

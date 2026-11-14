@@ -62,7 +62,7 @@ def test_frames_files_keep_the_contract(slug):
             assert math.isfinite(e["scale"]) and e["scale"] > 0 and math.isfinite(e["zero"])
         epoch_ids = set(ids)
         for k in m["known"]:
-            assert k["epoch_id"] in epoch_ids and k["source"] in ("skybot", "most", "irsa-3i")
+            assert k["epoch_id"] in epoch_ids and k["source"] in ("mpc", "most", "irsa-3i")
         for g in m["gaia"]:
             assert isinstance(g["id"], str)
 

@@ -398,21 +398,35 @@ def known_near(ra: float, dec: float, radius_deg: float, mjds: Sequence[float], 
         raise ValueError(f"MJD outside the known index's range {index.mjd_lo:.0f}–{index.mjd_hi:.0f}: rebuild it")
     if v_max is not None and v_max > float(index.data["v_keep"]):
         raise ValueError(f"v_max {v_max} is fainter than the index keeps (V < {float(index.data['v_keep'])})")
+    # Equal times are computed once and their objects given to every epoch at that time (D1+D4, D2+D5,
+    # D3+D6 are exposed at the same moment; `exact` keys its cones by time, so a repeated time would
+    # hand all its objects to one of the epochs only).
+    members: dict[float, list[int]] = {}
+    for k, m in enumerate(mjds):
+        members.setdefault(round(m, 8), []).append(k)
+    firsts = [ks[0] for ks in members.values()]
+    times = [mjds[k] for k in firsts]
+    obs = [observers[k] for k in firsts] if observers else None
     t0 = time.perf_counter()
-    rows = candidates(index, ra, dec, radius_deg, mjds)
+    rows = candidates(index, ra, dec, radius_deg, times)
     t1 = time.perf_counter()
-    found = exact(kete, index, rows, ra, dec, radius_deg, mjds, observers)
+    found = exact(kete, index, rows, ra, dec, radius_deg, times, obs)
     t2 = time.perf_counter()
     found = [f for f in found if v_max is None or f["v"] is None or f["v"] <= v_max]
     for f in found:
         f["sep"] = _sep_deg(ra, dec, f["ra"], f["dec"])
-    found.sort(key=lambda f: (mjds[f["k"]], f["sep"]))
+    found.sort(key=lambda f: (times[f["k"]], f["sep"]))
     if stats is not None:
         stats.update({"candidates": int(len(rows)), "found": len(found), "coarse_s": round(t1 - t0, 3),
                       "kete_s": round(t2 - t1, 3)})
-    return [{"name": index.name(f["row"]), "epoch_id": epoch_ids[f["k"]] if epoch_ids is not None else None,
+    by_time: dict[int, list[dict]] = {}
+    for f in found:
+        by_time.setdefault(f["k"], []).append(f)
+    order = sorted(range(len(times)), key=lambda u: times[u])
+    return [{"name": index.name(f["row"]), "epoch_id": epoch_ids[k] if epoch_ids is not None else None,
              "ra": round(f["ra"], 6), "dec": round(f["dec"], 6),
-             "v": None if f["v"] is None else round(f["v"], 2), "source": "mpc"} for f in found]
+             "v": None if f["v"] is None else round(f["v"], 2), "source": "mpc"}
+            for u in order for k in members[round(times[u], 8)] for f in by_time.get(u, [])]
 
 
 # ---------------------------------------------------------------- build (kete + pandas)

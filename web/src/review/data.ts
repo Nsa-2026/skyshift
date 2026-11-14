@@ -1,3 +1,4 @@
+import { candidateFramesUrl } from "../api/client";
 // Data for the review pages: the candidate list, each candidate's frames (static frames_url
 // first, then the live API) with a small preload cache, and the vote store.
 import { ApiFailure, epochsFor, loadCandidates, loadFrames } from "../api/client";
@@ -139,7 +140,7 @@ export function isLive(c: Candidate, view: View): boolean {
  */
 export async function candidateFrames(c: Candidate, view: View, signal?: AbortSignal): Promise<LoadedFrames> {
   if (c.frames_url && view.clock === c.clock) {
-    const jsonUrl = new URL(c.frames_url, location.href).href;
+    const jsonUrl = candidateFramesUrl(c.frames_url);
     try {
       const frames = await getFrames(jsonUrl, signal);
       if (frames.clock === view.clock && frames.epochs.some((e) => e.det === view.det)) return { frames, jsonUrl, origin: "static" };
