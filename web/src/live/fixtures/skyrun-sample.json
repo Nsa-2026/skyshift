@@ -3,9 +3,20 @@
  "schema": 1,
  "updated": "2026-11-14T19:12:40Z",
  "started": "2026-11-14T13:49:34Z",
- "ends": "2026-11-15T06:00:00Z",
+ "ends": "2026-11-15T05:00:00Z",
  "deadline": "2026-11-15T09:00:00Z",
+ "final_pass_starts": "2026-11-15T05:00:00Z",
+ "progress": {
+  "extracted_pct": 46.8,
+  "combined_pct": 40.2,
+  "combined_of_extracted_pct": 85.9,
+  "time_pct": 28.1,
+  "zones_per_hour": 28.8,
+  "projected_extracted_by_ends": 333,
+  "projected_extracted_pct": 100
+ },
  "final_pass_at": null,
+ "pace_photos_per_hour": 96359,
  "totals": {
   "zones": 333,
   "extracted": 156,
@@ -20,6 +31,7 @@
  "machines": [
   {
    "name": "skyshift-worker",
+   "label": "worker",
    "cpus": 96,
    "kind": "spot",
    "status": "RUNNING",
@@ -27,6 +39,7 @@
   },
   {
    "name": "skyshift-od",
+   "label": "od",
    "cpus": 80,
    "kind": "on-demand",
    "status": "RUNNING",
@@ -34,10 +47,19 @@
   },
   {
    "name": "skyshift-od2",
+   "label": "od2",
    "cpus": 40,
    "kind": "on-demand",
    "status": "RUNNING",
    "zone": "ecl26n3"
+  },
+  {
+   "name": "skyshift-test",
+   "label": "test",
+   "cpus": 8,
+   "kind": "on-demand",
+   "status": "RUNNING",
+   "zone": null
   }
  ],
  "zones": [
@@ -54,6 +76,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -62,7 +85,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00n1",
@@ -77,6 +101,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -85,7 +110,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00n2",
@@ -100,6 +126,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -108,7 +135,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00n3",
@@ -123,6 +151,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -131,7 +160,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00n4",
@@ -146,6 +176,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -154,7 +185,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00s1",
@@ -169,6 +201,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -177,7 +210,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00s2",
@@ -192,6 +226,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -200,7 +235,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00s3",
@@ -215,6 +251,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -223,7 +260,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl00s4",
@@ -238,6 +276,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -246,7 +285,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01",
@@ -261,6 +301,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -269,7 +310,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01n1",
@@ -284,6 +326,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -292,7 +335,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01n2",
@@ -307,6 +351,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -315,7 +360,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01n3",
@@ -330,6 +376,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -338,7 +385,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01n4",
@@ -353,6 +401,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -361,7 +410,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01s1",
@@ -376,6 +426,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -384,7 +435,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01s2",
@@ -399,6 +451,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -407,7 +460,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01s3",
@@ -422,6 +476,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -430,7 +485,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl01s4",
@@ -445,6 +501,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -453,7 +510,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02",
@@ -468,6 +526,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -476,7 +535,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02n1",
@@ -491,6 +551,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -499,7 +560,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02n2",
@@ -514,6 +576,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -522,7 +585,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02n3",
@@ -537,6 +601,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -545,7 +610,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02n4",
@@ -560,6 +626,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -568,7 +635,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02s1",
@@ -583,6 +651,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -591,7 +660,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02s2",
@@ -606,6 +676,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -614,7 +685,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02s3",
@@ -629,6 +701,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -637,7 +710,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl02s4",
@@ -652,6 +726,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -660,7 +735,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03",
@@ -675,6 +751,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -683,7 +760,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03n1",
@@ -698,6 +776,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -706,7 +785,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03n2",
@@ -721,6 +801,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -729,7 +810,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03n3",
@@ -744,6 +826,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -752,7 +835,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03n4",
@@ -767,6 +851,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -775,7 +860,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03s1",
@@ -790,6 +876,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -798,7 +885,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03s2",
@@ -813,6 +901,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -821,7 +910,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03s3",
@@ -836,6 +926,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -844,7 +935,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl03s4",
@@ -859,6 +951,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -867,7 +960,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04",
@@ -882,6 +976,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -890,7 +985,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04n1",
@@ -905,6 +1001,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -913,7 +1010,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04n2",
@@ -928,6 +1026,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -936,7 +1035,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04n3",
@@ -951,6 +1051,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -959,7 +1060,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04n4",
@@ -974,6 +1076,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -982,7 +1085,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04s1",
@@ -997,6 +1101,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -1005,7 +1110,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04s2",
@@ -1020,6 +1126,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -1028,7 +1135,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04s3",
@@ -1043,6 +1151,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -1051,7 +1160,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl04s4",
@@ -1066,6 +1176,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -1074,7 +1185,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05",
@@ -1089,6 +1201,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3580,
    "dots": 13053466,
    "extracted_at": "2026-11-14T18:44:50Z",
@@ -1097,7 +1210,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05n1",
@@ -1112,6 +1226,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3693,
    "dots": 17267463,
    "extracted_at": "2026-11-14T18:50:24Z",
@@ -1120,7 +1235,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05n2",
@@ -1135,6 +1251,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3253,
    "dots": 23439754,
    "extracted_at": "2026-11-14T19:00:57Z",
@@ -1143,7 +1260,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05n3",
@@ -1158,6 +1276,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3353,
    "dots": 56656533,
    "extracted_at": "2026-11-14T19:11:25Z",
@@ -1166,7 +1285,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05n4",
@@ -1181,6 +1301,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -1189,7 +1310,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05s1",
@@ -1204,6 +1326,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3901,
    "dots": 13913656,
    "extracted_at": "2026-11-14T18:55:55Z",
@@ -1212,7 +1335,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05s2",
@@ -1227,6 +1351,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4533,
    "dots": 14464406,
    "extracted_at": "2026-11-14T19:06:54Z",
@@ -1235,7 +1360,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05s3",
@@ -1250,6 +1376,7 @@
    "state": "extracting",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4133,
    "dots": null,
    "extracted_at": null,
@@ -1258,7 +1385,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl05s4",
@@ -1273,6 +1401,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -1281,7 +1410,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl06",
@@ -1296,6 +1426,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3461,
    "dots": 16516131,
    "extracted_at": "2026-11-14T17:56:12Z",
@@ -1304,7 +1435,8 @@
    "movers": 4694,
    "suspects": 163,
    "recall": 0.843,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06.json"
   },
   {
    "name": "ecl06n1",
@@ -1319,6 +1451,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3808,
    "dots": 27805169,
    "extracted_at": "2026-11-14T18:01:57Z",
@@ -1327,7 +1460,8 @@
    "movers": 1211,
    "suspects": 42,
    "recall": 0.8995,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06n1.json"
   },
   {
    "name": "ecl06n2",
@@ -1342,6 +1476,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3278,
    "dots": 49091951,
    "extracted_at": "2026-11-14T18:13:04Z",
@@ -1350,7 +1485,8 @@
    "movers": 716,
    "suspects": 47,
    "recall": 0.8171,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06n2.json"
   },
   {
    "name": "ecl06n3",
@@ -1365,6 +1501,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3026,
    "dots": 79744958,
    "extracted_at": "2026-11-14T18:23:47Z",
@@ -1373,7 +1510,8 @@
    "movers": 591,
    "suspects": 50,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06n3.json"
   },
   {
    "name": "ecl06n4",
@@ -1388,6 +1526,7 @@
    "state": "combining",
    "final": false,
    "machine": "od",
+   "combiner": "od2",
    "photos": 2447,
    "dots": 28603941,
    "extracted_at": "2026-11-14T18:33:33Z",
@@ -1396,7 +1535,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl06s1",
@@ -1411,6 +1551,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4086,
    "dots": 16366007,
    "extracted_at": "2026-11-14T18:08:12Z",
@@ -1419,7 +1560,8 @@
    "movers": 1386,
    "suspects": 48,
    "recall": 0.7851,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06s1.json"
   },
   {
    "name": "ecl06s2",
@@ -1434,6 +1576,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4131,
    "dots": 13478937,
    "extracted_at": "2026-11-14T18:19:07Z",
@@ -1442,7 +1585,8 @@
    "movers": 348,
    "suspects": 12,
    "recall": 0.8914,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06s2.json"
   },
   {
    "name": "ecl06s3",
@@ -1457,6 +1601,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4059,
    "dots": 14110526,
    "extracted_at": "2026-11-14T18:29:30Z",
@@ -1465,7 +1610,8 @@
    "movers": 99,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl06s3.json"
   },
   {
    "name": "ecl06s4",
@@ -1480,6 +1626,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4531,
    "dots": 15587679,
    "extracted_at": "2026-11-14T18:39:52Z",
@@ -1488,7 +1635,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl07",
@@ -1503,6 +1651,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3987,
    "dots": 34356040,
    "extracted_at": "2026-11-14T17:09:59Z",
@@ -1511,7 +1660,8 @@
    "movers": 5730,
    "suspects": 206,
    "recall": 0.7974,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07.json"
   },
   {
    "name": "ecl07n1",
@@ -1526,6 +1676,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3616,
    "dots": 56866882,
    "extracted_at": "2026-11-14T17:15:01Z",
@@ -1534,7 +1685,8 @@
    "movers": 1865,
    "suspects": 87,
    "recall": 0.8992,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07n1.json"
   },
   {
    "name": "ecl07n2",
@@ -1549,6 +1701,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3209,
    "dots": 94094041,
    "extracted_at": "2026-11-14T17:25:02Z",
@@ -1557,7 +1710,8 @@
    "movers": 687,
    "suspects": 51,
    "recall": 0.8272,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07n2.json"
   },
   {
    "name": "ecl07n3",
@@ -1572,6 +1726,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3061,
    "dots": 40906846,
    "extracted_at": "2026-11-14T17:34:41Z",
@@ -1580,7 +1735,8 @@
    "movers": 365,
    "suspects": 36,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07n3.json"
   },
   {
    "name": "ecl07n4",
@@ -1595,6 +1751,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2316,
    "dots": 17383785,
    "extracted_at": "2026-11-14T17:44:32Z",
@@ -1603,7 +1760,8 @@
    "movers": 67,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07n4.json"
   },
   {
    "name": "ecl07s1",
@@ -1618,6 +1776,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4011,
    "dots": 19884330,
    "extracted_at": "2026-11-14T17:20:39Z",
@@ -1626,7 +1785,8 @@
    "movers": 1200,
    "suspects": 46,
    "recall": 0.875,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07s1.json"
   },
   {
    "name": "ecl07s2",
@@ -1641,6 +1801,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3830,
    "dots": 16842490,
    "extracted_at": "2026-11-14T17:30:02Z",
@@ -1649,7 +1810,8 @@
    "movers": 325,
    "suspects": 10,
    "recall": 0.887,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07s2.json"
   },
   {
    "name": "ecl07s3",
@@ -1664,6 +1826,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4428,
    "dots": 16643020,
    "extracted_at": "2026-11-14T17:40:47Z",
@@ -1672,7 +1835,8 @@
    "movers": 110,
    "suspects": 4,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07s3.json"
   },
   {
    "name": "ecl07s4",
@@ -1687,6 +1851,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 5012,
    "dots": 18619411,
    "extracted_at": "2026-11-14T17:51:03Z",
@@ -1695,7 +1860,8 @@
    "movers": 75,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl07s4.json"
   },
   {
    "name": "ecl08",
@@ -1710,6 +1876,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3954,
    "dots": 78080050,
    "extracted_at": "2026-11-14T16:22:49Z",
@@ -1718,7 +1885,8 @@
    "movers": 7321,
    "suspects": 293,
    "recall": 0.8112,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08.json"
   },
   {
    "name": "ecl08n1",
@@ -1733,6 +1901,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3820,
    "dots": 90826243,
    "extracted_at": "2026-11-14T16:28:40Z",
@@ -1741,7 +1910,8 @@
    "movers": 2054,
    "suspects": 99,
    "recall": 0.9091,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08n1.json"
   },
   {
    "name": "ecl08n2",
@@ -1756,6 +1926,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2928,
    "dots": 38002435,
    "extracted_at": "2026-11-14T16:38:03Z",
@@ -1764,7 +1935,8 @@
    "movers": 739,
    "suspects": 46,
    "recall": 0.8086,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08n2.json"
   },
   {
    "name": "ecl08n3",
@@ -1779,6 +1951,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2965,
    "dots": 23178099,
    "extracted_at": "2026-11-14T16:48:10Z",
@@ -1787,7 +1960,8 @@
    "movers": 158,
    "suspects": 7,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08n3.json"
   },
   {
    "name": "ecl08n4",
@@ -1802,6 +1976,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2457,
    "dots": 13846858,
    "extracted_at": "2026-11-14T16:58:49Z",
@@ -1810,7 +1985,8 @@
    "movers": 64,
    "suspects": 4,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08n4.json"
   },
   {
    "name": "ecl08s1",
@@ -1825,6 +2001,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3752,
    "dots": 39718750,
    "extracted_at": "2026-11-14T16:34:01Z",
@@ -1833,7 +2010,8 @@
    "movers": 2085,
    "suspects": 83,
    "recall": 0.905,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08s1.json"
   },
   {
    "name": "ecl08s2",
@@ -1848,6 +2026,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4243,
    "dots": 27276257,
    "extracted_at": "2026-11-14T16:43:36Z",
@@ -1856,7 +2035,8 @@
    "movers": 401,
    "suspects": 17,
    "recall": 0.803,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08s2.json"
   },
   {
    "name": "ecl08s3",
@@ -1871,6 +2051,7 @@
    "state": "failed",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4309,
    "dots": 21203006,
    "extracted_at": "2026-11-14T16:54:39Z",
@@ -1879,7 +2060,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": "photolist: IRSA search timed out twice"
+   "error": "photolist: IRSA search timed out twice",
+   "suspects_url": null
   },
   {
    "name": "ecl08s4",
@@ -1894,6 +2076,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4332,
    "dots": 18033813,
    "extracted_at": "2026-11-14T17:04:40Z",
@@ -1902,7 +2085,8 @@
    "movers": 74,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl08s4.json"
   },
   {
    "name": "ecl09",
@@ -1917,6 +2101,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3581,
    "dots": 58298812,
    "extracted_at": "2026-11-14T15:33:43Z",
@@ -1925,7 +2110,8 @@
    "movers": 6925,
    "suspects": 272,
    "recall": 0.8996,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09.json"
   },
   {
    "name": "ecl09n1",
@@ -1940,6 +2126,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3534,
    "dots": 37431809,
    "extracted_at": "2026-11-14T15:38:38Z",
@@ -1948,7 +2135,8 @@
    "movers": 1888,
    "suspects": 64,
    "recall": 0.868,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09n1.json"
   },
   {
    "name": "ecl09n2",
@@ -1963,6 +2151,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3265,
    "dots": 22162154,
    "extracted_at": "2026-11-14T15:49:54Z",
@@ -1971,7 +2160,8 @@
    "movers": 314,
    "suspects": 12,
    "recall": 0.9101,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09n2.json"
   },
   {
    "name": "ecl09n3",
@@ -1986,6 +2176,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3140,
    "dots": 15613620,
    "extracted_at": "2026-11-14T15:59:59Z",
@@ -1994,7 +2185,8 @@
    "movers": 167,
    "suspects": 7,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09n3.json"
   },
   {
    "name": "ecl09n4",
@@ -2009,6 +2201,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2302,
    "dots": 11003527,
    "extracted_at": "2026-11-14T16:10:54Z",
@@ -2017,7 +2210,8 @@
    "movers": 61,
    "suspects": 4,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09n4.json"
   },
   {
    "name": "ecl09s1",
@@ -2032,6 +2226,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4250,
    "dots": 126893707,
    "extracted_at": "2026-11-14T15:44:54Z",
@@ -2040,7 +2235,8 @@
    "movers": 1445,
    "suspects": 70,
    "recall": 0.8693,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09s1.json"
   },
   {
    "name": "ecl09s2",
@@ -2055,6 +2251,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3881,
    "dots": 61396527,
    "extracted_at": "2026-11-14T15:55:15Z",
@@ -2063,7 +2260,8 @@
    "movers": 728,
    "suspects": 52,
    "recall": 0.8981,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09s2.json"
   },
   {
    "name": "ecl09s3",
@@ -2078,6 +2276,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4726,
    "dots": 45620957,
    "extracted_at": "2026-11-14T16:06:57Z",
@@ -2086,7 +2285,8 @@
    "movers": 397,
    "suspects": 18,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09s3.json"
   },
   {
    "name": "ecl09s4",
@@ -2101,6 +2301,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4819,
    "dots": 32615699,
    "extracted_at": "2026-11-14T16:17:32Z",
@@ -2109,7 +2310,8 @@
    "movers": 95,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl09s4.json"
   },
   {
    "name": "ecl10",
@@ -2124,6 +2326,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3826,
    "dots": 27042181,
    "extracted_at": "2026-11-14T14:46:28Z",
@@ -2132,7 +2335,8 @@
    "movers": 6124,
    "suspects": 220,
    "recall": 0.8449,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10.json"
   },
   {
    "name": "ecl10n1",
@@ -2147,6 +2351,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3660,
    "dots": 22218012,
    "extracted_at": "2026-11-14T14:52:12Z",
@@ -2155,7 +2360,8 @@
    "movers": 1439,
    "suspects": 45,
    "recall": 0.8812,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10n1.json"
   },
   {
    "name": "ecl10n2",
@@ -2170,6 +2376,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3320,
    "dots": 14750613,
    "extracted_at": "2026-11-14T15:02:18Z",
@@ -2178,7 +2385,8 @@
    "movers": 384,
    "suspects": 16,
    "recall": 0.8749,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10n2.json"
   },
   {
    "name": "ecl10n3",
@@ -2193,6 +2401,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2880,
    "dots": 12812676,
    "extracted_at": "2026-11-14T15:11:55Z",
@@ -2201,7 +2410,8 @@
    "movers": 159,
    "suspects": 9,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10n3.json"
   },
   {
    "name": "ecl10n4",
@@ -2216,6 +2426,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2717,
    "dots": 11044374,
    "extracted_at": "2026-11-14T15:21:39Z",
@@ -2224,7 +2435,8 @@
    "movers": 69,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10n4.json"
   },
   {
    "name": "ecl10s1",
@@ -2239,6 +2451,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3587,
    "dots": 42718696,
    "extracted_at": "2026-11-14T14:57:22Z",
@@ -2247,7 +2460,8 @@
    "movers": 2080,
    "suspects": 71,
    "recall": 0.9004,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10s1.json"
   },
   {
    "name": "ecl10s2",
@@ -2262,6 +2476,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4309,
    "dots": 85279292,
    "extracted_at": "2026-11-14T15:07:57Z",
@@ -2270,7 +2485,8 @@
    "movers": 946,
    "suspects": 57,
    "recall": 0.9057,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10s2.json"
   },
   {
    "name": "ecl10s3",
@@ -2285,6 +2501,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4166,
    "dots": 113090184,
    "extracted_at": "2026-11-14T15:17:51Z",
@@ -2293,7 +2510,8 @@
    "movers": 338,
    "suspects": 40,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10s3.json"
   },
   {
    "name": "ecl10s4",
@@ -2308,6 +2526,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4753,
    "dots": 73858180,
    "extracted_at": "2026-11-14T15:28:35Z",
@@ -2316,7 +2535,8 @@
    "movers": 354,
    "suspects": 38,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl10s4.json"
   },
   {
    "name": "ecl11",
@@ -2331,6 +2551,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3582,
    "dots": 15269568,
    "extracted_at": "2026-11-14T13:58:51Z",
@@ -2339,7 +2560,8 @@
    "movers": 6274,
    "suspects": 216,
    "recall": 0.8023,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11.json"
   },
   {
    "name": "ecl11n1",
@@ -2354,6 +2576,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3850,
    "dots": 16534161,
    "extracted_at": "2026-11-14T14:04:49Z",
@@ -2362,7 +2585,8 @@
    "movers": 1575,
    "suspects": 53,
    "recall": 0.8384,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11n1.json"
   },
   {
    "name": "ecl11n2",
@@ -2377,6 +2601,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3368,
    "dots": 12554390,
    "extracted_at": "2026-11-14T14:15:04Z",
@@ -2385,7 +2610,8 @@
    "movers": 452,
    "suspects": 17,
    "recall": 0.7906,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11n2.json"
   },
   {
    "name": "ecl11n3",
@@ -2400,6 +2626,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3261,
    "dots": 12397300,
    "extracted_at": "2026-11-14T14:25:14Z",
@@ -2408,7 +2635,8 @@
    "movers": 158,
    "suspects": 8,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11n3.json"
   },
   {
    "name": "ecl11n4",
@@ -2423,6 +2651,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 2788,
    "dots": 9221051,
    "extracted_at": "2026-11-14T14:35:25Z",
@@ -2431,7 +2660,8 @@
    "movers": 70,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11n4.json"
   },
   {
    "name": "ecl11s1",
@@ -2446,6 +2676,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3797,
    "dots": 20516093,
    "extracted_at": "2026-11-14T14:10:03Z",
@@ -2454,7 +2685,8 @@
    "movers": 1377,
    "suspects": 48,
    "recall": 0.9082,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11s1.json"
   },
   {
    "name": "ecl11s2",
@@ -2469,6 +2701,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 3995,
    "dots": 34127340,
    "extracted_at": "2026-11-14T14:20:26Z",
@@ -2477,7 +2710,8 @@
    "movers": 463,
    "suspects": 20,
    "recall": 0.9062,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11s2.json"
   },
   {
    "name": "ecl11s3",
@@ -2492,6 +2726,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4532,
    "dots": 53750015,
    "extracted_at": "2026-11-14T14:31:15Z",
@@ -2500,7 +2735,8 @@
    "movers": 658,
    "suspects": 43,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11s3.json"
   },
   {
    "name": "ecl11s4",
@@ -2515,6 +2751,7 @@
    "state": "combined",
    "final": false,
    "machine": "od",
+   "combiner": null,
    "photos": 4283,
    "dots": 95218846,
    "extracted_at": "2026-11-14T14:41:14Z",
@@ -2523,7 +2760,8 @@
    "movers": 693,
    "suspects": 51,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl11s4.json"
   },
   {
    "name": "hunt",
@@ -2538,6 +2776,7 @@
    "state": "combined",
    "final": true,
    "machine": "worker",
+   "combiner": null,
    "photos": 3692,
    "dots": 33359558,
    "extracted_at": "2026-11-14T11:30:00Z",
@@ -2546,7 +2785,8 @@
    "movers": 6143,
    "suspects": 228,
    "recall": 0.9037,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/hunt.json"
   },
   {
    "name": "ecl12n1",
@@ -2561,6 +2801,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2569,7 +2810,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12n2",
@@ -2584,6 +2826,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2592,7 +2835,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12n3",
@@ -2607,6 +2851,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2615,7 +2860,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12n4",
@@ -2630,6 +2876,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2638,7 +2885,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12s1",
@@ -2653,6 +2901,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2661,7 +2910,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12s2",
@@ -2676,6 +2926,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2684,7 +2935,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12s3",
@@ -2699,6 +2951,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2707,7 +2960,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl12s4",
@@ -2722,6 +2976,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -2730,7 +2985,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl13",
@@ -2745,6 +3001,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3516,
    "dots": 12416239,
    "extracted_at": "2026-11-14T13:54:10Z",
@@ -2753,7 +3010,8 @@
    "movers": 6477,
    "suspects": 241,
    "recall": 0.8853,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13.json"
   },
   {
    "name": "ecl13n1",
@@ -2768,6 +3026,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3679,
    "dots": 11307261,
    "extracted_at": "2026-11-14T13:59:05Z",
@@ -2776,7 +3035,8 @@
    "movers": 1350,
    "suspects": 49,
    "recall": 0.7986,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13n1.json"
   },
   {
    "name": "ecl13n2",
@@ -2791,6 +3051,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3161,
    "dots": 9973416,
    "extracted_at": "2026-11-14T14:06:58Z",
@@ -2799,7 +3060,8 @@
    "movers": 361,
    "suspects": 10,
    "recall": 0.8239,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13n2.json"
   },
   {
    "name": "ecl13n3",
@@ -2814,6 +3076,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 2982,
    "dots": 9008230,
    "extracted_at": "2026-11-14T14:15:28Z",
@@ -2822,7 +3085,8 @@
    "movers": 182,
    "suspects": 8,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13n3.json"
   },
   {
    "name": "ecl13n4",
@@ -2837,6 +3101,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3080,
    "dots": 9754352,
    "extracted_at": "2026-11-14T14:24:11Z",
@@ -2845,7 +3110,8 @@
    "movers": 48,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13n4.json"
   },
   {
    "name": "ecl13s1",
@@ -2860,6 +3126,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3650,
    "dots": 13115146,
    "extracted_at": "2026-11-14T14:03:16Z",
@@ -2868,7 +3135,8 @@
    "movers": 1239,
    "suspects": 42,
    "recall": 0.8396,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13s1.json"
   },
   {
    "name": "ecl13s2",
@@ -2883,6 +3151,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4097,
    "dots": 14605675,
    "extracted_at": "2026-11-14T14:12:01Z",
@@ -2891,7 +3160,8 @@
    "movers": 490,
    "suspects": 21,
    "recall": 0.8635,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13s2.json"
   },
   {
    "name": "ecl13s3",
@@ -2906,6 +3176,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4287,
    "dots": 19194761,
    "extracted_at": "2026-11-14T14:20:31Z",
@@ -2914,7 +3185,8 @@
    "movers": 94,
    "suspects": 6,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13s3.json"
   },
   {
    "name": "ecl13s4",
@@ -2929,6 +3201,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4678,
    "dots": 30430339,
    "extracted_at": "2026-11-14T14:29:25Z",
@@ -2937,7 +3210,8 @@
    "movers": 103,
    "suspects": 7,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl13s4.json"
   },
   {
    "name": "ecl14",
@@ -2952,6 +3226,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4273,
    "dots": 14034369,
    "extracted_at": "2026-11-14T14:35:04Z",
@@ -2960,7 +3235,8 @@
    "movers": 6585,
    "suspects": 241,
    "recall": 0.784,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14.json"
   },
   {
    "name": "ecl14n1",
@@ -2975,6 +3251,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3829,
    "dots": 12125591,
    "extracted_at": "2026-11-14T14:40:06Z",
@@ -2983,7 +3260,8 @@
    "movers": 1301,
    "suspects": 45,
    "recall": 0.8053,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14n1.json"
   },
   {
    "name": "ecl14n2",
@@ -2998,6 +3276,7 @@
    "state": "failed",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3631,
    "dots": 11331805,
    "extracted_at": "2026-11-14T14:49:19Z",
@@ -3006,7 +3285,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": "combine: link step ran out of memory (exit=137)"
+   "error": "combine: link step ran out of memory (exit=137)",
+   "suspects_url": null
   },
   {
    "name": "ecl14n3",
@@ -3021,6 +3301,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3529,
    "dots": 11148608,
    "extracted_at": "2026-11-14T14:59:18Z",
@@ -3029,7 +3310,8 @@
    "movers": 155,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14n3.json"
   },
   {
    "name": "ecl14n4",
@@ -3044,6 +3326,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 2810,
    "dots": 9142495,
    "extracted_at": "2026-11-14T15:08:19Z",
@@ -3052,7 +3335,8 @@
    "movers": 88,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14n4.json"
   },
   {
    "name": "ecl14s1",
@@ -3067,6 +3351,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4085,
    "dots": 12986609,
    "extracted_at": "2026-11-14T14:44:43Z",
@@ -3075,7 +3360,8 @@
    "movers": 1274,
    "suspects": 51,
    "recall": 0.7804,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14s1.json"
   },
   {
    "name": "ecl14s2",
@@ -3090,6 +3376,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4428,
    "dots": 13949749,
    "extracted_at": "2026-11-14T14:54:56Z",
@@ -3098,7 +3385,8 @@
    "movers": 468,
    "suspects": 16,
    "recall": 0.8532,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14s2.json"
   },
   {
    "name": "ecl14s3",
@@ -3113,6 +3401,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4483,
    "dots": 17016368,
    "extracted_at": "2026-11-14T15:05:05Z",
@@ -3121,7 +3410,8 @@
    "movers": 167,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14s3.json"
   },
   {
    "name": "ecl14s4",
@@ -3136,6 +3426,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4667,
    "dots": 22453222,
    "extracted_at": "2026-11-14T15:13:36Z",
@@ -3144,7 +3435,8 @@
    "movers": 73,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl14s4.json"
   },
   {
    "name": "ecl15",
@@ -3159,6 +3451,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3807,
    "dots": 12084563,
    "extracted_at": "2026-11-14T15:18:12Z",
@@ -3167,7 +3460,8 @@
    "movers": 6728,
    "suspects": 226,
    "recall": 0.9092,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15.json"
   },
   {
    "name": "ecl15n1",
@@ -3182,6 +3476,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3926,
    "dots": 12346178,
    "extracted_at": "2026-11-14T15:22:36Z",
@@ -3190,7 +3485,8 @@
    "movers": 1711,
    "suspects": 68,
    "recall": 0.7866,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15n1.json"
   },
   {
    "name": "ecl15n2",
@@ -3205,6 +3501,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3789,
    "dots": 11228020,
    "extracted_at": "2026-11-14T15:32:31Z",
@@ -3213,7 +3510,8 @@
    "movers": 389,
    "suspects": 18,
    "recall": 0.8485,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15n2.json"
   },
   {
    "name": "ecl15n3",
@@ -3228,6 +3526,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3201,
    "dots": 11008931,
    "extracted_at": "2026-11-14T15:41:31Z",
@@ -3236,7 +3535,8 @@
    "movers": 198,
    "suspects": 9,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15n3.json"
   },
   {
    "name": "ecl15n4",
@@ -3251,6 +3551,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3129,
    "dots": 10533492,
    "extracted_at": "2026-11-14T15:50:45Z",
@@ -3259,7 +3560,8 @@
    "movers": 73,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15n4.json"
   },
   {
    "name": "ecl15s1",
@@ -3274,6 +3576,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3957,
    "dots": 12356211,
    "extracted_at": "2026-11-14T15:27:51Z",
@@ -3282,7 +3585,8 @@
    "movers": 1513,
    "suspects": 47,
    "recall": 0.8844,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15s1.json"
   },
   {
    "name": "ecl15s2",
@@ -3297,6 +3601,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3798,
    "dots": 12720854,
    "extracted_at": "2026-11-14T15:37:01Z",
@@ -3305,7 +3610,8 @@
    "movers": 484,
    "suspects": 21,
    "recall": 0.8841,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15s2.json"
   },
   {
    "name": "ecl15s3",
@@ -3320,6 +3626,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4101,
    "dots": 13880870,
    "extracted_at": "2026-11-14T15:46:21Z",
@@ -3328,7 +3635,8 @@
    "movers": 102,
    "suspects": 6,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15s3.json"
   },
   {
    "name": "ecl15s4",
@@ -3343,6 +3651,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3751,
    "dots": 14701337,
    "extracted_at": "2026-11-14T15:55:20Z",
@@ -3351,7 +3660,8 @@
    "movers": 85,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl15s4.json"
   },
   {
    "name": "ecl16",
@@ -3366,6 +3676,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3647,
    "dots": 12230809,
    "extracted_at": "2026-11-14T15:59:40Z",
@@ -3374,7 +3685,8 @@
    "movers": 5076,
    "suspects": 166,
    "recall": 0.9005,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16.json"
   },
   {
    "name": "ecl16n1",
@@ -3389,6 +3701,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3534,
    "dots": 12002608,
    "extracted_at": "2026-11-14T16:04:12Z",
@@ -3397,7 +3710,8 @@
    "movers": 1267,
    "suspects": 50,
    "recall": 0.9259,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16n1.json"
   },
   {
    "name": "ecl16n2",
@@ -3412,6 +3726,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4180,
    "dots": 13543754,
    "extracted_at": "2026-11-14T16:14:11Z",
@@ -3420,7 +3735,8 @@
    "movers": 335,
    "suspects": 16,
    "recall": 0.9228,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16n2.json"
   },
   {
    "name": "ecl16n3",
@@ -3435,6 +3751,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4012,
    "dots": 13468973,
    "extracted_at": "2026-11-14T16:24:22Z",
@@ -3443,7 +3760,8 @@
    "movers": 99,
    "suspects": 6,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16n3.json"
   },
   {
    "name": "ecl16n4",
@@ -3458,6 +3776,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3286,
    "dots": 10908436,
    "extracted_at": "2026-11-14T16:33:31Z",
@@ -3466,7 +3785,8 @@
    "movers": 63,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16n4.json"
   },
   {
    "name": "ecl16s1",
@@ -3481,6 +3801,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4387,
    "dots": 14719354,
    "extracted_at": "2026-11-14T16:09:04Z",
@@ -3489,7 +3810,8 @@
    "movers": 1511,
    "suspects": 60,
    "recall": 0.8278,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16s1.json"
   },
   {
    "name": "ecl16s2",
@@ -3504,6 +3826,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4288,
    "dots": 14271499,
    "extracted_at": "2026-11-14T16:19:49Z",
@@ -3512,7 +3835,8 @@
    "movers": 532,
    "suspects": 18,
    "recall": 0.8856,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16s2.json"
   },
   {
    "name": "ecl16s3",
@@ -3527,6 +3851,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3890,
    "dots": 12481175,
    "extracted_at": "2026-11-14T16:29:26Z",
@@ -3535,7 +3860,8 @@
    "movers": 168,
    "suspects": 8,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16s3.json"
   },
   {
    "name": "ecl16s4",
@@ -3550,6 +3876,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4269,
    "dots": 17042960,
    "extracted_at": "2026-11-14T16:38:58Z",
@@ -3558,7 +3885,8 @@
    "movers": 66,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl16s4.json"
   },
   {
    "name": "ecl17",
@@ -3573,6 +3901,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4114,
    "dots": 12953426,
    "extracted_at": "2026-11-14T16:43:43Z",
@@ -3581,7 +3910,8 @@
    "movers": 5742,
    "suspects": 211,
    "recall": 0.8273,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17.json"
   },
   {
    "name": "ecl17n1",
@@ -3596,6 +3926,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4056,
    "dots": 12631066,
    "extracted_at": "2026-11-14T16:49:07Z",
@@ -3604,7 +3935,8 @@
    "movers": 1862,
    "suspects": 69,
    "recall": 0.8121,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17n1.json"
   },
   {
    "name": "ecl17n2",
@@ -3619,6 +3951,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4128,
    "dots": 14209921,
    "extracted_at": "2026-11-14T17:13:26Z",
@@ -3627,7 +3960,8 @@
    "movers": 547,
    "suspects": 22,
    "recall": 0.8794,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17n2.json"
   },
   {
    "name": "ecl17n3",
@@ -3642,6 +3976,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3627,
    "dots": 11055481,
    "extracted_at": "2026-11-14T17:23:03Z",
@@ -3650,7 +3985,8 @@
    "movers": 158,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17n3.json"
   },
   {
    "name": "ecl17n4",
@@ -3665,6 +4001,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3611,
    "dots": 11248214,
    "extracted_at": "2026-11-14T17:32:27Z",
@@ -3673,7 +4010,8 @@
    "movers": 111,
    "suspects": 4,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17n4.json"
   },
   {
    "name": "ecl17s1",
@@ -3688,6 +4026,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4337,
    "dots": 13937545,
    "extracted_at": "2026-11-14T17:08:22Z",
@@ -3696,7 +4035,8 @@
    "movers": 1408,
    "suspects": 53,
    "recall": 0.89,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17s1.json"
   },
   {
    "name": "ecl17s2",
@@ -3711,6 +4051,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3975,
    "dots": 12678194,
    "extracted_at": "2026-11-14T17:18:16Z",
@@ -3719,7 +4060,8 @@
    "movers": 378,
    "suspects": 12,
    "recall": 0.8063,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17s2.json"
   },
   {
    "name": "ecl17s3",
@@ -3734,6 +4076,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4115,
    "dots": 13455772,
    "extracted_at": "2026-11-14T17:28:16Z",
@@ -3742,7 +4085,8 @@
    "movers": 152,
    "suspects": 8,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17s3.json"
   },
   {
    "name": "ecl17s4",
@@ -3757,6 +4101,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4015,
    "dots": 18012843,
    "extracted_at": "2026-11-14T17:37:02Z",
@@ -3765,7 +4110,8 @@
    "movers": 52,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl17s4.json"
   },
   {
    "name": "ecl18",
@@ -3780,6 +4126,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4107,
    "dots": 13882628,
    "extracted_at": "2026-11-14T17:41:47Z",
@@ -3788,7 +4135,8 @@
    "movers": 4695,
    "suspects": 173,
    "recall": 0.9187,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18.json"
   },
   {
    "name": "ecl18n1",
@@ -3803,6 +4151,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3611,
    "dots": 11356064,
    "extracted_at": "2026-11-14T17:46:00Z",
@@ -3811,7 +4160,8 @@
    "movers": 1419,
    "suspects": 51,
    "recall": 0.9033,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18n1.json"
   },
   {
    "name": "ecl18n2",
@@ -3826,6 +4176,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3897,
    "dots": 11703280,
    "extracted_at": "2026-11-14T17:55:08Z",
@@ -3834,7 +4185,8 @@
    "movers": 533,
    "suspects": 22,
    "recall": 0.8663,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18n2.json"
   },
   {
    "name": "ecl18n3",
@@ -3849,6 +4201,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3783,
    "dots": 12629803,
    "extracted_at": "2026-11-14T18:04:57Z",
@@ -3857,7 +4210,8 @@
    "movers": 152,
    "suspects": 8,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18n3.json"
   },
   {
    "name": "ecl18n4",
@@ -3872,6 +4226,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3947,
    "dots": 12876686,
    "extracted_at": "2026-11-14T18:13:49Z",
@@ -3880,7 +4235,8 @@
    "movers": 118,
    "suspects": 7,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18n4.json"
   },
   {
    "name": "ecl18s1",
@@ -3895,6 +4251,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3770,
    "dots": 12909790,
    "extracted_at": "2026-11-14T17:50:15Z",
@@ -3903,7 +4260,8 @@
    "movers": 1695,
    "suspects": 54,
    "recall": 0.8131,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18s1.json"
   },
   {
    "name": "ecl18s2",
@@ -3918,6 +4276,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3879,
    "dots": 13139607,
    "extracted_at": "2026-11-14T18:00:11Z",
@@ -3926,7 +4285,8 @@
    "movers": 390,
    "suspects": 11,
    "recall": 0.9101,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18s2.json"
   },
   {
    "name": "ecl18s3",
@@ -3941,6 +4301,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3649,
    "dots": 13595927,
    "extracted_at": "2026-11-14T18:09:08Z",
@@ -3949,7 +4310,8 @@
    "movers": 146,
    "suspects": 5,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18s3.json"
   },
   {
    "name": "ecl18s4",
@@ -3964,6 +4326,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3647,
    "dots": 18178989,
    "extracted_at": "2026-11-14T18:18:03Z",
@@ -3972,7 +4335,8 @@
    "movers": 62,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl18s4.json"
   },
   {
    "name": "ecl19",
@@ -3987,6 +4351,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3592,
    "dots": 11067387,
    "extracted_at": "2026-11-14T18:22:20Z",
@@ -3995,7 +4360,8 @@
    "movers": 6580,
    "suspects": 229,
    "recall": 0.9001,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl19.json"
   },
   {
    "name": "ecl19n1",
@@ -4010,6 +4376,7 @@
    "state": "combined",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3931,
    "dots": 13266411,
    "extracted_at": "2026-11-14T18:27:05Z",
@@ -4018,7 +4385,8 @@
    "movers": 1305,
    "suspects": 41,
    "recall": 0.8808,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl19n1.json"
   },
   {
    "name": "ecl19n2",
@@ -4033,6 +4401,7 @@
    "state": "combining",
    "final": false,
    "machine": "worker",
+   "combiner": "od",
    "photos": 4459,
    "dots": 14481789,
    "extracted_at": "2026-11-14T18:37:00Z",
@@ -4041,7 +4410,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl19n3",
@@ -4056,6 +4426,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3710,
    "dots": 11416015,
    "extracted_at": "2026-11-14T18:45:07Z",
@@ -4064,7 +4435,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl19n4",
@@ -4079,6 +4451,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4410,
    "dots": 13848585,
    "extracted_at": "2026-11-14T18:55:23Z",
@@ -4087,7 +4460,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl19s1",
@@ -4102,6 +4476,7 @@
    "state": "combining",
    "final": false,
    "machine": "worker",
+   "combiner": "od",
    "photos": 3566,
    "dots": 12221341,
    "extracted_at": "2026-11-14T18:31:44Z",
@@ -4110,7 +4485,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl19s2",
@@ -4125,6 +4501,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3476,
    "dots": 11479793,
    "extracted_at": "2026-11-14T18:40:59Z",
@@ -4133,7 +4510,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl19s3",
@@ -4148,6 +4526,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3306,
    "dots": 12408584,
    "extracted_at": "2026-11-14T18:49:41Z",
@@ -4156,7 +4535,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl19s4",
@@ -4171,6 +4551,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3773,
    "dots": 20546204,
    "extracted_at": "2026-11-14T19:00:25Z",
@@ -4179,7 +4560,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20",
@@ -4194,6 +4576,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4303,
    "dots": 14326217,
    "extracted_at": "2026-11-14T19:06:01Z",
@@ -4202,7 +4585,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20n1",
@@ -4217,6 +4601,7 @@
    "state": "extracted",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 4320,
    "dots": 14643097,
    "extracted_at": "2026-11-14T19:10:45Z",
@@ -4225,7 +4610,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20n2",
@@ -4240,6 +4626,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4248,7 +4635,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20n3",
@@ -4263,6 +4651,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4271,7 +4660,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20n4",
@@ -4286,6 +4676,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4294,7 +4685,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20s1",
@@ -4309,6 +4701,7 @@
    "state": "extracting",
    "final": false,
    "machine": "worker",
+   "combiner": null,
    "photos": 3457,
    "dots": null,
    "extracted_at": null,
@@ -4317,7 +4710,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20s2",
@@ -4332,6 +4726,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4340,7 +4735,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20s3",
@@ -4355,6 +4751,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4363,7 +4760,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl20s4",
@@ -4378,6 +4776,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4386,7 +4785,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21",
@@ -4401,6 +4801,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4409,7 +4810,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21n1",
@@ -4424,6 +4826,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4432,7 +4835,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21n2",
@@ -4447,6 +4851,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4455,7 +4860,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21n3",
@@ -4470,6 +4876,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4478,7 +4885,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21n4",
@@ -4493,6 +4901,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4501,7 +4910,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21s1",
@@ -4516,6 +4926,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4524,7 +4935,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21s2",
@@ -4539,6 +4951,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4547,7 +4960,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21s3",
@@ -4562,6 +4976,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4570,7 +4985,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl21s4",
@@ -4585,6 +5001,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4593,7 +5010,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22",
@@ -4608,6 +5026,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4616,7 +5035,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22n1",
@@ -4631,6 +5051,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4639,7 +5060,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22n2",
@@ -4654,6 +5076,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4662,7 +5085,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22n3",
@@ -4677,6 +5101,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4685,7 +5110,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22n4",
@@ -4700,6 +5126,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4708,7 +5135,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22s1",
@@ -4723,6 +5151,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4731,7 +5160,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22s2",
@@ -4746,6 +5176,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4754,7 +5185,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22s3",
@@ -4769,6 +5201,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4777,7 +5210,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl22s4",
@@ -4792,6 +5226,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4800,7 +5235,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23",
@@ -4815,6 +5251,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4823,7 +5260,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23n1",
@@ -4838,6 +5276,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4846,7 +5285,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23n2",
@@ -4861,6 +5301,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4869,7 +5310,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23n3",
@@ -4884,6 +5326,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4892,7 +5335,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23n4",
@@ -4907,6 +5351,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4915,7 +5360,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23s1",
@@ -4930,6 +5376,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4938,7 +5385,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23s2",
@@ -4953,6 +5401,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4961,7 +5410,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23s3",
@@ -4976,6 +5426,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -4984,7 +5435,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl23s4",
@@ -4999,6 +5451,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5007,7 +5460,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24",
@@ -5022,6 +5476,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5030,7 +5485,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24n1",
@@ -5045,6 +5501,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5053,7 +5510,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24n2",
@@ -5068,6 +5526,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5076,7 +5535,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24n3",
@@ -5091,6 +5551,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5099,7 +5560,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24n4",
@@ -5114,6 +5576,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5122,7 +5585,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24s1",
@@ -5137,6 +5601,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5145,7 +5610,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24s2",
@@ -5160,6 +5626,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5168,7 +5635,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24s3",
@@ -5183,6 +5651,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5191,7 +5660,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl24s4",
@@ -5206,6 +5676,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5214,7 +5685,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25",
@@ -5229,6 +5701,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5237,7 +5710,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25n1",
@@ -5252,6 +5726,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5260,7 +5735,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25n2",
@@ -5275,6 +5751,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5283,7 +5760,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25n3",
@@ -5298,6 +5776,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5306,7 +5785,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25n4",
@@ -5321,6 +5801,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5329,7 +5810,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25s1",
@@ -5344,6 +5826,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5352,7 +5835,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25s2",
@@ -5367,6 +5851,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5375,7 +5860,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25s3",
@@ -5390,6 +5876,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5398,7 +5885,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl25s4",
@@ -5413,6 +5901,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5421,7 +5910,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26",
@@ -5436,6 +5926,7 @@
    "state": "combining",
    "final": false,
    "machine": "od2",
+   "combiner": "worker",
    "photos": 3766,
    "dots": 65961330,
    "extracted_at": "2026-11-14T18:26:19Z",
@@ -5444,7 +5935,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26n1",
@@ -5459,6 +5951,7 @@
    "state": "combining",
    "final": false,
    "machine": "od2",
+   "combiner": "worker",
    "photos": 3839,
    "dots": 39559230,
    "extracted_at": "2026-11-14T18:36:42Z",
@@ -5467,7 +5960,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26n2",
@@ -5482,6 +5976,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3905,
    "dots": 26486495,
    "extracted_at": "2026-11-14T18:56:45Z",
@@ -5490,7 +5985,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26n3",
@@ -5505,6 +6001,7 @@
    "state": "extracting",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4691,
    "dots": null,
    "extracted_at": null,
@@ -5513,7 +6010,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26n4",
@@ -5528,6 +6026,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5536,7 +6035,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26s1",
@@ -5551,6 +6051,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3586,
    "dots": 78066096,
    "extracted_at": "2026-11-14T18:46:15Z",
@@ -5559,7 +6060,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26s2",
@@ -5574,6 +6076,7 @@
    "state": "extracted",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3108,
    "dots": 42360452,
    "extracted_at": "2026-11-14T19:05:04Z",
@@ -5582,7 +6085,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26s3",
@@ -5597,6 +6101,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5605,7 +6110,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl26s4",
@@ -5620,6 +6126,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -5628,7 +6135,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl27",
@@ -5643,6 +6151,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3489,
    "dots": 62099834,
    "extracted_at": "2026-11-14T15:31:44Z",
@@ -5651,7 +6160,8 @@
    "movers": 5232,
    "suspects": 215,
    "recall": 0.8117,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27.json"
   },
   {
    "name": "ecl27n1",
@@ -5666,6 +6176,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4174,
    "dots": 109208758,
    "extracted_at": "2026-11-14T15:42:04Z",
@@ -5674,7 +6185,8 @@
    "movers": 1967,
    "suspects": 88,
    "recall": 0.8988,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27n1.json"
   },
   {
    "name": "ecl27n2",
@@ -5689,6 +6201,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3891,
    "dots": 62467947,
    "extracted_at": "2026-11-14T16:01:57Z",
@@ -5697,7 +6210,8 @@
    "movers": 1091,
    "suspects": 69,
    "recall": 0.9122,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27n2.json"
   },
   {
    "name": "ecl27n3",
@@ -5712,6 +6226,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4044,
    "dots": 38129684,
    "extracted_at": "2026-11-14T16:20:14Z",
@@ -5720,7 +6235,8 @@
    "movers": 553,
    "suspects": 21,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27n3.json"
   },
   {
    "name": "ecl27n4",
@@ -5735,6 +6251,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 5114,
    "dots": 32550388,
    "extracted_at": "2026-11-14T16:40:25Z",
@@ -5743,7 +6260,8 @@
    "movers": 55,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27n4.json"
   },
   {
    "name": "ecl27s1",
@@ -5758,6 +6276,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3583,
    "dots": 38379312,
    "extracted_at": "2026-11-14T15:51:26Z",
@@ -5766,7 +6285,8 @@
    "movers": 1869,
    "suspects": 63,
    "recall": 0.884,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27s1.json"
   },
   {
    "name": "ecl27s2",
@@ -5781,6 +6301,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3100,
    "dots": 20757484,
    "extracted_at": "2026-11-14T16:10:05Z",
@@ -5789,7 +6310,8 @@
    "movers": 423,
    "suspects": 18,
    "recall": 0.8292,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27s2.json"
   },
   {
    "name": "ecl27s3",
@@ -5804,6 +6326,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 2935,
    "dots": 16244858,
    "extracted_at": "2026-11-14T16:27:37Z",
@@ -5812,7 +6335,8 @@
    "movers": 156,
    "suspects": 7,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27s3.json"
   },
   {
    "name": "ecl27s4",
@@ -5827,6 +6351,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 2453,
    "dots": 10621792,
    "extracted_at": "2026-11-14T16:47:27Z",
@@ -5835,7 +6360,8 @@
    "movers": 51,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl27s4.json"
   },
   {
    "name": "ecl28",
@@ -5850,6 +6376,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3650,
    "dots": 29518388,
    "extracted_at": "2026-11-14T14:07:45Z",
@@ -5858,7 +6385,8 @@
    "movers": 5679,
    "suspects": 193,
    "recall": 0.911,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28.json"
   },
   {
    "name": "ecl28n1",
@@ -5873,6 +6401,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3950,
    "dots": 42882740,
    "extracted_at": "2026-11-14T14:17:28Z",
@@ -5881,7 +6410,8 @@
    "movers": 2027,
    "suspects": 67,
    "recall": 0.8182,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28n1.json"
   },
   {
    "name": "ecl28n2",
@@ -5896,6 +6426,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4281,
    "dots": 82380601,
    "extracted_at": "2026-11-14T14:37:08Z",
@@ -5904,7 +6435,8 @@
    "movers": 1108,
    "suspects": 67,
    "recall": 0.8203,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28n2.json"
   },
   {
    "name": "ecl28n3",
@@ -5919,6 +6451,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4282,
    "dots": 109718846,
    "extracted_at": "2026-11-14T14:55:55Z",
@@ -5927,7 +6460,8 @@
    "movers": 529,
    "suspects": 48,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28n3.json"
   },
   {
    "name": "ecl28n4",
@@ -5942,6 +6476,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4608,
    "dots": 66320931,
    "extracted_at": "2026-11-14T15:15:29Z",
@@ -5950,7 +6485,8 @@
    "movers": 518,
    "suspects": 41,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28n4.json"
   },
   {
    "name": "ecl28s1",
@@ -5965,6 +6501,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3607,
    "dots": 20549938,
    "extracted_at": "2026-11-14T14:26:26Z",
@@ -5973,7 +6510,8 @@
    "movers": 1388,
    "suspects": 55,
    "recall": 0.8558,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28s1.json"
   },
   {
    "name": "ecl28s2",
@@ -5988,6 +6526,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3205,
    "dots": 15635793,
    "extracted_at": "2026-11-14T14:45:18Z",
@@ -5996,7 +6535,8 @@
    "movers": 446,
    "suspects": 20,
    "recall": 0.7857,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28s2.json"
   },
   {
    "name": "ecl28s3",
@@ -6011,6 +6551,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 2868,
    "dots": 12568693,
    "extracted_at": "2026-11-14T15:03:30Z",
@@ -6019,7 +6560,8 @@
    "movers": 93,
    "suspects": 3,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28s3.json"
   },
   {
    "name": "ecl28s4",
@@ -6034,6 +6576,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 2623,
    "dots": 10997194,
    "extracted_at": "2026-11-14T15:22:23Z",
@@ -6042,7 +6585,8 @@
    "movers": 80,
    "suspects": 4,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl28s4.json"
   },
   {
    "name": "ecl29",
@@ -6057,6 +6601,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3714,
    "dots": 16733060,
    "extracted_at": "2026-11-14T16:56:48Z",
@@ -6065,7 +6610,8 @@
    "movers": 5330,
    "suspects": 176,
    "recall": 0.8017,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29.json"
   },
   {
    "name": "ecl29n1",
@@ -6080,6 +6626,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4313,
    "dots": 23393069,
    "extracted_at": "2026-11-14T17:07:25Z",
@@ -6088,7 +6635,8 @@
    "movers": 1333,
    "suspects": 48,
    "recall": 0.8964,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29n1.json"
   },
   {
    "name": "ecl29n2",
@@ -6103,6 +6651,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4418,
    "dots": 35569290,
    "extracted_at": "2026-11-14T17:28:44Z",
@@ -6111,7 +6660,8 @@
    "movers": 442,
    "suspects": 15,
    "recall": 0.7971,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29n2.json"
   },
   {
    "name": "ecl29n3",
@@ -6126,6 +6676,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 4505,
    "dots": 53574984,
    "extracted_at": "2026-11-14T17:49:44Z",
@@ -6134,7 +6685,8 @@
    "movers": 268,
    "suspects": 37,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29n3.json"
   },
   {
    "name": "ecl29n4",
@@ -6149,6 +6701,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 5016,
    "dots": 116440708,
    "extracted_at": "2026-11-14T18:09:15Z",
@@ -6157,7 +6710,8 @@
    "movers": 504,
    "suspects": 46,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29n4.json"
   },
   {
    "name": "ecl29s1",
@@ -6172,6 +6726,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3718,
    "dots": 15988719,
    "extracted_at": "2026-11-14T17:17:10Z",
@@ -6180,7 +6735,8 @@
    "movers": 1454,
    "suspects": 57,
    "recall": 0.9296,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29s1.json"
   },
   {
    "name": "ecl29s2",
@@ -6195,6 +6751,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 3595,
    "dots": 12984290,
    "extracted_at": "2026-11-14T17:38:18Z",
@@ -6203,7 +6760,8 @@
    "movers": 376,
    "suspects": 13,
    "recall": 0.9086,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29s2.json"
   },
   {
    "name": "ecl29s3",
@@ -6218,6 +6776,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 2769,
    "dots": 9425495,
    "extracted_at": "2026-11-14T17:56:45Z",
@@ -6226,7 +6785,8 @@
    "movers": 138,
    "suspects": 7,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29s3.json"
   },
   {
    "name": "ecl29s4",
@@ -6241,6 +6801,7 @@
    "state": "combined",
    "final": false,
    "machine": "od2",
+   "combiner": null,
    "photos": 2648,
    "dots": 9394132,
    "extracted_at": "2026-11-14T18:16:44Z",
@@ -6249,7 +6810,8 @@
    "movers": 97,
    "suspects": 2,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": "https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/ecl29s4.json"
   },
   {
    "name": "ecl30",
@@ -6264,6 +6826,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6272,7 +6835,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30n1",
@@ -6287,6 +6851,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6295,7 +6860,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30n2",
@@ -6310,6 +6876,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6318,7 +6885,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30n3",
@@ -6333,6 +6901,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6341,7 +6910,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30n4",
@@ -6356,6 +6926,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6364,7 +6935,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30s1",
@@ -6379,6 +6951,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6387,7 +6960,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30s2",
@@ -6402,6 +6976,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6410,7 +6985,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30s3",
@@ -6425,6 +7001,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6433,7 +7010,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl30s4",
@@ -6448,6 +7026,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6456,7 +7035,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31",
@@ -6471,6 +7051,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6479,7 +7060,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31n1",
@@ -6494,6 +7076,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6502,7 +7085,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31n2",
@@ -6517,6 +7101,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6525,7 +7110,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31n3",
@@ -6540,6 +7126,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6548,7 +7135,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31n4",
@@ -6563,6 +7151,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6571,7 +7160,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31s1",
@@ -6586,6 +7176,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6594,7 +7185,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31s2",
@@ -6609,6 +7201,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6617,7 +7210,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31s3",
@@ -6632,6 +7226,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6640,7 +7235,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl31s4",
@@ -6655,6 +7251,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6663,7 +7260,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32",
@@ -6678,6 +7276,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6686,7 +7285,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32n1",
@@ -6701,6 +7301,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6709,7 +7310,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32n2",
@@ -6724,6 +7326,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6732,7 +7335,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32n3",
@@ -6747,6 +7351,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6755,7 +7360,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32n4",
@@ -6770,6 +7376,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6778,7 +7385,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32s1",
@@ -6793,6 +7401,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6801,7 +7410,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32s2",
@@ -6816,6 +7426,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6824,7 +7435,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32s3",
@@ -6839,6 +7451,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6847,7 +7460,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl32s4",
@@ -6862,6 +7476,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6870,7 +7485,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33",
@@ -6885,6 +7501,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6893,7 +7510,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33n1",
@@ -6908,6 +7526,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6916,7 +7535,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33n2",
@@ -6931,6 +7551,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6939,7 +7560,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33n3",
@@ -6954,6 +7576,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6962,7 +7585,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33n4",
@@ -6977,6 +7601,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -6985,7 +7610,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33s1",
@@ -7000,6 +7626,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7008,7 +7635,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33s2",
@@ -7023,6 +7651,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7031,7 +7660,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33s3",
@@ -7046,6 +7676,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7054,7 +7685,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl33s4",
@@ -7069,6 +7701,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7077,7 +7710,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34",
@@ -7092,6 +7726,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7100,7 +7735,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34n1",
@@ -7115,6 +7751,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7123,7 +7760,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34n2",
@@ -7138,6 +7776,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7146,7 +7785,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34n3",
@@ -7161,6 +7801,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7169,7 +7810,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34n4",
@@ -7184,6 +7826,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7192,7 +7835,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34s1",
@@ -7207,6 +7851,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7215,7 +7860,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34s2",
@@ -7230,6 +7876,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7238,7 +7885,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34s3",
@@ -7253,6 +7901,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7261,7 +7910,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl34s4",
@@ -7276,6 +7926,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7284,7 +7935,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35",
@@ -7299,6 +7951,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7307,7 +7960,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35n1",
@@ -7322,6 +7976,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7330,7 +7985,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35n2",
@@ -7345,6 +8001,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7353,7 +8010,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35n3",
@@ -7368,6 +8026,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7376,7 +8035,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35n4",
@@ -7391,6 +8051,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7399,7 +8060,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35s1",
@@ -7414,6 +8076,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7422,7 +8085,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35s2",
@@ -7437,6 +8101,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7445,7 +8110,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35s3",
@@ -7460,6 +8126,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7468,7 +8135,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl35s4",
@@ -7483,6 +8151,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7491,7 +8160,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36",
@@ -7506,6 +8176,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7514,7 +8185,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36n1",
@@ -7529,6 +8201,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7537,7 +8210,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36n2",
@@ -7552,6 +8226,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7560,7 +8235,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36n3",
@@ -7575,6 +8251,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7583,7 +8260,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36n4",
@@ -7598,6 +8276,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7606,7 +8285,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36s1",
@@ -7621,6 +8301,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7629,7 +8310,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36s2",
@@ -7644,6 +8326,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7652,7 +8335,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36s3",
@@ -7667,6 +8351,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7675,7 +8360,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   },
   {
    "name": "ecl36s4",
@@ -7690,6 +8376,7 @@
    "state": "queued",
    "final": false,
    "machine": null,
+   "combiner": null,
    "photos": null,
    "dots": null,
    "extracted_at": null,
@@ -7698,7 +8385,8 @@
    "movers": null,
    "suspects": null,
    "recall": null,
-   "error": null
+   "error": null,
+   "suspects_url": null
   }
  ]
 }

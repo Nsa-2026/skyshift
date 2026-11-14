@@ -2,7 +2,7 @@
 // filled by state with colour AND pattern, the ecliptic, the hunt zone outlined. Zones are buttons with a
 // roving tabindex; arrow keys move between them in sky order (see neighbour()).
 import { esc, fmtCount, fmtDec, fmtRa } from "./format";
-import type { SkyZone } from "./model";
+import { workerOf, type SkyZone } from "./model";
 import {
   DEFAULT_FRAME,
   eclipticPath,
@@ -164,14 +164,16 @@ export function zoneTitle(z: Pick<SkyZone, "name">): string {
 /** What a screen reader hears on a zone. */
 export function zoneLabel(z: SkyZone): string {
   let s = `${zoneTitle(z)}: ${STATE_WORDS[z.state]}`;
-  if ((z.state === "extracting" || z.state === "combining") && z.machine) s += ` on ${z.machine}`;
+  const who = workerOf(z);
+  if ((z.state === "extracting" || z.state === "combining") && who) s += ` on ${who}`;
   if (z.state === "combined" && z.suspects !== null) s += `, ${fmtCount(z.suspects)} ${z.suspects === 1 ? "suspect" : "suspects"}`;
   return `${s}. RA ${fmtRa(z.ra[0])} to ${fmtRa(z.ra[1])}, Dec ${fmtDec(z.dec[0])} to ${fmtDec(z.dec[1])}.`;
 }
 
 /** Text drawn inside a box: the machine at work, or a combined zone's suspects. */
 function boxText(z: SkyZone): string | null {
-  if ((z.state === "extracting" || z.state === "combining") && z.machine) return z.machine;
+  const who = workerOf(z);
+  if ((z.state === "extracting" || z.state === "combining") && who) return who;
   if (z.state === "combined" && z.suspects !== null && z.suspects > 0) return fmtCount(z.suspects);
   return null;
 }
@@ -247,6 +249,7 @@ export function mapSvg(zones: SkyZone[], geom: MapGeometry, opts: MapOptions = {
   ${huntTop ? `<path class="lv-hunt-lead" d="M${huntTop[0].toFixed(1)} ${huntTop[1].toFixed(1)}V${(huntBoxTop - 1).toFixed(1)}"/>` : ""}
   <path class="lv-sky-rim" d="${outlinePath(f)}"/>
   <g class="lv-changed"></g>
+  <g class="lv-sus-marks"></g>
   <path class="lv-sel-halo" d=""/>
   <path class="lv-sel" d=""/>
   <path class="lv-focus-halo" d=""/>
@@ -296,6 +299,18 @@ export function markChanged(svg: SVGSVGElement, names: Iterable<string>, geom: M
     .map((n) => geom.zones.get(n))
     .filter((g): g is ZoneGeom => !!g)
     .map((g) => `<path d="${g.d}"/>`)
+    .join("");
+}
+
+/** Small red marks at the suspects of the selected zone (empty list clears them). */
+export function markSuspects(svg: SVGSVGElement, points: Array<{ ra: number; dec: number }>, geom: MapGeometry): void {
+  const layer = svg.querySelector(".lv-sus-marks");
+  if (!layer) return;
+  layer.innerHTML = points
+    .map((p) => {
+      const [x, y] = skyToXY(p.ra, p.dec, geom.frame);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.7"/>`;
+    })
     .join("");
 }
 

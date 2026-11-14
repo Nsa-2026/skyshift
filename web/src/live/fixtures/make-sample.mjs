@@ -123,8 +123,10 @@ for (const z of extracted) {
   const end = start + between(7, 13) * 60e3 * (z.dotsPerPhoto > 12000 ? 1.8 : 1);
   slots[i] = end;
   if (start > UPDATED) z.state = "extracted";
-  else if (end > UPDATED) z.state = "combining";
-  else if (z === combineFail) {
+  else if (end > UPDATED) {
+    z.state = "combining";
+    z.combiner = ["worker", "od", "od2", "worker", "od"][i];
+  } else if (z === combineFail) {
     z.state = "failed";
     z.error = "combine: link step ran out of memory (exit=137)";
   } else {
@@ -161,6 +163,7 @@ const outZones = zones.map((z) => {
     state,
     final: z.name === "hunt",
     machine: state === "queued" ? null : z.machine ?? null,
+    combiner: state === "combining" ? z.combiner ?? null : null,
     photos: n.photos,
     dots: n.dots,
     extracted_at: z.extracted_at ? iso(z.extracted_at) : null,
@@ -170,20 +173,38 @@ const outZones = zones.map((z) => {
     suspects: n.suspects,
     recall: n.recall,
     error: z.error ?? null,
+    suspects_url: state === "combined" ? `https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/${z.name}.json` : null,
   };
 });
 
 const done = outZones.filter((z) => ["extracted", "combining", "combined"].includes(z.state));
 const combined = outZones.filter((z) => z.state === "combined");
 const sum = (zs, k) => zs.reduce((s, z) => s + (z[k] ?? 0), 0);
+const ENDS = Date.parse("2026-11-15T05:00:00Z");
+const DEADLINE = Date.parse("2026-11-15T09:00:00Z");
+const hoursIn = (UPDATED - STARTED) / 3600e3;
+const zonesPerHour = (done.length - 1) / hoursIn; // the hunt zone was done before the start
+const projected = Math.min(outZones.length, Math.round(done.length + (zonesPerHour * (ENDS - UPDATED)) / 3600e3));
+const r1 = (x) => Math.round(x * 10) / 10;
 const sample = {
   _synthetic: "Synthetic test sample made by make-sample.mjs. Not real data: never publish it.",
   schema: 1,
   updated: iso(UPDATED),
   started: iso(STARTED),
-  ends: "2026-11-15T06:00:00Z",
-  deadline: "2026-11-15T09:00:00Z",
+  ends: iso(ENDS),
+  deadline: iso(DEADLINE),
+  final_pass_starts: "2026-11-15T05:00:00Z",
+  progress: {
+    extracted_pct: r1((100 * done.length) / outZones.length),
+    combined_pct: r1((100 * combined.length) / outZones.length),
+    combined_of_extracted_pct: r1((100 * combined.length) / done.length),
+    time_pct: r1((100 * (UPDATED - STARTED)) / (DEADLINE - STARTED)),
+    zones_per_hour: r1(zonesPerHour),
+    projected_extracted_by_ends: projected,
+    projected_extracted_pct: r1((100 * projected) / outZones.length),
+  },
   final_pass_at: null,
+  pace_photos_per_hour: Math.round((sum(done, "photos") * 0.85 * 3600e3 * 1.04) / (UPDATED - STARTED)),
   totals: {
     zones: outZones.length,
     extracted: done.length,
@@ -196,7 +217,10 @@ const sample = {
     movers: sum(combined, "movers"),
     suspects: sum(combined, "suspects"),
   },
-  machines: machines.map((m) => ({ name: m.name, cpus: m.cpus, kind: m.kind, status: "RUNNING", zone: m.current ?? null })),
+  machines: machines
+    .map((m) => ({ name: m.name, label: m.label, cpus: m.cpus, kind: m.kind, status: "RUNNING", zone: m.current ?? null }))
+    // the 8-CPU test machine joined the extraction later (14 Nov evening); in this sample it is between zones
+    .concat([{ name: "skyshift-test", label: "test", cpus: 8, kind: "on-demand", status: "RUNNING", zone: null }]),
   zones: outZones,
 };
 writeFileSync(OUT, JSON.stringify(sample, null, 1) + "\n");
