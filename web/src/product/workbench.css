@@ -144,8 +144,7 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
 @media(max-width:1000px) {
   .page-blink[data-workspace-mode]:has(.workspace-selection[hidden]) {grid-template-areas:"heading" "stage" "evidence" "below";}
 }
-@media(min-width:1001px) {
-  .page-blink[data-workspace-mode] .stage {position:sticky;top:var(--s4);}
-}
+/* The player includes long measurement notes. Keep it in normal flow so it
+   cannot slide over the following vote/sky row while scrolling on desktop. */
 .science-layer-caption {display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;}
 .science-layer-caption .btn {font-size:var(--step--1);}
