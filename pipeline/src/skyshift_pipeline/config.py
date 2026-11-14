@@ -39,6 +39,13 @@ ZONES: dict[str, Zone] = {
     "t_nep": Zone("t_nep", 269.372, 270.628, 66.31, 66.81),          # north ecliptic pole
     "t_sep": Zone("t_sep", 89.372, 90.628, -66.81, -66.31),          # south ecliptic pole
     "t_ngp": Zone("t_ngp", 192.579, 193.141, 26.88, 27.38),          # north Galactic pole
+    # featured star targets (web/src/data/targets.json): 1.2° boxes around the Gaia 2016 position; the photo list is
+    # cut to the photos their static frames use (14 Nov evening), so the blink can show what SkyShift measured there
+    "t_barnard": Zone("t_barnard", 268.846, 270.051, 4.139, 5.339),           # Barnard's Star
+    "t_epsindib": Zone("t_epsindib", 329.981, 332.172, -57.394, -56.194),     # Epsilon Indi B
+    "t_wise0855": Zone("t_wise0855", 133.178, 134.387, -7.844, -6.644),       # WISE 0855-0714
+    "t_rwaur": Zone("t_rwaur", 76.260, 77.652, 29.801, 31.001),               # RW Aurigae
+    "t_rdra": Zone("t_rdra", 246.647, 249.688, 66.155, 67.355),               # R Draconis
 }
 
 # Sky run (14 Nov): 10° x 10° zones stacked along the ecliptic, aligned on the hunt zone. Column k covers
