@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SkyShift · Backend Playground</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230c1719'/%3E%3Cpath d='M32 10v44M10 32h44' stroke='%239ce5b7' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='15' fill='none' stroke='%239ce5b7' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<aside class="sidebar">
+<a class="brand" href="/">
+<span class="brand-icon">✳</span> SkyShift<span class="lab">LAB</span>
+</a>
+<div class="sidebar-label">WORKSPACE</div>
+<a class="nav active" href="#viewer">
+<span>◉</span> Observation deck <small>01</small>
+</a>
+<a class="nav" href="#inspector">
+<span>⌘</span> API inspector <small>02</small>
+</a>
+<a class="nav" href="#spectrum">
+<span>∿</span> Spectrum <small>03</small>
+</a>
+<div class="side-rule">
+</div>
+<div class="sidebar-label">QUICK TARGETS</div>
+<div id="targets">
+</div>
+<div class="side-bottom">
+<span class="tiny-dot">
+</span> Temporary by design<p>A removable workbench for the evolving SkyShift backend.</p>
+<a href="https://github.com/cucuradu/skyshift" target="_blank" rel="noreferrer">View repository ↗</a>
+</div>
+</aside>
+<main>
+<header class="topbar">
+<div>
+<span class="muted">SkyShift</span>
+<span class="slash">/</span> Backend playground</div>
+<span class="temporary">EXPERIMENTAL FRONTEND</span>
+</header>
+<section class="intro">
+<div>
+<div class="eyebrow">NASA SPHEREx · DEVELOPMENT WORKSPACE</div>
+<h1>A little space to experiment<span>.</span>
+</h1>
+<p>Find a field. Blink through time. See exactly what the API returns.</p>
+</div>
+<div class="connection">
+<span id="health-dot" class="dot">
+</span>
+<div>
+<strong id="health-label">Checking backend</strong>
+<small id="origin">127.0.0.1:8081</small>
+</div>
+<button id="health" class="icon-button" aria-label="Check backend connection">↻</button>
+</div>
+</section>
+<section class="query-panel">
+<form id="query">
+<label class="query-label" for="query-input">POINT THE TELESCOPE</label>
+<div class="query-row">
+<div class="search-wrap">
+<span>⌕</span>
+<input id="query-input" value="Barnard's Star" aria-label="Target name or sky coordinates" placeholder="Target name or RA, Dec…" required>
+</div>
+<button class="primary" id="load" type="submit">Load observation <span>↗</span>
+</button>
+</div>
+<div class="options">
+<label>Data source<select id="source">
+<option value="api">Live API</option>
+<option value="static">Static → API</option>
+<option value="fixture">Synthetic fixtures</option>
+</select>
+</label>
+<div class="clock-group" role="group" aria-label="Observation clock">
+<button id="months" type="button" aria-pressed="true">Months</button>
+<button id="hours" type="button" aria-pressed="false">Hours</button>
+</div>
+<label>Field of view<select id="fov">
+<option value="5">5 arcmin</option>
+<option value="15">15 arcmin</option>
+</select>
+</label>
+<label>Detector<select id="det">
+<option value="1">D1 · 0.75–1.1 µm</option>
+<option value="2" selected>D2 · 1.1–1.6 µm</option>
+<option value="3">D3 · 1.6–2.4 µm</option>
+<option value="4">D4 · 2.4–3.8 µm</option>
+<option value="5">D5 · 3.8–4.4 µm</option>
+<option value="6">D6 · 4.4–5.0 µm</option>
+</select>
+</label>
+<label class="check">
+<input id="with-object" type="checkbox" checked> Fetch object / spectrum</label>
+</div>
+</form>
+</section>
+<div id="notice" class="notice" role="status" aria-live="polite">Preparing the observation deck…</div>
+<div class="work-grid">
+<section class="panel viewer" id="viewer">
+<div class="panel-header">
+<div>
+<span class="section-number">01</span>
+<h2>Time, in motion</h2>
+</div>
+<span id="provenance" class="tag">NO DATA</span>
+</div>
+<div class="viewport">
+<canvas id="sky" width="480" height="480" aria-label="SPHEREx frame viewer">
+</canvas>
+<div class="field-top">
+<span id="field-name">Awaiting observation</span>
+<span class="north">N ↑<br>E ←</span>
+</div>
+<div class="field-bottom">
+<span id="frame-date">No frames loaded</span>
+<span id="frame-unit">MJy/sr</span>
+</div>
+<div id="empty" class="empty">
+<span>✳</span>
+<strong>Your window into the infrared sky</strong>
+<p>Load an observation or explore the synthetic fixtures.</p>
+</div>
+</div>
+<div class="transport">
+<button id="previous" class="icon-button" aria-label="Previous frame">‹</button>
+<button id="play" class="play" aria-label="Play or pause frames" aria-pressed="false">▶</button>
+<button id="next" class="icon-button" aria-label="Next frame">›</button>
+<input id="timeline" type="range" min="0" max="0" value="0" aria-label="Frame timeline">
+<span id="frame-counter" class="mono">00 / 00</span>
+</div>
+<div class="viewer-controls">
+<div class="segments" role="group" aria-label="Image mode">
+<button data-mode="blink" aria-pressed="true">Blink</button>
+<button data-mode="diff" aria-pressed="false">Subtract</button>
+<button data-mode="sum" aria-pressed="false">Add</button>
+</div>
+<label>Stretch <input id="stretch" type="range" min="1" max="40" value="10">
+</label>
+<label>Speed <input id="speed" type="range" min="100" max="1500" value="550">
+</label>
+<button id="invert" class="outline" aria-pressed="false">Invert</button>
+</div>
+<div class="frame-details">
+<span id="pixel-readout">Hover to inspect a pixel</span>
+<span id="sampling">— arcsec / px</span>
+</div>
+</section>
+<aside class="right-rail">
+<section class="panel">
+<div class="panel-header">
+<div>
+<span class="section-number">02</span>
+<h2>Observation notes</h2>
+</div>
+<span class="crosshair">⌖</span>
+</div>
+<div class="coordinate-box">
+<div>FIELD CENTER · ICRS DEGREES</div>
+<span id="coords" class="mono">— / —</span>
+</div>
+<div class="stat-grid">
+<div>
+<span>Epochs</span>
+<strong id="epoch-stat">—</strong>
+</div>
+<div>
+<span>Detector</span>
+<strong id="det-stat">—</strong>
+</div>
+<div>
+<span>Pixel scale</span>
+<strong id="pixel-stat">—</strong>
+</div>
+<div>
+<span>Data release</span>
+<strong id="release-stat">—</strong>
+</div>
+</div>
+<div class="measure">
+<div class="eyebrow">MEASURED MOTION</div>
+<strong id="motion">—<small> arcsec / year</small>
+</strong>
+<p id="motion-note">Object measurements will appear here.</p>
+<div class="measure-line">
+<span>Gaia prediction (shift)</span>
+<b id="predicted">—</b>
+</div>
+<div class="measure-line">
+<span>Reference stars</span>
+<b id="references">—</b>
+</div>
+</div>
+</section>
+<section class="panel note-card">
+<span class="eyebrow">KNOW WHAT YOU’RE SEEING</span>
+<p>Same detector. Different times.</p>
+<div>Months compares visit stacks. Hours compares individual exposures. Switching detectors changes wavelength, not motion.</div>
+<div id="frame-quality" class="quality">Frame quality appears after loading.</div>
+</section>
+</aside>
+</div>
+<section class="panel spectrum-panel" id="spectrum">
+<div class="panel-header">
+<div>
+<span class="section-number">03</span>
+<h2>A spectrum of possibilities</h2>
+</div>
+<span id="spectrum-count" class="muted">No measurements</span>
+</div>
+<div class="spectrum-body">
+<canvas id="spectrum-chart" width="1100" height="240" aria-label="Flux in microjanskys against wavelength in micrometers">
+</canvas>
+<div id="spectrum-empty" class="chart-empty">Load object measurements to plot a spectrum.</div>
+</div>
+<div class="chart-legend">
+<span>
+<i style="background:#a6e8be">
+</i>Visit 1</span>
+<span>
+<i style="background:#e5c58e">
+</i>Visit 2</span>
+<span>
+<i style="background:#9eabed">
+</i>Visit 3+</span>
+<span>Hollow markers = saturated</span>
+<span>Flux · µJy &nbsp; / &nbsp; Wavelength · µm</span>
+</div>
+</section>
+<section class="panel inspector" id="inspector">
+<div class="panel-header">
+<div>
+<span class="section-number">04</span>
+<h2>Under the hood</h2>
+</div>
+<div class="inspector-actions">
+<button id="smoke" class="outline">Run API checks</button>
+<button id="download" class="outline">Export session ↓</button>
+</div>
+</div>
+<div class="endpoint-row">
+<label>Endpoint<select id="endpoint">
+<option value="health">GET /api/health</option>
+<option value="resolve">GET /api/resolve</option>
+<option value="frames">GET /api/frames</option>
+<option value="object">GET /api/object</option>
+<option value="gaia">GET /api/gaia</option>
+<option value="known">GET /api/known</option>
+</select>
+</label>
+<label>Radius · arcmin<input id="radius" type="number" min="0.01" max="60" value="5" step="0.1">
+</label>
+<label>MJD · UTC<input id="mjd" type="number" value="60938.62" step="0.01">
+</label>
+<button id="send" class="primary">Send request ↗</button>
+</div>
+<div class="console-grid">
+<div class="request-list" id="requests" aria-label="Request history">
+<div class="console-placeholder">Requests will appear here.</div>
+</div>
+<div class="response">
+<div class="response-head">
+<span id="response-title">Response inspector</span>
+<button id="copy" aria-label="Copy response JSON">Copy JSON</button>
+</div>
+<pre id="json">{
+  "message": "Every request, response and error is visible here."
+}</pre>
+</div>
+</div>
+</section>
+<footer>
+<span>SkyShift <b>✳</b> Small tools. Distant worlds.</span>
+<span>Backend playground · removable /tools module</span>
+</footer>
+</main>
+<script type="module" src="/app.mjs">
+</script>
+</body>
+</html>

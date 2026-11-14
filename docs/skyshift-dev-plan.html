@@ -205,7 +205,7 @@ html{scroll-behavior:smooth;scroll-padding-top:64px}
   <div class="wrap nav-inner">
     <a class="brand" href="#top">Sky<span>Shift</span><small>DEV v2</small></a>
     <nav class="nav-links" aria-label="Sections">
-      <a href="#arch">Architecture</a><a href="#areas">Areas</a><a href="#repo">Repo</a><a href="#contract">Contracts</a><a href="#workflow">Workflow</a><a href="#setup">Setup</a><a href="#schedule">Schedule</a><a href="#rules">Rules</a>
+      <a href="#arch">Architecture</a><a href="#areas">Areas</a><a href="#repo">Repo</a><a href="#contract">Contracts</a><a href="#data">Data</a><a href="#workflow">Workflow</a><a href="#setup">Setup</a><a href="#schedule">Schedule</a><a href="#rules">Rules</a>
     </nav>
   </div>
 </header>
@@ -617,6 +617,78 @@ session = run of exposures with gaps under 10 minutes
     </div>
   </section>
 
+  <!-- DATA -->
+  <section id="data">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Data · from the first photo, 14 Nov</p>
+        <h2>What one photo holds, what we measure, what it adds up to</h2>
+        <p class="muted">Read off the first real SPHEREx file and the pipeline's first dots. <span class="chip good">built</span> built or being built today · <span class="chip info">possible</span> possible, not built · <span class="chip">out of scope</span></p>
+      </div>
+
+      <div class="stack">
+        <h3>1. What's inside one photo (one file of about 60 MB from NASA)</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Part</th><th>What it is</th><th>Example from the first photo</th><th>Do we use it?</th></tr></thead>
+          <tbody>
+            <tr><td class="m">IMAGE</td><td>Brightness of each of 4.16 million pixels (2040 × 2040), in MJy/sr</td><td>median 0.53, brightest 5,146</td><td><span class="chip good">built</span> the main input</td></tr>
+            <tr><td class="m">FLAGS</td><td>32 quality bits per pixel: saturated, hot, cosmic ray, ghost, halo, known source…</td><td>4.1 M pixels marked SOURCE, 71,118 HALO, 31,044 TRANSIENT</td><td><span class="chip good">built</span> masks and dot flags</td></tr>
+            <tr><td class="m">VARIANCE</td><td>Noise of each pixel</td><td>(MJy/sr)²</td><td><span class="chip good">built</span> error bars</td></tr>
+            <tr><td class="m">ZODI</td><td>NASA's model of zodiacal light, the glow of sunlight on dust between the planets</td><td>0.11–0.14 MJy/sr here</td><td><span class="chip info">possible</span> could clean faint backgrounds</td></tr>
+            <tr><td class="m">EPSF</td><td>The telescope's measured star shape (point-spread function, PSF): a 21 × 21 grid of zones, each a 33 × 33 image at 5× detail, built from about 500 stars per zone</td><td>441 zones, each with its own wavelength</td><td><span class="chip info">possible</span> sharper, deeper brightness fits</td></tr>
+            <tr><td class="m">WCS-WAVE</td><td>Wavelength and channel width at every pixel</td><td>0.74–1.11 µm on D1</td><td><span class="chip good">built</span> <span class="mono">wavelength_um</span>, <span class="mono">bandwidth_um</span></td></tr>
+            <tr><td class="m">Position map (WCS)</td><td>Pixel → exact sky position, including lens distortion; NASA fitted it against 3,647 Gaia stars in this photo</td><td><span class="mono">FINAST = 0</span> (good fit)</td><td><span class="chip good">built</span> every dot's RA/Dec</td></tr>
+          </tbody></table></div>
+        <p>The header (about 290 entries) also carries:</p>
+        <ul class="small">
+          <li><b>Time:</b> start, middle and end to the millisecond; exposure 113.6 s.</li>
+          <li><b>Where SPHEREx was:</b> its exact position and speed around Earth (km, km/s) at start, middle and end, the ground track, and the distance to the South Atlantic Anomaly, a radiation zone. <span class="chip info">possible</span> This could replace "seen from Earth's centre" for close asteroids, where it matters by tens of arcseconds.</li>
+          <li><b>Pointing plan:</b> survey target ID and ecliptic position of the field.</li>
+          <li><b>Pixel area:</b> 37.87 arcsec², which gives our 889.7 µJy-per-MJy/sr conversion. <span class="chip good">built</span></li>
+          <li><b>Artefact counts:</b> 595 saturated bloomed stars, 7 "snowballs" (cosmic-ray splashes), 0 satellite streaks, and the strength of helium airglow, aurora and spacecraft glow.</li>
+          <li><b>Quality verdicts:</b> L1 and L2 checks "Pass", and how many pixels carry each flag.</li>
+          <li><b>IDs:</b> observation ID, exposure ID, detector, and NASA's pipeline version (7.0.5).</li>
+        </ul>
+      </div>
+
+      <div class="stack">
+        <h3>2. What we measure per dot (in every file, today)</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measured</th><th>Column(s)</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>Exact sky position and its error</td><td class="m">ra, dec, pos_err_arcsec</td><td>±0.25″ (bright) to ±0.93″ (faint); a pixel is 6.15″</td></tr>
+            <tr><td>Position in the photo</td><td class="m">x, y</td><td></td></tr>
+            <tr><td>Brightness and its error</td><td class="m">flux_ujy, flux_err_ujy</td><td>→ AB magnitude 10.6 to 17.5</td></tr>
+            <tr><td>Signal-to-noise</td><td class="m">snr</td><td>5 to 426</td></tr>
+            <tr><td>Colour channel (out of 102)</td><td class="m">wavelength_um, bandwidth_um</td><td>1.040 µm, 0.028 µm wide</td></tr>
+            <tr><td>Shape</td><td class="m">elong</td><td>round star ≈ 1.2; streak &gt; 3</td></tr>
+            <tr><td>Quality around and at the centre</td><td class="m">flags, flags_peak</td><td>saturated, halo, ghost, catalogued source…</td></tr>
+            <tr><td>When, which detector, which session and visit</td><td class="m">mjd, detector, session, visit, obs_id</td><td></td></tr>
+          </tbody></table></div>
+        <p class="small"><span class="chip info">possible</span> Could be added per dot (not built): brightness fitted with NASA's star shape, which is deeper and better in crowded fields; local background and zodiacal light under the dot; peak pixel value; full shape (width, tilt).</p>
+      </div>
+
+      <div class="stack">
+        <h3>3. What the dots give us when combined across photos</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Result</th><th>How</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Motion of nearby stars and brown dwarfs (Barnard's Star, WISE 0855)</td><td>Visit-to-visit position shift against Gaia</td><td><span class="chip good">built</span> Months clock, V2</td></tr>
+            <tr><td>Asteroid and comet tracks</td><td>Same spot, sessions hours apart</td><td><span class="chip good">built</span> Hours clock, hunt zone</td></tr>
+            <tr><td>Recovery of known asteroids, and unknown suspects</td><td>Match to SkyBoT and MOST</td><td><span class="chip good">built</span> the gate, suspects list</td></tr>
+            <tr><td>Full 0.75–5.0 µm spectrum, 102 channels</td><td>One wavelength per photo; ~100+ photos per visit fill the spectrum</td><td><span class="chip good">built</span> spectrum chart</td></tr>
+            <tr><td>Molecules</td><td>Spectrum bands: water ~1.4 and 1.9 µm, methane 3.3 µm, CO₂ 4.26 µm, CO 4.6 µm, water ice 3.0 µm</td><td><span class="chip good">built</span> marked on the chart, not fitted</td></tr>
+            <tr><td>True colour at one instant</td><td>D1+D4, D2+D5 and D3+D6 photograph the same sky at the same moment</td><td><span class="chip good">built</span> evidence for movers · <span class="chip info">possible</span> colour readout</td></tr>
+            <tr><td>Brightness changes (R Draconis, RW Aurigae)</td><td>Same detector, visit to visit, and within a visit</td><td><span class="chip good">built</span> blink · <span class="chip info">possible</span> light-curve chart (cut)</td></tr>
+            <tr><td>Parallax of the nearest stars</td><td>Barnard's Star moves about 0.55″ each way over the year</td><td><span class="chip info">possible</span> with 3+ visits, but small against our 0.25″ floor</td></tr>
+            <tr><td>Asteroid size and reflectivity</td><td>Reflected sunlight (D1–D3) against heat glow (D5–D6)</td><td><span class="chip info">possible</span> a strong idea, not built</td></tr>
+            <tr><td>Comet gas (3I/ATLAS)</td><td>CO₂ and water bands in the comet's spectrum</td><td><span class="chip info">possible</span> visible in the spectrum, not measured</td></tr>
+            <tr><td>Galaxy distances, interstellar ice</td><td>SPHEREx's own main science</td><td><span class="chip">out of scope</span></td></tr>
+          </tbody></table></div>
+      </div>
+    </div>
+  </section>
+
   <!-- WORKFLOW -->
   <section id="workflow">
     <div class="wrap stack-lg">
@@ -669,7 +741,7 @@ claude doctor</pre></div>
         <div><dt>Credit</dt><dd>€264, until 17 Jan 2027</dd></div>
         <div><dt>Region</dt><dd><span class="mono">us-east4</span>, zone <span class="mono">us-east4-a</span></dd></div>
         <div><dt>Bucket</dt><dd><span class="mono">gs://nasa-glazing-data</span></dd></div>
-        <div><dt>Hosting</dt><dd><span class="mono">nasa-glazing.web.app</span> (empty); public site to be added</dd></div>
+        <div><dt>Hosting</dt><dd>Public site <span class="mono">skyshift.web.app</span> (created 14 Nov); <span class="mono">nasa-glazing.web.app</span> unused</dd></div>
       </dl>
 
       <div class="part-head"><h3>Part A · Done by 14 Nov</h3><span class="chip good">9 of 9 done</span><span class="chip warn">2 open items</span></div>
@@ -732,11 +804,11 @@ gcloud compute instances delete skyshift-check --zone=us-east4-a --quiet</pre></
 <pre id="k-repo">gh repo create skyshift --public --license apache-2.0 --add-readme --clone
 cd skyshift
 gh api -X PUT repos/YOUR-GITHUB/skyshift/collaborators/TEAMMATE   <span class="c"># once per teammate</span></pre></div></li>
-          <li class="sstep is-open"><div class="sstep-head"><h3>Second Hosting site for the public address</h3><span class="chip warn">P2 · 09:00</span></div>
-            <p class="small">A site without "nasa" or "spherex" in the name, for example <span class="mono">skyshift-sky</span>. Use its address everywhere: page, video, README.</p>
+          <li class="sstep is-open"><div class="sstep-head"><h3>Second Hosting site for the public address</h3><span class="chip good">Created 14 Nov</span></div>
+            <p class="small">The public address is <b><span class="mono">https://skyshift.web.app</span></b>: no "nasa" or "spherex" in the name. Use it everywhere: page, video, README, QR code. The earlier <span class="mono">skyshift-sky</span> site is not used. P2 points <span class="mono">infra/firebase/</span> at <span class="mono">skyshift</span>.</p>
             <div class="code-block"><div class="code-head"><span>laptop terminal, in the repo</span><button class="copy" data-copy="k-site">Copy</button></div>
-<pre id="k-site">firebase hosting:sites:create skyshift-sky
-firebase target:apply hosting sky skyshift-sky
+<pre id="k-site"><span class="c"># done 14 Nov: firebase hosting:sites:create skyshift</span>
+firebase target:apply hosting sky skyshift
 <span class="c"># firebase.json: hosting target "sky", public "web/dist",</span>
 <span class="c"># rewrite "/api/**" to Cloud Run service skyshift-api in us-east4</span>
 firebase deploy --only hosting:sky</pre></div></li>
@@ -930,7 +1002,7 @@ const AREAS=[
   gets:"IRSA image search and cutouts; `core/` from P1; Gaia (ESA TAP), SkyBoT, MOST and NASA's 3I/ATLAS table; P1's V4 asteroid list.",
   gives:"Photo lists in `photolists/` at 10:00; static files in `web/public/data/<slug>/`; live `/api/frames`, `/api/object`, `/api/gaia`, `/api/known`, `/api/resolve`; the public Hosting site.",
   must:[
-   "09:00 · Second Hosting site (for example `skyshift-sky`). Empty site and an API stub live.",
+   "09:00 · Public Hosting site `skyshift` (https://skyshift.web.app, created). Empty site and an API stub live.",
    "10:00 · Image search (`Irsa.query_sia`, collections `spherex_dr1` and `spherex_qr3`) for the five targets, 3I/ATLAS and the hunt zone. Save the photo lists to `gs://nasa-glazing-data/photolists/`.",
    "11:00 · Cutouts (`?center=RA,DEC&size=DEG` on IRSA URLs), visit rule from `core/`, median stack per visit and detector, oversampled (3× for the 5′ field, 2× for 15′). Barnard's Star, one detector.",
    "12:00 · Barnard's frames as static files in `web/public/data/barnard/`. 13:00: six detectors; WISE 0855 and Epsilon Indi B.",
