@@ -74,9 +74,12 @@ import { filterField, level } from "./index";
 describe("filter field and plain words", () => {
   it("shows a wider area than the blink so the map's coarse pixels don't look like a zoom", () => {
     expect(filterField(5)).toBe(15);
-    expect(filterField(15)).toBe(45);
-    expect(filterField(20)).toBe(60);
-    expect(filterField(60)).toBe(60);
+    expect(filterField(10)).toBe(30);
+  });
+  it("reads at most 30′: a 60′ field took 64 s from IRSA; a 60′ plate shows its middle", () => {
+    expect(filterField(15)).toBe(30);
+    expect(filterField(20)).toBe(30);
+    expect(filterField(60)).toBe(30);
   });
   it("says signal in words", () => {
     expect([1, 5, 50, 500, NaN].map(level)).toEqual(["none", "faint", "clear", "bright", "no data"]);

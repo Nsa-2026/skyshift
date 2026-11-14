@@ -37,26 +37,96 @@ export interface TileInfo {
 
 export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
-export class RangeIgnored extends Error {}
+/**
+ * Why a read from IRSA failed, so the page can say it in plain words (failure.ts):
+ * down = IRSA answered with an error (5xx, 429, 4xx) or cut the answer short; slow = no complete
+ * answer in time; range = it sent the whole file instead of the piece asked for; format = the
+ * file wasn't what we expected. A network or CORS failure stays the TypeError fetch throws.
+ */
+export type IrsaFailure = "down" | "slow" | "range" | "format";
+
+export class IrsaError extends Error {
+  constructor(
+    readonly kind: IrsaFailure,
+    message: string,
+    readonly status?: number,
+    /** Worth another try: 5xx, 429, a short read. */
+    readonly retry = false,
+  ) {
+    super(message);
+  }
+}
+
+export class RangeIgnored extends IrsaError {
+  constructor(message: string) {
+    super("range", message);
+  }
+}
 
 /** Retries for dropped connections and 5xx; IRSA closes a socket now and then under load. */
 const RETRIES = 3;
+/**
+ * A request without a complete answer in this time fails as "slow" and isn't retried: IRSA
+ * stalls under load (14 Nov: 502s and hangs), and a filter must never wait forever.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
+const cancelled = (signal?: AbortSignal): unknown => signal?.reason ?? new DOMException("The read was cancelled", "AbortError");
+
+/**
+ * One Range request, body included, within REQUEST_TIMEOUT_MS. A 200 would be the whole 320 MB
+ * tile: never read it. Any answer but 206 is an IrsaError.
+ */
+async function request(
+  fetcher: Fetcher,
+  url: string,
+  rangeHeader: string,
+  signal?: AbortSignal,
+): Promise<{ bytes: Uint8Array; headers: Headers }> {
+  if (signal?.aborted) throw cancelled(signal);
+  const ctl = new AbortController();
+  const work = (async () => {
+    // no-store: Chromium's HTTP cache serialises requests to one URL (every read here is one tile file).
+    const res = await fetcher(url, { headers: { Range: rangeHeader }, cache: "no-store", signal: ctl.signal });
+    if (res.status === 200) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new RangeIgnored(`IRSA ignored the byte range for ${url}`);
+    }
+    if (res.status !== 206) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new IrsaError("down", `IRSA answered ${res.status}`, res.status, res.status >= 500 || res.status === 429);
+    }
+    return { bytes: new Uint8Array(await res.arrayBuffer()), headers: res.headers };
+  })();
+  work.catch(() => undefined); // when it loses the race below, its own error is nobody's
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const stop = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ctl.abort();
+      reject(new IrsaError("slow", `IRSA didn't answer within ${REQUEST_TIMEOUT_MS / 1000} s`));
+    }, REQUEST_TIMEOUT_MS);
+    onAbort = () => {
+      ctl.abort();
+      reject(cancelled(signal));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([work, stop]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}
 
 async function range(fetcher: Fetcher, url: string, a: number, b: number, signal?: AbortSignal): Promise<Uint8Array> {
   return withRetry(async () => {
-    // no-store: Chromium's HTTP cache serialises requests to one URL (every read here is one tile file).
-    const res = await fetcher(url, { headers: { Range: `bytes=${a}-${b}` }, cache: "no-store", signal });
-    // A 200 would be the whole 320 MB tile: never read it.
-    if (res.status === 200) {
-      await res.body?.cancel();
-      throw new RangeIgnored(`IRSA ignored the byte range for ${url}`);
-    }
-    if (res.status !== 206) throw Object.assign(new Error(`IRSA answered ${res.status}`), { retry: res.status >= 500 });
-    const buf = new Uint8Array(await res.arrayBuffer());
+    const { bytes: buf, headers } = await request(fetcher, url, `bytes=${a}-${b}`, signal);
     // Content-Range "bytes a-b/total": a range past the end of the file comes back shorter.
-    const total = Number(/\/(\d+)$/.exec(res.headers.get("content-range") ?? "")?.[1] ?? NaN);
+    const total = Number(/\/(\d+)$/.exec(headers.get("content-range") ?? "")?.[1] ?? NaN);
     const want = Math.min(b + 1, Number.isFinite(total) ? total : b + 1) - a;
-    if (buf.length !== want) throw Object.assign(new Error("short read"), { retry: true });
+    if (buf.length !== want) throw new IrsaError("down", "short read", undefined, true);
     return buf;
   }, signal);
 }
@@ -195,20 +265,13 @@ async function withRetry<T>(job: () => Promise<T>, signal?: AbortSignal): Promis
 async function multiRange(fetcher: Fetcher, url: string, ranges: [number, number][], signal?: AbortSignal): Promise<Part[]> {
   if (ranges.length === 1) return [{ start: ranges[0][0], bytes: await range(fetcher, url, ranges[0][0], ranges[0][1], signal) }];
   return withRetry(async () => {
-    const header = `bytes=${ranges.map(([a, b]) => `${a}-${b}`).join(",")}`;
-    const res = await fetcher(url, { headers: { Range: header }, cache: "no-store", signal });
-    if (res.status === 200) {
-      await res.body?.cancel();
-      throw new RangeIgnored("IRSA ignored the multi-range request");
-    }
-    if (res.status !== 206) throw Object.assign(new Error(`IRSA answered ${res.status}`), { retry: res.status >= 500 });
-    const buf = new Uint8Array(await res.arrayBuffer());
-    const type = res.headers.get("content-type") ?? "";
+    const { bytes: buf, headers } = await request(fetcher, url, `bytes=${ranges.map(([a, b]) => `${a}-${b}`).join(",")}`, signal);
+    const type = headers.get("content-type") ?? "";
     const boundary = /boundary=("?)([^";]+)\1/i.exec(type)?.[2];
     if (boundary) return parseMultipart(buf, boundary);
     // One part: the server merged the ranges into one.
-    const m = /bytes\s+(\d+)-/.exec(res.headers.get("content-range") ?? "");
-    if (!m) throw new Error("206 without Content-Range");
+    const m = /bytes\s+(\d+)-/.exec(headers.get("content-range") ?? "");
+    if (!m) throw new IrsaError("format", "206 without Content-Range");
     return [{ start: Number(m[1]), bytes: buf }];
   }, signal);
 }
@@ -388,15 +451,21 @@ export async function sampleInt(
   return out;
 }
 
-/** Run async jobs with at most `limit` in flight. */
+/** Run async jobs with at most `limit` in flight. After a failure no new job starts. */
 export async function pool<T>(jobs: (() => Promise<T>)[], limit: number, onDone?: (done: number) => void): Promise<T[]> {
   const out: T[] = new Array(jobs.length);
   let next = 0;
   let done = 0;
+  let failed = false;
   async function worker() {
-    while (next < jobs.length) {
+    while (next < jobs.length && !failed) {
       const i = next++;
-      out[i] = await jobs[i]();
+      try {
+        out[i] = await jobs[i]();
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
       onDone?.(++done);
     }
   }

@@ -169,6 +169,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
+    filters.loading(next);
 
     if (moved) {
       // Don't hand the card or sky the previous spot's data while the new one loads.
