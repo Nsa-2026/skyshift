@@ -156,6 +156,9 @@ async def _frames_source(target: str | None, ra: float | None, dec: float | None
             pick = [s for s in sets if (clock is None or s["clock"] == clock) and (fov is None or s["fov"] == fov)]
             if clock is None and fov is None:
                 pick = [s for s in sets if s["file"] == idx.get("own")] or pick
+            elif fov is None:  # a clock but no field: that clock's default field (contracts/api.md)
+                default = {"months": 5, "hours": 20}.get(clock)
+                pick.sort(key=lambda s: s["fov"] != default)
             pick = [s for s in pick if det is None or det in s.get("dets", [])] or []
             if pick:
                 s = pick[0]
