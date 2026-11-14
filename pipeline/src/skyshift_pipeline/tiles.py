@@ -645,6 +645,14 @@ def zone_step(step: str, root: str, zone: C.Zone, pred_path: str) -> dict:
     return {**out, "step_seconds": round(time.time() - t0, 1)}
 
 
+def _read_or_none(path: str) -> pd.DataFrame | None:
+    """The predictions parquet for orphans' known-object tags; None when unreadable (orphans then loads them itself)."""
+    try:
+        return pd.read_parquet(path)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _run_task(fn, *a):
     """Pool entry point: a crash says which tile."""
     try:
@@ -1123,7 +1131,7 @@ class Run:
             steps["highpm"] = highpm.run(s, z, self.workers)
             self._timed("highpm", t0)
             t0 = time.time()
-            steps["orphans"] = orphans.run(s, z, self.workers)  # never raises: an error lands in its stats
+            steps["orphans"] = orphans.run(s, z, self.workers, pred=_read_or_none(pred_path))  # never raises
             self._timed("orphans", t0)
             t_wait = time.time()
             for k, f in tail.items():  # score and suspects ran next to pass 2; only what is left is waited for

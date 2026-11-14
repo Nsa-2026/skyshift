@@ -98,7 +98,12 @@ those); a planet whose 70–100 AU fragments have < 3 sessions each; one blended
 edge. Zone edge: the partner can be up to 2° away, so each drift-fitted orphan gets `track_in_zone` (share of its
 70–1000 AU parallax track inside the zone box less the 3′ margin); those < 1 are listed in distant.json `open` with the
 track's 70 and 1000 AU ends. No cross-zone pass yet: it would read every zone's orphans.parquet and pair `open` orphans
-with the neighbours' orphans using the same model (orphans.pair_model). The step never raises (errors go to its stats).
+with the neighbours' orphans using the same model (orphans.pair_model). Known bodies: an MPC object (the `known`
+predictions; tiles pass theirs) moving like an orphan (rate within 0.3″/h + 3σ) and within 30″ of it is tagged
+`known_name` (distant.json `known`, `known_a/b`): a recovered TNO validates the route, it is not dropped. Hunt (14 Nov
+tables): 447 orphans, 892 pairs tested, 1 passing vs 1.5 expected by chance (p 0.78), no known slow body bright enough.
+Table-level injection at the hunt's cadence (70–1000 AU, 3–20 dots per visit): 83–100 % recovered, r within ~2 %.
+The step never raises (errors go to its stats).
 
 ## Rules (summary)
 - Session = run of the zone's exposure times with gaps < 10 min (core.sessions over all photos), one per photo; visit = core.visits.

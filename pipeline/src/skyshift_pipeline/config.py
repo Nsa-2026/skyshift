@@ -559,5 +559,8 @@ ORPHANS_CONTROL_SHIFT = (0.25, 0.75)  # ... by this share of the box (uniform), 
 ORPHANS_CONTROL_SEED = 2026
 ORPHANS_TRACK_AU = (70.0, 1000.0, 24)  # partner track (parallax only) for the zone-edge check: min, max, points (log)
 ORPHANS_REPORT_MAX = 300           # rows of pairs / open orphans written to distant.json
+ORPHANS_KNOWN_ARCSEC = 30.0        # an MPC object this close to the orphan (moved by its drift to the object's time) ...
+ORPHANS_KNOWN_RATE_TOL = 0.3       # ... moving like it (″/h, + 3σ of the drift) ...
+ORPHANS_KNOWN_DAYS = 5.0           # ... within this many days of the orphan's mean time: `known_name` (a recovered body)
 ORPHANS_MAX_PAIRING = 5000         # more drift_ok orphans than this (a crowded zone): pairing skipped, said in distant.json
 ORPHANS_MAX_PAIR_EVALS = 3_000_000 # pairs scored over real + controls: fewer controls (>= 5) when the real set is large

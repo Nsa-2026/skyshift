@@ -612,18 +612,77 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
     return out, st
 
 
-def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
-    """The step (never raises: the error goes into the stats, so `all` goes on to score and suspects)."""
+def known_match(out: pd.DataFrame, pred: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per fitted orphan: the nearest MPC object (known.load_predictions rows) that moves like it (on-sky rate within
+    ORPHANS_KNOWN_RATE_TOL ″/h + 3σ of the drift) and sits within ORPHANS_KNOWN_ARCSEC of the orphan moved by its drift
+    to the prediction's time (|Δt| <= ORPHANS_KNOWN_DAYS). (name, V, separation ″); '' / NaN where none. A match is a
+    recovered known body (a TNO, an asteroid near its stationary point), not a reason to drop the orphan."""
+    n = len(out)
+    name, v, sep = np.full(n, "", dtype=object), np.full(n, np.nan), np.full(n, np.nan)
+    if pred is None or not len(pred) or not n:
+        return name, v, sep
+    pr = pd.to_numeric(pred["dra_arcsec_h"], errors="coerce").to_numpy(np.float64)
+    pd_ = pd.to_numeric(pred["ddec_arcsec_h"], errors="coerce").to_numpy(np.float64)
+    slow = np.hypot(np.nan_to_num(pr), np.nan_to_num(pd_)) <= C.ORPHANS_RATE_MAX + C.ORPHANS_KNOWN_RATE_TOL
+    p = pred[slow].reset_index(drop=True)
+    pr, pd_ = pr[slow], pd_[slow]
+    fit = out["fit_ok"].to_numpy(bool) & np.isfinite(out["ra_fit"].to_numpy(np.float64))
+    if not len(p) or not fit.any():
+        return name, v, sep
+    from .sky import angsep
+    pra, pdec, pmjd = (p[c].to_numpy(np.float64) for c in ("ra", "dec", "mjd"))
+    tree = SkyTree(pra, pdec)
+    idx = np.flatnonzero(fit)
+    reach = C.ORPHANS_KNOWN_ARCSEC + (C.ORPHANS_RATE_MAX + C.ORPHANS_KNOWN_RATE_TOL) * C.ORPHANS_KNOWN_DAYS * 24.0
+    g = {c: out[c].to_numpy(np.float64) for c in ("ra_fit", "dec_fit", "mjd_fit", "drift_e", "drift_n", "rate_err")}
+    for k, js in zip(idx, tree.query_radius(g["ra_fit"][idx], g["dec_fit"][idx], reach)):
+        if not js:
+            continue
+        js = np.asarray(js, np.int64)
+        dt = (pmjd[js] - g["mjd_fit"][k]) * 24.0
+        tol = C.ORPHANS_KNOWN_RATE_TOL + 3.0 * np.nan_to_num(g["rate_err"][k], nan=1.0)
+        okj = (np.abs(dt) <= C.ORPHANS_KNOWN_DAYS * 24.0) & (np.hypot(pr[js] - g["drift_e"][k], pd_[js] - g["drift_n"][k]) <= tol)
+        js, dt = js[okj], dt[okj]
+        if not len(js):
+            continue
+        r2, d2 = tangent_deproject(g["ra_fit"][k], g["dec_fit"][k], g["drift_e"][k] * dt, g["drift_n"][k] * dt)
+        s = angsep(r2, d2, pra[js], pdec[js]) * 3600.0
+        m = int(np.argmin(s))
+        if s[m] <= C.ORPHANS_KNOWN_ARCSEC:
+            name[k], sep[k] = str(p["name"].iloc[js[m]]), float(s[m])
+            v[k] = pd.to_numeric(p["v"].iloc[js[m]], errors="coerce")
+    return name, v, sep
+
+
+def load_known(store: Store, zone: C.Zone) -> pd.DataFrame | None:
+    """known.load_predictions for the zone; None (and a warning) when it fails."""
     try:
-        return _run(store, zone, workers)
+        from .known import load_predictions
+        photos = store.read_parquet(photolist_rel(zone.name))
+        return load_predictions(store, photos, zone)
+    except Exception as e:  # noqa: BLE001
+        L.warning("orphans %s: no known-object predictions (%r)", zone.name, e)
+        return None
+
+
+def run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | None = None) -> dict:
+    """The step (never raises: the error goes into the stats, so `all` goes on to score and suspects).
+    pred: known.load_predictions' result when already loaded (tiles.py); else loaded here."""
+    try:
+        return _run(store, zone, workers, pred)
     except Exception as e:
         L.exception("orphans %s failed", zone.name)
         return {"error": repr(e)[:500]}
 
 
-def _run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
+def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | None = None) -> dict:
     t0 = time.time()
     out, st = compute(store, zone, workers)
+    if pred is None and len(out):
+        pred = load_known(store, zone)
+    kn, kv, ks = known_match(out, pred)
+    out["known_name"], out["known_v"], out["known_sep_arcsec"] = kn.astype(str), kv.astype(np.float32), ks.astype(np.float32)
+    st["known_predictions"] = None if pred is None else int(len(pred))
     ok = out["drift_ok"].to_numpy(bool) if len(out) else np.zeros(0, bool)
     o = out[ok].reset_index(drop=True).copy()
     o["ra"], o["dec"], o["mjd"] = o["ra_fit"], o["dec_fit"], o["mjd_fit"]
@@ -684,7 +743,8 @@ def _run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
             "flux_ratio": _r(r.flux_ratio, 3), "n_common_det": int(r.n_common_det),
             "n_dots_a": int(a.n_fit), "n_dots_b": int(b.n_fit), "snr_a": _r(a.snr_max), "snr_b": _r(b.snr_max),
             "chi2_drift": _r(r.chi2_drift, 2), "chi2_flux": _r(r.chi2_flux, 2), "dof": int(r.dof), "p": _r(r.p, 4),
-            "score": _r(r.p, 4)})
+            "known_a": a.known_name or None, "known_b": b.known_name or None, "score": _r(r.p, 4)})
+    known = out[out["known_name"].to_numpy() != ""]
     opened = out[out["drift_ok"].to_numpy(bool) & (out["track_in_zone"].to_numpy(np.float64) < 1.0)]
     depth = st.get("depth_ab_snr5", {})
     rep = {
@@ -702,7 +762,8 @@ def _run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
                                           "drift_fitted", "drift_ok")} | {"reasons": st.get("reasons"),
                                                                          "pairs_tested": pst["real_tested"],
                                                                          "pairs": n_pass,
-                                                                         "open_orphans": int(len(opened))},
+                                                                         "open_orphans": int(len(opened)),
+                                                                         "known_orphans": int(len(known))},
         "control": {"n": len(controls), "passing_per_control": controls,
                     "expected_chance_pairs": round(float(np.mean(controls)), 3) if controls else None,
                     "tested_per_control": pst["control_tested_mean"], "poisson_p": pois,
@@ -714,6 +775,10 @@ def _run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
                   "track_70au": [round(float(x.track_ra_near), 5), round(float(x.track_dec_near), 5)],
                   "track_1000au": [round(float(x.track_ra_far), 5), round(float(x.track_dec_far), 5)]}
                  for x in opened.head(C.ORPHANS_REPORT_MAX).itertuples()],
+        "known": [{"source_id": int(x.source_id), "name": x.known_name, "v": _r(x.known_v), "sep_arcsec": _r(x.known_sep_arcsec, 1),
+                   "visit": int(x.visit), "reason": x.reason, "drift_ok": bool(x.drift_ok), "in_pair": bool(x.in_pair),
+                   "rate_arcsec_h": _r(x.rate, 4)} for x in known.head(C.ORPHANS_REPORT_MAX).itertuples()],
+        "known_predictions": st.get("known_predictions"),
         "skipped": skipped,
         "limits": [
             "within-visit drift up to 1 arcsec/h: faster objects are movers (score/suspects); below ~0.3 arcsec/h a planet chains "
@@ -726,7 +791,7 @@ def _run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     store.write_json(results_rel(zone.name, "distant.json"), rep)
     summary = {**{k: v for k, v in st.items() if k not in ("zone",)}, "pairs_tested": pst["real_tested"], "pairs": n_pass,
                "control_n": len(controls), "control_expected": rep["control"]["expected_chance_pairs"],
-               "control_poisson_p": pois, "open_orphans": int(len(opened)), "skipped": skipped,
+               "control_poisson_p": pois, "open_orphans": int(len(opened)), "known_orphans": int(len(known)), "skipped": skipped,
                "wall_s": round(time.time() - t0, 1)}
     L.info("orphans %s: %s", zone.name, summary)
     return summary

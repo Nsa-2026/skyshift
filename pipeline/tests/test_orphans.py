@@ -192,3 +192,26 @@ def test_orphans_never_fails_the_run(tmp_path, monkeypatch):
     assert main(["orphans", "--zone", ZONE.name, "--root", str(tmp_path)]) == 0  # no tables at all
     summ = json.loads((tmp_path / f"results/{ZONE.name}/summary.json").read_text())["steps"]["orphans"]
     assert "error" in summ
+
+
+def test_orphans_tags_a_known_slow_body_but_not_a_passing_asteroid(tmp_path, rng):
+    store = make_zone(tmp_path, rng)
+    t = T1 + np.arange(0, 9, 0.45)
+    ra, dec = planet_radec(300.0, 125.0, t)  # a known TNO on planet 101's track
+    de, dn = tangent_offset_arcsec(ra[:-1], dec[:-1], ra[1:], dec[1:])
+    rate_e, rate_n = np.r_[de, de[-1]] / (0.45 * 24), np.r_[dn, dn[-1]] / (0.45 * 24)
+    # an asteroid at 30″/h that crosses the still orphan (201, at 125.0, 18.0) exactly at one session
+    ast_ra, ast_dec = offset_radec(np.full(len(t), 125.0), np.full(len(t), 18.0), 30.0 * (t - t[5]) * 24, 0.0 * t)
+    pred = pd.DataFrame({
+        "name": ["(90377) Sedna"] * len(t) + ["(1234) Fast"] * len(t), "number": "", "v": 20.0,
+        "ra": np.r_[ra, ast_ra], "dec": np.r_[dec, ast_dec], "mjd": np.r_[t, t],
+        "dra_arcsec_h": np.r_[rate_e, np.full(len(t), 30.0)], "ddec_arcsec_h": np.r_[rate_n, np.zeros(len(t))],
+        "class": "TNO", "edge_px": 100.0, "obs_id": "x", "detector": 1, "session": 0})
+    st = O.run(store, ZONE, 2, pred=pred)
+    assert "error" not in st and st["known_orphans"] == 1
+    o = store.read_parquet(results_rel(ZONE.name, "orphans.parquet")).set_index("source_id")
+    assert o.loc[101, "known_name"] == "(90377) Sedna" and o.loc[101, "known_sep_arcsec"] < 5
+    assert o.loc[201, "known_name"] == ""
+    rep = json.loads((tmp_path / f"results/{ZONE.name}/distant.json").read_text())
+    assert rep["pairs"][0]["known_a"] == "(90377) Sedna" and rep["pairs"][0]["known_b"] is None
+    assert [k["source_id"] for k in rep["known"]] == [101]
