@@ -199,6 +199,16 @@ export function startApp(root: HTMLElement): void {
   addEventListener("hashchange", route);
   route();
 
+  // Votes' "Show" re-centres the blink on a candidate.
+  addEventListener("skyshift:goto", (ev) => {
+    const d = (ev as CustomEvent<{ ra: number; dec: number; clock?: View["clock"] }>).detail;
+    if (!d || !Number.isFinite(d.ra) || !Number.isFinite(d.dec)) return;
+    const clock = d.clock ?? view?.clock ?? "months";
+    const fov = view && view.clock === clock ? view.fov : clock === "months" ? 5 : 20;
+    if (location.hash.startsWith("#/score")) location.hash = "#/";
+    go({ ra: d.ra, dec: d.dec, clock, fov, det: view?.det ?? 2, slug: null, name: null });
+  });
+
   addEventListener("popstate", () => {
     const v = readView();
     if (v) go(v, { push: false });
