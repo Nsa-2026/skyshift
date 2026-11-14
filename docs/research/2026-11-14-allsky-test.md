@@ -62,8 +62,9 @@ Other checks:
    object at index 0`. Object 0 is the brightest dot: a bright star whose OVERFLOW mask reaches beyond 8 px.
    `sep.sum_circle(..., bkgann=...)` then raises for the whole call, and the photo is skipped on every rerun. Any
    photo with such a star does the same across the sky. `dots._sum_circle_bkgann` now drops the object that sep
-   names, retries, and leaves NaN in that dot's `flux_ap_*`. A test is added. I re-ran the failed photo locally with
-   the fix: see the PR.
+   names, retries, and leaves NaN in that dot's `flux_ap_*`. A test is added. Re-run locally with the fix, the photo gives 41,577 dots. 28 of them have NaN `flux_ap_*` at r ≥ 3 px:
+   their annulus is fully masked. After the first failure, one sep.sum_circann call over the mask screens
+   out the masked annuli, so the retry costs one extra call, not one per dot. That photo is not yet in the bucket.
 2. **Galactic bulge and plane: the saturated-dot wings fit dominates the time.** In the Galactic centre OVERFLOW
    covers wide areas: 243k pixels (5.8%) on 2026W36_1A_0067_1D4, against ~0.07% in the pilot. Half of that photo's
    45k dots have OVERFLOW under them at S/N ~11 and peak ~32 MJy/sr. These are not saturated stars.
@@ -72,14 +73,14 @@ Other checks:
    the **peak** and S/N ≥ ~50, capped at the brightest ~2,000 per photo. The others keep the windowed centroid, and
    flags/flags_peak still mark them. This is a science change (contracts/dots.md says "saturated dots re-centroided
    on the wings"), so it is not done here.
-3. **The forced list explodes at low latitude and in the Magellanic Clouds.** At the current limits (Gaia
-   G < 17.5 plus red CatWISE), a full 3.5° photo would get 69k targets (SEP), 128k (Cygnus), 275k (Galactic
-   centre), 492k (SMC) or 879k (LMC). Only the two high-latitude boxes stay under FORCED_MAX_PER_PHOTO = 30k (NGP
-   9k, NEP 24k). Time is not the problem (~14 s for 879k). Memory is: psf_photometry builds (n, 7, 7) float64
-   arrays, ~345 MB each at 879k targets, several of them, on top of the ~1.2 GB worker. That would break a
-   1 GB/vCPU machine. *Proposed fix:* a per-tile density cap in `refcat.forced_list`: the G limit per 1° tile is
-   min(17.5, G of the 2,400th brightest star per deg²), so a photo stays under ~30k. Or skip forced photometry in
-   tiles above a density.
+3. **The forced list explodes at low latitude and in the Magellanic Clouds; main's `forced_sky` already caps it.**
+   This test ran before the rebase, with the zone list (Gaia G < 17.5 plus red CatWISE, no density cap). At that
+   list's density a full 3.5° photo would get 69k targets (SEP), 128k (Cygnus), 275k (Galactic centre), 492k
+   (SMC) or 879k (LMC). Only the two high-latitude boxes stay under 30k (NGP 9k, NEP 24k). Time is not the problem
+   (~16 µs per target). Memory would be: psf_photometry builds (n, 7, 7) float64 arrays, ~345 MB each at 879k
+   targets. The sky-wide list on main (`forced_sky`, brightest FORCED_SKY_MAX_PER_DEG2 = 2,449/deg² per nside-32
+   partition) caps exactly this. *Keep it on for the whole sky:* a run that falls back to an uncapped
+   `refcat/<zone>_forced.parquet` in the plane, the bulge or the Magellanic Clouds would blow memory.
 4. **Memory on n2-highcpu (1 GB per vCPU).** The peak per worker is 1.0–1.2 GB in every sky type, with two photos
    in memory during prefetch. 60 workers on 64 GB is too tight if peaks line up. Use ≤ 48–50 workers per 64 GB,
    or set DOTS_PREFETCH = False (one photo per worker) to fit more.

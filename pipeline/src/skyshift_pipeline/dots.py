@@ -303,9 +303,11 @@ def _sum_circle_bkgann(d, x, y, r, err, m, annulus) -> tuple[np.ndarray, np.ndar
     """sep.sum_circle with a background annulus; NaN for a dot whose annulus is entirely masked.
     sep raises ValueError for the whole call when one object's annulus has no valid pixel (all-sky test,
     14 Nov: a bright star near the Galactic centre with its OVERFLOW/NONLINEAR mask beyond 8 px failed the
-    photo). Those objects are found from sep's message (it names one index per call) and left out."""
+    photo; 28 such dots on it). After the first failure, dots with less than one unmasked pixel in the annulus
+    are left out in one go; any left that sep still names (one index per call) are left out one by one."""
     ok = np.ones(x.size, bool)
     fk, ek = np.full(x.size, np.nan), np.full(x.size, np.nan)
+    screened = False
     for _ in range(x.size):
         sel = np.flatnonzero(ok)
         if sel.size == 0:
@@ -317,6 +319,11 @@ def _sum_circle_bkgann(d, x, y, r, err, m, annulus) -> tuple[np.ndarray, np.ndar
             if not hit:
                 raise
             ok[sel[int(hit.group(1))]] = False
+            if not screened:
+                screened = True
+                valid = np.ascontiguousarray((~m).astype(np.float64))
+                area, _, _ = sep.sum_circann(valid, x, y, annulus[0], annulus[1], subpix=1)
+                ok &= np.asarray(area) >= 1.0
             continue
         fk[sel], ek[sel] = fs, es
         break
