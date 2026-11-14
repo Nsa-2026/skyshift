@@ -84,8 +84,9 @@ export type MountScore = (el: HTMLElement) => { destroy(): void };
 // ---- Pages (DESIGN.md "Pages"). The shell routes by hash and mounts each page on first visit.
 export interface PageContext {
   currentView?(): View | null;
-  /** Selected sky point, or map centre when nothing is selected; map FOV is never a blink FOV. */
-  skySelection?(at: SkyPos & Partial<Pick<View,'clock'|'det'|'slug'>>, returnHash:string): void;
+  /** Selected sky point, or map centre when nothing is selected and the map is zoomed in; null on
+   *  the whole-sky view, where the centre is not a choice. Map FOV is never a blink FOV. */
+  skySelection?(at: (SkyPos & Partial<Pick<View,'clock'|'det'|'slug'>>) | null, returnHash:string): void;
   /** Go to a route, e.g. "#/c/pilot-pm-0003" or "#/review". */
   navigate(hash: string): void;
   /** Open the Explore page (blink) at a position. clock/det/fov default from the current view. */

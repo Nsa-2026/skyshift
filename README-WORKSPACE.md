@@ -29,8 +29,8 @@ overlay starts off so the map is easier to read.
 
 When ready, choose **Explore**, **Analyze**, or **Research** from the header or the
 three paths immediately below the map. There is no timer or required introductory
-task. The chosen point, featured object, or map centre carries into the observation
-workspace. Clicking the SkyShift logo returns to the previous sky view in this session.
+task. The chosen point, featured object, or map centre (once zoomed in) carries into the observation
+workspace; from the whole-sky view nothing is chosen yet, so the areas open on a featured target. Clicking the SkyShift logo returns to the previous sky view in this session.
 The map uses degrees; observation fields use the supported 5′ Months or 20′ Hours
 selection, rather than reusing the atlas's wide field of view.
 

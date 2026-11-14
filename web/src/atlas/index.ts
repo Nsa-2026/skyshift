@@ -789,8 +789,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   function publishSky() {
-    const at=focusSky??{ra:state.ra,dec:state.dec};
-    q<HTMLElement>('[data-current-sky]').textContent=`Your sky: ${formatRaDec(at)}`;
+    // The whole-sky view's centre is not a choice: carry nothing, and the areas open on a
+    // featured target (prepared frames) instead of building a live field at an arbitrary spot.
+    const at=focusSky??(levelFor(state.fov)==='whole'?null:{ra:state.ra,dec:state.dec});
+    q<HTMLElement>('[data-current-sky]').textContent=at?`Your sky: ${formatRaDec(at)}`:
+      'Pick a point or zoom in to take this sky with you. From the whole sky, the areas open on a featured target.';
     ctx.skySelection?.(at,stateHash(state));
   }
 

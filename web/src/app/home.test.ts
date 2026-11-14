@@ -1,8 +1,13 @@
 // The home page is the Sky map (#119), before any area is chosen; Watch opens on shared target links.
 import { afterEach, expect, it, vi } from "vitest";
 
-const atlas = vi.hoisted(() => ({ show: vi.fn() }));
-vi.mock("../atlas", () => ({ mountAtlas: () => ({ show: atlas.show, hide: vi.fn(), destroy: vi.fn() }) }));
+const atlas = vi.hoisted(() => ({ show: vi.fn(), ctx: null as null | import("./modules").PageContext }));
+vi.mock("../atlas", () => ({
+  mountAtlas: (_el: HTMLElement, ctx: import("./modules").PageContext) => {
+    atlas.ctx = ctx;
+    return { show: atlas.show, hide: vi.fn(), destroy: vi.fn() };
+  },
+}));
 vi.mock("../blink", () => ({
   mountBlink: () => ({ show: vi.fn(async () => {}), status: vi.fn(), highlight: vi.fn(), active: vi.fn(), destroy: vi.fn() }),
 }));
@@ -54,4 +59,19 @@ it("opens Explore → Watch for a target deep link without a hash", () => {
   expect(root.querySelector(".feature-nav [aria-current]")!.textContent).toBe("Watch");
   expect(loadFrames).toHaveBeenCalledTimes(1);
   expect(vi.mocked(loadFrames).mock.calls[0][0]).toMatchObject({ slug: "wise0855" });
+});
+
+it("from the whole-sky view (nothing picked), Explore opens a featured target, not the map centre", async () => {
+  history.replaceState(null, "", "/");
+  const root = document.createElement("div");
+  document.body.append(root);
+  startApp(root);
+  atlas.ctx!.skySelection?.(null, "#/sky/125.6315,19.2541,220");
+  root.querySelector<HTMLAnchorElement>('.nav a[data-level="explore"]')!.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(visible(root)).toEqual(["explore"]);
+  // Earlier tests' shells still listen to hashchange, so check every call, not their count.
+  expect(loadFrames).toHaveBeenCalled();
+  for (const [v] of vi.mocked(loadFrames).mock.calls) expect(v).toMatchObject({ slug: "barnard" });
+  expect(root.querySelector<HTMLAnchorElement>(".wordmark")!.getAttribute("href")).toBe("#/sky/125.6315,19.2541,220");
 });
