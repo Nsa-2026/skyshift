@@ -58,7 +58,11 @@ def _err(r, status, code):
 @pytest.fixture
 def no_engine(monkeypatch):
     """Engine absent: blink raises NotImplementedError, gaia/known modules don't exist."""
-    monkeypatch.setattr(blink, "build_frames", blink.build_frames)
+    def not_ready(*a, **k):  # the real engine exists now and would go to the network
+        raise NotImplementedError
+
+    monkeypatch.setattr(blink, "build_frames", not_ready)
+    monkeypatch.setattr(blink, "build_object", not_ready)
     for m in ("gaia", "known"):
         monkeypatch.delitem(sys.modules, f"skyshift_server.{m}", raising=False)
     real = app_mod.importlib.import_module

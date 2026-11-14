@@ -1,0 +1,25 @@
+{
+ "slug": "3i-atlas",
+ "name": "3I/ATLAS",
+ "center": {
+  "ra": 166.97483,
+  "dec": 5.22757
+ },
+ "own": "frames_hours_20.json",
+ "follows_object": true,
+ "frames": [
+  {
+   "file": "frames_hours_20.json",
+   "clock": "hours",
+   "fov": 20,
+   "dets": [
+    2,
+    3,
+    5,
+    6
+   ],
+   "epochs": 55,
+   "bytes": 4542487
+  }
+ ]
+}
