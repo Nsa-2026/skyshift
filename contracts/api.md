@@ -616,7 +616,7 @@ the page leaves the section out or says it is pending.
   control:{ n, passing_per_control:[int…], expected_pairs, spread_pairs, poisson_p, beyond_chance, method },
   injection:{ method, distances:[{ distance_au, injected, recovered, recovered_frac,
                                    distance_fit_median_au|null }],
-              median_cell_recovered_frac, min_cell_recovered_frac, distance_err_median_frac } | null,
+              recovered_frac, min_cell_recovered_frac, distance_err_median_frac } | null,
   limits:{ depth_ab_snr5:{ "D1".."D6": AB mag }, reach_au:{ <planet>_p<albedo>: AU }, notes:[string] } }
 ```
 
@@ -665,7 +665,8 @@ the page leaves the section out or says it is pending.
 | injection | object or null | How often the pairing finds a planet that both visits saw as an orphan. null: not run |
 | injection.method | string | One sentence (table-level: synthetic planets at the zone's real cadence and the fit's error model, added to the real orphans, paired by the step's code; detection, linking and catalogue cuts are not tested) |
 | injection.distances[] | object | Per injected distance, every orbit direction and dots-per-visit setting together: `distance_au` (AU), `injected`, `recovered` (its two halves formed a passing pair), `recovered_frac` (0–1), `distance_fit_median_au` (median implied distance of the recovered, AU; null if none) |
-| injection.median_cell_recovered_frac, min_cell_recovered_frac | float, 0–1 | Median and lowest recovered share over the (distance, dots per visit) cells |
+| injection.recovered_frac | float, 0–1 | Recovered share of every injected planet together |
+| injection.min_cell_recovered_frac | float, 0–1 | Lowest recovered share of a single (distance, dots per visit) setting: the worst case |
 | injection.distance_err_median_frac | float | Median \|implied / true distance − 1\| of the recovered planets |
 | limits.depth_ab_snr5 | {"D<det>": float}, AB mag | Single-exposure depth: median AB magnitude of the orphans' own dots at S/N 5–6, per detector with enough dots (no stacking) |
 | limits.reach_au | {key: float}, AU | Farthest distance at which a planet is as bright as `depth_ab_snr5.D2`. Keys `<planet>_p<albedo>`: `neptune` (3.88 Earth radii), `super_earth_2re` (2), `earth` (1), geometric albedo 0.1 or 0.4 (V = H + 5 log₁₀(r·Δ) at quadrature, J_AB ≈ V − 0.3) |

@@ -137,7 +137,7 @@
         "distance_fit_median_au": 990.3
       }
     ],
-    "median_cell_recovered_frac": 0.97,
+    "recovered_frac": 0.958,
     "min_cell_recovered_frac": 0.85,
     "distance_err_median_frac": 0.01
   },

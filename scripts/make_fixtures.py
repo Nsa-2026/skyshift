@@ -364,7 +364,7 @@ def distant():
                     "spread_pairs": r(sd, 3), "poisson_p": r(poisson_p, 4), "beyond_chance": poisson_p < 0.01,
                     "method": "later visit's orphans shifted cyclically by 25-75% of the box in RA and Dec"},
         "injection": {"method": "table-level: synthetic planets at the zone's cadence, paired with the real orphans",
-                      "distances": inj, "median_cell_recovered_frac": 0.97, "min_cell_recovered_frac": 0.85,
+                      "distances": inj, "recovered_frac": 0.958, "min_cell_recovered_frac": 0.85,
                       "distance_err_median_frac": 0.01},
         "limits": {"depth_ab_snr5": {"D1": 17.3, "D2": 17.4, "D3": 17.5, "D4": 17.7},
                    "reach_au": {"neptune_p0.1": 200.0, "neptune_p0.4": 280.0, "super_earth_2re_p0.1": 140.0,
