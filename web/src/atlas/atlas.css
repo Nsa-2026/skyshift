@@ -251,6 +251,19 @@
   stroke: var(--hair-strong);
   stroke-width: 1;
 }
+/* Positive: bright on dark, the view the survey's own images are published in. The SPHEREx
+   cube's tiles are PNG with alpha, so the sheet shows through them and washes the colour map
+   out; the stage and the mat go to ink so the sky reads as sky. The pencil marks already flip
+   to glass on ink in this mode (aladin-map.ts). */
+.atl-stage.is-positive {
+  background: var(--ink);
+}
+.atl-stage.is-positive .atl-limb-mat {
+  fill: var(--ink);
+}
+.atl-stage.is-positive .atl-limb-edge {
+  stroke: var(--ink-2);
+}
 .atl-aladin.is-pointing,
 .atl-aladin.is-pointing canvas,
 .atl-svgmap.is-pointing {

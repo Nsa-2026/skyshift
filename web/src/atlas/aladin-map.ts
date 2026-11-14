@@ -20,6 +20,7 @@ interface Al extends AladinInstance {
   setProjection(p: string): void;
   setFrame(f: string): void;
   setCooGrid?(o: Record<string, unknown>): void;
+  setBackgroundColor?(c: string): void;
   animateToRaDec?(ra: number, dec: number, seconds: number, done?: () => void): void;
   zoomToFoV?(fov: number, seconds: number, done?: () => void): void;
   increaseZoom?(): void;
@@ -47,6 +48,19 @@ const LAYERS: Record<BackgroundId, SkyLayer> = { spherex: SPHEREX, "2mass": TWO_
 export const SPHEREX_FRAME = cubeFrameForDet(3);
 /** The negative sits on the white mat at this opacity: a soft plate, so the pencil reads first. */
 const NEGATIVE_OPACITY = 0.62;
+/**
+ * Colour map for the SPHEREx cube when the plate is positive. One of the four Aladin 3.8.2
+ * ships ("grayscale", "native", "magma", "redtemperature"); magma over the others because its
+ * dark end is purple-black, so the red pencil marks keep their contrast off the galactic plane,
+ * where the hunt zone sits. "redtemperature" is the warmer NASA look and swaps in here.
+ */
+const CUBE_COLOUR_MAP = "magma";
+/**
+ * Stretch for that colour map. Linear on the cube's own 8-bit tiles: the sky at SPHEREX_FRAME
+ * (about 2 µm) is bright everywhere, because the zodiacal light is in the picture and NASA does
+ * not subtract it, so asinh lifts the faint end until the whole sky reads white.
+ */
+const CUBE_STRETCH = "linear";
 /** Radius of a provisional suspect's dashed grey ring, px (a candidate's mark is solid pencil). */
 const PROV_R = 6;
 
@@ -133,10 +147,18 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     }
   }
 
-  /** Negative: grey scale reversed, so the dark sky becomes glass and stars become ink. */
-  function style(h: Hips) {
+  /**
+   * Negative: grey scale reversed, so the dark sky becomes glass and stars become ink.
+   * Positive: 2MASS and AllWISE are colour JPEGs, so "native" is their own real colour. The
+   * SPHEREx cube is one 12-bit channel of 102, which "native" draws blown out and white: colour
+   * has to come from a colour map over an asinh stretch, the way IRSA and Aladin show the cube.
+   * That is a colour map on one wavelength, not an RGB composite of three, and the label under
+   * the map says which wavelength, so nobody reads it as the sky's own colour.
+   */
+  function style(h: Hips, id: BackgroundId) {
     try {
       if (layers.negative) h.setColormap?.("grayscale", { reversed: true, stretch: "linear" });
+      else if (id === "spherex") h.setColormap?.(CUBE_COLOUR_MAP, { reversed: false, stretch: CUBE_STRETCH });
       else h.setColormap?.("native", { reversed: false });
       h.setOpacity(layers.negative ? NEGATIVE_OPACITY : 1);
     } catch {
@@ -155,20 +177,24 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       // inside a detector instead, once Aladin has read the cube's properties.
       successCallback: (layer) => {
         if (id === "spherex") setSlice(layer as Hips);
-        if (id === layers.background) style(layer as Hips);
+        if (id === layers.background) style(layer as Hips, id);
       },
     }) as Hips;
     hips[id] = made;
     if (id === "spherex") setSlice(made);
-    style(made);
+    style(made, id);
     return made;
   }
 
   function applyBackground() {
     try {
+      // The cube's PNG tiles carry an alpha channel, so whatever is behind them shows through:
+      // on the white sheet even a colour map washes out to pink. The sky goes to ink for the
+      // positive, which is also what the marks already assume (see text() and the shapes below).
+      al.setBackgroundColor?.(layers.negative ? ink.sheet : ink.ink);
       const h = layerFor(layers.background);
       al.setBaseImageLayer(h);
-      style(h);
+      style(h, layers.background);
     } catch {
       /* the map keeps its current background */
     }

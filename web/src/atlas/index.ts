@@ -106,7 +106,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <span class="atl-more-label" id="atl-plate-label">Plate</span>
         <div class="seg" role="group" aria-labelledby="atl-plate-label">
           <button type="button" data-neg="1" aria-pressed="true" title="Dark stars on light glass, as astronomers blink plates">Negative</button>
-          <button type="button" data-neg="0" aria-pressed="false" title="The survey's own colours, bright stars on dark sky">Positive</button>
+          <button type="button" data-neg="0" aria-pressed="false" title="Bright on dark: 2MASS and AllWISE in their own colours, SPHEREx in a colour map over one of its 102 wavelengths">Positive</button>
         </div>
       </div>
       <div class="atl-more-row">
