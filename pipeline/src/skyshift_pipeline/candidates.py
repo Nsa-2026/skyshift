@@ -73,6 +73,7 @@ REPEAT_ARCSEC = 30.0           # mover reason repeat_position: another suspect o
 REPEAT_MAX_RATE = 2.0          # session, at an implied rate under this (″/h): a fixed or very slow source
 EXCESS_RATIO = 1.5             # mover reason detector_excess: in its (detector, visit) the zone's suspects per
 EXCESS_MIN_SUSPECTS = 5        # mover are >= 1.5x the zone's average, with at least 5 suspects there
+DEFAULT_DET = 2                # high_pm, spectral without a usable spectrum: contracts/api.md's default detector (v2)
 
 # --- scores -------------------------------------------------------------------------------------
 MOVER_SNR_SCALE = 15.0
@@ -287,7 +288,9 @@ def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
 
 def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
     """Per source: best detector by S/N of its spectrum (channels' S/N added in quadrature), that S/N, the
-    median channel flux there (µJy), saturated, variable."""
+    median channel flux there (µJy), saturated, variable. A source with no channel of positive, finite S/N in
+    any detector has no best detector: det, snr and flux_ujy are None (hunt, 14 Nov: 65 high_pm rows had been
+    written as D1, S/N 0, the argmax of six zeros)."""
     src = read_columns(store, results_rel(zone, "sources.parquet"),
                        ["source_id", "flux_ujy", "err_ujy", "saturated", "variable"], ids)
     if not len(src):
@@ -303,9 +306,18 @@ def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
             flux = np.nanmedian(f, axis=2)
     best = np.argmax(snr, axis=1)
     k = np.arange(len(src))
-    return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": best + 1, "snr": snr[k, best],
-                         "flux_ujy": flux[k, best], "saturated": src["saturated"].to_numpy(bool),
+    ok = snr[k, best] > 0
+    det = pd.array(best + 1, dtype="Int64")
+    det[~ok] = pd.NA
+    return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": det,
+                         "snr": np.where(ok, snr[k, best], np.nan), "flux_ujy": np.where(ok, flux[k, best], np.nan),
+                         "saturated": src["saturated"].to_numpy(bool),
                          "variable": src["variable"].to_numpy(bool) if "variable" in src else False})
+
+
+def _opt(x, kind=float):
+    """kind(x), or None for a missing value (None, NaN, pd.NA)."""
+    return None if x is None or pd.isna(x) else kind(x)
 
 
 def member_info(store: Store, zone: str, ids: np.ndarray, workers: int = 32) -> pd.DataFrame:
@@ -801,7 +813,7 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
         sid = c["_sources"][0]
         if sid in st.index:
             r = st.loc[sid]
-            c["det"], c["snr"], c["flux_ujy"] = int(r["det"]), float(r["snr"]), float(r["flux_ujy"])
+            c["det"], c["snr"], c["flux_ujy"] = _opt(r["det"], int), _opt(r["snr"]), _opt(r["flux_ujy"])
             if c["kind"] == "spectral" and bool(r["variable"]):
                 c["reasons"].append("variable")
         names: list[str] = []
@@ -815,8 +827,8 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
             if sid in info.index:
                 c["mjd"] = float(info.loc[sid, "mjd"])
             c["catwise_match"] = bool(str(cw.get(sid, "") or "")) if len(cw) else False
-        if c["det"] is None:
-            c["det"] = 2
+        if c["det"] is None:  # no usable spectrum (or no sources row): contracts/api.md `det` is an int 1-6, never
+            c["det"] = DEFAULT_DET  # null, so the site's default detector; snr and flux_ujy stay null
 
 
 def build(store: Store, zones: list[str], frames_root: Path | None = None, workers: int = 32,
