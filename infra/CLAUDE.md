@@ -5,7 +5,7 @@ Cloud scripts for Google Cloud project nasa-glazing (us-east4, zone us-east4-a).
              for the hunt zone, only after gate G2. Reads photos from s3://nasa-irsa-spherex.
              Both exist and stop themselves after each job. Drive them only with worker/vm.sh
              (create, run, log, status, stop). Logic and storage: docs/cloud-architecture.md.
-- run/       P2. Cloud Run service skyshift-api, 0–2 instances. Deploy from the repo root with
+- run/       P2. Cloud Run service skyshift-api, 0–8 instances, 60 s request timeout. Deploy from the repo root with
              --source . (the root Dockerfile copies core/ and server/).
 - firebase/  P2. Hosting site skyshift (https://skyshift.web.app), public dir web/dist, rewrite /api/** to
              skyshift-api. Firestore rules for candidates and votes: create-only (contracts/api.md).

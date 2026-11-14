@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from concurrent.futures import Future, TimeoutError as FutureTimeout
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
 from typing import Any
 
 import numpy as np
@@ -73,6 +73,8 @@ MEASURE_DETECTORS = {"wise0855": (5, 6)}
 SPECTRUM_LIVE_PER_DET = 12  # live: spectrum points asked per detector (precompute: every exposure)
 OBJECT_MEASURE_S = 16.0  # live: seconds of the budget kept for the measurement after the spectrum
 OBJECT_RESERVE_S = 3.0  # live: seconds kept after the measurement's downloads
+MAX_REF_LIVE = 150  # live: reference stars fitted, the nearest to the position (precompute: all)
+_measure_pool = ThreadPoolExecutor(8, thread_name_prefix="measure")
 
 
 def spectrum_images(images: list[search.Image], per_det: int | None) -> list[search.Image]:
@@ -276,9 +278,11 @@ def fill_saturated_core(image: np.ndarray, x: float, y: float, *, radius: float 
 
 def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[search.Image],
             det: int, v1: int, v2: int, cache: Cache, *, budget: Budget | None = None,
-            per_visit: int | None = None, ref_stars: Future | None = None) -> dict[str, Any] | None:
+            per_visit: int | None = None, ref_stars: Future | None = None,
+            max_ref: int | None = None) -> dict[str, Any] | None:
     """per_visit: at most this many exposures of each visit (blink.pick_months_images; None: all).
-    ref_stars: the 15' Gaia cone, already asked (else asked here)."""
+    ref_stars: the 15' Gaia cone, already asked (else asked here).
+    max_ref: at most this many reference stars, the nearest to the position (None: all)."""
     grid = stack.Grid(ra, dec, MEASURE_PIXEL, int(round(MEASURE_FOV * 60 / MEASURE_PIXEL)) | 1)
     mine = blink.pick_months_images([im for im in images if im.det == det and im.visit in (v1, v2)], per_visit)
     stacks = blink.visit_stacks(mine, grid, cutouts.tier_for_field(MEASURE_FOV), cache,
@@ -297,6 +301,14 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
         return np.array([np.nan if s.get(k) is None else s[k] for s in stars], dtype=float)
 
     ref = select_reference_stars(col("g"), col("pmra"), col("pmdec")) if stars else np.zeros(0, bool)
+    if max_ref and int(ref.sum()) > max_ref:
+        # core fits every reference star in both stacks (a crowded field near the Galactic centre
+        # has 1159: 45 s on Cloud Run); the nearest max_ref give the same error floor
+        idx = np.flatnonzero(ref)
+        d_ra = (col("ra")[idx] - ra + 180.0) % 360.0 - 180.0
+        d = np.hypot(d_ra * np.cos(np.radians(dec)), col("dec")[idx] - dec)
+        ref = np.zeros_like(ref)
+        ref[idx[np.argsort(d)[:max_ref]]] = True
     kw: dict[str, Any] = {}
     if model and model.get("pmra") is not None:
         kw = dict(target_pmra=model["pmra"], target_pmdec=model["pmdec"], target_parallax=model.get("parallax"),
@@ -365,8 +377,17 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     pick = pick_detector(spectrum, images, MEASURE_DETECTORS.get((model or {}).get("slug", "")))
     if pick is not None and not (budget is not None and budget.expired(OBJECT_RESERVE_S)):
         t = time.monotonic()
-        got = measure(ra, dec, model, images, *pick, cache, budget=budget,
-                      per_visit=blink.LIVE_PER_VISIT if live else None, ref_stars=ref_f)
+        kw = dict(budget=budget, per_visit=blink.LIVE_PER_VISIT if live else None, ref_stars=ref_f,
+                  max_ref=MAX_REF_LIVE if live else None)
+        if live:  # the fits are CPU work the budget cannot stop half-way: wait only until the deadline
+            fut = _measure_pool.submit(measure, ra, dec, model, images, *pick, cache, **kw)
+            try:
+                got = fut.result(timeout=budget.until(OBJECT_RESERVE_S))
+            except FutureTimeout:
+                got = None
+                budget.cut("measurement not in time")
+        else:
+            got = measure(ra, dec, model, images, *pick, cache, **kw)
         if budget is not None:
             budget.add("measure", time.monotonic() - t)
         if got is not None:
