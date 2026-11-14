@@ -186,7 +186,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`) |
 | track_id | string or null | `tracks[].id` of the mover it belongs to |
 | grade | `"A"` \| `"B"` \| `"C"` or null | Suspects only, from the zone's suspects table when it is graded (vetting); null otherwise |
-| reasons | [string] | `suspect`: the suspects table's `reasons` (the gates it fails, as suspects.json), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. Else `[]` |
+| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. Else `[]` |
 
 **class**, first rule that applies:
 
@@ -194,15 +194,16 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 |---|---|---|
 | suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
 | known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
-| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags, or SOURCE at every dot's peak; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3 | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star |
+| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3 | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star |
 | mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
 | star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
 | other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else |
 
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
-3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), `on_source` (SOURCE at every
-dot's peak), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
+3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
 `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`).
+Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
+in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-matched movers have it at the peak).
 
 **tracks[]** (hours clock): one per pipeline mover (`results/<zone>/movers.parquet`).
 
