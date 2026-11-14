@@ -150,6 +150,38 @@ The object nearest a position (search radius 6″).
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
 | measure.predicted_arcsec | Gaia's predicted shift over `dt_yr`, including parallax when Gaia has one (it moves Barnard's Star up to ~1″ between visits), or null without Gaia |
 
+### Proposal: measurement source (awaiting P1)
+
+Add `measure.source` to identify the images actually used by the motion fit. The object endpoint
+chooses its detector and visit pair independently of the player's clock, detector and field.
+Changing the player does not recompute the measurement. Never infer its source from the current
+frames. This is an additive proposal; existing clients may ignore it.
+
+```
+source: { det, visits:[first,last], mjd:[first,last], n_exposures:[first,last],
+          fov, pixel_arcsec, core_filled:[first,last] } | null
+```
+
+| field | type and meaning |
+|---|---|
+| det | Integer 1–6, the single detector used for both measurement stacks |
+| visits | Two increasing visit numbers from the position's canonical visit grouping |
+| mjd | Two increasing UTC MJDs actually passed to the fit: median MJD-AVG of each stack's usable exposures |
+| n_exposures | Two positive integers: exposures actually included in those stacks |
+| fov | Measurement grid's nominal field size in arcmin, independent of the displayed field |
+| pixel_arcsec | Measurement grid's sampling in arcsec per pixel |
+| core_filled | Two booleans: whether a model filled the saturated core in each measurement image |
+
+For a sourced measurement, `dt_yr = (source.mjd[1] - source.mjd[0]) / 365.25` (within rounding).
+This clarifies the `dt_yr` row above: the fit uses stack median exposure times, which can differ
+from the extrema midpoint used by `frames.epochs[].mjd_mid`.
+
+New API results and newly exported static twins include `source` whenever `measure` is non-null.
+If provenance is unavailable, use `source: null`; older cached/static results may omit the key.
+Readers treat omission and null as unknown, display that limitation, and keep the measurement
+available without guessing the detector, visits or dates. `measure: null` remains unchanged.
+This proposal does not require recomputing existing static measurements or changing their numbers.
+
 ## GET /api/gaia, GET /api/known
 
 | endpoint | params | response |

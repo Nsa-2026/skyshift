@@ -26,6 +26,7 @@ GAIA_EPOCH_MJD = 57388.0          # J2016.0, Gaia DR3 reference epoch
 SIDE = 48                         # tiny frames; real frames are up to 300 px a side
 TELAPSE_D = 118.2 / 86400.0       # exposure start to stop, days
 NATIVE_PIX = 6.15                 # arcsec
+BARNARD_VISITS = [(60929.41, 60947.83, 19), (61111.18, 61129.62, 18), (61293.96, 61311.47, 20)]
 UJY_PER_MJYSR_NATIVE = 889.0      # 1 MJy/sr in one 6.15" pixel
 
 # Barnard's Star, Gaia DR3 (epoch 2016.0)
@@ -123,7 +124,7 @@ def write_json(name, obj):
 def months_barnard():
     rng = random.Random(20261114)
     det, pix = 2, 2.05                        # months 5' field: 3x oversampled, 2.05"/px
-    visits = [(60929.41, 60947.83, 19), (61111.18, 61129.62, 18), (61293.96, 61311.47, 20)]
+    visits = BARNARD_VISITS
     mids = [(a + b) / 2 for a, b, _ in visits]
     grid = Grid(*move(BARNARD, mids[1]), pix)
     stars, field = field_stars(grid, rng, 7, sigma=1.56)
@@ -191,7 +192,10 @@ def object_barnard(mids):
         "name": "Barnard's Star", "gaia": BARNARD, "known_ucd": None, "spectrum": spectrum,
         "measure": {"shift_arcsec": r(shift, 3), "pa_deg": 356.1, "dt_yr": r(dt_yr, 4),
                     "rate_arcsec_yr": r(shift / dt_yr, 3), "sigma_arcsec": 0.9, "n_ref_stars": 12,
-                    "predicted_arcsec": r(pm_total * dt_yr, 3)},
+                    "predicted_arcsec": r(pm_total * dt_yr, 3),
+                    "source": {"det": 2, "visits": [1, 3], "mjd": [r(mids[0], 5), r(mids[-1], 5)],
+                               "n_exposures": [BARNARD_VISITS[0][2], BARNARD_VISITS[-1][2]], "fov": 15,
+                               "pixel_arcsec": NATIVE_PIX, "core_filled": [True, True]}},
     }
     write_json("object_barnard.json", obj)
 
