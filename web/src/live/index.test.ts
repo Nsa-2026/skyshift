@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import real from "./fixtures/skyrun-real-1410Z.json";
+import real2 from "./fixtures/skyrun-real-1440Z.json";
 import sample from "./fixtures/skyrun-sample.json";
-import { FeedError, httpSource, loadSkyrun, SKYRUN_URL } from "./load";
+import huntSuspects from "./fixtures/suspects-hunt-top30.json";
+import type { Suspect } from "../api/types";
+import { FeedError, httpSource, loadSkyrun, loadZoneSuspects, SKYRUN_URL } from "./load";
 import { parseSkyrun, type SkyRun } from "./model";
 import { createLivePage, mountLive, zonesToPolygons } from "./index";
 import type { PageContext } from "../app/modules";
@@ -33,14 +36,25 @@ describe("Live search page", () => {
     await flush();
     expect(load).toHaveBeenCalledTimes(1);
     const text = el.textContent!.replace(/\s+/g, " ");
-    expect(text).toContain("Three cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.");
+    // counted from the data: four machines in the sample
+    expect(text).toContain("Four cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.");
     const combined = sample.zones.filter((z) => z.state === "combined").length;
     expect(el.querySelector(".lv-big")!.textContent!.replace(/\s+/g, " ")).toContain(`${combined} of 333 zones combined`);
     expect(text).toContain("Updated 2 min ago");
     expect(text).toContain("498,935");
-    expect(text).toMatch(/until the run ends at .*\(06:00 UTC\)/);
+    expect(text).toMatch(/until the run ends at .*\(05:00 UTC\)/);
     expect(text).toMatch(/until the deadline at .*\(09:00 UTC\)/);
-    expect(text).toContain("216 CPUs in all");
+    expect(text).toMatch(/Final pass \(zone edges joined, WISE check\) planned from .*\(05:00 UTC\); until then results are provisional\./);
+    expect(text).toContain("224 CPUs in all");
+    // the stacked bar, its key in %, the projection marker and the time bar, with honest copy
+    const seg = (c: string) => Number(el.querySelector<HTMLElement>(`.lv-pbar .${c}`)!.style.width.replace("%", ""));
+    expect(seg("lv-seg-comb")).toBeCloseTo(sample.progress.combined_pct);
+    expect(seg("lv-seg-ext")).toBeCloseTo(sample.progress.extracted_pct - sample.progress.combined_pct);
+    expect(el.querySelector(".lv-pkey")!.textContent).toMatch(/40% combined.*6% extracted, not yet combined.*53% not yet extracted/);
+    expect(el.querySelector<HTMLElement>(".lv-proj")!.style.left).toBe(`${Number(sample.progress.projected_extracted_pct.toFixed(2))}%`);
+    expect(el.querySelector(".lv-proj-label")!.textContent).toMatch(/expected by .*\(05:00 UTC\)/);
+    expect(el.querySelector(".lv-tbar")!.textContent).toMatch(/28% of the time to the deadline at .*\(09:00 UTC\) has gone/);
+    expect(el.querySelector(".lv-honest")!.textContent).toMatch(/^333 zones is the plan for the whole ecliptic band; tonight's run reaches only part of it\./);
     expect(el.querySelectorAll("svg.lv-svg g.z")).toHaveLength(333);
     expect(el.querySelector('g.z[data-zone="hunt"]')!.getAttribute("data-state")).toBe("combined");
     expect(el.querySelector(".lv-hunt")).not.toBeNull();
@@ -84,14 +98,58 @@ describe("Live search page", () => {
     handle.destroy();
   });
 
-  it("the hunt zone is final: no provisional note", async () => {
-    const { el, handle } = page(async () => parseSkyrun(sample));
+  it("the hunt zone is final: no provisional note; its suspects load on demand, listed and marked on the map", async () => {
+    const loadSuspects = vi.fn(async () => [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr) as Suspect[]);
+    const el = document.createElement("main");
+    document.body.append(el);
+    const ctx: PageContext = { navigate: vi.fn(), explore: vi.fn() };
+    const handle = createLivePage(el, ctx, { load: async () => parseSkyrun(real2), now: () => T("2026-11-14T14:41:00Z"), loadSuspects });
     handle.show("hunt");
     await flush();
     const panel = el.querySelector<HTMLElement>(".lv-panel")!;
     expect(panel.hidden).toBe(false);
     expect(panel.textContent).toContain("Hunt zone");
     expect(panel.textContent).not.toContain("Provisional");
+    expect(loadSuspects).toHaveBeenCalledWith("https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/hunt.json", expect.any(AbortSignal));
+    await flush();
+    const rows = panel.querySelectorAll(".lv-sus-row");
+    expect(rows).toHaveLength(8);
+    // highest S/N first, with position, detector, S/N and flux in µJy
+    expect(rows[0].textContent!.replace(/\s+/g, " ")).toMatch(/RA 125\.6665°, Dec \+14\.9737° D1, S\/N 290, 2,960 µJy Blink/);
+    expect(panel.textContent).toMatch(/The 8 with the highest S\/N of 30, marked in red on the map\. All 30 as JSON/);
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    rows[0].querySelector<HTMLButtonElement>(".lv-sus-blink")!.click();
+    expect(ctx.explore).toHaveBeenCalledWith({ ra: 125.666546, dec: 14.973674, clock: "hours", det: 1 });
+    // cached: opening it again doesn't fetch again; closing clears the marks
+    panel.querySelector<HTMLButtonElement>("[data-close]")!.click();
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(0);
+    el.querySelector<SVGGElement>('g.z[data-zone="hunt"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(loadSuspects).toHaveBeenCalledTimes(1);
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    handle.destroy();
+  });
+
+  it("shows the combiner of a combining zone and says when suspects can't load", async () => {
+    const el = document.createElement("main");
+    document.body.append(el);
+    const loadSuspects = vi.fn(async () => {
+      throw new FeedError("404", "not_connected", 404);
+    });
+    const handle = createLivePage(el, { navigate: vi.fn(), explore: vi.fn() }, { load: async () => parseSkyrun(sample), now: () => T("2026-11-14T19:14:40Z"), loadSuspects });
+    const z = sample.zones.find((q) => q.state === "combining")!;
+    handle.show(z.name);
+    await flush();
+    const panel = el.querySelector<HTMLElement>(".lv-panel")!;
+    const dl = [...panel.querySelectorAll(".lv-pdl > div")].map((d) => `${d.querySelector("dt")!.textContent}: ${d.querySelector("dd")!.textContent}`);
+    expect(dl).toContain(`Extracted by: ${z.machine}`);
+    expect(dl).toContain(`Combining on: ${z.combiner}`);
+    expect(panel.querySelector(".lv-pstate")!.textContent).toContain(`Combining on ${z.combiner}:`);
+    expect(el.querySelector(`g.z[data-zone="${z.name}"]`)!.getAttribute("aria-label")).toContain(`combining on ${z.combiner}`);
+    const done = sample.zones.find((q) => q.state === "combined" && q.name !== "hunt")!;
+    el.querySelector<SVGGElement>(`g.z[data-zone="${done.name}"]`)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(panel.textContent).toContain("This zone's suspects couldn't be loaded.");
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(0);
     handle.destroy();
   });
 
@@ -209,6 +267,16 @@ describe("the feed", () => {
     expect(await kinds(async () => new Response("x", { status: 500 }))).toBe("server");
     const abort = new DOMException("aborted", "AbortError");
     expect(await kinds(async () => Promise.reject(abort))).toBe("AbortError");
+  });
+
+  it("reads a zone's suspects, brightest S/N first, dropping rows without a position", async () => {
+    const body = { ...huntSuspects, suspects: [{ ...huntSuspects.suspects[3], ra: null }, ...[...huntSuspects.suspects].reverse()] };
+    const fetchFn = vi.fn(async () => ok(body));
+    const rows = await loadZoneSuspects("https://example.test/hunt.json", undefined, fetchFn as never);
+    expect(rows).toHaveLength(30);
+    expect(rows[0].snr).toBe(289.7);
+    expect(rows.every((r, i) => i === 0 || rows[i - 1].snr >= r.snr)).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith("https://example.test/hunt.json", expect.objectContaining({ cache: "no-store" }));
   });
 
   it("refuses a file that isn't schema 1 shaped", async () => {
