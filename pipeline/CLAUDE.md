@@ -23,6 +23,13 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   catalogued star at 15–35″ also stretches the moments (the annulus): first try's top 4 had one at 15.2″. 49 listed.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
+- astrometry (14 Nov night, ASTRO_SAT_OFFSET): saturated dots sit ~0.01–0.06 px off the star along −x (fixed in pixels,
+  the 180° roll made it a fake westward pm: −110 mas/yr at G 8–10). Per detector × depth bin (band mag − 50% saturation
+  mag) the median pixel offset vs Gaia is removed via each photo's Jacobian; frame offsets use unsaturated dots only.
+  Hunt: G 8–10 −112 → −33, G 10–11 −81 → −28 mas/yr (pm − Gaia − ϖ·k); the rest is bright unsaturated dots (~−0.001 px).
+- highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
+  asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
+  status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/mpc/<zone>/run_<obs_id>.json.
   link, spectra, classify, photoz, tracklets, score and suspects are cheap and always recompute from what is there.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
@@ -97,7 +104,7 @@ astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` run
   photos, so stars on the zone edge aren't cut (untiled clips at the box). Photos touching only that 2′ strip are missing.
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
   Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
-  light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
+  light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets and saturated-dot offsets; photoz/lightcurves/astrometry reports on the merged tables;
   tracklets (right after merge 1, next to calib), highpm, orphans, score and suspects run once on the merged tables
   (tracks cross tiles; their 15′/2′ controls and orphans' 300–7200″ pairs need no border). link's nonfixed_dots.parquet is
   merged like movers (owner: the dot's position).
