@@ -1,25 +1,51 @@
-// The blink player (P4). Draws SPHEREx frames of one detector on a canvas and blinks them on
-// the months clock (visit stacks) or the hours clock (single exposures). Seam: src/app/modules.ts.
+// The blink player (P4). Draws SPHEREx frames of one detector on a plate and blinks them on the
+// months clock (visit stacks) or the hours clock (single exposures). Seam: src/app/modules.ts.
+// Design: web/DESIGN.md ("Lightbox"). The plate is the hero, the time strip sits right under it,
+// one row of primary controls follows, and everything secondary lives behind "Adjust".
 import "./blink.css";
 import { ALLOWED_FOV, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadTargetIndex, toMJySr } from "../api/client";
 import type { Clock, Det, Epoch, FramesResponse, SkyPos, TargetIndex } from "../api/types";
-import { DETECTORS, SAME_MOMENT, formatMjd, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
+import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
 import type { BlinkHandle, BlinkOptions, MountBlink, View } from "../app/modules";
-import { buildAxis, formatGap, nearestIndex, type Axis } from "./axis";
-import { median, mean, niceArcsec, offset, robustLimits, subtract, symmetricLimits, type Limits, type StretchKind } from "./math";
-import { buildLut, paint, readPalette, type Palette } from "./paint";
+import { nearestIndex, type Axis } from "./axis";
+import { compass, diamond, flagMark, hatchPattern, label, pencil, reticle, ring, scaleBar } from "./marks";
+import {
+  burntCores,
+  mean,
+  median,
+  niceArcsec,
+  offset,
+  psfSigmaPx,
+  robustLimits,
+  robustSigma,
+  shiftBilinear,
+  sigmaLimits,
+  smooth,
+  stretch,
+  subtract,
+  type Limits,
+  type StretchKind,
+} from "./math";
+import { driftPx, findMover, followShifts, type Mover } from "./motion";
+import { buildLut, diffIndex, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
+import { drawStrip, plateDate, updateStrip } from "./strip";
 
-type Mode = "blink" | "subtract" | "add";
+type Mode = "blink" | "difference" | "stack";
 const DETS: Det[] = [1, 2, 3, 4, 5, 6];
 const FPS = [1, 2, 4, 8];
 const PSF_FWHM_ARCSEC = 7.53;
 const FAST_STAR_MAS_YR = 300;
+/** At most this many Gaia rings on a 680 px plate (fewer on a smaller one): the brightest win. */
+const MAX_RINGS = 80;
 const html = String.raw;
+let mounts = 0;
 
 interface Frame {
   epoch: Epoch;
   vals: Float32Array;
+  /** Sky level (median) and noise (robust sigma), MJy/sr. */
   sky: number;
+  sigma: number;
 }
 
 // Featured targets list their precomputed clocks and fields; any other spot goes to the live API.
@@ -65,120 +91,141 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>, done:
   return out;
 }
 
-const pct = (f: number) => (f >= 0.1 ? `${(f * 100).toFixed(0)}%` : f > 0 ? `${(f * 100).toFixed(f >= 0.01 ? 1 : 2)}%` : "0%");
 const um = (n: number) => n.toFixed(2);
+const pct = (f: number) => (f >= 0.1 ? `${(f * 100).toFixed(0)}%` : f > 0 ? `${(f * 100).toFixed(f >= 0.01 ? 1 : 2)}%` : "0%");
 const icon = {
-  prev: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4h2v12H5zM16 4v12L8 10z"/></svg>`,
-  next: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M13 4h2v12h-2zM4 4v12l8-6z"/></svg>`,
-  play: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3.5v13L16.5 10z"/></svg>`,
-  pause: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4h3.5v12H5zM11.5 4H15v12h-3.5z"/></svg>`,
+  play: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.6v10.8c0 .5.6.8 1 .5l8-5.4c.4-.3.4-.8 0-1L8 4.1c-.4-.3-1 0-1 .5z"/></svg>`,
+  pause: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5.5" y="4.5" width="3" height="11" rx="1"/><rect x="11.5" y="4.5" width="3" height="11" rx="1"/></svg>`,
+  chevron: `<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
 export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): BlinkHandle => {
+  const uid = `bk${++mounts}`;
   el.innerHTML = html`
-    <div class="bk">
-      <div class="bk-bar">
-        <div class="bk-seg" role="group" aria-label="Clock">
-          <button class="bk-btn" type="button" data-clock="months" aria-pressed="false"
-            title="One median stack per visit, visits about six months apart">Months</button>
-          <button class="bk-btn" type="button" data-clock="hours" aria-pressed="false"
-            title="Single exposures in time order, minutes to days apart">Hours</button>
-        </div>
-        <div class="bk-seg bk-fov" role="group" aria-label="Field of view"></div>
-        <div class="bk-ramp" role="group" aria-label="Detector">
-          ${DETS.map(
-            (d) => html`<button class="bk-det det-${d}" type="button" data-det="${d}" aria-pressed="false"
-              title="D${d}, ${DETECTORS[d].min}–${DETECTORS[d].max} µm (${DETECTORS[d].band}). Exposed at the same moment as D${SAME_MOMENT[d]}: a change between them is colour, not motion.">
-              <span class="bk-det-name">D${d}</span><span class="bk-det-um">${DETECTORS[d].min}–${DETECTORS[d].max}</span>
-            </button>`,
-          ).join("")}
-        </div>
-      </div>
-
-      <div class="bk-body">
-        <div class="bk-stage-wrap">
-          <div class="bk-stage">
-            <canvas class="bk-canvas" aria-label="SPHEREx frame. Click a dot to flag it."></canvas>
-            <canvas class="bk-loupe" width="136" height="136" hidden aria-hidden="true"></canvas>
-            <p class="bk-tag" hidden></p>
-            <div class="bk-veil" hidden>
-              <div class="bk-veil-box" role="status" aria-live="polite">
-                <p class="bk-veil-msg"></p>
-                <div class="bk-progress" hidden><i></i></div>
-                <div class="bk-veil-actions"></div>
-              </div>
+    <div class="bk" data-mode="blink" data-ready="false">
+      <div class="bk-col">
+        <div class="bk-mat">
+          <p class="bk-label">
+            <span class="bk-when"><b class="bk-when-main"></b> <span class="bk-when-sub"></span></span>
+            <span class="bk-det-label"></span>
+          </p>
+          <div class="bk-plate">
+            <canvas class="bk-canvas" role="img" aria-label="SPHEREx frame. Click a dot to flag it."></canvas>
+            <div class="bk-progress" hidden><i></i></div>
+            <div class="bk-msg" role="status" aria-live="polite" hidden>
+              <p class="bk-msg-text"></p>
+              <div class="bk-msg-actions"></div>
             </div>
           </div>
-          <p class="bk-read"><span class="bk-read-pos">Point at the image to read a pixel; click a dot to flag it.</span><span class="bk-read-val"></span></p>
+          <div class="bk-caption">
+            <p class="bk-say"></p>
+            <p class="bk-key"></p>
+          </div>
         </div>
 
-        <div class="bk-rail">
-          <section class="bk-group">
-            <h3 class="bk-h">View</h3>
-            <div class="bk-seg bk-wide" role="group" aria-label="View mode">
-              <button class="bk-btn" type="button" data-mode="blink" aria-pressed="true">Blink</button>
-              <button class="bk-btn" type="button" data-mode="subtract" aria-pressed="false">Subtract</button>
-              <button class="bk-btn" type="button" data-mode="add" aria-pressed="false">Add</button>
-            </div>
-            <p class="bk-hint bk-mode-hint"></p>
-          </section>
-          <section class="bk-group">
-            <h3 class="bk-h"><label for="bk-ref">Reference</label></h3>
-            <select id="bk-ref" class="bk-select bk-ref"></select>
-            <button class="bk-btn bk-hold" type="button" title="Hold (or hold C) to show the reference frame">Hold to compare</button>
-          </section>
-          <section class="bk-group">
-            <h3 class="bk-h">Stretch</h3>
-            <div class="bk-seg bk-wide" role="group" aria-label="Stretch">
-              <button class="bk-btn" type="button" data-stretch="linear" aria-pressed="false">Linear</button>
-              <button class="bk-btn" type="button" data-stretch="asinh" aria-pressed="true">Asinh</button>
-            </div>
-            <label class="bk-range"><span>Contrast</span>
-              <input class="bk-contrast" type="range" min="0" max="1" step="0.01" value="0.45" /></label>
-            <div class="bk-toggles">
-              <button class="bk-tog" type="button" data-opt="invert" aria-pressed="false">Invert</button>
-              <button class="bk-tog" type="button" data-opt="level" aria-pressed="true"
-                title="Subtract each frame's median, so the changing zodiacal glow doesn't flicker">Level sky</button>
-            </div>
-          </section>
-          <section class="bk-group">
-            <h3 class="bk-h">Overlays</h3>
-            <div class="bk-toggles">
-              <button class="bk-tog" type="button" data-ov="gaia" aria-pressed="true"><i class="sw sw-gaia"></i>Gaia</button>
-              <button class="bk-tog" type="button" data-ov="known" aria-pressed="true"><i class="sw sw-known"></i>Known</button>
-              <button class="bk-tog" type="button" data-ov="target" aria-pressed="true"><i class="sw sw-mover"></i>Target</button>
-              <button class="bk-tog" type="button" data-ov="guides" aria-pressed="true"><i class="sw sw-guide"></i>Compass</button>
-            </div>
-          </section>
-          <section class="bk-group">
-            <h3 class="bk-h">Zoom</h3>
-            <div class="bk-seg bk-wide" role="group" aria-label="Zoom">
-              <button class="bk-btn" type="button" data-zoom="1" aria-pressed="true">1×</button>
-              <button class="bk-btn" type="button" data-zoom="2" aria-pressed="false">2×</button>
-              <button class="bk-btn" type="button" data-zoom="4" aria-pressed="false">4×</button>
-            </div>
-          </section>
-          <p class="bk-keys">Space plays. ← → step. Hold C to compare.</p>
+        <div class="bk-strip">
+          <button class="btn btn-primary bk-play" type="button" aria-label="Play" aria-pressed="false">${icon.play}</button>
+          <div class="bk-axis" role="slider" tabindex="0" aria-label="Time">
+            <div class="bk-track"></div>
+            <div class="bk-tls"></div>
+          </div>
         </div>
-      </div>
 
-      <div class="bk-time">
-        <div class="bk-transport">
-          <button class="bk-icon bk-prev" type="button" aria-label="Previous frame">${icon.prev}</button>
-          <button class="bk-icon bk-play" type="button" aria-label="Play">${icon.play}</button>
-          <button class="bk-icon bk-next" type="button" aria-label="Next frame">${icon.next}</button>
-          <label class="bk-speed"><span>Speed</span>
-            <select class="bk-select bk-fps">${FPS.map((f) => `<option value="${f}">${f}/s</option>`).join("")}</select>
-          </label>
+        <div class="bk-row">
+          <div class="seg bk-clock" role="group" aria-label="Clock">
+            <button type="button" data-clock="months" aria-pressed="false"
+              title="One stack per visit. SPHEREx comes back every six months.">Months</button>
+            <button type="button" data-clock="hours" aria-pressed="false"
+              title="Single exposures, minutes to days apart">Hours</button>
+          </div>
+          <div class="seg seg-sm bk-fov" role="group" aria-label="Field of view"></div>
+          <div class="bk-ramp" role="group" aria-label="Detector">
+            ${DETS.map(
+              (d) => html`<button class="bk-det det-${d}" type="button" data-det="${d}" aria-pressed="false"
+                aria-label="D${d}, ${DETECTORS[d].min} to ${DETECTORS[d].max} µm"
+                title="D${d}: ${DETECTORS[d].min}–${DETECTORS[d].max} µm. Exposed at the same moment as D${SAME_MOMENT[d]}, so a change between them is colour, not motion."><span>D${d}</span></button>`,
+            ).join("")}
+          </div>
+          <div class="bk-how">
+            <div class="seg bk-modes" role="group" aria-label="View">
+              <button type="button" data-mode="blink" aria-pressed="true">Blink</button>
+              <button type="button" data-mode="difference" aria-pressed="false">Difference</button>
+              <button type="button" data-mode="stack" aria-pressed="false">Stack</button>
+            </div>
+            <button class="btn btn-ghost bk-adjust-btn" type="button" aria-expanded="false" aria-controls="${uid}-adj">
+              <span class="bk-adjust-text">Adjust</span>${icon.chevron}
+            </button>
+          </div>
         </div>
-        <div class="bk-legend">
-          <p class="bk-which"></p>
-          <p class="bk-when"><span class="bk-date"></span><span class="bk-clocktime"></span></p>
-          <dl class="bk-facts"></dl>
-        </div>
-        <div class="bk-axis" role="slider" tabindex="0" aria-label="Epoch">
-          <div class="bk-axis-track"></div>
-          <div class="bk-axis-labels"></div>
+
+        <div class="bk-adjust" id="${uid}-adj" role="group" aria-label="Adjust the plate" hidden>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k" id="${uid}-st">Stretch</span>
+            <div class="seg seg-sm" role="group" aria-labelledby="${uid}-st">
+              <button type="button" data-stretch="linear" aria-pressed="false">Linear</button>
+              <button type="button" data-stretch="asinh" aria-pressed="true">Asinh</button>
+            </div>
+          </div>
+          <div class="bk-adj-row">
+            <label class="bk-adj-k" for="${uid}-contrast">Contrast</label>
+            <input class="bk-contrast" id="${uid}-contrast" type="range" min="0" max="1" step="0.01" value="0.45" />
+          </div>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k" id="${uid}-pl">Plate</span>
+            <div class="seg seg-sm" role="group" aria-labelledby="${uid}-pl">
+              <button type="button" data-positive="false" aria-pressed="true">Negative</button>
+              <button type="button" data-positive="true" aria-pressed="false">Positive</button>
+            </div>
+          </div>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k">Level sky</span>
+            <button class="bk-switch" type="button" data-opt="level" aria-pressed="true"
+              aria-label="Level sky: subtract each frame's sky glow"><i></i></button>
+            <span class="bk-adj-note">Removes each frame's sky glow</span>
+          </div>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k">Smooth</span>
+            <button class="bk-switch" type="button" data-opt="smooth" aria-pressed="true"
+              aria-label="Smooth differences to SPHEREx's resolution"><i></i></button>
+            <span class="bk-adj-note">Blurs to SPHEREx's resolution before Difference</span>
+          </div>
+          <div class="bk-adj-row">
+            <label class="bk-adj-k" for="${uid}-ref">Reference</label>
+            <div class="bk-adj-pair">
+              <select class="bk-select bk-ref" id="${uid}-ref"></select>
+              <button class="btn bk-hold" type="button" aria-pressed="false"
+                title="Hold (or hold C) to show the reference frame">Hold to compare</button>
+            </div>
+          </div>
+          <div class="bk-adj-row bk-follow-row" hidden>
+            <span class="bk-adj-k">Follow</span>
+            <button class="bk-switch" type="button" data-opt="follow" aria-pressed="false"><i></i></button>
+            <span class="bk-adj-note bk-follow-note"></span>
+          </div>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k" id="${uid}-mk">Marks</span>
+            <div class="bk-marks" role="group" aria-labelledby="${uid}-mk">
+              <button class="bk-mk" type="button" data-ov="gaia" aria-pressed="true"><i class="sw sw-gaia"></i>Gaia</button>
+              <button class="bk-mk" type="button" data-ov="known" aria-pressed="true"><i class="sw sw-known"></i>Known</button>
+              <button class="bk-mk" type="button" data-ov="target" aria-pressed="true"><i class="sw sw-target"></i>Target</button>
+              <button class="bk-mk" type="button" data-ov="guides" aria-pressed="true"><i class="sw sw-guide"></i>Compass</button>
+            </div>
+          </div>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k" id="${uid}-zm">Zoom</span>
+            <div class="seg seg-sm" role="group" aria-labelledby="${uid}-zm">
+              <button type="button" data-zoom="1" aria-pressed="true">1×</button>
+              <button type="button" data-zoom="2" aria-pressed="false">2×</button>
+              <button type="button" data-zoom="4" aria-pressed="false">4×</button>
+            </div>
+          </div>
+          <div class="bk-adj-row">
+            <span class="bk-adj-k" id="${uid}-sp">Speed</span>
+            <div class="seg seg-sm" role="group" aria-labelledby="${uid}-sp">
+              ${FPS.map((f) => `<button type="button" data-fps="${f}" aria-pressed="${f === 2}" aria-label="${f} frames a second">${f}/s</button>`).join("")}
+            </div>
+          </div>
+          <p class="bk-adj-keys">Space plays, ← → step, hold C to compare.</p>
         </div>
       </div>
     </div>
@@ -187,23 +234,27 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const $$ = <T extends Element>(sel: string) => [...el.querySelectorAll<T>(sel)];
   const root = $<HTMLDivElement>(".bk");
-  const stage = $<HTMLDivElement>(".bk-stage");
+  const col = $<HTMLDivElement>(".bk-col");
+  const plate = $<HTMLDivElement>(".bk-plate");
   const canvas = $<HTMLCanvasElement>(".bk-canvas");
   const ctx = canvas.getContext("2d");
-  const loupe = $<HTMLCanvasElement>(".bk-loupe");
-  const lctx = loupe.getContext("2d");
-  const tag = $<HTMLParagraphElement>(".bk-tag");
-  const veil = $<HTMLDivElement>(".bk-veil");
-  const veilMsg = $<HTMLParagraphElement>(".bk-veil-msg");
-  const veilBar = $<HTMLDivElement>(".bk-progress");
-  const veilActions = $<HTMLDivElement>(".bk-veil-actions");
-  const refSel = $<HTMLSelectElement>(".bk-ref");
-  const fpsSel = $<HTMLSelectElement>(".bk-fps");
-  const contrastIn = $<HTMLInputElement>(".bk-contrast");
-  const axisEl = $<HTMLDivElement>(".bk-axis");
-  const track = $<HTMLDivElement>(".bk-axis-track");
-  const axisLabels = $<HTMLDivElement>(".bk-axis-labels");
+  const progress = $<HTMLDivElement>(".bk-progress");
+  const msg = $<HTMLDivElement>(".bk-msg");
+  const msgText = $<HTMLParagraphElement>(".bk-msg-text");
+  const msgActions = $<HTMLDivElement>(".bk-msg-actions");
+  const whenMain = $<HTMLElement>(".bk-when-main");
+  const whenSub = $<HTMLElement>(".bk-when-sub");
+  const detLabel = $<HTMLElement>(".bk-det-label");
+  const say = $<HTMLParagraphElement>(".bk-say");
+  const key = $<HTMLParagraphElement>(".bk-key");
   const playBtn = $<HTMLButtonElement>(".bk-play");
+  const axisEl = $<HTMLDivElement>(".bk-axis");
+  const strip = { track: $<HTMLDivElement>(".bk-track"), labels: $<HTMLDivElement>(".bk-tls") };
+  const adjBtn = $<HTMLButtonElement>(".bk-adjust-btn");
+  const adj = $<HTMLDivElement>(".bk-adjust");
+  const refSel = $<HTMLSelectElement>("select.bk-ref");
+  const contrastIn = $<HTMLInputElement>(".bk-contrast");
+  const hold = $<HTMLButtonElement>(".bk-hold");
   const off = document.createElement("canvas");
   const offCtx = off.getContext("2d");
 
@@ -220,8 +271,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let mode: Mode = "blink";
   let stretchKind: StretchKind = "asinh";
   let contrast = 0.45;
-  let invert = false;
+  let positive = false;
   let levelSky = true;
+  let smoothOn = true;
+  let follow = false;
+  let mover: Mover | null = null;
+  let shifts: { dx: number; dy: number }[] | null = null;
   const overlays = { gaia: true, known: true, target: true, guides: true };
   let zoom = 1;
   let centre = { u: 0, v: 0 }; // view centre in image edge coordinates (pixel i spans [i, i+1])
@@ -230,29 +285,35 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let timer = 0;
   let comparing = false;
   let pick: SkyPos | null = null;
-  let hover: { u: number; v: number; X: number; Y: number } | null = null;
+  let hover: { u: number; v: number } | null = null;
   let loadCtl = 0; // generation counter: a newer show() wins
-  let ownBusy = false;
+  let busy: { done: number; total: number } | null = null;
   let appStatus: { kind: "loading" | "error"; message: string } | null = null;
   let axis: Axis | null = null;
   let shown: Float32Array | null = null;
   let shownSigned = false;
+  let shownLim: (Limits & { sigma?: number; n?: number }) | null = null;
   let firstShow = true;
   const leveled = new Map<number, Float32Array>();
-  let meanVals: Float32Array | null = null;
-  const limitCache = new Map<string, Limits>();
+  const smoothed = new Map<number, Float32Array>();
+  const burnt = new Map<number, Uint8Array>();
+  let stackVals: { key: string; vals: Float32Array; sky: number; sigma: number; burnt: Uint8Array } | null = null;
+  const limitCache = new Map<string, Limits & { sigma?: number; n?: number }>();
   let lut: { key: string; data: Uint8ClampedArray } = { key: "", data: new Uint8ClampedArray(0) };
+  let hatch: { key: string; pattern: CanvasPattern | null } = { key: "", pattern: null };
   let cssSize = 0;
   let dpr = 1;
-  fpsSel.value = String(fps);
 
   // ---- data helpers -------------------------------------------------------------------------
   const size = (): [number, number] => F?.size ?? [1, 1];
-  const nLoaded = () => frames.length;
+  const n = () => frames.length;
   const cur = (): Frame | null => frames[idx] ?? null;
-  const shownEpoch = (): Epoch | null => (comparing ? frames[ref]?.epoch : cur()?.epoch) ?? null;
+  const shownIndex = () => (comparing ? ref : idx);
+  const shownEpoch = (): Epoch | null => frames[shownIndex()]?.epoch ?? null;
   const centreOf = (e: Epoch | null): SkyPos => e?.center ?? F?.center ?? { ra: 0, dec: 0 };
   const unit = () => (view?.clock === "hours" ? "exposure" : "visit");
+  const allAtOnce = () => mode === "stack" && !comparing;
+  const followsObject = () => frames.some((f) => !!f.epoch.center);
 
   function level(i: number): Float32Array {
     const f = frames[i];
@@ -264,29 +325,76 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     return a;
   }
-  function meanFrame(): Float32Array {
-    meanVals ??= mean(frames.map((_, i) => level(i)));
-    return meanVals;
+  /** The frame as Difference uses it: levelled, and smoothed to the PSF when Smooth is on. */
+  function diffBase(i: number): Float32Array {
+    if (!smoothOn || !F) return level(i);
+    let a = smoothed.get(i);
+    if (!a) {
+      const [nx, ny] = size();
+      a = smooth(level(i), nx, ny, psfSigmaPx(PSF_FWHM_ARCSEC, F.pixel_arcsec));
+      smoothed.set(i, a);
+    }
+    return a;
+  }
+  function burntOf(i: number): Uint8Array {
+    let b = burnt.get(i);
+    if (!b) {
+      const [nx, ny] = size();
+      const f = frames[i];
+      b = burntCores(f.vals, nx, ny, f.sky, f.sigma);
+      burnt.set(i, b);
+    }
+    return b;
+  }
+  const following = () => follow && !!shifts && shifts.length === frames.length;
+  /** Mean of every frame; shifted along the mover first when Follow is on (shift-and-add). */
+  function stack(): NonNullable<typeof stackVals> {
+    const k = `${levelSky}|${following()}`;
+    if (stackVals?.key !== k) {
+      const [nx, ny] = size();
+      const list = frames.map((_, i) =>
+        following() ? shiftBilinear(level(i), nx, ny, shifts![i].dx, shifts![i].dy) : level(i),
+      );
+      const vals = mean(list);
+      const sky = median(vals);
+      const sigma = robustSigma([vals], 40_000);
+      stackVals = { key: k, vals, sky, sigma, burnt: burntCores(vals, nx, ny, sky, sigma) };
+    }
+    return stackVals;
+  }
+  /** The plain (not differenced) image behind what is shown: for marks that look at the plate. */
+  function plainView() {
+    if (allAtOnce()) {
+      const s = stack();
+      return { vals: s.vals, sky: s.sky, sigma: s.sigma, burnt: s.burnt, lim: limitsFor("stack") };
+    }
+    const i = mode === "difference" && !comparing ? idx : shownIndex();
+    const f = frames[i];
+    return { vals: level(i), sky: levelSky ? 0 : f.sky, sigma: f.sigma, burnt: burntOf(i), lim: limitsFor("blink") };
   }
   function resetCaches() {
     leveled.clear();
-    meanVals = null;
+    smoothed.clear();
+    stackVals = null;
     limitCache.clear();
   }
-  function limitsFor(kind: Mode): Limits {
-    const key = `${kind}|${kind === "subtract" ? ref : ""}|${contrast}|${levelSky}`;
-    let l = limitCache.get(key);
+  function limitsFor(kind: Mode): Limits & { sigma?: number; n?: number } {
+    const k = `${kind}|${kind === "difference" ? `${ref}|${smoothOn}` : ""}|${kind === "stack" ? following() : ""}|${contrast}|${levelSky}`;
+    let l = limitCache.get(k);
     if (!l) {
-      if (kind === "subtract") {
+      if (kind === "difference") {
         const others = frames.map((_, i) => i).filter((i) => i !== ref);
-        const diffs = (others.length ? others : [ref]).map((i) => subtract(level(i), level(ref)));
-        l = symmetricLimits(diffs, contrast);
-      } else if (kind === "add") {
-        l = robustLimits([meanFrame()], contrast);
+        const diffs = (others.length ? others : [ref]).map((i) => subtract(diffBase(i), diffBase(ref)));
+        l = sigmaLimits(diffs, contrast);
+      } else if (kind === "stack") {
+        l = robustLimits([stack().vals], contrast);
       } else {
-        l = robustLimits(frames.map((_, i) => level(i)), contrast);
+        l = robustLimits(
+          frames.map((_, i) => level(i)),
+          contrast,
+        );
       }
-      limitCache.set(key, l);
+      limitCache.set(k, l);
     }
     return l;
   }
@@ -296,30 +404,35 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (!F || !frames.length || !offCtx) return;
     const [nx, ny] = size();
     let values: Float32Array;
-    let lim: Limits;
+    let lim: Limits & { sigma?: number; n?: number };
+    let mask: Uint8Array | null = null;
     let signed = false;
     if (comparing || mode === "blink") {
-      values = level(comparing ? ref : idx);
+      values = level(shownIndex());
       lim = limitsFor("blink");
-    } else if (mode === "subtract") {
-      values = subtract(level(idx), level(ref));
-      lim = limitsFor("subtract");
+      mask = burntOf(shownIndex());
+    } else if (mode === "difference") {
+      values = subtract(diffBase(idx), diffBase(ref));
+      lim = limitsFor("difference");
       signed = true;
     } else {
-      values = meanFrame();
-      lim = limitsFor("add");
+      const s = stack();
+      values = s.vals;
+      mask = s.burnt;
+      lim = limitsFor("stack");
     }
-    const key = `${signed}|${invert}`;
-    if (lut.key !== key) lut = { key, data: buildLut(palette, signed, invert) };
+    const k = `${signed}|${positive}`;
+    if (lut.key !== k) lut = { key: k, data: buildLut(palette, signed, positive) };
     if (off.width !== nx || off.height !== ny) {
       off.width = nx;
       off.height = ny;
     }
     const img = offCtx.createImageData(nx, ny);
-    paint(values, nx, img.data, lim, stretchKind, signed, lut.data, palette);
+    paint(values, img.data, lut.data, signed ? diffIndex(lim) : plainIndex(lim, stretchKind), mask);
     offCtx.putImageData(img, 0, 0);
     shown = values;
     shownSigned = signed;
+    shownLim = lim;
     draw();
   }
 
@@ -336,240 +449,324 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const oy = (W - vh * s) / 2;
     return { u0, v0, vw, vh, s, ox, oy };
   }
-  const toScreen = (px: { x: number; y: number }, vp = viewport()) => ({
+  type VP = ReturnType<typeof viewport>;
+  const toScreen = (px: { x: number; y: number }, vp: VP) => ({
     X: vp.ox + (px.x + 0.5 - vp.u0) * vp.s,
     Y: vp.oy + (px.y + 0.5 - vp.v0) * vp.s,
   });
   const toImage = (X: number, Y: number, vp = viewport()) => ({ u: vp.u0 + (X - vp.ox) / vp.s, v: vp.v0 + (Y - vp.oy) / vp.s });
 
-  function cssColor(name: string): string {
-    return getComputedStyle(el).getPropertyValue(name).trim() || "#fff";
+  const cssColor = (name: string, fb = "#18202e") => getComputedStyle(el).getPropertyValue(name).trim() || fb;
+
+  /** Pencil colours, lifted toward white on a positive plate so they still read on ink. */
+  function pen(name: string): string {
+    const c = cssColor(name);
+    if (!positive || shownSigned) return c;
+    const [r, g, b] = lerp(parseHex(c, [207, 35, 56]), [255, 255, 255], 0.38);
+    return `rgb(${r}, ${g}, ${b})`;
   }
 
   function draw() {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = cssColor("--plate");
-    ctx.fillRect(0, 0, cssSize, cssSize);
+    ctx.clearRect(0, 0, cssSize, cssSize);
     if (!F || !frames.length) return;
     const vp = viewport();
+    const hk = `${dpr}`;
+    if (hatch.key !== hk) hatch = { key: hk, pattern: hatchPattern(ctx, dpr, cssColor("--sheet-2", "#e3e8e7"), cssColor("--hair-strong", "#a9b1b6")) };
+    const plain = !shownSigned;
+    ctx.fillStyle = hatch.pattern ?? cssColor("--sheet-2", "#e3e8e7");
+    ctx.save();
+    // The pattern is in device pixels; draw it untransformed so lines stay crisp.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillRect(Math.round(vp.ox * dpr), Math.round(vp.oy * dpr), Math.round(vp.vw * vp.s * dpr), Math.round(vp.vh * vp.s * dpr));
+    ctx.restore();
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(off, vp.u0, vp.v0, vp.vw, vp.vh, vp.ox, vp.oy, vp.vw * vp.s, vp.vh * vp.s);
-    drawOverlays(vp);
-    drawLoupe(vp);
+    drawMarks(vp);
+    if (overlays.guides) drawGuides(vp, plain && positive);
   }
 
-  function halo(width: number) {
-    if (!ctx) return;
-    ctx.strokeStyle = "rgba(15, 26, 44, 0.75)";
-    ctx.lineWidth = width + 2;
-    ctx.stroke();
-  }
-
-  function drawOverlays(vp: ReturnType<typeof viewport>) {
+  function drawMarks(vp: VP) {
     if (!ctx || !F || !view) return;
-    const e = mode === "add" && !comparing ? null : shownEpoch();
+    const e = allAtOnce() ? null : shownEpoch();
     const mjd = e?.mjd_mid ?? (frames[0].epoch.mjd_mid + frames[frames.length - 1].epoch.mjd_mid) / 2;
     const c = centreOf(e ?? cur()?.epoch ?? null);
-    const inView = (p: { X: number; Y: number }, m = 20) =>
+    const inView = (p: { X: number; Y: number }, m = 16) =>
       p.X > vp.ox - m && p.X < vp.ox + vp.vw * vp.s + m && p.Y > vp.oy - m && p.Y < vp.oy + vp.vh * vp.s + m;
-    const psfR = (PSF_FWHM_ARCSEC / F.pixel_arcsec) * vp.s * 0.85;
-    const W = cssSize;
+    const psf = (PSF_FWHM_ARCSEC / F.pixel_arcsec) * vp.s; // PSF FWHM in screen pixels
+    const halo = positive && !shownSigned ? cssColor("--ink") : cssColor("--glass", "#edf0ef");
 
     ctx.save();
     ctx.beginPath();
     ctx.rect(vp.ox, vp.oy, vp.vw * vp.s, vp.vh * vp.s);
     ctx.clip();
 
-    if (overlays.gaia) {
-      const gaia = cssColor("--gaia");
-      const r = Math.max(5, Math.min(14, psfR * 0.7));
-      const moving = !frames.some((f) => f.epoch.center);
-      // Single exposures reach about G 16.5, visit stacks deeper. Crowded fields drop the faint ones.
-      const faintG = view.clock === "hours" ? 16.5 : 18;
-      const skipFaint = F.gaia.length > 600;
-      for (const star of F.gaia) {
-        const p = toScreen(skyToPixel(gaiaAt(star, mjd), F, c), vp);
-        if (!inView(p)) continue;
-        // Faint Gaia stars are mostly below SPHEREx's reach: draw them small and quiet.
-        const g = star.g ?? 20;
-        const faint = g > faintG;
-        if (faint && skipFaint) continue;
-        ctx.globalAlpha = faint ? 0.22 : g <= 13 ? 0.95 : 0.95 - ((g - 13) / 5) * 0.45;
-        const pm = Math.hypot(star.pmra ?? 0, star.pmdec ?? 0);
-        if (pm > FAST_STAR_MAS_YR && moving && frames.length > 1) {
-          // Fast star: Gaia's predicted track through every epoch of this detector.
-          ctx.beginPath();
-          frames.forEach((f, i) => {
-            const q = toScreen(skyToPixel(gaiaAt(star, f.epoch.mjd_mid), F!, c), vp);
-            if (i) ctx.lineTo(q.X, q.Y);
-            else ctx.moveTo(q.X, q.Y);
-          });
-          ctx.setLineDash([2, 3]);
-          ctx.strokeStyle = gaia;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.setLineDash([]);
-          for (const f of frames) {
-            const q = toScreen(skyToPixel(gaiaAt(star, f.epoch.mjd_mid), F, c), vp);
-            ctx.beginPath();
-            ctx.arc(q.X, q.Y, 1.8, 0, Math.PI * 2);
-            ctx.fillStyle = gaia;
-            ctx.fill();
-          }
+    // What the plate shows under the marks, to size them and to skip rings around empty sky.
+    const pv = plainView();
+    const [nx, ny] = size();
+    const fwhmPx = PSF_FWHM_ARCSEC / F.pixel_arcsec;
+    const annulus = Math.max(3, Math.round(1.6 * fwhmPx));
+    /** Does the plate show a dot here: peak (3 × 3) above the local sky around it by 6σ? */
+    const standsOut = (x: number, y: number): boolean => {
+      const ix = Math.round(x);
+      const iy = Math.round(y);
+      let peak = -Infinity;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = ix + dx;
+          const yy = iy + dy;
+          if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+          const k = yy * nx + xx;
+          const v = pv.vals[k];
+          if (Number.isNaN(v)) {
+            if (pv.burnt[k]) return true;
+          } else if (v > peak) peak = v;
         }
-        ctx.beginPath();
-        ctx.arc(p.X, p.Y, faint ? Math.max(3, r * 0.45) : r, 0, Math.PI * 2);
-        ctx.strokeStyle = gaia;
-        ctx.lineWidth = faint ? 1 : 1.25;
-        ctx.stroke();
+      const bg: number[] = [];
+      for (let a = 0; a < 16; a++) {
+        const xx = Math.round(ix + annulus * Math.cos((a * Math.PI) / 8));
+        const yy = Math.round(iy + annulus * Math.sin((a * Math.PI) / 8));
+        if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+        const v = pv.vals[yy * nx + xx];
+        if (!Number.isNaN(v)) bg.push(v);
       }
-      ctx.globalAlpha = 1;
-    }
-
-    if (overlays.known && e) {
-      const known = cssColor("--known");
-      const list = F.known.filter((k) => k.epoch_id === e.id);
-      ctx.font = `500 12px ${fontFamily}`;
-      for (const k of list) {
-        const p = toScreen(skyToPixel(k, F, c), vp);
-        if (!inView(p, 0)) continue;
-        const r = Math.max(7, Math.min(24, psfR * 1.1));
-        ctx.beginPath();
-        ctx.moveTo(p.X, p.Y - r);
-        ctx.lineTo(p.X + r, p.Y);
-        ctx.lineTo(p.X, p.Y + r);
-        ctx.lineTo(p.X - r, p.Y);
-        ctx.closePath();
-        halo(1.5);
-        ctx.strokeStyle = known;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-        if (list.length <= 12) label(k.name, p.X + r + 4, p.Y + 4, known);
-      }
-    }
-
-    if (overlays.target) {
-      const t = e?.center ?? (view.slug ? { ra: view.ra, dec: view.dec } : F.center);
-      const p = toScreen(skyToPixel(t, F, c), vp);
-      const r = Math.max(9, Math.min(26, psfR * 1.3));
-      ctx.beginPath();
-      for (const [dx, dy] of [
+      if (bg.length < 6) return false;
+      bg.sort((p, q) => p - q);
+      return peak - bg[bg.length >> 1] > 6 * pv.sigma;
+    };
+    /** Radius (image pixels) of the dark blob at a pixel: how far the plate stays past mid-grey. */
+    const blobRadius = (x: number, y: number): number => {
+      const dark = (xx: number, yy: number) => {
+        if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) return false;
+        const k = yy * nx + xx;
+        const v = pv.vals[k];
+        return Number.isNaN(v) ? pv.burnt[k] === 1 : stretch(v, pv.lim, stretchKind) > 0.5;
+      };
+      const x0 = Math.round(x);
+      const y0 = Math.round(y);
+      const rs = [
         [1, 0],
         [-1, 0],
         [0, 1],
         [0, -1],
-      ]) {
-        ctx.moveTo(p.X + dx * r, p.Y + dy * r);
-        ctx.lineTo(p.X + dx * (r + 9), p.Y + dy * (r + 9));
+      ].map(([dx, dy]) => {
+        let r = 0;
+        while (r < 24 && dark(x0 + dx * (r + 1), y0 + dy * (r + 1))) r++;
+        return r;
+      });
+      rs.sort((a, b) => a - b);
+      return dark(x0, y0) ? (rs[1] + rs[2]) / 2 : 0;
+    };
+
+    // The target: the reticle opens wider than its dot. Gaia's own ring for it would crowd it.
+    const targetPos = e?.center ?? (view.slug ? { ra: view.ra, dec: view.dec } : F.center);
+    const tpx = skyToPixel(targetPos, F, c);
+    const tp = toScreen(tpx, vp);
+    const gap = Math.min(52, Math.max(8, psf * 1.15, (blobRadius(tpx.x, tpx.y) + 1) * vp.s + 4));
+
+    if (overlays.gaia) {
+      const blue = pen("--pencil-blue");
+      // Single exposures reach about G 15.5, visit stacks a little deeper: those always get a ring.
+      // Fainter Gaia stars get a quiet one only where the plate shows a dot (6σ over its local sky),
+      // so rings never circle empty sky and no visible star goes unmarked.
+      const faintG = view.clock === "hours" ? 15.5 : 16.5;
+      const base = Math.max(4.5, Math.min(14, psf * 0.75));
+      const stars = F.gaia
+        .filter((s) => s.g != null && s.g <= 20.5)
+        .map((s) => {
+          const px = skyToPixel(gaiaAt(s, mjd), F!, c);
+          return { s, px, p: toScreen(px, vp) };
+        })
+        .filter((o) => inView(o.p))
+        .filter((o) => !overlays.target || Math.hypot(o.p.X - tp.X, o.p.Y - tp.Y) > gap)
+        .filter((o) => (o.s.g ?? 99) <= faintG || standsOut(o.px.x, o.px.y))
+        .sort((a, b) => (a.s.g ?? 99) - (b.s.g ?? 99))
+        .slice(0, Math.max(16, Math.round(MAX_RINGS * Math.min(1, (vp.vw * vp.s) ** 2 / 680 ** 2))));
+      for (const { s, p } of stars) {
+        const t = Math.min(1, Math.max(0, ((s.g ?? faintG) - 9) / (faintG - 9)));
+        // A floor in screen pixels: at wide fields the dots are tiny and a PSF-sized ring would sit
+        // on the dot itself instead of around it.
+        ring(ctx, p.X, p.Y, Math.max(base * (1.75 - 0.95 * t), 6.5 + 3 * (1 - t)));
+        pencil(ctx, blue, 1.4 - 0.4 * t, 0.85 - 0.45 * t);
       }
-      halo(2);
-      ctx.strokeStyle = cssColor("--mover");
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      // Fast stars: Gaia's predicted track through every epoch, dotted.
+      if (!followsObject() && frames.length > 1) {
+        for (const s of F.gaia) {
+          if (Math.hypot(s.pmra ?? 0, s.pmdec ?? 0) <= FAST_STAR_MAS_YR) continue;
+          const pts = frames.map((f) => toScreen(skyToPixel(gaiaAt(s, f.epoch.mjd_mid), F!, c), vp));
+          if (!pts.some((q) => inView(q))) continue;
+          ctx.beginPath();
+          pts.forEach((q, i) => (i ? ctx.lineTo(q.X, q.Y) : ctx.moveTo(q.X, q.Y)));
+          ctx.save();
+          ctx.setLineDash([1, 4]);
+          pencil(ctx, blue, 1.5, 0.7);
+          ctx.restore();
+        }
+      }
+    }
+
+    if (overlays.known && e) {
+      const violet = pen("--pencil-violet");
+      const list = F.known.filter((k) => k.epoch_id === e.id || k.epoch_id === null);
+      const r = Math.max(6, Math.min(16, psf * 0.9));
+      ctx.font = `600 11px ${fontFamily}`;
+      const named = list.length <= 8;
+      for (const k of list) {
+        const p = toScreen(skyToPixel(k, F, c), vp);
+        if (!inView(p, 0)) continue;
+        // The target itself (a comet or asteroid the frames follow): the reticle already marks it.
+        if (overlays.target && Math.hypot(p.X - tp.X, p.Y - tp.Y) < gap) continue;
+        diamond(ctx, p.X, p.Y, r);
+        pencil(ctx, violet);
+        if (named) label(ctx, k.name, p.X + r + 5, p.Y + 4, violet, halo);
+      }
+    }
+
+    if (overlays.target) {
+      reticle(ctx, tp.X, tp.Y, gap, Math.max(7, gap * 0.6));
+      pencil(ctx, pen("--pencil-red"), 1.75);
     }
 
     if (pick) {
       const p = toScreen(skyToPixel(pick, F, c), vp);
-      const mover = cssColor("--mover");
-      ctx.beginPath();
-      ctx.arc(p.X, p.Y, 11, 0, Math.PI * 2);
-      halo(2);
-      ctx.strokeStyle = mover;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(p.X, p.Y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = mover;
-      ctx.fill();
+      flagMark(ctx, p.X, p.Y, Math.max(7, Math.min(14, psf * 0.8)));
+      pencil(ctx, pen("--pencil-red"), 1.75);
     }
     ctx.restore();
+  }
 
-    if (overlays.guides) {
-      const ink = cssColor("--emulsion");
-      ctx.font = `600 12px ${fontFamily}`;
-      // Scale bar, bottom left.
-      const { arcsec, label: text } = niceArcsec((W * 0.22 * F.pixel_arcsec) / vp.s);
-      const len = (arcsec / F.pixel_arcsec) * vp.s;
-      const x0 = 14;
-      const y0 = W - 16;
-      ctx.beginPath();
-      ctx.moveTo(x0, y0 - 5);
-      ctx.lineTo(x0, y0);
-      ctx.lineTo(x0 + len, y0);
-      ctx.lineTo(x0 + len, y0 - 5);
-      halo(1.5);
-      ctx.strokeStyle = ink;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      label(text, x0, y0 - 9, ink);
-      // Compass, bottom right: north up, east left.
-      const cx = W - 18;
-      const cy = W - 18;
-      const L = 30;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx, cy - L);
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx - L, cy);
-      ctx.moveTo(cx - 4, cy - L + 6);
-      ctx.lineTo(cx, cy - L);
-      ctx.lineTo(cx + 4, cy - L + 6);
-      ctx.moveTo(cx - L + 6, cy - 4);
-      ctx.lineTo(cx - L, cy);
-      ctx.lineTo(cx - L + 6, cy + 4);
-      halo(1.5);
-      ctx.strokeStyle = ink;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      label("N", cx - 4, cy - L - 6, ink);
-      label("E", cx - L - 13, cy + 4, ink);
+  function drawGuides(vp: VP, onInk: boolean) {
+    if (!ctx || !F) return;
+    const W = cssSize;
+    const ink = onInk ? cssColor("--glass", "#edf0ef") : cssColor("--ink");
+    const halo = onInk ? cssColor("--ink") : cssColor("--glass", "#edf0ef");
+    ctx.font = `600 11px ${fontFamily}`;
+    const pad = Math.max(10, Math.round(W * 0.022));
+    // Scale bar, bottom left.
+    const { arcsec, label: text } = niceArcsec((W * 0.18 * F.pixel_arcsec) / vp.s);
+    const len = (arcsec / F.pixel_arcsec) * vp.s;
+    scaleBar(ctx, pad, W - pad, len);
+    pencil(ctx, halo, 4, 0.6);
+    pencil(ctx, ink, 1.25, 0.9);
+    ctx.textAlign = "center";
+    label(ctx, text, pad + len / 2, W - pad - 6, ink, halo);
+    // Compass, bottom right: north up, east left.
+    const L = 18;
+    const cx = W - pad;
+    const cy = W - pad;
+    compass(ctx, cx, cy, L);
+    pencil(ctx, halo, 4, 0.6);
+    pencil(ctx, ink, 1.25, 0.9);
+    label(ctx, "N", cx, cy - L - 5, ink, halo);
+    ctx.textAlign = "right";
+    label(ctx, "E", cx - L - 5, cy + 4, ink, halo);
+    ctx.textAlign = "start";
+  }
+
+  // ---- words on the mat --------------------------------------------------------------------
+  function renderLabel() {
+    const e = shownEpoch();
+    if (busy) {
+      whenMain.textContent = "";
+      whenSub.textContent = `Loading ${busy.done} of ${busy.total} frames`;
+    } else if (appStatus?.kind === "loading") {
+      whenMain.textContent = "";
+      whenSub.textContent = appStatus.message;
+    } else if (!e || !view) {
+      whenMain.textContent = "";
+      whenSub.textContent = "";
+    } else {
+      const hours = view.clock === "hours";
+      const U = hours ? "exposure" : "visit";
+      const when = (m: number) => plateDate(m, hours);
+      if (allAtOnce()) {
+        whenMain.textContent = `${plateDate(frames[0].epoch.mjd_mid)} to ${plateDate(frames[n() - 1].epoch.mjd_mid)}`;
+        whenSub.textContent = following() && mover ? `mean of ${n()} ${U}s, following the mover` : `mean of ${n()} ${U}s`;
+      } else if (mode === "difference" && !comparing) {
+        whenMain.textContent = when(e.mjd_mid);
+        whenSub.textContent = idx === ref ? `${U} ${idx + 1} is the reference` : `${U} ${idx + 1} minus ${U} ${ref + 1}`;
+      } else {
+        whenMain.textContent = when(e.mjd_mid);
+        whenSub.textContent = `${comparing ? "reference, " : ""}${U} ${shownIndex() + 1} of ${n()}`;
+      }
+    }
+    const det = view?.det;
+    if (det) {
+      const lo = e && !allAtOnce() ? um(e.um_min) : um(DETECTORS[det].min);
+      const hi = e && !allAtOnce() ? um(e.um_max) : um(DETECTORS[det].max);
+      detLabel.innerHTML = `<i class="bk-swatch"></i>D${det} <span>${lo}–${hi} µm</span>`;
+      detLabel.title = e
+        ? `${e.n_exposures} exposure${e.n_exposures === 1 ? "" : "s"}. ${pct(e.flag_frac)} of pixels flagged, ${pct(e.sat_frac)} saturated.`
+        : "";
+    } else detLabel.innerHTML = "";
+  }
+
+  function modeSentence(): string {
+    const U = unit();
+    const Us = `${U}s`;
+    if (comparing) return `The reference ${U}. Let go to return.`;
+    if (mode === "difference") {
+      const base = ref === 0 ? "the first" : `${U} ${ref + 1}`;
+      return `Each ${U} minus ${base}. Red: light arrived. Blue: light left.`;
+    }
+    if (mode === "stack") {
+      if (following() && mover) return `Following ${moverName()}'s motion: it sharpens, other stars smear.`;
+      return `Mean of all ${n()} ${Us}. Still stars sharpen; movers smear.`;
+    }
+    return view?.clock === "hours"
+      ? "Each exposure in turn, minutes apart. A moving dot jumps."
+      : "Each visit in turn, six months apart. A moving dot jumps.";
+  }
+
+  function renderCaption() {
+    key.innerHTML = "";
+    if (!frames.length || busy) {
+      say.textContent = "";
+      return;
+    }
+    if (hover && F && shown) {
+      const [nx, ny] = size();
+      const x = Math.floor(hover.u);
+      const y = Math.floor(hover.v);
+      if (x >= 0 && y >= 0 && x < nx && y < ny) {
+        const sky = pixelToSky({ x: hover.u - 0.5, y: hover.v - 0.5 }, F, centreOf(allAtOnce() ? cur()?.epoch ?? null : shownEpoch()));
+        const v = shown[y * nx + x];
+        let val: string;
+        if (Number.isNaN(v)) val = burntAt(y * nx + x) ? "saturated" : "no data";
+        else if (shownSigned && shownLim?.sigma && shownLim.sigma > 0)
+          val = `${v >= 0 ? "+" : "−"}${Math.abs(v / shownLim.sigma).toFixed(1)}σ`;
+        else val = `${v.toFixed(Math.abs(v) < 1 ? 3 : 2)} MJy/sr${levelSky ? " above sky" : ""}`;
+        say.innerHTML = `<span class="bk-pos">${formatRaDec(sky)}</span> <span class="bk-val">${val}</span>`;
+        renderKey();
+        return;
+      }
+    }
+    say.textContent = modeSentence();
+    renderKey();
+  }
+  function burntAt(i: number): boolean {
+    if (shownSigned) return false;
+    if (allAtOnce()) return !!stackVals?.burnt[i];
+    return !!burnt.get(shownIndex())?.[i];
+  }
+  function renderKey() {
+    key.title = "";
+    if (failed) {
+      key.innerHTML = `<span class="bk-warn">${failed} frame${failed === 1 ? "" : "s"} failed to load</span>`;
+      return;
+    }
+    if (mode === "difference" && !comparing && shownLim?.n) {
+      key.innerHTML = `<span class="bk-keybar" aria-hidden="true"></span><span>±${shownLim.n}σ</span>`;
+      key.title = `Colours run from ${shownLim.n} noise sigmas of light lost (blue) to ${shownLim.n} gained (red).`;
+    } else if (mode === "blink" && !comparing) {
+      key.innerHTML = `<span class="bk-hint">Click a dot to flag it</span>`;
     }
   }
 
-  function label(text: string, x: number, y: number, color: string) {
-    if (!ctx) return;
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(15, 26, 44, 0.85)";
-    ctx.lineWidth = 3;
-    ctx.strokeText(text, x, y);
-    ctx.fillStyle = color;
-    ctx.fillText(text, x, y);
-  }
-
-  function drawLoupe(vp: ReturnType<typeof viewport>) {
-    if (!lctx || !hover || !F) {
-      loupe.hidden = true;
-      return;
-    }
-    const [nx, ny] = size();
-    const half = 7.5;
-    const u = Math.floor(hover.u) + 0.5;
-    const v = Math.floor(hover.v) + 0.5;
-    if (u < 0 || v < 0 || u > nx || v > ny) {
-      loupe.hidden = true;
-      return;
-    }
-    loupe.hidden = false;
-    const L = loupe.width;
-    lctx.imageSmoothingEnabled = false;
-    lctx.fillStyle = cssColor("--plate");
-    lctx.fillRect(0, 0, L, L);
-    const k = L / (2 * half);
-    const sx = u - half;
-    const sy = v - half;
-    // drawImage needs a source rect inside the image; shift the destination for edges.
-    const cx0 = Math.max(0, sx);
-    const cy0 = Math.max(0, sy);
-    const cx1 = Math.min(nx, sx + 2 * half);
-    const cy1 = Math.min(ny, sy + 2 * half);
-    lctx.drawImage(off, cx0, cy0, cx1 - cx0, cy1 - cy0, (cx0 - sx) * k, (cy0 - sy) * k, (cx1 - cx0) * k, (cy1 - cy0) * k);
-    lctx.strokeStyle = cssColor("--mover");
-    lctx.lineWidth = 1.5;
-    lctx.strokeRect(L / 2 - k / 2, L / 2 - k / 2, k, k);
-    // Keep the loupe away from the cursor.
-    const right = hover.X < vp.ox + vp.vw * vp.s * 0.6 || hover.Y > cssSize * 0.45;
-    loupe.classList.toggle("is-left", !right);
+  /** Featured targets are centred, so the mover found at the centre is the target itself. */
+  function moverName(): string {
+    return view?.slug && view.name ? view.name : "the fast star";
   }
 
   // ---- UI sync -----------------------------------------------------------------------------
@@ -577,21 +774,21 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     $$<HTMLButtonElement>(sel).forEach((b) => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === value)));
   }
 
-  function renderBar() {
+  function renderRow() {
     if (!view) return;
     press("[data-clock]", "data-clock", view.clock);
     const fovs = ALLOWED_FOV[view.clock];
     $(".bk-fov").innerHTML = fovs
       .map(
-        (f) => html`<button class="bk-btn" type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
-          title="${f} arcminute field">${f}′</button>`,
+        (f) => html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
+          aria-label="${f} arcminute field" title="${f} arcminute field">${f}′</button>`,
       )
       .join("");
     const have = F ? detectorsIn(F) : [];
     $$<HTMLButtonElement>("[data-det]").forEach((b) => {
       const d = Number(b.dataset.det) as Det;
       b.setAttribute("aria-pressed", String(d === view!.det));
-      b.disabled = !!F && !have.includes(d);
+      b.disabled = !!F && !have.includes(d) && d !== view!.det;
     });
     root.style.setProperty("--det", `var(--d${view.det})`);
     markAvailable();
@@ -601,16 +798,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   async function markAvailable() {
     const v = view;
     if (!v?.slug) return;
-    const idx = await targetIndex(v.slug);
-    if (!idx || view !== v) return;
+    const ix = await targetIndex(v.slug);
+    if (!ix || view !== v) return;
     $$<HTMLButtonElement>("[data-clock]").forEach((b) => {
-      const ok = idx.frames.some((f) => f.clock === b.dataset.clock);
+      const ok = ix.frames.some((f) => f.clock === b.dataset.clock);
       b.disabled = !ok && b.dataset.clock !== v.clock;
       b.dataset.tip ??= b.title;
-      b.title = ok ? b.dataset.tip : `No ${b.dataset.clock} frames are prepared for ${idx.name}.`;
+      b.title = ok ? b.dataset.tip : `No ${b.dataset.clock} frames are prepared for ${ix.name}.`;
     });
     $$<HTMLButtonElement>("[data-fov]").forEach((b) => {
-      const ok = idx.frames.some((f) => f.clock === v.clock && f.fov === Number(b.dataset.fov));
+      const ok = ix.frames.some((f) => f.clock === v.clock && f.fov === Number(b.dataset.fov));
       b.disabled = !ok && Number(b.dataset.fov) !== v.fov;
     });
   }
@@ -618,28 +815,34 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   function renderControls() {
     press("[data-mode]", "data-mode", mode);
     press("[data-stretch]", "data-stretch", stretchKind);
+    press("[data-positive]", "data-positive", String(positive));
     press("[data-zoom]", "data-zoom", String(zoom));
-    $$<HTMLButtonElement>("[data-opt]").forEach((b) =>
-      b.setAttribute("aria-pressed", String(b.dataset.opt === "invert" ? invert : levelSky)),
-    );
+    press("[data-fps]", "data-fps", String(fps));
+    $$<HTMLButtonElement>("[data-opt]").forEach((b) => {
+      const o = b.dataset.opt;
+      b.setAttribute("aria-pressed", String(o === "level" ? levelSky : o === "smooth" ? smoothOn : following()));
+    });
     $$<HTMLButtonElement>("[data-ov]").forEach((b) =>
       b.setAttribute("aria-pressed", String(overlays[b.dataset.ov as keyof typeof overlays])),
     );
-    const n = nLoaded();
-    const hint: Record<Mode, string> = {
-      blink: `Each ${unit()} in time order. Anything that moves jumps between frames.`,
-      subtract: `Each ${unit()} minus the reference. Orange: light arrived. Blue: light left.`,
-      add: `Mean of all ${n} ${unit()}s. Steady stars sharpen; movers smear or fade.`,
-    };
-    $(".bk-mode-hint").textContent = hint[mode];
-    const stepDisabled = mode === "add" || n < 2 || ownBusy;
-    for (const b of [playBtn, $<HTMLButtonElement>(".bk-prev"), $<HTMLButtonElement>(".bk-next")]) b.disabled = stepDisabled;
-    $<HTMLButtonElement>(".bk-hold").disabled = n < 2;
-    refSel.disabled = n < 2;
+    const followRow = $<HTMLDivElement>(".bk-follow-row");
+    followRow.hidden = !mover;
+    if (mover) {
+      const sw = $<HTMLButtonElement>("[data-opt='follow']");
+      const rate = mover.rate >= 1 ? mover.rate.toFixed(1) : mover.rate.toFixed(2);
+      $(".bk-follow-note").textContent = `${moverName()}, ${rate}″/yr (${mover.ref}). Turns on Stack.`;
+      sw.setAttribute("aria-label", `Follow ${moverName()}: shift each frame along its motion before stacking`);
+    }
+    const stepOff = allAtOnce() || n() < 2 || !!busy;
+    playBtn.disabled = stepOff;
     playBtn.innerHTML = playing ? icon.pause : icon.play;
     playBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
     playBtn.setAttribute("aria-pressed", String(playing));
+    hold.disabled = n() < 2;
+    refSel.disabled = n() < 2;
     root.dataset.mode = mode;
+    root.dataset.positive = String(positive);
+    axisEl.setAttribute("aria-disabled", String(allAtOnce()));
   }
 
   function renderRefSelect() {
@@ -648,209 +851,102 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         (f, i) =>
           `<option value="${i}">${
             view?.clock === "hours"
-              ? `Exposure ${i + 1}, ${formatMjd(f.epoch.mjd_mid, true).replace(/ \d{4},/, "").replace(" UTC", "")}`
-              : `Visit ${i + 1}, ${formatMjd(f.epoch.mjd_mid)}`
+              ? `Exposure ${i + 1}, ${plateDate(f.epoch.mjd_mid, true).replace(/ \d{4},/, ",").replace(" UTC", "")}`
+              : `Visit ${i + 1}, ${plateDate(f.epoch.mjd_mid)}`
           }</option>`,
       )
       .join("");
     refSel.value = String(ref);
   }
 
-  function renderLegend() {
-    const which = $(".bk-which");
-    const date = $(".bk-date");
-    const time = $(".bk-clocktime");
-    const facts = $(".bk-facts");
-    const n = nLoaded();
-    const e = shownEpoch();
-    if (!e || !view) {
-      which.textContent = "";
-      date.textContent = "";
-      time.textContent = "";
-      facts.innerHTML = "";
-      return;
-    }
-    const U = view.clock === "hours" ? "Exposure" : "Visit";
-    const i = comparing ? ref : idx;
-    if (mode === "add" && !comparing) which.textContent = `Mean of ${n} ${unit()}s`;
-    else if (mode === "subtract" && !comparing) which.textContent = `${U} ${idx + 1} minus ${unit()} ${ref + 1} (reference)`;
-    else which.textContent = `${U} ${i + 1} of ${n}${comparing ? " (reference)" : ""}`;
-    if (mode === "add" && !comparing) {
-      date.textContent = `${formatMjd(frames[0].epoch.mjd_start)} to ${formatMjd(frames[n - 1].epoch.mjd_end)}`;
-      time.textContent = "";
-    } else if (view.clock === "hours") {
-      const d = formatMjd(e.mjd_mid, true);
-      const cut = d.lastIndexOf(",");
-      date.textContent = cut > 0 ? d.slice(0, cut) : d;
-      time.textContent = cut > 0 ? d.slice(cut + 1).trim() : "";
-    } else {
-      date.textContent = formatMjd(e.mjd_mid);
-      time.textContent = `${formatGap(Math.max(e.mjd_end - e.mjd_start, 1 / 1440))} visit`;
-    }
-    const dt = e.mjd_mid - frames[0].epoch.mjd_mid;
-    const rows: [string, string][] = [
-      ["Detector", `<i class="sw sw-det"></i>D${e.det} <span class="bk-um">${um(e.um_min)}–${um(e.um_max)} µm</span>`],
-      ["Exposures", String(mode === "add" && !comparing ? frames.reduce((s, f) => s + f.epoch.n_exposures, 0) : e.n_exposures)],
-      ["Flagged", pct(e.flag_frac)],
-      ["Saturated", pct(e.sat_frac)],
-    ];
-    if (mode !== "add" && i > 0) rows.push(["Since first", formatGap(dt)]);
-    if (failed) rows.push(["Missing", `${failed} failed to load`]);
-    facts.innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
-  }
-
   function renderAxis() {
-    track.innerHTML = "";
-    axisLabels.innerHTML = "";
+    strip.track.innerHTML = "";
+    strip.labels.innerHTML = "";
+    axis = null;
     if (!frames.length || !view) return;
-    const eps = frames.map((f) => f.epoch);
-    const width = axisEl.clientWidth || 600;
-    axis = buildAxis(
-      eps.map((e) => e.mjd_mid),
-      view.clock === "hours" ? "gaps" : "linear",
-      view.clock === "months" ? eps.map((e) => [e.mjd_start, e.mjd_end] as [number, number]) : [],
-      Math.max(3, Math.min(8, Math.floor(width / 84))),
+    axis = drawStrip(
+      strip,
+      frames.map((f) => f.epoch),
+      view.clock,
+      axisEl.clientWidth || 600,
     );
-    const A = axis;
-    const parts: string[] = [`<span class="bk-baseline"></span>`];
-    for (const t of A.ticks) parts.push(`<span class="bk-tick${t.major ? " is-major" : ""}" style="left:${t.x * 100}%"></span>`);
-    if (view.clock === "months") {
-      for (const e of eps) {
-        const a = A.x(e.mjd_start);
-        const b = A.x(e.mjd_end);
-        parts.push(`<span class="bk-band" style="left:${a * 100}%;width:${Math.max(0.4, (b - a) * 100)}%"></span>`);
-      }
-    }
-    eps.forEach((e, i) => parts.push(`<span class="bk-mark" data-i="${i}" style="left:${A.x(e.mjd_mid) * 100}%"></span>`));
-    for (const g of A.gaps)
-      if (g.days >= 0.5) parts.push(`<span class="bk-break" style="left:${g.x * 100}%" aria-hidden="true"></span>`);
-    parts.push(`<span class="bk-refmark" aria-hidden="true">ref</span>`);
-    parts.push(`<span class="bk-flag" aria-hidden="true"></span>`);
-    track.innerHTML = parts.join("");
-    const lab: string[] = [];
-    for (const t of A.ticks) if (t.label) lab.push(`<span class="bk-tlabel" style="left:${t.x * 100}%">${t.label}</span>`);
-    for (const g of A.gaps) lab.push(`<span class="bk-gap" style="left:${g.x * 100}%">${g.label}</span>`);
-
-    axisLabels.innerHTML = lab.join("");
-    axisEl.classList.toggle("is-gaps", A.kind === "gaps");
-    // Hide gap labels that would overlap their neighbours.
-    requestAnimationFrame(() => {
-      thinLabels(axisLabels, ".bk-tlabel");
-      thinLabels(axisLabels, ".bk-gap");
-    });
     renderAxisState();
   }
 
-  function thinLabels(box: HTMLElement, sel: string) {
-    let lastRight = -Infinity;
-    const items = [...box.querySelectorAll<HTMLElement>(sel)].sort(
-      (a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left,
-    );
-    for (const it of items) {
-      it.hidden = false;
-      const r = it.getBoundingClientRect();
-      if (r.left < lastRight + 4) {
-        it.hidden = true;
-        continue;
-      }
-      lastRight = r.right;
-    }
-  }
-
   function renderAxisState() {
-    if (!axis || !frames.length) return;
-    const A = axis;
-    const all = mode === "add" && !comparing;
-    track.querySelectorAll<HTMLElement>(".bk-mark").forEach((m) => {
-      const i = Number(m.dataset.i);
-      m.classList.toggle("is-current", all || i === (comparing ? ref : idx));
-      m.classList.toggle("is-ref", mode === "subtract" && i === ref);
+    if (!axis || !frames.length || !view) return;
+    updateStrip(strip, {
+      axis,
+      epochs: frames.map((f) => f.epoch),
+      clock: view.clock,
+      current: allAtOnce() ? null : shownIndex(),
+      ref: (mode === "difference" || comparing) && n() > 1 ? ref : null,
+      allLabel: `All ${n()} ${unit()}s`,
     });
-    const refmark = track.querySelector<HTMLElement>(".bk-refmark");
-    if (refmark) {
-      refmark.hidden = mode !== "subtract" && !comparing;
-      refmark.style.left = `${A.x(frames[ref].epoch.mjd_mid) * 100}%`;
-    }
-    const flag = track.querySelector<HTMLElement>(".bk-flag");
     const e = shownEpoch();
-    if (flag && e) {
-      flag.hidden = all;
-      const x = A.x(e.mjd_mid);
-      flag.style.left = `${x * 100}%`;
-      flag.style.setProperty("--shift", `${-x * 100}%`);
-      flag.textContent =
-        view?.clock === "hours" ? formatMjd(e.mjd_mid, true).replace(/^\d+ \w+ \d+, /, "") : formatMjd(e.mjd_mid);
-    }
     axisEl.setAttribute("aria-valuemin", "1");
-    axisEl.setAttribute("aria-valuemax", String(frames.length));
+    axisEl.setAttribute("aria-valuemax", String(n()));
     axisEl.setAttribute("aria-valuenow", String(idx + 1));
-    axisEl.setAttribute("aria-valuetext", e ? formatMjd(e.mjd_mid, view?.clock === "hours") : "");
+    axisEl.setAttribute("aria-valuetext", e ? `${unit()} ${idx + 1} of ${n()}, ${plateDate(e.mjd_mid, view.clock === "hours")}` : "");
   }
 
-  function renderTag() {
-    let text = "";
-    if (comparing && frames[ref]) text = `Reference: ${formatMjd(frames[ref].epoch.mjd_mid, view?.clock === "hours")}`;
-    else if (mode === "subtract") text = idx === ref ? "This is the reference: pick another frame" : "Difference from the reference";
-    else if (mode === "add") text = `Mean of ${nLoaded()} ${unit()}s`;
-    tag.textContent = text;
-    tag.hidden = !text;
-  }
-
-  function renderVeil() {
-    const kind = ownBusy ? "loading" : appStatus?.kind;
-    veil.hidden = !kind && !(F && !frames.length && view);
-    veil.dataset.kind = kind ?? "empty";
+  function renderMsg() {
+    const kind = busy ? "loading" : appStatus?.kind;
+    const empty = !kind && !!F && !!view && !frames.length;
+    // Progress: a calm line on the plate's top edge.
+    progress.hidden = kind !== "loading";
+    progress.classList.toggle("is-indeterminate", kind === "loading" && !busy);
+    if (busy) progress.style.setProperty("--p", String(busy.total ? busy.done / busy.total : 0));
+    plate.classList.toggle("is-dim", kind === "loading" && frames.length > 0);
+    msg.hidden = !(kind === "error" || empty);
+    msg.dataset.kind = kind ?? "empty";
+    msgActions.innerHTML = "";
+    msgText.textContent = "";
     if (kind === "error") {
-      veilMsg.textContent = appStatus?.message ?? "Something went wrong.";
-      veilBar.hidden = true;
-    } else if (kind === "loading" && !ownBusy) {
-      veilMsg.textContent = appStatus?.message ?? "Loading frames…";
-      veilBar.hidden = false;
-      veilBar.classList.add("is-indeterminate");
-    }
-    if (kind) veilActions.innerHTML = "";
-    if (!kind && F && view && !frames.length) {
+      msgText.textContent = appStatus?.message ?? "Something went wrong. Try again, or pick a featured target.";
+    } else if (empty && F && view) {
       const have = detectorsIn(F);
-      veilBar.hidden = true;
       if (!F.epochs.length) {
-        veilMsg.textContent = `SPHEREx has no frames here on the ${view.clock} clock yet. Try the other clock or a featured target.`;
-        veilActions.innerHTML = "";
+        msgText.textContent = `SPHEREx has no ${view.clock} frames here yet. Try the other clock or a featured target.`;
       } else if (failed) {
-        veilMsg.textContent = `None of the ${failed} frames loaded. Check your connection, then try again.`;
-        veilActions.innerHTML = `<button class="bk-btn" type="button" data-retry>Try again</button>`;
+        msgText.textContent = `None of the ${failed} frames loaded. Check your connection, then try again.`;
+        msgActions.innerHTML = `<button class="btn" type="button" data-retry>Try again</button>`;
       } else {
-        veilMsg.textContent = `No D${view.det} frames on the ${view.clock} clock here. Pick a detector that has them:`;
-        veilActions.innerHTML = have
-          .map((d) => `<button class="bk-btn det-${d} bk-veil-det" type="button" data-goto-det="${d}">D${d}</button>`)
+        msgText.textContent = `No D${view.det} frames on the ${view.clock} clock here. Pick a detector that has them.`;
+        msgActions.innerHTML = have
+          .map((d) => `<button class="btn det-${d} bk-msg-det" type="button" data-goto-det="${d}"><i class="bk-swatch"></i>D${d}</button>`)
           .join("");
       }
     }
+    renderLabel();
   }
 
   function renderAll() {
     renderControls();
-    renderLegend();
+    renderLabel();
+    renderCaption();
     renderAxisState();
-    renderTag();
   }
 
   // ---- actions -----------------------------------------------------------------------------
-  function goTo(i: number, emit = true) {
+  /** Show epoch i. Stepping (skipRef) in Difference steps over the reference: it would be blank. */
+  function goTo(i: number, skipRef = true) {
     if (!frames.length) return;
-    const n = frames.length;
-    const next = ((i % n) + n) % n;
+    const N = frames.length;
+    let next = ((i % N) + N) % N;
+    if (skipRef && mode === "difference" && N > 2 && next === ref) next = (((next + (i < idx ? -1 : 1)) % N) + N) % N;
     const changed = next !== idx;
     idx = next;
     paintImage();
     renderAll();
-    if (emit && changed) emitEpoch();
+    if (changed) emitEpoch();
   }
   function emitEpoch() {
     const e = cur()?.epoch;
     if (e) opts.onEpoch?.({ id: e.id, mjd_mid: e.mjd_mid, det: e.det });
   }
   function setPlaying(on: boolean) {
-    playing = on && frames.length > 1 && mode !== "add" && !ownBusy;
+    playing = on && frames.length > 1 && !allAtOnce() && !busy;
     clearTimeout(timer);
     if (playing) {
       const tick = () => {
@@ -861,10 +957,19 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     renderControls();
   }
+  function setMode(m: Mode) {
+    if (m === mode) return;
+    mode = m;
+    if (mode === "stack") setPlaying(false);
+    if (mode === "difference" && idx === ref && frames.length > 1) idx = ref === frames.length - 1 ? 0 : frames.length - 1;
+    if (mode !== "stack" && follow) follow = false;
+    paintImage();
+    renderAll();
+  }
   function setCompare(on: boolean) {
     if (on === comparing || frames.length < 2) return;
     comparing = on;
-    $<HTMLButtonElement>(".bk-hold").setAttribute("aria-pressed", String(on));
+    hold.setAttribute("aria-pressed", String(on));
     paintImage();
     renderAll();
   }
@@ -874,14 +979,40 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       if (pick && F) {
         const p = skyToPixel(pick, F, centreOf(cur()?.epoch ?? null));
         centre = { u: p.x + 0.5, v: p.y + 0.5 };
-      } else if (hover) centre = { u: hover.u, v: hover.v };
-      else centre = { u: nx / 2, v: ny / 2 };
+      } else centre = { u: nx / 2, v: ny / 2 };
     }
     zoom = z;
     if (z === 1) centre = { u: nx / 2, v: ny / 2 };
     canvas.classList.toggle("is-zoomed", z > 1);
     renderControls();
     draw();
+  }
+
+  // ---- Adjust: popover beside the plate on desktop, inline sheet on a phone ----------------
+  function setAdjust(open: boolean) {
+    adj.hidden = !open;
+    adjBtn.setAttribute("aria-expanded", String(open));
+    if (open) placeAdjust();
+  }
+  function placeAdjust() {
+    if (adj.hidden) return;
+    adj.classList.remove("is-right", "is-up", "is-sheet");
+    const narrow = root.clientWidth < 600;
+    if (narrow) {
+      adj.classList.add("is-sheet");
+      return;
+    }
+    const r = col.getBoundingClientRect();
+    const room = document.documentElement.clientWidth - r.right - 16;
+    if (room >= 360) {
+      adj.classList.add("is-right");
+      adj.style.bottom = "";
+    } else {
+      // No room beside the plate: open upward from the controls row, over the plate's corner.
+      adj.classList.add("is-up");
+      const row = $<HTMLDivElement>(".bk-row").getBoundingClientRect();
+      adj.style.bottom = `${Math.round(r.bottom - row.top + 8)}px`;
+    }
   }
 
   // ---- loading -----------------------------------------------------------------------------
@@ -893,44 +1024,46 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const prevMjd = cur()?.epoch.mjd_mid;
     const prevRefMjd = frames[ref]?.epoch.mjd_mid;
     const sameClock = prev?.clock === next.clock;
-    if (!prev || Math.abs(prev.ra - next.ra) > 1e-6 || Math.abs(prev.dec - next.dec) > 1e-6) pick = null;
+    const moved = !prev || Math.abs(prev.ra - next.ra) > 1e-6 || Math.abs(prev.dec - next.dec) > 1e-6;
+    if (moved) {
+      pick = null;
+      follow = false;
+    }
     view = next;
     F = resp;
     jsonUrl = url;
     appStatus = null;
     comparing = false;
-    renderBar();
+    root.dataset.ready = "false";
+    renderRow();
     const eps = epochsFor(resp, next.det);
     if (!eps.length) {
       frames = [];
       failed = 0;
-      ownBusy = false;
+      busy = null;
+      mover = null;
+      shifts = null;
+      burnt.clear();
       resetCaches();
-      renderVeil();
+      renderMsg();
       renderAll();
       renderAxis();
       draw();
+      root.dataset.ready = "true";
       return;
     }
-    ownBusy = true;
-    let done = 0;
-    const progress = () => {
-      if (gen !== loadCtl) return;
-      veilMsg.textContent = `Loading D${next.det} frames: ${done} of ${eps.length}`;
-      veilBar.hidden = false;
-      veilBar.classList.remove("is-indeterminate");
-      veilBar.style.setProperty("--p", String(done / eps.length));
-    };
-    renderVeil();
+    busy = { done: 0, total: eps.length };
+    renderMsg();
     renderControls();
-    progress();
     const results = await pool(
       eps,
       6,
       async (e) => toMJySr(await cachedFrame(e, url), e),
       () => {
-        done++;
-        progress();
+        if (gen !== loadCtl || !busy) return;
+        busy.done++;
+        progress.style.setProperty("--p", String(busy.done / busy.total));
+        renderLabel();
       },
     );
     if (gen !== loadCtl) return;
@@ -939,34 +1072,62 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     failed = 0;
     results.forEach((r, i) => {
       if (r instanceof Error || r.length !== nx * ny) failed++;
-      else loaded.push({ epoch: eps[i], vals: r, sky: median(r) });
+      else loaded.push({ epoch: eps[i], vals: r, sky: median(r), sigma: robustSigma([r], 40_000) });
     });
     frames = loaded;
+    burnt.clear();
     resetCaches();
-    ownBusy = false;
+    busy = null;
     const near = (m: number | undefined) =>
       m == null || !sameClock ? 0 : nearestIndex(frames.map((f) => f.epoch.mjd_mid), m);
     idx = near(prevMjd);
     ref = near(prevRefMjd);
-    if (prev?.ra !== next.ra || prev?.dec !== next.dec || prev?.fov !== next.fov) {
+    if (mode === "difference" && idx === ref && frames.length > 1) idx = frames.length - 1;
+    if (moved || prev?.fov !== next.fov) {
       zoom = 1;
       centre = { u: nx / 2, v: ny / 2 };
+      canvas.classList.remove("is-zoomed");
     }
-    renderVeil();
+    findFollow();
+    renderMsg();
     renderRefSelect();
-    readout(-1, -1);
     renderAxis();
     if (frames.length) {
       paintImage();
       renderAll();
       emitEpoch();
-      const reduce = matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      if (wasPlaying && !reduce && mode !== "add") setPlaying(true);
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      if (wasPlaying && !reduce && !allAtOnce()) setPlaying(true);
       firstShow = false;
     } else {
       renderAll();
       draw();
     }
+    root.dataset.ready = "true";
+  }
+
+  /** Offer "Follow the mover" when a fast mover sits at the centre and drifts visibly. */
+  function findFollow() {
+    mover = null;
+    shifts = null;
+    if (!F || !view || frames.length < 2 || followsObject()) {
+      follow = false;
+      return;
+    }
+    const mjds = frames.map((f) => f.epoch.mjd_mid);
+    const mid = (mjds[0] + mjds[mjds.length - 1]) / 2;
+    const m = findMover(F, mid, view.slug, { ra: view.ra, dec: view.dec });
+    if (!m) {
+      follow = false;
+      return;
+    }
+    const s = followShifts(m.star, mjds, F, F.center, mid);
+    if (driftPx(s) < 0.5) {
+      follow = false;
+      return;
+    }
+    mover = m;
+    shifts = s;
   }
 
   // ---- events ------------------------------------------------------------------------------
@@ -974,48 +1135,59 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const b = (ev.target as Element).closest<HTMLButtonElement>("button");
     if (!b || b.disabled || !view) return;
     const d = b.dataset;
-    if (d.clock && d.clock !== view.clock) {
-      const clock = d.clock as Clock;
-      opts.onViewChange({ clock, fov: DEFAULT_FOV[clock] });
-    } else if (d.fov && Number(d.fov) !== view.fov) opts.onViewChange({ fov: Number(d.fov) });
-    else if (d.det && Number(d.det) !== view.det) opts.onViewChange({ det: Number(d.det) as Det });
-    else if (d.gotoDet) opts.onViewChange({ det: Number(d.gotoDet) as Det });
+    if (d.clock) {
+      if (d.clock !== view.clock) {
+        const clock = d.clock as Clock;
+        opts.onViewChange({ clock, fov: DEFAULT_FOV[clock] });
+      }
+    } else if (d.fov) {
+      if (Number(d.fov) !== view.fov) opts.onViewChange({ fov: Number(d.fov) });
+    } else if (d.det) {
+      if (Number(d.det) !== view.det) opts.onViewChange({ det: Number(d.det) as Det });
+    } else if (d.gotoDet) opts.onViewChange({ det: Number(d.gotoDet) as Det });
     else if (d.retry !== undefined && F) void load(view, F, jsonUrl);
-    else if (d.mode) {
-      mode = d.mode as Mode;
-      if (mode === "add") setPlaying(false);
-      paintImage();
-      renderAll();
-    } else if (d.stretch) {
+    else if (d.mode) setMode(d.mode as Mode);
+    else if (d.stretch) {
       stretchKind = d.stretch as StretchKind;
       paintImage();
-      renderControls();
-    } else if (d.opt === "invert") {
-      invert = !invert;
+      renderAll();
+    } else if (d.positive) {
+      positive = d.positive === "true";
       paintImage();
-      renderControls();
+      renderAll();
     } else if (d.opt === "level") {
       levelSky = !levelSky;
       resetCaches();
       paintImage();
-      renderControls();
+      renderAll();
+    } else if (d.opt === "smooth") {
+      smoothOn = !smoothOn;
+      smoothed.clear();
+      limitCache.clear();
+      paintImage();
+      renderAll();
+    } else if (d.opt === "follow") {
+      follow = !following() && !!mover;
+      if (follow && mode !== "stack") {
+        mode = "stack";
+        setPlaying(false);
+      }
+      paintImage();
+      renderAll();
     } else if (d.ov) {
       const k = d.ov as keyof typeof overlays;
       overlays[k] = !overlays[k];
       renderControls();
       draw();
     } else if (d.zoom) setZoom(Number(d.zoom));
-    else if (b === playBtn) setPlaying(!playing);
-    else if (b.classList.contains("bk-prev")) {
-      setPlaying(false);
-      goTo(idx - 1);
-    } else if (b.classList.contains("bk-next")) {
-      setPlaying(false);
-      goTo(idx + 1);
-    }
+    else if (d.fps) {
+      fps = Number(d.fps);
+      renderControls();
+      if (playing) setPlaying(true);
+    } else if (b === playBtn) setPlaying(!playing);
+    else if (b === adjBtn) setAdjust(adj.hidden);
   });
 
-  const hold = $<HTMLButtonElement>(".bk-hold");
   hold.addEventListener("pointerdown", (ev) => {
     hold.setPointerCapture?.(ev.pointerId);
     setCompare(true);
@@ -1033,45 +1205,65 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
   refSel.addEventListener("change", () => {
     ref = Number(refSel.value);
+    if (mode === "difference" && idx === ref && frames.length > 1) idx = ref === frames.length - 1 ? 0 : frames.length - 1;
     paintImage();
     renderAll();
-  });
-  fpsSel.addEventListener("change", () => {
-    fps = Number(fpsSel.value);
-    if (playing) setPlaying(true);
   });
   contrastIn.addEventListener("input", () => {
     contrast = Number(contrastIn.value);
     paintImage();
+    renderCaption();
   });
 
-  // Timeline: click or drag to scrub.
+  // Close Adjust on Escape or a click elsewhere.
+  const onDocDown = (ev: PointerEvent) => {
+    if (adj.hidden) return;
+    const t = ev.target as Node;
+    if (adj.contains(t) || adjBtn.contains(t)) return;
+    setAdjust(false);
+  };
+  document.addEventListener("pointerdown", onDocDown);
+
+  // Time strip: click or drag to scrub.
   let scrubbing = false;
-  const scrub = (ev: PointerEvent) => {
-    if (!axis || !frames.length) return;
-    const r = track.getBoundingClientRect();
+  const epochAt = (ev: PointerEvent): number | null => {
+    if (!axis || !frames.length) return null;
+    const r = strip.track.getBoundingClientRect();
     const p = (ev.clientX - r.left) / r.width;
-    const i = nearestIndex(frames.map((f) => axis!.x(f.epoch.mjd_mid)), p);
-    if (i !== idx) goTo(i);
+    return nearestIndex(frames.map((f) => axis!.x(f.epoch.mjd_mid)), p);
+  };
+  const scrub = (ev: PointerEvent) => {
+    const i = epochAt(ev);
+    if (i !== null && i !== idx) goTo(i, false);
+  };
+  /** A faint mark under the pointer shows which epoch a click would pick. */
+  const ghost = (ev: PointerEvent | null) => {
+    const g = strip.track.querySelector<HTMLElement>(".bk-ghost");
+    if (!g) return;
+    const i = ev && ev.pointerType === "mouse" && !allAtOnce() ? epochAt(ev) : null;
+    g.hidden = i === null || i === idx;
+    if (i !== null && axis) g.style.left = `${(axis.x(frames[i].epoch.mjd_mid) * 100).toFixed(3)}%`;
   };
   axisEl.addEventListener("pointerdown", (ev) => {
-    if (mode === "add") return;
+    if (allAtOnce() || !frames.length) return;
     scrubbing = true;
     axisEl.setPointerCapture?.(ev.pointerId);
     setPlaying(false);
     scrub(ev);
+    ghost(null);
   });
-  axisEl.addEventListener("pointermove", (ev) => scrubbing && scrub(ev));
+  axisEl.addEventListener("pointermove", (ev) => (scrubbing ? scrub(ev) : ghost(ev)));
+  axisEl.addEventListener("pointerleave", () => ghost(null));
   for (const t of ["pointerup", "pointercancel"]) axisEl.addEventListener(t, () => (scrubbing = false));
   axisEl.addEventListener("keydown", (ev) => {
     if (ev.key === "Home" || ev.key === "End") {
       ev.preventDefault();
       setPlaying(false);
-      goTo(ev.key === "Home" ? 0 : frames.length - 1);
+      goTo(ev.key === "Home" ? 0 : frames.length - 1, false);
     }
   });
 
-  // Image: hover reads a pixel, click flags a dot, drag pans when zoomed.
+  // Plate: hover reads a pixel, click flags a dot, drag pans when zoomed.
   let down: { X: number; Y: number; u: number; v: number; moved: boolean } | null = null;
   const local = (ev: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -1096,12 +1288,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         const vp = viewport();
         centre = { u: vp.u0 + vp.vw / 2, v: vp.v0 + vp.vh / 2 };
         canvas.classList.add("is-panning");
+        draw();
       }
     }
-    const { u, v } = toImage(X, Y);
-    hover = ev.pointerType === "mouse" ? { u, v, X, Y } : null;
-    readout(u, v);
-    draw();
+    hover = ev.pointerType === "mouse" ? toImage(X, Y) : null;
+    renderCaption();
   });
   canvas.addEventListener("pointerup", (ev) => {
     canvas.classList.remove("is-panning");
@@ -1117,46 +1308,32 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (!e) return;
     const sky = pixelToSky({ x: u - 0.5, y: v - 0.5 }, F, centreOf(e));
     pick = sky;
-    readout(u, v);
     draw();
     opts.onPick({ ra: sky.ra, dec: sky.dec, mjd: e.mjd_mid, clock: view.clock, det: e.det, epoch_id: e.id });
   });
   canvas.addEventListener("pointerleave", () => {
     hover = null;
-    draw();
+    renderCaption();
   });
 
-  function readout(u: number, v: number) {
-    const pos = $(".bk-read-pos");
-    const val = $(".bk-read-val");
-    const [nx, ny] = size();
-    if (!F || !shown || u < 0 || v < 0 || u >= nx || v >= ny) {
-      pos.textContent = "Point at the image to read a pixel; click a dot to flag it.";
-      val.textContent = "";
-      return;
-    }
-    const x = Math.floor(u);
-    const y = Math.floor(v);
-    const sky = pixelToSky({ x: u - 0.5, y: v - 0.5 }, F, centreOf(shownEpoch()));
-    pos.textContent = formatRaDec(sky);
-    const value = shown[y * nx + x];
-    val.textContent = Number.isNaN(value)
-      ? `Pixel ${x}, ${y}: no data`
-      : `Pixel ${x}, ${y}: ${shownSigned ? "Δ " : ""}${value.toFixed(Math.abs(value) < 1 ? 4 : 2)} MJy/sr${levelSky ? " above sky" : ""}`;
-  }
-
-  // Keyboard: space plays, arrows step, hold C compares. Ignored while typing.
+  // Keyboard: space plays, arrows step, hold C compares, Escape closes Adjust. Ignored while typing.
   const typing = (t: EventTarget | null) =>
     t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable='true']");
   const visible = () => el.isConnected && el.getClientRects().length > 0;
   const onKey = (ev: KeyboardEvent) => {
+    if (ev.key === "Escape" && !adj.hidden) {
+      setAdjust(false);
+      adjBtn.focus();
+      return;
+    }
     if (!visible() || typing(ev.target) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
     if (ev.key === " ") {
       if (ev.target instanceof HTMLElement && ev.target.closest("button")) return;
       ev.preventDefault();
       setPlaying(!playing);
     } else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
-      if (!frames.length || mode === "add") return;
+      if (!frames.length || allAtOnce()) return;
+      if (ev.target instanceof HTMLElement && ev.target.closest(".seg, .bk-ramp, .bk-marks")) return;
       ev.preventDefault();
       setPlaying(false);
       goTo(idx + (ev.key === "ArrowLeft" ? -1 : 1));
@@ -1170,28 +1347,38 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const onBlur = () => setCompare(false);
   window.addEventListener("blur", onBlur);
 
-  // Size the canvas to the stage, at device resolution.
+  // Size the canvas to the plate, at device resolution; redraw the strip at its new width.
+  let stripWidth = 0;
   const ro = new ResizeObserver(() => {
-    const w = stage.clientWidth;
-    if (!w) return;
-    dpr = Math.min(3, window.devicePixelRatio || 1);
-    if (w !== cssSize || canvas.width !== Math.round(w * dpr)) {
-      cssSize = w;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(w * dpr);
-      draw();
+    const w = plate.clientWidth;
+    if (w) {
+      const r = Math.min(3, window.devicePixelRatio || 1);
+      if (w !== cssSize || r !== dpr || canvas.width !== Math.round(w * r)) {
+        cssSize = w;
+        dpr = r;
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(w * dpr);
+        draw();
+      }
     }
-    if (axis) renderAxis();
+    if (axis && axisEl.clientWidth !== stripWidth) {
+      stripWidth = axisEl.clientWidth;
+      renderAxis();
+    }
+    placeAdjust();
   });
-  ro.observe(stage);
+  ro.observe(plate);
   ro.observe(axisEl);
+  ro.observe(root);
 
   // Fonts and tokens may arrive after mount.
   document.fonts?.ready.then(() => {
     fontFamily = getComputedStyle(el).fontFamily || fontFamily;
     palette = readPalette(el);
     lut.key = "";
+    hatch.key = "";
     paintImage();
+    renderAxis();
   });
 
   renderControls();
@@ -1201,13 +1388,20 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       await load(next, resp, url);
     },
     status(kind, message) {
-      appStatus = kind === "idle" ? null : { kind, message: message ?? (kind === "loading" ? "Loading frames…" : "Something went wrong.") };
+      appStatus =
+        kind === "idle" ? null : { kind, message: message ?? (kind === "loading" ? "Loading frames…" : "Something went wrong.") };
       if (kind === "error") {
         loadCtl++;
-        ownBusy = false;
+        busy = null;
         setPlaying(false);
-      }
-      renderVeil();
+        frames = [];
+        F = null;
+        renderAxis();
+        draw();
+        renderCaption();
+        root.dataset.ready = "true";
+      } else if (kind === "loading") root.dataset.ready = "false";
+      renderMsg();
     },
     destroy() {
       loadCtl++;
@@ -1215,6 +1409,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       ro.disconnect();
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("pointerdown", onDocDown);
       window.removeEventListener("blur", onBlur);
       el.innerHTML = "";
     },

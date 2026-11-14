@@ -232,7 +232,7 @@ capture of the running site on real SPHEREx data. None is AI-generated, and none
 
 ## Other references
 
-- Minor Planet Center orbits, propagated with kete; IMCCE SkyBoT.
+- Minor Planet Center orbits for known asteroids and comets, propagated with kete (BSD-3-Clause, first written at Caltech/IPAC).
 - SDSS DR17 spectroscopic redshifts; EAZY templates; the NEATM thermal model (Harris 1998).
 - Aladin Lite 3.8.2 (CDS, GPL-3.0), loaded from jsDelivr.
 - astropy, astroquery, pyvo, sep, reproject, numpy, scipy, pandas, pyarrow, FastAPI, uvicorn, Vite,

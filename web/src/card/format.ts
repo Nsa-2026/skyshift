@@ -95,8 +95,12 @@ export function listDets(dets: number[]): string {
 
 /** A point below 2σ is not a detection: it is drawn as an upper limit at flux + 2σ (floored at 2σ). */
 export const DETECT_SIGMA = 2;
-export function isUpperLimit(p: Pick<SpectrumPoint, "flux_ujy" | "err_ujy">): boolean {
-  return !(p.flux_ujy > DETECT_SIGMA * p.err_ujy) || p.flux_ujy <= 0;
+/** Below 2σ, drawn as an upper limit. A saturated point is a detection by definition: its
+ * error carries the ±50% wing systematic, so the 2σ test would wrongly call it a limit. */
+export function isUpperLimit(p: Pick<SpectrumPoint, "flux_ujy" | "err_ujy"> & { saturated?: boolean }): boolean {
+  if (p.flux_ujy <= 0) return true;
+  if (p.saturated) return false;
+  return !(p.flux_ujy > DETECT_SIGMA * p.err_ujy);
 }
 export function upperLimitValue(p: Pick<SpectrumPoint, "flux_ujy" | "err_ujy">): number {
   return Math.max(p.flux_ujy, 0) + DETECT_SIGMA * p.err_ujy;

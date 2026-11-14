@@ -34,7 +34,7 @@ const GAP_UNIT_DAYS = 0.001;
 /** Gaps longer than this get a label with their real length. */
 const LABEL_GAP_DAYS = 1 / 24;
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function formatGap(days: number): string {
   const min = days * 1440;

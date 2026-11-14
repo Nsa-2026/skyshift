@@ -144,7 +144,7 @@ def _frames_result(n=3, nx=4, ny=3):
 def test_frames_real_cached_and_served(client, cache, monkeypatch):
     calls = []
 
-    def build_frames(ra, dec, fov, clock, det, *, cache=None):
+    def build_frames(ra, dec, fov, clock, det, *, cache=None, **kw):
         calls.append((ra, dec, fov, clock, det))
         assert cache is not None
         return _frames_result()
@@ -175,7 +175,7 @@ def test_frames_real_cached_and_served(client, cache, monkeypatch):
 
 def test_frames_defaults(client, monkeypatch):
     seen = []
-    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None: seen.append(a) or _frames_result())
+    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: seen.append(a) or _frames_result())
     client.get("/api/frames", params={"ra": 1, "dec": 2})
     client.get("/api/frames", params={"ra": 1, "dec": 2, "clock": "hours"})
     assert seen == [(1.0, 2.0, 5.0, "months", 2), (1.0, 2.0, 20.0, "hours", 2)]
@@ -189,7 +189,7 @@ def test_data_route_unknown_key(client):
 def test_object_real_and_cached(client, monkeypatch):
     n = []
     obj = {"name": None, "gaia": None, "known_ucd": None, "spectrum": [], "measure": None}
-    monkeypatch.setattr(blink, "build_object", lambda ra, dec, cache=None: n.append(1) or obj)
+    monkeypatch.setattr(blink, "build_object", lambda ra, dec, cache=None, **kw: n.append(1) or obj)
     for _ in range(2):
         r = client.get("/api/object", params={"ra": 5, "dec": 5})
         assert r.status_code == 200 and r.json() == obj
@@ -197,10 +197,10 @@ def test_object_real_and_cached(client, monkeypatch):
 
 
 def test_gaia_and_known_real(client, monkeypatch):
-    _fake_module(monkeypatch, "gaia", cone=lambda ra, dec, r, cache=None: [
+    _fake_module(monkeypatch, "gaia", cone=lambda ra, dec, r, cache=None, **kw: [
         {"id": 4472832130942575872, "ra": ra, "dec": dec, "pmra": 1.0, "pmdec": 2.0,
          "parallax": None, "g": np.float32(12.5)}])
-    _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None: [
+    _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None, **kw: [
         {"name": "(1) Ceres", "epoch_id": "x", "ra": ra, "dec": dec, "v": None, "source": "skybot"}])
     g = client.get("/api/gaia", params={"ra": 1, "dec": 2, "r": 5}).json()
     assert g == {"gaia": [{"id": "4472832130942575872", "ra": 1.0, "dec": 2.0, "pmra": 1.0,
@@ -241,7 +241,7 @@ def test_upstream_and_not_found_errors(client, monkeypatch):
 def test_errors_are_not_cached(client, monkeypatch):
     n = []
 
-    def flaky(*a, cache=None):
+    def flaky(*a, cache=None, **kw):
         n.append(1)
         if len(n) == 1:
             raise UpstreamError("first call fails")
@@ -283,13 +283,13 @@ def test_other_validation(client, path, params):
 
 @pytest.mark.parametrize("fov,clock", [(5, "months"), (15, "months"), (20, "hours"), (60, "hours"), ("15.0", "months")])
 def test_frames_allowed_fov(client, monkeypatch, fov, clock):
-    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None: _frames_result())
+    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: _frames_result())
     assert client.get("/api/frames", params={"ra": 1, "dec": 1, "fov": fov, "clock": clock}).status_code == 200
 
 
 def test_ra_360_and_poles_ok(client, monkeypatch):
     seen = []
-    monkeypatch.setattr(blink, "build_object", lambda ra, dec, cache=None: seen.append((ra, dec)) or {})
+    monkeypatch.setattr(blink, "build_object", lambda ra, dec, cache=None, **kw: seen.append((ra, dec)) or {})
     assert client.get("/api/object", params={"ra": 360, "dec": 90}).status_code == 200
     assert client.get("/api/object", params={"ra": 0, "dec": -90}).status_code == 200
     assert seen == [(0.0, 90.0), (0.0, -90.0)]
@@ -313,6 +313,122 @@ def test_resolve_endpoint(client):
 def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200 and r.json()["status"] == "ok" and r.json()["cache"] == "local"
+
+
+# ---------------------------------------------------------------- live time budget
+
+def test_partial_frames_are_served_but_not_cached(client, cache, monkeypatch):
+    calls = []
+
+    def build_frames(*a, cache=None, budget=None, **kw):
+        calls.append(a)
+        assert budget is not None and budget.limited
+        fr = _frames_result()
+        fr.partial = ["2 of 18 cutouts not in time"]
+        return fr
+
+    monkeypatch.setattr(blink, "build_frames", build_frames)
+    p = {"ra": 11, "dec": 21}
+    r = client.get("/api/frames", params=p)
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    full_key = app_mod._key("frames", ra=11.0, dec=21.0, fov=5.0, clock="months", det=2)
+    for ep in r.json()["epochs"]:
+        assert full_key not in ep["data_url"]  # a one-off key: a later full build never overwrites it
+        assert client.get(ep["data_url"]).status_code == 200
+    client.get("/api/frames", params=p)
+    assert len(calls) == 2  # not cached: the next request builds again (from cached cutouts)
+
+
+def test_partial_object_is_not_cached(client, monkeypatch):
+    n = []
+
+    def build_object(ra, dec, cache=None, budget=None, **kw):
+        n.append(1)
+        budget.cut("measurement not in time")
+        return {"name": None, "gaia": None, "known_ucd": None, "spectrum": [], "measure": None}
+
+    monkeypatch.setattr(blink, "build_object", build_object)
+    for _ in range(2):
+        r = client.get("/api/object", params={"ra": 6, "dec": 6})
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert len(n) == 2
+
+
+def test_slow_build_answers_503_in_time_and_caches_later(client, monkeypatch):
+    import time
+
+    monkeypatch.setattr(app_mod, "HARD_LIMIT_S", 0.3)
+    calls = []
+
+    def slow(*a, cache=None, budget=None, **kw):
+        calls.append(budget)
+        time.sleep(1.0)
+        return _frames_result()
+
+    monkeypatch.setattr(blink, "build_frames", slow)
+    t = time.monotonic()
+    r = client.get("/api/frames", params={"ra": 12, "dec": 22})
+    assert time.monotonic() - t < 0.9
+    _err(r, 503, "upstream")
+    assert r.headers["retry-after"] and r.headers["cache-control"] == "no-store"
+    assert calls[0].expired() and "nobody is waiting any more" in calls[0].partial  # no new downloads
+    time.sleep(1.2)  # what was running finished in the background (here: the whole answer, cached)
+    r = client.get("/api/frames", params={"ra": 12, "dec": 22})
+    assert r.status_code == 200 and len(calls) == 1
+
+
+def test_identical_requests_share_one_build(client, monkeypatch):
+    import threading
+    import time
+
+    calls = []
+
+    def build(*a, cache=None, **kw):
+        calls.append(1)
+        time.sleep(0.4)
+        return {"name": None, "gaia": None, "known_ucd": None, "spectrum": [], "measure": None}
+
+    monkeypatch.setattr(blink, "build_object", build)
+    codes = []
+    ts = [threading.Thread(target=lambda: codes.append(client.get("/api/object", params={"ra": 8, "dec": 8}).status_code))
+          for _ in range(3)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert codes == [200, 200, 200] and len(calls) == 1
+
+
+def test_a_client_that_leaves_stops_its_build():
+    import asyncio
+    import time
+
+    seen = {}
+
+    def build(budget):
+        seen["budget"] = budget
+        time.sleep(1.5)
+        return {}, "no-store"
+
+    class Gone:  # a request whose client has disconnected
+        async def is_disconnected(self):
+            return True
+
+    t = time.monotonic()
+    with pytest.raises(app_mod.ClientGone):
+        asyncio.run(app_mod._shared(Gone(), "test/gone", "test", build))
+    assert time.monotonic() - t < 1.4  # noticed within about a second
+    assert seen["budget"].expired() and seen["budget"].partial == ["nobody is waiting any more"]
+
+
+def test_budget_error_is_503_upstream(client, monkeypatch):
+    from skyshift_server.budget import BudgetError
+
+    def late(*a, **k):
+        raise BudgetError("nothing arrived in time")
+
+    monkeypatch.setattr(blink, "build_frames", late)
+    _err(client.get("/api/frames", params={"ra": 13, "dec": 23}), 503, "upstream")
 
 
 def test_unknown_route_is_contract_404(client):
