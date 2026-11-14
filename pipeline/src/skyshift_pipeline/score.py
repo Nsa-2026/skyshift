@@ -2,7 +2,7 @@
 
 Units: one known object in one session (the zone's time runs) where it was predicted inside
 >= SCORE_MIN_EXPOSURES exposures, at least SCORE_EDGE_PX from the edge and inside the zone.
-- recall: a mover of that session within MATCH_ARCSEC of the prediction moved (SkyBoT rates) to
+- recall: a mover of that session within MATCH_ARCSEC of the prediction moved (the object's rates) to
   the mover's time;
 - dot share: any dot within MATCH_ARCSEC in one of the unit's photos (detection vs linking);
 - control: the same with each unit moved CONTROL_OFFSET_ARCSEC in a random direction (fixed seed),

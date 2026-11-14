@@ -139,3 +139,30 @@ def test_process_photos_failed_read_does_not_stop_the_task(tmp_path, monkeypatch
     photos = [("X", 1, str(tmp_path / "missing.fits"), 0, 0), ("2025W18_1B_0074_2", 1, str(CUTOUT), 7, 2)]
     sts = process_photos(str(tmp_path), photos, prefetch=True)
     assert sts[0]["status"] == "failed" and sts[0]["error"] and sts[1]["status"] == "done"
+
+
+def test_spread_limit_covers_detectors_and_dates():
+    from types import SimpleNamespace
+
+    from skyshift_pipeline.dots import spread_limit
+    # 50 exposures x 6 detectors, in (mjd, detector) order as dots.run builds them
+    todo = [SimpleNamespace(mjd=float(e), detector=d) for e in range(50) for d in range(1, 7)]
+    pick = spread_limit(todo, 10)
+    assert len(pick) == 10
+    assert sorted({r.detector for r in pick}) == [1, 2, 3, 4, 5, 6]
+    assert max(r.mjd for r in pick) - min(r.mjd for r in pick) > 30  # not the first two exposures
+    assert pick == sorted(pick, key=lambda r: (r.mjd, r.detector))
+    assert spread_limit(todo, None) == todo and spread_limit(todo[:5], 10) == todo[:5]
+
+
+def test_aperture_with_fully_masked_annulus_is_nan_not_an_error():
+    from skyshift_pipeline.dots import _sum_circle_bkgann
+    d = np.ones((60, 60))
+    m = np.zeros((60, 60), bool)
+    m[15:45, 15:45] = True          # a big saturated blob: the annulus of a dot at its centre is all masked
+    m[29:32, 29:32] = False
+    x = np.array([30.0, 5.5, 50.0, 30.0])
+    y = np.array([30.0, 5.5, 50.0, 30.0])
+    f, e = _sum_circle_bkgann(d, x, y, 2.0, np.ones_like(d), m, (5.5, 8.0))
+    assert np.isnan(f[0]) and np.isnan(f[3]) and np.isnan(e[0])
+    assert np.allclose(f[1:3], 0.0, atol=1e-9) and np.all(e[1:3] > 0)  # flat image minus its local background
