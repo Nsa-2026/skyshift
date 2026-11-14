@@ -219,3 +219,38 @@ def test_identify_follows_fast_stars():
     name, entry, _ = obj.identify(269.4462, 4.7705 + 5.0 / 3600, 60900.0, 61300.0, [slow], [])
     assert entry == slow
     assert obj.identify(269.5, 4.9, 60900.0, 61300.0, [barnard, slow], builtin) == (None, None, None)
+
+
+def test_pick_months_images_spreads_over_the_visit():
+    rows = [sia_row(f"A{s:02d}", 2, 60900.0 + s * 0.5) for s in range(20)]  # visit 1: 20 exposures
+    rows += [sia_row(f"B{s}", 2, 61100.0 + s) for s in range(3)]  # visit 2: 3 exposures
+    images = search.rows_to_images(rows)
+    picked = blink.pick_months_images(images, 5)
+    v1 = [im for im in picked if im.visit == 1]
+    assert [im.obs_id for im in v1] == ["A00", "A05", "A10", "A14", "A19"]  # first, last, evenly between
+    assert [im.obs_id for im in picked if im.visit == 2] == ["B0", "B1", "B2"]  # small visits stay whole
+    assert blink.pick_months_images(images, None) == images
+    assert blink.pick_months_images(images, 0) == images
+
+
+def test_months_live_cap_and_full_stacks(world):
+    full = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], per_visit=None)
+    live = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], per_visit=2)
+    assert [e["n_exposures"] for e in full.meta["epochs"]] == [3, 3]
+    assert [e["n_exposures"] for e in live.meta["epochs"]] == [2, 2]
+    # the cap keeps the visit's first and last exposure, so the visit's time span is unchanged
+    for a, b in zip(full.meta["epochs"], live.meta["epochs"]):
+        assert a["mjd_start"] == b["mjd_start"] and a["mjd_end"] == b["mjd_end"]
+    assert blink.LIVE_PER_VISIT >= 3  # the default (the API) still stacks enough to drop asteroids
+
+
+def test_pick_detector_best_signal_unless_the_target_says_otherwise():
+    rows = [sia_row(f"A{k}", d, 60900.0 + k * 0.01) for k in range(3) for d in (1, 2, 5, 6)]
+    rows += [sia_row(f"B{k}", d, 61100.0 + k * 0.01) for k in range(3) for d in (1, 2, 5, 6)]
+    images = search.rows_to_images(rows)
+    snr = {1: 13.0, 2: 11.0, 5: 3.6, 6: 2.9}  # WISE 0855's field: a blend wins short of 3 um
+    spectrum = [{"det": d, "flux_ujy": s * 10.0, "err_ujy": 10.0, "saturated": False} for d, s in snr.items()]
+    assert obj.pick_detector(spectrum, images) == (1, 1, 2)
+    assert obj.pick_detector(spectrum, images, obj.MEASURE_DETECTORS["wise0855"]) == (5, 1, 2)
+    saturated = [dict(p, saturated=p["det"] in (1, 2)) for p in spectrum]
+    assert obj.pick_detector(saturated, images)[0] == 5  # Barnard's Star: not where it saturates

@@ -12,7 +12,8 @@ visit, saturated (OVERFLOW or NONLINEAR in the core).
 
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
 native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. The detector is the
-one with the best signal that is not saturated; if every detector saturates, the least saturated.
+one with the best signal that is not saturated; if every detector saturates, the least saturated
+(a built-in target seen only in some detectors is measured in those: MEASURE_DETECTORS).
 The two times are the MEDIAN exposure times of the two stacks: a per-pixel median of a slowly
 moving star sits where the star was at the median time, not at mjd_mid (the middle of the first
 and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
@@ -53,6 +54,11 @@ MEASURE_FOV = 15
 MEASURE_PIXEL = stack.NATIVE_ARCSEC
 MIN_VISIT_EXPOSURES = 3
 DETECTOR_PREFERENCE = (2, 1, 3, 4, 5, 6)  # on ties
+# Built-in targets seen only in some detectors. WISE 0855-0714 (a 250 K brown dwarf) is invisible
+# short of 3 um; the aperture at its position in D1-D3 holds a blend of background sources, which
+# win on signal and measure 0.7" instead of its 8"/yr. In D5 it measures 7.05" +- 0.90" (Gaia-free
+# prediction 8.06"), in D6 8.57" +- 3.3". (targets.json says "Expected only in D5-D6" in a note.)
+MEASURE_DETECTORS = {"wise0855": (5, 6)}
 
 
 def _builtin_targets() -> list[dict[str, Any]]:
@@ -153,10 +159,14 @@ def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any]
     return out
 
 
-def pick_detector(spectrum: list[dict[str, Any]], images: list[search.Image]) -> tuple[int, int, int] | None:
-    """(detector, first visit, last visit) for the measurement, or None with fewer than two visits."""
+def pick_detector(spectrum: list[dict[str, Any]], images: list[search.Image],
+                  allowed: tuple[int, ...] | None = None) -> tuple[int, int, int] | None:
+    """(detector, first visit, last visit) for the measurement, or None with fewer than two visits.
+    allowed: only these detectors (a built-in target seen only in some)."""
     best = None
     for det in DETECTOR_PREFERENCE:
+        if allowed and det not in allowed:
+            continue
         per_visit: dict[int, int] = {}
         for im in images:
             if im.det == det:
@@ -295,7 +305,7 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     spectrum = spectrum_points(images, l2s, model, ra, dec)
 
     result: dict[str, Any] | None = None
-    pick = pick_detector(spectrum, images)
+    pick = pick_detector(spectrum, images, MEASURE_DETECTORS.get((model or {}).get("slug", "")))
     if pick is not None:
         got = measure(ra, dec, model, images, *pick, cache)
         if got is not None:
