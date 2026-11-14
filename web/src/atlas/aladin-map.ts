@@ -683,13 +683,14 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       if (prev && prev.selectedId !== m.selectedId) repaint();
     },
     view,
-    flyTo(to, animate) {
+    flyTo(to, animate, seconds) {
       stopFlight();
       const fov = to.fov;
+      const secs = seconds != null && seconds > 0 ? seconds : 1.1;
       try {
         if (animate && al.animateToRaDec && al.zoomToFoV) {
-          al.animateToRaDec(to.ra, to.dec, 1.1);
-          if (fov != null) al.zoomToFoV(fov, 1.1);
+          al.animateToRaDec(to.ra, to.dec, secs);
+          if (fov != null) al.zoomToFoV(fov, secs);
         } else {
           al.gotoRaDec(to.ra, to.dec);
           if (fov != null) al.setFoV(fov);

@@ -8,10 +8,10 @@ const STOPS: TourStop[] = [
 ];
 
 function harness(opts: { reducedMotion?: boolean; stops?: TourStop[] } = {}) {
-  const flown: { ra: number; dec: number; fov?: number; animate: boolean }[] = [];
+  const flown: { ra: number; dec: number; fov?: number; animate: boolean; seconds?: number }[] = [];
   const card = document.createElement("div");
   const tour = createTour(opts.stops ?? STOPS, {
-    flyTo: (to, animate) => flown.push({ ...to, animate }),
+    flyTo: (to, animate, seconds) => flown.push({ ...to, animate, seconds }),
     card,
     reducedMotion: opts.reducedMotion,
   });
@@ -40,6 +40,16 @@ describe("the tour drifts from stop to stop", () => {
     // view never snaps to a different scale mid-tour.
     expect(flown.map((f) => f.fov)).toEqual([TOUR_FOV, TOUR_FOV]);
     expect(STOPS[0].fov).not.toBe(TOUR_FOV);
+  });
+
+  it("drifts for most of the leg rather than arriving early and waiting", () => {
+    // The sky is fetched as the view moves. A flight far shorter than the leg lands before its
+    // tiles do, and the picture assembles itself in patches once it is already still.
+    const { flown, tour } = harness();
+    tour.start();
+    const secs = flown[0].seconds ?? 0;
+    expect(secs).toBeGreaterThan(T.travelMs / 1000 - 1);
+    expect(secs).toBeLessThan(T.travelMs / 1000);
   });
 
   it("shows the card only once it has arrived, so nothing covers a moving view", () => {

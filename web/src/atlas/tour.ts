@@ -33,19 +33,24 @@ export interface TourTimings {
   resumeMs: number;
 }
 
-export const DEFAULT_TIMINGS: TourTimings = { travelMs: 2600, dwellMs: 4200, resumeMs: 9000 };
+export const DEFAULT_TIMINGS: TourTimings = { travelMs: 4200, dwellMs: 5200, resumeMs: 9000 };
 
 /**
- * The field the tour rests at, in degrees. Wide enough that the sky around the target is the
- * picture, tight enough that moving between targets reads as travel rather than a jump cut. A
- * target's own `fov` is for opening it to work on, which is a different job, so the tour does
- * not use it.
+ * The one field the tour ever uses, in degrees: about where the whole-sky ellipse fills a wide
+ * stage, so the sky is the picture and the drift between targets is a pan across it.
+ *
+ * It never changes during a tour, and that is the point rather than a style choice. Changing the
+ * field changes which HiPS order the sky is drawn from, so every leg would throw away the tiles
+ * on screen and fetch a new set; the view lands long before they arrive and the picture assembles
+ * itself in patches after the fact. Panning at one field reuses everything already loaded and
+ * only fetches the sky newly brought into frame. A target's own `fov` is for opening it to work
+ * on, which is a different job.
  */
-export const TOUR_FOV = 60;
+export const TOUR_FOV = 200;
 
 export interface TourDeps {
   /** The map's own flyTo: the tour never reaches past this. */
-  flyTo(to: { ra: number; dec: number; fov?: number }, animate: boolean): void;
+  flyTo(to: { ra: number; dec: number; fov?: number }, animate: boolean, seconds?: number): void;
   /** Where the card is written. The tour owns this element's contents and nothing else. */
   card: HTMLElement;
   /** True when the person asked for less motion: the tour then does not run at all. */
@@ -135,7 +140,9 @@ export function createTour(stops: readonly TourStop[], deps: TourDeps): TourHand
     i = ((to % stops.length) + stops.length) % stops.length;
     const s = stops[i];
     hideCard();
-    deps.flyTo({ ra: s.ra, dec: s.dec, fov: TOUR_FOV }, true);
+    // The drift lasts the whole leg, less a moment, so the view settles and the sky it brought
+    // into frame has arrived before the card goes up.
+    deps.flyTo({ ra: s.ra, dec: s.dec, fov: TOUR_FOV }, true, Math.max(0.6, (t.travelMs - 600) / 1000));
     after(t.travelMs, land);
   }
 

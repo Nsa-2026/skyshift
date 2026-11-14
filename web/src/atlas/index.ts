@@ -835,9 +835,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function startTour() {
     tour?.destroy();
     tour = createTour(TARGETS, {
-      flyTo: (to, animate) => {
-        tourFlightUntil = Date.now() + 3400;
-        map?.flyTo(to, animate);
+      flyTo: (to, animate, seconds) => {
+        // Cover the whole flight plus a moment: every view event it fires is the tour's own.
+        tourFlightUntil = Date.now() + (seconds ?? 1.1) * 1000 + 900;
+        map?.flyTo(to, animate, seconds);
       },
       card: q<HTMLDivElement>("[data-tour]"),
       reducedMotion: reduced,

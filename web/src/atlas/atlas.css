@@ -251,6 +251,24 @@
   stroke: var(--hair-strong);
   stroke-width: 1;
 }
+/* The seam where the controls end and the sky begins was a hard line across the page. This
+   carries the page's own ground a little way down into the sky so the two meet instead of
+   butting up against each other. It is a wash over the map, never over a control, and it takes
+   no clicks. */
+.atl-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: clamp(48px, 9vh, 96px);
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--sheet) 0%, color-mix(in srgb, var(--sheet) 42%, transparent) 46%, transparent 100%);
+}
+/* On the colour sky the wash is the dark the sky already sits on, not the page's white. */
+.atl-stage.is-positive::before {
+  background: linear-gradient(to bottom, rgb(9 11 18 / 92%) 0%, rgb(9 11 18 / 38%) 46%, transparent 100%);
+}
+
 /* The tour's card: it sits over the map while the view rests on a featured target, and it is
    gone the instant anybody touches the map, so it never covers something being looked at.
    Translucent, because what is behind it is the point. */
