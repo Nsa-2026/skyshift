@@ -556,9 +556,15 @@ VET_PEAK_BITS = 0x0A02CEC7 & ~0x00008002
 VET_FLUX_RATIO_MAX = 4.0       # brightest / faintest dot within one detector (cosmic ray + a 5–20× fainter partner)
 VET_QA_NAME = "qa_photos.parquet"  # results/<zone>/qa_photos.parquet (qa.py): obs_id, detector, grade green|amber|red, reasons
 VET_CATALOG_ARCSEC = 6.0       # a 2MASS PSC source (refcat) within this: catalogued (`2mass`), grade C
+# AllWISE within 6″ (`allwise`, grade C) where CatWISE2020 was the zone's WISE veto (where AllWISE was the veto they are
+# gone already): hunt, 5 of the 28 suspects that pass every gate have one. Read from S3 as suspects' AllWISE veto does
+# (cache/allwise/k5 at the root); a failure only skips the reason (stats `allwise`). SKYSHIFT_VET_ALLWISE=0: off.
+VET_ALLWISE = os.environ.get("SKYSHIFT_VET_ALLWISE", "1") != "0"
 VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed source within this, beyond the 6″ vetoes:
                                # near_source_arcsec, a blend/wing warning (not a gate)
 VET_MOTION_SIGMA = 5.0         # grade A: motion >= 5σ over >= 2 sessions; needs a multi-session linker (none yet: no A)
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
-VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "flux_ratio", "red_photo", "2mass")
+VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "flux_ratio", "red_photo", "2mass",
+             "allwise")
+VET_CATALOGS = ("2mass", "allwise")  # the catalogue reasons among VET_GATES

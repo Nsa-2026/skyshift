@@ -68,7 +68,7 @@ def test_gates_grades_and_reasons():
     red = {("R1", 4), ("R2", 4)}
     cat = np.zeros(len(s), bool)
     cat[10] = True
-    out, st = V.vet(s, movers, None, red, cat)
+    out, st = V.vet(s, movers, None, red, {"2mass": cat})
     g = dict(zip(out["cell"], out["reasons"]))
     assert g[0] == ["hot_pixel"]  # E1 + H0 + H1 on (1000, 1000) of D4
     assert g[1] == ["edge"] and g[2] == ["masked_peak"] and g[3] == ["sharp_outlier"]
@@ -97,7 +97,8 @@ def test_movers_without_dot_lists_are_not_vetted():
     assert list(out["grade"]) == ["C"] and list(out["reasons"]) == [["not_vetted"]] and st["dot_lists"] is False
 
 
-def test_run_writes_grades_vetoes_and_ranks(tmp_path):
+def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "VET_ALLWISE", False)  # offline; the AllWISE reason has its own test
     z = C.ZONES["pilot"]
     store = Store(str(tmp_path))
     rows = [clean(0, x=3.0) | {"snr": 50.0}, clean(1) | {"snr": 9.0}, clean(2) | {"snr": 20.0}, clean(3) | {"snr": 30.0}]
@@ -131,3 +132,24 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path):
     assert j["grades"] == {"A": 0, "B": 2, "C": 2} and j["gates"]["edge"] == 1
     p = store.read_parquet(results_rel(z.name, "suspects.parquet"))
     assert list(p["grade"]) == ["B", "B", "C", "C"] and "dot_x" in p and "gate_2mass" in p
+
+
+def test_allwise_reason_where_catwise_was_the_veto(tmp_path, monkeypatch):
+    from skyshift_pipeline.forced_sky import pixel_of
+    monkeypatch.setattr(C, "VET_ALLWISE", True)
+    monkeypatch.setattr(C, "ALLWISE_CACHE", False)
+    z = C.ZONES["pilot"]
+    store = Store(str(tmp_path))
+    s = pd.DataFrame([clean(0), clean(1)])
+    a = offset_radec(s.loc[1, "ra"], s.loc[1, "dec"], 3.0, 0.0)
+    cat = pd.DataFrame({"ra": [a[0]], "dec": [a[1]]})
+    cpix = pixel_of(cat["ra"], cat["dec"], C.ALLWISE_NSIDE)
+
+    def reader(pix):
+        return cat[cpix == pix]
+
+    empty = pd.DataFrame(columns=["ra", "dec"])
+    out, st = S.grade(store, z, s, s, empty, None, "refcat/pilot.parquet (CatWISE2020)", allwise_reader=reader)
+    assert list(out["reasons"]) == [[], ["allwise"]] and st["catalogs_checked"] == ["allwise"]
+    out2, st2 = S.grade(store, z, s, s, empty, None, "AllWISE on S3", allwise_reader=reader)  # AllWISE was the veto
+    assert list(out2["reasons"]) == [[], []] and st2["catalogs_checked"] == []

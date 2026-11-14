@@ -15,6 +15,7 @@ lists in movers.parquet) or at zone-level maps:
 - flux_ratio    the brightest dot > 4× the faintest within one detector (a hit with a faint partner).
 - red_photo     every dot from a photo that qa.py graded red (results/<zone>/qa_photos.parquet; skipped without it).
 - 2mass         a 2MASS PSC source within 6″ (refcat): catalogued after all.
+- allwise       an AllWISE source within 6″ (S3), where CatWISE2020 was the zone's WISE veto.
 
 Grades: C = fails a gate or is catalogued (kept, with its reasons); B = passes everything, motion not shown (most suspects
 are 2 dots of one session: at S/N 7–9 the centroid error exceeds the motion between exposures); A = B plus motion
@@ -167,10 +168,11 @@ def flux_ratio_fail(d: pd.DataFrame) -> pd.Series:
 
 
 def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: set | None,
-        catalogued: np.ndarray | None = None) -> tuple[pd.DataFrame, dict]:
+        catalogued: dict[str, np.ndarray] | None = None) -> tuple[pd.DataFrame, dict]:
     """Gates on the suspects s (rows of movers with the dot lists). Returns s with grade, reasons (list of gate names in
     VET_GATES order) and one boolean column per gate (gate_<name>), and stats: per gate the suspects failing it, the
-    suspects whose first reason it is, and the grade counts. catalogued: per suspect, a 2MASS source within 6″."""
+    suspects whose first reason it is, and the grade counts. catalogued: per catalogue reason (VET_CATALOGS: "2mass",
+    "allwise"), per suspect, a source within 6″; a catalogue left out was not checked."""
     s = s.copy().reset_index(drop=True)
     n = len(s)
     fail = {k: np.zeros(n, bool) for k in C.VET_GATES}
@@ -195,8 +197,9 @@ def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: s
             fail["red_photo"] = (np.bincount(i, weights=g["red"].to_numpy(float), minlength=n) == nd) & (nd > 0)
         st["dots"] = int(len(d))
         st["movers_dots"] = int(len(md))
-    if catalogued is not None and n:
-        fail["2mass"] = np.asarray(catalogued, bool)
+    for k, hit in (catalogued or {}).items():
+        if n and k in fail:
+            fail[k] = np.asarray(hit, bool)
     reasons = [[k for k in C.VET_GATES if fail[k][j]] for j in range(n)]
     s["grade"] = ["C" if r else "B" for r in reasons]
     s["reasons"] = reasons

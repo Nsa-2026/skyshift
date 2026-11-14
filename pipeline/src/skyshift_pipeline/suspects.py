@@ -17,7 +17,7 @@ A mover becomes a suspect when:
   (config SUSPECTS_ALLWISE, ALLWISE_*). catwise_checked then means "checked against AllWISE" and the
   summary's catwise_source says which catalogue it was.
 Then the vetting gates (vet.py: hot pixel, bad column, detector edge, masked bit at the peak, sharp + OUTLIER, flux
-ratio, red photo, 2MASS within 6″) grade every suspect: C fails one (kept, with `reasons`), B passes all (motion not
+ratio, red photo, 2MASS within 6″, AllWISE within 6″ where CatWISE was the veto) grade every suspect: C fails one (kept, with `reasons`), B passes all (motion not
 shown), A (motion >= 5σ over >= 2 sessions) needs a multi-session linker and is never given yet.
 Ranked by grade, then snr. Written as results/<zone>/suspects.parquet and results/<zone>/suspects.json in the
 contracts/api.md suspects.json shape (+ grade, reasons, near_source_arcsec; zone-level vetoes, provisional, grades).
@@ -374,17 +374,28 @@ def near_source(seps: dict[str, np.ndarray], fixed: pd.DataFrame, ra: np.ndarray
 
 
 def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fixed: pd.DataFrame,
-          ref: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
-    """vet.vet on the suspects s, with the 2MASS (6″) check and near_source_arcsec from the refcat and fixed sources."""
+          ref: pd.DataFrame | None, wise_source: str = "", allwise_reader=None) -> tuple[pd.DataFrame, dict]:
+    """vet.vet on the suspects s, with the catalogue checks (2MASS from the refcat; AllWISE where CatWISE was the WISE
+    veto: wise_source names it) and near_source_arcsec from the refcat and fixed sources."""
     t0 = time.time()
     ra, dec, mjd = s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64), s["mjd"].to_numpy(np.float64)
     seps = refcat_seps(ref, ra, dec, mjd)
-    tmass = seps["tmass"] <= C.VET_CATALOG_ARCSEC + 0.01 if "tmass" in seps else None
+    cats: dict[str, np.ndarray] = {}
+    if "tmass" in seps:
+        cats["2mass"] = seps["tmass"] <= C.VET_CATALOG_ARCSEC + 0.01
+    ast: dict = {}
+    if C.VET_ALLWISE and "CatWISE" in wise_source and len(s):
+        hit, name, ast = allwise_near(store, ra, dec, C.VET_CATALOG_ARCSEC, reader=allwise_reader)
+        ast = {**ast, "source": name or "unreachable"}
+        if name:
+            cats["allwise"] = hit
     free = V.load_free(store, zone) if len(s) else None
     red = V.load_red(store, zone)
-    s, st = V.vet(s, movers, free, red, tmass)
+    s, st = V.vet(s, movers, free, red, cats)
     s["near_source_arcsec"] = near_source(seps, fixed, ra, dec)
-    st["tmass_checked"] = tmass is not None
+    st["catalogs_checked"] = sorted(cats)
+    if ast:
+        st["allwise"] = ast
     st["near_source"] = int(np.isfinite(s["near_source_arcsec"].to_numpy(np.float64)).sum())
     st["wall_s"] = round(time.time() - t0, 1)
     return s, st
@@ -419,7 +430,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     st["cut_catwise"] = int(wise.sum())
     s = s[~wise].reset_index(drop=True)
     s["catwise_checked"] = bool(wsource)
-    s, vst = grade(store, zone, s, movers, fixed, ref)
+    s, vst = grade(store, zone, s, movers, fixed, ref, wsource)
     st["vetting"] = vst
     wcat = "catwise" if "CatWISE" in wsource else "allwise" if "AllWISE" in wsource else ""
     vetting = {"vetoes": ["mpc", *(["gaia"] if source else []), *([wcat] if wcat else [])],
