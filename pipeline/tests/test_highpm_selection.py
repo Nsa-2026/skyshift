@@ -163,3 +163,18 @@ def test_gaia_slow_star_within_errors_is_not_listed():
     xid["gaia_parallax"] = 25.0  # −80 + 25 × −4.1 = −182.5 mas/yr: Gaia itself predicts what we measured
     r = HP.compute(src, None, xid, ast, vstats=vstats([1])).query("method == 'fit'").iloc[0]
     assert r["vetted"] and r["reason"] == ""
+
+
+def test_fit_from_two_used_dots_is_few_dots():
+    """Hunt rerun (14 Nov): ring fragments of very bright stars kept 22–58 member dots, but astrometry's clean_mask
+    left one per visit (n_used 2, chi2 0) and a formal 6–10″/yr at 20–37σ with no Gaia: few_dots counts used dots."""
+    src = hp_sources()
+    xid = pd.DataFrame({"source_id": [1], "gaia_ref_id": [""], "gaia_id": [-1], "catwise_name": [""],
+                        "catwise_pmra": [np.nan], "catwise_pmdec": [np.nan]})
+
+    def fit(**over):
+        ast = one_fit(pm=9000.0, pmra=-9000.0, pmra_err=280.0, pmdec_err=280.0, pm_snr=32.0, **over)
+        return HP.compute(src, None, xid, ast, vstats=vstats([1])).query("method == 'fit'").iloc[0]
+
+    assert fit(n_dots=40, n_used=2)["reason"] == "few_dots"
+    assert fit(n_dots=40, n_used=40)["vetted"]
