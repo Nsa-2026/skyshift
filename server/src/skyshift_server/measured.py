@@ -54,6 +54,9 @@ KNOWN_TRACK_ARCSEC = 30.0    # a mover this close to a known[] prediction is tha
 NEAR_GAIA_ARCSEC = 6.0
 ELONG_MAX = 3.0
 MAX_PER_EPOCH = 250
+# stage "extracted": the brightest this many dots an epoch, any class (~225 bytes each as compact JSON: a live
+# hours answer of 6 epochs ~0.55 MB, a static 20-epoch set ~1.8 MB raw, ~0.2-0.4 MB gzipped)
+EXTRACTED_MAX_PER_EPOCH = 400
 SHIFT_MIN_SNR = 3.0
 MAX_SHIFTS = 300
 MONTHS_MAX_PHOTOS_PER_VISIT = 12  # dot files read per visit epoch (spread over the visit)
@@ -686,8 +689,9 @@ def _photos_of(meta: dict, epoch_keys: dict[str, list[str]]) -> dict[str, list[s
 
 def _finish(dets: list[dict], tracks: list[dict], shifts: list[dict], *, zone: str | None, stage: str,
             zone_box: dict | None, clock: str, n_have: int, n_all: int) -> dict:
-    """The `measured` object: counts before the cap, at most MAX_PER_EPOCH detections an epoch
-    (non-star classes first), sorted by epoch id then S/N."""
+    """The `measured` object: counts before the cap, sorted by epoch id then S/N. Cap per epoch:
+    MAX_PER_EPOCH with the non-star classes first; stage "extracted": the EXTRACTED_MAX_PER_EPOCH
+    brightest (S/N) of every class, so the stars to compare with Gaia stay."""
     counts = {c: 0 for c in CLASSES}
     for d in dets:
         counts[d["class"]] += 1
@@ -695,11 +699,14 @@ def _finish(dets: list[dict], tracks: list[dict], shifts: list[dict], *, zone: s
     for d in dets:
         by_epoch[d["epoch_id"]].append(d)
     kept, truncated = [], False
+    by_snr = stage == "extracted"
+    cap = EXTRACTED_MAX_PER_EPOCH if by_snr else MAX_PER_EPOCH
     for eid in sorted(by_epoch):
-        part = sorted(by_epoch[eid], key=lambda d: (d["class"] not in _KEEP_FIRST, -(d["snr"] or 0.0)))
-        if len(part) > MAX_PER_EPOCH:
+        part = sorted(by_epoch[eid], key=lambda d: (False if by_snr else d["class"] not in _KEEP_FIRST,
+                                                    -(d["snr"] or 0.0)))
+        if len(part) > cap:
             truncated = True
-            part = part[:MAX_PER_EPOCH]
+            part = part[:cap]
         kept += sorted(part, key=lambda d: -(d["snr"] or 0.0))
     return {
         "zone": zone, "stage": stage, "zone_box": zone_box, "clock": clock,

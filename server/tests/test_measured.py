@@ -293,6 +293,20 @@ def test_dots_only_hours_extracted(extracted):
     json.dumps(m, allow_nan=False)
 
 
+def test_dots_only_cap_keeps_the_brightest_of_every_class(extracted, monkeypatch):
+    monkeypatch.setattr(M, "EXTRACTED_MAX_PER_EPOCH", 3)
+    meta = _hours_meta(KNOWN)
+    meta["gaia"] = GAIA
+    m, _ = M.build(meta, root=extracted)
+    assert m["truncated"] is True and sum(m["counts"].values()) == 15  # counts before the cap
+    first = [d for d in m["detections"] if d["epoch_id"] == "d2-OBS_1"]
+    assert [d["snr"] for d in first] == [300.0, 80.0, 50.0]  # the star stays; faint artefacts go
+    assert first[0]["class"] == "star"
+    monkeypatch.setattr(M, "EXTRACTED_MAX_PER_EPOCH", 400)
+    m, _ = M.build(meta, root=extracted)
+    assert m["truncated"] is False and len(m["detections"]) == 15
+
+
 def test_dots_only_months_merges_a_visit_within_2_arcsec(extracted):
     meta = _months_meta()
     meta["gaia"] = GAIA
