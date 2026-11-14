@@ -377,7 +377,39 @@ def test_merge_suspects_hunt_first_pilot_kept_no_repeats():
     assert [s["zones"] for s in m["suspects"]] == [["hunt", "pilot"], ["hunt"], ["pilot"]]
     assert [s["zone"] for s in m["suspects"]] == ["hunt", "hunt", "pilot"]
     assert bv.valid_suspects(m)  # still the contract's shape: two optional fields added
+    # ungraded files (no zone-level vetting fields): nothing added
+    assert not set(bv.ZONE_FIELDS) & set(m) and "vetting" not in m
     # a file that doesn't match the contract is skipped; nothing valid gives None
     bad = {"suspects": [{"id": "x"}]}
     assert bv.merge_suspects([("hunt", bad), ("pilot", pilot)])["zone"] == "pilot"
     assert bv.merge_suspects([("hunt", bad)]) is None
+
+
+def test_merge_suspects_keeps_each_zones_vetting():
+    """vetoes, provisional, grades, gates (contracts/api.md suspects.json, 14 Nov) survive the merge per zone, as the
+    zone's file has them: the headline zone's at the top level, every graded zone's under `vetting`."""
+    def graded(s, grade, reasons):
+        return {**s, "grade": grade, "reasons": reasons, "near_source_arcsec": None}
+
+    hunt_v = {"vetoes": ["mpc", "gaia", "catwise"], "provisional": False, "grades": {"A": 0, "B": 1, "C": 1},
+              "gates": {"edge": 1, "hot_pixel": 0}}
+    pilot_v = {"vetoes": ["mpc", "gaia"], "provisional": True, "grades": {"A": 0, "B": 1, "C": 0}, "gates": {}}
+    hunt = {"generated": "2026-11-15T01:00:00Z", "data_release": "DR1", "zone": "hunt", **hunt_v,
+            "suspects": [graded(_suspect("hunt-1-1", 121.0, 15.0, 60970.0), "B", []),
+                         graded(_suspect("hunt-2-2", 128.0, 22.0, 61140.0), "C", ["edge"])]}
+    pilot = {"generated": "2026-11-15T00:30:00Z", "data_release": "DR1", "zone": "pilot", **pilot_v,
+             "suspects": [graded(_suspect("pilot-3-3", 122.0, 16.0, 60971.0), "B", [])]}
+    m = bv.merge_suspects([("hunt", hunt), ("pilot", pilot)])
+    assert {k: m[k] for k in bv.ZONE_FIELDS} == hunt_v               # the headline zone's, as in a one-zone file
+    assert m["vetting"] == {"hunt": hunt_v, "pilot": pilot_v}
+    assert list(m) == ["generated", "data_release", "zone", *bv.ZONE_FIELDS, "zones", "vetting", "suspects"]
+    assert [(s["id"], s["grade"], s["reasons"]) for s in m["suspects"]] == [
+        ("hunt-1-1", "B", []), ("hunt-2-2", "C", ["edge"]), ("pilot-3-3", "B", [])]
+    assert bv.valid_suspects(m)
+    # an ungraded headline zone with a graded one after it: nothing at the top level, the graded zone in `vetting`
+    old = {k: v for k, v in hunt.items() if k not in bv.ZONE_FIELDS}
+    m2 = bv.merge_suspects([("hunt", old), ("pilot", pilot)])
+    assert not set(bv.ZONE_FIELDS) & set(m2) and m2["vetting"] == {"pilot": pilot_v}
+    # a partial file keeps what it has, nothing invented
+    m3 = bv.merge_suspects([("hunt", {**old, "provisional": True})])
+    assert m3["provisional"] is True and m3["vetting"] == {"hunt": {"provisional": True}} and "vetoes" not in m3
