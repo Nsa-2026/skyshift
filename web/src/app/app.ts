@@ -123,7 +123,8 @@ export function startApp(root: HTMLElement): void {
       sky.epoch(e.mjd_mid);
     },
   });
-  const card: CardHandle = mountCard($("#card"));
+  // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
+  const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
   const vote: VoteHandle = mountVote($("#vote"));
   const sky: SkyHandle = mountSky($("#sky"), {
     onClick(pos) {

@@ -19,6 +19,7 @@ import {
   isDetectedMotion,
   isUpperLimit,
   listDets,
+  measureReasonOf,
   measureSentence,
   measuredVisitCount,
   median,
@@ -61,7 +62,7 @@ interface Note {
   html: string;
 }
 
-export const mountCard: MountCard = (el) => {
+export const mountCard: MountCard = (el, opts = {}) => {
   const id = `cd${++uid}`;
   el.classList.add("cd");
   let shown: Shown | null = null;
@@ -205,10 +206,11 @@ export const mountCard: MountCard = (el) => {
     if (!m) {
       const kind = kindOf(s.view, object);
       const visits = visitCountFromFrames(s.frames, s.view, s.view.fov);
-      const why = noMeasureReason({ object, kind, visits, follows: framesFollow(s.frames) });
+      const why = noMeasureReason({ object, kind, visits, follows: framesFollow(s.frames), at: s.view });
       return html`<section class="cd-measure" aria-labelledby="${id}-m">
         <h3 class="visually-hidden" id="${id}-m">Shift between visits</h3>
-        <p class="cd-why">${why}</p>
+        <p class="cd-why">${esc(why)}</p>
+        ${movedAwayLink(s)}
         ${dl}${notesHtml(notes)}
       </section>`;
     }
@@ -229,6 +231,16 @@ export const mountCard: MountCard = (el) => {
       <p class="cd-says">${said}</p>
       ${dl}${notesHtml(notes)}
     </section>`;
+  }
+
+  /** "Open it where it is now": a star catalogued here that had moved away by SPHEREx's visits. */
+  function movedAwayLink(s: Shown): string {
+    const hint = s.object?.measure_hint ?? null;
+    if (measureReasonOf(s.object) !== "moved_away" || !hint || !Number.isFinite(hint.ra) || !Number.isFinite(hint.dec)) return "";
+    const v = s.view;
+    const q = new URLSearchParams({ ra: hint.ra.toFixed(5), dec: hint.dec.toFixed(5), clock: v.clock, fov: String(v.fov), det: String(v.det) });
+    // The sentence just above names the star; a button with a long Gaia id wouldn't fit a phone.
+    return html`<p><a class="btn btn-ghost cd-open" href="?${esc(q.toString())}#/explore" data-ra="${hint.ra}" data-dec="${hint.dec}">Open it where it is now</a></p>`;
   }
 
   /** A pencil arrow in the plate's orientation (north up, east left). */
@@ -419,6 +431,13 @@ export const mountCard: MountCard = (el) => {
 
   // ---- interaction ---------------------------------------------------------------------------
   function wire() {
+    el.querySelector<HTMLAnchorElement>(".cd-open")?.addEventListener("click", (ev) => {
+      // no app around it, or a new tab asked for: the link loads the page at the star
+      if (!opts.onExplore || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      const a = ev.currentTarget as HTMLAnchorElement;
+      opts.onExplore({ ra: Number(a.dataset.ra), dec: Number(a.dataset.dec) });
+    });
     el.querySelectorAll<HTMLButtonElement>(".cd-spec .cd-seg button").forEach((b) =>
       b.addEventListener("click", () => {
         const next = b.dataset.mode as SpectrumMode;
