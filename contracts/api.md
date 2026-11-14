@@ -1,7 +1,9 @@
 # contracts/api.md: endpoints, static twins, visits, Firestore (v2)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
-web/src/blink, web/src/vote (P4). Version 2, 14 Nov 2026.
+web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (v3: P1's answers to the P2 engine PR:
+`dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
+targets `dets`, `spectrum_reason`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -18,13 +20,14 @@ GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6
 → { clock, center:{ra,dec}, pixel_arcsec, size:[nx,ny],
     epochs:[{ id, kind:"visit"|"exposure", mjd_mid, mjd_start, mjd_end, det,
               um_min, um_max, n_exposures, flag_frac, sat_frac,
-              data_url, scale, zero }],
+              data_url, scale, zero, center? }],      # center: moving targets only
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
     known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"mpc"|"most"|"irsa-3i" }],
     data_release, archive_checked }
 GET /api/object?ra=&dec=
 → { name|null, gaia|null, known_ucd|null,
     spectrum:[{ um, flux_ujy, err_ujy, det, mjd, visit, saturated }],
+    spectrum_reason?,                                # why spectrum is empty, else null
     measure:{ shift_arcsec, pa_deg, dt_yr, rate_arcsec_yr, sigma_arcsec,
               n_ref_stars, predicted_arcsec|null } }
 GET /api/gaia?ra=&dec=&r=
@@ -33,6 +36,7 @@ GET /api/resolve?q=        # any coordinate format, or a built-in name
 
 # static twins, same shapes
 /data/<slug>/frames.json   /data/<slug>/object.json
+/data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
 /data/validation.json      /data/suspects.json
 
 # frames are data, not pictures
@@ -85,9 +89,21 @@ Blink frames for one spot on one clock and one detector.
 | param | type | default | meaning |
 |---|---|---|---|
 | ra, dec | float, deg | required | Centre |
-| clock | `months` / `hours` | `months` | `months`: one median stack per visit. `hours`: single exposures in time order |
+| clock | `months` / `hours` | `months` | `months`: one median stack per visit. `hours`: single exposures of one visit in time order |
 | fov | arcmin | 5 (months), 20 (hours) | Allowed: months 5 or 15; hours 20 or 60. Sampling as in the summary |
 | det | 1–6 | 2 (**proposal**) | Detector |
+
+**Live caps.** A cold `/api/frames` call must fit in Cloud Run's 60 s, so the live API uses fewer
+exposures than the static files. The static twins (scripts/precompute) use all of them.
+
+| clock | live `/api/frames` | static `/data/<slug>/` |
+|---|---|---|
+| months | at most **6 exposures per visit** in each stack, spread evenly over the visit (first and last included) | every exposure of the visit |
+| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions with 2 or more exposures preferred) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
+
+The hours clock shows one visit: the one with the most exposures of that detector (the latest on
+a tie). `n_exposures` always reports the exposures really in the frame: a capped months stack of
+a 19-exposure visit says 6; an hours frame says 1.
 
 Response fields:
 
@@ -104,10 +120,11 @@ Response fields:
 | epochs[].mjd_start, mjd_end | Visit: MJD-AVG of its first and last exposure. Exposure: MJD-BEG and MJD-END |
 | epochs[].det | Detector 1–6. Never blink different detectors as motion |
 | epochs[].um_min, um_max | Wavelength range seen by the frame's pixels, from WCS-WAVE |
-| epochs[].n_exposures | Exposures in the stack (1 for an exposure) |
+| epochs[].n_exposures | Exposures really in the stack, after the live cap (1 for an exposure) |
 | epochs[].flag_frac | Share of frame pixels hit by a mask bit (contracts/flags.md), 0–1 |
 | epochs[].sat_frac | Share of frame pixels with OVERFLOW or NONLINEAR, 0–1 |
 | epochs[].data_url, scale, zero | The frame data, see below |
+| epochs[].center | **Optional**, moving targets only (e.g. 3I/ATLAS): `{ra, dec}` of this epoch's own frame centre, when the frames follow the object. The frame's centre pixel and its tangent plane are at this position instead of the top-level `center`. Absent for fixed fields |
 | gaia | Gaia DR3 stars in the frame at epoch J2016.0 (MJD 57388.5). The browser moves each one to an epoch's `mjd_mid` with `pmra`, `pmdec`. `parallax` and `g` may be null |
 | known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null. `source`: `skybot` (IMCCE SkyBoT, from the Earth's centre), `mpc` (Minor Planet Center orbits propagated with kete, from SPHEREx's own position when the photo header gives it), `most` (IRSA MOST), `irsa-3i` (IRSA's 3I/ATLAS photo list) |
 | data_release | Collections searched, e.g. `"DR1+QR3"` |
@@ -141,10 +158,11 @@ The object nearest a position (search radius 6″).
 | name | Built-in name or Gaia/known name, else null |
 | gaia | One entry shaped like `frames.gaia[]`, or null. The card shows Gaia's distance (1000 / parallax pc) |
 | known_ucd | Known ultracool dwarf, or null. **Proposal:** `{ name, spt, ref }` |
-| spectrum[] | Sorted by `um`. `flux_ujy`, `err_ujy` in µJy; `det` 1–6; `mjd` = the exposure's MJD-AVG; `visit` = visit number; `saturated` = OVERFLOW or NONLINEAR in the core |
-| measure | Motion between the first and last visit stack, or null with fewer than two visits |
+| spectrum[] | Sorted by `um`. `flux_ujy`, `err_ujy` in µJy; `det` 1–6; `mjd` = the exposure's MJD-AVG; `visit` = visit number; `saturated` = OVERFLOW or NONLINEAR in the core. An exposure whose aperture or background annulus has no good pixels gives no point (no lower limits) |
+| spectrum_reason | **Optional.** Why `spectrum` is empty: `"saturated"` (a star saturated so deeply that no exposure had a usable aperture and background annulus, e.g. R Draconis) or `"no_data"`; `null` when there are points. Files without it: read as `null` |
+| measure | Motion between the first and last visit stack, or null with fewer than two visits. The detector is the one with the best unsaturated signal, limited to the target's `dets` when targets.json gives them (below) |
 | measure.shift_arcsec, pa_deg | Size and direction of the shift; position angle east of north |
-| measure.dt_yr | Time between the two visits' `mjd_mid`, years |
+| measure.dt_yr | Time between the **median exposure times** (MJD-AVG) of the two visit stacks, years. Not `mjd_mid`: a per-pixel median of a slowly moving star sits where the star was at the median time (Barnard's Star, visit 3: `mjd_mid` is 14.6 days, 0.41″, after the median) |
 | measure.rate_arcsec_yr | shift_arcsec / dt_yr |
 | measure.sigma_arcsec | 1σ error of the shift (V3): the 2-D RMS of the reference stars' residual shifts, after the median frame-to-frame offset is removed. 3 × sigma is the slowest motion we can see |
 | measure.n_ref_stars | Quiet Gaia stars used (G 13–17, motion under 20 mas/yr) |
@@ -171,12 +189,34 @@ for an unknown name.
 
 | path | written by | shape |
 |---|---|---|
-| `/data/<slug>/frames.json` + frame files | scripts/precompute (P2) | `GET /api/frames` for the target's own clock and field. **Proposal:** it may hold epochs for several detectors; the client filters by `det` |
+| `/data/<slug>/frames_<clock>_<fov>.json` + frame files | scripts/precompute (P2) | `GET /api/frames` for one clock and field (e.g. `frames_hours_20.json`), with the epochs of **several detectors** in one file, sorted by `mjd_mid` then `det`; the client filters by `det`. Frame files: `frames/<c><fov>_d<det>_v<visit>.bin` (months), `frames/<c><fov>_d<det>_<obs_id>.bin` (hours) |
+| `/data/<slug>/frames.json` | scripts/precompute (P2) | A byte-for-byte copy of the target's own set, the file named by `index.json` `own` |
+| `/data/<slug>/index.json` | scripts/precompute (P2) | Which sets exist, below |
 | `/data/<slug>/object.json` | scripts/precompute (P2) | `GET /api/object` |
 | `/data/validation.json` | scripts/validate (P1) | below |
 | `/data/suspects.json` | pipeline export (P1) | below |
 
 In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data/`.
+
+### index.json
+
+```
+{ slug, name, center:{ra,dec}, own, follows_object?,
+  frames:[{ file, clock, fov, dets:[det…], epochs, bytes }] }
+```
+
+`own` is the set copied to `frames.json`. `frames[]` lists every `frames_<clock>_<fov>.json` in
+the folder, sorted by `file`: `dets` the detectors in it, `epochs` its number of epochs (all
+detectors), `bytes` the JSON plus its frame files. `follows_object` (moving targets only) is true
+when the frames follow the object, each epoch with its own `center`.
+
+### targets.json: `dets` (optional)
+
+A featured target may carry `dets: [det…]`, the detectors in which it can be measured (WISE
+0855−0714, a 250 K brown dwarf invisible short of 3 µm: `[5, 6]`). `/api/object` then picks the
+`measure` detector among these only. Absent: the server's own list (`obj.MEASURE_DETECTORS`),
+else any detector. The server reads the targets from `scripts/validate/data/targets.json`
+(`SKYSHIFT_TARGETS` overrides it); `web/src/data/targets.json` may carry the same field.
 
 ### validation.json (proposal)
 
