@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("Tools page", () => {
-  it("renders the five sections with deep links, and reads only static files on load", async () => {
+  it("renders the six sections with deep links, and reads only static files on load", async () => {
     setup({ candidates: true });
     await flush();
     await flush();

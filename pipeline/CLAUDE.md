@@ -11,14 +11,21 @@ Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, q
 fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
 - fragments (fragments.py, after crossid; tiled `all`: once on the merged tables after merge 2, before highpm, the dot
   files' flags from the slim mirror): from stored tables only (members → the dot files' `flags`/`flags_peak`, sources,
-  fixed, crossids, refcat) tags each source `bright_fragment` (BLOOM on > 50% of its member dots, no Gaia/2MASS within
-  3″ of its spectrum or link position: a piece of a saturated star's ring), `saturated_star` (the same with a match),
-  `blend` (≥ 2 Gaia G < 18 within 8″), else "". Fragments carry their parent (brightest Gaia G < 12 within 60″, and that
-  star's own source); blends both Gaia ids, separation and ΔG → results/<zone>/fragments.parquet + fragments.json.
-  Consumers, each unchanged without the file: highpm (fragment → reason `fragment`, blend → status gaia), orphans
-  (drops both), shape (drops fragments), candidates.py (fragments never listed, blend → reason `blend`), server
-  measured.py. Rerun after it: highpm, orphans, shape, candidates. Hunt (14 Nov): 2,234 / 759 / 7,126 of 303,045
-  sources; 2,226 fragments have a parent (747 stars), 2,031 the parent's own source; ~45 s locally.
+  fixed, crossids, refcat) tags each source, first that applies: `bright_fragment` (BLOOM on > 50% of its member dots,
+  no Gaia/2MASS within 3″ of its spectrum or link position and not a Gaia star's kept source: a piece of a saturated
+  star's ring), `duplicate` (a second source of one Gaia star, `duplicate_of` its kept source), `saturated_star` (BLOOM
+  majority and a match or a star's kept source), `blend` (≥ 2 Gaia G < 19 within 8″), else "". Which source is which
+  star: each source's home is its nearest Gaia star within 6″ (G < 11), 4″ (G < 18) or 3″; a star keeps crossid's match,
+  else the most member dots (within 6″ / 3″), else the nearest (beyond 3″ at G ≥ 11 only with ≥ 10 member dots); its
+  other home sources within 6″ / 3″ are duplicates unless the star moved > 1″ between them, they have their own
+  catalogue entry, or another Gaia star there has no source. Fragments and duplicates carry their parent (a fragment's
+  brightest Gaia G < 12 within 60″; a duplicate's star) and that star's own source; blends both Gaia ids, separation and
+  ΔG → results/<zone>/fragments.parquet + fragments.json. Consumers, each unchanged without the file: highpm (fragment or
+  duplicate → reason `fragment`, blend → status gaia), orphans (drops all three), shape (drops fragments and
+  duplicates), candidates.py (fragments and duplicates never listed, blend → reason `blend`), server measured.py
+  (duplicate drawn as its star's bright_fragment). Rerun after it: highpm, orphans, shape, candidates. Hunt (15 Nov,
+  14 Nov tables): 3,537 bright_fragment / 223 duplicate / 363 saturated_star / 13,224 blend of 314,467 sources; Gaia
+  stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s).
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
