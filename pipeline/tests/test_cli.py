@@ -1,4 +1,4 @@
-"""End to end on a local root: synthetic photo list, dot files and SkyBoT cache -> link, score, suspects."""
+"""End to end on a local root: synthetic photo list, dot files and known (MPC) cache -> link, score, suspects."""
 
 import json
 
@@ -52,10 +52,14 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
         store.write_parquet(dots_rel(p.obs_id, 1), dots_df(p.obs_id, 1, p.mjd, pts))
     for _, g in photos.groupby("session"):
         objs = {k: [] for k in OBJ_KEYS}
+        per_photo = {"obs_id": [], "detector": [], "name": [], "ra": [], "dec": []}
         if int(g["obs_id"].iloc[0][1]) == 2:
             for k, v in zip(OBJ_KEYS, ["Known", 1234, KNOWN[0], KNOWN[1], 15.2, 0.0, 0.0, "MB"]):
                 objs[k].append(v)
-        store.write_json(run_rel(zone, g), {"mjd": float(g["mjd"].iloc[0]), "objects": objs})
+            for p in g.itertuples():
+                for k, v in zip(per_photo, [p.obs_id, 1, "Known", KNOWN[0], KNOWN[1]]):
+                    per_photo[k].append(v)
+        store.write_json(run_rel(zone, g), {"mjd": float(g["mjd"].iloc[0]), "objects": objs, "per_photo": per_photo})
 
     monkeypatch.setattr(S, "gaia_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
     monkeypatch.setattr(S, "catwise_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))

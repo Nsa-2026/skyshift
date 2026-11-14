@@ -11,7 +11,6 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 CUTOUT = REPO / "fixtures" / "fits" / "cutout_2025W18_1B_0074_2D1.fits"
-SKYBOT_SAMPLE = REPO / "fixtures" / "pipeline" / "skybot_conesearch_sample.json"
 
 T0 = 61000.0
 SESSION_STEP = 0.3        # days between sessions

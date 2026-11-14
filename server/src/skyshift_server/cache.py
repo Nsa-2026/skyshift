@@ -19,7 +19,14 @@ class Cache:
             from google.cloud import storage  # imported only when used
 
             name, _, prefix = self.root[5:].partition("/")
-            self._bucket = storage.Client().bucket(name)
+            client = storage.Client()
+            try:  # many threads share the client: keep more than requests' default 10 connections
+                import requests
+
+                client._http.mount("https://", requests.adapters.HTTPAdapter(pool_connections=64, pool_maxsize=64))
+            except Exception:  # noqa: BLE001 - a private attribute; the default pool works too
+                pass
+            self._bucket = client.bucket(name)
             self._prefix = prefix.strip("/")
 
     def _blob(self, key: str):
@@ -27,8 +34,12 @@ class Cache:
 
     def get(self, key: str) -> bytes | None:
         if self._bucket is not None:
-            b = self._blob(key)
-            return b.download_as_bytes() if b.exists() else None
+            from google.api_core.exceptions import NotFound
+
+            try:  # one round trip (exists() + download was two)
+                return self._blob(key).download_as_bytes()
+            except NotFound:
+                return None
         p = Path(self.root) / key
         return p.read_bytes() if p.exists() else None
 

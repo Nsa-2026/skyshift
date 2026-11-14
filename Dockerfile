@@ -30,4 +30,7 @@ RUN useradd --create-home --uid 10001 app && chown -R app /app
 USER app
 
 WORKDIR /app/server
-CMD ["sh", "-c", "exec /app/server/.venv/bin/uvicorn skyshift_server.app:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]
+# Two worker processes: Python runs one thread at a time per process, so one process used about
+# one of the two vCPUs (a frames build's stacking took 12 s instead of 0.3 s next to three object
+# builds, 14 Nov). WEB_CONCURRENCY overrides it.
+CMD ["sh", "-c", "exec /app/server/.venv/bin/uvicorn skyshift_server.app:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-2} --proxy-headers --forwarded-allow-ips='*'"]
