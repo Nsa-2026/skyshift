@@ -79,7 +79,7 @@ MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.j
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<YYYY-MM-DD>.parquet: one dated snapshot, used by every machine
 MPC_V_MAX = 21.0                     # keep objects brighter than this (score uses V < 16 to 18)
 MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
-MPC_HEADER_WORKERS = 8               # parallel IMAGE header reads (SPHEREx position, one per exposure)
+MPC_HEADER_WORKERS = 32              # parallel IMAGE header reads (one per exposure; ~1 s each, I/O bound)
 MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
 MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly
 
