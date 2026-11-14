@@ -85,7 +85,7 @@ describe("blink player", () => {
     expect(label()).toContain("All wavelengths");
     expect(label()).toContain("2 of 6 detectors");
     // The app hears of a real epoch, never the combined one.
-    expect(onEpoch).toHaveBeenLastCalledWith({ id: "d2-v1", mjd_mid: 60908, det: 2 });
+    expect(onEpoch).toHaveBeenLastCalledWith(expect.objectContaining({ id: "d2-v1", mjd_mid: 60908, det: 2 }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     expect(label()).toContain("1 of 6 detectors");
@@ -100,12 +100,12 @@ describe("blink player", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     expect(sub()).toBe("visit 1 of 3");
-    expect(onEpoch).toHaveBeenLastCalledWith({ id: "d2-v1", mjd_mid: 60908, det: 2 });
+    expect(onEpoch).toHaveBeenLastCalledWith(expect.objectContaining({ id: "d2-v1", mjd_mid: 60908, det: 2 }));
     expect(el.querySelector(".bk")!.getAttribute("data-ready")).toBe("true");
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     expect(sub()).toBe("visit 2 of 3");
-    expect(onEpoch).toHaveBeenLastCalledWith({ id: "d2-v2", mjd_mid: 61090, det: 2 });
+    expect(onEpoch).toHaveBeenLastCalledWith(expect.objectContaining({ id: "d2-v2", mjd_mid: 61090, det: 2 }));
     expect(el.querySelector(".bk-nowl")!.textContent).toMatch(/2026/);
 
     el.querySelector<HTMLButtonElement>("button[data-mode='difference']")!.click();
@@ -196,6 +196,79 @@ describe("blink player", () => {
     // A static file holds every detector prepared: the others stay off there.
     await h.show(view, frames, "https://example.test/data/x/frames.json");
     expect(el.querySelector<HTMLButtonElement>("[data-det='6']")!.disabled).toBe(true);
+    h.destroy();
+  });
+
+  it("keeps practice on one detector and restores the normal wavelength preference afterwards", async () => {
+    const onEpoch = vi.fn();
+    const h = mountBlink(el, { onViewChange:vi.fn(), onPick:vi.fn(), onEpoch });
+    const url = "https://example.test/practice-lock/frames.json";
+    await h.show(view,frames,url,{singleDetector:true});
+    const all = el.querySelector<HTMLButtonElement>("[data-det='all']")!;
+    expect(all.disabled).toBe(true);
+    expect(all.getAttribute('aria-pressed')).toBe('false');
+    expect(el.querySelector("[data-det='2']")!.getAttribute('aria-pressed')).toBe('true');
+    expect(onEpoch.mock.lastCall![0].presentation).toEqual({
+      mode:'single-detector',detectors:[2],units:'MJy/sr',
+      members:[{id:'d2-v1',det:2,mjd_mid:60908,data_url:'https://example.test/practice-lock/frames/d2-v1.bin'}],
+    });
+    expect(vi.mocked(fetch).mock.calls.every(([u])=>String(u).includes('/practice-lock/frames/d2-'))).toBe(true);
+    // A route change can release the lock using cached frames, without an app-level fetch.
+    h.singleDetector?.(false);
+    await vi.waitFor(()=>expect(onEpoch.mock.lastCall![0].presentation.mode).toBe('all-wavelengths'));
+    expect(all.disabled).toBe(false);
+    expect(all.getAttribute('aria-pressed')).toBe('true');
+    expect(onEpoch.mock.lastCall![0].presentation.detectors).toEqual([2,5]);
+    // A person's single-detector preference survives a later temporary lock as well.
+    el.querySelector<HTMLButtonElement>("[data-det='2']")!.click();
+    await vi.waitFor(()=>expect(onEpoch.mock.lastCall![0].presentation.mode).toBe('single-detector'));
+    await h.show(view,frames,url,{singleDetector:true});
+    await h.show(view,frames,url);
+    expect(all.disabled).toBe(false);
+    expect(all.getAttribute('aria-pressed')).toBe('false');
+    h.destroy();
+  });
+
+  it("reports only the successfully loaded constituents of a noise-normalized composite", async () => {
+    const onEpoch = vi.fn();
+    const full = {...frames,epochs:([1,2,3,4,5,6] as Det[]).map(d=>epoch(`d${d}-v1`,d,60908))};
+    vi.mocked(fetch).mockImplementation(async u=>String(u).endsWith('/d2-v1.bin')
+      ?new Response('',{status:503}):new Response(new Uint16Array(N*N).fill(1000).buffer));
+    const h = mountBlink(el,{onViewChange:vi.fn(),onPick:vi.fn(),onEpoch});
+    await h.show(view,full,'https://example.test/partial-composite/frames.json');
+    const shown = onEpoch.mock.lastCall![0];
+    expect(shown).toMatchObject({id:'d1-v1',det:1,presentation:{mode:'all-wavelengths',detectors:[1,3,4,5,6],units:'sky-noise'}});
+    expect(shown.presentation.members).toHaveLength(5);
+    expect(shown.presentation.members.every((m:{det:Det;data_url:string})=>m.det!==2&&m.data_url.startsWith('https://example.test/partial-composite/frames/'))).toBe(true);
+    h.destroy();
+  });
+
+  it("does not let pending raw detector requests enter a locked derived plate on the same grid", async () => {
+    let release!:()=>void;
+    const pending = new Promise<void>(resolve=>{release=resolve});
+    vi.mocked(fetch).mockImplementation(async input=>{
+      const text = String(input);
+      if(text.includes('/api/frames?')){
+        await pending;
+        const det=Number(new URL(text,'https://example.test').searchParams.get('det')) as Det;
+        return new Response(JSON.stringify({...frames,epochs:frames.epochs.filter(e=>e.det===2).map(e=>({...e,id:`live-${det}-${e.id}`,det}))}),{headers:{'Content-Type':'application/json'}});
+      }
+      return new Response(new Uint16Array(N*N).fill(1000).buffer);
+    });
+    const onEpoch = vi.fn();
+    const h = mountBlink(el,{onViewChange:vi.fn(),onPick:vi.fn(),onEpoch});
+    const one = {...frames,epochs:frames.epochs.filter(e=>e.det===2)};
+    await h.show(view,one,'https://example.test/pending-raw/frames.json');
+    const apiCalls = ()=>vi.mocked(fetch).mock.calls.filter(([u])=>String(u).includes('/api/frames?')).length;
+    expect(apiCalls()).toBe(5);
+    await h.show(view,one,'https://example.test/derived-locked/frames.json',{singleDetector:true});
+    const events = onEpoch.mock.calls.length;
+    release();
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(apiCalls()).toBe(5);
+    expect(onEpoch).toHaveBeenCalledTimes(events);
+    expect(onEpoch.mock.lastCall![0].presentation).toMatchObject({mode:'single-detector',detectors:[2],units:'MJy/sr'});
+    expect(onEpoch.mock.lastCall![0].presentation.members[0].data_url).toContain('/derived-locked/');
     h.destroy();
   });
 });

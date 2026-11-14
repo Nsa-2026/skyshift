@@ -5,19 +5,20 @@ scientific features, and release status.
 
 **Branch:** `codex/science-production-integration`
 
-**Latest local checks:** 1,656 tests passed; eight optional tests skipped; production build passed.
+**Latest local checks:** 1,996 tests passed; eight optional tests skipped; production build passed.
 See [branch CI](https://github.com/cucuradu/skyshift/actions?query=branch%3Acodex%2Fscience-production-integration)
 for remote checks of each pushed commit.
 
-**Status, 14 November 2026:** source pushed and CI passed. Integrated into `main` through
-`p3/workspace-into-main` (home stays the Sky globe; hosted background jobs stay off). The public
-site at [skyshift.web.app](https://skyshift.web.app/) changes only with the team's next deploy.
+**Status, 14 November 2026:** the sky map and three-area workspace are integrated into
+`main`. This branch is aligned through `86f5bf0` and adds frontend compatibility fixes.
+The inspected public frontend still uses the earlier global navigation; a source push
+does not publish Hosting. See the [main/API alignment record](docs/main-alignment.md).
 
 ## What this integration adds
 
 SkyShift connects real NASA SPHEREx observations with tools for watching changes,
 measuring evidence, and inspecting how results were produced. This branch incorporates
-upstream `main` through `3cfc1c8`, including measured image overlays, candidate vetting,
+upstream `main` through `86f5bf0`, including measured image overlays, candidate vetting,
 and MCP support, alongside the integrated scientific products.
 
 The website opens on a large, interactive **sky map**, with no area preselected.
@@ -49,6 +50,11 @@ freely accessible, and guided practice remains an optional Explore activity.
 | Research | Data & methods, Live search, Results, Tools & API |
 
 The observation tools inside Watch, Measurements, and Data & methods share one player.
+Ordinary observations retain main's **All wavelengths** display and optional colour
+filters. Practice and derived model/residual/reference images use one detector, with
+filters off, so the displayed data match the task and source label. Leaving practice
+restores the previous ordinary display preference. Research records the actual loaded
+constituents, detector coverage and sky-noise units of a combined display.
 
 | View | Purpose | Route |
 | --- | --- | --- |
@@ -177,15 +183,15 @@ require Firebase authentication.
 
 ## Validation
 
-The sky-entry revision passed **1,656 tests locally**, with eight optional skips:
+The main-alignment revision passed **1,996 tests locally**, with eight optional skips:
 
 | Suite | Passed |
 | --- | ---: |
-| Web | 855 |
-| Server | 312 |
+| Web | 1,089 |
+| Server | 371 |
 | Core | 61 |
-| Pipeline | 292 |
-| MCP | 77 |
+| Pipeline | 328 |
+| MCP | 88 |
 | Scientific helpers | 19 |
 | Validation utilities | 40 |
 
@@ -202,6 +208,10 @@ area selection for legacy links, and returning to a filtered candidate list.
 The sky-entry checks additionally cover the neutral root, saved map return, selected
 target/point handoff, precise-coordinate history and degree/arcminute field handling.
 The sky map fits desktop, 390px and 320px widths without horizontal overflow.
+Latest checks also verified single-detector practice/derived images, restoration of
+All wavelengths, exact navigation highlights, per-detector diagnostic links, and
+graceful fallback when a derived product is unavailable. Production checks verified
+31 static JSON products, two full image binaries and selected science/error APIs.
 
 To run the checks:
 

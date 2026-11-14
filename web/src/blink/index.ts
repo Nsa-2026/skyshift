@@ -382,12 +382,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let shifts: { dx: number; dy: number }[] | null = null;
   /** All wavelengths (the default): every detector of one moment combined. Off: `view.det` alone. */
   let allWave = true;
+  /** Practice and derived products can require a single detector without changing the user's raw-view preference. */
+  let preferredAllWave = true;
+  let singleDetector = false;
   /** The response as the app handed it (one or all detectors), its URL, and the combined moments. */
   let rawF: FramesResponse | null = null;
   let rawUrl = "";
   let waveGroups = new Map<string, WaveGroup>();
   /** Detectors really combined into each moment (a frame that failed to load drops out). */
   let waveLoaded = new Map<string, number>();
+  let waveMembers = new Map<string, { epoch: Epoch; url: string }[]>();
   /** Live answers come one detector at a time: the others for this field, fetched in the background. */
   let liveDets: { key: string; got: Map<Det, { resp: FramesResponse; url: string }>; pending: boolean } = {
     key: "",
@@ -1319,6 +1323,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     $$<HTMLButtonElement>("[data-det]").forEach((b) => {
       if (b.dataset.det === "all") {
         b.setAttribute("aria-pressed", String(allWave));
+        b.disabled = singleDetector;
         return;
       }
       const d = Number(b.dataset.det) as Det;
@@ -1611,12 +1616,22 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const shownE = cur()?.epoch;
     if (!shownE) return;
     const e = memberEpoch(shownE);
-    opts.onEpoch?.({ id: e.id, mjd_mid: shownE.mjd_mid, det: e.det });
+    const members = waveMembers.get(shownE.id) ?? [{ epoch: e, url: jsonUrl }];
+    opts.onEpoch?.({
+      id: e.id, mjd_mid: shownE.mjd_mid, det: e.det,
+      presentation: {
+        mode: waveGroups.has(shownE.id) ? "all-wavelengths" : "single-detector",
+        detectors: [...new Set(members.map(m => m.epoch.det))].sort() as Det[],
+        units: waveGroups.has(shownE.id) ? "sky-noise" : "MJy/sr",
+        members: members.map(m => ({id:m.epoch.id,det:m.epoch.det,mjd_mid:m.epoch.mjd_mid,data_url:new URL(m.epoch.data_url,m.url).href})),
+      },
+    });
   }
   /** The real epoch behind a combined one: the chosen detector's, else the first. */
   function memberEpoch(e: Epoch): Epoch {
     const g = waveGroups.get(e.id);
-    return g?.members.find((m) => m.det === view?.det) ?? g?.members[0] ?? e;
+    const members = waveMembers.get(e.id)?.map(m => m.epoch) ?? g?.members;
+    return members?.find((m) => m.det === view?.det) ?? members?.[0] ?? e;
   }
   function setPlaying(on: boolean) {
     playing = on && frames.length > 1 && !allAtOnce() && !busy;
@@ -1766,6 +1781,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   // ---- loading -----------------------------------------------------------------------------
+  function setSingleDetector(locked: boolean): boolean {
+    const before = allWave;
+    singleDetector = locked;
+    allWave = !locked && preferredAllWave;
+    // A raw response fetched earlier must not contribute to a derived product on the same sky grid.
+    if (locked) liveDets = { key: "", got: new Map(), pending: false };
+    return before !== allWave;
+  }
+
   async function load(next: View, resp: FramesResponse, url: string): Promise<void> {
     const gen = ++loadCtl;
     const wasPlaying = playing || firstShow;
@@ -1785,7 +1809,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const wave = allWave ? waveOf(next, resp, url) : null;
     F = wave?.F ?? resp;
     waveGroups = new Map((wave?.groups ?? []).map((g) => [g.epoch.id, g]));
-    waveLoaded = new Map();
+    const loadedCounts = new Map<string, number>();
+    const loadedMembers = new Map<string, { epoch: Epoch; url: string }[]>();
+    waveLoaded = loadedCounts;
+    waveMembers = loadedMembers;
     jsonUrl = url;
     if (allWave) fetchOtherDets(next, resp);
     appStatus = null;
@@ -1822,17 +1849,19 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     /** One moment of all wavelengths: each detector's frame in units of its own noise, summed. */
     const combined = async (g: WaveGroup): Promise<Float32Array> => {
       const got = await Promise.allSettled(
-        g.members.map(async (m): Promise<WavePart> => {
-          const v = toMJySr(await cachedFrame(m, wave!.urlOf.get(m.id) ?? url), m);
+        g.members.map(async (m): Promise<WavePart & { epoch: Epoch; url: string }> => {
+          const memberUrl = wave!.urlOf.get(m.id) ?? url;
+          const v = toMJySr(await cachedFrame(m, memberUrl), m);
           if (v.length !== gx * gy) throw new Error(`frame ${m.id} has the wrong size`);
           const sky = median(v);
           const sigma = robustSigma([v], 40_000);
-          return { vals: v, burnt: burntCores(v, gx, gy, sky, sigma), sky, sigma };
+          return { vals: v, burnt: burntCores(v, gx, gy, sky, sigma), sky, sigma, epoch:m, url:memberUrl };
         }),
       );
       const parts = got.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
       if (!parts.length) throw new Error(`no frame of ${g.epoch.id} loaded`);
-      waveLoaded.set(g.epoch.id, parts.length);
+      loadedCounts.set(g.epoch.id, parts.length);
+      loadedMembers.set(g.epoch.id, parts.map(p => ({epoch:p.epoch,url:p.url})));
       return combineFrames(parts);
     };
     const results = await pool(
@@ -1941,6 +1970,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     } else if (d.det) {
       // "All" combines every detector; a detector button shows that one alone, as a filter.
       const all = d.det === "all";
+      if (all && singleDetector) return;
+      if (!singleDetector) preferredAllWave = all;
       if (all !== allWave) {
         allWave = all;
         if (rawF && (all || Number(d.det) === view.det)) void load(view, rawF, rawUrl);
@@ -1949,6 +1980,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       else renderRow();
     } else if (d.gotoDet) {
       allWave = false;
+      if (!singleDetector) preferredAllWave = false;
       opts.onViewChange({ det: Number(d.gotoDet) as Det });
     }
     else if (d.retry !== undefined && (rawF ?? F)) void load(view, (rawF ?? F)!, jsonUrl);
@@ -2214,8 +2246,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   renderControls();
 
   return {
-    async show(next, resp, url) {
+    async show(next, resp, url, options) {
+      setSingleDetector(options?.singleDetector ?? false);
       await load(next, resp, url);
+    },
+    singleDetector(locked) {
+      if (setSingleDetector(locked) && view && rawF) void load(view, rawF, rawUrl);
+      else renderRow();
     },
     status(kind, message) {
       appStatus =

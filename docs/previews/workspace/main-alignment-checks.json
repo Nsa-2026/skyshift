@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-14",
+  "main_incorporated": "86f5bf0",
+  "production_frontend_asset_observed": "/assets/index-WzvrJJsY.js",
+  "production_checks": {
+    "static_json_files_matching_main": 31,
+    "barnard_months_binary_bytes": 42632,
+    "elpis_hours_binary_bytes": 76050,
+    "binary_lengths_and_content_match": true,
+    "science_api": 200,
+    "barnard_d2_analysis": 200,
+    "barnard_d6_analysis": 404,
+    "invalid_frame_coordinates": 400,
+    "featured_name_resolution": 200,
+    "analysis_jobs": false,
+    "actual_live_progress_feed": "valid JSON"
+  },
+  "browser_checks": {
+    "production_api_used_by_frontend_preview": true,
+    "three_area_and_feature_active_states": true,
+    "no_horizontal_overflow_at_390_and_320px": true,
+    "research_records_all_loaded_detectors_and_sky_noise_units": true,
+    "derived_images_lock_all_wavelengths_off": true,
+    "practice_locks_all_wavelengths_off": true,
+    "normal_all_wavelength_preference_restored_after_practice": true,
+    "colour_filters_hidden_for_practice_and_derived_images": true,
+    "unsupported_elpis_model_falls_back_to_original_observations_with_message": true
+  },
+  "local_tests_passed": {
+    "web": 1089,
+    "server": 371,
+    "core": 61,
+    "pipeline": 328,
+    "mcp": 88,
+    "science": 19,
+    "validation": 40
+  },
+  "optional_tests_skipped": 8,
+  "typescript": "passed",
+  "production_build": "passed",
+  "production_deployment": "not_performed"
+}

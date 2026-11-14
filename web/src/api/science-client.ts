@@ -1,7 +1,7 @@
 // Science workspace data (contracts/api.md, "Science workspace"). Static first: the five featured
 // fields' prepared products live in /science-data/<slug>/; anything else asks /api/*, which
 // answers or says why not.
-import {getJson as json,loadFrames as loadRawFrames} from './client';
+import {getJson as json,getReal,loadFrames as loadRawFrames} from './client';
 import type {Det,Clock} from './types';
 export type Target = {slug:string;name:string;ra:number;dec:number;default_det:number;n_frames:number;n_visits:number;clock?:string;fov?:number;published?:boolean};
 export type Epoch = {id:string;det:number;kind:string;center?:{ra:number;dec:number};mjd_mid:number;mjd_start:number|null;mjd_end:number|null;n_exposures:number;data_url:string;scale:number;zero:number;flag_frac:number|null;sat_frac:number|null};
@@ -21,8 +21,8 @@ export async function loadFrames(target:Target,det:number,clock:string,signal:Ab
    data=result.frames as Frames;base=result.jsonUrl;
  }else{
    base=new URL(`/science-data/${target.slug}/${view}.json`,location.href).href;
-   if(hasScience(target.slug)&&fov===5){try{const result=await json<Frames>(base,signal);if(result.clock===clock&&result.epochs.some(e=>e.det===det))data=result}catch(e){if(signal.aborted)throw e}}
-   if(!data){base=new URL(`/api/frames?ra=${target.ra}&dec=${target.dec}&clock=${clock}&det=${det}&view=${view}&fov=${fov}`,location.href).href;data=await json<Frames>(base,signal)}
+   if(hasScience(target.slug)&&fov===5){try{const result=await getReal<Frames>(base,signal);if(result.clock===clock&&result.epochs.some(e=>e.det===det))data=result}catch(e){if(signal.aborted)throw e}}
+   if(!data){base=new URL(`/api/frames?ra=${target.ra}&dec=${target.dec}&clock=${clock}&det=${det}&view=${view}&fov=${fov}`,location.href).href;data=await getReal<Frames>(base,signal)}
  }
  return {data,jsonUrl:base};
 }

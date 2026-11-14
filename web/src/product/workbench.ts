@@ -1,6 +1,7 @@
 import './workbench.css';
 import type {Epoch, FramesResponse, ObjectResponse} from '../api/types';
-import type {CardHandle, View} from '../app/modules';
+import type {BlinkPresentation, CardHandle, View} from '../app/modules';
+import {ApiFailure} from '../api/client';
 import {json, loadAnalysis, hasScience, type Target, type Candidate} from '../api/science-client';
 import {mountScience} from '../card/science';
 import {mountComparison} from './comparison';
@@ -51,6 +52,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
   const comparison=mountComparison($('.wb-comparison'));
   let state:WorkspaceState={mode:'explore',tab:''}, view:View|undefined;
   let object:ObjectResponse|null=null, epoch:Epoch|undefined;
+  let presentation:BlinkPresentation|undefined;
   let frameSource:{frames:FramesResponse;url:string}|null=null;
   let controller=new AbortController(), jobController=new AbortController();
   let scienceLoaded=false, findingsLoaded=false, calibrated=false, visible=true, capabilitiesLoaded=false;
@@ -78,9 +80,11 @@ export function mountWorkbench(host:HTMLElement, opts:{
       if(signal.aborted)return;
       findingsLoaded=false;
       const home=hasScience(selected.slug)?targetBySlug(selected.slug)?.det:undefined;
-      $('.wb-findings-body').textContent=home&&home!==selected.det
-        ?`Signals for this target are published for D${home} only. Switch the player to D${home} to see them.`
-        :`No signal analysis has been published for this position and detector. ${(error as Error).message}`;
+      $('.wb-findings-body').textContent=error instanceof ApiFailure && error.status===404
+        ?home&&home!==selected.det
+          ?`Signals for this target are published for D${home} only. Switch the player to D${home} to see them.`
+          :'No signal analysis has been published for this position and detector.'
+        :'Signal analysis could not be loaded. Try again, or continue with the original observations.';
     }
   }
   function load(){
@@ -95,13 +99,17 @@ export function mountWorkbench(host:HTMLElement, opts:{
   }
   function metadata(){
     $('.wb-metadata').textContent=JSON.stringify({
-      center:view?{ra:view.ra,dec:view.dec}:null, clock:view?.clock, detector:view?.det,
+      center:view?{ra:view.ra,dec:view.dec}:null, clock:view?.clock,
+      selected_detector:view?.det,
+      detector:presentation?.mode==='all-wavelengths'?null:epoch?.det??view?.det,
       requested_fov_arcmin:view?.fov, image_source:layer.value,
+      display:presentation??null,
       metadata_url:frameSource?.url??null,
       image_grid:frameSource?{center:frameSource.frames.center,size:frameSource.frames.size,pixel_arcsec:frameSource.frames.pixel_arcsec}:null,
       data_release:frameSource?.frames.data_release??null, archive_checked:frameSource?.frames.archive_checked??null,
-      epoch:epoch??null,
+      epoch:presentation?.mode==='all-wavelengths'?null:epoch??null,
     },null,2);
+    if(view)$('.wb-context').textContent=`${view.name??'Selected sky'} · ${presentation?.mode==='all-wavelengths'?`All wavelengths (${presentation.detectors.map(d=>`D${d}`).join(', ')})`:`D${epoch?.det??view.det}`} · ${view.clock==='months'?'Months':'Hours'} · ${view.fov}′ field`;
   }
   function show(next:WorkspaceState){
     state=next;
@@ -149,7 +157,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
       if(changed){
         if(!view||view.ra!==next.ra||view.dec!==next.dec)object=null;
         controller.abort();controller=new AbortController();jobController.abort();science.pause();
-        scienceLoaded=false;findingsLoaded=false;epoch=undefined;frameSource=null;
+        scienceLoaded=false;findingsLoaded=false;epoch=undefined;presentation=undefined;frameSource=null;
         renderFrameQuality($('.wb-quality'),undefined);
         $('.wb-findings-body').replaceChildren();$('.wb-status').textContent='';
         opts.reference([]);science.selection(next.det,next.clock);
@@ -159,17 +167,23 @@ export function mountWorkbench(host:HTMLElement, opts:{
       // Static first: a featured field's products are files; elsewhere the API answers (or says why not).
       const published=hasScience(next.slug);
       $<HTMLAnchorElement>('.wb-science-json').href=published?`/science-data/${next.slug}/science.json`:`/api/science?ra=${next.ra}&dec=${next.dec}`;
-      $<HTMLAnchorElement>('.wb-analysis-json').href=published?`/science-data/${next.slug}/analysis.json`:`/api/analysis?ra=${next.ra}&dec=${next.dec}&det=${next.det}`;
+      const publishedDetector=published&&targetBySlug(next.slug)?.det===next.det;
+      $<HTMLAnchorElement>('.wb-analysis-json').href=publishedDetector?`/science-data/${next.slug}/analysis.json`:`/api/analysis?ra=${next.ra}&dec=${next.dec}&det=${next.det}`;
       $('.wb-context').textContent=`${next.name??'Selected sky'} · D${next.det} · ${next.clock==='months'?'Months':'Hours'} · ${next.fov}′ field`;
       metadata();load();
     },
     object(value:ObjectResponse|null){object=value;science.refreshObject()},
     frames(value:FramesResponse|null,url=''){
       frameSource=value?{frames:value,url}:null;
-      if(!value){epoch=undefined;renderFrameQuality($('.wb-quality'),undefined);}
+      if(!value){epoch=undefined;presentation=undefined;renderFrameQuality($('.wb-quality'),undefined);}
       metadata();
     },
-    epoch(value:Epoch|undefined){epoch=value;renderFrameQuality($('.wb-quality'),value);metadata()},
+    epoch(value:Epoch|undefined,display?:BlinkPresentation){
+      epoch=value;presentation=display;
+      if(display?.mode==='all-wavelengths')$('.wb-quality').textContent='Combined display in sky-noise units. Quality flags belong to the individual source observations.';
+      else renderFrameQuality($('.wb-quality'),value);
+      metadata();
+    },
     layer(value:Layer){layer.value=value;metadata()},
     message(value:string){$('.wb-status').textContent=value},
     active(value:boolean){

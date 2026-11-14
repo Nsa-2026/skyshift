@@ -1,13 +1,13 @@
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {afterEach,expect,it,vi} from 'vitest';
-import type {BlinkOptions,PageContext} from './modules';
-const engine=vi.hoisted(()=>({show:vi.fn(async()=>{}),pick:vi.fn(),atlas:vi.fn(),discover:vi.fn(),options:null as BlinkOptions|null,atlasContext:null as PageContext|null}));
+import type {BlinkHandle,BlinkOptions,PageContext} from './modules';
+const engine=vi.hoisted(()=>({show:vi.fn<BlinkHandle['show']>(async()=>{}),singleDetector:vi.fn(),pick:vi.fn(),atlas:vi.fn(),discover:vi.fn(),options:null as BlinkOptions|null,atlasContext:null as PageContext|null}));
 vi.mock('../atlas',()=>({mountAtlas:(_el:HTMLElement,ctx:PageContext)=>{engine.atlasContext=ctx;return {show:engine.atlas,hide:vi.fn(),destroy:vi.fn()};}}));
 vi.mock('../discover',()=>({mountDiscover:()=>({show:engine.discover,hide:vi.fn(),destroy:vi.fn()})}));
 vi.mock('../blink',()=>({mountBlink:(_host:HTMLElement,options:BlinkOptions)=>{
   engine.options=options;
-  return {show:engine.show,status:vi.fn(),highlight:vi.fn(),active:vi.fn(),destroy:vi.fn()};
+  return {show:engine.show,singleDetector:engine.singleDetector,status:vi.fn(),highlight:vi.fn(),active:vi.fn(),destroy:vi.fn()};
 }}));
 vi.mock('../vote',async original=>({...await original<typeof import('../vote')>(),mountVote:()=>({pick:engine.pick,view:vi.fn()})}));
 vi.mock('../sky',()=>({mountSky:()=>({goto:vi.fn(),epoch:vi.fn(),destroy:vi.fn()})}));
@@ -40,6 +40,7 @@ it('keeps the observation, selected signal and player instance through level and
   engine.atlasContext!.skySelection?.(starter,'#/sky/269.4521,4.6934,12');
   root.querySelector<HTMLAnchorElement>('[data-level="explore"]')!.click();await settled();
   expect(engine.show).toHaveBeenCalledTimes(1);
+  expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:false});
   expect(fetcher).not.toHaveBeenCalled();
   expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Explore','Analyze','Research']);
   expect(root.querySelector('.workspace-modes')).toBeNull();
@@ -76,8 +77,11 @@ it('keeps the observation, selected signal and player instance through level and
   expect(root.querySelector<HTMLElement>('.practice-panel')!.hidden).toBe(false);
   expect(root.querySelector<HTMLElement>('#science-workbench')!.hidden).toBe(true);
   expect(new URLSearchParams(location.search).get('t')).toBe('elpis');
+  expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:true});
+  expect(engine.singleDetector).toHaveBeenLastCalledWith(true);
   const practiceLoads=engine.show.mock.calls.length;
   await change('#/explore/analyze/motion');
+  expect(engine.singleDetector).toHaveBeenLastCalledWith(false);
   expect(root.querySelector<HTMLElement>('.practice-panel')!.hidden).toBe(true);
   expect(engine.show).toHaveBeenCalledTimes(practiceLoads);
   await change('#/analyze/candidates/kind=mover&grade=A');

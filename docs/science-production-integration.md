@@ -75,6 +75,12 @@ Arbitrary-field background analysis is local-only by default. `SKYSHIFT_ENABLE_S
 
 ## Verification
 
+The main/API alignment revision is based on `86f5bf0` and passed 1,996 tests:
+web 1,089, server 371, core 61, pipeline 328, MCP 88, scientific helpers 19 and
+validation utilities 40; eight optional tests were skipped. TypeScript and the
+production build passed. The new frontend compatibility checks, live API responses
+and browser results are recorded in [main-alignment.md](main-alignment.md).
+
 The sky-entry revision incorporated main through `3cfc1c8` and passed 1,656 tests:
 web 855, server 312, core 61, pipeline 292, MCP 77, scientific helpers 19 and validation
 utilities 40; eight optional tests were skipped. TypeScript and the production build

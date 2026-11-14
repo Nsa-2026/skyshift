@@ -158,7 +158,7 @@ export function startApp(root: HTMLElement): void {
       epochMjd = e.mjd_mid;
       highlightSelected();
       sky.epoch(e.mjd_mid);
-      workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id));
+      workbench.epoch(frames?.epochs.find(epoch => epoch.id === e.id), e.presentation);
     },
   });
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
@@ -242,6 +242,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
+    filters.active(layer === 'raw' && workspaceState(parseRoute().param).tab !== 'play');
     filters.loading(next);
 
     frames = null;
@@ -284,7 +285,8 @@ export function startApp(root: HTMLElement): void {
       sky.goto(next, frames);
       filters.goto(next, frames);
       card.show(next, object, frames);
-      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl);
+      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl,
+        {singleDetector:layer !== 'raw' || workspaceState(parseRoute().param).tab === 'play'});
       if (fsig.aborted) return;
       blink.status('idle');
       practice.ready(blink.canCompare?.() ?? false);
@@ -411,6 +413,8 @@ export function startApp(root: HTMLElement): void {
   function route() {
     const { page, param, mode, feature } = parseRoute();
     const practicing=page==='explore' && workspaceState(param).tab==='play';
+    if(page==='explore')blink.singleDetector?.(practicing || layer !== 'raw');
+    filters.active(!practicing && layer === 'raw');
     if (current && current !== page) pages.get(current)?.hide?.();
     blink.active?.(page === 'explore');
     workbench.active(page === 'explore' && !practicing);
