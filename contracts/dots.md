@@ -1,4 +1,4 @@
-# contracts/dots.md: the dot table, forced photometry and derived tables (v3)
+# contracts/dots.md: the dot table, forced photometry and derived tables (v4)
 
 Owner: P1. Written by pipeline/, read by validation scripts and the suspects export.
 Units: degrees, arcsec, µm, µJy, MJD (UTC).
@@ -36,6 +36,11 @@ File name `dots/<obs_id>D<detector>.parquet`, e.g. `dots/2025W18_1B_0074_2D1.par
 | flux_psf_ujy | float32 | µJy | Total flux from a fit of the photo's ePSF (EPSF HDU, zone containing the dot) at the dot's fixed (x, y) plus a local constant, on 7 × 7 pixels, masked pixels left out. Weights 1/(max(√VARIANCE, background rms)² + (0.03 · model)²). Total flux, so `flux_psf_ujy / flux_ujy` is the r = 2 px aperture correction (ePSF: 1.033). NaN with fewer than 12 good pixels or no EPSF HDU |
 | flux_psf_err_ujy | float32 | µJy | 1σ of flux_psf_ujy from the fit (no extra systematic term) |
 | psf_chi2_nu | float32 | | χ²/(n − 2) of that fit. Compare at a given S/N: star-like dots sit near 2–3 at S/N 5–10 and rise with S/N (centroid error at fixed position and the ePSF's own error: median 20–30 at S/N > 100 on the Cygnus photo); galaxies, blends and artefacts sit well above the star locus |
+| x_psf, y_psf | float32 | pixel | **v4.** Position from a fit of the photo's ePSF for x, y, flux and a local constant (Gauss–Newton from the windowed centroid; same 7 × 7 stamp, mask, weights and model term as flux_psf_ujy; Anderson & King's method for undersampled data). It has no pixel-phase pull: on 6 pilot photos (one per detector) the windowed centroid's S-curve of 0.05–0.11 px became 0.01–0.02 px. Where the fit didn't run or failed (`psf_pos_ok` false) these are x, y: the windowed or, saturated, the wings centroid |
+| ra_psf, dec_psf | float64 | deg | **v4.** x_psf, y_psf through the same WCS as ra, dec (ICRS, as measured). Per-axis scatter against Gaia, S/N ≥ 5, per photo's offset removed: D1–D3 0.20–0.26″ (centroid 0.41–0.69″), D4–D6 0.26–0.31″ (0.38–0.47″); 0.10–0.18″ at S/N 50–300 |
+| pos_err_psf_arcsec | float32 | arcsec | **v4.** 1σ per axis of ra_psf, dec_psf: the fit's covariance, √((σx² + σy²)/2) × 6.152″, in quadrature with 0.13″ (config `PSF_POS_ERR_FLOOR_ARCSEC`; robust pull scatter against Gaia then 0.8–1.2 per detector and axis, S/N ≥ 5). pos_err_arcsec where `psf_pos_ok` is false |
+| psf_pos_ok | bool | | **v4.** True where x_psf … pos_err_psf_arcsec come from the ePSF fit: it ran (EPSF HDU present, config `DOTS_PSF_POSITION`, not saturated (no OVERFLOW/NONLINEAR in the 3×3), snr ≥ `PSF_POS_MIN_SNR` = 5, ≥ 12 good pixels), converged within 10 steps, F > 0, ended ≤ 1 px from the centroid. Pilot photos: 98–99% of unsaturated dots, 99.9% of Gaia-matched ones |
+| sep_flag | int16 | | **v4.** sep's extraction flags from core.detect (sep.extract `flag`): 1 = blended (deblended from a neighbour), 2 = truncated (touches the edge or a masked area), 4/8 = pixel-stack or singular-moment trouble. For vetting; 5–26% of dots on the pilot photos have one set |
 | flux_ap_ujy | fixed_size_list&lt;float32&gt;[5] | µJy | Aperture fluxes at radii 1.0, 1.5, 2.0, 3.0, 4.5 px (config `AP_RADII_PX`, also in the photo metadata), background = mean of the 5.5–8 px annulus around the dot, masked pixels left out |
 | flux_ap_err_ujy | fixed_size_list&lt;float32&gt;[5] | µJy | Their errors (noise max(√VARIANCE, background rms), incl. the annulus' error) |
 
@@ -51,18 +56,29 @@ Row order is fixed when the file is written (brightest `flux_ujy` first, as core
 dots) and files are never rewritten: `members.dot_row` points at rows by index.
 Floats are written with byte-stream-split + zstd (Cygnus worst case, 58,725 dots: 6.5 MB).
 
+**Versions.** v3 files (written before 14 Nov evening) have no x_psf, y_psf, ra_psf, dec_psf, pos_err_psf_arcsec,
+psf_pos_ok or sep_flag; they are never rewritten. Readers: where the columns exist and `psf_pos_ok` is true, take
+ra_psf, dec_psf, pos_err_psf_arcsec as the dot's position; else ra, dec, pos_err_arcsec (with calib's corrections, below).
+`dots.as_dots` fills missing v4 columns from x, y, ra, dec, pos_err_arcsec (psf_pos_ok false, sep_flag 0).
+
 **Raw vs calibrated values.** A dot file's `ra`, `dec`, `pos_err_arcsec`, `flux_ujy`, `flux_err_ujy`, `flux_psf_ujy`
 and `flux_psf_err_ujy` are raw and stay so (files are never rewritten). When `results/<zone>/calib.json` exists, every
 step that combines dots (colours, lightcurves, astrometry via the member dots, and spectra) uses the corrected positions
 (pixel phase + per-photo distortion), the calibrated `pos_err_arcsec` and the corrected fluxes (flux pixel phase +
 per-detector total-flux scale) (`calib` row below); `link` always uses raw positions. Forced photometry is not corrected.
+**calib and the ePSF positions (v4):** the pixel-phase correction is for the windowed centroid only. It must **not** be
+applied to ra_psf, dec_psf where `psf_pos_ok` is true (the fit has no phase pull: correcting it would add the S-curve
+back with the opposite sign); rows with `psf_pos_ok` false carry the centroid and are corrected as before. The per-photo
+distortion and the calibrated pos_err should be fitted separately on the ePSF positions (their per-photo offset against
+Gaia differs from the centroid's by up to 0.2″: e.g. +0.13″ vs −0.06″ in RA on 2025W43_1A_0679_2D4) and applied to them.
 
 **Photo metadata.** Every dot file (empty ones too) carries one JSON object in the Parquet
 key-value metadata under the key `skyshift_photo` (read it with `skyshift_pipeline.dots.photo_meta(path)`):
 `schema` (1), `obs_id`, `detector`, `status` (`done` | `done_finast`), `pipeline_version` (PRIMARY `VERSION`),
 `epsf_calib` (ePSF calibration id from the IMAGE HISTORY), `n_dots`, `n_forced` (null without a refcat),
 `read_s`, `detect_s`, `forced_s`, `stages_s` (seconds per stage), `zodi_median_mjysr`, `bkg_median_mjysr`,
-`ujy_per_mjysr`, `aperture_radii_px`, `aperture_bkg_annulus_px`, `psf_fit` (`half_px`, `model_frac`, `noise`),
+`ujy_per_mjysr`, `aperture_radii_px`, `aperture_bkg_annulus_px`, `psf_fit` (`half_px`, `model_frac`, `noise`; v4 also
+`position` (true if x_psf … were fitted), `pos_min_snr`, `pos_err_floor_arcsec`),
 `header` (IMAGE header values as written by IRSA, null when absent: MJD-BEG/AVG/END, XPOSURE, TELAPSE;
 spacecraft geocentric position X_SC/Y_SC/Z_SC [km] and velocity VX_SC/VY_SC/VZ_SC [km/s] at mid, plus
 `_START` and `_END`; FINAST, MATCH_NSTARS, ASTRONETSOLVED, OMEGA_MEDIAN/OMEGA_STDDEV [arcsec²], PSF_FWHM [″],
