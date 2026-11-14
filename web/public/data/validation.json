@@ -950,13 +950,122 @@
     {
       "id": "V8",
       "claim": "Spectra and speed",
-      "status": "pending",
-      "headline": "Not measured yet",
-      "value": null,
-      "unit": "s",
+      "status": "partial",
+      "headline": "SPHEREx / catalogue flux, Ks 1.010 (scatter 3.0%, 3,918 stars); W1 0.994 (scatter 1.8%, 4,240 stars) (pilot, 10-13 mag); speed pending (site not deployed)",
+      "value": 1.0103,
+      "unit": "ratio",
       "expected": "Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s",
-      "note": "Speed: scripts/demo_check.py, random sky coordinates through /api/frames. Spectra half: not built yet.",
-      "rows": []
+      "note": "Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and 309.54 Jy), no colour terms (scripts/validate/v8_spectra.py). Speed: scripts/demo_check.py, random coordinates through /api/frames. Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed (ra, dec, clock, ok, first_frame_s).",
+      "rows": [
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 15,
+          "median": 0.9938,
+          "scatter": 0.0251
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 451,
+          "median": 1.0008,
+          "scatter": 0.02
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 1142,
+          "median": 1.0081,
+          "scatter": 0.0253
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 2325,
+          "median": 1.0141,
+          "scatter": 0.0349
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 4865,
+          "median": 1.0207,
+          "scatter": 0.0609
+        },
+        {
+          "part": "spectra",
+          "band": "Ks",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 7936,
+          "median": 1.0141,
+          "scatter": 0.1206
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 9,
+          "mag_max": 10,
+          "n": 31,
+          "median": 0.9945,
+          "scatter": 0.0202
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 10,
+          "mag_max": 11,
+          "n": 507,
+          "median": 0.9903,
+          "scatter": 0.0117
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 11,
+          "mag_max": 12,
+          "n": 1200,
+          "median": 0.993,
+          "scatter": 0.0155
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 12,
+          "mag_max": 13,
+          "n": 2533,
+          "median": 0.9961,
+          "scatter": 0.0211
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 13,
+          "mag_max": 14,
+          "n": 5000,
+          "median": 1.0029,
+          "scatter": 0.044
+        },
+        {
+          "part": "spectra",
+          "band": "W1",
+          "mag_min": 14,
+          "mag_max": 15,
+          "n": 7916,
+          "median": 1.0382,
+          "scatter": 0.0966
+        }
+      ]
     },
     {
       "id": "V9",
