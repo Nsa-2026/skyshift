@@ -1,118 +1,122 @@
-/* Page layout. Desktop: blink stage left (dominant), object card and votes right, sky view below.
-   Phone: one column in reading order: find, chips, blink, card, vote, sky. */
+/* Lightbox page layout (web/DESIGN.md).
+   Desktop: the plate (blink) dominates the left; the reading column (object card) on the right;
+   below the fold, flag-and-vote and the sky around the spot side by side.
+   Phone: one column in reading order: find, plate, card, vote, sky. */
 #app {
-  max-width: 1440px;
+  max-width: 1480px;
   margin: 0 auto;
-  padding: 0 var(--s4) var(--s6);
+  padding: 0 var(--s5) var(--s7);
 }
 
+/* ---- top: wordmark + one-line lede, the find box, the scoreboard link ---- */
 .top {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--s4) var(--s5);
+  gap: var(--s3) var(--s6);
   padding: var(--s4) 0 var(--s3);
 }
-
+.brand {
+  display: grid;
+  gap: 0;
+}
 .wordmark {
-  color: var(--emulsion);
+  color: var(--ink);
   text-decoration: none;
-  font-size: var(--step-2);
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 750;
   font-variation-settings: "wdth" 125;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.lede {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin-top: 4px;
 }
 
 .find {
   display: flex;
   gap: var(--s2);
-  max-width: 640px;
+  max-width: 620px;
 }
 .find-input {
   flex: 1;
   min-width: 0;
 }
-.find-go {
-  min-height: 40px;
-  background: var(--emulsion);
-  border-color: var(--emulsion);
-  color: var(--plate);
-  font-weight: 600;
-}
-.find-go:hover {
-  background: #fff;
-}
 
 .nav {
   display: flex;
-  gap: var(--s4);
+  gap: var(--s5);
 }
 .nav a {
-  color: var(--muted);
+  color: var(--ink-2);
   text-decoration: none;
   padding: var(--s1) 0;
   border-bottom: 2px solid transparent;
+  font-weight: 550;
+}
+.nav a:hover {
+  color: var(--ink);
 }
 .nav a[aria-current="page"] {
-  color: var(--emulsion);
-  border-bottom-color: var(--emulsion);
+  color: var(--ink);
+  border-bottom-color: var(--pencil-red);
 }
 
-.chips {
+/* ---- featured targets: a quiet line of names, not a row of boxes ---- */
+.featured {
   display: flex;
-  gap: var(--s2);
-  overflow-x: auto;
-  padding-bottom: var(--s2);
-  scrollbar-width: thin;
+  align-items: baseline;
+  gap: var(--s1) var(--s4);
+  flex-wrap: wrap;
+  padding-bottom: var(--s3);
+}
+.featured-label {
+  color: var(--ink-3);
+  font-size: var(--step--1);
 }
 .chip {
-  display: grid;
-  text-align: left;
-  gap: 0;
-  padding: var(--s1) var(--s3);
-  min-height: 44px;
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-ctl);
-  background: transparent;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-2);
   cursor: pointer;
-  flex: none;
+  font-weight: 550;
+  font-variation-settings: "wdth" 92;
 }
 .chip:hover {
-  background: var(--plate-2);
+  color: var(--ink);
 }
 .chip[aria-pressed="true"] {
-  border-color: var(--mover);
-  background: var(--plate-2);
-}
-.chip-name {
-  font-weight: 600;
-  font-variation-settings: "wdth" 90;
+  color: var(--ink);
+  border-bottom-color: var(--pencil-red);
 }
 .chip-kind {
-  font-size: var(--step--1);
-  color: var(--muted);
+  display: none;
 }
 
 .find-msg {
-  min-height: 0;
   font-size: var(--step--1);
-  color: var(--muted);
-  margin: var(--s1) 0 var(--s2);
-}
-.find-msg:empty {
+  color: var(--ink-2);
   margin: 0 0 var(--s2);
 }
+.find-msg:empty {
+  display: none;
+}
 .find-msg[data-kind="error"] {
-  color: var(--sat);
+  color: var(--warn);
 }
 
+/* ---- the blink page ---- */
 .page-blink {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
   grid-template-areas:
-    "stage side"
-    "sky sky";
-  gap: var(--s5);
+    "stage card"
+    "below below";
+  gap: var(--s6) var(--s7);
   align-items: start;
 }
 .page-blink[hidden],
@@ -123,31 +127,46 @@
   grid-area: stage;
   min-width: 0;
 }
-.side {
-  grid-area: side;
-  display: grid;
-  gap: var(--s4);
+.side-card {
+  grid-area: card;
   min-width: 0;
 }
-.side-card,
-.side-vote {
-  padding: var(--s4);
+.below {
+  grid-area: below;
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  gap: var(--s7);
+  align-items: start;
+  padding-top: var(--s6);
+  border-top: 1px solid var(--hair);
 }
+.side-vote,
 .sky {
-  grid-area: sky;
-  min-height: 360px;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .foot {
-  margin-top: var(--s7);
+  margin-top: var(--s8);
   padding-top: var(--s4);
-  border-top: 1px solid var(--rule);
-  color: var(--muted);
+  border-top: 1px solid var(--hair);
+  color: var(--ink-3);
   font-size: var(--step--1);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
+  .page-blink {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "stage" "card" "below";
+  }
+  .below {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  #app {
+    padding: 0 var(--s4) var(--s6);
+  }
   .top {
     grid-template-columns: 1fr auto;
   }
@@ -156,8 +175,12 @@
     grid-row: 2;
     max-width: none;
   }
-  .page-blink {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "stage" "side" "sky";
+  .featured {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .featured .chip {
+    flex: none;
   }
 }
