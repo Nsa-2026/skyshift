@@ -103,7 +103,7 @@ def test_object_fixture_fallback(client, no_engine):
     assert body["synthetic"] is True
     assert {"name", "gaia", "known_ucd", "spectrum", "measure"} <= set(body)
     assert set(body["measure"]) == {"shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr",
-                                    "sigma_arcsec", "n_ref_stars", "predicted_arcsec"}
+                                    "sigma_arcsec", "n_ref_stars", "predicted_arcsec", "source"}
 
 
 def test_gaia_and_known_fixture_fallback(client, no_engine):
