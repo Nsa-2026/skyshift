@@ -17,8 +17,9 @@ A mover becomes a suspect when:
   (config SUSPECTS_ALLWISE, ALLWISE_*). catwise_checked then means "checked against AllWISE" and the
   summary's catwise_source says which catalogue it was.
 Then the vetting gates (vet.py: hot pixel, bad column, detector edge, masked bit at the peak, sharp + OUTLIER, flux
-ratio, red photo, 2MASS within 6″, AllWISE within 6″ where CatWISE was the veto) grade every suspect: C fails one (kept, with `reasons`), B passes all (motion not
-shown), A (motion >= 5σ over >= 2 sessions) needs a multi-session linker and is never given yet.
+ratio, red photo, 2MASS within 6″, AllWISE within 6″ where CatWISE was the veto) grade every suspect: C fails one
+(kept, with `reasons`), B passes all (motion not shown), A (motion >= 5σ over >= 2 sessions) needs a multi-session
+linker and is never given yet.
 Ranked by grade, then snr. Written as results/<zone>/suspects.parquet and results/<zone>/suspects.json in the
 contracts/api.md suspects.json shape (+ grade, reasons, near_source_arcsec; zone-level vetoes, provisional, grades).
 """
