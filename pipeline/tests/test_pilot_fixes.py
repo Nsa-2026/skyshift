@@ -189,7 +189,7 @@ def test_fit_candidates_are_vetted_not_deleted():
     assert reason[2] == "few_dots" and reason[3] == "bad_fit" and reason[4] == "over_pm_cap"
     assert reason[5] == "catwise_pm_disagrees" and reason[6] == "gaia_pm_disagrees" and reason[8] == "short_span"
     assert reason[7] == "" and out.loc[7, "status"] == "gaia"
-    assert reason[9] == "unchecked_low_snr"
+    assert reason[9] == "unchecked"
     # vetted first
     assert out["vetted"].tolist()[:2] == [True, True]
 

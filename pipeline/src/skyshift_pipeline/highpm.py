@@ -30,8 +30,9 @@ Vetting (columns `vetted`, `reason`; every candidate is kept): a candidate is ve
 Reasons: short_span, few_dots, few_sessions (< HIGHPM_FIT_MIN_SESSIONS sessions in a visit), bad_fit, over_pm_cap
 (fit: HIGHPM_FIT_*); gaia_pm_disagrees (a Gaia counterpart with its own pm, and pm + parallax leak is not ours: the
 counterpart is a slower star at that spot, HIGHPM_PM_AGREE_SIGMA); catwise_pm_disagrees (no Gaia pm to check,
-and the CatWISE counterpart's motion is not ours); unchecked_low_snr (fit with neither a Gaia nor a CatWISE
-motion to check it, under HIGHPM_NOCAT_MIN_SNR); at_control_level (pairs: its separation bin has no more pairs
+and the CatWISE counterpart's motion is not ours); unchecked (fit with neither a Gaia nor a CatWISE
+motion to check it, and under HIGHPM_NOCAT_MIN_SNR or saturated: an uncatalogued star never saturates; hunt: the
+only 3 still-star false positives left were G 7–8 saturated stars CatWISE does not list); at_control_level (pairs: its separation bin has no more pairs
 than the control, Poisson P >= HIGHPM_PAIR_MAX_P). A motion Gaia confirms is a known moving star: the quality
 reasons (short_span ... over_pm_cap) don't apply to it. Only vetted rows are leads (candidates.py exports only
 those). The report counts "new" as status new and vetted; `new_unvetted` and `reasons` show what was cut.
@@ -67,7 +68,7 @@ COLUMNS = ["method", "status", "source_id", "source_id_b", "ra", "dec", "ra_b", 
            "sep_arcsec", "pmra", "pmdec", "pm", "pm_err", "flux_ratio", "shape_rms", "n_common_det", "red_ratio",
            "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason"]
 REASONS = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap", "gaia_pm_disagrees",
-           "catwise_pm_disagrees", "unchecked_low_snr", "at_control_level")
+           "catwise_pm_disagrees", "unchecked", "at_control_level")
 QUALITY = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap")  # not applied to a Gaia-confirmed motion
 
 
@@ -346,7 +347,7 @@ def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: 
             "over_pm_cap": fit & (col("pm") > C.HIGHPM_FIT_MAX_PM_MAS_YR),
             "gaia_pm_disagrees": np.asarray(gaia_dis, bool),
             "catwise_pm_disagrees": np.asarray(cw_dis, bool),
-            "unchecked_low_snr": fit & ~chk & (col("_pm_snr") < C.HIGHPM_NOCAT_MIN_SNR),
+            "unchecked": fit & ~chk & ((col("_pm_snr") < C.HIGHPM_NOCAT_MIN_SNR) | (col("_saturated") > 0)),
             "at_control_level": np.zeros(n, bool),
         }
     for k in QUALITY:
@@ -397,6 +398,7 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     if "saturated" in src:
         sp = src_ix.get_indexer(out["source_id"].to_numpy(np.int64))
         sat[sp >= 0] = src["saturated"].fillna(False).to_numpy(bool)[sp[sp >= 0]]
+    out["_saturated"] = sat.astype(np.float64)
     plx_per_pm = np.where(sat, C.HIGHPM_CW_PLX_PER_PM_SAT, C.HIGHPM_CW_PLX_PER_PM)
     # Gaia and CatWISE, from either side
     gref = np.full(n, "", dtype=object)

@@ -132,3 +132,18 @@ def test_selection_threshold_is_the_calibrated_one():
     ast = pd.DataFrame([fit_rows(source_id=1, pm=400.0, pmra=400.0, pm_snr=4.6), fit_rows(source_id=2, pm=400.0, pmra=400.0, pm_snr=4.4),
                         fit_rows(source_id=3, pm=140.0, pmra=140.0, pm_snr=9.0)])
     assert HP.fit_movers(ast)["source_id"].tolist() == [1]
+
+
+def test_uncatalogued_saturated_motion_is_unchecked():
+    """Nothing to check against: 10σ is enough for a faint source, never for a saturated one (an uncatalogued star
+    never saturates; hunt: the last 3 still-star false positives were G 7–8 stars that CatWISE does not list)."""
+    src = hp_sources()
+    ast = one_fit(pm=1300.0, pmra=-1300.0, pmra_err=110.0, pmdec_err=110.0, pm_snr=11.8)
+    xid = pd.DataFrame({"source_id": [1], "gaia_ref_id": [""], "gaia_id": [-1], "catwise_name": [""],
+                        "catwise_pmra": [np.nan], "catwise_pmdec": [np.nan]})
+
+    def fit(s):
+        return HP.compute(s, None, xid, ast, vstats=vstats([1])).query("method == 'fit'").iloc[0]
+
+    assert fit(src.assign(saturated=False))["vetted"]
+    assert fit(src.assign(saturated=True))["reason"] == "unchecked"
