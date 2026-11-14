@@ -334,6 +334,45 @@ def suspects():
                                  "suspects": out})
 
 
+def distant():
+    """/data/distant.json (v3.6): the distant-planet search. Made-up counts in the hunt zone's proportions: one
+    passing pair at chance level, the injection by distance, the depth and reach."""
+    rng = random.Random(13)
+    controls = [rng.choice([0, 0, 1, 1, 1, 2, 2, 3]) for _ in range(20)]
+    mean = sum(controls) / len(controls)
+    sd = math.sqrt(sum((c - mean) ** 2 for c in controls) / (len(controls) - 1))
+    lam = (sum(controls) + 1) / len(controls)
+    poisson_p = 1.0 - math.exp(-lam)  # P(>= 1 passing pair)
+    inj = []
+    for d, n, k in ((70.0, 60, 58), (150.0, 60, 54), (300.0, 60, 58), (1000.0, 60, 60)):
+        inj.append({"distance_au": d, "injected": n, "recovered": k, "recovered_frac": r(k / n, 3),
+                    "distance_fit_median_au": r(d * rng.uniform(0.98, 1.02), 1)})
+    write_json("distant.json", {
+        "synthetic": True, "note": NOTE, "generated": "2026-11-14T09:30:00Z", "data_release": RELEASE,
+        "zone": "hunt", "zone_box": {"ra": [120.5, 130.5], "dec": [14.4, 24.4]}, "run_created": "2026-11-14T09:00:00Z",
+        "searched": {"distance_au": [70.0, 1000.0], "sep_arcsec": [300.0, 7200.0], "rate_arcsec_h": [0.0, 1.0],
+                     "pair_min_p": 0.01},
+        "counts": {"single_visit_sources": 5000, "uncatalogued": 800, "covered": 790, "orphans": 450,
+                   "dropped": {"bright_fragment": 310, "zone_edge": 30, "saturated": 5}, "drift_ok": 440,
+                   "pairs_tested": 900, "pairs": 1, "known_orphans": 0, "open_orphans": 100},
+        "pairs": [{"source_id_a": 64900007030800, "source_id_b": 64940007013300, "visit_a": 1, "visit_b": 2,
+                   "ra_a": 123.33, "dec_a": 18.17, "mjd_a": 60975.29, "ra_b": 123.07, "dec_b": 18.23, "mjd_b": 61145.0,
+                   "sep_arcsec": 930.0, "dlon_arcsec": -929.9, "dlat_arcsec": 11.0, "distance_au": 400.0,
+                   "distance_lo_au": 390.0, "distance_hi_au": 450.0, "flux_ratio": 0.8, "n_common_det": 1,
+                   "n_dots_a": 3, "n_dots_b": 3, "snr_a": 6.5, "snr_b": 15.0, "p": 0.66, "known_a": None, "known_b": None}],
+        "control": {"n": len(controls), "passing_per_control": controls, "expected_pairs": r(mean, 3),
+                    "spread_pairs": r(sd, 3), "poisson_p": r(poisson_p, 4), "beyond_chance": poisson_p < 0.01,
+                    "method": "later visit's orphans shifted cyclically by 25-75% of the box in RA and Dec"},
+        "injection": {"method": "table-level: synthetic planets at the zone's cadence, paired with the real orphans",
+                      "distances": inj, "median_cell_recovered_frac": 0.97, "min_cell_recovered_frac": 0.85,
+                      "distance_err_median_frac": 0.01},
+        "limits": {"depth_ab_snr5": {"D1": 17.3, "D2": 17.4, "D3": 17.5, "D4": 17.7},
+                   "reach_au": {"neptune_p0.1": 200.0, "neptune_p0.4": 280.0, "super_earth_2re_p0.1": 140.0,
+                                "super_earth_2re_p0.4": 200.0, "earth_p0.1": 100.0, "earth_p0.4": 140.0},
+                   "notes": ["the object must be detected (S/N >= 5) in >= 3 sessions of each visit"]},
+    })
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     mids, _ = months_barnard()
@@ -343,6 +382,7 @@ def main():
     resolve()
     validation()
     suspects()
+    distant()
     for p in sorted(OUT.rglob("*")):
         if p.is_file():
             print(p.relative_to(ROOT), p.stat().st_size)

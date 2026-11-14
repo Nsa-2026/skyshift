@@ -1,11 +1,12 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.4)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.6)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
 targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages;
 v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
-v3.4: suspects.json track fields and grade A).
+v3.4: suspects.json track fields and grade A; v3.5: high_pm lists vetted rows only;
+v3.6: `/data/distant.json`, the distant-planet search).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -45,6 +46,7 @@ GET /api/resolve?q=        # any coordinate format, or a built-in name
 /data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
 /data/validation.json      /data/suspects.json
 /data/candidates.json      /data/cand/<id>/frames.json   # candidates to review
+/data/distant.json                                       # v3.6: the distant-planet search
 
 # frames are data, not pictures
 # 16-bit arrays, at most 300 px a side; value = raw × scale + zero (MJy/sr)
@@ -350,6 +352,7 @@ for an unknown name.
 | `/data/suspects.json` | pipeline export (P1) | below |
 | `/data/candidates.json` | pipeline exporter `skyshift-candidates` (P1) | below |
 | `/data/cand/<id>/frames.json` + frame files | scripts/candidates/frames.py (P1, with the P2 engine) | `GET /api/frames` for one candidate (its clock, field and detectors); frame files `frames/<c><fov>_d<det>_…bin` as above. Only for candidates whose `frames_url` is set |
+| `/data/distant.json` | scripts/validate (P1), from the pipeline's `orphans` step | below (v3.6) |
 
 In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data/`.
 
@@ -590,6 +593,88 @@ does 10.4″ a year): almost certainly two different sources." · "Water vapour 
 2.3 µm (23σ) in a point source with no Gaia star, and red: what a brown dwarf would look like, a lead to
 check."
 
+### distant.json (v3.6)
+
+The distant-planet search, for the "How we know it works" page (`#/results`). A planet 70–1000 AU away drifts only
+0.5–0.002″/h inside a visit, so the pipeline links it into a fixed source seen in **one visit only**; six months later
+it sits 390″ (1000 AU) to 4,800″ (70 AU) away along the ecliptic. The pipeline step `orphans` (pipeline/CLAUDE.md,
+"Distant planets") lists such sources without a catalogue entry ("orphans"), pairs those of two visits when one
+distance explains both positions and both measured drifts, and repeats the pairing on shifted copies to count chance
+pairs. Written by scripts/validate (P1) from the step's `results/<zone>/distant.json` and the table-level injection
+(scripts/validate/distant_injection.py). One zone, the headline zone (`hunt`). A missing file means not published:
+the page leaves the section out or says it is pending.
+
+```
+{ generated, data_release, zone, zone_box:{ra:[min,max], dec:[min,max]}|null, run_created,
+  searched:{ distance_au:[min,max], sep_arcsec:[min,max], rate_arcsec_h:[min,max], pair_min_p },
+  counts:{ single_visit_sources, uncatalogued, covered, orphans,
+           dropped:{ bright_fragment, zone_edge, saturated }, drift_ok, pairs_tested, pairs,
+           known_orphans, open_orphans },
+  pairs:[{ source_id_a, source_id_b, visit_a, visit_b, ra_a, dec_a, mjd_a, ra_b, dec_b, mjd_b,
+           sep_arcsec, dlon_arcsec, dlat_arcsec, distance_au, distance_lo_au, distance_hi_au,
+           flux_ratio, n_common_det, n_dots_a, n_dots_b, snr_a, snr_b, p, known_a|null, known_b|null }],
+  control:{ n, passing_per_control:[int…], expected_pairs, spread_pairs, poisson_p, beyond_chance, method },
+  injection:{ method, distances:[{ distance_au, injected, recovered, recovered_frac,
+                                   distance_fit_median_au|null }],
+              median_cell_recovered_frac, min_cell_recovered_frac, distance_err_median_frac } | null,
+  limits:{ depth_ab_snr5:{ "D1".."D6": AB mag }, reach_au:{ <planet>_p<albedo>: AU }, notes:[string] } }
+```
+
+| field | type | meaning |
+|---|---|---|
+| generated | string | Time the site file was written, ISO 8601 UTC |
+| data_release | string | Collections searched, as validation.json |
+| zone | string | Pipeline zone searched (`hunt`) |
+| zone_box | object, deg, or null | The zone's box (pipeline config), as `measured.zone_box`; null when unknown |
+| run_created | string | Time the `orphans` step ran (its `created`), ISO 8601 UTC |
+| searched.distance_au | [float, float], AU | Distances the search is built for: 70–1000 |
+| searched.sep_arcsec | [float, float], arcsec | Separations between the two visits' sources that were paired: 300–7,200 (a retrograde orbit at 70 AU lands 6,900″ away) |
+| searched.rate_arcsec_h | [float, float], ″/h | Drift inside one visit accepted for an orphan: 0–1 (faster movers are the suspects' route) |
+| searched.pair_min_p | float | A pair passes when the χ² of its drifts and fluxes has p ≥ this (0.01) |
+| counts.single_visit_sources | int | Linked sources seen in one visit only |
+| counts.uncatalogued | int | Of those, with no Gaia DR3, CatWISE2020 or 2MASS entry within the cross-match radius |
+| counts.covered | int | Of those, whose spot the other visit photographed (≥ 6 photos), so the absence is real |
+| counts.orphans | int | Of those, kept after the drops below |
+| counts.dropped | {reason: int} | Covered sources dropped, per reason: `bright_fragment` (a source with S/N ≥ 100 within 15″: a piece of a bright star), `zone_edge` (within 3′ of the zone's edge), `saturated`. A source can have several reasons, so these may add up to more than `covered − orphans` |
+| counts.drift_ok | int | Orphans whose drift inside their visit was measured (≥ 3 dots over ≥ 6 h, rate error ≤ 0.1″/h) and fits `searched.rate_arcsec_h`: the ones paired |
+| counts.pairs_tested | int | Pairs of `drift_ok` orphans of two visits ≥ 60 days apart, `searched.sep_arcsec` apart, mostly along the ecliptic |
+| counts.pairs | int | Pairs that passed: one distance and a bound orbit explain both positions and both drifts, and the brightness agrees in a shared detector. Listed in `pairs` (at most 300) |
+| counts.known_orphans | int | Orphans matched to a known slow body (MPC orbits): a recovered distant object, not dropped |
+| counts.open_orphans | int | `drift_ok` orphans whose partner could lie outside the zone (part of their 70–1000 AU track leaves the zone): not fully searched; no cross-zone pass yet |
+| pairs[] | object | One passing pair, highest `p` first. `_a` is the earlier visit's source, `_b` the later one's |
+| pairs[].source_id_a, source_id_b | int | The pipeline's linked sources (contracts/dots.md `source_id`, below 2⁵³) |
+| pairs[].visit_a, visit_b | int | Visit numbers |
+| pairs[].ra_a, dec_a, ra_b, dec_b | float, deg | Fitted positions at `mjd_a`, `mjd_b` (raw dots, no calib) |
+| pairs[].mjd_a, mjd_b | float, MJD | Weighted mean time of each source's dots |
+| pairs[].sep_arcsec, dlon_arcsec, dlat_arcsec | float, arcsec | B − A: total, along ecliptic longitude, along latitude |
+| pairs[].distance_au | float, AU | The implied distance from the Sun (best on the model's grid) |
+| pairs[].distance_lo_au, distance_hi_au | float, AU | Its range (χ² within 4 of the best) |
+| pairs[].flux_ratio | float | Flux B / A, geometric mean over the detectors measured in both |
+| pairs[].n_common_det | int | Detectors measured in both visits |
+| pairs[].n_dots_a, n_dots_b | int | Dots in each drift fit |
+| pairs[].snr_a, snr_b | float or null | Each source's highest dot S/N |
+| pairs[].p | float | χ² probability of the pair (drifts + fluxes) |
+| pairs[].known_a, known_b | string or null | MPC name of a known body matched to that side, else null |
+| control.n | int | Control runs: the later visit's orphans shifted together by 25–75% of the box in RA and Dec, then paired the same way (no real pair survives a shift) |
+| control.passing_per_control | [int] | Passing pairs in each control run |
+| control.expected_pairs | float | Their mean: the number of passing pairs chance alone gives |
+| control.spread_pairs | float | Their standard deviation |
+| control.poisson_p | float or null | Probability of `counts.pairs` or more passing pairs from chance alone (Poisson, mean (Σ + 1)/n over the controls); 1 when no pair passed; null without controls |
+| control.beyond_chance | bool | true when `poisson_p` < 0.01: more passing pairs than chance explains. false: nothing beyond chance |
+| control.method | string | One sentence |
+| injection | object or null | How often the pairing finds a planet that both visits saw as an orphan. null: not run |
+| injection.method | string | One sentence (table-level: synthetic planets at the zone's real cadence and the fit's error model, added to the real orphans, paired by the step's code; detection, linking and catalogue cuts are not tested) |
+| injection.distances[] | object | Per injected distance, every orbit direction and dots-per-visit setting together: `distance_au` (AU), `injected`, `recovered` (its two halves formed a passing pair), `recovered_frac` (0–1), `distance_fit_median_au` (median implied distance of the recovered, AU; null if none) |
+| injection.median_cell_recovered_frac, min_cell_recovered_frac | float, 0–1 | Median and lowest recovered share over the (distance, dots per visit) cells |
+| injection.distance_err_median_frac | float | Median \|implied / true distance − 1\| of the recovered planets |
+| limits.depth_ab_snr5 | {"D<det>": float}, AB mag | Single-exposure depth: median AB magnitude of the orphans' own dots at S/N 5–6, per detector with enough dots (no stacking) |
+| limits.reach_au | {key: float}, AU | Farthest distance at which a planet is as bright as `depth_ab_snr5.D2`. Keys `<planet>_p<albedo>`: `neptune` (3.88 Earth radii), `super_earth_2re` (2), `earth` (1), geometric albedo 0.1 or 0.4 (V = H + 5 log₁₀(r·Δ) at quadrature, J_AB ≈ V − 0.3) |
+| limits.notes | [string] | The step's own limits, as it wrote them (technical) |
+
+The page shows what was searched, the result against chance (`counts.pairs` vs `control.expected_pairs` ±
+`spread_pairs`, `poisson_p`), the injection by distance and the limits. A passing pair at chance level is not a
+candidate: say so (`beyond_chance` false).
+
 ## Firestore: flags and votes (no API endpoint)
 
 | collection | fields |
@@ -672,3 +757,10 @@ check."
 - contracts/dots.md: astrometry leaves out masked-peak and second-in-photo dots, fits a zero point per
   detector and uses session-robust pm errors; highpm compares with Gaia and CatWISE including the
   parallax leak, selects at 4.5σ, adds `few_sessions`, `unchecked`, `gaia_slow` and `fp_control`.
+
+## Changes in v3.6 (14 Nov 2026): the distant-planet search
+
+- New static file `/data/distant.json` (scripts/validate, P1): the pipeline's `orphans` step for one zone (what was
+  searched, passing pairs with their implied distance, the chance controls, the table-level injection by distance,
+  the depth and reach). Type `DistantResponse` in web/src/api/types.ts. Example: fixtures/api/distant.json.
+  Additive: no existing file or field changes.
