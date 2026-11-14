@@ -1,7 +1,7 @@
 """Step 6, `suspects`: movers nobody has catalogued.
 
 A mover becomes a suspect when:
-- no known object (MPC or SkyBoT, any brightness) lies within KNOWN_ARCSEC of it in the same session;
+- no known object (MPC, any brightness) lies within KNOWN_ARCSEC of it in the same session;
 - it has none of the GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM bits;
 - no bright fixed source (snr >= BRIGHT_FIXED_SNR) lies within BRIGHT_FIXED_ARCSEC;
 - the SOURCE bit is not set at the peak pixel of every one of its dots (SOURCE marks catalogue
@@ -12,6 +12,10 @@ A mover becomes a suspect when:
   Only without that file are the services asked, around the remaining movers in batches. If a
   catalogue can't be reached the suspects are kept with gaia_checked / catwise_checked = false
   and the summary says so.
+  A Gaia-only refcat (SKYSHIFT_REFCAT_CATALOGS=gaia: no CatWISE rows) gets the WISE veto from AllWISE
+  instead, read from IRSA's HEALPix Parquet on AWS S3: only the partitions around the remaining movers
+  (config SUSPECTS_ALLWISE, ALLWISE_*). catwise_checked then means "checked against AllWISE" and the
+  summary's catwise_source says which catalogue it was.
 Ranked by evidence (two_exposures first), then snr. Written as results/<zone>/suspects.parquet
 and results/<zone>/suspects.json in the contracts/api.md suspects.json shape.
 """
@@ -132,9 +136,10 @@ def catalog_near(ra: np.ndarray, dec: np.ndarray, radius_arcsec: float, sources=
 
 
 def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
-                mjd: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+                mjd: np.ndarray) -> tuple[np.ndarray, np.ndarray | None] | None:
     """(gaia hit, catwise hit) from refcat/<zone>.parquet, each catalogue moved by proper motion to the
-    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing."""
+    movers' median time (the zone spans ~6 months: < 0.3″ error at 1″/yr). None if the file is missing;
+    catwise hit None when the file has no CatWISE rows (a Gaia-only refcat: nothing was checked)."""
     from .refcat import move_to_epoch, refcat_rel
     rel = refcat_rel(zone.name)
     if not store.exists(rel):
@@ -144,6 +149,9 @@ def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
     hits = []
     for cat, arcsec in (("gaia", C.GAIA_ARCSEC), ("catwise", C.CATWISE_ARCSEC)):
         c = r[r["cat"] == cat]
+        if len(c) == 0 and cat == "catwise":
+            hits.append(None)
+            continue
         if len(c) == 0 or len(ra) == 0:
             hits.append(np.zeros(len(ra), bool))
             continue
@@ -153,12 +161,125 @@ def refcat_near(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarray,
     return hits[0], hits[1]
 
 
+# --- AllWISE on AWS S3 (Gaia-only refcats) ------------------------------------------------------
+def allwise_pixels(ra: np.ndarray, dec: np.ndarray, radius_arcsec: float, nside: int = C.ALLWISE_NSIDE) -> np.ndarray:
+    """Sorted nested HEALPix pixels (the AllWISE partitions) that the circles of radius_arcsec around the positions
+    touch: each centre and 8 points at 1.5 × the radius around it (6″ circles in 1.8° pixels)."""
+    import astropy.units as u
+    from astropy_healpix import HEALPix
+
+    ra, dec = np.asarray(ra, np.float64), np.asarray(dec, np.float64)
+    if ra.size == 0:
+        return np.zeros(0, np.int64)
+    r = 1.5 * radius_arcsec
+    pr, pd_ = [ra], [dec]
+    for a in np.deg2rad(np.arange(0, 360, 45)):
+        r2, d2 = offset_radec(ra, dec, r * np.sin(a), r * np.cos(a))
+        pr.append(np.asarray(r2, np.float64))
+        pd_.append(np.asarray(d2, np.float64))
+    lon = np.mod(np.concatenate(pr), 360.0)
+    lat = np.clip(np.concatenate(pd_), -90.0, 90.0)
+    h = HEALPix(nside=nside, order="nested")
+    return np.unique(np.asarray(h.lonlat_to_healpix(lon * u.deg, lat * u.deg), np.int64))
+
+
+def allwise_key(pix: int, nside: int = C.ALLWISE_NSIDE) -> str:
+    """S3 key of one AllWISE partition (Hive layout: healpix_k0 = the base pixel, healpix_k5 = the pixel)."""
+    return f"{C.ALLWISE_S3_PREFIX}/healpix_k0={int(pix) // (nside * nside)}/healpix_k5={int(pix)}/part0.snappy.parquet"
+
+
+_S3FS = None
+
+
+def _allwise_s3_read(pix: int) -> pd.DataFrame:
+    """ra, dec of one AllWISE partition straight from S3 (anonymous, columns projected)."""
+    global _S3FS
+    import pyarrow.fs as pafs
+    import pyarrow.parquet as pq
+    if _S3FS is None:
+        _S3FS = pafs.S3FileSystem(anonymous=True, region=C.ALLWISE_S3_REGION,
+                                  connect_timeout=C.ALLWISE_TIMEOUT_S, request_timeout=C.ALLWISE_TIMEOUT_S)
+    t = pq.read_table(f"{C.ALLWISE_S3_BUCKET}/{allwise_key(pix)}", filesystem=_S3FS, columns=list(C.ALLWISE_COLUMNS))
+    return t.to_pandas()
+
+
+def allwise_partition(store: Store, pix: int, reader=None) -> pd.DataFrame:
+    """One partition's ra, dec: from the store's cache (ALLWISE_CACHE_DIR) when there, else S3 (then cached)."""
+    rel = f"{C.ALLWISE_CACHE_DIR}/p{int(pix):05d}.parquet"
+    if C.ALLWISE_CACHE and store.exists(rel):
+        return store.read_parquet(rel)
+    reader = reader or _allwise_s3_read
+    for attempt in range(1, C.NET_RETRIES + 1):
+        try:
+            df = reader(int(pix))
+            break
+        except Exception:  # noqa: BLE001
+            if attempt == C.NET_RETRIES:
+                raise
+            time.sleep(3 * attempt)
+    df = df[list(C.ALLWISE_COLUMNS)].astype(np.float64).reset_index(drop=True)
+    if C.ALLWISE_CACHE:
+        try:
+            store.write_parquet(rel, df)
+        except Exception as e:  # noqa: BLE001  (a read-only root still gets the veto)
+            L.warning("AllWISE cache %s not written: %s", rel, e)
+    return df
+
+
+def allwise_near(store: Store, ra: np.ndarray, dec: np.ndarray, radius_arcsec: float = C.ALLWISE_ARCSEC,
+                 reader=None) -> tuple[np.ndarray, str, dict]:
+    """True where an AllWISE source lies within radius (positions as catalogued, ~2010.5). Reads only the partitions
+    the circles touch. Returns (hits, source name or "" if S3 failed, timing/size stats)."""
+    from concurrent.futures import ThreadPoolExecutor
+    n = len(ra)
+    st: dict = {"partitions": 0, "rows": 0, "wall_s": 0.0}
+    if n == 0:
+        return np.zeros(0, bool), "none needed", st
+    t0 = time.time()
+    pix = allwise_pixels(ra, dec, radius_arcsec)
+    try:
+        with ThreadPoolExecutor(max_workers=C.ALLWISE_WORKERS) as ex:
+            parts = list(ex.map(lambda p: allwise_partition(store, int(p), reader), pix))
+    except Exception as e:  # noqa: BLE001
+        L.warning("AllWISE on S3 failed: %s", str(e)[:300])
+        st["wall_s"] = round(time.time() - t0, 1)
+        return np.zeros(n, bool), "", st
+    cat = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=list(C.ALLWISE_COLUMNS))
+    hit = np.zeros(n, bool)
+    if len(cat):
+        sep, _ = SkyTree(cat["ra"].to_numpy(np.float64), cat["dec"].to_numpy(np.float64)).nearest(
+            np.asarray(ra, np.float64), np.asarray(dec, np.float64))
+        hit = sep <= radius_arcsec + 0.01
+    st.update({"partitions": int(len(pix)), "rows": int(len(cat)), "wall_s": round(time.time() - t0, 1)})
+    return hit, f"AllWISE (s3://{C.ALLWISE_S3_BUCKET}/{C.ALLWISE_S3_PREFIX}, epoch ~2010.5)", st
+
+
 def gaia_near(ra, dec):
     return catalog_near(ra, dec, C.GAIA_ARCSEC, GAIA_SOURCES)
 
 
 def catwise_near(ra, dec):
     return catalog_near(ra, dec, C.CATWISE_ARCSEC, CATWISE_SOURCES)
+
+
+def wise_veto(store: Store, zone: C.Zone, refcat_hit: np.ndarray | None, have_refcat: bool,
+              ra: np.ndarray, dec: np.ndarray, reader=None) -> tuple[np.ndarray, str, dict]:
+    """The WISE veto of the remaining movers: (hits, source name or "" if nothing was checked, AllWISE stats).
+    CatWISE2020 from the refcat when it has CatWISE rows (refcat_hit); else AllWISE on S3 (SUSPECTS_ALLWISE "auto"
+    with a refcat, "always" also without one); without a refcat the CatWISE TAP service, as before."""
+    none_needed = (np.zeros(0, bool), "none needed", {})
+    if refcat_hit is not None:
+        return refcat_hit, f"refcat/{zone.name}.parquet (CatWISE2020)", {}
+    if C.SUSPECTS_ALLWISE != "off" and (have_refcat or C.SUSPECTS_ALLWISE == "always"):
+        hit, name, st = allwise_near(store, ra, dec, reader=reader)
+        if name or have_refcat:
+            return hit, name, st
+    if have_refcat:  # Gaia-only refcat, AllWISE off: nothing checked
+        return np.zeros(len(ra), bool), "", {}
+    if len(ra) == 0:
+        return none_needed
+    hit, name = catwise_near(ra, dec)
+    return hit, name, {}
 
 
 def select(movers: pd.DataFrame, fixed: pd.DataFrame, pred: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -221,10 +342,10 @@ def run(store: Store, zone: C.Zone) -> dict:
     st["cut_gaia"] = int(gaia.sum())
     s = s[~gaia].reset_index(drop=True)
     s["gaia_checked"] = bool(source)
-    if local is not None:
-        wise, wsource = local[1][~gaia], f"refcat/{zone.name}.parquet (CatWISE2020)"
-    else:
-        wise, wsource = catwise_near(s["ra"].to_numpy(float), s["dec"].to_numpy(float)) if len(s) else (np.zeros(0, bool), "none needed")
+    wise, wsource, wst = wise_veto(store, zone, local[1][~gaia] if local is not None and local[1] is not None else None,
+                                   local is not None, s["ra"].to_numpy(float), s["dec"].to_numpy(float))
+    if wst:
+        st["allwise"] = wst
     st["catwise_source"] = wsource or "unreachable"
     st["cut_catwise"] = int(wise.sum())
     s = s[~wise].reset_index(drop=True)
@@ -242,6 +363,6 @@ def run(store: Store, zone: C.Zone) -> dict:
     if not source:
         L.warning("suspects %s: Gaia unreachable; suspects are NOT checked against Gaia (gaia_checked=false)", zone.name)
     if not wsource:
-        L.warning("suspects %s: CatWISE unreachable; suspects are NOT checked against CatWISE (catwise_checked=false)", zone.name)
+        L.warning("suspects %s: no WISE catalogue checked (CatWISE/AllWISE unreachable or off); catwise_checked=false", zone.name)
     L.info("suspects %s: %s", zone.name, st)
     return st

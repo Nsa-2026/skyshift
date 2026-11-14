@@ -1,4 +1,4 @@
-"""known with KNOWN_SOURCE = "mpc": the switch, the cache layout and the exact per-photo positions.
+"""known (MPC orbits with kete): the cache layout and the exact per-photo positions.
 The kete parts are network tests (orbit file and planet ephemerides are downloaded on first use)."""
 
 import numpy as np
@@ -18,17 +18,12 @@ def _square(ra0: float, dec0: float, half: float) -> str:
     return "POLYGON ICRS " + " ".join(f"{a} {b}" for a, b in v)
 
 
-def test_default_source_is_mpc_and_skybot_paths_unchanged(monkeypatch):
-    monkeypatch.delenv("SKYSHIFT_KNOWN_SOURCE", raising=False)
-    import importlib
-    assert importlib.reload(C).KNOWN_SOURCE == "mpc"
+def test_cache_path_is_mpc_and_there_is_no_source_flag(tmp_path):
     g = pd.DataFrame({"obs_id": ["2025W43_1A_0679_2"]})
     assert known.run_rel(ZONE, g) == "cache/mpc/pilot/run_2025W43_1A_0679_2.json"
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "skybot")
-    assert known.run_rel(ZONE, g) == "cache/skybot/pilot/run_2025W43_1A_0679_2.json"
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "nope")
-    with pytest.raises(ValueError):
-        known.run_rel(ZONE, g)
+    from skyshift_pipeline import cli
+    with pytest.raises(SystemExit):
+        cli.main(["known", "--zone", "pilot", "--root", str(tmp_path), "--known-source", "mpc"])
 
 
 def _photos() -> pd.DataFrame:
@@ -38,29 +33,15 @@ def _photos() -> pd.DataFrame:
     })
 
 
-def _cache(per_photo: list | None) -> dict:
-    d = {"zone": "pilot", "session": 5, "obs_ids": ["A_1", "B_1"], "mjd": 61000.001, "jd": 61000.001 + 2400000.5,
-         "query": {"source": "test"}, "n": 2, "fetched": "x",
-         "objects": {"name": ["(1) Ceres", "2001 AB"], "number": [1, None], "ra": [121.0, 121.2], "dec": [15.0, 15.1],
-                     "v": [8.0, 19.0], "dra_arcsec_h": [36.0, 0.0], "ddec_arcsec_h": [0.0, 0.0], "class": ["MB", "MB"]}}
-    if per_photo is not None:
-        d["per_photo"] = per_photo
-    return d
+def _cache(per_photo: list) -> dict:
+    return {"zone": "pilot", "session": 5, "obs_ids": ["A_1", "B_1"], "mjd": 61000.001, "jd": 61000.001 + 2400000.5,
+            "query": {"source": "test"}, "n": 2, "fetched": "x",
+            "objects": {"name": ["(1) Ceres", "2001 AB"], "number": [1, None], "ra": [121.0, 121.2], "dec": [15.0, 15.1],
+                        "v": [8.0, 19.0], "dra_arcsec_h": [36.0, 0.0], "ddec_arcsec_h": [0.0, 0.0], "class": ["MB", "MB"]},
+            "per_photo": per_photo}
 
 
-def test_skybot_cache_moves_objects_with_rates(tmp_path, monkeypatch):
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "skybot")
-    store = Store(str(tmp_path))
-    store.write_json("cache/skybot/pilot/run_A_1.json", _cache(None))
-    p = known.load_predictions(store, _photos(), ZONE)
-    ceres = p[(p["name"] == "(1) Ceres") & (p["obs_id"] == "B_1")]
-    # 36″/h for 0.001 d = 0.864″ east of 121.0 at dec 15 (on-sky rate)
-    assert ceres["ra"].iloc[0] == pytest.approx(121.0 + 0.864 / 3600 / np.cos(np.radians(15.0)), abs=1e-7)
-    assert len(p) == 6  # 2 objects × 3 photos, all inside
-
-
-def test_mpc_cache_uses_exact_per_photo_positions(tmp_path, monkeypatch):
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "mpc")
+def test_mpc_cache_uses_exact_per_photo_positions(tmp_path):
     store = Store(str(tmp_path))
     per_photo = [
         {"obs_id": "A_1", "detector": 1, "name": "(1) Ceres", "ra": 121.01, "dec": 15.01},
@@ -75,20 +56,17 @@ def test_mpc_cache_uses_exact_per_photo_positions(tmp_path, monkeypatch):
     assert set(p.columns) >= {"v", "dra_arcsec_h", "ddec_arcsec_h", "edge_px", "mjd", "session"}
 
 
-def test_empty_per_photo_means_nothing_seen(tmp_path, monkeypatch):
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "mpc")
+def test_empty_per_photo_means_nothing_seen(tmp_path):
     store = Store(str(tmp_path))
     store.write_json("cache/mpc/pilot/run_A_1.json", _cache([]))
-    # per_photo present but empty: no object is in any photo (no fallback to the rates path)
+    # per_photo present but empty: no object is in any photo (positions never come from the rates)
     assert known.load_predictions(store, _photos(), ZONE).empty
 
 
 # ---------------------------------------------------------------- known_mpc helpers (no kete needed)
 
-from conftest import SKYBOT_SAMPLE  # noqa: E402
-
 from skyshift_pipeline import known_mpc  # noqa: E402
-from skyshift_pipeline.sky import Footprint, angsep  # noqa: E402
+from skyshift_pipeline.sky import Footprint, angsep, offset_radec  # noqa: E402
 
 
 def test_object_table_names_numbers_and_defaults():
@@ -194,8 +172,7 @@ def test_padded_corners_move_each_corner_out_by_the_pad():
     assert ((padded[:, 0] >= 0) & (padded[:, 0] < 360)).all()
 
 
-def test_session_record_round_trips_through_load_predictions(tmp_path, monkeypatch):
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "mpc")
+def test_session_record_round_trips_through_load_predictions(tmp_path):
     store = Store(str(tmp_path))
     photos = _photos()
     objs = known_mpc.object_table(pd.DataFrame({
@@ -227,28 +204,33 @@ def test_session_record_with_nothing_seen():
     assert rec["n"] == 0 and rec["objects"]["name"] == [] and rec["per_photo"]["obs_id"] == []
 
 
-# ---------------------------------------------------------------- kete against SkyBoT (network, needs the mpc extra)
+# ---------------------------------------------------------------- kete, live (network)
 
 @pytest.mark.network
-def test_kete_from_the_earths_centre_matches_skybot():
-    """The fixture is SkyBoT's geocentric answer at JD 2460965.236 (UTC). Through our own code path
-    (orbit rows -> states -> geocentre observer -> a field around them), kete should agree to ~1″."""
+def test_kete_live_finds_bright_asteroids_moving_at_their_rates():
+    """Live MPC orbits through our own code path (orbit rows -> states -> geocentre observer -> fields):
+    275 Sapientia, 289 Nenetta and 643 Scheherezade lie in a 5° field around RA 120.5°, Dec 15.5° at
+    JD 2460965.236 (UTC), brighter than V 17, and their positions one hour later agree with the
+    reported on-sky rates to 0.5″ (the rates score and suspects use to move a prediction)."""
     kete = pytest.importorskip("kete")
-    sky = pd.DataFrame(known.parse_skybot_json(SKYBOT_SAMPLE.read_text()))
-    sky = sky[sky["v"] < 17]  # 275 Sapientia, 289 Nenetta, 643 Scheherezade
     orb = kete.mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL)
-    orb = orb[orb["desig"].astype(str).isin([str(int(n)) for n in sky["number"]])].copy()
+    orb = orb[orb["desig"].astype(str).isin(["275", "289", "643"])].copy()
     orb["desig"] = orb["desig"].astype(str)
     objs = known_mpc.object_table(orb)
     states = known_mpc.build_states(orb)
     mjd = 2460965.236 - 2400000.5
-    obs, how = known_mpc.observer_state(kete, {}, mjd)
-    assert how == "geocentre"
-    photos = pd.DataFrame({"obs_id": ["X"], "detector": [2], "s_region": [_square(120.5, 15.5, 2.5)]})
-    seen = known_mpc.seen_in_photos(kete, states, objs, photos, {"X": (obs, {}, how)})
-    got = seen.assign(name=objs["name"].to_numpy()[seen["row"].to_numpy()]).set_index("name")
-    for r in sky.itertuples():
-        g = got.loc[r.name]
-        assert angsep(g.ra, g.dec, r.ra, r.dec) * 3600 < 2.0, r.name
-        assert g.v == pytest.approx(r.v, abs=0.3)
-        assert g.dra_arcsec_h == pytest.approx(r.dra_arcsec_h, abs=0.5)
+    observers = {}
+    for obs_id, t in (("X", mjd), ("Y", mjd + 1.0 / 24.0)):
+        obs, how = known_mpc.observer_state(kete, {}, t)
+        assert how == "geocentre"
+        observers[obs_id] = (obs, {}, how)
+    s = _square(120.5, 15.5, 2.5)
+    photos = pd.DataFrame({"obs_id": ["X", "Y"], "detector": [2, 2], "s_region": [s, s]})
+    seen = known_mpc.seen_in_photos(kete, states, objs, photos, observers)
+    seen["name"] = objs["name"].to_numpy()[seen["row"].to_numpy(int)]
+    x, y = (seen[seen["obs_id"] == k].set_index("name") for k in ("X", "Y"))
+    assert sorted(x.index) == sorted(y.index) == ["Nenetta", "Sapientia", "Scheherezade"]
+    for name, r in x.iterrows():
+        assert r.v < 17, name
+        ra1, dec1 = offset_radec(r.ra, r.dec, r.dra_arcsec_h, r.ddec_arcsec_h)  # one hour on
+        assert angsep(ra1, dec1, y.loc[name, "ra"], y.loc[name, "dec"]) * 3600 < 0.5, name

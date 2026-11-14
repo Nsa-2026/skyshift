@@ -1,9 +1,9 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.1)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
-targets `dets`, `spectrum_reason`).
+targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -22,7 +22,7 @@ GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6
               um_min, um_max, n_exposures, flag_frac, sat_frac,
               data_url, scale, zero, center? }],      # center: moving targets only
     gaia:[{ id, ra, dec, pmra, pmdec, parallax, g }],
-    known:[{ name, epoch_id, ra, dec, v, source:"skybot"|"mpc"|"most"|"irsa-3i" }],
+    known:[{ name, epoch_id, ra, dec, v, source:"mpc"|"most"|"irsa-3i" }],
     data_release, archive_checked }
 GET /api/object?ra=&dec=
 → { name|null, gaia|null, known_ucd|null,
@@ -38,6 +38,7 @@ GET /api/resolve?q=        # any coordinate format, or a built-in name
 /data/<slug>/frames.json   /data/<slug>/object.json
 /data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
 /data/validation.json      /data/suspects.json
+/data/candidates.json      /data/cand/<id>/frames.json   # candidates to review
 
 # frames are data, not pictures
 # 16-bit arrays, at most 300 px a side; value = raw × scale + zero (MJy/sr)
@@ -126,7 +127,7 @@ Response fields:
 | epochs[].data_url, scale, zero | The frame data, see below |
 | epochs[].center | **Optional**, moving targets only (e.g. 3I/ATLAS): `{ra, dec}` of this epoch's own frame centre, when the frames follow the object. The frame's centre pixel and its tangent plane are at this position instead of the top-level `center`. Absent for fixed fields |
 | gaia | Gaia DR3 stars in the frame at epoch J2016.0 (MJD 57388.5). The browser moves each one to an epoch's `mjd_mid` with `pmra`, `pmdec`. `parallax` and `g` may be null |
-| known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null. `source`: `skybot` (IMCCE SkyBoT, from the Earth's centre), `mpc` (Minor Planet Center orbits propagated with kete, from SPHEREx's own position when the photo header gives it), `most` (IRSA MOST), `irsa-3i` (IRSA's 3I/ATLAS photo list) |
+| known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null. `source`: `mpc` (Minor Planet Center orbits propagated with kete, from SPHEREx's own position when the photo header gives it), `most` (IRSA MOST), `irsa-3i` (IRSA's 3I/ATLAS photo list) |
 | data_release | Collections searched, e.g. `"DR1+QR3"` |
 | archive_checked | Date of the IRSA search, `YYYY-MM-DD` |
 
@@ -195,6 +196,8 @@ for an unknown name.
 | `/data/<slug>/object.json` | scripts/precompute (P2) | `GET /api/object` |
 | `/data/validation.json` | scripts/validate (P1) | below |
 | `/data/suspects.json` | pipeline export (P1) | below |
+| `/data/candidates.json` | pipeline exporter `skyshift-candidates` (P1) | below |
+| `/data/cand/<id>/frames.json` + frame files | scripts/candidates/frames.py (P1, with the P2 engine) | `GET /api/frames` for one candidate (its clock, field and detectors); frame files `frames/<c><fov>_d<det>_…bin` as above. Only for candidates whose `frames_url` is set |
 
 In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data/`.
 
@@ -256,7 +259,7 @@ A reader shows every check the file holds, in file order; an id missing from the
               n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null }] }
 ```
 
-Movers with no known-object match, SkyBoT or MPC (contracts/dots.md). Written by the pipeline's
+Movers with no known-object match from MPC (contracts/dots.md). Written by the pipeline's
 `suspects` step (`results/<zone>/suspects.json`, copied to `web/public/data/suspects.json`).
 They are also written to Firestore `candidates` with `source: "pipeline"`.
 
@@ -272,6 +275,146 @@ They are also written to Firestore `candidates` with `source: "pipeline"`.
 | cell | integer, no unit | The 6″ sky cell of (`ra`, `dec`), exactly contracts/dots.md's `cell` (`band × 10 000 000 + col`). An id for grouping, not a quantity: neighbouring cells are not neighbouring numbers. At most ~1.08 × 10¹², so a JSON number is exact in JavaScript (below 2⁵³); never a string |
 | nearest_known_arcsec | float, arcsec, or null | Distance to the nearest known object predicted in the same session, moved to `mjd`; null if none within 600″. Suspects have none within 30″ |
 
+### candidates.json
+
+What the pipeline found, for people to review (web/DESIGN.md, "Product"). Written by the pipeline's
+exporter (`cd pipeline && uv run skyshift-candidates`, pipeline/src/skyshift_pipeline/candidates.py) from
+`results/<zone>/` of every finished zone; static frames for the most promising by
+scripts/candidates/frames.py. Type `CandidatesResponse` in web/src/api/types.ts. Example (a real sample):
+fixtures/api/candidates_sample.json (fixtures/api/candidates.json is an older hand-made pilot sample that
+web tests still use; it predates `zones` and the high_pm id rule).
+
+```
+{ generated, data_release, zones:[zone…], counts:{ mover, high_pm, spectral },
+  candidates:[{ id, kind:"mover"|"high_pm"|"spectral", ra, dec, mjd, clock:"hours"|"months", det, zone, zones,
+                score, snr, flux_ujy, rate_arcsec_h, pm_mas_yr, pm_err_mas_yr, pa_deg,
+                nearest_known_arcsec, gaia_match, catwise_match, galactic_b,
+                labels:[label…], reasons:[code…], why, flags:[flag…], frames_url|null }] }
+```
+
+| field | type | meaning |
+|---|---|---|
+| generated | string | Time of the export, ISO 8601 UTC (`2026-11-14T15:20:00Z`) |
+| data_release | string | Collections the zones' photos came from, e.g. `"DR1+QR3"` |
+| zones | [string] | Zones searched, in the order used: the larger first (`["hunt", "pilot"]`). A zone appears even when all its objects were already listed from an earlier one |
+| counts | {kind: int} | Candidates of each kind in the file (all three keys, 0 if none) |
+| candidates | [object] | Sorted by zone (in `zones` order), then kind (mover, high_pm, spectral), then `score` descending |
+
+Each candidate: every field is present; a missing value is `null`, never omitted.
+
+| field | type | meaning |
+|---|---|---|
+| id | string | Unique in the file and stable across runs; Firestore `votes.candidate_id`. Treat as opaque. mover: the pipeline's suspect id `<zone>-<cell>-<minute>` (suspects.json); high_pm: `<zone>-pm-<source_id>` (fit) or `<zone>-pm-<source_id>-<source_id_b>` (pair); spectral: `<zone>-sp-<source_id>`. `source_id` is link's id from the source's median position (contracts/dots.md) |
+| kind | string | `mover` "Fast mover": moves within hours (an uncatalogued asteroid or comet?). `high_pm` "Moving star": moves between visits (a nearby star or brown dwarf?). `spectral` "Odd spectrum": molecule bands worth a look |
+| ra, dec | float, deg | mover: mean of its dots (as suspects.json). high_pm: the pipeline's position: fit, at the fit's epoch; pair, the first visit's source. spectral: the source's median position |
+| mjd | float, MJD | mover: mean MJD-AVG of its dots. high_pm: fit, the astrometric fit's epoch; pair, the first visit's mean time. spectral: mean MJD-AVG of the source's dots |
+| clock | string | `hours` for mover, `months` for high_pm and spectral: the clock to blink it on |
+| det | int 1–6 | mover: detector of its highest-S/N dot. high_pm, spectral: the detector where the source's spectrum has the highest S/N (pair: the first visit's source) |
+| zone | string | Pipeline zone it came from, one of `zones` |
+| zones | [string] | Every zone that found it, `zone` first: `["hunt", "pilot"]` for an object the pilot found too (as suspects.json's `zones`). **Not yet in types.ts** (proposal: `zones?: string[]`); readers that don't know it ignore it |
+| score | float 0–1 | How promising: **higher = more promising**, in 0..1, sorted descending. Defined per kind below; where the pipeline's own score is lower-is-better (high_pm) the exporter inverts it (e^(−s/0.2)). Never null in the export (the type allows it) |
+| snr | float or null | mover: its highest dot S/N. high_pm, spectral: S/N of the spectrum in `det` (its 17 channels' S/N added in quadrature) |
+| flux_ujy | float µJy or null | mover: median of its dots. high_pm, spectral: median of the spectrum's 17 channels in `det` |
+| rate_arcsec_h | float ″/h or null | mover: apparent rate from a weighted straight-line fit of its dots' positions against time (dot positions re-read from dots/). null for `two_detectors` (one moment) and other kinds |
+| pm_mas_yr, pm_err_mas_yr | float mas/yr or null | high_pm only: total proper motion and its 1σ error (the pipeline's `pm`, `pm_err`) |
+| pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover from its dots (null without a rate). null for spectral |
+| nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known asteroid or comet predicted in the same session, moved to `mjd`; **null = none within 600″**. Always null for high_pm and spectral (not checked) |
+| gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: false (suspects have no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match |
+| catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one |
+| galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
+| labels | [string] | Filter labels, vocabulary below; order as listed there. [] for movers |
+| reasons | [string] | Codes, vocabulary below: why it was listed and what to be careful about |
+| why | string | One plain English sentence: why it is on the list (examples below) |
+| flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair) |
+| frames_url | string or null | Static blink frames, resolved against the URL of candidates.json like `data_url` (`new URL(frames_url, jsonUrl)`): `cand/<id>/frames.json`, a `GET /api/frames` response whose `data_url`s resolve against that file. null: call `/api/frames?ra=&dec=&clock=&fov=&det=` live |
+
+**Static frames** (`/data/cand/<id>/`, scripts/candidates/frames.py) exist for the highest-scoring of
+each kind (default 25 movers, 20 high_pm, 15 spectral; under 150 MB in all). mover: hours clock, 20′
+field, `det` (and its simultaneous partner for `two_detectors`), the exposures within 0.3 days of `mjd`
+(its own session and the next ones), at most 10 per detector, nearest in time first. high_pm and
+spectral: months clock, 5′ field, `det`, every exposure of every visit (as the featured targets).
+Several detectors may share one file (sorted by `mjd_mid`, then `det`); the client filters by `det`.
+
+**Which objects.** mover: every row of `results/<zone>/suspects.parquet` (suspects.json's rules). high_pm:
+every row of `highpm_candidates.parquet`, vetted or not; the pipeline's vetting reasons become `reasons`.
+spectral: sources of `classes.parquet` with a band label or `brown_dwarf_like`, and either no Gaia match or
+a Gaia parallax ≥ 20 mas at ≥ 5σ (closer than 50 pc); the 300 highest-scoring per zone. An object already
+listed from an earlier zone is not listed again, and the earlier entry's `zones` gets the later zone: movers
+within 6″ and 2 minutes (suspects.json's merge), high_pm and spectral within 4″. The pilot lies inside the
+hunt zone, which was run on the same photos: the hunt re-found all 27 pilot movers (the same ids as
+suspects.json), so the pilot adds only objects the hunt didn't list.
+
+Nothing is dropped for being doubtful: doubts become `reasons` and lower the `score`. The "check first"
+codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
+`outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` (mover);
+`short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
+`at_control_level`, `implausible_pm` (high_pm).
+
+**score** (0–1; the formulas are in the exporter and its tests):
+
+| kind | score |
+|---|---|
+| mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` |
+| high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
+| spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
+
+**labels**
+
+| label | kinds | meaning |
+|---|---|---|
+| red | high_pm, spectral | Redder than J − [4.6] = −0.5 AB (about J − W2 > 1.9 Vega; classify's brown-dwarf colour cut). high_pm: the pipeline's D6/D2 flux ratio `red_ratio` ≥ 0.63; spectral: `j_m46_ab` > −0.5 |
+| brown_dwarf_like | high_pm, spectral | classify's `brown_dwarf_like`: methane or water seen, red, missing or very faint in Gaia. A lead, not a discovery |
+| ch4 | high_pm, spectral | Methane at 3.3 or 1.6 µm (T and Y brown dwarfs) |
+| h2o_ice, co2_ice, co_ice | high_pm, spectral | Ices at 3.05, 4.27, 4.67 µm: a dark cloud in front of a background star |
+| h2o_vapour | high_pm, spectral | Water vapour at 1.4 / 1.9 µm (M and L dwarfs, cool giants) |
+| co_23 | high_pm, spectral | The CO bandhead at 2.3 µm (cool giants and dwarfs) |
+| pah_33 | high_pm, spectral | PAH emission at 3.3 µm (star-forming galaxies) |
+
+The molecule labels are classify's `label_*` (pipeline/CLAUDE.md, "Spectral science"); on a high_pm
+candidate they are those of its (first) source.
+
+**reasons**
+
+| code | kind | plain meaning |
+|---|---|---|
+| two_exposures | mover | Seen at different places in two or more exposures of one session |
+| two_detectors | mover | Seen by two detectors at the same moment (D1+D4, D2+D5, D3+D6), in one exposure only |
+| known_object_near | mover | A known asteroid or comet was predicted within 2′ at that time: it may be that object, slightly off its prediction |
+| motion_not_significant | mover | The motion is under 3σ of its position errors: it may not move at all |
+| bad_pixels_near | mover | A masked pixel (cosmic ray, hot or dead pixel, persistence…) touches one of its dots |
+| outlier_flag | mover | The OUTLIER flag (bit 19, recorded, not masked) is set on its pixels. Hunt: 92 of 228 suspects (40%), almost all in D4–D6 |
+| detector_excess | mover | Seen only in detectors where, in that visit, the zone has at least 1.5× its usual share of unexplained movers per mover (≥ 5 suspects in the cell): likely artefacts. Hunt: D4, D5, D6 in visit 2 (D4 is 41% of the suspects but 28% of the movers); 108 suspects. A D1+D4 pair seen by D1 too doesn't count |
+| repeat_position | mover | Another unexplained mover of the zone was seen within 30″ in another session, at under 2″ an hour apart: probably a fixed or very slow source, not a fast mover. Hunt: 7 suspects at 3 places, 1 to 169 days apart (one is the brightest suspect, S/N 290 in D1) |
+| gaia_unchecked, catwise_unchecked | mover | Gaia / CatWISE could not be checked when the pipeline ran |
+| pm_fit | high_pm | Motion fitted over all its detections in every visit |
+| pm_pair | high_pm | Two sources each seen in one visit only, paired across visits (too fast to stay linked) |
+| vetted | high_pm | Passed every pipeline check |
+| catwise_pm_agrees | high_pm | CatWISE lists the same motion |
+| short_span | high_pm | Its visits are too close in time for a motion |
+| few_dots | high_pm | Few detections (fewer than 20 dots) |
+| bad_fit | high_pm | The positions don't fit a straight line (blend or bad fit) |
+| over_pm_cap | high_pm | Faster than any known star (> 10.5″/yr) |
+| gaia_pm_disagrees | high_pm | Gaia lists a different motion for the star here: likely a mismatch |
+| catwise_pm_disagrees | high_pm | CatWISE lists a different motion for the source here: likely a mismatch |
+| at_control_level | high_pm | As many pairs at this separation turn up by chance (the control) |
+| implausible_pm | high_pm | Faster than 12″/yr between visits: no star moves that fast (Barnard's Star, the fastest known, does 10.4″/yr), so it is almost certainly two different sources. In practice every pair (3–120″ apart about half a year apart; hunt 32–269″/yr) and the fits above 12″/yr; none is `vetted`. Hunt: 82 of 997 (55 pairs, 27 fits); pilot: 15 of 167 (12 pairs, 3 fits) |
+| no_gaia | spectral | No Gaia DR3 source here |
+| gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
+| class_star, class_galaxy, class_unsure | spectral | classify's `class` (unsure: point-like without a Gaia star) |
+| variable | spectral | Its brightness changes between visits (sources `variable`) |
+
+**why**, examples (from the hunt export): "Seen at different places in 2 exposures 4.3 minutes apart,
+moving about 55″ an hour; no known asteroid or comet was predicted within 10′." · "Seen at different
+places in 3 exposures over 4.3 minutes, moving about 55″ an hour; the nearest known asteroid or comet was
+predicted 2.1′ away, but another unexplained mover was seen 3″ from here 168.6 days apart, so it may be a
+fixed source." · "Moves 1.10″ a year between visits; Gaia lists this star with the same motion, a known
+nearby star that shows the method works." · "Moves 0.95″ a year between visits, but CatWISE lists a
+different motion for the source here — likely a mismatch, worth a look." · "Seen 78.4″ apart in two visits
+(171″ a year), with matching brightness, but no star moves that fast (Barnard's Star, the fastest known,
+does 10.4″ a year): almost certainly two different sources." · "Water vapour at 1.4/1.9 µm and CO at
+2.3 µm (23σ) in a point source with no Gaia star, and red: what a brown dwarf would look like, a lead to
+check."
+
 ## Firestore: flags and votes (no API endpoint)
 
 | collection | fields |
@@ -282,6 +425,8 @@ They are also written to Firestore `candidates` with `source: "pipeline"`.
 - Rules are **create-only**: anyone may read and create; nobody may update or delete. Each create
   must have exactly these fields, with the right types and allowed values.
 - `ra`, `dec` in degrees, `mjd` of the frame that was clicked, `clock` `months` or `hours`.
+- `candidate_id` is a Firestore `candidates` document id or a candidates.json `id` (at most 128 characters,
+  as the rules require).
 - `ts` is set with `serverTimestamp()`. `voter` is a random id kept in the browser, never a
   name or email.
 - `created` (candidates) is set with `serverTimestamp()`; the rules require
@@ -295,6 +440,13 @@ They are also written to Firestore `candidates` with `source: "pipeline"`.
   rules and the site deploy together (`infra/firebase/deploy.sh`, both parts). Until then the
   deployed rules are v2 (no `created`).
 
+## Changes in v3.1 (14 Nov 2026)
+
+- New static file `/data/candidates.json` (type `CandidatesResponse` in web/src/api/types.ts) and
+  `/data/cand/<id>/frames.json`: what the pipeline found, for the Discover, Review and Candidate pages.
+- Firestore `votes.candidate_id` may be a candidates.json `id`.
+- Each candidate has `zones` (every zone that found it), not yet in types.ts.
+
 ## Changes from v2 (14 Nov 2026)
 
 - suspects.json: `cell` is an integer (the 6″ cell of contracts/dots.md), field table added.
@@ -304,3 +456,5 @@ They are also written to Firestore `candidates` with `source: "pipeline"`.
   `det` default 2, epoch ids, the frame data layout and raw 0 = no data, `/api/gaia`, `/api/known`,
   `/api/resolve`, several detectors in a static frames file, validation.json, suspects.json.
   Still open: `known_ucd` (the server returns null so far).
+- Known objects (14 Nov, P1): MPC only, no SkyBoT. `known[].source` is `"mpc"` | `"most"` | `"irsa-3i"`;
+  asteroids and comets come from Minor Planet Center orbits computed with kete.

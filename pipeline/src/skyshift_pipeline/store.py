@@ -3,7 +3,7 @@
 Layout (docs/cloud-architecture.md):
     photolists/zones/<zone>.parquet
     dots/<obs_id>D<det>.parquet
-    cache/skybot/<zone>/run_<first obs_id>.json
+    cache/mpc/<zone>/run_<first obs_id>.json
     results/<zone>/...
 A file's existence means its step is done. Writes are atomic: a local file is written under a
 temporary name and renamed; a GCS object only appears once its upload has completed.

@@ -140,6 +140,11 @@ describe("saturated and undetected points", () => {
     expect(upperLimitValue(pt({ flux_ujy: 100, err_ujy: 60 }))).toBe(220);
     expect(isUpperLimit(pt({ flux_ujy: 1000, err_ujy: 60 }))).toBe(false);
   });
+  it("never draws a saturated point as an upper limit (its error is the ±50% wing estimate)", () => {
+    expect(isUpperLimit(pt({ flux_ujy: 13e6, err_ujy: 6.6e6, saturated: true }))).toBe(false);
+    expect(isUpperLimit(pt({ flux_ujy: 13e6, err_ujy: 6.6e6 }))).toBe(true);
+    expect(isUpperLimit(pt({ flux_ujy: 0, err_ujy: 10, saturated: true }))).toBe(true);
+  });
 });
 
 describe("sentences", () => {
