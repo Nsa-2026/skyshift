@@ -23,6 +23,7 @@ import {
   measureSentence,
   measuredVisitCount,
   median,
+  missingVisitsSentence,
   noMeasureReason,
   paVector,
   paWord,
@@ -32,6 +33,7 @@ import {
   visitCountFromFrames,
   visitTimesFromFrames,
   visitTimesFromSpectrum,
+  visitsMissingFromSpectrum,
   visitsOf,
 } from "./format";
 import { describeVisit, lightCurveDets, renderLightCurve } from "./lightcurve";
@@ -285,6 +287,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
     const um1 = Math.max(...sp.map((p) => p.um));
     const vText = visits.length === 1 ? "one visit" : `${visits.length} visits`;
     const satRef = object.measure && satQualifiesShift(object) ? "" : ref(notes, "sat");
+    const missing = missingHtml(sp);
     const toggle =
       visits.length > 1
         ? html`<div class="seg cd-seg" role="group" aria-label="Colour the spectrum by">
@@ -297,12 +300,19 @@ export const mountCard: MountCard = (el, opts = {}) => {
         <h3 class="cd-h" id="${id}-s">Spectrum</h3>
         ${toggle}
       </div>
-      <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}</p>
+      <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}${missing}</p>
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
+  }
+
+  /** " Visit 3, May 2026, is in the blink but not here: …", when the months blink has visits the spectrum (or one detector of it) lacks. */
+  function missingHtml(sp: SpectrumPoint[], det?: Det): string {
+    if (!shown) return "";
+    const said = missingVisitsSentence(visitsMissingFromSpectrum(shown.frames, shown.view, shown.view.fov, sp, det), det);
+    return said ? ` <span class="cd-missing">${esc(said)}</span>` : "";
   }
 
   /** Why the spectrum is empty, from the optional spectrum_reason (contracts/api.md v3; absent reads as null). */
@@ -373,7 +383,7 @@ export const mountCard: MountCard = (el, opts = {}) => {
             .join("")}
         </div>
       </div>
-      <p class="cd-cap">Median flux of each visit in D${lcDet}, ${r.min}–${r.max} µm, ±1σ. Faint dots are single exposures at different wavelengths: their spread is colour, not time.</p>
+      <p class="cd-cap">Median flux of each visit in D${lcDet}, ${r.min}–${r.max} µm, ±1σ. Faint dots are single exposures at different wavelengths: their spread is colour, not time.${missingHtml(object.spectrum, lcDet)}</p>
       <div class="cd-plot" data-chart="lightcurve">${chart.svg}</div>
       <p class="cd-readout" id="${id}-lro" aria-live="polite">Point at a visit to read its brightness.</p>
     </section>`;
