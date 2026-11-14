@@ -1,8 +1,9 @@
 # Unified observatory frontend
 
 The current entry/Explore shell follows the latest light dashboard reference and includes a
-scroll opening with a frontal face approach. See [the opening implementation and verification](scroll-intro.md)
-for current routes, real-sky provenance and 1,006 passing local checks (4 network skips).
+scroll opening using the user-specified Egyptian goddess drawing from `src/opening/goddess.ts`.
+See [the opening implementation and verification](scroll-intro.md) for current routes, real-sky
+provenance and the latest local checks. The character swap retains the original intro controller.
 
 The integration baseline documented below is the earlier black observatory screenshot:
 upper-left target card, right Details inspector and bottom playback strip. These live scientific

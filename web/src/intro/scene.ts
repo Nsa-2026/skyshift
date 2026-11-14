@@ -1,5 +1,5 @@
 import { sceneAt, smooth, type SceneState } from './model';
-import { drawPortrait, PORTRAIT_EYE } from './portrait';
+import { drawPortrait, portraitCamera, PORTRAIT_EYE } from './portrait';
 
 // Authored vector scenery, not astronomical imagery. The only sky pixels come from SPHEREx.
 const land = [
@@ -64,29 +64,15 @@ function horizon(c: CanvasRenderingContext2D, w: number, h: number, s: SceneStat
 
 function girl(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) {
   if (!s.girl) return;
-  const base = Math.min(w / 640, h / 980) * .74;
-  const faceZoom = base * Math.pow(5 / base, s.face);
-  const eyeZoom = faceZoom * Math.pow(18 / faceZoom, s.eye);
-  const full = Math.hypot(w, h) / (PORTRAIT_EYE.radius * 1.8);
-  const scale = eyeZoom * Math.pow(full / eyeZoom, s.pupil);
-  // Stay square to the face, showing both eyes, before approaching the right pupil.
-  const centerX = 800 + (PORTRAIT_EYE.x - 800) * s.eye;
-  const centerY = 420 + (PORTRAIT_EYE.y - 420) * s.eye;
-  // Anchor her feet to the ground even when portrait width limits the model scale.
-  const standingEyeY = h * .86 - (946 - 420) * base;
-  const x = w * .5, y = standingEyeY * (1 - s.face) + h * .5 * s.face;
+  const cam = portraitCamera(w, h, s);
   c.save(); c.globalAlpha = s.girl;
   c.fillStyle = `rgba(7,13,23,${smooth(s.p, .65, .70)})`; c.fillRect(0, 0, w, h);
-  c.translate(x, y); c.scale(scale, scale); c.translate(-centerX, -centerY);
-  drawPortrait(c, 1 - smooth(s.p, .70, .76));
-  c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1;
+  c.translate(cam.x, cam.y); c.scale(cam.scale, cam.scale); c.translate(-cam.focusX, -cam.focusY);
+  drawPortrait(c, s, cam.scale);
+  c.globalCompositeOperation = 'destination-out'; c.globalAlpha = smooth(s.p, .64, .72);
   c.beginPath(); c.arc(PORTRAIT_EYE.x, PORTRAIT_EYE.y, PORTRAIT_EYE.radius, 0, Math.PI * 2); c.fill();
   c.globalCompositeOperation = 'source-over';
   c.fillStyle = `rgba(3,8,15,${.88 * (1 - smooth(s.p, .70, .89))})`; c.fill();
-  if (s.p < .74) {
-    c.fillStyle = `rgba(220,237,245,${.7 * (1 - smooth(s.p, .65, .74))})`;
-    c.beginPath(); c.ellipse(PORTRAIT_EYE.x - 2, PORTRAIT_EYE.y - 2.8, 1.1, .6, -.4, 0, Math.PI * 2); c.fill();
-  }
   c.restore();
 }
 

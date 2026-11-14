@@ -8,9 +8,12 @@ on `codex/frontend-unified`.
 
 ## Current opening (14 November 2026)
 
-`#/` is a scroll-controlled space → Earth → ground → frontal face → pupil → real sky sequence.
-The portrait uses procedural surface shading and authored Canvas paths. The face stays front-on
-before the camera approaches one pupil. There are no video files or AI-generated visual assets.
+`#/` is a scroll-controlled space → Earth → ground → goddess profile → pupil → real sky sequence.
+The character is the user-supplied `src/opening/goddess.ts`, drawn with Canvas paths: black skin,
+an Egyptian dress, headdress and jewellery, looking up in profile. `src/intro/portrait.ts` adapts
+its centimetre coordinates to the existing camera; head and pupil anchors come from that model.
+No other part of the separate opening prototype is loaded by this integration. There are no
+video files or AI-generated visual assets.
 The same live dashboard emerges at the end and becomes interactive at `#/explore`.
 
 Entry/Explore-only styles live in `src/intro/intro.css`: persistent search/navigation, five target
