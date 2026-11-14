@@ -50,7 +50,7 @@ def _kete():
     try:
         import kete
     except ImportError as e:  # pragma: no cover
-        raise ImportError("known --known-source mpc needs kete: `uv sync --extra mpc`") from e
+        raise ImportError("known (MPC) needs kete: `uv sync` in pipeline/") from e
     return kete
 
 

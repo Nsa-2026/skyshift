@@ -144,7 +144,7 @@ def _do_run(store: Store, zone: C.Zone, g: pd.DataFrame, session: requests.Sessi
 
 def run(store: Store, zone: C.Zone, limit: int | None = None) -> dict:
     if C.KNOWN_SOURCE == "mpc":
-        from . import known_mpc  # kete is an optional extra: `uv sync --extra mpc`
+        from . import known_mpc  # the default; SkyBoT below
         return known_mpc.run(store, zone, limit=limit)
     t_start = time.time()
     photos = store.read_parquet(photolist_rel(zone.name))

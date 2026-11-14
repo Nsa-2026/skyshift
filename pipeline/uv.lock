@@ -2280,6 +2280,7 @@ dependencies = [
     { name = "astroquery" },
     { name = "fsspec" },
     { name = "gcsfs" },
+    { name = "kete" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -2287,11 +2288,6 @@ dependencies = [
     { name = "requests" },
     { name = "scipy" },
     { name = "skyshift-core" },
-]
-
-[package.optional-dependencies]
-mpc = [
-    { name = "kete" },
 ]
 
 [package.dev-dependencies]
@@ -2305,7 +2301,7 @@ requires-dist = [
     { name = "astroquery", specifier = ">=0.4.10" },
     { name = "fsspec", specifier = ">=2024.6" },
     { name = "gcsfs", specifier = ">=2024.6" },
-    { name = "kete", marker = "extra == 'mpc'", specifier = "==3.3.0" },
+    { name = "kete", specifier = "==3.3.0" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pyarrow", specifier = ">=16" },
@@ -2314,7 +2310,6 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11" },
     { name = "skyshift-core", editable = "../core" },
 ]
-provides-extras = ["mpc"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]

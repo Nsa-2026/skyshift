@@ -18,12 +18,14 @@ def _square(ra0: float, dec0: float, half: float) -> str:
     return "POLYGON ICRS " + " ".join(f"{a} {b}" for a, b in v)
 
 
-def test_default_source_is_skybot_and_paths_unchanged(monkeypatch):
-    assert C.KNOWN_SOURCE == "skybot"  # tests run without SKYSHIFT_KNOWN_SOURCE
+def test_default_source_is_mpc_and_skybot_paths_unchanged(monkeypatch):
+    monkeypatch.delenv("SKYSHIFT_KNOWN_SOURCE", raising=False)
+    import importlib
+    assert importlib.reload(C).KNOWN_SOURCE == "mpc"
     g = pd.DataFrame({"obs_id": ["2025W43_1A_0679_2"]})
-    assert known.run_rel(ZONE, g) == "cache/skybot/pilot/run_2025W43_1A_0679_2.json"
-    monkeypatch.setattr(C, "KNOWN_SOURCE", "mpc")
     assert known.run_rel(ZONE, g) == "cache/mpc/pilot/run_2025W43_1A_0679_2.json"
+    monkeypatch.setattr(C, "KNOWN_SOURCE", "skybot")
+    assert known.run_rel(ZONE, g) == "cache/skybot/pilot/run_2025W43_1A_0679_2.json"
     monkeypatch.setattr(C, "KNOWN_SOURCE", "nope")
     with pytest.raises(ValueError):
         known.run_rel(ZONE, g)
@@ -46,7 +48,8 @@ def _cache(per_photo: list | None) -> dict:
     return d
 
 
-def test_skybot_cache_moves_objects_with_rates(tmp_path):
+def test_skybot_cache_moves_objects_with_rates(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "KNOWN_SOURCE", "skybot")
     store = Store(str(tmp_path))
     store.write_json("cache/skybot/pilot/run_A_1.json", _cache(None))
     p = known.load_predictions(store, _photos(), ZONE)

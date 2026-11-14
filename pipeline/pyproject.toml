@@ -15,15 +15,12 @@ dependencies = [
     "pyvo>=1.5",
     "requests>=2.31",
     "scipy>=1.11",
+    "kete==3.3.0",  # known: MPC orbits (the default known source)
 ]
 
 [project.scripts]
 skyshift-pipeline = "skyshift_pipeline.cli:main"
 
-[project.optional-dependencies]
-mpc = [
-    "kete==3.3.0",
-]
 
 [build-system]
 requires = ["uv_build>=0.13.8,<0.14.0"]

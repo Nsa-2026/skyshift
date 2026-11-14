@@ -69,11 +69,11 @@ SKYBOT_PAD_DEG = 0.05
 SKYBOT_TIMEOUT_S = 300
 
 # --- known (MPC orbits with kete) ------------------------------------------------------------
-# KNOWN_SOURCE picks where `known` gets its objects: "skybot" (the default above) or "mpc" (known_mpc.py:
-# MPC orbits moved with kete to each photo's MJD-AVG, seen from SPHEREx's header position). The CLI
+# KNOWN_SOURCE picks where `known` gets its objects: "mpc" (default; known_mpc.py: MPC orbits moved with
+# kete to each photo's MJD-AVG, seen from SPHEREx's header position) or "skybot" (the IMCCE service above). The CLI
 # flag --known-source and the env var SKYSHIFT_KNOWN_SOURCE set it. Both write the same per-session
 # cache shape, in cache/skybot/<zone>/ or cache/mpc/<zone>/; score and suspects read the chosen one.
-KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "skybot")
+KNOWN_SOURCE = os.environ.get("SKYSHIFT_KNOWN_SOURCE", "mpc")
 KNOWN_SOURCES = ("skybot", "mpc")
 MPC_ORBITS_URL = "https://minorplanetcenter.net/Extended_Files/mpcorb_extended.json.gz"
 MPC_ORBITS_DIR = "cache/mpc/orbits"  # mpcorb_<date>.parquet + cometels_<date>.parquet: dated snapshots, newest used everywhere
