@@ -55,8 +55,18 @@ class Store:
         self.write_bytes(rel, data)
         return len(data)
 
-    def read_parquet(self, rel: str) -> pd.DataFrame:
-        return pd.read_parquet(io.BytesIO(self.read_bytes(rel)))
+    def write_table(self, rel: str, table) -> int:
+        """A pyarrow Table (keeps exact Arrow types, e.g. fixed-size lists)."""
+        import pyarrow.parquet as pq
+
+        buf = io.BytesIO()
+        pq.write_table(table, buf, compression="zstd")
+        data = buf.getvalue()
+        self.write_bytes(rel, data)
+        return len(data)
+
+    def read_parquet(self, rel: str, columns: list[str] | None = None) -> pd.DataFrame:
+        return pd.read_parquet(io.BytesIO(self.read_bytes(rel)), columns=columns)
 
     def write_json(self, rel: str, obj: Any) -> None:
         self.write_bytes(rel, json.dumps(obj, indent=1, default=_json_default).encode())

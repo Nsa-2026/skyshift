@@ -2,7 +2,9 @@
 
 Only dots inside the zone box are used (most of a photo's dots fall outside it).
 1. fixed: friends-of-friends within FIXED_LINK_ARCSEC over all dots; a group seen in
-   >= FIXED_MIN_SESSIONS sessions is a fixed source (stars, galaxies).
+   >= FIXED_MIN_SESSIONS sessions is a fixed source (stars, galaxies). Each gets a `source_id`
+   (source_id_of: cell × SOURCE_ID_PER_CELL + rank in the cell) and its dots are listed in
+   members.parquet (source_id, obs_id, detector, dot_row) for `spectra`.
 2. Dots in a fixed group or within FIXED_VETO_ARCSEC of a fixed source are dropped. Nothing else
    vetoes a candidate: a stray single dot in another session doesn't.
 3. The rest (elong <= MOVER_MAX_ELONG) are paired inside each session:
@@ -49,6 +51,8 @@ def load_dots(store: Store, photos: pd.DataFrame, zone: C.Zone, workers: int = 1
         except FileNotFoundError:
             return None
         df = df[[c for c in LOAD_COLUMNS if c in df.columns]]
+        # row position in the dot file as written (files are written once, never rewritten)
+        df["dot_row"] = np.arange(len(df), dtype=np.int32)
         if "flags_peak" in df and len(df):
             fp = df["flags_peak"].to_numpy(np.int64)
             if np.mean((fp & C.SOURCE_BIT) != 0) > C.SOURCE_PHOTO_MAX_FRAC:
@@ -69,7 +73,7 @@ def load_dots(store: Store, photos: pd.DataFrame, zone: C.Zone, workers: int = 1
     if n_source_ignored:
         L.info("SOURCE bit ignored in %d photos (set at the peak of > %.0f%% of their dots)", n_source_ignored, 100 * C.SOURCE_PHOTO_MAX_FRAC)
     parts = [p for p in parts if p is not None and len(p)]
-    cols = [*LOAD_COLUMNS, "session", "visit", "photo", "exposure"]
+    cols = [*LOAD_COLUMNS, "session", "visit", "photo", "exposure", "dot_row"]
     if not parts:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols}), missing
     df = pd.concat(parts, ignore_index=True)
@@ -79,19 +83,70 @@ def load_dots(store: Store, photos: pd.DataFrame, zone: C.Zone, workers: int = 1
     return df[cols], missing
 
 
-def find_fixed(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
-    """(fixed sources, per-dot boolean 'belongs to a fixed group')."""
+FIXED_COLUMNS = ["source_id", "ra", "dec", "n_sessions", "n_dots", "snr", "flux_ujy", "cell"]
+
+
+def source_id_of(ra: np.ndarray, dec: np.ndarray) -> np.ndarray:
+    """Deterministic int64 id from the median position: cell × SOURCE_ID_PER_CELL + rank in the
+    cell (by RA, then Dec). The same input gives the same ids; the same star gets the same id in
+    the pilot and the hunt zone unless a neighbour in its 6″ cell differs."""
+    ra = np.asarray(ra, np.float64)
+    dec = np.asarray(dec, np.float64)
+    if ra.size == 0:
+        return np.zeros(0, np.int64)
+    cell = cell_of(ra, dec)
+    order = np.lexsort((dec, ra, cell))
+    cs = cell[order]
+    start = np.r_[0, np.flatnonzero(np.diff(cs)) + 1]
+    rank = np.arange(cs.size) - np.repeat(start, np.diff(np.r_[start, cs.size]))
+    if rank.size and rank.max() >= C.SOURCE_ID_PER_CELL:
+        raise ValueError("more fixed sources in one 6″ cell than SOURCE_ID_PER_CELL")
+    out = np.empty(ra.size, np.int64)
+    out[order] = cs * C.SOURCE_ID_PER_CELL + rank
+    return out
+
+
+def fixed_groups(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
+    """(fixed sources sorted by source_id, per-dot source_id; -1 where the dot is in no fixed group)."""
     if len(dots) == 0:
-        return pd.DataFrame(columns=["ra", "dec", "n_sessions", "n_dots", "snr", "flux_ujy", "cell"]), np.zeros(0, bool)
+        return pd.DataFrame({c: pd.Series(dtype="int64" if c in ("source_id", "cell") else "float64")
+                             for c in FIXED_COLUMNS}), np.zeros(0, np.int64)
     lab = fof_groups(dots["ra"].to_numpy(), dots["dec"].to_numpy(), C.FIXED_LINK_ARCSEC, C.FIXED_SNAP_ARCSEC)
     d = pd.DataFrame({"g": lab, "session": dots["session"].to_numpy(), "ra": dots["ra"].to_numpy(),
                       "dec": dots["dec"].to_numpy(), "snr": dots["snr"].to_numpy(), "flux": dots["flux_ujy"].to_numpy()})
     agg = d.groupby("g").agg(n_sessions=("session", "nunique"), n_dots=("ra", "size"), ra=("ra", "median"),
                              dec=("dec", "median"), snr=("snr", "max"), flux_ujy=("flux", "median"))
-    fixed = agg[agg["n_sessions"] >= C.FIXED_MIN_SESSIONS].reset_index(drop=True)
+    fixed = agg[agg["n_sessions"] >= C.FIXED_MIN_SESSIONS]
+    sid = source_id_of(fixed["ra"].to_numpy(), fixed["dec"].to_numpy())
+    g2sid = pd.Series(sid, index=fixed.index)
+    dot_sid = g2sid.reindex(lab).fillna(-1).to_numpy(np.int64)
+    fixed = fixed.reset_index(drop=True)
+    fixed.insert(0, "source_id", sid)
     fixed["cell"] = cell_of(fixed["ra"].to_numpy(), fixed["dec"].to_numpy())
-    member = np.isin(lab, agg.index[agg["n_sessions"] >= C.FIXED_MIN_SESSIONS].to_numpy())
-    return fixed[["ra", "dec", "n_sessions", "n_dots", "snr", "flux_ujy", "cell"]], member
+    fixed = fixed.sort_values("source_id").reset_index(drop=True)
+    return fixed[FIXED_COLUMNS], dot_sid
+
+
+def find_fixed(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
+    """(fixed sources, per-dot boolean 'belongs to a fixed group')."""
+    fixed, dot_sid = fixed_groups(dots)
+    return fixed, dot_sid >= 0
+
+
+def members_table(dots: pd.DataFrame, dot_sid: np.ndarray, photos: pd.DataFrame) -> pd.DataFrame:
+    """members.parquet: one row per dot of a fixed source, sorted by source_id, obs_id, detector, dot_row.
+    `dots` needs `photo` (row in the photo list) and `dot_row` (row in that photo's dot file)."""
+    m = dot_sid >= 0
+    # `photo` is the photo list's index label (load_dots); positions via get_indexer
+    pos = photos.index.get_indexer(dots["photo"].to_numpy()[m])
+    obs = pd.Categorical(photos["obs_id"].astype(str))
+    out = pd.DataFrame({
+        "source_id": dot_sid[m].astype(np.int64),
+        "obs_id": pd.Categorical.from_codes(obs.codes[pos], obs.categories),
+        "detector": photos["detector"].to_numpy()[pos].astype(np.int8),
+        "dot_row": dots["dot_row"].to_numpy()[m].astype(np.int32),
+    })
+    return out.sort_values(["source_id", "obs_id", "detector", "dot_row"]).reset_index(drop=True)
 
 
 def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
@@ -160,10 +215,13 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
 
 
 def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprint] | None = None,
-             exposure_names: list[str] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """dots (already clipped to the zone) -> (fixed, movers, counts)."""
+             exposure_names: list[str] | None = None,
+             fixed_result: tuple[pd.DataFrame, np.ndarray] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """dots (already clipped to the zone) -> (fixed, movers, counts).
+    fixed_result: fixed_groups(dots) if already computed."""
     st: dict = {"dots": int(len(dots))}
-    fixed, member = find_fixed(dots)
+    fixed, dot_sid = fixed_result if fixed_result is not None else fixed_groups(dots)
+    member = dot_sid >= 0
     st["fixed"] = int(len(fixed))
     free = dots[~member]
     if len(fixed) and len(free):
@@ -203,8 +261,12 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     if missing:
         L.warning("link %s: %d photos are missing dot files; run `dots` first for a complete result", zone.name, missing)
     t1 = time.time()
-    fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()))
+    fixed_result = fixed_groups(dots)
+    fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result)
+    members = members_table(dots, fixed_result[1], photos)
+    stats["fixed_member_dots"] = int(len(members))
     L.info("link %s: classified in %.0f s: %s", zone.name, time.time() - t1, stats)
     store.write_parquet(results_rel(zone.name, "fixed.parquet"), fixed)
+    store.write_parquet(results_rel(zone.name, "members.parquet"), members)
     store.write_parquet(results_rel(zone.name, "movers.parquet"), movers)
     return {**stats, "photos_missing_dots": int(missing), "wall_s": round(time.time() - t0, 1)}
