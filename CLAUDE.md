@@ -54,7 +54,7 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   Never mask SOURCE (set on about 99% of pixels) or FULLSAMPLE.
   OVERFLOW or NONLINEAR in a source's core means saturated.
   Bit names and numbers confirmed on the first file (14 Nov, FLAGS header MSKNnnnn keys).
-  SOURCE was on 99.37% of pixels; the mask list removed about 2.1%.
+  SOURCE was on 99.37% of pixels (Cygnus, crowded); about 50% in the hunt zone. The mask list removed about 2.1%.
 - Saturation starts near AB 10–11 (to check on real data). Barnard's Star, RW Aurigae and
   R Draconis are expected to saturate: centroid on the wings and mark the core.
 - Collections: spherex_dr1 and spherex_qr3. Skip *_deep. Search with astroquery Irsa.query_sia;
