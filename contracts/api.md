@@ -62,7 +62,7 @@ GET /api/resolve?q=        # any coordinate format, or a built-in name
 # from search results: (t_min + t_max) / 2
 sort the exposure times at one position
 new visit where the gap exceeds 60 days
-cut any visit longer than 45 days into 30-day bins
+cut any visit longer than 75 days into n = ceil(days / 30) equal parts
   # happens near the ecliptic poles
 session = run of exposures with gaps under 10 minutes
 

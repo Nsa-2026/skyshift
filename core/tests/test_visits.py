@@ -38,24 +38,33 @@ def test_ra125_boundary_case_may_2026():
     assert s[0].n_exposures + s[1].n_exposures == t.size
 
 
-def test_gap_rule_and_45_day_rule_together():
+def test_gap_rule_and_75_day_rule_together():
     # gap 70 d > 60: new visit
     assert list(visits([60000.0, 60010.0, 60080.0])) == [1, 1, 2]
-    # gap 49.9 d < 60 keeps one raw visit, but it lasts 50 d > 45, so it is cut into 30-day bins
-    assert list(visits([60000.0, 60000.1, 60050.0])) == [1, 1, 2]
-    # a 40-day visit stays whole
-    assert list(visits([60000.0, 60020.0, 60040.0])) == [1, 1, 1]
+    # a 50-day season (gap 49.9 d < 60) stays one visit: seasons of 45-55 days are normal
+    assert list(visits([60000.0, 60000.1, 60050.0])) == [1, 1, 1]
+    # 80 days > 75: cut into ceil(80/30) = 3 equal parts of 26.7 days
+    assert list(visits([60000.0, 60000.1, 60040.0, 60080.0])) == [1, 1, 2, 3]
 
 
-def test_near_pole_long_visit_split_in_30_day_bins():
-    """Near the ecliptic pole a spot is seen continuously: 100 days -> bins 0-30, 30-60, 60-90, 90-100."""
+def test_barnard_like_season_has_no_leftover_visit():
+    """Real case (Barnard's Star, Aug-Sep 2025): 55 exposures in 30 days, then 4 more on days 46-55.
+    The first rule made those 4 a visit of their own with one detector pair; now it is one visit."""
+    rng = np.random.default_rng(1)
+    t = np.array(season("2025-08-15", "2025-09-14", rng) + [mjd("2025-09-30"), mjd("2025-10-09")])
+    assert set(visits(t)) == {1}
+
+
+def test_near_pole_long_visit_split_in_equal_parts():
+    """Near the ecliptic pole a spot is seen continuously: 100 days -> 4 equal parts of 25 days."""
     base = 60800.0
     starts = base + np.arange(0, 100.5, 0.5)  # a session every 12 h for 100 days
     t = np.concatenate([starts + k * 2.1 * MIN for k in range(3)])
     v = visits(t)
     assert sorted(set(v)) == [1, 2, 3, 4]
-    for vid, (a, b) in zip([1, 2, 3, 4], [(0, 30), (30, 60), (60, 90), (90, 101)]):
-        sel = (t - base >= a) & (t - base < b)
+    for vid, (a, b) in zip([1, 2, 3, 4], [(0, 25), (25, 50), (50, 75), (75, 101)]):
+        # parts are (last - first) / 4 = 25.0007 d long, so skip sessions right on a boundary
+        sel = (t - base >= a + 0.25) & (t - base < b - 0.25)
         assert np.all(v[sel] == vid)
     # a session is never split across visits
     s = sessions(t)
@@ -66,8 +75,8 @@ def test_near_pole_long_visit_split_in_30_day_bins():
     assert visits(t2).max() == 5
 
 
-def test_45_day_visit_not_split():
-    t = np.linspace(60000, 60045, 50)
+def test_75_day_visit_not_split():
+    t = np.linspace(60000, 60075, 50)
     assert set(visits(t)) == {1}
 
 

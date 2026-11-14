@@ -2,15 +2,20 @@
 
     sort the exposure times at one position
     new visit where the gap exceeds 60 days
-    cut any visit longer than 45 days into 30-day bins   (near the ecliptic poles)
+    cut any visit longer than 75 days into equal parts of at most 30 days   (near the ecliptic poles)
     session = run of exposures with gaps under 10 minutes
 
 Ids are 1-based, numbered from the earliest, and returned in the order of the input.
 Times are MJD-AVG (UTC exposure midpoints).
 
-Implementation detail: the 30-day bins are counted from the visit's first exposure and each
-session is binned by its own start time, so a session never straddles two visits. Empty bins
-are skipped, so visit ids are always consecutive.
+Implementation detail: a visit of length L days is cut into n = ceil(L / 30) equal parts counted
+from its first exposure, and each session is binned by its own start time, so a session never
+straddles two visits. Empty parts are skipped, so visit ids are always consecutive.
+
+Why 75 and equal parts (14 Nov, on the real photo lists): mid-latitude seasons last 45-55 days.
+The first rule (cut above 45 days into 30-day bins from the start) split them into a 30-day visit
+plus a 4-16-exposure leftover with only one detector pair (Barnard's Star, Epsilon Indi B).
+Near the pole (R Draconis, seasons of 67-88 days) equal parts keep every visit at 19+ exposures.
 """
 
 from __future__ import annotations
@@ -21,8 +26,8 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 VISIT_GAP_DAYS = 60.0
-MAX_VISIT_DAYS = 45.0
-VISIT_BIN_DAYS = 30.0
+MAX_VISIT_DAYS = 75.0
+VISIT_BIN_DAYS = 30.0  # longest part when a visit is cut
 SESSION_GAP_DAYS = 10.0 / 1440.0  # 10 minutes
 
 
@@ -64,18 +69,21 @@ def visits(mjds: ArrayLike) -> NDArray[np.int64]:
     raw = _runs(ts, np.diff(ts) > VISIT_GAP_DAYS)
     sess = _runs(ts, np.diff(ts) >= SESSION_GAP_DAYS)
 
-    # sub-bin per exposure: 0 unless its raw visit is longer than 45 days
+    # sub-bin per exposure: 0 unless its raw visit is longer than MAX_VISIT_DAYS
     sub = np.zeros(ts.size, dtype=np.int64)
     for v in np.unique(raw):
         sel = raw == v
         tv = ts[sel]
-        if tv[-1] - tv[0] <= MAX_VISIT_DAYS:
+        length = tv[-1] - tv[0]
+        if length <= MAX_VISIT_DAYS:
             continue
+        n_parts = int(np.ceil(length / VISIT_BIN_DAYS))
+        width = length / n_parts
         sv = sess[sel]
         # bin each session by its own start time so a session is never split
         first_of_session = {s: tv[sv == s][0] for s in np.unique(sv)}
         start = np.array([first_of_session[s] for s in sv])
-        sub[sel] = np.floor((start - tv[0]) / VISIT_BIN_DAYS).astype(np.int64)
+        sub[sel] = np.minimum(np.floor((start - tv[0]) / width), n_parts - 1).astype(np.int64)
 
     # dense, time-ordered numbering of (raw visit, bin)
     key = raw * 1_000_000 + sub

@@ -9,7 +9,11 @@ dependencies = [
     "pyvo>=1.6",
     "requests>=2.32",
     "numpy>=2.0",
+    "skyshift-core",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+skyshift-core = { path = "../../core", editable = true }

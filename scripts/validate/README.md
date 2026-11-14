@@ -55,14 +55,15 @@ Still to check: whether MOST's `ra_obj/dec_obj` is for the exposure start or mid
 
 ## Things to know
 
-- **The 45-day cut makes small tail visits.** Barnard's Star visits 2 (5 exposures, D1+D4 only) and
-  4 (4 exposures, D3+D6 only), and Epsilon Indi B visit 2 (16 exposures) are the leftover 30-day
-  bins of a 47–55-day season, not real six-month visits. V2 should use the big visits (first and
-  last) or merge tails; P1 may want to revisit the rule for mid-latitudes.
+- **Visit rule fixed (14 Nov).** The first rule cut seasons over 45 days into 30-day bins, which left
+  4–16-exposure tail visits with one detector pair (Barnard's Star, Epsilon Indi B). The rule now
+  cuts only above 75 days, into equal parts. Barnard's Star has 3 visits of 60–61 exposures, all six
+  detectors; Epsilon Indi B 4; R Draconis 7 (smallest 18 exposures). Tables above are before the fix;
+  `data/photolists/summary.json` has the current ones.
 - **WISE 0855 has no QR3 images** yet (its next season is not released), and its first visit
   (May 2025) has only 3 D6 and 8 D5 images. The two full visits are Oct–Dec 2025 and Apr–May 2026.
 - **R Draconis** (near the north ecliptic pole) is seen almost continuously and splits into 9
-  visits of 30-day bins; 9 of its images have the star within 5 px of the edge.
+  visits; 9 of its images have the star within 5 px of the edge.
 - **3I/ATLAS:** 258 of 259 images exist in DR1. `2025W32_2D_0091_2` D6 is in neither DR1 nor QR3;
   its row keeps the QR2 datalink and has no S3 key. The visit rule is meaningless for a moving
   object; use `session` (45 sessions) for the Hours clock.

@@ -30,7 +30,8 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   Visit = the 2–4 weeks in which SPHEREx sees one spot, every six months: about 21 sessions,
   55–60 exposures. Dates depend on the position. There are no fixed "passes".
 - Visit rule: sort the exposure times at a position; start a new visit where the gap exceeds
-  60 days; cut any visit longer than 45 days (near the ecliptic poles) into 30-day bins.
+  60 days; cut any visit longer than 75 days (near the ecliptic poles) into equal parts of at most
+  30 days. Mid-latitude seasons of 45–55 days stay one visit.
   A session is a run with gaps under 10 minutes.
 - Time: MJD-AVG from the IMAGE header (UTC, exposure midpoint). In search results, the middle
   of t_min and t_max. MJD-BEG and MJD-END also exist. DATE is the file creation time: never use it.

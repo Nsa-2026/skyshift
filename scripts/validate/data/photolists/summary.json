@@ -3,7 +3,7 @@
     "barnard": {
       "images": 358,
       "exposures": 181,
-      "visits": 5,
+      "visits": 3,
       "sessions": 73,
       "date_start": "2025-08-15 20:46",
       "date_end": "2026-09-22 15:05",
@@ -33,12 +33,12 @@
         {
           "visit": 1,
           "mjd_start": 60902.865381,
-          "mjd_end": 60923.1078695,
+          "mjd_end": 60949.2665805,
           "date_start": "2025-08-15 20:46",
-          "date_end": "2025-09-05 02:35",
-          "images": 108,
-          "exposures": 55,
-          "sessions": 19,
+          "date_end": "2025-10-01 06:23",
+          "images": 118,
+          "exposures": 60,
+          "sessions": 24,
           "detectors": [
             1,
             2,
@@ -53,30 +53,13 @@
         },
         {
           "visit": 2,
-          "mjd_start": 60948.5860055,
-          "mjd_end": 60949.2665805,
-          "date_start": "2025-09-30 14:03",
-          "date_end": "2025-10-01 06:23",
-          "images": 10,
-          "exposures": 5,
-          "sessions": 5,
-          "detectors": [
-            1,
-            4
-          ],
-          "collections": [
-            "spherex_dr1"
-          ]
-        },
-        {
-          "visit": 3,
           "mjd_start": 61110.092069,
-          "mjd_end": 61140.030727,
+          "mjd_end": 61165.083638,
           "date_start": "2026-03-11 02:12",
-          "date_end": "2026-04-10 00:44",
-          "images": 113,
-          "exposures": 57,
-          "sessions": 20,
+          "date_end": "2026-05-05 02:00",
+          "images": 121,
+          "exposures": 61,
+          "sessions": 24,
           "detectors": [
             1,
             2,
@@ -90,24 +73,7 @@
           ]
         },
         {
-          "visit": 4,
-          "mjd_start": 61164.1338,
-          "mjd_end": 61165.083638,
-          "date_start": "2026-05-04 03:12",
-          "date_end": "2026-05-05 02:00",
-          "images": 8,
-          "exposures": 4,
-          "sessions": 4,
-          "detectors": [
-            3,
-            6
-          ],
-          "collections": [
-            "spherex_dr1"
-          ]
-        },
-        {
-          "visit": 5,
+          "visit": 3,
           "mjd_start": 61268.631478,
           "mjd_end": 61305.628687,
           "date_start": "2026-08-16 15:09",
@@ -207,7 +173,7 @@
     "epsindib": {
       "images": 458,
       "exposures": 238,
-      "visits": 5,
+      "visits": 4,
       "sessions": 119,
       "date_start": "2025-04-24 20:32",
       "date_end": "2026-10-02 11:29",
@@ -237,12 +203,12 @@
         {
           "visit": 1,
           "mjd_start": 60789.856188,
-          "mjd_end": 60815.1318685,
+          "mjd_end": 60836.190478,
           "date_start": "2025-04-24 20:32",
-          "date_end": "2025-05-20 03:09",
-          "images": 87,
-          "exposures": 45,
-          "sessions": 19,
+          "date_end": "2025-06-10 04:34",
+          "images": 118,
+          "exposures": 61,
+          "sessions": 24,
           "detectors": [
             1,
             2,
@@ -257,25 +223,6 @@
         },
         {
           "visit": 2,
-          "mjd_start": 60832.6520785,
-          "mjd_end": 60836.190478,
-          "date_start": "2025-06-06 15:38",
-          "date_end": "2025-06-10 04:34",
-          "images": 31,
-          "exposures": 16,
-          "sessions": 5,
-          "detectors": [
-            2,
-            3,
-            5,
-            6
-          ],
-          "collections": [
-            "spherex_dr1"
-          ]
-        },
-        {
-          "visit": 3,
           "mjd_start": 60946.9647775,
           "mjd_end": 60991.8582365,
           "date_start": "2025-09-28 23:09",
@@ -296,7 +243,7 @@
           ]
         },
         {
-          "visit": 4,
+          "visit": 3,
           "mjd_start": 61148.845456,
           "mjd_end": 61164.117616,
           "date_start": "2026-04-18 20:17",
@@ -317,7 +264,7 @@
           ]
         },
         {
-          "visit": 5,
+          "visit": 4,
           "mjd_start": 61305.227572,
           "mjd_end": 61315.478742,
           "date_start": "2026-09-22 05:27",
@@ -529,7 +476,7 @@
     "rdra": {
       "images": 539,
       "exposures": 273,
-      "visits": 9,
+      "visits": 7,
       "sessions": 103,
       "date_start": "2025-05-16 22:57",
       "date_end": "2026-07-16 20:58",
@@ -559,12 +506,12 @@
         {
           "visit": 1,
           "mjd_start": 60811.9564955,
-          "mjd_end": 60841.451009,
+          "mjd_end": 60878.6088855,
           "date_start": "2025-05-16 22:57",
-          "date_end": "2025-06-15 10:49",
-          "images": 85,
-          "exposures": 43,
-          "sessions": 15,
+          "date_end": "2025-07-22 14:36",
+          "images": 153,
+          "exposures": 78,
+          "sessions": 32,
           "detectors": [
             1,
             2,
@@ -579,18 +526,16 @@
         },
         {
           "visit": 2,
-          "mjd_start": 60848.649213,
-          "mjd_end": 60870.7311835,
-          "date_start": "2025-06-22 15:34",
-          "date_end": "2025-07-14 17:32",
-          "images": 48,
-          "exposures": 25,
-          "sessions": 12,
+          "mjd_start": 60965.615174,
+          "mjd_end": 60993.463139,
+          "date_start": "2025-10-17 14:45",
+          "date_end": "2025-11-14 11:06",
+          "images": 85,
+          "exposures": 43,
+          "sessions": 15,
           "detectors": [
             1,
-            2,
-            4,
-            5
+            4
           ],
           "collections": [
             "spherex_dr1"
@@ -598,47 +543,13 @@
         },
         {
           "visit": 3,
-          "mjd_start": 60873.4444405,
-          "mjd_end": 60878.6088855,
-          "date_start": "2025-07-17 10:39",
-          "date_end": "2025-07-22 14:36",
-          "images": 20,
-          "exposures": 10,
-          "sessions": 5,
-          "detectors": [
-            1,
-            4
-          ],
-          "collections": [
-            "spherex_dr1"
-          ]
-        },
-        {
-          "visit": 4,
-          "mjd_start": 60965.615174,
-          "mjd_end": 60995.35912,
-          "date_start": "2025-10-17 14:45",
-          "date_end": "2025-11-16 08:37",
-          "images": 87,
-          "exposures": 44,
-          "sessions": 16,
-          "detectors": [
-            1,
-            4
-          ],
-          "collections": [
-            "spherex_dr1"
-          ]
-        },
-        {
-          "visit": 5,
-          "mjd_start": 60997.733404,
+          "mjd_start": 60995.35912,
           "mjd_end": 61023.7392655,
-          "date_start": "2025-11-18 17:36",
+          "date_start": "2025-11-16 08:37",
           "date_end": "2025-12-14 17:44",
-          "images": 77,
-          "exposures": 39,
-          "sessions": 14,
+          "images": 79,
+          "exposures": 40,
+          "sessions": 15,
           "detectors": [
             1,
             2,
@@ -650,7 +561,7 @@
           ]
         },
         {
-          "visit": 6,
+          "visit": 4,
           "mjd_start": 61035.218719,
           "mjd_end": 61053.415292,
           "date_start": "2025-12-26 05:14",
@@ -667,14 +578,14 @@
           ]
         },
         {
-          "visit": 7,
+          "visit": 5,
           "mjd_start": 61152.331718,
-          "mjd_end": 61182.137696,
+          "mjd_end": 61176.3673945,
           "date_start": "2026-04-22 07:57",
-          "date_end": "2026-05-22 03:18",
-          "images": 64,
-          "exposures": 32,
-          "sessions": 12,
+          "date_end": "2026-05-16 08:49",
+          "images": 54,
+          "exposures": 27,
+          "sessions": 10,
           "detectors": [
             3,
             6
@@ -685,18 +596,16 @@
           ]
         },
         {
-          "visit": 8,
-          "mjd_start": 61183.491171,
-          "mjd_end": 61212.1475655,
-          "date_start": "2026-05-23 11:47",
-          "date_end": "2026-06-21 03:32",
-          "images": 33,
-          "exposures": 17,
-          "sessions": 5,
+          "visit": 6,
+          "mjd_start": 61181.726491,
+          "mjd_end": 61203.861571,
+          "date_start": "2026-05-21 17:26",
+          "date_end": "2026-06-12 20:40",
+          "images": 35,
+          "exposures": 18,
+          "sessions": 6,
           "detectors": [
-            2,
             3,
-            5,
             6
           ],
           "collections": [
@@ -704,14 +613,14 @@
           ]
         },
         {
-          "visit": 9,
-          "mjd_start": 61212.6189405,
+          "visit": 7,
+          "mjd_start": 61212.1430885,
           "mjd_end": 61237.8739,
-          "date_start": "2026-06-21 14:51",
+          "date_start": "2026-06-21 03:26",
           "date_end": "2026-07-16 20:58",
-          "images": 77,
-          "exposures": 39,
-          "sessions": 16,
+          "images": 85,
+          "exposures": 43,
+          "sessions": 17,
           "detectors": [
             1,
             2,
@@ -731,5 +640,5 @@
     "spherex_qr3"
   ],
   "search_epoch": 2025.8,
-  "visit_rule": "local copy in _common.py; replace with skyshift_core.visits after p1/core merges"
+  "visit_rule": "skyshift_core.visits (contracts/api.md)"
 }
