@@ -62,7 +62,8 @@ ENGINE_VERSION = "4"  # part of every cache key
 # Part of the /api/object key only. Answers cached before the measurement's detection guard
 # (core.measure_shift, 14 Nov) gave shifts for spots with nothing on them (RA 125.5, Dec 19.4:
 # "30.15" in 0.45 years", two noise peaks); a new rule must not serve them again. Frames keep theirs.
-OBJECT_RULE = "detect-guard-1"
+# detect-guard-2 (contracts/api.md v3.2): answers carry measure_reason and measure_hint.
+OBJECT_RULE = "detect-guard-2"
 FOV_ALLOWED = {"months": (5.0, 15.0), "hours": (20.0, 60.0)}
 FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2
