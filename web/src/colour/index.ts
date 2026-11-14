@@ -4,6 +4,7 @@
 import "./colour.css";
 import type { FramesResponse, SkyPos } from "../api/types";
 import { formatRaDec, pixelToSky } from "../app/astro";
+import { targetBySlug } from "../app/state";
 import type { View } from "../app/modules";
 import { blinkFieldArcmin } from "../sky/overlay";
 import { PRESETS, framesIn, type Preset } from "./bands";
@@ -19,6 +20,7 @@ import {
   toChannel,
   type Channel,
 } from "./rgb";
+import { SATURATED_READOUT, whyUnreliable, type TargetCheck } from "./why";
 
 const html = String.raw;
 const FIELDS = [15, 30, 60] as const;
@@ -40,6 +42,41 @@ interface Loaded {
   b: Channel;
   saturated: Uint8Array;
   dates: { beg: string | null; end: string | null };
+  /** What we measured at the centre, for "why the colour isn't reliable". */
+  check: TargetCheck;
+}
+
+/**
+ * Share of the usual exposures kept in the 3 × 3 pixels at (mid, mid): per pixel and frame, NHITS
+ * over the median of the 7 × 7 box around it (capped at 1), averaged.
+ */
+export function keptShare(hits: Int32Array[], n: number, mid: number): number {
+  let sum = 0;
+  let count = 0;
+  const box: number[] = [];
+  for (const h of hits) {
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        const j = mid + dj;
+        const i = mid + di;
+        box.length = 0;
+        for (let y = Math.max(0, j - 3); y <= Math.min(n - 1, j + 3); y++) {
+          for (let x = Math.max(0, i - 3); x <= Math.min(n - 1, i + 3); x++) box.push(h[y * n + x]);
+        }
+        box.sort((a, b) => a - b);
+        const m = box[box.length >> 1];
+        if (m > 0) {
+          sum += Math.min(1, h[j * n + i] / m);
+          count++;
+        }
+      }
+    }
+  }
+  return count ? sum / count : 1;
+}
+
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
 }
 
 function defaultField(view: View): Field {
@@ -203,11 +240,18 @@ export function mountColour(el: HTMLElement, fetcher: Fetcher = (u, i) => fetch(
       const hits = all.map((f) => hitsCache.get(f)!);
       const [r, g, b] = chans;
       const sig = Math.sqrt(r.stats.sigma ** 2 + g.stats.sigma ** 2 + b.stats.sigma ** 2) / 3;
-      const saturated = saturatedMask(deficitPlanes(hits, plan.n), r, g, b, sig, plan.n);
+      const deficits = deficitPlanes(hits, plan.n);
+      const saturated = saturatedMask(deficits, r, g, b, sig, plan.n);
       const infos = plan.tiles.map((t) => t.info);
       const begs = infos.map((i) => i.dateBeg).filter((d): d is string => !!d).sort();
       const ends = infos.map((i) => i.dateEnd).filter((d): d is string => !!d).sort();
-      loaded = { key, plan, center: c, r, g, b, saturated, dates: { beg: begs[0] ?? null, end: ends.at(-1) ?? null } };
+      const dates = { beg: begs[0] ?? null, end: ends.at(-1) ?? null };
+      // Hits per colour window, shortest wavelength first (blue, green, red).
+      const byWindow = [wanted[2], wanted[1], wanted[0]].map((fs, i) => ({
+        um: [preset.blue, preset.green, preset.red].map((w) => (w.lo + w.hi) / 2)[i],
+        hits: fs.map((f) => hitsCache.get(f)!),
+      }));
+      loaded = { key, plan, center: c, r, g, b, saturated, dates, check: centreCheck(plan.n, saturated, byWindow, dates) };
       say(null);
       draw();
     } catch (e) {
@@ -218,6 +262,29 @@ export function mountColour(el: HTMLElement, fetcher: Fetcher = (u, i) => fetch(
       const why = e instanceof Error ? e.message : String(e);
       say(`NASA IRSA's SPHEREx cube didn't answer (${why}). The plate above works without it.`, "fail");
     }
+  }
+
+  /** What the data says at the plate's centre (within 2 pixels), plus what we know of the target. */
+  function centreCheck(
+    n: number,
+    saturated: Uint8Array,
+    byWindow: { um: number; hits: Int32Array[] }[],
+    dates: TargetCheck["dates"],
+  ): TargetCheck {
+    const mid = Math.round((n - 1) / 2);
+    let sat = false;
+    for (let dj = -2; dj <= 2; dj++) {
+      for (let di = -2; di <= 2; di++) if (saturated[(mid + dj) * n + mid + di]) sat = true;
+    }
+    const kind = targetBySlug(view?.slug)?.kind ?? null;
+    return {
+      name: view?.name ?? null,
+      kind,
+      saturated: sat,
+      kept: byWindow.map((w) => ({ um: w.um, share: keptShare(w.hits, n, mid) })),
+      moving: !!frames?.epochs.some((e) => e.center) || /asteroid|comet/i.test(kind ?? ""),
+      dates,
+    };
   }
 
   function knee(): number {
@@ -269,10 +336,17 @@ export function mountColour(el: HTMLElement, fetcher: Fetcher = (u, i) => fetch(
   function renderLegend() {
     if (!loaded) return;
     const p = preset;
-    const moving = frames?.epochs.some((e) => e.center);
+    const reasons = whyUnreliable(loaded.check);
+    const who = esc(loaded.check.name ?? "the object at the centre");
     const satCount = loaded.saturated.reduce((a, v) => a + v, 0);
     const date = (d: string | null) => (d ? d.slice(0, 10) : "?");
     legend.innerHTML = html`
+      ${reasons.length
+        ? html`<section class="colour-why" role="note">
+            <h3>Why the colour of ${who} isn't reliable here</h3>
+            ${reasons.map((x) => `<p><strong>${x.title}.</strong> ${esc(x.text)}</p>`).join("")}
+          </section>`
+        : ""}
       <ul class="colour-key">
         <li><i class="sw sw-r"></i>Red: ${p.red.name}</li>
         <li><i class="sw sw-g"></i>Green: ${p.green.name}</li>
@@ -282,12 +356,12 @@ export function mountColour(el: HTMLElement, fetcher: Fetcher = (u, i) => fetch(
         ${p.reads.map((s) => `<li>${s}</li>`).join("")}
         <li><i class="sw sw-grey"></i>Grey: no band is bright enough to give a colour (the brightest of the three is below ${GREY_BELOW_SIGMA}σ in its own band; full colour from ${FULL_COLOUR_SIGMA}σ).</li>
         <li><i class="sw sw-none"></i>Hatched: the cube has no data there.</li>
-        <li><i class="sw sw-sat"></i>Red squares: saturated. The cube dropped exposures there (in ≥ ${SATURATED_MIN_PLANES}
-          wavelength planes), so the colour is not reliable${satCount ? "" : " (none in this field)"}.</li>
+        <li><i class="sw sw-sat"></i>Red squares: too bright. SPHEREx's pixels overfilled (saturated) and NASA's map
+          left those readings out, so the colour there is not reliable. We spot it from the exposures missing in
+          ≥ ${SATURATED_MIN_PLANES} wavelength frames${satCount ? "" : " (none in this field)"}.</li>
       </ul>
       <p class="colour-caveat">Each wavelength was seen on a different date between ${date(loaded.dates.beg)} and
         ${date(loaded.dates.end)}, so the colours of things that move or change brightness are not reliable.
-        ${moving ? "This target moves: the picture shows the fixed sky at the plate's centre." : ""}
         Pixels are ${loaded.plan.pixelArcsec.toFixed(1)}″, twice the plate's: close pairs blend.</p>
     `;
   }
@@ -308,7 +382,7 @@ export function mountColour(el: HTMLElement, fetcher: Fetcher = (u, i) => fetch(
     const pos = pixelToSky({ x: i, y: j }, { pixel_arcsec: plan.pixelArcsec, size: [n, n] }, center);
     readout.textContent =
       `${formatRaDec(pos)} · ${part("R", r)} · ${part("G", g)} · ${part("B", b)}` +
-      (saturated[k] ? " · saturated: colour not reliable" : "");
+      (saturated[k] ? ` · ${SATURATED_READOUT}` : "");
   }
 
   // ---- events --------------------------------------------------------------------------

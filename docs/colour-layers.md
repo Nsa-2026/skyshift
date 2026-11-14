@@ -84,6 +84,20 @@ Steps (`web/src/colour/rgb.ts`):
    and say so in the readout; they are not hidden.
 8. **No data** (NaN in any window) is transparent over a hatch.
 
+**Why a colour isn't reliable** (`web/src/colour/why.ts`). When the target itself is affected, a
+box under the picture says why, in plain words and with the numbers measured for that star:
+
+- *Too bright for SPHEREx* (a saturated pixel within 2 pixels of the centre). It gives the share of
+  the usual exposures the map kept at the core in each window (NHITS in the 3 × 3 core ÷ the
+  median of the 7 × 7 box around each pixel), and says which way the colour is biased only when
+  the numbers show it: short wavelengths kept less than half as much as long ones → "looks redder
+  than it really is"; the reverse → "bluer"; every window under 10% → "the core is missing at
+  every wavelength, so the colour comes from the star's edge". Measured on 14 Nov: Barnard's Star
+  kept 28% at 1.24 µm, 17% at 2.15 µm and 70% at 4.60 µm (looks too red); R Draconis kept 8%, 4%
+  and 6% (core missing everywhere, no direction claimed).
+- *Its brightness changes* (featured targets of kind "variable star"), with the map's dates.
+- *It moves* (asteroids, comets, and plates that follow their target).
+
 The readout gives position and, per window, MJy/sr and σ for the pixel under the pointer. The key
 says what each hue means, and that each wavelength was seen on a different date in the tile's
 span, so the colours of things that move or vary are not reliable.
@@ -101,6 +115,49 @@ span, so the colours of things that move or vary are not reliable.
 | Noise test: pixels ≤ −5σ (noise is symmetric, sources are positive) | Mean of frames: 9–24 per field at 4.6 µm. Median of frames: 0 in every window of all three fields, against 270–1,200 at +5σ |
 | An early "pure red WISE 0855, 58″ west" | Withdrawn: one frame at +236σ. The median removes it |
 | Load time in Chromium (WISE 0855, 15′) | 42 s reading whole rows; 8 s reading only the needed pieces |
+
+## Saturated stars: what we tried, and what might work
+
+Flagging a saturated star tells the viewer not to trust its colour; it doesn't give the right
+colour. Recovering it is open, and worth another try.
+
+**Tried: rebuilding the colour from the star's wings in the cube** (14 Nov). The core is missing,
+but the pixels around it are not saturated, so we scaled the light in a ring around the core up by
+the share of a star's light that falls in that ring, measured per window on unsaturated stars in
+the same field. Test: on 26 bright unsaturated, isolated stars in four 30′ fields (Barnard, Eps Ind
+B, WISE 0855, R Dra), hide the core, rebuild, compare with the true value (half the stars set the
+ring share, the other half are tested).
+
+| Ring | Share of a star's light in it | 4.6 µm / J colour error, typical | 90% of stars within |
+|---|---|---|---|
+| Outside a 3 × 3 core (radius 2–3 px) | 6–14% | ±67% | ±140% |
+| Outside a 5 × 5 core (radius 3 px) | 3–9% | ±100% | ±200% |
+
+At the cube's 12.9″ pixels a star's light sits almost entirely in one pixel, so the ring holds
+little of it and neighbouring stars and noise dominate. Errors this size would invent red stars (an
+ordinary star and a cold brown dwarf differ by about ×6 in this colour), so the flag stays. This
+says the cube is too coarse for this simple method, not that the colour can't be recovered.
+Script: kept with the session notes (`wings.ts`); it is short and can be rewritten from the
+description above.
+
+**Ideas that might work:**
+
+- **Fit the star's shape to its unsaturated pixels in the Level 2 images.** Each image has 6.15″
+  pixels (twice as fine), its own effective PSF (`EPSF` HDU) and per-exposure saturation flags
+  (OVERFLOW, NONLINEAR), so the wings hold far more of the light and the model of the star's shape
+  is known. This is the standard method for saturated stars. It fits the pipeline (which already
+  fits PSFs and re-centres saturated dots on the wings) rather than the browser. Validate it with
+  the same hide-the-core test before showing it.
+- **Use a better wing model in the cube.** Fit each star's sub-pixel position and a PSF built from
+  the field's own bright unsaturated stars, instead of one ring share per field. May cut the
+  scatter; untested.
+- **Show catalogue colours as a labelled stand-in.** For flagged stars only, colour from 2MASS
+  (J, K, measured with short exposures for bright stars) and WISE (4.6 µm), drawn distinctly and
+  labelled as not SPHEREx. WISE also saturates on the brightest stars (W2 brighter than about
+  6.5 mag) and its corrections there need checking.
+- **Use the partial exposures.** Barnard's Star kept 70% of its exposures at 4.6 µm and 17–28% at
+  shorter wavelengths: per-exposure fluxes from the kept readings, with their own saturation flags,
+  might give a usable colour where a window isn't completely lost.
 
 ## Not done yet
 
