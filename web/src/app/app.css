@@ -8,10 +8,10 @@
   padding: 0 var(--s5) var(--s7);
 }
 
-/* Area first, then its functions, then observation tools. */
+/* ---- top: wordmark + one-line lede, the find box, the scoreboard link ---- */
 .top {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--s3) var(--s6);
   padding: var(--s4) 0 var(--s3);
@@ -39,7 +39,6 @@
   display: flex;
   gap: var(--s2);
   max-width: 620px;
-  margin:var(--s4) 0;
 }
 .find-input {
   flex: 1;
@@ -48,9 +47,7 @@
 
 .nav {
   display: flex;
-  gap: var(--s6);
-  align-items:center;
-  font-size:var(--step-1);
+  gap: var(--s5);
 }
 .nav a {
   color: var(--ink-2);
@@ -66,13 +63,6 @@
   color: var(--ink);
   border-bottom-color: var(--pencil-red);
 }
-
-.area-features {display:flex;align-items:center;justify-content:space-between;gap:var(--s4);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);padding:var(--s3) 0;margin-bottom:var(--s4);}
-.feature-nav {display:flex;align-items:center;flex-wrap:wrap;gap:var(--s2) var(--s5);min-width:0;}
-.feature-nav a {color:var(--ink-2);text-decoration:none;font-size:var(--step--1);padding:var(--s1) 0;border-bottom:2px solid transparent;}
-.feature-nav a:hover {color:var(--ink);}
-.feature-nav a[aria-current="page"] {color:var(--ink);border-bottom-color:var(--pencil-blue);font-weight:650;}
-.top[hidden],.area-features[hidden],.find[hidden],.details-slot[hidden] {display:none!important;}
 
 /* ---- featured targets: a quiet line of names, not a row of boxes ---- */
 .featured {
@@ -190,6 +180,23 @@
   justify-content: flex-end;
 }
 
+@media (max-width: 1480px) {
+  .top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: var(--s4);
+    margin: 0 calc(-1 * var(--s5));
+    padding: 0 var(--s5);
+  }
+  .nav a {
+    flex: none;
+  }
+}
 /* Matches blink.css: with the nav on a second row the plate is 100svh − 280px. */
 @media (min-width: 1101px) and (max-width: 1480px) {
   .page-blink {
@@ -202,18 +209,25 @@
     padding: 0 var(--s4) var(--s6);
   }
   .top {
-    grid-template-columns:minmax(0,1fr);
-    gap:var(--s4);
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .details-slot {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .lede {
+    display: none;
+  }
+  .find {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: none;
   }
   .nav {
-    width:100%;justify-content:space-between;gap:var(--s4);
+    grid-row: 3;
+    margin: 0 calc(-1 * var(--s4));
+    padding: 0 var(--s4);
   }
-  .nav a {text-align:center;flex:1;}
-  .lede {display:none;}
-  .find {max-width:none;}
-  .area-features {align-items:flex-start;gap:var(--s2);}
-  .feature-nav {gap:var(--s2) var(--s4);}
-  .details-slot {flex:none;}
   .featured {
     flex-wrap: nowrap;
     overflow-x: auto;

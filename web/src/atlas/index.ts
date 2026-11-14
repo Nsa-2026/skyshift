@@ -3,7 +3,6 @@
 // with a live mini blink, and the view in the URL (#/sky/<ra>,<dec>,<fov>[,gal][,mol][,kinds]).
 // Aladin Lite draws the globe; without WebGL2 a static Aitoff SVG of the same marks stands in.
 import "./atlas.css";
-import './home.css';
 import type { Candidate, CandidateKind, SkyPos } from "../api/types";
 import { formatRaDec } from "../app/astro";
 import { parseCoords } from "../app/coords";
@@ -40,7 +39,23 @@ import { liveLine, loadSearch, loadZoneSuspects, provisionalZone, type Provision
 
 const html = String.raw;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+const HINT_KEY = "skyshift.atlas.hint.v1";
 const LIST_MAX = 60;
+
+function storageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode: the hint shows again next time */
+  }
+}
 
 function prefersReducedMotion(): boolean {
   try {
@@ -61,10 +76,17 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   el.innerHTML = html`
     <div class="atl-intro">
       <h1 class="atl-lede" id="atl-title">
-        Start with the sky.
-        <span class="atl-lede-2">Drag, zoom, or pick a point.</span>
+        Everything our pipeline flagged in NASA's SPHEREx sky.
+        <span class="atl-lede-2">Zoom into a red patch, click a signal, and help decide what it is.</span>
       </h1>
-      <p class="sky-survey" data-survey>Sky: 2MASS · Signals: SPHEREx</p>
+      <div class="atl-intro-side">
+        <div class="atl-count-box">
+          <p class="atl-count" data-count aria-live="polite">Loading the list…</p>
+          <p class="atl-count-note">${LIST_NOTE}</p>
+          <a class="atl-live" href="#/live" data-live hidden></a>
+        </div>
+        <a class="btn btn-primary atl-start" href="#/review">Start reviewing</a>
+      </div>
     </div>
 
     <div class="atl-controls">
@@ -98,7 +120,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       <div class="atl-more-row">
         <span class="atl-more-label" id="atl-bg-label">Background</span>
         <div class="seg" role="group" aria-labelledby="atl-bg-label">
-          ${BACKGROUNDS.map((b) => html`<button type="button" data-bg="${b.id}" aria-pressed="${b.id === "2mass"}" title="${b.about}">${b.label}</button>`).join("")}
+          ${BACKGROUNDS.map((b) => html`<button type="button" data-bg="${b.id}" aria-pressed="${b.id === "spherex"}" title="${b.about}">${b.label}</button>`).join("")}
         </div>
       </div>
       <div class="atl-more-row">
@@ -116,7 +138,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
           title="Moving stars faster than any star can move: almost certainly two different sources paired by mistake">Likely mismatches</button>
       </div>
       <div class="atl-more-row">
-        <button class="atl-switch" type="button" data-layer="search" aria-pressed="false"
+        <button class="atl-switch" type="button" data-layer="search" aria-pressed="true"
           title="The whole-sky run's zones along the ecliptic, shaded by how far tonight's search has got">Tonight's search</button>
         <button class="atl-switch" type="button" data-layer="provisional" aria-pressed="true"
           title="Zoomed into a searched zone: its suspects so far, as dashed rings. Not on the list to check yet: the WISE check still has to remove most of them">Provisional suspects</button>
@@ -129,6 +151,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         aria-label="Sky map" aria-describedby="atl-keys"></div>
       <p class="visually-hidden" id="atl-keys">Arrow keys move the map, plus and minus zoom, Enter opens the signal nearest the centre. The list below the map holds every signal in view.</p>
       <div class="atl-note" data-note role="status"><p>Loading the sky…</p></div>
+      <div class="atl-hint" data-hint hidden>
+        <ol>
+          <li>Zoom into a red patch.</li>
+          <li>Click a signal.</li>
+          <li>Review it.</li>
+        </ol>
+        <button class="btn btn-ghost atl-hint-x" type="button" data-hint-x>Got it</button>
+      </div>
       <div class="atl-tip" data-tip role="tooltip" hidden></div>
       <div class="atl-pin" data-pin hidden>
         <p class="atl-pin-coords" data-pin-coords></p>
@@ -144,22 +174,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" data-zoom="all" title="Back to the whole sky">Whole sky</button>
       </div>
-      <button class="btn atl-continue" type="button" data-show-paths>Choose your next step ↓</button>
       <aside class="atl-drawer" data-drawer aria-labelledby="atl-dr-title" hidden></aside>
     </div>
 
-    <section class="sky-paths" data-paths aria-labelledby="sky-paths-title">
-      <div class="sky-paths-head"><h2 id="sky-paths-title">Continue with this sky</h2><p data-current-sky>Pick a point, or use the centre of the map.</p></div>
-      <div class="sky-paths-grid">
-        <a href="#/explore" data-enter-area="explore"><strong>Explore <span aria-hidden="true">↗</span></strong><span>Watch the sky change. Try a guided observation.</span></a>
-        <a href="#/analyze" data-enter-area="analyze"><strong>Analyze <span aria-hidden="true">↗</span></strong><span>Measure a change and check the evidence.</span></a>
-        <a href="#/research" data-enter-area="research"><strong>Research <span aria-hidden="true">↗</span></strong><span>Trace the data, methods and uncertainties.</span></a>
-      </div>
-      <p class="sky-paths-note">Choose any path, switch whenever you like, and return to this sky.</p>
-    </section>
-
     <div class="atl-below">
-      <div class="atl-count-box"><p class="atl-count" data-count aria-live="polite">Loading the list…</p><p class="atl-count-note">${LIST_NOTE}</p><a class="atl-live" href="#/research/live" data-live hidden></a></div>
       <p class="atl-key" data-key></p>
       <div class="atl-listbox">
         <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle disabled>Signals in view</button>
@@ -184,10 +202,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const listEl = q<HTMLOListElement>("[data-list]");
   const listToggle = q<HTMLButtonElement>("[data-list-toggle]");
   const sourceEl = q<HTMLParagraphElement>("[data-source]");
+  const hint = q<HTMLDivElement>("[data-hint]");
   const input = q<HTMLInputElement>("#atl-q");
   const adjust = q<HTMLButtonElement>(".atl-adjust");
   const more = q<HTMLDivElement>("#atl-more");
-  more.prepend(q<HTMLElement>('.atl-controls-main'));
 
   /** The stage bleeds to the window's edges and ends at the bottom of the first screen. */
   function measure() {
@@ -205,9 +223,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   // ---- state ---------------------------------------------------------------------------------
   let state: AtlasState = { ra: 0, dec: 0, fov: WHOLE_FOV, gal: false, mol: false, kinds: [...KINDS] };
-  let layers: Layers = { heat: true, zones: true, signals: true, search: false, provisional: true, background: "2mass", negative: false };
-  stage.classList.add('is-positive');
-  el.querySelectorAll<HTMLButtonElement>('[data-neg]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.neg==='0')));
+  let layers: Layers = { heat: true, zones: true, signals: true, search: true, provisional: true, background: "spherex", negative: true };
   /** Tonight's search (the sky run's progress file), refreshed every minute while the page shows. */
   let search: SearchLayer | null = null;
   /** The provisional suspects of the combined zone in view, when zoomed in on one. */
@@ -217,7 +233,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let zones: ZoneBox[] = [];
   const cellCache = new Map<number, Cell[]>();
   let selected: Candidate | null = null;
-  let focusSky:Parameters<NonNullable<PageContext['skySelection']>>[0]|null=null;
   let drawer: DrawerHandle | null = null;
   let map: MapHandle | null = null;
   let visible = false;
@@ -533,7 +548,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     level = nextLevel;
     stage.classList.toggle("is-whole", level === "whole");
     state = { ...state, ra: wrap360(v.ra), dec: v.dec, fov: v.fov };
-    publishSky();
     writeHash();
     hideTip();
     placePin();
@@ -580,7 +594,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     stage.classList.remove("has-drawer");
     const had = selected;
     selected = null;
-    focusSky=null;publishSky();
     chain = new Set();
     if (had) map?.update(model());
     // The list re-renders when the map flies to a signal, so the button that opened the drawer may
@@ -613,7 +626,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (!opts.keepChain) chain = new Set();
     chain.add(c.id);
     selected = c;
-    focusSky={ra:c.ra,dec:c.dec,clock:c.clock,det:c.det};publishSky();
     map?.update(model());
     if (opts.fly && map) {
       const v = map.view();
@@ -645,10 +657,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   /** Featured targets open their prepared frames (static first). */
   function openTarget(t: Target) {
-    if(ctx.skySelection){
-      focusSky={ra:t.ra,dec:t.dec,clock:t.clock,det:t.det,slug:t.slug};publishSky();
-      ctx.navigate('#/explore');return;
-    }
     // The shell's explore() finds a months target at its own spot.
     if (featuredNear(t)?.slug === t.slug) return ctx.explore({ ra: t.ra, dec: t.dec });
     // The moving ones (hours clock) only by name: the ?t= deep link, which the shell reads on popstate.
@@ -660,7 +668,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function selectTarget(t: Target) {
     hidePin();
     selected = null;
-    focusSky={ra:t.ra,dec:t.dec,clock:t.clock,det:t.det,slug:t.slug};publishSky();
     map?.update(model());
     openDrawer((d) => renderTarget(d, t, { open: openTarget, close: closeDrawer }));
   }
@@ -682,9 +689,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   function showPin(pos: SkyPos) {
-    if(!drawerEl.hidden)closeDrawer();
     pinPos = { ra: wrap360(pos.ra), dec: pos.dec };
-    focusSky=pinPos;publishSky();
     const near = featuredNear(pinPos);
     q<HTMLParagraphElement>("[data-pin-coords]").textContent = near ? `${formatRaDec(pinPos)}, by ${near.name}` : formatRaDec(pinPos);
     pin.hidden = false;
@@ -692,7 +697,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   function hidePin() {
-    if(pinPos){focusSky=null;publishSky();}
     pinPos = null;
     pinAt = null;
     pin.hidden = true;
@@ -780,21 +784,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function afterMapReady() {
     if (!map) return;
     const v = map.view();
-    state={...state,ra:v.ra,dec:v.dec,fov:v.fov};publishSky();
     level = levelFor(v.fov);
     renderKey();
     renderStatus(v);
     renderList();
     writeHash(true);
-  }
-
-  function publishSky() {
-    // The whole-sky view's centre is not a choice: carry nothing, and the areas open on a
-    // featured target (prepared frames) instead of building a live field at an arbitrary spot.
-    const at=focusSky??(levelFor(state.fov)==='whole'?null:{ra:state.ra,dec:state.dec});
-    q<HTMLElement>('[data-current-sky]').textContent=at?`Your sky: ${formatRaDec(at)}`:
-      'Pick a point or zoom in to take this sky with you. From the whole sky, the areas open on a featured target.';
-    ctx.skySelection?.(at,stateHash(state));
+    if (!storageGet(HINT_KEY) && (data?.candidates.length ?? 0) > 0) hint.hidden = false;
   }
 
   function msg(text: string | null, kind: "info" | "error" = "info") {
@@ -911,12 +906,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     more.hidden = !open;
     measure();
   });
-  q<HTMLButtonElement>('[data-show-paths]').addEventListener('click',()=>q<HTMLElement>('[data-paths]').scrollIntoView({block:'start',behavior:reduced?'auto':'smooth'}));
   el.querySelectorAll<HTMLButtonElement>("[data-bg]").forEach((b) =>
     b.addEventListener("click", () => {
       layers = { ...layers, background: b.dataset.bg as BackgroundId };
       syncSeg("[data-bg]", layers.background, "bg");
-      q<HTMLElement>('[data-survey]').textContent=`Sky: ${BACKGROUNDS.find(b=>b.id===layers.background)!.label} · Signals: SPHEREx`;
       map?.update(model());
     }),
   );
@@ -1029,6 +1022,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       else map.flyTo({ ...map.view(), fov: wholeFov(state.mol) }, !reduced);
     }),
   );
+
+  q<HTMLButtonElement>("[data-hint-x]").addEventListener("click", () => {
+    hint.hidden = true;
+    storageSet(HINT_KEY, "1");
+    mapEl.focus({ preventScroll: true });
+  });
 
   listToggle.addEventListener("click", () => {
     const open = listToggle.getAttribute("aria-expanded") !== "true";

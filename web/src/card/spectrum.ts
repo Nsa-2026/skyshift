@@ -78,7 +78,7 @@ export function moleculeRows(xOf: (um: number) => number): number[] {
   return rows;
 }
 
-export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number; mode: SpectrumMode; id: string; reference?: {um:number;flux_ujy:number}[] }): Chart {
+export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number; mode: SpectrumMode; id: string }): Chart {
   const W = Math.round(Math.max(280, Math.min(opts.width, 720)));
   const H = Math.round(Math.max(220, Math.min(W * 0.66, 300)));
   const left = 36;
@@ -87,8 +87,7 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
   const rows = moleculeRows(xOf);
   const nRows = Math.max(...rows) + 1;
   const box = { left, top: 6 + nRows * 11 + 4, right, bottom: H - 44 };
-  const reference = (opts.reference ?? []).filter(p => p.um >= UM_MIN && p.um <= UM_MAX && p.flux_ujy > 0 && Number.isFinite(p.flux_ujy));
-  const dom = spectrumDomain([...spectrum, ...reference.map(p => ({...p, err_ujy:0, det:6 as const, mjd:0, visit:0, saturated:false}))]);
+  const dom = spectrumDomain(spectrum);
   const lmin = Math.log10(dom.min);
   const lmax = Math.log10(dom.max);
   const yOf = (v: number) => box.bottom - ((Math.log10(Math.max(v, dom.min)) - lmin) / (lmax - lmin)) * (box.bottom - box.top);
@@ -176,7 +175,6 @@ export function renderSpectrum(spectrum: SpectrumPoint[], opts: { width: number;
     `Detectors ${dets.map((d) => `D${d}`).join(", ")}; ${visits.length} visit${visits.length === 1 ? "" : "s"}. ` +
     `Flux range ${compactUjy(dom.min)} to ${compactUjy(dom.max)} µJy.` +
     (byVisit ? " Shaded by visit, light to dark, with a median line per visit." : " Coloured by detector.");
-  out.push(reference.map(p => `<circle class="reference-point" cx="${r1(xOf(p.um))}" cy="${r1(yOf(p.flux_ujy))}" r="2.5" fill="var(--sheet)" stroke="var(--ink)" stroke-width="1"><title>DR1 reference: ${p.um.toFixed(3)} µm, ${p.flux_ujy.toFixed(1)} µJy</title></circle>`).join(""));
   const svg =
     `<svg class="cd-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="${opts.id}-t ${opts.id}-d" tabindex="0">` +
     `<title id="${opts.id}-t">${esc(title)}</title><desc id="${opts.id}-d">${esc(desc)}</desc>` +
