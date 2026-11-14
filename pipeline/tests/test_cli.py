@@ -59,7 +59,7 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
 
     monkeypatch.setattr(S, "gaia_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
     monkeypatch.setattr(S, "catwise_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
-    for step in ("link", "score", "suspects"):
+    for step in ("link", "spectra", "score", "suspects"):
         assert main([step, "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
 
     movers = store.read_parquet(results_rel("pilot", "movers.parquet"))
@@ -72,4 +72,8 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
     assert sus["data_release"] == "DR1" and len(sus["suspects"]) == 1
     assert abs(sus["suspects"][0]["ra"] - NEW[0]) < 1e-5
     summary = json.loads((tmp_path / "results/pilot/summary.json").read_text())
-    assert set(summary["steps"]) == {"link", "score", "suspects"}
+    assert set(summary["steps"]) == {"link", "spectra", "score", "suspects"}
+    src = store.read_parquet(results_rel("pilot", "sources.parquet"))
+    assert len(src) == 1 and src["source_id"].iloc[0] == fixed["source_id"].iloc[0]
+    assert src["n_dots"].iloc[0] == 10 and src["n_sessions"].iloc[0] == 5 and src["detectors"].iloc[0] == 1
+    assert len(json.loads((tmp_path / "results/pilot/channels.json").read_text())) == 102

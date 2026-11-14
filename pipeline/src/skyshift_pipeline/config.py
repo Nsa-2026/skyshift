@@ -78,6 +78,23 @@ SIMULTANEOUS_PAIR_ARCSEC = 3.0
 SIMULTANEOUS_PAIRS = ((1, 4), (2, 5), (3, 6))
 MOVER_MAX_ELONG = 3.0         # dots longer than this (trails, cosmic rays) don't pair
 MOVER_MIN_COVER_SESSIONS = 3  # sessions whose footprints contain the candidate
+SOURCE_ID_PER_CELL = 100      # source_id = 6″ cell × this + rank of the source inside the cell
+
+# --- spectra -------------------------------------------------------------------------------
+# Our channel definitions (not NASA's official ones): 17 log-spaced channels per detector over
+# the detector ranges below; a dot outside its detector's range goes to that detector's end channel.
+SPECTRA_DETECTOR_UM = {1: (0.75, 1.1), 2: (1.1, 1.6), 3: (1.6, 2.4), 4: (2.4, 3.8), 5: (3.8, 4.4), 6: (4.4, 5.0)}
+SPECTRA_CHANNELS_PER_DETECTOR = 17
+SPECTRA_CLIP_SIGMA = 5.0        # drop a dot this far from its channel median, in max(its error, channel MAD scatter)
+SPECTRA_CLIP_MIN_FRAC = 1.5     # ... and further than this × |channel median|: only gross outliers go, so a
+                                # star that doubles keeps both states (a MAD-only clip drops the minority state)
+SPECTRA_CLIP_MIN_N = 3          # clip only channels with at least this many dots
+SPECTRA_CLIP_ITER = 3
+SPECTRA_POS_ERR_FLOOR_ARCSEC = 0.05  # floor on the scatter/sqrt(n) position error of a source
+SPECTRA_SAT_MIN_DOTS = 2        # `saturated` if at least this many of the source's dots have OVERFLOW/NONLINEAR in 3x3
+SPECTRA_VARIABLE_CHI2_NU = 5.0  # `variable` = chi2_nu above this AND visit_flux_ratio beyond the factor below
+SPECTRA_VARIABLE_RATIO = 1.25
+SPECTRA_MEMBER_MAX_ARCSEC = 10.0  # a member dot further than this from its source is stale (dot file rewritten): dropped
 
 # --- score ---------------------------------------------------------------------------------
 SCORE_V_MAX = 16.0

@@ -6,9 +6,9 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, dots, known, link, score, suspects; `all` runs them in order.
+Steps in order: photolist, dots, known, link, spectra, score, suspects; `all` runs them in order.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/skybot/<zone>/run_<obs_id>.json.
-  link, score and suspects are cheap and always recompute from what is there.
+  link, spectra, score and suspects are cheap and always recompute from what is there.
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
@@ -18,6 +18,9 @@ Steps in order: photolist, dots, known, link, score, suspects; `all` runs them i
   flags_peak = bits at the peak pixel; FINAST != 0 → empty dot file.
 - link: fixed = FoF 4″ groups in >= 3 sessions; drop dots within 6″ of fixed; pair dots of one session
   (≤ 3″ + 1″/min × Δt, or a simultaneous D1+D4/D2+D5/D3+D6 pair ≤ 3″, elong ≤ 3); coverage ≥ 3 sessions from footprints.
+- link also writes members.parquet (source_id, obs_id, detector, dot_row = row in the dot file as written; dot
+  files are never rewritten). spectra: 102 channels (ours, 17 log-spaced per detector), MASK bits out, clipped
+  weighted mean per channel, chi2_nu and last/first visit ratio for variability; vectorised, no loop per source.
 - suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
   no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″.
 
