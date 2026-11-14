@@ -9,13 +9,12 @@ Every check is printed even when its number is poor; a check with no input yet i
   V5  <results>/<zone>/recall.json              (pipeline score; gs://nasa-glazing-data/results/)
   V6  cut (S2)          V7  cut (S3)
   V8  data/v8_spectra.json (v8_spectra.py: pilot stars vs 2MASS Ks and CatWISE W1)
-      + --demo-check JSON (scripts/demo_check.py --json): median time to first frame
+      + data/demo_check.json (scripts/demo_check.py --json; --demo-check PATH overrides): median time to first frame
   V9  <results>/<zone>/astrometry_report.json   (pipeline astrometry)
   V10 <results>/<zone>/photoz_report.json       (pipeline photoz)
   V11 scripts/science/data/asteroid_sizes.json  (scripts/science asteroids.py)
 
-  uv run python build_validation.py --site-data ../../web/public/data --results .cache/results \\
-      --zone pilot --demo-check /path/to/demo_check.json
+  uv run python build_validation.py --site-data ../../web/public/data --results .cache/results --zone pilot
   uv run python build_validation.py --fetch-results pilot      # gcloud storage cp the zone's reports first
 """
 
@@ -35,6 +34,7 @@ REPO = HERE.parent.parent
 SITE_DATA = REPO / "web" / "public" / "data"
 OUT = SITE_DATA / "validation.json"
 SIZES = REPO / "scripts" / "science" / "data" / "asteroid_sizes.json"
+DEMO_CHECK = DATA / "demo_check.json"  # scripts/demo_check.py --random 10 --json <this> (V8 speed)
 TARGET_SLUGS = ("barnard", "epsindib", "wise0855", "rwaur", "rdra")
 DATA_RELEASE = "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)"
 
@@ -43,6 +43,15 @@ def load(path: Path | None) -> dict | None:
     if path is None or not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def demo_check_path(arg: Path | None) -> Path | None:
+    """V8 speed input: an explicit --demo-check wins (and must exist); else data/demo_check.json if present."""
+    if arg is not None:
+        if not arg.exists():
+            raise SystemExit(f"--demo-check {arg}: no such file")
+        return arg
+    return DEMO_CHECK if DEMO_CHECK.exists() else None
 
 
 def check(id_: str, claim: str, status: str, headline: str, value=None, unit=None, expected="", note=None, rows=None) -> dict:
@@ -109,6 +118,46 @@ def dev_sigma(shift: float | None, predicted: float | None, sigma: float | None)
 
 # --- V1 ---------------------------------------------------------------------------------------
 
+# Why a target shows up in detectors where it is not expected (a fact about the sky, not a result).
+V1_UNEXPECTED_WHY = {"wise0855": "a background star lies 1-2 px from it"}
+
+
+def _dets(dets: list[int]) -> str:
+    """[1, 2, 3, 4] -> 'D1-D4'; [4, 6] -> 'D4, D6'."""
+    dets = sorted(dets)
+    if len(dets) > 1 and dets == list(range(dets[0], dets[-1] + 1)):
+        return f"D{dets[0]}-D{dets[-1]}"
+    return ", ".join(f"D{x}" for x in dets)
+
+
+def _target_names() -> dict[str, str]:
+    t = load(DATA / "targets.json") or {}
+    return {x["slug"]: str(x.get("name") or x["slug"]).replace("−", "-") for x in t.get("targets", [])}
+
+
+def v1_stack_text(d: dict) -> str:
+    """Per target with a missed stack or a detection outside its expected detectors, computed from the per-stack
+    rows of v1_targets.json: ' Name (expected in D5-D6): found in 3 of 6 stacks, 2 of 3 visits; missed in visit 1 D5
+    (8 photos), ...; also found in D1-D4, not counted (why).' Targets found in every expected stack get no sentence."""
+    names = _target_names()
+    out = []
+    for t in d["targets"]:
+        stacks = [s for s in d.get("rows", []) if s.get("slug") == t["slug"]]
+        expected = [s for s in stacks if s.get("expected")]
+        miss = sorted((s for s in expected if not s.get("recovered")), key=lambda s: (s["visit"], s["detector"]))
+        extra = sorted({s["detector"] for s in stacks if not s.get("expected") and s.get("recovered")})
+        if not miss and not extra:
+            continue
+        txt = (f" {names.get(t['slug'], t['slug'])} (expected in {_dets(list({s['detector'] for s in expected}))}): "
+               f"found in {len(expected) - len(miss)} of {len(expected)} stacks, {t['visits_recovered']} of {t['visits']} visits")
+        if miss:
+            txt += "; missed in " + ", ".join(f"visit {s['visit']} D{s['detector']} ({s['photos']} photos)" for s in miss)
+        if extra:
+            why = V1_UNEXPECTED_WHY.get(t["slug"])
+            txt += f"; also found in {_dets(extra)}, not counted" + (f" ({why})" if why else "")
+        out.append(txt + ".")
+    return "".join(out)
+
 def v1() -> dict:
     claim = "Five test objects recovered"
     exp = "5 of 5; WISE 0855 only in D5-D6"
@@ -125,20 +174,12 @@ def v1() -> dict:
     offs = sorted(t["median_offset_px"] for t in d["targets"] if t["median_offset_px"] is not None)
     status = v1_status(n, tot)
     note = ("Recovered = a 5 sigma source (aperture S/N >= 5) within 2 px of the predicted position (Gaia DR3 moved to the "
-            "visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos of one visit and one "
-            "expected detector. Saturated cores: Gaussian fit to the wings, or the centre of the masked core "
-            "(scripts/validate/v1_targets.py, 41 px boxes read from NASA's S3 copy).")
-    w = next((t for t in d["targets"] if t["slug"] == "wise0855"), None)
-    if w:
-        note += (f" WISE 0855-0714 (D5-D6 only, every photo of a visit stacked): {w['visits_recovered']} of {w['visits']} visits; "
-                 "its first visit has only 8 D5 and 3 D6 photos. In D1-D4 a background star lies 1-2 px from it: those stacks "
-                 "are not counted.")
-    rd = next((t for t in d["targets"] if t["slug"] == "rdra"), None)
-    if rd and rd["stacks_recovered"] < rd["stacks_expected"]:
-        note += (f" R Draconis is found in {rd['stacks_recovered']} of {rd['stacks_expected']} stacks; the misses are in D4-D5 "
-                 "while D1-D3 find it in the same visits (not yet explained).")
-    note += (" Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, "
-             "median_offset_px.")
+            "visit's mid-time; published astrometry for WISE 0855) in a median stack of up to 5 photos (every photo for "
+            "WISE 0855) of one visit and one expected detector. Saturated cores: Gaussian fit to the wings, or the centre of "
+            "the masked core (scripts/validate/v1_targets.py, 41 px boxes read from NASA's S3 copy)."
+            + v1_stack_text(d)
+            + " Rows: slug, recovered, visits, visits_recovered, stacks_expected, stacks_recovered, detectors, "
+            "median_offset_px.")
     return check("V1", claim, status,
                  f"{n} of {tot} test objects found where predicted, in {nv_ok} of {nv} visits"
                  + (f"; median offset {offs[len(offs) // 2]} px" if offs else "")
@@ -378,9 +419,12 @@ def v8(demo: Path | None) -> dict:
         head += "; speed not measured yet (needs scripts/demo_check.py on the live site)"
     st = v8_status(sp["pass"] if sp else None, med, speed_measured)
     value = sp["bands"]["Ks"]["clean"]["median"] if sp else None
+    faint = sorted(100 * x["scatter"] for x in rows if x["part"] == "spectra" and x.get("mag_min", 0) >= 13
+                   and x.get("scatter") is not None)
     note = ("Spectra: every pilot star matched one-to-one to Gaia, 2MASS and CatWISE, not saturated or variable; SPHEREx "
             "channels averaged over Ks 1.99-2.31 um and W1 2.80-3.80 um vs the catalogue magnitudes (zero points 666.7 and "
-            "309.54 Jy), no colour terms (scripts/validate/v8_spectra.py); fainter than 13 mag the scatter grows to 6-12%."
+            "309.54 Jy), no colour terms (scripts/validate/v8_spectra.py)"
+            + (f"; fainter than 13 mag the scatter grows to {faint[0]:.1f}-{faint[-1]:.1f}%." if faint else ".")
             + speed_note
             + " Rows: part=spectra (band, mag_min, mag_max, n, median, scatter) or part=speed "
             "(ra, dec, clock, ok, first_frame_s).")
@@ -438,7 +482,8 @@ def main() -> None:
     ap.add_argument("--results", type=Path, default=CACHE / "results", help="folder with <zone>/recall.json etc.")
     ap.add_argument("--zone", default="pilot", help="pipeline zone for V5, V9, V10 (pilot or hunt)")
     ap.add_argument("--fetch-results", metavar="ZONE", help="gcloud storage cp the zone's reports into --results first")
-    ap.add_argument("--demo-check", type=Path, help="JSON written by scripts/demo_check.py --json (V8)")
+    ap.add_argument("--demo-check", type=Path,
+                    help="JSON written by scripts/demo_check.py --json (V8 speed; default data/demo_check.json if it exists)")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
                     help="copy the zone's real suspects.json here when the pipeline wrote one (default web/public/data)")
@@ -453,7 +498,7 @@ def main() -> None:
         check("V6", "Fast stars (S2)", "pending", "Cut for the one-day build", expected="Slope near 1",
               note="S2 was cut on Saturday; the pipeline's high-PM search (V9 data) covers fast stars in the zone."),
         check("V7", "Brown dwarfs (S3)", "pending", "Cut for the one-day build", expected="A count", note="S3 was cut on Saturday."),
-        v8(args.demo_check), v9(args.results, args.zone), v10(args.results, args.zone), v11(),
+        v8(demo_check_path(args.demo_check)), v9(args.results, args.zone), v10(args.results, args.zone), v11(),
     ]
     write_json(args.out, {"generated": today(), "data_release": DATA_RELEASE, "checks": checks})
     for c in checks:
