@@ -251,6 +251,63 @@
   stroke: var(--hair-strong);
   stroke-width: 1;
 }
+/* ---- full bleed: the sky starts at the top of the window and the controls float on it ----
+   The stage stays in the document rather than going fixed, pulled up by exactly the height the
+   chrome measured, so the page still scrolls and the key and the list below the map are still
+   there under it. Only the chrome's own tokens are flipped for a dark ground; .atl-below keeps
+   the page's normal ink, because it is still on white. Everything here is scoped to the class
+   the Sky page sets while it is open, so no other page can see it. */
+html.sky-full .atl-stage {
+  margin-top: calc(-1 * var(--atl-top, 200px));
+  height: 100dvh;
+  border-block: 0;
+}
+html.sky-full header.top,
+html.sky-full .atl-intro,
+html.sky-full .atl-controls,
+html.sky-full .atl-more,
+html.sky-full .atl-msg {
+  position: relative;
+  /* Above the stage's top wash, not level with it: the stage comes later in the document, so at
+     the same z-index its wash painted over the controls and dimmed every one of them. */
+  z-index: 3;
+}
+/* The chrome's ink is flipped only over the colour sky. On the plate the sky is white, so the
+   page's own ink is the readable one and nothing here changes. */
+html.sky-full.sky-colour header.top,
+html.sky-full.sky-colour .atl-intro,
+html.sky-full.sky-colour .atl-controls,
+html.sky-full.sky-colour .atl-more,
+html.sky-full.sky-colour .atl-msg {
+  --ink: #f4f7fd;
+  --ink-2: rgb(229 235 247 / 86%);
+  --ink-3: rgb(229 235 247 / 66%);
+  --sheet: rgb(12 14 22 / 66%);
+  /* The segmented controls' track. Left on the page's own light grey it put light labels on a
+     light strip, which measured 1.04:1 — the "Globe" and "Galactic" labels were invisible. */
+  --sheet-2: rgb(255 255 255 / 12%);
+  /* --ink and --glass are a pair: a filled control is --ink behind --glass. Inverting one
+     without the other leaves the primary button light-on-light, so --glass takes the dark
+     side here rather than becoming a translucent white. */
+  --glass: #0b0d14;
+  --hair: rgb(255 255 255 / 16%);
+  --hair-strong: rgb(255 255 255 / 26%);
+  color: var(--ink);
+}
+/* The sky runs under the chrome, so the chrome needs a ground to be read against: the stage's
+   top wash does that job here and grows to cover the whole band. */
+html.sky-full .atl-stage::before {
+  /* A quarter past the chrome's own height: the last line of it sits where a wash exactly as
+     tall as the chrome has already run out, and map labels were showing through the text. */
+  height: calc(var(--atl-top, 200px) * 1.25);
+}
+html.sky-full.sky-colour .atl-stage::before {
+  background: linear-gradient(to bottom, rgb(6 8 14 / 94%) 0%, rgb(6 8 14 / 72%) 54%, rgb(6 8 14 / 0%) 100%);
+}
+html.sky-full:not(.sky-colour) .atl-stage::before {
+  background: linear-gradient(to bottom, var(--sheet) 0%, color-mix(in srgb, var(--sheet) 78%, transparent) 54%, transparent 100%);
+}
+
 /* The seam where the controls end and the sky begins was a hard line across the page. This
    carries the page's own ground a little way down into the sky so the two meet instead of
    butting up against each other. It is a wash over the map, never over a control, and it takes

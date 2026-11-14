@@ -202,10 +202,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       el.style.setProperty('--atl-header-height', `${header?.getBoundingClientRect().height ?? 0}px`);
       const intro = q<HTMLElement>('.atl-intro');
       const controls = q<HTMLElement>('.atl-controls');
+      // These two are offsets within the page, so the stage's pull-up does not move them.
       el.style.setProperty('--atl-intro-bottom', `${intro.offsetTop + intro.offsetHeight}px`);
       el.style.setProperty('--atl-controls-bottom', `${controls.offsetTop + controls.offsetHeight}px`);
-      const top = stage.getBoundingClientRect().top + scrollY;
-      if (Number.isFinite(top)) el.style.setProperty("--atl-top", `${Math.max(0,Math.round(top))}px`);
+      // Where the stage would sit with no pull-up. Full bleed pulls it up by this very number,
+      // so measuring where it actually is would feed its own result back in and settle halfway.
+      const pull = parseFloat(getComputedStyle(stage).marginTop) || 0;
+      const top = stage.getBoundingClientRect().top + scrollY - pull;
+      if (Number.isFinite(top)) el.style.setProperty("--atl-top", `${Math.max(0, Math.round(top))}px`);
     } catch {
       /* CSS defaults hold */
     }
@@ -814,6 +818,17 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
    * The tour runs only on the whole sky, with nothing open and nobody driving: the moment the
    * person zooms in, picks a signal or touches the map, it is their view, not the tour's.
    */
+  /**
+   * The sky runs the full height of the window with the controls floating on it, so the chrome's
+   * ink has to follow the sky it sits on: light over the colour sky, the page's own over the
+   * white plate. Both classes live on the root, because the site header is outside this page's
+   * element, and both are taken off again when the page is left.
+   */
+  function setPlateClasses() {
+    stage.classList.toggle("is-positive", !layers.negative);
+    document.documentElement.classList.toggle("sky-colour", !layers.negative);
+  }
+
   function tourShouldRun(): boolean {
     return visible && !reduced && !selected && !pinPos && !document.hidden;
   }
@@ -850,7 +865,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (!map) return;
     // The opening view is colour, so the stage has to carry that from the first paint, not only
     // after somebody uses the View control.
-    stage.classList.toggle("is-positive", !layers.negative);
+    setPlateClasses();
     syncSeg("[data-neg]", layers.negative ? "1" : "0", "neg");
     startTour();
     const v = map.view();
@@ -1001,7 +1016,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     b.addEventListener("click", () => {
       layers = { ...layers, negative: b.dataset.neg === "1" };
       syncSeg("[data-neg]", layers.negative ? "1" : "0", "neg");
-      stage.classList.toggle("is-positive", !layers.negative);
+      setPlateClasses();
       map?.update(model());
     }),
   );
@@ -1188,6 +1203,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       const wasVisible = visible;
       visible = true;
       zoomFocus.show();
+      // Full bleed belongs to this page only: the class goes on at show and off at hide, so no
+      // other page ever inherits the floating chrome or its flipped ink.
+      document.documentElement.classList.add("sky-full");
+      setPlateClasses();
       measure();
       if (!started) {
         void start();
@@ -1211,6 +1230,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
+      document.documentElement.classList.remove("sky-full", "sky-colour");
       tour?.stop();
       drawer?.pause();
       hideTip();
@@ -1222,6 +1242,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       zoomFocus.destroy();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
+      document.documentElement.classList.remove("sky-full", "sky-colour");
       stopSearch();
       tour?.destroy();
       drawer?.destroy();
