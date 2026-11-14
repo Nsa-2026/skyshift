@@ -1,0 +1,69 @@
+{
+  "report": [
+    {
+      "slug": "barnard",
+      "ms": 249,
+      "pixels": 222,
+      "status": "✓ Barnard's Star 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "wise0855",
+      "ms": 232,
+      "pixels": 220,
+      "status": "✓ WISE 0855−0714 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "epsindib",
+      "ms": 232,
+      "pixels": 222,
+      "status": "✓ Epsilon Indi B 已就绪 · 4 帧 · 巡天叠加"
+    },
+    {
+      "slug": "rwaur",
+      "ms": 234,
+      "pixels": 222,
+      "status": "✓ RW Aurigae 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "rdra",
+      "ms": 232,
+      "pixels": 220,
+      "status": "✓ R Draconis 已就绪 · 3 帧 · 巡天叠加"
+    },
+    {
+      "slug": "3i-atlas",
+      "ms": 683,
+      "pixels": 219,
+      "status": "✓ Comet 3I/ATLAS 已就绪 · 17 帧 · 逐次曝光"
+    },
+    {
+      "slug": "elpis",
+      "ms": 281,
+      "pixels": 220,
+      "status": "✓ (59) Elpis 已就绪 · 18 帧 · 逐次曝光"
+    },
+    {
+      "slug": "euphrosyne",
+      "ms": 283,
+      "pixels": 220,
+      "status": "✓ (31) Euphrosyne 已就绪 · 8 帧 · 逐次曝光"
+    }
+  ],
+  "browserErrors": [],
+  "mobile": "390px: no overflow",
+  "checks": [
+    "eight published real targets",
+    "one upstream player and one spectrum",
+    "subtract/add/play/clock/fov/detector",
+    "formal object card",
+    "native sky offline fallback (mocked CDN)",
+    "validation scoreboard",
+    "local vote pick only",
+    "model/residual/reference views",
+    "Guxing/history/planets",
+    "mocked Gaia and upstream recovery",
+    "real GIF export",
+    "pasted coordinates use featured static field",
+    "mocked background-job UI"
+  ]
+}

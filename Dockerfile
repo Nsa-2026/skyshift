@@ -32,6 +32,9 @@ RUN mkdir -p /app/kete && /app/server/.venv/bin/python -c "import kete; kete.spi
 # App code and the data files the app reads.
 COPY server/src server/src
 COPY fixtures/api fixtures/api
+# Portable scientific products and export inputs; no private local cache is required.
+COPY web/public/data web/public/data
+COPY web/public/science-data web/public/science-data
 COPY scripts/validate/data/targets.json scripts/validate/data/targets.json
 RUN cd server && uv sync --frozen --no-dev
 

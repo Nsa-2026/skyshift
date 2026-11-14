@@ -62,6 +62,7 @@ class Cache:
             return
         p = Path(self.root) / key
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(p.suffix + ".tmp")
+        import uuid
+        tmp = p.with_name(p.name + "." + uuid.uuid4().hex + ".tmp")
         tmp.write_bytes(data)
         tmp.replace(p)  # atomic: a half-written file never counts as cached

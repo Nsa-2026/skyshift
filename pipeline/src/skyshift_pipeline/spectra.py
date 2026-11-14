@@ -340,11 +340,7 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
     groups = members.groupby(["obs_id", "detector"], observed=True, sort=True).indices
     sid_all = members["source_id"].to_numpy(np.int64)
     row_all = members["dot_row"].to_numpy(np.int64)
-    bad_rows = [0]
     cal = calib.load(store, zone)  # results/<zone>/calib.json from an earlier run: corrected positions
-    corrected = [0]
-    n_psf = [0]
-    n_rej = [0, 0]
 
     def one(item):
         (obs_id, det), idx = item
@@ -357,12 +353,11 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
         df = pd.read_parquet(io.BytesIO(raw), columns=want)
         rows = row_all[idx]
         ok = rows < len(df)
-        bad_rows[0] += int((~ok).sum())
+        bad_rows = int((~ok).sum())
+        corrected = 0
         part = df.iloc[rows[ok]].reset_index(drop=True)
         dd = np.full(len(part), int(det))
         ap_psf, sharp = reject_dots(part.assign(detector=dd))  # raw columns, before any calibration
-        n_rej[0] += int(ap_psf.sum())
-        n_rej[1] += int(sharp.sum())
         psf = calib.use_psf(cal, dd, part["psf_pos_ok"].to_numpy(bool) if v4 else None,
                             part["ra_psf"] if v4 else None, part["dec_psf"] if v4 else None,
                             part["snr"] if (v4 and calibrate) else None)
@@ -383,28 +378,33 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
             f = calib.flux_factor(cal, dd, part["x"], part["y"], "ap")
             part = part[DOT_COLUMNS].assign(ra=ra, dec=dec, flux_ujy=(part["flux_ujy"] * f).astype(np.float32),
                                             flux_err_ujy=(part["flux_err_ujy"] * f).astype(np.float32))
-            corrected[0] += int(okc.sum())
+            corrected = int(okc.sum())
         elif psf.any():
             part = part[DOT_COLUMNS].assign(ra=np.where(psf, part["ra_psf"], part["ra"]),
                                             dec=np.where(psf, part["dec_psf"], part["dec"]))
         else:
             part = part[DOT_COLUMNS]
-        n_psf[0] += int(psf.sum())
+        n_psf = int(psf.sum())
         se, vi = sv.get((str(obs_id), int(det)), (-1, -1))
         part["source_id"] = sid_all[idx[ok]]
         part["detector"] = np.int8(det)
         part["session"] = np.int32(se)
         part["visit"] = np.int16(vi)
         part["reject"] = ap_psf | sharp
-        return part
+        return part, bad_rows, corrected, n_psf, int(ap_psf.sum()), int(sharp.sum())
 
     with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
-        parts = list(ex.map(one, groups.items()))
+        results = list(ex.map(one, groups.items()))
+    # Reduce worker-local counts after loading. NumPy reductions can release the
+    # GIL, so shared += counters can silently lose an entire photo's contribution.
+    parts = [result[0] for result in results]
     cols = ["source_id", "detector", "session", "visit", *DOT_COLUMNS, "reject"]
     d = pd.concat(parts, ignore_index=True)[cols] if parts else pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
-    st = {"member_dots": int(len(members)), "member_rows_missing": bad_rows[0],
-          "calib_applied": cal is not None, "calib_phase_corrected_dots": corrected[0], "pos_psf_dots": n_psf[0],
-          "dots_left_out_ap_psf": n_rej[0], "dots_left_out_sharp": n_rej[1]}
+    st = {"member_dots": int(len(members)), "member_rows_missing": sum(result[1] for result in results),
+          "calib_applied": cal is not None, "calib_phase_corrected_dots": sum(result[2] for result in results),
+          "pos_psf_dots": sum(result[3] for result in results),
+          "dots_left_out_ap_psf": sum(result[4] for result in results),
+          "dots_left_out_sharp": sum(result[5] for result in results)}
 
     # a dot file rewritten after `link` would make dot_row point elsewhere: drop far members
     fixed = store.read_parquet(results_rel(zone.name, "fixed.parquet"), columns=["source_id", "ra", "dec"])

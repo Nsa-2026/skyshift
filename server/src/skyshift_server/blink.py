@@ -390,7 +390,7 @@ def _timed(budget: Budget | None, name: str, fn, *a, **k):
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
                  hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None,
-                 measured: bool = True, visit: int | None = None) -> Frames:
+                 measured: bool = True, visit: int | None = None, view: str = "raw") -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
     hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
@@ -403,6 +403,21 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     (precompute: one visit for every detector of a file, so paired detectors show the same
     moments); NotFoundError when `det` has no exposure in it."""
     _check(clock, fov, det)
+    # Imported analysis fields remain available offline; all other raw fields use
+    # the team's canonical search/cutout/zodi/stack engine below.
+    if view != 'raw':
+        from .published_science import frames as published_frames
+        published = published_frames(ra,dec,fov,clock,det,view)
+        if published is not None:
+            return published
+        from .local_results import find_job
+        from . import cached_results
+        try:
+            find_job(ra,dec)
+        except NotFoundError:
+            raise NotFoundError("Model, residual and reference-difference images exist only for the five featured "
+                                "science targets, at 5' on the Months clock") from None
+        return cached_results.build_frames(ra,dec,fov,clock,det,cache=cache,view=view)
     cache = cache or Cache()
     fov_i = int(round(fov))
     found = _timed(budget, "search", search.search, ra, dec, cache=cache)
