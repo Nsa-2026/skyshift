@@ -7,7 +7,7 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, refcat, dots, known, link, spectra, crossid, classify, photoz, colours, lightcurves, astrometry,
+Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, classify, photoz, colours, lightcurves, astrometry,
 highpm, score, suspects; `all` runs them in order.
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
@@ -18,6 +18,9 @@ highpm, score, suspects; `all` runs them in order.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
 - `known` doesn't need `dots`: run it at the same time in a second process.
+- calib (after crossid): learns per detector the pixel-phase centroid bias (Fourier in φ = x − round(x)) and pos_err =
+  √((a/snr)² + floor²) against Gaia → results/<zone>/calib.json. motion_io.member_dots and spectra apply it when present
+  (stats `calib_applied`); dot files stay raw; link stays raw (4″ FoF ≫ 0.6″ bias). Rerun calib after crossid changes.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
