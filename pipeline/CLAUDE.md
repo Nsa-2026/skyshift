@@ -21,8 +21,8 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   catalogue entry, or another Gaia star there has no source. Fragments and duplicates carry their parent (a fragment's
   brightest Gaia G < 12 within 60″; a duplicate's star) and that star's own source; blends both Gaia ids, separation and
   ΔG → results/<zone>/fragments.parquet + fragments.json. Consumers, each unchanged without the file: highpm (fragment or
-  duplicate → reason `fragment`, blend → status gaia), orphans (drops all three), shape (drops fragments; duplicates:
-  follow-up), candidates.py (fragments and duplicates never listed, blend → reason `blend`), server measured.py
+  duplicate → reason `fragment`, blend → status gaia), orphans (drops all three), shape (drops fragments and
+  duplicates), candidates.py (fragments and duplicates never listed, blend → reason `blend`), server measured.py
   (duplicate drawn as its star's bright_fragment). Rerun after it: highpm, orphans, shape, candidates. Hunt (15 Nov,
   14 Nov tables): 3,537 bright_fragment / 223 duplicate / 363 saturated_star / 13,224 blend of 314,467 sources; Gaia
   stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s).
