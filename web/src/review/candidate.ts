@@ -132,7 +132,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     <div class="rv cd">
       <p class="rv-sample" hidden></p>
       <nav class="cd-nav" aria-label="Candidate list">
-        <a class="cd-back" href="${LIST_HASH}">${CHEVRON.left}All candidates</a>
+        <a class="cd-back" href="${LIST_HASH}">${CHEVRON.left}All objects to check</a>
         <p class="cd-count" aria-live="polite"></p>
         <div class="cd-step">
           <a class="btn btn-ghost cd-prev" href="${LIST_HASH}" aria-disabled="true">${CHEVRON.left}Previous</a>
@@ -143,7 +143,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
         <div class="cd-left">
           <section class="cd-plate" aria-label="Frames at this spot"></section>
           <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
-          <section class="cand-check" aria-label="Check this candidate" hidden></section>
+          <section class="cand-check" aria-label="Check this object" hidden></section>
         </div>
         <div class="cd-side"></div>
       </div>
@@ -242,7 +242,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   }
 
   function renderSide(c: Candidate) {
-    const id = html`Candidate <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
+    const id = html`Object <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
     sideEl.innerHTML = html`
       ${headHtml(c, "h1", id)}
       ${motionHtml(c)}
@@ -381,7 +381,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     sampleEl.textContent = set?.sample ? SAMPLE_NOTE : "";
     if (!set || !set.candidates.length) {
       showEmpty(
-        "No candidates are published yet",
+        "No objects to check are published yet",
         html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets on <a href="#/explore">Blink</a> work now.</p>`,
       );
       return;
@@ -389,9 +389,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
     const c = set.candidates.find((x) => x.id === id);
     if (!c) {
       showEmpty(
-        "This candidate isn't in the current list",
-        html`<p>No candidate called “${esc(id)}” is in this set. It may come from an older list.</p>
-          <p class="rv-actions"><a class="btn" href="${lastDiscoverHash()}">Browse candidates</a> <a class="btn btn-ghost" href="#/review">Start reviewing</a></p>`,
+        "This object isn't in the current list",
+        html`<p>Nothing called “${esc(id)}” is in this set. It may come from an older list.</p>
+          <p class="rv-actions"><a class="btn" href="${lastDiscoverHash()}">Browse the list</a> <a class="btn btn-ghost" href="#/review">Start reviewing</a></p>`,
       );
       return;
     }

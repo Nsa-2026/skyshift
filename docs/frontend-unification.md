@@ -1,3 +1,5 @@
+> Historical integration notes. For the current release candidate, supported features and verification, see [science-production-integration.md](science-production-integration.md).
+
 # Unified Lightbox frontend
 
 The design baseline is the upstream main `b58c757` Lightbox frontend at `#/explore`. Integration is on `codex/frontend-unified`, in its own checkout. The original frontends and their uncommitted work remain available.

@@ -89,12 +89,13 @@ describe("blink player", () => {
     expect(onEpoch).toHaveBeenLastCalledWith({ id: "d2-v2", mjd_mid: 61090, det: 2 });
     expect(el.querySelector(".bk-nowl")!.textContent).toMatch(/2026/);
 
-    el.querySelector<HTMLButtonElement>("[data-mode='difference']")!.click();
-    expect(el.querySelector("[data-mode='difference']")!.getAttribute("aria-pressed")).toBe("true");
+    el.querySelector<HTMLButtonElement>("button[data-mode='difference']")!.click();
+    expect(el.querySelector("button[data-mode='difference']")!.getAttribute("aria-pressed")).toBe("true");
+    expect(el.querySelector(".bk")!.hasAttribute("aria-pressed")).toBe(false);
     expect(sub()).toBe("visit 2 minus visit 1");
     expect(el.querySelector(".bk-say")!.textContent).toBe("Each visit minus the first. Red: light arrived. Blue: light left.");
 
-    el.querySelector<HTMLButtonElement>("[data-mode='stack']")!.click();
+    el.querySelector<HTMLButtonElement>("button[data-mode='stack']")!.click();
     expect(sub()).toBe("mean of 3 visits");
     expect(el.querySelector<HTMLButtonElement>(".bk-play")!.disabled).toBe(true);
 

@@ -23,7 +23,8 @@ lightcurves_report.json and the step summary.
 Bad photos: a photo (origin, detector, mjd) whose Gaia-matched points sit off as a group (|median of
 (flux − model) / σ_cal| > LC_PHOTO_MAX_MEDIAN_CHI over >= LC_PHOTO_MIN_REF points) gets `photo_ok` false;
 its points stay in the table but are left out of chi2_nu, chi2_nu_raw and scatter_rel. (Pilot: one forced D4
-photo, 7,698 stars at a median −2.8σ, made 1,172 of the 1,714 forced-D4 "variables".)
+photo, 7,698 stars at a median −2.8σ, made 1,172 of the 1,714 forced-D4 "variables".) Photos the `qa` step graded
+red (results/<zone>/qa_photos.parquet, when it exists) get photo_ok false the same way (config QA_LIGHTCURVES).
 One point is not a variable: `variable` tests chi2_nu_robust, chi2_nu without the light curve's single worst
 point (an unflagged cosmic-ray hit or a bad pixel), against LC_VARIABLE_CHI2_NU.
 
@@ -320,6 +321,18 @@ def photo_check(p: pd.DataFrame, ref: np.ndarray, cal: np.ndarray) -> tuple[np.n
     return ~bad[code], sorted(rows, key=lambda r: (r["origin"], r["detector"], r["mjd"]))
 
 
+def qa_red_mask(p: pd.DataFrame, red: pd.DataFrame | None) -> np.ndarray:
+    """True for the points from photos `qa` graded red (qa.red_photos), dots and forced alike: matched by detector and
+    exposure time (both tables carry the photo's MJD-AVG; to the second, exposures are ≥ 2 min apart)."""
+    if red is None or not len(red) or not len(p):
+        return np.zeros(len(p), bool)
+
+    def key(det, mjd):
+        return np.asarray(det, np.int64) * 10**12 + np.round(np.asarray(mjd, np.float64) * 86400.0).astype(np.int64)
+
+    return np.isin(key(p["detector"].to_numpy(), p["mjd"].to_numpy()), key(red["detector"].to_numpy(), red["mjd"].to_numpy()))
+
+
 def summarise(p: pd.DataFrame) -> pd.DataFrame:
     g, G = group_codes(p)
     first = np.full(G, -1, np.int64)
@@ -376,7 +389,7 @@ def compute(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd
 
 
 def compute_with_report(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd.DataFrame | None,
-                        sources: pd.DataFrame | None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+                        sources: pd.DataFrame | None, qa_red: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     p = points(dots, forced, crossids, sources)
     if p is None:
         empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in POINT_COLUMNS})
@@ -384,9 +397,12 @@ def compute_with_report(dots: pd.DataFrame | None, forced: pd.DataFrame | None, 
     ref = reference_points(p, crossids)
     cal, model = fit_error_model(p, ref)
     photo_ok, bad = photo_check(p, ref, cal)
-    p, s = finish(p, cal, photo_ok)
+    red = qa_red_mask(p, qa_red)
+    p, s = finish(p, cal, photo_ok & ~red)
     rep = error_report(p, s, ref, model)
     rep["bad_photos"] = bad
+    if qa_red is not None:
+        rep["qa_red_photos"] = int(len(qa_red))
     return p[POINT_COLUMNS], s, rep
 
 
@@ -454,7 +470,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     sources = store.read_parquet(src_rel, columns=["source_id", "flux_ujy"]) if store.exists(src_rel) else None
     if not len(forced):
         L.warning("lightcurves %s: no forced photometry yet (forced/): dots only", zone.name)
-    pts, summ, rep = compute_with_report(d, forced, crossids, sources)
+    from .qa import red_photos
+    pts, summ, rep = compute_with_report(d, forced, crossids, sources, red_photos(store, zone))
     store.write_parquet(results_rel(zone.name, "lightcurves.parquet"), pts)
     store.write_parquet(results_rel(zone.name, "lightcurves_summary.parquet"), summ)
     store.write_json(results_rel(zone.name, "lightcurves_report.json"), {"zone": zone.name, **rep})
@@ -462,7 +479,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
           "error_model": {k: {"k": v["k"], "floor": v["floor"], "basis": v["basis"]} for k, v in rep.get("model", {}).items()},
           "variable_share": {o: rep[o]["variable_share"] for o in ("dot", "forced") if o in rep},
           "variable_share_raw": {o: rep[o]["variable_share_raw"] for o in ("dot", "forced") if o in rep},
-          "bad_photos": len(rep.get("bad_photos", [])),
+          "bad_photos": len(rep.get("bad_photos", [])), "qa_red_photos": rep.get("qa_red_photos"),
           "summary_rows": int(len(summ)), "variable_rows": int(summ["variable"].sum()) if len(summ) else 0,
           "variable_sources": int(summ.loc[summ["variable"], "source_id"].nunique()) if len(summ) else 0,
           "wall_s": round(time.time() - t0, 1)}

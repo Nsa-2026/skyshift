@@ -13,7 +13,7 @@
   /* ink */
   --ink: #18202e;          /* text, negative stars */
   --ink-2: #4f5867;        /* secondary text */
-  --ink-3: #78818f;        /* axis labels, disabled (AA on --glass for ≥ 14px bold / large) */
+  --ink-3: #5f6876;        /* axis labels, captions, disabled: AA for small text (4.9:1 on --glass, 4.5:1 on --sheet-2) */
 
   /* grease pencil: meaning on the plate */
   --pencil-red: #cf2338;   /* the target, flagged dots, our measurement */

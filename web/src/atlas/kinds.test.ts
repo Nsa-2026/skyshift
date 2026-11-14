@@ -49,9 +49,9 @@ describe("kinds in words", () => {
     expect(detectorText(9)).toBe("D9");
     expect(zoneName("pilot")).toBe("Pilot zone");
     expect(zoneName("hunt_2")).toBe("Hunt 2 zone");
-    expect(countSentence(194, 1)).toBe("194 candidates in 1 zone");
-    expect(countSentence(1, 2)).toBe("1 candidate in 2 zones");
-    expect(countSentence(1200, 0)).toBe("1,200 candidates");
+    expect(countSentence(194, 1)).toBe("194 objects to check in 1 zone");
+    expect(countSentence(1, 2)).toBe("1 object to check in 2 zones");
+    expect(countSentence(1200, 0)).toBe("1,200 objects to check");
     expect(plural(1, "signal", "signals")).toBe("1 signal");
   });
 });

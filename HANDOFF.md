@@ -1,3 +1,5 @@
+> Historical integration notes. For the current release candidate, supported features and verification, see [science-production-integration.md](docs/science-production-integration.md).
+
 # SkyShift × SPHEREx Time Machine 合并交接
 
 更新：2026-11-14。工作副本在 `Documents/ChatGPT/NASA/skyshift`，Git 分支为 `codex/merge-spherex-main`。已将 SPHEREx 整合结果与 GitHub `cucuradu/skyshift` 的 main 两轮合并，最后核对到 `1477f8e51a7a5551a6ef27a8610303aa562a92d2`（PR #49）。本地提交；尚未 push。Desktop 原仓库保持原状。合并细节见 [upstream-merge](docs/upstream-merge.md)。

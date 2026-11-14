@@ -15,8 +15,12 @@ export const esc = (s: string): string =>
 
 // ---- kinds ---------------------------------------------------------------------------------
 
+/** The honest caution on fast movers: most rest on two dots in one session (hunt zone: 211 of 228). */
+export const MOVER_CAUTION =
+  "Most fast movers are seen in only two exposures of one session, which can't show motion by itself: blink it and look for a steady step.";
+
 export const KIND_TEXT: Record<CandidateKind, { name: string; could: string }> = {
-  mover: { name: "Fast mover", could: "Moves within hours: it could be an asteroid or comet no one has catalogued." },
+  mover: { name: "Fast mover", could: `Seems to move within hours: it could be an asteroid or comet no one has catalogued. ${MOVER_CAUTION}` },
   high_pm: { name: "Moving star", could: "Moves between visits months apart: it could be a nearby star or a brown dwarf." },
   spectral: { name: "Odd spectrum", could: "Its colours or molecule bands are worth a closer look." },
 };

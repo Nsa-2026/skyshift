@@ -4,6 +4,7 @@
 import { loadValidation } from "../api/client";
 import type { ValidationResponse } from "../api/types";
 import type { PageContext, PageHandle } from "../app/modules";
+import { checkInfo } from "../score/checks";
 import { CONSENSUS, CONSENSUS_PCT } from "./stats";
 
 const html = String.raw;
@@ -49,7 +50,7 @@ export const CHALLENGE_ROWS: { asks: string; answer: string; where: [string, str
   },
   {
     asks: "Overlay other telescopes, such as Gaia or WISE",
-    answer: "Gaia DR3 stars moved to each frame's date, predicted asteroid and comet positions, 2MASS and AllWISE sky layers, and CatWISE matches on candidates.",
+    answer: "Gaia DR3 stars moved to each frame's date, predicted asteroid and comet positions, 2MASS and AllWISE sky layers, and CatWISE matches on every object to check.",
     where: [["#/explore", "Blink"]],
   },
   {
@@ -59,8 +60,8 @@ export const CHALLENGE_ROWS: { asks: string; answer: string; where: [string, str
   },
   {
     asks: "Show metadata such as contamination flags",
-    answer: "Each frame lists its share of flagged and saturated pixels; candidates near ghosts, halos or crosstalk carry a caution.",
-    where: [["#/explore", "Blink"], ["#/candidates", "Candidates"]],
+    answer: "Each frame lists its share of flagged and saturated pixels; objects near ghosts, halos or crosstalk carry a caution.",
+    where: [["#/explore", "Blink"], ["#/candidates", "To check"]],
   },
   {
     asks: "Generate spectra on the fly",
@@ -69,7 +70,7 @@ export const CHALLENGE_ROWS: { asks: string; answer: string; where: [string, str
   },
   {
     asks: "Help as many people as possible pitch in",
-    answer: `The whole sky with every candidate on it, short lessons, no account, a practice round, and votes that add up: at ${CONSENSUS.minVotes} votes and ${CONSENSUS_PCT}% agreement a candidate joins the list for astronomers.`,
+    answer: `The whole sky with every object to check on it, short lessons, no account, a practice round, and votes that add up: at ${CONSENSUS.minVotes} votes and ${CONSENSUS_PCT}% agreement an object joins the list for astronomers as a candidate.`,
     where: [["#/", "Sky"], ["#/learn", "Learn"], ["#/review", "Review"], ["#/community", "Community"]],
   },
   {
@@ -113,7 +114,11 @@ function validationSummary(v: ValidationResponse | null): string {
   const pick = ["V1", "V2", "V4", "V5"]
     .map((id) => v.checks.find((c) => c.id === id))
     .filter((c): c is NonNullable<typeof c> => !!c && c.status !== "pending");
-  const items = pick.map((c) => html`<div><dt>${esc(c.claim)}</dt><dd>${esc(c.headline)}</dd></div>`).join("");
+  // A check's scope (V5: which asteroids the recall covers) goes with its number.
+  const scope = (id: string) => checkInfo(id)?.scope ?? "";
+  const items = pick
+    .map((c) => html`<div><dt>${esc(c.claim)}</dt><dd>${esc(c.headline)}${scope(c.id) ? ` ${esc(scope(c.id))}` : ""}</dd></div>`)
+    .join("");
   return html`<p>Measured on real SPHEREx data (${esc(v.data_release)}): ${esc(sentence)}. Failing and partial
       results stay on the page with their numbers.</p>
     ${items ? html`<dl class="ab-checks">${items}</dl>` : ""}
@@ -138,8 +143,8 @@ export function aboutHtml(): string {
         <p class="ab-lede">SkyShift is a public tool for finding what moves and changes in NASA's SPHEREx infrared sky.
           SPHEREx photographs the whole sky every six months in 102 colours. SkyShift plays any spot of it as a short
           blink, the way Pluto was found on two photographic plates, and measures what moved against ESA's Gaia and
-          known asteroid orbits. A pipeline reads SPHEREx photos and proposes candidates; people blink them and vote;
-          the ones the community agrees on go to astronomers as leads. Four people built it in one day for NASA Space
+          known asteroid orbits. A pipeline reads SPHEREx photos and lists objects to check, most of them detector
+          artefacts; people blink them and vote; the ones the community agrees on go to astronomers as candidates. Four people built it in one day for NASA Space
           Apps 2026, challenge "Planet X and SPHEREx".</p>
       </header>
 
@@ -191,7 +196,7 @@ export function aboutHtml(): string {
           </figcaption>
         </figure>
 
-        <h3>From photos to candidates</h3>
+        <h3>From photos to objects to check</h3>
         <ol class="ab-steps">
           <li><b class="ab-step-n">990</b><span class="ab-step-name">photos</span>
             <span class="ab-step-text">Each read once from NASA's public copy, about 56 MB, and never stored.</span></li>
@@ -203,8 +208,9 @@ export function aboutHtml(): string {
             <span class="ab-step-text">Movers left after removing known asteroids, flagged artefacts, and stars Gaia and CatWISE know.</span></li>
         </ol>
         <p class="ab-fine">Numbers from the 12 deg² pilot, 14 November 2026. On the Months clock, motions between visits
-          add moving-star candidates (167 in the pilot). Suspects and moving stars together make the list people review
-          on <a href="#/candidates">Candidates</a>.</p>
+          add moving stars (167 in the pilot). Suspects, moving stars and odd spectra together make the list of objects
+          to check on <a href="#/candidates">To check</a>. In the hunt zone that list holds 228 fast movers,
+          1,008 moving stars and 97 odd spectra. Most are not real: see Honest limits.</p>
 
         <h3>How we know it works</h3>
         <div class="ab-validation">${validationSummary(null)}</div>
@@ -222,6 +228,14 @@ export function aboutHtml(): string {
             Epsilon Indi Ba and Bb show as one dot, and crowded fields near the Milky Way confuse matches.</dd></div>
           <div><dt>Two visits so far</dt><dd>Most of the sky has been seen twice, so motions are good to about 0.15–0.2″
             per year. Slower stars need a third visit.</dd></div>
+          <div><dt>Most objects to check are artefacts</dt><dd>A check of the hunt zone's 228 fast movers found 211
+            resting on just two dots in one session, which can't show motion by itself. About 41% sit on five recurring
+            bad detector pixels, 31% at a detector edge and 10% look like cosmic rays; most of the rest have a source in
+            deeper catalogues. About 4 are unexplained, and none of them shows motion. The 8 brightest by S/N are all
+            artefacts.</dd></div>
+          <div><dt>Asteroid recall covers fast movers only</dt><dd>In the hunt zone, 90% of sightings (413 of 457
+            sessions) of 30 distinct known asteroids moving 10–90″/h, brighter than V 16, were re-found. Slower movers
+            haven't been checked against real objects.</dd></div>
           <div><dt>Candidates are leads, not discoveries</dt><dd>The pipeline and the votes point at something worth a
             look. Astronomers confirm it with other data before anything is called new.</dd></div>
           <div><dt>Some checks are pending</dt><dd>Fast Gaia stars (V6) and known brown dwarfs (V7) were cut in the one-day
@@ -234,7 +248,7 @@ export function aboutHtml(): string {
         <div class="ab-faq">
           <h3>Do I need an account?</h3>
           <p>No. Everything works without signing in. The first time you vote, your browser makes a random id, so each
-            candidate gets one vote per browser.</p>
+            object gets one vote per browser.</p>
           <h3>What does "mover" mean?</h3>
           <p>A dot that changes place between frames. On the Hours clock a mover is usually an asteroid or a comet; on
             the Months clock, a nearby star or brown dwarf. "Changing" means it stays put while its brightness changes,
@@ -244,11 +258,11 @@ export function aboutHtml(): string {
           <p>Frames are shown as plate negatives, dark stars on light glass, the way astronomers blinked photographic
             plates. Faint dots are easier to see that way. Positive switches to bright stars on a dark sky.</p>
           <h3>How are votes used?</h3>
-          <p>They are counted per candidate, and every vote weighs the same. At ${CONSENSUS.minVotes} votes with
-            ${CONSENSUS_PCT}% agreeing, a candidate reaches consensus; movers and changing sources join the list
+          <p>They are counted per object, and every vote weighs the same. At ${CONSENSUS.minVotes} votes with
+            ${CONSENSUS_PCT}% agreeing, an object reaches consensus; movers and changing sources join the list
             for astronomers, which anyone can download from <a href="#/community">Community</a>.</p>
           <h3>Is my data stored?</h3>
-          <p>Each vote stores four things: the candidate, your answer, the server's time and your browser's random id.
+          <p>Each vote stores four things: the object's id, your answer, the server's time and your browser's random id.
             No name, email or account. A nickname, if you set one, stays in your browser. Votes can't be edited or
             deleted once cast: the database only accepts new ones.</p>
         </div>

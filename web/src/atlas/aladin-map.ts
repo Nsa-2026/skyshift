@@ -218,7 +218,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
 
   // ---- overlays -------------------------------------------------------------------------
   const quiet = (color: string) => ({ color, hoverColor: color, selectionColor: color });
-  const heatOv = A.graphicOverlay({ name: "Candidates per cell", ...quiet(ink.red), lineWidth: 1 }) as AladinOverlay;
+  const heatOv = A.graphicOverlay({ name: "Objects to check per cell", ...quiet(ink.red), lineWidth: 1 }) as AladinOverlay;
   const zoneOv = A.graphicOverlay({ name: "Zones", ...quiet(ink.ink), lineWidth: 1.25 }) as AladinOverlay;
 
   let model: MapModel | null = null;

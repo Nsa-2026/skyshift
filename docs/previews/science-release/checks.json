@@ -1,0 +1,56 @@
+{
+  "targets": [
+    {
+      "target": "barnard",
+      "findings": "2 条待核查线索\n\n分析缓存检查 358 次曝光（全波段），覆盖 3 次巡天、约 4′ 天区。运动筛选使用 D2。\n\n8 组颜色信号未通过至少两次巡天的重复性门槛。已知天体仍可能留在列表中。\n\n目录排除：尚未完成逐候选的 Gaia / JPL / CatWISE 认证。",
+      "depthRows": 6,
+      "lightcurvePoints": 0,
+      "status": ""
+    },
+    {
+      "target": "epsindib",
+      "findings": "13 条待核查线索\n\n分析缓存检查 457 次曝光（全波段），覆盖 4 次巡天、约 4′ 天区。运动筛选使用 D2。\n\n26 组颜色信号未通过至少两次巡天的重复性门槛。已知天体仍可能留在列表中。\n\n目录排除：尚未完成逐候选的 Gaia / JPL / CatWISE 认证。",
+      "depthRows": 6,
+      "lightcurvePoints": 4,
+      "status": ""
+    },
+    {
+      "target": "wise0855",
+      "findings": "1 条待核查线索\n\n分析缓存检查 255 次曝光（全波段），覆盖 3 次巡天、约 4′ 天区。运动筛选使用 D6。\n\n7 组颜色信号未通过至少两次巡天的重复性门槛。已知天体仍可能留在列表中。\n\n目录排除：尚未完成逐候选的 Gaia / JPL / CatWISE 认证。",
+      "depthRows": 6,
+      "lightcurvePoints": 3,
+      "status": ""
+    },
+    {
+      "target": "rwaur",
+      "findings": "1 条待核查线索\n\n分析缓存检查 328 次曝光（全波段），覆盖 3 次巡天、约 4′ 天区。运动筛选使用 D2。\n\n11 组颜色信号未通过至少两次巡天的重复性门槛。已知天体仍可能留在列表中。\n\n目录排除：尚未完成逐候选的 Gaia / JPL / CatWISE 认证。",
+      "depthRows": 6,
+      "lightcurvePoints": 2,
+      "status": ""
+    },
+    {
+      "target": "rdra",
+      "findings": "本次没有通过筛选的移动 / 冷源线索\n\n分析缓存检查 800 次曝光（全波段），覆盖 18 次巡天、约 4′ 天区。运动筛选使用 D2。\n\n0 组颜色信号未通过至少两次巡天的重复性门槛。这不代表天空没有目标：过暗、移动太快、饱和或覆盖不足都可能漏检；变星请看同波段光变。\n\n目录排除：尚未完成逐候选的 Gaia / JPL / CatWIS",
+      "depthRows": 6,
+      "lightcurvePoints": 0,
+      "status": ""
+    }
+  ],
+  "mobile": {
+    "buildVisible": false,
+    "documentWidth": 390,
+    "exportLabels": [
+      "分析 JSON",
+      "曝光 CSV",
+      "分析观测 GIF"
+    ],
+    "viewport": 390
+  },
+  "latestMain": "84b0f1c",
+  "routes": [
+    "science",
+    "discover",
+    "learn"
+  ],
+  "browserErrors": []
+}

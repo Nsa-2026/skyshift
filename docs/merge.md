@@ -1,3 +1,5 @@
+> Historical integration notes. For the current release candidate, supported features and verification, see [science-production-integration.md](science-production-integration.md).
+
 # SkyShift 与 SPHEREx Time Machine 合并说明
 
 2026-11-14。在当前工作副本完成 SPHEREx 整合及 GitHub main 两轮合并，核对到 `1477f8e`。本地分支 `codex/merge-spherex-main`，未 push、未部署，Desktop 源码保持原状。详见 [GitHub 合并记录](upstream-merge.md)。

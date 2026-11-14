@@ -20,6 +20,13 @@
   position: relative;
   width: min(100%, calc(max(300px, 100svh - 236px) + 2 * var(--mat)));
 }
+/* Up to 1480 px wide the nav takes a second header row (app.css), 45 px more above the plate:
+   without this the strip ended 35–42 px below the first screen at 1440×900 and 1280×720. */
+@media (max-width: 1480px) {
+  .bk-col {
+    width: min(100%, calc(max(300px, 100svh - 280px) + 2 * var(--mat)));
+  }
+}
 
 /* ---- the mat and the plate ------------------------------------------------------------- */
 .bk-mat {
