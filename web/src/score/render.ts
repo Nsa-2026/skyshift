@@ -1,5 +1,6 @@
-// HTML for the scoreboard (web/DESIGN.md, "Lightbox"). A page that reads top to bottom: the
-// title, what was checked, one summary sentence, then one section per check and the suspects.
+// HTML for Results (web/DESIGN.md, "Lightbox"). Two of its sections are drawn here: "What we found"
+// (the objects to check, the unknown movers and the distant-planet search) and "How sure we are"
+// (what was checked, one summary sentence, what the search can find, then one block per check).
 // Every value from the JSON goes through esc().
 import {
   FILE_PROVISIONAL_TEXT,
@@ -22,6 +23,8 @@ import {
   vetoesText,
 } from "../api/grades";
 import type {
+  CandidateKind,
+  CandidatesResponse,
   CheckStatus,
   DistantResponse,
   Suspect,
@@ -30,7 +33,7 @@ import type {
   ValidationResponse,
 } from "../api/types";
 import { DETECTORS } from "../app/astro";
-import { checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
+import { RECALL_SCOPE, checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
 import { renderDistant } from "./distant";
 import {
   bigValue,
@@ -81,6 +84,19 @@ function isSynthetic(x: unknown): boolean {
   return !!x && typeof x === "object" && (x as { synthetic?: unknown }).synthetic === true;
 }
 
+/** One calm sentence when any file holds made-up numbers; "" otherwise. */
+export function syntheticNote(...files: unknown[]): string {
+  return files.some(isSynthetic)
+    ? html`<p class="sc-synthetic" role="note">These are synthetic example numbers, made up to test this page.
+        They are not SPHEREx results.</p>`
+    : "";
+}
+
+/** Every heading one level down (h2 → h3 …), for a part drawn inside a Results section. */
+export function demote(markup: string): string {
+  return markup.replace(/<(\/?)h([1-5])\b/g, (_, slash: string, n: string) => `<${slash}h${Number(n) + 1}`);
+}
+
 /** The one summary sentence, each count led by its status mark (the page's legend). */
 export function renderSummary(checks: ValidationCheck[]): string {
   const clauses = summaryClauses(countStatuses(checks))
@@ -96,26 +112,105 @@ export function renderSummary(checks: ValidationCheck[]): string {
   return html`<p class="sc-summary">${clauses}</p>`;
 }
 
-function renderHead(checks: ValidationCheck[], v: ValidationResponse | null, synthetic: boolean): string {
+/** What was checked, the one summary sentence, and which release and date the checks are from. */
+function renderSureHead(checks: ValidationCheck[], v: ValidationResponse | null): string {
   const meta = v
-    ? html`<p class="sc-meta">Results from ${esc(prettyText(v.data_release))}, published
+    ? html`<p class="sc-meta">Checks on ${esc(prettyText(v.data_release))}, published
         <time datetime="${esc(v.generated)}">${esc(formatGenerated(v.generated))}</time>.</p>`
     : "";
   return html`
-    <header class="sc-head">
-      <h1 class="sc-title">How we know it works</h1>
+    <div class="sc-head">
       <p class="sc-lede">We checked SkyShift's measurements against what is already known: star motions from
         ESA's Gaia, NASA's asteroid predictions and catalogue brightness. Every result is printed as measured,
         beside the target we set before running it, including the poor ones.</p>
-      ${
-        synthetic
-          ? html`<p class="sc-synthetic" role="note">These are synthetic example numbers, made up to test this page.
-              They are not SPHEREx results.</p>`
-          : ""
-      }
       ${renderSummary(checks)}
       ${meta}
-    </header>`;
+    </div>`;
+}
+
+// ---- what the search can find (completeness) --------------------------------------------------
+
+export interface CompletenessRow {
+  /** The large figure: "93%", "60 of 60". */
+  figure: string;
+  /** What the figure counts, as the rest of a sentence. */
+  text: string;
+  /** What it does and doesn't cover. */
+  scope: string;
+  href: string;
+  link: string;
+}
+
+const pctText = (f: number): string => `${Math.round(f * 100)}%`;
+const intText = (n: number): string => Math.round(n).toLocaleString("en-GB");
+
+/**
+ * The completeness figures, each from its file: known asteroids found blind (V5) and where NASA
+ * predicted them (V4), and made-up distant planets the pairing step found (distant.json).
+ * A figure whose check hasn't run, or whose file is missing, is left out.
+ */
+export function completenessRows(v: ValidationResponse | null, dist: DistantResponse | null): CompletenessRow[] {
+  const rows: CompletenessRow[] = [];
+  const ran = (id: string) => {
+    const c = Array.isArray(v?.checks) ? v!.checks.find((x) => x.id === id) : undefined;
+    return c && normStatus(c.status) !== "pending" ? c : undefined;
+  };
+  const v5 = ran("V5");
+  if (v5 && typeof v5.value === "number" && v5.value >= 0 && v5.value <= 1) {
+    rows.push({
+      figure: pctText(v5.value),
+      text: "of known asteroids found without being told where to look, counted session by session.",
+      scope: RECALL_SCOPE,
+      href: "#/results/sure/V5",
+      link: "The check, V5",
+    });
+  }
+  const v4 = ran("V4");
+  const big4 = v4 ? bigValue(v4.value, v4.unit, typeof v4.headline === "string" ? v4.headline : "") : null;
+  if (v4 && big4) {
+    rows.push({
+      figure: big4.num,
+      text: `${big4.unit ? `${prettyText(big4.unit)} ` : ""}found where IRSA's Moving Object Search Tool predicted them.`,
+      scope: "Asteroids numbered 1 to 60, looked for at their predicted positions; the same search 3′ away gives the chance rate.",
+      href: "#/results/sure/V4",
+      link: "The check, V4",
+    });
+  }
+  const inj = dist?.injection;
+  if (inj && Array.isArray(inj.distances) && inj.distances.length) {
+    const added = inj.distances.reduce((a, r) => a + r.injected, 0);
+    const found = inj.distances.reduce((a, r) => a + r.recovered, 0);
+    const share = inj.recovered_frac ?? (added ? found / added : null);
+    if (share != null && added > 0) {
+      const lo = Math.min(...inj.distances.map((r) => r.distance_au));
+      const hi = Math.max(...inj.distances.map((r) => r.distance_au));
+      rows.push({
+        figure: pctText(share),
+        text: `of ${intText(added)} made-up distant planets, ${intText(lo)}–${intText(hi)} AU from the Sun, paired up across visits by the distant-planet search.`,
+        scope: "This tests the pairing only: it assumes SPHEREx saw the planet in both visits. How bright a planet must be for that is under What it can't see.",
+        href: "#/results/found/distant",
+        link: "The distant-planet search",
+      });
+    }
+  }
+  return rows;
+}
+
+export function renderCompleteness(v: ValidationResponse | null, dist: DistantResponse | null): string {
+  const rows = completenessRows(v, dist);
+  if (!rows.length) return "";
+  return html`<div class="rs-complete">
+    <h3 class="rs-h3">What the search can find</h3>
+    <dl class="rs-figures">${rows
+      .map(
+        (r) => html`<div class="rs-figure">
+          <dt class="rs-fig">${esc(r.figure)}</dt>
+          <dd><p class="rs-fig-text">${esc(r.text)}</p><p class="sc-sub">${esc(r.scope)}</p>
+            <a class="rs-fig-link" href="${esc(r.href)}">${esc(r.link)}</a></dd>
+        </div>`,
+      )
+      .join("")}</dl>
+  </div>`;
 }
 
 // ---- checks ------------------------------------------------------------------------------
@@ -277,8 +372,13 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
   const graded = raw.some((s) => gradeOf(s) !== null);
   const list = graded ? rankByGrade(raw) : raw;
   const n = list.length;
+  // The table sits behind a disclosure, closed, like a check's rows: Results reads top to bottom.
   const table = n
-    ? html`<div class="sc-scroll" tabindex="0" role="region" aria-label="Suspects table">
+    ? html`<details class="sc-rows sc-suspect-rows">
+      <summary><span class="sc-show">${n === 1 ? "Show the suspect" : `Show the ${n.toLocaleString("en-GB")} suspects`}</span><span class="sc-hide">${
+        n === 1 ? "Hide the suspect" : "Hide the suspects"
+      }</span>${CHEVRON}</summary>
+      <div class="sc-scroll" tabindex="0" role="region" aria-label="Suspects table">
         <table class="sc-table sc-suspect-table">
           <caption class="visually-hidden">Unknown-mover suspects in ${esc(zoneName(sr.zone))}</caption>
           <thead><tr>
@@ -287,7 +387,7 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
             <th scope="col" class="num">Flux (µJy)</th><th scope="col" class="num">Nearest known</th>
           </tr></thead>
           <tbody>${list.map((s) => suspectRow(s, graded)).join("")}</tbody>
-        </table></div>`
+        </table></div></details>`
     : html`<p class="sc-wait">No suspects here: every mover matched a known object or was filtered out.</p>`;
   return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
     <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
@@ -302,20 +402,77 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
   </section>`;
 }
 
-// ---- page --------------------------------------------------------------------------------
+// ---- the objects to check ----------------------------------------------------------------------
 
+const KIND_WORDS: Record<CandidateKind, [string, string]> = {
+  mover: ["fast mover", "fast movers"],
+  high_pm: ["moving star", "moving stars"],
+  spectral: ["odd spectrum", "odd spectra"],
+  shape: ["that may be one object or two", "that may be one object or two"],
+};
+const KIND_ORDER: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
+
+function zonesText(zones: unknown): string {
+  const z = (Array.isArray(zones) ? zones : []).filter((x): x is string => typeof x === "string" && !!x.trim());
+  if (!z.length) return "";
+  if (z.length === 1) return ` in ${zoneName(z[0])}`;
+  return ` in the ${z.slice(0, -1).join(", ")} and ${z[z.length - 1]} zones`;
+}
+
+/**
+ * How many objects the pipeline listed to check, by kind (counted from the list itself), with the
+ * one plain line DESIGN.md asks for next to that count, and where to look at them.
+ */
+export function renderObjects(c: CandidatesResponse | null): string {
+  const list = c && Array.isArray(c.candidates) ? c.candidates : null;
+  if (!list) {
+    return html`<div class="rs-objects"><p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of objects to check is published after the pipeline's run.</p></div>`;
+  }
+  const n = new Map<CandidateKind, number>();
+  for (const x of list) n.set(x.kind, (n.get(x.kind) ?? 0) + 1);
+  const parts = KIND_ORDER.filter((k) => n.get(k)).map((k) => `${intText(n.get(k)!)} ${KIND_WORDS[k][n.get(k) === 1 ? 0 : 1]}`);
+  const kinds = parts.length > 1 ? `: ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts.length ? `: ${parts[0]}` : "";
+  return html`<div class="rs-objects">
+    <p class="rs-count">The pipeline listed <b>${esc(intText(list.length))}</b> ${list.length === 1 ? "object" : "objects"} to
+      check${esc(zonesText(c!.zones))}${esc(kinds)}.</p>
+    <p class="sc-intro">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector
+      artefacts until people check them.</p>
+    <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/review">Check them one by one</a></p>
+  </div>`;
+}
+
+// ---- the two sections drawn here ---------------------------------------------------------------
+
+/** "What we found": the objects to check, the unknown movers and the distant-planet search. */
+export function renderFound(
+  sr: SuspectsResponse | null,
+  dist: DistantResponse | null,
+  cands: CandidatesResponse | null | undefined = undefined,
+): string {
+  return html`<div class="rs-found">${cands === undefined ? "" : renderObjects(cands)}${demote(renderSuspects(sr) + renderDistant(dist))}</div>`;
+}
+
+/** "How sure we are": the summary, what the search can find, and every check V1–V11. */
+export function renderSure(v: ValidationResponse | null, dist: DistantResponse | null): string {
+  const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
+  return html`<div class="rs-sure">
+    ${renderSureHead(checks, v)}
+    ${renderCompleteness(v, dist)}
+    <div class="sc-checks" role="group" aria-label="The checks">${demote(checks.map((c, i) => renderCheck(c, i === 0)).join(""))}</div>
+  </div>`;
+}
+
+/** Both sections in one block, for a page without the Results sections around them. */
 export function renderPage(
   v: ValidationResponse | null,
   sr: SuspectsResponse | null,
   dist: DistantResponse | null = null,
+  cands: CandidatesResponse | null | undefined = undefined,
 ): string {
-  const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
-  const synthetic = isSynthetic(v) || isSynthetic(sr) || isSynthetic(dist);
   return html`
     <div class="sc">
-      ${renderHead(checks, v, synthetic)}
-      <section class="sc-checks" aria-label="Checks">${checks.map((c, i) => renderCheck(c, i === 0)).join("")}</section>
-      ${renderSuspects(sr)}
-      ${renderDistant(dist)}
+      ${syntheticNote(v, sr, dist, cands)}
+      ${renderSure(v, dist)}
+      ${renderFound(sr, dist, cands)}
     </div>`;
 }

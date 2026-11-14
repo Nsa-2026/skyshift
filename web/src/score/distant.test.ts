@@ -188,7 +188,7 @@ describe("distant-planet search section", () => {
   it("sits after the suspects on the page, and mountScore loads /data/distant.json", async () => {
     const d = el();
     renderScore(d, null, null, DIST);
-    const sections = [...d.querySelectorAll(".sc > section")].map((s) => s.className);
+    const sections = [...d.querySelectorAll(".rs-found > section")].map((s) => s.className);
     expect(sections.slice(-2)).toEqual(["sc-suspects", "sc-distant"]);
     document.body.innerHTML = "";
     const urls: string[] = [];
