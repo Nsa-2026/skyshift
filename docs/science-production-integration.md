@@ -63,7 +63,7 @@ Guided practice opens from the Explore heading. On mobile the task precedes the 
 
 ## Data and deployment boundaries
 
-Five fields have versioned portable scientific products: Barnard's Star, Epsilon Indi B, WISE 0855−0714, RW Aurigae and R Draconis. They live in `web/public/science-data`, separate from main's `web/public/data`. Their published models, residuals and reference differences support the 5 arcminute Months selection, with the actual smaller footprint masked outside its coverage. API matching is limited to one SPHEREx pixel (6.15″) around each published centre (contracts v3.10). Analysis findings are detector-specific; unsupported selections are disclosed.
+Five fields have versioned portable scientific products: Barnard's Star, Epsilon Indi B, WISE 0855−0714, RW Aurigae and R Draconis. They live in `web/public/science-data`, separate from main's `web/public/data`. Their published models, residuals and reference differences support the 5 arcminute Months selection, with the actual smaller footprint masked outside its coverage. API matching is limited to one SPHEREx pixel (6.15″) around each published centre (contracts v3.11, #202). Analysis findings are detector-specific; unsupported selections are disclosed.
 
 The container copies these products and export inputs, so production does not need native NPZ jobs, pickle caches or the original `spherex-tm` directory. Raw observations never use the legacy analysis cube. JSON and CSV exports are portable; published GIF exports use the analysis observation footprint and Months clock. Unsupported cloud ADES/MPC drafts and Hours GIF links are hidden.
 
