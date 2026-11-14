@@ -67,7 +67,7 @@ const REASON_TEXT: Record<string, string> = {
   pm_fit: "Motion fitted over every visit",
   pm_pair: "Paired across two visits",
   vetted: "Passed every check",
-  catwise_pm_agrees: "CatWISE's motion agrees",
+  catwise_pm_agrees: "CatWISE lists the same motion",
   short_span: "Short time span",
   few_dots: "Few detections",
   bad_fit: "Poor straight-line fit",
@@ -77,7 +77,7 @@ const REASON_TEXT: Record<string, string> = {
   at_control_level: "Could be chance",
   implausible_pm: "Too fast to be one star",
   // spectral
-  no_gaia: "Not in Gaia",
+  no_gaia: "Not in Gaia (G < 20)",
   gaia_nearby: "Gaia: within 50 pc",
   class_star: "Looks like a star",
   class_galaxy: "Looks like a galaxy",

@@ -47,8 +47,8 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   // Wording from contracts/api.md, candidates.json "reasons".
   pm_fit: { label: "Motion fitted across visits", tone: "support", detail: "Its motion was fitted over every detection in every visit." },
   vetted: { label: "Passed every check", tone: "support", detail: "It came through all of the pipeline's checks with nothing against it." },
-  catwise_pm_agrees: { label: "CatWISE agrees", tone: "support", detail: "CatWISE lists the same motion for the source here." },
-  no_gaia: { label: "No Gaia source here", tone: "support", detail: "Gaia DR3 has nothing at this position." },
+  catwise_pm_agrees: { label: "CatWISE lists the same motion", tone: "support", detail: "CatWISE lists the same motion for the source here." },
+  no_gaia: { label: "Not in Gaia (G < 20)", tone: "support", detail: "Gaia DR3 lists nothing brighter than G 20 here." },
   gaia_nearby: { label: "Within 50 pc", tone: "support", detail: "Gaia has it with a parallax of 20 mas or more, so it is closer than 50 parsecs." },
   class_star: { label: "Point-like", tone: "support", detail: "The classifier calls it a star: a point source, not an extended one." },
   variable: { label: "Brightness changes", tone: "support", detail: "Its brightness changes between visits." },
