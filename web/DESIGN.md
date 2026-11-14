@@ -1,8 +1,29 @@
-# SkyShift UI: dark observatory
+# SkyShift UI: scroll opening and observatory
 
-The current visual baseline is the user-supplied black observatory screenshot, clarified on 14 November 2026. It supersedes the earlier light Lightbox palette and layout. The integrated features remain in one application on `codex/frontend-unified`.
+The entry and Explore dashboard now follow the latest user-supplied light dashboard screenshot:
+white/gray panels, dark text, rounded controls and red accents above real SPHEREx sky. The
+original dark observation canvas and scientific controls remain inside the player. Other routes
+retain the preceding dark observatory baseline. The integrated features remain in one application
+on `codex/frontend-unified`.
 
-## Visual system
+## Current opening (14 November 2026)
+
+`#/` is a scroll-controlled space → Earth → ground → frontal face → pupil → real sky sequence.
+The portrait uses procedural surface shading and authored Canvas paths. The face stays front-on
+before the camera approaches one pupil. There are no video files or AI-generated visual assets.
+The same live dashboard emerges at the end and becomes interactive at `#/explore`.
+
+Entry/Explore-only styles live in `src/intro/intro.css`: persistent search/navigation, five target
+cards, the existing player and real candidate signals. The light shell leaves the sky visible
+between panels. On phones panels stack, target cards scroll horizontally and the original
+Details controls remain accessible. Deep links, returning visitors and reduced-motion users
+bypass the opening; “重看开场” is available on the dashboard.
+
+See [scroll-intro.md](../docs/scroll-intro.md) for phase boundaries, provenance, tests and actual
+browser captures. The older atlas specification below describes the atlas route and product
+direction, not a new atlas implementation delivered by this opening change.
+
+## Preserved observatory visual system
 
 - Near-black sky (`#070809`), graphite floating panels (`#111214`), thin grey borders, white and grey text. Shared tokens are in `src/styles/tokens.css`.
 - System sans-serif, tabular numbers, small uppercase inspector labels. Controls are quiet rectangular segments with 6 px corners and a visible selected state.
@@ -14,7 +35,7 @@ The current visual baseline is the user-supplied black observatory screenshot, c
 
 `src/app/observatory.ts` rehomes the existing live components; it does not clone players or object cards. `observatory.css` supplies the layout.
 
-- **Target card:** actual name, coordinates, detector range and measured motion where available. Its Workspace menu contains coordinate search and every route.
+- **Target card:** actual name, coordinates, detector range and measured motion where available. In the entry dashboard its Workspace action focuses the visible header search; navigation is in the header.
 - **View:** Normal / Difference / Stack, brightness, inversion, catalogue/moving-object/target/guides overlays, D1-D6 and the shared spectrum and measurement card.
 - **Sampling & display:** Months / Hours, field size, Fill window / Fit full field, linear / asinh stretch, sky subtraction, difference smoothing, comparison reference, following, zoom and speed.
 - **Analysis:** original observations, model, residual and DR1 difference in the same player; findings, calibration, paired bands, reference spectrum, light curves, sensitivity, catalogues, cultural sky and exports.
@@ -37,19 +58,20 @@ practice round, nothing requires an account).
 ### Pages (hash routes; old links keep working)
 | Route | Page | Owner folder |
 |---|---|---|
-| `#/` (and `#/sky/<state>`) | **Sky** (the home page): the whole SPHEREx sky as a zoomable globe, candidates as a heat map that resolves into single signals as you zoom, click one to preview its blink | `src/atlas` |
+| `#/` | **Opening**: scroll journey and live dashboard reveal; repeat/deep-linked/reduced-motion visits go to Explore | `src/intro` |
+| `#/sky` and `#/sky/<state>` | **Sky**: existing atlas route; detailed atlas behavior below is the product specification | `src/atlas` |
 | `#/candidates` | **Candidates**: smart filters, candidate list, small sky map (was "Discover" at `#/`) | `src/discover` |
 | `#/review` | **Review queue**: one candidate at a time, big plate, vote with keys 1–4, skip, progress; practice round first time | `src/review` |
 | `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, the check assistant, measurements, votes and consensus, report and share | `src/review` (+ `src/assist`) |
-| `#/explore` | **Observatory**: full-window sky, floating target card, Details inspector and bottom transport | `src/app` + blink, card, vote, sky |
+| `#/explore` | **Dashboard**: light search/target/candidate panels over real sky, existing observatory player with Details and transport | `src/intro` + `src/app` + blink, card, vote, sky |
 | `#/live` | **Live search**: tonight's pipeline run along the ecliptic, zone by zone (map, counters, machines, time left), provisional results per zone | `src/live` |
 | `#/community` | **Community**: what people have reviewed, consensus results, the list going to astronomers | `src/community` |
 | `#/results` | **Results**: validation checks and what the pipeline found (`#/score` redirects here) | `src/score` |
 | `#/learn` | **Learn**: short lessons with real SPHEREx examples, glossary, the practice round's teaching | `src/learn` |
 | `#/tools` | **Tools and data**: downloads, batch coordinates, API, citation (for professionals) | `src/tools` |
 | `#/about` | **About**: the challenge, method, data, limits, credits, FAQ | `src/community` |
-Nav: Sky, Candidates, Review, Blink, Live search, Community, Results, Learn, Tools and data, About, Play. On Explore it lives in the target card's Workspace menu; other routes retain the page header. Play (`#/play`, `src/play`) contains the map hunt, tracking, collection, birthday stars and cultural stories.
-Deep links `?t=<slug>` and `?ra=&dec=` open Explore.
+Nav: Sky, Candidates, Review, Blink, Live search, Community, Results, Learn, Tools and data, About, Play. Explore and other routes retain visible header navigation. Play (`#/play`, `src/play`) contains the map hunt, tracking, collection, birthday stars and cultural stories.
+Deep links `?target=<slug>`, `?t=<slug>` and `?ra=&dec=` open Explore.
 
 ### Candidates (data: `/data/candidates.json`, type `CandidatesResponse` in `src/api/types.ts`)
 Three kinds, each with its own colour-free icon and plain name:
@@ -78,7 +100,7 @@ astronomers** (Community page, CSV and JSON export, with the Backyard Worlds for
 next steps). No accounts: a random voter id in the browser; never names or emails.
 Pages import vote logic from `src/vote` (store, model) and never edit it.
 
-## Sky: the home page (added 14 Nov, 16:00)
+## Sky atlas specification (added 14 Nov, 16:00; now a separate route)
 The first thing anyone sees is the sky itself, not a list. Aladin Lite 3.8.2 fills the page under the
 header (min(100vh − header, 900 px) tall on desktop, 70vh on phone) on a `--sheet` mat. IRSA HiPS only.
 

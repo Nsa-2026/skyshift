@@ -19,6 +19,12 @@ import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { mountPlay } from "../play/page";
 import { mountObservatory } from "./observatory";
+import { mountIntro } from "../intro";
+import { mountEntrySky } from "../intro/sky";
+import { mountEntryDashboard } from "../intro/dashboard";
+import { mountEyeLoading } from "../intro/loading";
+import { hasSeen, reducedMotion, rememberIntro } from "../intro/model";
+import { entryRoute } from "../intro/routing";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -29,6 +35,7 @@ const html = String.raw;
 
 export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
+  let replayIntro = false;
   root.innerHTML = html`
     <header class="top" ${embed ? "hidden" : ""}>
       <div class="brand">
@@ -124,6 +131,7 @@ export function startApp(root: HTMLElement): void {
   const observatory = mountObservatory(root, $("#blink"), {
     target(slug) { const t=targetBySlug(slug); if(t)void go(viewForTarget(t)); },
     analysis(visible) { workbench.active(visible); },
+    ...(!embed ? { workspace() { input.focus(); input.scrollIntoView({ block: 'nearest' }); } } : {}),
   });
   const card: CardHandle = mountCard($("#card"));
   const vote: VoteHandle = mountVote($("#vote"));
@@ -142,6 +150,20 @@ export function startApp(root: HTMLElement): void {
     },
     rebuilt(next) { layer = 'raw'; void go(next); },
   });
+  const backdrop = document.createElement('div');
+  backdrop.className = 'entry-sky'; backdrop.hidden = true;
+  root.before(backdrop);
+  const entrySky = mountEntrySky(backdrop);
+  const dashboard = embed ? null : mountEntryDashboard(root, {
+    target(slug) { const target = targetBySlug(slug); if (target) void go(viewForTarget(target)); },
+    replay() {
+      if (reducedMotion()) return;
+      replayIntro = true;
+      history.replaceState(null, '', `${location.pathname}${location.search}#/`);
+      route();
+    },
+  });
+  const eyeLoading = mountEyeLoading(root.querySelector<HTMLElement>('.bk')!);
   let score: { destroy(): void } | null = null;
 
   function say(text: string, kind: "info" | "error" = "info") {
@@ -150,14 +172,15 @@ export function startApp(root: HTMLElement): void {
   }
 
   function markChips(slug: string | null) {
+    dashboard?.select(slug);
     root.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) => {
       b.setAttribute("aria-pressed", String(b.dataset.slug === slug));
     });
   }
 
-  async function go(next: View, opts: { push?: boolean; objectToo?: boolean } = {}) {
-    const { push = true, objectToo = true } = opts;
-    if (current !== "explore") {
+  async function go(next: View, opts: { push?: boolean; objectToo?: boolean; preview?: boolean } = {}) {
+    const { push = true, objectToo = true, preview = false } = opts;
+    if (!preview && current !== "explore") {
       exploreStarted = true;
       history.replaceState(null, "", `${location.pathname}${location.search}#/explore`);
       route();
@@ -176,6 +199,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl?.abort();
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
+    const finishLoading = eyeLoading.begin(next.slug ? '正在读取 SPHEREx 观测…' : '正在查询新的天区，读取 SPHEREx 观测…');
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
 
     frames = null;
@@ -229,7 +253,7 @@ export function startApp(root: HTMLElement): void {
         await go(next, { push: false, objectToo: false });
         if (view === next) workbench.message(`${failed} is unavailable here. Showing the original observations. Build an analysis to prepare the model and residual.`);
       } else blink.status("error", errorText(e));
-    }
+    } finally { finishLoading(); }
   }
 
   function errorText(e: unknown): string {
@@ -310,29 +334,48 @@ export function startApp(root: HTMLElement): void {
   const pages = new Map<string, PageHandle>();
   let current = "";
   let exploreStarted = false;
+  const intro = mountIntro(root, {
+    progress(p) {
+      entrySky.progress(p, p === 0 && !reducedMotion());
+      dashboard?.progress(p, true);
+      if (p >= .72 && !exploreStarted) {
+        exploreStarted = true;
+        void go(readView() ?? viewForTarget(TARGETS[0]), { push: false, preview: true });
+      }
+    },
+    complete() {
+      rememberIntro();
+      replayIntro = false;
+      history.replaceState(null, '', `${location.pathname}${location.search}#/explore`);
+      route();
+      if (view) writeView(view, true);
+      dashboard?.focus();
+    },
+  });
 
   function parseRoute(): { page: string; param: string | null } {
-    const h = location.hash.replace(/^#\/?/, "");
-    const [head, ...rest] = h.split("/");
-    if (head === "c" && rest.length) return { page: "candidate", param: decodeURIComponent(rest.join("/")) };
-    if (head === "score" || head === "results") return { page: "results", param: null };
-    if (head === "candidates" || head === "discover") return { page: "discover", param: rest.join("/") || null };
-    if (head === "sky") return { page: "atlas", param: rest.join("/") || null };
-    if (["review", "explore", "community", "about", "learn", "play", "tools", "live"].includes(head)) return { page: head, param: rest.join("/") || null };
-    // No hash: deep links to a target or coordinates open Explore; otherwise the sky (atlas).
-    if (!head && (new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("ra")))
-      return { page: "explore", param: null };
-    return { page: "atlas", param: null };
+    if (replayIntro && /^#\/?$/.test(location.hash) && !reducedMotion()) return { page: 'intro', param: null };
+    return entryRoute(location.hash, location.search, hasSeen(), reducedMotion());
   }
 
   function route() {
     const { page, param } = parseRoute();
+    const wasIntro = current === 'intro';
+    if (page !== 'intro') replayIntro = false;
     if (current && current !== page) pages.get(current)?.hide?.();
     blink.active?.(page === 'explore');
     root.dataset.page = page;
     observatory.active(page === "explore");
     current = page;
-    root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
+    root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page && !(page === 'intro' && p.dataset.page === 'explore')));
+    dashboard?.active(page === 'intro' || page === 'explore');
+    entrySky.active(!embed && (page === 'intro' || page === 'explore'));
+    eyeLoading.active(page === 'explore');
+    intro.active(page === 'intro');
+    if (page !== 'intro') {
+      dashboard?.progress(1, false);
+      entrySky.progress(1, false);
+    }
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page));
     if (page === "explore") root.querySelector<HTMLElement>(".featured")!.hidden = true;
     const navKey = page === "candidate" ? "review" : page;
@@ -355,7 +398,10 @@ export function startApp(root: HTMLElement): void {
       }
       handle.show(param);
     }
-    if (page !== "explore") window.scrollTo({ top: 0 });
+    if (page !== "explore" || wasIntro) window.scrollTo({ top: 0, behavior: 'instant' });
+    // An implicit entry must leave a shareable, explicit Explore URL.
+    if (page === 'explore' && !location.hash.replace(/^#\/?/, ''))
+      history.replaceState(null, '', `${location.pathname}${location.search}#/explore`);
   }
   addEventListener("hashchange", route);
 

@@ -1,6 +1,13 @@
 # Unified observatory frontend
 
-The design baseline is the user-supplied black observatory screenshot: full-window sky, upper-left target card, right Details inspector and bottom playback strip. It supersedes the earlier Lightbox interpretation. Integration is on the existing GitHub branch `codex/frontend-unified`; the original frontends and their uncommitted work remain available.
+The current entry/Explore shell follows the latest light dashboard reference and includes a
+scroll opening with a frontal face approach. See [the opening implementation and verification](scroll-intro.md)
+for current routes, real-sky provenance and 1,006 passing local checks (4 network skips).
+
+The integration baseline documented below is the earlier black observatory screenshot:
+upper-left target card, right Details inspector and bottom playback strip. These live scientific
+components remain inside the new dashboard. Work stays on `codex/frontend-unified`, locally;
+the original frontends remain available.
 
 ## Feature destinations
 
@@ -24,7 +31,7 @@ The design baseline is the user-supplied black observatory screenshot: full-wind
 | Explicit synthetic fixtures and static/API source inspection | API inspector only; never substituted for real science observations |
 | Candidate CSV/JSON/VOTable, batch coordinates, API examples and citations | Original Tools and data page |
 
-The integration imports `130e950` and the existing product/learning work from the other local frontend. Its game is under `web/src/play`, preserving the Lightbox courses under `web/src/learn`. The obsolete dark app entry and global styles are removed from this checkout; one app shell owns every route. Every route now uses the dark observatory tokens, neutral rectangular controls and bright stars on a black field. The original player, card, votes and contextual sky are rehomed inside the observatory; they are not duplicated. Control ownership prevents spectrum or light-curve buttons from accidentally changing the main player.
+The integration imports `130e950` and the existing product/learning work from the other local frontend. Its game is under `web/src/play`, preserving the Lightbox courses under `web/src/learn`. The obsolete dark app entry and global styles are removed from this checkout; one app shell owns every route. The integration originally used dark observatory tokens throughout; the latest opening scopes light panels to entry/Explore. The original player, card, votes and contextual sky are rehomed inside the observatory; they are not duplicated. Control ownership prevents spectrum or light-curve buttons from accidentally changing the main player.
 
 ## State and data boundaries
 
@@ -54,7 +61,7 @@ This serves the built frontend and API on port 8083. In a second terminal, run `
 
 Precomputed raw observations and science models are tracked. `.runtime/jobs`, `.runtime/science` and `.runtime/api` are local, ignored caches: the current workspace has its own copies, while a fresh checkout must build an analysis before using endpoints that require these caches. Existing static examples work without them.
 
-## Verification — 14 November 2026
+## Prior integration verification — 14 November 2026
 
 | Suite | Result |
 | --- | --- |

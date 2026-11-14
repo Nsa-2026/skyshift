@@ -7,6 +7,7 @@ const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '
 export function mountObservatory(app: HTMLElement, player: HTMLElement, opts: {
     target(slug: string): void;
     analysis(visible: boolean): void;
+    workspace?(): void;
 }) {
     const scene = player.querySelector<HTMLElement>('.bk')!;
     const $ = <T extends HTMLElement = HTMLElement>(s: string) => scene.querySelector<T>(s)!;
@@ -106,6 +107,7 @@ export function mountObservatory(app: HTMLElement, player: HTMLElement, opts: {
             (open ? aside.querySelector<HTMLButtonElement>('.obs-close')! : toggle).focus();
     }
     function workspace(value: boolean) {
+        if (value && opts.workspace) { opts.workspace(); return; }
         nav.hidden = !value;
         overview.querySelector('button')!.setAttribute('aria-expanded', String(value));
         if (value) {

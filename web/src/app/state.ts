@@ -33,7 +33,7 @@ const isDet = (n: number): n is Det => Number.isInteger(n) && n >= 1 && n <= 6;
 
 export function readView(search: string = location.search): View | null {
   const p = new URLSearchParams(search);
-  const t = targetBySlug(p.get("t"));
+  const t = targetBySlug(p.get("target")) ?? targetBySlug(p.get("t"));
   const base = t ? viewForTarget(t) : null;
   const ra = p.has("ra") ? Number(p.get("ra")) : base?.ra;
   const dec = p.has("dec") ? Number(p.get("dec")) : base?.dec;
