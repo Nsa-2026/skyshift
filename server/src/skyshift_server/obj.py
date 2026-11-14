@@ -42,7 +42,8 @@ The two times are the MEDIAN exposure times of the two stacks: a per-pixel media
 moving star sits where the star was at the median time, not at mjd_mid (the middle of the first
 and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
 mjd_mid is 14.6 days (0.41") after the median. dt_yr is therefore the difference of the median
-times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax.
+times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax; it is null without a
+Gaia star (contracts/api.md), also for a built-in target with published astrometry (WISE 0855).
 
 spectrum_reason: why the spectrum is empty, or null. "saturated" when exposures were left out for
 a saturated core (OVERFLOW or NONLINEAR) and none remain, e.g. a star so bright that even its
@@ -689,6 +690,11 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             reasons.append(e.reason)
         return None
     out = res.to_measure()
+    if not (model and model.get("id")):
+        # contracts/api.md: Gaia's predicted shift, or null without Gaia. A built-in target Gaia
+        # doesn't see (WISE 0855: published astrometry) still guides the search and the guard above,
+        # but that prediction is not Gaia's.
+        out["predicted_arcsec"] = None
     for k in ("shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec", "predicted_arcsec"):
         if out.get(k) is not None:
             out[k] = round(out[k], 4)
