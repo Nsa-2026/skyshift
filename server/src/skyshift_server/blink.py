@@ -404,10 +404,9 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         try:
             find_job(ra,dec)
         except NotFoundError:
-            if view != 'raw':
-                raise NotFoundError('No analysis cube here; build the science job first')
-        else:
-            return cached_results.build_frames(ra,dec,fov,clock,det,cache=cache,view=view)
+            raise NotFoundError("Model, residual and reference-difference images exist only for the five featured "
+                                "science targets, at 5' on the Months clock") from None
+        return cached_results.build_frames(ra,dec,fov,clock,det,cache=cache,view=view)
     cache = cache or Cache()
     fov_i = int(round(fov))
     found = _timed(budget, "search", search.search, ra, dec, cache=cache)

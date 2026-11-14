@@ -59,7 +59,7 @@ def build_analysis(ra, dec, det=6, *, n_slides=100, cache=None):
                     'Legacy cache is background/zodiacal-subtracted; coverage is limited to the cached field.',
                     'Legacy FLAGS mask differs from SkyShift; no FLAGS cube is retained. All candidates remain unvetted.',
                 ]) + [
-                    'Gaia/SkyBoT/CatWISE field vetoes have not been run. Known red sources can appear here.',
+                    'Gaia, known-object (MPC) and CatWISE vetoes have not been run. Known red sources can appear here.',
                     'Motion uses one detector and the native visit rule; parallax is not fitted.',
                     'p_false is an empirical search false-alarm estimate, not an object posterior probability.',
                     'The cold-source persistence radius is 2.5 native pixels; faster movers can be missed.'

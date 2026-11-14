@@ -29,7 +29,7 @@ def download(ra,dec,det,clock,format):
             labels=[f'D{det} visit {v}' for v in np.unique(groups[indices])]
         else:
             images=list(r['img'][indices]);labels=[f'D{det} MJD {m:.4f}' for m in r['mjd'][indices]]
-        if not images:raise ValueError('No frames for this detector')
+        if not images:raise NotFoundError('No frames for this detector')
         return render.gif(images,render.stretch_limits(np.array(images)),labels=labels,scale=3,ms=600),'image/gif','blink.gif'
     if format=='csv':
         out=io.StringIO();writer=csv.DictWriter(out,fieldnames=['mjd','det','um','visit','quality','flags']);writer.writeheader();writer.writerows(science_result(ra,dec)['frames'])
@@ -50,7 +50,8 @@ def download(ra,dec,det,clock,format):
                     c=SkyCoord(a,d,unit='deg');ra_s=c.ra.to_string(u.hour,sep=' ',precision=2,pad=True);de_s=c.dec.to_string(u.deg,sep=' ',precision=1,pad=True,alwayssign=True)
                     rows.append(f"     SPX{n:04d}  C{dt.year:04d} {dt.month:02d} {day:08.5f} {ra_s} {de_s}".ljust(77)+'XXX')
         return ('\n'.join(rows)+'\n').encode(),'text/plain','draft.ades.psv' if format=='ades' else 'draft.mpc80.txt'
-    raise ValueError('Unsupported export')
+    from .errors import bad_request
+    raise bad_request('Unsupported export')
 
 
 def static_download(ra,dec,det,clock,format):

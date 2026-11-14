@@ -605,6 +605,7 @@ def reference(ra: float, dec: float) -> JSONResponse:
     if os.environ.get('SKYSHIFT_ENABLE_SCIENCE_JOBS') != '1':
         raise NotFoundError('No published DR1 reference at this position. Choose a featured target.')
     try:return _json(fetch_reference(ra,dec),CACHE_NONE)
+    except ApiError:raise  # e.g. 404: no analysis cube at this position
     except Exception as error:raise UpstreamError(str(error)[:300]) from error
 
 
@@ -613,7 +614,8 @@ def enrichment(ra: float, dec: float, kind: str) -> JSONResponse:
     from .enrichment import enrich
     ra,dec=_check_pos(ra,dec)
     if kind not in ('relay','comovers','catwise','asteroids'):raise bad_request('unknown enrichment kind')
-    key=f"api/enrichment/{_key('enrichment',ra=ra,dec=dec,kind=kind)}.json"
+    # asteroids: MPC orbits, so a new known-object index gets new answers
+    key=f"api/enrichment/{_key('enrichment',ra=ra,dec=dec,kind=kind,**({'known':known_mod.INDEX_KEY} if kind=='asteroids' else {}))}.json"
     result=_cache_get_json(key)
     if result is None:
         try:result=enrich(ra,dec,kind)
@@ -634,7 +636,8 @@ def export(ra: float, dec: float, det: int = 2, clock: str = 'months', format: s
     return Response(body,media_type=mime,headers={'Content-Disposition':f'attachment; filename="{name}"'})
 
 
-# API routes must precede this catch-all. Build first: cd web && pnpm build.
+# Local single-process use only (scripts/run-local.sh): the site from web/dist after every API route.
+# The Cloud Run image has no web/dist (.dockerignore), so there Firebase Hosting serves the site.
 _dist = _repo_root() / 'web' / 'dist'
 if _dist.is_dir():
     from fastapi.staticfiles import StaticFiles
