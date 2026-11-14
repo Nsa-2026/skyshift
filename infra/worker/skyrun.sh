@@ -3,7 +3,8 @@
 #
 # Extraction (skipped when EXTRACT_WORKERS is 0), zones in the given order: photo list + Gaia-only refcat (the next zone
 # is prepared in the background while this one extracts), then `dots`. A zone that already has an `extracted` marker is
-# skipped; an `extract_failed` one is tried again. No new zone starts after SKYRUN_EXTRACT_UNTIL (UTC, default
+# skipped; an `extract_failed` one is tried again; a zone whose photo list can't be fetched (IRSA down) is put back and
+# retried in up to 3 later passes (after 2 misses in a row the loop waits 10 min). No new zone starts after SKYRUN_EXTRACT_UNTIL (UTC, default
 # 2026-11-15T05:00:00Z = 06:00 CET). Markers in gs://nasa-glazing-data/skyrun/<state>/<zone>.txt
 # ("machine UTC [detail] sha=<commit>"):
 #   extracting -> extracted | extract_failed
@@ -42,16 +43,28 @@ names() { gcloud storage ls "$1/$2/" 2>/dev/null | sed 's|.*/||; s|\.txt$||'; }
 # time limits: refcat/photolist queries have no HTTP timeout, and a hung prep would block the loop at `wait`
 prep() { timeout 900 uv run skyshift-pipeline photolist --zone "$1" && timeout 1200 uv run skyshift-pipeline refcat --zone "$1"; }
 
+has_photolist() { gcloud storage ls "gs://nasa-glazing-data/photolists/zones/$1.parquet" >/dev/null 2>&1; }
+
 extract() {
-  local i z n p done_ todo=()
+  local i z n p done_ todo=() deferred=() pass fails=0
   done_=$(names "$B" extracted)
   for z in "${Z[@]}"; do printf '%s\n' "$done_" | grep -qx "$z" || todo+=("$z"); done
   echo "SKYRUN extraction: ${#todo[@]} of ${#Z[@]} zones left"
+  for pass in 1 2 3 4; do
+  [ "$pass" -gt 1 ] && { [ "${#deferred[@]}" -eq 0 ] && break; todo=("${deferred[@]}"); deferred=();
+                         echo "SKYRUN retrying ${#todo[@]} deferred zones (pass $pass)"; }
   for i in "${!todo[@]}"; do
-    if [ "$(date -u +%s)" -ge "$UNTIL" ]; then echo "SKYRUN extraction stops: past ${SKYRUN_EXTRACT_UNTIL:-05:00Z}"; break; fi
+    if [ "$(date -u +%s)" -ge "$UNTIL" ]; then echo "SKYRUN extraction stops: past ${SKYRUN_EXTRACT_UNTIL:-05:00Z}"; break 2; fi
     z=${todo[$i]}; n=${todo[$((i+1))]:-}
     prep "$z" > "/tmp/prep_$z.log" 2>&1 || prep "$z" > "/tmp/prep_$z.log" 2>&1 \
       || { echo "SKYRUN prep failed $z"; tail -5 "/tmp/prep_$z.log"; }
+    # no photo list (IRSA down): don't fail the zone, put it back for a later pass; after 2 in a row wait 10 min
+    if ! has_photolist "$z"; then
+      echo "SKYRUN no photo list for $z (IRSA?): deferred"; deferred+=("$z"); fails=$((fails + 1))
+      [ "$fails" -ge 2 ] && sleep 600
+      continue
+    fi
+    fails=0
     p=""
     if [ -n "$n" ]; then ( prep "$n" > "/tmp/prep_$n.log" 2>&1 ) & p=$!; fi
     mark "$B" extracting "$z"
@@ -64,7 +77,8 @@ extract() {
     gcloud storage rm -q "$B/extracting/$z.txt" >/dev/null 2>&1 || true
     if [ -n "$p" ]; then wait "$p"; fi
   done
-  echo "SKYRUN extraction finished $(date -u +%H:%M)"
+  done
+  echo "SKYRUN extraction finished $(date -u +%H:%M) (${#deferred[@]} zones still without a photo list)"
 }
 
 # claim a zone for combining: creating combining/<zone>.txt only if it doesn't exist (atomic across machines)
