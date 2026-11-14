@@ -197,7 +197,11 @@ export function summarize(m: Measured): Summary {
     const known = by("known");
     if (known.length) parts.push(knownPhrase(known.length, known.map((t) => t.known_name)));
     const sus = by("suspect");
-    if (sus.length) parts.push(`${plural(sus.length, "suspect")} (${gradePhrase(sus.map((t) => grades.get(t.id) ?? null))})`);
+    if (sus.length) {
+      // Until the vetting grades a zone, every grade is null: then no parenthesis at all.
+      const g = sus.map((t) => grades.get(t.id) ?? null);
+      parts.push(g.some((x) => x) ? `${plural(sus.length, "suspect")} (${gradePhrase(g)})` : plural(sus.length, "suspect"));
+    }
     const art = by("artifact");
     if (art.length) parts.push(plural(art.length, "artefact"));
     const mov = by("mover");
