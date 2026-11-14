@@ -59,13 +59,19 @@ def job(r: dict) -> tuple[str, Path]:
     return u, C._cache_path(u, tag=f"a{int(r['number']):03d}_")
 
 
-def cmd_fetch() -> None:
+def cmd_fetch(source: str = "irsa", only: list[int] | None = None, dets: set[int] | None = None) -> None:
+    """source "irsa": IRSA cutout service (8 in flight); "s3": range reads of the public S3 copy
+    (8 in flight), same cache files. dets: detectors to fetch (the fit uses >= 2.2 um: D3-D6)."""
     most = load_most()
-    jobs = [job(r) for n in CHOSEN for r in most[n]]
-    print(f"{len(jobs)} cutouts for {len(CHOSEN)} asteroids")
-    res = C.fetch_many(jobs)
+    rows = [r for n in (only or CHOSEN) for r in most[n] if dets is None or int(r["detector"]) in dets]
+    print(f"{len(rows)} cutouts ({source})", flush=True)
+    if source == "s3":
+        jobs = [(r["s3_key"], float(r["ra_obj"]), float(r["dec_obj"]), 11, job(r)[1]) for r in rows]
+        res = C.fetch_many_s3(jobs)
+    else:
+        res = C.fetch_many([job(r) for r in rows])
     bad = [u for u, v in res.items() if isinstance(v, Exception)]
-    print(f"done: {len(res) - len(bad)} ok, {len(bad)} failed")
+    print(f"done: {len(res) - len(bad)} ok, {len(bad)} failed", flush=True)
     for u in bad[:10]:
         print("  failed:", u, res[u])
 
@@ -156,46 +162,69 @@ def sbdb_physical(n: int) -> dict:
 # --- fit --------------------------------------------------------------------------------------
 
 def model_parts(theta: np.ndarray, um: np.ndarray, r: np.ndarray, dl: np.ndarray, al: np.ndarray,
-                H: float, G: float, eta_fixed: float | None) -> tuple[np.ndarray, np.ndarray, float, float]:
-    """(reflected, thermal, D, eta). theta = [a, b, lnD] (+ eta if free).
+                H: float, G: float, eta_fixed: float | None, vidx: np.ndarray
+                ) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
+    """(reflected, thermal, D, eta per point). theta = [a, b, lnD] (+ one eta per visit group if free).
 
     Reflected: geometric albedo at lambda p(lambda) = pv * R(lambda), R linear in lambda
     (R(3 um) = a, slope b per um). pv * D^2 is fixed by H, so the reflected light does not depend on D.
+    Thermal: NEATM with one eta per visit (vidx = group index of each point): SPHEREx sees an
+    asteroid near quadrature, the morning side in one visit and the warmer afternoon side six months
+    later, which NEATM can only absorb into eta.
     """
-    a, b, lnD = theta[:3]
-    eta = theta[3] if eta_fixed is None else eta_fixed
-    D = float(np.exp(lnD))
-    pv = float(M.pv_from_d(H, D))
+    a, b = theta[:2]
+    if eta_fixed is None:  # one D, one eta per visit group
+        lnD = np.full(um.shape, theta[2])
+        eta = np.asarray(theta[3:])[vidx]
+    else:  # eta fixed, one D per visit group (morning / afternoon side), combined afterwards
+        lnD = np.asarray(theta[2:])[vidx]
+        eta = np.full(um.shape, float(eta_fixed))
     D_h1 = float(M.diameter_from_h(H, 1.0))  # D for pv = 1: p(lambda) D^2 = R(lambda) D_h1^2
     R = a + b * (um - 3.0)
     refl = M.reflected_ujy(um, D_h1, R, r, dl, al, G)
-    th = M.neatm_ujy(um, D, pv, eta, r, dl, al, G)
-    return refl, th, D, eta
+    th = np.zeros(um.shape)
+    for key in set(zip(lnD.tolist(), eta.tolist())):
+        k = (lnD == key[0]) & (eta == key[1])
+        D = float(np.exp(key[0]))
+        th[k] = M.neatm_ujy(um[k], D, float(M.pv_from_d(H, D)), key[1], r[k], dl[k], al[k], G)
+    return refl, th, np.exp(lnD), eta
 
 
 def fit_one(pts: list[dict], geom: dict, eta_fixed: float | None) -> dict:
+    from skyshift_core import visits as core_visits
+
     um = np.array([p["um"] for p in pts])
     f = np.array([p["flux"] for p in pts])
     e = np.array([p["err"] for p in pts])
+    mjd = np.array([p["mjd"] for p in pts])
     r, dl, al = (np.asarray(geom[k]) for k in ("r", "delta", "alpha"))
     H, G = geom["H"], geom["G"]
     sel = (um >= FIT_WINDOW[0]) & (um <= FIT_WINDOW[1]) & ~((um > HYDRATION[0]) & (um < HYDRATION[1]))
     sel &= (f > 0) & (e > 0)
     et = np.hypot(e, ERR_FLOOR * np.abs(f))
-    # start: D from H with pv = 0.1
-    th0 = [0.12, 0.0, np.log(float(M.diameter_from_h(H, 0.1)))] + ([1.0] if eta_fixed is None else [])
-    lo = [0.0, -1.0, np.log(1.0)] + ([0.4] if eta_fixed is None else [])
-    hi = [2.0, 1.0, np.log(2000.0)] + ([3.5] if eta_fixed is None else [])
+    # visit groups: visits with >= 15 thermal-range points (> 3.8 um) get their own eta (or D)
+    vis = core_visits(mjd)
+    groups = [v for v in np.unique(vis) if ((vis == v) & sel & (um > 3.8)).sum() >= 15]
+    if not groups:
+        groups = [int(np.unique(vis)[0])]
+    gmid = np.array([np.median(mjd[vis == v]) for v in groups])
+    vidx = np.array([int(np.argmin(np.abs(gmid - np.median(mjd[vis == v])))) for v in vis])
+    ng = len(groups)
+    lnD0 = np.log(float(M.diameter_from_h(H, 0.1)))  # start: D from H with pv = 0.1
+    if eta_fixed is None:
+        th0, lo, hi = [1.5, 0.0, lnD0] + [1.0] * ng, [0.0, -3.0, 0.0] + [0.4] * ng, [10.0, 3.0, 7.6] + [3.5] * ng
+    else:
+        th0, lo, hi = [1.5, 0.0] + [lnD0] * ng, [0.0, -3.0] + [0.0] * ng, [10.0, 3.0] + [7.6] * ng
     use = sel.copy()
     res = None
     for _ in range(5):
         def resid(t):
-            rf, tm, *_ = model_parts(t, um[use], r[use], dl[use], al[use], H, G, eta_fixed)
+            rf, tm, *_ = model_parts(t, um[use], r[use], dl[use], al[use], H, G, eta_fixed, vidx[use])
             return (f[use] - rf - tm) / et[use]
 
         res = least_squares(resid, th0, bounds=(lo, hi), x_scale="jac")
         th0 = res.x
-        rf, tm, *_ = model_parts(res.x, um, r, dl, al, H, G, eta_fixed)
+        rf, tm, *_ = model_parts(res.x, um, r, dl, al, H, G, eta_fixed, vidx)
         z = (f - rf - tm) / et
         mad = 1.4826 * np.median(np.abs(z[use] - np.median(z[use])))
         new = sel & (np.abs(z) < max(4.0 * mad, 4.0))
@@ -210,12 +239,23 @@ def fit_one(pts: list[dict], geom: dict, eta_fixed: float | None) -> dict:
         sig = np.sqrt(np.diag(cov))
     except np.linalg.LinAlgError:
         sig = np.full(len(res.x), np.nan)
-    rf, tm, D, eta = model_parts(res.x, um, r, dl, al, H, G, eta_fixed)
+    rf, tm, D_pt, eta_pt = model_parts(res.x, um, r, dl, al, H, G, eta_fixed, vidx)
+    if eta_fixed is None:
+        lnDs, lnD_errs = np.array([res.x[2]]), np.array([sig[2]])
+    else:
+        lnDs, lnD_errs = np.asarray(res.x[2:]), np.asarray(sig[2:])
+    # combined D: mean ln D over visit groups; error: statistical (+) half the spread of the groups
+    lnD = float(np.mean(lnDs))
+    lnD_err = float(np.hypot(np.sqrt(np.sum(lnD_errs**2)) / len(lnDs), (lnDs.max() - lnDs.min()) / 2))
+    D = float(np.exp(lnD))
     pv = float(M.pv_from_d(H, D))
     out = {
-        "D_km": D, "D_err_km": float(D * sig[2]), "pv": pv, "pv_err": float(2 * pv * sig[2]),
-        "eta": float(eta), "eta_err": float(sig[3]) if eta_fixed is None else None, "eta_fixed": eta_fixed is not None,
-        "R3um": float(res.x[0]), "R_slope_per_um": float(res.x[1]),
+        "D_km": D, "D_err_km": float(D * lnD_err), "pv": pv, "pv_err": float(2 * pv * lnD_err),
+        "D_per_visit_km": [round(float(np.exp(x)), 1) for x in lnDs] if eta_fixed is not None else None,
+        "visit_mid_mjd": [round(float(x), 2) for x in gmid],
+        "eta": [float(x) for x in res.x[3:]] if eta_fixed is None else [float(eta_fixed)],
+        "eta_err": [float(x) for x in sig[3:]] if eta_fixed is None else None, "eta_fixed": eta_fixed is not None,
+        "R3um": float(res.x[0]), "R_slope_per_um": float(res.x[1]),  # p(lambda)/pv = R3um + slope (um - 3)
         "n_fit": int(use.sum()), "n_clipped": int(sel.sum() - use.sum()), "chi2_red": chi2r,
         "thermal_frac_4p7um": None,
     }
@@ -258,8 +298,10 @@ def cmd_fit() -> None:
         g = geo_cache[key]
         free = fit_one(pts, g, None)
         fixed = fit_one(pts, g, ETA_FIXED)
-        eta_ok = (free["eta_err"] is not None and np.isfinite(free["eta_err"]) and free["eta_err"] < 0.3
-                  and 0.5 < free["eta"] < 2.5)
+        # rule (set before the comparison, both fits are kept): adopt the free fit when every visit's eta
+        # is constrained (sigma < 0.15) and away from the bounds (0.6-2.0); else eta fixed at 1.0
+        eta_ok = (all(np.isfinite(x) and x < 0.15 for x in free["eta_err"])
+                  and all(0.6 < x < 2.0 for x in free["eta"]))
         best = free if eta_ok else fixed
         rf, tm, use = best.pop("_model")
         for x in (free, fixed):
@@ -279,7 +321,7 @@ def cmd_fit() -> None:
             "geometry_vs_most_max_diff": {"r_au": round(dr, 4), "delta_au": round(dd, 4), "alpha_deg": round(da, 3)},
             "fit": "eta_free" if eta_ok else "eta_fixed_1.0",
             "D_km": best["D_km"], "D_err_km": best["D_err_km"], "pv": best["pv"], "pv_err": best["pv_err"],
-            "eta": best["eta"], "eta_err": best["eta_err"],
+            "eta": best["eta"], "eta_err": best["eta_err"], "band_3um": best["band_3um"],
             "fit_eta_free": free, "fit_eta_fixed": fixed,
             "published": pub,
             "ratio_D": best["D_km"] / pub["D_km"] if pub.get("D_km") else None,
@@ -292,11 +334,17 @@ def cmd_fit() -> None:
         }
         results.append(res)
         print(f"{d['name']:26s} D={best['D_km']:7.1f}±{best['D_err_km']:5.1f} km (pub {pub.get('D_km')}) "
-              f"pv={best['pv']:.3f}±{best['pv_err']:.3f} (pub {pub.get('pv')}) eta={best['eta']:.2f} "
-              f"[{res['fit']}; free eta={free['eta']:.2f}±{free['eta_err']:.2f}] n={best['n_fit']} "
+              f"pv={best['pv']:.3f}±{best['pv_err']:.3f} (pub {pub.get('pv')}) eta={np.round(best['eta'], 2).tolist()} "
+              f"[{res['fit']}; free eta={np.round(free['eta'], 2).tolist()}±{np.round(free['eta_err'], 2).tolist()}] n={best['n_fit']} "
               f"chi2r={best['chi2_red']:.1f} 3um={best['band_3um'] and round(best['band_3um']['depth'], 3)}", flush=True)
     rD = np.array([x["ratio_D"] for x in results if x["ratio_D"]])
     rp = np.array([x["ratio_pv"] for x in results if x["ratio_pv"]])
+    pubD = {x["number"]: x["published"].get("D_km") for x in results}
+    pubp = {x["number"]: x["published"].get("pv") for x in results}
+    rD_fixed = np.array([x["fit_eta_fixed"]["D_km"] / pubD[x["number"]] for x in results if pubD[x["number"]]])
+    rD_free = np.array([x["fit_eta_free"]["D_km"] / pubD[x["number"]] for x in results if pubD[x["number"]]])
+    rp_fixed = np.array([x["fit_eta_fixed"]["pv"] / pubp[x["number"]] for x in results if pubp[x["number"]]])
+    rp_free = np.array([x["fit_eta_free"]["pv"] / pubp[x["number"]] for x in results if pubp[x["number"]]])
 
     def stats(a: np.ndarray) -> dict:
         if not len(a):
@@ -306,7 +354,30 @@ def cmd_fit() -> None:
                 "scatter_mad": float(1.4826 * np.median(np.abs(a - q50))),
                 "rms_log10": float(np.sqrt(np.mean(np.log10(a) ** 2)))}
 
-    summary = {"ratio_D": stats(rD), "ratio_pv": stats(rp)}
+    # 3 um band relative to the S- and M-type asteroids (anhydrous control): every asteroid shows a
+    # ~0.1 apparent depth at 2.9-3.2 um, so the absolute depth carries a shared systematic (solar
+    # model, D4 calibration or the linear reflectance continuum).
+    def tax(x: dict) -> str:
+        return str(x["published"].get("spec_B") or x["published"].get("spec_T") or "")
+
+    ctrl = [x["band_3um"] for x in results if x.get("band_3um") and tax(x)[:1] in ("S", "M", "X", "L", "K")]
+    if ctrl:
+        w = np.array([1 / c["depth_err"] ** 2 for c in ctrl])
+        cdep = float(np.sum(w * np.array([c["depth"] for c in ctrl])) / np.sum(w))
+        cerr = float(max(np.sqrt(1 / np.sum(w)), np.std([c["depth"] for c in ctrl]) / np.sqrt(len(ctrl))))
+        for x in results:
+            b = x.get("band_3um")
+            if b:
+                b["depth_vs_SM_control"] = b["depth"] - cdep
+                b["err_vs_SM_control"] = float(np.hypot(b["depth_err"], cerr))
+                b["snr_vs_SM_control"] = b["depth_vs_SM_control"] / b["err_vs_SM_control"]
+                print(f"  3 um {x['name']:26s} {tax(x):4s} depth {b['depth']:.3f}±{b['depth_err']:.3f}  "
+                      f"vs S/M control {b['depth_vs_SM_control']:+.3f} ({b['snr_vs_SM_control']:+.1f} sigma)")
+    summary_3um = {"control_types": "S, M, X, L, K (SBDB spec_B, else spec_T)", "n_control": len(ctrl),
+                   "control_depth": cdep if ctrl else None, "control_err": cerr if ctrl else None}
+    summary = {"band_3um_control": summary_3um, "ratio_D": stats(rD), "ratio_pv": stats(rp),
+               "ratio_D_eta_fixed_all": stats(rD_fixed), "ratio_pv_eta_fixed_all": stats(rp_fixed),
+               "ratio_D_eta_free_all": stats(rD_free), "ratio_pv_eta_free_all": stats(rp_free)}
     print("D ours/published:", summary["ratio_D"])
     print("pv ours/published:", summary["ratio_pv"])
     out = {
@@ -324,9 +395,13 @@ def cmd_fit() -> None:
                      "lambda. NEATM: emissivity 0.9, Bond albedo q pv with q = 0.290 + 0.684 G. Fit over "
                      f"{FIT_WINDOW[0]}-{FIT_WINDOW[1]} um excluding {HYDRATION[0]}-{HYDRATION[1]} um; error floor "
                      f"{ERR_FLOOR:.0%} for rotation and calibration; 4-sigma clipping (blends, cosmic rays).",
-            "eta": "fitted when it is constrained (sigma < 0.3, 0.5-2.5), else fixed at 1.0, close to the "
-                   "NEOWISE/IRAS/AKARI average for large main-belt asteroids (0.8-1.0) and the NEATM default "
-                   "for slow rotators.",
+            "eta": "adopted: the free fit (one D, one eta per visit) when every eta has sigma < 0.15 and lies "
+                   "in 0.6-2.0; otherwise eta fixed at 1.0 (close to the NEOWISE/IRAS/AKARI average of 0.8-1.0 for large "
+                   "main-belt asteroids) with one D per visit, combined as the mean of ln D; the error adds half "
+                   "the visit-to-visit spread. SPHEREx sees an asteroid near quadrature: the morning side in one "
+                   "visit and the warmer afternoon side six months later, which NEATM cannot model. The 3.8-5 um "
+                   "data sit on the Wien tail, where D and eta are degenerate, so the free eta often runs to its bounds. "
+                   "Both fits are kept (fit_eta_free, fit_eta_fixed) and summarised separately.",
             "published": "JPL SBDB phys_par (the adopted IRAS, NEOWISE or AKARI value; see D_ref/pv_ref).",
             "band_3um": f"1 - (observed / continuum model) averaged over {BAND_3UM[0]}-{BAND_3UM[1]} um.",
         },
@@ -342,7 +417,11 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore")
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     if cmd in ("fetch", "all"):
-        cmd_fetch()
+        args = sys.argv[2:]
+        src = args[0] if args else "irsa"
+        only = [int(x) for x in args[1].split(",")] if len(args) > 1 and args[1] != "-" else None
+        dets = {int(x) for x in args[2].split(",")} if len(args) > 2 else None
+        cmd_fetch(src, only, dets)
     if cmd in ("measure", "all"):
         cmd_measure()
     if cmd in ("fit", "all"):

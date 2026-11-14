@@ -198,3 +198,73 @@ def check_wave_tables(paths: list[Path]) -> bool:
         with fits.open(p) as h:
             vals.append(np.asarray(h["WCS-WAVE"].data["VALUES"][0]))
     return all(np.array_equal(vals[0], v) for v in vals[1:])
+
+
+# --- S3 region reads (same cache format, no IRSA server work) --------------------------------
+
+S3_HTTPS = "https://nasa-irsa-spherex.s3.amazonaws.com/"
+_S3_FSSPEC = {"block_size": 64 * 1024, "cache_type": "readahead"}
+
+
+def fetch_s3_region(s3_key: str, ra: float, dec: float, half_px: int, path: Path, retries: int = 3) -> Path:
+    """Read a (2 half_px + 1)^2 box around (ra, dec) from the public S3 copy with HTTP range reads
+    and write it as a cutout-style FITS (PRIMARY, IMAGE, FLAGS, VARIANCE), CRPIX1/2 and CRPIX1W/2W
+    shifted like IRSA's cutout service does. ~0.5 MB transferred per 23 x 23 box."""
+    if path.exists() and path.stat().st_size > 0:
+        return path
+    from astropy.wcs import WCS
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            with fits.open(S3_HTTPS + s3_key, use_fsspec=True, fsspec_kwargs=_S3_FSSPEC,
+                           lazy_load_hdus=True, memmap=False) as h:
+                hdr = h["IMAGE"].header.copy()
+                import warnings as _w
+
+                with _w.catch_warnings():
+                    _w.simplefilter("ignore")
+                    w = WCS(hdr).celestial
+                x, y = w.all_world2pix(ra, dec, 0)
+                xc, yc = int(round(float(x))), int(round(float(y)))
+                ny, nx = int(hdr["NAXIS2"]), int(hdr["NAXIS1"])
+                x0, x1 = max(xc - half_px, 0), min(xc + half_px + 1, nx)
+                y0, y1 = max(yc - half_px, 0), min(yc + half_px + 1, ny)
+                if x1 <= x0 or y1 <= y0:
+                    raise ValueError("position off the image")
+                img = np.asarray(h["IMAGE"].section[y0:y1, x0:x1])
+                flg = np.asarray(h["FLAGS"].section[y0:y1, x0:x1]).astype(np.int32)
+                var = np.asarray(h["VARIANCE"].section[y0:y1, x0:x1])
+            for k, d in (("CRPIX1", x0), ("CRPIX2", y0), ("CRPIX1W", x0), ("CRPIX2W", y0)):
+                if k in hdr:
+                    hdr[k] = float(hdr[k]) - d
+            hdr["CUTX0"], hdr["CUTY0"] = x0, y0
+            out = fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(img, header=hdr, name="IMAGE"),
+                                fits.ImageHDU(flg, name="FLAGS"), fits.ImageHDU(var, name="VARIANCE")])
+            tmp = path.with_suffix(".part")
+            out.writeto(tmp, overwrite=True)
+            tmp.replace(path)
+            return path
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(2.0 * (attempt + 1))
+    raise RuntimeError(f"S3 region failed: {s3_key}: {last}")
+
+
+def fetch_many_s3(jobs: list[tuple[str, float, float, int, Path]], workers: int = 8, log_every: int = 100
+                  ) -> dict[Path, Path | Exception]:
+    out: dict[Path, Path | Exception] = {}
+    todo = [j for j in jobs if not (j[4].exists() and j[4].stat().st_size > 0)]
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(fetch_s3_region, *j): j[4] for j in todo}
+        for i, f in enumerate(as_completed(futs), 1):
+            p = futs[f]
+            try:
+                out[p] = f.result()
+            except Exception as e:  # noqa: BLE001
+                out[p] = e
+            if log_every and i % log_every == 0:
+                print(f"  s3 {i}/{len(todo)} ({time.time() - t0:.0f} s)", flush=True)
+    return out

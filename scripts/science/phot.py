@@ -53,12 +53,15 @@ def robust_background(data: np.ndarray, mask: np.ndarray, x: float, y: float, r_
 
 def measure(l2: Level2, ra: float, dec: float, *, radii: tuple[float, ...] = (2.0,),
             annulus: tuple[float, float] = (4.0, 9.0), recentre: bool = True, max_offset_px: float = 1.5,
-            mask_r: float = 2.0) -> Point:
+            mask_r: float = 2.0, fill_masked: bool = False) -> Point:
     """Photometry of a (moving) source predicted at ra, dec.
 
     recentre: centroid within 2 px of the prediction (dropped if > max_offset_px away); else forced
     at the prediction. A point is rejected when a mask bit falls within `mask_r` px (masked pixels
     would be left out of the sum) or the core is saturated.
+    fill_masked: for an extended coma, masked pixels beyond mask_r (inside the largest aperture) take
+    the median of the unmasked pixels at the same distance (+-0.5 px), so large apertures are not
+    biased low by the ~2 % masked pixels.
     """
     px, py = sky_to_pixel(l2.wcs, ra, dec)
     px, py = float(np.atleast_1d(px)[0]), float(np.atleast_1d(py)[0])
@@ -89,11 +92,25 @@ def measure(l2: Level2, ra: float, dec: float, *, radii: tuple[float, ...] = (2.
     if not np.isfinite(bkg):
         return Point(False, f"background: {nb} px", x=x, y=y, offset_px=off)
     sub = l2.data.astype(np.float64) - bkg
+    use_flags = l2.flags
+    var = l2.variance
+    if fill_masked:
+        rr = np.hypot(xx - x, yy - y)
+        holes = m & (rr <= max(radii) + 1)
+        sub = sub.copy()
+        var = None if var is None else var.astype(np.float64).copy()
+        for iy, ix in zip(*np.nonzero(holes)):
+            ring = (~m) & (np.abs(rr - rr[iy, ix]) <= 0.5)
+            if ring.sum() >= 3:
+                sub[iy, ix] = np.median(sub[ring])
+                if var is not None:
+                    var[iy, ix] = np.median(var[ring])
+        use_flags = np.where(holes, 0, l2.flags)
     pt = Point(True, "", x=x, y=y, offset_px=off, bkg_mjysr=bkg, saturated=sat, record_flags=rec)
     pt.um = float(l2.wavelength(x, y))
     pt.bw_um = float(l2.wave.bandwidth(x, y)) if l2.wave is not None else np.nan
     for r in radii:
-        ph = aperture_photometry(sub, x, y, l2.wcs, r=r, flags=l2.flags, variance=l2.variance, bkg_annulus=None)
+        ph = aperture_photometry(sub, x, y, l2.wcs, r=r, flags=use_flags, variance=var, bkg_annulus=None)
         pt.flux[r] = float(ph.flux_ujy[0])
         pt.err[r] = float(ph.err_ujy[0])
     return pt

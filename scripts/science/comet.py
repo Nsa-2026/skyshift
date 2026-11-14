@@ -57,11 +57,15 @@ def job(r: dict) -> tuple[str, Path]:
     return u, C._cache_path(u, tag="c3i_")
 
 
-def cmd_fetch() -> None:
+def cmd_fetch(source: str = "s3") -> None:
+    """source "s3": range reads of the public S3 copy (35 x 35 px box); "irsa": IRSA cutout service."""
     rows = load_list()
-    jobs = [job(r) for r in rows]
-    print(f"{len(jobs)} comet cutouts")
-    res = C.fetch_many(jobs, log_every=50)
+    print(f"{len(rows)} comet cutouts ({source})", flush=True)
+    if source == "s3":
+        jobs = [(r["s3_key"], float(r["obj_ra"]), float(r["obj_dec"]), 17, job(r)[1]) for r in rows if r["s3_key"]]
+        res = C.fetch_many_s3(jobs, log_every=50)
+    else:
+        res = C.fetch_many([job(r) for r in rows], log_every=50)
     bad = [u for u, v in res.items() if isinstance(v, Exception)]
     print(f"done: {len(res) - len(bad)} ok, {len(bad)} failed")
     for u in bad[:10]:
@@ -78,10 +82,11 @@ def cmd_measure() -> None:
             continue
         l2 = C.open_cutout(p)
         ra, dec = float(r["obj_ra"]), float(r["obj_dec"])
-        pt = measure(l2, ra, dec, radii=RADII, annulus=ANNULUS, recentre=True, max_offset_px=2.0, mask_r=2.0)
+        pt = measure(l2, ra, dec, radii=RADII, annulus=ANNULUS, recentre=True, max_offset_px=2.0, mask_r=2.0,
+                     fill_masked=True)
         forced = False
         if not pt.ok and pt.why.startswith(("no centroid", "centroid")):
-            pt = measure(l2, ra, dec, radii=RADII, annulus=ANNULUS, recentre=False, mask_r=2.0)
+            pt = measure(l2, ra, dec, radii=RADII, annulus=ANNULUS, recentre=False, mask_r=2.0, fill_masked=True)
             forced = True
         if not pt.ok:
             why[pt.why] += 1
@@ -203,7 +208,7 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore")
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     if cmd in ("fetch", "all"):
-        cmd_fetch()
+        cmd_fetch(sys.argv[2] if len(sys.argv) > 2 else "s3")
     if cmd in ("measure", "all"):
         cmd_measure()
     if cmd in ("fit", "all"):
