@@ -85,7 +85,7 @@ describe("every real object.json", () => {
     const heroRef = el.querySelector(".cd-hero .cd-ref a");
     expect(heroRef?.textContent).toBe("1");
     const satNote = el.querySelector(heroRef!.getAttribute("href")!);
-    expect(satNote?.textContent).toMatch(/saturated in D1, D3, D5 and D6/);
+    expect(satNote?.textContent).toMatch(/saturated in every detector \(353 of 353 spectrum points\)/);
     expect(satNote?.textContent).toMatch(/measured on the wings/);
     const distRef = el.querySelector(".cd-dl .cd-ref a");
     expect(distRef?.textContent).toBe("2");
@@ -94,14 +94,14 @@ describe("every real object.json", () => {
   });
 
   it("does not claim wing measurement when only a few points saturate", () => {
-    const el = cardFor("epsindib");
+    const el = cardFor("epsindib"); // 2 of 416 points saturate, in D5 and D6
     expect(el.querySelector(".cd-hero .cd-ref")).toBeNull();
     const capRef = el.querySelector(".cd-spec .cd-cap .cd-ref a");
     expect(capRef?.textContent).toBe("2"); // after the distance mark
     const note = el.querySelector(capRef!.getAttribute("href")!);
-    expect(note?.textContent).toMatch(/2 of 453/);
+    expect(note?.textContent).toMatch(/saturated in D5 and D6 \(2 of 416 spectrum points\)\./);
     expect(note?.textContent).not.toMatch(/wings/);
-    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 4 \(1\.42 years\)/);
+    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 4 \(1\.41 years\)/);
   });
 
   it("follows a footnote mark without touching the URL hash", () => {
@@ -122,17 +122,26 @@ describe("every real object.json", () => {
     expect(cardFor("rdra", months("rdra")).querySelector(".cd-says")?.textContent).toMatch(/^between the first and last visits \(1 year\)/);
   });
 
-  it("says R Draconis stays put and has no spectrum yet", () => {
+  it("says R Draconis stays put, with a spectrum read from the wings", () => {
     const el = cardFor("rdra");
     expect(el.querySelector(".cd-hero")?.getAttribute("data-seen")).toBe("false");
     expect(el.querySelector(".cd-arrow")).toBeNull();
     expect(el.querySelector(".cd-says")?.textContent).toMatch(/so it stays put/);
-    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/^No spectrum: it is so bright/); // spectrum_reason "saturated"
+    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/^500 points from 0\.74 to 5\.00 µm/);
+    // Every point saturates, yet each is drawn as a (hollow) detection, not as an upper limit.
+    expect(el.querySelectorAll(".cd-spec circle[fill='var(--glass)']").length).toBeGreaterThan(50);
+    expect(el.textContent).not.toMatch(/Upper limit, below 2σ/);
+  });
+
+  it("says why a spectrum is missing when every exposure saturated", () => {
+    const el = document.createElement("section");
+    mountCard(el).show(spot, { ...load("rdra"), spectrum: [], spectrum_reason: "saturated" } as ObjectResponse, null);
+    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/^No spectrum: it is so bright/);
   });
 
   it("says plainly when a spectrum is missing for no known reason", () => {
     const el = document.createElement("section");
-    mountCard(el).show(spot, { ...load("rdra"), spectrum_reason: null } as ObjectResponse, null);
+    mountCard(el).show(spot, { ...load("rdra"), spectrum: [], spectrum_reason: null } as ObjectResponse, null);
     expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/^No spectrum measured here yet\./);
   });
 
@@ -223,8 +232,8 @@ describe("charts", () => {
   const rw = load("rwaur");
   it("keeps the log domain around the data", () => {
     const d = spectrumDomain(rw.spectrum);
-    expect(d.min).toBeLessThanOrEqual(31604.8);
-    expect(d.max).toBeGreaterThanOrEqual(1449474);
+    expect(d.min).toBeLessThanOrEqual(40229.3); // lowest flux − 1σ
+    expect(d.max).toBeGreaterThanOrEqual(10206334.4); // highest flux + 1σ
   });
   it("draws one point per spectrum point inside the plot", () => {
     for (const width of [343, 420]) {

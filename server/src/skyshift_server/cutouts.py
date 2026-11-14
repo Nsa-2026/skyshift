@@ -37,12 +37,14 @@ small header reads), read one row of the region every <= 48 rows (a few kB), smo
 pixels and spline between the rows. Cached per image and region.
 
 Sizes come in tiers so different fields share cached cutouts; a larger cached cutout at the same
-centre is used before a smaller one is downloaded. At most 8 requests are in flight.
+centre is used before a smaller one is downloaded. At most MAX_IN_FLIGHT cutouts per build are in
+flight, and IO_THREADS range requests per instance.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import random
@@ -50,8 +52,9 @@ import tempfile
 import warnings
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 import numpy as np
 import requests
@@ -59,6 +62,7 @@ from astropy.io import fits
 from astropy.wcs import WCS, FITSFixedWarning
 from skyshift_core import Level2, level2, open_level2
 
+from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import UpstreamError
 from .search import Image, pos_key
@@ -66,11 +70,13 @@ from .search import Image, pos_key
 log = logging.getLogger(__name__)
 
 BLOCK = 2880
-MAX_IN_FLIGHT = 8
+MAX_IN_FLIGHT = 12  # cutouts in flight per build (each a few range requests; network-bound)
 SIZE_TIERS_DEG = (0.12, 0.36, 0.48, 1.45)  # covers the diagonal of 5', 15', 20' and 60' fields
 VARIANCE_UP_TO_DEG = 0.12  # small cutouts always carry VARIANCE (the spectrum's error bars)
 S3_BLOCK = 64 * 1024  # fsspec read-ahead for S3 region reads
-TIMEOUT_S = (10, 60)
+TIMEOUT_S = (10, 30)  # connect, read (between bytes)
+FAST_S3 = os.environ.get("SKYSHIFT_FAST_S3", "1") != "0"  # direct range reads (below); 0: core's reader
+IO_THREADS = 48  # range requests in flight per instance (all builds together)
 TRIES = 7  # patient mode (IRSA only)
 NATIVE_ARCSEC = 6.15
 FULL_FRAME = 2040
@@ -79,8 +85,10 @@ BREAKER_SECONDS = 60.0
 
 
 def pixels_mode() -> str:
+    """auto: IRSA first, S3 when IRSA is busy. s3first: S3 first, IRSA for images without an S3
+    copy or when S3 fails. irsa / s3: only that one."""
     m = os.environ.get("SKYSHIFT_PIXELS", "auto").lower()
-    return m if m in ("auto", "irsa", "s3") else "auto"
+    return m if m in ("auto", "s3first", "irsa", "s3") else "auto"
 
 
 class Busy(UpstreamError):
@@ -106,10 +114,9 @@ class _Breaker:
 
 _irsa = _Breaker()
 
-_pool = ThreadPoolExecutor(MAX_IN_FLIGHT, thread_name_prefix="cutout")
+_io = ThreadPoolExecutor(IO_THREADS, thread_name_prefix="s3io")  # leaf range reads only, never waits on itself
 _wave_lock = threading.Lock()
 _wave_mem: dict[int, bytes] = {}
-_local = threading.local()
 
 
 @dataclass
@@ -151,12 +158,24 @@ def cache_key(im: Image, ra: float, dec: float, size_deg: float) -> str:
     return f"cutouts/{im.key}/{pos_key(ra, dec)}_{size_deg:g}.fits"
 
 
+_shared_session: requests.Session | None = None
+_session_lock = threading.Lock()
+
+
 def _session() -> requests.Session:
-    s = getattr(_local, "s", None)
-    if s is None:
-        s = _local.s = requests.Session()
-        s.headers["User-Agent"] = "SkyShift/0.1"
-    return s
+    """One session for every thread (requests pools connections per host; cutout threads come
+    and go with each build, so per-thread sessions would open a new TLS connection every time)."""
+    global _shared_session
+    if _shared_session is None:
+        with _session_lock:
+            if _shared_session is None:
+                s = requests.Session()
+                s.headers["User-Agent"] = "SkyShift/0.1"
+                ad = requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=IO_THREADS + 32)
+                s.mount("https://", ad)
+                s.mount("http://", ad)
+                _shared_session = s
+    return _shared_session
 
 
 # --- FITS stream ----------------------------------------------------------------------------
@@ -315,12 +334,176 @@ def compact_fits(l2: Level2, wave: bytes) -> bytes:
     return to_fits_bytes(fits.HDUList(hdus)) + wave
 
 
+# --- S3: direct range reads of the region -------------------------------------------------------
+#
+# core.open_level2(url, region=) reads through astropy's .section, which asks for the region ROW BY
+# ROW (one small read per row: about 35 sequential range requests for IMAGE alone at 0.48 deg with
+# a 64 kB read-ahead, as many again for VARIANCE, more for FLAGS). Measured 14 Nov from a laptop:
+# 47 s per 0.48 deg cutout, 5 s per 0.12 deg one. Here each HDU's rows y0..y1 come in ONE range
+# request (the rows are contiguous in the file), all HDUs in parallel, and the RICE_1 row tiles of
+# FLAGS are decoded with astropy's own codec. Where each HDU starts is walked once per file from
+# its headers and cached. Anything unexpected (other compression, scaled data) falls back to
+# core.open_level2.
+
+
+@dataclass
+class Layout:
+    """Where the HDUs of one S3 Level 2 file start (bytes). Headers are kept as raw text."""
+
+    image_header: str
+    image: int  # first byte of the IMAGE pixels
+    flags_header: str
+    flags: int  # first byte of the FLAGS binary table (tile descriptors; the heap follows)
+    variance: int | None  # first byte of the VARIANCE pixels
+    zodi: int | None  # first byte of the ZODI pixels
+    nx: int
+    ny: int
+
+    def to_json(self) -> bytes:
+        return json.dumps(self.__dict__).encode()
+
+    @classmethod
+    def from_json(cls, raw: bytes) -> "Layout":
+        return cls(**json.loads(raw))
+
+
+_layout_mem: dict[str, Layout] = {}
+_LAYOUT_MEM_MAX = 4000
+
+
+def _end_of_header(raw: bytes, start: int) -> int | None:
+    """Byte just after the END block of the header that starts at raw[start], or None."""
+    for i in range(start, len(raw) - BLOCK + 1, BLOCK):
+        block = raw[i:i + BLOCK]
+        if any(block[j:j + 8] == b"END     " for j in range(0, BLOCK, 80)):
+            return i + BLOCK
+    return None
+
+
+def s3_layout(im: Image, cache: Cache) -> Layout:
+    """The byte layout of the image's S3 copy: one 60 kB read for the PRIMARY and IMAGE headers,
+    then one small read per header for FLAGS, VARIANCE and ZODI (FLAGS is compressed, so where
+    VARIANCE starts differs from file to file). Cached in memory and in the cache."""
+    got = _layout_mem.get(im.key)
+    if got is not None:
+        return got
+    key = f"layout/{im.key}.json"
+    raw_cached = cache.get(key)
+    if raw_cached:
+        lay = Layout.from_json(raw_cached)
+    else:
+        if not im.s3_url:
+            raise UpstreamError(f"no S3 copy of {im.key}")
+        raw = _get(im.s3_url, headers={"Range": f"bytes=0-{21 * BLOCK - 1}"}, tries=3)
+        found: dict[str, tuple[int, str]] = {}  # EXTNAME -> (first data byte, header text)
+        pos = 0
+        for _ in range(8):
+            end = _end_of_header(raw, pos) if pos + BLOCK <= len(raw) else None
+            if end is not None:
+                head = raw[pos:end]
+                name, size = _hdu_sizes(head)
+                hlen = end - pos
+                text = head.decode("ascii", "replace")
+            else:
+                name, hlen, size, h = _header_at(im.s3_url, pos)
+                text = h.tostring()
+            found[name] = (pos + hlen, text)
+            if name == "ZODI":
+                break
+            pos += hlen + size
+        if "IMAGE" not in found or "FLAGS" not in found:
+            raise ValueError(f"unexpected HDUs in {im.key}: {list(found)}")
+        ih = fits.Header.fromstring(found["IMAGE"][1])
+        lay = Layout(image_header=found["IMAGE"][1], image=found["IMAGE"][0],
+                     flags_header=found["FLAGS"][1], flags=found["FLAGS"][0],
+                     variance=found["VARIANCE"][0] if "VARIANCE" in found else None,
+                     zodi=found["ZODI"][0] if "ZODI" in found else None,
+                     nx=int(ih["NAXIS1"]), ny=int(ih["NAXIS2"]))
+        cache.put(key, lay.to_json(), "application/json")
+    if len(_layout_mem) > _LAYOUT_MEM_MAX:
+        _layout_mem.clear()
+    _layout_mem[im.key] = lay
+    return lay
+
+
+def _float_rows(url: str, offset: int, nx: int, y0: int, y1: int, x0: int, x1: int) -> np.ndarray:
+    """Rows y0..y1, columns x0..x1 of a big-endian float32 image whose pixels start at `offset`."""
+    start = offset + y0 * nx * 4
+    n = (y1 - y0) * nx * 4
+    raw = _get(url, headers={"Range": f"bytes={start}-{start + n - 1}"}, tries=3)
+    if len(raw) != n:
+        raise UpstreamError(f"short read of {url}: {len(raw)} of {n} bytes")
+    return np.frombuffer(raw, dtype=">f4").reshape(y1 - y0, nx)[:, x0:x1].astype(np.float32)
+
+
+def _flag_rows(url: str, lay: Layout, y0: int, y1: int, x0: int, x1: int) -> np.ndarray:
+    """Rows y0..y1, columns x0..x1 of the tile-compressed FLAGS (RICE_1, one tile per row): the
+    tile descriptors of those rows, then their part of the heap: two range requests."""
+    from astropy.io.fits.hdu.compressed._codecs import Rice1
+
+    h = fits.Header.fromstring(lay.flags_header)
+    if (str(h.get("ZCMPTYPE", "")).strip() != "RICE_1" or int(h.get("ZTILE2", 0)) != 1
+            or int(h.get("ZTILE1", 0)) != lay.nx or int(h.get("ZBITPIX", 0)) != 32
+            or not str(h.get("TFORM1", "")).startswith("1PB")
+            or any(k in h for k in ("ZSCALE", "ZZERO", "BZERO", "BSCALE", "ZQUANTIZ", "ZBLANK"))):
+        raise ValueError("FLAGS is not RICE_1 row tiles of plain int32")
+    params = {str(h.get(f"ZNAME{i}", "")).strip(): int(h[f"ZVAL{i}"]) for i in (1, 2, 3) if f"ZVAL{i}" in h}
+    row_bytes = int(h["NAXIS1"])
+    heap = lay.flags + int(h.get("THEAP", row_bytes * int(h["NAXIS2"])))
+    start = lay.flags + y0 * row_bytes
+    raw = _get(url, headers={"Range": f"bytes={start}-{start + (y1 - y0) * row_bytes - 1}"}, tries=3)
+    desc = np.frombuffer(raw, dtype=">i4").reshape(y1 - y0, 2).astype(np.int64)  # (bytes, heap offset)
+    lo, hi = int(desc[:, 1].min()), int((desc[:, 1] + desc[:, 0]).max())
+    blob = _get(url, headers={"Range": f"bytes={heap + lo}-{heap + hi - 1}"}, tries=3)
+    if len(blob) != hi - lo:
+        raise UpstreamError(f"short FLAGS heap read of {url}")
+    codec = Rice1(blocksize=params.get("BLOCKSIZE", 32), bytepix=params.get("BYTEPIX", 4), tilesize=lay.nx)
+    out = np.empty((y1 - y0, x1 - x0), dtype=np.int32)
+    for i, (n, off) in enumerate(desc):
+        out[i] = codec.decode(np.frombuffer(blob, dtype=np.uint8, count=n, offset=off - lo))[x0:x1]
+    return out
+
+
+def _region_fast(im: Image, ra: float, dec: float, size_deg: float, cache: Cache,
+                 variance: bool) -> SimpleNamespace | None:
+    """The region (header, data, flags, variance, origin, as compact_fits wants them) from direct
+    range reads, all HDUs at once; None if the field misses the image."""
+    lay = s3_layout(im, cache)
+    header = fits.Header.fromstring(lay.image_header)
+    if int(header.get("BITPIX", 0)) != -32 or any(k in header for k in ("BZERO", "BSCALE")):
+        raise ValueError("IMAGE is not plain float32")
+    region = region_for(header, ra, dec, size_deg)
+    if region is None:
+        return None
+    x0, x1, y0, y1 = region
+    url = im.s3_url
+    jobs = {"data": _io.submit(_float_rows, url, lay.image, lay.nx, y0, y1, x0, x1),
+            "flags": _io.submit(_flag_rows, url, lay, y0, y1, x0, x1)}
+    if variance:
+        if lay.variance is None:
+            raise ValueError("no VARIANCE HDU")
+        jobs["variance"] = _io.submit(_float_rows, url, lay.variance, lay.nx, y0, y1, x0, x1)
+    got = {k: f.result() for k, f in jobs.items()}
+    rows = y1 - y0
+    STATS.add(requests=1, s3=1, bytes=rows * lay.nx * 4 * (2 if variance else 1) + rows * 5300)
+    return SimpleNamespace(header=header, data=got["data"], flags=got["flags"],
+                           variance=got.get("variance"), origin=(x0, y0))
+
+
 def _from_s3(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, variance: bool) -> bytes | None:
     """The cutout read from the S3 copy with range requests. None if the field misses the image."""
     assert im.s3_url
     last = ""
+    fast = FAST_S3
     for attempt in range(3):
         try:
+            if fast:
+                try:
+                    l2 = _region_fast(im, ra, dec, size_deg, cache, variance)
+                    return None if l2 is None else compact_fits(l2, wave_hdu(im, cache))
+                except (ValueError, KeyError, TypeError) as e:  # an unexpected file: core's reader
+                    log.warning("direct S3 read of %s not possible (%s): core.open_level2", im.key, e)
+                    fast = False
             # PRIMARY is one block; the IMAGE header (9 blocks measured) fits in the next 20
             raw = _get(im.s3_url, headers={"Range": f"bytes={BLOCK}-{21 * BLOCK - 1}"}, tries=2)
             header = fits.Header.fromstring(raw.decode("ascii", "replace"))
@@ -355,42 +538,79 @@ def has_variance(data: bytes) -> bool:
     return b"EXTNAME = 'VARIANCE'" in data
 
 
-def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, variance: bool = False) -> bytes | None:
+_inflight: dict[tuple[str, bool], Future] = {}
+_inflight_lock = threading.Lock()
+
+
+def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, variance: bool = False,
+          *, budget: Budget | None = None) -> bytes | None:
     """Compact cutout FITS (PRIMARY, IMAGE, FLAGS, [VARIANCE,] WCS-WAVE) of one image, or None
     if the image has no pixels there. Uses a cached cutout of this size or larger at this centre.
     variance: VARIANCE is needed (photometry). Cutouts up to 0.12 deg always carry it; larger
-    ones only when asked, because from S3 it costs as much again as the image."""
+    ones only when asked, because from S3 it costs as much again as the image.
+    Two builds asking for the same cutout at once (frames and object at one position) share one
+    download."""
     variance = variance or size_deg <= VARIANCE_UP_TO_DEG + 1e-9
-    for s in SIZE_TIERS_DEG:
-        if s >= size_deg - 1e-9:
-            got = cache.get(cache_key(im, ra, dec, s))
-            if got is not None and (not got or not variance or has_variance(got)):
-                STATS.add(cached=1)
-                return got or None  # b"" marks "no pixels here"
+    tiers = [s for s in SIZE_TIERS_DEG if s >= size_deg - 1e-9]
+    found = list(_io.map(lambda s: cache.get(cache_key(im, ra, dec, s)), tiers))  # one round trip
+    for got in found:
+        if got is not None and (not got or not variance or has_variance(got)):
+            STATS.add(cached=1)
+            if budget is not None:
+                budget.count("cached")
+            return got or None  # b"" marks "no pixels here"
+    key = (cache_key(im, ra, dec, size_deg), variance)
+    with _inflight_lock:
+        fut = _inflight.get(key)
+        owner = fut is None
+        if owner:
+            fut = _inflight[key] = Future()
+    if not owner:
+        if budget is not None:
+            budget.count("shared")
+        return fut.result()
+    try:
+        data = _download(im, ra, dec, size_deg, cache, variance)
+        cache.put(cache_key(im, ra, dec, size_deg), data or b"")
+        fut.set_result(data)
+        if budget is not None:
+            budget.count("downloaded")
+        return data
+    except BaseException as e:
+        fut.set_exception(e)
+        raise
+    finally:
+        with _inflight_lock:
+            _inflight.pop(key, None)
+
+
+def _download(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, variance: bool) -> bytes | None:
     mode = pixels_mode()
     has_s3 = bool(im.s3_url) and mode != "irsa"
-    data: bytes | None = None
-    done = False
     try:
-        if mode != "s3" and not (has_s3 and _irsa.open()):
+        if mode == "s3first" and has_s3:
+            try:
+                return _from_s3(im, ra, dec, size_deg, cache, variance)
+            except UpstreamError as e:
+                log.warning("S3 failed for %s (%s); asking IRSA", im.key, e)
+                return _from_irsa(im, ra, dec, size_deg, cache, 2, variance)
+        if mode not in ("s3", "s3first") and not (has_s3 and _irsa.open()):
             try:
                 data = _from_irsa(im, ra, dec, size_deg, cache, 1 if has_s3 else TRIES, variance)
-                done = True
                 _irsa.record(True)
+                return data
             except Busy:
                 _irsa.record(False)
                 if not has_s3:
                     raise
-        if not done and has_s3:
-            data = _from_s3(im, ra, dec, size_deg, cache, variance)
-            done = True
+        if has_s3:
+            return _from_s3(im, ra, dec, size_deg, cache, variance)
+        if mode == "s3first":  # no S3 copy
+            return _from_irsa(im, ra, dec, size_deg, cache, TRIES, variance)
     except FileNotFoundError as e:
         log.info("no cutout for %s: %s", im.key, e)
-        data, done = None, True
-    if not done:
-        raise UpstreamError(f"no source for {im.key}")
-    cache.put(cache_key(im, ra, dec, size_deg), data or b"")
-    return data
+        return None
+    raise UpstreamError(f"no source for {im.key}")
 
 
 # --- ZODI: NASA's zodiacal-light model, sampled from the S3 copy -----------------------------------
@@ -480,14 +700,20 @@ def zodi_model(im: Image, l2: Level2, cache: Cache) -> np.ndarray | None:
         values = np.frombuffer(got, dtype="<f4").reshape(len(rows), nx)
         return zodi_from_rows(rows, values, ny)
     try:
-        offset, width, height = zodi_layout(im, cache)
+        lay = _layout_mem.get(im.key)  # set when the cutout itself was read from S3
+        if lay is not None and lay.zodi is not None:
+            offset, width, height = lay.zodi, lay.nx, lay.ny
+        else:
+            offset, width, height = zodi_layout(im, cache)
         if not (0 <= x0 and x0 + nx <= width and 0 <= y0 and y0 + ny <= height):
             raise UpstreamError(f"cutout of {im.key} does not fit its frame")
-        values = np.empty((len(rows), nx), dtype="<f4")
-        for i, r in enumerate(rows):
+
+        def row(r: int) -> np.ndarray:
             start = offset + ((y0 + int(r)) * width + x0) * 4
             raw = _get(im.s3_url, headers={"Range": f"bytes={start}-{start + nx * 4 - 1}"}, tries=3)
-            values[i] = np.frombuffer(raw, dtype=">f4")
+            return np.frombuffer(raw, dtype=">f4")
+
+        values = np.stack(list(_io.map(row, rows))).astype("<f4")  # the rows in parallel
     except (UpstreamError, FileNotFoundError, ValueError) as e:
         log.warning("no ZODI model for %s: %s", im.key, e)
         return None
@@ -510,28 +736,42 @@ def open_bytes(data: bytes) -> Level2:
             return open_level2(f.name)
 
 
+_SKIPPED = object()
+
+
 def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cache: Cache,
                centers: list[tuple[float, float]] | None = None, variance: bool = False,
-               zodi: bool = False) -> list[Level2 | None]:
-    """Cutouts of many images, at most 8 requests in flight, in the order given.
-    A failed image gives None (and is logged); the build goes on without it, unless every image
-    failed (UpstreamError).
+               zodi: bool = False, *, budget: Budget | None = None, reserve: float = 0.0) -> list[Level2 | None]:
+    """Cutouts of many images, at most MAX_IN_FLIGHT at once for this call, in the order given
+    (so put the most useful first). A failed image gives None (and is logged); the build goes on
+    without it, unless every image failed (UpstreamError).
     centers: one (ra, dec) per image when each cutout has its own centre (a moving object).
     zodi: subtract NASA's zodiacal-light model from `data` (frames; never for photometry, which
-    measures its own local background). header["ZODISUB"] says whether it was done."""
-
+    measures its own local background). header["ZODISUB"] says whether it was done.
+    budget, reserve: stop `reserve` seconds before the budget's deadline. Images not started by
+    then are skipped; those still downloading finish in the background (into the cache) and give
+    None here. Either way the budget is marked partial."""
     errors: list[str] = []
+    t_wall = time.monotonic()
 
-    def one(i: int) -> Level2 | None:
+    def one(i: int) -> Level2 | None | object:
         im = images[i]
+        if budget is not None and budget.expired(reserve):
+            return _SKIPPED
         r, d = centers[i] if centers else (ra, dec)
         try:
-            data = fetch(im, r, d, size_deg, cache, variance)
+            t = time.monotonic()
+            data = fetch(im, r, d, size_deg, cache, variance, budget=budget)
+            if budget is not None:
+                budget.add("cutout", time.monotonic() - t)
             if data is None:
                 return None
             l2 = open_bytes(data)
             if zodi:
+                t = time.monotonic()
                 model = zodi_model(im, l2, cache)
+                if budget is not None:
+                    budget.add("zodi", time.monotonic() - t)
                 if model is not None:
                     l2.data = (l2.data - model).astype(np.float32)
                     STATS.add(zodi_subtracted=1)
@@ -545,8 +785,27 @@ def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cach
             log.warning("cutout %s failed: %s", im.key, e)
             return None
 
-    out = list(_pool.map(one, range(len(images))))
-    if images and len(errors) == len(images):
+    if not images:
+        return []
+    ex = ThreadPoolExecutor(min(MAX_IN_FLIGHT, len(images)), thread_name_prefix="cutout")
+    futs = [ex.submit(one, i) for i in range(len(images))]
+    done, _ = wait(futs, timeout=budget.until(reserve) if budget is not None else None)
+    ex.shutdown(wait=False, cancel_futures=True)  # the running ones finish into the cache
+    out: list[Level2 | None] = []
+    missed = 0
+    for f in futs:
+        got = f.result() if f in done else _SKIPPED
+        if got is _SKIPPED:
+            missed += 1
+            got = None
+        out.append(got)  # type: ignore[arg-type]
+    if budget is not None:
+        budget.add("cutouts_wall", time.monotonic() - t_wall)
+        budget.count("cutouts_asked", len(images))
+        if missed:
+            budget.count("cutouts_missed", missed)
+            budget.cut(f"{missed} of {len(images)} cutouts not in time")
+    if len(errors) == len(images):
         raise UpstreamError(f"every cutout failed ({len(errors)}); first: {errors[0]}"[:300])
     return out
 

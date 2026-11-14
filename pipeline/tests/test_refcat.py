@@ -155,7 +155,7 @@ def test_esa_failure_falls_back_to_irsa(monkeypatch):
     assert name == "IRSA Gaia" and len(df) > 0
 
 
-def test_gaia_only_writes_forced_list_then_full_run_adds_the_rest(tmp_path, monkeypatch):
+def test_gaia_only_refcat_then_full_run_adds_the_rest(tmp_path, monkeypatch):
     calls = []
 
     def fake_tap(url, adql):
@@ -172,7 +172,8 @@ def test_gaia_only_writes_forced_list_then_full_run_adds_the_rest(tmp_path, monk
     monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia",))
     R.run(store, z, workers=2, tap=fake_tap)
     assert len(calls) == n_tiles and all("gaia" in a for a in calls)
-    assert store.exists(R.refcat_rel("pilot", forced=True)) and not store.exists(R.refcat_rel("pilot"))
+    assert store.exists(R.refcat_rel("pilot", forced=True)) and store.exists(R.refcat_rel("pilot"))
+    assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia"} and R.catalogs_in(store, "pilot") == ["gaia"]
     forced = store.read_parquet(R.refcat_rel("pilot", forced=True))
     assert len(forced) > 0 and forced["ref_id"].str.startswith("gaia:").all()
     assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == n_tiles
@@ -180,6 +181,8 @@ def test_gaia_only_writes_forced_list_then_full_run_adds_the_rest(tmp_path, monk
     st = R.run(store, z, workers=2, tap=fake_tap)  # full refcat missing: reuses the Gaia tiles, adds the rest
     assert st["fetched"] == 2 * n_tiles and len(calls) == 3 * n_tiles
     assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia", "catwise", "2mass"}
+    assert R.catalogs_in(store, "pilot") == ["gaia", "catwise", "2mass"]
+    assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == 3 * n_tiles
 
 
 def test_ecliptic_zones_align_on_the_hunt_zone():
@@ -189,3 +192,45 @@ def test_ecliptic_zones_align_on_the_hunt_zone():
     assert z["ecl12n1"].dec_min == 24.4 and z["ecl12s1"].dec_max == 14.4  # rows stack on the hunt zone
     assert z["ecl35"].ra_max == 360.0 and z["ecl36"].ra_min == 0.0 and z["ecl36"].ra_max == 0.5
     assert all(-90 <= v.dec_min < v.dec_max <= 90 for v in z.values())
+
+
+def test_gaia_tiles_cached_without_gspc_are_upgraded_best_effort(tmp_path, monkeypatch):
+    """A zone built before the GSPC join (tiles without z_ab, y_ab; marker without `gspc`): a partial run still skips;
+    a full run refetches only those Gaia tiles; a tile whose refetch fails keeps its old copy and the run succeeds."""
+    calls = []
+    fail = {"on": False}
+
+    def fake_tap(url, adql):
+        calls.append(adql)
+        if "gaia" in adql:
+            if fail["on"]:
+                raise OSError("ESA and IRSA down")
+            return sample("gaia")
+        return sample("catwise") if "catwise" in adql else sample("2mass")
+
+    monkeypatch.setattr(C, "NET_RETRIES", 1)
+    store = Store(str(tmp_path))
+    z = C.ZONES["pilot"]
+    ts = R.tiles(*R.query_box(z))
+    R.run(store, z, workers=2, tap=fake_tap)
+    # make it look like tonight's (pre-GSPC) zone: tiles without z_ab/y_ab, marker without gspc
+    for t in ts:
+        rel = R.tile_rel("pilot", "gaia", t)
+        store.write_parquet(rel, store.read_parquet(rel).drop(columns=["z_ab", "y_ab"]))
+    store.write_json(R.catalogs_rel("pilot"), {"catalogs": ["gaia", "catwise", "2mass"]})
+    assert not R.gspc_in(store, "pilot") and not R.tile_has_gspc(store, R.tile_rel("pilot", "gaia", ts[0]))
+    n0 = len(calls)
+    monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia",))
+    assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == n0  # partial: skips
+    monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia", "catwise", "2mass"))
+    fail["on"] = True  # upgrade fails: old tiles kept, refcat rebuilt from them, gspc stays false
+    st = R.run(store, z, workers=2, tap=fake_tap)
+    assert st["fetched"] == 0 and st["gspc_kept_old"] == len(ts) and not st["gspc"] and not R.gspc_in(store, "pilot")
+    full = store.read_parquet(R.refcat_rel("pilot"))
+    assert {"z_ab", "y_ab"} <= set(full.columns) and full["z_ab"].isna().all()
+    fail["on"] = False
+    n1 = len(calls)
+    st = R.run(store, z, workers=2, tap=fake_tap)  # next full run: only the Gaia tiles, once each
+    assert st["gspc_upgraded"] == len(ts) and st["fetched"] == 0 and st["gspc"] and len(calls) == n1 + len(ts)
+    assert all("gaia" in a for a in calls[n1:]) and R.gspc_in(store, "pilot")
+    assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == n1 + len(ts)
