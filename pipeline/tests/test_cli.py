@@ -8,7 +8,7 @@ import pandas as pd
 from skyshift_pipeline import config as C
 from skyshift_pipeline import suspects as S
 from skyshift_pipeline.cli import main
-from skyshift_pipeline.dots import DOT_COLUMNS
+from skyshift_pipeline.dots import as_dots
 from skyshift_pipeline.known import OBJ_KEYS, run_rel
 from skyshift_pipeline.photolist import add_sessions
 from skyshift_pipeline.sky import cell_of
@@ -29,7 +29,7 @@ def dots_df(obs_id, det, mjd, pts):
         "obs_id": obs_id, "detector": det, "mjd": mjd, "session": 0, "visit": 0, "ra": ra, "dec": dec,
         "pos_err_arcsec": 0.3, "x": 1.0, "y": 1.0, "flux_ujy": 100.0, "flux_err_ujy": 5.0, "wavelength_um": 1.0,
         "bandwidth_um": 0.02, "elong": 1.1, "snr": np.full(n, 20.0), "flags": 0, "flags_peak": 0, "cell": cell_of(ra, dec),
-    }).astype(DOT_COLUMNS)
+    }).pipe(as_dots)
 
 
 def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):

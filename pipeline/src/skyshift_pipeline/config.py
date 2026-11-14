@@ -125,6 +125,7 @@ EVIDENCE_RANK = {"two_exposures": 0, "two_detectors": 1}
 # All computed from stored dots (via members.parquet), sources.parquet, refcat/<zone>.parquet and
 # forced/<obs_id>D<det>.parquet; photos are never read again. Rerun freely: they always recompute.
 REFCAT_REL = "refcat/{zone}.parquet"     # Gaia DR3 / CatWISE / 2MASS unified, at the bucket root
+REFCAT_FALLBACK_REL = "refcat/{zone}_forced.parquet"  # the forced-photometry targets, if the full one is missing
 FORCED_DIR = "forced"                    # forced/<obs_id>D<det>.parquet
 CROSSID_ARCSEC = {"gaia": 2.5, "catwise": 3.0, "tmass": 3.0}  # match radius per catalogue
 CROSSID_SLACK_ARCSEC = 2.0     # extra search radius before the per-source epoch refinement
@@ -155,3 +156,92 @@ HIGHPM_RECALL_MAS_YR = 200.0   # recall check: Gaia stars faster than this in th
 HIGHPM_RECALL_ARCSEC = 3.0     # a candidate this close (at its epoch) recovers the Gaia star
 HIGHPM_CONTROL_OFFSET_ARCSEC = 900.0  # control: one visit's sources moved 15′ east (chance-pair count)
 HIGHPM_CATWISE_PM_TOL = 0.3    # CatWISE pm agrees within 30% of |pm| (or 100 mas/yr) = bonus
+
+# --- classify: star / galaxy / unsure, spectral indices, brown-dwarf-like (classify.py, indices.py) ----------
+# Index windows in µm (observed frame). A band value is the mean of the 102-channel spectrum over the window
+# (each channel weighted by the fraction of it inside the window); the continuum is a power law through the
+# two continuum windows (linear when a window is too faint for logs), evaluated at the band's wavelength.
+# kind "abs": depth = 1 − band / continuum, sig > 0 = absorption; "emis": excess = band / continuum − 1, sig > 0 = emission.
+INDEX_WINDOWS = {
+    #  name          kind    band            continuum windows
+    "h2o_ice_305": ("abs", (2.95, 3.15), ((2.45, 2.70), (3.65, 3.80))),   # H2O ice toward background stars
+    "co2_ice_427": ("abs", (4.23, 4.31), ((4.05, 4.17), (4.40, 4.50))),   # CO2 ice
+    "co_ice_467":  ("abs", (4.64, 4.70), ((4.50, 4.58), (4.76, 4.90))),   # CO ice (cool-star CO gas also lands here)
+    "ch4_33":      ("abs", (3.20, 3.45), ((2.40, 2.65), (3.90, 4.10))),   # CH4 fundamental: T/Y dwarfs
+    "ch4_16":      ("abs", (1.63, 1.72), ((1.53, 1.59), (2.06, 2.14))),   # CH4 overtone in H: T dwarfs
+    "co_23":       ("abs", (2.29, 2.40), ((2.06, 2.14), (2.19, 2.28))),   # CO bandhead: cool giants (continuum extrapolated)
+    "h2o_14":      ("abs", (1.34, 1.45), ((1.22, 1.30), (1.55, 1.65))),   # H2O: M/L dwarfs (and Miras)
+    "h2o_19":      ("abs", (1.84, 1.95), ((1.55, 1.65), (2.06, 2.14))),   # H2O: M/L dwarfs
+    "pah_33":      ("emis", (3.24, 3.34), ((3.00, 3.15), (3.50, 3.65))),  # PAH 3.3 µm at z ≈ 0 (photoz redoes it at z_best)
+}
+INDEX_MIN_COVER = 0.5          # a window needs at least this share of its channel weight measured, else NaN
+INDEX_LOG_CONT_MIN_SNR = 3.0   # both continuum windows at S/N >= this and > 0: power law; else linear in λ
+INDEX_SIG = 5.0                # an index counts as detected at |sig| >= this
+# synthetic AB magnitudes from the spectrum (window means), for colours and the web
+MAG_WINDOWS = {"j": (1.15, 1.33), "h": (1.50, 1.78), "k": (2.00, 2.30), "m34": (3.30, 3.70), "m46": (4.40, 4.80)}
+
+# star / galaxy from the member dots' shapes (dots extras: a_arcsec, b_arcsec, psf_chi2_nu, flux_psf_ujy,
+# flux_ap<r>_ujy). Each is divided by its detector's stellar locus (median over bright dots, of Gaia stars
+# with a parallax when there are enough), then the median over the source's dots.
+CLASSIFY_SHAPE_MIN_SNR = 8.0       # dots below this S/N don't vote on the shape
+CLASSIFY_LOCUS_MIN_SNR = 20.0      # dots at least this bright define the stellar locus per detector
+CLASSIFY_LOCUS_MIN_DOTS = 30       # Gaia-star dots needed to use them for the locus (else all bright dots)
+CLASSIFY_SIZE_TOL = 0.10           # extended score: (size ratio − 1) / this
+CLASSIFY_COG_TOL = 0.10            # ... (curve-of-growth ratio − 1) / this
+CLASSIFY_CHI2_FACTOR = 2.0         # ... log(psf chi2 ratio) / log(this)
+CLASSIFY_EXT_STAR = 1.0            # extended score <= this: point-like
+CLASSIFY_EXT_GALAXY = 2.0          # extended score >= this (and no significant parallax): galaxy
+CLASSIFY_PLX_SNR_STAR = 5.0        # Gaia parallax / error >= this: star, whatever the shape
+CLASSIFY_GAIA_MATCH_ARCSEC = 3.0   # own Gaia match from refcat when crossids.parquet has none
+
+# brown-dwarf-like: (methane or water) and red and (no Gaia or faint in Gaia) and not a galaxy, not saturated
+BD_CH4_33_MIN_DEPTH = 0.25
+BD_CH4_16_MIN_DEPTH = 0.15
+BD_H2O_MIN_DEPTH = 0.15
+BD_MIN_J_M46_AB = -0.5         # J_AB − [4.6]_AB above this is "red" (≈ J − W2 > 1.9 Vega; A0 star −2.4, M dwarfs ~ −1.4)
+BD_GAIA_FAINT_G = 19.0         # Gaia G fainter than this counts as faint
+BD_MIN_G_J_AB = 3.5            # ... or G − J_AB above this (L/T dwarfs are very red in G − J)
+
+# --- photoz: template photometric redshifts (photoz.py) -------------------------------------
+PHOTOZ_TEMPLATES = "eazy_fsps_qsf12_v3_rest_0p3_5p2um.csv"  # pipeline/data/, see its README
+PHOTOZ_Z_MIN, PHOTOZ_Z_MAX, PHOTOZ_Z_STEP = 0.0, 1.0, 0.005
+PHOTOZ_TEMPLATE_ERR = 0.05     # fractional model error added in quadrature to each channel's error
+PHOTOZ_CLASSES = ("galaxy", "unsure")  # classes fitted (all sources when classes.parquet is missing)
+PHOTOZ_MIN_CHANNELS = 20       # fewer measured channels: not fitted
+PHOTOZ_ODDS_DZ = 0.05          # odds = p(|z − z_best| < this × (1 + z_best))
+PHOTOZ_GOOD_ODDS = 0.8         # good = odds >= this, chi2_nu <= PHOTOZ_GOOD_CHI2_NU, n_channels >= PHOTOZ_GOOD_MIN_CHANNELS
+PHOTOZ_GOOD_CHI2_NU = 3.0
+PHOTOZ_GOOD_MIN_CHANNELS = 40
+PHOTOZ_CHUNK = 4000            # sources per matrix product
+PHOTOZ_SDSS_MATCH_ARCSEC = 3.0
+PHOTOZ_OUTLIER = 0.15          # |Δz| / (1 + z_spec) above this is an outlier
+PHOTOZ_BRIGHT_AB = 17.0        # report also for galaxies brighter than this (K-window AB)
+
+# --- dots extras: zodi, ePSF photometry, shape, photo metadata (contracts/dots.md) --------------
+DOTS_READ_ZODI = True          # read the ZODI HDU (16.6 MB more per photo) for zodi_mjysr and the photo's zodi median
+DOTS_READ_EPSF = True          # read the EPSF table (3.9 MB; once per worker per ePSF calibration file) for flux_psf_*
+PSF_FIT_HALF_PX = 3            # ePSF fit on a 7 × 7 stamp around the dot
+PSF_FIT_MIN_PIX = 12           # fewer unmasked pixels than this: flux_psf_* NaN
+PSF_MODEL_FRAC = 0.03          # ePSF shape error added in quadrature to the pixel noise (fraction of the model)
+PSF_NOISE = "detect"           # pixel noise of the fit: "detect" = max(√VARIANCE, background rms) as in core.detect;
+                               # "variance" = √VARIANCE only (chi2 then grows with confusion in crowded fields)
+PHOTO_META_KEY = "skyshift_photo"  # Parquet key-value metadata of each dot file (JSON)
+PHOTO_META_HEADER_KEYS = (     # IMAGE header values copied into it as they are (missing keys -> null)
+    "MJD-BEG", "MJD-AVG", "MJD-END", "XPOSURE", "TELAPSE",
+    "X_SC_START", "Y_SC_START", "Z_SC_START", "VX_SC_START", "VY_SC_START", "VZ_SC_START",
+    "X_SC", "Y_SC", "Z_SC", "VX_SC", "VY_SC", "VZ_SC",
+    "X_SC_END", "Y_SC_END", "Z_SC_END", "VX_SC_END", "VY_SC_END", "VZ_SC_END",
+    "FINAST", "MATCH_NSTARS", "ASTRONETSOLVED", "OMEGA_MEDIAN", "OMEGA_STDDEV", "PSF_FWHM",
+    "L1DQAFLG", "L2DQAFLG", "HE_AG_AMPL", "AURORA_CORR", "SHUTTLE_GLOW_CORR",
+    "NBLMSRCS", "NSNOWSRC", "L2 SATSTRKS", "SPS_ELON", "SPS_ELAT", "SPS_EPA", "SGT_MIN_GCD2SAA",
+)
+PHOTO_META_HEADER_PREFIXES = ("L2 N_",)  # every flag count key, e.g. 'L2 N_OVERFLOW'
+AP_RADII_PX = (1.0, 1.5, 2.0, 3.0, 4.5)  # flux_ap_ujy / flux_ap_err_ujy, one value per radius
+AP_BKG_ANNULUS_PX = (5.5, 8.0)  # local background annulus of those apertures (outside 4.5 px)
+FORCED_EDGE_PX = 3.0            # forced targets at least this far inside the frame
+FORCED_ZONE_MARGIN_DEG = 0.05   # ... and inside the zone box plus this margin
+FORCED_WARN_TARGETS = 30_000    # log a warning above this many forced targets in one photo (no cut)
+CALIB_ASTROM_MIN_SNR = 20.0     # photo metadata: dots used for the offset against forced Gaia targets
+CALIB_ASTROM_MATCH_ARCSEC = 2.0
+CALIB_PSF_MIN_SNR = 50.0        # photo metadata: unsaturated dots used for the PSF size / ellipticity
+PHOTO_META_GRID = 32            # photo metadata: 32 × 32 block means of the background and ZODI maps

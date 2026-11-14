@@ -123,7 +123,7 @@ def compute(src: pd.DataFrame, epochs: np.ndarray, refcat: pd.DataFrame) -> pd.D
     for c, name in (("ra", "gaia_ra"), ("dec", "gaia_dec"), ("epoch_mjd", "gaia_epoch_mjd")):
         out[name] = take(g, i, c)
     for c, name in (("g", "gaia_g"), ("bp_rp", "gaia_bp_rp"), ("pmra", "gaia_pmra"), ("pmdec", "gaia_pmdec"),
-                    ("parallax", "gaia_parallax")):
+                    ("parallax", "gaia_parallax"), ("parallax_error", "gaia_parallax_error")):
         out[name] = take(g, i, c).astype(np.float32)
 
     w = refcat[cats == "catwise"].reset_index(drop=True)

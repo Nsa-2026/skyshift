@@ -72,7 +72,8 @@ def points_from_forced(f: pd.DataFrame, crossids: pd.DataFrame | None) -> pd.Dat
             fill = (sid < 0) & np.isfinite(hit)
             sid[fill] = hit[fill].astype(np.int64)
     e = f["flux_err_ujy"].to_numpy(np.float64)
-    ok = np.isfinite(f["flux_ujy"].to_numpy(np.float64)) & np.isfinite(e) & (e > 0)
+    fl = (f["flags"].to_numpy(np.int64) & 0xFFFFFFFF) if "flags" in f else np.zeros(len(f), np.int64)
+    ok = np.isfinite(f["flux_ujy"].to_numpy(np.float64)) & np.isfinite(e) & (e > 0) & ((fl & MASK_BITS) == 0)
     return pd.DataFrame({
         "source_id": sid[ok], "ref_id": f["ref_id"].astype(str).to_numpy()[ok], "origin": "forced",
         "mjd": f["mjd"].to_numpy(np.float64)[ok], "visit": f["visit"].to_numpy(np.int16)[ok],

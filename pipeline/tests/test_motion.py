@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pytest
 from skyshift_core import propagate, tangent_deproject, tangent_offset_arcsec
 
@@ -287,12 +288,13 @@ def test_highpm_fit_route_and_gaia_recall():
 def dots_df(obs_id, det, mjd, pts, wl, flux):
     ra = np.array([p[0] for p in pts]); dec = np.array([p[1] for p in pts])
     n = len(pts)
-    return pd.DataFrame({
+    df = pd.DataFrame({
         "obs_id": obs_id, "detector": det, "mjd": mjd, "session": 0, "visit": 0, "ra": ra, "dec": dec,
         "pos_err_arcsec": 0.3, "x": 1.0, "y": 1.0, "flux_ujy": flux, "flux_err_ujy": 5.0,
         "wavelength_um": wl, "bandwidth_um": 0.02, "elong": 1.1, "snr": np.full(n, 20.0), "flags": 0, "flags_peak": 0,
         "cell": cell_of(ra, dec),
-    }).astype(DOT_COLUMNS)
+    })
+    return df.astype({k: v for k, v in DOT_COLUMNS.items() if k in df})
 
 
 def test_motion_steps_end_to_end(tmp_path, rng):
@@ -314,10 +316,17 @@ def test_motion_steps_end_to_end(tmp_path, rng):
         pts.append(STAR if p.visit == 1 else mover_b)  # a mover: 22″ between visits
         flux.append(300.0 if p.detector == 1 else 600.0)
         jit = [offset_radec(*q, *rng.normal(0, 0.2, 2)) for q in pts]
-        store.write_parquet(dots_rel(p.obs_id, p.detector), dots_df(p.obs_id, p.detector, p.mjd, jit,
-                                                                    0.9 if p.detector == 1 else 3.0, np.array(flux)))
-    store.write_parquet(C.REFCAT_REL.format(zone="pilot"), pd.DataFrame([
-        dict(ref_id="11", cat="gaia", ra=still[0], dec=still[1], epoch_mjd=GAIA_EPOCH, pmra=0.0, pmdec=0.0, parallax=0.5, g=14.0)]))
+        df = dots_df(p.obs_id, p.detector, p.mjd, jit, 0.9 if p.detector == 1 else 3.0, np.array(flux))
+        meta = {"schema": 1, "header": {"X_SC": 7000.0, "Y_SC": 0.0, "Z_SC": 0.0}}  # photo metadata, as `dots` writes it
+        tab = pa.Table.from_pandas(df, preserve_index=False)
+        store.write_table(dots_rel(p.obs_id, p.detector), tab.replace_schema_metadata({C.PHOTO_META_KEY: json.dumps(meta)}))
+        store.write_parquet(f"forced/{p.obs_id}D{p.detector}.parquet", pd.DataFrame({
+            "obs_id": [p.obs_id], "detector": np.int8(p.detector), "mjd": p.mjd, "ref_id": ["gaia:11"], "ra": still[0], "dec": still[1],
+            "flux_psf_ujy": np.float32(flux[0] * 1.03), "flux_psf_err_ujy": np.float32(5.0), "wavelength_um": np.float32(0.9 if p.detector == 1 else 3.0),
+            "flags": np.int32(0)}))
+    # only the forced-photometry refcat exists: catalogue from the ref_id prefix
+    store.write_parquet(C.REFCAT_FALLBACK_REL.format(zone="pilot"), pd.DataFrame([
+        dict(ref_id="gaia:11", ra=still[0], dec=still[1], epoch_mjd=GAIA_EPOCH, pmra=0.0, pmdec=0.0, parallax=0.5, phot_g_mean_mag=14.0)]))
     root = ["--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]
     for step in ("link", "spectra", *("crossid", "colours", "lightcurves", "astrometry", "highpm")):
         assert main([step, *root]) == 0, step
@@ -328,12 +337,14 @@ def test_motion_steps_end_to_end(tmp_path, rng):
     assert set(col["pair"]) == {"D1D4"} and len(col) == 3
     c_still = col[col["source_id"] == xid.loc[xid["gaia_id"] == 11, "source_id"].iloc[0]].iloc[0]
     assert abs(c_still["colour_ab"] - 2.5 * np.log10(0.4)) < 0.01
-    assert len(lc) == len(photos) * 2 and set(lc["origin"]) == {"dot"}
+    assert len(lc) == len(photos) * 3 and set(lc["origin"]) == {"dot", "forced"}
+    sid_still = xid.loc[xid["gaia_id"] == 11, "source_id"].iloc[0]
+    assert (lc.loc[lc["origin"] == "forced", "source_id"] == sid_still).all()
     assert len(ast) == 3 and (ast["fit"] == "pm").all()
     assert len(hp) == 1 and hp.iloc[0]["status"] == "new" and abs(hp.iloc[0]["sep_arcsec"] - np.hypot(20, 10)) < 1
     rep = json.loads((tmp_path / "results/pilot/highpm_report.json").read_text())
     assert rep["recall"]["gaia_fast_in_zone"] == 0
     arep = json.loads((tmp_path / "results/pilot/astrometry_report.json").read_text())
-    assert arep["vs_gaia_raw"]["matched"] == 1
+    assert arep["vs_gaia_raw"]["matched"] == 1 and arep["spacecraft_position_dots"] == len(photos) * 2
     summary = json.loads((tmp_path / "results/pilot/summary.json").read_text())
     assert {"crossid", "colours", "lightcurves", "astrometry", "highpm"} <= set(summary["steps"])

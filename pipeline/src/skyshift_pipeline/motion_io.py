@@ -13,6 +13,7 @@ Everything comes from stored tables; photos are never read again:
 
 from __future__ import annotations
 
+import io
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -58,6 +59,18 @@ def has_any(df: pd.DataFrame, names) -> bool:
     return any(n.lower() in low for n in names)
 
 
+def spacecraft_km(parquet_bytes: bytes) -> tuple:
+    """SPHEREx geocentric X_SC, Y_SC, Z_SC (km) from a dot file's `skyshift_photo` metadata (header);
+    (None, None, None) when absent."""
+    try:
+        from .dots import photo_meta
+        h = (photo_meta(parquet_bytes) or {}).get("header") or {}
+        vals = tuple(h.get(k) for k in ("X_SC", "Y_SC", "Z_SC"))
+        return tuple(float(v) if v is not None else None for v in vals)
+    except Exception:  # noqa: BLE001  (older files, other schema)
+        return (None, None, None)
+
+
 def clear_cache() -> None:
     _CACHE.clear()
 
@@ -83,10 +96,12 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
     def one(item):
         (obs_id, det), idx = item
         try:
-            df = store.read_parquet(dots_rel(obs_id, int(det)))
+            raw = store.read_bytes(dots_rel(obs_id, int(det)))
         except FileNotFoundError:
             counts["files_missing"] += 1
             return None
+        df = pd.read_parquet(io.BytesIO(raw))
+        sc = spacecraft_km(raw)
         rows = row_all[idx]
         ok = rows < len(df)
         counts["rows_missing"] += int((~ok).sum())
@@ -98,6 +113,9 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
         part.insert(1, "obs_id", str(obs_id))
         part.insert(2, "detector", np.int8(det))
         part.insert(3, "photo", np.int32(p))
+        for k, v in zip(("x_sc_km", "y_sc_km", "z_sc_km"), sc):
+            if v is not None and not np.isfinite(part[k].to_numpy(np.float64)).any():
+                part[k] = float(v)
         return part
 
     with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
@@ -147,7 +165,7 @@ def member_dots(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataF
 
 
 # --- reference catalogue ---------------------------------------------------------------------
-REFCAT_COLUMNS = ["ref_id", "cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "parallax"]
+REFCAT_COLUMNS = ["ref_id", "cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "parallax", "parallax_error"]
 MAG_ALIASES: dict[str, tuple[str, ...]] = {
     "g": ("g", "phot_g_mean_mag", "gmag", "g_mag"),
     "bp": ("bp", "phot_bp_mean_mag", "bp_mag"), "rp": ("rp", "phot_rp_mean_mag", "rp_mag"),
@@ -175,6 +193,8 @@ def load_refcat(store: Store, zone: C.Zone) -> pd.DataFrame:
     """refcat/<zone>.parquet normalised: REFCAT_COLUMNS (ref_id as string, cat as gaia|catwise|tmass,
     pm in mas/yr with pmra × cos dec, parallax mas, epoch_mjd; NaN where unknown) + MAG_ALIASES keys."""
     rel = C.REFCAT_REL.format(zone=zone.name)
+    if not store.exists(rel) and store.exists(C.REFCAT_FALLBACK_REL.format(zone=zone.name)):
+        rel = C.REFCAT_FALLBACK_REL.format(zone=zone.name)
     if not store.exists(rel):
         L.warning("%s missing: no cross-identification against Gaia / CatWISE / 2MASS", rel)
         cols = {c: pd.Series(dtype="float64") for c in [*REFCAT_COLUMNS, *MAG_ALIASES]}
@@ -183,13 +203,17 @@ def load_refcat(store: Store, zone: C.Zone) -> pd.DataFrame:
         cols["name"] = pd.Series(dtype=object)
         return pd.DataFrame(cols)
     r = store.read_parquet(rel)
+    ref_id = pd.Series(pick(r, ("ref_id", "source_id", "id"), "")).astype(str).to_numpy()
+    cat = pd.Series(pick(r, ("cat", "catalog", "catalogue"), "")).fillna("").astype(str).to_numpy()
+    cat = np.where(cat == "", ref_id, cat)  # ref_id carries the catalogue as a prefix: "gaia:…", "catwise:…"
     out = pd.DataFrame({
-        "ref_id": pd.Series(pick(r, ("ref_id", "source_id", "id"), "")).astype(str).to_numpy(),
-        "cat": catalogue_of(pick(r, ("cat", "catalog", "catalogue"), "")),
+        "ref_id": ref_id,
+        "cat": catalogue_of(cat),
         "ra": pick(r, ("ra",)).astype(np.float64), "dec": pick(r, ("dec",)).astype(np.float64),
         "epoch_mjd": pick(r, ("epoch_mjd", "ref_epoch_mjd")).astype(np.float64),
         "pmra": pick(r, ("pmra",)).astype(np.float64), "pmdec": pick(r, ("pmdec",)).astype(np.float64),
         "parallax": pick(r, ("parallax", "plx")).astype(np.float64),
+        "parallax_error": pick(r, ("parallax_error", "parallax_err", "e_plx")).astype(np.float64),
     })
     for k, al in MAG_ALIASES.items():
         out[k] = pick(r, al, "" if k == "name" else np.nan)
@@ -218,7 +242,7 @@ def gaia_numeric_id(ref_id: np.ndarray) -> np.ndarray:
 FORCED_ALIASES: dict[str, tuple[str, ...]] = {
     "ref_id": ("ref_id", "source_id", "id"), "mjd": ("mjd",), "detector": ("detector",),
     "flux_ujy": ("flux_psf_ujy", "flux_ujy", "flux"), "flux_err_ujy": ("flux_psf_err_ujy", "err", "flux_err_ujy", "flux_err"),
-    "wavelength_um": ("wavelength_um",), "detected": ("detected",),
+    "wavelength_um": ("wavelength_um",), "detected": ("detected",), "flags": ("flags",),
 }
 
 
@@ -228,6 +252,8 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
     photos = store.read_parquet(photolist_rel(zone.name)).reset_index(drop=True)
     have = set(store.listdir(C.FORCED_DIR))
     cols = [*FORCED_ALIASES, "obs_id", "session", "visit"]
+    if not len(photos):
+        return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
     todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" in have]
     if not todo:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
@@ -251,6 +277,7 @@ def load_forced(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame:
     f["flux_ujy"] = pd.to_numeric(f["flux_ujy"], errors="coerce").astype(np.float32)
     f["flux_err_ujy"] = pd.to_numeric(f["flux_err_ujy"], errors="coerce").astype(np.float32)
     f["wavelength_um"] = pd.to_numeric(f["wavelength_um"], errors="coerce").astype(np.float32)
+    f["flags"] = pd.to_numeric(f["flags"], errors="coerce").fillna(0).astype(np.int64)
     det = f["detected"]
     if det.isna().all():
         with np.errstate(invalid="ignore", divide="ignore"):
