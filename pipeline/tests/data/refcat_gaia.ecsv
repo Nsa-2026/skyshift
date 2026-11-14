@@ -1,0 +1,26 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: source_id, datatype: int64}
+# - {name: ra, unit: deg, datatype: float64, format: '{:.11f}'}
+# - {name: dec, unit: deg, datatype: float64, format: '{:.11f}'}
+# - {name: pmra, unit: mas / yr, datatype: float64, format: '{:.3f}'}
+# - {name: pmra_error, unit: mas / yr, datatype: float32, format: '{:.3f}'}
+# - {name: pmdec, unit: mas / yr, datatype: float64, format: '{:.3f}'}
+# - {name: pmdec_error, unit: mas / yr, datatype: float32, format: '{:.3f}'}
+# - {name: parallax, unit: mas, datatype: float64, format: '{:.4f}'}
+# - {name: parallax_error, unit: mas, datatype: float32, format: '{:.4f}'}
+# - {name: phot_g_mean_mag, unit: mag, datatype: float32, format: '{:.6f}'}
+# - {name: phot_bp_mean_mag, unit: mag, datatype: float32, format: '{:.6f}'}
+# - {name: phot_rp_mean_mag, unit: mag, datatype: float32, format: '{:.6f}'}
+# - {name: ruwe, datatype: float32, format: '{:.3f}'}
+# - {name: in_qso_candidates, datatype: int16}
+# - {name: in_galaxy_candidates, datatype: int16}
+# schema: astropy-2.0
+source_id ra dec pmra pmra_error pmdec pmdec_error parallax parallax_error phot_g_mean_mag phot_bp_mean_mag phot_rp_mean_mag ruwe in_qso_candidates in_galaxy_candidates
+654768249608513280 121.00475043805 15.0430168054 -1.733 0.017 -3.044 0.011 0.5551 0.0158 12.454403 12.902698 11.841335 1.073 0 0
+654744472669567104 121.00575005156 15.00180871875 -4.637 0.073 -5.776 0.053 0.8162 0.0745 16.573526 17.266247 15.774272 1.035 0 0
+654744502732690176 121.01741317775 15.02141127224 -3.363 0.17 -5.949 0.108 0.8698 0.1581 18.237284 18.980207 17.421917 1.007 0 0
+654767970433997568 121.01972752724 15.02899561672 8.252 0.497 -24.805 0.284 0.3737 0.41 19.55733 20.180096 18.85557 0.986 0 0
+654768077809817728 121.02388954817 15.04687698246 1.594 0.054 -5.958 0.036 1.3565 0.0556 15.565483 16.12658 14.84621 1.316 0 0
+654768073513216128 121.02513080792 15.04165810883 -2.655 0.245 -7.915 0.156 0.7772 0.2344 18.680178 19.64753 17.714602 1.114 0 0
