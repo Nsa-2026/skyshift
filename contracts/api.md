@@ -1,10 +1,11 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.2)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.4)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
 `dt_yr` from median times, per-epoch `center`, the static index and per-set files, live caps,
 targets `dets`, `spectrum_reason`; v3.1: `/data/candidates.json` for the community review pages;
-v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift).
+v3.2: `measure_reason` and `measure_hint`, why `/api/object` gives no shift; v3.3: the measured layer;
+v3.4: suspects.json track fields and grade A).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -408,7 +409,8 @@ A reader shows every check the file holds, in file order; an id missing from the
   vetoes:[…], provisional, grades:{A,B,C}, gates:{<gate>:n},          # added 14 Nov (vetting)
   suspects:[{ id, ra, dec, mjd, clock:"hours", det, evidence:"two_exposures"|"two_detectors",
               n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null,
-              grade:"A"|"B"|"C", reasons:[<gate>…], near_source_arcsec|null }] }   # added 14 Nov
+              grade:"A"|"B"|"C", reasons:[<gate>…], near_source_arcsec|null,      # added 14 Nov
+              n_sessions?|null, rate_arcsec_h?|null, pa_deg?|null, rate_sigma?|null }] }   # optional, 14 Nov (tracks)
 ```
 
 Movers with no known-object match from MPC (contracts/dots.md). Written by the pipeline's
@@ -432,9 +434,13 @@ ungraded: show its suspects as unvetted, not as B.
 | n_dots, snr, flux_ujy | int, float, float µJy | Dots in the mover, their highest S/N and median brightness |
 | cell | integer, no unit | The 6″ sky cell of (`ra`, `dec`), exactly contracts/dots.md's `cell` (`band × 10 000 000 + col`). An id for grouping, not a quantity: neighbouring cells are not neighbouring numbers. At most ~1.08 × 10¹², so a JSON number is exact in JavaScript (below 2⁵³); never a string |
 | nearest_known_arcsec | float, arcsec, or null | Distance to the nearest known object predicted in the same session, moved to `mjd`; null if none within 600″. Suspects have none within 30″ |
-| grade | string | `C`: fails a gate or is catalogued (`reasons` says which); kept in the file, shown greyed with its reasons. `B`: passes every gate; its motion is not shown (most suspects are 2 dots of one session, and at S/N 7–9 the position error exceeds the motion between exposures): an "unexplained one-session source". `A`: B and motion ≥ 5σ over ≥ 2 sessions. A needs a multi-session linker the pipeline doesn't have yet: no suspect is graded A |
+| grade | string | `C`: fails a gate or is catalogued (`reasons` says which); kept in the file, shown greyed with its reasons. `B`: passes every gate; its motion is not shown (most suspects are 2 dots of one session, and at S/N 7–9 the position error exceeds the motion between exposures): an "unexplained one-session source". `A`: candidate mover: on a track over ≥ 2 sessions with motion ≥ 5σ, no catalogue or known match. That is a B whose mover the pipeline's `tracklets` step linked into a track (movers of ≥ 3 sessions of one visit, contracts/dots.md `tracklets`) with movers in ≥ 2 sessions and rate / rate σ ≥ 5; `n_sessions`, `rate_arcsec_h`, `pa_deg`, `rate_sigma` below give the track. Show A first, as the most promising. A file written without tracks has no A |
 | reasons | string[] | The gates it fails, in this order (empty for A and B): `not_vetted` (no dot data to vet: an old movers table, or a dot without a pixel position), `hot_pixel` (a dot on a detector pixel, ±1 px, where the zone's movers have dots in ≥ 3 exposures or its free dots in ≥ 5: hot pixels NASA's HOT bit misses), `bad_column` (≥ 3 free dots of that exposure and detector within ±0.5 px in x), `edge` (a dot within 6 px of the detector edge), `masked_peak` (a mask bit of contracts/flags.md at a dot's peak, OVERFLOW/NONLINEAR aside), `sharp_outlier` (a dot sharper than a star: √(a·b) < 0.6 × (D1–D3) or 0.7 × (D4–D6) the detector's stellar value at its S/N, with OUTLIER at the peak; OUTLIER alone never counts), `very_sharp` (√(a·b) < 0.4 × the stellar value at S/N ≥ 15, OUTLIER or not), `flux_ratio` (brightest dot > 4× the faintest within one detector), `red_photo` (every dot from a photo graded red by the photo QA, qa_photos.parquet; amber never counts), `2mass` (a 2MASS PSC source within 6″), `allwise` (an AllWISE source within 6″; checked where CatWISE2020 was the zone's WISE veto). Thresholds: pipeline config `VET_*`. On 150 MPC-matched hunt movers (real asteroids) 141 pass every gate (edge 4, masked_peak 6) |
 | near_source_arcsec | float, arcsec, or null | Nearest catalogue (Gaia, CatWISE, 2MASS) or fixed source within 10″: a possible blend or PSF wing. A warning, not a gate; null if none within 10″ |
+| n_sessions | int or null, **optional** | The track this suspect is on (pipeline `tracklets`, joined on `id`): sessions of its visit with a mover on the track (≥ 3 on any track). null when the suspect is on no track. The four track fields are absent from a file written without tracks: read absent as null. Present on any suspect on a track, whatever its grade; A also needs rate / rate_sigma ≥ 5 and no failed gate. Added 14 Nov |
+| rate_arcsec_h | float, ″/h, or null, **optional** | The track's apparent rate at this suspect's time (local fit over the track's movers); null off a track |
+| pa_deg | float, degrees, or null, **optional** | The track's direction of motion, east of north, 0–360; null off a track |
+| rate_sigma | float, ″/h, or null, **optional** | 1σ error of `rate_arcsec_h` (scaled up by √χ²_ν of the fit when > 1); null off a track |
 
 ### candidates.json
 
@@ -484,7 +490,7 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one |
 | galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
 | labels | [string] | Filter labels, vocabulary below; order as listed there. [] for movers |
-| grade | string or null | Movers: the suspects' vetting grade, `A`, `B` or `C` (suspects.json `grade`; C = a failed gate or a catalogue source within 6″, its gates are in `reasons`). null for high_pm and spectral, and for zones run before the vetting. Grade C movers come after the zone's other movers and score × 0.1. Added 14 Nov |
+| grade | string or null | Movers: the suspects' vetting grade, `A`, `B` or `C` (suspects.json `grade`; A = a candidate mover on a track over ≥ 2 sessions at ≥ 5σ, its `why` names the track and it never gets `motion_not_significant`; C = a failed gate or a catalogue source within 6″, its gates are in `reasons`). null for high_pm and spectral, and for zones run before the vetting. Grade C movers come after the zone's other movers and score × 0.1. Added 14 Nov |
 | reasons | [string] | Codes, vocabulary below: why it was listed and what to be careful about |
 | why | string | One plain English sentence: why it is on the list (examples below) |
 | flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair) |
@@ -638,3 +644,16 @@ check."
   the zone and its stage) and `measured_reason` (why `measured` is null). Additive: no existing field
   changes; files and answers without them read as not computed. Class names: `star`, `known`, `mover`,
   `suspect`, `artifact`, `other` (`known` as in `known[]`).
+
+## Changes in v3.4 (14 Nov 2026): tracks and grade A
+
+- suspects.json: optional `n_sessions`, `rate_arcsec_h`, `pa_deg`, `rate_sigma` per suspect, from the
+  pipeline's `tracklets` step (movers linked across the sessions of one visit; contracts/dots.md
+  `tracklets`). null when the suspect is on no track; absent from files written without tracks (read
+  absent as null). Additive: no existing field changes.
+- Grade `A` is now given: a candidate mover, on a track over ≥ 2 sessions with motion ≥ 5σ, no
+  catalogue or known match (grade B plus the track). It sorts first in suspects.json and, through
+  `grade`, in candidates.json, where an A's `why` names the track.
+- contracts/dots.md: `nonfixed_dots`, `tracklets`, `tracklet_dots`, and `recall` (recall.json): `recall`
+  now counts a known sighting found by a mover or a dot recovered on a track; `n_found_movers`,
+  `recall_movers` and `control_recall_movers` are the movers-alone numbers.
