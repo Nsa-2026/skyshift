@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 HOURS_MAX_FRAMES = 48
 # Live path (GET /api/frames): at most this many exposures per visit go into a months stack, so a
 # cold request stays well inside Cloud Run's 60 s. Measured on a laptop line (14 Nov, months 15'
-# D2, IRSA mostly busy so S3 reads): every exposure (19 a visit) 84 s cold; 8 a visit 40 s; 6 a
+# D2, IRSA mostly busy so S3 reads): every exposure (19 a visit) 84 s cold; 8 a visit 37 s; 6 a
 # visit 24-27 s, warm 0.5 s. scripts/precompute passes per_visit=None (full stacks).
 LIVE_PER_VISIT = 6
 
