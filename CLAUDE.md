@@ -71,10 +71,11 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 
 ## Cloud
 - Google Cloud project nasa-glazing, region us-east4, zone us-east4-a.
-- Bucket gs://nasa-glazing-data: photolists/, dots/, results/, cache/.
+- Bucket gs://nasa-glazing-data: photolists/, dots/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
 - Firestore (us-east4): candidates, votes. Create-only rules. Site on Firebase Hosting, API on Cloud Run.
 - Machines: skyshift-test (e2-standard-8) for most work; skyshift-worker (n2-highcpu-64 spot)
-  only for the hunt zone after gate G2. Stop machines when idle.
+  only for the hunt zone after gate G2. Both stop themselves after each job; use infra/worker/vm.sh.
+- Schedule: docs/plan-one-day.md (everything built Saturday, freeze 20:00).
 
 ## Not yet verified (check on real data, then fix here and in contracts/)
 Facts measured on the first file: docs/research/2026-11-14-first-photo-facts.md.
