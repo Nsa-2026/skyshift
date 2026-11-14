@@ -205,8 +205,8 @@ def make_root(path) -> Store:
 
 def run_untiled(store: Store, zone: C.Zone) -> None:
     """`all`'s combining steps, untiled."""
-    from skyshift_pipeline import (astrometry, calib, classify, colours, crossid, highpm, lightcurves, link, photoz, qa, score,
-                                   spectra, suspects)
+    from skyshift_pipeline import (astrometry, calib, classify, colours, crossid, highpm, lightcurves, link, orphans, photoz, qa,
+                                   score, spectra, suspects)
     link.run(store, zone, 4)
     spectra.run(store, zone, 4)
     crossid.run(store, zone, 4)
@@ -218,6 +218,7 @@ def run_untiled(store: Store, zone: C.Zone) -> None:
     photoz.run(store, zone)
     for m in (colours, lightcurves, astrometry, highpm):
         m.run(store, zone, 4)
+    assert "error" not in orphans.run(store, zone, 4)
     score.run(store, zone)
     suspects.run(store, zone)
 
@@ -227,7 +228,7 @@ KEYS = {"fixed": ["source_id"], "members": ["source_id", "obs_id", "detector", "
         "colours": ["source_id", "pair"], "lightcurves": ["source_id", "ref_id", "origin", "detector", "mjd", "flux_ujy"],
         "lightcurves_summary": ["source_id", "ref_id", "detector", "origin"], "astrometry": ["source_id"],
         "highpm_candidates": ["method", "source_id", "source_id_b"], "suspects": ["id"], "recall_units": ["unit"],
-        "calib_photos": ["obs_id", "detector"], "qa_photos": ["obs_id", "detector"]}
+        "calib_photos": ["obs_id", "detector"], "qa_photos": ["obs_id", "detector"], "orphans": ["source_id"]}
 
 
 def _norm(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
@@ -261,7 +262,7 @@ def assert_same_results(a: Store, b: Store, zone: C.Zone, rtol: float = 1e-9) ->
             else:
                 assert (u.astype(str) == v.astype(str)).all(), f"{name}.{c}"
     for name in ("calib.json", "lightcurves_report.json", "astrometry_report.json", "photoz_report.json",
-                 "highpm_report.json", "recall.json"):
+                 "highpm_report.json", "recall.json", "distant.json"):
         rel = results_rel(zone.name, name)
         assert a.exists(rel) == b.exists(rel), name
         if a.exists(rel):
@@ -411,8 +412,9 @@ def test_all_runs_the_combining_steps_tiled(tmp_path, monkeypatch):
                      "--zone-edge", "clip", "--tile-dir", str(tmp_path / "work")]) == 0
     summ = store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]
     assert summ["tiles"]["grid"] == [2, 2] and summ["tiles"]["zone_edge_margin"] is False
-    for step in ("link", "calib", "qa", "highpm", "score", "suspects", "completeness"):  # completeness once, after the tiles
+    for step in ("link", "calib", "qa", "highpm", "orphans", "score", "suspects", "completeness"):  # completeness once, after the tiles
         assert step in summ
+    assert "error" not in summ["orphans"]
     for name in ("fixed", "members", "sources", "classes", "lightcurves", "astrometry", "suspects"):
         assert store.exists(results_rel(ZONE.name, f"{name}.parquet")), name
     assert not list((tmp_path / "work").iterdir())  # the work dir is removed after a good run

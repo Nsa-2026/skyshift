@@ -8,7 +8,7 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
 Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-astrometry, highpm, score, completeness, suspects; `all` runs them in order.
+astrometry, highpm, orphans, score, completeness, suspects; `all` runs them in order.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -83,11 +83,37 @@ astrometry, highpm, score, completeness, suspects; `all` runs them in order.
 - Fitted once on the merged data and given to every tile: calib (calib.run, unchanged, fed the tiles' raw member dots of
   Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
   light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
-  highpm, score and suspects run once on the merged tables (their 15′/2′ controls need no border).
+  highpm, orphans, score and suspects run once on the merged tables (their 15′/2′ controls and orphans' 300–7200″ pairs
+  need no border).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
   combining steps, 3/4 of a full read); each tile reads every photo it overlaps. No mirror when the disk lacks room
   (TILE_DISK_RESERVE_GB; hunt: ~6 GB slim dots + 1.9 GB forced): tiles then read the root, slower, same results.
 - Equality (tests/test_tiles.py; pilot photos with 0.3° tiles): tiled == untiled table by table and report by report.
+
+## Distant planets (orphans.py): what the route can and cannot find
+SPHEREx looks ~90° from the Sun, so a planet at 70–1000 AU drifts 0.5–0.002″/h inside a visit and link chains it into a
+fixed source seen in ONE visit; six months later it is 4,800″ (70 AU) to 390″ (1000 AU) away along ecliptic longitude.
+`orphans` (after highpm, once on the merged tables) lists single-visit sources with no Gaia/CatWISE/2MASS entry whose
+spot the other visit covered (>= 6 photos), minus bright-star fragments and the zone's 3′ edge; fits each one's drift
+from its member dots (projected column reads, ~900 dot files for the hunt); pairs orphans of the two visits 300–7,200″
+apart when one heliocentric distance r explains both positions with a bound orbit AND both measured drifts (Earth's
+reflex at that r) AND the same-detector fluxes; and repeats the pairing 50× with the later visit shifted cyclically in
+its box: the mean is the chance expectation. results/<zone>/orphans.parquet (every candidate, `reason`, drift, `in_pair`,
+`track_in_zone`) and distant.json (passing pairs with distance, fluxes, positions, times; control counts; the depth
+and reach searched; `open` orphans). Can find: a planet detected (S/N >= 5) in >= 3 sessions of BOTH visits, with no
+catalogue entry within crossid's radius at either spot (~8% of the ecliptic sky is lost to CatWISE alone). Brightness:
+single-exposure depth AB ~17.4–17.7 (D1–D4), no stacking: a Neptune-size planet (albedo 0.4) to ~290 AU, an Earth
+much nearer (distant.json `reach_au_at_d2_depth`). Cannot find: anything fainter; movers > ~1″/h (score/suspects do
+those); a planet whose 70–100 AU fragments have < 3 sessions each; one blended with a star; a partner beyond the zone
+edge. Zone edge: the partner can be up to 2° away, so each drift-fitted orphan gets `track_in_zone` (share of its
+70–1000 AU parallax track inside the zone box less the 3′ margin); those < 1 are listed in distant.json `open` with the
+track's 70 and 1000 AU ends. No cross-zone pass yet: it would read every zone's orphans.parquet and pair `open` orphans
+with the neighbours' orphans using the same model (orphans.pair_model). Known bodies: an MPC object (the `known`
+predictions; tiles pass theirs) moving like an orphan (rate within 0.3″/h + 3σ) and within 30″ of it is tagged
+`known_name` (distant.json `known`, `known_a/b`): a recovered TNO validates the route, it is not dropped. Hunt (14 Nov
+tables): 447 orphans, 892 pairs tested, 1 passing vs 1.5 expected by chance (p 0.78), no known slow body bright enough.
+Table-level injection at the hunt's cadence (70–1000 AU, 3–20 dots per visit): 83–100 % recovered, r within ~2 %.
+The step never raises (errors go to its stats).
 
 ## Completeness (inject.py, step `completeness`): what "found nothing" means
 - Once per zone after score (a tiled `all` runs it after the tiles; env SKYSHIFT_COMPLETENESS=off skips it). A 1° × 1°

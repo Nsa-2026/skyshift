@@ -580,6 +580,49 @@ QA_OFFSET_AMBER_ARCSEC = 0.6
 QA_LIGHTCURVES = True          # lightcurves: red photos' points get photo_ok false (as its own bad photos)
 QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
 
+# --- orphans: the distant-planet route (orphans.py) ---------------------------------------------------------------
+# A planet at 70–1000 AU drifts 0.5–0.03″/h inside a visit (Earth's reflex), so link's 4″ FoF chains it into a fixed
+# source seen in ONE visit; six months later it sits 4,800–390″ away along ecliptic longitude (Earth's 2 AU parallax
+# baseline, less its own orbital motion). Orphans: single-visit sources without a catalogue counterpart whose spot the
+# other visit covered. Pairs across visits are tested against a bound-orbit model; controls give the chance rate.
+ORPHANS_MIN_COVER_PHOTOS = 6       # the other visit covered the position with at least this many photos (absence is real)
+ORPHANS_BRIGHT_SNR = 100.0         # bright-star fragment: another source this bright (max dot S/N) ...
+ORPHANS_BRIGHT_ARCSEC = 15.0       # ... within this distance
+ORPHANS_EDGE_ARCSEC = 180.0        # zone edge: closer than this to the zone box's edge (inside or out) is dropped
+ORPHANS_MEMBER_MAX_ARCSEC = 60.0   # a member dot further than this from its source is stale (dot file rewritten): dropped
+ORPHANS_POS_ERR_SCALE = 1.6        # dot pos_err is 1.4–1.8× too small against Gaia (raw dots; calib is not applied here)
+ORPHANS_POS_FLOOR_ARCSEC = 0.3     # added in quadrature per dot (pixel phase, frame offsets, SPHEREx's own parallax)
+ORPHANS_MIN_DOTS = 3               # dots needed for the drift fit (4 parameters, 2 numbers per dot) ...
+ORPHANS_MIN_SPAN_H = 6.0           # ... spanning at least this long
+ORPHANS_CLIP_SIGMA = 5.0           # one refit without dots beyond this many (χ²-inflated) sigma
+ORPHANS_RATE_MIN = 0.0             # ″/h. Not 0.02: at SPHEREx's ~90° elongation Earth's velocity runs along the line of sight,
+                                   # so a 700–1000 AU planet can drift only 0.002–0.03″/h in a visit; with 0.02 the table-level
+                                   # injection (hunt cadence, 20 dots per visit) kept 17% / 5% of them. The pair model tests the
+                                   # drift against the distance instead.
+ORPHANS_RATE_MAX = 1.0             # ″/h: ~50 AU (faster movers don't chain into a fixed source)
+ORPHANS_DRIFT_NSIGMA = 3.0         # drift_ok: the rate is within this many sigma of [RATE_MIN, RATE_MAX] ...
+ORPHANS_DRIFT_MAX_ERR = 0.1        # ... and measured to better than this (″/h; otherwise anything is "consistent")
+ORPHANS_DRIFT_FLOOR = 0.005        # ″/h added in quadrature to drift errors in the pair model (straight-line motion, r grid)
+ORPHANS_SEP_MIN_ARCSEC = 300.0     # pair separation between visits: 1000 AU ≈ 390″ ...
+ORPHANS_SEP_MAX_ARCSEC = 7200.0    # ... 70 AU ≈ 4,800″ prograde, 6,900″ retrograde (six months apart; the partner may be in
+                                   # the next zone)
+ORPHANS_MIN_DT_DAYS = 60.0         # pairs only across visits (the visit rule's gap)
+ORPHANS_R_GRID_AU = (40.0, 2000.0, 160)  # heliocentric distance grid of the pair model: min, max, points (log)
+ORPHANS_VMAX_FACTOR = 1.4142       # bound orbit: heliocentric speed <= this × circular speed 2π/√r AU/yr (escape)
+ORPHANS_FLUX_LN_FLOOR = 0.35       # ln-flux error floor per detector (each visit samples other channels of the detector)
+ORPHANS_MIN_COMMON_DET = 1         # pairs need a detector measured in both visits
+ORPHANS_PAIR_MIN_P = 0.01          # a pair passes when χ²(drifts + fluxes) has p >= this
+ORPHANS_CONTROL_N = 50             # controls: the later visit's orphans shifted cyclically within their box ...
+ORPHANS_CONTROL_SHIFT = (0.25, 0.75)  # ... by this share of the box (uniform), in RA and in Dec: no real pair survives
+ORPHANS_CONTROL_SEED = 2026
+ORPHANS_TRACK_AU = (70.0, 1000.0, 24)  # partner track (parallax only) for the zone-edge check: min, max, points (log)
+ORPHANS_REPORT_MAX = 300           # rows of pairs / open orphans written to distant.json
+ORPHANS_KNOWN_ARCSEC = 30.0        # an MPC object this close to the orphan (moved by its drift to the object's time) ...
+ORPHANS_KNOWN_RATE_TOL = 0.3       # ... moving like it (″/h, + 3σ of the drift) ...
+ORPHANS_KNOWN_DAYS = 5.0           # ... within this many days of the orphan's mean time: `known_name` (a recovered body)
+ORPHANS_MAX_PAIRING = 5000         # more drift_ok orphans than this (a crowded zone): pairing skipped, said in distant.json
+ORPHANS_MAX_PAIR_EVALS = 3_000_000 # pairs scored over real + controls: fewer controls (>= 5) when the real set is large
+
 # --- completeness: synthetic movers injected into the stored dots (inject.py) -------------------------------------
 # Once per zone after score (untiled, also in a tiled `all`): a sub-area of INJECT_BOX_DEG × INJECT_BOX_DEG (on the sky)
 # at the zone's centre (the zone itself if smaller), its real dots (every photo overlapping it) plus synthetic dots of
