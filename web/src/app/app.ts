@@ -41,7 +41,7 @@ export function startApp(root: HTMLElement): void {
       </form>
       <nav class="nav" aria-label="Pages">
         <a href="#/" data-route="atlas" ${ATLAS_READY ? "" : "hidden"}>Sky</a>
-        <a href="#/candidates" data-route="discover">Candidates</a>
+        <a href="#/candidates" data-route="discover">To check</a>
         <a href="#/review" data-route="review">Review</a>
         <a href="#/explore" data-route="explore">Blink</a>
         <a href="#/live" data-route="live">Live search</a>

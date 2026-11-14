@@ -236,11 +236,15 @@ export function listsHtml(sum: RunSummary, now: number): string {
     ${recent ? `<div><h2 class="lv-h">Just combined</h2><ul class="lv-list">${recent}</ul></div>` : ""}
     <div>
       <h2 class="lv-h">What the numbers mean</h2>
-      <p class="lv-note">A <b>dot</b> is one detection on one photo. A <b>source</b> is the dots of one object, linked. A <b>mover</b> is a source that shifts between photos. A <b>suspect</b> is a mover that no catalogue explains: a candidate for people to review.</p>
+      <p class="lv-note">A <b>dot</b> is one detection on one photo. A <b>source</b> is the dots of one object, linked. A <b>mover</b> is a source that shifts between photos. A <b>suspect</b> is a mover that no catalogue explains: something for people to check, most often a detector artefact.</p>
     </div>`;
 }
 
 // ---- the zone panel ---------------------------------------------------------------------------------
+/** What "Known asteroids re-found" covers (the V5 check on Results): not slow movers. */
+const RECALL_NOTE =
+  "Re-found: known asteroids brighter than V 16 that the blind search caught, counted once per session. Tested so far on asteroids moving 10–90″/h; slower movers haven't been checked against real objects.";
+
 const STATE_SENTENCE: Record<ZoneState, string> = {
   queued: "Queued: no machine has started it yet.",
   extracting: "Extracting: a machine is reading its photos.",
@@ -308,6 +312,7 @@ export function zonePanelHtml(z: SkyZone, now: number, notes: SkyNotes = NO_NOTE
     <p class="lv-pstate">${swatch(z.state, z.state === "combined" ? suspectLevel(z.suspects) : "")} ${state}</p>
     ${provisional}${err}${bulge}
     <dl class="lv-pdl">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+    ${z.recall === null ? "" : `<p class="lv-note">${RECALL_NOTE}</p>`}
     <div class="lv-pact">
       <button type="button" class="btn btn-primary" data-blink>Blink the centre</button>
       <a class="btn" href="${skyHref(z)}">See it on the sky</a>
@@ -325,7 +330,7 @@ export const TOP_SUSPECTS = 8;
 export function suspectsHtml(z: SkyZone, s: SuspectsState, notes: SkyNotes = NO_NOTES): string {
   const prov = isProvisional(z);
   const note = prov
-    ? `<p class="lv-prov-note">${esc(notes.provisional ?? "Provisional: checked against Gaia only. The WISE check in the final pass removes most of these; they are not candidates yet.")}</p>`
+    ? `<p class="lv-prov-note">${esc(notes.provisional ?? "Provisional: checked against Gaia only. The WISE check in the final pass removes most of these; they aren't on the list to check yet.")}</p>`
     : "";
   const head = `<h3 class="lv-h">${prov ? "Provisional suspects, before the WISE check" : "Top suspects"}</h3>${note}`;
   if (s.status === "loading") return `${head}<p class="lv-note">Loading this zone's suspects…</p>`;
@@ -346,6 +351,6 @@ export function suspectsHtml(z: SkyZone, s: SuspectsState, notes: SkyNotes = NO_
     ? ` <a href="${esc(z.suspects_url)}" target="_blank" rel="noopener">All ${fmtCount(s.rows.length)} as JSON</a>.`
     : "";
   return html`${head}
-    <p class="lv-note">The ${top.length} with the highest S/N of ${fmtCount(s.rows.length)}, marked on the map ${prov ? "as hollow red rings" : "in solid red"}.${all}</p>
+    <p class="lv-note">The ${top.length} with the highest S/N of ${fmtCount(s.rows.length)}, marked on the map ${prov ? "as hollow red rings" : "in solid red"}.${all} High S/N doesn't mean real: in the hunt zone, all 8 brightest were artefacts, so blink before you trust one.</p>
     <ol class="lv-sus-list">${items}</ol>`;
 }

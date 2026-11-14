@@ -158,6 +158,7 @@ export function renderCheck(c: ValidationCheck, lead = false): string {
         ${figure}
         ${pending && plain ? html`<p class="sc-plain">${esc(plain)}</p>` : ""}
         ${measured || target ? html`<p class="sc-vs">${measured}${target}</p>` : ""}
+        ${!pending && info?.scope ? html`<p class="sc-vs sc-scope">${esc(info.scope)}</p>` : ""}
       </div>
       ${note ? html`<p class="sc-note">${esc(prettyText(note))}</p>` : !pending && plain ? html`<p class="sc-note">${esc(plain)}</p>` : ""}
       ${rowsBlock(c)}
@@ -170,7 +171,7 @@ function suspectRow(s: Suspect): string {
   const det = DETECTORS[s.det as keyof typeof DETECTORS];
   return html`<tr>
     <th scope="row" class="sc-sid"><a class="sc-sid-id" href="${esc(candidateHref(s.id))}"
-        title="Candidate page: why it's listed, cautions and votes">${esc(s.id)}</a>
+        title="Its page: why it's listed, cautions and votes">${esc(s.id)}</a>
       <a class="sc-blink" href="${esc(blinkHref(s))}" aria-label="Blink ${esc(s.id)} on the Hours clock">Blink this</a></th>
     <td>${esc(suspectDate(s.mjd))}</td>
     <td class="sc-pos"><span>${esc(formatPos(s))}</span><span class="sc-sub">${esc(formatDecimalPos(s))}</span></td>
@@ -194,8 +195,10 @@ function zoneName(zone: string): string {
 }
 
 export function renderSuspects(sr: SuspectsResponse | null): string {
-  const intro = html`<p class="sc-intro">A suspect is a dot that moved where no known asteroid or comet was predicted:
-    it may be a new object or an artefact, and people decide which by blinking it and voting.</p>`;
+  const intro = html`<p class="sc-intro">A suspect is a dot that seemed to move where no known asteroid or comet was
+    predicted. Most are artefacts: in the hunt zone, 211 of 228 rest on just two dots in one session, which can't show
+    motion by itself, and the 8 with the highest S/N are all artefacts. People decide which are real by blinking them
+    and voting.</p>`;
   if (!sr) {
     return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
       <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
