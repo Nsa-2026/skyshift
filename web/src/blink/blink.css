@@ -511,6 +511,14 @@
   opacity: 0.32;
   cursor: not-allowed;
 }
+/* All wavelengths: the whole ramp under one grey button, the plate's own colour. */
+.bk-det.det-all {
+  --det: linear-gradient(90deg, var(--d1), var(--d2), var(--d3), var(--d4), var(--d5), var(--d6));
+  flex: 1.2 1 0;
+}
+.bk-det.det-all::after {
+  background: var(--det);
+}
 
 /* ---- Adjust: popover beside the plate on desktop, an inline sheet on a phone ---------- */
 .bk-adjust {

@@ -1,9 +1,12 @@
-// The blink player (P4). Draws SPHEREx frames of one detector on a plate and blinks them on the
-// months clock (visit stacks) or the hours clock (single exposures). Seam: src/app/modules.ts.
-// Design: web/DESIGN.md ("Lightbox"). The plate is the hero, the time strip sits right under it,
-// one row of primary controls follows, and everything secondary lives behind "Adjust".
+// The blink player (P4). Draws SPHEREx frames on a plate and blinks them on the months clock (visit
+// stacks) or the hours clock (single exposures): by default all wavelengths at once (allwave.ts:
+// every detector of one moment combined in grey), or one detector picked on the ramp.
+// Seam: src/app/modules.ts. Design: web/DESIGN.md ("Lightbox"). The plate is the hero, the time
+// strip sits right under it, one row of primary controls follows, and everything secondary lives
+// behind "Adjust".
 import "./blink.css";
-import { ALLOWED_FOV, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadTargetIndex, toMJySr } from "../api/client";
+import { ALLOWED_FOV, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadFrames, loadTargetIndex, toMJySr } from "../api/client";
+import { combineFrames, detectorsNote, groupEpochs, mergeMeasured, remapMeasured, type WaveGroup, type WavePart } from "./allwave";
 import type { Clock, Det, Epoch, FramesResponse, GaiaStar, Measured, MeasuredClass, MeasuredDetection, SkyPos, TargetIndex } from "../api/types";
 import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
 import type { BlinkHandle, BlinkOptions, MountBlink, View } from "../app/modules";
@@ -17,6 +20,7 @@ import {
   median,
   niceArcsec,
   noDataAt,
+  noDataSpot,
   offset,
   psfSigmaPx,
   robustLimits,
@@ -197,6 +201,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           </div>
           <div class="seg seg-sm bk-fov" role="group" aria-label="Field of view"></div>
           <div class="bk-ramp" role="group" aria-label="Detector">
+            <button class="bk-det det-all" type="button" data-det="all" aria-pressed="true"
+              aria-label="All wavelengths, 0.75 to 5.0 µm"
+              title="All six detectors of each moment combined in grey, each scaled by its own sky noise: a star faint at one wavelength still shows. Pick a detector to see it alone."><span>All</span></button>
             ${DETS.map(
               (d) => html`<button class="bk-det det-${d}" type="button" data-det="${d}" aria-pressed="false"
                 aria-label="D${d}, ${DETECTORS[d].min} to ${DETECTORS[d].max} µm"
@@ -373,6 +380,20 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let follow = false;
   let mover: Mover | null = null;
   let shifts: { dx: number; dy: number }[] | null = null;
+  /** All wavelengths (the default): every detector of one moment combined. Off: `view.det` alone. */
+  let allWave = true;
+  /** The response as the app handed it (one or all detectors), its URL, and the combined moments. */
+  let rawF: FramesResponse | null = null;
+  let rawUrl = "";
+  let waveGroups = new Map<string, WaveGroup>();
+  /** Detectors really combined into each moment (a frame that failed to load drops out). */
+  let waveLoaded = new Map<string, number>();
+  /** Live answers come one detector at a time: the others for this field, fetched in the background. */
+  let liveDets: { key: string; got: Map<Det, { resp: FramesResponse; url: string }>; pending: boolean } = {
+    key: "",
+    got: new Map(),
+    pending: false,
+  };
   const overlays = { measured: true, gaia: true, known: true, faint: false, target: true, guides: true };
   // What SkyShift measured (contracts/api.md v3.3), prepared once per response and detector.
   let meas: Measured | null = null;
@@ -605,6 +626,30 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     ctx.drawImage(off, vp.u0, vp.v0, vp.vw, vp.vh, vp.ox, vp.oy, vp.vw * vp.s, vp.vh * vp.s);
     drawMarks(vp);
     if (overlays.guides) drawGuides(vp, plain && positive);
+    drawNoDataNote(vp);
+  }
+
+  /** The plate's no-data area (raw 0: past this photo's edge) gets a small note, when it is not a sliver. */
+  const NO_DATA_NOTE = "No data here: edge of this photo";
+  let noDataCache: { vals: Float32Array | null; key: string; spot: ReturnType<typeof noDataSpot> } = { vals: null, key: "", spot: null };
+  function drawNoDataNote(vp: VP) {
+    if (!ctx || !shown || !F) return;
+    const [nx, ny] = size();
+    if (shown.length !== nx * ny) return;
+    const key = `${vp.u0.toFixed(1)},${vp.v0.toFixed(1)},${vp.vw.toFixed(1)}`;
+    if (noDataCache.vals !== shown || noDataCache.key !== key) noDataCache = { vals: shown, key, spot: noDataSpot(shown, shownMask, nx, ny, vp) };
+    const spot = noDataCache.spot;
+    if (!spot || spot.frac < 0.03) return;
+    const p = toScreen({ x: spot.x - 0.5, y: spot.y - 0.5 }, vp);
+    ctx.save();
+    ctx.font = `600 11px ${fontFamily}`;
+    const w = ctx.measureText(NO_DATA_NOTE).width;
+    const left = vp.ox + 6;
+    const right = vp.ox + vp.vw * vp.s - 6;
+    const x = Math.min(Math.max(p.X - w / 2, left), right - w);
+    const y = Math.min(Math.max(p.Y + 4, vp.oy + 14), vp.oy + vp.vh * vp.s - 6);
+    label(ctx, NO_DATA_NOTE, x, y, cssColor("--ink-2", "#4a5560"), cssColor("--sheet-2", "#e3e8e7"));
+    ctx.restore();
   }
 
   function drawMarks(vp: VP) {
@@ -1136,7 +1181,19 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       }
     }
     const det = view?.det;
-    if (det) {
+    const g = e ? waveGroups.get(e.id) : undefined;
+    if (det && g && view) {
+      // All wavelengths: which detectors, their span, and how many really combined here.
+      const dets = [...new Set([...waveGroups.values()].flatMap((x) => x.members.map((m) => m.det)))].sort();
+      const here = allAtOnce() ? dets : g.members.map((m) => m.det);
+      const name = view.clock === "hours" ? here.map((d) => `D${d}`).join(" and ") : "All wavelengths";
+      const span = allAtOnce()
+        ? [Math.min(...dets.map((d) => DETECTORS[d].min)), Math.max(...dets.map((d) => DETECTORS[d].max))]
+        : [g.epoch.um_min, g.epoch.um_max];
+      const note = allAtOnce() ? "" : detectorsNote(waveLoaded.get(g.epoch.id) ?? g.members.length, view.clock);
+      detLabel.innerHTML = `<i class="bk-swatch"></i>${name} <span>${um(span[0])}–${um(span[1])} µm${note ? ` · ${note}` : ""}</span>`;
+      detLabel.title = `${here.map((d) => `D${d}`).join(", ")} combined, each in units of its own sky noise. ${g.epoch.n_exposures} exposure${g.epoch.n_exposures === 1 ? "" : "s"}.`;
+    } else if (det) {
       const lo = e && !allAtOnce() ? um(e.um_min) : um(DETECTORS[det].min);
       const hi = e && !allAtOnce() ? um(e.um_max) : um(DETECTORS[det].max);
       detLabel.innerHTML = `<i class="bk-swatch"></i>D${det} <span>${lo}–${hi} µm</span>`;
@@ -1203,6 +1260,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         if (Number.isNaN(v)) val = burntAt(y * nx + x) ? "saturated" : "no data";
         else if (shownSigned && shownLim?.sigma && shownLim.sigma > 0)
           val = `${v >= 0 ? "+" : "−"}${Math.abs(v / shownLim.sigma).toFixed(1)}σ`;
+        // All wavelengths: the plate is already in units of sky noise, sky at 0.
+        else if (waveGroups.size) val = `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}σ ${v >= 0 ? "above" : "below"} sky`;
         else val = `${v.toFixed(Math.abs(v) < 1 ? 3 : 2)} MJy/sr${levelSky ? " above sky" : ""}`;
         say.innerHTML = `<span class="bk-pos">${formatRaDec(sky)}</span> <span class="bk-val">${val}</span>`;
         renderKey();
@@ -1252,13 +1311,17 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           aria-label="${f} arcminute field" title="${f} arcminute field">${f}′</button>`,
       )
       .join("");
-    const have = F ? detectorsIn(F) : [];
+    const have = rawF ? waveDets() : [];
     $$<HTMLButtonElement>("[data-det]").forEach((b) => {
+      if (b.dataset.det === "all") {
+        b.setAttribute("aria-pressed", String(allWave));
+        return;
+      }
       const d = Number(b.dataset.det) as Det;
-      b.setAttribute("aria-pressed", String(d === view!.det));
-      b.disabled = !!F && !have.includes(d) && d !== view!.det;
+      b.setAttribute("aria-pressed", String(!allWave && d === view!.det));
+      b.disabled = !!rawF && !have.includes(d) && d !== view!.det;
     });
-    root.style.setProperty("--det", `var(--d${view.det})`);
+    root.style.setProperty("--det", allWave ? "var(--ink-2)" : `var(--d${view.det})`);
     markAvailable();
   }
 
@@ -1483,7 +1546,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const hours = m.clock === "hours";
     mp.items.hidden = !measItems.length;
     if (!measItems.length) return;
-    mp.lh.textContent = hours ? `Movers and artefacts on D${view.det}` : "What moved between visits";
+    mp.lh.textContent = hours ? (waveGroups.size ? "Movers and artefacts on all detectors" : `Movers and artefacts on D${view.det}`) : "What moved between visits";
     const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
     mp.list.innerHTML = shown
       .map(
@@ -1541,8 +1604,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (changed) emitEpoch();
   }
   function emitEpoch() {
-    const e = cur()?.epoch;
-    if (e) opts.onEpoch?.({ id: e.id, mjd_mid: e.mjd_mid, det: e.det });
+    const shownE = cur()?.epoch;
+    if (!shownE) return;
+    const e = memberEpoch(shownE);
+    opts.onEpoch?.({ id: e.id, mjd_mid: shownE.mjd_mid, det: e.det });
+  }
+  /** The real epoch behind a combined one: the chosen detector's, else the first. */
+  function memberEpoch(e: Epoch): Epoch {
+    const g = waveGroups.get(e.id);
+    return g?.members.find((m) => m.det === view?.det) ?? g?.members[0] ?? e;
   }
   function setPlaying(on: boolean) {
     playing = on && frames.length > 1 && !allAtOnce() && !busy;
@@ -1614,6 +1684,83 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
   }
 
+  // ---- all wavelengths ---------------------------------------------------------------------
+  const waveKey = (v: View) => `${v.ra.toFixed(5)},${v.dec.toFixed(5)},${v.clock},${v.fov}`;
+  /** The responses for this field: the app's, and the other detectors fetched live. */
+  function waveSources(v: View, resp: FramesResponse, url: string) {
+    const extra = liveDets.key === waveKey(v) ? [...liveDets.got.values()].filter((x) => x.resp !== resp && sameGrid(x.resp, resp)) : [];
+    return [{ resp, url }, ...extra];
+  }
+  /** Frames can only be summed pixel by pixel on one grid: same size, sampling and centre. */
+  function sameGrid(a: FramesResponse, b: FramesResponse): boolean {
+    if (a.clock !== b.clock || a.size[0] !== b.size[0] || a.size[1] !== b.size[1]) return false;
+    if (Math.abs(a.pixel_arcsec - b.pixel_arcsec) > 1e-6) return false;
+    const dra = (a.center.ra - b.center.ra) * Math.cos((b.center.dec * Math.PI) / 180);
+    return Math.hypot(dra, a.center.dec - b.center.dec) * 3600 < 0.25 * b.pixel_arcsec;
+  }
+  /** Detectors this field has, in every response we hold. */
+  function waveDets(): Det[] {
+    if (!rawF || !view) return [];
+    return [...new Set(waveSources(view, rawF, rawUrl).flatMap((x) => detectorsIn(x.resp)))].sort() as Det[];
+  }
+  /**
+   * The response as the combined plate sees it: one epoch per moment (all detectors), known
+   * objects and the measured layer moved onto those moments. null when only one detector is here.
+   */
+  function waveOf(v: View, resp: FramesResponse, url: string): { F: FramesResponse; groups: WaveGroup[]; urlOf: Map<string, string> } | null {
+    const src = waveSources(v, resp, url);
+    const urlOf = new Map<string, string>();
+    const epochs: Epoch[] = [];
+    for (const x of src)
+      for (const e of x.resp.epochs)
+        if (!urlOf.has(e.id)) {
+          urlOf.set(e.id, x.url);
+          epochs.push(e);
+        }
+    if (new Set(epochs.map((e) => e.det)).size < 2) return null;
+    const groups = groupEpochs(epochs, v.clock, v.det);
+    const groupOf = new Map(groups.flatMap((g) => g.members.map((m) => [m.id, g.epoch.id] as const)));
+    // Only answers with a frame on the plate count: a live detector whose exposures are all at
+    // other times (hours) adds nothing, and its dots and photos would be counted for nothing.
+    const used = src.filter((x) => x.resp === resp || x.resp.epochs.some((e) => urlOf.get(e.id) === x.url && groupOf.has(e.id)));
+    const seen = new Set<string>();
+    const known = used
+      .flatMap((x) => x.resp.known)
+      .map((k) => ({ ...k, epoch_id: k.epoch_id == null ? null : (groupOf.get(k.epoch_id) ?? "") }))
+      .filter((k) => k.epoch_id !== "" && !seen.has(`${k.epoch_id}|${k.name}`) && !!seen.add(`${k.epoch_id}|${k.name}`));
+    const merged = mergeMeasured(used.map((x) => x.resp.measured));
+    const measured = merged ? remapMeasured(merged, groups) : resp.measured;
+    return { F: { ...resp, epochs: groups.map((g) => g.epoch), known, measured }, groups, urlOf };
+  }
+  /**
+   * Static first: the frames we have (a static file, or one live detector) show at once. The
+   * detectors they lack come from /api/frames in the background, in parallel, and are combined as
+   * they arrive; one that fails or comes on another grid just stays out. Months: all six. Hours: the
+   * partners exposed at the same moment. Not for frames that follow a mover: the live answer
+   * stays on the sky, so it can't be summed with them.
+   */
+  function fetchOtherDets(v: View, resp: FramesResponse) {
+    const key = waveKey(v);
+    if (liveDets.key === key) return;
+    liveDets = { key, got: new Map(), pending: true };
+    if (resp.epochs.some((e) => !!e.center)) return;
+    const have = new Set(detectorsIn(resp));
+    if (!have.size) return;
+    const want =
+      v.clock === "months" ? DETS.filter((d) => !have.has(d)) : [...new Set([...have].map((d) => SAME_MOMENT[d] as Det))].filter((d) => !have.has(d));
+    if (!want.length) return;
+    void Promise.allSettled(
+      want.map(async (d) => {
+        const r = await loadFrames({ ra: resp.center.ra, dec: resp.center.dec, clock: v.clock, fov: v.fov, det: d, slug: null });
+        if (liveDets.key === key && r.frames.clock === v.clock) liveDets.got.set(d, { resp: r.frames, url: r.jsonUrl });
+      }),
+    ).then(() => {
+      if (liveDets.key !== key) return;
+      liveDets.pending = false;
+      if (allWave && view && rawF && waveKey(view) === key && liveDets.got.size) void load(view, rawF, rawUrl);
+    });
+  }
+
   // ---- loading -----------------------------------------------------------------------------
   async function load(next: View, resp: FramesResponse, url: string): Promise<void> {
     const gen = ++loadCtl;
@@ -1629,8 +1776,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       follow = false;
     }
     view = next;
-    F = resp;
+    rawF = resp;
+    rawUrl = url;
+    const wave = allWave ? waveOf(next, resp, url) : null;
+    F = wave?.F ?? resp;
+    waveGroups = new Map((wave?.groups ?? []).map((g) => [g.epoch.id, g]));
+    waveLoaded = new Map();
     jsonUrl = url;
+    if (allWave) fetchOtherDets(next, resp);
     appStatus = null;
     comparing = false;
     root.dataset.ready = "false";
@@ -1642,7 +1795,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     focusItem = null;
     prepareMeasured();
     renderMeasured();
-    const eps = epochsFor(resp, next.det);
+    const eps = wave ? wave.groups.map((g) => g.epoch) : epochsFor(resp, next.det);
     if (!eps.length) {
       frames = [];
       failed = 0;
@@ -1661,10 +1814,30 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     busy = { done: 0, total: eps.length };
     renderMsg();
     renderControls();
+    const [gx, gy] = resp.size;
+    /** One moment of all wavelengths: each detector's frame in units of its own noise, summed. */
+    const combined = async (g: WaveGroup): Promise<Float32Array> => {
+      const got = await Promise.allSettled(
+        g.members.map(async (m): Promise<WavePart> => {
+          const v = toMJySr(await cachedFrame(m, wave!.urlOf.get(m.id) ?? url), m);
+          if (v.length !== gx * gy) throw new Error(`frame ${m.id} has the wrong size`);
+          const sky = median(v);
+          const sigma = robustSigma([v], 40_000);
+          return { vals: v, burnt: burntCores(v, gx, gy, sky, sigma), sky, sigma };
+        }),
+      );
+      const parts = got.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+      if (!parts.length) throw new Error(`no frame of ${g.epoch.id} loaded`);
+      waveLoaded.set(g.epoch.id, parts.length);
+      return combineFrames(parts);
+    };
     const results = await pool(
       eps,
       6,
-      async (e) => toMJySr(await cachedFrame(e, url), e),
+      async (e) => {
+        const g = waveGroups.get(e.id);
+        return g ? combined(g) : toMJySr(await cachedFrame(e, url), e);
+      },
       () => {
         if (gen !== loadCtl || !busy) return;
         busy.done++;
@@ -1762,9 +1935,19 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     } else if (d.fov) {
       if (Number(d.fov) !== view.fov) opts.onViewChange({ fov: Number(d.fov) });
     } else if (d.det) {
-      if (Number(d.det) !== view.det) opts.onViewChange({ det: Number(d.det) as Det });
-    } else if (d.gotoDet) opts.onViewChange({ det: Number(d.gotoDet) as Det });
-    else if (d.retry !== undefined && F) void load(view, F, jsonUrl);
+      // "All" combines every detector; a detector button shows that one alone, as a filter.
+      const all = d.det === "all";
+      if (all !== allWave) {
+        allWave = all;
+        if (rawF && (all || Number(d.det) === view.det)) void load(view, rawF, rawUrl);
+      }
+      if (!all && Number(d.det) !== view.det) opts.onViewChange({ det: Number(d.det) as Det });
+      else renderRow();
+    } else if (d.gotoDet) {
+      allWave = false;
+      opts.onViewChange({ det: Number(d.gotoDet) as Det });
+    }
+    else if (d.retry !== undefined && (rawF ?? F)) void load(view, (rawF ?? F)!, jsonUrl);
     else if (d.mode) setMode(d.mode as Mode);
     else if (d.stretch) {
       stretchKind = d.stretch as StretchKind;
@@ -1944,11 +2127,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const { u, v } = toImage(X, Y);
     const [nx, ny] = size();
     if (u < 0 || v < 0 || u > nx || v > ny) return;
-    const e = cur()?.epoch;
-    if (!e) return;
-    const sky = pixelToSky({ x: u - 0.5, y: v - 0.5 }, F, centreOf(e));
+    const shownE = cur()?.epoch;
+    if (!shownE) return;
+    const sky = pixelToSky({ x: u - 0.5, y: v - 0.5 }, F, centreOf(shownE));
     pick = sky;
     draw();
+    // A combined moment is not a SPHEREx epoch: the vote names one of the photos in it.
+    const e = memberEpoch(shownE);
     opts.onPick({ ra: sky.ra, dec: sky.dec, mjd: e.mjd_mid, clock: view.clock, det: e.det, epoch_id: e.id });
   });
   canvas.addEventListener("pointerleave", () => {

@@ -78,10 +78,29 @@ describe("blink player", () => {
     expect(el.querySelector<HTMLElement>(".bk-progress")!.hidden).toBe(false);
 
     await h.show(view, frames, "https://example.test/data/x/frames.json");
-    // Never blink different detectors: three D2 visits, no D5.
+    // The default: all wavelengths, each visit's D2 and D5 combined into one plate.
+    const label = () => el.querySelector(".bk-det-label")!.textContent;
+    expect(el.querySelector("[data-det='all']")!.getAttribute("aria-pressed")).toBe("true");
+    expect(sub()).toBe("visit 1 of 3");
+    expect(label()).toContain("All wavelengths");
+    expect(label()).toContain("2 of 6 detectors");
+    // The app hears of a real epoch, never the combined one.
+    expect(onEpoch).toHaveBeenLastCalledWith({ id: "d2-v1", mjd_mid: 60908, det: 2 });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(label()).toContain("1 of 6 detectors");
+
+    // A detector button filters: D2 alone. Never blink different detectors: three D2 visits, no D5.
+    el.querySelector<HTMLButtonElement>("[data-det='2']")!.click();
+    await vi.waitFor(() => expect(sub()).toMatch(/^visit \d of 3$/));
+    expect(label()).toContain("D2");
+    expect(el.querySelector("[data-det='all']")!.getAttribute("aria-pressed")).toBe("false");
+    expect(el.querySelector("[data-det='2']")!.getAttribute("aria-pressed")).toBe("true");
+    expect(onViewChange).not.toHaveBeenCalled();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     expect(sub()).toBe("visit 1 of 3");
     expect(onEpoch).toHaveBeenLastCalledWith({ id: "d2-v1", mjd_mid: 60908, det: 2 });
-    expect(el.querySelector(".bk-det-label")!.textContent).toContain("D2");
     expect(el.querySelector(".bk")!.getAttribute("data-ready")).toBe("true");
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
@@ -126,7 +145,11 @@ describe("blink player", () => {
     const h = mountBlink(el, { onViewChange, onPick: vi.fn() });
     await h.show({ ...view, det: 3 }, frames, "https://example.test/data/x/frames.json");
     const msg = el.querySelector<HTMLElement>(".bk-msg")!;
-    expect(msg.hidden).toBe(false);
+    // All wavelengths shows whatever detectors there are.
+    expect(msg.hidden).toBe(true);
+    // D3 alone has nothing.
+    el.querySelector<HTMLButtonElement>("[data-det='3']")!.click();
+    await vi.waitFor(() => expect(msg.hidden).toBe(false));
     const offers = [...msg.querySelectorAll<HTMLButtonElement>("[data-goto-det]")].map((b) => b.dataset.gotoDet);
     expect(offers).toEqual(["2", "5"]);
     msg.querySelector<HTMLButtonElement>("[data-goto-det='5']")!.click();

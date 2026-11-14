@@ -165,6 +165,46 @@ export function noDataAt(
   return inside > 0 && empty * 2 > inside;
 }
 
+/**
+ * Where to say "no data here" in the visible window (u0, v0, vw × vh, image pixels): a sample on a
+ * coarse grid that has no data (raw 0, not a burnt core), the one nearest the middle of all such
+ * samples, so the note sits inside the hatched strip or corner. `frac` is the share of the window
+ * without data. null when the window has data everywhere.
+ */
+export function noDataSpot(
+  vals: ArrayLike<number>,
+  burnt: ArrayLike<number> | null,
+  nx: number,
+  ny: number,
+  win: { u0: number; v0: number; vw: number; vh: number },
+  grid = 32,
+): { x: number; y: number; frac: number } | null {
+  const pts: { x: number; y: number }[] = [];
+  let total = 0;
+  for (let j = 0; j < grid; j++)
+    for (let i = 0; i < grid; i++) {
+      const x = Math.floor(win.u0 + ((i + 0.5) * win.vw) / grid);
+      const y = Math.floor(win.v0 + ((j + 0.5) * win.vh) / grid);
+      if (x < 0 || y < 0 || x >= nx || y >= ny) continue;
+      total++;
+      const k = y * nx + x;
+      if (Number.isNaN(vals[k]) && !burnt?.[k]) pts.push({ x, y });
+    }
+  if (!pts.length || !total) return null;
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  let best = pts[0];
+  let bd = Infinity;
+  for (const p of pts) {
+    const d = (p.x - cx) ** 2 + (p.y - cy) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = p;
+    }
+  }
+  return { x: best.x + 0.5, y: best.y + 0.5, frac: pts.length / total };
+}
+
 /** Nice scale-bar length (arcsec) close to `targetArcsec`. */
 export function niceArcsec(targetArcsec: number): { arcsec: number; label: string } {
   const steps = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600];

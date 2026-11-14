@@ -102,7 +102,7 @@ describe("what SkyShift measured", () => {
     expect(how).toMatch(/each as big as its source looks on the plate/);
     expect(how).toMatch(/a little bigger, so a match reads as a circle inside a ring/);
     expect(how).toMatch(/Arrows join each mover's dots in time order, to scale\. One too short to see is drawn longer, with its factor \(×10\)/);
-    expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("Movers and artefacts on D2");
+    expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("Movers and artefacts on all detectors");
     const items = [...el.querySelectorAll<HTMLButtonElement>(".bk-mi")];
     expect(items.map((b) => b.querySelector(".bk-mi-t")!.textContent)).toEqual([
       "Suspect, grade B",
