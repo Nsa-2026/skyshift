@@ -15,6 +15,7 @@ import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
+import { mountOpening } from "../intro";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -346,4 +347,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
+  // The opening (src/intro): first visit to the bare home URL only, loaded on demand.
+  if (!embed) mountOpening(root);
 }

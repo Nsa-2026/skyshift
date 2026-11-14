@@ -1,0 +1,261 @@
+/* The opening overlay (src/intro/opening.ts). Its own night palette, scoped to .op; the site's
+   Lightbox tokens are untouched. Loaded with the overlay, never with the home page. */
+.op {
+  --op-night: #05090f;
+  --op-ink: #f6f6f2;
+  --op-ink-2: #c9d4df;
+  --op-line: #ffffff50;
+  --op-red: #e13b52;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: pan-y;
+  background: var(--op-night);
+  color: var(--op-ink);
+  font-family: var(--font);
+  outline: none;
+}
+.op::-webkit-scrollbar {
+  display: none;
+}
+.op-track {
+  height: 600vh;
+  height: 600svh;
+  pointer-events: none;
+}
+.op.is-still .op-track {
+  height: 100%;
+}
+
+.op-sky {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+}
+.op-sky img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* A blue-black vignette over the sky, so white type always reads. */
+.op-sky::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, #04081133 15%, #040811aa 100%);
+}
+.op-scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.op-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s4);
+  padding: max(28px, env(safe-area-inset-top)) max(40px, env(safe-area-inset-right)) 24px max(40px, env(safe-area-inset-left));
+  text-shadow: 0 1px 12px #000a;
+}
+.op-brand {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 750;
+  font-variation-settings: "wdth" 125;
+  letter-spacing: -0.02em;
+}
+.op-brand span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 450;
+  font-variation-settings: "wdth" 100;
+  letter-spacing: 0.02em;
+  color: var(--op-ink-2);
+}
+.op-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid var(--op-line);
+  border-radius: var(--radius-ctl);
+  background: #0a121ccc;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.op-skip:hover {
+  background: #f4f6f4;
+  color: #18202e;
+}
+.op-skip:focus-visible {
+  opacity: 1 !important;
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+  box-shadow: none;
+}
+.op:focus-visible {
+  outline: none;
+}
+
+.op-hero {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 100px 24px;
+  pointer-events: none;
+}
+.op-hero h2 {
+  margin: 0;
+  font-size: clamp(52px, 8.2vw, 128px);
+  line-height: 0.99;
+  letter-spacing: -0.055em;
+  font-weight: 500;
+  font-variation-settings: "wdth" 92;
+  text-shadow: 0 2px 60px #000a;
+}
+.op-hero h2 em {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+}
+.op-sub {
+  margin-top: 28px;
+  max-width: 32ch;
+  color: var(--op-ink-2);
+  font-size: 16px;
+  text-shadow: 0 1px 16px #000;
+}
+.op-hint {
+  position: absolute;
+  bottom: 11vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--op-ink-2);
+  font-size: 13px;
+}
+.op-hint span {
+  font-size: 22px;
+  line-height: 1;
+}
+.op.is-still .op-hint {
+  display: none;
+}
+
+.op-chapter {
+  position: fixed;
+  left: 5vw;
+  bottom: 14vh;
+  max-width: min(560px, 90vw);
+  margin: 0;
+  pointer-events: none;
+  text-shadow: 0 1px 20px #000;
+}
+.op-chapter-no {
+  display: block;
+  font-size: 12px;
+  color: #d6dfe7;
+}
+.op-chapter-text {
+  display: block;
+  margin-top: 12px;
+  font-size: clamp(17px, 2vw, 26px);
+  line-height: 1.35;
+  color: #eef1f5;
+}
+
+.op-credit {
+  position: fixed;
+  left: max(24px, env(safe-area-inset-left));
+  right: 24px;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  max-width: 60ch;
+  margin: 0;
+  color: #b3c1cf;
+  font-size: 11px;
+  line-height: 1.5;
+  text-shadow: 0 1px 8px #000;
+  pointer-events: none;
+}
+.op-progress {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: #ffffff15;
+  pointer-events: none;
+}
+.op-progress span {
+  display: block;
+  height: 100%;
+  background: var(--op-red);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.op.is-still .op-progress {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .op-bar {
+    padding: max(20px, env(safe-area-inset-top)) 16px 16px;
+  }
+  .op-brand {
+    font-size: 22px;
+  }
+  .op-brand span {
+    font-size: 11px;
+  }
+  .op-skip {
+    gap: 12px;
+    padding: 10px 16px;
+  }
+  .op-hero {
+    padding: 90px 16px 160px;
+  }
+  .op-hero h2 {
+    font-size: clamp(46px, 14vw, 84px);
+  }
+  .op-sub {
+    margin-top: 22px;
+    font-size: 15px;
+  }
+  .op-hint {
+    bottom: 16vh;
+  }
+  .op-chapter {
+    left: 16px;
+    right: 16px;
+    bottom: 18vh;
+  }
+  .op-credit {
+    left: 16px;
+    right: 16px;
+    font-size: 10px;
+  }
+}
