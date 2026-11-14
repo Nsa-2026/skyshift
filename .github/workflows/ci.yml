@@ -21,9 +21,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pipeline, server and scripts/science import core/ through a uv path source (../core),
+        # pipeline, server, scripts/science and scripts/validate import core/ through a uv path source,
         # so the whole repo is checked out and each folder syncs its own uv.lock.
-        dir: [core, pipeline, server, scripts/science]
+        dir: [core, pipeline, server, scripts/science, scripts/validate]
     defaults:
       run:
         working-directory: ${{ matrix.dir }}
