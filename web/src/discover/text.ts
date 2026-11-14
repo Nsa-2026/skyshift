@@ -77,6 +77,7 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   very_sharp: { label: "Far too sharp", tone: "caution", detail: "One detection is less than 0.4 times as wide as a star of its brightness: no real source is that narrow." },
   flux_ratio: { label: "Brightness jumps", tone: "caution", detail: "Its brightest detection is more than 4 times its faintest in the same detector: likely not one steady source." },
   red_photo: { label: "Only in bad photos", tone: "caution", detail: "Every detection comes from a photo the quality check graded red." },
+  blend: { label: "Two stars in one", tone: "caution", detail: "Two or more Gaia stars sit within 8″ of it, closer than SPHEREx's 6″ pixels can separate: its position and brightness mix them." },
   "2mass": { label: "2MASS source here", tone: "doubt", detail: "2MASS lists a source within 6″: probably a catalogued star, not something new." },
   allwise: { label: "AllWISE source here", tone: "doubt", detail: "AllWISE lists a source within 6″: probably a catalogued source, not something new." },
   // shape: one object or two? (contracts/api.md, candidates.json "reasons")
