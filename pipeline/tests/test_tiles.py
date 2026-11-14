@@ -405,7 +405,7 @@ def test_all_runs_the_combining_steps_tiled(tmp_path, monkeypatch):
                      "--zone-edge", "clip", "--tile-dir", str(tmp_path / "work")]) == 0
     summ = store.read_json(results_rel(ZONE.name, "summary.json"))["steps"]
     assert summ["tiles"]["grid"] == [2, 2] and summ["tiles"]["zone_edge_margin"] is False
-    for step in ("link", "calib", "highpm", "score", "suspects"):
+    for step in ("link", "calib", "highpm", "score", "suspects", "completeness"):  # completeness once, after the tiles
         assert step in summ
     for name in ("fixed", "members", "sources", "classes", "lightcurves", "astrometry", "suspects"):
         assert store.exists(results_rel(ZONE.name, f"{name}.parquet")), name
