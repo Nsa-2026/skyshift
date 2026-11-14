@@ -95,3 +95,20 @@ def test_sdss_query_live(tmp_path):
     zone = C.Zone("tiny", 121.2, 121.4, 16.8, 17.1)
     spec = PZ.sdss_specz(Store(str(tmp_path)), zone)
     assert len(spec) > 0 and spec["z"].between(0, 2).all()
+
+
+def test_good_needs_z_and_pah_label_at_the_redshift(grid):
+    _, _, _, z, M = grid
+    f = np.stack([M[0, 5], M[20, 5], M[20, 5]]) * 300.0  # z = 0 and z = 0.1 (twice)
+    band = np.array(C.INDEX_WINDOWS["pah_33"][1]) * 1.1
+    pah = (IX.HI > band[0]) & (IX.LO < band[1])
+    f[1:, pah] *= 1.6  # PAH 3.3 µm emission moved to 3.6 µm
+    e = 0.02 * f
+    src = pd.DataFrame({"source_id": [1, 2, 3], "flux_ujy": list(f), "err_ujy": list(e),
+                        "visit_bits": [np.full(102, 3, np.int16), np.full(102, 3, np.int16), np.full(102, 1, np.int16)]})
+    out = PZ.photoz_frame(src)
+    assert out["z_best"].iloc[0] <= C.PHOTOZ_GOOD_MIN_Z and not out["good"].iloc[0]  # z ≈ 0: never good
+    assert abs(out["z_best"].iloc[1] - 0.1) < 0.02 and out["good"].iloc[1]
+    assert out["pah_33_sig_z"].iloc[1] >= C.INDEX_SIG
+    # the label needs the moved band in two visits: source 3 has the same spectrum from one visit
+    assert out["label_pah_33_z"].tolist() == [False, True, False]

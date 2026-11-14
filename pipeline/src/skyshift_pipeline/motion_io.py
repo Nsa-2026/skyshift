@@ -49,9 +49,11 @@ DOT_ALIASES: dict[str, tuple[str, ...]] = {
     # dots v4: the ePSF position (NaN, psf_pos_ok False in v3 files)
     "ra_psf": ("ra_psf",), "dec_psf": ("dec_psf",), "pos_err_psf_arcsec": ("pos_err_psf_arcsec",),
     "psf_pos_ok": ("psf_pos_ok",),
+    # the dot's shape: spectra.reject_dots (calib's spectra from these dots match spectra.run's)
+    "a_arcsec": ("a_arcsec",), "b_arcsec": ("b_arcsec",),
 }
 FLOAT32 = {"pos_err_arcsec", "flux_ujy", "flux_err_ujy", "flux_psf_ujy", "flux_psf_err_ujy", "wavelength_um", "snr",
-           "x_sc_km", "y_sc_km", "z_sc_km", "x", "y", "pos_err_psf_arcsec"}
+           "x_sc_km", "y_sc_km", "z_sc_km", "x", "y", "pos_err_psf_arcsec", "a_arcsec", "b_arcsec"}
 
 _CACHE: dict[tuple[str, str, str], tuple[pd.DataFrame, dict, np.ndarray]] = {}
 
