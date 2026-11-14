@@ -23,12 +23,14 @@ Everything is vectorised over all dots (sorts and bincounts); there is no loop p
 
 from __future__ import annotations
 
+import io
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 from skyshift_core import MASK_BITS, SAT_BITS
 
 from . import calib
@@ -44,6 +46,7 @@ NCH_DET = C.SPECTRA_CHANNELS_PER_DETECTOR
 NCH = NDET * NCH_DET
 DOT_COLUMNS = ["ra", "dec", "flux_ujy", "flux_err_ujy", "wavelength_um", "flags"]
 CALIB_COLUMNS = ["x", "y", "snr", "flags_peak", "pos_err_arcsec"]  # read too when calib.json exists
+PSF_COLUMNS = ["ra_psf", "dec_psf", "psf_pos_ok"]  # dots v4: the ePSF position, used where psf_pos_ok
 
 
 # --- channels --------------------------------------------------------------------------------
@@ -224,7 +227,8 @@ def to_arrow(src: pd.DataFrame) -> pa.Table:
 
 # --- I/O -------------------------------------------------------------------------------------
 def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame, dict]:
-    """The member dots of every fixed source, read back from the dot files via members.parquet."""
+    """The member dots of every fixed source, read back from the dot files via members.parquet. Positions: the ePSF
+    fit's where calib.use_psf (dots v4), else the windowed centroid's; each with calib.json's corrections when present."""
     members = store.read_parquet(results_rel(zone.name, "members.parquet"))
     photos = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector", "session", "visit"])
     sv = {(str(o), int(dt)): (int(se), int(vi)) for o, dt, se, vi in photos.itertuples(index=False)}
@@ -234,32 +238,47 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
     bad_rows = [0]
     cal = calib.load(store, zone)  # results/<zone>/calib.json from an earlier run: corrected positions
     corrected = [0]
+    n_psf = [0]
 
     def one(item):
         (obs_id, det), idx = item
-        df = None
-        if cal is not None:
-            try:
-                df = store.read_parquet(dots_rel(obs_id, int(det)), columns=[*DOT_COLUMNS, *CALIB_COLUMNS])
-            except Exception:  # noqa: BLE001  (a dot file without x, y: positions stay raw)
-                df = None
-        if df is None:
-            df = store.read_parquet(dots_rel(obs_id, int(det)), columns=DOT_COLUMNS)
+        raw = store.read_bytes(dots_rel(obs_id, int(det)))
+        have = set(pq.ParquetFile(io.BytesIO(raw)).schema_arrow.names)
+        calibrate = cal is not None and set(CALIB_COLUMNS) <= have  # a dot file without x, y: positions stay raw
+        v4 = set(PSF_COLUMNS) <= have
+        want = [*DOT_COLUMNS, *(CALIB_COLUMNS if calibrate else []), *(PSF_COLUMNS if v4 else [])]
+        df = pd.read_parquet(io.BytesIO(raw), columns=want)
         rows = row_all[idx]
         ok = rows < len(df)
         bad_rows[0] += int((~ok).sum())
         part = df.iloc[rows[ok]].reset_index(drop=True)
-        if "x" in df.columns:
+        dd = np.full(len(part), int(det))
+        psf = calib.use_psf(cal, dd, part["psf_pos_ok"].to_numpy(bool) if v4 else None,
+                            part["ra_psf"] if v4 else None, part["dec_psf"] if v4 else None,
+                            part["snr"] if (v4 and calibrate) else None)
+        if calibrate:
             J = calib.photo_jacobian(df["x"], df["y"], df["ra"], df["dec"])
-            dd = np.full(len(part), int(det))
             ce, cn = calib.photo_coefs(cal, [obs_id], [int(det)])
             pe, pn = calib.poly_offsets(ce[0], cn[0], part["x"], part["y"])
             ra, dec, _, okc = calib.apply(cal, dd, part["x"], part["y"], part["ra"], part["dec"],
                                           part["snr"], part["flags_peak"], part["pos_err_arcsec"], J, pe, pn)
+            if psf.any():  # ePSF positions: their own distortion, no phase term
+                ce, cn = calib.photo_coefs(cal, [obs_id], [int(det)], "psf")
+                pe, pn = calib.poly_offsets(ce[0], cn[0], part["x"].to_numpy()[psf], part["y"].to_numpy()[psf])
+                ra[psf], dec[psf], _ = calib.apply_psf(cal, dd[psf], part["ra_psf"].to_numpy()[psf],
+                                                       part["dec_psf"].to_numpy()[psf], part["snr"].to_numpy()[psf],
+                                                       np.full(int(psf.sum()), np.nan), pe, pn)
+                okc[psf] = False
             f = calib.flux_factor(cal, dd, part["x"], part["y"], "ap")
             part = part[DOT_COLUMNS].assign(ra=ra, dec=dec, flux_ujy=(part["flux_ujy"] * f).astype(np.float32),
                                             flux_err_ujy=(part["flux_err_ujy"] * f).astype(np.float32))
             corrected[0] += int(okc.sum())
+        elif psf.any():
+            part = part[DOT_COLUMNS].assign(ra=np.where(psf, part["ra_psf"], part["ra"]),
+                                            dec=np.where(psf, part["dec_psf"], part["dec"]))
+        else:
+            part = part[DOT_COLUMNS]
+        n_psf[0] += int(psf.sum())
         se, vi = sv.get((str(obs_id), int(det)), (-1, -1))
         part["source_id"] = sid_all[idx[ok]]
         part["detector"] = np.int8(det)
@@ -272,7 +291,7 @@ def load_members(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.Data
     cols = ["source_id", "detector", "session", "visit", *DOT_COLUMNS]
     d = pd.concat(parts, ignore_index=True)[cols] if parts else pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
     st = {"member_dots": int(len(members)), "member_rows_missing": bad_rows[0],
-          "calib_applied": cal is not None, "calib_phase_corrected_dots": corrected[0]}
+          "calib_applied": cal is not None, "calib_phase_corrected_dots": corrected[0], "pos_psf_dots": n_psf[0]}
 
     # a dot file rewritten after `link` would make dot_row point elsewhere: drop far members
     fixed = store.read_parquet(results_rel(zone.name, "fixed.parquet"), columns=["source_id", "ra", "dec"])

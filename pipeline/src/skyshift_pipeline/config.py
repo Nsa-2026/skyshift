@@ -337,6 +337,14 @@ CALIB_CHECK_SNR_BINS = (10.0, 30.0, 60.0, 150.0, 1e9)  # report: phase amplitude
 CALIB_PHOTO_MAX_ORDER = 2       # 0 = offset only, 1 = affine, 2 = quadratic
 CALIB_PHOTO_MIN_GAIN = 0.01     # a higher order is used only if it lowers the held-out scatter by > 1%
 CALIB_PHOTO_MIN_STARS = (10, 30, 60)  # stars needed per photo for order 0, 1, 2 (fewer: the next lower order)
+CALIB_FIT_SIGMA = (5.0, 0.15)   # ″ (a, floor): weights of the distortion fit, σ = √((a/snr)² + floor²), windowed centroid
+# ePSF positions (dots v4, psf_pos_ok): no phase term; their own per-photo distortion and pos_err, fitted the same way.
+# Weights as measured on 36 pilot photos (14 Nov): about half the centroid's scatter at every S/N.
+CALIB_PSF_FIT_SIGMA = (2.5, 0.10)
+# With calib.json, a dot takes its ePSF position only where the ePSF model's calibrated pos_err is below the corrected
+# centroid's: ePSF a ≈ 2.9–3.9″ vs 4.4–6.0″, but floor 0.13–0.20″ vs 0.08–0.21″ (36 pilot photos), so the
+# centroid wins above S/N ≈ 30–50 in D1, D2, D4–D6. False: every psf_pos_ok dot takes its ePSF position.
+CALIB_PSF_CHOOSE_BY_ERROR = True
 # flux pixel phase: ln(flux / the source's smooth spectrum) = Σ_k a_k cos(2πkφx) + b_k cos(2πkφy) + c cos(2πφx)cos(2πφy)
 CALIB_FLUX_K = 2
 CALIB_FLUX_MIN_SNR = 50.0       # dots used for the flux phase fit
