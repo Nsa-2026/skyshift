@@ -579,3 +579,36 @@ QA_OFFSET_RED_ARCSEC = 1.5     # ecl15 raw offsets: median 0.11″, p99 0.39″,
 QA_OFFSET_AMBER_ARCSEC = 0.6
 QA_LIGHTCURVES = True          # lightcurves: red photos' points get photo_ok false (as its own bad photos)
 QA_REPORT_WORST = 30           # qa.json lists this many of the worst photos
+
+# --- completeness: synthetic movers injected into the stored dots (inject.py) -------------------------------------
+# Once per zone after score (untiled, also in a tiled `all`): a sub-area of INJECT_BOX_DEG × INJECT_BOX_DEG (on the sky)
+# at the zone's centre (the zone itself if smaller), its real dots (every photo overlapping it) plus synthetic dots of
+# objects on straight tracks at the real exposure times, detectors and footprints, linked again in memory by
+# link.fixed_groups + link.classify. Unit = one object in one session with >= SCORE_MIN_EXPOSURES exposures covering it
+# >= SCORE_EDGE_PX inside the photo, as score's (recall.json); found = a mover of that session within MATCH_ARCSEC of the
+# object at the mover's time (score.match_movers' rule). Off: env SKYSHIFT_COMPLETENESS=off.
+COMPLETENESS = os.environ.get("SKYSHIFT_COMPLETENESS", "on").strip().lower() not in ("off", "0", "false", "no")
+INJECT_BOX_DEG = 1.0           # side of the sub-area (hunt centre: 474 photos overlap it, ~400k real dots)
+INJECT_EDGE_ARCSEC = 120.0     # units only this far inside the sub-area (its edge cuts real fixed sources, as a tile's)
+INJECT_ROUNDS = 8              # independent injections (each relinks the sub-area, ~1 s at hunt density): fewer synthetic
+INJECT_OBJECTS = 400           # neighbours per round (400 objects/deg² add ~10% to the fixed sources), 3,200 objects in all
+INJECT_SEED = 20261114
+INJECT_RATE_ARCSEC_H = (0.01, 300.0)  # log-uniform; direction uniform
+INJECT_SNR = (5.0, 100.0)      # log-uniform; the S/N of every dot in a photo of median noise for its detector
+INJECT_MWIR_SNR_FACTOR = 1.0   # S/N in D4–D6 = this × the object's S/N (1: the same S/N in every detector; asteroids'
+                               # reflected light is fainter there, a cold planet's brighter)
+INJECT_RATE_EDGES = (0.01, 0.0215, 0.0464, 0.1, 0.215, 0.464, 1.0, 2.15, 4.64, 10.0, 21.5, 46.4, 100.0, 215.0, 300.0)
+INJECT_SNR_EDGES = (5.0, 7.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0)
+INJECT_PLATEAU_SNR = 20.0      # limits: the rate range is read at S/N >= this
+INJECT_RECALL_RATES = (10.0, 90.0)  # vs_recall: the known asteroids' rates (hunt: all 30 objects at 10–90″/h)
+INJECT_MAX_REAL_DOTS = 2_000_000  # more real dots in the sub-area (crowded field): a smaller box at the same centre
+INJECT_NOISE_MAX_SNR = 10.0    # a photo's noise: median flux_err_ujy of its dots below this S/N (else its detector's)
+INJECT_POS_ERR_SCALE = 1.6     # raw dot positions scatter 1.4–1.8 × pos_err_arcsec against Gaia (CLAUDE.md)
+INJECT_EXPOSURE_S = 113.0      # trailing: elong × √(1 + L²/(12 σ²)), L = rate × exposure, σ = PSF_SIGMA_ARCSEC
+# Detection: P(kept | measured S/N) from the sub-area's own dot counts: a power law fitted to the S/N histogram over
+# INJECT_DET_FIT_SNR, extrapolated down; observed / expected per 0.5-wide bin (hunt centre: ~0.4 at 5–6, 0.7 at 6–7,
+# 0.9 at 7–8, 1 above). With too few dots: logistic, 50% at INJECT_DET_SNR50, width INJECT_DET_WIDTH.
+INJECT_DET_FIT_SNR = (12.0, 35.0)
+INJECT_DET_MIN_DOTS = 2000
+INJECT_DET_SNR50 = 5.7
+INJECT_DET_WIDTH = 0.7
