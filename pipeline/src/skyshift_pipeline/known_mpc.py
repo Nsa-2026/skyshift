@@ -1,9 +1,11 @@
-"""Step 3, `known --known-source mpc`: the known asteroids each photo saw, from the Minor Planet
-Center's orbits propagated with kete (Caltech/IPAC, BSD-3) instead of the SkyBoT web service.
+"""Step 3, `known --known-source mpc`: the known asteroids and comets each photo saw, from the Minor
+Planet Center's orbits propagated with kete (Caltech/IPAC, BSD-3) instead of the SkyBoT web service.
 
-- Orbits: MPC mpcorb_extended.json.gz (~1.6 million asteroids; comets not yet). The first run keeps a
-  dated copy in cache/mpc/orbits/mpcorb_<YYYY-MM-DD>.parquet; every run uses the newest copy, so all
-  machines and reruns use the same orbits.
+- Orbits: MPC mpcorb_extended.json.gz (~1.6 million asteroids) and cometels.json.gz (~1,000 comets;
+  no interstellar objects, no non-gravitational terms). The first run keeps dated copies in
+  cache/mpc/orbits/{mpcorb,cometels}_<YYYY-MM-DD>.parquet; every run uses the newest of each, so all
+  machines and reruns use the same orbits. Comets have no V (the MPC comet file's magnitudes aren't kept
+  by kete): they count for the suspects' known-object cut and stay out of score's V cuts, as SkyBoT's.
 - Observer: SPHEREx itself. IMAGE header X_SC, Y_SC, Z_SC (km) and VX_SC, VY_SC, VZ_SC (km/s) are
   geocentric, equatorial J2000, at MJD-AVG (UTC). On one D2 photo this put the 8 known asteroids
   brighter than V 17 on their dots with a median offset of 1.0″ (1.7″ from the Earth's centre).
@@ -54,29 +56,37 @@ def _kete():
 
 # ---------------------------------------------------------------- orbits
 
-def orbit_table(store: Store) -> tuple[pd.DataFrame, str]:
-    """The newest dated MPC orbit snapshot in the store; downloaded and saved on first use."""
-    names = sorted(n for n in store.listdir(C.MPC_ORBITS_DIR) if n.startswith("mpcorb_") and n.endswith(".parquet"))
+def _snapshot(store: Store, prefix: str, fetch) -> tuple[pd.DataFrame, str]:
+    """The newest <prefix>_<date>.parquet in MPC_ORBITS_DIR; fetched and saved on first use."""
+    names = sorted(n for n in store.listdir(C.MPC_ORBITS_DIR) if n.startswith(prefix + "_") and n.endswith(".parquet"))
     if names:
-        orb = store.read_parquet(f"{C.MPC_ORBITS_DIR}/{names[-1]}")
-        L.info("MPC orbits: %s (%d objects)", names[-1], len(orb))
-        return orb, names[-1]
+        tab = store.read_parquet(f"{C.MPC_ORBITS_DIR}/{names[-1]}")
+        L.info("MPC orbits: %s (%d objects)", names[-1], len(tab))
+        return tab, names[-1]
     t0 = time.time()
-    orb = _kete().mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL)
-    orb["desig"] = orb["desig"].astype(str)  # numbered objects come as int, the rest as str
-    name = f"mpcorb_{time.strftime('%Y-%m-%d', time.gmtime())}.parquet"
-    store.write_parquet(f"{C.MPC_ORBITS_DIR}/{name}", orb)
-    L.info("MPC orbits downloaded in %.0f s: %d objects, saved as %s", time.time() - t0, len(orb), name)
-    return orb, name
+    tab = fetch()
+    tab["desig"] = tab["desig"].astype(str)  # numbered asteroids come as int, the rest as str
+    name = f"{prefix}_{time.strftime('%Y-%m-%d', time.gmtime())}.parquet"
+    store.write_parquet(f"{C.MPC_ORBITS_DIR}/{name}", tab)
+    L.info("MPC orbits downloaded in %.0f s: %d objects, saved as %s", time.time() - t0, len(tab), name)
+    return tab, name
+
+
+def orbit_table(store: Store) -> tuple[pd.DataFrame, str]:
+    """Asteroids then comets, one row per object, and the snapshot names ("mpcorb_… + cometels_…")."""
+    ast, a = _snapshot(store, "mpcorb", lambda: _kete().mpc.fetch_known_orbit_data(url=C.MPC_ORBITS_URL))
+    com, c = _snapshot(store, "cometels", lambda: _kete().mpc.fetch_known_comet_orbit_data())
+    return pd.concat([ast, com], ignore_index=True), f"{a} + {c}"
 
 
 def object_table(orb: pd.DataFrame) -> pd.DataFrame:
     """name, number, h, g, class for each orbit row (row k is kete state desig str(k)).
     name: the MPC name ("Sapientia"), else "(number)" for numbered objects, else the designation;
     a name used twice gets its designation appended so per_photo rows stay unique."""
-    desig = orb["desig"].astype(str).reset_index(drop=True)
+    desig = orb["desig"].astype(str).str.strip().reset_index(drop=True)  # comet designations end in a space
     numbered = desig.str.fullmatch(r"\d+").fillna(False).to_numpy(bool)
-    raw = orb["name"].reset_index(drop=True)
+    nan = pd.Series(np.nan, index=orb.index)
+    raw = orb.get("name", nan).reset_index(drop=True)
     named = raw.notna().to_numpy() & (raw.fillna("").astype(str).str.strip() != "").to_numpy()
     name = pd.Series(np.where(named, raw.fillna("").astype(str).str.strip(),
                               np.where(numbered, "(" + desig + ")", desig)), dtype=object)
@@ -85,8 +95,8 @@ def object_table(orb: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({
         "name": name.to_numpy(object),
         "number": pd.Series([int(d) if n else None for d, n in zip(desig, numbered)], dtype=object).to_numpy(),
-        "h": pd.to_numeric(orb["h_mag"], errors="coerce").to_numpy(float),
-        "g": pd.to_numeric(orb["g_phase"], errors="coerce").fillna(C.MPC_G_DEFAULT).to_numpy(float),
+        "h": pd.to_numeric(orb.get("h_mag", nan), errors="coerce").to_numpy(float),
+        "g": pd.to_numeric(orb.get("g_phase", nan), errors="coerce").fillna(C.MPC_G_DEFAULT).to_numpy(float),
         "class": orb["group_name"].fillna("").astype(str).to_numpy(object),
     })
 

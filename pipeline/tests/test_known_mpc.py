@@ -103,6 +103,33 @@ def test_object_table_names_numbers_and_defaults():
     assert np.isnan(o["h"][4]) and o["class"].tolist()[3:5] == ["Apollo", ""]
 
 
+def test_object_table_comets_have_no_v_and_no_number():
+    orb = pd.DataFrame({"desig": ["1", "C/2025 N1 ", "427P/ATLAS"], "name": ["Ceres", np.nan, np.nan],
+                        "h_mag": [3.34, np.nan, np.nan], "g_phase": [0.12, np.nan, np.nan],
+                        "group_name": ["MBA", "Comet C", "Comet P"]})
+    o = known_mpc.object_table(orb)
+    assert o["name"].tolist() == ["Ceres", "C/2025 N1", "427P/ATLAS"] and o["number"].tolist() == [1, None, None]
+    assert np.isnan(o["h"][1:]).all() and o["class"].tolist()[1:] == ["Comet C", "Comet P"]
+    # the comet file alone has no name, h_mag or g_phase columns
+    only = known_mpc.object_table(pd.DataFrame({"desig": ["C/2025 N1 "], "group_name": ["Comet C"]}))
+    assert only["name"].tolist() == ["C/2025 N1"] and np.isnan(only["h"][0])
+
+
+def test_orbit_snapshots_are_saved_once_and_reused(tmp_path, monkeypatch):
+    store = Store(str(tmp_path))
+    calls = []
+
+    def fetch():
+        calls.append(1)
+        return pd.DataFrame({"desig": pd.Series([1, "2021 AU1"], dtype=object), "epoch": [2461200.5, 2459220.5]})
+
+    tab, name = known_mpc._snapshot(store, "mpcorb", fetch)
+    assert name.startswith("mpcorb_") and name.endswith(".parquet") and tab["desig"].tolist() == ["1", "2021 AU1"]
+    again, name2 = known_mpc._snapshot(store, "mpcorb", fetch)
+    assert name2 == name and len(calls) == 1 and again["desig"].tolist() == ["1", "2021 AU1"]
+    assert known_mpc._snapshot(store, "cometels", lambda: pd.DataFrame({"desig": ["C/2025 N1 "]}))[1].startswith("cometels_")
+
+
 def test_padded_corners_move_each_corner_out_by_the_pad():
     s = _square(359.8, 15.0, 0.5)  # crosses RA 0
     fp = Footprint.from_s_region(s)

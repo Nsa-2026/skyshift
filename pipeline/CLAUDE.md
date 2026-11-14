@@ -18,9 +18,10 @@ highpm, score, suspects; `all` runs them in order.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
 - `known` doesn't need `dots`: run it at the same time in a second process.
-- `known --known-source mpc` (needs `uv sync --extra mpc`): MPC orbits propagated with kete from SPHEREx's own position
+- `known --known-source mpc` (needs `uv sync --extra mpc`): MPC asteroid + comet orbits propagated with kete from SPHEREx's own position
   (IMAGE header X_SC.., geocentric equatorial km, at MJD-AVG) instead of SkyBoT; cache/mpc/<zone>/ with exact per-photo
-  positions, orbit snapshot cache/mpc/orbits/mpcorb_<date>.parquet. Default stays SkyBoT until contracts/api.md lists "mpc".
+  positions, orbit snapshots cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. Default stays SkyBoT until contracts/api.md
+  lists "mpc" (#32). Comets have no V and no non-gravitational terms: C/2025 R2 was 4.5′ off SkyBoT a month after perihelion.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
 ## Rules (summary)
