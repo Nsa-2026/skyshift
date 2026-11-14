@@ -12,6 +12,8 @@ export function communityHash(): string {
   return preset ? candidatesHash(presetState(preset)) : '#/candidates';
 }
 
+/** To check with "One at a time" on (discover's view key, not a filter). */
+export const ONE_AT_A_TIME = '#/candidates/one=1';
 const MEASUREMENTS = ['motion', 'spectrum', 'lightcurve', 'compare', 'crossmatch', 'signals'];
 const METHODS = ['data', 'processing', 'validation', 'sensitivity', 'export'];
 
@@ -32,7 +34,7 @@ export function legacyHash(hash: string): LegacyRoute | null {
   }
   if (head === 'analyze') {
     if (feature === 'candidates') return {hash:at('candidates')};
-    if (feature === 'review') return {hash:'#/review'};
+    if (feature === 'review') return {hash:ONE_AT_A_TIME};
     if (feature === 'c' && rest) return {hash:`#/c/${rest}`};
     if (MEASUREMENTS.includes(feature)) return {hash:`#/explore/${feature}`, advanced:true};
     return {hash:'#/explore', advanced:true};
@@ -44,6 +46,8 @@ export function legacyHash(hash: string): LegacyRoute | null {
     if (METHODS.includes(feature)) return {hash:`#/explore/${feature}`, advanced:true};
     return {hash:'#/explore/data', advanced:true};
   }
+  // The review queue is To check's "One at a time" view now.
+  if (head === 'review') return {hash:ONE_AT_A_TIME};
   if (head === 'community') return {hash:communityHash()};
   if (head === 'score') return {hash:'#/results'};
   return null;

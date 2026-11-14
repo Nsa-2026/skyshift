@@ -49,7 +49,7 @@ describe('four screens',()=>{
 
 describe('old links',()=>{
   it('leave the site\'s own hashes alone',()=>{
-    for(const h of ['','#/','#/sky/1,2,3','#/explore','#/explore/spectrum','#/c/hunt-1','#/candidates/kind=mover','#/review','#/results','#/learn/stories','#/tools','#/live'])
+    for(const h of ['','#/','#/sky/1,2,3','#/explore','#/explore/spectrum','#/c/hunt-1','#/candidates/kind=mover','#/candidates/one=1','#/results','#/learn/stories','#/tools','#/live'])
       expect(legacyHash(h)).toBeNull();
   });
   it('map the area-first Explore links',()=>{
@@ -65,7 +65,8 @@ describe('old links',()=>{
     expect(resolve('#/analyze/crossmatch')).toMatchObject({page:'explore',workspace:{mode:'analyze',tab:'crossmatch'}});
     expect(resolve('#/analyze/candidates/kind=mover&grade=A')).toMatchObject({page:'discover',param:'kind=mover&grade=A'});
     expect(resolve('#/analyze/c/shape%2Fexample')).toMatchObject({page:'candidate',param:'shape/example'});
-    expect(resolve('#/analyze/review')).toMatchObject({page:'review'});
+    expect(legacyHash('#/analyze/review')).toEqual({hash:'#/candidates/one=1'});
+    expect(resolve('#/review')).toMatchObject({page:'discover',param:'one=1',screen:'check'});
     expect(legacyHash('#/explore/analyze/lightcurve')).toEqual({hash:'#/explore/lightcurve',advanced:true});
     expect(legacyHash('#/explore/science')).toEqual({hash:'#/explore/processing',advanced:true});
   });
