@@ -130,12 +130,12 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
 #
 # Hours clock only. Positions per image come from NASA: IRSA's 3I/ATLAS table (already in
 # scripts/validate/data/photolists/3i-atlas.csv, source "irsa-3i") and IRSA MOST for the asteroids
-# (source "most"). The comet crosses 57' during its 13-hour December sequence, so its frames
+# (source "most"). The comet crosses 57' during its 19-hour sequence of 14 December 2025, so its frames
 # FOLLOW it: every epoch has its own `center` (an addition to the contract) and the stars move.
 # An asteroid moves a few arcmin in a day, so its frames keep one fixed centre and it moves.
 
 COMET_CSV = ROOT / "scripts" / "validate" / "data" / "photolists" / "3i-atlas.csv"
-COMET_VISIT = 2  # the December 2025 sequence (after perihelion): 17-18 exposures per detector
+COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion), as in resolve.COMET
 COMET_DETS = [1, 2, 3, 4, 5, 6]
 ASTEROIDS = {8: "flora", 16: "psyche"}  # V 10.5-11.8, bright and not saturated
 ASTEROID_DETS = [2, 5]
@@ -263,7 +263,7 @@ def build_moving(slug: str, name: str, rows: list[dict], dets: list[int], source
 
 def build_comet(cache: Cache) -> None:
     rows = comet_rows()
-    show = [r for r in rows if r["image"].visit == COMET_VISIT]
+    show = [r for r in rows if COMET_MJD[0] < r["image"].mjd < COMET_MJD[1]]
     build_moving("3i-atlas", "3I/ATLAS", show, COMET_DETS, "irsa-3i", cache, follow=True, spectrum_rows=rows)
 
 
@@ -290,7 +290,8 @@ def folder_bytes(folder: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--only", help="comma-separated slugs (default: all)")
-    ap.add_argument("--sets", help=f"comma-separated clock:fov (default: {','.join(DEFAULT_SETS)})")
+    ap.add_argument("--sets", help=f"comma-separated clock:fov, or 'none' to rebuild only object.json "
+                                   f"(default: {','.join(DEFAULT_SETS)})")
     ap.add_argument("--dets", help="comma-separated detectors (default: per set)")
     ap.add_argument("--own", default=OWN_SET, help="the set copied to frames.json")
     ap.add_argument("--no-object", action="store_true", help="skip object.json")
@@ -300,7 +301,7 @@ def main() -> int:
 
     cache = Cache(a.cache)
     only = set(a.only.split(",")) if a.only else None
-    sets = a.sets.split(",") if a.sets else DEFAULT_SETS
+    sets = [] if a.sets == "none" else a.sets.split(",") if a.sets else DEFAULT_SETS
     for t in star_targets():
         if only and t["slug"] not in only:
             continue

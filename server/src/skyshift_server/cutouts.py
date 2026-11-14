@@ -27,6 +27,15 @@ spectral_wcs_<det>_v2.2, identical in every DR1 and QR3 exposure we compared); t
 carries the CRPIX1W/CRPIX2W that place the cutout on it. We read the table once per detector from
 the tail of the S3 copy of one image (11 kB), or from one full IRSA cutout if S3 has no copy.
 
+ZODI (zodi_model): every Level 2 file carries NASA's zodiacal-light model in the ZODI HDU
+(MJy/sr, same pixels as IMAGE; IMAGE is NOT zodi-subtracted: IMAGE 0.175 against ZODI 0.097 at
+2.3 um on Barnard's field). The frames subtract it from each exposure, so visits six months
+apart, seen through different zodiacal light, blink on the same background. The model is smooth
+(under 1e-4 MJy/sr from row to row, slow +-0.001 ripples along the wavelength direction, a few
+single-pixel artefacts), so we do not download it whole: we find the HDU in the S3 copy (four
+small header reads), read one row of the region every <= 48 rows (a few kB), smooth out single
+pixels and spline between the rows. Cached per image and region.
+
 Sizes come in tiers so different fields share cached cutouts; a larger cached cutout at the same
 centre is used before a smaller one is downloaded. At most 8 requests are in flight.
 """
@@ -110,6 +119,7 @@ class Stats:
     requests: int = 0  # successful downloads (irsa + s3 + small ones)
     irsa: int = 0  # cutouts from IRSA's cutout service
     s3: int = 0  # cutouts read from S3
+    zodi: int = 0  # ZODI models read from S3 (sampled rows)
     cached: int = 0
     bytes: int = 0  # downloaded: exact for IRSA, estimated for S3 region reads
     retries: int = 0
@@ -381,6 +391,112 @@ def fetch(im: Image, ra: float, dec: float, size_deg: float, cache: Cache, varia
     return data
 
 
+# --- ZODI: NASA's zodiacal-light model, sampled from the S3 copy -----------------------------------
+
+ZODI_ROW_STEP = 48  # at most this many rows between two sampled rows
+ZODI_MIN_ROWS = 4
+
+
+def _header_at(url: str, start: int, blocks: int = 12) -> tuple[str, int, int, fits.Header]:
+    """(EXTNAME, header bytes, padded data bytes, header) of the HDU that starts at byte `start`."""
+    raw = _get(url, headers={"Range": f"bytes={start}-{start + blocks * BLOCK - 1}"}, tries=3)
+    for i in range(0, len(raw), BLOCK):
+        block = raw[i:i + BLOCK]
+        if any(block[j:j + 8] == b"END     " for j in range(0, len(block), 80)):
+            head = raw[:i + BLOCK]
+            name, size = _hdu_sizes(head)
+            return name, len(head), size, fits.Header.fromstring(head.decode("ascii", "replace"))
+    raise UpstreamError(f"no FITS header at byte {start} of {url}")
+
+
+def zodi_layout(im: Image, cache: Cache) -> tuple[int, int, int]:
+    """(byte offset of the ZODI pixels, NAXIS1, NAXIS2) in the S3 copy of the image.
+    FLAGS is compressed, so its size, and every offset after it, differs from file to file:
+    we walk the HDU headers (PRIMARY, IMAGE, FLAGS, VARIANCE, ZODI)."""
+    key = f"zodi/{im.key}/layout.txt"
+    got = cache.get(key)
+    if got:
+        a, b, c = (int(v) for v in got.decode().split())
+        return a, b, c
+    if not im.s3_url:
+        raise UpstreamError(f"no S3 copy of {im.key}")
+    pos = 0
+    for _ in range(8):
+        name, hlen, size, header = _header_at(im.s3_url, pos)
+        if name == "ZODI":
+            if int(header.get("BITPIX", 0)) != -32 or int(header.get("NAXIS", 0)) != 2:
+                raise UpstreamError(f"unexpected ZODI HDU in {im.key}")
+            out = (pos + hlen, int(header["NAXIS1"]), int(header["NAXIS2"]))
+            cache.put(key, ("%d %d %d" % out).encode(), "text/plain")
+            return out
+        pos += hlen + size
+    raise UpstreamError(f"no ZODI HDU in {im.key}")
+
+
+def zodi_sample_rows(ny: int) -> np.ndarray:
+    k = max(ZODI_MIN_ROWS, int(np.ceil((ny - 1) / ZODI_ROW_STEP)) + 1)
+    return np.unique(np.rint(np.linspace(0, ny - 1, min(k, ny))).astype(int))
+
+
+def zodi_from_rows(rows: np.ndarray, values: np.ndarray, ny: int) -> np.ndarray:
+    """The model on every row of the region from the sampled rows: single-pixel artefacts
+    smoothed out along the row, a cubic spline (linear with fewer than 4 rows) between rows."""
+    from scipy.interpolate import CubicSpline
+    from scipy.ndimage import median_filter
+
+    v = median_filter(np.asarray(values, dtype=np.float64), size=(1, 5), mode="nearest")
+    y = np.arange(ny)
+    if len(rows) >= 4:
+        return CubicSpline(rows, v, axis=0)(y).astype(np.float32)
+    out = np.empty((ny, v.shape[1]), dtype=np.float32)
+    for c in range(v.shape[1]):
+        out[:, c] = np.interp(y, rows, v[:, c])
+    return out
+
+
+def region_in_frame(l2: Level2) -> tuple[int, int] | None:
+    """(x0, y0) of a cutout in its full frame. The wavelength table is indexed by full-frame
+    pixel (CRPIX1W = CRPIX2W = 1 in a full file), so a cutout's CRPIXnW gives its origin."""
+    h = l2.header
+    if "CRPIX1W" not in h or "CRPIX2W" not in h:
+        return None
+    return int(round(1.0 - float(h["CRPIX1W"]))), int(round(1.0 - float(h["CRPIX2W"])))
+
+
+def zodi_model(im: Image, l2: Level2, cache: Cache) -> np.ndarray | None:
+    """NASA's zodiacal-light model (MJy/sr) on the pixels of the cutout `l2`, or None if it
+    can't be read (no S3 copy, or the read failed: logged, the exposure is used as it is)."""
+    origin = region_in_frame(l2)
+    if origin is None:
+        return None
+    x0, y0 = origin
+    ny, nx = l2.data.shape
+    key = f"zodi/{im.key}/{x0}_{y0}_{nx}_{ny}.f32"
+    rows = zodi_sample_rows(ny)
+    got = cache.get(key)
+    if got is not None and len(got) == len(rows) * nx * 4:
+        values = np.frombuffer(got, dtype="<f4").reshape(len(rows), nx)
+        return zodi_from_rows(rows, values, ny)
+    try:
+        offset, width, height = zodi_layout(im, cache)
+        if not (0 <= x0 and x0 + nx <= width and 0 <= y0 and y0 + ny <= height):
+            raise UpstreamError(f"cutout of {im.key} does not fit its frame")
+        values = np.empty((len(rows), nx), dtype="<f4")
+        for i, r in enumerate(rows):
+            start = offset + ((y0 + int(r)) * width + x0) * 4
+            raw = _get(im.s3_url, headers={"Range": f"bytes={start}-{start + nx * 4 - 1}"}, tries=3)
+            values[i] = np.frombuffer(raw, dtype=">f4")
+    except (UpstreamError, FileNotFoundError, ValueError) as e:
+        log.warning("no ZODI model for %s: %s", im.key, e)
+        return None
+    if not np.isfinite(values).all():
+        log.warning("ZODI model of %s has gaps", im.key)
+        return None
+    STATS.add(zodi=1)
+    cache.put(key, values.tobytes())
+    return zodi_from_rows(rows, values, ny)
+
+
 def open_bytes(data: bytes) -> Level2:
     """core.open_level2 on bytes (it wants a path)."""
     with tempfile.NamedTemporaryFile(suffix=".fits") as f:
@@ -393,11 +509,14 @@ def open_bytes(data: bytes) -> Level2:
 
 
 def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cache: Cache,
-               centers: list[tuple[float, float]] | None = None, variance: bool = False) -> list[Level2 | None]:
+               centers: list[tuple[float, float]] | None = None, variance: bool = False,
+               zodi: bool = False) -> list[Level2 | None]:
     """Cutouts of many images, at most 8 requests in flight, in the order given.
     A failed image gives None (and is logged); the build goes on without it, unless every image
     failed (UpstreamError).
-    centers: one (ra, dec) per image when each cutout has its own centre (a moving object)."""
+    centers: one (ra, dec) per image when each cutout has its own centre (a moving object).
+    zodi: subtract NASA's zodiacal-light model from `data` (frames; never for photometry, which
+    measures its own local background). header["ZODISUB"] says whether it was done."""
 
     errors: list[str] = []
 
@@ -406,7 +525,15 @@ def fetch_many(images: list[Image], ra: float, dec: float, size_deg: float, cach
         r, d = centers[i] if centers else (ra, dec)
         try:
             data = fetch(im, r, d, size_deg, cache, variance)
-            return None if data is None else open_bytes(data)
+            if data is None:
+                return None
+            l2 = open_bytes(data)
+            if zodi:
+                model = zodi_model(im, l2, cache)
+                if model is not None:
+                    l2.data = (l2.data - model).astype(np.float32)
+                l2.header["ZODISUB"] = (model is not None, "SkyShift: ZODI model subtracted")
+            return l2
         except Exception as e:  # noqa: BLE001
             STATS.add(failed=1)
             errors.append(f"{im.key}: {e}")

@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from astropy.io import fits
+from skyshift_core import open_level2
 
 from skyshift_server import blink, cutouts, gaia, known, obj, search, stack
 from skyshift_server.cache import Cache
@@ -22,6 +23,7 @@ STAR_RA, STAR_DEC = 304.4799843, 41.8376316
 STAR_GAIA_ID = "2068618363302306688"
 MJD1 = 60794.017655738  # the fixture's MJD-AVG
 VISIT2 = 185.0  # days later
+ZODI_LEVEL = 0.1
 EPOCH_KEYS = {"id", "kind", "mjd_mid", "mjd_start", "mjd_end", "det", "um_min", "um_max", "n_exposures",
               "flag_frac", "sat_frac", "data_url", "scale", "zero"}
 
@@ -61,8 +63,15 @@ def world(tmp_path, monkeypatch):
         raise AssertionError("the network was used")
 
     monkeypatch.setattr(cutouts, "_get", no_network)
+    zodi_calls = []
+
+    def flat_zodi(im, l2, cache):  # NASA's model, here a flat 0.1 MJy/sr
+        zodi_calls.append(im.key)
+        return np.full(l2.data.shape, ZODI_LEVEL, dtype=np.float32)
+
+    monkeypatch.setattr(cutouts, "zodi_model", flat_zodi)
     monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
-    return {"cache": cache, "stars": stars, "skybot_calls": skybot_calls, "times": times}
+    return {"cache": cache, "stars": stars, "skybot_calls": skybot_calls, "times": times, "zodi_calls": zodi_calls}
 
 
 def _decode(fr: blink.Frames, ep: dict) -> np.ndarray:
@@ -108,6 +117,11 @@ def test_months_frames_contract_shape_and_pixels(world):
     yy, xx = np.unravel_index(np.nanargmax(sub), sub.shape)
     assert abs(xx + int(px) - 4 - px) <= 2 and abs(yy + int(py) - 4 - py) <= 2
     assert np.nanmax(sub) > np.nanmedian(img) + 20 * stack.robust_sigma(img)
+
+    # the zodiacal-light model was taken off every exposure: the sky is 0.1 MJy/sr lower
+    raw_sky = float(np.nanmedian(open_level2(FIXTURE_CUTOUT).data[30:70, 20:60]))
+    assert len(world["zodi_calls"]) == 6
+    assert float(np.nanmedian(img)) == pytest.approx(raw_sky - ZODI_LEVEL, abs=0.03)
 
     # Gaia and known objects ride along; one SkyBoT question per epoch, at its mjd_mid
     assert m["gaia"] == world["stars"]
@@ -185,6 +199,8 @@ def test_object_spectrum_and_zero_shift(world):
     assert m["n_ref_stars"] >= 3 and m["sigma_arcsec"] < 0.05
     assert m["predicted_arcsec"] is not None and m["predicted_arcsec"] < 0.05  # a slow star
     assert details["det"] == 1 and details["visits"] == [1, 2]
+    # photometry is done on IMAGE as it is: the zodi model is only taken off the stacks
+    assert len(world["zodi_calls"]) == 6
 
 
 def test_identify_follows_fast_stars():

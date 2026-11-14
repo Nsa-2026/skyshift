@@ -37,7 +37,7 @@ from .errors import ApiError, NotFoundError, UpstreamError, bad_request
 log = logging.getLogger("skyshift.api")
 
 VERSION = "0.1.0"
-ENGINE_VERSION = "2"  # part of every cache key
+ENGINE_VERSION = "3"  # part of every cache key
 FOV_ALLOWED = {"months": (5.0, 15.0), "hours": (20.0, 60.0)}
 FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2

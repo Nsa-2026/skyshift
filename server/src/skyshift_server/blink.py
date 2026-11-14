@@ -2,6 +2,9 @@
 
 The app (app.py) and scripts/precompute call only build_frames and build_object.
 
+Frame values are IMAGE minus NASA's zodiacal-light model (the ZODI HDU), in MJy/sr: the zodiacal
+glow differs between visits six months apart, and without this the blink's background jumps.
+
 Months clock: every exposure of one detector at the position, one median stack per visit.
 Hours clock: single exposures of one detector in time order. A position has 50-80 exposures per
 detector over all visits, so the hours clock shows ONE visit: the one with the most exposures in
@@ -76,11 +79,12 @@ def _r(v: float, digits: int) -> float | None:
 
 
 def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: Cache,
-                 visits_wanted: set[int] | None = None) -> list[Stacked]:
-    """Median stack per visit of one detector's images on `grid` (sorted by time)."""
+                 visits_wanted: set[int] | None = None, zodi: bool = True) -> list[Stacked]:
+    """Median stack per visit of one detector's images on `grid` (sorted by time).
+    zodi: subtract NASA's zodiacal-light model from each exposure first."""
     if visits_wanted is not None:
         images = [im for im in images if im.visit in visits_wanted]
-    l2s = cutouts.fetch_many(images, grid.ra, grid.dec, size_deg, cache)
+    l2s = cutouts.fetch_many(images, grid.ra, grid.dec, size_deg, cache, zodi=zodi)
     sky = grid.sky()
     by_visit: dict[int, list[tuple[Level2, stack.Resampled]]] = {}
     for im, l2 in zip(images, l2s):
@@ -129,7 +133,7 @@ def exposure_epochs(images: list[Image], ra: float, dec: float, fov: float, cach
     """Hours-clock epochs for the given images (one detector). centers: a centre per image, for
     frames that follow a moving object; each such epoch carries its own `center`."""
     size_deg = cutouts.tier_for_field(fov)
-    l2s = cutouts.fetch_many(images, ra, dec, size_deg, cache, centers=centers)
+    l2s = cutouts.fetch_many(images, ra, dec, size_deg, cache, centers=centers, zodi=True)
     grid0, b = stack.grid_for(ra, dec, "hours", fov)
     sky0 = None if centers else grid0.sky()
     epochs, blobs = [], {}

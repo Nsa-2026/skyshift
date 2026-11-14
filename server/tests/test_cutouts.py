@@ -144,3 +144,107 @@ def test_every_cutout_failing_is_an_upstream_error(tmp_path, monkeypatch):
     monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
     with pytest.raises(cutouts.UpstreamError):
         cutouts.fetch_many([_im(1), _im(2)], RA, DEC, 0.12, Cache(str(tmp_path)))
+
+
+# --- ZODI model, sampled from a (synthetic) full file over HTTP ranges -----------------------------
+
+def _full_file(nx=120, ny=200):
+    """A file laid out like a Level 2 file: PRIMARY, IMAGE, FLAGS (compressed), VARIANCE, ZODI,
+    EPSF, WCS-WAVE. ZODI is smooth with a slow ripple along y, plus two bad pixels."""
+    yy, xx = np.mgrid[:ny, :nx].astype(np.float32)
+    zodi = (0.1 + 2e-5 * yy + 1e-3 * np.sin(yy / 35.0) - 3e-6 * xx).astype(np.float32)
+    truth = zodi.copy()
+    zodi[48, 60] += 0.012  # single-pixel artefacts, one of them on a sampled row
+    zodi[77, 30] += 0.012
+    rng = np.random.default_rng(3)
+    hdul = fits.HDUList([
+        fits.PrimaryHDU(),
+        fits.ImageHDU(rng.normal(0.3, 0.02, (ny, nx)).astype(np.float32), name="IMAGE"),
+        fits.CompImageHDU(rng.integers(0, 4, (ny, nx)).astype(np.int32), name="FLAGS"),
+        fits.ImageHDU(np.full((ny, nx), 4e-4, dtype=np.float32), name="VARIANCE"),
+        fits.ImageHDU(zodi, name="ZODI"),
+        fits.ImageHDU(np.zeros((40, 40), dtype=np.float32), name="EPSF"),
+    ])
+    return cutouts.to_fits_bytes(hdul), truth
+
+
+def _serve(monkeypatch, blob):
+    asked = []
+
+    def get(url, *, headers=None, truncate=None, tries=1):
+        a, b = headers["Range"].removeprefix("bytes=").split("-")
+        asked.append(int(b) - int(a) + 1)
+        return blob[int(a):int(b) + 1]
+
+    monkeypatch.setattr(cutouts, "_get", get)
+    return asked
+
+
+def _cutout_of(x0, y0, nx, ny):
+    """A Level2 standing for a cutout whose origin in the full frame is (x0, y0)."""
+    l2 = open_level2(FIXTURE_CUTOUT)
+    l2.data = l2.data[:ny, :nx]
+    l2.header["CRPIX1W"], l2.header["CRPIX2W"] = 1.0 - x0, 1.0 - y0
+    return l2
+
+
+def test_zodi_layout_walks_the_headers(tmp_path, monkeypatch):
+    blob, _ = _full_file()
+    asked = _serve(monkeypatch, blob)
+    c = Cache(str(tmp_path))
+    offset, width, height = cutouts.zodi_layout(_im(), c)
+    with fits.open(__import__("io").BytesIO(blob)) as h:
+        assert offset == h["ZODI"].fileinfo()["datLoc"] and (width, height) == (120, 200)
+    assert len(asked) == 5 and sum(asked) < 200_000  # five small header reads, never the pixels
+    assert cutouts.zodi_layout(_im(), c) == (offset, width, height) and len(asked) == 5  # cached
+
+
+def test_zodi_model_from_a_few_rows_matches_the_whole_model(tmp_path, monkeypatch):
+    blob, truth = _full_file()
+    asked = _serve(monkeypatch, blob)
+    c = Cache(str(tmp_path))
+    l2 = _cutout_of(10, 20, 90, 100)
+    model = cutouts.zodi_model(_im(), l2, c)
+    assert model.shape == (100, 90) and model.dtype == np.float32
+    assert np.abs(model - truth[20:120, 10:100]).max() < 1e-4  # ripple followed, bad pixels ignored
+    rows = cutouts.zodi_sample_rows(100)
+    assert list(rows) == [0, 33, 66, 99]
+    assert asked[5:] == [90 * 4] * len(rows)  # one short read per sampled row
+    n = len(asked)
+    again = cutouts.zodi_model(_im(), l2, c)
+    assert np.array_equal(again, model) and len(asked) == n  # cached
+
+
+def test_zodi_sample_rows_spacing():
+    for ny in (5, 72, 213, 285, 849):
+        rows = cutouts.zodi_sample_rows(ny)
+        assert rows[0] == 0 and rows[-1] == ny - 1 and len(rows) >= min(ny, 4)
+        assert np.diff(rows).max() <= cutouts.ZODI_ROW_STEP + 1
+
+
+def test_zodi_model_missing_is_none_not_an_error(tmp_path, monkeypatch):
+    c = Cache(str(tmp_path))
+    assert cutouts.zodi_model(_im(s3=False), _cutout_of(10, 20, 90, 100), c) is None  # no S3 copy
+
+    def down(url, **k):
+        raise cutouts.UpstreamError("down")
+
+    monkeypatch.setattr(cutouts, "_get", down)
+    assert cutouts.zodi_model(_im(), _cutout_of(10, 20, 90, 100), c) is None
+    blob, _ = _full_file()
+    _serve(monkeypatch, blob)
+    assert cutouts.zodi_model(_im(), _cutout_of(100, 20, 90, 100), c) is None  # does not fit the frame
+
+
+def test_fetch_many_subtracts_zodi_only_when_asked(tmp_path, monkeypatch, cutout_bytes):
+    monkeypatch.setattr(cutouts, "_from_irsa", lambda *a: cutout_bytes)
+    monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
+    monkeypatch.setattr(cutouts, "zodi_model", lambda im, l2, cache: np.full(l2.data.shape, 0.25, dtype=np.float32))
+    c = Cache(str(tmp_path))
+    plain = cutouts.fetch_many([_im()], RA, DEC, 0.12, c)[0]
+    sub = cutouts.fetch_many([_im()], RA, DEC, 0.12, c, zodi=True)[0]
+    assert np.allclose(plain.data - sub.data, 0.25, atol=1e-5, equal_nan=True)
+    assert sub.header["ZODISUB"] is True and "ZODISUB" not in plain.header
+    monkeypatch.setattr(cutouts, "zodi_model", lambda im, l2, cache: None)
+    kept = cutouts.fetch_many([_im()], RA, DEC, 0.12, c, zodi=True)[0]
+    assert np.array_equal(kept.data, plain.data, equal_nan=True) and kept.header["ZODISUB"] is False
