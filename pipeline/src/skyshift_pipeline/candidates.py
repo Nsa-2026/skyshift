@@ -13,7 +13,9 @@ Three kinds:
 - spectral  results/<zone>/classes.parquet: a band label (`label_*`) or brown_dwarf_like, and no Gaia star
             (or a Gaia parallax >= NEAR_PARALLAX_MAS), clock months; the SPECTRAL_CAP best by score.
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
-listed again (the pilot lies inside the hunt zone and was redone with the same photos).
+listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
+`zones` gets the later zone (as suspects.json).
+Movers carry three zone-level "check first" codes: outlier_flag, detector_excess, repeat_position.
 `score` (0-1, higher = more promising) is defined per kind in mover_score, highpm_score and
 spectral_score (formulas also in contracts/api.md). frames_url is set for candidates whose static frames
 exist next to the output (cand/<id>/frames.json, written by scripts/candidates/frames.py).
@@ -33,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from skyshift_core import tangent_offset_arcsec
-from skyshift_core.flags import BIT_NAMES, MASK_BITS, RECORD_BITS
+from skyshift_core.flags import BIT_NAMES, MASK_BITS, OUTLIER, RECORD_BITS
 
 from . import config as C
 from . import log
@@ -55,23 +57,33 @@ NEAR_PARALLAX_SNR = 5.0        # ... if its parallax is this significant
 RED_J_M46_AB = C.BD_MIN_J_M46_AB             # label "red": J_AB - [4.6]_AB above this (classify's brown-dwarf cut)
 RED_RATIO_MIN = 10 ** (0.4 * C.BD_MIN_J_M46_AB)  # the same cut as a D6 / D2 flux ratio (highpm red_ratio): 0.63
 FLAG_SHARE_MIN = 0.25          # fixed sources: a record-only flag counts when set on this share of its dots
+IMPLAUSIBLE_PM_MAS_YR = 12_000.0  # high_pm reason implausible_pm: Barnard's Star, the fastest known star, does 10.4″/yr
 KNOWN_NEAR_ARCSEC = 120.0      # mover reason known_object_near
 RATE_SIGMA_MIN = 3.0           # mover reason motion_not_significant: rate under this many sigma
 MOVER_MATCH_RADIUS_ARCSEC = 15.0  # dots re-read around a mover's mean position
-DEDUPE_ARCSEC = 4.0            # the same object in two zones (link's friends-of-friends radius)
-DEDUPE_MOVER_DAYS = 10.0 / 1440.0
+DEDUPE_ARCSEC = 4.0            # the same fixed source in two zones (link's friends-of-friends radius)
+DEDUPE_MOVER_ARCSEC = 6.0      # the same mover in two zones: within 6″ and 2 minutes (suspects.json's merge)
+DEDUPE_MOVER_DAYS = 2.0 / 1440.0
+REPEAT_ARCSEC = 30.0           # mover reason repeat_position: another suspect of the zone this close, in another
+REPEAT_MAX_RATE = 2.0          # session, at an implied rate under this (″/h): a fixed or very slow source
+EXCESS_RATIO = 1.5             # mover reason detector_excess: in its (detector, visit) the zone's suspects per
+EXCESS_MIN_SUSPECTS = 5        # mover are >= 1.5x the zone's average, with at least 5 suspects there
 
 # --- scores -------------------------------------------------------------------------------------
 MOVER_SNR_SCALE = 15.0
 MOVER_EVIDENCE = {"two_exposures": 1.0, "two_detectors": 0.6}
 MOVER_TWO_DOTS = 0.85
 MOVER_KNOWN_RANGE = (C.KNOWN_ARCSEC, 300.0)  # nearest known object: x0.5 at 30″ rising to x1 at 300″
-MOVER_RECORD_FLAG = 0.7
+MOVER_RECORD_FLAG = 0.7        # a record-only flag other than OUTLIER (ghost, halo, …)
+MOVER_OUTLIER = 0.6            # outlier_flag
+MOVER_EXCESS = 0.6             # detector_excess
+MOVER_REPEAT = 0.3             # repeat_position
 MOVER_BAD_PIXELS = 0.8
 MOVER_NO_MOTION = 0.85
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
-                        "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3}
+                        "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
+                        "implausible_pm": 0.01}  # implausible_pm: to the bottom of the list
 HIGHPM_KNOWN_STAR = 0.6        # status "gaia": a catalogued star
 SPECTRAL_SIG_SCALE = 10.0
 SPECTRAL_WEIGHT = {"brown_dwarf_like": 1.0, "ch4": 1.0, "h2o_ice": 0.8, "co2_ice": 0.8, "co_ice": 0.8,
@@ -97,12 +109,12 @@ LABEL_TEXT = {"ch4": "methane", "h2o_ice": "water ice", "co2_ice": "CO₂ ice", 
 RECORD_FLAG_NAMES = {b: n.lower() for b, n in BIT_NAMES.items() if RECORD_BITS & (1 << b)}
 REASONS = {
     "mover": ("two_exposures", "two_detectors", "known_object_near", "motion_not_significant", "bad_pixels_near",
-              "gaia_unchecked", "catwise_unchecked"),
+              "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked"),
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
-                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level"),
+                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable"),
 }
-FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "score", "snr", "flux_ujy", "rate_arcsec_h",
+FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
           "galactic_b", "labels", "reasons", "why", "flags", "frames_url")
 
@@ -326,11 +338,12 @@ def fixed_flag_names(info_row: pd.Series | dict) -> list[str]:
 
 
 # --- movers ----------------------------------------------------------------------------------------
-def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion) -> np.ndarray:
+def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=None, repeat=None) -> np.ndarray:
     """score = S/N term x evidence x known-object term x caution terms (contracts/api.md):
     (1 - exp(-snr / 15)) x {two_exposures 1, two_detectors 0.6} x (0.85 with only two dots)
     x (1 if no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″)
-    x 0.7 if a record-only flag (ghost, halo, …) x 0.8 if a masked pixel touches a dot x 0.85 if the motion is not significant."""
+    x 0.6 if OUTLIER x 0.7 if another record-only flag (ghost, halo, …) x 0.8 if a masked pixel touches a dot
+    x 0.85 if the motion is not significant x 0.6 if detector_excess x 0.3 if repeat_position."""
     snr = np.asarray(snr, np.float64)
     s = 1.0 - np.exp(-np.maximum(snr, 0.0) / MOVER_SNR_SCALE)
     s = s * np.array([MOVER_EVIDENCE.get(e, 0.5) for e in evidence])
@@ -339,17 +352,71 @@ def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion) -> np.nd
     lo, hi = MOVER_KNOWN_RANGE
     k = np.where(np.isfinite(d), 0.5 + 0.5 * np.clip((d - lo) / (hi - lo), 0.0, 1.0), 1.0)
     f = np.asarray(flags, np.int64) & 0xFFFFFFFF
-    s = s * k * np.where((f & RECORD_BITS) != 0, MOVER_RECORD_FLAG, 1.0) * np.where((f & MASK_BITS) != 0, MOVER_BAD_PIXELS, 1.0)
+    s = s * k * np.where((f & OUTLIER) != 0, MOVER_OUTLIER, 1.0)
+    s = s * np.where((f & RECORD_BITS & ~OUTLIER) != 0, MOVER_RECORD_FLAG, 1.0) * np.where((f & MASK_BITS) != 0, MOVER_BAD_PIXELS, 1.0)
     s = s * np.where(np.asarray(no_motion, bool), MOVER_NO_MOTION, 1.0)
+    n = len(s)
+    s = s * np.where(np.asarray(excess if excess is not None else [False] * n, bool), MOVER_EXCESS, 1.0)
+    s = s * np.where(np.asarray(repeat if repeat is not None else [False] * n, bool), MOVER_REPEAT, 1.0)
     return _clip01(s)
 
 
+def excess_cells(susp: pd.DataFrame, mov: pd.DataFrame | None) -> dict[tuple[int, int], float]:
+    """(detector, visit) cells where the zone's suspects per mover are >= EXCESS_RATIO x the zone's average, with
+    at least EXCESS_MIN_SUSPECTS suspects: {(det, visit): ratio}. Cells by each mover's `det`.
+    Hunt (14 Nov): D4 1.6x, D5 4.9x, D6 2.6x, all in visit 2 (D4 is 41% of the suspects, 28% of the movers)."""
+    if mov is None or not len(mov) or not len(susp):
+        return {}
+    ns = susp.groupby([susp["det"].astype(int), susp["visit"].astype(int)]).size()
+    nm = mov.groupby([mov["det"].astype(int), mov["visit"].astype(int)]).size()
+    avg = len(susp) / len(mov)
+    out = {}
+    for cell, n in ns.items():
+        m = int(nm.get(cell, 0))
+        if n >= EXCESS_MIN_SUSPECTS and m > 0 and n / m >= EXCESS_RATIO * avg:
+            out[(int(cell[0]), int(cell[1]))] = float(n / m / avg)
+    return out
+
+
+def is_excess(dets: list[int], visit: int, cells: dict[tuple[int, int], float]) -> bool:
+    """detector_excess: every detector the mover was seen in is an excess cell in its visit (a D1+D4 pair seen
+    by D1 too is not)."""
+    return bool(dets) and all((d, int(visit)) in cells for d in dets)
+
+
+def repeat_positions(susp: pd.DataFrame) -> dict[str, tuple[float, float]]:
+    """repeat_position: suspects with another suspect of the zone within REPEAT_ARCSEC, in another session, at
+    an implied rate (separation / time apart) under REPEAT_MAX_RATE: {id: (separation ″, days apart)} of the
+    closest such partner. Hunt (14 Nov): 7 suspects at 3 places, days to months apart."""
+    if len(susp) < 2:
+        return {}
+    ra, dec = susp["ra"].to_numpy(np.float64), susp["dec"].to_numpy(np.float64)
+    mjd, sess, ids = susp["mjd"].to_numpy(np.float64), susp["session"].to_numpy(), susp["id"].astype(str).to_numpy()
+    out: dict[str, tuple[float, float]] = {}
+    for i, js in enumerate(SkyTree(ra, dec).query_radius(ra, dec, REPEAT_ARCSEC)):
+        best = None
+        for j in js:
+            if j == i or sess[j] == sess[i]:
+                continue
+            sep = float(angsep(ra[i], dec[i], ra[j], dec[j])) * 3600.0
+            dt_d = abs(mjd[j] - mjd[i])
+            if dt_d > 0 and sep / (dt_d * 24.0) < REPEAT_MAX_RATE and (best is None or sep < best[0]):
+                best = (sep, dt_d)
+        if best is not None:
+            out[ids[i]] = best
+    return out
+
+
+def _fmt_days(d: float) -> str:
+    return f"{d * 24:.0f} hours" if d < 1.0 else f"{d:.1f} days"
+
+
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
-              no_motion: bool, nearest_known: float | None) -> str:
+              no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
-        span = f" {span_min:.1f} minutes apart" if span_min else ""
+        span = (f" {span_min:.1f} minutes apart" if n_exposures == 2 else f" over {span_min:.1f} minutes") if span_min else ""
         seen = f"Seen at different places in {n_exposures} exposures{span}"
         if rate is not None:
             seen += (f", moving about {rate:.0f}″ an hour" if not no_motion
@@ -358,10 +425,17 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         known = "no known asteroid or comet was predicted within 10′"
     else:
         known = f"the nearest known asteroid or comet was predicted {_fmt_dist(nearest_known)} away"
+    if repeat is not None:
+        known += (f", but another unexplained mover was seen {_fmt_dist(repeat[0])} from here {_fmt_days(repeat[1])} "
+                  "apart, so it may be a fixed source")
     return f"{seen}; {known}."
 
 
-def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None) -> list[dict]:
+def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
+           cells: dict[tuple[int, int], float] | None = None, repeats: dict[str, tuple[float, float]] | None = None) -> list[dict]:
+    """Mover candidates from suspects. `cells` (excess_cells) and `repeats` (repeat_positions) come from the
+    whole zone, so they stay right when `susp` is a subset."""
+    cells, repeats = cells or {}, repeats or {}
     out = []
     for i, r in enumerate(susp.itertuples()):
         dets = sorted(int(x) for x in str(r.detectors).split(",") if x)
@@ -381,17 +455,26 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None) -> list[dic
             reasons.append("motion_not_significant")
         if f & MASK_BITS:
             reasons.append("bad_pixels_near")
+        if f & OUTLIER:
+            reasons.append("outlier_flag")
+        excess = is_excess(dets, int(getattr(r, "visit", 0) or 0), cells)
+        if excess:
+            reasons.append("detector_excess")
+        rep_ = repeats.get(str(r.id))
+        if rep_ is not None:
+            reasons.append("repeat_position")
         if not getattr(r, "gaia_checked", True):
             reasons.append("gaia_unchecked")
         if not getattr(r, "catwise_checked", True):
             reasons.append("catwise_unchecked")
-        score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion])[0])
+        score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion],
+                                  [excess], [rep_ is not None])[0])
         out.append({
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
-            "zone": zone, "score": score, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
+            "zone": zone, "zones": [zone], "score": score, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
-            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk),
+            "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_),
             "flags": record_flag_names(f), "_dets": dets,
         })
     return out
@@ -405,6 +488,8 @@ def highpm_reasons(r) -> list[str]:
     if bool(getattr(r, "catwise_pm_agree", False)):
         out.append("catwise_pm_agrees")
     out += [x for x in str(r.reason or "").split(",") if x]
+    if pd.notna(r.pm) and r.pm > IMPLAUSIBLE_PM_MAS_YR:
+        out.append("implausible_pm")
     return out
 
 
@@ -412,7 +497,7 @@ def highpm_score(pipeline_score, reasons: list[list[str]], status) -> np.ndarray
     """score = exp(-pipeline score / 0.2) x product of the vetting reasons' weights x 0.6 for a Gaia star.
     The pipeline score is lower = better: 1 / (pm / pm_err) for a fit, |ln flux ratio| + spectrum-shape rms
     for a pair. Weights: short_span, few_dots, bad_fit 0.5; over_pm_cap, at_control_level 0.3;
-    gaia_pm_disagrees, catwise_pm_disagrees 0.4."""
+    gaia_pm_disagrees, catwise_pm_disagrees 0.4; implausible_pm 0.01 (always last)."""
     q = np.exp(-np.nan_to_num(np.asarray(pipeline_score, np.float64), nan=1.0) / HIGHPM_SCORE_SCALE)
     w = np.array([np.prod([HIGHPM_REASON_WEIGHT.get(x, 1.0) for x in rs]) if rs else 1.0 for rs in reasons])
     known = np.where(np.asarray(status) == "gaia", HIGHPM_KNOWN_STAR, 1.0)
@@ -426,7 +511,7 @@ def _pm_text(pm_mas_yr: float) -> str:
 
 CAUTION_TEXT = {
     "at_control_level": "as many such pairs turn up by chance",
-    "over_pm_cap": "faster than any known star",
+    "over_pm_cap": "it is faster than any known star",
     "bad_fit": "the positions don't fit a straight line well",
     "few_dots": "it has few detections",
     "short_span": "its visits are too close in time",
@@ -436,6 +521,9 @@ CAUTION_TEXT = {
 def highpm_why(r, reasons: list[str]) -> str:
     move = (f"Moves {_pm_text(r.pm)} a year between visits" if r.method == "fit"
             else f"Seen {_fmt_arcsec(float(r.sep_arcsec))} apart in two visits ({_pm_text(r.pm)} a year), with matching brightness")
+    if "implausible_pm" in reasons:
+        return (move + ", but no star moves that fast (Barnard's Star, the fastest known, does 10.4″ a year): "
+                "almost certainly two different sources.")
     if "gaia_pm_disagrees" in reasons:
         tail = ", but Gaia lists a different motion for the star here — likely a mismatch, worth a look"
     elif "catwise_pm_disagrees" in reasons:
@@ -465,7 +553,7 @@ def high_pms(h: pd.DataFrame, zone: str, cls_labels: dict[int, list[str]]) -> li
         labels += [x for x in cls_labels.get(sid, []) if x not in labels]
         out.append({
             "id": cid, "kind": "high_pm", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "months", "det": None,
-            "zone": zone, "score": float(sc), "snr": None, "flux_ujy": None, "rate_arcsec_h": None,
+            "zone": zone, "zones": [zone], "score": float(sc), "snr": None, "flux_ujy": None, "rate_arcsec_h": None,
             "pm_mas_yr": r.pm, "pm_err_mas_yr": r.pm_err, "pa_deg": float(pa_deg(r.pmra, r.pmdec)),
             "nearest_known_arcsec": None, "gaia_match": r.status == "gaia", "catwise_match": bool(str(r.catwise_name or "")),
             "labels": sorted(labels, key=LABELS.index), "reasons": rs, "why": highpm_why(r, rs), "flags": [],
@@ -567,7 +655,8 @@ def spectral_why(row: dict, labels: list[str]) -> str:
             else " with no Gaia star")
     text = f"{mols_txt[0].upper()}{mols_txt[1:]}{sig_txt} in {where}{gaia}"
     if "brown_dwarf_like" in labels:
-        text += ", red, with little light in Gaia's band: what a brown dwarf would look like, a lead to check"
+        text += (", red, with little light in Gaia's band" if row.get("_near") else ", and red") + \
+            ": what a brown dwarf would look like, a lead to check"
     elif "red" in labels and cls != "galaxy":
         text += ", with red colours"
     return text + "."
@@ -582,7 +671,7 @@ def spectrals(s: pd.DataFrame, zone: str) -> list[dict]:
         reasons = ["gaia_nearby" if has_gaia[i] else "no_gaia", f"class_{row.get('class', 'unsure')}"]
         out.append({
             "id": f"{zone}-sp-{int(row['source_id'])}", "kind": "spectral", "ra": None, "dec": None, "mjd": None,
-            "clock": "months", "det": None, "zone": zone, "score": float(row["_score"]), "snr": None, "flux_ujy": None,
+            "clock": "months", "det": None, "zone": zone, "zones": [zone], "score": float(row["_score"]), "snr": None, "flux_ujy": None,
             "rate_arcsec_h": None, "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": None,
             "nearest_known_arcsec": None, "gaia_match": bool(has_gaia[i]), "catwise_match": False,
             "labels": labs, "reasons": reasons, "why": spectral_why(row, labs), "flags": [],
@@ -613,12 +702,20 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
         coll = sorted(set(read_columns(store, photolist_rel(zone), ["collection"])["collection"]))
     except Exception:  # noqa: BLE001
         coll = []
-    return {"suspects": susp, "highpm": h, "spectral": spec, "class_labels": cl, "collections": coll}
+    mrel = results_rel(zone, "movers.parquet")
+    mov = read_columns(store, mrel, ["det", "visit"]) if store.exists(mrel) and "visit" in susp else None
+    cells = excess_cells(susp, mov) if mov is not None else {}
+    reps = repeat_positions(susp) if "session" in susp else {}
+    if cells or reps:
+        L.info("candidates %s: excess cells %s; %d suspects at a repeated position", zone,
+               {f"D{d} visit {v}": round(x, 2) for (d, v), x in sorted(cells.items())}, len(reps))
+    return {"suspects": susp, "highpm": h, "spectral": spec, "class_labels": cl, "collections": coll,
+            "cells": cells, "repeats": reps}
 
 
 def dedupe(earlier: list[dict], later: list[dict]) -> list[dict]:
-    """Drop from `later` what `earlier` already lists: same kind within DEDUPE_ARCSEC (movers: and within
-    DEDUPE_MOVER_DAYS)."""
+    """Drop from `later` what `earlier` already lists: same kind within DEDUPE_ARCSEC (movers: within
+    DEDUPE_MOVER_ARCSEC and DEDUPE_MOVER_DAYS, as suspects.json). The earlier entry's `zones` gets the later zone."""
     if not earlier or not later:
         return later
     keep = []
@@ -631,11 +728,17 @@ def dedupe(earlier: list[dict], later: list[dict]) -> list[dict]:
         if t is None:
             keep.append(c)
             continue
-        hits = t[0].query_radius(c["ra"], c["dec"], DEDUPE_ARCSEC)[0]
-        if c["kind"] == "mover":
+        mover = c["kind"] == "mover"
+        hits = t[0].query_radius(c["ra"], c["dec"], DEDUPE_MOVER_ARCSEC if mover else DEDUPE_ARCSEC)[0]
+        if mover:
             hits = [j for j in hits if abs(t[1][j]["mjd"] - c["mjd"]) <= DEDUPE_MOVER_DAYS]
         if not hits:
             keep.append(c)
+            continue
+        for j in hits:
+            zs = t[1][j].setdefault("zones", [t[1][j]["zone"]])
+            if c["zone"] not in zs:
+                zs.append(c["zone"])
     return keep
 
 
@@ -686,7 +789,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         t0 = time.time()
         b = zone_base(store, z, spectral_cap)
         collections.update(b["collections"])
-        cands = movers(b["suspects"], z, None) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
+        cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
         # spectral positions are needed for the dedupe: read them now (cheap)
         sp = [c for c in cands if c["kind"] == "spectral"]
         if sp:
@@ -710,7 +813,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
             t1 = time.time()
             near = mover_dots(store, susp, workers)
             L.info("candidates %s: dots of %d movers in %.0f s", z, len(susp), time.time() - t1)
-            full = {c["id"]: c for c in movers(susp, z, near)}
+            full = {c["id"]: c for c in movers(susp, z, near, b["cells"], b["repeats"])}
             cands = [full.get(c["id"], c) if c["kind"] == "mover" else c for c in cands]
         fill_sources(store, z, cands, workers)
         kept += cands
@@ -749,6 +852,8 @@ def finish(c: dict) -> dict:
             v = int(v) if v is not None else None
         elif k in ("gaia_match", "catwise_match"):
             v = bool(v)
+        elif k == "zones":
+            v = list(v or [c["zone"]])
         out[k] = v
     return out
 

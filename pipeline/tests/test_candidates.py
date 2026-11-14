@@ -15,7 +15,7 @@ from skyshift_pipeline.spectra import NCH_DET, NDET
 from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel
 
 TYPES = {"id": str, "kind": str, "ra": float, "dec": float, "mjd": float, "clock": str, "det": int, "zone": str,
-         "gaia_match": bool, "catwise_match": bool, "galactic_b": float, "labels": list, "reasons": list,
+         "zones": list, "gaia_match": bool, "catwise_match": bool, "galactic_b": float, "labels": list, "reasons": list,
          "why": str, "flags": list}
 NULLABLE = {"score": float, "snr": float, "flux_ujy": float, "rate_arcsec_h": float, "pm_mas_yr": float,
             "pm_err_mas_yr": float, "pa_deg": float, "nearest_known_arcsec": float, "frames_url": str}
@@ -45,7 +45,45 @@ def test_mover_score():
     flagged = K.mover_score([20, 20, 20], [3] * 3, ["two_exposures"] * 3, [np.nan] * 3,
                             [1 << 22, 1 << 0, 0], [False, False, True])
     assert flagged == pytest.approx([base * 0.7, base * 0.8, base * 0.85])
+    # OUTLIER alone, OUTLIER + ghost, detector_excess, repeat_position
+    check = K.mover_score([20] * 4, [3] * 4, ["two_exposures"] * 4, [np.nan] * 4,
+                          [1 << 19, (1 << 19) | (1 << 22), 0, 0], [False] * 4, [False, False, True, False], [False, False, False, True])
+    assert check == pytest.approx([base * 0.6, base * 0.6 * 0.7, base * 0.6, base * 0.3])
     assert K.mover_score([1000], [5], ["two_exposures"], [np.nan], [0], [False])[0] <= 1.0
+
+
+def _suspects(rows):
+    base = {"n_dots": 3, "n_exposures": 3, "evidence": "two_exposures", "snr": 20.0, "flux_ujy": 500.0, "flags": 0,
+            "obs_ids": "", "cell": 1, "nearest_known_arcsec": np.nan, "gaia_checked": True, "catwise_checked": True}
+    return pd.DataFrame([{**base, **r} for r in rows])
+
+
+def test_excess_cells_and_repeats():
+    # 10 movers per (detector, visit); suspects: 1 in D1 visit 1, 6 in D4 visit 2 (6x the average of 7/40)
+    mov = pd.DataFrame([{"det": d, "visit": v} for d in (1, 4) for v in (1, 2) for _ in range(10)])
+    rows = [{"id": "a", "det": 1, "visit": 1, "detectors": "1"}] + [
+        {"id": f"b{i}", "det": 4, "visit": 2, "detectors": "4"} for i in range(6)]
+    cells = K.excess_cells(pd.DataFrame(rows), mov)
+    assert list(cells) == [(4, 2)] and cells[(4, 2)] == pytest.approx(6 / 10 / (7 / 40))
+    assert K.is_excess([4], 2, cells) and not K.is_excess([1, 4], 2, cells) and not K.is_excess([4], 1, cells)
+    assert K.excess_cells(pd.DataFrame(rows[:5]), mov) == {}           # under 5 suspects in the cell
+    # the same place 3.4 days apart (a fixed source), a real mover 27″ away 1.6 hours later (17″/h), the same session
+    s = _suspects([
+        {"id": "p", "ra": 122.0, "dec": 17.0, "mjd": 61000.0, "session": 1, "det": 3, "visit": 1, "detectors": "3"},
+        {"id": "q", "ra": 122.0, "dec": 17.0 + 7 / 3600, "mjd": 61003.4, "session": 9, "det": 3, "visit": 1, "detectors": "3"},
+        {"id": "r", "ra": 123.0, "dec": 17.0, "mjd": 61000.0, "session": 1, "det": 3, "visit": 1, "detectors": "3"},
+        {"id": "u", "ra": 123.0, "dec": 17.0 + 27 / 3600, "mjd": 61000.0 + 1.6 / 24, "session": 2, "det": 3, "visit": 1,
+         "detectors": "3"},
+        {"id": "v", "ra": 124.0, "dec": 17.0, "mjd": 61000.0, "session": 1, "det": 3, "visit": 1, "detectors": "3"},
+        {"id": "w", "ra": 124.0, "dec": 17.0 + 5 / 3600, "mjd": 61000.001, "session": 1, "det": 3, "visit": 1, "detectors": "3"},
+    ])
+    reps = K.repeat_positions(s)
+    assert set(reps) == {"p", "q"} and reps["p"] == pytest.approx((7.0, 3.4), rel=1e-3)
+    out = {c["id"]: c for c in K.movers(s, "hunt", None, {}, reps)}
+    assert out["p"]["reasons"] == ["two_exposures", "repeat_position"] and out["r"]["reasons"] == ["two_exposures"]
+    assert out["p"]["why"].endswith(", but another unexplained mover was seen 7″ from here 3.4 days apart, "
+                                    "so it may be a fixed source.")
+    assert out["p"]["score"] == pytest.approx(out["r"]["score"] * 0.3)
 
 
 def _mover_dots(rate_arcsec_h=36.0, pa=60.0, n=2, step_min=2.1, ra0=125.0, dec0=20.0, t0=61000.0):
@@ -96,6 +134,13 @@ def test_highpm_rows():
     assert g["score"] == pytest.approx(np.exp(-(1 / 29.3) / 0.2) * 0.4 * 0.4 * 0.6)
     p = K.high_pms(_hp(method="pair", source_id_b=9, sep_arcsec=40.0, vetted=False, reason="at_control_level"), "pilot", {})[0]
     assert p["id"] == "pilot-pm-7-9" and p["reasons"][0] == "pm_pair" and "by chance" in p["why"]
+    # 40″ between visits half a year apart: 80″/yr, no star is that fast
+    x = K.high_pms(_hp(method="pair", source_id_b=9, sep_arcsec=40.0, pm=80000.0, pmdec=80000.0, vetted=False,
+                       reason="at_control_level"), "pilot", {})[0]
+    assert x["reasons"] == ["pm_pair", "at_control_level", "implausible_pm"]
+    assert x["score"] == pytest.approx(np.exp(-(1 / 29.3) / 0.2) * 0.3 * 0.01)
+    assert x["why"] == ("Seen 40.0″ apart in two visits (80.0″ a year), with matching brightness, but no star moves "
+                        "that fast (Barnard's Star, the fastest known, does 10.4″ a year): almost certainly two different sources.")
 
 
 def _classes(n=5):
@@ -132,12 +177,16 @@ def test_spectral_selection_and_why():
 
 
 def test_dedupe():
-    a = [{"kind": "mover", "ra": 121.0, "dec": 15.0, "mjd": 61000.0}, {"kind": "high_pm", "ra": 122.0, "dec": 15.0, "mjd": 0.0}]
-    b = [{"kind": "mover", "ra": 121.0, "dec": 15.0 + 1 / 3600, "mjd": 61000.001},   # same mover
-         {"kind": "mover", "ra": 121.0, "dec": 15.0, "mjd": 61001.0},                # same place, another day
-         {"kind": "high_pm", "ra": 122.0, "dec": 15.0 + 3 / 3600, "mjd": 5.0},        # same star
-         {"kind": "spectral", "ra": 122.0, "dec": 15.0, "mjd": 5.0}]                  # another kind
-    assert K.dedupe(a, b) == b[1:2] + b[3:]
+    a = [{"kind": "mover", "zone": "hunt", "ra": 121.0, "dec": 15.0, "mjd": 61000.0},
+         {"kind": "high_pm", "zone": "hunt", "ra": 122.0, "dec": 15.0, "mjd": 0.0}]
+    p = {"zone": "pilot"}
+    b = [{**p, "kind": "mover", "ra": 121.0, "dec": 15.0 + 5 / 3600, "mjd": 61000.001},   # same mover (6″, 2 min)
+         {**p, "kind": "mover", "ra": 121.0, "dec": 15.0, "mjd": 61000.0 + 3 / 1440},     # same place, 3 minutes later
+         {**p, "kind": "high_pm", "ra": 122.0, "dec": 15.0 + 3 / 3600, "mjd": 5.0},        # same star
+         {**p, "kind": "high_pm", "ra": 122.0, "dec": 15.0 + 5 / 3600, "mjd": 5.0},        # 5″ away: another star
+         {**p, "kind": "spectral", "ra": 122.0, "dec": 15.0, "mjd": 5.0}]                  # another kind
+    assert K.dedupe(a, b) == [b[1], b[3], b[4]]
+    assert a[0]["zones"] == ["hunt", "pilot"] and a[1]["zones"] == ["hunt", "pilot"]
 
 
 # --- a whole build on a local store ----------------------------------------------------------------
@@ -156,7 +205,7 @@ def _zone_files(store: Store, zone: str, ra0: float, dec0: float, with_extra_mov
     rows = [{"id": f"{zone}-1-2", "ra": d["ra"].mean(), "dec": d["dec"].mean(), "mjd": d["mjd"].mean(), "n_dots": 2,
              "n_exposures": 2, "detectors": "3", "det": 3, "evidence": "two_exposures", "snr": 30.0, "flux_ujy": 900.0,
              "flags": (1 << 19) | (1 << 21), "obs_ids": ",".join(d["obs_id"]), "cell": 1,
-             "nearest_known_arcsec": np.nan, "gaia_checked": True, "catwise_checked": True}]
+             "nearest_known_arcsec": np.nan, "gaia_checked": True, "catwise_checked": True, "session": 1, "visit": 1}]
     if with_extra_mover:
         rows.append({**rows[0], "id": f"{zone}-5-6", "dec": rows[0]["dec"] + 0.5, "nearest_known_arcsec": 90.0,
                      "evidence": "two_detectors", "detectors": "2,5", "det": 2, "snr": 8.0})
@@ -205,15 +254,17 @@ def test_build_end_to_end(tmp_path):
         assert 0.0 <= c["score"] <= 1.0
     m = cs[0]
     assert m["id"] == "hunt-1-2" and m["rate_arcsec_h"] == pytest.approx(36.0, abs=0.1) and m["pa_deg"] == 60.0
+    assert m["zones"] == ["hunt", "pilot"] and m["reasons"] == ["two_exposures", "outlier_flag"]
     assert m["flags"] == ["outlier"] and m["frames_url"] == "cand/hunt-1-2/frames.json"
     assert m["why"] == ("Seen at different places in 2 exposures 2.1 minutes apart, moving about 36″ an hour; "
                         "no known asteroid or comet was predicted within 10′.")
     two = cs[1]
-    assert two["rate_arcsec_h"] is None and two["reasons"] == ["two_detectors", "known_object_near"]
-    assert two["frames_url"] is None
+    assert two["rate_arcsec_h"] is None and two["reasons"] == ["two_detectors", "known_object_near", "outlier_flag"]
+    assert two["frames_url"] is None and two["zones"] == ["hunt"]
     hp = next(c for c in cs if c["kind"] == "high_pm")
     assert hp["det"] == 6 and hp["snr"] == pytest.approx(50.0 * np.sqrt(NCH_DET), abs=0.1)
     assert hp["flags"] == ["outlier"]                  # set on both of its dots
+    assert hp["zones"] == ["hunt", "pilot"]
     sp = next(c for c in cs if c["kind"] == "spectral")
     assert sp["id"] == "hunt-sp-100" and sp["mjd"] == pytest.approx(61000.0 + 1.05 / 1440, abs=1e-6)
     near = next(c for c in cs if c["id"] == "hunt-sp-101")

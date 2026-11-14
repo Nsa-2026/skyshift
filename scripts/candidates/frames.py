@@ -31,10 +31,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from pathlib import Path
 
 from skyshift_server import blink, gaia, search
@@ -145,7 +147,8 @@ def main() -> int:
     ap.add_argument("--candidates", default=str(DATA / "candidates.json"))
     ap.add_argument("--top", default=DEFAULT_TOP, help=f"kind=n,... (default {DEFAULT_TOP})")
     ap.add_argument("--rebuild", action="store_true", help="rebuild frames that already exist")
-    ap.add_argument("--parallel", type=int, default=3, help="candidates built at once")
+    ap.add_argument("--parallel", type=int, default=6, help="candidates built at once")
+    ap.add_argument("--deadline", type=float, default=45.0, help="minutes; then finish with what was built")
     ap.add_argument("--dry-run", action="store_true", help="list the chosen candidates and stop")
     ap.add_argument("--cache", help="cache folder or gs:// (default: SKYSHIFT_CACHE or ~/.cache/skyshift)")
     a = ap.parse_args()
@@ -163,8 +166,17 @@ def main() -> int:
     todo = [c for c in chosen if a.rebuild or not (out / "cand" / c["id"] / "frames.json").exists()]
     log.info("%d chosen, %d to build", len(chosen), len(todo))
     cache = Cache(a.cache)
-    with ThreadPoolExecutor(max(1, a.parallel)) as ex:
-        list(ex.map(lambda c: build_one(c, cache, out), todo))
+    # Some upstream reads can hang without a timeout: stop waiting after --deadline minutes, keep
+    # what was built (frames.json is written last, so a half-written folder gets no frames_url).
+    ex = ThreadPoolExecutor(max(1, a.parallel))
+    futs = {ex.submit(build_one, c, cache, out): c["id"] for c in todo}
+    try:
+        for _ in as_completed(futs, timeout=a.deadline * 60.0):
+            pass
+    except FuturesTimeout:
+        left = [i for f, i in futs.items() if not f.done()]
+        log.warning("deadline: %d still building, left without static frames: %s", len(left), ", ".join(left))
+    ex.shutdown(wait=False, cancel_futures=True)
     keep = {c["id"] for c in chosen}
     cand_dir = out / "cand"
     if cand_dir.exists():
@@ -183,4 +195,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)  # don't wait for builds still hanging after the deadline
