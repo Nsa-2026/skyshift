@@ -858,7 +858,7 @@ uv run pytest</pre></div>
       <div class="sec-head" style="margin-bottom:0">
         <p class="eyebrow">Pilot runbook · P1 · Sat ~13:45–14:30</p>
         <h2>What runs, in what order, and what to check first</h2>
-        <p class="muted">None of these outputs exist yet on real data. Every value below comes after the pilot; the "good sign" column says what to look for, not what we expect to get.</p>
+        <p class="muted">The pilot ran Sat 11:44–12:11 UTC on <span class="mono">skyshift-test</span> (990 photos, 0 failures, ~€0.15). The table now shows the good sign and what we measured; an independent check (our own match of dots to Gaia and 2MASS, not the pipeline's reports) is in the second table.</p>
       </div>
       <div class="two">
         <ol class="ssteps">
@@ -868,14 +868,29 @@ uv run pytest</pre></div>
           <li class="sstep"><div class="sstep-head"><h3>Gate G2, right after</h3></div><p class="small">From <span class="mono">recall.json</span>. Pass: <span class="mono">vm.sh run worker '… all --zone hunt'</span>. Fail: 30 minutes on the time keyword, the OUTLIER mask and the match radius, then stop S1.</p></li>
         </ol>
         <div class="tablewrap"><table>
-          <thead><tr><th>Check first</th><th>Good sign</th></tr></thead>
+          <thead><tr><th>Check first</th><th>Good sign</th><th>Pilot</th></tr></thead>
           <tbody>
-            <tr><td><span class="mono">recall.json</span> (G2)</td><td>Recall at V &lt; 16 ≥ 50%, well above the 2′ control. Read the counts: the pilot holds only about 9 known asteroids brighter than V 16.</td></tr>
-            <tr><td><span class="mono">astrometry_report.json</span></td><td>Pull scatter ≈ 1 (our errors are honest); proper-motion bias against Gaia near zero, raw and frame-corrected.</td></tr>
-            <tr><td><span class="mono">highpm_report.json</span></td><td>Real pairs clearly outnumber the 15′ control pairs; the Gaia &gt; 200 mas/yr stars in the zone are recovered.</td></tr>
-            <tr><td><span class="mono">photoz_report.json</span></td><td>σ_NMAD of Δz/(1+z) near 0.02 for bright galaxies (K_AB &lt; 17), few outliers (&gt; 0.15).</td></tr>
-            <tr><td>Variable share among Gaia stars</td><td>A small share of Gaia-matched stars flagged <span class="mono">variable</span> in <span class="mono">sources</span> and <span class="mono">lightcurves_summary</span>. A large share means the errors are too small.</td></tr>
-            <tr><td>Colours vs Gaia BP−RP</td><td><span class="mono">colours</span> (D1D4 etc.) of Gaia stars follow a tight sequence against BP−RP.</td></tr>
+            <tr><td><span class="mono">recall.json</span> (G2)</td><td>Recall at V &lt; 16 ≥ 50%, well above the 2′ control. Read the counts: the pilot holds only about 9 known asteroids brighter than V 16.</td><td><span class="chip good">G2 pass</span> 63 of 68 object-sessions (93%), all 7 objects; control 0%. V 16–17: 83%, V 17–18: 44%.</td></tr>
+            <tr><td><span class="mono">astrometry_report.json</span></td><td>Pull scatter ≈ 1 (our errors are honest); proper-motion bias against Gaia near zero, raw and frame-corrected.</td><td><span class="chip good">ok</span> 32,446 stars: pull 0.96 / 1.07, bias +20 / 0 mas/yr (scatter ~220) frame-corrected. Raw has a −345 mas/yr RA bias, so the frame correction is essential.</td></tr>
+            <tr><td><span class="mono">highpm_report.json</span></td><td>Real pairs clearly outnumber the 15′ control pairs; the Gaia &gt; 200 mas/yr stars in the zone are recovered.</td><td><span class="chip warn">weak</span> Pairs 12 vs control 13 (noise). 3 of 13 detected fast stars recovered: with 2 visits 6 months apart our pm error is ~200 mas/yr. The 10 "new" are 5–11″/yr fits: artefacts.</td></tr>
+            <tr><td><span class="mono">photoz_report.json</span></td><td>σ_NMAD of Δz/(1+z) near 0.02 for bright galaxies (K_AB &lt; 17), few outliers (&gt; 0.15).</td><td><span class="chip good">good</span> 1,413 SDSS galaxies: σ_NMAD 0.025, outliers 3.7%, bias +0.007. <span class="mono">good</span> subset: 0.022, 0.7%.</td></tr>
+            <tr><td>Variable share among Gaia stars</td><td>A small share of Gaia-matched stars flagged <span class="mono">variable</span> in <span class="mono">sources</span> and <span class="mono">lightcurves_summary</span>. A large share means the errors are too small.</td><td><span class="chip warn">too high</span> forced (Gaia) 4.2% with median χ²ν 1.28; dots 8.8%, χ²ν 1.96: errors too small, rescale before flagging.</td></tr>
+            <tr><td>Colours vs Gaia BP−RP</td><td><span class="mono">colours</span> (D1D4 etc.) of Gaia stars follow a tight sequence against BP−RP.</td><td><span class="chip good">ok</span> Spearman ρ 0.86 (D1D4, 25,939 stars), 0.81 (D2D5), 0.27 (D3D6: K − 4.6 µm barely depends on temperature).</td></tr>
+          </tbody></table></div>
+      </div>
+      <div class="stack">
+        <h3>Pilot, checked independently</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Check</th><th>Result</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Completeness</td><td>990 of 990 dot files and forced files, 0 failed, 0 bad astrometry; 21.1 M dots; spacecraft position in every photo; all contract columns, no NaN</td><td>The extraction is complete: nothing to read again.</td></tr>
+            <tr><td>Speed (e2-standard-8)</td><td>read 1.1 s, measure 11.3 s per photo (median); CPU 90%, the rest is waiting for S3; 44.6 photos/min</td><td>Whole sky ≈ 4,100 vCPU-hours (~€40 spot), half the earlier estimate.</td></tr>
+            <tr><td>Brightness vs 2MASS</td><td>J 0.995 · H 1.037 · Ks 1.022 (aperture, ours / 2MASS, 7–9% scatter, 6,800 stars); PSF fluxes 2–6% higher</td><td>The 889 µJy per MJy/sr conversion and the 1.033 aperture correction hold to 2–4%.</td></tr>
+            <tr><td>Saturation (50% of stars)</td><td>D1 J_AB 10.5 · D2 J_AB 10.8 · D3 K_AB 11.0 · D4 W1_AB 11.1 · D5 W2_AB 9.6 · D6 W2_AB 9.0</td><td>Fainter than this is unsaturated; matches the asteroid fits.</td></tr>
+            <tr><td>Positions vs Gaia</td><td>69,356 stars: photo offsets ≤ 0.16″; single-dot scatter 0.44″ (S/N &gt; 200) to 0.59″ (S/N 10–20) per axis</td><td><span class="mono">pos_err_arcsec</span> is 1.4–1.8× too small (floor ~0.43″, not 0.25″). The proper-motion fit rescales by χ²ν, so its errors are honest.</td></tr>
+            <tr><td>Sources and classes</td><td>45,189 sources (median 35 sessions, 118 dots); Gaia 79%, CatWISE 95%, 2MASS 80%; 27,463 stars, 7,963 galaxies, 9,763 unsure</td><td>The star catalogue with 102-channel spectra exists for the zone.</td></tr>
+            <tr><td>Band detections (≥ 5σ)</td><td>"water ice 3.05 µm" 372, of which 206 Gaia stars redder than BP−RP 2; methane 3.3 µm 50, of which 15 Gaia stars</td><td>The 3 µm hits are mostly water vapour in cool M dwarfs, not ice; methane in Gaia stars is impossible. Labels need a guard and stricter thresholds.</td></tr>
+            <tr><td>Suspects</td><td>873 movers → 26 suspects (260 known, 151 flags, 67 bright, 154 Gaia, 215 CatWISE); mostly D4/D6, S/N 13–57</td><td>For people to blink and vote; two of them, 2.5 days and ~20″ apart, may be one slow object.</td></tr>
           </tbody></table></div>
       </div>
     </div>
@@ -1099,7 +1114,7 @@ gcloud storage rm -r gs://nasa-glazing-data/dots/</pre></div></li>
       <div class="tablewrap"><table>
         <thead><tr><th>Area</th><th>Photos</th><th>Compute</th><th>Time</th><th>Stored</th></tr></thead>
         <tbody>
-          <tr><td>Pilot, 12 deg²</td><td>990</td><td>test machine ~€0.30/h while it runs</td><td>after the pilot</td><td>~4.5 GB</td></tr>
+          <tr><td>Pilot, 12 deg²</td><td>990</td><td>test machine ~€0.30/h while it runs</td><td>27 min, ~€0.15</td><td>2.7 GB (dots 2.35 GB, forced 0.39 GB) + 0.29 GB results</td></tr>
           <tr><td>Hunt zone, 100 deg²</td><td>3,692</td><td>~€0.30</td><td>under an hour on 64 spot cores</td><td>~17 GB</td></tr>
           <tr><td>5% of the sky</td><td>—</td><td>~€4</td><td>~4 h</td><td>~300 GB</td></tr>
           <tr><td><b>Whole sky</b> (not run)</td><td>≈ 1.32 million survey photos (~2,500 a day, 24 Apr 2025 – 5 Oct 2026)</td><td>~€75 (€55–110), ~7,300 core-hours, plus ~€18 of writes</td><td>~3 days on today's quota; ~15 h on 480 spot cores</td><td>dots ~5.5 TB: €114/month Standard, €30/month Coldline. Star catalogue 50–100 GB, €1–2/month</td></tr>
