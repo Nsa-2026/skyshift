@@ -1428,8 +1428,8 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "215,412 stars vs Gaia (hunt zone): proper-motion bias -3 (RA) and -2 (Dec) mas/yr, scatter 141 and 142 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 32,427 stars, bias -1 (RA) and -5 (Dec) mas/yr, scatter 141 and 142 mas/yr, pull scatter 0.92, 0.91",
-      "value": 140.691,
+      "headline": "209,550 stars vs Gaia (hunt zone): proper-motion bias -3 (RA) and -2 (Dec) mas/yr, scatter 135 and 135 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 31,591 stars, bias -2 (RA) and -5 (Dec) mas/yr, scatter 136 and 135 mas/yr, pull scatter 0.92, 0.91",
+      "value": 134.535,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
       "note": "Proper motions fitted over all dots with SPHEREx's own position as the observer, against Gaia DR3. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass when both pull scatters are 0.7-1.5 in every zone. Rows: zone, axis, n, bias, scatter, pull_scatter (mas/yr).",
@@ -1437,34 +1437,34 @@
         {
           "zone": "hunt",
           "axis": "pmra",
-          "n": 215412,
-          "bias": -2.924,
-          "scatter": 140.691,
+          "n": 209550,
+          "bias": -3.242,
+          "scatter": 134.535,
           "pull_scatter": 0.944
         },
         {
           "zone": "hunt",
           "axis": "pmdec",
-          "n": 215412,
-          "bias": -2.37,
-          "scatter": 142.429,
-          "pull_scatter": 0.942
+          "n": 209550,
+          "bias": -2.154,
+          "scatter": 135.359,
+          "pull_scatter": 0.94
         },
         {
           "zone": "pilot",
           "axis": "pmra",
-          "n": 32427,
-          "bias": -1.465,
-          "scatter": 141.183,
-          "pull_scatter": 0.919
+          "n": 31591,
+          "bias": -1.66,
+          "scatter": 135.93,
+          "pull_scatter": 0.92
         },
         {
           "zone": "pilot",
           "axis": "pmdec",
-          "n": 32427,
-          "bias": -5.181,
-          "scatter": 141.852,
-          "pull_scatter": 0.912
+          "n": 31591,
+          "bias": -5.157,
+          "scatter": 135.397,
+          "pull_scatter": 0.908
         }
       ]
     },
