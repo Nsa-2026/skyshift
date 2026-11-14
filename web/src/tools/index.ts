@@ -6,7 +6,7 @@ import "./tools.css";
 import "../prefs/details";
 import { ApiFailure, loadCandidates, loadFrames, loadSuspects, loadValidation } from "../api/client";
 import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationResponse } from "../api/types";
-import { mjdToDate } from "../app/astro";
+import { formatMjd } from "../app/astro";
 import type { MountPage, PageContext } from "../app/modules";
 import { TARGETS, featuredNear } from "../app/state";
 import { BATCH_LIMIT, type BatchResult, type BatchRow, batchCSV, blinkHref, decimalText, parseBatch, rowStatus, sexagesimal, skyHref } from "./batch";
@@ -77,8 +77,7 @@ export function formatWhen(iso: string | null | undefined): string {
   }) + (dateOnly ? "" : " UTC");
 }
 
-const fmtDay = (mjd: number) =>
-  mjdToDate(mjd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const fmtDay = (mjd: number) => formatMjd(mjd);
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
 
@@ -338,14 +337,14 @@ function downloadsHtml(data: CandidatesResponse | null, kind: CandidateKind | "a
   const n = candidateSubset(data, "all").counts;
   const kinds = (Object.keys(KIND_NAMES) as CandidateKind[]).map((k) => {
     const c = n[k] ?? 0;
-    return `<button type="button" data-kind="${k}" aria-pressed="${kind === k}" ${c === 0 ? "disabled" : ""}>${esc(KIND_NAMES[k].many[0].toUpperCase() + KIND_NAMES[k].many.slice(1))} <span class="tl-count">${c}</span></button>`;
+    return `<button type="button" data-kind="${k}" aria-pressed="${kind === k}" ${c === 0 ? "disabled" : ""}>${esc(KIND_NAMES[k].many[0].toUpperCase() + KIND_NAMES[k].many.slice(1))} <span class="tl-count">${c.toLocaleString("en-GB")}</span></button>`;
   });
   return `<p class="tl-sum">${plural(total, "object", "objects")} to check from the ${esc(zoneText(data.zones))}: ${(Object.keys(KIND_NAMES) as CandidateKind[])
     .map((k) => plural(n[k] ?? 0, KIND_NAMES[k].one, KIND_NAMES[k].many))
     .join(", ")}. Generated ${esc(formatWhen(data.generated))} from SPHEREx ${esc(data.data_release)}.</p>
     <div class="tl-choose">
       <div class="seg tl-kinds" role="group" aria-label="Which objects">
-        <button type="button" data-kind="all" aria-pressed="${kind === "all"}">All <span class="tl-count">${total}</span></button>
+        <button type="button" data-kind="all" aria-pressed="${kind === "all"}">All <span class="tl-count">${total.toLocaleString("en-GB")}</span></button>
         ${kinds.join("")}
       </div>
     </div>
