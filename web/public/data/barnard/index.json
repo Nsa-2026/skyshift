@@ -1,0 +1,21 @@
+{
+ "slug": "barnard",
+ "name": "Barnard's Star",
+ "center": {
+  "ra": 269.4462,
+  "dec": 4.76883
+ },
+ "frames": [
+  {
+   "file": "frames_months_15.json",
+   "clock": "months",
+   "fov": 15,
+   "dets": [
+    2
+   ],
+   "epochs": 3,
+   "bytes": 848101
+  }
+ ],
+ "own": "frames_months_15.json"
+}
