@@ -3,6 +3,8 @@
 Prepared 14 November 2026 on `codex/science-production-integration`.
 This is the current integration record; older handoff documents describe earlier local prototypes.
 
+The user subsequently requested: retain the integration and do not deploy for now. No deployment should proceed until the user resumes it.
+
 ## Source and scope
 
 - Started from upstream `8522cd7`, then incorporated the latest fetched main, `84b0f1c` (including the QA pipeline, honest UI copy, featured zones and measured-layer contract).
@@ -12,7 +14,7 @@ This is the current integration record; older handoff documents describe earlier
 - Included motion and cold-source checks, D3/D6 comparison, DR1 reference spectrum, synthetic W1/W2 and experimental halo light curves, spectral audio, sensitivity estimates, catalogue checks, cultural modules and exports.
 - This release does not import the prototype's game or API inspector.
 
-The change spans core (legacy analysis adapter), server, web, precompute scripts and container packaging. A pipeline regression discovered during verification is fixed: repeated wavelengths now use the weighted-mean fallback when the polynomial normal matrix is rank deficient. The regression test also checks that full-rank spectra retain their polynomial fit. No new formal contract fields are introduced by this integration.
+The change spans core (legacy analysis adapter), server, web, precompute scripts and container packaging. Repeated wavelengths now use the weighted-mean fallback when the polynomial normal matrix is rank deficient; a regression test also checks that full-rank spectra retain their polynomial fit. The first remote Linux CI run exposed a pre-existing race in spectra loader statistics: shared counter updates occasionally omitted a photo. Workers now return their own counts for serial aggregation. A barrier-based regression reproduces the loss before the fix (10 instead of 40) and passes after it. No new formal contract fields are introduced by this integration.
 
 ## Data and deployment boundaries
 
@@ -30,7 +32,7 @@ Arbitrary-field background analysis is local-only by default. `SKYSHIFT_ENABLE_S
 
 Locked Python environments and `npm ci` were used. Logs are under the ignored `.runtime/release` directory. The production TypeScript/Vite build succeeds; the existing bundle-size warning remains.
 
-The full suites passed 1,312 tests: web 725, server 279, core 62, pipeline 194, scientific helpers 19 and validation utilities 33. Three optional network tests were skipped. Release tests specifically check that raw observations bypass legacy caches, all five scientific products work without native jobs, published image grids are not relabelled, exports remain portable, and hosted background jobs are disabled.
+The full suites passed 1,313 tests: web 725, server 279, core 62, pipeline 195, scientific helpers 19 and validation utilities 33. Three optional network tests were skipped. Release tests specifically check that raw observations bypass legacy caches, all five scientific products work without native jobs, published image grids are not relabelled, exports remain portable, and hosted background jobs are disabled.
 
 HTTP smoke checks passed for all five science/analysis APIs and model/residual/reference layers (25 groups), including every returned binary frame's size. Browser verification covered the five targets, scientific navigation, candidate checks, reference overlays, comparison, original object list and lessons, and a 390-pixel mobile viewport without horizontal overflow. Screenshots and UI checks are in `docs/previews/science-release`.
 
@@ -40,7 +42,7 @@ Docker is installed but its daemon was not running, so an actual Linux image bui
 
 ## Release status and next gate
 
-No deployment or traffic change has been performed. Firebase CLI reported no authorized account; no existing Google Cloud CLI login was available. The current public site remains unchanged by this work.
+No deployment or traffic change has been performed. The user completed Google Cloud login, but the active account was denied `run.services.get` on `nasa-glazing/skyshift-api`. Firebase CLI still reports no authorized account: the login helper stopped at the project-access check. A project-authorized deployment account or administrator-granted access is required. The current public site remains unchanged by this work; another team release occurred during verification and still had no Science workbench markers in its bundle.
 
 Local production-like preview: `http://127.0.0.1:8092/?t=wise0855&clock=months&fov=5&det=6#/explore/science`. It has background jobs disabled and no native analysis cache. Local credentials and downloaded tools are ignored and excluded from Docker and Cloud Build uploads.
 
@@ -52,4 +54,4 @@ After a project-authorized Google account is available:
 4. Only after these checks pass, promote the tested API revision and matching hosting build. Do not redeploy Firestore rules as part of this change.
 5. Check the public science entry and an original sky URL. On failure, restore the captured API traffic and hosting version.
 
-The user has authorized deployment if quality passes. Account login and cloud verification are outstanding prerequisites, not a request to approve the same release again.
+Deployment is now deferred at the user’s request. Project access, cloud build and preview verification remain outstanding for a future release.

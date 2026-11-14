@@ -419,6 +419,27 @@ def test_calib_fits_psf_positions_separately_and_loaders_use_them(tmp_path, rng)
     assert st["calib_phase_corrected_dots"] == ok.sum()
 
 
+def test_spectra_parallel_psf_counts_do_not_lose_photos(tmp_path, rng, monkeypatch):
+    """NumPy reductions can release the GIL while several photos update their counts."""
+    from threading import Barrier
+
+    d, xid = make_v4(rng, n_photos=4, per_photo=30)
+    store = write_store(tmp_path, d, xid)
+    store.write_parquet(results_rel("pilot", "fixed.parquet"), d[["source_id", "ra", "dec"]])
+    barrier = Barrier(4)
+    use_psf = CB.use_psf
+
+    class ConcurrentMask(np.ndarray):
+        def sum(self, *args, **kwargs):
+            barrier.wait(timeout=10)
+            return super().sum(*args, **kwargs)
+
+    monkeypatch.setattr(CB, "use_psf", lambda *a, **kw: use_psf(*a, **kw).view(ConcurrentMask))
+    _, stats = SP.load_members(store, ZONE, workers=4)
+    assert stats["pos_psf_dots"] == int(d["psf_pos_ok"].sum()) == 40
+    assert stats["member_rows_missing"] == 0
+
+
 def test_use_psf_picks_the_position_with_the_smaller_calibrated_error(monkeypatch):
     """ePSF a 2.5″ floor 0.15″ vs centroid a 5″ floor 0.08″: crossover at S/N √((25 − 6.25)/(0.0225 − 0.0064)) ≈ 34."""
     cal = {"pos_err": {"detectors": {"2": {"a_arcsec": 5.0, "floor_arcsec": 0.08}}},
