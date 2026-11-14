@@ -1,5 +1,5 @@
 /* Extensions use the same Lightbox tokens and leave its shell and plate unchanged. */
-#science-workbench { grid-area: evidence; min-width: 0; }
+#science-workbench { min-width: 0; }
 
 .wb-main { border-top: 1px solid var(--hair); padding-top: var(--s5); }
 .wb-main > summary { font-size: var(--step-1); font-weight: 650; cursor: pointer; }
@@ -65,20 +65,15 @@ html:not([data-details="on"]) #science-workbench .expert-only { display:none; }
 
 .science-layer-caption { margin:0 0 var(--s3); padding:var(--s3); background:var(--sheet-2); border-left:2px solid var(--pencil-blue); color:var(--ink-2); font-size:var(--step--1); }
 
-/* One shared player, with a focused reading surface for each workspace level. */
-.page-blink[data-workspace-mode] {
-  grid-template-columns:minmax(0,calc(max(260px,100svh - 480px) + 24px)) minmax(360px,1fr);
-  grid-template-areas:"heading heading" "selection selection" "stage evidence" "below below";
-  gap:var(--s5) var(--s7);
-}
-.workspace-head {grid-area:heading;display:flex;justify-content:space-between;align-items:center;gap:var(--s5);border-top:1px solid var(--hair);padding:var(--s5) 0 var(--s2);}
-.workspace-head h1 {font-size:clamp(1.5rem,2.5vw,2rem);line-height:1.15;letter-spacing:-.025em;margin:var(--s1) 0 var(--s2);}
+/* One shared player, with a focused reading surface for each workspace level. The grid (the plate
+   and the "What's here" panel) is in app.css. The title is modest, so the plate starts high. */
+.workspace-head {grid-area:heading;display:flex;justify-content:space-between;align-items:baseline;gap:var(--s5);padding:0;min-width:0;}
+.workspace-head h1 {font-size:clamp(1.125rem,1.6vw,1.375rem);line-height:1.2;letter-spacing:-.015em;margin:0;overflow-wrap:anywhere;}
 .workspace-eyebrow {font-size:var(--step--1);color:var(--ink-2);letter-spacing:.08em;text-transform:uppercase;}
 .workspace-description {color:var(--ink-2);font-size:var(--step--1);max-width:54ch;}
-.workspace-selection {grid-area:selection;display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;font-size:var(--step--1);padding:var(--s3);background:var(--sheet-2);border-left:2px solid var(--pencil-red);}
+.workspace-selection {display:flex;align-items:center;gap:var(--s2) var(--s3);flex-wrap:wrap;font-size:var(--step--1);padding:var(--s3);background:var(--sheet-2);border-left:2px solid var(--pencil-red);}
 .page-blink [hidden],.stories-page [hidden] {display:none!important;}
 .page-blink[data-workspace-mode] .bk-col {width:100%;}
-#science-workbench {border-left:1px solid var(--hair);padding-left:var(--s6);max-width:760px;}
 #science-workbench .side-card {max-width:none;}
 .wb-context {font-size:var(--step--1);color:var(--ink-2);margin:0 0 var(--s2);}
 .wb-tabs {display:flex;gap:var(--s2) var(--s4);flex-wrap:wrap;border-bottom:1px solid var(--hair);padding-bottom:var(--s3);margin-bottom:var(--s5);}
@@ -104,8 +99,12 @@ html:not([data-details="on"]) #science-workbench .expert-only { display:none; }
 .cd-summary .cd-hero {margin-top:var(--s4);}
 .cd-summary .cd-notes {font-size:.75rem;}
 .page-blink[data-workspace-mode="analyze"] .below,.page-blink[data-workspace-mode="research"] .below {display:none;}
-.workspace-vote {border-top:1px solid var(--hair);padding-top:var(--s4);}
-.workspace-vote>summary {font-weight:600;cursor:pointer;margin-bottom:var(--s4);}
+/* "Flag it": a clear button that opens the vote, with one line on how. */
+.workspace-vote>summary {display:flex;align-items:center;flex-wrap:wrap;gap:var(--s2) var(--s3);cursor:pointer;list-style:none;}
+.workspace-vote>summary::-webkit-details-marker {display:none;}
+.workspace-vote>summary .btn {pointer-events:none;}
+.workspace-vote[open]>summary {margin-bottom:var(--s4);}
+.here-flag-hint {color:var(--ink-2);font-size:var(--step--1);line-height:1.45;flex:1 1 180px;}
 .page-blink[data-workspace-mode="research"] .pro-only {display:revert!important;}
 .page-blink[data-workspace-mode="research"] .plain-only {display:none!important;}
 html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #science-workbench .expert-only {display:block;}
@@ -128,21 +127,13 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
 .stories-page table {width:100%;border-collapse:collapse;font-size:var(--step--1);}
 .stories-page th,.stories-page td {text-align:left;padding:var(--s3);border-bottom:1px solid var(--hair);}
 @media(max-width:1000px) {
-  .workspace-head {align-items:flex-start;flex-direction:column;gap:var(--s4);}
-  .page-blink[data-workspace-mode] {grid-template-columns:minmax(0,1fr);grid-template-areas:"heading" "selection" "stage" "evidence" "below";}
-  .page-blink[data-workspace-mode] .stage {width:min(100%,640px);margin:auto;}
-  #science-workbench {border-left:0;padding-left:0;max-width:none;border-top:1px solid var(--hair);padding-top:var(--s5);}
+  .workspace-head {align-items:flex-start;flex-direction:column;gap:var(--s2);}
 }
 @media(max-width:600px) {
   .workspace-description {max-width:36ch;}
-  .workspace-head {padding-top:var(--s4);}
   .story-gallery {grid-template-columns:minmax(0,1fr);}
   .wb-tabs {gap:var(--s2) var(--s4);}
   #science-workbench .calibration-grid {grid-template-columns:minmax(0,1fr);}
-}
-.page-blink[data-workspace-mode]:has(.workspace-selection[hidden]) {grid-template-areas:"heading heading" "stage evidence" "below below";}
-@media(max-width:1000px) {
-  .page-blink[data-workspace-mode]:has(.workspace-selection[hidden]) {grid-template-areas:"heading" "stage" "evidence" "below";}
 }
 /* The player includes long measurement notes. Keep it in normal flow so it
    cannot slide over the following vote/sky row while scrolling on desktop. */
@@ -151,3 +142,33 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
 
 .wb-layer-note{margin:.5rem 0 0;color:var(--ink-2);font-size:var(--step--1);line-height:1.45}
 .wb-layer-note:empty{display:none}
+
+/* ---- What's here (15 Nov): one panel beside the plate, below it on phones ---------------- */
+.here {grid-area:evidence;min-width:0;display:grid;gap:var(--s5);align-content:start;}
+.here-title {font-size:var(--step--1);font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin:0;}
+.here-cand {display:grid;gap:var(--s5);padding-bottom:var(--s5);border-bottom:1px solid var(--hair);}
+.here-cand .vc-body {display:grid;gap:var(--s5);min-width:0;}
+.here-cand .cd-nav {padding:0;}
+.here-cand .cd-count {margin-left:0;flex-basis:100%;order:3;}
+.here-cand .rv-why {font-size:var(--step-1);max-width:none;}
+.here-cand .cd-empty {padding:0;}
+.here .wb-guide {margin-top:var(--s4);padding-top:var(--s3);}
+.here .wb-guide p {margin-bottom:var(--s3);}
+/* One rhythm inside the panel: section titles at step 1, the card's sections closer together. */
+.here #science-workbench .cd-name {font-size:var(--step-1);margin:0;}
+.here .cd-measure {margin-top:var(--s5);}
+.here .cd-summary .cd-hero {margin-top:0;}
+.here .cd-sec {margin-top:var(--s5);}
+.here #science-workbench .cd-h {margin:0;}
+.here #science-workbench .wb-tabs {margin-bottom:var(--s4);}
+.here-flag {display:grid;gap:var(--s3);border-top:1px solid var(--hair);padding-top:var(--s4);}
+.page-blink[data-workspace-mode="explore"] .wb-quality {display:none;}
+/* Desktop: the panel keeps beside the plate and scrolls on its own when it is long. */
+@media(min-width:1001px) {
+  .here {position:sticky;top:var(--s4);max-height:calc(100svh - 2 * var(--s4));overflow-y:auto;}
+}
+/* Derived images (sky model, residual, DR1 difference): a plate option, for Advanced. */
+.viewer-layer {margin:var(--s3) var(--s3) 0;}
+.viewer-layer .wb-source-label {display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) var(--s3);margin:0;font-size:var(--step--1);color:var(--ink-2);}
+.viewer-layer .wb-source-label select {width:auto;min-width:0;max-width:100%;flex:1 1 200px;}
+.viewer-plate-note {margin:var(--s2) var(--s3) 0;}

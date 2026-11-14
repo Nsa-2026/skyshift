@@ -41,10 +41,12 @@
 #app.cosmic-shell .featured {
   width: fit-content;
   max-width: 100%;
-  padding: var(--s3) var(--s4);
-  margin: var(--s3) 0 var(--s5);
+  min-height: 40px;
+  align-items: center;
+  padding: var(--s1) var(--s4);
+  margin: 0;
   border: 1px solid var(--hair);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--cosmic-surface);
 }
 #app.cosmic-shell .find-msg { color: var(--cosmic-muted); }
@@ -57,10 +59,9 @@
 #app.cosmic-shell .workspace-description { color: var(--cosmic-muted); }
 #app.cosmic-shell .workspace-head .btn-primary { background: var(--sheet); color: var(--ink); }
 #app.cosmic-shell .page-blink > .stage,
-#app.cosmic-shell #science-workbench,
+#app.cosmic-shell .page-blink > .here,
 #app.cosmic-shell .practice-task,
 #app.cosmic-shell .practice-panel,
-#app.cosmic-shell .workspace-selection,
 #app.cosmic-shell .page-blink > .below > *,
 #app.cosmic-shell .page:not(.page-atlas):not(.page-blink),
 #app.cosmic-shell .atl-below {
@@ -112,7 +113,8 @@
 }
 
 @media(max-width:600px) {
-  #app.cosmic-shell #science-workbench,
+  #app.cosmic-shell .page-blink > .stage { padding: var(--s1); }
+  #app.cosmic-shell .page-blink > .here,
   #app.cosmic-shell .practice-task,
   #app.cosmic-shell .practice-panel,
   #app.cosmic-shell .page:not(.page-atlas):not(.page-blink) { padding: var(--s4); }

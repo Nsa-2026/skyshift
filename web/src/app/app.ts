@@ -14,10 +14,12 @@ import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
-import { mountCandidate, mountReview } from "../review";
+import { candidatePlate, candidateTitle, mountCandidatePanel, mountReview } from "../review";
+import { candidateView, framesFor } from "../review/data";
+import type { Candidate } from "../api/types";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
-import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
+import {MODES, type WorkspaceState} from "../product/workspace-state";
 import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
 import {SCREENS,siteRoute,viewerState} from './navigation';
@@ -68,40 +70,58 @@ export function startApp(root: HTMLElement): void {
       </nav>
       <div class="details-slot"></div>
     </header>
-    <form class="find" role="search" ${embed?'hidden':''}>
-      <label class="visually-hidden" for="q">Coordinates or a featured name</label>
-      <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
-        placeholder="Paste coordinates, e.g. 08h55m10.831s -7d14m42.53s" />
-      <button class="btn btn-primary find-go" type="submit">Blink</button>
-    </form>
-    <section class="featured" data-only="explore" aria-label="Featured targets" ${embed ? "hidden" : ""}>
-      <span class="featured-label" id="featured-label">Try</span>
-      <div class="featured-list" role="group" aria-labelledby="featured-label" style="display:contents">
-        ${TARGETS.map(
-          (t) => html`<button class="chip" type="button" data-slug="${t.slug}" aria-pressed="false"
-            title="${t.name}, ${t.kind}">${t.short}<span class="chip-kind">, ${t.kind}</span></button>`,
-        ).join("")}
-      </div>
-    </section>
+    <div class="find-row" data-only="explore" ${embed ? "hidden" : ""}>
+      <form class="find" role="search" ${embed?'hidden':''}>
+        <label class="visually-hidden" for="q">Coordinates or a featured name</label>
+        <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
+          placeholder="Paste coordinates, e.g. 08h55m10.831s -7d14m42.53s" />
+        <button class="btn btn-primary find-go" type="submit">Blink</button>
+      </form>
+      <section class="featured" aria-label="Featured targets">
+        <span class="featured-label" id="featured-label">Try</span>
+        <div class="featured-list" role="group" aria-labelledby="featured-label" style="display:contents">
+          ${TARGETS.map(
+            (t) => html`<button class="chip" type="button" data-slug="${t.slug}" aria-pressed="false"
+              title="${t.name}, ${t.kind}">${t.short}<span class="chip-kind">, ${t.kind}</span></button>`,
+          ).join("")}
+        </div>
+      </section>
+    </div>
     <p class="find-msg" role="status" aria-live="polite"></p>
     <main class="page page-atlas" data-page="atlas" hidden></main>
     <main class="page page-discover" data-page="discover" hidden></main>
     <main class="page page-review" data-page="review" hidden></main>
-    <main class="page page-candidate" data-page="candidate" hidden></main>
     <main class="page page-blink" data-page="explore" hidden>
       <header class="workspace-head">
         <div><h1 id="blink-h1">Viewer</h1><p class="workspace-description"></p></div>
       </header>
       <section class="practice-task" aria-label="Practice task" hidden></section>
       <section class="practice-panel" aria-label="Guided practice" hidden></section>
-      <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
-      <section class="stage" aria-label="Blink"><div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div><div id="blink"></div></section>
-      <section id="card" class="side-card" aria-label="Object"></section>
+      <section class="stage" aria-label="Blink">
+        <div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div>
+        <div id="blink"></div>
+        <p class="viewer-plate-note rv-plate-note" hidden></p>
+        <div class="viewer-layer" aria-label="Derived images" hidden></div>
+      </section>
+      <!-- What's here (15 Nov): one panel beside the plate (below it on phones). Plain: what this
+           spot is, its measured motion, the card and "Flag it". Advanced adds the measurement
+           sections. A candidate (#/c/<id>) adds its section on top. -->
+      <aside class="here" aria-labelledby="here-h">
+        <h2 class="here-title" id="here-h">What's here</h2>
+        <section class="here-cand rv" aria-label="Object to check" hidden></section>
+        <section id="card" class="side-card" aria-label="Object"></section>
+        <section id="science-workbench" aria-label="Measurements"></section>
+        <div class="here-flag">
+          <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
+          <details class="workspace-vote">
+            <summary><span class="btn btn-primary">Flag it</span><span class="here-flag-hint">Saw a dot jump or change? Click it on the plate, then say what it is.</span></summary>
+            <section id="vote" class="side-vote" aria-label="Flag and vote"></section>
+          </details>
+        </div>
+      </aside>
       <div class="below">
-        <details class="workspace-vote"><summary>Flag what you notice</summary><section id="vote" class="side-vote" aria-label="Flag and vote"></section></details>
         <section id="sky" class="sky" aria-label="Sky around this spot"></section>
       </div>
-      <section id="science-workbench" aria-label="Workspace evidence"></section>
     </main>
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
     <main class="page page-community" data-page="community" hidden></main>
@@ -137,6 +157,14 @@ export function startApp(root: HTMLElement): void {
   let selectedSignal: {ra:number;dec:number;pmra_arcsec_yr?:number;pmdec_arcsec_yr?:number;mjd_ref?:number} | null = null;
   let selectedSky:SkySelection|null=null;
   let returnSkyHash='#/sky';
+  /** The object to check the Viewer shows (#/c/<id>). It stays while the view is on its spot. */
+  let candidate: Candidate | null = null;
+  /** Hours candidates blink the exposures near the find, unless the person asked for all. */
+  let candidateAll = false;
+  /** The view whose frames are on the plate (null while loading): the candidate's ballot waits for it. */
+  let plateFor: View | null = null;
+  const atCandidate = (v: View | null): boolean =>
+    !!candidate && !!v && Math.abs(v.ra - candidate.ra) < 2e-5 && Math.abs(v.dec - candidate.dec) < 2e-5;
   function highlightSelected() {
     if(!selectedSignal){blink.highlight?.(null);return;}
     const dt=selectedSignal.mjd_ref?(epochMjd-selectedSignal.mjd_ref)/365.25:0;
@@ -176,7 +204,7 @@ export function startApp(root: HTMLElement): void {
     },
   });
   const workbench = mountWorkbench($("#science-workbench"), {
-    card, cardElement: $("#card"),
+    card, cardElement: $("#card"), layerHost: $<HTMLElement>(".viewer-layer"),
     layer(next) { if (view) { layer = next; void go(view, { objectToo: false }); $('.stage').scrollIntoView({block:'start'}); } },
     reference(points) { card.reference?.(points); },
     locate(candidate) {
@@ -190,12 +218,48 @@ export function startApp(root: HTMLElement): void {
     display(mode){blink.display?.(mode);},
     step(){blink.step?.();},
   });
+  const candPanel = mountCandidatePanel($<HTMLElement>(".here-cand"), {
+    opened(c) {
+      if (current !== "explore") { candPanel.clear(); return; }
+      if (!c) {
+        // Not in the list: the panel says so; the plate shows the last spot (or a featured target).
+        candidate = null;
+        if (!view) { const first = readView() ?? viewForTarget(TARGETS[0]); void go(first, { push: false }); writeView(first, true); }
+        return;
+      }
+      const fresh = candidate?.id !== c.id;
+      candidate = c;
+      if (fresh) candidateAll = false;
+      if (!fresh && atCandidate(view)) {
+        candPanel.ready(plateFor === view);
+        return;
+      }
+      const next = candidateView(c);
+      void go(next, { push: false });
+      writeView(next, true);
+    },
+  });
+  const plateNote = $<HTMLElement>(".viewer-plate-note");
+  function notePlate(text: string) {
+    plateNote.hidden = !text;
+    plateNote.innerHTML = text;
+  }
+  plateNote.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-all]");
+    if (!b || !view) return;
+    candidateAll = b.dataset.all === "1";
+    void go(view, { push: false, objectToo: false });
+  });
+  /** Another target or position: the candidate section goes. */
+  function clearCandidate() {
+    candidate = null;
+    candPanel.clear();
+  }
   $('[data-clear-selection]').addEventListener('click',()=>selectSignal(null));
   $('[data-raw-source]').addEventListener('click',()=>{if(view){layer='raw';void go(view,{objectToo:false});}});
   $('[data-flag-selection]').addEventListener('click',()=>{
     if(!selectedSignal||!view)return;
     vote.pick({...selectedSignal,mjd:epochMjd,det:view.det,clock:view.clock,epoch_id:frames?.epochs.find(e=>e.mjd_mid===epochMjd)?.id??''});
-    location.hash=workspaceHref('explore');
     $<HTMLDetailsElement>('.workspace-vote').open=true;
     requestAnimationFrame(()=>$<HTMLElement>('#vote').scrollIntoView({block:'start'}));
   });
@@ -227,14 +291,22 @@ export function startApp(root: HTMLElement): void {
     }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
     if (moved) {layer = 'raw';selectSignal(null);}
+    const leftCandidate = !atCandidate(next) && (candidate !== null || candPanel.current() !== null);
+    if (leftCandidate) clearCandidate();
+    const cand = atCandidate(next) ? candidate : null;
     view = next;
+    plateFor = null;
+    candPanel.ready(false);
+    notePlate("");
     practice.selection(next);
     workbench.select(next, layer);
     const layerCaption = $<HTMLElement>('.science-layer-caption');
     layerCaption.hidden = layer === 'raw';
     $<HTMLElement>('[data-layer-description]').textContent = LAYER_LABELS[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
     if (push) writeView(next);
-    blinkName = next.name ?? formatRaDec(next);
+    // The URL stays #/c/<id> only while the Viewer is on that candidate's spot.
+    if (leftCandidate && /^#\/?c\//.test(location.hash)) history.replaceState(history.state, "", `${location.pathname}${location.search}#/explore`);
+    blinkName = cand ? candidateTitle(cand) : next.name ?? formatRaDec(next);
     if (viewerNow().tab !== 'play') $<HTMLHeadingElement>("#blink-h1").textContent = blinkName;
     if (current === "explore") document.title = `${blinkName}: SkyShift`;
     markChips(next.slug);
@@ -279,19 +351,24 @@ export function startApp(root: HTMLElement): void {
 
     if (!moved && !objectToo) workbench.object(object);
     try {
-      const loaded = layer === 'raw' ? await loadFrames(next, fsig) : await (async () => {
+      // A candidate's own frames (its static frames_url, shared with the review queue's preload) first.
+      const loaded = layer === 'raw' ? await (cand ? framesFor(cand, next) : loadFrames(next, fsig)) : await (async () => {
         const extended = await loadScienceFrames(targetFor(next), next.det, next.clock, fsig, layer, next.fov);
         return { frames: extended.data as FramesResponse, jsonUrl: extended.jsonUrl };
       })();
       if (fsig.aborted) return;
-      frames = loaded.frames;
+      const plate = cand && layer === 'raw' ? candidatePlate(loaded.frames, cand, next.det, candidateAll) : { frames: loaded.frames, note: "" };
+      notePlate(plate.note);
+      frames = plate.frames;
       workbench.frames(frames,loaded.jsonUrl);
       sky.goto(next, frames);
       filters.goto(next, frames);
       card.show(next, object, frames);
-      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl,
+      await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, plate.frames, loaded.jsonUrl,
         {singleDetector:layer !== 'raw' || viewerNow().tab === 'play'});
       if (fsig.aborted) return;
+      plateFor = next;
+      if (cand) candPanel.ready(true);
       blink.status('idle');
       practice.ready(blink.canCompare?.() ?? false);
       highlightSelected();
@@ -381,7 +458,8 @@ export function startApp(root: HTMLElement): void {
       $<HTMLAnchorElement>('.wordmark').href=returnHash;
     },
     navigate(hash) {
-      if(current==='atlas'&&selectedSky&&siteRoute(hash).page==='explore'){enterSkyArea(hash);return;}
+      const to=siteRoute(hash);
+      if(current==='atlas'&&selectedSky&&to.page==='explore'&&!to.candidate){enterSkyArea(hash);return;}
       location.hash = hash;
     },
     explore(at) {
@@ -400,7 +478,6 @@ export function startApp(root: HTMLElement): void {
     tools: mountTools,
     live: mountLive,
     review: mountReview,
-    candidate: mountCandidate,
     community: mountCommunity,
     about: mountAbout,
   };
@@ -439,7 +516,7 @@ export function startApp(root: HTMLElement): void {
 
   function route() {
     if (resolveCtl) { cancelResolve(); say(''); }
-    const { page, param, screen, workspace } = parseRoute();
+    const { page, param, screen, workspace, candidate: candParam } = parseRoute();
     const practicing=page==='explore' && workspace?.tab==='play';
     if(page==='explore')blink.singleDetector?.(practicing || layer !== 'raw');
     filters.active(!practicing && layer === 'raw');
@@ -456,17 +533,23 @@ export function startApp(root: HTMLElement): void {
     if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
-      if(!practicing){
+      if (candParam) blink.status("loading", "Loading the object…");
+      else if(!practicing){
         const first = readView() ?? viewForTarget(TARGETS[0]);
         void go(first, { push: false });
         writeView(first, true);
       }
     }
+    // #/c/<id>: the Viewer on the candidate's spot, its section on top of the panel.
+    if (page === "explore" && candParam) candPanel.show(candParam);
     if(page === 'explore' && workspace){
       const state=workspace;
       $<HTMLElement>('.page-blink').dataset.workspaceMode=state.mode;
       $<HTMLElement>('.page-blink').dataset.practice=String(practicing);
       $<HTMLElement>('#science-workbench').hidden=practicing;
+      $<HTMLElement>('.here').hidden=practicing;
+      // Derived images (sky model, residual, DR1 difference) are plate options for Advanced.
+      $<HTMLElement>('.viewer-layer').hidden=practicing||!(getDetails()||state.mode==='research');
       $<HTMLElement>('.practice-task').hidden=!practicing;
       $<HTMLElement>('.practice-panel').hidden=!practicing;
       $<HTMLElement>('.workspace-description').textContent=practicing?MODES.explore.description:'';
@@ -515,6 +598,8 @@ export function startApp(root: HTMLElement): void {
 
   addEventListener("popstate", () => {
     const v = readView();
+    // Back to a candidate the Viewer has left: the hash change reopens it on its own frames.
+    if (parseRoute().candidate && !atCandidate(v)) return;
     // Coordinates in the shared URL use five decimals; a hash-only navigation must
     // retain the higher-precision map selection and the current image frame.
     if (v && parseRoute().page === "explore" && (!view || v.ra.toFixed(5)!==view.ra.toFixed(5) || v.dec.toFixed(5)!==view.dec.toFixed(5) || (["clock","det","fov","slug"] as const).some(k=>v[k]!==view![k]))) void go(v, { push: false });

@@ -1,18 +1,18 @@
-// Candidate page (#/c/<id>): the plate at the candidate's spot with the candidate in the red
-// reticle; beside it why it's listed, the measurements, the vote and what happens next.
+// A candidate (#/c/<id>) is the Viewer on its spot (15 Nov): no page of its own. This is the
+// candidate section on top of the Viewer's "What's here" panel: where it sits in the list, why
+// it's listed, its grade, the vote, the check assistant and what happens next. The shell
+// (src/app) puts the plate on the candidate's position, clock and detector.
 import { failedGates, gatesPhrase, gradeOf, isGate, nearSourceOf, votable } from "../api/grades";
-import type { Candidate } from "../api/types";
-import type { MountPage } from "../app/modules";
+import type { Candidate, Det, FramesResponse } from "../api/types";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
 import { AssistSlot, detailsOn, loadAssist, votesSummary } from "./assist";
 import { Ballot } from "./ballot";
-import { candidateSet, suspectFor, votes, type CandidateSet, type Votes } from "./data";
+import { OWN_GAP_DAYS, candidateSet, findGap, focusFrames, gapText, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { LIST_HASH, keyAction, neighbours, parseCandidateParam, withVote } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, copyWithFeedback, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
-import { Plate } from "./plate";
 import {
   KIND_TEXT,
   SITE,
@@ -140,49 +140,72 @@ function cautionsHtml(c: Candidate): string {
   return html`<ol class="rv-notes">${c.flags.map((f) => html`<li>${esc(flagText(f))}</li>`).join("")}</ol>`;
 }
 
-export const mountCandidate: MountPage = (el, ctx) => {
+/**
+ * The frames the plate shows for a candidate, and the note under it. Hours candidates blink the
+ * exposures within a day of the find first (focusFrames); `all` shows every exposure. Live hours
+ * frames may show another session than the find's own: the note says so.
+ */
+export function candidatePlate(frames: FramesResponse, c: Candidate, det: Det, all: boolean): { frames: FramesResponse; note: string } {
+  const gap = findGap(frames, c, det);
+  const missing = gap !== null && gap > OWN_GAP_DAYS ? html`The find's own exposures are not in these frames (nearest is ${gapText(gap)} away).` : "";
+  if (!all) {
+    const f = focusFrames(frames, c, det);
+    const more = f.focused ? html` <button class="rv-link" type="button" data-all="1">Show all ${f.all}</button>` : "";
+    const note = missing || f.focused ? (missing || html`Showing the ${f.shown} exposures within a day of the find.`) + more : "";
+    return { frames: f.frames, note };
+  }
+  if (frames.clock !== "hours") return { frames, note: missing };
+  const focusable = focusFrames(frames, c, det).focused;
+  const only = focusable ? html`Showing every exposure. <button class="rv-link" type="button" data-all="0">Only those near the find</button>` : "";
+  return { frames, note: [missing, only].filter(Boolean).join(" ") };
+}
+
+/** The Viewer's title for a candidate: "Fast mover hunt-…". */
+export const candidateTitle = (c: Pick<Candidate, "kind" | "id">): string => `${kindName(c.kind)} ${c.id}`;
+
+export interface CandidatePanelOptions {
+  /** The candidate for the shown param, once the list is read (null: not in it, or no list yet). */
+  opened(c: Candidate | null): void;
+}
+export interface CandidatePanel {
+  /** Show the candidate of a #/c/<id> param ("id" or "id?filter"). */
+  show(param: string): void;
+  /** Its frames are on the plate (true) or loading (false): the ballot waits for them. */
+  ready(on: boolean): void;
+  /** Another target or position: no candidate section. */
+  clear(): void;
+  current(): Candidate | null;
+  destroy(): void;
+}
+
+/** The candidate section, rendered into `el` (the top of the Viewer's "What's here" panel). */
+export function mountCandidatePanel(el: HTMLElement, opts: CandidatePanelOptions): CandidatePanel {
   trackDiscover();
+  el.hidden = true;
   el.innerHTML = html`
-    <div class="rv cd">
-      <p class="rv-sample" hidden></p>
-      <nav class="cd-nav" aria-label="Candidate list">
-        <a class="cd-back" href="${LIST_HASH}">${CHEVRON.left}All objects to check</a>
-        <p class="cd-count" aria-live="polite"></p>
-        <div class="cd-step">
-          <a class="btn btn-ghost cd-prev" href="${LIST_HASH}" aria-disabled="true">${CHEVRON.left}Previous</a>
-          <a class="btn btn-ghost cd-next" href="${LIST_HASH}" aria-disabled="true">Next${CHEVRON.right}</a>
-        </div>
-      </nav>
-      <div class="cd-main">
-        <div class="cd-left">
-          <section class="cd-plate" aria-label="Frames at this spot"></section>
-          <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
-          <section class="cand-check" aria-label="Check this object" hidden></section>
-        </div>
-        <div class="cd-side"></div>
+    <p class="rv-sample" hidden></p>
+    <nav class="cd-nav" aria-label="Objects to check">
+      <a class="cd-back" href="${LIST_HASH}">${CHEVRON.left}All objects to check</a>
+      <p class="cd-count" aria-live="polite"></p>
+      <div class="cd-step">
+        <a class="btn btn-ghost cd-prev" href="${LIST_HASH}" aria-disabled="true">${CHEVRON.left}Previous</a>
+        <a class="btn btn-ghost cd-next" href="${LIST_HASH}" aria-disabled="true">Next${CHEVRON.right}</a>
       </div>
-      <div class="cd-empty" hidden></div>
-    </div>
+    </nav>
+    <div class="vc-body"></div>
+    <div class="cd-empty" hidden></div>
   `;
   const $ = <T extends Element>(s: string) => el.querySelector(s) as T;
   const sampleEl = $<HTMLElement>(".rv-sample");
-  const mainEl = $<HTMLElement>(".cd-main");
-  const sideEl = $<HTMLElement>(".cd-side");
+  const sideEl = $<HTMLElement>(".vc-body");
   const emptyEl = $<HTMLElement>(".cd-empty");
-  const navEl = $<HTMLElement>(".cd-nav");
   const backEl = $<HTMLAnchorElement>(".cd-back");
   const countEl = $<HTMLElement>(".cd-count");
   const prevEl = $<HTMLAnchorElement>(".cd-prev");
   const nextEl = $<HTMLAnchorElement>(".cd-next");
-  const checkSlot = new AssistSlot($<HTMLElement>(".cand-check"));
+  let checkSlot: AssistSlot | null = null;
   let nextSlot: AssistSlot | null = null;
 
-  const plate = new Plate($(".cd-plate"), {
-    onReady(ready) {
-      plateReady = ready;
-      renderBallot();
-    },
-  });
   let set: CandidateSet | null = null;
   let v: Votes | null = null;
   let cand: Candidate | null = null;
@@ -194,7 +217,6 @@ export const mountCandidate: MountPage = (el, ctx) => {
   let plateReady = false;
   let ballot: Ballot | null = null;
   let token = 0;
-  let visibleNow = false;
 
   function renderBallot() {
     if (!ballot || !cand) return;
@@ -215,7 +237,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   async function mountAssist(c: Candidate) {
     const mod = await loadAssist();
     if (!mod || cand !== c) return;
-    checkSlot.mount(mod.mountChecklist && ((slot) => mod.mountChecklist!(slot, c, { details: detailsOn() })));
+    checkSlot?.mount(mod.mountChecklist && ((slot) => mod.mountChecklist!(slot, c, { details: detailsOn() })));
     mountWhatNext(c);
   }
   function mountWhatNext(c: Candidate) {
@@ -259,7 +281,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     const id = html`Object <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
     const open = votable(c);
     sideEl.innerHTML = html`
-      ${headHtml(c, "h1", id)}
+      ${headHtml(c, "h2", id)}
       ${motionHtml(c)}
       ${gradeHtml(c, true)}
       <div class="cd-ballot">${open ? "" : noVoteHtml(c)}</div>
@@ -269,7 +291,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
         <h2 class="rv-h" id="cd-why-h">Why it's listed</h2>
         ${reasonsHtml(c)}
       </section>
-      <section class="rv-sec" aria-labelledby="cd-m-h">
+      <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
+      <section class="cand-check" aria-label="Check this object" hidden></section>
+      <section class="rv-sec pro-only" aria-labelledby="cd-m-h">
         <h2 class="rv-h" id="cd-m-h">Measurements</h2>
         ${measurementsHtml(c)}
       </section>
@@ -281,18 +305,12 @@ export const mountCandidate: MountPage = (el, ctx) => {
         <h2 class="rv-h" id="cd-f-h">Cautions</h2>
         ${cautionsHtml(c)}
       </section>
-      <section class="rv-sec" aria-labelledby="cd-p-h">
-        <h2 class="rv-h" id="cd-p-h">Position</h2>
+      <section class="rv-sec" aria-labelledby="cd-s-h">
+        <h2 class="rv-h" id="cd-s-h">Position and share</h2>
         <p class="cd-pos"><span class="cd-radec">${formatRaDec(c)}</span>
           <span class="rv-soft">${c.ra.toFixed(5)}°, ${c.dec >= 0 ? "+" : "−"}${Math.abs(c.dec).toFixed(5)}°</span></p>
         <div class="rv-actions">
           <button class="btn" type="button" data-act="copy-pos">Copy coordinates</button>
-          <button class="btn" type="button" data-act="explore">Open in Blink</button>
-        </div>
-      </section>
-      <section class="rv-sec" aria-labelledby="cd-s-h">
-        <h2 class="rv-h" id="cd-s-h">Share</h2>
-        <div class="rv-actions">
           <button class="btn btn-ghost" type="button" data-act="copy-link">Copy link</button>
           <button class="btn btn-ghost" type="button" data-act="copy-embed">Copy embed code</button>
         </div>
@@ -303,7 +321,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
         </details>
       </section>
     `;
+    checkSlot?.clear();
     nextSlot?.clear();
+    checkSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-check")!);
     nextSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-next")!);
     lastSummary = "";
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
@@ -333,7 +353,6 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (b.dataset.act === "copy-pos") copyWithFeedback(b, `${c.ra.toFixed(6)} ${c.dec.toFixed(6)}`);
     else if (b.dataset.act === "copy-link") copyWithFeedback(b, shareUrl(c));
     else if (b.dataset.act === "copy-embed") copyWithFeedback(b, embedCode(c));
-    else if (b.dataset.act === "explore") ctx.explore({ ra: c.ra, dec: c.dec, clock: c.clock, det: c.det, fov: c.clock === "hours" ? 20 : 5 });
   });
 
   async function renderNav(c: Candidate, query: string) {
@@ -372,26 +391,34 @@ export const mountCandidate: MountPage = (el, ctx) => {
     backEl.href = lastDiscoverHash();
   }
 
+  function clearBody() {
+    checkSlot?.clear();
+    nextSlot?.clear();
+    checkSlot = nextSlot = null;
+    ballot = null;
+    sideEl.innerHTML = "";
+  }
+
   function showEmpty(title: string, body: string) {
-    mainEl.hidden = true;
-    navEl.hidden = false;
+    clearBody();
+    sideEl.hidden = true;
     emptyEl.hidden = false;
+    el.hidden = false;
     countEl.textContent = "";
     for (const a of [prevEl, nextEl]) {
       a.setAttribute("aria-disabled", "true");
       a.tabIndex = -1;
     }
-    emptyEl.innerHTML = html`<h1 class="rv-empty-title">${title}</h1>${body}`;
-    plate.clear();
-    checkSlot.clear();
-    nextSlot?.clear();
+    emptyEl.innerHTML = html`<h2 class="rv-h">${title}</h2>${body}`;
   }
 
-  async function show(param: string | null) {
+  async function show(param: string) {
     const { id, query } = parseCandidateParam(param);
     const t = ++token;
     if (cand && cand.id === id) {
+      el.hidden = false;
       renderNav(cand, query);
+      opts.opened(cand);
       return;
     }
     cand = null;
@@ -403,8 +430,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (!set || !set.candidates.length) {
       showEmpty(
         "No objects to check are published yet",
-        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets on <a href="#/explore">Blink</a> work now.</p>`,
+        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets work now.</p>`,
       );
+      opts.opened(null);
       return;
     }
     const c = set.candidates.find((x) => x.id === id);
@@ -414,10 +442,12 @@ export const mountCandidate: MountPage = (el, ctx) => {
         html`<p>Nothing called “${esc(id)}” is in this set. It may come from an older list.</p>
           <p class="rv-actions"><a class="btn" href="${lastDiscoverHash()}">Browse the list</a> <a class="btn btn-ghost" href="#/review">Start reviewing</a></p>`,
       );
+      opts.opened(null);
       return;
     }
     cand = c;
-    mainEl.hidden = false;
+    el.hidden = false;
+    sideEl.hidden = false;
     emptyEl.hidden = true;
     mine = v.api.myVote(c.id);
     justNow = false;
@@ -425,11 +455,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
     error = null;
     counts = null;
     plateReady = false;
-    document.title = `${kindName(c.kind)} ${c.id}: SkyShift`;
-    checkSlot.clear();
     renderSide(c);
     renderNav(c, query);
-    if (visibleNow) plate.showCandidate(c);
+    opts.opened(c);
     mountAssist(c);
     try {
       const all = await v.api.countsFor([c.id]);
@@ -452,7 +480,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   };
   document.addEventListener("keydown", onKey);
 
-  // A vote cast elsewhere on this page's candidate (the review queue, the assistant's step 6).
+  // A vote cast elsewhere on this candidate (the review queue, the assistant's step 6).
   const onVoted = (ev: Event) => {
     const d = (ev as CustomEvent<VotedDetail>).detail;
     if (!d || !cand || d.candidateId !== cand.id || mine || saving) return;
@@ -471,24 +499,28 @@ export const mountCandidate: MountPage = (el, ctx) => {
 
   return {
     show(param) {
-      visibleNow = true;
-      const { id } = parseCandidateParam(param);
-      if (cand && cand.id !== id) plate.clear();
-      plate.mount(); // re-shows the same candidate when coming back to it
-      show(param);
+      void show(param);
     },
-    hide() {
-      visibleNow = false;
-      plate.unmount();
-      document.title = "SkyShift";
+    ready(on) {
+      if (plateReady === on) return;
+      plateReady = on;
+      renderBallot();
     },
+    clear() {
+      token++;
+      cand = null;
+      plateReady = false;
+      clearBody();
+      emptyEl.hidden = true;
+      el.hidden = true;
+    },
+    current: () => cand,
     destroy() {
       document.removeEventListener("keydown", onKey);
       window.removeEventListener(VOTED_EVENT, onVoted);
-      checkSlot.clear();
-      nextSlot?.clear();
-      plate.unmount();
+      clearBody();
       el.innerHTML = "";
     },
   };
-};
+}
+

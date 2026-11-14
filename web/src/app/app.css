@@ -36,11 +36,25 @@
   margin-top: 4px;
 }
 
+/* The Viewer's search row: the coordinate box and the featured names on one line (they wrap
+   below it on narrow screens), as wide as the plate and the panel under it. */
+.find-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s4);
+  max-width: var(--viewer-w);
+  margin: var(--s2) auto;
+}
+.find-row[hidden] {
+  display: none;
+}
 .find {
   display: flex;
+  flex: 1 1 340px;
   gap: var(--s2);
-  max-width: 620px;
-  margin:var(--s4) 0;
+  max-width: 460px;
+  margin: 0;
 }
 .find-input {
   flex: 1;
@@ -76,10 +90,11 @@
 /* ---- featured targets: a quiet line of names, not a row of boxes ---- */
 .featured {
   display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: baseline;
   gap: var(--s1) var(--s4);
   flex-wrap: wrap;
-  padding-bottom: var(--s3);
 }
 .featured-label {
   color: var(--ink-3);
@@ -118,16 +133,26 @@
   color: var(--warn);
 }
 
-/* ---- the blink page ---- */
+/* ---- the Viewer (15 Nov): the plate is the hero, "What's here" beside it ---- */
+#app {
+  /* The plate's edge: as large as the first screen allows under the header, the search row, the
+     title and the filters, with the time strip still in view; at most 62% of the content width.
+     The stage adds the mat (2 x 12 px), its own padding (2 x 12 px) and border. The blink caps
+     itself at 100svh - 236/280 px (blink.css .bk-col), which this column stays under. */
+  --plate-edge: max(300px, min(100svh - 350px, (min(100vw, 1480px) - 48px) * 0.62 - 50px));
+  --stage-w: calc(var(--plate-edge) + 50px);
+  --here-w: clamp(340px, 30vw, 440px);
+  --viewer-w: calc(var(--stage-w) + var(--s6) + var(--here-w));
+}
 .page-blink {
   display: grid;
-  /* The stage column is as wide as the plate's mat (blink.css), so no gap opens between the
-     plate and the card when the plate is limited by the viewport height. */
-  grid-template-columns: minmax(0, calc(max(300px, 100svh - 236px) + 24px)) minmax(340px, 1fr);
+  grid-template-columns: var(--stage-w) var(--here-w);
   grid-template-areas:
-    "stage card"
+    "heading heading"
+    "stage evidence"
     "below below";
-  gap: var(--s6) var(--s7);
+  justify-content: center;
+  gap: var(--s3) var(--s6);
   align-items: start;
 }
 .page-blink[hidden],
@@ -139,18 +164,15 @@
   min-width: 0;
 }
 .side-card {
-  grid-area: card;
   min-width: 0;
-  max-width: 620px;
 }
 .below {
   grid-area: below;
   display: grid;
-  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
-  gap: var(--s7);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s5);
   align-items: start;
-  padding-top: var(--s6);
-  border-top: 1px solid var(--hair);
+  padding-top: var(--s3);
 }
 .side-vote,
 .sky {
@@ -174,13 +196,18 @@
   font-size: var(--step--1);
 }
 
-@media (max-width: 1100px) {
+/* One column: the plate at full width, the panel under it. */
+@media (max-width: 1000px) {
+  #app {
+    --viewer-w: 100%;
+  }
   .page-blink {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "stage" "card" "below";
+    grid-template-areas: "heading" "stage" "evidence" "below";
+    justify-content: stretch;
   }
-  .below {
-    grid-template-columns: minmax(0, 1fr);
+  .page-blink .stage .bk-col {
+    margin-inline: auto;
   }
 }
 
@@ -189,12 +216,6 @@
   justify-content: flex-end;
 }
 
-/* Matches blink.css: with the nav on a second row the plate is 100svh − 280px. */
-@media (min-width: 1101px) and (max-width: 1480px) {
-  .page-blink {
-    grid-template-columns: minmax(0, calc(max(300px, 100svh - 280px) + 24px)) minmax(340px, 1fr);
-  }
-}
 
 @media (max-width: 720px) {
   #app {
@@ -210,7 +231,8 @@
   }
   .nav a {text-align:center;flex:1;}
   .lede {display:none;}
-  .find {max-width:none;}
+  .find {max-width:none;flex-basis:100%;}
+  .find-row .featured {width:100%;}
   .details-slot {flex:none;}
   .featured {
     flex-wrap: nowrap;

@@ -26,6 +26,8 @@ export function layerAvailability(view:Pick<View,'slug'|'clock'|'fov'>):{ok:bool
 
 export function mountWorkbench(host:HTMLElement, opts:{
   card:CardHandle; cardElement:HTMLElement;
+  /** Where the image-source select goes (the Viewer puts it under the plate, for Advanced). */
+  layerHost?:HTMLElement;
   layer(layer:Layer):void; locate(candidate:Candidate):void;
   reference(points:{um:number;flux_ujy:number}[]):void; rebuilt(view:View):void;
 }) {
@@ -45,19 +47,20 @@ export function mountWorkbench(host:HTMLElement, opts:{
     <section data-wb="compare" hidden><details class="wb-comparison"></details></section>
     <section data-wb="data" hidden><h2>Current observation</h2><p class="source">Player metadata below describe the selected image. The analysis observations have their own footprint and quality information.</p><div class="button-row wb-products"><a class="wb-science-json" target="_blank" rel="noopener">Scientific product JSON ↗</a><a class="wb-analysis-json" target="_blank" rel="noopener">Detector diagnostics JSON ↗</a></div><details class="wb-source-details"><summary>Image metadata and provenance</summary><pre class="wb-metadata"></pre></details></section>
     <section data-wb="processing" hidden><h2>Image processing</h2>
-      <label class="wb-source-label">Image source <select class="input wb-layer" aria-label="Image source">
+      <div class="wb-layer-box"><label class="wb-source-label">Image source <select class="input wb-layer" aria-label="Image source">
         <option value="raw">SPHEREx observations</option><option value="model">Static sky model</option>
         <option value="resid">Model residual</option><option value="refdiff">DR1 reference difference</option>
       </select></label>
-      <p class="wb-layer-note" role="status"></p>
-      <p class="source">Published models, residuals and DR1 differences use the analysis cube. They currently support the five featured science targets at 5′ on the Months clock; their measured footprint can be smaller. Original object measurements remain separate.</p>
+      <p class="wb-layer-note" role="status"></p></div>
+      <p class="source">The image source sits under the plate. Published models, residuals and DR1 differences use the analysis cube. They currently support the five featured science targets at 5′ on the Months clock; their measured footprint can be smaller. Original object measurements remain separate.</p>
       <p class="wb-capability" role="status"></p><button class="btn wb-build" type="button" hidden>Build an analysis for this sky</button>
     </section>
     <section data-wb="validation" hidden><h2>Validation</h2><div class="wb-calibration-body"></div></section>
     <div class="wb-science"></div>`;
   const $=<T extends HTMLElement=HTMLElement>(s:string)=>host.querySelector<T>(s)!;
   $('.wb-card-slot').append(opts.cardElement);
-  const layer=$<HTMLSelectElement>('.wb-layer'), build=$<HTMLButtonElement>('.wb-build');
+  const layer=$<HTMLSelectElement>('.wb-layer'), layerNote=$('.wb-layer-note'), build=$<HTMLButtonElement>('.wb-build');
+  if(opts.layerHost)opts.layerHost.append($('.wb-layer-box'));
   const science=mountScience($('.wb-science'),opts.reference,()=>object?.spectrum??[]);
   const comparison=mountComparison($('.wb-comparison'));
   let state:WorkspaceState={mode:'explore',tab:''}, view:View|undefined;
@@ -181,7 +184,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
       view=next;layer.value=selectedLayer;build.disabled=false;
       const available=layerAvailability(next);
       layer.querySelectorAll<HTMLOptionElement>('option:not([value="raw"])').forEach(o=>{o.disabled=!available.ok;});
-      $('.wb-layer-note').textContent=available.reason;
+      layerNote.textContent=available.reason;
       // Static first: a featured field's products are files; elsewhere the API answers (or says why not).
       const published=hasScience(next.slug);
       $<HTMLAnchorElement>('.wb-science-json').href=published?`/science-data/${next.slug}/science.json`:`/api/science?ra=${next.ra}&dec=${next.dec}`;
