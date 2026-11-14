@@ -10,7 +10,11 @@
 .env.*
 *-key.json
 service-account*.json
-web/
+web/*
+!web/public/
+web/public/*
+!web/public/data/
+!web/public/science-data/
 docs/
 pitch/
 pipeline/
@@ -22,3 +26,6 @@ scripts/precompute/
 scripts/validate/*.py
 scripts/validate/data/photolists/
 scripts/validate/data/most_*
+
+# Local jobs, tool installs and release verification never enter the cloud build.
+.runtime/

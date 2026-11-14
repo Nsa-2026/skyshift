@@ -61,7 +61,8 @@ interface Note {
   html: string;
 }
 
-export const mountCard: MountCard = (el) => {
+export const mountCard: MountCard = (el, options = {}) => {
+  let reference: {um: number; flux_ujy: number}[] = [];
   const id = `cd${++uid}`;
   el.classList.add("cd");
   let shown: Shown | null = null;
@@ -99,8 +100,8 @@ export const mountCard: MountCard = (el) => {
     el.innerHTML = [
       headHtml(view, object, false),
       measureHtml(shown, notes),
-      spectrumHtml(object, notes),
-      lightCurveHtml(object),
+      options.plots === false ? "" : spectrumHtml(object, notes),
+      options.plots === false ? "" : lightCurveHtml(object),
       lookForHtml(view),
     ].join("");
     wire();
@@ -267,7 +268,7 @@ export const mountCard: MountCard = (el) => {
     }
     const visits = visitsOf(sp);
     if (visits.length < 2) mode = "det";
-    const chart = renderSpectrum(sp, { width, mode, id: `${id}-sp` });
+    const chart = renderSpectrum(sp, { width, mode, reference, id: `${id}-sp` });
     spPoints = chart.points;
     const um0 = Math.min(...sp.map((p) => p.um));
     const um1 = Math.max(...sp.map((p) => p.um));
@@ -288,6 +289,7 @@ export const mountCard: MountCard = (el) => {
       <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}</p>
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
+      ${reference.length ? '<p class="cd-cap">Outlined points: DR1 reference on the same flux scale.</p>' : ""}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
@@ -523,6 +525,7 @@ export const mountCard: MountCard = (el) => {
   }
 
   const handle: CardHandle = {
+    reference(points) { reference = points; if (shown) render(); },
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;

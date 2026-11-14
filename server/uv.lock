@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -1427,11 +1427,13 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "astropy" },
+    { name = "astropy-healpix" },
     { name = "astroquery" },
     { name = "fastapi" },
     { name = "google-cloud-storage" },
     { name = "httpx" },
     { name = "numpy" },
+    { name = "pillow" },
     { name = "pyvo" },
     { name = "reproject" },
     { name = "requests" },
@@ -1448,11 +1450,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=6.1" },
+    { name = "astropy-healpix", specifier = ">=1.0" },
     { name = "astroquery", specifier = ">=0.4.10" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "numpy", specifier = ">=2.0" },
+    { name = "pillow", specifier = ">=10" },
     { name = "pyvo", specifier = ">=1.6" },
     { name = "reproject", specifier = ">=0.14" },
     { name = "requests", specifier = ">=2.32" },

@@ -35,16 +35,20 @@ export interface BlinkHandle {
   show(view: View, frames: FramesResponse, jsonUrl: string): Promise<void>;
   /** Loading or error state while app fetches frames. message null clears it. */
   status(kind: "loading" | "error" | "idle", message?: string): void;
+  highlight?(pos:SkyPos|null):void;
+  gaia?(stars: FramesResponse['gaia']): void;
+  active?(visible: boolean): void;
   destroy(): void;
 }
 export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;
 
 // ---- P3: src/card/index.ts exports mountCard --------------------------------------------
 export interface CardHandle {
+  reference?(points: {um:number; flux_ujy:number}[]): void;
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;
 }
-export type MountCard = (el: HTMLElement) => CardHandle;
+export type MountCard = (el: HTMLElement, options?: {plots?:boolean}) => CardHandle;
 
 // ---- P3: src/sky/index.ts exports mountSky ----------------------------------------------
 export interface SkyHandle {

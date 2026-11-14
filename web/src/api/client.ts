@@ -25,7 +25,7 @@ export class ApiFailure extends Error {
 
 const base = (): string => (typeof location !== "undefined" ? location.href : "http://localhost/");
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal });
   if (!res.ok) {
     let code = "internal";
@@ -41,7 +41,9 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     }
     throw new ApiFailure(message, res.status, code);
   }
-  return (await res.json()) as T;
+  const data=await res.json();
+  if(data?.synthetic)throw new ApiFailure('模拟样例不能作为真实观测加载',502,'upstream');
+  return data as T;
 }
 
 export async function loadTargetIndex(slug: string, signal?: AbortSignal): Promise<TargetIndex | null> {
@@ -83,7 +85,7 @@ export async function loadFrames(q: FramesQuery, signal?: AbortSignal): Promise<
       const jsonUrl = new URL(`/data/${q.slug}/${file}`, base()).href;
       try {
         const frames = await getJson<FramesResponse>(jsonUrl, signal);
-        if (frames.clock === q.clock) return { frames, jsonUrl, origin: "static" };
+        if (frames.clock === q.clock && (!q.det || frames.epochs.some(e=>e.det===q.det))) return { frames, jsonUrl, origin: "static" };
       } catch (e) {
         if ((e as Error).name === "AbortError") throw e;
       }
