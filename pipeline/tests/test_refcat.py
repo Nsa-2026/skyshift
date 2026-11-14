@@ -95,10 +95,11 @@ def test_dedup_moves_gaia_to_catwise_epoch():
 def test_forced_list_limits_and_columns():
     a = 1 / 3600
     gaia = frame("gaia", [122.0, 122.1, 122.2], [16.0, 16.0, 16.0], g_mag=[18.9, 19.0, 19.8], parallax=[1.0, 2.0, np.nan])
-    cw = frame("catwise", [122.2 + a / 2, 122.3, 122.4], [16.0, 16.0, 16.0], w1_mag=[12.0, 15.9, 16.1])
-    f = R.forced_list(gaia, cw)
+    cw = frame("catwise", [122.2 + a / 2, 122.3, 122.4, 122.5], [16.0] * 4, w1_mag=[12.0, 15.9, 16.1, 14.0],
+               w2_mag=[11.0, 15.0, 15.0, 13.9])
+    f = R.forced_list(gaia, cw, g_max=19.0, w1_max=16.0, w1_w2_min=0.4)
     assert list(f.columns) == list(R.FORCED_COLUMNS) and dict(f.dtypes.astype(str)) == R.FORCED_COLUMNS
-    # gaia:0 only (G<19); catwise:0 matched by the G=19.8 star (any G); catwise:1 kept; catwise:2 too faint
+    # gaia:0 only (G<19); catwise:0 matched by the G=19.8 star (any G); catwise:1 kept; catwise:2 too faint; catwise:3 too blue (W1-W2 = 0.1)
     assert f["ref_id"].tolist() == ["gaia:0", "catwise:1"]
     assert f["parallax"].iloc[0] == 1.0 and np.isnan(f["parallax"].iloc[1])
 

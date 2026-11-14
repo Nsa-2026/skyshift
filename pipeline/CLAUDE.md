@@ -6,9 +6,11 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
-Steps in order: photolist, dots, known, link, spectra, score, suspects; `all` runs them in order.
+Steps in order: photolist, refcat, dots, known, link, spectra, score, suspects; `all` runs them in order.
 - Every step skips what exists: the photo list, dots/<obs_id>D<det>.parquet, cache/skybot/<zone>/run_<obs_id>.json.
   link, spectra, score and suspects are cheap and always recompute from what is there.
+- refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
+  refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Cheap to rerun.
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - Every threshold lives in src/skyshift_pipeline/config.py.
 
@@ -28,4 +30,6 @@ Steps in order: photolist, dots, known, link, spectra, score, suspects; `all` ru
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.
 - IRSA TAP doesn't accept OR'd CONTAINS; use a TAP_UPLOAD crossmatch (pyvo) for IRSA catalogues.
 - macOS: uv may mark the editable .pth files hidden (Python then skips them); pytest adds ../core/src itself.
+- ESA Gaia TAP: async jobs stalled for minutes (14 Nov), sync answers a 1° tile in ~2 s. IRSA: ~35 s (Gaia, 2MASS) to
+  ~60 s (CatWISE, ~35k rows/deg²) per 1° tile, sync or async alike.
 - Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live SkyBoT test.

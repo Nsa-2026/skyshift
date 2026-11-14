@@ -13,8 +13,8 @@ as cache/refcat/<zone>/<cat>_<tile>.parquet, so a rerun only asks for the tiles 
 Writes
     refcat/<zone>.parquet          every row, unified (REFCAT_COLUMNS), NaN where not applicable
     refcat/<zone>_forced.parquet   the forced-photometry target list read by `dots` (FORCED_COLUMNS):
-                                   Gaia G < FORCED_GAIA_G_MAX, plus CatWISE W1 < FORCED_CATWISE_W1_MAX
-                                   with no Gaia source (any G in the refcat) within FORCED_DEDUP_ARCSEC.
+                                   Gaia G < FORCED_GAIA_G_MAX, plus CatWISE W1 < FORCED_CATWISE_W1_MAX and
+                                   W1 - W2 >= FORCED_CATWISE_W1_W2_MIN with no Gaia source (any G in the refcat) within FORCED_DEDUP_ARCSEC.
 """
 
 from __future__ import annotations
@@ -296,9 +296,9 @@ def catwise_without_gaia(catwise: pd.DataFrame, gaia: pd.DataFrame, arcsec: floa
 
 def forced_list(gaia: pd.DataFrame, catwise: pd.DataFrame,
                 g_max: float = C.FORCED_GAIA_G_MAX, w1_max: float = C.FORCED_CATWISE_W1_MAX,
-                dedup_arcsec: float = C.FORCED_DEDUP_ARCSEC) -> pd.DataFrame:
+                dedup_arcsec: float = C.FORCED_DEDUP_ARCSEC, w1_w2_min: float = C.FORCED_CATWISE_W1_W2_MIN) -> pd.DataFrame:
     g = gaia[gaia["g_mag"] < g_max]
-    w = catwise[catwise["w1_mag"] < w1_max]
+    w = catwise[(catwise["w1_mag"] < w1_max) & (catwise["w1_mag"] - catwise["w2_mag"] >= w1_w2_min)]
     w = w[catwise_without_gaia(w, gaia, dedup_arcsec)]
     out = pd.concat([g, w], ignore_index=True)[list(FORCED_COLUMNS)]
     return out.astype(FORCED_COLUMNS).reset_index(drop=True)
@@ -324,7 +324,7 @@ def per_photo_counts(ra: np.ndarray, dec: np.ndarray, zone: C.Zone, side: float 
         ind = np.abs(dec - dc) < half
         for rc in ra_c:
             counts.append(int((ind & (np.abs(ra - rc) < hr)).sum()))
-    return {"per_deg2": round(inz.sum() / area, 1), "mean_per_photo": int(round(inz.sum() / area * side * side)),
+    return {"per_deg2": round(float(inz.sum() / area), 1), "mean_per_photo": int(round(inz.sum() / area * side * side)),
             "max_per_photo": int(max(counts)), "boxes": len(counts)}
 
 
@@ -344,7 +344,7 @@ def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap) -
         "refcat_bytes": size, "forced_rows": int(len(forced)), "forced_gaia": int(len(forced) - n_cw),
         "forced_catwise_only": n_cw, "forced_bytes": fsize, "forced_per_photo": photo,
         "limits": {"gaia_g_max": C.FORCED_GAIA_G_MAX, "catwise_w1_max": C.FORCED_CATWISE_W1_MAX,
-                   "dedup_arcsec": C.FORCED_DEDUP_ARCSEC},
+                   "catwise_w1_w2_min": C.FORCED_CATWISE_W1_W2_MIN, "dedup_arcsec": C.FORCED_DEDUP_ARCSEC},
         "wall_s": round(time.time() - t0, 1),
     })
     if photo["max_per_photo"] > C.FORCED_MAX_PER_PHOTO:
