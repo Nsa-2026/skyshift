@@ -155,7 +155,7 @@ def test_esa_failure_falls_back_to_irsa(monkeypatch):
     assert name == "IRSA Gaia" and len(df) > 0
 
 
-def test_gaia_only_writes_forced_list_then_full_run_adds_the_rest(tmp_path, monkeypatch):
+def test_gaia_only_refcat_then_full_run_adds_the_rest(tmp_path, monkeypatch):
     calls = []
 
     def fake_tap(url, adql):
@@ -172,7 +172,8 @@ def test_gaia_only_writes_forced_list_then_full_run_adds_the_rest(tmp_path, monk
     monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia",))
     R.run(store, z, workers=2, tap=fake_tap)
     assert len(calls) == n_tiles and all("gaia" in a for a in calls)
-    assert store.exists(R.refcat_rel("pilot", forced=True)) and not store.exists(R.refcat_rel("pilot"))
+    assert store.exists(R.refcat_rel("pilot", forced=True)) and store.exists(R.refcat_rel("pilot"))
+    assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia"} and R.catalogs_in(store, "pilot") == ["gaia"]
     forced = store.read_parquet(R.refcat_rel("pilot", forced=True))
     assert len(forced) > 0 and forced["ref_id"].str.startswith("gaia:").all()
     assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == n_tiles
@@ -180,6 +181,8 @@ def test_gaia_only_writes_forced_list_then_full_run_adds_the_rest(tmp_path, monk
     st = R.run(store, z, workers=2, tap=fake_tap)  # full refcat missing: reuses the Gaia tiles, adds the rest
     assert st["fetched"] == 2 * n_tiles and len(calls) == 3 * n_tiles
     assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia", "catwise", "2mass"}
+    assert R.catalogs_in(store, "pilot") == ["gaia", "catwise", "2mass"]
+    assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == 3 * n_tiles
 
 
 def test_ecliptic_zones_align_on_the_hunt_zone():
