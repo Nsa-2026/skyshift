@@ -9,7 +9,9 @@ Months clock: every exposure of one detector at the position, one median stack p
 Hours clock: single exposures of one detector in time order. A position has 50-80 exposures per
 detector over all visits, so the hours clock shows ONE visit: the one with the most exposures in
 that detector (the latest on a tie), at most HOURS_MAX_FRAMES frames (whole sessions from its
-start). `known` comes from MPC orbits (known.near: one call per frame centre with all its epochs'
+start). A static file holds several detectors, and D1+D4, D2+D5, D3+D6 are exposed at the same
+moment, so scripts/precompute picks that visit once, from the file's first detector, and passes it
+to every detector (build_frames `visit`): two detectors of one file never show different visits. `known` comes from MPC orbits (known.near: one call per frame centre with all its epochs'
 times; months: at the visit's mjd_mid, where it only tells which asteroids crossed the field around
 then; the median removes them), at the times the search gives, while the cutouts download
 (reconcile_known re-asks an epoch whose time moved).
@@ -181,19 +183,25 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
     return out
 
 
-def hours_visit(images: list[Image]) -> list[Image]:
-    """The hours clock's visit: the one with the most exposures (latest on a tie), in time order."""
+def best_hours_visit(images: list[Image]) -> int | None:
+    """The hours clock's visit number: the one with the most exposures (latest on a tie)."""
     if not images:
-        return []
+        return None
     counts = Counter(im.visit for im in images)
-    best = max(counts, key=lambda v: (counts[v], v))
+    return max(counts, key=lambda v: (counts[v], v))
+
+
+def hours_visit(images: list[Image], visit: int | None = None) -> list[Image]:
+    """The hours clock's visit, in time order: `visit` when given (a static file shows one visit
+    for all its detectors), else the one with the most exposures (latest on a tie)."""
+    best = best_hours_visit(images) if visit is None else visit
     return sorted((im for im in images if im.visit == best), key=lambda im: im.mjd)
 
 
-def pick_hours_images(images: list[Image]) -> list[Image]:
-    """The hours clock's exposures: the visit with the most exposures (latest on a tie),
-    whole sessions from its start, at most HOURS_MAX_FRAMES."""
-    chosen = hours_visit(images)
+def pick_hours_images(images: list[Image], visit: int | None = None) -> list[Image]:
+    """The hours clock's exposures: the visit with the most exposures (latest on a tie; or
+    `visit`), whole sessions from its start, at most HOURS_MAX_FRAMES."""
+    chosen = hours_visit(images, visit)
     if len(chosen) > HOURS_MAX_FRAMES:
         keep: list[Image] = []
         for s in sorted({im.session for im in chosen}):
@@ -206,16 +214,16 @@ def pick_hours_images(images: list[Image]) -> list[Image]:
 
 
 def pick_hours_live(images: list[Image], max_frames: int = LIVE_HOURS_FRAMES,
-                    per_session: int = LIVE_PER_SESSION) -> list[Image]:
+                    per_session: int = LIVE_PER_SESSION, visit: int | None = None) -> list[Image]:
     """The live hours clock: at most `max_frames` exposures of the hours clock's visit. The hours
     blink compares exposures minutes apart inside one session, so runs are kept whole: the first
     `per_session` exposures of as many sessions as fit, spread evenly over the visit's sessions
     (its first and last included), using only sessions with at least two exposures when there are
     any. A visit with a single session gives its first `max_frames` exposures. max_frames 0 or a
-    visit that fits: what pick_hours_images shows."""
-    chosen = hours_visit(images)
+    visit that fits: what pick_hours_images shows. visit: show this visit (as pick_hours_images)."""
+    chosen = hours_visit(images, visit)
     if not max_frames or len(chosen) <= max_frames:
-        return pick_hours_images(images)
+        return pick_hours_images(images, visit)
     per_session = max(1, min(per_session or max_frames, max_frames))
     runs: dict[int, list[Image]] = {}
     for im in chosen:
@@ -382,7 +390,7 @@ def _timed(budget: Budget | None, name: str, fn, *a, **k):
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
                  hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None,
-                 measured: bool = True, view: str = "raw") -> Frames:
+                 measured: bool = True, visit: int | None = None, view: str = "raw") -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
     hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
@@ -390,7 +398,10 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     budget: a live request's time budget (None: no limit). What did not fit is in Frames.partial;
     BudgetError (503) if not one frame did.
     measured: add `measured` / `measured_reason` (measured.py; its tables and dot files are read while
-    the cutouts download). Precompute passes False and fills it once for its merged detectors."""
+    the cutouts download). Precompute passes False and fills it once for its merged detectors.
+    visit: hours clock, show this visit instead of the one with the most exposures of `det`
+    (precompute: one visit for every detector of a file, so paired detectors show the same
+    moments); NotFoundError when `det` has no exposure in it."""
     _check(clock, fov, det)
     # Imported analysis fields remain available offline; all other raw fields use
     # the team's canonical search/cutout/zodi/stack engine below.
@@ -416,7 +427,9 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
                             if found.images else "no SPHEREx images at this position")
     prefix = f"{clock[0]}{fov_i}"
     chosen = (pick_months_images(images, per_visit) if clock == "months"
-              else pick_hours_live(images, hours_frames or 0))
+              else pick_hours_live(images, hours_frames or 0, visit=visit))
+    if not chosen:
+        raise NotFoundError(f"no SPHEREx images of detector {det} in visit {visit} at this position")
     planned = planned_epochs(chosen, det, clock)
     # Gaia and known objects run while the cutouts download
     stars_f = _side.submit(_timed, budget, "gaia", gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)

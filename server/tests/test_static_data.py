@@ -13,7 +13,7 @@ from skyshift_server import stack
 
 DATA = Path(__file__).resolve().parents[2] / "web" / "public" / "data"
 SLUGS = sorted(p.name for p in DATA.iterdir() if p.is_dir() and (p / "index.json").exists()) if DATA.exists() else []
-MAX_FOLDER_MB = 16.0
+MAX_FOLDER_MB = 24.0   # raw bytes in the repo; the `measured` layer adds 2-5 MB per star (gzipped ~7x smaller on the site)
 TOP = {"clock", "center", "pixel_arcsec", "size", "epochs", "gaia", "known", "data_release", "archive_checked"}
 EPOCH = {"id", "kind", "mjd_mid", "mjd_start", "mjd_end", "det", "um_min", "um_max", "n_exposures",
          "flag_frac", "sat_frac", "data_url", "scale", "zero"}
