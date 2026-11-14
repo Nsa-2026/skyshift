@@ -1,0 +1,155 @@
+"""refcat: tiles, parsing of recorded TAP samples, unified schema, Gaia/CatWISE de-duplication, forced list."""
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from astropy.table import Table
+
+from skyshift_pipeline import config as C
+from skyshift_pipeline import refcat as R
+from skyshift_pipeline.store import Store
+
+DATA = Path(__file__).parent / "data"
+
+
+def sample(name: str) -> Table:
+    return Table.read(DATA / f"refcat_{name}.ecsv")
+
+
+# --- tiles ---------------------------------------------------------------------------------------
+def test_tiles_cover_box_without_overlap():
+    ts = R.tiles(120.0, 122.5, 14.0, 15.3, 1.0)
+    assert len(ts) == 3 * 2
+    assert {t.ra0 for t in ts} == {120.0, 121.0, 122.0} and max(t.ra1 for t in ts) == 122.5
+    assert max(t.dec1 for t in ts) == 15.3
+    area = sum((t.ra1 - t.ra0) * (t.dec1 - t.dec0) for t in ts)
+    assert np.isclose(area, 2.5 * 1.3)
+    assert len({t.key for t in ts}) == len(ts)
+
+
+def test_query_box_adds_margin():
+    z = C.ZONES["pilot"]
+    ra0, ra1, dec0, dec1 = R.query_box(z, 0.1)
+    assert np.isclose(dec0, z.dec_min - 0.1) and np.isclose(dec1, z.dec_max + 0.1)
+    assert ra0 < z.ra_min - 0.1 and ra1 > z.ra_max + 0.1  # widened by 1/cos dec
+    assert len(R.tiles(*R.query_box(z))) == 4 * 4
+
+
+def test_tile_where_is_half_open():
+    w = R.Tile(120.5, 121.5, 14.3, 15.3).where()
+    assert "ra >= 120.5" in w and "ra < 121.5" in w and "dec < 15.3" in w
+
+
+# --- parsing -------------------------------------------------------------------------------------
+def test_parse_recorded_samples_unified_schema():
+    g, w, m = R.parse_gaia(sample("gaia")), R.parse_catwise(sample("catwise")), R.parse_2mass(sample("2mass"))
+    for df in (g, w, m):
+        assert list(df.columns) == list(R.REFCAT_COLUMNS)
+        assert dict(df.dtypes.astype(str)) == R.REFCAT_COLUMNS
+        assert len(df) > 0 and df["ra"].notna().all() and df["dec"].notna().all()
+    assert g["ref_id"].str.match(r"^gaia:\d+$").all() and (g["epoch_mjd"] == R.GAIA_EPOCH_MJD).all()
+    assert g["g_mag"].lt(20).all() and g["w1_mag"].isna().all()
+    assert w["ref_id"].str.startswith("catwise:J").all() and w["w1_mag"].notna().all()
+    assert w["epoch_mjd"].between(55000, 59000).all()
+    assert m["ref_id"].str.startswith("2mass:").all() and m["pmra"].isna().all()
+    assert m["epoch_mjd"].between(50500, 51700).all() and (m["ph_qual"].str.len() == 3).all()
+
+
+def test_catwise_motion_in_mas_per_year():
+    t = Table({"source_name": ["J000000.00+000000.0"], "ra": [10.0], "dec": [1.0], "ra_pm": [10.0001],
+               "dec_pm": [1.0001], "meanobsmjd": [57000.0], "w1mpro": [12.0], "w1sigmpro": [0.01],
+               "w2mpro": [11.0], "w2sigmpro": [0.01], "pmra": [0.5], "pmdec": [-0.25], "sigpmra": [0.01], "sigpmdec": [0.02]})
+    r = R.parse_catwise(t).iloc[0]
+    assert r.pmra == 500.0 and r.pmdec == -250.0 and r.epoch_mjd == R.CATWISE_PM_EPOCH_MJD and r.ra == 10.0001
+
+
+# --- de-duplication and forced list ---------------------------------------------------------------
+def frame(cat, ra, dec, **kw):
+    n = len(ra)
+    out = {c: R._default(c, n) for c in R.REFCAT_COLUMNS}
+    out.update({"ref_id": [f"{cat}:{i}" for i in range(n)], "cat": [cat] * n, "ra": np.asarray(ra, float),
+                "dec": np.asarray(dec, float),
+                "epoch_mjd": np.full(n, R.GAIA_EPOCH_MJD if cat == "gaia" else R.CATWISE_PM_EPOCH_MJD)})
+    out.update({k: np.asarray(v, float) for k, v in kw.items()})
+    return pd.DataFrame(out).astype(R.REFCAT_COLUMNS)
+
+
+def test_catwise_dedup_within_2_arcsec():
+    a = 1 / 3600
+    gaia = frame("gaia", [122.0, 123.0], [16.0, 16.0], g_mag=[15, 19.5])
+    cw = frame("catwise", [122.0 + 1.5 * a, 122.0 + 2.5 * a / np.cos(np.deg2rad(16)), 123.0, 124.0],
+               [16.0, 16.0, 16.0 + 1.0 * a, 16.0], w1_mag=[12, 12, 12, 12])
+    assert R.catwise_without_gaia(cw, gaia).tolist() == [False, True, False, True]
+
+
+def test_dedup_moves_gaia_to_catwise_epoch():
+    # a fast star: 5″/yr east; 0.6 yr earlier it sat 3″ west of its 2016.0 position
+    gaia = frame("gaia", [122.0], [0.0], g_mag=[12], pmra=[5000.0], pmdec=[0.0])
+    dt = (R.GAIA_EPOCH_MJD - R.CATWISE_PM_EPOCH_MJD) / 365.25
+    cw = frame("catwise", [122.0 - 5.0 * dt / 3600], [0.0], w1_mag=[10])
+    assert R.catwise_without_gaia(cw, gaia).tolist() == [False]
+    assert R.catwise_without_gaia(cw, gaia.assign(pmra=0.0)).tolist() == [True]
+
+
+def test_forced_list_limits_and_columns():
+    a = 1 / 3600
+    gaia = frame("gaia", [122.0, 122.1, 122.2], [16.0, 16.0, 16.0], g_mag=[18.9, 19.0, 19.8], parallax=[1.0, 2.0, np.nan])
+    cw = frame("catwise", [122.2 + a / 2, 122.3, 122.4, 122.5], [16.0] * 4, w1_mag=[12.0, 15.9, 16.1, 14.0],
+               w2_mag=[11.0, 15.0, 15.0, 13.9])
+    f = R.forced_list(gaia, cw, g_max=19.0, w1_max=16.0, w1_w2_min=0.4)
+    assert list(f.columns) == list(R.FORCED_COLUMNS) and dict(f.dtypes.astype(str)) == R.FORCED_COLUMNS
+    # gaia:0 only (G<19); catwise:0 matched by the G=19.8 star (any G); catwise:1 kept; catwise:2 too faint; catwise:3 too blue (W1-W2 = 0.1)
+    assert f["ref_id"].tolist() == ["gaia:0", "catwise:1"]
+    assert f["parallax"].iloc[0] == 1.0 and np.isnan(f["parallax"].iloc[1])
+
+
+def test_per_photo_counts_uniform():
+    z = C.ZONES["hunt"]
+    rng = np.random.default_rng(0)
+    n = 100_000
+    ra = rng.uniform(z.ra_min, z.ra_max, n)
+    dec = np.rad2deg(np.arcsin(rng.uniform(np.sin(np.deg2rad(z.dec_min)), np.sin(np.deg2rad(z.dec_max)), n)))
+    p = R.per_photo_counts(ra, dec, z)
+    assert p["boxes"] > 1
+    assert abs(p["mean_per_photo"] - p["max_per_photo"]) / p["mean_per_photo"] < 0.1
+
+
+# --- run, offline, with a fake TAP -----------------------------------------------------------------
+def test_run_writes_both_files_and_skips_cached_tiles(tmp_path):
+    calls = []
+
+    def fake_tap(url, adql):
+        calls.append(adql)
+        if "gaia" in adql:
+            return sample("gaia")
+        if "catwise" in adql:
+            return sample("catwise")
+        return sample("2mass")
+
+    store = Store(str(tmp_path))
+    z = C.ZONES["pilot"]
+    st = R.run(store, z, workers=2, tap=fake_tap)
+    n_tiles = len(R.tiles(*R.query_box(z)))
+    assert len(calls) == 3 * n_tiles and st["fetched"] == 3 * n_tiles
+    assert calls[0].startswith("SELECT") and "gaiadr3.gaia_source" in "".join(calls)
+    full = store.read_parquet(R.refcat_rel("pilot"))
+    forced = store.read_parquet(R.refcat_rel("pilot", forced=True))
+    assert set(full["cat"]) == {"gaia", "catwise", "2mass"} and full["ref_id"].is_unique
+    assert list(forced.columns) == list(R.FORCED_COLUMNS)
+    st2 = R.run(store, z, workers=2, tap=fake_tap)
+    assert st2.get("skipped") and len(calls) == 3 * n_tiles
+    st3 = R.run(store, z, workers=2, tap=fake_tap, force=True)
+    assert st3["fetched"] == 0 and len(calls) == 3 * n_tiles
+
+
+def test_esa_failure_falls_back_to_irsa(monkeypatch):
+    monkeypatch.setattr(C, "NET_RETRIES", 1)
+
+    def tap(url, adql):
+        if url == R.ESA_TAP:
+            raise OSError("ESA down")
+        return sample("gaia")
+
+    df, name = R.fetch_tile("gaia", R.Tile(120.5, 121.5, 14.3, 15.3), tap)
+    assert name == "IRSA Gaia" and len(df) > 0
