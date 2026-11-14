@@ -1,5 +1,6 @@
 // The card's spectrum and brightness charts say which blink visits they lack (QA, 14 Nov: WISE 0855's
-// charts covered 2 visits while its blink had 3).
+// charts covered 2 visits while its blink had 3; its visit 3 is now fitted next to its 4″ Gaia star,
+// so no featured target lacks a visit, but a live answer at other coordinates still can).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -51,14 +52,15 @@ describe("visits the blink has and the spectrum lacks", () => {
 });
 
 describe("the featured targets' cards with their months blink", () => {
-  it("WISE 0855−0714: the charts say visit 3 is in the blink but not in them", () => {
+  it("WISE 0855−0714: visit 3 (fitted next to its 4″ Gaia star) is in the charts, so they say nothing", () => {
     const el = card("wise0855", read<FramesResponse>("wise0855", "frames_months_5.json"));
-    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/over 2 visits\..*Visit 3, May 2026, is in the blink but not here/);
-    expect(el.querySelector(".cd-lc .cd-cap")?.textContent).toMatch(/Visit 3, May 2026, is in the blink but not here: none of its D\d exposures/);
+    expect(el.querySelector(".cd-spec .cd-cap")?.textContent).toMatch(/over 3 visits\./);
+    expect(el.querySelector(".cd-lc .cd-cap")?.textContent).not.toMatch(/in the blink but not here/);
+    expect(el.querySelector(".cd-missing")).toBeNull();
   });
 
   it("says nothing when the spectrum has every blink visit, or when there is no months blink", () => {
-    for (const slug of ["barnard", "epsindib", "rwaur", "rdra"]) {
+    for (const slug of ["barnard", "epsindib", "wise0855", "rwaur", "rdra"]) {
       expect(card(slug, read<FramesResponse>(slug, "frames_months_5.json")).querySelector(".cd-missing"), slug).toBeNull();
     }
     expect(card("wise0855", null).querySelector(".cd-missing")).toBeNull();
