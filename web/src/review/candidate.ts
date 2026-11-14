@@ -1,0 +1,400 @@
+// Candidate page (#/c/<id>): the plate at the candidate's spot with the candidate in the red
+// reticle; beside it why it's listed, the measurements, the vote and what happens next.
+import type { Candidate } from "../api/types";
+import type { MountPage } from "../app/modules";
+import { emptyCounts, type Answer, type Counts } from "../vote/model";
+import { Ballot } from "./ballot";
+import { candidateSet, votes, type CandidateSet, type Votes } from "./data";
+import { applyFilter, keyAction, neighbours, parseCandidateParam, parseFilter } from "./model";
+import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
+import { SAMPLE_NOTE, castVote, copyWithFeedback, headHtml, motionHtml, visible } from "./parts";
+import { Plate } from "./plate";
+import {
+  KIND_TEXT,
+  SITE,
+  abMag,
+  detText,
+  esc,
+  flagText,
+  galacticText,
+  kindName,
+  nearestKnownText,
+  reasonText,
+  seenText,
+  ujy,
+} from "./text";
+import { formatRaDec } from "../app/astro";
+
+const html = String.raw;
+
+const CHEVRON = {
+  left: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  right: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+};
+
+/** The share link for a candidate. */
+export function shareUrl(c: Pick<Candidate, "id">): string {
+  return `${SITE}/#/c/${encodeURIComponent(c.id)}`;
+}
+
+/** Embed code: the Explore blink at the candidate's spot, without the page around it. */
+export function embedCode(c: Candidate): string {
+  const p = new URLSearchParams({
+    ra: c.ra.toFixed(5),
+    dec: c.dec.toFixed(5),
+    clock: c.clock,
+    fov: String(c.clock === "hours" ? 20 : 5),
+    det: String(c.det),
+    embed: "1",
+  });
+  return `<iframe src="${SITE}/?${p}" width="760" height="820" style="border:0" loading="lazy" title="SkyShift: ${kindName(c.kind).toLowerCase()} ${c.id}"></iframe>`;
+}
+
+function measurementsHtml(c: Candidate): string {
+  const rows: [string, string][] = [];
+  if (c.pm_mas_yr != null) {
+    const err = c.pm_err_mas_yr != null ? ` ± ${(c.pm_err_mas_yr / 1000).toFixed(3)}″/yr` : "";
+    const sig = c.pm_err_mas_yr ? `, ${(c.pm_mas_yr / c.pm_err_mas_yr).toFixed(1)}σ` : "";
+    rows.push(["Proper motion", `${(c.pm_mas_yr / 1000).toFixed(3)}″/yr${err}${sig}`]);
+    rows.push(["", `<span class="rv-soft">${Math.round(c.pm_mas_yr).toLocaleString("en-US")} mas/yr${c.pa_deg != null ? `, position angle ${c.pa_deg.toFixed(1)}° east of north` : ""}</span>`]);
+  }
+  if (c.rate_arcsec_h != null) rows.push(["Rate", `${c.rate_arcsec_h.toFixed(2)}″/h${c.pa_deg != null ? `, position angle ${c.pa_deg.toFixed(1)}°` : ""}`]);
+  if (c.snr != null) rows.push(["Signal to noise", c.snr.toFixed(1)]);
+  if (c.flux_ujy != null && c.flux_ujy > 0)
+    rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">(AB ${abMag(c.flux_ujy).toFixed(1)})</span>`]);
+  rows.push(["Detector", esc(detText(c.det))]);
+  rows.push(["Seen", `${esc(seenText(c))} <span class="rv-soft">(MJD ${c.mjd.toFixed(4)})</span>`]);
+  rows.push([
+    "Pipeline score",
+    c.score != null
+      ? `${c.score.toFixed(2)} <span class="rv-soft">of 1, higher is more promising</span>`
+      : `<span class="rv-soft">Not scored: this step has no score yet</span>`,
+  ]);
+  rows.push(["Galactic latitude", esc(galacticText(c.galactic_b))]);
+  return dl(rows);
+}
+
+function cataloguesHtml(c: Candidate): string {
+  const pmDiffers = (code: string) => c.reasons.includes(code);
+  return dl([
+    ["Known asteroids and comets", esc(nearestKnownText(c))],
+    [
+      "Gaia DR3",
+      c.gaia_match
+        ? pmDiffers("gaia_pm_disagrees")
+          ? "A star sits here, but Gaia lists a different motion."
+          : "A star sits here."
+        : "No star here.",
+    ],
+    [
+      "CatWISE2020",
+      c.catwise_match
+        ? pmDiffers("catwise_pm_disagrees")
+          ? "A source sits here, but CatWISE lists a different motion."
+          : "A source sits here."
+        : "No source here.",
+    ],
+  ]);
+}
+
+const dl = (rows: [string, string][]) =>
+  html`<dl class="rv-dl">${rows.map(([k, v]) => html`<div${k ? "" : ` class="rv-dl-cont"`}><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
+
+function reasonsHtml(c: Candidate): string {
+  if (!c.reasons.length) return html`<p class="rv-soft">The pipeline gave no extra reasons.</p>`;
+  return html`<ul class="rv-chips">
+    ${c.reasons
+      .map((code) => {
+        const r = reasonText(code);
+        return html`<li class="rv-chip" data-tone="${r.tone}" title="${esc(r.tip)}">
+          <span class="rv-chip-mark" aria-hidden="true">${r.tone === "for" ? "+" : r.tone === "doubt" ? "?" : "i"}</span>${esc(r.chip)}
+          <span class="visually-hidden">: ${esc(r.tip)}</span>
+        </li>`;
+      })
+      .join("")}
+  </ul>
+  <p class="rv-chip-key rv-soft">+ supports it. ? is a reason for doubt. Hover or tap a chip for more.</p>`;
+}
+
+function cautionsHtml(c: Candidate): string {
+  if (!c.flags.length) return html`<p class="rv-soft">No artefact flags near it.</p>`;
+  return html`<ol class="rv-notes">${c.flags.map((f) => html`<li>${esc(flagText(f))}</li>`).join("")}</ol>`;
+}
+
+export const mountCandidate: MountPage = (el, ctx) => {
+  trackDiscover();
+  el.innerHTML = html`
+    <div class="rv cd">
+      <p class="rv-sample" hidden></p>
+      <nav class="cd-nav" aria-label="Candidate list">
+        <a class="cd-back" href="#/">${CHEVRON.left}All candidates</a>
+        <p class="cd-count" aria-live="polite"></p>
+        <div class="cd-step">
+          <a class="btn btn-ghost cd-prev" href="#/" aria-disabled="true">${CHEVRON.left}Previous</a>
+          <a class="btn btn-ghost cd-next" href="#/" aria-disabled="true">Next${CHEVRON.right}</a>
+        </div>
+      </nav>
+      <div class="cd-main">
+        <section class="cd-plate" aria-label="Frames at this spot"></section>
+        <div class="cd-side"></div>
+      </div>
+      <div class="cd-empty" hidden></div>
+    </div>
+  `;
+  const $ = <T extends Element>(s: string) => el.querySelector(s) as T;
+  const sampleEl = $<HTMLElement>(".rv-sample");
+  const mainEl = $<HTMLElement>(".cd-main");
+  const sideEl = $<HTMLElement>(".cd-side");
+  const emptyEl = $<HTMLElement>(".cd-empty");
+  const navEl = $<HTMLElement>(".cd-nav");
+  const backEl = $<HTMLAnchorElement>(".cd-back");
+  const countEl = $<HTMLElement>(".cd-count");
+  const prevEl = $<HTMLAnchorElement>(".cd-prev");
+  const nextEl = $<HTMLAnchorElement>(".cd-next");
+
+  const plate = new Plate($(".cd-plate"), {
+    onReady(ready) {
+      plateReady = ready;
+      renderBallot();
+    },
+  });
+  let set: CandidateSet | null = null;
+  let v: Votes | null = null;
+  let cand: Candidate | null = null;
+  let counts: Counts | null = null;
+  let mine: Answer | null = null;
+  let justNow = false;
+  let saving: Answer | null = null;
+  let error: string | null = null;
+  let plateReady = false;
+  let ballot: Ballot | null = null;
+  let token = 0;
+  let visibleNow = false;
+
+  function renderBallot() {
+    if (!ballot || !cand) return;
+    ballot.set({
+      mine,
+      justNow,
+      counts,
+      saving,
+      waiting: !plateReady && !mine,
+      error,
+      local: v?.store.mode === "local",
+      kind: cand.kind,
+    });
+  }
+
+  async function vote(a: Answer) {
+    if (!cand || !v || !ballot?.open()) return;
+    const c = cand;
+    saving = a;
+    error = null;
+    renderBallot();
+    const r = await castVote(v, c, a, counts);
+    if (cand !== c) return;
+    saving = null;
+    if (r.ok) {
+      counts = r.counts;
+      mine = a;
+      justNow = true;
+    } else {
+      error = r.already ? "This browser already voted on this one. Votes can't be changed." : r.message;
+    }
+    renderBallot();
+  }
+
+  function renderSide(c: Candidate) {
+    const id = html`Candidate <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
+    sideEl.innerHTML = html`
+      ${headHtml(c, "h1", id)}
+      ${motionHtml(c)}
+      <div class="cd-ballot"></div>
+      <section class="rv-sec" aria-labelledby="cd-why-h">
+        <h2 class="rv-h" id="cd-why-h">Why it's listed</h2>
+        ${reasonsHtml(c)}
+      </section>
+      <section class="rv-sec" aria-labelledby="cd-m-h">
+        <h2 class="rv-h" id="cd-m-h">Measurements</h2>
+        ${measurementsHtml(c)}
+      </section>
+      <section class="rv-sec" aria-labelledby="cd-c-h">
+        <h2 class="rv-h" id="cd-c-h">Catalogues at this spot</h2>
+        ${cataloguesHtml(c)}
+      </section>
+      <section class="rv-sec" aria-labelledby="cd-f-h">
+        <h2 class="rv-h" id="cd-f-h">Cautions</h2>
+        ${cautionsHtml(c)}
+      </section>
+      <section class="rv-sec" aria-labelledby="cd-p-h">
+        <h2 class="rv-h" id="cd-p-h">Position</h2>
+        <p class="cd-pos"><span class="cd-radec">${formatRaDec(c)}</span>
+          <span class="rv-soft">${c.ra.toFixed(5)}°, ${c.dec >= 0 ? "+" : "−"}${Math.abs(c.dec).toFixed(5)}°</span></p>
+        <div class="rv-actions">
+          <button class="btn" type="button" data-act="copy-pos">Copy coordinates</button>
+          <button class="btn" type="button" data-act="explore">Open in Explore</button>
+        </div>
+      </section>
+      <section class="rv-sec" aria-labelledby="cd-s-h">
+        <h2 class="rv-h" id="cd-s-h">Share</h2>
+        <div class="rv-actions">
+          <button class="btn btn-ghost" type="button" data-act="copy-link">Copy link</button>
+          <button class="btn btn-ghost" type="button" data-act="copy-embed">Copy embed code</button>
+        </div>
+        <details class="cd-embed">
+          <summary>Show the embed code</summary>
+          <label class="visually-hidden" for="cd-embed-code">Embed code</label>
+          <textarea id="cd-embed-code" class="cd-code" readonly rows="4">${esc(embedCode(c))}</textarea>
+        </details>
+      </section>
+    `;
+    ballot = new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true });
+    renderBallot();
+  }
+
+  sideEl.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-act]");
+    if (!b || !cand) return;
+    const c = cand;
+    if (b.dataset.act === "copy-pos") copyWithFeedback(b, `${c.ra.toFixed(6)} ${c.dec.toFixed(6)}`);
+    else if (b.dataset.act === "copy-link") copyWithFeedback(b, shareUrl(c));
+    else if (b.dataset.act === "copy-embed") copyWithFeedback(b, embedCode(c));
+    else if (b.dataset.act === "explore") ctx.explore({ ra: c.ra, dec: c.dec, clock: c.clock, det: c.det, fov: c.clock === "hours" ? 20 : 5 });
+  });
+
+  async function renderNav(c: Candidate, query: string) {
+    const q = query || lastDiscoverQuery();
+    const f = parseFilter(q);
+    const needCounts = f.sort === "fewest" || f.sort === "most" || f.preset === "community-real";
+    let all = new Map<string, Counts>();
+    if (needCounts && v && set) {
+      try {
+        all = await v.store.counts(set.candidates.map((x) => x.id));
+      } catch {
+        all = new Map();
+      }
+    }
+    if (cand !== c || !set) return;
+    let items = applyFilter(set.candidates, f, all);
+    let inList = true;
+    if (!items.some((x) => x.id === c.id)) {
+      items = applyFilter(set.candidates, parseFilter(""), all);
+      inList = false;
+    }
+    const { prev, next, index } = neighbours(items, c.id);
+    const suffix = query ? `?${query}` : "";
+    const link = (a: HTMLAnchorElement, to: Candidate | null) => {
+      a.href = to ? `#/c/${encodeURIComponent(to.id)}${suffix}` : "#/";
+      a.setAttribute("aria-disabled", String(!to));
+      a.tabIndex = to ? 0 : -1;
+      a.title = to ? `${kindName(to.kind)} ${to.id}` : "";
+    };
+    link(prevEl, prev);
+    link(nextEl, next);
+    countEl.textContent =
+      index >= 0 ? `${index + 1} of ${items.length} ${inList && q ? "in your Discover list" : "by pipeline score"}` : "";
+    backEl.href = lastDiscoverHash();
+  }
+
+  function showEmpty(title: string, body: string) {
+    mainEl.hidden = true;
+    navEl.hidden = false;
+    emptyEl.hidden = false;
+    countEl.textContent = "";
+    for (const a of [prevEl, nextEl]) {
+      a.setAttribute("aria-disabled", "true");
+      a.tabIndex = -1;
+    }
+    emptyEl.innerHTML = html`<h1 class="rv-empty-title">${title}</h1>${body}`;
+    plate.clear();
+  }
+
+  async function show(param: string | null) {
+    const { id, query } = parseCandidateParam(param);
+    const t = ++token;
+    if (cand && cand.id === id) {
+      renderNav(cand, query);
+      return;
+    }
+    cand = null;
+    set = await candidateSet();
+    v ??= await votes();
+    if (t !== token) return;
+    sampleEl.hidden = !set?.sample;
+    sampleEl.textContent = set?.sample ? SAMPLE_NOTE : "";
+    if (!set || !set.candidates.length) {
+      showEmpty(
+        "No candidates are published yet",
+        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/review">practice round</a> and the featured targets on <a href="#/explore">Explore</a> work now.</p>`,
+      );
+      return;
+    }
+    const c = set.candidates.find((x) => x.id === id);
+    if (!c) {
+      showEmpty(
+        "This candidate isn't in the current list",
+        html`<p>No candidate called “${esc(id)}” is in this set. It may come from an older list.</p>
+          <p class="rv-actions"><a class="btn" href="${lastDiscoverHash()}">Browse candidates</a> <a class="btn btn-ghost" href="#/review">Start reviewing</a></p>`,
+      );
+      return;
+    }
+    cand = c;
+    mainEl.hidden = false;
+    emptyEl.hidden = true;
+    mine = v.memory.votedFor(c.id);
+    justNow = false;
+    saving = null;
+    error = null;
+    counts = null;
+    plateReady = false;
+    document.title = `${kindName(c.kind)} ${c.id}: SkyShift`;
+    renderSide(c);
+    renderNav(c, query);
+    if (visibleNow) plate.showCandidate(c);
+    try {
+      const all = await v.store.counts([c.id]);
+      if (cand !== c) return;
+      counts = all.get(c.id) ?? emptyCounts();
+    } catch {
+      if (cand !== c) return;
+      counts = null;
+    }
+    renderBallot();
+  }
+
+  const onKey = (ev: KeyboardEvent) => {
+    if (!visible(el) || !cand) return;
+    const a = keyAction(ev, { queue: false });
+    if (a?.kind === "vote" && ballot?.open()) {
+      ev.preventDefault();
+      vote(a.answer);
+    }
+  };
+  document.addEventListener("keydown", onKey);
+
+  // Disabled step links don't navigate.
+  for (const a of [prevEl, nextEl])
+    a.addEventListener("click", (ev) => {
+      if (a.getAttribute("aria-disabled") === "true") ev.preventDefault();
+    });
+
+  return {
+    show(param) {
+      visibleNow = true;
+      const { id } = parseCandidateParam(param);
+      if (cand && cand.id !== id) plate.clear();
+      plate.mount(); // re-shows the same candidate when coming back to it
+      show(param);
+    },
+    hide() {
+      visibleNow = false;
+      plate.unmount();
+      document.title = "SkyShift";
+    },
+    destroy() {
+      document.removeEventListener("keydown", onKey);
+      plate.unmount();
+      el.innerHTML = "";
+    },
+  };
+};
