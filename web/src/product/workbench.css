@@ -148,3 +148,6 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
    cannot slide over the following vote/sky row while scrolling on desktop. */
 .science-layer-caption {display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;}
 .science-layer-caption .btn {font-size:var(--step--1);}
+
+.wb-layer-note{margin:.5rem 0 0;color:var(--ink-2);font-size:var(--step--1);line-height:1.45}
+.wb-layer-note:empty{display:none}
