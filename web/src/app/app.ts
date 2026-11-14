@@ -7,6 +7,7 @@ import { mountCard } from "../card";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
 import { mountFilters } from "../colour";
+import { mountPlateLayers } from "../layers";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
 import { mountAtlas } from "../atlas";
@@ -113,7 +114,8 @@ export function startApp(root: HTMLElement): void {
   let frameCtl: AbortController | null = null;
   let objectCtl: AbortController | null = null;
 
-  const blink: BlinkHandle = mountBlink($("#blink"), {
+  // Plate layers (src/layers) mount the player and pick what its plate shows: observed or derived.
+  const blink: BlinkHandle = mountPlateLayers($("#blink"), mountBlink, {
     onViewChange(change) {
       if (!view) return;
       go({ ...view, ...change }, { objectToo: false });
