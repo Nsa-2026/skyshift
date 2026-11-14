@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "q": "Barnard's Star",
+  "name": "Barnard's Star",
+  "ra": 269.4460741,
+  "dec": 4.7707066,
+  "slug": "barnard",
+  "source": "builtin"
+}

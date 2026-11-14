@@ -1,0 +1,51 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "generated": "2026-11-14T09:30:00Z",
+  "data_release": "DR1+QR3",
+  "zone": "hunt zone (synthetic)",
+  "suspects": [
+    {
+      "id": "SYNTH-S1",
+      "ra": 125.45238,
+      "dec": 5.559772,
+      "mjd": 60968.284842,
+      "clock": "hours",
+      "det": 2,
+      "evidence": "two_exposures",
+      "n_dots": 2,
+      "snr": 10.1,
+      "flux_ujy": 262.3,
+      "cell": 573350074917,
+      "nearest_known_arcsec": null
+    },
+    {
+      "id": "SYNTH-S2",
+      "ra": 125.189902,
+      "dec": 5.8039,
+      "mjd": 60968.195153,
+      "clock": "hours",
+      "det": 3,
+      "evidence": "two_detectors",
+      "n_dots": 2,
+      "snr": 13.1,
+      "flux_ujy": 64.5,
+      "cell": 574820074728,
+      "nearest_known_arcsec": 88.5
+    },
+    {
+      "id": "SYNTH-S3",
+      "ra": 125.090671,
+      "dec": 5.809645,
+      "mjd": 60968.238688,
+      "clock": "hours",
+      "det": 1,
+      "evidence": "two_exposures",
+      "n_dots": 2,
+      "snr": 11.4,
+      "flux_ujy": 143.0,
+      "cell": 574850074668,
+      "nearest_known_arcsec": 112.5
+    }
+  ]
+}

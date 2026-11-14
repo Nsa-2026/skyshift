@@ -1,0 +1,78 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "gaia": [
+    {
+      "id": "4472832130942575872",
+      "ra": 269.44850252543836,
+      "dec": 4.739420051112412,
+      "pmra": -801.551,
+      "pmdec": 10362.394,
+      "parallax": 546.976,
+      "g": 8.19
+    },
+    {
+      "id": "SYNTH-GAIA-1",
+      "ra": 269.4559343,
+      "dec": 4.7676452,
+      "pmra": 0.161,
+      "pmdec": -11.131,
+      "parallax": 0.269,
+      "g": 16.648
+    },
+    {
+      "id": "SYNTH-GAIA-2",
+      "ra": 269.4399068,
+      "dec": 4.7746886,
+      "pmra": -10.386,
+      "pmdec": 10.464,
+      "parallax": 2.531,
+      "g": 16.856
+    },
+    {
+      "id": "SYNTH-GAIA-3",
+      "ra": 269.4427978,
+      "dec": 4.7679437,
+      "pmra": -6.866,
+      "pmdec": -7.834,
+      "parallax": 0.619,
+      "g": 13.985
+    },
+    {
+      "id": "SYNTH-GAIA-4",
+      "ra": 269.4364657,
+      "dec": 4.7673815,
+      "pmra": 10.348,
+      "pmdec": 12.528,
+      "parallax": 1.305,
+      "g": 16.425
+    },
+    {
+      "id": "SYNTH-GAIA-5",
+      "ra": 269.4466456,
+      "dec": 4.7627035,
+      "pmra": 4.208,
+      "pmdec": 14.511,
+      "parallax": 2.918,
+      "g": 15.669
+    },
+    {
+      "id": "SYNTH-GAIA-6",
+      "ra": 269.449401,
+      "dec": 4.7759978,
+      "pmra": -2.405,
+      "pmdec": 11.677,
+      "parallax": 0.595,
+      "g": 15.209
+    },
+    {
+      "id": "SYNTH-GAIA-7",
+      "ra": 269.4557106,
+      "dec": 4.7750588,
+      "pmra": 0.793,
+      "pmdec": 13.908,
+      "parallax": 1.135,
+      "g": 12.564
+    }
+  ]
+}

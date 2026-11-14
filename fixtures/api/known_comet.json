@@ -1,0 +1,15 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "mjd": 61023.320833,
+  "known": [
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": null,
+      "ra": 166.7939673,
+      "dec": 5.3011181,
+      "v": 15.8,
+      "source": "irsa-3i"
+    }
+  ]
+}

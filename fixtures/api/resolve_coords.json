@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "q": "08h55m10.831s -7d14m42.53s",
+  "name": null,
+  "ra": 133.7951292,
+  "dec": -7.2451472,
+  "slug": null,
+  "source": "coords"
+}

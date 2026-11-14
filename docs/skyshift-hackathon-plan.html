@@ -1,0 +1,1281 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>SkyShift Hackathon Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="SkyShift plan v2: what we build for the Planet X and SPHEREx challenge, why it wins, and how we prove it works.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one 1120px column of plan sections; demos sit in framed "instrument" panels with a dark sky screen; sticky section nav. */
+:root{
+  --bg:#f4f6f9; --surface:#ffffff; --sunken:#e9edf3; --line:#d3dbe6; --fg:#0e1726; --muted:#526078;
+  --ir:#c24e17; --ir-soft:#fbe4d7; --cool:#1a6bb0; --cool-soft:#dceaf7; --good:#1d7f53; --good-soft:#d9f1e5;
+  --screen:#05080d; --screen-fg:#dbe4f0; --screen-line:#1b2636;
+  --d1:hsl(236 62% 56%); --d2:hsl(188 70% 36%); --d3:hsl(128 45% 38%); --d4:hsl(67 70% 34%); --d5:hsl(28 85% 48%); --d6:hsl(8 75% 50%);
+  --font-display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --radius:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0a0f17; --surface:#111a27; --sunken:#0d1520; --line:#22304a; --fg:#e3e9f2; --muted:#8f9db3;
+    --ir:#ff8f57; --ir-soft:#3a2317; --cool:#6cb9ff; --cool-soft:#13283e; --good:#57cf95; --good-soft:#123326;
+    --d1:hsl(236 80% 72%); --d2:hsl(188 70% 55%); --d3:hsl(128 50% 56%); --d4:hsl(67 65% 52%); --d5:hsl(28 90% 60%); --d6:hsl(8 85% 62%);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0a0f17; --surface:#111a27; --sunken:#0d1520; --line:#22304a; --fg:#e3e9f2; --muted:#8f9db3;
+  --ir:#ff8f57; --ir-soft:#3a2317; --cool:#6cb9ff; --cool-soft:#13283e; --good:#57cf95; --good-soft:#123326;
+  --d1:hsl(236 80% 72%); --d2:hsl(188 70% 55%); --d3:hsl(128 50% 56%); --d4:hsl(67 65% 52%); --d5:hsl(28 90% 60%); --d6:hsl(8 85% 62%);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--font-body);margin:0;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+a{color:var(--cool)}
+h1,h2,h3{font-family:var(--font-display);text-wrap:balance;margin:0;line-height:1.12}
+h1{font-size:clamp(2.6rem,6vw,4.2rem);font-weight:800;font-variation-settings:"wdth" 84;letter-spacing:-.02em}
+h2{font-size:clamp(1.6rem,3.2vw,2.25rem);font-weight:800;font-variation-settings:"wdth" 88;letter-spacing:-.01em}
+h3{font-size:1.12rem;font-weight:700;font-variation-settings:"wdth" 95}
+p{margin:0}
+code,.mono{font-family:var(--font-mono)}
+code{font-size:.88em;background:var(--sunken);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
+.eyebrow{font:500 12px/1.4 var(--font-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.15rem;max-width:62ch;color:var(--fg)}
+.muted{color:var(--muted)}
+.small{font-size:.875rem}
+.num{font-variant-numeric:tabular-nums}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.stack{display:flex;flex-direction:column;gap:12px}
+.stack-lg{display:flex;flex-direction:column;gap:28px}
+.prose{max-width:68ch;display:flex;flex-direction:column;gap:12px}
+.olist{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px}
+.olist li{padding-left:2px}
+
+/* nav */
+.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.nav-inner{display:flex;align-items:center;gap:20px;padding-block:10px}
+.brand{font:800 1.05rem/1 var(--font-display);font-variation-settings:"wdth" 84;white-space:nowrap;color:var(--fg);text-decoration:none}
+.brand span{color:var(--ir)}
+.nav-links{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;min-width:0}
+.nav-links::-webkit-scrollbar{display:none}
+.nav-links a{font:500 13px var(--font-mono);color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:8px;white-space:nowrap}
+.nav-links a:hover,.nav-links a:focus-visible{color:var(--fg);background:var(--sunken)}
+
+section{padding-block:64px;border-top:1px solid var(--line)}
+section.hero{border-top:0;padding-block:48px 56px}
+.sec-head{display:flex;flex-direction:column;gap:10px;margin-bottom:28px;max-width:72ch}
+.sub-head{display:flex;flex-direction:column;gap:6px;max-width:72ch}
+
+/* hero */
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:40px;align-items:center}
+.hero-copy{display:flex;flex-direction:column;gap:18px;min-width:0}
+.hero-fig{display:flex;flex-direction:column;gap:8px;min-width:0}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:40px}
+.fact{background:var(--surface);padding:16px;display:flex;flex-direction:column;gap:2px}
+.fact b{font:700 1.6rem/1.1 var(--font-display);font-variation-settings:"wdth" 85;font-variant-numeric:tabular-nums}
+.fact span{font-size:.82rem;color:var(--muted);line-height:1.35}
+.event{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+
+/* screens & panels */
+.screen{background:var(--screen);border-radius:10px;border:1px solid var(--screen-line);overflow:hidden}
+.screen canvas{display:block;width:100%;height:auto;aspect-ratio:1/1}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+.caption{font-size:.82rem;color:var(--muted)}
+
+/* buttons */
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.btn{font:500 13px/1 var(--font-mono);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:8px 11px;border-radius:8px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--cool);outline-offset:2px}
+.btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.primary{background:var(--ir);border-color:var(--ir);color:#fff}
+.btn.det{border-bottom:3px solid var(--dc,var(--line))}
+.ctl-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px}
+.ctl-label{font:500 11px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);min-width:78px}
+.check{display:inline-flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer}
+.check:has(input:disabled){opacity:.5;cursor:not-allowed}
+input[type=range]{accent-color:var(--ir)}
+
+/* cards */
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.idea-card{border:1px solid var(--line);border-radius:var(--radius);padding:20px;background:var(--surface);display:flex;flex-direction:column;gap:8px}
+.idea-card .from{font:500 12px var(--font-mono);color:var(--muted)}
+
+/* light section */
+.light-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.det-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+.det-item{border:1px solid var(--line);border-left:4px solid var(--dc);border-radius:8px;padding:10px 12px;background:var(--surface);display:flex;flex-direction:column;gap:2px;transition:background .2s}
+.det-item.on{background:var(--sunken)}
+.det-item b{font:600 .9rem var(--font-body)}
+.det-item .r{font:500 12px var(--font-mono);color:var(--muted)}
+.det-item p{font-size:.84rem;line-height:1.45}
+.uses{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:24px}
+.use{display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--line)}
+.status-line{font:500 12.5px var(--font-mono);color:var(--muted);min-height:1.4em}
+
+/* lab */
+.lab{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:20px;align-items:start}
+.lab-left{display:flex;flex-direction:column;gap:14px;min-width:0}
+.lab-controls{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.card-head{display:flex;flex-direction:column;gap:4px}
+.chip{display:inline-block;font:500 11.5px/1.5 var(--font-mono);padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.core{color:var(--ir);border-color:color-mix(in srgb,var(--ir) 45%,transparent);background:var(--ir-soft)}
+.chip.edge{color:var(--cool);border-color:color-mix(in srgb,var(--cool) 45%,transparent);background:var(--cool-soft)}
+.chip.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 45%,transparent);background:var(--good-soft)}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:.9rem}
+dl.kv dt{color:var(--muted);font:500 12px/1.7 var(--font-mono)}
+dl.kv dd{margin:0;min-width:0}
+.expect{background:var(--sunken);border-radius:8px;padding:12px 14px;font-size:.9rem}
+.readout{font:500 13px/1.5 var(--font-mono);color:var(--fg);background:var(--sunken);border-radius:8px;padding:10px 12px}
+.chart svg{display:block;width:100%;height:auto}
+.chart-title{font:500 12px var(--font-mono);color:var(--muted);letter-spacing:.04em}
+
+/* two-clock diagram */
+.dg{display:block;width:100%;height:auto}
+.dg .t{fill:var(--muted);font:500 12px var(--font-mono)}
+.dg .h{fill:var(--fg);font:600 12px var(--font-mono);letter-spacing:.06em}
+.dg .axis{stroke:var(--line);stroke-width:1.5}
+.dg .visit{fill:var(--cool)}
+.dg .visit-next{fill:none;stroke:var(--cool);stroke-width:1.5;stroke-dasharray:3 3}
+.dg .zoom{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3;fill:none}
+.dg .expo{stroke:var(--ir);stroke-width:1.6}
+
+/* screens mock */
+.flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.mock{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:12px;display:flex;flex-direction:column;gap:10px}
+.mock-screen{background:var(--screen);border-radius:10px;aspect-ratio:4/3;position:relative;overflow:hidden;color:var(--screen-fg);font:500 11px var(--font-mono)}
+.mock-screen .bar{position:absolute;left:8px;right:8px;top:8px;min-height:24px;border-radius:6px;background:rgba(255,255,255,.08);display:flex;align-items:center;padding:0 8px;gap:6px;white-space:nowrap;overflow:hidden}
+.mock-screen .pin{position:absolute;width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:0 0 8px #fff}
+.mock-screen .sus{position:absolute;width:18px;height:18px;border-radius:50%;border:2px dashed #ff8f57}
+.mock-screen .sheet{position:absolute;left:8px;right:8px;bottom:8px;border-radius:8px;background:rgba(255,255,255,.1);padding:8px;display:flex;flex-direction:column;gap:4px}
+.mock-screen .btnrow{display:flex;gap:6px;flex-wrap:wrap}
+.mock-screen .mb{padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.14)}
+.mock-screen .mb.hot{background:#c24e17;color:#fff}
+.mock h3{font-size:1rem}
+
+/* tables */
+.tablewrap{position:relative;overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+table.wide{min-width:760px}
+table.mid{min-width:560px}
+th,td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--line)}
+th{font:500 11.5px var(--font-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);background:var(--sunken);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font:500 12.5px/1.5 var(--font-mono);color:var(--muted);white-space:nowrap}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+
+/* hunt-zone gate */
+.phases{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.phase{border:1px solid var(--line);border-radius:var(--radius);padding:18px;background:var(--surface);display:flex;flex-direction:column;gap:10px}
+.phase .gate{font-size:.82rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:10px;margin-top:auto}
+.phase.b{border-color:color-mix(in srgb,var(--ir) 55%,var(--line));box-shadow:0 0 0 3px var(--ir-soft)}
+.phase.cut{background:var(--sunken)}
+
+/* team */
+.roles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.role{border:1px solid var(--line);border-top:4px solid var(--rc);border-radius:var(--radius);padding:16px;background:var(--surface);display:flex;flex-direction:column;gap:8px}
+.role .who{font:500 12px var(--font-mono);color:var(--muted)}
+.role ul{margin:0;padding-left:18px;font-size:.86rem;display:flex;flex-direction:column;gap:4px}
+.ms{display:inline-block;font:600 11.5px/1.4 var(--font-mono);color:var(--ir);white-space:nowrap}
+.ms::before{content:"◆ "}
+.ms.gate-ms{color:var(--cool)}
+.ms.gate-ms::before{content:"▲ "}
+
+/* risks, decisions */
+.risk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.risk{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--surface);display:flex;flex-direction:column;gap:6px}
+.risk b{font-weight:600}
+.risk p{font-size:.9rem}
+.todo{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.todo li{display:flex;gap:10px;align-items:flex-start;font-size:.92rem}
+.todo li::before{content:"";flex:0 0 14px;height:14px;margin-top:4px;border:1.5px solid var(--muted);border-radius:4px}
+footer{border-top:1px solid var(--line);padding-block:32px 48px;font-size:.85rem;color:var(--muted)}
+footer ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+
+@media (max-width:900px){
+  .hero-grid,.lab,.light-grid,.two{grid-template-columns:minmax(0,1fr)}
+  .facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .three,.flow,.phases{grid-template-columns:minmax(0,1fr)}
+  .roles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .hero-fig{max-width:440px}
+}
+@media (max-width:560px){
+  .roles,.det-list,.uses,.risk-grid{grid-template-columns:minmax(0,1fr)}
+  section{padding-block:48px}
+  .ctl-label{min-width:0;width:100%}
+  dl.kv{grid-template-columns:minmax(0,1fr)}
+  dl.kv dd{margin-bottom:6px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+</style>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">Sky<span>Shift</span></a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#win">Why we win</a><a href="#clocks">Two clocks</a><a href="#light">102 colours</a><a href="#scope">Scope</a><a href="#demo">Demo</a><a href="#validation">Validation</a><a href="#page">Project page</a><a href="#milestones">Milestones</a><a href="#risks">Risks</a><a href="#decisions">Decisions</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">NASA Space Apps 2026 · Planet X and SPHEREx · Team plan v2</p>
+          <h1>SkyShift</h1>
+          <p class="lede">SkyShift is a WiseView for SPHEREx that blinks each kind of object on the clock that suits it, measures what moved, and checks that measurement against Gaia and known asteroid positions.</p>
+          <dl class="kv event">
+            <dt>Start</dt><dd>Sat 14 Nov, 09:00</dd>
+            <dt>Submit</dt><dd>Sun 15 Nov, 15:00 local (the global form closes 23:59). Assumed until the Local Lead confirms.</dd>
+            <dt>Pitch</dt><dd>Sun 15:30, live</dd>
+            <dt>Demo</dt><dd>Video of 30 s or less (we cut to 29 s), or at most 7 slides</dd>
+          </dl>
+          <p class="muted small">4 people · 30 hours · the demos on this page use simulated stars. This demo code predates the event and is not used in the product.</p>
+          <div class="seg"><a class="btn primary" href="#lab" style="text-decoration:none">Try the two clocks</a><a class="btn" href="skyshift-dev-plan.html" style="text-decoration:none">Developer plan</a></div>
+        </div>
+        <figure class="hero-fig" style="margin:0">
+          <div class="screen"><canvas id="hero-canvas" width="768" height="768" role="img" aria-label="Simulated Months clock: a cold brown dwarf like WISE 0855 seen in detector 6, stepping west between three visit stacks, with no Gaia star under it"></canvas></div>
+          <figcaption class="caption">Simulated field, detector 6, Months clock. The dot with the orange ring is a cold brown dwarf like WISE 0855: it has no Gaia match and steps west each visit. Motion is shown 4× larger than real. Blue rings mark stars Gaia already knows.</figcaption>
+        </figure>
+      </div>
+      <div class="facts" role="list">
+        <div class="fact" role="listitem"><b>102</b><span>colours per spot in each visit: 6 detectors × 17 steps</span></div>
+        <div class="fact" role="listitem"><b>2–3</b><span>visits per spot so far, six months apart</span></div>
+        <div class="fact" role="listitem"><b>0.84 px</b><span>Barnard's Star's step per visit (5.2″). Too small for a plain blink.</span></div>
+        <div class="fact" role="listitem"><b>55</b><span>exposures of comet 3I/ATLAS over 20 hours on 14 Dec 2025</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY WE WIN -->
+  <section id="win">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Why we win</p>
+        <h2>Blink on the right clock, then show a number</h2>
+        <p class="muted">Many teams are building SPHEREx blink tools this weekend. Ours follows SPHEREx's real timing and checks its own measurements. Most blink tools will flip raw exposures, which fails twice. Every exposure is in a different colour, so everything flickers. And the test objects move less than one pixel per visit, so a plain blink shows nothing. We solve both, and we show numbers. We don't claim a first.</p>
+      </div>
+      <div class="stack">
+        <h3>What a judge sees in 30 seconds</h3>
+        <div class="uses" style="margin-top:0">
+          <div class="use"><span class="chip core" style="align-self:flex-start">1 · Two clocks</span><p class="small"><b>Months</b> blinks one stacked frame per visit: nearby stars and brown dwarfs step. <b>Hours</b> blinks single exposures: comets and asteroids cross.</p></div>
+          <div class="use"><span class="chip core" style="align-self:flex-start">2 · A number under every movie</span><p class="small">"Moved 5.1″ north in 6 months. Gaia predicts 5.2″." (Example wording; the real numbers come from our validation run.)</p></div>
+          <div class="use"><span class="chip core" style="align-self:flex-start">3 · 3I/ATLAS</span><p class="small">The interstellar comet crossing the stars, next to a counter: "⟨N⟩ known asteroids re-found".</p></div>
+          <div class="use"><span class="chip core" style="align-self:flex-start">4 · Spectrum by visit</span><p class="small">Built on the fly, coloured by visit, with water, methane, CO₂ and CO marked. It says what the mover is and how a variable star changed.</p></div>
+        </div>
+      </div>
+      <div class="stack">
+        <h3>The five judging criteria</h3>
+        <p class="small muted">Each is scored 1 to 5, with no weights given. Most of the score comes from the project page, not the demo.</p>
+        <div class="tablewrap">
+          <table class="wide">
+            <thead><tr><th>Criterion</th><th>How we earn it</th><th>Evidence we show</th></tr></thead>
+            <tbody>
+              <tr><td><b>Impact</b></td><td>Anyone can paste coordinates, watch, flag a dot and vote, on a phone too.</td><td>Candidate list with vote counts and CSV export; people and votes from a venue test.</td></tr>
+              <tr><td><b>Creativity</b></td><td>Clocks matched to SPHEREx's timing; spectrum by visit; a planted-object drill.</td><td>The Months/Hours switch in the video.</td></tr>
+              <tr><td><b>Validity</b></td><td>The tool checks itself and states its limits.</td><td>A "How we know it works" page (<a href="#validation">V1–V8</a>), with a control test.</td></tr>
+              <tr><td><b>Relevance</b></td><td>Every objective and consideration is answered; the five test objects are one click away.</td><td>A <a href="#challenge-map">challenge-text-to-feature table</a>; the challenge's own coordinate string works when pasted.</td></tr>
+              <tr><td><b>Presentation</b></td><td>One story: Pluto was found by blinking → volunteers found comets and brown dwarfs the same way → SPHEREx re-images the sky every six months → anyone can blink it.</td><td>GIF at the top of the project page; a 29-second video.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TWO CLOCKS -->
+  <section id="clocks">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Two clocks</p>
+        <h2>Months for stars, hours for comets</h2>
+        <p class="muted">SPHEREx sees each spot in bursts. Slow objects need frames months apart. Fast objects need frames hours apart. One blink can't do both, so SkyShift has a switch.</p>
+      </div>
+      <div class="three">
+        <div class="idea-card"><span class="from">Term 1</span><h3>Exposure</h3><p class="small">One SPHEREx photo, 113 seconds long.</p></div>
+        <div class="idea-card"><span class="from">Term 2</span><h3>Session</h3><p class="small">1 to 5 exposures taken 2.1 minutes apart.</p></div>
+        <div class="idea-card"><span class="from">Term 3</span><h3>Visit</h3><p class="small">The 2–4 weeks in which SPHEREx sees one spot, every six months: about 21 sessions and 55–60 exposures. Its dates depend on the position. The sky at RA 125.5 has had two visits so far (Oct–Nov 2025, Apr–May 2026).</p></div>
+      </div>
+      <div class="two">
+        <div class="panel">
+          <svg class="dg" viewBox="0 0 400 236" role="img" aria-label="Diagram. Top: a timeline of 12 months with a short visit block at 0, 6 and 12 months; the Months clock blinks one stacked frame per visit. Bottom: one visit enlarged, showing about 21 sessions of 1 to 5 exposures each; the Hours clock blinks those single exposures.">
+            <text class="h" x="8" y="16">MONTHS · ONE FRAME PER VISIT</text>
+            <line class="axis" x1="8" x2="392" y1="62" y2="62"/>
+            <text class="t" x="10" y="42">0</text><text class="t" x="186" y="42">6 mo</text><text class="t" x="352" y="42">12 mo</text>
+            <rect class="visit" x="10" y="51" width="22" height="22" rx="3"/>
+            <rect class="visit" x="186" y="51" width="22" height="22" rx="3"/>
+            <rect class="visit-next" x="362" y="51" width="22" height="22" rx="3"/>
+            <text class="t" x="10" y="90">visit 1</text><text class="t" x="186" y="90">visit 2</text><text class="t" x="392" y="90" text-anchor="end">visit 3?</text>
+            <path class="zoom" d="M186 73 L8 140 M208 73 L392 140"/>
+            <text class="h" x="8" y="128">HOURS · INSIDE ONE VISIT</text>
+            <g id="dg-expo"></g>
+            <line class="axis" x1="8" x2="392" y1="182" y2="182"/>
+            <text class="t" x="8" y="204">~21 sessions over 2–4 weeks</text>
+            <text class="t" x="8" y="222">each tick = one exposure (55–60)</text>
+          </svg>
+        </div>
+        <div class="prose small">
+          <p><b>Months.</b> Median-stack each detector within a visit, then blink the visits. This is for nearby stars, brown dwarfs and variable stars. The median also removes asteroids and cosmic rays, because they sit in any one pixel for only a moment.</p>
+          <p><b>Hours.</b> Blink single exposures in time order. Sessions are hours to days apart, so an asteroid hops arcminutes between frames. Inside one session nothing moves visibly, which rejects junk: a real mover must appear in two exposures of a session, or in both detectors exposed at the same moment (D1+D4, D2+D5, D3+D6).</p>
+          <p><b>Variable stars</b> are compared within one detector, visit to visit, and through the spectrum coloured by visit.</p>
+          <p class="muted">Field of view: 5′ or 15′ on the Months clock, 20′ or 60′ on the Hours clock. A larger field catches faster movers but moves more data. Every frame stays within 300 px a side: 5′ at 3× oversampling (146 px), 15′ at 2× (293 px), 20′ at the native 6.15″ pixel (195 px), 60′ binned 2× (293 px).</p>
+        </div>
+      </div>
+
+      <div class="stack" id="lab">
+        <div class="sub-head">
+          <h3>Try it: a simulated two-clock blink</h3>
+          <p class="small muted">Simulated stars. Directions and relative speeds follow the real objects; one pixel is 6.15″ on the Months clock, like a SPHEREx pixel. This demo code predates the event and is not used in the product.</p>
+        </div>
+        <div class="lab">
+          <div class="lab-left">
+            <div class="screen"><canvas id="lab-canvas" width="768" height="768" role="img" aria-label="Simulated blink view. The text readout below describes the current frame."></canvas></div>
+            <p class="readout" id="lab-readout" aria-live="polite"></p>
+            <div class="lab-controls panel">
+              <div class="ctl-row"><span class="ctl-label">Clock</span>
+                <div class="seg" id="lab-clock">
+                  <button class="btn" type="button" data-c="months" aria-pressed="true">Months</button>
+                  <button class="btn" type="button" data-c="hours" aria-pressed="false">Hours</button>
+                </div>
+              </div>
+              <div class="ctl-row"><span class="ctl-label">Object</span>
+                <div class="seg" id="lab-target"></div>
+              </div>
+              <div class="ctl-row"><span class="ctl-label">View</span>
+                <div class="seg" id="lab-mode">
+                  <button class="btn" type="button" data-m="blink" aria-pressed="true">Blink</button>
+                  <button class="btn" type="button" data-m="diff" aria-pressed="false">Subtract</button>
+                  <button class="btn" type="button" data-m="sum" aria-pressed="false">Add</button>
+                </div>
+              </div>
+              <div class="ctl-row"><span class="ctl-label">Detector</span>
+                <div class="seg" id="lab-det">
+                  <button class="btn det" type="button" data-d="0" style="--dc:var(--d1)" aria-pressed="false">D1</button>
+                  <button class="btn det" type="button" data-d="1" style="--dc:var(--d2)" aria-pressed="false">D2</button>
+                  <button class="btn det" type="button" data-d="2" style="--dc:var(--d3)" aria-pressed="false">D3</button>
+                  <button class="btn det" type="button" data-d="3" style="--dc:var(--d4)" aria-pressed="false">D4</button>
+                  <button class="btn det" type="button" data-d="4" style="--dc:var(--d5)" aria-pressed="false">D5</button>
+                  <button class="btn det" type="button" data-d="5" style="--dc:var(--d6)" aria-pressed="false">D6</button>
+                </div>
+              </div>
+              <div class="ctl-row"><span class="ctl-label">Frame</span>
+                <button class="btn" type="button" id="lab-play">Pause</button>
+                <div class="seg" id="lab-frames"></div>
+              </div>
+              <div class="ctl-row"><span class="ctl-label">Speed</span>
+                <label class="check small" for="lab-speed">Frames per second <input type="range" id="lab-speed" min="0.5" max="4" step="0.5" value="1.5"></label>
+              </div>
+              <div class="ctl-row"><span class="ctl-label">Layers</span>
+                <label class="check" for="lab-rings"><input type="checkbox" id="lab-rings" checked> Gaia and predicted positions</label>
+                <label class="check" for="lab-flags"><input type="checkbox" id="lab-flags" checked> Quality flags (Hours)</label>
+                <label class="check" for="lab-exag"><input type="checkbox" id="lab-exag" checked> Motion ×4 (Months)</label>
+              </div>
+            </div>
+          </div>
+          <article class="card" id="lab-card" aria-live="polite"></article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIGHT -->
+  <section id="light">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">How SPHEREx sees</p>
+        <h2>102 colours from a camera with a rainbow filter</h2>
+        <p class="muted">SPHEREx doesn't take one colour photo. Each of its six detectors sits behind a filter whose colour changes from one side to the other in 17 steps. During a visit the telescope steps across the sky, so every spot slides through all 17 steps of all 6 detectors. That gives 102 brightness measurements per visit, and a new visit comes every six months. Lined up, they form a <strong>spectrum</strong>: a fingerprint of what the object is made of.</p>
+      </div>
+      <div class="light-grid">
+        <div class="panel stack">
+          <div class="chart" id="det-svg-wrap"></div>
+          <div class="ctl-row">
+            <span class="ctl-label">Object</span>
+            <div class="seg" id="scan-obj">
+              <button class="btn" type="button" data-o="star" aria-pressed="false">Normal star</button>
+              <button class="btn" type="button" data-o="ydwarf" aria-pressed="true">Cold brown dwarf</button>
+              <button class="btn" type="button" data-o="ice" aria-pressed="false">Icy dust cloud</button>
+              <button class="btn" type="button" data-o="variable" aria-pressed="false">Variable star, 2 visits</button>
+            </div>
+          </div>
+          <div class="ctl-row">
+            <button class="btn primary" type="button" id="scan-play">Watch it scan</button>
+            <span class="status-line" id="scan-status" aria-live="polite">All 102 colours measured</span>
+          </div>
+        </div>
+        <div class="panel stack">
+          <p class="chart-title">SPECTRUM BUILT FROM THE 102 MEASUREMENTS (SIMULATED SHAPE)</p>
+          <div class="chart" id="scan-spec"></div>
+          <p class="caption" id="scan-note"></p>
+          <p class="caption">Marked molecules: water (1.4, 1.9, 2.7–3.0 µm), methane (1.65, 2.2, 3.3 µm), CO₂ (4.27 µm), CO (2.3, 4.6–4.7 µm). Positions are approximate; we check them against SPHEREx material before showing them.</p>
+        </div>
+      </div>
+      <div class="det-list" id="det-list"></div>
+      <div class="uses">
+        <div class="use"><h3>1 · Six clean channels per visit</h3><p class="small">Within one visit we median-stack every exposure from the same detector, aligned and oversampled (3× on the 5′ field, 2× on the 15′ field). That gives six sharp, low-noise frames per visit, the approach NASA suggested. The Months clock compares the same detector across visits.</p></div>
+        <div class="use"><h3>2 · A spectrum on the fly, coloured by visit</h3><p class="small">Each photo carries a wavelength map, so every pixel knows its colour. We measure the object's brightness in every cutout (aperture photometry, no model fitting), sort by wavelength and colour the points by visit.</p></div>
+        <div class="use"><h3>3 · False colour, as a still</h3><p class="small">A false-colour picture per visit is a Should item (S5), not a blink mode. Switching D1 → D6 on WISE 0855 gives the same effect for free: it is absent at short wavelengths and bright at long ones.</p></div>
+        <div class="use"><h3>4 · Fair comparisons only</h3><p class="small">One spot is seen in a different colour in every exposure, so brightness changes between raw exposures are mostly colour, not real change. We compare the same detector, visit to visit.</p></div>
+      </div>
+      <div class="two" style="margin-top:28px">
+        <div class="stack">
+          <h3>What the data looks like</h3>
+          <div class="tablewrap">
+            <table class="num">
+              <thead><tr><th>Item</th><th>Value</th></tr></thead>
+              <tbody>
+                <tr><td>Data Release 1 photos (late Apr 2025 to mid May 2026)</td><td>945,725</td></tr>
+                <tr><td>Quick Release 3 photos (mid May to early Oct 2026)</td><td>362,124</td></tr>
+                <tr><td>One exposure</td><td>113 s · 2040 × 2040 pixels · about 6.15″ per pixel</td></tr>
+                <tr><td>One photo file</td><td>about 66 MB in 6 parts; the parts we need are an estimated 28 MB, to be measured</td></tr>
+                <tr><td>IRSA's SPHEREx all-sky cube</td><td>102 frames, about 12.9″ per pixel, coarser than the 6.15″ photos</td></tr>
+                <tr><td>Public SPHEREx catalogue of moving sources</td><td>No general public catalogue yet. Related work exists: IRSA's Source Discovery Tool, SPLICES, and the Gagné et al. 2026 brown-dwarf library. We don't claim a first.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="caption">Photo counts read from NASA's IRSA archive on 13 November 2026. New data arrives weekly.</p>
+        </div>
+        <div class="stack">
+          <h3>Quality flags</h3>
+          <p class="small">We mask a named list of bad-pixel flags (cosmic rays, hot and dead pixels, saturation, persistence, streaks), kept in <code>contracts/flags.md</code>. We never mask SOURCE, which is set on about 99% of pixels. Ghost, halo and crosstalk flags are recorded on the dot. A saturation flag in a source's core marks it as saturated.</p>
+          <h3>Two limits we state up front</h3>
+          <p class="small">Parallax is at most 1.1″ between visits, below what we can measure, so the card shows Gaia's distance instead. SPHEREx saturates near AB magnitude 10–11 (one paper quotes 9.7–11.7; to check on real data), so three of the five test objects are expected to saturate. The tool marks saturated cores.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCOPE -->
+  <section id="scope">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Scope</p>
+        <h2>Must, Should, Cut</h2>
+        <p class="muted">Order of work: five targets blink and measure → any coordinates → comet and asteroids → validation numbers → flag and vote → hunt zone. If something slips, the earlier steps still make a complete project.</p>
+      </div>
+
+      <div class="flow">
+        <div class="mock">
+          <div class="mock-screen" aria-hidden="true">
+            <div class="bar">08h55m10.831s -7d14m42.53s ⏎</div>
+            <div class="sheet"><span>Test objects</span><div class="btnrow"><span class="mb">Barnard's</span><span class="mb">WISE 0855</span><span class="mb">ε Indi B</span><span class="mb">RW Aur</span><span class="mb">R Dra</span></div></div>
+            <span class="pin" style="left:30%;top:42%;width:6px;height:6px"></span><span class="pin" style="left:62%;top:36%;width:5px;height:5px"></span><span class="pin" style="left:46%;top:56%;width:4px;height:4px"></span>
+          </div>
+          <h3>1 · Paste coordinates</h3>
+          <p class="small muted">Coordinate box first. It accepts the challenge's format and decimal degrees. Five one-click test objects. Names come from a built-in list, because SIMBAD is offline.</p>
+        </div>
+        <div class="mock">
+          <div class="mock-screen" aria-hidden="true">
+            <div class="bar"><span class="mb hot">Months</span><span class="mb">Hours</span><span style="margin-left:auto;opacity:.7">D6</span></div>
+            <span class="pin" style="left:48%;top:46%;width:7px;height:7px;opacity:.45"></span><span class="pin" style="left:48%;top:40%;width:7px;height:7px"></span>
+            <div class="sheet"><span>Moved 5.1″ north in 6 months</span><span>Gaia predicts 5.2″ · 6 light-years</span></div>
+          </div>
+          <h3>2 · Blink and measure</h3>
+          <p class="small muted">Pick the clock. The readout gives shift, rate, error and Gaia's prediction. Mock-up values, not results.</p>
+        </div>
+        <div class="mock">
+          <div class="mock-screen" aria-hidden="true">
+            <span class="sus" style="left:44%;top:30%"></span>
+            <div class="sheet"><span>What is at the marked spot?</span><div class="btnrow"><span class="mb">Mover</span><span class="mb">Changing</span><span class="mb">Junk</span><span class="mb">Not sure</span></div><span style="opacity:.7">12 votes · export CSV</span></div>
+          </div>
+          <h3>3 · Flag and vote</h3>
+          <p class="small muted">The click marks the position. The candidate list counts votes and exports a CSV.</p>
+        </div>
+      </div>
+
+      <div class="stack">
+        <h3>Must: polished by the Sunday 09:00 freeze</h3>
+        <div class="tablewrap">
+          <table class="mid">
+            <thead><tr><th>#</th><th>Feature</th><th>Owner</th></tr></thead>
+            <tbody>
+              <tr><td class="k">M1</td><td>Coordinate box first. Accepts <code>08h55m10.831s -7d14m42.53s</code> and decimal degrees. Five test-object chips. State in the URL, plus <code>&amp;embed=1</code>.</td><td class="k">P3</td></tr>
+              <tr><td class="k">M2</td><td>Months clock: per visit and detector, a median stack of aligned cutouts, 5′ field at 3× oversampling or 15′ at 2×. Blink, subtract, add; speed, stretch, invert, dates.</td><td class="k">P2, P4</td></tr>
+              <tr><td class="k">M3</td><td>Hours clock: single exposures in time order, 20′ field at the native pixel or 60′ binned 2×.</td><td class="k">P2, P4</td></tr>
+              <tr><td class="k">M4</td><td>Live API for any coordinates; first frame under 15 s.</td><td class="k">P2</td></tr>
+              <tr><td class="k">M5</td><td>Measure readout: shift, rate, error, Gaia's prediction and distance.</td><td class="k">P1, P3</td></tr>
+              <tr><td class="k">M6</td><td>Spectrum on the fly: aperture photometry on every cutout, by wavelength, coloured by visit, molecules marked. No model fitting.</td><td class="k">P1, P3</td></tr>
+              <tr><td class="k">M7</td><td>Featured targets as static files: the five, 3I/ATLAS, two asteroids.</td><td class="k">P2</td></tr>
+              <tr><td class="k">M8</td><td>Sky view: Aladin Lite 3.8.2 from jsDelivr, with IRSA layer URLs and SIMBAD features off, plus Gaia dots. The blink works without it.</td><td class="k">P3</td></tr>
+              <tr><td class="k">M9</td><td>Flag and vote: flag a dot in any blink; candidate list; votes (mover / changing / junk / not sure); counts; CSV export.</td><td class="k">P4</td></tr>
+              <tr><td class="k">M10</td><td>"How we know it works" page with V1–V4.</td><td class="k">P1</td></tr>
+              <tr><td class="k">M11</td><td>Project page, 29-second video, public repo with README, licence, AI disclosure.</td><td class="k">P4, all</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="stack">
+        <h3>Should: in this order, after the Saturday gates</h3>
+        <div class="tablewrap">
+          <table class="mid">
+            <thead><tr><th>#</th><th>Feature</th><th>Owner</th><th>Cost</th></tr></thead>
+            <tbody>
+              <tr><td class="k">S1</td><td><b>Hunt zone.</b> 100 deg² on the ecliptic, where asteroids are densest (RA 120.5–130.5, Dec +14.4 to +24.4). Known asteroids are matched; suspects join the candidate list.</td><td class="k">P1</td><td class="k">gated, Sat 18:00</td></tr>
+              <tr><td class="k">S2</td><td><b>Fast Gaia stars.</b> Measured vs predicted shift for about 40 stars.</td><td class="k">P2</td><td class="k">1.5 h</td></tr>
+              <tr><td class="k">S3</td><td><b>Gagné brown-dwarf list.</b> A "known brown dwarf" label and a recovery count.</td><td class="k">P1</td><td class="k">1.5 h</td></tr>
+              <tr><td class="k">S4</td><td><b>"Hidden neighbour" drill.</b> A simulated WISE 0855-like object planted in real frames, labelled as simulated.</td><td class="k">P4</td><td class="k">2 h</td></tr>
+              <tr><td class="k">S5</td><td><b>False-colour still</b> per visit.</td><td class="k">P4</td><td class="k">1.5 h</td></tr>
+              <tr><td class="k">S6</td><td>Flag-pixel overlay, AllWISE layer, light-curve chart.</td><td class="k">P3</td><td class="k">1 h each</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="sub-head">
+          <h3>The hunt-zone gate</h3>
+          <p class="small muted">This replaces the old "5% of the sky, then the whole sky" plan. We only scale up once a small test proves we can find known asteroids.</p>
+        </div>
+        <div class="phases">
+          <div class="phase"><span class="chip edge" style="align-self:flex-start">Pilot · Sat 16:00–18:00</span><h3>12 deg², about 230 photos</h3><p class="small">Runs on the 8-core test machine. We look up known asteroids with SkyBoT at each exposure's MJD-AVG, spot-checked with NASA's MOST, and run a control 3′ away.</p><p class="gate"><span class="ms gate-ms">G2 · Sat 18:00</span><br>Recall at V &lt; 16 must be 50% or more.</p></div>
+          <div class="phase b"><span class="chip core" style="align-self:flex-start">S1 · only if G2 passes</span><h3>Hunt zone: 100 deg²</h3><p class="small">About 3,400 photos, under an hour on the <code>n2-highcpu-64</code> spot worker (to be measured). Dots are grouped by sky position: many sessions = fixed; one session only = mover candidate. Candidates with no known asteroid there become suspects.</p><p class="gate">Result: V5, asteroid recall by brightness, due Sun 03:00.</p></div>
+          <div class="phase cut"><span class="chip" style="align-self:flex-start">Not attempted</span><h3>Larger areas</h3><p class="small">The 5% zone (2,000 deg², about 37,000 photos) was cut: unmeasured speed, and its linking step didn't fit the real cadence. The whole sky is not attempted; the project page gives one projected-cost sentence.</p><p class="gate">If G2 fails: check for 30 minutes, then stop S1 and rely on V4 and the comet.</p></div>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="stack">
+          <h3>Cut</h3>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Cut</th><th>Why</th></tr></thead>
+              <tbody>
+                <tr><td>The 5% deep zone (2,000 deg²)</td><td>About 37,000 photos at unmeasured speed. S1 replaces it at one-twentieth the size.</td></tr>
+                <tr><td>Whole-sky run</td><td>Adds nothing to any criterion.</td></tr>
+                <tr><td>Linking every dot across visits</td><td>We measure motion only where people look.</td></tr>
+                <tr><td>Job list with locks, sky tiling</td><td>Not needed for 3,400 photos. Each photo's output file marks it done.</td></tr>
+                <tr><td>False colour as a blink mode, 3D neighbourhood, tour overlay, in-app GIF export, NEOSSat, accounts</td><td>Not worth the hours.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="stack">
+          <h3>Decisions already taken</h3>
+          <ul class="olist small">
+            <li><b>Deep zone shrinks</b> to the S1 hunt zone.</li>
+            <li><b>Voting stays, smaller</b> (M9). Any visitor can flag a dot, so it no longer depends on the pipeline.</li>
+            <li><b>Spectrum stays, simpler</b> (M6): no model fitting.</li>
+            <li><b>False colour shrinks</b> to a still (S5).</li>
+            <li><b>Blink becomes two clocks</b> (see <a href="#clocks">above</a>).</li>
+          </ul>
+          <h3>How the parts fit</h3>
+          <p class="small">Featured targets are static files: they load at once and keep working after the cloud credit ends. Any other coordinates query IRSA live and the server sends back frame data, so new weekly data appears without code changes. Gaia, known asteroids and the 3I/ATLAS table come through the same server. Architecture, contracts and per-person build plans are on the <a href="skyshift-dev-plan.html">developer plan</a>.</p>
+        </div>
+      </div>
+
+      <div class="stack" id="challenge-map">
+        <h3>Challenge text → feature</h3>
+        <p class="small muted">Judges will compare against the challenge page, so each point gets a row. This table goes on the project page.</p>
+        <div class="tablewrap">
+          <table class="wide">
+            <thead><tr><th>The challenge asks</th><th>What SkyShift does</th></tr></thead>
+            <tbody>
+              <tr><td>Enter the coordinates of a patch of sky; see a little video</td><td>Coordinate box first, accepting <code>08h55m10.831s -7d14m42.53s</code> and decimal degrees. The movie plays one stacked frame per visit (six months apart) for slow movers, or single exposures inside a visit for comets and asteroids.</td></tr>
+              <tr><td>Test on Barnard's Star, Epsilon Indi B, WISE 0855, RW Aurigae, R Draconis</td><td>Five one-click chips; each is a static featured target with expected values and caveats (<a href="#demo">table below</a>); V1 counts the recoveries.</td></tr>
+              <tr><td>Easy to update with new data</td><td>Any coordinates query IRSA live, so new weekly data appears without code changes. A badge shows "Data: DR1 + QR3, checked ⟨date⟩". Featured targets are static files.</td></tr>
+              <tr><td>Use the 102 bands creatively; add each detector separately</td><td>Median stack per detector within each visit; spectrum coloured by visit; false-colour still (S5).</td></tr>
+              <tr><td>Spectra on the fly ("extra kudos")</td><td>M6: aperture photometry on every cutout, molecules marked.</td></tr>
+              <tr><td>Add or subtract images</td><td>Blink, subtract and add, done in the browser.</td></tr>
+              <tr><td>Choose the field of view</td><td>5′ or 15′ (Months), 20′ or 60′ (Hours). The larger field catches faster movers but loads more data.</td></tr>
+              <tr><td>Overlays from Gaia or WISE</td><td>Gaia DR3 dots and predicted positions (ESA partner data); 2MASS and AllWISE layers from IRSA; known asteroid positions.</td></tr>
+              <tr><td>Coordinates in the URL, for embedding</td><td>Every view's state is in the URL; <code>&amp;embed=1</code> gives a minimal view for other sites.</td></tr>
+              <tr><td>Show metadata such as contamination flags</td><td>Frame dates and detector; saturated cores marked; flag-pixel overlay (S6).</td></tr>
+              <tr><td>Use Astropy and CDS Aladin</td><td>astropy and astroquery on the server; Aladin Lite 3.8.2 from jsDelivr, IRSA layer URLs, SIMBAD features off (CDS is down).</td></tr>
+              <tr><td>Earth's orbit shifts nearby objects; motion measures distance</td><td>Gaia's distance on the card. Parallax between visits is at most 1.1″, below what we can measure, and we say so.</td></tr>
+              <tr><td>Help as many people as possible pitch in</td><td>Flag and vote, on a phone too; counts, CSV export, and a route to astronomers through the Backyard Worlds forum.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEMO -->
+  <section id="demo">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Demo targets, video, slides</p>
+        <h2>What judges will test, and what they should see</h2>
+        <p class="muted">The five are what judges will test. The comet is famous and fast, and NASA supplies its position in every image. The asteroids prove the Hours clock on ordinary objects. "Expected" means computed from catalogues, not measured.</p>
+      </div>
+      <div class="tablewrap">
+        <table class="wide">
+          <thead><tr><th>Target</th><th>Clock</th><th>Expected</th><th>Caveat</th><th><span class="sr">Lab</span></th></tr></thead>
+          <tbody>
+            <tr><td><b>Barnard's Star</b></td><td>Months</td><td>Steps north 5.2″ (0.84 px) per visit; 10.39″/yr at position angle 355.6° (Gaia DR3)</td><td>K ≈ 4.5: the core saturates. Measure from the wings.</td><td><button class="btn" type="button" data-open="months:barnard">Open in lab</button></td></tr>
+            <tr><td><b>WISE 0855−0714</b></td><td>Months, D6</td><td>Absent in D1–D3. In D5–D6 a dot with no Gaia ring, stepping west 4.1″ (0.66 px) per visit</td><td>Faint. If weak, add D5+D6 and shift-and-add along its known motion.</td><td><button class="btn" type="button" data-open="months:wise0855">Open in lab</button></td></tr>
+            <tr><td><b>Epsilon Indi B</b></td><td>Months, subtract</td><td>One dot (the pair is under 1″ apart), 2.3″ (0.38 px) per visit</td><td>Epsilon Indi A, 7′ away, is very bright.</td><td><button class="btn" type="button" data-open="months:epsindib">Open in lab</button></td></tr>
+            <tr><td><b>RW Aurigae</b></td><td>Months, spectrum</td><td>Same place; brightness and spectrum change between visits</td><td>May saturate in the short bands.</td><td><button class="btn" type="button" data-open="months:rwaur">Open in lab</button></td></tr>
+            <tr><td><b>R Draconis</b></td><td>Months, light curve</td><td>Many visits (near the north ecliptic pole); brightness changes</td><td>Very bright, saturates. Measure in the wings and say so.</td><td><button class="btn" type="button" data-open="months:rdra">Open in lab</button></td></tr>
+            <tr><td><b>Comet 3I/ATLAS</b></td><td>Hours</td><td>55 images over 20 h on 14 Dec 2025; 176″/h (29 px/h); 0.98° in total</td><td>Faint in many channels; pick the best detector.</td><td><button class="btn" type="button" data-open="hours:comet">Open in lab</button></td></tr>
+            <tr><td><b>Two numbered asteroids</b></td><td>Hours</td><td>A dot inside NASA's predicted ring, under 2 px off</td><td>Pick from the V4 batch, V 12–15.</td><td><button class="btn" type="button" data-open="hours:asteroid">Open in lab</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small muted">Two limits go on the cards: parallax (show Gaia's distance) and saturation (marked cores). At the Sunday 09:00 stand-up, pick the cleaner of WISE 0855 and Barnard's Star as the hero.</p>
+
+      <div class="stack">
+        <div class="sub-head">
+          <h3>The video: cut to 29.0 s</h3>
+          <p class="small muted">30 s is a hard limit; check the length with a tool before upload. Screen recordings of the live site only, so no watermark is needed. English captions; no voice, or a teammate's own. From shot 2 a credit stays on screen: "Real data: NASA SPHEREx (IRSA) · ESA Gaia DR3".</p>
+        </div>
+        <div class="tablewrap">
+          <table class="wide">
+            <thead><tr><th>Time</th><th>Shot</th><th>On-screen text</th></tr></thead>
+            <tbody>
+              <tr><td class="k">0:00–0:03</td><td>Title over the sky view</td><td>"SkyShift" · team and four names · "NASA Space Apps 2026 · Planet X and SPHEREx"</td></tr>
+              <tr><td class="k">0:03–0:06</td><td>Paste <code>08h55m10.831s -7d14m42.53s</code>, press Enter</td><td>"Pluto was found by blinking two photos. Now blink NASA's infrared sky."</td></tr>
+              <tr><td class="k">0:06–0:11</td><td>WISE 0855: D1 empty; switch to D6; a dot appears and steps west</td><td>"A brown dwarf at −20 °C. Invisible until 4.5 µm. No Gaia star here."</td></tr>
+              <tr><td class="k">0:11–0:15</td><td>Barnard's Star steps north; the readout fills in</td><td>"Measured: ⟨x⟩″ a year. Gaia: 10.4″ a year."</td></tr>
+              <tr><td class="k">0:15–0:20</td><td>Hours clock: 3I/ATLAS crosses; then an asteroid in its ring</td><td>"Interstellar comet 3I/ATLAS, 20 hours, 14 Dec 2025." · "⟨N⟩ known asteroids re-found."</td></tr>
+              <tr><td class="k">0:20–0:24</td><td>Spectrum by visit with molecule marks; flag a dot; the count ticks</td><td>"102 colours say what it is. People decide what is real."</td></tr>
+              <tr><td class="k">0:24–0:29</td><td>Zoom out to the whole sky</td><td>"New SPHEREx data every week. The next neighbour may already be in it." · URL</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="stack">
+          <h3>Seven slides</h3>
+          <p class="small muted">The fallback demo, and the deck for the live pitch.</p>
+          <ol class="olist small">
+            <li>Title: team, members, challenge, one screenshot.</li>
+            <li>Problem: SPHEREx photos are hard to compare (a new colour each time, sub-pixel motion).</li>
+            <li>User experience: paste coordinates → blink → flag.</li>
+            <li>Two clocks and 102 colours, one diagram.</li>
+            <li>How we know it works: the numbers.</li>
+            <li>How NASA and ESA data make it possible.</li>
+            <li>What's next, and the link.</li>
+          </ol>
+        </div>
+        <div class="stack">
+          <h3>The live pitch</h3>
+          <p class="small">P4 presents; P1 answers data questions. Dry run Saturday 21:00. Timed rehearsals Sunday 13:00 and 14:15, all four present. The presenting laptop carries an offline copy of the site and the video.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VALIDATION -->
+  <section id="validation">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">How we know it works</p>
+        <h2>Eight checks, printed even when the number is poor</h2>
+        <p class="muted">Scripts in <code>scripts/validate/</code> write <code>validation.json</code>, and the page reads it. The "Expected" column is a forecast from catalogues; the page shows the measured value next to it.</p>
+      </div>
+      <div class="tablewrap">
+        <table class="wide">
+          <thead><tr><th>#</th><th>Claim</th><th>How we compute it</th><th>Expected</th><th>Due</th></tr></thead>
+          <tbody>
+            <tr><td class="k">V1</td><td>Five test objects recovered</td><td>Per target and visit, predict the position (Gaia DR3 position and proper motion moved to the visit's mid-time; published astrometry for WISE 0855). Count a detection within 2 px.</td><td>5 of 5; WISE 0855 only in D5–D6</td><td class="k">Sat 15:00</td></tr>
+            <tr><td class="k">V2</td><td>Motion matches Gaia</td><td>Centroid the target in each visit stack (wings if saturated); median over detectors. Shift = last visit − first. Rate = shift ÷ time. Compare with Gaia's proper motion.</td><td>Barnard's Star within 15% and 10° of 10.39″/yr</td><td class="k">Sat 14:00</td></tr>
+            <tr><td class="k">V3</td><td>Position error floor</td><td>In the same cutouts, take 10 or more Gaia stars with G 13–17 and motion under 20 mas/yr. The RMS of their visit-to-visit shifts is V2's error bar, and gives the slowest motion visible at 3σ.</td><td>Unknown; hoping for 0.6–1.2″</td><td class="k">Sat 14:00</td></tr>
+            <tr><td class="k">V4</td><td>Asteroids re-found, targeted</td><td>For asteroids numbered 1–60, ask IRSA's MOST for exposures and predicted positions. Fetch 5′ cutouts for up to 5 exposures each. Success: a detection within 2 px that is absent from the visit stack. <b>Control:</b> repeat 3′ away; that is the chance rate.</td><td>N of 60; median offset under 1 px; control under 5%</td><td class="k">Sat 15:00</td></tr>
+            <tr><td class="k">V5</td><td>Asteroids re-found, blind (S1)</td><td>In the hunt zone, query SkyBoT once per 6 h of observing (about 200 queries, cached). Move objects to each exposure's MJD-AVG; check 20 against MOST. Match within 2 px. Report recall by V magnitude, with the same control.</td><td>Roughly 70–150 asteroids with V &lt; 18; recall falls with V</td><td class="k">Sun 03:00</td></tr>
+            <tr><td class="k">V6</td><td>Fast stars (S2)</td><td>ESA Gaia archive: the 40 fastest stars with G &gt; 12. Run V2 on each; report the slope and RMS of measured against predicted.</td><td>Slope near 1</td><td class="k">Sun 08:00</td></tr>
+            <tr><td class="k">V7</td><td>Brown dwarfs (S3)</td><td>For Gagné et al. 2026 entries faster than 1″/yr, run V2; count those shifting in the predicted direction. If the list isn't loaded in 30 min, use a hand list of 10.</td><td>A count</td><td class="k">Sun 03:00</td></tr>
+            <tr><td class="k">V8</td><td>Spectra and speed</td><td>Two unsaturated stars: our spectrum averaged over 2MASS Ks and WISE W1 vs the catalogue. Median time to first frame for 10 random coordinates.</td><td>Within 20%; under 15 s</td><td class="k">Sun 08:00</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="expect">
+        <p class="eyebrow" style="margin-bottom:6px">Pitch headline, from V2 and V4</p>
+        <p style="font-size:1.05rem">"Barnard's Star moves ⟨x⟩″ a year in our tool; Gaia says 10.4. We re-found ⟨N⟩ of 60 asteroids where NASA predicted them."</p>
+        <p class="small muted" style="margin-top:6px">The ⟨x⟩ and ⟨N⟩ are filled from <code>validation.json</code> on Saturday. Until then they are blanks, not estimates.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROJECT PAGE -->
+  <section id="page">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Project page</p>
+        <h2>What judges read</h2>
+        <p class="muted">Most of the score comes from this page. Save a complete version on Saturday at 21:00, so a valid submission always exists.</p>
+      </div>
+      <div class="two">
+        <div class="stack">
+          <dl class="kv">
+            <dt>Name</dt><dd>SkyShift</dd>
+            <dt>Summary</dt><dd>About 100 words: the thesis sentence; coordinates in, movie out, tested on the five objects; why it matters; the two headline numbers.</dd>
+            <dt>Demo link</dt><dd>The 29-second video on YouTube.</dd>
+            <dt>Project link</dt><dd>The live site, which links the public repo. Test both in a private window.</dd>
+          </dl>
+          <h3>Detailed description, in order</h3>
+          <ol class="olist small">
+            <li>The GIF (one file, under 8 MB, 640 px wide, about 9 s): WISE 0855 appearing in D6 and stepping; Barnard's Star with its readout; 3I/ATLAS crossing.</li>
+            <li>What it does, in three sentences, then seven "try it" links with coordinates in the URL.</li>
+            <li>How it answers the challenge: the <a href="#challenge-map">challenge-to-feature table</a>.</li>
+            <li>Why two clocks: four sentences and a diagram.</li>
+            <li>How we know it works: the V numbers, the control, a screenshot.</li>
+            <li>Limits: saturation, the blended Epsilon Indi pair, parallax, and which "Planet X" SPHEREx could see (a cold brown dwarf, not a faint distant planet).</li>
+            <li>How it works: data flow, tools, languages.</li>
+            <li>After a vote: counts, the CSV, a route to astronomers (Backyard Worlds forum).</li>
+            <li>What's next: weekly data, the embed mode, a larger hunt zone.</li>
+          </ol>
+        </div>
+        <div class="stack">
+          <h3>AI ("Super Intelligence") disclosure: draft</h3>
+          <p class="small muted">Edit until every sentence is true.</p>
+          <blockquote class="expect" style="margin:0">"We used Claude (Anthropic) through Claude Code as a coding and research assistant. It wrote most of the code from our instructions. We reviewed it, ran it and tested it against known objects. It also helped us read NASA documentation, plan the work and edit this text. Commits made with it carry a <code>Co-Authored-By</code> line. Every image, GIF and video here is a screen recording of the running tool on real SPHEREx data; none is AI-generated. The numbers come from our pipeline's output files. The planted object in the drill is simulated and labelled. Before the event we prepared only a cloud account, planning notes and an empty repository."</blockquote>
+        </div>
+      </div>
+      <div class="tablewrap">
+        <table class="wide">
+          <thead><tr><th>Field</th><th>What we list</th></tr></thead>
+          <tbody>
+            <tr><td><b>NASA data</b>, named one by one</td><td>SPHEREx Level 2 spectral images, DR1 and QR3, from NASA/IPAC IRSA (image search, cutouts, <code>s3://nasa-irsa-spherex</code>); the IRSA SPHEREx all-sky cube; IRSA's Moving Object Search Tool (MOST); IRSA's SPHEREx table for comet 3I/ATLAS; 2MASS and AllWISE layers from IRSA; the SPHEREx Explanatory Supplement and IRSA tutorials; WiseView and Backyard Worlds as the model.</td></tr>
+            <tr><td><b>Partner data</b></td><td>ESA Gaia DR3, through the ESA Gaia Archive. We don't list CSA, because we don't use its data.</td></tr>
+            <tr><td><b>Other references</b></td><td>IMCCE SkyBoT; Aladin Lite 3.8.2 (CDS, GPL-3.0, loaded from jsDelivr); astropy, astroquery, sep, reproject, FastAPI, DuckDB, Vite; Gagné et al. 2026 (arXiv:2604.22012) and MOCAdb; Kuchner et al. 2017; WiseView (ASCL 1806.004); the Lisse et al. 3I/ATLAS papers; Claude Code.</td></tr>
+            <tr><td><b>Acknowledgements</b></td><td>The SPHEREx acknowledgement and its two required citations (Bock et al. 2026, Akeson et al. 2026), copied word for word from IRSA's mission page. The standard Gaia acknowledgement. Licence: Apache-2.0.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- MILESTONES -->
+  <section id="milestones">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Milestones and gates</p>
+        <h2>Nine checkpoints from kickoff to pitch</h2>
+        <p class="muted">A milestone (◆) is something that must be true by that time. A gate (▲) decides whether optional work goes ahead. The hour-by-hour table per person is on the <a href="skyshift-dev-plan.html">developer plan</a>. Times assume the 15:00 local deadline; if the Local Lead gives another, every time moves by the difference.</p>
+      </div>
+      <div class="tablewrap">
+        <table class="mid">
+          <thead><tr><th>When</th><th>Checkpoint</th><th>What must be true</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Sat 13:00</td><td><span class="ms">M1</span></td><td>Barnard's Star blinks from real data on the public site.</td></tr>
+            <tr><td class="k">Sat 15:00</td><td><span class="ms gate-ms">G1</span></td><td>Five targets blink; one motion measured. If not, all hands on the five before anything else.</td></tr>
+            <tr><td class="k">Sat 18:00</td><td><span class="ms gate-ms">G2</span></td><td>Pilot recall at V &lt; 16 is 50% or more. Yes: start the hunt zone on the worker. No: stop S1.</td></tr>
+            <tr><td class="k">Sat 20:00</td><td><span class="ms">M2</span></td><td>Any coordinates work live; the five targets and the comet are static files.</td></tr>
+            <tr><td class="k">Sat 21:00</td><td><span class="ms">Page v0</span></td><td>Project page saved with working links. 60-second pitch dry run.</td></tr>
+            <tr><td class="k">Sun 09:00</td><td><span class="ms">M3 · Freeze</span></td><td>Feature freeze. Stand-up; choose the hero target. From here: page, video, slides, fixes only.</td></tr>
+            <tr><td class="k">Sun 12:00</td><td><span class="ms">M4</span></td><td>First full submission saved. Everyone reads the page once.</td></tr>
+            <tr><td class="k">Sun 14:30</td><td><span class="ms">M5</span></td><td>Final submission saved and checked in a private window. Hard stop 14:45.</td></tr>
+            <tr><td class="k">Sun 15:30</td><td><span class="ms">Pitch</span></td><td>Live pitch, after the 15:00 local deadline.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="two">
+        <div class="stack">
+          <h3>Sleep plan</h3>
+          <p class="small">Five hours each, in two shifts, so one backend and one frontend person are always awake. If the venue closes at night, the same plan runs from home.</p>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Shift</th><th>Asleep</th><th>Awake and on</th></tr></thead>
+              <tbody>
+                <tr><td class="k">23:00–04:00</td><td>P2, P3</td><td>P1: suspects, recall chart (V5), S3, numbers frozen 03:30. P4: votes on real suspects, S4 or S5, page text.</td></tr>
+                <tr><td class="k">04:00–09:00</td><td>P1, P4</td><td>P2: static export, deploy, S2 results, open every target at 08:00. P3: final numbers on the page, gallery, phone layout, S6.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small muted">Each person writes a handover note before sleeping. Owners merge their own area when tests pass; only contract changes wait for P1.</p>
+        </div>
+        <div class="stack">
+          <h3>Who owns what</h3>
+          <div class="roles" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+            <div class="role" style="--rc:var(--d6)"><span class="who">P1</span><h3>Lead, science, pipeline</h3><ul><li>Shared science code</li><li>Validation V1–V8</li><li>Pilot and hunt zone</li><li>Answers data questions at the pitch</li></ul></div>
+            <div class="role" style="--rc:var(--d4)"><span class="who">P2</span><h3>Server, deploys</h3><ul><li>Image search, cutouts, stacks</li><li>Live API, static files</li><li>3I/ATLAS movie</li></ul></div>
+            <div class="role" style="--rc:var(--d2)"><span class="who">P3</span><h3>Sky, cards</h3><ul><li>Coordinate box, chips, URL</li><li>Aladin, Gaia dots</li><li>Readout and spectrum card</li></ul></div>
+            <div class="role" style="--rc:var(--d1)"><span class="who">P4</span><h3>Blink, votes, pitch</h3><ul><li>Blink player, both clocks</li><li>Flag and vote, CSV</li><li>29-second video (30 s is a hard limit), project page, live pitch</li></ul></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RISKS -->
+  <section id="risks">
+    <div class="wrap stack-lg">
+      <div class="sec-head" style="margin-bottom:0">
+        <p class="eyebrow">Risks</p>
+        <h2>What can go wrong, how we notice, and the backup</h2>
+      </div>
+      <div class="tablewrap">
+        <table class="wide">
+          <thead><tr><th>#</th><th>Risk</th><th>Trigger</th><th>Fallback</th></tr></thead>
+          <tbody>
+            <tr><td class="k">1</td><td>IRSA slow or down</td><td>Search or cutouts over 20 s, or one in five failing, for 15 minutes</td><td>Use the saved photo lists; read files from <code>s3://nasa-irsa-spherex</code> on the cloud machine. The site keeps serving static targets.</td></tr>
+            <tr><td class="k">2</td><td>Spot machine reclaimed</td><td>The instance stops</td><td>Restart; finished photos are skipped. After two stops, use the 8-core machine.</td></tr>
+            <tr><td class="k">3</td><td>No asteroids found</td><td>Pilot recall under 50% at V &lt; 16, Sat 18:00</td><td>Check the time keyword, the OUTLIER mask and the match radius for 30 minutes. Then stop S1; rely on V4 and the comet, where NASA supplies positions.</td></tr>
+            <tr><td class="k">4</td><td>CDS still down, or Aladin fails</td><td>Aladin doesn't start, or tiles return 404</td><td>CDS has a security incident (notice of 9 Nov): SIMBAD, Aladin's own CDN and CDS sky tiles are down. We load Aladin 3.8.2 from jsDelivr with IRSA layers. If that fails, switch to unpkg. If it still fails, ship the coordinate box and gallery without the sky sphere.</td></tr>
+            <tr><td class="k">5</td><td>Local deadline earlier, or venue closed at night</td><td>The Local Lead says so at 09:00</td><td>Move every time by the difference. Drop in order: S1, S4–S6, S2–S3, M8. Page v0 is saved early regardless.</td></tr>
+            <tr><td class="k">6</td><td>Test stars saturate, or WISE 0855 is too faint</td><td>First cutouts, Sat 11:00–13:00</td><td>Centroid on the wings; mark the core. WISE 0855: add D5+D6 and shift-and-add. Use S2's fast stars as the clean measurement.</td></tr>
+            <tr><td class="k">7</td><td>Frontend and backend don't meet</td><td>M2 missed at Sat 20:00</td><td>The static file format is the contract. P2 writes static files by script; the frontend reads them; the live API waits.</td></tr>
+            <tr><td class="k">8</td><td>Submission ineligible</td><td>Any item fails the Sunday 12:00 checklist: video over 30 s, private link, missing AI disclosure, unlisted source, pre-event code</td><td>Fix from the checklist. The seven slides are ready as the demo. The simulated demo on this plan page is never reused.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="two">
+        <div class="panel stack">
+          <p class="eyebrow">Before 09:00 on Saturday</p>
+          <ul class="todo">
+            <li>Read the SPHEREx tutorial notebooks. Open the first photo at 09:00 on Saturday, not before.</li>
+            <li>Everyone has Claude Code installed and logged in; follow the developer plan's checklist.</li>
+            <li>Decide who is P1 to P4.</li>
+            <li>Team lead: open the budget alert and check that it covers credits ("Promotions and others" unticked).</li>
+            <li>Prepare the questions for the Local Lead (see <a href="#decisions">decision 1</a>).</li>
+          </ul>
+        </div>
+        <div class="panel stack">
+          <p class="eyebrow">Already done</p>
+          <p class="small">Cloud quota is in place: N2 200 CPUs, preemptible 96, all regions 128. The worker is <code>n2-highcpu-64</code> spot; N2D was denied and isn't needed. Expected cloud cost is under €15 of the €264 credit. A budget alert has been set in the Google Cloud console since 13 Nov. No project code exists before kickoff: the rules say teams may not start work on the challenge before the hackathon.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DECISIONS -->
+  <section id="decisions">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Open decisions for the team</p>
+        <h2>Five things to agree at kickoff</h2>
+        <p class="muted">Each has a recommendation. The team reviews and owns these decisions.</p>
+      </div>
+      <div class="risk-grid">
+        <div class="risk"><b>1 · Which local event, and its real times</b><p>Ask the Local Lead at 09:00: the deadline, pitch length, whether judges watch the online demo, and night access.</p><p class="small muted"><b>Recommendation:</b> assume 15:00 and a 3-minute pitch until told otherwise.</p></div>
+        <div class="risk"><b>2 · Rename the public address</b><p><code>nasa-glazing.web.app</code> puts "nasa" in a non-NASA address and reads oddly.</p><p class="small muted"><b>Recommendation:</b> add a second Hosting site at 09:00, for example <code>skyshift-sky.web.app</code>, with neither "nasa" nor "spherex" in it.</p></div>
+        <div class="risk"><b>3 · Billing after 17 Jan 2027</b><p>The credit ends on 17 January; winners are announced on 26 January.</p><p class="small muted"><b>Recommendation:</b> keep a card on the account and set the existing budget alert to about €10, so any-coordinates search works through the announcement. Without it, only the static site stays up.</p></div>
+        <div class="risk"><b>4 · Hunt zone instead of the 5% zone</b><p>100 deg² behind a gate, instead of 2,000 deg².</p><p class="small muted"><b>Recommendation:</b> accept the cut. The freed time goes to the five targets, the comet, the validation numbers and the project page.</p></div>
+        <div class="risk" style="grid-column:1/-1"><b>5 · How to describe AI's part in the idea</b><p>The rules say AI must not come up with the idea. The concept (WiseView-style blink, spectra, public vetting) is the team's. The v2 strategy, written with AI help, reshapes scope and schedule.</p><p class="small muted"><b>Recommendation:</b> the team reviews and owns these decisions at kickoff, and the disclosure says plainly that AI helped with research, planning and code.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Facts checked 14 November 2026. Demos on this page use simulated stars, and spectrum and light-curve shapes are illustrative, not measurements. This demo code predates the event and is not used in the product. Values marked "expected" are computed from catalogues, not measured.</p>
+    <ul>
+      <li><a href="https://www.spaceappschallenge.org/2026/challenges/planet-x-and-spherex/">Space Apps 2026 · Planet X and SPHEREx challenge</a></li>
+      <li><a href="https://irsa.ipac.caltech.edu/Missions/spherex.html">IRSA · SPHEREx data, tools and acknowledgement</a></li>
+      <li><a href="https://caltech-ipac.github.io/irsa-tutorials/spherex/">IRSA SPHEREx tutorial notebooks</a></li>
+      <li><a href="https://irsa.ipac.caltech.edu/applications/MOST">IRSA Moving Object Search Tool (MOST)</a></li>
+      <li><a href="https://irsa.ipac.caltech.edu/data/SPHEREx/docs/comet3iatlas/index.html">IRSA · SPHEREx observations of comet 3I/ATLAS</a></li>
+      <li><a href="https://cds-astro.github.io/aladin-lite/">Aladin Lite API documentation</a></li>
+      <li><a href="https://gea.esac.esa.int/archive/">ESA Gaia Archive (DR3)</a></li>
+      <li><a href="https://www.zooniverse.org/projects/marckuchner/backyard-worlds-planet-9">Backyard Worlds: Planet 9</a> · <a href="http://byw.tools/wiseview">WiseView</a> (http only; https doesn't answer)</li>
+      <li><a href="https://arxiv.org/abs/2604.22012v1">Gagné et al. 2026, SPHEREx ultracool dwarf library</a></li>
+      <li><a href="https://www.spaceappschallenge.org/resources/judging-awards-guide/">Judging and awards guide</a> · <a href="https://www.spaceappschallenge.org/resources/project-submission-guide/">Project submission guide</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+(function(){
+"use strict";
+const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- shared spectrum helpers ---------- */
+const DET=[{lo:.75,hi:1.1,R:39},{lo:1.1,hi:1.6,R:41},{lo:1.6,hi:2.4,R:41},{lo:2.4,hi:3.8,R:35},{lo:3.8,hi:4.4,R:112},{lo:4.4,hi:5.0,R:128}];
+const DCOL=['var(--d1)','var(--d2)','var(--d3)','var(--d4)','var(--d5)','var(--d6)'];
+const CH=[];
+DET.forEach((d,i)=>{for(let c=0;c<17;c++){const l=d.lo+(c+.5)*(d.hi-d.lo)/17;CH.push({l,det:i,c,w:l/d.R});}});
+const g=(l,c,w)=>Math.exp(-0.5*((l-c)/w)**2);
+const planck=(l,T)=>1/(Math.pow(l,5)*(Math.exp(14388/(l*T))-1));
+const SPEC={
+  star:l=>planck(l,5800),
+  reddwarf:l=>planck(l,3100)*(1-.25*g(l,1.4,.07))*(1-.22*g(l,1.9,.09))*(1-.18*g(l,2.7,.15))*(1-.12*g(l,2.32,.05)),
+  tdwarf:l=>planck(l,1150)*(1-.8*g(l,1.15,.05))*(1-.85*g(l,1.4,.09))*(1-.8*g(l,1.85,.12))*(1-.6*g(l,2.25,.1))*(1-.9*g(l,3.3,.22))*(1-.35*g(l,4.7,.12)),
+  ydwarf:l=>(planck(l,420)/planck(4.4,420)*(1-.92*g(l,3.3,.28))*(1-.75*g(l,2.75,.22))*(1-.25*g(l,4.95,.12))+.035*g(l,1.27,.04)+.02*g(l,1.07,.03)+.015*g(l,1.58,.05))*(1-.3*g(l,4.27,.05))*(1-.25*g(l,4.62,.06)),
+  young:l=>planck(l,4300)/planck(.9,4300)+.5*planck(l,950)/planck(3.05,950)+.12*g(l,1.282,.02)+.1*g(l,2.166,.03)+.14*g(l,4.05,.03)+.06*g(l,2.3,.03),
+  mira:l=>planck(l,2500)*(1-.45*g(l,1.4,.09))*(1-.5*g(l,1.9,.12))*(1-.55*g(l,2.75,.25))*(1-.2*g(l,2.32,.05))*(1-.25*g(l,4.65,.12)),
+  ice:l=>planck(l,4000)*Math.pow(l,2.6)*(1-.78*g(l,3.05,.13))*(1-.7*g(l,4.27,.025))*(1-.45*g(l,4.67,.025))
+};
+const MARK={
+  star:[],
+  reddwarf:[['water',1.4],['water',1.9],['water',2.7]],
+  tdwarf:[['water',1.4],['methane',1.65],['methane',2.2],['methane',3.3]],
+  ydwarf:[['water',2.7],['methane',3.3],['CO₂',4.27],['CO',4.62]],
+  young:[['hydrogen',1.28],['hydrogen',2.17],['CO',2.3],['hydrogen',4.05]],
+  mira:[['water',1.4],['water',1.9],['CO',2.3],['CO',4.65]],
+  ice:[['water ice',3.05],['CO₂ ice',4.27],['CO ice',4.67]]
+};
+const specCache={};
+function sampleSpec(key){
+  if(specCache[key])return specCache[key];
+  const fn=SPEC[key];
+  const v=CH.map(ch=>{let s=0;for(let k=-3;k<=3;k++)s+=fn(ch.l+k*ch.w/7);return s/7;});
+  const m=Math.max(...v);
+  return specCache[key]=v.map(x=>x/m);
+}
+/* key may be 'variable': the young-star spectrum in two visits, coloured by visit */
+function svgSpectrum(key,reveal,hi){
+  const W=380,H=200,ml=30,mr=10,mt=34,mb=38;
+  const isVar=key==='variable',base=isVar?'young':key;
+  const vals=sampleSpec(base);
+  const vals2=isVar?vals.map((v,i)=>v*(.5+.09*CH[i].l)):null;
+  const x=l=>ml+(l-.7)/(5.05-.7)*(W-ml-mr);
+  const y=v=>mt+(1-v/1.06)*(H-mt-mb);
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${isVar?'Simulated spectrum of a variable star in two visits; the second visit is fainter, most at short wavelengths':'Simulated spectrum chart, coloured by detector'}">`;
+  DET.forEach((d,i)=>{s+=`<rect x="${x(d.lo).toFixed(1)}" y="${H-mb+6}" width="${(x(d.hi)-x(d.lo)-1).toFixed(1)}" height="4" rx="2" fill="${DCOL[i]}" opacity="${hi===i?1:.55}"/>`;});
+  s+=`<line x1="${ml}" x2="${W-mr}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>`;
+  for(let t=1;t<=5;t++){s+=`<text x="${x(t)}" y="${H-mb+24}" font-size="10.5" text-anchor="middle" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${t}${t===5?' µm':''}</text>`;}
+  s+=`<text x="10" y="${mt+(H-mt-mb)/2}" font-size="10.5" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 10 ${mt+(H-mt-mb)/2})" font-family="IBM Plex Mono,monospace">brightness</text>`;
+  (MARK[base]||[]).forEach((m,i)=>{const xx=x(m[1]);const ty=12+(i%2)*11;
+    s+=`<line x1="${xx.toFixed(1)}" x2="${xx.toFixed(1)}" y1="${ty+3}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="2 3" opacity=".55"/>`;
+    s+=`<text x="${xx.toFixed(1)}" y="${ty}" font-size="10" text-anchor="middle" fill="var(--fg)" font-family="IBM Plex Mono,monospace">${m[0]}</text>`;});
+  const n=Math.max(0,Math.min(102,reveal));
+  const series=isVar?[[vals,'var(--cool)'],[vals2,'var(--ir)']]:[[vals,null]];
+  series.forEach(([vv,col])=>{
+    if(n>1){let p='';for(let i=0;i<n;i++)p+=`${x(CH[i].l).toFixed(1)},${y(vv[i]).toFixed(1)} `;s+=`<polyline points="${p}" fill="none" stroke="${col||'var(--muted)'}" stroke-width="1" opacity=".7"/>`;}
+    for(let i=0;i<n;i++){s+=`<circle cx="${x(CH[i].l).toFixed(1)}" cy="${y(vv[i]).toFixed(1)}" r="2.5" fill="${col||DCOL[CH[i].det]}"/>`;}
+  });
+  return s+'</svg>';
+}
+
+/* ---------- detector scan demo ---------- */
+const DETINFO=[
+  ['Detector 1','0.75–1.1 µm · R 39','Edge of visible red. Ordinary stars are brightest here; cold brown dwarfs nearly vanish.'],
+  ['Detector 2','1.1–1.6 µm · R 41','Water-vapour dips in cool stars and brown dwarfs.'],
+  ['Detector 3','1.6–2.4 µm · R 41','Methane in brown dwarfs, carbon monoxide (CO) in giant stars.'],
+  ['Detector 4','2.4–3.8 µm · R 35','Water ice near 3.0 µm and methane at 3.3 µm.'],
+  ['Detector 5','3.8–4.4 µm · R 112','Finer colour steps. Carbon dioxide (CO₂) at 4.27 µm.'],
+  ['Detector 6','4.4–5.0 µm · R 128','Carbon monoxide (CO) near 4.6 µm. The coldest brown dwarfs shine brightest here.']
+];
+const detList=document.getElementById('det-list');
+detList.innerHTML=DETINFO.map((d,i)=>`<div class="det-item" style="--dc:${DCOL[i]}" data-i="${i}"><b>${d[0]}</b><span class="r">${d[1]}</span><p>${d[2]}</p></div>`).join('');
+function hueFor(l){const t=Math.log(l/.75)/Math.log(5/.75);return 265-265*t;}
+(function buildDetSvg(){
+  const W=400,H=236,dw=120,dh=74,gap=12,x0=8;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Six SPHEREx detectors with their colour stripes">`;
+  const rows=[[0,'Short-wave side · D1–D3',28],[3,'Long-wave side · D4–D6',140]];
+  rows.forEach(([start,label,yy])=>{
+    s+=`<text x="${x0}" y="${yy-8}" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${label}</text>`;
+    for(let k=0;k<3;k++){const di=start+k,dx=x0+k*(dw+gap);
+      for(let c=0;c<17;c++){const ch=CH[di*17+c];
+        s+=`<rect x="${(dx+c*dw/17).toFixed(2)}" y="${yy}" width="${(dw/17+.3).toFixed(2)}" height="${dh}" fill="hsl(${hueFor(ch.l).toFixed(0)} 70% 50%)" opacity=".85"/>`;}
+      s+=`<rect x="${dx}" y="${yy}" width="${dw}" height="${dh}" fill="none" stroke="var(--line)" stroke-width="1.5" rx="2"/>`;
+      s+=`<text x="${dx+dw/2}" y="${yy+dh+14}" font-size="10.5" text-anchor="middle" fill="var(--fg)" font-family="IBM Plex Mono,monospace">D${di+1} · ${DET[di].lo}–${DET[di].hi} µm</text>`;
+    }
+  });
+  s+=`<g id="scan-dot" style="transition:transform .12s linear"><circle r="9" fill="none" stroke="#fff" stroke-width="2"/><circle r="3.5" fill="#fff"/></g>`;
+  s+='</svg>';
+  document.getElementById('det-svg-wrap').innerHTML=s;
+})();
+function dotPos(k){const di=CH[k].det,c=CH[k].c,dw=120,gap=12,x0=8;const row=di<3?28:140,col=di%3;return [x0+col*(dw+gap)+(c+.5)*dw/17,row+37];}
+const scan={obj:'ydwarf',k:102,timer:null};
+const NOTES={star:'A Sun-like star: brightest at the short-wave end and fading smoothly. Nothing special, which is the point: most dots look like this.',
+  ydwarf:'A cold brown dwarf like WISE 0855: almost no light below 3 µm, a deep methane dip at 3.3 µm, CO₂ and CO dips, and a strong glow at 4–5 µm. SPHEREx is well suited to finding these.',
+  ice:'Starlight shining through an icy dust cloud: dips from water, CO₂ and CO ice. The finer colour steps of detectors 5 and 6 catch the narrow ice dips.',
+  variable:'A young variable star like RW Aurigae, in two visits. Blue dots: visit 1. Orange dots: visit 2, six months later. Dust passing in front dims it, most at short wavelengths. Colouring by visit makes the change visible.'};
+function renderScan(){
+  const k=Math.min(scan.k,102);
+  document.getElementById('scan-spec').innerHTML=svgSpectrum(scan.obj,k,k>0&&k<102?CH[k-1].det:-1);
+  document.getElementById('scan-note').textContent=NOTES[scan.obj];
+  const dot=document.getElementById('scan-dot');
+  const idx=Math.max(0,Math.min(101,k-1));const [px,py]=dotPos(idx);
+  dot.style.transform=`translate(${px}px,${py}px)`;
+  dot.style.opacity=(k>0&&k<102)?1:0;
+  const stl=document.getElementById('scan-status');
+  if(k>=102)stl.textContent='All 102 colours measured';
+  else if(k>0){const ch=CH[k-1];stl.textContent=`Step ${k} of 102 · detector ${ch.det+1} · ${ch.l.toFixed(2)} µm`;}
+  document.querySelectorAll('.det-item').forEach(el=>el.classList.toggle('on',k>0&&k<102&&+el.dataset.i===CH[k-1].det));
+}
+function stopScan(){if(scan.timer){clearInterval(scan.timer);scan.timer=null;}document.getElementById('scan-play').textContent='Watch it scan';}
+document.getElementById('scan-play').addEventListener('click',()=>{
+  if(scan.timer){stopScan();return;}
+  if(reduced){scan.k=102;renderScan();return;}
+  scan.k=scan.k>=102?0:scan.k;
+  document.getElementById('scan-play').textContent='Pause';
+  scan.timer=setInterval(()=>{scan.k++;renderScan();if(scan.k>=102)stopScan();},110);
+});
+document.querySelectorAll('#scan-obj .btn').forEach(b=>b.addEventListener('click',()=>{
+  scan.obj=b.dataset.o;document.querySelectorAll('#scan-obj .btn').forEach(x=>x.setAttribute('aria-pressed',x===b));renderScan();}));
+renderScan();
+
+/* ---------- two-clock diagram: exposure ticks inside one visit ---------- */
+(function buildExpoTicks(){
+  const counts=[3,2,4,3,1,5,2,3,4,2,3,1,3,5,2,4,3,2,3,4,2];
+  const r=rng(7);let s='';
+  counts.forEach((n,i)=>{const x0=12+i*18+r()*5;for(let k=0;k<n;k++){const xx=(x0+k*2.4).toFixed(1);s+=`<line class="expo" x1="${xx}" x2="${xx}" y1="150" y2="176"/>`;}});
+  document.getElementById('dg-expo').innerHTML=s;
+})();
+
+/* ---------- blink simulation (simulated stars; not product code) ---------- */
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(r){let u=0;while(u===0)u=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*r());}
+const N=96, PIX=6.15, PIXH=12.5;
+const VISITS=[{label:'Visit 1',when:'first visit'},{label:'Visit 2',when:'+6 months'},{label:'Visit 3',when:'+12 months'}];
+const EXPO=[];
+[0,1.6,3.2,4.8].forEach((t0,si)=>{[0,2.1/60].forEach((dt,ei)=>EXPO.push({s:si+1,e:'ab'[ei],t:t0+dt}));});
+const CR_FRAME=4;
+function fmtT(h){const m=Math.round(h*60);if(m<60)return `+${m} min`;return `+${Math.floor(m/60)} h ${String(m%60).padStart(2,'0')} min`;}
+const STAR_SED=[1,.85,.65,.42,.3,.26];
+
+/* Months clock: the five test objects */
+const T={
+  barnard:{name:"Barnard's Star",short:"Barnard's",kind:'Red dwarf star',pm:[-0.80,10.36],sed:[1,1.15,1,.62,.45,.4],flux:9,vr:[1,1,1],gaia:true,det:1,seed:11,
+    step:'5.2″ (0.84 px) north per visit',
+    pos:'17h 57m 48s · +4° 41′ 36″',facts:[['Distance','6 light-years (Gaia)'],['Sky speed','10.39″ a year at position angle 355.6°'],['Best colours','D1–D3']],
+    look:'A bright dot that creeps up (north) each visit. Turn off "Motion ×4" to see why a plain blink fails: the real step is under one pixel. In "Subtract" it becomes a dark-and-bright pair.',
+    expected:'Steps north 5.2″ (0.84 px) per visit; 10.39″/yr (Gaia DR3).',caveat:'K ≈ 4.5: the core saturates. Measure from the wings.'},
+  wise0855:{name:'WISE 0855−0714',short:'WISE 0855',kind:'Coldest known brown dwarf',pm:[-8.05,0.68],sed:[0,.005,.03,.12,.9,1.3],flux:5,vr:[1,1,1],gaia:false,det:5,seed:23,
+    step:'4.1″ (0.66 px) west per visit',
+    pos:'08h 55m 10.831s · −7° 14′ 42.53″',facts:[['Distance','7.4 light-years'],['Temperature','around −20 °C'],['Sky speed','8.1″ a year, westward'],['Best colours','D5–D6']],
+    look:'Invisible in D1–D3. Switch to D5 or D6 and a lone dot appears with no Gaia star under it, stepping right (west) each visit. This is how a new nearby brown dwarf would look.',
+    expected:'Absent in D1–D3; in D5–D6 a dot with no Gaia ring, 4.1″ (0.66 px) west per visit.',caveat:'Faint. If weak, add D5+D6 and shift-and-add along its known motion.'},
+  epsindib:{name:'Epsilon Indi B',short:'ε Indi B',kind:'Pair of brown dwarfs, seen as one dot',pm:[3.96,-2.47],sed:[.12,.55,.4,.28,.85,1],flux:5,vr:[1,1,1],gaia:true,det:5,seed:37,
+    step:'2.3″ (0.38 px) south-east per visit',
+    pos:'22h 04m 10.5s · −56° 46′ 58″',facts:[['Distance','11.9 light-years'],['Orbits','the star Epsilon Indi A, 7′ away'],['Sky speed','4.7″ a year, south-east'],['Best colours','D2, D5–D6']],
+    look:'The two brown dwarfs are under 1″ apart, so they show as one dot. It moves well under a pixel per visit: use "Subtract" and look for the small pair.',
+    expected:'One dot, 2.3″ (0.38 px) per visit.',caveat:'Epsilon Indi A, 7′ away, is very bright.'},
+  rwaur:{name:'RW Aurigae',short:'RW Aur',kind:'Young star with a dusty disc',pm:[0,0],sed:[.6,.9,1.1,1.3,1.4,1.4],flux:6,vr:[1,.42,.78],gaia:true,det:2,seed:41,lc:'rwaur',
+    step:'no motion; brightness changes',
+    pos:'05h 07m 49.5s · +30° 24′ 05″',facts:[['Distance','about 450 light-years'],['Behaviour','dims suddenly when dust passes in front'],['Best colours','all; extra glow in D4–D6']],
+    look:'Stays in place but changes brightness between visits. In "Subtract" it is a single bright or dark blob, not a pair.',
+    expected:'Same place; brightness and spectrum change between visits.',caveat:'May saturate in the short bands.'},
+  rdra:{name:'R Draconis',short:'R Dra',kind:'Pulsating giant star (Mira type)',pm:[0,0],sed:[.5,1.1,1.25,1,.7,.6],flux:7,vr:[1,.5,.18],gaia:true,det:2,seed:53,lc:'rdra',
+    step:'no motion; brightness changes',
+    pos:'16h 32m 40s · +66° 45′ 18″',facts:[['Cycle','about 246 days'],['Location','near the north ecliptic pole'],['Best colours','D2–D3']],
+    look:'Pulses brighter and fainter on an 8-month cycle. It sits near the north ecliptic pole, which SPHEREx visits far more often.',
+    expected:'Many visits; brightness changes.',caveat:'Very bright, saturates. We measure in the wings and say so.'}
+};
+Object.values(T).forEach(o=>{o.v=[-o.pm[0]*0.5/PIX,-o.pm[1]*0.5/PIX];});
+
+/* Hours clock: a comet and an asteroid (display pixel = 12.5″, 20′ field) */
+const H={
+  comet:{name:'Comet, like 3I/ATLAS',short:'Comet',kind:'Simulated stand-in for interstellar comet 3I/ATLAS',rate:176,dir:[.94,-.34],start:[12,62],sed:[.35,.45,.55,.7,.9,1],flux:4.5,sigma:1.7,det:3,seed:61,ring:'NASA position',ringOff:[0,0],
+    facts:[['Real data','55 exposures over 20 h, 14 Dec 2025'],['Sky speed','176″ an hour (29 SPHEREx px/h)'],['Source of position','NASA\'s 3I/ATLAS table, per exposure']],
+    look:'A fuzzy dot that hops across the field from session to session, and barely moves between the two exposures inside a session.',
+    expected:'176″/h; 0.98° in total over the 20 h sequence.',caveat:'Faint in many channels; pick the best detector.'},
+  asteroid:{name:'Numbered asteroid',short:'Asteroid',kind:'Simulated main-belt asteroid',rate:40,dir:[-.9,.44],start:[58,38],sed:[1,.9,.75,.55,.45,.55],flux:5,sigma:.95,det:0,seed:71,ring:'Predicted (MOST)',ringOff:[.5,-.4],
+    facts:[['Sky speed','40″ an hour in this simulation'],['Prediction','NASA\'s MOST or SkyBoT, at each exposure\'s MJD-AVG'],['Brightness','pick V 12–15 from the V4 batch']],
+    look:'A sharp dot that hops a few pixels between sessions and lands inside the predicted ring each time.',
+    expected:'A dot inside NASA\'s predicted ring, under 2 px off.',caveat:'Only a real mover appears in both exposures of a session; the cosmic ray in session 3 does not.'}
+};
+Object.values(H).forEach(o=>{const m=Math.hypot(o.dir[0],o.dir[1]);o.dir=[o.dir[0]/m,o.dir[1]/m];});
+
+const fields={};
+function getField(seed,count,clearCentre){
+  const ck=seed+'|'+count;if(fields[ck])return fields[ck];
+  const r=rng(seed*977+5);const stars=[];
+  while(stars.length<count){const x=2+r()*(N-4),y=2+r()*(N-4);if(clearCentre&&Math.hypot(x-N/2,y-N/2)<7)continue;
+    const f=.22+5.5*Math.pow(r(),7)+.35*r();const rf=(r()-.5)*.5;
+    stars.push({x,y,f,sed:STAR_SED.map((s,d)=>s*(1+rf*(d-2.5)/2.5))});}
+  const cr={x:Math.floor(10+r()*(N-20)),y:Math.floor(10+r()*(N-20))};
+  return fields[ck]={stars,cr};
+}
+function fieldOf(s){return s.clock==='months'?getField(T[s.key].seed,150,true):getField(H[s.key].seed,210,false);}
+function nFrames(s){return s.clock==='months'?VISITS.length:EXPO.length;}
+function exOf(s){return s.clock==='months'&&s.exag?4:1;}
+function tpos(s,idx){
+  if(s.clock==='months'){const o=T[s.key],ex=exOf(s);return [N/2+o.v[0]*(idx-1)*ex,N/2+o.v[1]*(idx-1)*ex];}
+  const o=H[s.key],d=o.rate/PIXH*EXPO[idx].t;return [o.start[0]+o.dir[0]*d,o.start[1]+o.dir[1]*d];
+}
+function addPSF(img,x,y,f,sig){const s2=2*sig*sig,norm=f/(Math.PI*s2),rad=Math.ceil(3*sig);const x0=Math.floor(x),y0=Math.floor(y);
+  for(let yy=y0-rad;yy<=y0+rad;yy++){if(yy<0||yy>=N)continue;for(let xx=x0-rad;xx<=x0+rad;xx++){if(xx<0||xx>=N)continue;
+    const dx=xx+.5-x,dy=yy+.5-y;img[yy*N+xx]+=norm*Math.exp(-(dx*dx+dy*dy)/s2);}}}
+const frameCache={};
+function frame(s,d,idx){
+  const ck=[s.clock,s.key,d,idx,exOf(s)].join('|');if(frameCache[ck])return frameCache[ck];
+  const months=s.clock==='months',o=months?T[s.key]:H[s.key],F=fieldOf(s),img=new Float32Array(N*N),r=rng(o.seed*31+idx*1013+d*7919+1);
+  const sig=d>=4?.05:.035;
+  for(let i=0;i<N*N;i++)img[i]=.04+gauss(r)*sig;
+  F.stars.forEach(q=>addPSF(img,q.x,q.y,q.f*q.sed[d],.95));
+  const [tx,ty]=tpos(s,idx);
+  if(months)addPSF(img,tx,ty,o.flux*o.sed[d]*o.vr[idx],.95);
+  else addPSF(img,tx,ty,o.flux*o.sed[d],o.sigma);
+  if(!months&&idx===CR_FRAME)img[F.cr.y*N+F.cr.x]+=4;
+  return frameCache[ck]=img;
+}
+const medCache={};
+function medianFrame(s,d){
+  const ck=[s.clock,s.key,d,exOf(s)].join('|');if(medCache[ck])return medCache[ck];
+  const n=nFrames(s),arrs=[];for(let k=0;k<n;k++)arrs.push(frame(s,d,k));
+  const out=new Float32Array(N*N),tmp=new Float32Array(n);
+  for(let i=0;i<N*N;i++){for(let k=0;k<n;k++)tmp[k]=arrs[k][i];tmp.sort();out[i]=n%2?tmp[(n-1)/2]:(tmp[n/2-1]+tmp[n/2])/2;}
+  return medCache[ck]=out;
+}
+const stretch=v=>{const a=.08;v=Math.max(0,v);return Math.min(1,Math.asinh(v/a)/Math.asinh(3/a));};
+
+function View(canvas){this.c=canvas;this.ctx=canvas.getContext('2d');this.off=document.createElement('canvas');this.off.width=N;this.off.height=N;this.octx=this.off.getContext('2d');}
+View.prototype.draw=function(s){
+  const ctx=this.ctx,W=this.c.width,S=W/N,months=s.clock==='months',o=months?T[s.key]:H[s.key],F=fieldOf(s),nF=nFrames(s);
+  const id=this.octx.createImageData(N,N),px=id.data,d=s.det;
+  if(s.mode==='diff'){
+    const cur=frame(s,d,s.idx),med=medianFrame(s,d);
+    for(let i=0;i<N*N;i++){const v=cur[i]-med[i];const m=Math.min(1,Math.asinh(Math.abs(v)/.05)/Math.asinh(2/.05));
+      const base=[14,20,30],tgt=v>0?[255,150,90]:[100,180,255];
+      px[i*4]=base[0]+(tgt[0]-base[0])*m;px[i*4+1]=base[1]+(tgt[1]-base[1])*m;px[i*4+2]=base[2]+(tgt[2]-base[2])*m;px[i*4+3]=255;}
+  } else {
+    const idxs=s.mode==='sum'?Array.from({length:nF},(_,k)=>k):[s.idx];
+    const acc=new Float32Array(N*N);idxs.forEach(k=>{const f=frame(s,d,k);for(let i=0;i<N*N;i++)acc[i]+=f[i]/idxs.length;});
+    for(let i=0;i<N*N;i++){const v=255*stretch(acc[i]);px[i*4]=v*.95;px[i*4+1]=v*.97;px[i*4+2]=v;px[i*4+3]=255;}
+  }
+  this.octx.putImageData(id,0,0);ctx.imageSmoothingEnabled=false;ctx.drawImage(this.off,0,0,W,W);
+  /* overlays */
+  const fs=Math.round(W/36);
+  ctx.font=`500 ${fs}px "IBM Plex Mono", ui-monospace, monospace`;ctx.textBaseline='top';
+  const label=(txt,x,y,col,align)=>{const w=ctx.measureText(txt).width;let bx=align==='right'?x-w-10:x;bx=Math.max(4,Math.min(W-w-14,bx));const by=Math.max(4,Math.min(W-fs-12,y));ctx.fillStyle='rgba(5,8,13,.72)';ctx.fillRect(bx,by,w+10,fs+8);ctx.fillStyle=col||'#dbe4f0';ctx.fillText(txt,bx+5,by+4);};
+  const pr=s.mode==='sum'?nF-1:s.idx;
+  const [tx,ty]=tpos(s,pr);
+  if(s.rings){
+    ctx.lineWidth=Math.max(1.5,S/4);ctx.strokeStyle='rgba(108,185,255,.75)';
+    F.stars.forEach(q=>{if(q.f>.9){ctx.beginPath();ctx.arc(q.x*S,q.y*S,S*2.3,0,7);ctx.stroke();}});
+    if(months){
+      const seen=o.flux*o.sed[d]*o.vr[pr]>.3;
+      if(o.gaia){ctx.beginPath();ctx.arc(tx*S,ty*S,S*2.6,0,7);ctx.stroke();if(s.labels)label('Gaia: '+o.name,tx*S+S*3,ty*S-S*1.2,'#9fd0ff');}
+      else if(seen){ctx.strokeStyle='rgba(255,143,87,.95)';ctx.setLineDash([S*.9,S*.6]);ctx.beginPath();ctx.arc(tx*S,ty*S,S*3,0,7);ctx.stroke();ctx.setLineDash([]);if(s.labels)label('No Gaia match',tx*S+S*3.4,ty*S-S*1.2,'#ffb38a');}
+    } else {
+      const rx=tx+o.ringOff[0],ry=ty+o.ringOff[1];
+      ctx.strokeStyle='rgba(87,207,149,.95)';ctx.setLineDash([S*.9,S*.6]);ctx.beginPath();ctx.arc(rx*S,ry*S,S*3.2,0,7);ctx.stroke();ctx.setLineDash([]);
+      if(s.labels)label(o.ring,rx*S+S*3.6,ry*S-S*1.2,'#9ff0c4');
+    }
+  }
+  if(!months&&s.flags&&(s.mode==='sum'||s.idx===CR_FRAME)){
+    ctx.strokeStyle='rgba(255,80,216,.95)';ctx.lineWidth=Math.max(1.5,S/4);
+    ctx.strokeRect(F.cr.x*S-S*.5,F.cr.y*S-S*.5,S*2,S*2);
+    if(s.labels)label('cosmic ray · 1 exposure only',F.cr.x*S+S*2,F.cr.y*S,'#ff9be9');
+  }
+  if(s.labels){
+    let top;
+    if(months)top=s.mode==='sum'?'All 3 visits added':(s.mode==='diff'?`${VISITS[s.idx].label} minus the median`:`${VISITS[s.idx].label} · ${VISITS[s.idx].when} · stack`);
+    else{const e=EXPO[s.idx];top=s.mode==='sum'?`All ${nF} exposures added`:(s.mode==='diff'?`Exposure ${e.s}${e.e} minus the median`:`Session ${e.s}, exposure ${e.e} · ${fmtT(e.t)}`);}
+    label(top,10,10);
+    label('N↑ E←',W-10,10,null,'right');
+    label('SIMULATED',W-10,10+fs+14,'#ffb38a','right');
+    label(`Detector ${d+1} · ${DET[d].lo}–${DET[d].hi} µm`,10,W-fs-18);
+    const arcmin=months?1:5,bar=arcmin*60/(months?PIX:PIXH)*S;
+    ctx.fillStyle='#dbe4f0';ctx.fillRect(W-14-bar,W-fs-6,bar,3);ctx.textBaseline='bottom';ctx.fillText(arcmin+'′',W-14-bar/2-fs*.4,W-fs-9);ctx.textBaseline='top';
+  }
+};
+
+/* hero: Months clock, WISE 0855 in D6 */
+const heroView=new View(document.getElementById('hero-canvas'));
+const heroState={clock:'months',key:'wise0855',det:5,mode:'blink',idx:0,exag:true,rings:true,flags:false,labels:true};
+heroView.draw(heroState);
+if(!reduced)setInterval(()=>{heroState.idx=(heroState.idx+1)%3;heroView.draw(heroState);},900);
+
+/* lab */
+const labView=new View(document.getElementById('lab-canvas'));
+const lab={clock:'months',key:'barnard',det:1,mode:'blink',idx:0,exag:true,rings:true,flags:true,labels:true,playing:!reduced,timer:null,speed:1.5};
+const lastKey={months:'barnard',hours:'comet'};
+const elTargets=document.getElementById('lab-target'),elFrames=document.getElementById('lab-frames');
+function srcOf(c){return c==='months'?T:H;}
+function pressed(sel,fn){document.querySelectorAll(sel).forEach(b=>b.setAttribute('aria-pressed',String(!!fn(b))));}
+function buildControls(){
+  const src=srcOf(lab.clock);
+  elTargets.innerHTML=Object.keys(src).map(k=>`<button class="btn" type="button" data-t="${k}" aria-pressed="false">${src[k].short}</button>`).join('');
+  elFrames.innerHTML=lab.clock==='months'
+    ?VISITS.map((v,i)=>`<button class="btn" type="button" data-f="${i}" aria-pressed="false">${v.label}</button>`).join('')
+    :EXPO.map((e,i)=>`<button class="btn" type="button" data-f="${i}" aria-pressed="false" aria-label="Session ${e.s}, exposure ${e.e}">${e.s}${e.e}</button>`).join('');
+  document.getElementById('lab-exag').disabled=lab.clock!=='months';
+  document.getElementById('lab-flags').disabled=lab.clock==='months';
+}
+function readoutText(){
+  if(lab.clock==='months'){const o=T[lab.key];
+    if(!o.v[0]&&!o.v[1])return `Simulated. ${o.name}: ${o.step}. Compare the same detector, visit to visit.`;
+    return `Simulated. ${o.name}: real step ${o.step}. `+(lab.exag?'Shown 4× larger so the eye can see it.':'Shown at real scale: hard to see, which is why the tool measures it.');}
+  const o=H[lab.key],pxh=o.rate/PIXH;
+  return `Simulated. ${o.short}: ${o.rate}″ an hour = ${pxh.toFixed(1)} px/h on this 20′ field. Between the two exposures of a session it moves ${(pxh*2.1/60).toFixed(2)} px.`;
+}
+function syncLab(){
+  pressed('#lab-clock .btn',b=>b.dataset.c===lab.clock);
+  pressed('#lab-target .btn',b=>b.dataset.t===lab.key);
+  pressed('#lab-mode .btn',b=>b.dataset.m===lab.mode);
+  pressed('#lab-det .btn',b=>+b.dataset.d===lab.det);
+  pressed('#lab-frames .btn',b=>+b.dataset.f===lab.idx&&lab.mode!=='sum');
+  document.getElementById('lab-play').textContent=lab.playing?'Pause':'Play';
+  document.getElementById('lab-readout').textContent=readoutText();
+  labView.draw(lab);
+}
+function schedule(){
+  if(lab.timer)clearInterval(lab.timer);lab.timer=null;
+  if(lab.playing&&lab.mode!=='sum'){const per=lab.clock==='months'?1000:650;lab.timer=setInterval(()=>{lab.idx=(lab.idx+1)%nFrames(lab);syncLab();},per/lab.speed);}
+}
+function setTarget(c,k){
+  const changed=c!==lab.clock;
+  lab.clock=c;lab.key=k;lastKey[c]=k;lab.det=srcOf(c)[k].det;lab.idx=0;
+  if(changed){buildControls();schedule();}
+  renderCard();syncLab();
+}
+document.querySelectorAll('#lab-clock .btn').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.c!==lab.clock)setTarget(b.dataset.c,lastKey[b.dataset.c]);}));
+elTargets.addEventListener('click',e=>{const b=e.target.closest('button[data-t]');if(b)setTarget(lab.clock,b.dataset.t);});
+elFrames.addEventListener('click',e=>{const b=e.target.closest('button[data-f]');if(!b)return;lab.idx=+b.dataset.f;if(lab.mode==='sum')lab.mode='blink';lab.playing=false;schedule();syncLab();});
+document.querySelectorAll('#lab-mode .btn').forEach(b=>b.addEventListener('click',()=>{lab.mode=b.dataset.m;schedule();syncLab();}));
+document.querySelectorAll('#lab-det .btn').forEach(b=>b.addEventListener('click',()=>{lab.det=+b.dataset.d;syncLab();}));
+document.getElementById('lab-play').addEventListener('click',()=>{lab.playing=!lab.playing;if(lab.mode==='sum')lab.mode='blink';schedule();syncLab();});
+document.getElementById('lab-speed').addEventListener('input',e=>{lab.speed=+e.target.value;schedule();});
+['rings','flags','exag'].forEach(k=>document.getElementById('lab-'+k).addEventListener('change',e=>{lab[k]=e.target.checked;syncLab();}));
+
+function svgLight(kind){
+  const W=380,H2=140,ml=12,mr=10,mt=12,mb=30,T1=13;
+  const x=t=>ml+t/T1*(W-ml-mr),y=v=>mt+(1-v)*(H2-mt-mb);
+  const f=kind==='rdra'?(t=>.55+.42*Math.cos(2*Math.PI*(t-1.5)/8.07)):(t=>.92-.55*g(t,6.3,1.1)-.25*g(t,12.2,.8)+.04*Math.sin(t*2.3));
+  let s=`<svg viewBox="0 0 ${W} ${H2}" role="img" aria-label="Illustrative brightness over 13 months; dots mark when SPHEREx sees the star">`;
+  const wins=kind==='rdra'?[[0,2.5],[4.5,8.5],[10.5,13]]:[[0,.75],[6,6.75],[12,12.75]];
+  wins.forEach(([a,b])=>{s+=`<rect x="${x(a).toFixed(1)}" y="${mt}" width="${(x(b)-x(a)).toFixed(1)}" height="${H2-mt-mb}" fill="var(--sunken)"/>`;});
+  let p='';for(let i=0;i<=200;i++){const t=i/200*T1;p+=`${x(t).toFixed(1)},${y(f(t)).toFixed(1)} `;}
+  s+=`<polyline points="${p}" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+  const pts=[];wins.forEach(([a,b])=>{const n=kind==='rdra'?Math.round((b-a)/.35):3;for(let i=0;i<n;i++)pts.push(a+(i+.5)*(b-a)/n);});
+  pts.forEach(t=>{s+=`<circle cx="${x(t).toFixed(1)}" cy="${y(f(t)).toFixed(1)}" r="3" fill="var(--ir)"/>`;});
+  [[0,'visit 1'],[6,'+6 months'],[12,'+12 months']].forEach(([t,l],i)=>{s+=`<text x="${x(t).toFixed(1)}" y="${H2-10}" font-size="10.5" fill="var(--muted)" text-anchor="${i===0?'start':(i===2?'end':'middle')}" font-family="IBM Plex Mono,monospace">${l}</text>`;});
+  return s+'</svg>';
+}
+function svgTrack(o){
+  const W=380,H2=120,cell=22,cols=Math.floor((W-20)/cell),rows=Math.floor((H2-10)/cell);
+  const ox=10,oy=5,cx=ox+cols*cell/2,cy=oy+rows*cell/2;
+  let s=`<svg viewBox="0 0 ${W} ${H2}" role="img" aria-label="Position in each visit at real scale; each square is one SPHEREx pixel">`;
+  for(let i=0;i<=cols;i++)s+=`<line x1="${ox+i*cell}" x2="${ox+i*cell}" y1="${oy}" y2="${oy+rows*cell}" stroke="var(--line)" stroke-width=".7"/>`;
+  for(let j=0;j<=rows;j++)s+=`<line x1="${ox}" x2="${ox+cols*cell}" y1="${oy+j*cell}" y2="${oy+j*cell}" stroke="var(--line)" stroke-width=".7"/>`;
+  const P=[0,1,2].map(p=>[cx+o.v[0]*(p-1)*cell,cy+o.v[1]*(p-1)*cell]);
+  s+=`<polyline points="${P.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--ir)" stroke-width="1.5"/>`;
+  P.forEach((q,i)=>{s+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${i===2?4:3}" fill="${i===2?'var(--ir)':'var(--surface)'}" stroke="var(--ir)" stroke-width="1.5"/>`;});
+  s+=`<text x="${W-12}" y="${oy+12}" font-size="10" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono,monospace">1 square = 1 pixel = 6.15″</text>`;
+  return s+'</svg>';
+}
+function svgExpo(){
+  const W=380,H2=70,ml=10,mr=10,T1=5;
+  const x=t=>ml+t/T1*(W-ml-mr);
+  let s=`<svg viewBox="0 0 ${W} ${H2}" role="img" aria-label="Exposure times in this simulation: four sessions 1 hour 36 minutes apart, two exposures each">`;
+  s+=`<line x1="${ml}" x2="${W-mr}" y1="30" y2="30" stroke="var(--line)" stroke-width="1.5"/>`;
+  EXPO.forEach(e=>{const xx=x(e.t).toFixed(1);s+=`<line x1="${xx}" x2="${xx}" y1="18" y2="42" stroke="var(--ir)" stroke-width="2"/>`;});
+  [1,2,3,4].forEach(k=>{s+=`<text x="${x((k-1)*1.6).toFixed(1)}" y="12" font-size="10.5" fill="var(--fg)" font-family="IBM Plex Mono,monospace">S${k}</text>`;});
+  [0,1,2,3,4,5].forEach(t=>{s+=`<text x="${x(t).toFixed(1)}" y="${H2-8}" font-size="10" text-anchor="${t===0?'start':(t===5?'end':'middle')}" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${t} h</text>`;});
+  return s+'</svg>';
+}
+function renderCard(){
+  const months=lab.clock==='months',o=months?T[lab.key]:H[lab.key];
+  let chips=`<span class="chip">${o.kind}</span>`;
+  if(months)chips+=o.gaia?'<span class="chip edge">in Gaia</span>':'<span class="chip core">not in Gaia</span>';
+  let chart;
+  if(!months)chart=`<div class="chart"><p class="chart-title">EXPOSURE TIMES IN THIS SIMULATION · 2.1 MIN APART IN A SESSION</p>${svgExpo()}</div>`;
+  else if(o.lc)chart=`<div class="chart"><p class="chart-title">BRIGHTNESS OVER TIME (ILLUSTRATIVE) · SHADED = WHEN SPHEREX SEES IT</p>${svgLight(o.lc)}</div>`;
+  else chart=`<div class="chart"><p class="chart-title">POSITION IN EACH VISIT, REAL SCALE · ${Math.hypot(o.v[0],o.v[1]).toFixed(2)} PIXEL PER VISIT</p>${svgTrack(o)}</div>`;
+  document.getElementById('lab-card').innerHTML=`
+    <div class="card-head"><span class="eyebrow">${months?'Months':'Hours'} clock · simulated</span><h3 style="font-size:1.4rem">${o.name}</h3>
+    <div class="seg">${chips}</div></div>
+    <dl class="kv">${months?`<dt>Position</dt><dd class="num">${o.pos}</dd>`:''}${o.facts.map(f=>`<dt>${f[0]}</dt><dd>${f[1]}</dd>`).join('')}</dl>
+    <p class="expect"><b>What to look for:</b> ${o.look}</p>
+    <dl class="kv"><dt>Expected</dt><dd>${o.expected}</dd><dt>Caveat</dt><dd>${o.caveat}</dd></dl>
+    ${chart}`;
+}
+buildControls();renderCard();syncLab();schedule();
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{heroView.draw(heroState);labView.draw(lab);});
+
+/* demo targets table: open in lab */
+document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>{
+  const [c,k]=b.dataset.open.split(':');setTarget(c,k);
+  document.getElementById('lab').scrollIntoView({behavior:reduced?'auto':'smooth'});
+}));
+})();
+</script>
+
+</body></html>

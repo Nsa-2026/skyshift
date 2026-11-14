@@ -1,0 +1,141 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data. Barnard's Star-like: steps 5.2\" (2.5 px) north per visit, core saturated. 48x48 instead of 146x146; Gaia positions are at epoch 2016.0, so Barnard's ring starts off the frame until moved to each mjd_mid.",
+  "clock": "months",
+  "center": {
+    "ra": 269.4462195,
+    "dec": 4.7688342
+  },
+  "pixel_arcsec": 2.05,
+  "size": [
+    48,
+    48
+  ],
+  "epochs": [
+    {
+      "id": "d2-v1",
+      "kind": "visit",
+      "mjd_mid": 60938.62,
+      "mjd_start": 60929.41,
+      "mjd_end": 60947.83,
+      "det": 2,
+      "um_min": 1.1,
+      "um_max": 1.6,
+      "n_exposures": 19,
+      "flag_frac": 0.0109,
+      "sat_frac": 0.0069,
+      "data_url": "frames/barnard/d2-v1.bin",
+      "scale": 0.045773609,
+      "zero": 0.22654
+    },
+    {
+      "id": "d2-v2",
+      "kind": "visit",
+      "mjd_mid": 61120.4,
+      "mjd_start": 61111.18,
+      "mjd_end": 61129.62,
+      "det": 2,
+      "um_min": 1.1,
+      "um_max": 1.6,
+      "n_exposures": 18,
+      "flag_frac": 0.0117,
+      "sat_frac": 0.0069,
+      "data_url": "frames/barnard/d2-v2.bin",
+      "scale": 0.045773593,
+      "zero": 0.227553
+    },
+    {
+      "id": "d2-v3",
+      "kind": "visit",
+      "mjd_mid": 61302.715,
+      "mjd_start": 61293.96,
+      "mjd_end": 61311.47,
+      "det": 2,
+      "um_min": 1.1,
+      "um_max": 1.6,
+      "n_exposures": 20,
+      "flag_frac": 0.0109,
+      "sat_frac": 0.0069,
+      "data_url": "frames/barnard/d2-v3.bin",
+      "scale": 0.045773778,
+      "zero": 0.215453
+    }
+  ],
+  "gaia": [
+    {
+      "id": "4472832130942575872",
+      "ra": 269.44850252543836,
+      "dec": 4.739420051112412,
+      "pmra": -801.551,
+      "pmdec": 10362.394,
+      "parallax": 546.976,
+      "g": 8.19
+    },
+    {
+      "id": "SYNTH-GAIA-1",
+      "ra": 269.4559343,
+      "dec": 4.7676452,
+      "pmra": 0.161,
+      "pmdec": -11.131,
+      "parallax": 0.269,
+      "g": 16.648
+    },
+    {
+      "id": "SYNTH-GAIA-2",
+      "ra": 269.4399068,
+      "dec": 4.7746886,
+      "pmra": -10.386,
+      "pmdec": 10.464,
+      "parallax": 2.531,
+      "g": 16.856
+    },
+    {
+      "id": "SYNTH-GAIA-3",
+      "ra": 269.4427978,
+      "dec": 4.7679437,
+      "pmra": -6.866,
+      "pmdec": -7.834,
+      "parallax": 0.619,
+      "g": 13.985
+    },
+    {
+      "id": "SYNTH-GAIA-4",
+      "ra": 269.4364657,
+      "dec": 4.7673815,
+      "pmra": 10.348,
+      "pmdec": 12.528,
+      "parallax": 1.305,
+      "g": 16.425
+    },
+    {
+      "id": "SYNTH-GAIA-5",
+      "ra": 269.4466456,
+      "dec": 4.7627035,
+      "pmra": 4.208,
+      "pmdec": 14.511,
+      "parallax": 2.918,
+      "g": 15.669
+    },
+    {
+      "id": "SYNTH-GAIA-6",
+      "ra": 269.449401,
+      "dec": 4.7759978,
+      "pmra": -2.405,
+      "pmdec": 11.677,
+      "parallax": 0.595,
+      "g": 15.209
+    },
+    {
+      "id": "SYNTH-GAIA-7",
+      "ra": 269.4557106,
+      "dec": 4.7750588,
+      "pmra": 0.793,
+      "pmdec": 13.908,
+      "parallax": 1.135,
+      "g": 12.564
+    }
+  ],
+  "known": [],
+  "data_release": "DR1+QR3",
+  "archive_checked": "2026-11-14"
+}

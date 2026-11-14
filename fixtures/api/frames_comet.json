@@ -1,0 +1,238 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data. Comet-like mover at 3I/ATLAS's rate (176\"/h, about 7 px per 15-min step), 6 exposures in D3. 48x48 instead of 195x195.",
+  "clock": "hours",
+  "center": {
+    "ra": 166.8,
+    "dec": 5.3
+  },
+  "pixel_arcsec": 6.15,
+  "size": [
+    48,
+    48
+  ],
+  "epochs": [
+    {
+      "id": "d3-SYNTH-2025W50_1A_0001_1",
+      "kind": "exposure",
+      "mjd_mid": 61023.3,
+      "mjd_start": 61023.299316,
+      "mjd_end": 61023.300684,
+      "det": 3,
+      "um_min": 1.912,
+      "um_max": 1.931,
+      "n_exposures": 1,
+      "flag_frac": 0.0288,
+      "sat_frac": 0.0,
+      "data_url": "frames/comet/d3-SYNTH-2025W50_1A_0001_1.bin",
+      "scale": 0.002090651,
+      "zero": -0.132954
+    },
+    {
+      "id": "d3-SYNTH-2025W50_1A_0002_1",
+      "kind": "exposure",
+      "mjd_mid": 61023.310417,
+      "mjd_start": 61023.309733,
+      "mjd_end": 61023.311101,
+      "det": 3,
+      "um_min": 1.916,
+      "um_max": 1.935,
+      "n_exposures": 1,
+      "flag_frac": 0.0295,
+      "sat_frac": 0.0,
+      "data_url": "frames/comet/d3-SYNTH-2025W50_1A_0002_1.bin",
+      "scale": 0.002094347,
+      "zero": -0.102217
+    },
+    {
+      "id": "d3-SYNTH-2025W50_1A_0003_1",
+      "kind": "exposure",
+      "mjd_mid": 61023.320833,
+      "mjd_start": 61023.320149,
+      "mjd_end": 61023.321517,
+      "det": 3,
+      "um_min": 1.92,
+      "um_max": 1.939,
+      "n_exposures": 1,
+      "flag_frac": 0.0154,
+      "sat_frac": 0.0,
+      "data_url": "frames/comet/d3-SYNTH-2025W50_1A_0003_1.bin",
+      "scale": 0.002091073,
+      "zero": -0.051287
+    },
+    {
+      "id": "d3-SYNTH-2025W50_1A_0004_1",
+      "kind": "exposure",
+      "mjd_mid": 61023.33125,
+      "mjd_start": 61023.330566,
+      "mjd_end": 61023.331934,
+      "det": 3,
+      "um_min": 1.924,
+      "um_max": 1.943,
+      "n_exposures": 1,
+      "flag_frac": 0.0119,
+      "sat_frac": 0.0,
+      "data_url": "frames/comet/d3-SYNTH-2025W50_1A_0004_1.bin",
+      "scale": 0.002095846,
+      "zero": -0.158515
+    },
+    {
+      "id": "d3-SYNTH-2025W50_1A_0005_1",
+      "kind": "exposure",
+      "mjd_mid": 61023.341667,
+      "mjd_start": 61023.340983,
+      "mjd_end": 61023.342351,
+      "det": 3,
+      "um_min": 1.928,
+      "um_max": 1.947,
+      "n_exposures": 1,
+      "flag_frac": 0.0244,
+      "sat_frac": 0.0,
+      "data_url": "frames/comet/d3-SYNTH-2025W50_1A_0005_1.bin",
+      "scale": 0.002091294,
+      "zero": -0.069528
+    },
+    {
+      "id": "d3-SYNTH-2025W50_1A_0006_1",
+      "kind": "exposure",
+      "mjd_mid": 61023.352083,
+      "mjd_start": 61023.351399,
+      "mjd_end": 61023.352767,
+      "det": 3,
+      "um_min": 1.932,
+      "um_max": 1.951,
+      "n_exposures": 1,
+      "flag_frac": 0.0291,
+      "sat_frac": 0.0,
+      "data_url": "frames/comet/d3-SYNTH-2025W50_1A_0006_1.bin",
+      "scale": 0.002092274,
+      "zero": -0.082793
+    }
+  ],
+  "gaia": [
+    {
+      "id": "SYNTH-GAIA-1",
+      "ra": 166.8175331,
+      "dec": 5.2970532,
+      "pmra": 3.118,
+      "pmdec": 3.772,
+      "parallax": 0.383,
+      "g": 13.85
+    },
+    {
+      "id": "SYNTH-GAIA-2",
+      "ra": 166.8325744,
+      "dec": 5.2775161,
+      "pmra": -7.97,
+      "pmdec": 14.869,
+      "parallax": 1.517,
+      "g": 13.297
+    },
+    {
+      "id": "SYNTH-GAIA-3",
+      "ra": 166.777487,
+      "dec": 5.3015755,
+      "pmra": -10.482,
+      "pmdec": 4.046,
+      "parallax": 2.631,
+      "g": 15.195
+    },
+    {
+      "id": "SYNTH-GAIA-4",
+      "ra": 166.7984489,
+      "dec": 5.2839266,
+      "pmra": -13.079,
+      "pmdec": 7.747,
+      "parallax": 1.855,
+      "g": 15.357
+    },
+    {
+      "id": "SYNTH-GAIA-5",
+      "ra": 166.8132974,
+      "dec": 5.3312463,
+      "pmra": -0.818,
+      "pmdec": 6.565,
+      "parallax": 2.661,
+      "g": 16.328
+    },
+    {
+      "id": "SYNTH-GAIA-6",
+      "ra": 166.7856724,
+      "dec": 5.2719443,
+      "pmra": 9.027,
+      "pmdec": -1.661,
+      "parallax": 2.82,
+      "g": 13.975
+    },
+    {
+      "id": "SYNTH-GAIA-7",
+      "ra": 166.7746496,
+      "dec": 5.3268196,
+      "pmra": -8.49,
+      "pmdec": 13.964,
+      "parallax": 1.421,
+      "g": 12.68
+    },
+    {
+      "id": "SYNTH-GAIA-8",
+      "ra": 166.7915258,
+      "dec": 5.3132566,
+      "pmra": -3.424,
+      "pmdec": -4.473,
+      "parallax": 1.838,
+      "g": 14.536
+    }
+  ],
+  "known": [
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": "d3-SYNTH-2025W50_1A_0001_1",
+      "ra": 166.7699758,
+      "dec": 5.3059792,
+      "v": 15.8,
+      "source": "irsa-3i"
+    },
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": "d3-SYNTH-2025W50_1A_0002_1",
+      "ra": 166.7819715,
+      "dec": 5.3035486,
+      "v": 15.8,
+      "source": "irsa-3i"
+    },
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": "d3-SYNTH-2025W50_1A_0003_1",
+      "ra": 166.7939673,
+      "dec": 5.3011181,
+      "v": 15.8,
+      "source": "irsa-3i"
+    },
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": "d3-SYNTH-2025W50_1A_0004_1",
+      "ra": 166.805963,
+      "dec": 5.2986875,
+      "v": 15.8,
+      "source": "irsa-3i"
+    },
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": "d3-SYNTH-2025W50_1A_0005_1",
+      "ra": 166.8179587,
+      "dec": 5.2962569,
+      "v": 15.8,
+      "source": "irsa-3i"
+    },
+    {
+      "name": "SYNTHETIC mover (3I/ATLAS-like)",
+      "epoch_id": "d3-SYNTH-2025W50_1A_0006_1",
+      "ra": 166.8299545,
+      "dec": 5.2938264,
+      "v": 15.8,
+      "source": "irsa-3i"
+    }
+  ],
+  "data_release": "DR1+QR3",
+  "archive_checked": "2026-11-14"
+}

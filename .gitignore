@@ -1,0 +1,50 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*-key.json
+service-account*.json
+
+# Claude Code (personal settings, worktrees from `claude -w`)
+.claude/settings.local.json
+.claude/worktrees/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+
+# Node / web
+node_modules/
+dist/
+web/dist/
+.vite/
+coverage/
+
+# Firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+
+# Data: photos and tables live in Cloud Storage (gs://nasa-glazing-data), never in Git.
+*.fits
+*.fits.fz
+*.fits.gz
+*.parquet
+/data/
+/cache/
+# Exception: small FITS cutouts in fixtures/fits/ for tests (keep each file small).
+!fixtures/fits/*.fits
+# web/public/data/ stays TRACKED: scripts/precompute and scripts/validate write it before the
+# build, not during it, and Hosting deploys it from the repo (dev plan v2, Repo section).

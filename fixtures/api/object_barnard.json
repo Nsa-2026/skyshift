@@ -1,0 +1,512 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data. Numbers are plausible, not measured.",
+  "name": "Barnard's Star",
+  "gaia": {
+    "id": "4472832130942575872",
+    "ra": 269.44850252543836,
+    "dec": 4.739420051112412,
+    "pmra": -801.551,
+    "pmdec": 10362.394,
+    "parallax": 546.976,
+    "g": 8.19
+  },
+  "known_ucd": null,
+  "spectrum": [
+    {
+      "um": 0.8083,
+      "flux_ujy": 4957517.0,
+      "err_ujy": 99150.0,
+      "det": 1,
+      "mjd": 60934.43019,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 0.8083,
+      "flux_ujy": 4877600.0,
+      "err_ujy": 97552.0,
+      "det": 1,
+      "mjd": 61120.48923,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 0.8083,
+      "flux_ujy": 4987786.0,
+      "err_ujy": 99756.0,
+      "det": 1,
+      "mjd": 61306.63723,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 0.925,
+      "flux_ujy": 6757258.0,
+      "err_ujy": 135145.0,
+      "det": 1,
+      "mjd": 60933.48924,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 0.925,
+      "flux_ujy": 6510780.0,
+      "err_ujy": 130216.0,
+      "det": 1,
+      "mjd": 61119.60375,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 0.925,
+      "flux_ujy": 6545458.0,
+      "err_ujy": 130909.0,
+      "det": 1,
+      "mjd": 61299.39387,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 1.0417,
+      "flux_ujy": 8665256.0,
+      "err_ujy": 173305.0,
+      "det": 1,
+      "mjd": 60937.00827,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 1.0417,
+      "flux_ujy": 8423482.0,
+      "err_ujy": 168470.0,
+      "det": 1,
+      "mjd": 61115.48856,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 1.0417,
+      "flux_ujy": 8712752.0,
+      "err_ujy": 174255.0,
+      "det": 1,
+      "mjd": 61308.08751,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 1.1833,
+      "flux_ujy": 11428816.0,
+      "err_ujy": 228576.0,
+      "det": 2,
+      "mjd": 60937.38017,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 1.1833,
+      "flux_ujy": 11133367.0,
+      "err_ujy": 222667.0,
+      "det": 2,
+      "mjd": 61115.81351,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 1.1833,
+      "flux_ujy": 11471006.0,
+      "err_ujy": 229420.0,
+      "det": 2,
+      "mjd": 61301.18377,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 1.35,
+      "flux_ujy": 12932317.0,
+      "err_ujy": 258646.0,
+      "det": 2,
+      "mjd": 60933.17899,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 1.35,
+      "flux_ujy": 12428561.0,
+      "err_ujy": 248571.0,
+      "det": 2,
+      "mjd": 61124.19352,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 1.35,
+      "flux_ujy": 12609056.0,
+      "err_ujy": 252181.0,
+      "det": 2,
+      "mjd": 61297.46847,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 1.5167,
+      "flux_ujy": 12500566.0,
+      "err_ujy": 250011.0,
+      "det": 2,
+      "mjd": 60936.09531,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 1.5167,
+      "flux_ujy": 12002940.0,
+      "err_ujy": 240059.0,
+      "det": 2,
+      "mjd": 61121.3792,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 1.5167,
+      "flux_ujy": 11914005.0,
+      "err_ujy": 238280.0,
+      "det": 2,
+      "mjd": 61299.1865,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 1.7333,
+      "flux_ujy": 11836213.0,
+      "err_ujy": 236724.0,
+      "det": 3,
+      "mjd": 60937.75111,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 1.7333,
+      "flux_ujy": 11916291.0,
+      "err_ujy": 238326.0,
+      "det": 3,
+      "mjd": 61122.78793,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 1.7333,
+      "flux_ujy": 11870671.0,
+      "err_ujy": 237413.0,
+      "det": 3,
+      "mjd": 61300.17025,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 2.0,
+      "flux_ujy": 10783335.0,
+      "err_ujy": 215667.0,
+      "det": 3,
+      "mjd": 60939.64674,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 2.0,
+      "flux_ujy": 10737501.0,
+      "err_ujy": 214750.0,
+      "det": 3,
+      "mjd": 61121.29308,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 2.0,
+      "flux_ujy": 11219114.0,
+      "err_ujy": 224382.0,
+      "det": 3,
+      "mjd": 61298.13179,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 2.2667,
+      "flux_ujy": 10168192.0,
+      "err_ujy": 203364.0,
+      "det": 3,
+      "mjd": 60936.2172,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 2.2667,
+      "flux_ujy": 10212250.0,
+      "err_ujy": 204245.0,
+      "det": 3,
+      "mjd": 61124.90165,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 2.2667,
+      "flux_ujy": 10146741.0,
+      "err_ujy": 202935.0,
+      "det": 3,
+      "mjd": 61305.80069,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 2.6333,
+      "flux_ujy": 9042056.0,
+      "err_ujy": 180841.0,
+      "det": 4,
+      "mjd": 60938.48756,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 2.6333,
+      "flux_ujy": 9442939.0,
+      "err_ujy": 188859.0,
+      "det": 4,
+      "mjd": 61118.16497,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 2.6333,
+      "flux_ujy": 9423263.0,
+      "err_ujy": 188465.0,
+      "det": 4,
+      "mjd": 61308.05117,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 3.1,
+      "flux_ujy": 8061762.0,
+      "err_ujy": 161235.0,
+      "det": 4,
+      "mjd": 60940.63859,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 3.1,
+      "flux_ujy": 8388139.0,
+      "err_ujy": 167763.0,
+      "det": 4,
+      "mjd": 61121.53244,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 3.1,
+      "flux_ujy": 8278103.0,
+      "err_ujy": 165562.0,
+      "det": 4,
+      "mjd": 61304.68483,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 3.5667,
+      "flux_ujy": 7640996.0,
+      "err_ujy": 152820.0,
+      "det": 4,
+      "mjd": 60939.49631,
+      "visit": 1,
+      "saturated": true
+    },
+    {
+      "um": 3.5667,
+      "flux_ujy": 7557652.0,
+      "err_ujy": 151153.0,
+      "det": 4,
+      "mjd": 61119.87446,
+      "visit": 2,
+      "saturated": true
+    },
+    {
+      "um": 3.5667,
+      "flux_ujy": 7323328.0,
+      "err_ujy": 146467.0,
+      "det": 4,
+      "mjd": 61305.1329,
+      "visit": 3,
+      "saturated": true
+    },
+    {
+      "um": 3.9,
+      "flux_ujy": 7090189.0,
+      "err_ujy": 141804.0,
+      "det": 5,
+      "mjd": 60944.53715,
+      "visit": 1,
+      "saturated": false
+    },
+    {
+      "um": 3.9,
+      "flux_ujy": 6826817.0,
+      "err_ujy": 136536.0,
+      "det": 5,
+      "mjd": 61119.94034,
+      "visit": 2,
+      "saturated": false
+    },
+    {
+      "um": 3.9,
+      "flux_ujy": 6871844.0,
+      "err_ujy": 137437.0,
+      "det": 5,
+      "mjd": 61299.68638,
+      "visit": 3,
+      "saturated": false
+    },
+    {
+      "um": 4.1,
+      "flux_ujy": 6896905.0,
+      "err_ujy": 137938.0,
+      "det": 5,
+      "mjd": 60936.03515,
+      "visit": 1,
+      "saturated": false
+    },
+    {
+      "um": 4.1,
+      "flux_ujy": 6631449.0,
+      "err_ujy": 132629.0,
+      "det": 5,
+      "mjd": 61115.80515,
+      "visit": 2,
+      "saturated": false
+    },
+    {
+      "um": 4.1,
+      "flux_ujy": 6721941.0,
+      "err_ujy": 134439.0,
+      "det": 5,
+      "mjd": 61307.17206,
+      "visit": 3,
+      "saturated": false
+    },
+    {
+      "um": 4.3,
+      "flux_ujy": 6481118.0,
+      "err_ujy": 129622.0,
+      "det": 5,
+      "mjd": 60940.64383,
+      "visit": 1,
+      "saturated": false
+    },
+    {
+      "um": 4.3,
+      "flux_ujy": 6353145.0,
+      "err_ujy": 127063.0,
+      "det": 5,
+      "mjd": 61123.6188,
+      "visit": 2,
+      "saturated": false
+    },
+    {
+      "um": 4.3,
+      "flux_ujy": 6361613.0,
+      "err_ujy": 127232.0,
+      "det": 5,
+      "mjd": 61302.10525,
+      "visit": 3,
+      "saturated": false
+    },
+    {
+      "um": 4.5,
+      "flux_ujy": 6323063.0,
+      "err_ujy": 126461.0,
+      "det": 6,
+      "mjd": 60943.22061,
+      "visit": 1,
+      "saturated": false
+    },
+    {
+      "um": 4.5,
+      "flux_ujy": 6250940.0,
+      "err_ujy": 125019.0,
+      "det": 6,
+      "mjd": 61125.01031,
+      "visit": 2,
+      "saturated": false
+    },
+    {
+      "um": 4.5,
+      "flux_ujy": 6203493.0,
+      "err_ujy": 124070.0,
+      "det": 6,
+      "mjd": 61302.53455,
+      "visit": 3,
+      "saturated": false
+    },
+    {
+      "um": 4.7,
+      "flux_ujy": 6318772.0,
+      "err_ujy": 126375.0,
+      "det": 6,
+      "mjd": 60942.98781,
+      "visit": 1,
+      "saturated": false
+    },
+    {
+      "um": 4.7,
+      "flux_ujy": 6370276.0,
+      "err_ujy": 127406.0,
+      "det": 6,
+      "mjd": 61116.21105,
+      "visit": 2,
+      "saturated": false
+    },
+    {
+      "um": 4.7,
+      "flux_ujy": 6233154.0,
+      "err_ujy": 124663.0,
+      "det": 6,
+      "mjd": 61299.86796,
+      "visit": 3,
+      "saturated": false
+    },
+    {
+      "um": 4.9,
+      "flux_ujy": 6117573.0,
+      "err_ujy": 122351.0,
+      "det": 6,
+      "mjd": 60937.60356,
+      "visit": 1,
+      "saturated": false
+    },
+    {
+      "um": 4.9,
+      "flux_ujy": 6079553.0,
+      "err_ujy": 121591.0,
+      "det": 6,
+      "mjd": 61117.18348,
+      "visit": 2,
+      "saturated": false
+    },
+    {
+      "um": 4.9,
+      "flux_ujy": 6015523.0,
+      "err_ujy": 120310.0,
+      "det": 6,
+      "mjd": 61301.74236,
+      "visit": 3,
+      "saturated": false
+    }
+  ],
+  "measure": {
+    "shift_arcsec": 10.178,
+    "pa_deg": 356.1,
+    "dt_yr": 0.9968,
+    "rate_arcsec_yr": 10.21,
+    "sigma_arcsec": 0.9,
+    "n_ref_stars": 12,
+    "predicted_arcsec": 10.36
+  }
+}
