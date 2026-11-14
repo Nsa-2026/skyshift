@@ -165,6 +165,30 @@ def test_hours_frames_one_visit_in_time_order(world):
     assert abs(x - 3) <= 1 and abs(y - 3) <= 1  # the star is at the centre
 
 
+def test_hours_frames_of_a_given_visit(world):
+    """precompute passes the file's visit to every detector: the hours clock then shows that visit,
+    not the one with the most exposures of this detector (visit 2 here, the later of two equal ones)."""
+    rule = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None)
+    fixed = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None, visit=1)
+    assert [e["mjd_mid"] for e in rule.meta["epochs"]] == pytest.approx([MJD1 + VISIT2 + d for d in (0, 0.0015, 0.003)])
+    assert [e["mjd_mid"] for e in fixed.meta["epochs"]] == pytest.approx([MJD1 + d for d in (0, 0.0015, 3.0)])
+    same = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None, visit=2)
+    assert same.meta == rule.meta  # the rule's own visit: the same answer
+    with pytest.raises(NotFoundError):
+        blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], visit=3)
+
+
+def test_best_hours_visit_most_exposures_latest_on_a_tie():
+    def ims(*visits):
+        return [search.Image("spherex_dr1", f"O{i}", 2, 0.0, 0.0, float(i), "", None, visit=v)
+                for i, v in enumerate(visits)]
+
+    assert blink.best_hours_visit(ims(1, 1, 2)) == 1
+    assert blink.best_hours_visit(ims(1, 2, 2, 3, 3)) == 3
+    assert blink.best_hours_visit([]) is None
+    assert [im.visit for im in blink.hours_visit(ims(1, 1, 2), visit=2)] == [2]
+
+
 def test_hours_60_is_binned(world):
     fr = blink.build_frames(STAR_RA, STAR_DEC, 60, "hours", 1, cache=world["cache"])
     assert fr.meta["size"] == [293, 293] and fr.meta["pixel_arcsec"] == pytest.approx(12.3)
