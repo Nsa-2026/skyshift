@@ -1,7 +1,7 @@
 """The combining steps per sky tile, in parallel processes, merged into the zone's usual results.
 
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (or with --tiles / --tile-deg) runs link → spectra → crossid → calib →
-spectra → classify → photoz → colours → lightcurves → astrometry → highpm → score → suspects like this:
+spectra → classify → photoz → colours → lightcurves → astrometry → highpm → orphans → score → suspects like this:
 
   prepare   tile grid; per tile its photo list (photos whose footprint box meets the tile's core + border) and its slice
             of refcat/<zone>.parquet; the zone's dot files mirrored into the work dir without the columns no combining
@@ -18,7 +18,8 @@ spectra → classify → photoz → colours → lightcurves → astrometry → h
   pass 2b   per tile, with those numbers: classify, photoz, light-curve errors and summaries, astrometry
   merge 2   sources, classes, photoz, colours, lightcurves(+summary), astrometry → results/<zone>/; the zone reports
             (photoz vs SDSS, lightcurves, astrometry) computed on the merged tables
-  zone      highpm, score and suspects once on the merged tables (their 120″–15′ controls need no tile border)
+  zone      highpm, orphans, score and suspects once on the merged tables (their 120″–15′ controls and orphans'
+            300–6000″ pairs need no tile border)
 
 The outputs have today's names and columns. Owned rows of a tile are exactly what the untiled run gives for them when
 the border holds every group the core touches (link's friends-of-friends chains, a mover's pairs and its 6″ veto,
@@ -1093,7 +1094,7 @@ class Run:
 
     # -- the whole run
     def run(self) -> dict:
-        from . import highpm
+        from . import highpm, orphans
         t_all = time.time()
         z, s = self.zone, self.store
         L.info("tiles %s: %d × %d tiles of %.2f° × %.2f° (border %.0f″, zone edge %s), %d workers, work dir %s", z.name,
@@ -1121,6 +1122,9 @@ class Run:
             t0 = time.time()
             steps["highpm"] = highpm.run(s, z, self.workers)
             self._timed("highpm", t0)
+            t0 = time.time()
+            steps["orphans"] = orphans.run(s, z, self.workers)  # never raises: an error lands in its stats
+            self._timed("orphans", t0)
             t_wait = time.time()
             for k, f in tail.items():  # score and suspects ran next to pass 2; only what is left is waited for
                 steps[k] = f.result()
@@ -1143,7 +1147,8 @@ class Run:
             "owned_movers": sum(st["owned_movers"] for st in self.pass1_stats)})
         sec = self.times
         for k, names in (("link", ("prepare", "pass1", "merge1")), ("calib", ("calib",)),
-                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("highpm", ("highpm",))):
+                         ("merge", ("pass2a", "reduce2", "pass2b", "merge2")), ("highpm", ("highpm",)),
+                         ("orphans", ("orphans",))):
             if isinstance(steps.get(k), dict):
                 steps[k]["step_seconds"] = round(sum(sec.get(n, 0.0) for n in names), 1)
         self.stats["step_seconds"] = self.stats["wall_s"]
