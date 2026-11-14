@@ -286,6 +286,11 @@ async def resolve(query: Annotated[str, Field(description="A built-in name (e.g.
     return _json(await client().resolve(query))
 
 
+# Tools, resources and prompts in their own modules register on `app` when imported. One module
+# per work stream, so parallel branches don't edit the same lines here.
+from . import tools_reference, tools_data, tools_spectrum  # noqa: E402,F401
+
+
 def main() -> None:
     import logging
     logging.getLogger("httpx").setLevel(logging.WARNING)  # one INFO line per request otherwise
