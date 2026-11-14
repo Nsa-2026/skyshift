@@ -194,14 +194,31 @@ export function visitCountFromFrames(frames: FramesResponse | null, near: { ra: 
   return perDet.size ? Math.max(...perDet.values()) : 0;
 }
 
+/**
+ * Whether the frames follow a moving object (each epoch carries its own centre, as for 3I/ATLAS),
+ * or keep one fixed centre that the object crosses. Null when there are no frames yet.
+ */
+export function framesFollow(frames: FramesResponse | null): boolean | null {
+  if (!frames || !frames.epochs.length) return null;
+  return frames.epochs.some((e) => e.center != null);
+}
+
 export function noMeasureReason(opts: {
   object: ObjectResponse | null;
   kind: string | null;
   visits: number | null;
+  /** framesFollow(frames): true, false, or null when unknown. */
+  follows?: boolean | null;
 }): string {
-  const { object, kind, visits } = opts;
+  const { object, kind, visits, follows = null } = opts;
   if (kind && /asteroid|comet/i.test(kind)) {
-    return "It moves in hours, not months: the frames follow it along its known orbit, so there is no shift between visits to measure. Blink the exposures and watch the stars stream past it.";
+    if (follows === true) {
+      return "It moves in hours, not months, so there is no shift between visits to measure. The frames follow it across the sky.";
+    }
+    if (follows === false) {
+      return "It moves in hours, not months, so there is no shift between visits to measure. It crosses the field between exposures; the violet diamond marks its predicted position.";
+    }
+    return "It moves in hours, not months, so there is no shift between visits to measure.";
   }
   const spectrumVisits = object ? visitsOf(object.spectrum).length : 0;
   const n = visits ?? (spectrumVisits || null);
@@ -209,4 +226,121 @@ export function noMeasureReason(opts: {
     return `SPHEREx has seen this spot in ${n === 0 ? "no visits" : "one visit"} so far. A shift needs two visits, about six months apart.`;
   }
   return "Nothing has been measured at this spot yet. Blink the visits and flag anything that steps.";
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plain sentences for the card
+
+/** Light-years for prose: 6, 12, 510, 2,600 (two significant figures past 20). */
+export function proseLy(ly: number): string {
+  if (!Number.isFinite(ly) || ly <= 0) return "";
+  if (ly < 2) return ly.toFixed(1);
+  if (ly < 20) return String(Math.round(ly));
+  return Number(ly.toPrecision(2)).toLocaleString("en-US");
+}
+
+/**
+ * One factual sentence about the featured targets. `ly` is Gaia's distance in prose form, or null.
+ * Facts beyond the data (spectral class, record holders) are catalogue knowledge, kept short.
+ */
+const ABOUT: Record<string, (ly: string | null) => string> = {
+  barnard: (ly) => `A red dwarf${ly ? ` ${ly} light-years away` : ""}, the fastest-moving star in our sky.`,
+  epsindib: (ly) => `A pair of brown dwarfs${ly ? ` ${ly} light-years away` : ""}, orbiting the bright star Epsilon Indi A.`,
+  wise0855: () => "The coldest brown dwarf known, too faint for Gaia. SPHEREx sees it at 4–5 µm.",
+  rwaur: (ly) => `A young variable star${ly ? ` ${ly} light-years away` : ""}, still surrounded by its disk.`,
+  rdra: (ly) => `A pulsating red giant${ly ? ` ${ly} light-years away` : ""} that brightens and fades every 246 days.`,
+  "3i-atlas": () => "The third interstellar object ever found: a comet passing through the Solar System.",
+  elpis: () => "A main-belt asteroid, between Mars and Jupiter.",
+  euphrosyne: () => "One of the largest asteroids in the main belt, between Mars and Jupiter.",
+};
+
+/** What the object is, in one plain sentence, from the featured slug or the kind and Gaia's distance. */
+export function aboutSentence(opts: {
+  slug: string | null;
+  kind: string | null;
+  object: ObjectResponse | null;
+  /** Shown when nothing is known: "The sky at …". */
+  where: string;
+}): string {
+  const { slug, kind, object, where } = opts;
+  const pc = distancePc(object?.gaia?.parallax);
+  const ly = pc != null ? proseLy(pcToLy(pc)) : null;
+  const known = slug ? ABOUT[slug] : undefined;
+  if (known) return known(ly);
+  const away = ly ? ` ${ly} light-years away` : "";
+  const ucd = object?.known_ucd;
+  if (ucd) return `An ultracool dwarf of spectral type ${ucd.spt}${away ? `,${away}` : ""}.`;
+  if (kind && !/gaia/i.test(kind)) {
+    const article = /^[aeiou]/i.test(kind) ? "An" : "A";
+    return `${article} ${kind}${away}.`;
+  }
+  if (object?.gaia) return ly ? `A star in Gaia DR3,${away}.` : "A star in Gaia DR3, with no distance from Gaia.";
+  return `The sky at ${where}.`;
+}
+
+/** Visit mid-times per detector from months frames near the view, or null (hours clock, stale frames). */
+export function visitTimesFromFrames(frames: FramesResponse | null, near: { ra: number; dec: number }, fovArcmin: number): Map<number, number[]> | null {
+  if (!frames || frames.clock !== "months") return null;
+  if (sepArcsec(frames.center, near) > fovArcmin * 60) return null;
+  const out = new Map<number, number[]>();
+  for (const e of frames.epochs) if (e.kind === "visit") out.set(e.det, [...(out.get(e.det) ?? []), e.mjd_mid]);
+  return out.size ? out : null;
+}
+
+/** Visit times per detector from the spectrum: the median MJD of each (detector, visit). */
+export function visitTimesFromSpectrum(spectrum: SpectrumPoint[]): Map<number, number[]> | null {
+  const by = new Map<number, Map<number, number[]>>();
+  for (const p of spectrum) {
+    if (p.visit <= 0) continue;
+    const d = by.get(p.det) ?? new Map<number, number[]>();
+    d.set(p.visit, [...(d.get(p.visit) ?? []), p.mjd]);
+    by.set(p.det, d);
+  }
+  const out = new Map<number, number[]>();
+  for (const [det, visits] of by) out.set(det, [...visits.values()].map(median).sort((a, b) => a - b));
+  return out.size ? out : null;
+}
+
+/**
+ * How many visits the measured detector has, so the card can say "between visits 1 and N".
+ * The measure doesn't name its detector: take the detectors whose first-to-last span matches dt_yr
+ * (within 0.1 yr: the server times stacks by their median exposure, not mjd_mid) and answer only
+ * when they agree. Null when unsure: the card then says "the first and last visits".
+ */
+export function measuredVisitCount(m: Measure, times: Map<number, number[]> | null): number | null {
+  if (!times) return null;
+  const counts = new Set<number>();
+  for (const t of times.values()) {
+    if (t.length < 2) continue;
+    const span = (Math.max(...t) - Math.min(...t)) / 365.25;
+    if (Math.abs(span - m.dt_yr) <= 0.1) counts.add(t.length);
+  }
+  return counts.size === 1 ? [...counts][0] : null;
+}
+
+/** "visits 1 and 3" from the visit count, or "the first and last visits" without one. */
+export function visitPair(n: number | null): string {
+  return n != null && n >= 2 ? `visits 1 and ${n}` : "the first and last visits";
+}
+
+/** Years for prose: "0.99 years", "1 year", "1.42 years". */
+export function proseYears(yr: number): string {
+  const s = yr.toFixed(2);
+  return s === "1.00" ? "1 year" : `${s} years`;
+}
+
+/** The sentence after the measured number: when, then how it compares with the prediction. */
+export function measureSentence(m: Measure, opts: { visits: number | null; who: string }): string {
+  const when = `between ${visitPair(opts.visits)} (${proseYears(m.dt_yr)})`;
+  const seen = isDetectedMotion(m);
+  const first = seen
+    ? `moved ${when}.`
+    : `${when}: below the ${arcsec(detectionLimit(m))} we can see (3σ), so it stays put.`;
+  const nsig = sigmaDiff(m);
+  if (m.predicted_arcsec == null || nsig == null) return `${first} There is no catalogue prediction here to compare with.`;
+  const n = Math.abs(nsig).toFixed(1);
+  const a = agreement(nsig);
+  const verdict =
+    a === "agrees" ? `they agree within ${n}σ.` : a === "marginal" ? `they are ${n}σ apart, close but not a clean match.` : `they are ${n}σ apart and disagree.`;
+  return `${first} ${opts.who} predicts ${arcsec(m.predicted_arcsec)}: ${verdict}`;
 }

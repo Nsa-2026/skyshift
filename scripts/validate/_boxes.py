@@ -141,6 +141,13 @@ def reference_stack(target: Box, refs: list[Box], mask_any: bool = False) -> tup
     The mask is where no box has a good pixel, and with mask_any=True also where any box is saturated
     (OVERFLOW/NONLINEAR: keeps a saturated core masked in the stack even when one photo saturated
     less; other bits, such as a cosmic ray in one photo, are left to the median).
+
+    Each box is resampled bilinearly with its bad pixels left out: the good pixels and a validity
+    weight (1 good, 0 bad) are interpolated separately, the value is their ratio, and a pixel is bad
+    only where bad pixels carry more than half the weight. Interpolating NaNs instead turned a pixel
+    bad whenever either neighbour it reads was bad, even at zero weight, so every masked hole grew by
+    one pixel on one side (R Draconis visit 3 D1, one photo: masked-core centre 1.35 px from the
+    prediction in its stack, 0.25 px in the photo itself).
     """
     if not refs:
         return None
@@ -151,9 +158,11 @@ def reference_stack(target: Box, refs: list[Box], mask_any: bool = False) -> tup
     for r in refs:
         rx, ry = r.wcs.all_world2pix(ra, dec, 0)
         coords = np.vstack([ry, rx])
-        badr = bad_pixel_mask(r.flags)
-        img = np.where(badr, np.nan, r.image)
-        v = map_coordinates(img, coords, order=1, mode="constant", cval=np.nan)
+        badr = bad_pixel_mask(r.flags) | ~np.isfinite(r.image)
+        wgt = map_coordinates((~badr).astype(np.float64), coords, order=1, mode="constant", cval=0.0)
+        v = map_coordinates(np.where(badr, 0.0, r.image), coords, order=1, mode="constant", cval=0.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            v = np.where(wgt >= 0.5, v / wgt, np.nan)
         planes.append(v.reshape(ny, nx))
         if mask_any:
             sat = saturated_mask(r.flags).astype(np.float32)

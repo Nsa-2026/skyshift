@@ -30,6 +30,7 @@ import logging
 import shutil
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 from skyshift_core import GAIA_EPOCH_MJD, propagate, sessions
@@ -101,7 +102,8 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
     for det in dets:
         t0 = time.time()
         try:
-            fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache, per_visit=None)
+            fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache, per_visit=None,
+                                    hours_frames=None)
         except Exception as e:  # noqa: BLE001 - one detector must not stop the rest
             log.warning("%s %s d%d failed: %s", t["slug"], set_name, det, e)
             continue
@@ -253,9 +255,11 @@ def build_moving(slug: str, name: str, rows: list[dict], dets: list[int], source
     images = [r["image"] for r in srows]
     pos = [(r["ra"], r["dec"]) for r in srows]
     l2s = cutouts.fetch_many(images, center[0], center[1], cutouts.tier_for_field(5), cache, centers=pos, variance=True)
-    spectrum = obj.spectrum_points(images, l2s, None, center[0], center[1], positions=pos)
-    write_json(folder / "object.json", clean({"name": name, "gaia": None, "known_ucd": None,
-                                              "spectrum": spectrum, "measure": None}), compact=True)
+    dropped: Counter = Counter()
+    spectrum = obj.spectrum_points(images, l2s, None, center[0], center[1], positions=pos, dropped=dropped)
+    write_json(folder / "object.json", clean({"name": name, "gaia": None, "known_ucd": None, "spectrum": spectrum,
+                                              "spectrum_reason": obj.spectrum_reason(spectrum, dropped),
+                                              "measure": None}), compact=True)
     write_json(folder / "index.json", {
         "slug": slug, "name": name, "center": {"ra": center[0], "dec": center[1]}, "own": file,
         "follows_object": follow,

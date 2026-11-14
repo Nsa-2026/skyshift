@@ -10,8 +10,9 @@ the 6″ cell, the ZODI model, the background detection subtracted, the peak, th
 (elong, a, b, theta), an ePSF fit (flux_psf_*, psf.py), an ePSF position fit (x_psf, y_psf, ra_psf, dec_psf,
 pos_err_psf_arcsec, psf_pos_ok; config DOTS_PSF_POSITION; not for saturated dots), sep's flags and five
 aperture fluxes (flux_ap_*).
-Forced photometry: when refcat/<zone>_forced.parquet exists, every reference target in the photo
-(moved to MJD-AVG) gets the same ePSF fit at its fixed position and the r = 2 px aperture, detected
+Forced photometry: targets from the sky-wide list refcat/sky/forced_n32/ (forced_sky.py; the partitions
+the photo's cone overlaps, no zone box) when it is complete, else from refcat/<zone>_forced.parquet inside
+the zone box + 0.05° as before; every reference target in the photo (moved to MJD-AVG) gets the same ePSF fit at its fixed position and the r = 2 px aperture, detected
 or not, in forced/<obs_id>D<det>.parquet, written before the dot file.
 Every dot file carries the photo's metadata (header values, dot count, timings, zodi median,
 astrometric offset against Gaia, PSF size, 32 × 32 background and ZODI grids) as Parquet key-value
@@ -45,7 +46,7 @@ from skyshift_core import (SAT_BITS, background, build_mask, centroid, detect, o
 from skyshift_core.level2 import EPSF
 
 from . import config as C
-from . import log
+from . import forced_sky, log
 from .psf import dot_positions, psf_photometry
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
@@ -441,13 +442,20 @@ def _unit(ra, dec) -> np.ndarray:
     return np.stack([np.cos(d) * np.cos(r), np.cos(d) * np.sin(r), np.sin(d)], axis=-1)
 
 
-def forced_targets(l2, ref: RefCat, zone: C.Zone | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Reference targets in this photo: moved to MJD-AVG (proper motion only), inside the frame by
-    >= FORCED_EDGE_PX and inside the zone box + FORCED_ZONE_MARGIN_DEG. Returns (index, ra, dec, x, y)."""
+def photo_cone(l2) -> tuple[float, float, float]:
+    """(ra, dec, radius) in degrees of a cone holding the whole photo: centre pixel, half diagonal + 0.1°."""
     ny, nx = l2.data.shape
     cra, cdec = pixel_to_sky(l2.wcs, np.array([(nx - 1) / 2.0]), np.array([(ny - 1) / 2.0]))
-    half_diag = np.hypot(nx, ny) / 2.0 * C.PIXEL_ARCSEC / 3600.0 + 0.1
-    near = np.flatnonzero(ref.xyz @ _unit(cra[0], cdec[0]) > np.cos(np.deg2rad(half_diag)))
+    return float(cra[0]), float(cdec[0]), float(np.hypot(nx, ny) / 2.0 * C.PIXEL_ARCSEC / 3600.0 + 0.1)
+
+
+def forced_targets(l2, ref: RefCat, zone: C.Zone | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Reference targets in this photo: moved to MJD-AVG (proper motion only), inside the frame by
+    >= FORCED_EDGE_PX and (zone list only, zone not None) inside the zone box + FORCED_ZONE_MARGIN_DEG.
+    Returns (index, ra, dec, x, y)."""
+    ny, nx = l2.data.shape
+    cra, cdec, half_diag = photo_cone(l2)
+    near = np.flatnonzero(ref.xyz @ _unit(cra, cdec) > np.cos(np.deg2rad(half_diag)))
     ra = np.empty(near.size)
     dec = np.empty(near.size)
     for ep in np.unique(ref.epoch_mjd[near]):
@@ -707,6 +715,45 @@ def _store(root: str) -> Store:
     return _STORE
 
 
+_SKY: dict[str, "forced_sky.SkyList"] = {}
+_SKY_REF: dict[tuple, RefCat] = {}  # the last photo's partition set -> RefCat (neighbouring photos share it)
+
+
+def sky_list(store: Store) -> "forced_sky.SkyList | None":
+    """The sky-wide forced list of this store if it is complete (its manifest exists) and
+    C.FORCED_SKY_MODE isn't "off"; checked once per process."""
+    if C.FORCED_SKY_MODE == "off":
+        return None
+    if store.root not in _SKY:
+        _SKY[store.root] = forced_sky.SkyList(store)
+        if _SKY[store.root].available:
+            L.info("dots: forced targets from the sky list %s/%s", store.root, C.FORCED_SKY_DIR)
+    sk = _SKY[store.root]
+    return sk if sk.available else None
+
+
+def _sky_refcat(sk: "forced_sky.SkyList", l2) -> RefCat:
+    """RefCat of the partitions this photo's cone overlaps (photo_cone + FORCED_SKY_PAD_DEG)."""
+    ra, dec, r = photo_cone(l2)
+    pix = tuple(int(p) for p in forced_sky.partitions_for_cone(ra, dec, r, sk.nside))
+    key = (sk.store.root, pix)
+    if key not in _SKY_REF:
+        _SKY_REF.clear()
+        _SKY_REF[key] = RefCat.from_frame(sk.frame(pix))
+    return _SKY_REF[key]
+
+
+def forced_reference(store: Store, l2, zone: str | None) -> tuple[RefCat | None, C.Zone | None, str]:
+    """Where a photo's forced targets come from: the sky list for its whole footprint (no zone box) when it is
+    complete, else refcat/<zone>_forced.parquet limited to the zone box as before. Returns (ref, zone box, origin)."""
+    sk = sky_list(store)
+    if sk is not None:
+        return _sky_refcat(sk, l2), None, "sky"
+    if not zone:
+        return None, None, ""
+    return _refcat(store, zone), C.ZONES.get(zone), "zone"
+
+
 def _refcat(store: Store, zone: str) -> RefCat | None:
     key = (store.root, zone)
     if key not in _REFCAT:
@@ -793,9 +840,9 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
             df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx)
         st["detect_s"] = round(time.time() - t0, 2)
         st["n_dots"] = int(len(df))
-        zobj = C.ZONES.get(zone) if zone else None
-        ref = _refcat(store, zone) if (zone and ctx is not None) else None
+        ref, zobj, origin = forced_reference(store, l2, zone) if ctx is not None else (None, None, "")
         if ref is not None:
+            st["forced_from"] = origin
             t0 = time.time()
             forced = forced_table(l2, ctx, obs_id, detector, ref, zobj)
             st["forced_s"] = round(time.time() - t0, 2)

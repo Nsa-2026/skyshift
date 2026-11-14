@@ -106,10 +106,23 @@ the position, not from the column number.
 ## forced: one row per reference target per photo, detected or not
 
 One Parquet file per photo, `forced/<obs_id>D<detector>.parquet`, written before the dot file (so a
-dot file still means "photo fully done"), only when `refcat/<zone>_forced.parquet` exists (else a warning;
-the photo is still done). Targets: the refcat rows moved to the photo's MJD-AVG by proper motion only
-(core.propagate; NaN proper motion = 0; parallax ignored), kept if ≥ 3 px inside the frame and inside the
-zone box + 0.05°. Negative and low fluxes are kept: they are the non-detections.
+dot file still means "photo fully done"), only when a target list exists (else a warning;
+the photo is still done). Target list: the sky-wide list `refcat/sky/forced_n32/` when it is complete
+(its `_complete.json` exists), else `refcat/<zone>_forced.parquet` as before. Targets: the list's rows moved
+to the photo's MJD-AVG by proper motion only (core.propagate; NaN proper motion = 0; parallax ignored), kept
+if ≥ 3 px inside the frame and, with the zone list only, inside the zone box + 0.05° (the sky list has no zone
+box: every target in the photo's footprint, whatever zone it was extracted under). Negative and low fluxes
+are kept: they are the non-detections.
+
+**Sky-wide list (added 14 Nov)**, written by `python -m skyshift_pipeline.forced_sky`: one file per nested
+HEALPix pixel at nside 32, `refcat/sky/forced_n32/p<pixel:05d>.parquet` (12,288 files, 3.357 deg² each), with
+exactly the columns of `refcat/<zone>_forced.parquet` (below), sorted by G. A Gaia source sits in the pixel of
+its source_id (`source_id >> 49`, the level-12 HEALPix index in the id taken to nside 32); dots reads every
+pixel within the photo's cone (half diagonal + 0.1° + 0.05°). Content: Gaia DR3 G < 17.5 (no CatWISE-only
+objects yet); each pixel keeps at most its brightest 8,221 (= 30,000 per 3.5° photo, 2,449/deg²), so the
+galactic plane gets a brighter G limit per pixel. `_complete.json` (written last): `nside`, `order`,
+`gaia_g_max`, `max_per_deg2` (null = no cap), `cap_per_partition`, `catalogues`, `rows`, `capped_partitions`,
+`rows_per_partition` (12,288 ints), `built`.
 
 | column | type | unit | meaning |
 |---|---|---|---|
