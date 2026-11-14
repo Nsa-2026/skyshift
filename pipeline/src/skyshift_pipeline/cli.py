@@ -29,7 +29,7 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
         return photolist.run(store, zone, force=args.force)
     if step == "refcat":
         from . import refcat
-        return refcat.run(store, zone)
+        return refcat.run(store, zone, force=args.force)
     if step == "dots":
         from . import dots
         return dots.run(store, zone, workers=args.workers, limit=args.limit)
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--limit", type=int, default=None, help="testing: dots does at most N photos, known at most N sessions")
-    ap.add_argument("--force", action="store_true", help="photolist: query IRSA again even if the list exists")
+    ap.add_argument("--force", action="store_true", help="photolist, refcat: query the services again even if the files exist")
     args = ap.parse_args(argv)
     log.setup()
     store = Store(args.root)

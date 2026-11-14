@@ -58,7 +58,8 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
   OVERFLOW or NONLINEAR in a source's core means saturated.
   Bit names and numbers confirmed on the first file (14 Nov, FLAGS header MSKNnnnn keys).
   SOURCE was on 99.37% of pixels (Cygnus, crowded); about 50% in the hunt zone. The mask list removed about 2.1%.
-- Saturation starts near AB 10–11 (to check on real data). Barnard's Star, RW Aurigae and
+- Saturation: the brightest unsaturated asteroid points were AB 10.5 (D3), 10.9 (D4), 9.6 (D5), 8.6 (D6)
+  (scripts/science, 14 Nov); D1–D2 are not measured yet. Barnard's Star, RW Aurigae and
   R Draconis are expected to saturate: centroid on the wings and mark the core.
 - Collections: spherex_dr1 and spherex_qr3. Skip *_deep. Search with astroquery Irsa.query_sia;
   the TAP table name is unverified.
@@ -75,7 +76,7 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 
 ## Cloud
 - Google Cloud project nasa-glazing, region us-east4, zone us-east4-a.
-- Bucket gs://nasa-glazing-data: photolists/, dots/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
+- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
 - Firestore (us-east4): candidates, votes. Create-only rules. Site on Firebase Hosting, API on Cloud Run.
 - Machines: skyshift-test (e2-standard-8) for most work; skyshift-worker (n2-highcpu-64 spot)
   only for the hunt zone after gate G2. Both stop themselves after each job; use infra/worker/vm.sh.
@@ -84,4 +85,4 @@ Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-pla
 ## Not yet verified (check on real data, then fix here and in contracts/)
 Facts measured on the first file: docs/research/2026-11-14-first-photo-facts.md.
 - Units to µJy: the 889 µJy per MJy/sr per pixel conversion, against a catalogue star.
-- Saturation level: where saturation starts (AB 10–11 expected).
+- Saturation level in D1–D2 (D3–D6 measured, see Domain facts).
