@@ -213,6 +213,21 @@ def validate(pz: pd.DataFrame, src: pd.DataFrame, spec: pd.DataFrame) -> dict:
     return rep
 
 
+def report(store: Store, zone: C.Zone, pz: pd.DataFrame, src: pd.DataFrame, n_input: int, chosen: str,
+           validate_sdss: bool = True) -> dict:
+    """photoz_report.json: counts and, against SDSS DR17, the zone's photo-z quality (tiles.py: on the merged tables)."""
+    rep = {"zone": zone.name, "fitted": int(np.isfinite(pz["z_best"]).sum()), "input": int(n_input), "selection": chosen,
+           "good": int(pz["good"].sum()), "templates": C.PHOTOZ_TEMPLATES,
+           "z_grid": [C.PHOTOZ_Z_MIN, C.PHOTOZ_Z_MAX, C.PHOTOZ_Z_STEP]}
+    if validate_sdss:
+        try:
+            rep["sdss_dr17"] = validate(pz, src, sdss_specz(store, zone))
+        except Exception as e:  # noqa: BLE001  (network; the photo-z table is written anyway)
+            L.warning("photoz %s: SDSS validation failed: %s", zone.name, e)
+            rep["sdss_dr17"] = {"error": str(e)[:300]}
+    return rep
+
+
 def run(store: Store, zone: C.Zone, validate_sdss: bool = True) -> dict:
     t0 = time.time()
     src = store.read_parquet(results_rel(zone.name, "sources.parquet"))
@@ -230,15 +245,7 @@ def run(store: Store, zone: C.Zone, validate_sdss: bool = True) -> dict:
     pz = photoz_frame(sub)
     t1 = time.time()
     nbytes = store.write_parquet(results_rel(zone.name, "photoz.parquet"), pz)
-    rep = {"zone": zone.name, "fitted": int(np.isfinite(pz["z_best"]).sum()), "input": int(len(sub)), "selection": chosen,
-           "good": int(pz["good"].sum()), "templates": C.PHOTOZ_TEMPLATES,
-           "z_grid": [C.PHOTOZ_Z_MIN, C.PHOTOZ_Z_MAX, C.PHOTOZ_Z_STEP]}
-    if validate_sdss:
-        try:
-            rep["sdss_dr17"] = validate(pz, src, sdss_specz(store, zone))
-        except Exception as e:  # noqa: BLE001  (network; the photo-z table is written anyway)
-            L.warning("photoz %s: SDSS validation failed: %s", zone.name, e)
-            rep["sdss_dr17"] = {"error": str(e)[:300]}
+    rep = report(store, zone, pz, src, len(sub), chosen, validate_sdss)
     store.write_json(results_rel(zone.name, "photoz_report.json"), rep)
     st = {**{k: v for k, v in rep.items() if k != "sdss_dr17"},
           "sdss_all": rep.get("sdss_dr17", {}).get("all"), "photoz_bytes": int(nbytes),

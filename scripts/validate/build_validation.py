@@ -375,6 +375,11 @@ def known_source(rec: dict, summary: dict | None) -> tuple[str | None, str | Non
     return None, None
 
 
+def tracked(d: dict) -> bool:
+    """True when a recall.json counts tracklets' recovered dots in `recall` (it then has `recall_movers`, movers alone)."""
+    return d.get("recall_movers") is not None
+
+
 def recall_rows(d: dict) -> list[dict]:
     return [{"v_min": b.get("v_min"), "v_max": b.get("v_max"), "n": b.get("n"), "found": b.get("found"),
              "recall": r(b.get("recall"), 3), "control_recall": r(b.get("control_recall"), 3)} for b in d.get("by_v", [])]
@@ -415,19 +420,26 @@ def v5(res: Path | None, zones=ZONES) -> dict:
         objs = f"{po.get('found')} of {po.get('n')} objects" if po.get("n") else ""
         label = z.capitalize() + " zone" + (" (gate G2)" if z == G2_ZONE and len(reps) > 1 else "")
         if i == 0:
-            heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {vmax:g} found as "
-                         f"movers ({_pct(rec)}); control {_pct(ctl)}" + (f"; {objs}" if objs else ""))
+            # since tracklets (#150) recall.json `recall` also counts dots recovered on a mover track (`recall_movers`:
+            # movers alone); an older report has no recall_movers and its recall is movers alone
+            how = "found (as movers or recovered on a track)" if tracked(d) else "found as movers"
+            heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {vmax:g} {how} "
+                         f"({_pct(rec)}); control {_pct(ctl)}" + (f"; {objs}" if objs else ""))
         else:
             heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} ({_pct(rec)}), control {_pct(ctl)}"
                          + (f", {objs}" if objs else ""))
         f12, n12 = bright_unsaturated(zr, vmax)
+        alone = (f"; movers alone: {d.get('n_found_movers')} of {d.get('n_known')} ({_pct(d.get('recall_movers'))})"
+                 if tracked(d) else "")
         zone_notes.append(f" {zone_text(res, z, zs)}: {d.get('photos_with_predictions'):,} photos with predictions, pipeline "
                           f"report of {d.get('generated')}"
                           + (f", MPC orbit snapshot {orbits}" if orbits else "")
-                          + (f"; V 12-{vmax:g} alone: {f12} of {n12}" if n12 else "") + ".")
+                          + (f"; V 12-{vmax:g} alone: {f12} of {n12}" if n12 else "") + alone + ".")
     d0 = reps[0][1]
+    found_by = ("a blind-search mover, or a dot recovered on a mover track's predicted path in that session, lies"
+                if tracked(d0) else "a blind-search mover lies")
     note = (f"Unit: {d0.get('unit')}. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as "
-            f"seen from SPHEREx. One counts as found when a blind-search mover lies within {d0.get('match_arcsec'):g}\" of "
+            f"seen from SPHEREx. One counts as found when {found_by} within {d0.get('match_arcsec'):g}\" of "
             f"its predicted position; control: every prediction moved {(d0.get('control_offset_arcsec') or 120) / 60:g}'. "
             f"Gate G2 is recall >= {100 * (d0.get('g2_threshold') or 0.5):.0f}% at V < {d0.get('v_max'):g}"
             + (f", decided on the {G2_ZONE} zone before the hunt ran" if len(reps) > 1 and G2_ZONE in zs else "")

@@ -1,4 +1,4 @@
-"""build_frames and build_object end to end, offline: the search, Gaia and SkyBoT answers are
+"""build_frames and build_object end to end, offline: the search, Gaia and known-object answers are
 canned and every cutout comes from the cache (the real cutout in fixtures/fits/)."""
 
 import io
@@ -22,6 +22,8 @@ REPO = Path(__file__).resolve().parents[2]
 # a bright star near the middle of the fixture cutout (fixtures/fits/*.stars.json) and its Gaia entry
 STAR_RA, STAR_DEC = 304.4799843, 41.8376316
 STAR_GAIA_ID = "2068618363302306688"
+# an empty patch of the fixture 2' from it: no dot and no Gaia star within 6 px (37")
+EMPTY_RA, EMPTY_DEC = 304.4416228966218, 41.82004012070606
 MJD1 = 60794.017655738  # the fixture's MJD-AVG
 VISIT2 = 185.0  # days later
 ZODI_LEVEL = 0.1
@@ -29,14 +31,18 @@ EPOCH_KEYS = {"id", "kind", "mjd_mid", "mjd_start", "mjd_end", "det", "um_min", 
               "flag_frac", "sat_frac", "data_url", "scale", "zero"}
 
 
-def _cutout_at(mjd: float) -> bytes:
-    """The fixture cutout with its times moved (so we can fake several exposures and visits)."""
+def _cutout_at(mjd: float, noise: float = 0.0, seed: int = 0) -> bytes:
+    """The fixture cutout with its times moved (so we can fake several exposures and visits),
+    optionally with fresh noise (MJy/sr) added to IMAGE so that exposures differ."""
     with fits.open(FIXTURE_CUTOUT) as h:
         hdr = h["IMAGE"].header
         shift = mjd - hdr["MJD-AVG"]
         for k in ("MJD-AVG", "MJD-BEG", "MJD-END", "MJD-OBS"):
             if k in hdr:
                 hdr[k] = hdr[k] + shift
+        if noise:
+            data = h["IMAGE"].data
+            h["IMAGE"].data = (data + np.random.default_rng(seed).normal(0, noise, data.shape)).astype(data.dtype)
         b = io.BytesIO()
         h.writeto(b)
         return b.getvalue()
@@ -45,7 +51,7 @@ def _cutout_at(mjd: float) -> bytes:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     """A cache holding 3 + 3 exposures of detector 1 in two visits (and detector 4 rows with no
-    cutouts), canned Gaia and SkyBoT, and no network."""
+    cutouts), canned Gaia and known objects, and no network."""
     cache = Cache(str(tmp_path))
     times = [MJD1, MJD1 + 0.0015, MJD1 + 3.0, MJD1 + VISIT2, MJD1 + VISIT2 + 0.0015, MJD1 + VISIT2 + 0.003]
     rows = [sia_row(f"2025W18_1B_{i:04d}_1", 1, t) for i, t in enumerate(times)]
@@ -56,9 +62,14 @@ def world(tmp_path, monkeypatch):
         cache.put(cutouts.cache_key(im, STAR_RA, STAR_DEC, cutouts.SIZE_TIERS_DEG[-1]), _cutout_at(t))
     stars = json.loads((REPO / "fixtures/fits/cutout_2025W18_1B_0074_2D1.gaia.json").read_text())["gaia"]
     monkeypatch.setattr(gaia, "cone", lambda ra, dec, r, cache=None: stars)
-    skybot_calls = []
-    monkeypatch.setattr(known, "_skybot", lambda ra, dec, rs, mjd: skybot_calls.append(mjd) or
-                        " 4 | Vesta | 20 17 55.1962 | +41 50 15.474 | MB>Inner | 7.1 | 0.01 | 1.0 \n")
+    known_calls = []
+
+    def fake_near(ra, dec, r, mjds, *, epoch_ids=None, cache=None):
+        known_calls.append({"ra": ra, "dec": dec, "r": r, "mjds": list(mjds), "ids": list(epoch_ids)})
+        return [{"name": "Vesta", "epoch_id": i, "ra": 304.48, "dec": 41.84, "v": 7.1, "source": "mpc"}
+                for i in epoch_ids]
+
+    monkeypatch.setattr(known, "near", fake_near)
 
     def no_network(*a, **k):
         raise AssertionError("the network was used")
@@ -72,7 +83,7 @@ def world(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cutouts, "zodi_model", flat_zodi)
     monkeypatch.setenv("SKYSHIFT_PIXELS", "irsa")
-    return {"cache": cache, "stars": stars, "skybot_calls": skybot_calls, "times": times, "zodi_calls": zodi_calls}
+    return {"cache": cache, "stars": stars, "known_calls": known_calls, "times": times, "zodi_calls": zodi_calls}
 
 
 def _decode(fr: blink.Frames, ep: dict) -> np.ndarray:
@@ -124,11 +135,14 @@ def test_months_frames_contract_shape_and_pixels(world):
     assert len(world["zodi_calls"]) == 6
     assert float(np.nanmedian(img)) == pytest.approx(raw_sky - ZODI_LEVEL, abs=0.03)
 
-    # Gaia and known objects ride along; one SkyBoT question per epoch, at its mjd_mid
+    # Gaia and known objects ride along; one MPC call for the frame centre, at every epoch's mjd_mid
     assert m["gaia"] == world["stars"]
-    assert sorted(world["skybot_calls"]) == pytest.approx(sorted(e["mjd_mid"] for e in m["epochs"]))
+    (call,) = world["known_calls"]
+    assert (call["ra"], call["dec"]) == (STAR_RA, STAR_DEC) and call["r"] == pytest.approx(5 / 2 * 2**0.5)
+    assert call["mjds"] == pytest.approx([e["mjd_mid"] for e in m["epochs"]])
+    assert call["ids"] == ["d1-v1", "d1-v2"]
     assert {k["epoch_id"] for k in m["known"]} == {"d1-v1", "d1-v2"}
-    assert m["known"][0]["name"] == "(4) Vesta" and m["known"][0]["source"] == "skybot"
+    assert m["known"][0]["name"] == "Vesta" and m["known"][0]["source"] == "mpc"
     assert set(m["known"][0]) == {"name", "epoch_id", "ra", "dec", "v", "source"}
 
 
@@ -232,14 +246,16 @@ def test_hours_live_cap_and_full_set(world, monkeypatch):
     assert ids == ["d1-S00_0", "d1-S00_1", "d1-S03_0", "d1-S03_1"]
     assert all(e["n_exposures"] == 1 for e in live.meta["epochs"])  # each frame is one real exposure
     assert set(live.blobs) == {e["data_url"] for e in live.meta["epochs"]}
-    assert {k["epoch_id"] for k in live.meta["known"]} == set(ids)  # SkyBoT asked for the shown frames only
+    assert {k["epoch_id"] for k in live.meta["known"]} == set(ids)  # known objects for the shown frames only
 
 
 def test_object_spectrum_and_zero_shift(world):
     details = {}
     o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], details=details)
-    assert set(o) == {"name", "gaia", "known_ucd", "spectrum", "spectrum_reason", "measure"}
+    assert set(o) == {"name", "gaia", "known_ucd", "spectrum", "spectrum_reason", "measure",
+                      "measure_reason", "measure_hint"}
     assert o["spectrum_reason"] is None
+    assert o["measure_reason"] is None and o["measure_hint"] is None  # there is a measure
     assert o["name"] == f"Gaia DR3 {STAR_GAIA_ID}" and o["gaia"]["id"] == STAR_GAIA_ID
     assert o["known_ucd"] is None
     sp = o["spectrum"]
@@ -258,6 +274,113 @@ def test_object_spectrum_and_zero_shift(world):
     assert details["det"] == 1 and details["visits"] == [1, 2]
     # photometry is done on IMAGE as it is: the zodi model is only taken off the stacks
     assert len(world["zodi_calls"]) == 6
+
+
+def test_object_on_an_empty_spot_has_no_shift(world, monkeypatch):
+    """A spot with nothing on it (RA 125.5, Dec 19.4 on the live site: "30.15" between visits 1
+    and 2"). Without the detection guard the centroid takes the brightest noise peak near the
+    spot in each stack, two different ones, and reports their distance as motion. With it, no
+    shift: measure is null and details say why."""
+    ra, dec = EMPTY_RA, EMPTY_DEC
+    images = search.search(ra, dec, cache=world["cache"]).of_detector(1)
+    for i, (im, t) in enumerate(zip(images, world["times"])):
+        world["cache"].put(cutouts.cache_key(im, ra, dec, cutouts.SIZE_TIERS_DEG[-1]), _cutout_at(t, 0.05, seed=i))
+    unguarded = obj.measure_shift
+
+    def old_rule(*a, **kw):
+        return unguarded(*a, **kw, min_snr=None, edge_r=None, max_pm_arcsec_yr=None)
+
+    monkeypatch.setattr(obj, "measure_shift", old_rule)
+    before = obj.build_object(ra, dec, cache=world["cache"])
+    assert before["name"] is None and before["gaia"] is None
+    assert before["measure"] is not None and before["measure"]["shift_arcsec"] > 3 * before["measure"]["sigma_arcsec"]
+
+    monkeypatch.setattr(obj, "measure_shift", unguarded)
+    details = {}
+    o = obj.build_object(ra, dec, cache=world["cache"], details=details)
+    assert o["measure"] is None
+    assert o["measure_reason"] == "not_detected" and o["measure_hint"] is None
+    assert details["measure_reason"] == "not_detected" and details["shift_error"] in ("not_detected", "not_found")
+    assert o["spectrum"]  # the spectrum is still measured there
+
+
+def _empty_spot_cutouts(world):
+    images = search.search(EMPTY_RA, EMPTY_DEC, cache=world["cache"]).of_detector(1)
+    for i, (im, t) in enumerate(zip(images, world["times"])):
+        world["cache"].put(cutouts.cache_key(im, EMPTY_RA, EMPTY_DEC, cutouts.SIZE_TIERS_DEG[-1]),
+                           _cutout_at(t, 0.05, seed=i))
+
+
+def test_object_at_a_fast_stars_old_position_says_where_it_went(world, monkeypatch):
+    """Someone pastes a fast star's Gaia 2016 position (as Barnard's Star at 269.4485, 4.7394): by
+    SPHEREx's visits the star is elsewhere, nothing is measured, and the answer says where it went."""
+    _empty_spot_cutouts(world)
+    fast = {"id": "999", "ra": EMPTY_RA, "dec": EMPTY_DEC, "pmra": 0.0, "pmdec": 3000.0, "parallax": 10.0, "g": 12.0}
+    monkeypatch.setattr(gaia, "cone", lambda ra, dec, r, cache=None: [*world["stars"], fast])
+    details = {}
+    o = obj.build_object(EMPTY_RA, EMPTY_DEC, cache=world["cache"], details=details)
+    assert o["name"] is None and o["measure"] is None
+    assert o["measure_reason"] == "moved_away" and details["measure_reason"] == "moved_away"
+    hint = o["measure_hint"]
+    assert set(hint) == {"name", "ra", "dec", "mjd"} and hint["name"] == "Gaia DR3 999"
+    t = world["times"]
+    assert hint["mjd"] == pytest.approx((t[0] + t[-1]) / 2, abs=0.01)
+    north = (hint["dec"] - EMPTY_DEC) * 3600
+    assert north == pytest.approx(3.0 * (hint["mjd"] - obj.GAIA_EPOCH_MJD) / 365.25, abs=0.2)  # ~28"
+    # at the hint the star is found again: no hint there
+    assert obj.moved_away(hint["ra"], hint["dec"], t[0], t[-1], [fast], []) is None
+
+
+def test_object_reason_few_visits_and_no_time(world, monkeypatch):
+    real_pick = obj.pick_detector
+    monkeypatch.setattr(obj, "pick_detector", lambda *a, **k: None)  # one visit only
+    o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
+    assert o["measure"] is None and o["measure_reason"] == "few_visits" and o["measure_hint"] is None
+
+    monkeypatch.setattr(obj, "pick_detector", real_pick)
+
+    def late(*a, budget=None, **k):  # what measure() does when too few exposures arrived in time
+        budget.cut("too few exposures in time for the measurement")
+        return None
+
+    monkeypatch.setattr(obj, "measure", late)
+    budget = obj.Budget(60.0)
+    o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=budget)
+    assert budget.partial and o["spectrum"]
+    assert o["measure"] is None and o["measure_reason"] == "no_time" and o["measure_hint"] is None
+
+
+BARNARD_GAIA = {"id": "4472832130942575872", "ra": 269.44850252543836, "dec": 4.739420051112412,
+                "pmra": -801.551, "pmdec": 10362.394, "parallax": 546.976, "g": 8.194}
+BARNARD_BUILTIN = {"name": "Barnard's Star", "slug": "barnard", "id": BARNARD_GAIA["id"],
+                   "ra": BARNARD_GAIA["ra"], "dec": BARNARD_GAIA["dec"], "pmra": -801.5509783684709,
+                   "pmdec": 10362.394206546573, "parallax": 546.975939730948, "g": 8.194, "epoch_mjd": 57388.5}
+SPHEREX_BARNARD = (60902.87, 61305.63)  # first and last exposure at Barnard's Star (static frames)
+
+
+def test_moved_away_barnards_catalogue_positions():
+    slow = {"id": "1", "ra": 269.4462, "dec": 4.7705, "pmra": 1.0, "pmdec": -2.0, "parallax": 0.5, "g": 15.0}
+    a, b = SPHEREX_BARNARD
+    # its Gaia DR3 position as people paste it (4 decimals): the built-in name, where SPHEREx sees it
+    hint = obj.moved_away(269.4485, 4.7394, a, b, [BARNARD_GAIA, slow], [BARNARD_BUILTIN])
+    assert hint["name"] == "Barnard's Star" and hint["mjd"] == pytest.approx((a + b) / 2, abs=0.01)
+    assert (hint["dec"] - 4.7394) * 3600 == pytest.approx(105.4, abs=1.5)  # 100-111" north over the visits
+    assert hint["ra"] == pytest.approx(269.44620, abs=2e-4)  # the featured target's frame centre
+    # without the built-ins: the Gaia star
+    assert obj.moved_away(269.4485, 4.7394, a, b, [BARNARD_GAIA, slow], [])["name"] == f"Gaia DR3 {BARNARD_GAIA['id']}"
+    # SIMBAD's J2000.0 position (17 57 48.498 +04 41 36.11) and the Hipparcos epoch 1991.25 position
+    assert obj.moved_away(269.452075, 4.693364, a, b, [BARNARD_GAIA], [])["name"].startswith("Gaia DR3")
+    r91, d91 = obj.position_at(BARNARD_GAIA, 51544.5 - 8.75 * 365.25, parallax=False)
+    assert obj.moved_away(r91, d91, a, b, [BARNARD_GAIA], []) is not None
+    # not: where SPHEREx sees it (identify follows it there), with or without skip
+    now = obj.position_at(BARNARD_BUILTIN, (a + b) / 2)
+    assert obj.moved_away(*now, a, b, [BARNARD_GAIA], [BARNARD_BUILTIN]) is None
+    assert obj.moved_away(269.4485, 4.7394, a, b, [BARNARD_GAIA], [BARNARD_BUILTIN], skip=BARNARD_BUILTIN) is None
+    # not: a slow star at its own position, a spot 20" from the old position, a star without a motion
+    assert obj.moved_away(slow["ra"], slow["dec"], a, b, [slow], []) is None
+    assert obj.moved_away(269.4485 + 20 / 3600, 4.7394, a, b, [BARNARD_GAIA], []) is None
+    still = {**BARNARD_GAIA, "pmra": None, "pmdec": None}
+    assert obj.moved_away(269.4485, 4.7394, a, b, [still], []) is None
 
 
 def test_identify_follows_fast_stars():
@@ -315,8 +438,10 @@ def test_pick_detector_best_signal_unless_the_target_says_otherwise():
 
 def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_path, monkeypatch):
     asked = []
-    monkeypatch.setattr(known, "cone", lambda ra, dec, r, mjd, cache=None: asked.append(round(mjd, 4)) or
-                        [{"name": "(4) Vesta", "ra": 1.0, "dec": 2.0, "v": 7.1, "source": "skybot"}])
+    monkeypatch.setattr(known, "near", lambda ra, dec, r, mjds, epoch_ids=None, cache=None:
+                        asked.append([round(m, 4) for m in mjds]) or
+                        [{"name": "Vesta", "epoch_id": i, "ra": 1.0, "dec": 2.0, "v": 7.1, "source": "mpc"}
+                         for i in epoch_ids])
     rows = [sia_row("A1", 2, 60900.0), sia_row("A2", 2, 60910.0), sia_row("B1", 2, 61100.0), sia_row("B2", 2, 61104.0)]
     images = search.rows_to_images(rows)
     planned = blink.planned_epochs(images, 2, "months")
@@ -328,7 +453,7 @@ def test_known_is_asked_at_the_planned_times_and_again_when_an_epoch_moved(tmp_p
     epochs = [{"id": "d2-v1", "mjd_mid": 60905.0}, {"id": "d2-v2", "mjd_mid": 61100.0}]
     asked.clear()
     got = blink.reconcile_known(found, planned, epochs, 1.0, 2.0, 5, c)
-    assert asked == [61100.0]  # only the moved epoch is asked again
+    assert asked == [[61100.0]]  # only the moved epoch is asked again
     assert sorted(k["epoch_id"] for k in got) == ["d2-v1", "d2-v2"]
     # an epoch that was planned but not built drops its known objects
     assert [k["epoch_id"] for k in blink.reconcile_known(found, planned, epochs[:1], 1.0, 2.0, 5, c)] == ["d2-v1"]
@@ -368,7 +493,7 @@ def test_months_frames_partial_when_cutouts_are_late(world, monkeypatch):
     assert time.monotonic() - t < 1.4
     assert [e["n_exposures"] for e in fr.meta["epochs"]] == [2, 2]  # each visit's first and last
     assert fr.partial == ["2 of 6 cutouts not in time"]
-    assert len(fr.meta["gaia"]) > 0 and fr.meta["known"]  # Gaia and SkyBoT answered in time
+    assert len(fr.meta["gaia"]) > 0 and fr.meta["known"]  # Gaia and known objects answered in time
     full = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
     assert full.partial == [] and [e["n_exposures"] for e in full.meta["epochs"]] == [3, 3]
 
@@ -390,6 +515,41 @@ def test_object_with_a_budget_is_the_same_when_there_is_time(world):
     live = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], budget=b)
     full = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"])
     assert b.partial == [] and live == full
+
+
+def test_known_one_call_per_centre_and_failures_leave_epochs_empty(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_near(ra, dec, r, mjds, *, epoch_ids=None, cache=None):
+        calls.append((ra, dec, list(mjds), list(epoch_ids)))
+        if ra == 9.0:
+            raise ValueError("MJD outside the known index's range")
+        return [{"name": "Vesta", "epoch_id": i, "ra": ra, "dec": dec, "v": 7.1, "source": "mpc"} for i in epoch_ids]
+
+    monkeypatch.setattr(known, "near", fake_near)
+    epochs = [{"id": "a", "mjd_mid": 61000.0}, {"id": "b", "mjd_mid": 61000.1},
+              {"id": "c", "mjd_mid": 61000.2, "center": {"ra": 5.0, "dec": 6.0}},
+              {"id": "d", "mjd_mid": 61000.3, "center": {"ra": 9.0, "dec": 6.0}}]
+    got = blink.known_for_epochs(epochs, 1.0, 2.0, 20, Cache(str(tmp_path)))
+    assert calls == [(1.0, 2.0, [61000.0, 61000.1], ["a", "b"]), (5.0, 6.0, [61000.2], ["c"]),
+                     (9.0, 6.0, [61000.3], ["d"])]
+    assert [(k["epoch_id"], k["ra"]) for k in got] == [("a", 1.0), ("b", 1.0), ("c", 5.0)]  # d failed: empty
+    assert blink.known_for_epochs([], 1.0, 2.0, 20, Cache(str(tmp_path))) == []
+
+    # a live build: a time outside the index is final; a missing index makes the answer partial (not cached)
+    from skyshift_server.budget import Budget
+    from skyshift_server.errors import UpstreamError
+
+    b = Budget(30)
+    blink.known_for_epochs(epochs[3:], 1.0, 2.0, 20, Cache(str(tmp_path)), b)
+    assert b.partial == []
+
+    def missing(*a, **k):
+        raise UpstreamError("known-object index missing")
+
+    monkeypatch.setattr(known, "near", missing)
+    assert blink.known_for_epochs(epochs, 1.0, 2.0, 20, Cache(str(tmp_path)), b) == []
+    assert b.partial == ["known objects failed"]
 
 
 def test_spectrum_reason():
@@ -426,3 +586,40 @@ def test_measure_detectors_prefer_targets_json(tmp_path, monkeypatch):
     # no `dets`: obj.MEASURE_DETECTORS, else any detector
     assert by_slug["wise0855"]["dets"] is None and obj.measure_detectors(by_slug["wise0855"]) == (5, 6)
     assert obj.measure_detectors(by_slug["barnard"]) is None and obj.measure_detectors(None) is None
+
+
+def test_measured_layer_gets_the_photos_of_the_frames_and_never_fails_them(world, monkeypatch):
+    from skyshift_server import measured
+    from skyshift_server.budget import Budget
+
+    monkeypatch.setenv("SKYSHIFT_MEASURED", "1")
+    seen = []
+
+    def fake_load(ra, dec, r_deg, keys, **kw):
+        seen.append((ra, dec, r_deg, list(keys)))
+        return measured.Loaded(reason="not_processed")
+
+    monkeypatch.setattr(measured, "load", fake_load)
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], per_visit=None)
+    assert fr.meta["measured"] is None and fr.meta["measured_reason"] == "not_processed"
+    assert seen[0][3] == [f"2025W18_1B_{i:04d}_1D1" for i in range(6)]
+    assert fr.epoch_keys == {"d1-v1": [f"2025W18_1B_{i:04d}_1D1" for i in range(3)],
+                             "d1-v2": [f"2025W18_1B_{i:04d}_1D1" for i in range(3, 6)]}
+    hours = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"])
+    assert all(hours.epoch_keys[e["id"]] == [e["id"][3:] + "D1"] for e in hours.meta["epochs"])
+    # a failure (or a timeout) gives null + "unavailable" and a partial answer (not cached)
+    monkeypatch.setattr(measured, "load", lambda *a, **k: measured.Loaded(reason="unavailable", error=True))
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
+    assert fr.meta["measured"] is None and fr.meta["measured_reason"] == "unavailable"
+    assert fr.partial == ["measured layer unavailable"]
+
+    def boom(*a, **k):
+        raise RuntimeError("bucket on fire")
+
+    monkeypatch.setattr(measured, "load", boom)
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], budget=Budget(30))
+    assert fr.meta["measured_reason"] == "unavailable" and fr.meta["epochs"]
+    # off: no fields at all (read as "not computed")
+    monkeypatch.setenv("SKYSHIFT_MEASURED", "0")
+    fr = blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"])
+    assert "measured" not in fr.meta

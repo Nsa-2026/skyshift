@@ -9,16 +9,17 @@ Months clock: every exposure of one detector at the position, one median stack p
 Hours clock: single exposures of one detector in time order. A position has 50-80 exposures per
 detector over all visits, so the hours clock shows ONE visit: the one with the most exposures in
 that detector (the latest on a tie), at most HOURS_MAX_FRAMES frames (whole sessions from its
-start). `known` is asked from SkyBoT once per epoch (months: at the visit's mjd_mid, where it
-only tells which asteroids crossed the field around then; the median removes them), at the times
-the search gives, while the cutouts download (reconcile_known re-asks an epoch whose time moved).
+start). `known` comes from MPC orbits (known.near: one call per frame centre with all its epochs'
+times; months: at the visit's mjd_mid, where it only tells which asteroids crossed the field around
+then; the median removes them), at the times the search gives, while the cutouts download
+(reconcile_known re-asks an epoch whose time moved).
 The live months clock stacks at most LIVE_PER_VISIT exposures a visit, and the live hours clock
 shows at most LIVE_HOURS_FRAMES exposures (whole runs of a few sessions spread over the visit:
 pick_hours_live); precompute stacks all and keeps every hours frame (up to HOURS_MAX_FRAMES).
 
 Live builds carry a Budget (budget.py): cutouts are downloaded most useful first (months: every
 visit's first and last exposures before the ones between; hours: in time order), and what is not
-in by the deadline is left out. Gaia and SkyBoT are waited for until the deadline too.
+in by the deadline is left out. Gaia and known objects are waited for until the deadline too.
 Frames.partial says what was cut; the app does not cache a partial answer.
 """
 
@@ -34,7 +35,7 @@ from typing import Any, Literal
 import numpy as np
 from skyshift_core import Level2
 
-from . import cutouts, gaia, known, search, stack
+from . import cutouts, gaia, known, measured as measured_mod, search, stack
 from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import ApiError, NotFoundError, bad_request
@@ -49,10 +50,9 @@ HOURS_MAX_FRAMES = 48
 # visit 24-27 s, warm 0.5 s. scripts/precompute passes per_visit=None (full stacks).
 LIVE_PER_VISIT = 6
 FRAMES_RESERVE_S = 6.0  # of the budget, kept for stacking, encoding and storing the frames
-SIDE_RESERVE_S = 4.0  # Gaia and SkyBoT are waited for until this long before the deadline
+SIDE_RESERVE_S = 4.0  # Gaia and known objects are waited for until this long before the deadline
 
-_side = ThreadPoolExecutor(16, thread_name_prefix="side")  # Gaia cones and SkyBoT epoch lists
-_skybot = ThreadPoolExecutor(16, thread_name_prefix="skybot")  # single SkyBoT cones (leaves)
+_side = ThreadPoolExecutor(16, thread_name_prefix="side")  # Gaia cones and known objects
 # Live hours clock (GET /api/frames): at most this many exposures, at most LIVE_PER_SESSION from
 # each session, the sessions spread over the whole visit (pick_hours_live): three pairs 2 min
 # apart, at the visit's start, middle and end. At most MAX_IN_FLIGHT (8) cutouts, so one wave of downloads.
@@ -76,6 +76,8 @@ class Frames:
     meta: dict[str, Any]
     blobs: dict[str, bytes] = field(default_factory=dict)
     partial: list[str] = field(default_factory=list)  # why some data is missing (empty: complete)
+    # epoch id -> photo keys (<obs_id>D<det>) in that frame: the dot files of the measured layer
+    epoch_keys: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -92,6 +94,7 @@ class Stacked:
     um_min: float
     um_max: float
     mjd_median: float = float("nan")  # median MJD-AVG of the exposures in the stack
+    keys: list[str] = field(default_factory=list)  # <obs_id>D<det> of the exposures in the stack, by time
 
     @property
     def mjd_mid(self) -> float:
@@ -152,6 +155,7 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
     t_stack = time.monotonic()
     sky = grid.sky()
     by_visit: dict[int, list[tuple[Level2, stack.Resampled]]] = {}
+    keys: dict[int, list[tuple[float, str]]] = {}
     for im, l2 in zip(images, l2s):
         if l2 is None:
             continue
@@ -159,6 +163,7 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
         if not np.isfinite(rs.image).any():
             continue
         by_visit.setdefault(im.visit, []).append((l2, rs))
+        keys.setdefault(im.visit, []).append((l2.mjd_avg, im.key))
     out = []
     for v in sorted(by_visit):
         parts = by_visit[v]
@@ -169,7 +174,7 @@ def visit_stacks(images: list[Image], grid: stack.Grid, size_deg: float, cache: 
             mjd_start=min(mjds), mjd_end=max(mjds), n_exposures=len(parts), flag_frac=ff, sat_frac=sf,
             um_min=float(np.nanmin([rs.um_min for _, rs in parts])),
             um_max=float(np.nanmax([rs.um_max for _, rs in parts])),
-            mjd_median=float(np.median(mjds)),
+            mjd_median=float(np.median(mjds)), keys=[k for _, k in sorted(keys[v])],
         ))
     if budget is not None:
         budget.add("stack", time.monotonic() - t_stack)
@@ -302,40 +307,31 @@ def visit_epochs(stacks: list[Stacked], det: int, prefix: str) -> tuple[list[dic
 
 def known_for_epochs(epochs: list[dict], ra: float, dec: float, fov: float, cache: Cache,
                      budget: Budget | None = None) -> list[dict]:
-    """One SkyBoT cone per epoch (at its own centre if it has one). A SkyBoT failure leaves that
-    epoch without known objects and is logged; it never fails the frames. With a budget, epochs
-    SkyBoT has not answered by SIDE_RESERVE_S before the deadline are left out (budget marked
-    partial; those cones still finish into the cache)."""
+    """Known objects (MPC) for each epoch: one known.near call per frame centre (an epoch's own
+    `center` if it has one), with the mjd_mid of every epoch at that centre (0.2-2 s, no network once
+    the index is loaded). A failure leaves those epochs without known objects and is logged; it never
+    fails the frames. With a budget, a failure other than a time outside the index's range marks the
+    answer partial, so it is not cached and the next request tries again."""
     r = fov / 2.0 * 2**0.5
-
-    def one(ep: dict) -> list[dict]:
+    by_centre: dict[tuple[float, float], list[dict]] = {}
+    for ep in epochs:
         c = ep.get("center") or {"ra": ra, "dec": dec}
-        try:
-            found = known.cone(c["ra"], c["dec"], r, ep["mjd_mid"], cache=cache)
-        except ApiError as e:
-            log.warning("SkyBoT failed for %s: %s", ep["id"], e)
-            return []
-        return [{"name": k["name"], "epoch_id": ep["id"], "ra": k["ra"], "dec": k["dec"],
-                 "v": k["v"], "source": k["source"]} for k in found]
-
-    if not epochs:
-        return []
-    futs = [_skybot.submit(one, ep) for ep in epochs]
+        by_centre.setdefault((float(c["ra"]), float(c["dec"])), []).append(ep)
     out: list[dict] = []
-    missed = 0
-    for f in futs:
+    for (cra, cdec), eps in by_centre.items():
         try:
-            out += f.result(timeout=budget.until(SIDE_RESERVE_S) if budget is not None else None)
-        except FutureTimeout:
-            missed += 1
-    if missed and budget is not None:
-        budget.cut(f"SkyBoT not in time for {missed} epochs")
+            out += known.near(cra, cdec, r, [ep["mjd_mid"] for ep in eps], epoch_ids=[ep["id"] for ep in eps],
+                              cache=cache)
+        except Exception as e:  # noqa: BLE001 - index missing, time outside its range, kete
+            log.warning("known objects failed for %s: %r", [ep["id"] for ep in eps], e)
+            if budget is not None and not isinstance(e, ValueError):
+                budget.cut("known objects failed")
     return out
 
 
 def planned_epochs(images: list[Image], det: int, clock: str) -> list[dict]:
-    """The epochs build_frames expects, from the search times alone ({id, mjd_mid}), so SkyBoT
-    can be asked while the cutouts download. Search times are the middle of t_min and t_max,
+    """The epochs build_frames expects, from the search times alone ({id, mjd_mid}), so known
+    objects can be computed while the cutouts download. Search times are the middle of t_min and t_max,
     which is MJD-AVG to within a second."""
     if clock == "hours":
         return [{"id": f"d{det}-{im.obs_id}", "mjd_mid": im.mjd} for im in images]
@@ -385,13 +381,16 @@ def _timed(budget: Budget | None, name: str, fn, *a, **k):
 
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
-                 hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None) -> Frames:
+                 hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None,
+                 measured: bool = True) -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
     hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
     The live API uses the defaults; scripts/precompute passes None for both.
     budget: a live request's time budget (None: no limit). What did not fit is in Frames.partial;
-    BudgetError (503) if not one frame did."""
+    BudgetError (503) if not one frame did.
+    measured: add `measured` / `measured_reason` (measured.py; its tables and dot files are read while
+    the cutouts download). Precompute passes False and fills it once for its merged detectors."""
     _check(clock, fov, det)
     cache = cache or Cache()
     fov_i = int(round(fov))
@@ -404,17 +403,24 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     chosen = (pick_months_images(images, per_visit) if clock == "months"
               else pick_hours_live(images, hours_frames or 0))
     planned = planned_epochs(chosen, det, clock)
-    # Gaia and SkyBoT run while the cutouts download
+    # Gaia and known objects run while the cutouts download
     stars_f = _side.submit(_timed, budget, "gaia", gaia.cone, ra, dec, fov / 2.0 * 2**0.5, cache=cache)
     known_f = _side.submit(_timed, budget, "known", known_for_epochs, planned, ra, dec, fov, cache, budget)
+    measured_f = None
+    if measured and measured_mod.enabled():
+        r_deg = fov / 2.0 * 2**0.5 / 60.0 + 1.0 / 60.0
+        measured_f = _side.submit(_timed, budget, "measured", measured_mod.load, ra, dec, r_deg,
+                                  [im.key for im in chosen])
     if clock == "months":
         grid, _ = stack.grid_for(ra, dec, clock, fov)
         stacks = visit_stacks(chosen, grid, cutouts.tier_for_field(fov), cache,
                               budget=budget, reserve=FRAMES_RESERVE_S)
         epochs, blobs = visit_epochs(stacks, det, prefix)
+        epoch_keys = {f"d{det}-v{s.visit}": list(s.keys) for s in stacks}
     else:
         epochs, blobs, grid = exposure_epochs(chosen, ra, dec, fov, cache, prefix,
                                               budget=budget, reserve=FRAMES_RESERVE_S)
+        epoch_keys = {f"d{im.det}-{im.obs_id}": [im.key] for im in chosen}
     if not epochs:
         if budget is not None and budget.partial:
             raise BudgetError("the SPHEREx archive did not deliver one frame in time "
@@ -427,7 +433,7 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     except FutureTimeout:
         known_ = []
         if budget is not None:
-            budget.cut("SkyBoT not in time")
+            budget.cut("known objects not in time")
     try:
         stars = stars_f.result(timeout=budget.until(SIDE_RESERVE_S) if budget is not None else None)
     except FutureTimeout:
@@ -439,8 +445,27 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
         stars = []
         if budget is not None:
             budget.cut("Gaia failed")
-    return Frames(frames_meta(clock, grid, epochs, stars, known_, found.archive_checked), blobs,
-                  list(budget.partial) if budget is not None else [])
+    if found.note and budget is not None:  # photos not from IRSA (search_fallback.py): never cached
+        budget.cut(found.note)
+    meta = frames_meta(clock, grid, epochs, stars, known_, found.archive_checked)
+    epoch_keys = {e["id"]: epoch_keys.get(e["id"], []) for e in epochs}
+    if measured_f is not None:
+        add_measured(meta, measured_f, epoch_keys, budget)
+    return Frames(meta, blobs, list(budget.partial) if budget is not None else [], epoch_keys)
+
+
+def add_measured(meta: dict, loaded_f, epoch_keys: dict[str, list[str]], budget: Budget | None) -> None:
+    """meta["measured"], meta["measured_reason"] from measured.load's future. Never raises: a timeout
+    or a failure gives null and "unavailable", and with a budget marks the answer partial (not cached)."""
+    try:
+        loaded = loaded_f.result(timeout=budget.until(SIDE_RESERVE_S) if budget is not None else None)
+    except Exception as e:  # noqa: BLE001 - FutureTimeout, or anything load() did not catch
+        log.warning("measured layer not in time or failed: %r", e)
+        loaded = measured_mod.Loaded(reason="unavailable", error=True)
+    m, why = measured_mod.assemble(loaded, meta, epoch_keys)
+    meta["measured"], meta["measured_reason"] = m, why
+    if loaded.error and budget is not None:
+        budget.cut("measured layer unavailable")
 
 
 def build_object(ra: float, dec: float, *, cache: Cache | None = None, budget: Budget | None = None,

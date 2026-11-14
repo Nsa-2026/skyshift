@@ -4,6 +4,7 @@ Web tool for NASA Space Apps 2026 "Planet X and SPHEREx". Paste coordinates and 
 NASA's SPHEREx sky on two clocks: visits six months apart, and exposures inside a visit.
 Measure what moved and check it against Gaia and known asteroid positions.
 Plans: docs/skyshift-hackathon-plan.html (what and why) · docs/skyshift-dev-plan.html (how).
+To do: docs/TODO.md (open items by owner; tick or delete an item in the PR that fixes it).
 
 ## Areas and owners
 - core/                Shared science: visit rule, flag masks, detect, centroid, shift, photometry. P1.

@@ -19,9 +19,11 @@ import {
   isDetectedMotion,
   isUpperLimit,
   listDets,
+  measureReasonOf,
   measureSentence,
   measuredVisitCount,
   median,
+  missingVisitsSentence,
   noMeasureReason,
   paVector,
   paWord,
@@ -31,6 +33,7 @@ import {
   visitCountFromFrames,
   visitTimesFromFrames,
   visitTimesFromSpectrum,
+  visitsMissingFromSpectrum,
   visitsOf,
 } from "./format";
 import { describeVisit, lightCurveDets, renderLightCurve } from "./lightcurve";
@@ -61,7 +64,7 @@ interface Note {
   html: string;
 }
 
-export const mountCard: MountCard = (el) => {
+export const mountCard: MountCard = (el, opts = {}) => {
   const id = `cd${++uid}`;
   el.classList.add("cd");
   let shown: Shown | null = null;
@@ -205,10 +208,11 @@ export const mountCard: MountCard = (el) => {
     if (!m) {
       const kind = kindOf(s.view, object);
       const visits = visitCountFromFrames(s.frames, s.view, s.view.fov);
-      const why = noMeasureReason({ object, kind, visits, follows: framesFollow(s.frames) });
+      const why = noMeasureReason({ object, kind, visits, follows: framesFollow(s.frames), at: s.view });
       return html`<section class="cd-measure" aria-labelledby="${id}-m">
         <h3 class="visually-hidden" id="${id}-m">Shift between visits</h3>
-        <p class="cd-why">${why}</p>
+        <p class="cd-why">${esc(why)}</p>
+        ${movedAwayLink(s)}
         ${dl}${notesHtml(notes)}
       </section>`;
     }
@@ -229,6 +233,16 @@ export const mountCard: MountCard = (el) => {
       <p class="cd-says">${said}</p>
       ${dl}${notesHtml(notes)}
     </section>`;
+  }
+
+  /** "Open it where it is now": a star catalogued here that had moved away by SPHEREx's visits. */
+  function movedAwayLink(s: Shown): string {
+    const hint = s.object?.measure_hint ?? null;
+    if (measureReasonOf(s.object) !== "moved_away" || !hint || !Number.isFinite(hint.ra) || !Number.isFinite(hint.dec)) return "";
+    const v = s.view;
+    const q = new URLSearchParams({ ra: hint.ra.toFixed(5), dec: hint.dec.toFixed(5), clock: v.clock, fov: String(v.fov), det: String(v.det) });
+    // The sentence just above names the star; a button with a long Gaia id wouldn't fit a phone.
+    return html`<p><a class="btn btn-ghost cd-open" href="?${esc(q.toString())}#/explore" data-ra="${hint.ra}" data-dec="${hint.dec}">Open it where it is now</a></p>`;
   }
 
   /** A pencil arrow in the plate's orientation (north up, east left). */
@@ -273,6 +287,7 @@ export const mountCard: MountCard = (el) => {
     const um1 = Math.max(...sp.map((p) => p.um));
     const vText = visits.length === 1 ? "one visit" : `${visits.length} visits`;
     const satRef = object.measure && satQualifiesShift(object) ? "" : ref(notes, "sat");
+    const missing = missingHtml(sp);
     const toggle =
       visits.length > 1
         ? html`<div class="seg cd-seg" role="group" aria-label="Colour the spectrum by">
@@ -285,12 +300,19 @@ export const mountCard: MountCard = (el) => {
         <h3 class="cd-h" id="${id}-s">Spectrum</h3>
         ${toggle}
       </div>
-      <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}</p>
+      <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}${missing}</p>
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
+  }
+
+  /** " Visit 3, May 2026, is in the blink but not here: …", when the months blink has visits the spectrum (or one detector of it) lacks. */
+  function missingHtml(sp: SpectrumPoint[], det?: Det): string {
+    if (!shown) return "";
+    const said = missingVisitsSentence(visitsMissingFromSpectrum(shown.frames, shown.view, shown.view.fov, sp, det), det);
+    return said ? ` <span class="cd-missing">${esc(said)}</span>` : "";
   }
 
   /** Why the spectrum is empty, from the optional spectrum_reason (contracts/api.md v3; absent reads as null). */
@@ -361,7 +383,7 @@ export const mountCard: MountCard = (el) => {
             .join("")}
         </div>
       </div>
-      <p class="cd-cap">Median flux of each visit in D${lcDet}, ${r.min}–${r.max} µm, ±1σ. Faint dots are single exposures at different wavelengths: their spread is colour, not time.</p>
+      <p class="cd-cap">Median flux of each visit in D${lcDet}, ${r.min}–${r.max} µm, ±1σ. Faint dots are single exposures at different wavelengths: their spread is colour, not time.${missingHtml(object.spectrum, lcDet)}</p>
       <div class="cd-plot" data-chart="lightcurve">${chart.svg}</div>
       <p class="cd-readout" id="${id}-lro" aria-live="polite">Point at a visit to read its brightness.</p>
     </section>`;
@@ -419,6 +441,13 @@ export const mountCard: MountCard = (el) => {
 
   // ---- interaction ---------------------------------------------------------------------------
   function wire() {
+    el.querySelector<HTMLAnchorElement>(".cd-open")?.addEventListener("click", (ev) => {
+      // no app around it, or a new tab asked for: the link loads the page at the star
+      if (!opts.onExplore || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      const a = ev.currentTarget as HTMLAnchorElement;
+      opts.onExplore({ ra: Number(a.dataset.ra), dec: Number(a.dataset.dec) });
+    });
     el.querySelectorAll<HTMLButtonElement>(".cd-spec .cd-seg button").forEach((b) =>
       b.addEventListener("click", () => {
         const next = b.dataset.mode as SpectrumMode;

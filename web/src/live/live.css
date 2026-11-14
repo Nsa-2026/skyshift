@@ -2,6 +2,182 @@
    pencil on a glass sheet. Everything else is quiet ink, separated by space. Each state has a colour
    AND a pattern: queued empty, extracting / combining hatched blue, extracted dotted, combined solid
    red (darker with more suspects), failed crossed. */
+/* the stacked progress bar: combined solid dark, extracted hatched mid, not yet extracted dotted light;
+   a marker for what is expected by the run's end; a thin bar of the time gone towards the deadline */
+.lv-pbar {
+  position: relative;
+}
+.lv-pbar[data-proj] {
+  padding-bottom: 26px;
+}
+.lv-pbar-track {
+  display: flex;
+  height: 18px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.lv-seg,
+.lv-key {
+  display: block;
+  height: 100%;
+}
+.lv-seg-comb {
+  background: var(--ink);
+}
+.lv-seg-ext {
+  background: var(--ink-3) repeating-linear-gradient(-45deg, transparent 0 3px, rgba(248, 250, 249, 0.55) 3px 4.5px);
+}
+.lv-pbar-track,
+.lv-seg-rest {
+  background: var(--sheet) radial-gradient(circle, rgba(24, 32, 46, 0.28) 0.8px, transparent 1.1px) 0 0 / 5px 5px;
+}
+.lv-proj {
+  position: absolute;
+  top: -5px;
+  height: 28px;
+  width: 0;
+  border-left: 2px solid var(--pencil-red);
+  transform: translateX(-1px);
+}
+.lv-proj-label {
+  position: absolute;
+  top: 24px;
+  left: var(--x);
+  max-width: none;
+  white-space: nowrap;
+  color: var(--pencil-red);
+  font-size: var(--step--1);
+  font-weight: 600;
+  transform: translateX(-50%);
+}
+.lv-proj-label[data-side="start"] {
+  transform: translateX(-4px);
+}
+.lv-proj-label[data-side="end"] {
+  transform: translateX(calc(-100% + 4px));
+}
+/* On a phone the label is wider than the bar's free side: centred on the marker, its start
+   ("about 26%") went off the left edge. Print it under the bar instead. */
+@media (max-width: 720px) {
+  .lv-pbar[data-proj] {
+    padding-bottom: 0;
+  }
+  .lv-proj-label,
+  .lv-proj-label[data-side] {
+    position: static;
+    margin-top: 6px;
+    white-space: normal;
+    transform: none;
+  }
+}
+.lv-pkey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.lv-pkey li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lv-key {
+  width: 14px;
+  height: 11px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 1px;
+}
+.lv-tbar {
+  display: grid;
+  gap: 2px;
+}
+.lv-tbar-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sheet-2);
+  overflow: hidden;
+}
+.lv-tbar-track span {
+  display: block;
+  height: 100%;
+  background: var(--ink-2);
+}
+.lv-tbar .lv-note {
+  margin-top: 0;
+}
+.lv-honest {
+  max-width: 70ch;
+  font-size: var(--step-0);
+}
+
+/* the selected zone's suspects: small red marks on the map, a short list in the panel */
+/* after the WISE check: solid red with a light rim; provisional (Gaia only): hollow, dimmer rings */
+.lv-sus-marks circle {
+  fill: var(--pencil-red);
+  stroke: var(--sheet);
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.lv-sus-marks[data-provisional="1"] circle {
+  fill: var(--sheet);
+  fill-opacity: 0.55;
+  stroke: var(--pencil-red);
+  stroke-opacity: 0.7;
+  stroke-width: 1;
+}
+.lv-prov-note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-left: 3px solid var(--partial);
+  background: color-mix(in srgb, var(--partial) 8%, transparent);
+  color: var(--ink);
+  font-size: var(--step--1);
+  line-height: 1.5;
+}
+.lv-sus {
+  display: grid;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+}
+.lv-sus .lv-h {
+  margin: 0;
+}
+.lv-sus-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s2);
+}
+.lv-sus-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 var(--s3);
+}
+.lv-sus-pos {
+  font-size: var(--step--1);
+  font-weight: 550;
+}
+.lv-sus-meta {
+  grid-row: 2;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.lv-sus-blink {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  min-height: 30px;
+  padding: 0 var(--s3);
+}
+
 /* Desktop: what is happening (left) and the facts (right) over the map and its side column.
    Narrower: intro, then the map, then the facts. */
 .lv {
@@ -159,6 +335,9 @@
 }
 .lv-sw[data-state="queued"] .z-shape {
   fill: var(--sheet);
+}
+.lv-sw[data-state="queued"][data-deferred="1"] .z-shape {
+  fill: url(#lv-p-deferred);
 }
 
 /* counters, time, machines */
@@ -343,6 +522,9 @@
   stroke: var(--hair-strong);
   stroke-width: 0.6;
 }
+[data-state="queued"][data-deferred="1"] > .z-shape {
+  fill: url(#lv-p-deferred);
+}
 [data-state="extracting"] > .z-shape {
   fill: url(#lv-p-extracting);
 }
@@ -399,6 +581,10 @@
 .lv-pat-dot {
   fill: var(--ink);
   fill-opacity: 0.5;
+}
+.lv-pat-stipple {
+  fill: var(--ink-3);
+  fill-opacity: 0.45;
 }
 .z-text {
   fill: var(--ink);

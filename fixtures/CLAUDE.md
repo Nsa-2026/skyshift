@@ -11,6 +11,13 @@ Owner: P1. Small samples for tests, and for the front end until real endpoints e
                           D3, 48×48 at 6.15″/px. Frame data in frames/comet/*.bin.
   - object_barnard.json, gaia_barnard.json, known_comet.json,
     resolve_barnard.json, resolve_coords.json, validation.json, suspects.json.
+  - object_moved_away.json: /api/object at Barnard's Star's Gaia 2016 position, where nothing is
+    measured: `measure_reason` "moved_away" and `measure_hint` (contracts/api.md v3.2).
+  - candidates_sample.json: the exception, a REAL sample ("synthetic": false) of web/public/data/candidates.json,
+    written by the exporter (cd pipeline && uv run skyshift-candidates --fixture ../fixtures/api/candidates_sample.json):
+    the best few and the last of each kind per zone; counts are the full file's. It follows contracts/api.md.
+  - candidates.json: P3's older hand-made pilot sample (194 candidates, before `zones` and the stable high_pm ids);
+    web tests (src/discover, src/tools) are pinned to it, so it stays until P3 moves them to candidates_sample.json.
   - Frame files: raw little-endian uint16, north up, east left; value = raw × scale + zero (MJy/sr);
     data_url is relative to the JSON file.
 - fits/  Small real cutouts with IMAGE, FLAGS and WCS-WAVE, for core/ and pipeline/ tests (P1 adds them

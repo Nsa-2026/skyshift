@@ -13,12 +13,22 @@
   /* ink */
   --ink: #18202e;          /* text, negative stars */
   --ink-2: #4f5867;        /* secondary text */
-  --ink-3: #78818f;        /* axis labels, disabled (AA on --glass for ≥ 14px bold / large) */
+  --ink-3: #5f6876;        /* axis labels, captions, disabled: AA for small text (4.9:1 on --glass, 4.5:1 on --sheet-2) */
 
   /* grease pencil: meaning on the plate */
   --pencil-red: #cf2338;   /* the target, flagged dots, our measurement */
   --pencil-blue: #2556c8;  /* stars Gaia already knows */
   --pencil-violet: #7a3fc4;/* predicted positions of known asteroids and comets */
+  /* What SkyShift measured, by class (the blink's Measured marks). Each class also has its own
+     shape (src/blink/marks.ts), so colour is never the only cue. Checked for protan, deutan and
+     tritan vision: every pair stays apart except star/known, which differ by shape (single vs
+     double circle) as Gaia rings and known diamonds already do. */
+  --m-star: var(--pencil-blue);     /* matched to a Gaia star: thin circle */
+  --m-known: var(--pencil-violet);  /* a known asteroid or comet: double circle */
+  --m-mover: #a35f00;               /* paired like a mover, set aside by the checks: circle with side ticks */
+  --m-suspect: var(--pencil-red);   /* a mover nothing explains yet: thick circle and its grade */
+  --m-artifact: #7c848f;            /* not a real source: grey circle, struck through */
+  --m-other: #3f4857;               /* no Gaia match (galaxy, faint or red star, lone dot): dotted circle */
   --warn: #b4232f;         /* saturated cores, errors */
   --pass: #1f7a4d;         /* validation pass */
   --partial: #a35f00;      /* validation partial */

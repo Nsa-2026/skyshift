@@ -76,18 +76,18 @@ def parallax_factors(ra_deg, dec_deg, xyz_au) -> tuple[np.ndarray, np.ndarray]:
     return X * np.sin(a) - Y * np.cos(a), X * np.cos(a) * np.sin(d) + Y * np.sin(a) * np.sin(d) - Z * np.cos(d)
 
 
-def frame_offsets(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.ndarray, dec0: np.ndarray,
-                  s: np.ndarray, sid_u: np.ndarray, crossids: pd.DataFrame | None, xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Per-dot (east, north) offset of its photo against Gaia (0 where the photo has too few stars)."""
-    zero = np.zeros(len(d))
+def frame_refs(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.ndarray, dec0: np.ndarray,
+               s: np.ndarray, sid_u: np.ndarray, crossids: pd.DataFrame | None,
+               xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """(mask of the reference dots: quiet Gaia stars, their east and north residual against Gaia ″), or None."""
     if crossids is None or not len(crossids) or "gaia_ra" not in crossids:
-        return zero, zero, {"photos_corrected": 0}
+        return None
     x = crossids.set_index("source_id").reindex(sid_u)
     pm = np.hypot(x["gaia_pmra"].to_numpy(np.float64), x["gaia_pmdec"].to_numpy(np.float64))
     ref_src = np.isfinite(x["gaia_ra"].to_numpy(np.float64)) & (np.nan_to_num(pm, nan=np.inf) < C.ASTRO_FRAME_PM_MAX)
     m = ref_src[s]
     if not m.any():
-        return zero, zero, {"photos_corrected": 0}
+        return None
     xs = x.iloc[s[m]]
     ge, gn = tangent_offset_arcsec(ra0[s[m]], dec0[s[m]], xs["gaia_ra"].to_numpy(np.float64), xs["gaia_dec"].to_numpy(np.float64))
     dt = (d["mjd"].to_numpy(np.float64)[m] - xs["gaia_epoch_mjd"].to_numpy(np.float64)) / DAYS_PER_JYEAR
@@ -95,7 +95,29 @@ def frame_offsets(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.
     gn = gn + np.nan_to_num(xs["gaia_pmdec"].to_numpy(np.float64)) * dt / 1000.0
     pe, pn = parallax_factors(ra0[s[m]], dec0[s[m]], xyz[m])
     plx = np.nan_to_num(xs["gaia_parallax"].to_numpy(np.float64)) / 1000.0
-    re, rn = east[m] - (ge + plx * pe), north[m] - (gn + plx * pn)
+    return m, east[m] - (ge + plx * pe), north[m] - (gn + plx * pn)
+
+
+def frame_offsets(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.ndarray, dec0: np.ndarray,
+                  s: np.ndarray, sid_u: np.ndarray, crossids: pd.DataFrame | None, xyz: np.ndarray,
+                  offsets: pd.DataFrame | None = None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Per-dot (east, north) offset of its photo against Gaia (0 where the photo has too few stars).
+    offsets: per-photo offsets fitted elsewhere (photo_offsets over the whole zone, tiles.py), used as they are."""
+    zero = np.zeros(len(d))
+    if offsets is not None:
+        if not len(offsets) or not len(d):
+            return zero, zero, {"photos_corrected": 0}
+        o = offsets[offsets["good"].to_numpy(bool)]
+        key = pd.MultiIndex.from_arrays([o["obs_id"].astype(str), o["detector"].to_numpy(np.int64)])
+        pos = key.get_indexer(pd.MultiIndex.from_arrays([d["obs_id"].astype(str).to_numpy(), d["detector"].to_numpy(np.int64)]))
+        ok = pos >= 0
+        fe, fn = zero.copy(), zero.copy()
+        fe[ok], fn[ok] = o["oe"].to_numpy(np.float64)[pos[ok]], o["on"].to_numpy(np.float64)[pos[ok]]
+        return fe, fn, {"photos_corrected": int(len(o))}
+    refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz)
+    if refs is None:
+        return zero, zero, {"photos_corrected": 0}
+    m, re, rn = refs
     photo = d["photo"].to_numpy(np.int64)
     P = int(photo.max()) + 1 if len(photo) else 0
     ph = photo[m]
@@ -146,30 +168,74 @@ def _solve(s, N, w, t, east, north, Pe, Pn, use_plx):
     return par, cov
 
 
-def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = True) -> tuple[pd.DataFrame, dict]:
-    """Member dots (source_id, ra, dec, mjd, pos_err_arcsec, visit, photo, snr, x/y/z_sc_km) → one row per
-    fitted source (COLUMNS)."""
-    rel_col = "pos_err_rel_arcsec" if "pos_err_rel_arcsec" in d else "pos_err_arcsec"
-    pe_ = d[rel_col].to_numpy(np.float64)
+def _rel_col(d: pd.DataFrame) -> str:
+    """calib's epoch-to-epoch error when present (without each star's constant offset from Gaia), else pos_err."""
+    return "pos_err_rel_arcsec" if "pos_err_rel_arcsec" in d else "pos_err_arcsec"
+
+
+def _setup(d: pd.DataFrame):
+    """The usable dots and, per dot, its source's median position, tangent-plane offset and observer position."""
+    pe_ = d[_rel_col(d)].to_numpy(np.float64)
     ok = np.isfinite(pe_) & (pe_ > 0) & np.isfinite(d["mjd"].to_numpy(np.float64))
     d = d[ok]
     sid_u, s = np.unique(d["source_id"].to_numpy(np.int64), return_inverse=True)
     s = s.ravel()
     N = sid_u.size
-    n_dots = np.bincount(s, minlength=N)
     ra, dec = d["ra"].to_numpy(np.float64), d["dec"].to_numpy(np.float64)
     ra0 = group_median(s, ra, N)
     dec0 = group_median(s, dec, N)
-    mjd = d["mjd"].to_numpy(np.float64)
-    err = d[rel_col].to_numpy(np.float64)
-    const2 = np.maximum(d["pos_err_arcsec"].to_numpy(np.float64) ** 2 - err ** 2, 0.0)  # star-constant part (calib)
     east, north = tangent_offset_arcsec(ra0[s], dec0[s], ra, dec)
     sc = np.stack([d[c].to_numpy(np.float64) for c in ("x_sc_km", "y_sc_km", "z_sc_km")], axis=1) if "x_sc_km" in d else None
-    xyz = observer_xyz_au(mjd, sc)
+    xyz = observer_xyz_au(d["mjd"].to_numpy(np.float64), sc)
+    return d, sid_u, s, N, ra0, dec0, east, north, sc, xyz
+
+
+def frame_residuals(d: pd.DataFrame, crossids: pd.DataFrame | None) -> pd.DataFrame:
+    """The reference dots' residuals against Gaia (obs_id, detector, e, n ″), as frame_offsets measures them: tiles.py
+    collects them from every tile and takes the per-photo medians over the whole zone (photo_offsets)."""
+    d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
+    refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz)
+    if refs is None:
+        return pd.DataFrame({"obs_id": pd.Series(dtype=str), "detector": pd.Series(dtype=np.int8),
+                             "e": pd.Series(dtype=np.float64), "n": pd.Series(dtype=np.float64)})
+    m, re, rn = refs
+    ok = d["photo"].to_numpy(np.int64)[m] >= 0
+    return pd.DataFrame({"obs_id": d["obs_id"].astype(str).to_numpy()[m][ok], "detector": d["detector"].to_numpy(np.int8)[m][ok],
+                         "e": re[ok], "n": rn[ok]})
+
+
+def photo_offsets(res: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Per-photo median offset (oe, on ″) of frame_residuals rows, `good` with >= ASTRO_FRAME_MIN_STARS of them; and
+    frame_offsets' statistics."""
+    key = pd.MultiIndex.from_arrays([res["obs_id"].astype(str).to_numpy(), res["detector"].to_numpy(np.int64)])
+    code, uniq = pd.factorize(key)
+    P = len(uniq)
+    n_ref = np.bincount(code, minlength=P)
+    oe = group_median(code, res["e"].to_numpy(np.float64), P)
+    on = group_median(code, res["n"].to_numpy(np.float64), P)
+    good = (n_ref >= C.ASTRO_FRAME_MIN_STARS) & np.isfinite(oe) & np.isfinite(on)
+    out = pd.DataFrame({"obs_id": [k[0] for k in uniq], "detector": np.array([k[1] for k in uniq], np.int8),
+                        "oe": oe, "on": on, "n_ref": n_ref.astype(np.int32), "good": good})
+    off = np.hypot(oe[good], on[good])
+    st = {"photos_corrected": int(good.sum()), "frame_ref_dots": int(len(res)),
+          "frame_offset_median_arcsec": float(np.median(off)) if off.size else None,
+          "frame_offset_p90_arcsec": float(np.percentile(off, 90)) if off.size else None}
+    return out, st
+
+
+def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = True,
+        offsets: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
+    """Member dots (source_id, ra, dec, mjd, pos_err_arcsec, visit, photo, snr, x/y/z_sc_km) → one row per
+    fitted source (COLUMNS). offsets: per-photo frame offsets from photo_offsets (else measured on these dots)."""
+    d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
+    n_dots = np.bincount(s, minlength=N)
+    mjd = d["mjd"].to_numpy(np.float64)
+    err = d[_rel_col(d)].to_numpy(np.float64)
+    const2 = np.maximum(d["pos_err_arcsec"].to_numpy(np.float64) ** 2 - err ** 2, 0.0)  # star-constant part (calib)
     st: dict = {"spacecraft_position_dots": int(np.isfinite(sc).all(axis=1).sum()) if sc is not None else 0}
     corrected = np.zeros(N, bool)
     if frame:
-        fe, fn, fst = frame_offsets(d, east, north, ra0, dec0, s, sid_u, crossids, xyz)
+        fe, fn, fst = frame_offsets(d, east, north, ra0, dec0, s, sid_u, crossids, xyz, offsets)
         st.update(fst)
         east, north = east - fe, north - fn
         corrected = np.bincount(s, (fe != 0) | (fn != 0), N) > 0

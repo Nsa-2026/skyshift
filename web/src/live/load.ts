@@ -1,6 +1,7 @@
 // Where the Live search page gets the run's progress: one public JSON file in Cloud Storage, rewritten
 // every 2 min by the run (CORS * for GET, no-cache). VITE_SKYRUN_URL overrides it. Cross-origin, so a
 // plain GET without credentials. The source is pluggable: a Firestore document or a test can stand in.
+import type { Suspect, SuspectsResponse } from "../api/types";
 import { parseSkyrun, type SkyRun } from "./model";
 
 /** Fetch the raw progress JSON. */
@@ -47,6 +48,18 @@ export function httpSource(url: string = SKYRUN_URL, fetchFn: typeof fetch = (..
       throw new FeedError(`${url} didn't answer with JSON`, "not_connected", res.status);
     }
   };
+}
+
+/**
+ * One zone's suspects (suspects_url; the shape of SuspectsResponse in src/api/types.ts), brightest S/N first.
+ * Rows without a finite position are dropped. Throws FeedError when the file is missing or failing.
+ */
+export async function loadZoneSuspects(url: string, signal?: AbortSignal, fetchFn?: typeof fetch): Promise<Suspect[]> {
+  const raw = (await httpSource(url, fetchFn)(signal)) as Partial<SuspectsResponse> | null;
+  const rows = Array.isArray(raw?.suspects) ? raw!.suspects : [];
+  return rows
+    .filter((s): s is Suspect => !!s && Number.isFinite(s.ra) && Number.isFinite(s.dec))
+    .sort((a, b) => (Number(b.snr) || 0) - (Number(a.snr) || 0));
 }
 
 let defaultSource: SkyrunSource | null = null;

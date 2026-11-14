@@ -1,4 +1,4 @@
-"""Search grouping, Gaia and SkyBoT parsing (recorded samples), the FITS stream cut."""
+"""Search grouping, Gaia parsing (recorded samples), known objects from the MPC index, the FITS stream cut."""
 
 import io
 import json
@@ -7,10 +7,13 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
+from skyshift_core import known_index
+
 from skyshift_server import cutouts, gaia, known, search
 from skyshift_server.cache import Cache
+from skyshift_server.errors import ApiError, UpstreamError
 
-from conftest import DATA, sia_row
+from conftest import DATA, sia_row, tiny_index_npz
 
 
 def test_rows_to_images_dedup_detector_time_and_visits():
@@ -73,28 +76,58 @@ def test_gaia_nulls_stay_null():
     assert s["pmra"] is None and s["pmdec"] is None and s["parallax"] is None and s["g"] == 20.814
 
 
-def test_skybot_parse_recorded_sample(tmp_path, monkeypatch):
-    text = (DATA / "skybot_3i_atlas.txt").read_text()
-    found = known.parse_skybot_text(text)
-    assert len(found) == 6
-    comet = found[0]
-    assert comet["name"] == "3I/ATLAS" and comet["source"] == "skybot" and comet["v"] is None
-    assert comet["ra"] == pytest.approx(15 * (16 + 50 / 60 + 41.9539 / 3600), abs=1e-6)
-    assert comet["dec"] == pytest.approx(-(17 + 29 / 60 + 32.255 / 3600), abs=1e-6)
-    assert found[1] == {"name": "(565183) 2017 BR127", "ra": pytest.approx(252.703060, abs=1e-5),
-                        "dec": pytest.approx(-17.455155, abs=1e-5), "v": 22.1, "source": "skybot"}
-    assert found[3]["name"] == "2009 UP65"  # unnumbered
-
-    n = []
-    monkeypatch.setattr(known, "_skybot", lambda *a: n.append(a) or text)
+def test_mpc_index_is_read_once_from_the_cache(tmp_path, monkeypatch):
     c = Cache(str(tmp_path))
-    assert known.cone(252.6633, -17.4904, 7.0, 60888.334106, cache=c) == found
-    assert known.cone(252.6633, -17.4904, 7.0, 60888.334106, cache=c) == found
-    assert len(n) == 1 and n[0][2] == pytest.approx(420.0)
+    known.reset_index()
+    with pytest.raises(UpstreamError):  # not in the cache yet
+        known.mpc_index(c)
+    c.put(known.INDEX_KEY, tiny_index_npz())
+    gets = []
+    real_get = c.get
+    monkeypatch.setattr(c, "get", lambda key: gets.append(key) or real_get(key))
+    idx = known.mpc_index(c)
+    assert known.mpc_index(c) is idx and gets == [known.INDEX_KEY]
+    assert len(idx) == 3 and idx.name(2) == "C/2025 A1" and idx.meta["snapshot"] == "synthetic"
+    known.reset_index()
 
 
-def test_skybot_empty_answer():
-    assert known.parse_skybot_text("# Flag: 0\n# Ticket: 1\n# No solar system object was found\n") == []
+def test_known_cone_from_the_mpc_index(tmp_path, monkeypatch):
+    """The coarse cut runs for real on a tiny index; kete (the exact step) is replaced."""
+    c = Cache(str(tmp_path))
+    c.put(known.INDEX_KEY, tiny_index_npz())
+    known.reset_index()
+    seen = {}
+
+    def fake_exact(kete, idx, rows, ra, dec, radius_deg, mjds, observers=None):
+        seen.update(rows=[int(r) for r in rows], radius=radius_deg, mjds=list(mjds))
+        return [{"k": 0, "row": 2, "ra": ra + 0.01, "dec": dec, "v": None},     # the comet: no V, kept
+                {"k": 0, "row": 1, "ra": ra, "dec": dec + 0.001, "v": 15.2},     # nearest first
+                {"k": 0, "row": 0, "ra": ra, "dec": dec, "v": 22.5}]             # fainter than V 21: dropped
+
+    monkeypatch.setattr(known_index, "_kete", lambda: object())
+    monkeypatch.setattr(known_index, "exact", fake_exact)
+    got = known.cone(40.0, 10.0, 6.0, 61000.5, cache=c)
+    assert 2 in seen["rows"]  # comets always go to kete
+    assert seen["radius"] == pytest.approx(0.1) and seen["mjds"] == [61000.5]
+    assert got == [{"name": "(12345)", "epoch_id": None, "ra": 40.0, "dec": 10.001, "v": 15.2, "source": "mpc"},
+                   {"name": "C/2025 A1", "epoch_id": None, "ra": 40.01, "dec": 10.0, "v": None, "source": "mpc"}]
+    # several times at once carry their epoch ids
+    two = known.near(40.0, 10.0, 6.0, [61000.5, 61001.5], epoch_ids=["a", "b"], cache=c)
+    assert {k["epoch_id"] for k in two} == {"a"} and seen["mjds"] == [61000.5, 61001.5]
+    # outside the index's range: a bad request for /api/known, a ValueError for frames
+    with pytest.raises(ApiError) as e:
+        known.cone(40.0, 10.0, 6.0, 50000.0, cache=c)
+    assert e.value.status == 400
+    with pytest.raises(ValueError):
+        known.near(40.0, 10.0, 6.0, [50000.0], epoch_ids=["x"], cache=c)
+    known.reset_index()
+
+
+def test_known_warm_up_never_raises(tmp_path, monkeypatch):
+    known.reset_index()
+    known.warm_up(Cache(str(tmp_path)))  # no index in this cache: logged, not raised
+    monkeypatch.setenv("SKYSHIFT_KNOWN_WARMUP", "0")
+    assert known.warm_up_in_background(Cache(str(tmp_path))) is None
 
 
 def _fits_bytes() -> bytes:

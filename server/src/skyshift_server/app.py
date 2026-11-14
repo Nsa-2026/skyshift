@@ -10,7 +10,8 @@ Endpoints: /api/frames, /api/object, /api/gaia, /api/known, /api/resolve, /api/h
   example from fixtures/api/ ("synthetic": true), never cached, with `Cache-Control: no-store`.
 - Real responses are cached whole by request in `Cache` (SKYSHIFT_CACHE; gs://nasa-glazing-data/cache
   on Cloud Run): api/<endpoint>/<key>.json, and frames/<key>/frames.json + frames/<key>/<blob>.
-  Bump ENGINE_VERSION to invalidate everything after an engine change.
+  Bump ENGINE_VERSION to invalidate everything after an engine change. Frames and /api/known keys
+  also hold the known-object index's name (known.INDEX_KEY): a new MPC index means new entries.
 
 Live builds (frames, object) must answer inside Firebase Hosting's 60 s limit for rewrites:
 - Each build gets a Budget of LIVE_BUDGET_S (budget.py). What did not arrive in time is left out
@@ -48,6 +49,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import known as known_mod
+from . import measured as measured_mod
 from . import resolve as resolve_mod
 from .budget import Budget, BudgetError
 from .cache import Cache
@@ -57,6 +60,11 @@ log = logging.getLogger("skyshift.api")
 
 VERSION = "0.1.0"
 ENGINE_VERSION = "4"  # part of every cache key
+# Part of the /api/object key only. Answers cached before the measurement's detection guard
+# (core.measure_shift, 14 Nov) gave shifts for spots with nothing on them (RA 125.5, Dec 19.4:
+# "30.15" in 0.45 years", two noise peaks); a new rule must not serve them again. Frames keep theirs.
+# detect-guard-2 (contracts/api.md v3.2): answers carry measure_reason and measure_hint.
+OBJECT_RULE = "detect-guard-2"
 FOV_ALLOWED = {"months": (5.0, 15.0), "hours": (20.0, 60.0)}
 FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2
@@ -66,6 +74,7 @@ MJD_RANGE = (33282.0, 88069.0)  # 1900-2100
 CACHE_REAL = "public, max-age=3600"
 CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
 CACHE_NONE = "no-store"
+PARTIAL_HEADER = "X-SkyShift-Partial"
 
 # Firebase Hosting drops a rewrite to Cloud Run after 60 s; a cold instance takes ~6 s to start.
 LIVE_BUDGET_S = float(os.environ.get("SKYSHIFT_BUDGET_S", "40"))  # the engine's deadline
@@ -100,6 +109,11 @@ def warm_up() -> None:
 async def _lifespan(_: FastAPI):
     if os.environ.get("SKYSHIFT_WARM_UP", "1") != "0":
         warm_up()
+        known_mod.warm_up_in_background(get_cache())  # MPC index + kete, in a thread
+        from . import search, search_fallback
+
+        if search.fallback_enabled():  # photo lists, zone boxes, saved searches: for when IRSA fails
+            search_fallback.warm_up_in_background(get_cache())
     yield
 
 
@@ -295,8 +309,13 @@ def jsonable(x: Any) -> Any:
     return x
 
 
-def _json(content: Any, cache_control: str = CACHE_REAL) -> JSONResponse:
-    return JSONResponse(jsonable(content), headers={"Cache-Control": cache_control})
+def _json(content: Any, cache_control: str = CACHE_REAL, partial: list[str] | None = None) -> JSONResponse:
+    """partial: why a live answer is partial, sent as the X-SkyShift-Partial header (the contract has
+    no body field for it), e.g. "search from SkyShift's photo lists; IRSA unavailable"."""
+    headers = {"Cache-Control": cache_control}
+    if partial:
+        headers[PARTIAL_HEADER] = "; ".join(partial).encode("ascii", "replace").decode("ascii")[:500]
+    return JSONResponse(jsonable(content), headers=headers)
 
 
 def _fixture(name: str) -> dict[str, Any]:
@@ -377,14 +396,24 @@ async def frames(request: Request, ra: float, dec: float, fov: float | None = No
     if not 1 <= det <= 6:
         raise bad_request("det must be 1-6")
 
-    key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det)
+    key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY,
+               measured=measured_mod.VERSION)
     cached = await run_in_threadpool(_cache_get_json, f"frames/{key}/frames.json")
-    if cached is not None:
+    # a cached answer is rebuilt (its cutouts are cached) when a zone has since got results here
+    if cached is not None and not await run_in_threadpool(_measured_stale, cached):
         return _json(cached)
-    content, cache_control = await _shared(
+    content, cache_control, *why = await _shared(
         request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec})",
         lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget))
-    return _json(content, cache_control)
+    return _json(content, cache_control, why[0] if why else None)
+
+
+def _measured_stale(cached: dict) -> bool:
+    try:
+        return measured_mod.stale(cached)
+    except Exception:  # noqa: BLE001 - never fail a cached answer over this
+        log.exception("measured stale check failed")
+        return False
 
 
 def _build_frames(key: str, ra: float, dec: float, fov: float, clock: str, det: int,
@@ -420,7 +449,7 @@ def _build_frames(key: str, ra: float, dec: float, fov: float, clock: str, det: 
     # blobs first (in parallel): frames.json existing means all is there
     list(_puts.map(lambda kv: cache.put(f"frames/{data_key}/{kv[0]}", kv[1]), result.blobs.items()))
     if partial:
-        return meta, CACHE_NONE
+        return meta, CACHE_NONE, list(result.partial)
     _cache_put_json(f"frames/{key}/frames.json", meta)
     return meta, CACHE_REAL
 
@@ -455,13 +484,13 @@ def data(key: str, name: str) -> Response:
 @app.get("/api/object")
 async def object_(request: Request, ra: float, dec: float) -> JSONResponse:
     ra, dec = _check_pos(ra, dec)
-    key = f"api/object/{_key('object', ra=ra, dec=dec)}.json"
+    key = f"api/object/{_key('object', ra=ra, dec=dec, rule=OBJECT_RULE)}.json"
     cached = await run_in_threadpool(_cache_get_json, key)
     if cached is not None:
         return _json(cached)
-    content, cache_control = await _shared(request, key, f"object ({ra}, {dec})",
-                                           lambda budget: _build_object(key, ra, dec, budget))
-    return _json(content, cache_control)
+    content, cache_control, *why = await _shared(request, key, f"object ({ra}, {dec})",
+                                                 lambda budget: _build_object(key, ra, dec, budget))
+    return _json(content, cache_control, why[0] if why else None)
 
 
 def _build_object(key: str, ra: float, dec: float, budget: Budget) -> tuple[dict, str]:
@@ -475,7 +504,7 @@ def _build_object(key: str, ra: float, dec: float, budget: Budget) -> tuple[dict
     if result is _NOT_READY:
         return _fixture("object_barnard.json"), CACHE_NONE
     if budget.partial:
-        return jsonable(result), CACHE_NONE
+        return jsonable(result), CACHE_NONE, list(budget.partial)
     _cache_put_json(key, result)
     return jsonable(result), CACHE_REAL
 
@@ -504,7 +533,7 @@ def known(ra: float, dec: float, r: float, mjd: float) -> JSONResponse:
     if not MJD_RANGE[0] <= mjd <= MJD_RANGE[1]:
         raise bad_request("mjd must be between 33282 (1900) and 88069 (2100)")
     mjd = round(mjd, 6)
-    key = f"api/known/{_key('known', ra=ra, dec=dec, r=r, mjd=mjd)}.json"
+    key = f"api/known/{_key('known', ra=ra, dec=dec, r=r, mjd=mjd, known=known_mod.INDEX_KEY)}.json"
     cached = _cache_get_json(key)
     if cached is not None:
         return _json(cached)

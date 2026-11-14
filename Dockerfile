@@ -20,6 +20,15 @@ COPY server/pyproject.toml server/uv.lock server/
 COPY core/src core/src
 RUN cd server && uv sync --frozen --no-dev --no-install-project
 
+# kete (known asteroids and comets, server/known.py) downloads ~100 MB of SPICE kernels (DE440s,
+# Earth orientation, big asteroids, spacecraft) from NAIF, GitHub and JPL on first use: minutes on a
+# cold instance. Download them at build time into the image (kept in a layer that only changes with
+# the dependencies); the app user reads them after the chown below. Keep every file: kete
+# re-downloads any that is missing.
+ENV KETE_CACHE_DIR=/app/kete/
+RUN mkdir -p /app/kete && /app/server/.venv/bin/python -c "import kete; kete.spice.get_state('Earth', 2461000.5)" \
+    && ls -R /app/kete && test -f /app/kete/kernels/core/de440s.bsp
+
 # App code and the data files the app reads.
 COPY server/src server/src
 COPY fixtures/api fixtures/api

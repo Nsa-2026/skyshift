@@ -13,6 +13,8 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
      SIMULTANEOUS_PAIR_ARCSEC (the two footprints are offset ~71″ but see the same sky).
    Pairs chain into one candidate (an asteroid seen in 3–5 exposures).
 4. A candidate is a mover if the sessions whose footprints contain it number >= MOVER_MIN_COVER_SESSIONS.
+5. nonfixed_dots.parquet: every dot in no fixed group with elong <= MOVER_MAX_ELONG (near_fixed: within
+   FIXED_VETO_ARCSEC of one), where `tracklets` looks for a track's missed sightings.
 Sessions are the zone's time runs (photolist); visit labels are never used here.
 """
 
@@ -34,6 +36,9 @@ from .store import Store, dots_rel, photolist_rel, results_rel
 L = log.get("link")
 
 LOAD_COLUMNS = ["detector", "mjd", "ra", "dec", "flux_ujy", "snr", "flags", "flags_peak", "elong"]
+# carried into each mover's dot lists for the suspects' gates (vet.py); NaN where a dot file lacks them
+VET_LOAD_COLUMNS = ["x", "y", "a_arcsec", "b_arcsec", "psf_chi2_nu"]
+VET_COLUMNS = ["x", "y", "size", "psf_chi2_nu"]  # size = √(a_arcsec · b_arcsec)
 
 
 def load_dots(store: Store, photos: pd.DataFrame, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame, int]:
@@ -50,7 +55,10 @@ def load_dots(store: Store, photos: pd.DataFrame, zone: C.Zone, workers: int = 1
             df = store.read_parquet(dots_rel(r.obs_id, int(r.detector)))
         except FileNotFoundError:
             return None
-        df = df[[c for c in LOAD_COLUMNS if c in df.columns]]
+        df = df[[c for c in LOAD_COLUMNS + VET_LOAD_COLUMNS if c in df.columns]]
+        df = df.assign(size=np.sqrt(df["a_arcsec"] * df["b_arcsec"]).astype(np.float32)
+                       if "a_arcsec" in df and "b_arcsec" in df else np.float32(np.nan)).drop(
+            columns=["a_arcsec", "b_arcsec"], errors="ignore")
         # row position in the dot file as written (files are written once, never rewritten)
         df["dot_row"] = np.arange(len(df), dtype=np.int32)
         if "flags_peak" in df and len(df):
@@ -73,13 +81,13 @@ def load_dots(store: Store, photos: pd.DataFrame, zone: C.Zone, workers: int = 1
     if n_source_ignored:
         L.info("SOURCE bit ignored in %d photos (set at the peak of > %.0f%% of their dots)", n_source_ignored, 100 * C.SOURCE_PHOTO_MAX_FRAC)
     parts = [p for p in parts if p is not None and len(p)]
-    cols = [*LOAD_COLUMNS, "session", "visit", "photo", "exposure", "dot_row"]
+    cols = [*LOAD_COLUMNS, "session", "visit", "photo", "exposure", "dot_row", *VET_COLUMNS]
     if not parts:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols}), missing
     df = pd.concat(parts, ignore_index=True)
-    for c in ("flags_peak", "elong"):
+    for c in ("flags_peak", "elong", *VET_COLUMNS):
         if c not in df:
-            df[c] = 0 if c == "flags_peak" else np.nan
+            df[c] = 0 if c == "flags_peak" else np.float32(np.nan)
     return df[cols], missing
 
 
@@ -113,7 +121,8 @@ def fixed_groups(dots: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
                              for c in FIXED_COLUMNS}), np.zeros(0, np.int64)
     lab = fof_groups(dots["ra"].to_numpy(), dots["dec"].to_numpy(), C.FIXED_LINK_ARCSEC, C.FIXED_SNAP_ARCSEC)
     d = pd.DataFrame({"g": lab, "session": dots["session"].to_numpy(), "ra": dots["ra"].to_numpy(),
-                      "dec": dots["dec"].to_numpy(), "snr": dots["snr"].to_numpy(), "flux": dots["flux_ujy"].to_numpy()})
+                      "dec": dots["dec"].to_numpy(), "snr": dots["snr"].to_numpy(),
+                      "flux": dots["flux_ujy"].to_numpy(np.float64)})  # float64: pandas' median of float32 is float32 only sometimes
     agg = d.groupby("g").agg(n_sessions=("session", "nunique"), n_dots=("ra", "size"), ra=("ra", "median"),
                              dec=("dec", "median"), snr=("snr", "max"), flux_ujy=("flux", "median"))
     fixed = agg[agg["n_sessions"] >= C.FIXED_MIN_SESSIONS]
@@ -149,6 +158,50 @@ def members_table(dots: pd.DataFrame, dot_sid: np.ndarray, photos: pd.DataFrame)
     return out.sort_values(["source_id", "obs_id", "detector", "dot_row"]).reset_index(drop=True)
 
 
+FREEDOTS_NAME = "freedots.parquet"
+
+
+def freedots_table(free: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
+    """freedots.parquet: one row per free dot (not in or near a fixed source, elong <= MOVER_MAX_ELONG; the dots movers
+    are paired from): obs_id, detector, x, y (pixels in the photo), ra, dec. The suspects' hot-pixel and column maps."""
+    pos = photos.index.get_indexer(free["photo"].to_numpy()) if len(free) else np.zeros(0, np.int64)
+    obs = pd.Categorical(photos["obs_id"].astype(str))
+    out = pd.DataFrame({
+        "obs_id": pd.Categorical.from_codes(obs.codes[pos], obs.categories),
+        "detector": free["detector"].to_numpy().astype(np.int8),
+        "x": free["x"].to_numpy().astype(np.float32), "y": free["y"].to_numpy().astype(np.float32),
+        "ra": free["ra"].to_numpy(np.float64), "dec": free["dec"].to_numpy(np.float64),
+    })
+    return out.sort_values(["obs_id", "detector", "x", "y"], kind="stable").reset_index(drop=True)
+
+
+NONFIXED_DOTS_NAME = "nonfixed_dots.parquet"
+
+
+def nonfixed_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
+    """nonfixed_dots.parquet (for `tracklets`' recovery): every dot in no fixed group with elong <= MOVER_MAX_ELONG (the
+    mover dots included), `near_fixed` where within FIXED_VETO_ARCSEC of a fixed source; sorted by session, mjd, ra, dec."""
+    d = dots[dot_sid < 0]
+    elong = d["elong"].to_numpy(np.float64)
+    d = d[~(elong > C.MOVER_MAX_ELONG)]
+    near = np.zeros(len(d), bool)
+    if len(fixed) and len(d):
+        sep, _ = SkyTree(fixed["ra"].to_numpy(), fixed["dec"].to_numpy()).nearest(d["ra"].to_numpy(), d["dec"].to_numpy())
+        near = sep <= C.FIXED_VETO_ARCSEC
+    pos = photos.index.get_indexer(d["photo"].to_numpy())
+    obs = pd.Categorical(photos["obs_id"].astype(str))
+    out = pd.DataFrame({
+        "ra": d["ra"].to_numpy(np.float64), "dec": d["dec"].to_numpy(np.float64), "mjd": d["mjd"].to_numpy(np.float64),
+        "session": d["session"].to_numpy(np.int32), "visit": d["visit"].to_numpy(np.int16),
+        "obs_id": pd.Categorical.from_codes(obs.codes[pos], obs.categories) if len(d) else pd.Categorical([], obs.categories),
+        "detector": d["detector"].to_numpy(np.int8), "dot_row": d["dot_row"].to_numpy(np.int32),
+        "snr": d["snr"].to_numpy(np.float32), "flux_ujy": d["flux_ujy"].to_numpy(np.float32),
+        "flags": (d["flags"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
+        "flags_peak": (d["flags_peak"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
+        "elong": d["elong"].to_numpy(np.float32), "near_fixed": near})
+    return out.sort_values(["session", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
+
+
 def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Valid pairs (i, j) of dots in one session (row positions in d) and their kind
     (0 = two exposures, 1 = simultaneous detectors)."""
@@ -176,6 +229,22 @@ def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     simul = (exp[i] == exp[j]) & pair_ok & (sep <= C.SIMULTANEOUS_PAIR_ARCSEC)
     keep = two_exp | simul
     return pairs[keep], np.where(two_exp[keep], 0, 1).astype(np.int8)
+
+
+def _dot_lists(d: pd.DataFrame, m: np.ndarray, A: dict, fp: np.ndarray) -> dict:
+    """One mover's dots as lists (time order), for the suspects' gates: dot_exp (exposure codes; classify turns them
+    into dot_obs names), dot_det, dot_x, dot_y, dot_mjd, dot_flux, dot_snr, dot_size, dot_chi2, dot_fpk, dot_row."""
+    o = m[np.lexsort((A["ra"][m], A["detector"][m], A["mjd"][m]))]
+
+    def col(c, dt):
+        return d[c].to_numpy()[o].astype(dt) if c in d else np.full(o.size, np.nan, dt)
+
+    return {"dot_exp": A["exposure"][o].astype(np.int64), "dot_det": A["detector"][o].astype(np.int8),
+            "dot_x": col("x", np.float32), "dot_y": col("y", np.float32), "dot_mjd": A["mjd"][o].astype(np.float64),
+            "dot_flux": A["flux_ujy"][o].astype(np.float32), "dot_snr": A["snr"][o].astype(np.float32),
+            "dot_size": col("size", np.float32), "dot_chi2": col("psf_chi2_nu", np.float32),
+            "dot_fpk": (fp[o] & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
+            "dot_row": d["dot_row"].to_numpy()[o].astype(np.int32) if "dot_row" in d else np.full(o.size, -1, np.int32)}
 
 
 def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
@@ -209,16 +278,18 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
                 "evidence": "two_exposures" if len(exps) >= 2 else "two_detectors",
                 "snr": float(A["snr"][m].max()), "flux_ujy": float(np.median(A["flux_ujy"][m])),
                 "flags": int(np.bitwise_or.reduce(fl[m])), "flags_peak_all": int(np.bitwise_and.reduce(fp[m])),
-                "exposures": exps,
+                "exposures": exps, **_dot_lists(d, m, A, fp),
             })
     return pd.DataFrame(rows)
 
 
 def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprint] | None = None,
              exposure_names: list[str] | None = None,
-             fixed_result: tuple[pd.DataFrame, np.ndarray] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+             fixed_result: tuple[pd.DataFrame, np.ndarray] | None = None,
+             free_out: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """dots (already clipped to the zone) -> (fixed, movers, counts).
-    fixed_result: fixed_groups(dots) if already computed."""
+    fixed_result: fixed_groups(dots) if already computed. free_out: a dict that receives the free dots ("free": the
+    dots the movers are paired from, for the suspects' hot-pixel and column maps)."""
     st: dict = {"dots": int(len(dots))}
     fixed, dot_sid = fixed_result if fixed_result is not None else fixed_groups(dots)
     member = dot_sid >= 0
@@ -231,6 +302,8 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     elong = free["elong"].to_numpy(np.float64)
     free = free[~(elong > C.MOVER_MAX_ELONG)]
     st["dots_free"] = int(len(free))
+    if free_out is not None:
+        free_out["free"] = free
     cand = find_candidates(free)
     st["candidates"] = int(len(cand))
     if len(cand) == 0:
@@ -242,6 +315,7 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     st["dropped_under_covered"] = int(len(cand) - len(movers))
     names = exposure_names
     movers["obs_ids"] = [",".join(names[i] if names else str(i) for i in ex) for ex in movers.pop("exposures")]
+    movers["dot_obs"] = [[names[i] if names else str(i) for i in ex] for ex in movers.pop("dot_exp")]
     movers["cell"] = cell_of(movers["ra"].to_numpy(), movers["dec"].to_numpy())
     for c in ("flags", "flags_peak_all"):
         movers[c] = (movers[c].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32)
@@ -252,7 +326,9 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     return fixed, movers, st
 
 
-def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
+def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None) -> dict:
+    """keep: a dict that receives the zone's dots and their per-dot source_id (-1 = no fixed group); tiles.py
+    checks with them that its border was wide enough."""
     t0 = time.time()
     photos = store.read_parquet(photolist_rel(zone.name))
     dots, missing = load_dots(store, photos, zone, workers)
@@ -262,11 +338,25 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
         L.warning("link %s: %d photos are missing dot files; run `dots` first for a complete result", zone.name, missing)
     t1 = time.time()
     fixed_result = fixed_groups(dots)
-    fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result)
+    free_out: dict = {}
+    fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result,
+                                    free_out=free_out)
     members = members_table(dots, fixed_result[1], photos)
+    freedots = freedots_table(free_out.get("free", dots.iloc[:0]), photos)
+    if keep is not None:
+        keep.update(dots=dots, dot_sid=fixed_result[1])
     stats["fixed_member_dots"] = int(len(members))
+    try:  # tracklets' input; never worth failing link for
+        free = nonfixed_dots_table(dots, fixed_result[1], fixed, photos)
+        stats["nonfixed_dots_written"] = int(len(free))
+    except Exception as e:  # noqa: BLE001
+        L.exception("link %s: nonfixed_dots.parquet not written (tracklets will link without recovery)", zone.name)
+        free, stats["nonfixed_dots_error"] = None, repr(e)[:300]
     L.info("link %s: classified in %.0f s: %s", zone.name, time.time() - t1, stats)
     store.write_parquet(results_rel(zone.name, "fixed.parquet"), fixed)
     store.write_parquet(results_rel(zone.name, "members.parquet"), members)
     store.write_parquet(results_rel(zone.name, "movers.parquet"), movers)
+    store.write_parquet(results_rel(zone.name, FREEDOTS_NAME), freedots)
+    if free is not None:
+        store.write_parquet(results_rel(zone.name, NONFIXED_DOTS_NAME), free)
     return {**stats, "photos_missing_dots": int(missing), "wall_s": round(time.time() - t0, 1)}

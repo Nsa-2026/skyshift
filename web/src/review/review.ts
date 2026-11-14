@@ -2,6 +2,7 @@
 // back. A practice round on featured targets comes first, once per browser.
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
+import { SPHEREX_V_LIMIT } from "../blink/known";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
 import { Ballot } from "./ballot";
 import { candidateSet, preload, votes, type CandidateSet, type Votes } from "./data";
@@ -10,7 +11,7 @@ import { lastDiscoverHash, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, factsHtml, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
 import { PRACTICE, judge, markPracticeDone, practiceDone, practiceSummary, type PracticeResult } from "./practice";
-import { answerLabel, esc } from "./text";
+import { MOVER_CAUTION, answerLabel, esc } from "./text";
 
 const html = String.raw;
 const SESSION_KEY = "skyshift.review.session";
@@ -18,7 +19,7 @@ const SESSION_KEY = "skyshift.review.session";
 /** Pencil-mark legend: what the marks on the plate mean (DESIGN.md). */
 const LEGEND = html`<ul class="rq-legend" aria-label="Marks on the plate">
   <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3.5M8 11v3.5M1.5 8H5M11 8h3.5" stroke="var(--pencil-red)" stroke-width="1.6" stroke-linecap="round"/></svg>The spot to judge</li>
-  <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z" fill="none" stroke="var(--pencil-violet)" stroke-width="1.5"/></svg>Known asteroid, predicted</li>
+  <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z" fill="none" stroke="var(--pencil-violet)" stroke-width="1.5"/></svg>Known asteroid, predicted (V ${SPHEREX_V_LIMIT} or brighter)</li>
   <li><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="var(--pencil-blue)" stroke-width="1.3"/></svg>Star Gaia already knows</li>
 </ul>`;
 
@@ -230,7 +231,7 @@ export const mountReview: MountPage = (el) => {
       <h2 class="rq-card-title">You got ${s.right} of ${s.of}</h2>
       <p class="rv-why">${esc(s.line.replace(/^\d+ of \d+\. /, ""))}</p>
       ${recapHtml(results)}
-      <p class="rq-note">Real candidates have no answer key: the community's votes decide. When 5 people have voted and 70% agree, the candidate is settled. Short lessons with more examples are on <a href="#/learn">Learn</a>.</p>
+      <p class="rq-note">Real objects have no answer key, and most turn out to be detector artefacts: the community's votes decide. When 5 people have voted and 70% agree, the object is settled. Short lessons with more examples are on <a href="#/learn">Learn</a>.</p>
       <div class="rq-after"><button class="btn btn-primary" type="button" data-act="start">Start reviewing</button></div>
     `;
     ballotEl.innerHTML = "";
@@ -299,7 +300,7 @@ export const mountReview: MountPage = (el) => {
 
   function renderProgress() {
     const left = remaining();
-    progressEl.textContent = `${reviewed} reviewed this session. ${left} ${left === 1 ? "candidate needs" : "candidates need"} votes.`;
+    progressEl.textContent = `${reviewed} reviewed this session. ${left.toLocaleString("en-GB")} ${left === 1 ? "object to check needs" : "objects to check need"} votes.`;
   }
 
   function showItem() {
@@ -314,12 +315,13 @@ export const mountReview: MountPage = (el) => {
     counts = countsAll.get(c.id) ?? emptyCounts();
     plateReady = false;
     renderProgress();
-    const id = html`<a href="#/c/${encodeURIComponent(c.id)}">See every detail</a> of candidate <span class="rv-nowrap">${esc(c.id)}</span>.`;
+    const caution = c.kind === "mover" ? `${MOVER_CAUTION} ` : "";
+    const id = html`${caution}<a href="#/c/${encodeURIComponent(c.id)}">See every detail</a> of object <span class="rv-nowrap">${esc(c.id)}</span>.`;
     cardEl.innerHTML = html`${headHtml(c, "h2", "")}${motionHtml(c)}${factsHtml(c)}<p class="rv-id">${id}</p>`;
     ballot = new Ballot(ballotEl, {
       onVote: voteQueue,
       full: false,
-      after: html`<div class="rq-after"><button class="btn btn-primary" type="button" data-act="next">Next candidate</button><span class="rv-soft">or press Enter</span></div>`,
+      after: html`<div class="rq-after"><button class="btn btn-primary" type="button" data-act="next">Next object</button><span class="rv-soft">or press Enter</span></div>`,
     });
     movesEl.innerHTML = html`
       <div class="rq-buttons">
@@ -385,17 +387,17 @@ export const mountReview: MountPage = (el) => {
     renderProgressEnd();
     const skipped = skippedCount();
     endEl.innerHTML = html`
-      <h2 class="rq-end-title">You've seen every candidate in this set.</h2>
+      <h2 class="rq-end-title">You've seen every object in this set.</h2>
       <p class="rv-why">The hunt zone adds more soon.</p>
       <p class="rq-note">${
         reviewed
-          ? `You reviewed ${reviewed} this session. Thank you: every vote moves a candidate closer to a decision.`
+          ? `You reviewed ${reviewed} this session. Thank you: every vote moves an object closer to a decision.`
           : "Votes you cast here count toward the list for astronomers."
       }</p>
       <div class="rv-actions">
         ${skipped ? html`<button class="btn btn-primary" type="button" data-act="revisit">Go back to the ${skipped} you skipped</button>` : ""}
         <a class="btn ${skipped ? "btn-ghost" : "btn-primary"}" href="#/community">See what the community decided</a>
-        <a class="btn btn-ghost" href="${lastDiscoverHash()}">Browse all candidates</a>
+        <a class="btn btn-ghost" href="${lastDiscoverHash()}">Browse the whole list</a>
       </div>
     `;
     endEl.querySelector<HTMLElement>(".rq-end-title")!.tabIndex = -1;
@@ -420,7 +422,7 @@ export const mountReview: MountPage = (el) => {
     titleEl.textContent = "Review";
     progressEl.textContent = "";
     endEl.innerHTML = html`
-      <h2 class="rq-end-title">No candidates are published yet.</h2>
+      <h2 class="rq-end-title">No objects to check are published yet.</h2>
       <p class="rv-why">The pipeline's first list is on its way.</p>
       <p class="rq-note">Meanwhile, warm up on three plates where the answer is known, or blink a featured target yourself.</p>
       <div class="rv-actions">
