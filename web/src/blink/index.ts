@@ -127,7 +127,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
         <div class="bk-strip">
           <button class="btn btn-primary bk-play" type="button" aria-label="Play" aria-pressed="false">${icon.play}</button>
-          <div class="bk-axis" role="slider" tabindex="0" aria-label="Time">
+          <div class="bk-axis" role="slider" tabindex="0" aria-label="Time" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
             <div class="bk-track"></div>
             <div class="bk-tls"></div>
           </div>
@@ -796,7 +796,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
   // ---- UI sync -----------------------------------------------------------------------------
   function press(sel: string, attr: string, value: string) {
-    $$<HTMLButtonElement>(sel).forEach((b) => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === value)));
+    // Buttons only: the player's root also carries data-mode, and aria-pressed is invalid there.
+    $$<HTMLButtonElement>(`button${sel}`).forEach((b) => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === value)));
   }
 
   function renderRow() {
@@ -888,7 +889,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     strip.track.innerHTML = "";
     strip.labels.innerHTML = "";
     axis = null;
-    if (!frames.length || !view) return;
+    if (!frames.length || !view) return renderAxisState();
     axis = drawStrip(
       strip,
       frames.map((f) => f.epoch),
@@ -899,7 +900,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   function renderAxisState() {
-    if (!axis || !frames.length || !view) return;
+    if (!axis || !frames.length || !view) {
+      // A slider must always say where it is: nothing to step through yet (or here).
+      axisEl.setAttribute("aria-valuemin", "0");
+      axisEl.setAttribute("aria-valuemax", "0");
+      axisEl.setAttribute("aria-valuenow", "0");
+      axisEl.setAttribute("aria-valuetext", "No frames");
+      return;
+    }
     updateStrip(strip, {
       axis,
       epochs: frames.map((f) => f.epoch),
