@@ -23,10 +23,18 @@ export interface WhatNextOptions {
 }
 
 export interface WhatNextHandle {
-  /** New candidate or new vote counts (null = not loaded). */
-  update(c: AssistCandidate, votes?: Counts | null): void;
+  /**
+   * update(candidate, votes?): another candidate, or the same one with new counts (votes left out
+   * keeps the counts for the same candidate). update(votes): new counts for the current candidate
+   * (src/review passes its VotesSummary, which carries the four counts).
+   */
+  update(c: AssistCandidate | Counts | null, votes?: Counts | null): void;
   destroy(): void;
 }
+
+/** A candidate record, as opposed to vote counts. */
+const isCandidate = (x: unknown): x is AssistCandidate =>
+  !!x && typeof x === "object" && typeof (x as { id?: unknown }).id === "string" && typeof (x as { kind?: unknown }).kind === "string";
 
 const html = String.raw;
 type Block = "mpc" | "forum" | "cite";
@@ -227,6 +235,11 @@ export function mountWhatNext(el: HTMLElement, c: AssistCandidate, votes: Counts
   render();
   return {
     update(next, v) {
+      if (!isCandidate(next)) {
+        counts = countsOf(cand, next);
+        render();
+        return;
+      }
       const same = next.id === cand.id;
       if (!same) open.clear();
       cand = next;

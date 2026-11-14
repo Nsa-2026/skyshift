@@ -5,10 +5,11 @@
  * ```ts
  * import { mountChecklist, mountWhatNext, toCSV, toVOTable, toJSON } from "../assist";
  *
- * const check = mountChecklist(el, candidate, { details, onVote: () => votePanel.focus(), myVote });
- * check.update(candidate, { details: true });      // e.g. when the header's Details switch flips
- * const next = mountWhatNext(el2, candidate, counts); // counts: Counts from getVoteStore().countsFor, or null
- * next.update(candidate, newCounts);                // after a vote (window "skyshift:voted" event)
+ * const check = mountChecklist(el, candidate, { onVote: () => votePanel.focus(), myVote });
+ * // Details follows the header switch (src/prefs/details) by itself; or pin it: { details: true }.
+ * // A vote cast on the page (window "skyshift:voted") shows on step 6 by itself.
+ * const next = mountWhatNext(el2, candidate, counts); // counts: Counts (or src/review's VotesSummary), or null
+ * next.update(newCounts);                            // after a vote; next.update(otherCandidate, counts) to switch
  * check.destroy(); next.destroy();
  * ```
  *
@@ -22,15 +23,16 @@
  * Mount the six-step checklist for one candidate: status glyph and word, a one-sentence finding
  * with numbers and units, field-level details in professional mode, yes / no / can't tell replies
  * for the steps only a person can settle, and "How to check this yourself" disclosures.
- * Returns `{ update(c, opts?), destroy() }`.
+ * Follows the header's Details switch and votes cast on the page (window events
+ * "skyshift:details" and "skyshift:voted"). Returns `{ update(c, opts?), destroy() }`.
  */
-export { mountChecklist, type ChecklistHandle, type ChecklistOptions } from "./checklist";
+export { mountChecklist, VOTED_EVENT, type ChecklistHandle, type ChecklistOptions } from "./checklist";
 
 /**
  * Mount "What next": a draft MPC report (ADES PSV) for movers, a Backyard Worlds post draft for
  * moving stars, a citation (plain or BibTeX) and a permalink, each with Copy and Download.
  * `votes` are the candidate's counts (src/vote/model Counts) or null when not loaded; drafts open by
- * themselves once the community's consensus is "mover". Returns `{ update(c, votes?), destroy() }`.
+ * themselves once the community's consensus is "mover". Returns `{ update(c | votes, votes?), destroy() }`.
  */
 export { mountWhatNext, leadSentence, type WhatNextHandle, type WhatNextOptions } from "./whatnext";
 

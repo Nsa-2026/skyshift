@@ -3,19 +3,26 @@
 // is never the only cue. "Your check" steps take a yes / no / can't tell reply, kept per candidate
 // in this browser. Every step has a closed "How to check this yourself" disclosure.
 import "./assist.css";
-import { ANSWER_TEXT, type Answer, type KV } from "../vote/model";
+import { DETAILS_EVENT, getDetails } from "../prefs/details";
+import { ANSWER_TEXT, ANSWERS, type Answer, type KV } from "../vote/model";
 import { blinkHref, canReply, checklist, summarize, withReplies } from "./checks";
 import { raw } from "./format";
 import { REPLY_EVENT, loadReplies, saveReply } from "./replies";
 import type { AnsweredStep, AssistCandidate, Reply, StepId, StepStatus } from "./types";
 import { REPLY_TEXT, STATUS_TEXT } from "./words";
 
+/** src/vote/store VOTED_EVENT (not imported: the store pulls in the API client). */
+export const VOTED_EVENT = "skyshift:voted";
+
 export interface ChecklistOptions {
-  /** Professional mode: show field names and raw values under each finding. */
+  /** Professional mode: show field names and raw values under each finding. Default: the header's Details switch. */
   details?: boolean;
+  /** Follow the header's Details switch (window "skyshift:details") after mounting. Default true. */
+  followDetails?: boolean;
   /** Called by the "Vote on it" button of the last step. Without it the step only explains. */
   onVote?: () => void;
-  /** This browser's vote on the candidate, if any (src/vote store myVote). */
+  /** This browser's vote on the candidate, if any (src/vote store myVote). Votes cast on the page later
+   *  (window "skyshift:voted") are picked up by themselves. */
   myVote?: Answer | null;
   /** Link for "Open it in Blink"; null hides it. Default: the Explore page at the candidate. */
   blinkHref?: string | null;
@@ -53,7 +60,7 @@ let uid = 0;
 export function mountChecklist(el: HTMLElement, c: AssistCandidate, opts: ChecklistOptions = {}): ChecklistHandle {
   const id = `as${++uid}`;
   let cand = c;
-  let o: ChecklistOptions = { ...opts };
+  let o: ChecklistOptions = { ...opts, details: opts.details ?? getDetails() };
   const open = new Set<StepId>();
   const root = document.createElement("section");
   root.className = "as";
@@ -170,16 +177,39 @@ export function mountChecklist(el: HTMLElement, c: AssistCandidate, opts: Checkl
   };
   window.addEventListener(REPLY_EVENT, onReply);
 
+  const onDetails = (ev: Event) => {
+    if (o.followDetails === false) return;
+    const on = (ev as CustomEvent<{ on?: boolean }>).detail?.on;
+    const next = typeof on === "boolean" ? on : getDetails();
+    if (next === !!o.details) return;
+    o = { ...o, details: next };
+    render();
+  };
+  window.addEventListener(DETAILS_EVENT, onDetails);
+
+  const onVoted = (ev: Event) => {
+    const d = (ev as CustomEvent<{ candidateId?: string; answer?: string }>).detail;
+    if (!d || d.candidateId !== cand.id || !ANSWERS.includes(d.answer as Answer) || o.myVote === d.answer) return;
+    o = { ...o, myVote: d.answer as Answer };
+    render();
+  };
+  window.addEventListener(VOTED_EVENT, onVoted);
+
   render();
   return {
     update(next, more) {
-      if (next.id !== cand.id) open.clear();
+      if (next.id !== cand.id) {
+        open.clear();
+        if (!more || !("myVote" in more)) o = { ...o, myVote: null };
+      }
       cand = next;
       if (more) o = { ...o, ...more };
       render();
     },
     destroy() {
       window.removeEventListener(REPLY_EVENT, onReply);
+      window.removeEventListener(DETAILS_EVENT, onDetails);
+      window.removeEventListener(VOTED_EVENT, onVoted);
       root.remove();
     },
   };
