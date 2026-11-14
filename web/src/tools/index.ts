@@ -6,7 +6,7 @@ import "./tools.css";
 import "../prefs/details";
 import { ApiFailure, loadCandidates, loadFrames, loadSuspects, loadValidation } from "../api/client";
 import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationResponse } from "../api/types";
-import { mjdToDate } from "../app/astro";
+import { formatMjd } from "../app/astro";
 import type { MountPage, PageContext } from "../app/modules";
 import { TARGETS, featuredNear } from "../app/state";
 import { BATCH_LIMIT, type BatchResult, type BatchRow, batchCSV, blinkHref, decimalText, parseBatch, rowStatus, sexagesimal, skyHref } from "./batch";
@@ -43,7 +43,7 @@ import {
 } from "./export";
 
 export const SECTIONS = [
-  { id: "downloads", title: "Download candidates" },
+  { id: "downloads", title: "Download the list" },
   { id: "batch", title: "Batch coordinates" },
   { id: "api", title: "API" },
   { id: "cite", title: "Cite and acknowledge" },
@@ -77,8 +77,7 @@ export function formatWhen(iso: string | null | undefined): string {
   }) + (dateOnly ? "" : " UTC");
 }
 
-const fmtDay = (mjd: number) =>
-  mjdToDate(mjd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const fmtDay = (mjd: number) => formatMjd(mjd);
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
 
@@ -181,7 +180,7 @@ function pageHtml(base: string, lang: Lang): string {
   return `<div class="tl">
   <header class="tl-head">
     <h1 class="tl-title">Tools and data</h1>
-    <p class="tl-lede">For astronomers, teachers and developers: download the candidates, look up a list of positions, call the API, and cite the data.</p>
+    <p class="tl-lede">For astronomers, teachers and developers: download the objects to check, look up a list of positions, call the API, and cite the data.</p>
   </header>
   <nav class="tl-toc" aria-label="On this page">
     <ul>${SECTIONS.map((s) => `<li><a href="#/tools/${s.id}" data-jump="${s.id}">${esc(s.title)}</a></li>`).join("")}</ul>
@@ -189,8 +188,8 @@ function pageHtml(base: string, lang: Lang): string {
   <div class="tl-main">
 
   <section class="tl-sec" id="tl-downloads" aria-labelledby="tl-downloads-h">
-    <h2 id="tl-downloads-h" tabindex="-1">Download candidates</h2>
-    <p>Every candidate the pipeline put up for review. Positions in ICRS degrees, times in MJD (UTC), brightness in µJy, motions in ″/h (fast movers) or mas/yr (moving stars).</p>
+    <h2 id="tl-downloads-h" tabindex="-1">Download the list</h2>
+    <p>Every object the pipeline put up to check: things it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them. Positions in ICRS degrees, times in MJD (UTC), brightness in µJy, motions in ″/h (fast movers) or mas/yr (moving stars).</p>
     <div class="tl-dl" aria-live="polite"><p class="muted">Loading the list…</p></div>
     <details class="tl-more">
       <summary>Columns and units</summary>
@@ -328,7 +327,7 @@ export function zoneText(zones: string[] | null | undefined): string {
 
 function downloadsHtml(data: CandidatesResponse | null, kind: CandidateKind | "all", suspects: SuspectsResponse | null): string {
   if (!data) {
-    return `<p class="tl-empty">The candidate list isn't published yet. The pipeline writes it to /data/candidates.json; the downloads appear here once it does.${
+    return `<p class="tl-empty">The list of objects to check isn't published yet. The pipeline writes it to /data/candidates.json; the downloads appear here once it does.${
       suspects
         ? ` Until then, the pilot's ${plural(suspects.suspects.length, "unknown mover is", "unknown movers are")} in <a href="/data/suspects.json" download>suspects.json</a>.`
         : ""
@@ -338,14 +337,14 @@ function downloadsHtml(data: CandidatesResponse | null, kind: CandidateKind | "a
   const n = candidateSubset(data, "all").counts;
   const kinds = (Object.keys(KIND_NAMES) as CandidateKind[]).map((k) => {
     const c = n[k] ?? 0;
-    return `<button type="button" data-kind="${k}" aria-pressed="${kind === k}" ${c === 0 ? "disabled" : ""}>${esc(KIND_NAMES[k].many[0].toUpperCase() + KIND_NAMES[k].many.slice(1))} <span class="tl-count">${c}</span></button>`;
+    return `<button type="button" data-kind="${k}" aria-pressed="${kind === k}" ${c === 0 ? "disabled" : ""}>${esc(KIND_NAMES[k].many[0].toUpperCase() + KIND_NAMES[k].many.slice(1))} <span class="tl-count">${c.toLocaleString("en-GB")}</span></button>`;
   });
-  return `<p class="tl-sum">${plural(total, "candidate", "candidates")} from the ${esc(zoneText(data.zones))}: ${(Object.keys(KIND_NAMES) as CandidateKind[])
+  return `<p class="tl-sum">${plural(total, "object", "objects")} to check from the ${esc(zoneText(data.zones))}: ${(Object.keys(KIND_NAMES) as CandidateKind[])
     .map((k) => plural(n[k] ?? 0, KIND_NAMES[k].one, KIND_NAMES[k].many))
     .join(", ")}. Generated ${esc(formatWhen(data.generated))} from SPHEREx ${esc(data.data_release)}.</p>
     <div class="tl-choose">
-      <div class="seg tl-kinds" role="group" aria-label="Which candidates">
-        <button type="button" data-kind="all" aria-pressed="${kind === "all"}">All <span class="tl-count">${total}</span></button>
+      <div class="seg tl-kinds" role="group" aria-label="Which objects">
+        <button type="button" data-kind="all" aria-pressed="${kind === "all"}">All <span class="tl-count">${total.toLocaleString("en-GB")}</span></button>
         ${kinds.join("")}
       </div>
     </div>
@@ -361,7 +360,7 @@ function versionsHtml(c: CandidatesResponse | null, v: ValidationResponse | null
   const rows: string[] = [];
   rows.push(
     c
-      ? `<div><dt><a href="/data/candidates.json" download>candidates.json</a></dt><dd>${plural(c.candidates.length, "candidate", "candidates")} from the ${esc(zoneText(c.zones))}. SPHEREx ${esc(c.data_release)}. Generated ${esc(formatWhen(c.generated))}.${raw(c.generated)}</dd></div>`
+      ? `<div><dt><a href="/data/candidates.json" download>candidates.json</a></dt><dd>${plural(c.candidates.length, "object", "objects")} to check from the ${esc(zoneText(c.zones))}. SPHEREx ${esc(c.data_release)}. Generated ${esc(formatWhen(c.generated))}.${raw(c.generated)}</dd></div>`
       : `<div><dt>candidates.json</dt><dd>Not published yet.</dd></div>`,
   );
   if (v) {
@@ -497,7 +496,7 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (d.dataset.dl === "csv") saveFile(`${stem}.csv`, candidatesCSV(sub, base), "text/csv;charset=utf-8");
     if (d.dataset.dl === "json") saveFile(`${stem}.json`, candidatesJSON(sub), "application/json");
     if (d.dataset.dl === "vot") saveFile(`${stem}.vot`, candidatesVOTable(sub, base), "application/x-votable+xml");
-    announce(`Downloading ${plural(sub.candidates.length, "candidate", "candidates")}.`);
+    announce(`Downloading ${plural(sub.candidates.length, "object", "objects")}.`);
   });
 
   // ---- batch ----

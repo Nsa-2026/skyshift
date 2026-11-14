@@ -57,6 +57,20 @@
 .lv-proj-label[data-side="end"] {
   transform: translateX(calc(-100% + 4px));
 }
+/* On a phone the label is wider than the bar's free side: centred on the marker, its start
+   ("about 26%") went off the left edge. Print it under the bar instead. */
+@media (max-width: 720px) {
+  .lv-pbar[data-proj] {
+    padding-bottom: 0;
+  }
+  .lv-proj-label,
+  .lv-proj-label[data-side] {
+    position: static;
+    margin-top: 6px;
+    white-space: normal;
+    transform: none;
+  }
+}
 .lv-pkey {
   display: flex;
   flex-wrap: wrap;

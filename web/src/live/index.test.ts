@@ -52,11 +52,15 @@ describe("Live search page", () => {
     expect(seg("lv-seg-comb")).toBeCloseTo(sample.progress.combined_pct);
     expect(seg("lv-seg-ext")).toBeCloseTo(sample.progress.extracted_pct - sample.progress.combined_pct);
     const pg = sample.progress;
-    const [pc, pe, pq] = [pg.combined_pct, pg.extracted_pct - pg.combined_pct, 100 - pg.extracted_pct].map(Math.floor);
-    expect(el.querySelector(".lv-pkey")!.textContent).toMatch(new RegExp(`${pc}% combined.*${pe}% extracted, not yet combined.*${pq}% not yet extracted`));
+    const [pc, pe, pq] = [pg.combined_pct, pg.extracted_pct - pg.combined_pct, 100 - pg.extracted_pct].map((p) =>
+      (Math.floor(p * 10) / 10).toFixed(1).replace(".", "\\."),
+    );
+    expect(el.querySelector(".lv-pkey")!.textContent).toMatch(
+      new RegExp(`\\d+ zones? \\(${pc}%\\) combined.*\\(${pe}%\\) extracted, not yet combined.*\\(${pq}%\\) not yet extracted`),
+    );
     expect(el.querySelector<HTMLElement>(".lv-proj")!.style.left).toBe(`${Number(sample.progress.projected_extracted_pct.toFixed(2))}%`);
     expect(el.querySelector(".lv-proj-label")!.textContent).toMatch(/expected by .*\(05:00 UTC\)/);
-    expect(el.querySelector(".lv-tbar")!.textContent).toMatch(/28% of the time to the deadline at .*\(09:00 UTC\) has gone/);
+    expect(el.querySelector(".lv-tbar")!.textContent).toMatch(/28\.1% of the time to the deadline at .*\(09:00 UTC\) has gone/);
     expect(el.querySelector(".lv-honest")!.textContent).toMatch(/^333 zones is the plan for the whole ecliptic band; tonight's run reaches only part of it\./);
     // the 25 Galactic bulge zones: the run's note as written, and that tonight likely won't reach them
     expect(el.querySelector(".lv-deferred")!.textContent).toBe(`${sample.notes.deferred} The 25 likely won't be reached tonight.`);

@@ -77,7 +77,7 @@ describe("Tools page", () => {
     setup({ candidates: false });
     await flush();
     await flush();
-    expect(el.querySelector(".tl-dl")?.textContent).toContain("The candidate list isn't published yet");
+    expect(el.querySelector(".tl-dl")?.textContent).toContain("The list of objects to check isn't published yet");
     expect(el.querySelector("[data-dl]")).toBeNull();
     expect(el.querySelector(".tl-dl a[href='/data/suspects.json']")).not.toBeNull();
   });
@@ -86,7 +86,7 @@ describe("Tools page", () => {
     setup({ candidates: true });
     await flush();
     await flush();
-    expect(el.querySelector(".tl-sum")?.textContent).toContain("194 candidates from the pilot zone: 27 fast movers, 167 moving stars, 0 odd spectra");
+    expect(el.querySelector(".tl-sum")?.textContent).toContain("194 objects to check from the pilot zone: 27 fast movers, 167 moving stars, 0 odd spectra");
     expect(el.querySelector<HTMLButtonElement>('[data-kind="spectral"]')!.disabled).toBe(true);
     el.querySelector<HTMLButtonElement>('[data-kind="mover"]')!.click();
     expect(el.querySelector('[data-kind="mover"]')!.getAttribute("aria-pressed")).toBe("true");

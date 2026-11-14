@@ -16,7 +16,7 @@ import { kindIcon, renderCandidate, renderTarget, type DrawerHandle } from "./dr
 import { createFallbackMap } from "./fallback";
 import { parseState, sameState, stateHash, type AtlasState } from "./hash";
 import { binCandidates, rampLabels, rampSteps, zoneBoxes, type Cell, type ZoneBox } from "./heat";
-import { KINDS, KIND_TEXT, countSentence, isLikelyMismatch, oneLine, plural, shownSentence, zoneName } from "./kinds";
+import { KINDS, KIND_TEXT, LIST_NOTE, countSentence, isLikelyMismatch, oneLine, plural, shownSentence, zoneName } from "./kinds";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
@@ -62,12 +62,13 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   el.innerHTML = html`
     <div class="atl-intro">
       <h1 class="atl-lede" id="atl-title">
-        Every candidate our pipeline found in NASA's SPHEREx sky.
+        Everything our pipeline flagged in NASA's SPHEREx sky.
         <span class="atl-lede-2">Zoom into a red patch, click a signal, and help decide what it is.</span>
       </h1>
       <div class="atl-intro-side">
         <div class="atl-count-box">
-          <p class="atl-count" data-count aria-live="polite">Loading candidates…</p>
+          <p class="atl-count" data-count aria-live="polite">Loading the list…</p>
+          <p class="atl-count-note">${LIST_NOTE}</p>
           <a class="atl-live" href="#/live" data-live hidden></a>
         </div>
         <a class="btn btn-primary atl-start" href="#/review">Start reviewing</a>
@@ -84,7 +85,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
           <button type="button" data-frame="eq" aria-pressed="true" title="Right ascension and declination">Equatorial</button>
           <button type="button" data-frame="gal" aria-pressed="false" title="Galactic longitude and latitude: the Milky Way runs along the equator">Galactic</button>
         </div>
-        <div class="atl-kinds" role="group" aria-label="Kinds of candidate shown">
+        <div class="atl-kinds" role="group" aria-label="Kinds of object shown">
           ${KINDS.map(
             (k) => html`<button class="atl-kind" type="button" data-kind="${k}" aria-pressed="true" title="${KIND_TEXT[k].meaning}">
               ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="atl-kind-n" data-kind-n="${k}"></span>
@@ -126,7 +127,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <button class="atl-switch" type="button" data-layer="search" aria-pressed="true"
           title="The whole-sky run's zones along the ecliptic, shaded by how far tonight's search has got">Tonight's search</button>
         <button class="atl-switch" type="button" data-layer="provisional" aria-pressed="true"
-          title="Zoomed into a searched zone: its suspects so far, as dashed rings. Not candidates: the WISE check still has to remove most of them">Provisional suspects</button>
+          title="Zoomed into a searched zone: its suspects so far, as dashed rings. Not on the list to check yet: the WISE check still has to remove most of them">Provisional suspects</button>
       </div>
     </div>
     <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
@@ -165,7 +166,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     <div class="atl-below">
       <p class="atl-key" data-key></p>
       <div class="atl-listbox">
-        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle></button>
+        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle disabled>Signals in view</button>
         <ol class="atl-list" id="atl-list" data-list hidden></ol>
       </div>
       <p class="atl-source" data-source></p>
@@ -401,7 +402,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
     if (!data) return;
     if (data.origin === "none") {
-      countEl.textContent = "No candidates yet: the pipeline's list hasn't been published.";
+      countEl.textContent = "Nothing to check yet: the pipeline's list hasn't been published.";
       return;
     }
     countEl.textContent = `${countSentence(all.length, data.zones.length)}.`;
@@ -413,7 +414,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     sourceEl.textContent =
       data.origin === "sample"
         ? "Development preview: showing the pilot sample from fixtures, because /data/candidates.json isn't there yet. Background images: NASA/IPAC IRSA."
-        : `SPHEREx ${data.dataRelease ?? ""} candidates${date ? `, exported ${date}` : ""}. Background images: NASA/IPAC IRSA.`;
+        : `SPHEREx ${data.dataRelease ?? ""} objects to check${date ? `, exported ${date}` : ""}. Background images: NASA/IPAC IRSA.`;
   }
 
   function renderKey() {
@@ -430,8 +431,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
           return `<span class="atl-swatch" style="--a:${a.toFixed(3)}" aria-hidden="true"></span>${esc(labels[i])}`;
         })
         .join(" ");
-      keyEl.innerHTML = `Red cells: candidates per ${side >= 3 ? Math.round(side) : side.toFixed(1)}° cell, ${sw}. ${
-        layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones with candidates. ` : ""
+      keyEl.innerHTML = `Red cells: objects to check per ${side >= 3 ? Math.round(side) : side.toFixed(1)}° cell, ${sw}. ${
+        layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones with objects to check. ` : ""
       }${kindIcon("target", 16)} Featured targets.${searchKey()}`;
     } else {
       keyEl.innerHTML = `${KINDS.map((k) => `${kindIcon(k, 16)} ${KIND_TEXT[k].name}`).join(", ")}, ${kindIcon("target", 16)} featured target. A moving star's arrow shows where it will be in 100 years.${provisionalKey()}`;
@@ -453,14 +454,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     const note = !provisional.provisional ? "" : (search?.provisionalNote ?? "Checked against Gaia only; the WISE check in the final pass removes most of them.");
     return ` <span class="atl-key-group"><span class="atl-key-prov" aria-hidden="true"></span>Dashed rings: tonight's suspects in ${esc(zoneLabel(provisional.zone))}, ${
       provisional.provisional ? "provisional, before the WISE check" : "after the WISE check, not yet reviewed"
-    }. Not candidates. ${esc(note)}</span>`;
+    }. Not on the list to check yet. ${esc(note)}</span>`;
   }
 
   function renderStatus(v: MapView) {
     if (!data) return;
     const all = data.candidates.length;
     if (!all) {
-      statusEl.textContent = "No candidates to show yet.";
+      statusEl.textContent = "Nothing to show yet.";
       return;
     }
     if (level === "whole") {
@@ -469,14 +470,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       statusEl.textContent = `${shownSentence(shown.length, hidden, zones.length)} Zoom into a red patch.`;
     } else if (level === "mid") {
       const n = map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }).length : 0;
-      statusEl.textContent = n ? `${plural(n, "candidate", "candidates")} in view. Zoom in to see each one.` : "No candidates here. Zoom out to find a red patch.";
+      statusEl.textContent = n ? `${plural(n, "object", "objects")} to check in view. Zoom in to see each one.` : "Nothing to check here. Zoom out to find a red patch.";
     } else {
       const n = map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }).length : 0;
       const prov = provisionalSentence();
       statusEl.textContent = n
         ? `${plural(n, "signal", "signals")} in view. Click one to preview its blink.${prov}`
         : prov
-          ? `No candidates here.${prov}`
+          ? `Nothing to check here.${prov}`
           : "No signals here. Zoom out to find a red patch.";
     }
     void v;
@@ -508,10 +509,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       listEl.innerHTML = cells.length
         ? cells
             .map(
-              (c) => html`<li><button type="button" class="atl-list-item" data-cell="${c.pix}" data-order="${order}"><span class="atl-swatch" style="--a:0.6" aria-hidden="true"></span><span>${esc(plural(c.count, "candidate", "candidates"))}</span><span class="atl-list-pos">near ${esc(formatRaDec(c.center))}</span></button></li>`,
+              (c) => html`<li><button type="button" class="atl-list-item" data-cell="${c.pix}" data-order="${order}"><span class="atl-swatch" style="--a:0.6" aria-hidden="true"></span><span>${esc(plural(c.count, "object", "objects"))}</span><span class="atl-list-pos">near ${esc(formatRaDec(c.center))}</span></button></li>`,
             )
             .join("")
-        : `<li class="atl-list-more">No candidates of these kinds.</li>`;
+        : `<li class="atl-list-more">Nothing of these kinds.</li>`;
     }
   }
 
@@ -570,7 +571,13 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     selected = null;
     chain = new Set();
     if (had) map?.update(model());
-    if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+    // The list re-renders when the map flies to a signal, so the button that opened the drawer may
+    // be gone: fall back to its new copy, then the map, never to the page's top.
+    const back =
+      lastFocus && document.contains(lastFocus)
+        ? lastFocus
+        : ([...listEl.querySelectorAll<HTMLElement>("button[data-id]")].find((b) => had && b.dataset.id === had.id) ?? mapEl);
+    back.focus({ preventScroll: true });
     lastFocus = null;
   }
 
@@ -714,7 +721,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     showNote(null);
     msg(
       reason
-        ? `The globe can't open here (${reason}), so this is a flat map of the same candidates. Click a red cell to look closer.`
+        ? `The globe can't open here (${reason}), so this is a flat map of the same objects. Click a red cell to look closer.`
         : null,
     );
     el.querySelectorAll<HTMLButtonElement>("[data-proj], [data-bg], [data-neg]").forEach((b) => (b.disabled = true));
