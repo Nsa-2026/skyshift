@@ -455,7 +455,7 @@ export function routeQuery(paramOrHash: string | null | undefined): string {
   if (!paramOrHash) return "";
   let s = paramOrHash;
   if (s.startsWith("#")) {
-    const m = /^#\/?(?:(?:analyze\/)?candidates|discover)(?:[/?](.*))?$/.exec(s);
+    const m = /^#\/?(?:candidates|discover)(?:[/?](.*))?$/.exec(s);
     s = m ? m[1] ?? "" : "";
   }
   return s.replace(/^[/?]+/, "");
