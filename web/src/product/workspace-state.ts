@@ -17,7 +17,9 @@ export function workspaceState(param:string|null):WorkspaceState {
   const tabs = MODES[mode].tabs;
   return {mode,tab:tabs.find(t=>t[0] === tab)?.[0] ?? tabs[0]?.[0] ?? ''};
 }
+/** The Viewer's hash for a section (four screens, 15 Nov): sections are #/explore/<tab>. */
 export function workspaceHref(mode:WorkspaceMode,tab='') {
-  if(mode === 'explore' && tab === 'play') return '#/explore/play';
-  return `#/${mode}${mode !== 'explore' && tab ? `/${tab}` : ''}`;
+  if(mode === 'explore') return tab === 'play' ? '#/learn/practice' : '#/explore';
+  const tabs = MODES[mode].tabs;
+  return `#/explore/${tabs.find(t=>t[0] === tab)?.[0] ?? tabs[0][0]}`;
 }
