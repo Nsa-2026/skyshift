@@ -159,6 +159,70 @@ describe("filters and NASA's archive", () => {
     expect(noteText(el)).toMatch(/Waiting for the new spot/);
     expect($<HTMLCanvasElement>(el, ".flt-canvas").width).toBe(0);
   });
+
+  it("disabling filters cancels pending reads and slider work, and returns to the blink without taking focus", async () => {
+    const requests: AbortSignal[] = [];
+    mount((url, init) => {
+      requests.push(init.signal!);
+      return hang(url, init);
+    });
+    filters.goto(VIEW, null);
+    choose(el, "wave");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls).toBeGreaterThan(0);
+    const slider = $<HTMLInputElement>(el, ".flt-frame");
+    slider.value = "63";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    $<HTMLButtonElement>(el, ".flt-note [data-flt-back]").focus();
+    const addFocus = vi.spyOn($<HTMLButtonElement>(el, ".flt-add"), "focus");
+
+    filters.active(false);
+    expect(requests.every(signal => signal.aborted)).toBe(true);
+    expect($<HTMLElement>(el, ".flt-bar").hidden).toBe(true);
+    expect($<HTMLElement>(el, ".flt-layer").hidden).toBe(true);
+    expect($<HTMLElement>(el, ".flt-key").hidden).toBe(true);
+    expect($<HTMLElement>(el, ".flt-key").childElementCount).toBe(0);
+    expect($<HTMLElement>(el, ".flt-note").hidden).toBe(true);
+    expect(noteText(el)).toBe("");
+    expect($<HTMLElement>(el, ".flt-menu").hidden).toBe(true);
+    expect($<HTMLElement>(el, ".flt-wave").hidden).toBe(true);
+    expect($<HTMLCanvasElement>(el, ".flt-canvas").width).toBe(0);
+    expect($<HTMLElement>(el, ".flt-overlay").innerHTML).toBe("");
+    expect(el.querySelector(".bk")!.classList.contains("flt-on")).toBe(false);
+    expect(el.querySelector(".bk-col")!.classList.contains("has-flt")).toBe(false);
+    expect($<HTMLButtonElement>(el, ".bk-play").getAttribute("aria-pressed")).toBe("true");
+    expect($(el, "[data-flt-mode='none']").getAttribute("aria-pressed")).toBe("true");
+    expect(addFocus).not.toHaveBeenCalled();
+
+    const stoppedAt = calls;
+    // Loading a new view, the old slider timer, and hidden controls cannot restart a read.
+    filters.loading({ ...VIEW, ra: VIEW.ra + 1 });
+    filters.goto(VIEW, null);
+    choose(el, "cold");
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS + 13_000);
+    expect(calls).toBe(stoppedAt);
+    expect($<HTMLElement>(el, ".flt-note").hidden).toBe(true);
+
+    filters.active(true);
+    expect($<HTMLElement>(el, ".flt-bar").hidden).toBe(false);
+    expect($<HTMLButtonElement>(el, ".flt-add").textContent).toContain("Add filters");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls).toBe(stoppedAt); // availability alone downloads nothing
+    choose(el, "cold");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toBeGreaterThan(stoppedAt);
+  });
+
+  it("supports availability changes when the blink DOM is absent", () => {
+    el = document.createElement("div");
+    filters = mountFilters(el, bad502);
+    expect(() => {
+      filters.active(false);
+      filters.goto(VIEW, null);
+      filters.active(true);
+    }).not.toThrow();
+    expect(el.childElementCount).toBe(0);
+  });
 });
 
 describe("failure words", () => {

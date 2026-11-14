@@ -27,6 +27,7 @@ export function parseCoords(input: string): SkyPos | null {
     /^(\d+(?:\.\d*)?)h\s*(?:(\d+(?:\.\d*)?)m)?\s*(?:(\d+(?:\.\d*)?)s?)?\s+([+-]?)(\d+(?:\.\d*)?)(?:d|°)\s*(?:(\d+(?:\.\d*)?)(?:m|'|′))?\s*(?:(\d+(?:\.\d*)?)(?:s|"|″)?)?$/i,
   );
   if (letters) {
+    if ([letters[2], letters[3], letters[6], letters[7]].some(v => Number(v ?? 0) >= 60)) return null;
     const ra = sexa([Number(letters[1]), Number(letters[2] ?? 0), Number(letters[3] ?? 0)], false) * 15;
     const dec = sexa([Number(letters[5]), Number(letters[6] ?? 0), Number(letters[7] ?? 0)], letters[4] === "-");
     return valid({ ra, dec });
@@ -37,6 +38,7 @@ export function parseCoords(input: string): SkyPos | null {
   const spaced = s.match(/^(\d+) (\d+) (\d+(?:\.\d*)?) ([+-]?)(\d+) (\d+) (\d+(?:\.\d*)?)$/);
   const m = colon ?? spaced;
   if (m) {
+    if ([m[2], m[3], m[6], m[7]].some(v => Number(v ?? 0) >= 60)) return null;
     const ra = sexa([Number(m[1]), Number(m[2]), Number(m[3] ?? 0)], false) * 15;
     const dec = sexa([Number(m[5]), Number(m[6]), Number(m[7] ?? 0)], m[4] === "-");
     return valid({ ra, dec });

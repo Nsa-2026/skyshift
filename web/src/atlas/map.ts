@@ -17,7 +17,7 @@ export interface Layers {
   zones: boolean;
   signals: boolean;
   background: BackgroundId;
-  /** Plate negative (dark stars on light glass), the default; false shows the survey's own colours. */
+  /** True draws a plate negative; false shows the survey's own colours. */
   negative: boolean;
   /** Tonight's search: the run's zones by state, far out. */
   search: boolean;

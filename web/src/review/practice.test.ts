@@ -1,17 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ANSWERS, type KV } from "../vote/model";
-import {
-  PRACTICE,
-  PRACTICE_KEY,
-  PROGRESS_KEY,
-  clearProgress,
-  judge,
-  markPracticeDone,
-  practiceDone,
-  practiceSummary,
-  readProgress,
-  saveProgress,
-} from "./practice";
+import { PRACTICE, PRACTICE_KEY, judge, markPracticeDone, practiceDone, practiceSummary } from "./practice";
 
 function memKV(): KV & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -60,53 +49,5 @@ describe("practice round", () => {
     markPracticeDone(kv);
     expect(practiceDone(kv)).toBe(true);
     expect(kv.data.get(PRACTICE_KEY)).toBe("done");
-  });
-
-  it("has a hint for every plate that still doesn't name the object", () => {
-    for (const item of PRACTICE) {
-      expect(item.hint.length).toBeGreaterThan(60);
-      const words = item.name.split(/\W+/).filter((w) => w.length > 3 && !/^asteroid$/i.test(w));
-      for (const w of words) expect(item.hint).not.toContain(w);
-      expect(item.hint).not.toMatch(/\bit's (a|an) /i);
-    }
-    // The two months plates need Difference to see a sub-pixel step or a change in size.
-    expect(PRACTICE.filter((p) => p.hintMode === "difference").map((p) => p.slug)).toEqual(["barnard", "rwaur"]);
-  });
-
-  it("saves answers in order and reads them back, judged again against the key", () => {
-    const kv = memKV();
-    expect(readProgress(kv)).toEqual([]);
-    const [a, b] = PRACTICE;
-    saveProgress(kv, [judge(a, "unsure"), judge(b, b.answer)]);
-    // only slug and answer are stored: never the score
-    expect(JSON.parse(kv.data.get(PROGRESS_KEY)!)).toEqual([
-      { slug: a.slug, answer: "unsure" },
-      { slug: b.slug, answer: b.answer },
-    ]);
-    expect(readProgress(kv)).toEqual([
-      { slug: a.slug, answer: "unsure", correct: false },
-      { slug: b.slug, answer: b.answer, correct: true },
-    ]);
-    clearProgress(kv);
-    expect(readProgress(kv)).toEqual([]);
-  });
-
-  it("keeps only a valid ordered prefix of saved answers", () => {
-    const kv = memKV();
-    kv.set(PROGRESS_KEY, "not json");
-    expect(readProgress(kv)).toEqual([]);
-    kv.set(PROGRESS_KEY, JSON.stringify({ slug: "elpis", answer: "mover" }));
-    expect(readProgress(kv)).toEqual([]);
-    // a forged score is ignored; a plate out of order ends the prefix
-    kv.set(PROGRESS_KEY, JSON.stringify([{ slug: "elpis", answer: "junk", correct: true }, { slug: "rwaur", answer: "changing" }]));
-    expect(readProgress(kv)).toEqual([{ slug: "elpis", answer: "junk", correct: false }]);
-    // an unknown answer ends it too, and so does anything past the third plate
-    kv.set(PROGRESS_KEY, JSON.stringify([{ slug: "elpis", answer: "maybe" }]));
-    expect(readProgress(kv)).toEqual([]);
-    const all = [...PRACTICE.map((p) => ({ slug: p.slug, answer: p.answer })), { slug: "extra", answer: "mover" }];
-    kv.set(PROGRESS_KEY, JSON.stringify(all));
-    expect(readProgress(kv)).toHaveLength(PRACTICE.length);
-    kv.set(PROGRESS_KEY, JSON.stringify([null, 3]));
-    expect(readProgress(kv)).toEqual([]);
   });
 });

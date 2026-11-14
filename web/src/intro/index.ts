@@ -1,39 +1,65 @@
-// The opening's entry point: decide whether it plays (rules.ts), add "Replay intro" to the
-// footer, and show the overlay. It plays every time someone opens the home page, over the Sky
-// map, which keeps loading underneath; Skip, Escape, scrolling to the end or the still card's
-// own scroll all land on the map. It is in the main bundle on purpose: loaded on demand, the
-// Sky page flashed up before the overlay covered it.
+// The opening's entry point, the only part in the main bundle: decide whether it plays (rules.ts),
+// add "Replay intro" to the footer, and load the overlay itself only when it is shown.
 import "./replay.css";
-import { playOpening, type OpeningHandle, type OpeningOptions } from "./opening";
-import { browserEnv, openingMode, prefersReducedMotion, type OpeningEnv } from "./rules";
+import { browserEnv, claimOpening, isOpeningPreview, type OpeningEnv } from "./rules";
+import type { OpeningOptions } from "./opening";
 
-type Play = typeof playOpening;
+type Loader = () => Promise<typeof import("./opening")>;
+const loadOpening: Loader = () => import("./opening");
 
-let current: OpeningHandle | null = null;
+let playing = false;
 
-/** Show the opening over `app`, unless one is already up. */
-export function showOpening(app: HTMLElement, opts: OpeningOptions = {}, play: Play = playOpening): OpeningHandle | null {
-  if (current) return null;
-  current = play(app, {
-    ...opts,
-    onClose(reason) {
-      current = null;
-      opts.onClose?.(reason);
-    },
-  });
-  return current;
+/** Play the opening over `app` (no-op while one is already up). Resolves once it is on screen. */
+export async function playOpeningLater(
+  app: HTMLElement,
+  opts: OpeningOptions & { auto?: boolean } = {},
+  load: Loader = loadOpening,
+): Promise<boolean> {
+  if (playing) return false;
+  playing = true;
+  // A first visit or replay may navigate while the module loads (a nav link, Back):
+  // then it stays away rather than opening over the newly selected page.
+  // Only real navigations count: the Sky page writes its view with replaceState, which fires no
+  // hashchange, and that must not cancel the opening.
+  let navigated = false;
+  const onHash = () => (navigated = true);
+  addEventListener("hashchange", onHash);
+  try {
+    const { playOpening } = await load();
+    if (navigated || !app.isConnected) {
+      playing = false;
+      return false;
+    }
+    playOpening(app, {
+      ...opts,
+      onClose(reason) {
+        playing = false;
+        opts.onClose?.(reason);
+      },
+    });
+    return true;
+  } catch {
+    // The chunk didn't load (offline, a new deploy): the site simply shows without it.
+    playing = false;
+    return false;
+  } finally {
+    removeEventListener("hashchange", onHash);
+  }
 }
 
-/** Where the keyboard lands after the opening on the home page: the Sky map, when it is showing. */
-export function skyMap(app: HTMLElement): HTMLElement | null {
-  return app.querySelector<HTMLElement>("main:not([hidden]) [data-map]");
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return true;
+  }
 }
 
 /**
- * Mount the opening: a "Replay intro" button in the footer, and the opening itself when this is
- * the home page (rules.ts). Returns whether it is showing now.
+ * Mount the opening: a "Replay intro" button in the footer, and the opening itself on a
+ * first visit to the bare home URL. Returns whether it is starting now.
  */
-export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), play: Play = playOpening): boolean {
+export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), load: Loader = loadOpening): boolean {
   const links = app.querySelector(".foot-links");
   if (links) {
     const replay = document.createElement("button");
@@ -41,11 +67,12 @@ export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), p
     replay.className = "foot-replay";
     replay.textContent = "Replay intro";
     replay.addEventListener("click", () => {
-      showOpening(app, { still: prefersReducedMotion(), returnFocus: () => replay }, play);
+      void playOpeningLater(app, { still: prefersReducedMotion(), returnFocus: replay }, load);
     });
     links.append(" ", replay);
   }
-  const mode = openingMode(env);
-  if (!mode) return false;
-  return !!showOpening(app, { still: mode === "still", returnFocus: () => skyMap(app) }, play);
+  const preview = isOpeningPreview(env.hash, env.search);
+  const show = preview || claimOpening(env);
+  if (show) void playOpeningLater(app, { auto: true, still: preview && env.reducedMotion }, load);
+  return show;
 }

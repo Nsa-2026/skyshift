@@ -1,44 +1,63 @@
-// When the opening plays: every time someone opens the home page itself. Never for a deep link
-// (a route in the hash, ?t=, ?ra=&dec= or any other query) and never in an embed. With reduced
-// motion it is a still title card instead of the scroll journey; Skip works the same.
+// When the opening plays. It must never get in the way: once per browser, on the bare home
+// URL only, never for a deep link or an embed, never with reduced motion, and never when
+// storage can't remember that it has played.
 
-/** Tags that links pick up on the way (social posts, newsletters): they don't make a deep link. */
-const TRACKING = /^(utm_\w+|fbclid|gclid|msclkid)$/i;
+export const SEEN_KEY = "skyshift.opening.v1";
+
+/** The part of Storage the rules use (localStorage in the browser, a fake in tests). */
+export interface SeenStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
 
 export interface OpeningEnv {
   hash: string;
   search: string;
   reducedMotion: boolean;
+  /** Returns the store, or throws when the browser denies storage. */
+  store(): SeenStore | null;
 }
 
-/** The bare home URL: no route in the hash, no query beyond tracking tags. */
+/** The bare home URL: no query (deep links, embeds) and no route beyond the home itself. */
 export function isBareHome(hash: string, search: string): boolean {
-  if (hash !== "" && hash !== "#" && hash !== "#/") return false;
-  for (const key of new URLSearchParams(search).keys()) if (!TRACKING.test(key)) return false;
-  return true;
+  return (search === "" || search === "?") && (hash === "" || hash === "#" || hash === "#/");
 }
 
-export type OpeningMode = "play" | "still";
-
-/** How the opening shows for this URL, or null when it stays away. */
-export function openingMode(env: OpeningEnv): OpeningMode | null {
-  if (!isBareHome(env.hash, env.search)) return null;
-  return env.reducedMotion ? "still" : "play";
+/** Explicit local-review/replay link. Observation links retain their normal entry. */
+export function isOpeningPreview(hash: string, search: string): boolean {
+  const query = new URLSearchParams(search);
+  return query.get('intro') === '1' && [...query.keys()].every(key => key === 'intro') &&
+    (isBareHome(hash, '') || hash === '#/sky' || hash.startsWith('#/sky/'));
 }
 
-export function prefersReducedMotion(): boolean {
+/**
+ * True when the opening should play now. It also records the play, so a reload or a second
+ * tab never shows it again. Any storage error means "don't show": better to skip it for
+ * someone than to show it on every visit.
+ */
+export function claimOpening(env: OpeningEnv): boolean {
+  if (!isBareHome(env.hash, env.search) || env.reducedMotion) return false;
   try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const store = env.store();
+    if (!store || store.getItem(SEEN_KEY) !== null) return false;
+    store.setItem(SEEN_KEY, "1");
+    return store.getItem(SEEN_KEY) === "1";
   } catch {
-    return true; // no matchMedia: keep it still
+    return false;
   }
 }
 
-// The URL as the person opened it, read when this module loads (before the app starts). By the
-// time the app mounts the opening, the router may have rewritten a legacy hash and the Sky page
-// may have written its view into the hash: neither makes a deep link.
-const OPENED = typeof location === "undefined" ? { hash: "", search: "" } : { hash: location.hash, search: location.search };
-
 export function browserEnv(): OpeningEnv {
-  return { ...OPENED, reducedMotion: prefersReducedMotion() };
+  let reducedMotion = true;
+  try {
+    reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    /* no matchMedia: treat as reduced, so the opening stays out of the way */
+  }
+  return {
+    hash: location.hash,
+    search: location.search,
+    reducedMotion,
+    store: () => window.localStorage,
+  };
 }

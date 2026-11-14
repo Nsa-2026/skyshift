@@ -434,9 +434,10 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
 
   let raf = 0;
   function schedule() {
-    if (raf) return;
+    if (raf || destroyed) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
+      if (destroyed) return;
       render();
       cb.onView({ ...v });
     });

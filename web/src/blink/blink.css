@@ -961,7 +961,8 @@
   }
   .bk-ramp {
     order: 6;
-    flex: 1 1 0;
+    /* Wrap below view modes before the seven labels collapse into one another. */
+    flex: 1 1 210px;
     max-width: none;
   }
   .bk .seg > button {

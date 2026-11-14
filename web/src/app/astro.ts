@@ -84,15 +84,16 @@ export function formatMjd(mjd: number, withTime = false): string {
 
 /** Sexagesimal for display: 08h55m10.8s −07°14′42″. */
 export function formatRaDec(pos: SkyPos): string {
-  const ra = (((pos.ra % 360) + 360) % 360) / 15;
-  const h = Math.floor(ra);
-  const m = Math.floor((ra - h) * 60);
-  const s = ((ra - h) * 60 - m) * 60;
+  // Round before splitting, so 59.99s carries into the next minute/hour.
+  const raTenths = Math.round(((((pos.ra % 360) + 360) % 360) / 15) * 36000) % 864000;
+  const h = Math.floor(raTenths / 36000);
+  const m = Math.floor((raTenths % 36000) / 600);
+  const s = (raTenths % 600) / 10;
   const sign = pos.dec < 0 ? "−" : "+";
-  const ad = Math.abs(pos.dec);
-  const d = Math.floor(ad);
-  const am = Math.floor((ad - d) * 60);
-  const as = ((ad - d) * 60 - am) * 60;
+  const decSeconds = Math.round(Math.abs(pos.dec) * 3600);
+  const d = Math.floor(decSeconds / 3600);
+  const am = Math.floor((decSeconds % 3600) / 60);
+  const as = decSeconds % 60;
   const p2 = (n: number) => String(n).padStart(2, "0");
   return `${p2(h)}h${p2(m)}m${s.toFixed(1).padStart(4, "0")}s ${sign}${p2(d)}°${p2(am)}′${as.toFixed(0).padStart(2, "0")}″`;
 }

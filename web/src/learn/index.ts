@@ -5,24 +5,19 @@
 //   "1" … "7"     one lesson
 //   "glossary"    every word, with anchors: "glossary/<slug>"
 //   "teachers"    a 45-minute class activity, printable
-//   "stories[/<part>[/<arg>]]"  Stories in the sky: guest stars, around a spot, planets. Its code,
-//                 CSS and the /guxing/ scripts load only when it opens (./stories, dynamic import).
 import "./learn.css";
 import type { MountPage, PageHandle } from "../app/modules";
 import { buildFigure, type FigureHost } from "./figures";
 import { GLOSSARY, closeTermPopover, enhanceTerms, esc } from "./glossary";
 import { LESSONS, LESSON_COUNT, type Lesson } from "./lessons";
 import { markDone, markOpened, nextLesson, readProgress, resetProgress, safeStorage, type KV, type Progress } from "./progress";
-import { STORY_PARTS, isStoryPart, type StoryPart } from "./stories-route";
 import { fillAnswerKey, teachersHtml } from "./teachers";
 
 export type LearnRoute =
   | { view: "home" }
   | { view: "lesson"; n: number }
   | { view: "glossary"; slug: string | null }
-  | { view: "teachers" }
-  | { view: "stories"; part: StoryPart; arg: string | null };
-type StoriesRoute = Extract<LearnRoute, { view: "stories" }>;
+  | { view: "teachers" };
 
 /** Read the route argument. Anything unknown goes to the course list. */
 export function parseLearnRoute(param: string | null | undefined): LearnRoute {
@@ -35,11 +30,6 @@ export function parseLearnRoute(param: string | null | undefined): LearnRoute {
   }
   if (head === "glossary") return { view: "glossary", slug: rest[0] ? decodeURIComponent(rest[0]) : null };
   if (head === "teachers" || head === "teacher") return { view: "teachers" };
-  if (head === "stories") {
-    if (!isStoryPart(rest[0])) return { view: "stories", part: "guests", arg: null };
-    const arg = rest.slice(1).join("/");
-    return { view: "stories", part: rest[0], arg: arg ? decodeURIComponent(arg) : null };
-  }
   return { view: "home" };
 }
 
@@ -50,9 +40,7 @@ export const learnHref = (r: LearnRoute): string =>
       ? `#/learn/${r.n}`
       : r.view === "glossary"
         ? `#/learn/glossary${r.slug ? `/${r.slug}` : ""}`
-        : r.view === "stories"
-          ? `#/learn/stories${r.part === "guests" && !r.arg ? "" : `/${r.part}`}${r.arg ? `/${encodeURIComponent(r.arg).replace(/%2C/gi, ",")}` : ""}`
-          : "#/learn/teachers";
+        : "#/learn/teachers";
 
 const check = `<svg class="ln-check" viewBox="0 0 16 16" aria-hidden="true" width="14" height="14"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const arrowR = `<svg viewBox="0 0 16 16" aria-hidden="true" width="14" height="14"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -82,7 +70,6 @@ function sideNav(r: LearnRoute, p: Progress): string {
       <ul class="ln-side-more">
         <li><a href="#/learn/glossary" ${r.view === "glossary" ? `aria-current="page"` : ""}>Glossary</a></li>
         <li><a href="#/learn/teachers" ${r.view === "teachers" ? `aria-current="page"` : ""}>For teachers</a></li>
-        <li><a href="#/learn/stories" ${r.view === "stories" ? `aria-current="page"` : ""}>Stories in the sky</a></li>
       </ul>
     </nav>`;
 }
@@ -117,6 +104,7 @@ function homeHtml(p: Progress): string {
         }).join("")}
       </ol>
       <div class="ln-home-more">
+        <div><h2><a href="#/learn/stories">Stories in the sky</a></h2><p>Historical asterisms, guest stars and planetary events, in their own space.</p></div>
         <div>
           <h2><a href="#/learn/glossary">Glossary</a></h2>
           <p>${GLOSSARY.length} words in one plain sentence each. Dotted words across SkyShift open the same sentences.</p>
@@ -124,10 +112,6 @@ function homeHtml(p: Progress): string {
         <div>
           <h2><a href="#/learn/teachers">For teachers</a></h2>
           <p>A 45-minute class activity: measure Barnard's Star's motion and compare it with Gaia. Printable.</p>
-        </div>
-        <div>
-          <h2><a href="#/learn/stories">Stories in the sky</a></h2>
-          <p>Six guest stars from Chinese histories, what SPHEREx sees where they blazed, and the old star map around any spot.</p>
         </div>
       </div>
     </section>`;
@@ -163,20 +147,6 @@ function lessonHtml(l: Lesson): string {
     </article>`;
 }
 
-function storiesHtml(r: StoriesRoute): string {
-  return `
-    <section class="ln-stories" aria-labelledby="ln-h">
-      <header class="ln-head">
-        <h1 id="ln-h" tabindex="-1">Stories in the sky</h1>
-        <p class="ln-lede-p">Long before SPHEREx, court astronomers in China watched the same sky and wrote down what changed. Their records name places on an older star map, and some of those places hold the remains of exploded stars that SPHEREx photographs today.</p>
-      </header>
-      <nav class="seg ln-st-parts" aria-label="Stories">${STORY_PARTS.map(
-        (p) => `<a href="${learnHref({ view: "stories", part: p.id, arg: null })}" ${p.id === r.part ? `aria-current="page"` : ""}>${esc(p.label)}</a>`,
-      ).join("")}</nav>
-      <div class="ln-st-body"><p class="st-status" role="status">Loading the old star maps…</p></div>
-    </section>`;
-}
-
 function glossaryHtml(): string {
   const sorted = [...GLOSSARY].sort((a, b) => a.term.localeCompare(b.term, "en", { sensitivity: "base" }));
   return `
@@ -198,7 +168,7 @@ function glossaryHtml(): string {
     </section>`;
 }
 
-export const mountLearn: MountPage = (el, ctx): PageHandle => {
+export const mountLearn: MountPage = (el): PageHandle => {
   const kv: KV = safeStorage();
   let ctl: AbortController | null = null;
   let host: FigureHost | null = null;
@@ -224,13 +194,7 @@ export const mountLearn: MountPage = (el, ctx): PageHandle => {
       el.innerHTML = `<div class="ln ln-is-home">${homeHtml(p)}</div>`;
     } else {
       const main =
-        r.view === "lesson"
-          ? lessonHtml(LESSONS[r.n - 1])
-          : r.view === "glossary"
-            ? glossaryHtml()
-            : r.view === "stories"
-              ? storiesHtml(r)
-              : `<section class="ln-teach" aria-labelledby="ln-h">${teachersHtml()}</section>`;
+        r.view === "lesson" ? lessonHtml(LESSONS[r.n - 1]) : r.view === "glossary" ? glossaryHtml() : `<section class="ln-teach" aria-labelledby="ln-h">${teachersHtml()}</section>`;
       el.innerHTML = `<div class="ln ln-is-${r.view}">${sideNav(r, p)}<div class="ln-main">${main}</div></div>`;
     }
     enhanceTerms(el);
@@ -247,27 +211,11 @@ export const mountLearn: MountPage = (el, ctx): PageHandle => {
       void fillAnswerKey(el, host.signal);
       el.querySelector(".ln-print")?.addEventListener("click", () => window.print());
     }
-    if (r.view === "stories") void openStories(r, host.signal);
     el.querySelector(".ln-reset")?.addEventListener("click", () => {
       resetProgress(kv);
       render({ view: "home" });
       el.querySelector<HTMLElement>("#ln-h")?.focus({ preventScroll: true });
     });
-  }
-
-  /** The Stories page's code, CSS and scripts load here, the first time it opens. */
-  async function openStories(r: StoriesRoute, signal: AbortSignal) {
-    const body = el.querySelector<HTMLElement>(".ln-st-body");
-    if (!body) return;
-    try {
-      const m = await import("./stories");
-      if (signal.aborted) return;
-      await m.renderStories(body, r.part, r.arg, { signal, explore: ctx.explore, scrollTop: () => window.scrollTo({ top: 0 }) });
-    } catch (e) {
-      if (signal.aborted) return;
-      console.warn("Learn: the Stories page didn't load", e);
-      body.innerHTML = `<p class="ln-fail" role="alert">Couldn't load the Stories page. Reload the page to try again.</p>`;
-    }
   }
 
   function focusTarget(r: LearnRoute, moved: boolean) {
@@ -296,7 +244,6 @@ export const mountLearn: MountPage = (el, ctx): PageHandle => {
       const moved = lastRoute != null;
       lastRoute = r;
       render(r);
-      if (r.view === "stories") document.title = "Stories in the sky: SkyShift";
       focusTarget(r, moved);
     },
     hide() {

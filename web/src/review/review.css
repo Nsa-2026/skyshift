@@ -752,48 +752,6 @@
   height: 16px;
   flex: none;
 }
-/* Practice hint: a quiet disclosure under the legend, closed by default. */
-.rq-hint {
-  display: grid;
-  gap: var(--s2);
-  justify-items: start;
-}
-.rq-hint-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-weight: 550;
-  cursor: pointer;
-}
-.rq-hint-toggle::after {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: translateY(-2px) rotate(45deg);
-}
-.rq-hint-toggle[aria-expanded="true"]::after {
-  transform: translateY(1px) rotate(-135deg);
-}
-.rq-hint-toggle:hover {
-  color: var(--ink);
-}
-.rq-hint-body {
-  display: grid;
-  gap: var(--s3);
-  justify-items: start;
-  padding-left: var(--s4);
-  border-left: 2px solid var(--hair-strong);
-  max-width: 52ch;
-}
-
 .rq-end {
   display: grid;
   gap: var(--s3);

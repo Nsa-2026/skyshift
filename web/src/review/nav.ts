@@ -5,7 +5,6 @@ import { LIST_HASH, discoverQuery, isDiscoverUrl } from "./model";
 const KEY = "skyshift.discover.last";
 let memo: { hash: string; search: string } | null = null;
 
-/** Record the current list URL. Discover calls it after replaceState, which fires no hashchange. */
 export function rememberDiscover(): void {
   if (typeof location === "undefined") return;
   if (!isDiscoverUrl(location.hash)) return;

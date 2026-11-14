@@ -389,13 +389,4 @@
   }
 }
 
-/* ---- the DR1 reference, on request (the five fields with science products) ---- */
-.cd-refrow {
-  display: grid;
-  justify-items: start;
-  gap: var(--s2);
-}
-.cd-refrow .btn {
-  min-height: 32px;
-  font-size: var(--step--1);
-}
+.cd-measure-source { color:var(--ink-2); font-size:var(--step--1); line-height:1.5; margin:var(--s3) 0; }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCoords } from "./coords";
-import { pixelToSky, skyToPixel, gaiaAt, sepArcsec } from "./astro";
+import { pixelToSky, skyToPixel, gaiaAt, sepArcsec, formatRaDec } from "./astro";
 
 describe("parseCoords", () => {
   it("reads the challenge's own string", () => {
@@ -22,9 +22,18 @@ describe("parseCoords", () => {
     expect(parseCoords("400 10")).toBeNull();
     expect(parseCoords("")).toBeNull();
   });
+  it.each(['12:60:00 +10:00:00','12:00:60 +10:00:00','12 00 00 -10 61 00','12h00m00s +10d00m60s','12h99m00s +10d00m00s'])('rejects out-of-range sexagesimal components: %s', input => {
+    expect(parseCoords(input)).toBeNull();
+  });
 });
 
 describe("astro", () => {
+  it('carries rounded seconds into minutes/hours so displayed coordinates remain valid', () => {
+    const text=formatRaDec({ra:(12+59/60+59.99/3600)*15,dec:10+59/60+59.9/3600});
+    expect(text).toBe('13h00m00.0s +11°00′00″');
+    expect(parseCoords(text)).toEqual({ra:195,dec:11});
+    expect(formatRaDec({ra:359.999999,dec:-89.999999})).toBe('00h00m00.0s −90°00′00″');
+  });
   const frame = { pixel_arcsec: 2.05, size: [146, 146] as [number, number] };
   const c = { ra: 269.4462, dec: 4.76883 };
   it("puts the centre at the middle pixel and round-trips", () => {

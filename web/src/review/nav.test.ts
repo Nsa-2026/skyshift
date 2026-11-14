@@ -1,15 +1,14 @@
-import { expect, it } from "vitest";
-import { lastDiscoverHash, lastDiscoverQuery, rememberDiscover, trackDiscover } from "./nav";
+import {expect,it} from 'vitest';
+import {lastDiscoverHash,lastDiscoverQuery,rememberDiscover,trackDiscover} from './nav';
 
-it("returns from a candidate to the filtered list, even when the filter was written with replaceState", () => {
-  history.replaceState(null, "", "/#/candidates/kind=mover");
+it('returns from a candidate to the current filtered list after a history replacement',()=>{
+  history.replaceState(null,'','/?t=barnard#/analyze/candidates/kind=mover');
   trackDiscover();
-  expect(lastDiscoverQuery()).toBe("kind=mover");
-  // Discover rewrites its filter in place (no hashchange), then records it.
-  history.replaceState(null, "", "/#/candidates/kind=mover&grade=A&sort=fewest");
+  expect(lastDiscoverQuery()).toBe('kind=mover');
+  history.replaceState(null,'','/?t=barnard#/analyze/candidates/kind=mover&grade=A&sort=fewest');
   rememberDiscover();
-  history.replaceState(null, "", "/#/c/example");
-  dispatchEvent(new HashChangeEvent("hashchange"));
-  expect(lastDiscoverHash()).toBe("#/candidates/kind=mover&grade=A&sort=fewest");
-  expect(lastDiscoverQuery()).toBe("kind=mover&grade=A&sort=fewest");
+  history.replaceState(null,'','/?t=barnard#/c/example');
+  dispatchEvent(new HashChangeEvent('hashchange'));
+  expect(lastDiscoverHash()).toBe('#/analyze/candidates/kind=mover&grade=A&sort=fewest');
+  expect(lastDiscoverQuery()).toBe('kind=mover&grade=A&sort=fewest');
 });

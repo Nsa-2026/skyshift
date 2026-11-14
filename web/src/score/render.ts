@@ -106,8 +106,7 @@ function renderHead(checks: ValidationCheck[], v: ValidationResponse | null, syn
       <h1 class="sc-title">How we know it works</h1>
       <p class="sc-lede">We checked SkyShift's measurements against what is already known: star motions from
         ESA's Gaia, NASA's asteroid predictions and catalogue brightness. Every result is printed as measured,
-        beside the target we set before running it, including the poor ones. Where the data come from and how
-        each number is made: <a href="#/tools/methods">Data and methods</a>.</p>
+        beside the target we set before running it, including the poor ones.</p>
       ${
         synthetic
           ? html`<p class="sc-synthetic" role="note">These are synthetic example numbers, made up to test this page.

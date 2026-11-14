@@ -1,4 +1,4 @@
-// The globe: Aladin Lite 3.8.2 with IRSA HiPS only, drawn as a plate negative by default.
+// The globe: Aladin Lite 3.8.2 with IRSA HiPS and a selectable plate-negative display.
 // Heat cells and zone boxes are graphic-overlay polygons; counts, zone names, signals and
 // featured targets are catalogs with custom canvas shapes (pencil marks). Hit-testing is ours,
 // on screen positions, so a click means the same thing in the SVG fallback.
@@ -118,7 +118,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   mapEl.className = "atl-aladin";
   host.appendChild(mapEl);
 
-  // ---- backgrounds: IRSA HiPS only, negative by default -----------------------------------
+  // ---- backgrounds: IRSA HiPS only ---------------------------------------------------------
   // Every layer is made here, never by Aladin from a URL: Aladin caches layers by id, and one
   // it made itself would ignore the colour map set on ours.
   const hips: Partial<Record<BackgroundId, Hips>> = {};
@@ -484,9 +484,12 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     const h = host.clientHeight;
     const e = limbEllipse(mol, fov, W - 2 * inset, h);
     if (!e) {
+      mapEl.style.clipPath = "";
       limb.style.display = "none";
       return;
     }
+    // Leave the area outside the sky projection open to the shared page backdrop.
+    mapEl.style.clipPath = `ellipse(${e.rx}px ${e.ry}px at ${e.cx}px ${e.cy}px)`;
     e.cx += inset;
     const w = W;
     limb.style.display = "";
@@ -585,7 +588,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   }
 
   al.on("click", (e: AladinClick) => {
-    if (!e || e.isDragging || !Number.isFinite(e.ra) || !Number.isFinite(e.dec)) return;
+    if (destroyed || !e || e.isDragging || !Number.isFinite(e.ra) || !Number.isFinite(e.dec)) return;
     const s = signalAt(e.x, e.y);
     if (s) return cb.onSignal(s);
     const t = targetAt(e.x, e.y);
@@ -694,8 +697,8 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     },
     panBy(dx, dy) {
       const v = view();
-      const w = host.clientWidth || 1;
-      const h = host.clientHeight || 1;
+      const w = mapEl.clientWidth || host.clientWidth || 1;
+      const h = mapEl.clientHeight || host.clientHeight || 1;
       // Move the centre to the sky under the screen point (cx + dx·w, cy + dy·h).
       try {
         const al2 = al as unknown as { pix2world?(x: number, y: number): [number, number] | undefined };

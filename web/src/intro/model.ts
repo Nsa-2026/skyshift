@@ -29,21 +29,18 @@ export function sceneAt(progress: number) {
     clouds: smooth(p, 0.21, 0.29) * (1 - smooth(p, 0.32, 0.43)),
     /** Brand and credit step back before the fade, so they never print over the site's header. */
     chrome: 1 - smooth(p, 0.86, 0.9),
-    /** The whole overlay's opacity: it fades into the page underneath at the very end. */
+    /** Scroll contribution to the fade; the overlay completes its reveal with a short dissolve. */
     veil: 1 - smooth(p, 0.92, 0.995),
   };
 }
 export type SceneState = ReturnType<typeof sceneAt>;
 
-/**
- * The four captions, by progress. The middle two are the author's English (1390d01); the first
- * and last say plainly what is on screen and where the journey ends (the Sky map).
- */
+/** The four captions, by progress, in the author's English (1390d01). */
 export const CHAPTERS = [
-  "From the whole sky down to Earth.",
+  "From the cosmos to a single gaze.",
   "Every discovery begins with a look.",
   "Look closer. Then closer still.",
-  "Back to the sky. Now find what moves.",
+  "A universe of discoveries, in your eyes.",
 ] as const;
 
 export function chapterAt(p: number): number {

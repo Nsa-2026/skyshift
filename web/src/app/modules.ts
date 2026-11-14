@@ -21,18 +21,25 @@ export interface View extends SkyPos {
 }
 
 // ---- P4: src/blink/index.ts exports mountBlink -------------------------------------------
+/** The image actually displayed, including only source frames that loaded successfully. */
+export interface BlinkPresentation {
+  mode: 'single-detector' | 'all-wavelengths';
+  detectors: Det[];
+  units: 'MJy/sr' | 'sky-noise';
+  members: { id: string; det: Det; mjd_mid: number; data_url: string }[];
+}
 export interface BlinkOptions {
   /** The blink calls this when the person picks the clock, field or detector inside the player. */
   onViewChange(change: Partial<Pick<View, "clock" | "fov" | "det">>): void;
   /** A click on the image: hand the position to votes. */
   onPick(pick: DotPick): void;
   /** Current epoch changed (for the sky view and the card). */
-  onEpoch?(epoch: { id: string; mjd_mid: number; det: Det }): void;
+  onEpoch?(epoch: { id: string; mjd_mid: number; det: Det; presentation?: BlinkPresentation }): void;
 }
 
 export interface BlinkHandle {
   /** Show frames for this view. jsonUrl resolves epoch data_url. Preloads every epoch before playing. */
-  show(view: View, frames: FramesResponse, jsonUrl: string): Promise<void>;
+  show(view: View, frames: FramesResponse, jsonUrl: string, options?: { singleDetector?: boolean }): Promise<void>;
   /** Loading or error state while app fetches frames. message null clears it. */
   status(kind: "loading" | "error" | "idle", message?: string): void;
   highlight?(pos:SkyPos|null):void;
@@ -42,16 +49,21 @@ export interface BlinkHandle {
   display?(mode: 'blink' | 'difference'): void;
   step?(): void;
   canCompare?(): boolean;
+  /** Keep practice and derived images within one detector; preserve the normal viewing preference. */
+  singleDetector?(locked: boolean): void;
   destroy(): void;
 }
 export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;
 
 // ---- P3: src/card/index.ts exports mountCard --------------------------------------------
 export interface CardHandle {
+  section?(value: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve'): void;
+  reference?(points: {um:number; flux_ujy:number}[]): void;
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;
 }
 export interface CardOptions {
+  plots?: boolean;
   /** Open the blink at another position (the card's "open it where it is now" for a star that moved away). */
   onExplore?(at: SkyPos): void;
 }
@@ -80,6 +92,10 @@ export type MountScore = (el: HTMLElement) => { destroy(): void };
 
 // ---- Pages (DESIGN.md "Pages"). The shell routes by hash and mounts each page on first visit.
 export interface PageContext {
+  currentView?(): View | null;
+  /** Selected sky point, or map centre when nothing is selected and the map is zoomed in; null on
+   *  the whole-sky view, where the centre is not a choice. Map FOV is never a blink FOV. */
+  skySelection?(at: (SkyPos & Partial<Pick<View,'clock'|'det'|'slug'>>) | null, returnHash:string): void;
   /** Go to a route, e.g. "#/c/pilot-pm-0003" or "#/review". */
   navigate(hash: string): void;
   /** Open the Explore page (blink) at a position. clock/det/fov default from the current view. */

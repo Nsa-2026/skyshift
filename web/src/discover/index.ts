@@ -8,8 +8,8 @@ import { GRADE_TEXT, countGrades, failedGates, gatesPhrase, gradeALine, gradeBCL
 import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
+import {rememberDiscover,trackDiscover} from '../review/nav';
 import { isEmbed } from "../app/state";
-import { rememberDiscover, trackDiscover } from "../review/nav";
 import { ANSWER_TEXT, type Answer, type Counts } from "../vote/model";
 import { download, toCsv, toJson } from "./export";
 import { arcsecPerHour, arcsecPerYr, flux, fromSlider, num, plural, rangeText, rangeValue, roundNice, SLIDER_MAX, toSlider } from "./format";
@@ -235,7 +235,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
   /** Keep the address in step without a hashchange (which would re-route and scroll to the top). */
   function writeUrl() {
-    if (!/^#\/?(candidates|discover)\b/.test(location.hash)) return;
+    if (!/^#\/?(?:(?:analyze\/)?candidates|discover)\b/.test(location.hash)) return;
     const hash = candidatesHash(state);
     if (location.hash !== hash) history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
     rememberDiscover();

@@ -1,7 +1,8 @@
 // The opening: "The sky is never still." A scroll-driven overlay from the SPHEREx sky down to
 // Earth, to one person looking up, into her eye and out onto the sky again, then it fades into
-// the page underneath (on the home page, the Sky map, which loads meanwhile).
-// Design and scenery by 春。 with Codex (codex/frontend-unified), adapted for main.
+// the page underneath. Loaded on demand (src/intro/index.ts), so the home page never waits.
+// Original detailed planets and chosen goddess by 春。 with Codex, from 1390d01 in
+// “讨论项目网站首页与接入”. The overlay ends on the current page, including the neutral sky map.
 //
 // The background is real SPHEREx data: the IRSA SPHEREx DR1 all-sky HiPS cube
 // (https://irsa.ipac.caltech.edu/data/hips/SPHEREx/spherex_allsky_cube), frame 25 (the middle
@@ -10,24 +11,25 @@
 // the branch's Galactic-centre field has no-data gaps right where the title and pupil sit),
 // ×0.78 with gamma 1.1 and a 0.5 px Gaussian blur (keeps the file small), 1600 × 1000 WebP q55.
 // Everything else is drawn in code (scene.ts, portrait.ts).
-//
-// Images come from public/opening/manifest.json (manifest.ts): the sky, and optional Earth and
-// hills images that replace the drawn ones. The credit line follows what is on screen.
 import "./opening.css";
-import { DEFAULT_SLOTS, creditLine, loadManifest, sizeProblem, slotUrl, type SlotId, type Slots } from "./manifest";
 import { CHAPTERS, chapterAt, sceneAt, scrollProgress } from "./model";
-import { paintScene, type SceneArt } from "./scene";
+import { paintScene } from "./scene";
+import { preparePlanetaryOpening, type PlanetPreparation } from './planet-worker-client';
+
+export const SKY_URL = "/opening/spherex-sky.webp";
+// English wording: the author's own (1390d01 on codex/frontend-unified) wherever it exists.
+const CREDIT_SKY = "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).";
+const CREDIT_ART = "Earth, planets and figure drawn in code.";
 
 export type CloseReason = "skip" | "end" | "navigate";
 
 export interface OpeningOptions {
   /** A still title card instead of the scroll journey (prefers-reduced-motion). */
   still?: boolean;
-  /** Where focus goes when the opening closes by Skip, Escape or its end (not on navigation). */
-  returnFocus?: () => HTMLElement | null;
+  /** Focus goes back here when the opening closes (the replay link). */
+  returnFocus?: HTMLElement | null;
   onClose?(reason: CloseReason): void;
-  /** The image slots (tests); by default read from the manifest. */
-  slots?: Slots | Promise<Slots>;
+  skyUrl?: string;
 }
 
 export interface OpeningHandle {
@@ -39,33 +41,40 @@ const html = String.raw;
 
 /** Show the opening over `app` (the page is inert until it closes). */
 export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): OpeningHandle {
-  const still = !!opts.still;
+  let motion: MediaQueryList | null = null;
+  try {
+    motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  } catch {
+    /* no matchMedia */
+  }
+  // The preference may have changed while this lazy-loaded module was in flight.
+  const still = !!opts.still || !!motion?.matches;
   const el = document.createElement("div");
   el.className = still ? "op is-still" : "op";
   el.setAttribute("role", "dialog");
   el.setAttribute("aria-modal", "true");
   el.setAttribute(
     "aria-label",
-    still ? "SkyShift opening, shown still for reduced motion. Skip the intro to see the sky map." : "SkyShift opening. Scroll down to explore, or skip the intro.",
+    still ? "SkyShift opening, shown still for reduced motion." : "SkyShift opening. Scroll to follow the story, or choose Explore the sky.",
   );
   el.setAttribute("aria-describedby", "op-how");
   el.tabIndex = -1;
   el.innerHTML = html`
-    <div class="op-sky"><img alt="" decoding="async" hidden /></div>
+    <div class="op-sky" aria-hidden="true"><img alt="" decoding="async" /></div>
     <canvas class="op-scene" aria-hidden="true"></canvas>
     <div class="op-bar">
-      <p class="op-brand">SkyShift<span>NASA's SPHEREx sky, in motion</span></p>
-      <button class="op-skip" type="button">Skip intro<span class="op-skip-arrow" aria-hidden="true">↗</span></button>
+      <p class="op-brand">SkyShift<span>The universe, in motion</span></p>
     </div>
+    <button class="op-skip" type="button">Explore the sky<span class="op-skip-arrow" aria-hidden="true">↗</span></button>
     <div class="op-hero">
       <p class="op-kicker">A journey through the infrared sky</p>
       <h2 id="op-title">The sky is<br /> never <em>still.</em></h2>
-      <p class="op-sub">SPHEREx maps the whole sky every six months. Blink its photos and see what moved.</p>
-      <p class="op-hint" aria-hidden="true">${still ? "Scroll to continue" : "Scroll to explore"}<span>↓</span></p>
+      <p class="op-sub">Every glance is a new beginning.</p>
+      <p class="op-hint" aria-hidden="true">Scroll to follow the story<span>↓</span></p>
     </div>
     <p class="op-chapter" aria-hidden="true"><span class="op-chapter-no"></span><span class="op-chapter-text"></span></p>
-    <p class="visually-hidden" id="op-how">Escape also skips the intro.</p>
-    <p class="op-credit"></p>
+    <p class="visually-hidden" id="op-how">Explore the sky opens the site. Escape also closes the opening.</p>
+    <p class="op-credit"><span class="op-credit-sky">${CREDIT_SKY}</span> ${CREDIT_ART}</p>
     <div class="op-progress" aria-hidden="true"><span></span></div>
     <div class="op-track" aria-hidden="true"></div>
   `;
@@ -82,74 +91,12 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   const fill = $<HTMLElement>(".op-progress span");
   const skip = $<HTMLButtonElement>(".op-skip");
 
-  let frame = 0;
-  let painted = -1;
-  let closed = false;
-
-  // ---- images (manifest.ts) -------------------------------------------------------------------
-  let slots: Slots = DEFAULT_SLOTS;
-  /** Slots whose image is on screen; the credit line names exactly these. */
-  const shown = new Set<SlotId>();
-  const art: SceneArt = {};
-  const renderCredit = () => void (credit.textContent = creditLine(slots, shown));
-  renderCredit();
-  function checkSize(id: SlotId, w: number, h: number) {
-    const problem = sizeProblem(slots[id], w, h);
-    if (problem) console.warn(`Opening image: ${problem}`);
-  }
-
-  function showSky(url: string | null) {
-    if (!url) {
-      // No sky, no sky credit; the scenery still works on the dark ground.
-      sky.remove();
-      shown.delete("sky");
-      renderCredit();
-      return;
-    }
-    img.alt = slots.sky.alt;
-    img.onload = () => {
-      if (closed) return;
-      img.hidden = false;
-      shown.add("sky");
-      checkSize("sky", img.naturalWidth, img.naturalHeight);
-      renderCredit();
-    };
-    img.onerror = () => {
-      // The manifest's file didn't load: today's file, then none.
-      const fallback = slotUrl(DEFAULT_SLOTS.sky);
-      if (url !== fallback) {
-        console.warn(`Opening image: sky: ${url} didn't load; using ${fallback}.`);
-        slots = { ...slots, sky: DEFAULT_SLOTS.sky };
-        showSky(fallback);
-      } else showSky(null);
-    };
-    img.src = url;
-  }
-
-  function showArt(id: "earth" | "horizon") {
-    const url = slotUrl(slots[id]);
-    if (!url) return; // drawn in code
-    const pic = new Image();
-    pic.decoding = "async";
-    pic.onload = () => {
-      if (closed) return;
-      art[id] = pic;
-      shown.add(id);
-      checkSize(id, pic.naturalWidth, pic.naturalHeight);
-      renderCredit();
-      schedule();
-    };
-    pic.onerror = () => console.warn(`Opening image: ${id}: ${url} didn't load; drawn in code instead.`);
-    pic.src = url;
-  }
-
-  function useSlots(next: Slots) {
-    if (closed) return;
-    slots = next;
-    showSky(slotUrl(slots.sky));
-    showArt("earth");
-    showArt("horizon");
-  }
+  img.addEventListener("error", () => {
+    // No sky, no sky credit; the scenery still works on the dark ground.
+    sky.remove();
+    $(".op-credit-sky")?.remove();
+  });
+  img.src = opts.skyUrl ?? SKY_URL;
 
   // The attribute (not the property) so it also holds where inert isn't implemented.
   const wasInert = app.hasAttribute("inert");
@@ -157,13 +104,54 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   document.documentElement.classList.add("op-open");
   document.body.append(el);
 
+  let frame = 0;
+  let painted = -1;
+  let closed = false;
+  let revealing = false;
+  let revealFrame = 0;
+  let revealTimer: number | undefined;
+  let sceneAvailable = true;
+  let sceneProgress = -1;
+  let sceneSize = "";
+  let preparation: PlanetPreparation | undefined;
+  let preparationSize = 0;
+
+  function preparePlanets() {
+    const size = Math.min(innerWidth, innerHeight) < 600 ? 384 : 768;
+    if (size === preparationSize) return;
+    preparation?.cancel();
+    preparationSize = size;
+    const current = preparation = preparePlanetaryOpening(innerWidth, innerHeight);
+    el.dataset.planetPreparation = current.pending ? 'pending' : 'ready';
+    void current.ready.then(result => {
+      if (closed || current !== preparation) return;
+      el.dataset.planetPreparation = result;
+      sceneProgress = -1;
+      schedule();
+    });
+  }
+
   function draw() {
     frame = 0;
-    if (closed) return;
+    if (closed || revealing) return;
     const p = still ? 0 : scrollProgress(el.scrollTop, el.clientHeight, el.scrollHeight);
     painted = p;
     const s = sceneAt(p);
-    paintScene(canvas, p, art);
+    // Ambient movement stays on the compositor; the detailed canvas only redraws on input.
+    el.classList.toggle('is-drifting', !still && p < .12);
+    const size = `${innerWidth}:${innerHeight}:${devicePixelRatio || 1}`;
+    if (sceneAvailable && (p !== sceneProgress || size !== sceneSize)) {
+      try {
+        paintScene(canvas, p);
+        sceneProgress = p;
+        sceneSize = size;
+      } catch {
+        // Canvas resources can fail on low-memory devices. Keep the sky, text and exit
+        // action usable rather than leaving the page inert behind a broken renderer.
+        sceneAvailable = false;
+        canvas.hidden = true;
+      }
+    }
     const camera = Math.min(p, 0.9);
     sky.style.transform = `scale(${1.12 + camera * 0.08}) rotate(${-2 + camera * 3}deg)`;
     hero.style.opacity = String(s.title);
@@ -175,21 +163,39 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
       chapterNo.textContent = `0${i + 1} / 0${CHAPTERS.length}`;
       chapterText.textContent = CHAPTERS[i];
     }
-    // The brand steps back before the fade, so it never prints over the site's header. The credit
-    // stays as long as the sky does: it fades only with the whole overlay (veil).
-    brand.style.opacity = String(s.chrome);
+    brand.style.opacity = credit.style.opacity = String(s.chrome);
     // Skip steps back too, so it never sits on the site's header (unless it has focus: CSS).
     skip.style.opacity = String(s.chrome);
     fill.style.transform = `scaleX(${p})`;
-    el.style.opacity = String(s.veil);
-    if (p >= 0.995) close("end");
+    // Keep enough sky for a continuous final dissolve, even when a wheel fling skips ahead.
+    el.style.opacity = String(Math.max(.65, s.veil));
+    if (p >= 0.995) reveal();
   }
   function schedule() {
-    if (!closed && !frame) frame = requestAnimationFrame(draw);
+    if (!closed && !revealing && !frame) frame = requestAnimationFrame(draw);
+  }
+  function reveal() {
+    if (revealing) return;
+    revealing = true;
+    el.classList.remove('is-drifting');
+    el.classList.add('is-revealing');
+    revealFrame = requestAnimationFrame(() => {
+      revealFrame = 0;
+      if (!closed) el.style.opacity = '0';
+    });
+    // transitionend may not arrive in a background tab or after an interrupted paint.
+    revealTimer = window.setTimeout(() => close('end'), 730);
+  }
+  function onTransitionEnd(event: TransitionEvent) {
+    if (revealing && event.target === el && event.propertyName === 'opacity') close('end');
+  }
+  function onVisibility() {
+    el.classList.toggle('is-background-paused', document.hidden);
   }
   function onResize() {
     // A rotated phone or a new toolbar height must not move the story on or end it.
     if (!still && painted >= 0) el.scrollTop = painted * Math.max(0, el.scrollHeight - el.clientHeight);
+    preparePlanets();
     schedule();
   }
   function onKey(ev: KeyboardEvent) {
@@ -202,46 +208,7 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   function onHash() {
     close("navigate");
   }
-  // The still card has no journey to scroll: scrolling down (wheel, swipe, keys) moves on to the site.
-  let touchY: number | null = null;
-  function onWheel(ev: WheelEvent) {
-    if (ev.deltaY > 0) close("end");
-  }
-  function onTouchStart(ev: TouchEvent) {
-    touchY = ev.touches[0]?.clientY ?? null;
-  }
-  function onTouchMove(ev: TouchEvent) {
-    const y = ev.touches[0]?.clientY;
-    if (touchY != null && y != null && touchY - y > 40) close("end");
-  }
-  // Keys scroll the story even with focus on Skip (it sits in a fixed bar, outside the scroller,
-  // so the browser alone would scroll nothing). Space and Enter still press Skip.
-  const KEY_STEP: Record<string, number> = { ArrowDown: 0.1, ArrowUp: -0.1, PageDown: 0.9, PageUp: -0.9 };
-  function onStoryKey(ev: KeyboardEvent) {
-    if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
-    if (still) {
-      if (ev.key === "ArrowDown" || ev.key === "PageDown" || ev.key === "End") {
-        ev.preventDefault();
-        close("end");
-      }
-      return;
-    }
-    const max = el.scrollHeight - el.clientHeight;
-    const to =
-      ev.key === "Home" ? 0 : ev.key === "End" ? max : KEY_STEP[ev.key] ? el.scrollTop + KEY_STEP[ev.key] * el.clientHeight : null;
-    if (to == null) return;
-    ev.preventDefault();
-    const top = Math.max(0, Math.min(max, to));
-    if (typeof el.scrollTo === "function") el.scrollTo({ top, behavior: "smooth" });
-    else el.scrollTop = top;
-  }
   // Reduced motion switched on mid-way: get out of the way.
-  let motion: MediaQueryList | null = null;
-  try {
-    motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  } catch {
-    /* no matchMedia */
-  }
   function onMotion() {
     if (!still && motion?.matches) close("skip");
   }
@@ -250,17 +217,20 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     if (closed) return;
     closed = true;
     cancelAnimationFrame(frame);
+    cancelAnimationFrame(revealFrame);
+    clearTimeout(revealTimer);
+    preparation?.cancel();
     el.removeEventListener("scroll", schedule);
     removeEventListener("resize", onResize);
     removeEventListener("hashchange", onHash);
     document.removeEventListener("keydown", onKey, true);
     motion?.removeEventListener?.("change", onMotion);
+    document.removeEventListener('visibilitychange', onVisibility);
+    el.removeEventListener('transitionend', onTransitionEnd);
     el.remove();
     if (!wasInert) app.removeAttribute("inert");
     document.documentElement.classList.remove("op-open");
-    // Skip, Escape or the end: focus lands on the page (the Sky map, or the replay button).
-    // A navigation leaves focus to the page it opens.
-    const back = reason === "navigate" ? null : opts.returnFocus?.();
+    const back = opts.returnFocus;
     if (back && back.isConnected) back.focus({ preventScroll: true });
     opts.onClose?.(reason);
   }
@@ -271,23 +241,16 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   addEventListener("hashchange", onHash);
   document.addEventListener("keydown", onKey, true);
   motion?.addEventListener?.("change", onMotion);
-  el.addEventListener("keydown", onStoryKey);
-  if (still) {
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
-  }
+  document.addEventListener('visibilitychange', onVisibility);
+  el.addEventListener('transitionend', onTransitionEnd);
 
-  const given = opts.slots ?? loadManifest();
-  if (given instanceof Promise) void given.then(useSlots);
-  else useSlots(given);
-
+  onVisibility();
   el.scrollTop = 0;
+  preparePlanets();
   draw();
-  // Focus starts on Skip, so one key (Enter or Space) leaves at once; Escape works from anywhere.
-  // Screen readers read the dialog's name and description with it. The arrow keys, Page Down and
-  // the wheel still scroll the story (onStoryKey).
-  skip.focus({ preventScroll: true });
+  // Focus the dialog itself: screen readers read its name and description, the arrow keys and
+  // Space scroll the story, and Tab reaches Skip.
+  el.focus({ preventScroll: true });
 
   return { element: el, close };
 }

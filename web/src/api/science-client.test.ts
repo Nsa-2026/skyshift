@@ -22,3 +22,7 @@ it('asks the API directly for a field without prepared products (no static 404 r
  expect(urls).toEqual(['/api/analysis?ra=10&dec=20&det=2','/api/science?ra=10&dec=20']);
  expect(hasScience('wise0855')).toBe(true);expect(hasScience('elpis')).toBe(false);expect(hasScience(null)).toBe(false);
 });
+it('never treats a synthetic fixture as a real derived image',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({synthetic:true,clock:'months',epochs:[{det:2}]})})));
+ await expect(loadFrames(target,2,'months',new AbortController().signal,'model',5)).rejects.toMatchObject({code:'upstream'});
+});
