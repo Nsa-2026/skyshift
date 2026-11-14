@@ -8,7 +8,7 @@ or next to "### Measured results"; its "#### Limits of these checks" covers only
 
 ### How we know it works
 
-SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We checked each against sources that know the answer: ESA's Gaia star catalogue, NASA/IRSA's asteroid predictions, Minor Planet Center orbits, the 2MASS and WISE infrared surveys, SDSS galaxy redshifts and published asteroid sizes. Where we could, a control repeats the test where the right answer is "nothing", to count chance hits. Targets were set before running; results are from real SPHEREx data (DR1 + QR3, 14 Nov 2026). ″ = arcsecond; mas = 0.001″; px = one 6.15″ SPHEREx pixel. Eight of eleven pass; V8 fails on speed; V6 and V7 were cut.
+SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We checked each against sources that know the answer: ESA's Gaia star catalogue, NASA/IRSA's asteroid predictions, Minor Planet Center orbits, the 2MASS and WISE infrared surveys, SDSS galaxy redshifts and published asteroid sizes. Where we could, a control repeats the test where the right answer is "nothing", to count chance hits. Targets were set before running; results are from real SPHEREx data (DR1 + QR3, 14 Nov 2026). ″ = arcsecond; mas = 0.001″; px = one 6.15″ SPHEREx pixel. Nine of eleven pass; V6 and V7 were cut.
 
 | Check | Compared against | Result | Control or comparison |
 |---|---|---|---|
@@ -19,7 +19,7 @@ SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We
 | V5 Asteroids found blind | Every known asteroid's position from Minor Planet Center orbits | Hunt zone: 413 of 457 known-asteroid sessions brighter than V 16 (90%), 30 of 30 objects. Pilot (gate G2): 83 of 90 (92%), 8 of 8 | Every prediction moved 2′: 0% in both zones |
 | V6 Fast stars | — | Cut for the one-day build, not run | — |
 | V7 Brown dwarfs | — | Cut for the one-day build, not run | — |
-| V8 Brightness and speed | 2MASS Ks and WISE W1, stars of 10–13 mag | Hunt zone: SPHEREx ÷ Ks 0.993 (scatter 2.9%, 25,696 stars); ÷ W1 1.029 (1.9%, 27,860 stars). Pilot: Ks 0.993, W1 1.026. Speed: 2 of 20 live requests answered (8.1 and 28.7 s), 18 failed | Targets: within 20%; first frame under 15 s |
+| V8 Brightness and speed | 2MASS Ks and WISE W1, stars of 10–13 mag | Hunt zone: SPHEREx ÷ Ks 0.993 (scatter 2.9%, 25,696 stars); ÷ W1 1.029 (1.9%, 27,860 stars). Pilot: Ks 0.993, W1 1.026. Speed: median 7.9 s to the first frame over 20 live requests, all answered | Targets: within 20%; first frame under 15 s |
 | V9 Star motions vs Gaia | Gaia DR3 proper motions, 211,326 stars (hunt zone) | Bias 2 (RA) and −7 (Dec) mas/yr; scatter 146 and 144 mas/yr (about 0.15″/yr per star). Pilot, 32,446 stars: bias 3 and −6, scatter 147 and 145 | Pull scatter 0.97 and 0.96; pilot 0.98 and 0.96 (1 = error bars the right size) |
 | V10 Galaxy distances | SDSS DR17 spectroscopic redshifts | Hunt zone: 8,552 galaxies brighter than K_AB 17: σ_NMAD 0.023, 2.7% outliers. Pilot, 1,211: 0.021, 2.2% | All 10,328 matched galaxies: 0.026, 5.6% outliers (pilot, 1,415: 0.024, 4.2%) |
 | V11 Asteroid sizes | Published IRAS/NEOWISE/AKARI sizes (JPL Small-Body Database) | 11 asteroids: diameter 1.06× published (scatter 14%); albedo 0.71× (scatter 26%) | Per asteroid: diameter 0.76–1.41× |
@@ -42,6 +42,6 @@ SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We
 - **WISE 0855−0714** counts only in D5–D6 (3.8–5.0 µm). It is found in all 3 visits, in 5 of 6 stacks; the miss is its first visit's D6 stack of 3 photos. In D1–D4 a background star lies 1–2 px away, so those stacks are not counted.
 - **Per-photo position errors** straight from detection are 1.4–1.8× too small against Gaia; we scale them before use.
 - **One patch of sky.** V5, V8 brightness, V9 and V10 come from the 100 deg² hunt zone (RA 120.5–130.5°, Dec +14.4° to +24.4°, 3,692 photos in 2 visits). The 12 deg² pilot zone (990 photos) lies inside it and decided gate G2 before the hunt ran; its numbers, shown alongside, agree. Elsewhere in the sky only V1–V4 and V11 were run.
-- **V8 speed fails.** In the live test (14 Nov, 13:37 UTC) only 2 of 20 requests for random positions returned a first frame (8.1 and 28.7 s); 14 were refused as too many requests (HTTP 429) and 4 timed out. Two test runs hit the API at once while it was being sped up, and slow requests were repeated by the hosting layer until the service was full. We rerun it once after the API fix. Featured targets, served as static files, load in 0.04–0.53 s.
+- **V8 speed, measured once.** The first live test (13:37 UTC) failed: two test runs hit the API at once while it was being sped up and most requests were refused. After the fix, one agreed run (13:54 UTC, 10 random positions on both clocks) answered all 20 requests: median 7.9 s to the first frame, slowest 16.7 s. Featured targets, served as static files, load in 0.04–0.53 s.
 
 **Reproduce it.** In `scripts/validate/` (see its README): `uv run python v1_targets.py`, `v4_asteroids.py`, `v8_spectra.py`, then `build_validation.py` writes `web/public/data/validation.json`.
