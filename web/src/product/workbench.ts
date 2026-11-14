@@ -26,8 +26,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
     <div class="wb-card-slot"></div>
     <div class="wb-guide" data-wb="explore">
       <p>Follow the marked target as the dates change. A jump may be motion; a change in brightness needs a closer look.</p>
-      <a class="btn" href="#/explore/analyze">Analyze this target <span aria-hidden="true">→</span></a>
-      <a class="wb-learn" href="#/learn">New to blinking? Start with a lesson.</a>
+      <a class="btn" href="#/analyze">Analyze this target <span aria-hidden="true">→</span></a>
+      <a class="wb-learn" href="#/explore/learn">New to blinking? Start with a lesson.</a>
     </div>
     <section data-wb="signals" hidden><h2>Signals to check</h2><div class="wb-findings-body"></div>
       <p class="source">Background frequencies rank follow-up checks; they are not probabilities that an object is real. Cold-source false alarms remain uncalibrated.</p>

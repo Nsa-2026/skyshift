@@ -10,7 +10,7 @@ The user resumed publication on 14 November 2026, requesting the three workspace
 - Started from upstream `8522cd7`, incorporated `84b0f1c`, and subsequently merged `6ad0394` (including the measured image overlays, candidate vetting, moved-away target navigation, updated pipeline and MCP server). Merge resolutions retain both the canonical measured-layer cache version and the separate derived science view key, both server dependencies, and the card's navigation and scientific sections.
 - Imported the user's scientific work from `9b1c775`, retaining its history. The original prototype and working copies were not changed.
 - Preserved main's Lightbox UI, sky atlas, original blink observations, object measurements, review, live search, courses, votes and tools.
-- Replaced the long Science disclosure with three task-based workspace views: Explore, Analyze and Research. They share one player and canonical measurements. The view switcher uses task names without audience labels or numbered ranks. The home page opens Explore; the atlas remains at `#/sky`.
+- Replaced the long Science disclosure with three task-based workspace views: Explore, Analyze and Research. They share one player and canonical measurements. The view switcher uses task names without audience labels or numbered ranks. The home page is the Sky globe (Explore → Sky map, a project decision at integration); Explore → Watch opens the player and every target link.
 - Included motion and cold-source checks, D3/D6 comparison, DR1 reference spectrum, synthetic W1/W2 and experimental halo light curves, spectral audio, sensitivity estimates, catalogue checks, cultural modules and exports.
 - The retained preview uses English throughout, including scientific messages, accessibility labels, historical sky charts, guest-star captions and planet events. English cultural displays use the existing English names and records; scientific data and the bilingual source records are preserved.
 - Guided practice is now integrated at `#/explore/play` using the same player and actual prepared SPHEREx observations. It replaces the proposed schematic with real images; the prototype's separate game and API inspector are not imported.
@@ -19,12 +19,21 @@ The change spans core (legacy analysis adapter), server, web, precompute scripts
 
 ## Task-based workspace views
 
+The latest navigation revision makes Explore, Analyze and Research the global first
+level. The second row contains only functions from the selected area: Explore has
+Watch/Sky map/Practice/Learn/Community; Analyze has Measurements/Candidates/Review;
+Research has Data & methods/Live search/Results/Tools & API. The separate Workspace
+menu item and its nested view switcher are removed. Observation section tabs remain
+inside Measurements and Data & methods. Canonical Analyze and Research links now
+start at `#/analyze` and `#/research`; old nested and shared feature URLs still resolve
+to the same page controllers, with filters, candidate IDs and sky coordinates retained.
+
 | View | Route | Reading surface |
 | --- | --- | --- |
 | Explore | `#/explore` | Original observations, a short target/motion summary, quality warnings and a guided next step. Advanced player controls and dense charts stay out of this view. |
 | Guided practice | `#/explore/play` | An Explore activity: Elpis, Barnard's Star and RW Aurigae, with observation choices, hints, image stepping/differences, explanatory feedback and a recap. |
-| Analyze | `#/explore/analyze/<section>` | Motion, Spectrum, Light curve, Compare bands, Cross-match or Signals; one section at a time beside the same player. |
-| Research | `#/explore/research/<section>` | Data/provenance, Processing, Validation, Sensitivity or Export. Local-only computation remains gated by actual server capability. |
+| Analyze → Measurements | `#/analyze/<section>` | Motion, Spectrum, Light curve, Compare bands, Cross-match or Signals; one section at a time beside the same player. |
+| Research → Data & methods | `#/research/<section>` | Data/provenance, Processing, Validation, Sensitivity or Export. Local-only computation remains gated by actual server capability. |
 
 Switching views keeps the target, detector, clock, current frame, highlighted position and the last section used in each view. A derived layer retains its explicit caption and a Show observations action. Changing a target clears stale results. Data and methods are shared rather than refitted for each audience; simplified views retain uncertainty and quality disclosures.
 
@@ -47,6 +56,15 @@ Cold-source false-alarm estimates remain uncalibrated. A detectable reference mo
 Arbitrary-field background analysis is local-only by default. `SKYSHIFT_ENABLE_SCIENCE_JOBS=1` enables the single-process queue, reference generation and draft exports for a local server. It must remain off for the current multi-worker Cloud Run service until jobs have shared storage and a distributed queue. Existing main live observations continue to use the bounded canonical API.
 
 ## Verification
+
+The area-first navigation revision incorporated main through `ae150dc` and passed
+1,654 tests: web 853, server 312, core 61, pipeline 292, MCP 77, scientific helpers 19,
+and validation utilities 40; eight optional tests were skipped. TypeScript and the
+production build passed. Browser checks verified all three area menus, unchanged
+Barnard target/frame state across observation views, candidate filter/detail/return,
+Tools under Research, and Practice under Explore. All three areas fit 320px without
+horizontal overflow; the practice layout was also checked at 390px. Captures and the
+check record are in `docs/previews/workspace/layer-first-*`.
 
 The resumed release merged through `6ad0394` and passed 1,606 tests locally: web 835, server 312, core 61, pipeline 267, MCP 77, scientific helpers 19 and validation utilities 35. Eight optional tests were skipped. The production TypeScript/Vite build passed. New regressions cover a wrong-target/unfinished-image answer gate, uncertainty feedback, local progress/resume and completion, corrupt saved scores, and entry/exit through the shared workspace player. CI now runs the production web build as well as its tests.
 

@@ -1,4 +1,4 @@
-// The home page is the Sky globe (#119); the Workspace stays one click away and opens on target links.
+// The home page is the Sky globe (#119), under Explore → Sky map; Watch opens on target links.
 import { afterEach, expect, it, vi } from "vitest";
 
 const atlas = vi.hoisted(() => ({ show: vi.fn() }));
@@ -28,26 +28,26 @@ afterEach(() => {
   vi.mocked(loadFrames).mockClear();
 });
 
-it("opens on the Sky globe, with the Workspace in the nav, and loads no frames", () => {
+it("opens on the Sky globe under Explore, with Watch one click away, and loads no frames", () => {
   history.replaceState(null, "", "/");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
   expect(visible(root)).toEqual(["atlas"]);
   expect(atlas.show).toHaveBeenCalledTimes(1);
-  expect(root.querySelector('.nav a[data-route="atlas"]')!.getAttribute("aria-current")).toBe("page");
-  expect(root.querySelector('.nav a[data-route="atlas"]')!.getAttribute("href")).toBe("#/");
-  expect(root.querySelector('.nav a[data-route="explore"]')!.textContent).toBe("Workspace");
-  expect(root.querySelector('.nav a[data-route="explore"]')!.getAttribute("href")).toBe("#/explore");
+  expect(root.querySelector(".nav [aria-current]")!.textContent).toBe("Explore");
+  expect(root.querySelector(".feature-nav [aria-current]")!.textContent).toBe("Sky map");
+  expect(root.querySelector<HTMLAnchorElement>('.feature-nav [data-feature="watch"]')!.getAttribute("href")).toBe("#/explore");
   expect(loadFrames).not.toHaveBeenCalled();
 });
 
-it("opens the Workspace for a target deep link without a hash", () => {
+it("opens Explore → Watch for a target deep link without a hash", () => {
   history.replaceState(null, "", "/?t=wise0855");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
   expect(visible(root)).toEqual(["explore"]);
+  expect(root.querySelector(".feature-nav [aria-current]")!.textContent).toBe("Watch");
   expect(loadFrames).toHaveBeenCalledTimes(1);
   expect(vi.mocked(loadFrames).mock.calls[0][0]).toMatchObject({ slug: "wise0855" });
 });

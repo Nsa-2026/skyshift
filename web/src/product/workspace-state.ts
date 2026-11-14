@@ -19,5 +19,5 @@ export function workspaceState(param:string|null):WorkspaceState {
 }
 export function workspaceHref(mode:WorkspaceMode,tab='') {
   if(mode === 'explore' && tab === 'play') return '#/explore/play';
-  return `#/explore${mode === 'explore' ? '' : `/${mode}${tab ? `/${tab}` : ''}`}`;
+  return `#/${mode}${mode !== 'explore' && tab ? `/${tab}` : ''}`;
 }

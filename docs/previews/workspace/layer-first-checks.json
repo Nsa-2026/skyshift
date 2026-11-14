@@ -1,0 +1,35 @@
+{
+  "date": "2026-11-14",
+  "main_incorporated": "ae150dc",
+  "primary_navigation": ["Explore", "Analyze", "Research"],
+  "features": {
+    "Explore": ["Watch", "Sky map", "Practice", "Learn", "Community"],
+    "Analyze": ["Measurements", "Candidates", "Review"],
+    "Research": ["Data & methods", "Live search", "Results", "Tools & API"]
+  },
+  "browser_checks": {
+    "old_sky_coordinate_link_opens_under_explore": true,
+    "barnard_target_and_paused_epoch_1_retained_in_analyze_and_research": true,
+    "research_tools_opens_tools_page": true,
+    "candidate_preset_opens_filtered_list": true,
+    "candidate_detail_opens_under_analyze_review": true,
+    "candidate_return_keeps_kind_mover_and_known_distance_filter": true,
+    "practice_opens_under_explore_with_four_choices": true,
+    "all_areas_fit_320px_without_horizontal_overflow": true,
+    "practice_fits_390px_without_horizontal_overflow": true,
+    "mobile_practice_task_precedes_image": true
+  },
+  "local_tests_passed": {
+    "web": 853,
+    "server": 312,
+    "core": 61,
+    "pipeline": 292,
+    "mcp": 77,
+    "science": 19,
+    "validation": 40
+  },
+  "optional_tests_skipped": 8,
+  "typescript": "passed",
+  "production_build": "passed",
+  "production_deployment": "not_performed"
+}

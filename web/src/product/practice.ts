@@ -52,7 +52,7 @@ export function mountGuidedPractice(task: HTMLElement, panel: HTMLElement, opts:
         <p>You compared movement and brightness in real NASA SPHEREx images.</p>
         <ol class="practice-recap">${results.map((r,i)=>`<li><strong>${esc(PRACTICE[i].name)}</strong><span>You chose ${LABELS[r.answer].toLowerCase()}. ${r.correct?'That matches the known example.':`The known example shows ${LABELS[PRACTICE[i].answer].toLowerCase()}.`}</span></li>`).join('')}</ol>
         <p class="practice-note">Real candidates have no answer key. Your review is an observation for follow-up, not a confirmed discovery. “Not sure” is always useful.</p>
-        <div class="practice-actions"><a class="btn btn-primary" href="#/review">Review real candidates →</a><a class="btn" href="#/explore/analyze/motion">Analyze this target</a><button class="btn btn-ghost" type="button" data-practice="restart">Practice again</button></div>
+        <div class="practice-actions"><a class="btn btn-primary" href="#/analyze/review">Review real candidates →</a><a class="btn" href="#/analyze/motion">Analyze this target</a><button class="btn btn-ghost" type="button" data-practice="restart">Practice again</button></div>
         <p class="practice-note">Practice progress stays in this browser. No practice answers are submitted as scientific votes.</p></div>`;
       return;
     }

@@ -5,7 +5,9 @@ scientific features, and release status.
 
 **Branch:** `codex/science-production-integration`
 
-**Validated application commit:** [`6b38f6c`](https://github.com/cucuradu/skyshift/commit/6b38f6cd189a3e91d267eb8cf6794839c7a2376e)
+**Latest local checks:** 1,654 tests passed; eight optional tests skipped; production build passed.
+See [branch CI](https://github.com/cucuradu/skyshift/actions?query=branch%3Acodex%2Fscience-production-integration)
+for remote checks of each pushed commit.
 
 **Status, 14 November 2026:** source pushed and CI passed. This integration has not been
 merged into `main` or deployed to the public site. A source push does not update
@@ -15,25 +17,37 @@ merged into `main` or deployed to the public site. A source push does not update
 
 SkyShift connects real NASA SPHEREx observations with tools for watching changes,
 measuring evidence, and inspecting how results were produced. This branch incorporates
-upstream `main` through `6ad0394`, including measured image overlays, candidate vetting,
+upstream `main` through `ae150dc`, including measured image overlays, candidate vetting,
 and MCP support, alongside the integrated scientific products.
 
-The workspace uses three task names: **Explore**, **Analyze**, and **Research**.
-These are freely accessible views of the same observation. There are no audience ranks
-or prerequisites to unlock a view.
+The website starts with three areas: **Explore**, **Analyze**, and **Research**.
+Choose an area first; the next navigation row shows only its functions. The former
+global list of functions and the view switcher inside Workspace have been replaced
+by this single hierarchy. All areas remain freely accessible.
+
+| Area | Functions in its navigation |
+| --- | --- |
+| Explore | Watch, Sky map, Practice, Learn, Community |
+| Analyze | Measurements, Candidates, Review |
+| Research | Data & methods, Live search, Results, Tools & API |
+
+The observation tools inside Watch, Measurements, and Data & methods share one player.
 
 | View | Purpose | Route |
 | --- | --- | --- |
 | Explore | Watch the sky change, read a concise target summary, and start guided practice. | `#/explore` |
-| Analyze | Inspect Motion, Spectrum, Light curve, Compare bands, Cross-match, or Signals. | `#/explore/analyze/<section>` |
-| Research | Inspect Data, Processing, Validation, Sensitivity, or Export. | `#/explore/research/<section>` |
+| Analyze → Measurements | Inspect Motion, Spectrum, Light curve, Compare bands, Cross-match, or Signals. | `#/analyze/<section>` |
+| Research → Data & methods | Inspect Data, Processing, Validation, Sensitivity, or Export. | `#/research/<section>` |
 
-The three views share one image player. Switching views preserves the target, detector,
+Switching between the three observation views preserves the target, detector,
 clock, current frame, and selected position. Analyze and Research remember their last
 selected section during the session. Changing the target clears stale scientific results.
 
-The root entry opens Explore. The sky atlas remains available at `#/sky`, and the former
-`#/explore/science` link opens Research → Processing.
+The root entry opens Explore → Sky map (the Sky globe stays the home page); a shared `?t=` or `?ra=` link without a hash opens Explore → Watch. New area-first links include `#/explore/sky`,
+`#/explore/learn`, `#/analyze/candidates`, `#/analyze/review`, `#/research/live`,
+`#/research/results`, and `#/research/tools`. Existing sky-coordinate, candidate,
+filtered-list, lesson, and scientific links remain usable and select their parent area.
+The former `#/explore/science` link opens Research → Data & methods → Processing.
 
 ## Guided observation game
 
@@ -143,27 +157,28 @@ require Firebase authentication.
 
 ## Validation
 
-Application commit `6b38f6c` passed **1,606 tests locally**, with eight optional skips:
+The area-first navigation revision passed **1,654 tests locally**, with eight optional skips:
 
 | Suite | Passed |
 | --- | ---: |
-| Web | 835 |
+| Web | 853 |
 | Server | 312 |
 | Core | 61 |
-| Pipeline | 267 |
+| Pipeline | 292 |
 | MCP | 77 |
 | Scientific helpers | 19 |
-| Validation utilities | 35 |
+| Validation utilities | 40 |
 
 The TypeScript check and Vite production build passed. The existing JavaScript bundle
-size warning remains. The matching [GitHub CI run](https://github.com/cucuradu/skyshift/actions/runs/43624341717)
-also passed, including the production web build.
+size warning remains. The earlier [application baseline CI](https://github.com/cucuradu/skyshift/actions/runs/43624341717)
+passed; the branch CI linked above reports the subsequent navigation revision separately.
 
 Browser verification covered all three practice examples, hints and differences,
 uncertainty feedback, refresh/resume, completion, and transitions into Analyze and
-Research. The 390px mobile layout had no horizontal overflow. Regression tests cover
-the observation readiness gate, wrong-target handling, progress recovery, and shared
-player navigation.
+Research. All three areas were checked at 320px without horizontal overflow, and the
+390px practice layout retains the task before the image. Regression tests cover the
+observation readiness gate, wrong-target handling, progress recovery, shared player,
+area selection for legacy links, and returning to a filtered candidate list.
 
 To run the checks:
 
