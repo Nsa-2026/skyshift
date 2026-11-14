@@ -203,3 +203,14 @@ def test_neighbour_term_is_projected_on_the_measured_stretch():
     # the primary has no W1: the CatWISE neighbour has nothing to be weighed against
     no_w1 = S.catalogue_context(np.array([150.0]), np.array([2.0]), ref.drop(index=1))
     assert no_w1["e_neighbours"].iloc[0] == 0
+
+
+def test_nothing_selected_writes_an_empty_list():
+    # pilot (14 Nov): no source passed the cut and main() crashed in np.stack instead of writing an empty list
+    stats = S.stats_from_sources(pd.DataFrame({"source_id": np.zeros(0, np.int64), "flux_ujy": [], "err_ujy": []}))
+    assert len(stats) == 0 and {"source_id", "det", "snr", "flux_ujy"} <= set(stats)
+    cols = ["source_id", "ra", "dec", "mjd", "sig", "excess", "pa_deg", "n_dots", "steady_pa", "one_visit", "gaia_g",
+            "ruwe", "catwise_match"]
+    out = S.candidate_table(pd.DataFrame({k: np.zeros(0, np.int64 if k == "source_id" else np.float64) for k in cols}),
+                            stats)
+    assert len(out) == 0 and "score" in out and "why" in out

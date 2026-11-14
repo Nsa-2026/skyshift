@@ -26,6 +26,10 @@ LOG=$LOGDIR/$STAMP.log
 mkdir -p "$LOGDIR" /var/cache/uv
 export HOME=/root UV_CACHE_DIR=/var/cache/uv PATH=/usr/local/bin:$PATH
 export PYTHONUNBUFFERED=1
+# gcloud caches "not on GCE" for 10 min when a call can't reach the metadata server, as happens to calls still running
+# while the machine is stopped; after the next boot every gcloud call then fails until that expires (worker, 14 Nov
+# 19:59 and 20:17 boots: ~6 and ~9 min with no markers, claims or log uploads). Forget it: the first call checks again.
+rm -f /root/.config/gcloud/gce
 
 say() { echo "[skyshift $(date -u +%H:%M:%S)] $*" | tee -a "$LOG"; }
 upload_log() { gcloud storage cp -q "$LOG" "$BUCKET/logs/$NAME/$STAMP.log" >/dev/null 2>&1 || true; }
