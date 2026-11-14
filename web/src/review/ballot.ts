@@ -1,9 +1,9 @@
 // The ballot: four large choices (keys 1–4), then where the votes stand and what happens next.
 // Votes go through src/vote's store with candidate_id = the candidate's id; they can't be changed.
 import type { CandidateKind } from "../api/types";
-import { ANSWERS, ANSWER_TEXT, emptyCounts, type Answer, type Counts } from "../vote/model";
+import { ANSWERS, emptyCounts, type Answer, type Counts } from "../vote/model";
 import { consensus, forAstronomers } from "./model";
-import { FORUM_URL, MPC_URL, answerLabel, consensusText, countsText, esc } from "./text";
+import { FORUM_URL, MPC_URL, answerLabel, answerText, ballotHeading, consensusText, countsText, esc } from "./text";
 
 const html = String.raw;
 
@@ -31,6 +31,8 @@ export interface BallotOptions {
   /** Extra content after the result, e.g. the queue's Next button. */
   after?: string;
   heading?: string;
+  /** The candidate's kind: "shape" asks "One object or two?" with its own answer labels. */
+  kind?: CandidateKind;
 }
 
 export class Ballot {
@@ -46,17 +48,18 @@ export class Ballot {
     private opts: BallotOptions,
   ) {
     const id = `rv-q-${Math.random().toString(36).slice(2, 8)}`;
+    const words = answerText(opts.kind);
     el.innerHTML = html`
       <section class="rv-ballot" aria-labelledby="${id}">
-        <h2 class="rv-h" id="${id}">${esc(opts.heading ?? "What do you see?")}</h2>
+        <h2 class="rv-h" id="${id}">${esc(opts.heading ?? ballotHeading(opts.kind))}</h2>
         <p class="rv-local" hidden>Local mode: your votes stay in this browser. Nobody else sees them.</p>
         <div class="rv-choices" role="group" aria-labelledby="${id}">
           ${ANSWERS.map(
             (a, i) => html`<button class="rv-choice" type="button" data-answer="${a}" aria-pressed="false"
               aria-keyshortcuts="${i + 1}">
               <kbd class="rv-key" aria-hidden="true">${i + 1}</kbd>
-              <span class="rv-choice-label">${ANSWER_TEXT[a].label}</span>
-              <span class="rv-choice-meaning">${ANSWER_TEXT[a].meaning}</span>
+              <span class="rv-choice-label">${words[a].label}</span>
+              <span class="rv-choice-meaning">${words[a].meaning}</span>
             </button>`,
           ).join("")}
         </div>
@@ -107,7 +110,7 @@ export class Ballot {
       this.statusEl.textContent = s.error;
     } else if (s.saving) {
       this.statusEl.dataset.kind = "info";
-      this.statusEl.textContent = `Saving your ${answerLabel(s.saving)} vote…`;
+      this.statusEl.textContent = `Saving your ${answerLabel(s.saving, s.kind)} vote…`;
     } else if (s.waiting && !s.mine && !s.practice) {
       this.statusEl.dataset.kind = "info";
       this.statusEl.textContent = "The choices open when the plate is ready.";
@@ -132,13 +135,14 @@ export class Ballot {
 }
 
 /** Counts bar with a written tally (colour is never the only cue). */
-export function countsBar(k: Counts): string {
+export function countsBar(k: Counts, kind?: CandidateKind | null): string {
   const n = k.mover + k.changing + k.junk + k.unsure;
+  const words = answerText(kind);
   const seg = (a: Answer) => (k[a] ? html`<i class="rv-seg rv-seg-${a}" style="flex-grow:${k[a]}"></i>` : "");
   return html`
-    <div class="rv-bar" role="img" aria-label="${countsText(k)}">${n ? ANSWERS.map(seg).join("") : `<i class="rv-seg rv-seg-empty"></i>`}</div>
+    <div class="rv-bar" role="img" aria-label="${countsText(k, kind)}">${n ? ANSWERS.map(seg).join("") : `<i class="rv-seg rv-seg-empty"></i>`}</div>
     <dl class="rv-tally">
-      ${ANSWERS.map((a) => html`<div><dt><i class="rv-sw rv-seg-${a}"></i>${ANSWER_TEXT[a].label}</dt><dd>${k[a]}</dd></div>`).join("")}
+      ${ANSWERS.map((a) => html`<div><dt><i class="rv-sw rv-seg-${a}"></i>${words[a].label}</dt><dd>${k[a]}</dd></div>`).join("")}
     </dl>
   `;
 }
@@ -147,12 +151,12 @@ function resultHtml(s: BallotState, full: boolean): string {
   const k = s.counts ?? emptyCounts();
   const c = consensus(k);
   const yours = s.justNow
-    ? `Saved: you said ${answerLabel(s.mine!)}.`
-    : `You said ${answerLabel(s.mine!)} on an earlier visit. Votes can't be changed.`;
+    ? `Saved: you said ${answerLabel(s.mine!, s.kind)}.`
+    : `You said ${answerLabel(s.mine!, s.kind)} on an earlier visit. Votes can't be changed.`;
   return html`
     <p class="rv-yours">${esc(yours)}</p>
-    ${countsBar(k)}
-    <p class="rv-consensus" data-state="${c.state}">${esc(consensusText(c))}</p>
+    ${countsBar(k, s.kind)}
+    <p class="rv-consensus" data-state="${c.state}">${esc(consensusText(c, s.kind))}</p>
     ${full ? nextStepsHtml(c, s.kind) : shortNextHtml(c)}
   `;
 }
@@ -174,7 +178,10 @@ export function nextStepsHtml(c: ReturnType<typeof consensus>, kind: CandidateKi
         : kind === "high_pm"
           ? html`<p>Nearby stars and brown dwarfs are followed up with the ${forum} community, who
               check other surveys and ask for telescope time.</p>`
-          : "";
+          : kind === "shape"
+            ? html`<p>Two objects where the catalogues list one: an astronomer checks other surveys (and its
+                motion) to see whether the second one is a passing asteroid, a companion, or a background source.</p>`
+            : "";
     return html`<div class="rv-next">
       <p>It's on the <a href="#/community">list for astronomers</a>, with its votes, position and frames.</p>
       ${mover}
@@ -184,7 +191,7 @@ export function nextStepsHtml(c: ReturnType<typeof consensus>, kind: CandidateKi
     return html`<div class="rv-next"><p>The community set it aside. It stays listed with its votes, so anyone can see why.</p></div>`;
   }
   return html`<div class="rv-next">
-    <p>When at least 5 people have voted and 70% agree it's a mover or changing, it joins the
+    <p>When at least 5 people have voted and 70% agree it's ${kind === "shape" ? "two objects" : "a mover"} or changing, it joins the
       <a href="#/community">list for astronomers</a>.</p>
     <p>Want to talk it through? Share the link on the ${forum}.</p>
   </div>`;

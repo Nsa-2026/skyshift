@@ -39,7 +39,7 @@ const num = (x: number | null | undefined): number | null => (typeof x === "numb
 /** The columns of every export, in order. */
 export const COLUMNS: Column[] = [
   { name: "id", datatype: "char", ucd: "meta.id;meta.main", description: "Candidate id (opaque)", get: (c) => c.id },
-  { name: "kind", datatype: "char", ucd: "meta.code.class", description: "mover (moves within hours), high_pm (moves between visits) or spectral", get: (c) => c.kind },
+  { name: "kind", datatype: "char", ucd: "meta.code.class", description: "mover (moves within hours), high_pm (moves between visits), spectral or shape (one object or two)", get: (c) => c.kind },
   { name: "ra", datatype: "double", unit: "deg", ucd: "pos.eq.ra;meta.main", ref: "icrs", description: "Right ascension, ICRS, at mjd", get: (c) => num(c.ra) },
   { name: "dec", datatype: "double", unit: "deg", ucd: "pos.eq.dec;meta.main", ref: "icrs", description: "Declination, ICRS, at mjd", get: (c) => num(c.dec) },
   { name: "ra_hms", datatype: "char", ucd: "pos.eq.ra", description: "Right ascension, sexagesimal hours", get: (c) => formatRa(c.ra, 2, "colon") },

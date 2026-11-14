@@ -17,7 +17,7 @@ describe("binCandidates", () => {
     const cells = binCandidates(cands, 3);
     expect(cells.map((c) => c.count)).toEqual([3, 1]);
     expect(cells[0].pix).toBe(ang2pixNest(3, 122.5, 17.0));
-    expect(cells[0].byKind).toEqual({ mover: 1, high_pm: 2, spectral: 0 });
+    expect(cells[0].byKind).toEqual({ mover: 1, high_pm: 2, spectral: 0, shape: 0 });
     expect(cells.reduce((n, c) => n + c.count, 0)).toBe(4);
   });
 

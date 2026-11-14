@@ -4,7 +4,7 @@ import { gateText, gradeOf, isGate, leadRank } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { DETECTORS, formatMjd } from "../app/astro";
 
-export const KINDS: readonly CandidateKind[] = ["mover", "high_pm", "spectral"];
+export const KINDS: readonly CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 
 export interface KindText {
   name: string;
@@ -35,10 +35,16 @@ export const KIND_TEXT: Record<CandidateKind, KindText> = {
     code: "s",
     meaning: "Its colours or molecule bands stand out: methane, water ice or CO₂.",
   },
+  shape: {
+    name: "One or two?",
+    plural: "One or two?",
+    code: "o",
+    meaning: "Wider or longer than a single star, where Gaia and CatWISE list one object. Could be a passing object or a companion.",
+  },
 };
 
 export function isKind(k: unknown): k is CandidateKind {
-  return k === "mover" || k === "high_pm" || k === "spectral";
+  return k === "mover" || k === "high_pm" || k === "spectral" || k === "shape";
 }
 
 /**
@@ -77,6 +83,11 @@ const REASON_TEXT: Record<string, string> = {
   class_galaxy: "Looks like a galaxy",
   class_unsure: "Star or galaxy unclear",
   variable: "Brightness changes",
+  // shape
+  elongated: "Stretched shape",
+  steady_pa: "Same direction every time",
+  one_visit: "Stretched in one visit only",
+  one_catalogue_source: "Catalogues list one object",
 };
 
 /** The "check first" codes of the contract: shown as cautions, not as evidence. */
@@ -97,6 +108,7 @@ const CAUTION_CODES = new Set([
   "catwise_pm_disagrees",
   "at_control_level",
   "implausible_pm",
+  "one_visit",
 ]);
 
 export function isCaution(code: string): boolean {
@@ -197,7 +209,7 @@ export function oneLine(c: Candidate): string {
   const grade = g ? `, grade ${g}` : "";
   if (!k) return `${name}${grade}`;
   const unit = k.unit ? (k.unit.startsWith("″") ? k.unit : ` ${k.unit}`) : "";
-  const pa = c.pa_deg != null && c.kind !== "spectral" ? `, toward ${Math.round(c.pa_deg)}°` : "";
+  const pa = c.pa_deg != null && c.kind !== "spectral" ? (c.kind === "shape" ? `, stretched along ${Math.round(c.pa_deg)}°` : `, toward ${Math.round(c.pa_deg)}°`) : "";
   return `${name}, ${k.value}${unit}${pa}${grade}`;
 }
 
