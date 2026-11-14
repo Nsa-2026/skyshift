@@ -483,3 +483,41 @@ ALLWISE_CACHE = os.environ.get("SKYSHIFT_ALLWISE_CACHE", "1") != "0"
 CALIB_BORROW = os.environ.get("SKYSHIFT_CALIB_BORROW", "auto")
 CALIB_REF_ZONE = os.environ.get("SKYSHIFT_CALIB_REF", "hunt")   # results/<ref>/calib.json in the same root; "" = none
 CALIB_BORROW_MIN_ANCHOR_DETS = 3
+
+# --- tiles: the combining steps per sky tile, in parallel processes (tiles.py) -------------------------
+# `all` cuts zones larger than TILE_AUTO_MIN_DEG2 into tiles (CLI --tiles / --tile-deg override). A tile is a core box
+# (the cores partition the zone box) plus a border of TILE_MARGIN_ARCSEC; each tile runs link, spectra, crossid (pass 1),
+# then, after the zone-wide calib, spectra, classify, photoz, colours, lightcurves, astrometry (pass 2) on its core + border,
+# and keeps only what its core owns: a fixed source by link's position (fixed.ra/dec), a mover by its position, a forced
+# target by its catalogue position. Zone-wide numbers are fitted once on the merged data and given to every tile: calib,
+# the classify stellar locus, the light-curve error model and bad photos, the astrometry frame offsets; highpm, score and
+# suspects run once on the merged tables. source_id is already sky-wide (6″ cell × 100 + rank in the cell), so tiles
+# need no renumbering.
+TILE_AUTO_MIN_DEG2 = 30.0      # `all` tiles zones larger than this (pilot 12.6 deg² stays untiled; hunt 100 deg² tiles)
+# Grid: nx × ny equal cores, chosen to minimise rounds × cost per tile, rounds = ceil(tiles / workers) (each pass waits
+# for its slowest round) and cost ∝ (side_x + PAD)(side_y + PAD) (the tile's own dots, plus the photos it overlaps: a
+# photo's box is ~4.5°, so small tiles read the same photos many times). Hunt on 16 workers: 4 × 4 tiles of 2.5°.
+TILE_MAX_DEG = 2.5             # largest core side (memory: ~2.2 M in-zone dots at hunt density)
+TILE_COST_PAD_DEG = 2.0
+# Border: link's 4″ friends-of-friends chains reach 30–60″ from the source at full depth (pilot members: 19 of 175k
+# sampled dots at 30–60″, none further), mover pairs reach 16″ (smoke) and their 6″ veto needs complete fixed sources;
+# 2′ keeps every group the core touches complete. A tile whose border was too small is detected and redone (below).
+TILE_MARGIN_ARCSEC = 120.0
+TILE_EDGE_TOUCH_ARCSEC = FIXED_LINK_ARCSEC + 2 * FIXED_SNAP_ARCSEC  # a group with a dot this close to the border's
+                               # outer edge may be cut there ...
+TILE_EDGE_CHECK_ARCSEC = 30.0  # ... which matters when it also has a dot this close to the core (owned, or the veto of an
+                               # owned mover: 6″ + mover reach): then the tile is redone with a doubled border
+TILE_MAX_RETRIES = 2
+TILE_ZONE_EDGE_MARGIN = True   # tiles on the zone's edge load the border outside the zone box too (dots of the zone's
+                               # photos there): zone edges become tile edges, no stars cut at the zone edge, no fake movers
+TILE_SLIM_DOTS = True          # mirror the zone's dot files into the work dir without the columns below (same rows, so
+TILE_SLIM_DROP_COLUMNS = ("flux_ap_ujy", "flux_ap_err_ujy")  # dot_row holds); no combining step reads them, and their
+                               # list decoding is 3/4 of a full read (18.8 → 4.4 ms per photo); a tile reads each photo
+                               # it overlaps, about (1 + 4.5° / TILE_DEG)² tiles per photo
+TILE_CALIB_MIN_SNR = 30.0      # calib inputs gathered from the tiles: every dot of a Gaia-matched source, plus other
+                               # dots at least this bright (calib's flux terms use S/N >= CALIB_AP_MIN_SNR, CALIB_FLUX_MIN_SNR)
+TILE_THREADS = 4               # file-read threads inside each tile process
+TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir's disk keeps this much free after it (estimated
+                               # from a sample of the files, plus as much again for the tiles' own files); otherwise the tiles
+                               # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
+                               # slim dots + 1.9 GB forced on a 30 GB boot disk

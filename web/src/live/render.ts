@@ -47,9 +47,9 @@ export function updatedText(sum: RunSummary): string {
   return sum.age === null ? "Update time unknown" : `Updated ${fmtAgo(sum.age)}`;
 }
 
-/** "under 1%" for a sliver, else a whole percentage rounded down (never claim more than is done). */
+/** The exact percentage to one decimal, e.g. "0.3%", "3.0%", "100%". */
 export function pctWord(p: number): string {
-  return p > 0 && p < 1 ? "under 1%" : `${Math.floor(p)}%`;
+  return p >= 100 ? "100%" : `${(Math.floor(p * 10) / 10).toFixed(1)}%`;
 }
 
 /**
@@ -69,10 +69,15 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
     marker = html`<span class="lv-proj" style="left:${x.toFixed(2)}%" aria-hidden="true"></span>
       <p class="lv-proj-label" data-side="${side}" style="--x:${x.toFixed(2)}%">${pctWord(x)} expected ${by}</p>`;
   }
+  const c = sum.counts;
+  const nComb = c.combined;
+  const nExt = c.extracted + c.combining;
+  const nRest = Math.max(0, sum.total - nComb - nExt);
+  const zn = (n: number) => `${fmtCount(n)} ${n === 1 ? "zone" : "zones"}`;
   const key = [
-    `<li><span class="lv-key lv-seg-comb"></span>${pctWord(b.combinedPct)} combined</li>`,
-    `<li><span class="lv-key lv-seg-ext"></span>${pctWord(ext)} extracted, not yet combined</li>`,
-    `<li><span class="lv-key lv-seg-rest"></span>${pctWord(rest)} not yet extracted</li>`,
+    `<li><span class="lv-key lv-seg-comb"></span>${zn(nComb)} (${pctWord(b.combinedPct)}) combined</li>`,
+    `<li><span class="lv-key lv-seg-ext"></span>${zn(nExt)} (${pctWord(ext)}) extracted, not yet combined</li>`,
+    `<li><span class="lv-key lv-seg-rest"></span>${zn(nRest)} (${pctWord(rest)}) not yet extracted</li>`,
   ].join("");
   const time =
     b.timePct !== null

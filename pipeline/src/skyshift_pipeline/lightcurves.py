@@ -276,13 +276,29 @@ def fit_error_model(p: pd.DataFrame, ref: np.ndarray) -> tuple[np.ndarray, dict]
             if np.isfinite(c2) and c2 > 0:
                 k, fl = k * np.sqrt(c2), fl * np.sqrt(c2)
             k_pt[sel], fl_pt[sel] = k, fl
-            out[key] = {"basis": basis, "groups": int(groups.size), "points": int(use.sum()), "k": round(k, 4),
-                        "floor": round(fl, 4), "median_chi2_nu_before": round(float(np.median(before)), 3),
+            out[key] = {"basis": basis, "groups": int(groups.size), "points": int(use.sum()), "k": k,
+                        "floor": fl, "median_chi2_nu_before": round(float(np.median(before)), 3),
                         "snr_bins": [round(float(x), 1) for x in sb],
                         "robust_sd_bins": [round(float(np.sqrt(x)), 3) for x in vb]}
+    return _calibrated(e, m, k_pt, fl_pt), out
+
+
+def _calibrated(e: np.ndarray, m: np.ndarray, k: np.ndarray, fl: np.ndarray) -> np.ndarray:
     with np.errstate(invalid="ignore"):
-        cal = np.sqrt((k_pt * e) ** 2 + (fl_pt * np.where(np.isfinite(m), m, 0.0)) ** 2)
-    return cal, out
+        return np.sqrt((k * e) ** 2 + (fl * np.where(np.isfinite(m), m, 0.0)) ** 2)
+
+
+def apply_error_model(p: pd.DataFrame, model: dict) -> np.ndarray:
+    """flux_err_cal per point from a fitted model ({"<origin>_D<det>": {"k", "floor"}}, as fit_error_model returns it):
+    tiles.py fits the model once on the whole zone and every tile applies it; k = 1, floor = 0 where it has no entry."""
+    origin = p["origin"].astype(str).to_numpy()
+    det = p["detector"].to_numpy(np.int64)
+    k_pt, fl_pt = np.ones(len(p)), np.zeros(len(p))
+    for key, v in model.items():
+        o, d = key.rsplit("_D", 1)
+        sel = (origin == o) & (det == int(d))
+        k_pt[sel], fl_pt[sel] = v["k"], v["floor"]
+    return _calibrated(p["flux_err_ujy"].to_numpy(np.float64), p["model_ujy"].to_numpy(np.float64), k_pt, fl_pt)
 
 
 def photo_check(p: pd.DataFrame, ref: np.ndarray, cal: np.ndarray) -> tuple[np.ndarray, list[dict]]:
@@ -298,7 +314,7 @@ def photo_check(p: pd.DataFrame, ref: np.ndarray, cal: np.ndarray) -> tuple[np.n
     bad = (nref >= C.LC_PHOTO_MIN_REF) & (np.abs(med) > C.LC_PHOTO_MAX_MEDIAN_CHI)
     rows = [{"origin": o, "detector": int(d), "mjd": round(float(t), 6), "ref_points": int(nref[i]),
              "median_chi": round(float(med[i]), 2)} for i, (o, d, t) in enumerate(uniq) if bad[i]]
-    return ~bad[code], rows
+    return ~bad[code], sorted(rows, key=lambda r: (r["origin"], r["detector"], r["mjd"]))
 
 
 def summarise(p: pd.DataFrame) -> pd.DataFrame:
@@ -319,9 +335,10 @@ def summarise(p: pd.DataFrame) -> pd.DataFrame:
     chi2_nu = group_chi2_nu(g[pok], G, f[pok], m[pok], e[pok])
     chi2_nu_raw = group_chi2_nu(g[pok], G, f[pok], m[pok], e_raw[pok])
     chi2_nu_robust = robust_chi2_nu(g[pok], G, f[pok], m[pok], e[pok])
-    q = pd.Series(rel[fin]).groupby(g[fin]).quantile([0.05, 0.95]).unstack()
     amp = np.full(G, np.nan)
-    amp[q.index.to_numpy()] = (q[0.95] - q[0.05]).to_numpy()
+    if fin.any():  # (no finite rel_flux at all: an empty quantile table)
+        q = pd.Series(rel[fin]).groupby(g[fin]).quantile([0.05, 0.95]).unstack()
+        amp[q.index.to_numpy()] = (q[0.95] - q[0.05]).to_numpy()
     vm = pd.DataFrame({"g": g[fin], "v": p["visit"].to_numpy(np.int64)[fin], "r": rel[fin]}).groupby(["g", "v"], sort=True)["r"].median().reset_index()
     vl = vm.groupby("g").agg(visits=("v", list), visit_median_rel=("r", list))
     visits = pd.Series([[]] * G, dtype=object)
@@ -357,26 +374,41 @@ def compute(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd
 
 def compute_with_report(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd.DataFrame | None,
                         sources: pd.DataFrame | None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    p = points(dots, forced, crossids, sources)
+    if p is None:
+        empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in POINT_COLUMNS})
+        return empty, pd.DataFrame({c: pd.Series(dtype="float64") for c in SUMMARY_COLUMNS}), {}
+    ref = reference_points(p, crossids)
+    cal, model = fit_error_model(p, ref)
+    photo_ok, bad = photo_check(p, ref, cal)
+    p, s = finish(p, cal, photo_ok)
+    rep = error_report(p, s, ref, model)
+    rep["bad_photos"] = bad
+    return p[POINT_COLUMNS], s, rep
+
+
+def points(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd.DataFrame | None,
+           sources: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Every point (dots and forced photometry) with its model_ujy and rel_flux, sorted; None when there are none."""
     parts = []
     if dots is not None and len(dots):
         parts.append(points_from_dots(dots))
     if forced is not None and len(forced):
         parts.append(points_from_forced(forced, crossids))
     if not parts:
-        empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in POINT_COLUMNS})
-        return empty, pd.DataFrame({c: pd.Series(dtype="float64") for c in SUMMARY_COLUMNS}), {}
+        return None
     p = pd.concat(parts, ignore_index=True)
     p = add_model(p, sources)
-    p = p.sort_values(["source_id", "ref_id", "detector", "mjd"], kind="stable").reset_index(drop=True)
-    ref = reference_points(p, crossids)
-    cal, model = fit_error_model(p, ref)
+    return p.sort_values(["source_id", "ref_id", "detector", "mjd"], kind="stable").reset_index(drop=True)
+
+
+def finish(p: pd.DataFrame, cal: np.ndarray, photo_ok: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """points + the calibrated errors and photo_ok → (points with origin as category, summary)."""
     p["flux_err_cal_ujy"] = cal.astype(np.float32)
-    p["photo_ok"], bad = photo_check(p, ref, cal)
+    p["photo_ok"] = photo_ok
     s = summarise(p)
-    rep = error_report(p, s, ref, model)
-    rep["bad_photos"] = bad
     p["origin"] = p["origin"].astype("category")
-    return p[POINT_COLUMNS], s, rep
+    return p, s
 
 
 def error_report(p: pd.DataFrame, s: pd.DataFrame, ref: np.ndarray, model: dict) -> dict:
@@ -395,6 +427,7 @@ def error_report(p: pd.DataFrame, s: pd.DataFrame, ref: np.ndarray, model: dict)
         m = x["origin"] == o
         return round(float(col[m].mean()), 4) if m.any() else None
 
+    model = {key: {**v, "k": round(float(v["k"]), 4), "floor": round(float(v["floor"]), 4)} for key, v in model.items()}
     rep = {"model": model, "rule": "sigma_cal^2 = (k sigma)^2 + (floor model)^2 per (origin, detector)"}
     for o in ("dot", "forced"):
         so, sr = s[s["origin"] == o], s_ref[s_ref["origin"] == o]
