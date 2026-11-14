@@ -6,6 +6,7 @@ import { mountBlink } from "../blink";
 import { mountCard } from "../card";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
+import { mountFilters } from "../colour";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
 import { mountAtlas } from "../atlas";
@@ -123,6 +124,8 @@ export function startApp(root: HTMLElement): void {
       sky.epoch(e.mjd_mid);
     },
   });
+  // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
+  const filters = mountFilters($("#blink"));
   // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
   const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
   const vote: VoteHandle = mountVote($("#vote"));
@@ -171,6 +174,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
+    filters.loading(next);
 
     if (moved) {
       // Don't hand the card or sky the previous spot's data while the new one loads.
@@ -200,12 +204,14 @@ export function startApp(root: HTMLElement): void {
       if (fsig.aborted) return;
       frames = loaded.frames;
       sky.goto(next, frames);
+      filters.goto(next, frames);
       card.show(next, object, frames);
       await blink.show(next, loaded.frames, loaded.jsonUrl);
     } catch (e) {
       if (fsig.aborted) return;
       frames = null;
       sky.goto(next, null);
+      filters.goto(next, null);
       blink.status("error", errorText(e));
     }
   }
