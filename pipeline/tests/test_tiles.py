@@ -366,10 +366,13 @@ def test_tiled_equals_untiled(tmp_path):
     assert (lc["ref_id"].astype(str) == "gaia:999").sum() == 2
 
 
-def test_tiled_in_processes_and_border_retry(tmp_path):
-    """Two worker processes; a 2″ border is too narrow for link, so tiles are found and redone with a wider one."""
+def test_tiled_in_processes_and_border_retry(tmp_path, monkeypatch):
+    """Two worker processes; a 2″ border is too narrow for link, so tiles are found and redone with a wider one.
+    The disk is "full" (TILE_DISK_RESERVE_GB), so there is no slim mirror and the tiles read the root's dot files."""
     t = make_root(tmp_path / "t")
+    monkeypatch.setattr(C, "TILE_DISK_RESERVE_GB", 1e9)
     out = tiles.run(t, ZONE, 0.5, 2, margin_arcsec=2.0, edge_margin=False, work_dir=str(tmp_path / "work"))
+    assert out["tiles"]["disk"]["mirror"] is False and "slim_dots" not in out["tiles"]
     assert out["tiles"]["border"]["retried_tiles"] > 0
     fixed = t.read_parquet(results_rel(ZONE.name, "fixed.parquet"))
     assert fixed["source_id"].is_unique and len(fixed) > 200
@@ -423,3 +426,11 @@ def test_stale_work_dirs_are_cleared(tmp_path):
     other.mkdir()
     assert tiles.clear_stale(str(tmp_path), "tst") == [dead.name]
     assert live.exists() and other.exists() and not dead.exists()
+    # after a machine restart the old run's pid may belong to another process: its unlocked lock file says it's gone
+    reused = tmp_path / f"tst-20261114T020304-{os.getppid()}"
+    reused.mkdir()
+    (reused / tiles.LOCK_NAME).write_text("")
+    run = tiles.Run(make_root(tmp_path / "root"), ZONE, 0.5, 1, work_dir=str(tmp_path))
+    assert not reused.exists() and live.exists() and os.path.exists(run.work)
+    assert tiles.clear_stale(str(tmp_path), "tst") == []  # this run holds its lock
+    assert os.path.exists(run.work)

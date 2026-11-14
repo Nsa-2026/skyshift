@@ -29,6 +29,7 @@ box, so stars on the zone edge are not cut (untiled runs clip dots at the zone b
 
 from __future__ import annotations
 
+import fcntl
 import io
 import math
 import multiprocessing as mp
@@ -768,9 +769,35 @@ def _df(parts: list[pa.Table]) -> pd.DataFrame:
     return t.to_pandas() if t is not None else pd.DataFrame()
 
 
+LOCK_NAME = ".running"
+
+
+def _alive(path: str, pid: str) -> bool:
+    """Is the run that made this work dir still going? Its lock file is flock'ed for the run's life (a lock dies with its
+    process, and with the machine), so a reused pid after a restart can't fool it; dirs without one fall back to the pid."""
+    lock = os.path.join(path, LOCK_NAME)
+    if os.path.exists(lock):
+        try:
+            with open(lock, "a") as f:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(f, fcntl.LOCK_UN)
+            return False
+        except BlockingIOError:
+            return True
+        except OSError:
+            pass
+    try:
+        os.kill(int(pid), 0)
+        return int(pid) != os.getpid()
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
 def clear_stale(base: str, zone: str) -> list[str]:
-    """Remove work dirs of earlier runs of this zone (<zone>-<time>-<pid>) whose process is gone: a pre-empted machine
-    restarts the zone from the top, and their slim dot mirrors would fill the disk."""
+    """Remove work dirs of earlier runs of this zone (<zone>-<time>-<pid>) that are no longer running: a pre-empted
+    machine restarts the zone from the top, and their slim dot mirrors would fill the disk."""
     gone = []
     if not os.path.isdir(base):
         return gone
@@ -778,14 +805,8 @@ def clear_stale(base: str, zone: str) -> list[str]:
         head, _, pid = n.rpartition("-")
         if not head.startswith(f"{zone}-") or head[len(zone) + 1:].count("-") or not pid.isdigit():
             continue
-        try:
-            os.kill(int(pid), 0)
-            if int(pid) != os.getpid():
-                continue  # that run is still going
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            continue
+        if _alive(os.path.join(base, n), pid):
+            continue  # that run is still going
         shutil.rmtree(os.path.join(base, n), ignore_errors=True)
         gone.append(n)
     if gone:
@@ -813,6 +834,8 @@ class Run:
         # a fresh dir per run: nothing a stopped (pre-empted) run left half-written is ever read again
         self.work = os.path.abspath(os.path.join(base, f"{zone.name}-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"))
         os.makedirs(self.work, exist_ok=True)
+        self._lock = open(os.path.join(self.work, LOCK_NAME), "w")  # held until this process ends (see clear_stale)
+        fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.keep_work = keep_work
         self.ctx = {"root": store.root, "work": self.work, "zone": zone, "slim": C.TILE_SLIM_DOTS if slim is None else bool(slim),
                     "forced_mirror": not store.local, "edge_margin": self.edge_margin,
@@ -856,12 +879,37 @@ class Run:
         have = set(self.store.listdir("dots"))
         names = [n for n in (f"{o}D{int(d)}.parquet" for o, d in zip(photos["obs_id"], photos["detector"])) if n in have]
         if self.ctx["slim"] or self.ctx["forced_mirror"]:
+            self._check_disk(names)
+        if self.ctx["slim"] or self.ctx["forced_mirror"]:
             k = max(1, len(names) // (self.workers * 4) + 1)
             res = pool.map(prepare_photos, [(self.ctx, names[i:i + k]) for i in range(0, len(names), k)])
             self.stats["slim_dots"] = {"files": sum(r["dots"] for r in res), "bytes": sum(r["bytes"] for r in res)}
         self.stats["photos"] = int(len(photos))
         self.stats["tile_photos"] = [int(len(tile_photos(photos, self.boxes, t.ext))) for t in self.tiles]
         self._timed("prepare", t0)
+
+    def _check_disk(self, names: list[str]) -> None:
+        """Mirror only when the work dir's disk has room: the mirror (estimated from up to 16 files) and as much again for
+        the tiles' own files, plus TILE_DISK_RESERVE_GB. Otherwise the tiles read from the root (same results)."""
+        if not names:
+            return
+        sample = names[:: max(1, len(names) // 16)][:16]
+        per = 0.0
+        for n in sample:
+            for rel, on in ((f"dots/{n}", self.ctx["slim"]), (f"{C.FORCED_DIR}/{n}", self.ctx["forced_mirror"])):
+                if on:
+                    try:
+                        per += float(self.store.fs.size(self.store.path(rel)) or 0)
+                    except (FileNotFoundError, OSError):
+                        pass
+        need = 2.0 * per / len(sample) * len(names)
+        free = float(shutil.disk_usage(self.work).free)
+        self.stats["disk"] = {"mirror_estimate_gb": round(need / 2e9, 2), "free_gb": round(free / 1e9, 2)}
+        if need + C.TILE_DISK_RESERVE_GB * 1e9 > free:
+            L.warning("tiles %s: %.1f GB free in %s, the mirror and tile files need ~%.1f GB: reading dot and forced files "
+                      "from the root instead (slower, same results)", self.zone.name, free / 1e9, self.work, need / 1e9)
+            self.ctx["slim"] = self.ctx["forced_mirror"] = False
+            self.stats["disk"]["mirror"] = False
 
     def submit_predictions(self, pool: _Pool) -> list[Future]:
         """known.load_predictions over the zone, whole sessions per task (in session order)."""

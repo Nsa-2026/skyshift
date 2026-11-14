@@ -56,8 +56,10 @@ highpm, score, suspects; `all` runs them in order.
 
 ## Tiles (tiles.py): large zones combined per sky tile
 - `all` on a zone > TILE_AUTO_MIN_DEG2 (30 deg²; hunt yes, pilot no) runs link … suspects per tile in spawned processes
-  (`--workers`), then merges into the same results/<zone>/ files. `--tiles off|N`, `--tile-deg D` override; `--tile-dir`
-  is the local work dir (default the temp dir, removed after; `--keep-tiles` keeps it). Single steps stay untiled.
+  (`--workers`), then merges into the same results/<zone>/ files. `--tiles off|N` (env SKYSHIFT_TILES), `--tile-deg D`
+  override; `--tile-dir` (env SKYSHIFT_TILE_DIR) is the local work dir (default the temp dir, removed after;
+  `--keep-tiles` keeps it). Single steps stay untiled. Each run has a fresh work dir; dead runs' dirs are removed, so a
+  pre-empted zone simply runs `all` again.
 - Grid: nx × ny equal cores minimising rounds × per-tile cost (rounds = ceil(tiles / workers); cost ∝ (side + 2°)²: a
   tile reads every photo it overlaps), sides ≤ TILE_MAX_DEG (2.5°); hunt on 16 workers → 4 × 4.
 - Tile = core box (cores partition the zone box) + TILE_MARGIN_ARCSEC border (2′: link's 4″ FoF chains reach 30–60″ at
@@ -73,7 +75,8 @@ highpm, score, suspects; `all` runs them in order.
   and bad photos, astrometry's per-photo frame offsets; photoz/lightcurves/astrometry reports on the merged tables;
   highpm, score and suspects run once on the merged tables (their 15′/2′ controls need no border).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
-  combining steps, 3/4 of a full read); each tile reads every photo it overlaps.
+  combining steps, 3/4 of a full read); each tile reads every photo it overlaps. No mirror when the disk lacks room
+  (TILE_DISK_RESERVE_GB; hunt: ~6 GB slim dots + 1.9 GB forced): tiles then read the root, slower, same results.
 - Equality (tests/test_tiles.py; pilot photos with 0.3° tiles): tiled == untiled table by table and report by report.
 
 ## Rules (summary)

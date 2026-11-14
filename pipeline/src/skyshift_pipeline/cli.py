@@ -91,10 +91,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="photolist, refcat, mpc-orbits: query the services again even if the files exist")
     ap.add_argument("--from", dest="from_step", choices=STEPS, default=None,
                     help="all: start at this step (e.g. --from link: combine again without photolist, refcat, dots, known)")
-    ap.add_argument("--tiles", default="auto",
-                    help="all: link … suspects per sky tile: auto (zones over config TILE_AUTO_MIN_DEG2 deg²), off, or about N tiles")
+    ap.add_argument("--tiles", default=os.environ.get("SKYSHIFT_TILES", "auto"),
+                    help="all: link … suspects per sky tile: auto (zones over config TILE_AUTO_MIN_DEG2 deg²), off, or about N "
+                         "tiles (default: env SKYSHIFT_TILES, else auto)")
     ap.add_argument("--tile-deg", type=float, default=None, help="all: tile core side in degrees (tiles any zone)")
-    ap.add_argument("--tile-dir", default=None, help="all, tiled: local work dir (default: the system temp dir); removed after")
+    ap.add_argument("--tile-dir", default=os.environ.get("SKYSHIFT_TILE_DIR") or None,
+                    help="all, tiled: local work dir (default: env SKYSHIFT_TILE_DIR, else the system temp dir); removed after")
     ap.add_argument("--keep-tiles", action="store_true", help="all, tiled: keep the work dir (per-tile tables)")
     ap.add_argument("--zone-edge", choices=("border", "clip"), default="border" if C.TILE_ZONE_EDGE_MARGIN else "clip",
                     help="all, tiled: load the 2′ border outside the zone box too (default), or clip there as untiled runs do")

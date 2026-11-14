@@ -517,3 +517,7 @@ TILE_SLIM_DROP_COLUMNS = ("flux_ap_ujy", "flux_ap_err_ujy")  # dot_row holds); n
 TILE_CALIB_MIN_SNR = 30.0      # calib inputs gathered from the tiles: every dot of a Gaia-matched source, plus other
                                # dots at least this bright (calib's flux terms use S/N >= CALIB_AP_MIN_SNR, CALIB_FLUX_MIN_SNR)
 TILE_THREADS = 4               # file-read threads inside each tile process
+TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir's disk keeps this much free after it (estimated
+                               # from a sample of the files, plus as much again for the tiles' own files); otherwise the tiles
+                               # read the zone's dot and forced files from the root (slower, same results). Hunt: ~6 GB of
+                               # slim dots + 1.9 GB forced on a 30 GB boot disk
