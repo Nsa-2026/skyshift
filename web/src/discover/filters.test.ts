@@ -17,6 +17,7 @@ import {
   filterRows,
   inRange,
   isCautioned,
+  isMapView,
   isOneAtATime,
   leading,
   motionArcsecYr,
@@ -204,7 +205,7 @@ describe("presets", () => {
   it("never share a name with a sort: a preset narrows the list, a sort only reorders it", () => {
     const sorts = SORTS.map((s) => s.label);
     for (const p of PRESETS) expect(sorts).not.toContain(p.label);
-    expect(SORTS.find((s) => s.key === "promising")?.label).toBe("Pipeline score");
+    expect(SORTS.find((s) => s.key === "promising")?.label).toBe("Score");
     expect(PRESETS.find((p) => p.id === "promising")?.label).toBe("Most promising");
   });
 
@@ -327,6 +328,30 @@ describe("the URL", () => {
     expect(activeCount(queryToState("one=1"))).toBe(0);
     // Round trip through the page's reader and writer.
     expect(candidatesHash(queryToState(q), { one: isOneAtATime(q) })).toBe("#/candidates/kind=mover&known=60-&one=1");
+  });
+
+  it("keeps the map view in the URL as map=1, after the filter, and never as a filter", () => {
+    expect(candidatesHash(defaultState(), { map: true })).toBe("#/candidates/map=1");
+    expect(candidatesHash(defaultState(), { map: false })).toBe("#/candidates");
+    const movers = queryToState("kind=mover&sort=fewest");
+    expect(candidatesHash(movers, { map: true })).toBe("#/candidates/kind=mover&sort=fewest&map=1");
+    // One view at a time: the map wins over "One at a time".
+    expect(candidatesHash(movers, { map: true, one: true })).toBe("#/candidates/kind=mover&sort=fewest&map=1");
+    expect(isMapView("map=1")).toBe(true);
+    expect(isMapView("?kind=mover&map=1")).toBe(true);
+    expect(isMapView("#/candidates/kind=mover&map=1")).toBe(true);
+    expect(isMapView("#/candidates/map=1")).toBe(true);
+    expect(isMapView("#/candidates/kind=mover")).toBe(false);
+    expect(isMapView("map=0")).toBe(false);
+    expect(isMapView("#/sky/map=1")).toBe(false);
+    expect(isMapView(null)).toBe(false);
+    // Not a filter: same state, same preset, same count of filters on.
+    const q = "kind=mover&known=60-&map=1";
+    expect(sameState(queryToState(q), queryToState("kind=mover&known=60-"))).toBe(true);
+    expect(activePreset(queryToState(q))?.id).toBe("fast-movers");
+    expect(activeCount(queryToState("map=1"))).toBe(0);
+    expect(isOneAtATime(q)).toBe(false);
+    expect(candidatesHash(queryToState(q), { map: isMapView(q) })).toBe("#/candidates/kind=mover&known=60-&map=1");
   });
 
   it("drops what it can't read instead of failing", () => {

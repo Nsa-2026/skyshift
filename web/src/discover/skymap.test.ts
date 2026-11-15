@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Candidate } from "../api/types";
-import { aitoff, eqToGal, galToEq, glyphPath, gratStep, latLabel, meanLon, mountSkyMap, raLabel, wrap180 } from "./skymap";
+import { aitoff, eqToGal, galToEq, glyphPath, gratStep, latLabel, meanLon, mountSkyMap, raLabel, wrap180, zoneLabel } from "./skymap";
 
 describe("projection maths", () => {
   it("wraps angles to [−180, 180)", () => {
@@ -107,19 +107,22 @@ describe("the map", () => {
     el.remove();
   });
 
-  it("offers one close-up per zone when there are several", () => {
+  it("offers one close-up per zone when there are several, in a 'Search zone' menu", () => {
     const el = document.createElement("div");
     const map = mountSkyMap(el, { onOpen: () => {} });
     map.setData([cand("a", 122, 16), cand("b", 269, 5, "high_pm", "hunt"), cand("c", 269.1, 5, "high_pm", "hunt")]);
     map.setFiltered(["a", "b", "c"]);
     const zones = el.querySelector<HTMLElement>(".skymap-zones")!;
     expect(zones.hidden).toBe(false);
+    expect(zones.querySelector("span")?.textContent).toBe("Search zone");
+    expect(zones.title).toBe("The sky patches we searched: 10° boxes along the ecliptic, numbered from RA 0° (n1 is the box north of it).");
     const select = zones.querySelector<HTMLSelectElement>("select")!;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Hunt", "Pilot"]);
     expect(select.value).toBe("hunt");
-    expect(el.querySelector(".skymap-caption")?.textContent).toContain("hunt zone");
+    expect(el.querySelector(".skymap-caption")?.textContent).toContain("Search zone Hunt:");
     select.value = "pilot";
     select.dispatchEvent(new Event("change"));
-    expect(el.querySelector(".skymap-caption")?.textContent).toContain("pilot zone");
+    expect(el.querySelector(".skymap-caption")?.textContent).toContain("Search zone Pilot:");
     map.destroy();
   });
 
@@ -185,5 +188,22 @@ describe("the map", () => {
       if (close) Object.defineProperty(proto, "close", close);
       else Reflect.deleteProperty(proto, "close");
     }
+  });
+
+  it("names the ecliptic zones plainly and leaves a long run of them unringed on the whole sky", () => {
+    expect(zoneLabel("ecl12n1")).toBe("Ecl12 n1");
+    expect(zoneLabel("ecl03s2")).toBe("Ecl03 s2");
+    expect(zoneLabel("ecl00")).toBe("Ecl00");
+    expect(zoneLabel("hunt")).toBe("Hunt");
+    const el = document.createElement("div");
+    const map = mountSkyMap(el, { onOpen: () => {}, zoom: "sky" });
+    const zones = ["ecl00", "ecl01", "ecl02", "ecl03", "ecl04", "ecl05", "ecl06", "ecl12n1"];
+    map.setData(zones.map((z, i) => cand(`c${i}`, 5 + 10 * i, 2, "high_pm", z)));
+    map.setFiltered(zones.map((_, i) => `c${i}`));
+    expect(el.querySelectorAll(".sm-zone")).toHaveLength(0);
+    expect(el.querySelectorAll(".sm-pt")).toHaveLength(8);
+    el.querySelector<HTMLButtonElement>('[data-zoom="fit"]')!.click();
+    expect([...el.querySelectorAll(".skymap-zones option")].map((b) => b.textContent)).toContain("Ecl12 n1");
+    map.destroy();
   });
 });

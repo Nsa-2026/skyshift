@@ -316,11 +316,12 @@ export function discoverQuery(hash: string, search: string): string {
   return s.toString();
 }
 
-/** The list's "One at a time" switch ("one=1") is a view, not a filter: drop it, keep the rest as written. */
+/** The list's "One at a time" switch ("one=1") and its map view ("map=1") are views, not filters:
+ *  drop them, keep the rest as written. */
 function withoutOne(query: string): string {
   return query
     .split("&")
-    .filter((p) => p && !/^one(=|$)/.test(p))
+    .filter((p) => p && !/^(?:one|map)(=|$)/.test(p))
     .join("&");
 }
 
