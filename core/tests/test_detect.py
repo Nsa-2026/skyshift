@@ -28,6 +28,31 @@ def test_detect_finds_fixture_stars(cutout_path, cutout_stars):
     assert np.median(offsets) < 0.1
 
 
+def test_detect_clean_param_default_and_passed_to_sep(cutout_path, monkeypatch):
+    """clean_param 1.0 is sep's default (the sky run is unchanged); a larger value keeps every dot of the default
+    and may add faint ones that sep's cleaning had merged into a brighter source's wings."""
+    l2 = open_level2(cutout_path, variance=True)
+    a = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0)
+    b = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, clean_param=1.0)
+    assert np.array_equal(a, b)
+    c = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, clean_param=3.0)
+    assert len(c) >= len(a)
+    for x, y in zip(a["x"], a["y"]):
+        assert np.hypot(c["x"] - x, c["y"] - y).min() < 0.5
+    import sep
+
+    seen = []
+    real = sep.extract
+
+    def spy(*args, **kw):
+        seen.append(kw.get("clean_param"))
+        return real(*args, **kw)
+
+    monkeypatch.setattr(sep, "extract", spy)
+    detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, clean_param=3.0)
+    assert seen == [3.0]
+
+
 def test_detect_masks_bad_pixels():
     img = gaussian_image((64, 64), [20.3, 40.7], [30.2, 25.6], [500, 500], 1.0)
     rng = np.random.default_rng(3)
