@@ -18,8 +18,11 @@ import {
   summarize,
   tally,
   astroFile,
+  myVotes,
+  myVotesFile,
   type AstroRow,
   type CandInfo,
+  type MyVote,
 } from "./stats";
 
 export const MPC_URL = "https://minorplanetcenter.net/";
@@ -114,14 +117,8 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         <h1 class="cm-title">Community</h1>
         <article class="cm-welcome" aria-labelledby="cm-welcome-h">
           <h2 id="cm-welcome-h">A note to fellow sky explorers</h2>
-          <p>Welcome to SkyShift, an open astronomy platform for anyone curious about the universe. Here, you can
-            explore NASA's public SPHEREx infrared images, compare observations across time, and help look for
-            things that move or change.</p>
-          <p>Whether you're a lifelong astronomy enthusiast or looking at sky survey images for the first time,
-            you're welcome here. Take your time, follow your curiosity, and learn as you go. Every careful look
-            counts, and “not sure” is a useful answer too.</p>
-          <p>We built SkyShift to share the joy of exploring the sky. Thank you for being part of it. Have fun,
-            enjoy the unexpected, and happy skywatching!</p>
+          <p>Blink NASA's public SPHEREx images on two clocks and say what you see. No experience needed, no account:
+            every careful look counts, and “not sure” is a useful answer too.</p>
           <p class="cm-welcome-signature">— The SkyShift team</p>
         </article>
         <p class="cm-lead" aria-live="polite">Counting votes…</p>
@@ -132,6 +129,34 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         </p>
       </header>`
       }
+
+      ${embedded ? "" : html`
+      <div class="cm-pair cm-pair-you">
+        <section class="cm-you" aria-labelledby="cm-you-h">
+          <div class="cm-sec-head">
+            <h2 id="cm-you-h">Your votes</h2>
+            <div class="cm-exports cm-mine-exports" hidden>
+              <button class="btn" type="button" data-act="mine-csv">Export CSV</button>
+              <button class="btn" type="button" data-act="mine-json">Export JSON</button>
+            </div>
+          </div>
+          <div class="cm-you-body"></div>
+          <ol class="cm-mine-list"></ol>
+          <form class="cm-nick" autocomplete="off">
+            <label for="cm-nick-input">Nickname on this device <span class="muted">(optional)</span></label>
+            <div class="cm-nick-row">
+              <input id="cm-nick-input" class="input" name="nick" maxlength="40" spellcheck="false" placeholder="e.g. Plate reader" />
+              <button class="btn" type="submit">Save</button>
+              <button class="btn btn-ghost" type="button" data-act="nick-clear" hidden>Remove</button>
+            </div>
+            <p class="cm-fine">Kept in this browser only and never sent with your votes.</p>
+          </form>
+        </section>
+        <section class="cm-how" aria-labelledby="cm-how-h">
+          <h2 id="cm-how-h">How consensus works</h2>
+          ${consensusRule}
+        </section>
+      </div>`}
 
       <section class="cm-astro" ${embedded ? html`aria-label="The list for astronomers"` : html`aria-labelledby="cm-astro-h"`}>
         ${
@@ -169,9 +194,8 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
                 observers with an observatory code, usually after more images.</dd>
             </div>
           </dl>
-          <p class="cm-honest">SkyShift doesn't report anything itself and claims no discoveries. Astronomers confirm,
-            and they report. The CSV and JSON give them positions, times and vote counts to start from; the full list
-            of objects to check can be downloaded from ${toolsLink}.</p>
+          <p class="cm-honest">SkyShift reports nothing itself and claims no discoveries: astronomers confirm, and
+            they report. The CSV and JSON give them somewhere to start; the full list is in ${toolsLink}.</p>
           ${embedded ? html`<h3>How consensus works</h3>${consensusRule}` : ""}
         </div>
       </section>
@@ -179,17 +203,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
 
       <section class="cm-open cm-next" aria-labelledby="cm-open-h">
         <h2 id="cm-open-h">Anyone can use this list</h2>
-        <p class="cm-sub">The objects to check, their positions and times, the measured motion with its error, the
-          cautions against each one, and the vote counts are all public. No account, no API key.</p>
-        <p class="cm-honest">Download the current list as CSV or JSON above. The site's own data files are plain
-          JSON at stable addresses, so a script can fetch exactly what this page reads.
-          <a href="#/tools">Tools and data</a> has working examples, the endpoints the live service exposes, and the
-          commands to rerun the pipeline from <a href="${REPO_URL}" target="_blank" rel="noopener">the
-          repository</a>.</p>
-        <p class="cm-honest">The SPHEREx images are already open at IRSA. What SkyShift adds is the layer on top:
-          positions matched across visits, motion measured with its error, catalogue cross-checks, the artefact
-          cautions, and the judgement of the people who looked. We publish that layer as it stands, including the
-          entries people have voted down.</p>
+        <p class="cm-sub">Positions, times, measured motion with its error, the cautions and every vote count are
+          public, as they stand, down-voted entries included. No account, no API key.</p>
+        <p class="cm-honest">The lists above download as CSV or JSON, and the site's own data files are plain JSON at
+          stable addresses, so a script can fetch exactly what this page reads.
+          <a href="#/tools">Tools and data</a> has the endpoints and the commands to rerun the pipeline from
+          <a href="${REPO_URL}" target="_blank" rel="noopener">the repository</a>.</p>
       </section>
 
       <div class="cm-pair">
@@ -204,28 +223,11 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
           <ol class="cm-debate-list"></ol>
         </section>
       </div>
-
-      <div class="cm-pair">
-        <section class="cm-you" aria-labelledby="cm-you-h">
-          <h2 id="cm-you-h">Your contribution</h2>
-          <div class="cm-you-body"></div>
-          <form class="cm-nick" autocomplete="off">
-            <label for="cm-nick-input">Nickname on this device <span class="muted">(optional)</span></label>
-            <div class="cm-nick-row">
-              <input id="cm-nick-input" class="input" name="nick" maxlength="40" spellcheck="false" placeholder="e.g. Plate reader" />
-              <button class="btn" type="submit">Save</button>
-              <button class="btn btn-ghost" type="button" data-act="nick-clear" hidden>Remove</button>
-            </div>
-            <p class="cm-fine">Kept in this browser only and never sent with your votes.</p>
-          </form>
-        </section>
-        <section class="cm-how" aria-labelledby="cm-how-h">
-          <h2 id="cm-how-h">How consensus works</h2>
-          ${consensusRule}
-        </section>
-      </div>`}
+`}
     </div>
   `;
+
+  let mine: MyVote[] = [];
 
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const leadEl = $<HTMLParagraphElement>(".cm-lead");
@@ -236,6 +238,8 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   const actSubEl = $<HTMLParagraphElement>(".cm-activity-sub");
   const debateEl = $<HTMLOListElement>(".cm-debate-list");
   const youEl = $<HTMLDivElement>(".cm-you-body");
+  const mineEl = $<HTMLOListElement>(".cm-mine-list");
+  const mineExportsEl = $<HTMLDivElement>(".cm-mine-exports");
   const nickForm = $<HTMLFormElement>(".cm-nick");
   const nickInput = $<HTMLInputElement>("#cm-nick-input");
   const nickClear = $<HTMLButtonElement>("[data-act=nick-clear]");
@@ -395,8 +399,44 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
             <i style="width:${(a.rate * 100).toFixed(1)}%"></i></div>`;
     youEl.innerHTML = html`${hello}
       <p class="cm-you-lead">You've voted on ${n(a.voted)} ${plural(a.voted, "object", "objects")} from this browser: ${esc(mix)}.</p>
-      <p>${agreeText}</p>${meter}
-      <p class="cm-fine">Counted from this browser's own memory of its votes. Disagreeing isn't wrong: early votes are how hard cases get found.</p>`;
+      <p>${agreeText}</p>${meter}`;
+    renderMine(s);
+  }
+
+  /** Each of this browser's votes: the object, what it answered, and where that object stands now. */
+  function renderMine(s: Snapshot) {
+    mine = myVotes(s.mine, tally(s.votes));
+    mineExportsEl.hidden = mine.length === 0;
+    if (!mine.length) {
+      mineEl.innerHTML = "";
+      return;
+    }
+    const open = mine.filter((m) => m.verdict.state !== "consensus").length;
+    mineEl.innerHTML =
+      mine
+        .map((m) => {
+          const i = info.get(m.id);
+          const v = m.verdict;
+          const where =
+            v.state === "consensus"
+              ? html`<span class="cm-mine-state${m.differs ? " is-differs" : ""}">Settled: ${ANSWER_TEXT[v.answer!].label.toLowerCase()}${m.differs ? ", not your answer" : ", as you said"}</span>`
+              : html`<span class="cm-mine-state is-open">${v.votes
+                  ? `Open, ${votesWord(v.votes)} so far`
+                  : "Open, yours is the only vote here"}</span>`;
+          return html`<li class="cm-mine">
+            <div class="cm-mine-row">
+              <span>${candidateLinkHtml(m.id, i)} <span class="cm-debate-id">${esc(m.id)}</span></span>
+              <span class="cm-mine-answer">You said <b>${ANSWER_TEXT[m.mine].label.toLowerCase()}</b></span>
+            </div>
+            <div class="cm-mine-row cm-mine-foot">${where}${v.votes ? splitBar(m.counts) : ""}</div>
+          </li>`;
+        })
+        .join("") +
+      html`<li class="cm-mine-note cm-fine">A vote is cast once per browser and stays as it is: that is what makes the
+        count above auditable. ${open ? html`${n(open)} of these ${plural(open, "is", "are")} still open, so another
+        pair of eyes can still move ${plural(open, "it", "them")} — send the link on, or take it to the
+        <a href="${FORUM_URL}" target="_blank" rel="noopener">Backyard Worlds forum</a>, where the volunteers and
+        astronomers discuss them.` : html`Disagreeing isn't wrong: early votes are how hard cases get found.`}</li>`;
   }
 
   function renderAll(s: Snapshot) {
@@ -484,6 +524,13 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
       case "json": {
         const meta = { generated: new Date(now()).toISOString(), votes_from: snap.mode, data_release: snap.dataRelease };
         const file = astroFile(btn.dataset.act, rows, meta, location.href);
+        download(file.name, file.text, file.type);
+        break;
+      }
+      case "mine-csv":
+      case "mine-json": {
+        const meta = { generated: new Date(now()).toISOString(), votes_from: snap.mode, data_release: snap.dataRelease };
+        const file = myVotesFile(btn.dataset.act === "mine-csv" ? "csv" : "json", mine, (id) => info.get(id), meta, location.href);
         download(file.name, file.text, file.type);
         break;
       }
