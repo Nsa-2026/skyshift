@@ -226,6 +226,10 @@ The step never raises (errors go to its stats).
   Hunt: 124 tracks (all known asteroids, none mixed), 1245 of 6143 movers; control (each session's movers moved
   0.5–1.5°) 0 tracks in 4 runs; recall at V < 16 90.4% → 94.7% (433/457), control 0; 0 of 228 suspects on a track.
   The rest of the misses: no dot (12), or a dot inside a star's fixed group (≤ 4″, not a free dot).
+  score tells the two kinds of dot apart (members.parquet: a dot in a fixed source's group vs a free dot, the only kind
+  link pairs): recall_units `dot_free`/`dot_fixed`/`miss`, recall.json `free_dot_share` and `misses`. Hunt (15 Nov
+  tables, V < 16): dot_share 97.4% but free_dot_share 95.0%; misses no_dot 11, fixed_dot 11, free_dot 1; control
+  dot_share 13.6% → free 2.2% (most chance dots within 12″ are stars').
   Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
   stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over nonfixed_dots (not suspects' freedots.parquet: that one
   has pixel x, y and no near-fixed dots, for vet's hot-pixel maps).
