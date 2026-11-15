@@ -85,6 +85,7 @@ _KEEP_FIRST = {"known", "mover", "suspect", "artifact"}
 # v3.12: sources only the pipeline's visit stacks found (results/<zone>/stack_sources.parquet), months clock only
 STACK_CLASS = "stack"
 STACK_MIN_SNR = 5.0          # a stack source is drawn in a visit where its forced S/N over that visit is at least this
+STACK_LINKED_ARCSEC = 3.0    # a stack source with a linked source this close is that source (pipeline STACK_SINGLE_MATCH_ARCSEC)
 STACK_VISIT_TOL_DAYS = 20.0  # a stack visit (its photos' median MJD) belongs to the epoch whose span holds it, ± this
 
 DOT_COLS = ["mjd", "ra", "dec", "pos_err_arcsec", "snr", "flux_ujy", "flags", "flags_peak", "elong"]
@@ -97,6 +98,12 @@ def enabled() -> bool:
 
 def dots_only_enabled() -> bool:
     return os.environ.get("SKYSHIFT_MEASURED_DOTS_ONLY", "1") != "0"
+
+
+def stack_enabled() -> bool:
+    """v3.12 class `stack`: off until SKYSHIFT_MEASURED_STACK=1, because the site reads CLASS_INFO[class] and an
+    unknown class would break its measured layer (web/src/blink/measured.ts); turn on once the site knows it."""
+    return os.environ.get("SKYSHIFT_MEASURED_STACK", "0") == "1"
 
 
 # --- storage ----------------------------------------------------------------------------------
@@ -431,7 +438,9 @@ def _load_tables(st: Store, zone: Zone) -> Tables:
                     highpm[sid] = (cls, reasons if cls == "artifact" else [])
     tables = Tables(zone, np.asarray(src["source_id"], np.int64)[order], np.asarray(src["ra"], float)[order],
                     np.asarray(src["dec"], float)[order], gaia, mv, suspects, ast, highpm,
-                    _load_fragments(st, base), _load_stack(st, base))
+                    _load_fragments(st, base),
+                    _load_stack(st, base, np.asarray(src["ra"], float), np.asarray(src["dec"], float))
+                    if stack_enabled() else None)
     log.info("measured: zone %s tables loaded in %.1f s (%d sources, %d movers, %d suspects, %d shifts, %.1f MB)",
              zone.name, time.perf_counter() - t0, len(order), len(mv.get("ra", ())), len(suspects),
              len(ast.get("source_id", ())), tables.nbytes() / 1e6)
@@ -460,10 +469,11 @@ def _load_fragments(st: Store, base: str) -> dict[int, tuple[str, str | None, li
     return out
 
 
-def _load_stack(st: Store, base: str) -> dict[str, Any] | None:
-    """The stack sources the measured layer draws (contracts/dots.md stack_sources, api.md v3.12): no single-photo
-    source (source_id -1), not transient. Per-visit S/N, flux and position as (n, visits) arrays, sorted by dec.
-    None without the file, or when it can't be read (the layer then reads as before)."""
+def _load_stack(st: Store, base: str, src_ra: np.ndarray, src_dec: np.ndarray) -> dict[str, Any] | None:
+    """The stack sources the measured layer draws (contracts/dots.md stack_sources, api.md v3.12): no linked source of
+    this zone within STACK_LINKED_ARCSEC (the table's own source_id -1, checked again against the linked sources read
+    now, in case link ran again after stack), not transient. Per-visit S/N, flux and position as (n, visits) arrays,
+    sorted by dec. None without the file, or when it can't be read (the layer then reads as before)."""
     try:
         t = st.read_table(f"{base}/stack_sources.parquet",
                           ["ra", "dec", "source_id", "transient", "artifact_zone", "n_photos", "visits", "mjd_visit",
@@ -475,6 +485,8 @@ def _load_stack(st: Store, base: str) -> dict[str, Any] | None:
     if t is None:
         return None
     keep = (np.asarray(t["source_id"], np.int64) < 0) & ~np.asarray(t["transient"], bool)
+    keep[keep] = ~_near_any(np.asarray(t["ra"], float)[keep], np.asarray(t["dec"], float)[keep], src_ra, src_dec,
+                            STACK_LINKED_ARCSEC)
     rows = np.nonzero(keep)[0]
     rows = rows[np.argsort(np.asarray(t["dec"], float)[rows], kind="stable")]
     visits = [int(v) for v in (t["visits"][0] if len(t["visits"]) else [])]
@@ -499,6 +511,22 @@ def _load_stack(st: Store, base: str) -> dict[str, Any] | None:
     return {"ra": np.asarray(t["ra"], float)[rows], "dec": np.asarray(t["dec"], float)[rows],
             "artifact": np.asarray(t["artifact_zone"], bool)[rows], "n_photos": np.asarray(t["n_photos"], int)[rows],
             "gaia": gaia, "mjd": mjd, "snr": snr, "flux": flux, "ra_v": rav, "dec_v": decv}
+
+
+def _near_any(ra: np.ndarray, dec: np.ndarray, ref_ra: np.ndarray, ref_dec: np.ndarray, r_arcsec: float) -> np.ndarray:
+    """True where a reference point lies within r_arcsec (unit vectors: any part of the sky)."""
+    from scipy.spatial import cKDTree
+
+    if not len(ra) or not len(ref_ra):
+        return np.zeros(len(ra), bool)
+
+    def unit(a, d):
+        a, d = np.radians(a), np.radians(d)
+        return np.column_stack([np.cos(d) * np.cos(a), np.cos(d) * np.sin(a), np.sin(d)])
+
+    chord = 2.0 * math.sin(math.radians(r_arcsec / 7200.0))
+    dist, _ = cKDTree(unit(ref_ra, ref_dec)).query(unit(ra, dec), distance_upper_bound=chord)
+    return np.isfinite(dist)
 
 
 def _months_stack(ep: dict, era: float, edec: float, half: float, S: dict[str, Any]) -> list[dict]:
@@ -1301,7 +1329,8 @@ def stale(cached: dict, *, root: str | None = None) -> bool:
     if (z.name, z.stage) != (m.get("zone"), m.get("stage")):
         return True
     # v3.12: a months answer built before the zone's stack table existed
-    return cached.get("clock") == "months" and STACK_CLASS not in (m.get("counts") or {}) and stack_exists(z.name, root)
+    return (stack_enabled() and cached.get("clock") == "months" and STACK_CLASS not in (m.get("counts") or {})
+            and stack_exists(z.name, root))
 
 
 def stack_exists(zone: str, root: str | None = None) -> bool:

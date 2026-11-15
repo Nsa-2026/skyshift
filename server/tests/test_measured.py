@@ -482,39 +482,45 @@ def _stack_sources(root: str) -> dict:
     """results/zz/stack_sources.parquet (contracts/dots.md, api.md v3.12): two visits at T1 and T3."""
     new = off(30, 30)      # stack only: S/N 8 in visit 0, 3 in visit 1; a free-fit position in visit 0 (0.4" E)
     glow = off(65, 60)     # stack only, in a bright source's artifact zone
-    pts = {"new": new, "glow": glow, "linked": S1, "moving": off(-30, 30), "far": FAR}
+    # relinked: the table says no single-photo source, but the zone's linked sources now have one 1.5″ away
+    pts = {"new": new, "glow": glow, "linked": S1, "moving": off(-30, 30), "far": FAR, "relinked": off(1.5, 0, *S2)}
     nan = float("nan")
     _write(Path(root) / "results" / "zz" / "stack_sources.parquet", {
-        "stack_id": np.arange(5, dtype=np.int64),
+        "stack_id": np.arange(6, dtype=np.int64),
         "ra": np.array([p[0] for p in pts.values()]), "dec": np.array([p[1] for p in pts.values()]),
-        "source_id": np.array([-1, -1, 111, -1, -1], np.int64),
-        "transient": np.array([False, False, False, True, False]),
-        "artifact_zone": np.array([False, True, False, False, False]),
-        "n_photos": np.array([40, 40, 40, 40, 40], np.int32),
-        "visits": pa.array([[0, 1]] * 5, pa.list_(pa.int16())),
-        "mjd_visit": pa.array([[T1 + 0.5, T3 - 0.5]] * 5, pa.list_(pa.float64())),
-        "snr_visit": pa.array([[8.0, 3.0], [6.0, 7.0], [300.0, 300.0], [20.0, nan], [50.0, 50.0]],
+        "source_id": np.array([-1, -1, 111, -1, -1, -1], np.int64),
+        "transient": np.array([False, False, False, True, False, False]),
+        "artifact_zone": np.array([False, True, False, False, False, False]),
+        "n_photos": np.array([40, 40, 40, 40, 40, 40], np.int32),
+        "visits": pa.array([[0, 1]] * 6, pa.list_(pa.int16())),
+        "mjd_visit": pa.array([[T1 + 0.5, T3 - 0.5]] * 6, pa.list_(pa.float64())),
+        "snr_visit": pa.array([[8.0, 3.0], [6.0, 7.0], [300.0, 300.0], [20.0, nan], [50.0, 50.0], [9.0, 9.0]],
                               pa.list_(pa.float32())),
-        "flux_visit_ujy": pa.array([[12.0, 5.0], [10.0, 11.0], [900.0, 900.0], [30.0, nan], [80.0, 80.0]],
+        "flux_visit_ujy": pa.array([[12.0, 5.0], [10.0, 11.0], [900.0, 900.0], [30.0, nan], [80.0, 80.0], [9.0, 9.0]],
                                    pa.list_(pa.float32())),
-        "visits_free": pa.array([[0], [], [0, 1], [], []], pa.list_(pa.int16())),
-        "ra_visit": pa.array([[off(0.4, 0, *new)[0]], [], [S1[0], S1[0]], [], []], pa.list_(pa.float64())),
-        "dec_visit": pa.array([[new[1]], [], [S1[1], S1[1]], [], []], pa.list_(pa.float64())),
-        "gaia_ref_id": ["gaia:77", "", "gaia:4242424242424242424", "", ""],
+        "visits_free": pa.array([[0], [], [0, 1], [], [], []], pa.list_(pa.int16())),
+        "ra_visit": pa.array([[off(0.4, 0, *new)[0]], [], [S1[0], S1[0]], [], [], []], pa.list_(pa.float64())),
+        "dec_visit": pa.array([[new[1]], [], [S1[1], S1[1]], [], [], []], pa.list_(pa.float64())),
+        "gaia_ref_id": ["gaia:77", "", "gaia:4242424242424242424", "", "", ""],
     })
     return pts
 
 
-def test_stack_class_v3_12(root):
+def test_stack_class_v3_12(root, monkeypatch):
     """results/<zone>/stack_sources.parquet: a stack-only source is class stack in the visits where its forced S/N is
     >= 5 (at its free-fit position there), one in a bright source's artifact zone is an artifact (stack_near_bright);
-    linked, transient and far ones are not drawn. counts.stack only on the months clock with the table."""
+    linked (by the table or by the zone's linked sources now), transient and far ones are not drawn. counts.stack only
+    on the months clock with the table, and only with SKYSHIFT_MEASURED_STACK=1 (until the site knows the class)."""
     keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
     m0, _ = M.build(_months_meta(), keys, root=root)
     assert "stack" not in m0["counts"]
     cached = {"center": {"ra": RA0, "dec": DEC0}, "clock": "months", "measured": m0, "measured_reason": None}
     assert not M.stale(cached, root=root)
     pts = _stack_sources(root)
+    M.reset()
+    off_, _ = M.build(_months_meta(), keys, root=root)  # the switch is off by default: nothing changes
+    assert off_ == m0 and not M.stale(cached, root=root)
+    monkeypatch.setenv("SKYSHIFT_MEASURED_STACK", "1")
     M.reset()
     assert M.stale(cached, root=root)  # built before the table: rebuilt
     m, reason = M.build(_months_meta(), keys, root=root)
