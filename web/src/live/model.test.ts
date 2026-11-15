@@ -210,6 +210,13 @@ describe("summarize", () => {
     expect(bare.deferred).toEqual({ total: 25, queued: 25 });
   });
 
+  it("is never stale once paused on purpose", () => {
+    const paused = parseSkyrun({ ...sample, paused_at: sample.updated });
+    expect(paused.paused_at).toBe(T(sample.updated));
+    expect(summarize(paused, T(sample.updated) + 5 * 3600e3).stale).toBe(false);
+    expect(run.paused_at).toBeNull();
+  });
+
   it("is stale after 10 minutes without an update", () => {
     expect(summarize(run, T(sample.updated) + 9 * 60e3).stale).toBe(false);
     expect(summarize(run, T(sample.updated) + 11 * 60e3).stale).toBe(true);

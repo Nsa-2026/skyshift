@@ -347,6 +347,17 @@ describe("Live search page", () => {
     handle.destroy();
   });
 
+  it("says the search is paused, not stale, when the file says so", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const load = vi.fn().mockResolvedValue(parseSkyrun({ ...real, paused_at: real.updated }));
+    const { el, handle } = page(load, T("2026-11-14T18:25:00Z"));
+    handle.show(null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el.querySelector(".lv-alert")!.textContent).toMatch(/The search is paused\. These are the numbers from when it stopped/);
+    expect(el.querySelector(".lv-stale")).toBeNull();
+    handle.destroy();
+  });
+
   it("keeps the map when a later refresh fails, and warns when the numbers are stale", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const load = vi.fn().mockResolvedValueOnce(parseSkyrun(real)).mockRejectedValue(new TypeError("Failed to fetch"));
