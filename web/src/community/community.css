@@ -86,8 +86,25 @@
 
 /* ---- Community ------------------------------------------------------------------------------ */
 .cm {
+  /* One reading edge for the whole page. Every prose block used to stop somewhere else -- the
+     welcome note at 68ch, the lede at 31em of a 30px face (930px), the sub at 66ch, the routes at
+     60ch, the honest paragraphs at 72ch -- so six different right edges stacked down the page with
+     nothing to line up on. They all share this one now. Blocks that are meant to be wide (the
+     pairs, the tables, the chart) say so for themselves. */
+  --cm-measure: 34rem;
+
   display: grid;
   gap: var(--s8);
+}
+/* The standalone page only. Results mounts this same block as .cm-embedded and sets its own
+   measures there (.cm-plain 60ch, .cm-rule and .cm-sub 64ch, .cm-next > p 72ch); without the
+   :not() this 34rem would undercut the ones it does not already override -- the count line, the
+   lede, the source note and the routes -- and leave that page with the mixed edges this token
+   exists to remove. */
+.cm:not(.cm-embedded) p,
+.cm:not(.cm-embedded) dd,
+.cm:not(.cm-embedded) .cm-empty {
+  max-width: var(--cm-measure);
 }
 .cm-head {
   display: grid;
@@ -97,7 +114,7 @@
 .cm-welcome {
   display: grid;
   gap: var(--s3);
-  max-width: 68ch;
+  max-width: var(--cm-measure);
   padding-block: var(--s3) var(--s6);
   border-bottom: 1px solid var(--hair);
 }
@@ -110,8 +127,8 @@
   font-weight: 600;
 }
 .cm-lead {
-  max-width: 31em;
-  font-size: clamp(1.25rem, 0.95rem + 1.25vw, 1.875rem);
+  max-width: var(--cm-measure);
+  font-size: clamp(1.1875rem, 1rem + 0.8vw, 1.625rem);
   font-weight: 420;
   line-height: 1.32;
   letter-spacing: -0.008em;
@@ -132,7 +149,7 @@
   border: 1px dashed var(--hair-strong);
   border-radius: var(--radius-panel);
   color: var(--ink);
-  max-width: 72ch;
+  max-width: var(--cm-measure);
 }
 .cm-source:empty {
   display: none;
@@ -146,6 +163,44 @@
 .cm-cta .btn {
   text-decoration: none;
   min-height: 40px;
+}
+
+/* Wide enough for two columns, the masthead takes them: the welcome note on the left, the count
+   and the two ways in on the right. One column left the top two thirds of the panel empty while
+   the note and the lede queued down its left edge. */
+/* 1280, not 1024: two full measures plus the gap need about 1150px of panel, and below that the
+   columns squeezed so the note ended 130px short of the body text under it -- a new ragged edge in
+   place of the one this was meant to remove. */
+/* The standalone masthead only: Results' .cm-embedded head holds the plain line, the lede and the
+   source and none of the areas below, so two columns there would leave the whole "note" column
+   empty and push its text 34rem in from the left edge. */
+@media (min-width: 1280px) {
+  .cm:not(.cm-embedded) > .cm-head {
+    grid-template-columns: repeat(2, minmax(0, var(--cm-measure)));
+    grid-template-areas:
+      "title title"
+      "note  lead"
+      "note  source"
+      "note  cta";
+    grid-template-rows: auto auto auto 1fr;
+    justify-items: stretch;
+    column-gap: var(--s8);
+    padding-bottom: var(--s6);
+    border-bottom: 1px solid var(--hair);
+  }
+  .cm:not(.cm-embedded) > .cm-head > .cm-title { grid-area: title; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-welcome { grid-area: note; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-lead { grid-area: lead; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-source { grid-area: source; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-cta { grid-area: cta; align-self: start; }
+  /* the rule under the note becomes the rule under the whole masthead */
+  .cm:not(.cm-embedded) > .cm-head > .cm-welcome {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .cm:not(.cm-embedded) > .cm-head > .cm-cta {
+    justify-content: start;
+  }
 }
 
 .cm-astro {
@@ -237,6 +292,9 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s4) var(--s7);
   margin: 0;
+  /* Across the full 1342px the second route sat alone far out right, a clear gap from the first.
+     Two measures wide keeps the pair reading as a pair. */
+  max-width: calc(2 * var(--cm-measure) + var(--s7));
 }
 .cm-routes dt {
   font-weight: 650;
@@ -245,10 +303,9 @@
 .cm-routes dd {
   margin: 0;
   color: var(--ink-2);
-  max-width: 60ch;
 }
 .cm-honest {
-  max-width: 72ch;
+  max-width: var(--cm-measure);
 }
 
 .cm-pair {
@@ -256,6 +313,7 @@
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: var(--s7) var(--s8);
   align-items: start;
+  max-width: calc(2 * var(--cm-measure) + var(--s8));
 }
 .cm-pair > section {
   display: grid;
@@ -263,7 +321,22 @@
   min-width: 0;
 }
 
-/* activity chart */
+/* activity chart. With no votes in yet the plot still held its 176px and the table view still
+   offered itself, so the section opened on a tall blank with a lone "Show as a table" adrift at the
+   foot of it. Empty, it takes no room: the sub above already says the chart arrives with the votes. */
+.cm-chart[data-empty="true"] {
+  padding: 0;
+  margin-top: 0;
+  border: 0;
+  background: none;
+}
+.cm-chart[data-empty="true"] .cm-plot {
+  min-height: 0;
+}
+.cm-chart[data-empty="true"] .cm-tableview {
+  display: none;
+}
+
 .cm-chart {
   position: relative;
   padding: var(--s4) var(--s4) var(--s3);
