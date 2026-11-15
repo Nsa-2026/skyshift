@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openingMode, skipsOpening, type OpeningEnv } from "./rules";
+import { landingUnderOpening, openingMode, skipsOpening, type OpeningEnv } from "./rules";
 
 function env(over: Partial<OpeningEnv> = {}): OpeningEnv {
   return { hash: "", search: "", reducedMotion: false, ...over };
@@ -25,5 +25,20 @@ describe("the opening stays away", () => {
   it.each(["?embed=1", "?t=barnard&embed=1", "?intro=0", "?utm_source=x&intro=0"])("for %s", search => {
     expect(skipsOpening(search)).toBe(true);
     expect(openingMode(env({ search, hash: "#/sky" }))).toBeNull();
+  });
+});
+
+describe("where the opening lands", () => {
+  const at = (hash: string, search = "", reducedMotion = false): OpeningEnv => ({ hash, search, reducedMotion });
+  it("sends Viewer addresses to the Sky", () => {
+    expect(landingUnderOpening(at("", "?t=barnard"))).toBe("#/sky");
+    expect(landingUnderOpening(at("#/", "?ra=10&dec=20"))).toBe("#/sky");
+    expect(landingUnderOpening(at("#/explore/spectrum", "?t=barnard", true))).toBe("#/sky");
+  });
+  it("keeps every other page, the bare home, and skipped openings", () => {
+    for (const h of ["", "#/sky/1,2,3", "#/c/hunt-1", "#/candidates", "#/results", "#/learn/practice"])
+      expect(landingUnderOpening(at(h)), h).toBeNull();
+    expect(landingUnderOpening(at("#/explore", "?intro=0"))).toBeNull();
+    expect(landingUnderOpening(at("#/explore", "?embed=1"))).toBeNull();
   });
 });
