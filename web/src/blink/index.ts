@@ -16,6 +16,7 @@ import { planMarks, type Plan, type PlanDet, type PlanStar } from "./layout";
 import { arrowPath, bigStar, compass, diamond, factorSpot, flagMark, hatchPattern, label, measuredMark, pencil, reticle, ring, scaleBar } from "./marks";
 import {
   burntCores,
+  fillHoles,
   mean,
   median,
   niceArcsec,
@@ -32,6 +33,8 @@ import {
   subtract,
   unstretch,
   visibleExtent,
+  type FillSource,
+  type Filled,
   type Limits,
   type StretchKind,
 } from "./math";
@@ -64,7 +67,7 @@ import {
   type MeasuredItem,
 } from "./measured";
 import { driftPx, findMover, followShifts, type Mover } from "./motion";
-import { buildLut, diffIndex, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
+import { buildLut, diffIndex, fade, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
 import { drawStrip, plateDate, updateStrip } from "./strip";
 
 type Mode = "blink" | "difference" | "stack";
@@ -78,6 +81,8 @@ const MAX_RINGS = 80;
 const SATURATED_G = 9;
 /** A source "shows" on the plate down to this grey (0–1 of the stretch), or 2σ over the sky if higher. */
 const VISIBLE_GREY = 0.12;
+/** How far the part of a photo filled from its other photos is lightened toward the glass. */
+const FILL_FADE = 0.35;
 /** Search for a source's edge out to this far, arcsec (Barnard's Star in D4 reaches about 55″). */
 const MAX_REACH_ARCSEC = 120;
 const html = String.raw;
@@ -474,6 +479,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let shown: Float32Array | null = null;
   /** The burnt cores painted as ink over `shown` (null in Difference): with it, where the hatch shows. */
   let shownMask: Uint8Array | null = null;
+  /** Hours clock: 1 where the plate shows a pixel filled from the visit's other photos (not in `shown`). */
+  let shownFill: Uint8Array | null = null;
   let shownSigned = false;
   let shownLim: (Limits & { sigma?: number; n?: number }) | null = null;
   let firstShow = true;
@@ -482,10 +489,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const leveled = new Map<number, Float32Array>();
   const smoothed = new Map<number, Float32Array>();
   const burnt = new Map<number, Uint8Array>();
+  const filledFrames = new Map<number, Filled>();
   let stackVals: { key: string; vals: Float32Array; sky: number; sigma: number; burnt: Uint8Array } | null = null;
   const limitCache = new Map<string, Limits & { sigma?: number; n?: number }>();
   let lut: { key: string; data: Uint8ClampedArray } = { key: "", data: new Uint8ClampedArray(0) };
   let hatch: { key: string; pattern: CanvasPattern | null } = { key: "", pattern: null };
+  let fillHatch: { key: string; pattern: CanvasPattern | null } = { key: "", pattern: null };
   let cssSize = 0;
   let dpr = 1;
 
@@ -531,6 +540,35 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     return b;
   }
+  /** The hours clock fills each photo's no-data part (past the detector's edge) from the visit's
+   *  other photos, drawn paler and hatched. The months clock does not: its visits are six months apart. */
+  const fillsHoles = () => view?.clock === "hours" && frames.length > 1;
+  /** Photo i with its no-data pixels filled from the others (math.ts fillHoles), on photo i's level.
+   *  Frames that follow a mover have their own centres: each other photo is lined up on the sky first. */
+  function filledOf(i: number): Filled {
+    let fl = filledFrames.get(i);
+    if (!fl) {
+      const [nx, ny] = size();
+      const f = frames[i];
+      const c0 = centreOf(f.epoch);
+      const others: FillSource[] = [];
+      frames.forEach((g, j) => {
+        if (j === i || g.vals.length !== nx * ny) return;
+        const cj = centreOf(g.epoch);
+        let dx = 0;
+        let dy = 0;
+        if (F && (cj.ra !== c0.ra || cj.dec !== c0.dec)) {
+          const p = skyToPixel(cj, F, c0);
+          dx = p.x - (nx - 1) / 2;
+          dy = p.y - (ny - 1) / 2;
+        }
+        others.push({ vals: g.vals, sky: g.sky, burnt: burntOf(j), dx, dy });
+      });
+      fl = fillHoles(level(i), levelSky ? 0 : f.sky, burntOf(i), others, nx, ny);
+      filledFrames.set(i, fl);
+    }
+    return fl;
+  }
   const following = () => follow && !!shifts && shifts.length === frames.length;
   /** Mean of every frame; shifted along the mover first when Follow is on (shift-and-add). */
   function stack(): NonNullable<typeof stackVals> {
@@ -560,6 +598,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   function resetCaches() {
     leveled.clear();
     smoothed.clear();
+    filledFrames.clear();
     stackVals = null;
     limitCache.clear();
   }
@@ -592,10 +631,22 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     let lim: Limits & { sigma?: number; n?: number };
     let mask: Uint8Array | null = null;
     let signed = false;
+    // What is painted; `values` and `mask` stay the photo's own data (marks, hover, notes).
+    let painted: Float32Array | null = null;
+    let paintedMask: Uint8Array | null = null;
+    let fill: Uint8Array | null = null;
     if (comparing || mode === "blink") {
       values = level(shownIndex());
       lim = limitsFor("blink");
       mask = burntOf(shownIndex());
+      if (fillsHoles()) {
+        const fl = filledOf(shownIndex());
+        if (fl.count) {
+          painted = fl.vals;
+          paintedMask = fl.burnt;
+          fill = fl.filled;
+        }
+      }
     } else if (mode === "difference") {
       values = subtract(diffBase(idx), diffBase(ref));
       lim = limitsFor("difference");
@@ -613,10 +664,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       off.height = ny;
     }
     const img = offCtx.createImageData(nx, ny);
-    paint(values, img.data, lut.data, signed ? diffIndex(lim) : plainIndex(lim, stretchKind), mask);
+    paint(painted ?? values, img.data, lut.data, signed ? diffIndex(lim) : plainIndex(lim, stretchKind), paintedMask ?? mask);
+    if (fill) fade(img.data, fill, palette.glass, FILL_FADE);
     offCtx.putImageData(img, 0, 0);
     shown = values;
     shownMask = mask;
+    shownFill = fill;
     shownSigned = signed;
     shownLim = lim;
     draw();
@@ -670,31 +723,101 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     ctx.restore();
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(off, vp.u0, vp.v0, vp.vw, vp.vh, vp.ox, vp.oy, vp.vw * vp.s, vp.vh * vp.s);
+    drawFillHatch(vp);
     drawMarks(vp);
     if (overlays.guides) drawGuides(vp, plain && positive);
     drawNoDataNote(vp);
   }
 
-  /** The plate's no-data area (raw 0: past this photo's edge) gets a small note, when it is not a sliver. */
+  /** Faint hatch lines over the part of the photo filled from the visit's other photos (shownFill). */
+  function drawFillHatch(vp: VP) {
+    if (!ctx || !shownFill) return;
+    const [nx, ny] = size();
+    if (shownFill.length !== nx * ny) return;
+    const hk = `${dpr}`;
+    if (fillHatch.key !== hk) fillHatch = { key: hk, pattern: hatchPattern(ctx, dpr, "rgba(0, 0, 0, 0)", cssColor("--hair-strong", "#a9b1b6")) };
+    if (!fillHatch.pattern) return;
+    const x0 = Math.max(0, Math.floor(vp.u0));
+    const x1 = Math.min(nx, Math.ceil(vp.u0 + vp.vw));
+    const y0 = Math.max(0, Math.floor(vp.v0));
+    const y1 = Math.min(ny, Math.ceil(vp.v0 + vp.vh));
+    const S = vp.s * dpr;
+    ctx.save();
+    // The pattern is in device pixels, like the no-data hatch: draw untransformed so lines stay crisp.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    let any = false;
+    for (let y = y0; y < y1; y++) {
+      const Y = (vp.oy + (y - vp.v0) * vp.s) * dpr;
+      for (let x = x0; x < x1; ) {
+        if (!shownFill[y * nx + x]) {
+          x++;
+          continue;
+        }
+        let e = x + 1;
+        while (e < x1 && shownFill[y * nx + e]) e++;
+        ctx.rect((vp.ox + (x - vp.u0) * vp.s) * dpr, Y, (e - x) * S, S);
+        any = true;
+        x = e;
+      }
+    }
+    if (any) {
+      ctx.clip();
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = fillHatch.pattern;
+      ctx.fillRect(Math.round(vp.ox * dpr), Math.round(vp.oy * dpr), Math.round(vp.vw * vp.s * dpr), Math.round(vp.vh * vp.s * dpr));
+    }
+    ctx.restore();
+  }
+
+  /** The plate's no-data area (raw 0: past this photo's edge) gets a small note, when it is not a
+   *  sliver; so does the part filled from the visit's other photos (hours clock). */
   const NO_DATA_NOTE = "No data here: edge of this photo";
-  let noDataCache: { vals: Float32Array | null; key: string; spot: ReturnType<typeof noDataSpot> } = { vals: null, key: "", spot: null };
+  const FILLED_NOTE = "Not in this photo: filled from its other photos";
+  type Spot = ReturnType<typeof noDataSpot>;
+  let noDataCache: { vals: Float32Array | null; fill: Uint8Array | null; key: string; empty: Spot; filled: Spot } = {
+    vals: null,
+    fill: null,
+    key: "",
+    empty: null,
+    filled: null,
+  };
   function drawNoDataNote(vp: VP) {
     if (!ctx || !shown || !F) return;
     const [nx, ny] = size();
     if (shown.length !== nx * ny) return;
     const key = `${vp.u0.toFixed(1)},${vp.v0.toFixed(1)},${vp.vw.toFixed(1)}`;
-    if (noDataCache.vals !== shown || noDataCache.key !== key) noDataCache = { vals: shown, key, spot: noDataSpot(shown, shownMask, nx, ny, vp) };
-    const spot = noDataCache.spot;
-    if (!spot || spot.frac < 0.03) return;
+    if (noDataCache.vals !== shown || noDataCache.fill !== shownFill || noDataCache.key !== key) {
+      let empty: Spot;
+      let filled: Spot = null;
+      if (shownFill && shownFill.length === nx * ny) {
+        // noDataSpot counts NaN pixels whose mask is 0: mask out the filled part, then all but it.
+        const fill = shownFill;
+        const notEmpty = new Uint8Array(nx * ny);
+        const notFilled = new Uint8Array(nx * ny);
+        for (let k = 0; k < notEmpty.length; k++) {
+          notEmpty[k] = shownMask?.[k] || fill[k] ? 1 : 0;
+          notFilled[k] = fill[k] ? 0 : 1;
+        }
+        empty = noDataSpot(shown, notEmpty, nx, ny, vp);
+        filled = noDataSpot(shown, notFilled, nx, ny, vp);
+      } else empty = noDataSpot(shown, shownMask, nx, ny, vp);
+      noDataCache = { vals: shown, fill: shownFill, key, empty, filled };
+    }
+    drawNote(NO_DATA_NOTE, noDataCache.empty, vp);
+    drawNote(FILLED_NOTE, noDataCache.filled, vp);
+  }
+  function drawNote(text: string, spot: Spot, vp: VP) {
+    if (!ctx || !spot || spot.frac < 0.03) return;
     const p = toScreen({ x: spot.x - 0.5, y: spot.y - 0.5 }, vp);
     ctx.save();
     ctx.font = `600 11px ${fontFamily}`;
-    const w = ctx.measureText(NO_DATA_NOTE).width;
+    const w = ctx.measureText(text).width;
     const left = vp.ox + 6;
     const right = vp.ox + vp.vw * vp.s - 6;
     const x = Math.min(Math.max(p.X - w / 2, left), right - w);
     const y = Math.min(Math.max(p.Y + 4, vp.oy + 14), vp.oy + vp.vh * vp.s - 6);
-    label(ctx, NO_DATA_NOTE, x, y, cssColor("--ink-2", "#4a5560"), cssColor("--sheet-2", "#e3e8e7"));
+    label(ctx, text, x, y, cssColor("--ink-2", "#4a5560"), cssColor("--sheet-2", "#e3e8e7"));
     ctx.restore();
   }
 
@@ -1350,7 +1473,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         const sky = pixelToSky({ x: hover.u - 0.5, y: hover.v - 0.5 }, F, centreOf(allAtOnce() ? cur()?.epoch ?? null : shownEpoch()));
         const v = shown[y * nx + x];
         let val: string;
-        if (Number.isNaN(v)) val = burntAt(y * nx + x) ? "saturated" : "no data";
+        if (Number.isNaN(v))
+          val = burntAt(y * nx + x) ? "saturated" : shownFill?.[y * nx + x] ? "not in this photo (filled from its other photos)" : "no data";
         else if (shownSigned && shownLim?.sigma && shownLim.sigma > 0)
           val = `${v >= 0 ? "+" : "−"}${Math.abs(v / shownLim.sigma).toFixed(1)}σ`;
         // All wavelengths: the plate is already in units of sky noise, sky at 0.
