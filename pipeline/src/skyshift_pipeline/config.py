@@ -341,6 +341,26 @@ ASTRO_SAT_MIN_DOTS = 200       # saturated reference dots needed for a detector'
 ASTRO_SAT_DEPTH_BANDS = {1: ("j", 0.91, 10.5), 2: ("j", 0.91, 10.8), 3: ("k", 1.85, 11.0), 4: ("w1", 2.70, 11.1),
                          5: ("w2", 3.34, 9.6), 6: ("w2", 3.34, 9.0)}
 ASTRO_SAT_DEPTH_BINS = (-2.5, -1.0, -0.5, 0.0, 0.5, 1.5)  # bin edges (mag; open-ended both ways); NaN depth: "all"
+DETECTOR_PX = 2040             # SPHEREx images are 2040 × 2040
+# Unsaturated dots (15 Nov; astrometry.pixel_offsets): after calib (per-photo distortion, at most quadratic) and the frame
+# offsets, quiet Gaia stars' dots still sit off Gaia by amounts fixed in each detector's pixels, which the 180° roll turns
+# into fake motion as for saturated dots. (1) A static map per detector (ASTRO_PIXEL_MAP): hunt rms 2–6 mpx per axis on
+# 256 px cells, up to 0.02 px; visit 1 and visit 2 measure the same map (r 0.87–1.0). A star sits at another x in each
+# visit, so the map gave every star its own fake motion (±100–200 mas/yr at G 9–13 where pm errors are 30–40). (2) A
+# brightness term (ASTRO_BRIGHT_OFFSET): the centroid moves along −x as the peak nears saturation, below the flags
+# (hunt D1 −1 mpx at peak 10^2.5 MJy/sr, −6 at 10^3), and along +x at the faint end: the median pm − Gaia − ϖ·k went from
+# +15 mas/yr (G > 18) to −8 (G 12–13) and −35 (G 9–10). Both are fitted on the zone's unsaturated dots of quiet Gaia
+# stars after the frame offsets (alternately, ASTRO_PIXEL_ITER times) and subtracted from every unsaturated dot through
+# its photo's Jacobian; centroid and ePSF positions separately. Saturated dots keep ASTRO_SAT_OFFSET.
+ASTRO_PIXEL_MAP = True
+ASTRO_MAP_CELL_PX = 128        # map cells (px); bilinear between cell centres, 0 in cells with too few dots
+ASTRO_MAP_MIN_SNR = 20.0       # dots that measure the map
+ASTRO_MAP_MIN_DOTS = 50        # ... per cell
+ASTRO_BRIGHT_OFFSET = True
+# bin edges (open-ended both ways) of the dot's own depth: AB from flux_ujy − the detector's 50% saturation AB above
+ASTRO_BRIGHT_BINS = (-0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0)
+ASTRO_BRIGHT_MIN_DOTS = 300    # reference dots needed for a brightness bin's offset (fewer: none)
+ASTRO_PIXEL_ITER = 3
 ASTRO_REPORT_SNR_BINS = (5.0, 10.0, 20.0, 50.0, 100.0, 1e9)  # median dot S/N bins of the report
 ASTRO_REPORT_G_BINS = (0.0, 8.0, 10.0, 11.0, 12.0, 14.0, 17.0, 21.0)  # Gaia G bins of the report (saturated: G < ~12)
 # highpm: "Planet X"-style search for nearby cold movers not in Gaia
