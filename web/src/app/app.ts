@@ -1,7 +1,7 @@
 // Page shell: coordinate box, target chips, URL state, and the wiring between areas.
 // Areas plug in through the interfaces in ./modules.ts.
-import { ApiFailure, candidateFramesUrl, loadFrames, loadObject, resolve } from "../api/client";
-import type { Candidate, FramesResponse, ObjectResponse } from "../api/types";
+import { ApiFailure, candidateFramesUrl, epochsFor, loadFrames, loadObject, resolve } from "../api/client";
+import type { Candidate, Epoch, FramesResponse, ObjectResponse } from "../api/types";
 import { mountBlink } from "../blink";
 import { mountCard } from "../card";
 import { mountScore } from "../score";
@@ -362,6 +362,7 @@ export function startApp(root: HTMLElement): void {
       if (fsig.aborted) return;
       blink.status('idle');
       if (cand) suspect.ready(true);
+      if (forCand && next.clock === 'hours' && blink.needsFill?.()) void fillSuspectEdge(next, forCand.fill, loaded.jsonUrl, fsig);
       practice.ready(blink.canCompare?.() ?? false);
       highlightSelected();
     } catch (e) {
@@ -376,6 +377,23 @@ export function startApp(root: HTMLElement): void {
         await go(next, { push: false, objectToo: false });
         if (view === next) workbench.message(`The ${LAYER_LABELS[failed].toLowerCase()} is unavailable for this field, detector, clock or field of view. Showing the original observations.`);
       } else blink.status("error", errorText(e));
+    }
+  }
+
+  /** An object to check shows a few exposures of one session, which share one edge. Fill it from
+   *  the visit's other exposures: the saved ones at once, the live ones (about a minute, so only
+   *  once the person stays on the object) when they arrive. */
+  async function fillSuspectEdge(v: View, saved: Epoch[], savedUrl: string, signal: AbortSignal) {
+    const own = saved.map((epoch) => ({ epoch, url: savedUrl }));
+    if (own.length) blink.fill?.(own);
+    await new Promise((r) => setTimeout(r, 2500));
+    if (signal.aborted) return;
+    try {
+      const live = await loadFrames({ ra: v.ra, dec: v.dec, clock: v.clock, fov: v.fov, det: v.det, slug: null }, signal);
+      if (signal.aborted) return;
+      blink.fill?.([...own, ...epochsFor(live.frames, v.det).map((epoch) => ({ epoch, url: live.jsonUrl }))]);
+    } catch {
+      /* the edge stays hatched */
     }
   }
 
