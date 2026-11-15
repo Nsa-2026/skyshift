@@ -36,3 +36,17 @@ export function browserEnv(): OpeningEnv {
     reducedMotion,
   };
 }
+
+/**
+ * Where the site lands under the opening: the Sky, never the Viewer (user, 15 Nov). A Viewer
+ * address (the bare home with ?t= or ?ra=, or #/explore…) is replaced by "#/sky"; every other
+ * page (a candidate, To check, Results, Learn, practice) keeps its address. null: leave it as is.
+ */
+export function landingUnderOpening(env: OpeningEnv): string | null {
+  if (!openingMode(env)) return null;
+  const hash = env.hash.replace(/^#\/?/, "");
+  const query = new URLSearchParams(env.search);
+  const target = query.has("t") || query.has("ra");
+  if (hash === "" ? target : hash === "explore" || hash.startsWith("explore/")) return "#/sky";
+  return null;
+}

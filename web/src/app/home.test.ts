@@ -57,8 +57,19 @@ it("opens on the Sky with every top-level screen one click away, and loads no fr
   expect(loadFrames).not.toHaveBeenCalled();
 });
 
-it("opens the Viewer for a target deep link without a hash", () => {
-  history.replaceState(null, "", "/?t=wise0855");
+it("lands on the Sky, not the Viewer, under the opening, even from a target link", () => {
+  history.replaceState(null, "", "/?t=wise0855#/explore");
+  const root = document.createElement("div");
+  document.body.append(root);
+  startApp(root);
+  expect(visible(root)).toEqual(["atlas"]);
+  expect(location.hash).toBe("#/sky");
+  expect(location.search).toBe("");
+  expect(loadFrames).not.toHaveBeenCalled();
+});
+
+it("opens the Viewer for a target deep link when the opening is off", () => {
+  history.replaceState(null, "", "/?t=wise0855&intro=0");
   const root = document.createElement("div");
   document.body.append(root);
   startApp(root);
