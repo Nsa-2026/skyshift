@@ -18,7 +18,6 @@ import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
-import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
 import {SCREENS,siteRoute,viewerState} from './navigation';
 import {legacyHash} from './legacy-routes';
@@ -398,7 +397,7 @@ export function startApp(root: HTMLElement): void {
   const pageMounts: Record<string, MountPage> = {
     atlas: mountAtlas,
     discover: mountDiscover,
-    learn: loadCultureStories(mountLearn),
+    learn: mountLearn,
     tools: mountTools,
     live: mountLive,
     // Results in sections: show("<section>[/<part>]") opens and scrolls; hide() stops the live polling.

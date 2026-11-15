@@ -213,6 +213,37 @@ describe("filters and NASA's archive", () => {
     expect(calls).toBeGreaterThan(stoppedAt);
   });
 
+  // A tile-header read is shared by every filter of the field, so it has no abort signal: when IRSA
+  // answers 5xx it waits and retries (cube.ts). Ending the filters must also end that wait. A
+  // destroyed instance's retries used to land in the next test and break its call count.
+  /** A 502 without a body: the retry's wait starts within fake time, nothing waits on a stream. */
+  const bare502: Fetcher = async () => new Response(null, { status: 502 });
+
+  it("a destroyed filter never asks IRSA again, even a header read waiting to retry", async () => {
+    mount(bare502);
+    filters.goto(VIEW, null);
+    choose(el, "cold");
+    await vi.advanceTimersByTimeAsync(10); // first answers are 502; the retries wait 400 ms
+    expect(calls).toBeGreaterThan(0);
+    const stoppedAt = calls;
+    filters.destroy();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toBe(stoppedAt);
+  });
+
+  it("disabling filters ends a header read waiting to retry, even if they are enabled again at once", async () => {
+    mount(bare502);
+    filters.goto(VIEW, null);
+    choose(el, "cold");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toBeGreaterThan(0);
+    const stoppedAt = calls;
+    filters.active(false);
+    filters.active(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toBe(stoppedAt); // the old read stays ended; availability alone downloads nothing
+  });
+
   it("supports availability changes when the blink DOM is absent", () => {
     el = document.createElement("div");
     filters = mountFilters(el, bad502);
