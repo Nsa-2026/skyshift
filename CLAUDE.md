@@ -27,6 +27,8 @@ To do: docs/TODO.md (open items by owner; tick or delete an item in the PR that 
 - Deploy after every major change, whoever makes it (person or agent): once it is merged, deploy main right away.
   Site and data: `git pull` on main, `(cd web && npm ci && npm run build) && infra/firebase/deploy.sh hosting`.
   API (server/, core/): `infra/run/deploy.sh` first. Firestore rules only when they change. Name the deployed commit in the PR.
+- Every change someone asks for ends with a deploy, so they can see it live. Ship only what was asked:
+  no extra, unrequested changes in that PR or deploy.
 - No secrets in the repo or in chat. Google access comes from gcloud. Anything else goes in .env.
 - All product code is written after Sat 14 Nov 09:00. Keep the Co-Authored-By line on commits.
 
