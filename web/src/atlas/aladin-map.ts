@@ -430,6 +430,9 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     if (!ctx || !model || !model.layers.zones) return;
     const { fill, edge } = zoneStyle(level);
     const maxJump = host.clientWidth / 2;
+    // Keep the full ellipse even when zoomed in: an offscreen seam must not draw a chord through the view.
+    const rx = 180 * host.clientWidth / scaleFov();
+    const ellipse = mol ? { cx: host.clientWidth / 2, cy: host.clientHeight / 2, rx, ry: rx / 2 } : undefined;
     const project = (p: SkyPos) => !mol && sepDeg(p, view()) > 90 ? null : rawScreen(p);
     function path(points: Vec[], closed: boolean) {
       if (!points.length) return;
@@ -440,12 +443,12 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     for (const a of model.areas) {
       if (fill > 0) {
         ctx.beginPath();
-        for (const points of zoneFills(a, project, maxJump)) path(points, true);
+        for (const points of zoneFills(a, project, maxJump, ellipse)) path(points, true);
         ctx.fillStyle = rgba(zoneInk(), fill);
         ctx.fill();
       }
       ctx.beginPath();
-      for (const points of zoneEdges(a, project, maxJump)) path(points, false);
+      for (const points of zoneEdges(a, project, maxJump, ellipse)) path(points, false);
       ctx.strokeStyle = rgba(zoneInk(), edge);
       ctx.lineWidth = 1.5;
       ctx.stroke();
