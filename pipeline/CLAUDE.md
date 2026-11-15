@@ -46,6 +46,17 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   20″ weighted by flux ratio × share of light in the window, summed as a vector, explain it when the projection on the
   measured PA ≥ 0.25 × excess; galaxy veto (classify galaxy, a good photo-z, or no Gaia star and ext > 1 / size > 1.12).
   The 49 listed → 5 (#2, #13, #25, #26, #29: the review's keepers): 28 galaxy-like, 17 neighbours (13 of them 2MASS).
+  Two-source fit (15 Nov, shape_fit.py; `shape` runs it on the listed rows, `--no-fit` skips it; `python -m
+  skyshift_pipeline.shape_fit --zone hunt [--rows <parquet>] [--tables <dir>] [--out <dir>]` refits an existing
+  file): each candidate's member photos (≤ 400) read back from S3 (13 × 13 px of IMAGE, FLAGS, VARIANCE; the EPSF
+  table once per detector: the same in every photo), one ePSF vs two, the companion at ONE sky offset for all photos
+  (grid ±21″ then refined, the brighter one is the primary), Gaia/CatWISE neighbours ≤ 3 mag fainter as their own
+  ePSFs. F2 is free per photo, so a bright star's ePSF errors lower χ² too (15 isolated Gaia stars of the
+  candidates' G: Δχ² 300–2,700, one 39,000): the split rests on the companion's S/N (error = max(formal, the photos'
+  scatter)) ≥ 5 in a detector and > −3 in all, 4.5–21″ out. Controls: 5 of 15 split, all onto CatWISE W1 16.5–17.1
+  entries ~4 mag fainter (real, named via `companion_catalog`). Hunt: 4 of 5 split (5–12″, 0.8–1.9 mag fainter,
+  Δχ² 12k–38k, none moves; #5's companion is a 2MASS entry); ~4 min per candidate on a loaded laptop. Columns
+  `companion_*` (contracts/dots.md); server measured.py draws a split companion (reason `split_by_fit`).
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - astrometry (14 Nov night, ASTRO_SAT_OFFSET): saturated dots sit ~0.01–0.06 px off the star along −x (fixed in pixels,
