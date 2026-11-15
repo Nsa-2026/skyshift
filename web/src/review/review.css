@@ -651,6 +651,25 @@
   font-size: var(--step-2);
 }
 
+/* ---- The object to check in the Viewer (#/c/<id>): a panel at the top of its side column ----- */
+.sp,
+.sp-body {
+  display: grid;
+  gap: var(--s5);
+  min-width: 0;
+}
+.sp-nav {
+  padding: 0;
+}
+.sp-more > summary {
+  color: var(--ink-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+.sp-more[open] {
+  display: grid;
+  gap: var(--s5);
+}
 /* ---- Review queue ---------------------------------------------------------------------------- */
 .rq-head {
   display: flex;

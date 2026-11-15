@@ -1,18 +1,20 @@
-// Candidate page (#/c/<id>): the plate at the candidate's spot with the candidate in the red
-// reticle; beside it why it's listed, the measurements, the vote and what happens next.
+// A candidate in the Viewer (#/c/<id>): the Viewer's own plate opens on the candidate's spot, clock
+// and detector, with red circles where it should be in each frame, and this panel sits at the top
+// of the Viewer's side column: the list around it, the vote (change it or reset it), what happens
+// next, and the details behind it.
 import { failedGates, gatesPhrase, gradeOf, isGate, nearSourceOf, votable } from "../api/grades";
-import type { Candidate } from "../api/types";
-import type { MountPage } from "../app/modules";
+import type { Candidate, FramesResponse } from "../api/types";
+import type { TrackMarks, View } from "../app/modules";
 import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
 import { AssistSlot, detailsOn, loadAssist, votesSummary } from "./assist";
 import { Ballot } from "./ballot";
-import { candidateSet, suspectFor, votes, type CandidateSet, type Votes } from "./data";
+import { OWN_GAP_DAYS, candidateSet, findGap, focusFrames, framesFor, gapText, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { LIST_HASH, keyAction, neighbours, parseCandidateParam } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, copyWithFeedback, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
-import { Plate } from "./plate";
+import { buildTrackMarks } from "./track";
 import {
   KIND_TEXT,
   SITE,
@@ -111,12 +113,75 @@ function cautionsHtml(c: Candidate): string {
   return html`<ol class="rv-notes">${c.flags.map((f) => html`<li>${esc(flagText(f))}</li>`).join("")}</ol>`;
 }
 
-export const mountCandidate: MountPage = (el, ctx) => {
+/** What the plate note says about the frames shown for a candidate. */
+export interface SuspectFramesNote {
+  /** Hours: only the exposures within a day of the find are shown (of `all`). */
+  focused: boolean;
+  shown: number;
+  all: number;
+  /** Showing every exposure though some are near the find (the person asked for all). */
+  allShown: boolean;
+  /** Days from the find to the nearest frame when the find's own exposures are missing, else null. */
+  missingGap: number | null;
+}
+
+/**
+ * Frames for the Viewer at a candidate's spot: its static frames first (src/review/data
+ * framesFor), on the hours clock only the exposures within a day of the find unless `all`, and
+ * the red track circles for them.
+ */
+export async function suspectFrames(
+  c: Candidate,
+  view: View,
+  all: boolean,
+): Promise<{ frames: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote }> {
+  const loaded = await framesFor(c, view);
+  const f = focusFrames(loaded.frames, c, view.det);
+  const gap = findGap(loaded.frames, c, view.det);
+  const frames = all ? loaded.frames : f.frames;
+  return {
+    frames,
+    jsonUrl: loaded.jsonUrl,
+    marks: buildTrackMarks(c, frames),
+    note: {
+      focused: !all && f.focused,
+      shown: f.shown,
+      all: f.all,
+      allShown: all && f.focused,
+      missingGap: gap !== null && gap > OWN_GAP_DAYS ? gap : null,
+    },
+  };
+}
+
+export interface SuspectOptions {
+  /** Put this candidate on the Viewer's plate (candidateView: its spot, clock and detector). */
+  open(c: Candidate): void;
+  /** Is the plate already on this candidate? */
+  showing(c: Candidate): boolean;
+  /** Show every exposure (true) or only those near the find (false). */
+  showAll(all: boolean): void;
+}
+
+export interface SuspectHandle {
+  /** #/c/<id>[?list query]: show this candidate (the id as the route gives it, decoded). */
+  show(param: string): void;
+  /** The plate shows the candidate's frames (true), or is loading or failed (false). */
+  ready(ok: boolean): void;
+  /** What the frames on the plate are (null: nothing to say). */
+  note(n: SuspectFramesNote | null): void;
+  /** The Viewer left the candidate. */
+  hide(): void;
+  /** Remove the panel and its key and vote listeners. */
+  destroy(): void;
+}
+
+/** The panel at the top of the Viewer's side column while it shows a candidate. */
+export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHandle {
   trackDiscover();
   el.innerHTML = html`
-    <div class="rv cd">
+    <div class="rv sp">
       <p class="rv-sample" hidden></p>
-      <nav class="cd-nav" aria-label="Candidate list">
+      <nav class="cd-nav sp-nav" aria-label="Objects to check">
         <a class="cd-back" href="${LIST_HASH}">${CHEVRON.left}All objects to check</a>
         <p class="cd-count" aria-live="polite"></p>
         <div class="cd-step">
@@ -124,36 +189,23 @@ export const mountCandidate: MountPage = (el, ctx) => {
           <a class="btn btn-ghost cd-next" href="${LIST_HASH}" aria-disabled="true">Next${CHEVRON.right}</a>
         </div>
       </nav>
-      <div class="cd-main">
-        <div class="cd-left">
-          <section class="cd-plate" aria-label="Frames at this spot"></section>
-          <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
-          <section class="cand-check" aria-label="Check this object" hidden></section>
-        </div>
-        <div class="cd-side"></div>
-      </div>
+      <p class="rv-plate-note sp-note" hidden></p>
+      <div class="sp-body"></div>
       <div class="cd-empty" hidden></div>
     </div>
   `;
   const $ = <T extends Element>(s: string) => el.querySelector(s) as T;
   const sampleEl = $<HTMLElement>(".rv-sample");
-  const mainEl = $<HTMLElement>(".cd-main");
-  const sideEl = $<HTMLElement>(".cd-side");
+  const bodyEl = $<HTMLElement>(".sp-body");
   const emptyEl = $<HTMLElement>(".cd-empty");
-  const navEl = $<HTMLElement>(".cd-nav");
+  const noteEl = $<HTMLElement>(".sp-note");
   const backEl = $<HTMLAnchorElement>(".cd-back");
   const countEl = $<HTMLElement>(".cd-count");
   const prevEl = $<HTMLAnchorElement>(".cd-prev");
   const nextEl = $<HTMLAnchorElement>(".cd-next");
-  const checkSlot = new AssistSlot($<HTMLElement>(".cand-check"));
+  let checkSlot: AssistSlot | null = null;
   let nextSlot: AssistSlot | null = null;
 
-  const plate = new Plate($(".cd-plate"), {
-    onReady(ready) {
-      plateReady = ready;
-      renderBallot();
-    },
-  });
   let set: CandidateSet | null = null;
   let v: Votes | null = null;
   let cand: Candidate | null = null;
@@ -167,7 +219,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   let plateReady = false;
   let ballot: Ballot | null = null;
   let token = 0;
-  let visibleNow = false;
+  let active = false;
 
   function renderBallot() {
     if (!ballot || !cand) return;
@@ -189,7 +241,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   // ---- the check assistant's slots (src/assist, optional) -------------------------------------
   async function mountAssist(c: Candidate) {
     const mod = await loadAssist();
-    if (!mod || cand !== c) return;
+    if (!mod || cand !== c || !checkSlot) return;
     checkSlot.mount(mod.mountChecklist && ((slot) => mod.mountChecklist!(slot, c, { details: detailsOn() })));
     mountWhatNext(c);
   }
@@ -236,68 +288,69 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (r.ok && !a) ballot?.focusChoices();
   }
 
-  function renderSide(c: Candidate) {
+  function renderBody(c: Candidate) {
     const id = html`Object <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
     const open = votable(c);
-    sideEl.innerHTML = html`
-      ${headHtml(c, "h1", id)}
+    bodyEl.innerHTML = html`
+      ${headHtml(c, "h2", id)}
       ${motionHtml(c)}
       ${gradeHtml(c, true)}
       <div class="cd-ballot">${open ? "" : noVoteHtml(c)}</div>
       <!-- Slot: src/assist mountWhatNext (report drafts, citation), mounted only if src/assist exists. -->
       <section class="cand-next" aria-label="What next" hidden></section>
-      <section class="rv-sec" aria-labelledby="cd-why-h">
-        <h2 class="rv-h" id="cd-why-h">Why it's listed</h2>
-        ${reasonsHtml(c)}
-      </section>
-      <section class="rv-sec" aria-labelledby="cd-c-h">
-        <h2 class="rv-h" id="cd-c-h">Catalogues at this spot</h2>
-        ${cataloguesHtml(c)}
-      </section>
-      <section class="rv-sec" aria-labelledby="cd-f-h">
-        <h2 class="rv-h" id="cd-f-h">Cautions</h2>
-        ${cautionsHtml(c)}
-      </section>
-      <section class="rv-sec" aria-labelledby="cd-p-h">
-        <h2 class="rv-h" id="cd-p-h">Position</h2>
-        <p class="cd-pos"><span class="cd-radec">${formatRaDec(c)}</span>
-          <span class="rv-soft">${c.ra.toFixed(5)}°, ${c.dec >= 0 ? "+" : "−"}${Math.abs(c.dec).toFixed(5)}°</span></p>
-        <div class="rv-actions">
-          <button class="btn" type="button" data-act="copy-pos">Copy coordinates</button>
-          <button class="btn" type="button" data-act="explore">Open in Blink</button>
-        </div>
-      </section>
-      <section class="rv-sec" aria-labelledby="cd-s-h">
-        <h2 class="rv-h" id="cd-s-h">Share</h2>
-        <div class="rv-actions">
-          <button class="btn btn-ghost" type="button" data-act="copy-link">Copy link</button>
-          <button class="btn btn-ghost" type="button" data-act="copy-embed">Copy embed code</button>
-        </div>
-        <details class="cd-embed">
-          <summary>Show the embed code</summary>
-          <label class="visually-hidden" for="cd-embed-code">Embed code</label>
-          <textarea id="cd-embed-code" class="cd-code" readonly rows="4">${esc(embedCode(c))}</textarea>
-        </details>
-      </section>
+      <details class="sp-more">
+        <summary>More about this object</summary>
+        <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
+        <section class="cand-check" aria-label="Check this object" hidden></section>
+        <section class="rv-sec" aria-labelledby="sp-why-h">
+          <h3 class="rv-h" id="sp-why-h">Why it's listed</h3>
+          ${reasonsHtml(c)}
+        </section>
+        <section class="rv-sec" aria-labelledby="sp-c-h">
+          <h3 class="rv-h" id="sp-c-h">Catalogues at this spot</h3>
+          ${cataloguesHtml(c)}
+        </section>
+        <section class="rv-sec" aria-labelledby="sp-f-h">
+          <h3 class="rv-h" id="sp-f-h">Cautions</h3>
+          ${cautionsHtml(c)}
+        </section>
+        <section class="rv-sec" aria-labelledby="sp-p-h">
+          <h3 class="rv-h" id="sp-p-h">Position</h3>
+          <p class="cd-pos"><span class="cd-radec">${formatRaDec(c)}</span>
+            <span class="rv-soft">${c.ra.toFixed(5)}°, ${c.dec >= 0 ? "+" : "−"}${Math.abs(c.dec).toFixed(5)}°</span></p>
+          <div class="rv-actions">
+            <button class="btn" type="button" data-act="copy-pos">Copy coordinates</button>
+            <button class="btn btn-ghost" type="button" data-act="copy-link">Copy link</button>
+            <button class="btn btn-ghost" type="button" data-act="copy-embed">Copy embed code</button>
+          </div>
+          <details class="cd-embed">
+            <summary>Show the embed code</summary>
+            <label class="visually-hidden" for="sp-embed-code">Embed code</label>
+            <textarea id="sp-embed-code" class="cd-code" readonly rows="4">${esc(embedCode(c))}</textarea>
+          </details>
+        </section>
+      </details>
     `;
+    checkSlot?.clear();
     nextSlot?.clear();
-    nextSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-next")!);
+    checkSlot = new AssistSlot(bodyEl.querySelector<HTMLElement>(".cand-check")!);
+    nextSlot = new AssistSlot(bodyEl.querySelector<HTMLElement>(".cand-next")!);
     lastSummary = "";
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
-    ballot = open ? new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, onReset: () => vote(null), full: true, kind: c.kind }) : null;
+    ballot = open ? new Ballot(bodyEl.querySelector(".cd-ballot")!, { onVote: vote, onReset: () => vote(null), full: true, kind: c.kind }) : null;
     renderBallot();
     if (c.kind === "mover")
       suspectFor(c.id).then((s) => {
-        if (cand === c) fillNearSource(sideEl, nearSourceOf(s));
+        if (cand === c) fillNearSource(bodyEl, nearSourceOf(s));
       });
   }
 
-  sideEl.addEventListener("click", (ev) => {
+  bodyEl.addEventListener("click", (ev) => {
     const chip = (ev.target as Element).closest<HTMLButtonElement>("button.rv-chip");
     if (chip) {
       const open = chip.getAttribute("aria-expanded") !== "true";
-      sideEl.querySelectorAll<HTMLButtonElement>("button.rv-chip").forEach((b) => b.setAttribute("aria-expanded", String(b === chip && open)));
-      const tip = sideEl.querySelector<HTMLElement>(".rv-chip-tip");
+      bodyEl.querySelectorAll<HTMLButtonElement>("button.rv-chip").forEach((b) => b.setAttribute("aria-expanded", String(b === chip && open)));
+      const tip = bodyEl.querySelector<HTMLElement>(".rv-chip-tip");
       if (tip) {
         tip.textContent = open ? chip.dataset.tip ?? "" : "Tap a reason to read what it means.";
         tip.dataset.open = String(open);
@@ -310,7 +363,11 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (b.dataset.act === "copy-pos") copyWithFeedback(b, `${c.ra.toFixed(6)} ${c.dec.toFixed(6)}`);
     else if (b.dataset.act === "copy-link") copyWithFeedback(b, shareUrl(c));
     else if (b.dataset.act === "copy-embed") copyWithFeedback(b, embedCode(c));
-    else if (b.dataset.act === "explore") ctx.explore({ ra: c.ra, dec: c.dec, clock: c.clock, det: c.det, fov: c.clock === "hours" ? 20 : 5 });
+  });
+
+  noteEl.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-all]");
+    if (b) opts.showAll(b.dataset.all === "1");
   });
 
   async function renderNav(c: Candidate, query: string) {
@@ -350,37 +407,42 @@ export const mountCandidate: MountPage = (el, ctx) => {
   }
 
   function showEmpty(title: string, body: string) {
-    mainEl.hidden = true;
-    navEl.hidden = false;
+    bodyEl.hidden = true;
+    noteEl.hidden = true;
     emptyEl.hidden = false;
     countEl.textContent = "";
     for (const a of [prevEl, nextEl]) {
       a.setAttribute("aria-disabled", "true");
       a.tabIndex = -1;
     }
-    emptyEl.innerHTML = html`<h1 class="rv-empty-title">${title}</h1>${body}`;
-    plate.clear();
-    checkSlot.clear();
+    emptyEl.innerHTML = html`<h2 class="rv-empty-title">${title}</h2>${body}`;
+    checkSlot?.clear();
     nextSlot?.clear();
   }
 
-  async function show(param: string | null) {
+  async function show(param: string) {
     const { id, query } = parseCandidateParam(param);
     const t = ++token;
     if (cand && cand.id === id) {
       renderNav(cand, query);
+      document.title = `${kindName(cand.kind)} ${cand.id}: SkyShift`;
+      if (!opts.showing(cand)) {
+        plateReady = false;
+        renderBallot();
+        opts.open(cand);
+      }
       return;
     }
     cand = null;
     set = await candidateSet();
     v ??= await votes();
-    if (t !== token) return;
+    if (t !== token || !active) return;
     sampleEl.hidden = !set?.sample;
     sampleEl.textContent = set?.sample ? SAMPLE_NOTE : "";
     if (!set || !set.candidates.length) {
       showEmpty(
         "No objects to check are published yet",
-        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/candidates/one=1">practice round</a> and the featured targets on <a href="#/explore">Blink</a> work now.</p>`,
+        html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/candidates/one=1">practice round</a> and the featured targets work now.</p>`,
       );
       return;
     }
@@ -394,8 +456,9 @@ export const mountCandidate: MountPage = (el, ctx) => {
       return;
     }
     cand = c;
-    mainEl.hidden = false;
+    bodyEl.hidden = false;
     emptyEl.hidden = true;
+    noteEl.hidden = true;
     mine = v.api.myVote(c.id);
     justNow = false;
     saving = null;
@@ -404,11 +467,10 @@ export const mountCandidate: MountPage = (el, ctx) => {
     error = null;
     counts = null;
     plateReady = false;
-    document.title = `${kindName(c.kind)} ${c.id}: SkyShift`;
-    checkSlot.clear();
-    renderSide(c);
+    renderBody(c);
     renderNav(c, query);
-    if (visibleNow) plate.showCandidate(c);
+    opts.open(c);
+    document.title = `${kindName(c.kind)} ${c.id}: SkyShift`;
     mountAssist(c);
     try {
       const all = await v.api.countsFor([c.id]);
@@ -422,7 +484,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   }
 
   const onKey = (ev: KeyboardEvent) => {
-    if (!visible(el) || !cand) return;
+    if (!active || !visible(el) || !cand) return;
     const a = keyAction(ev, { queue: false });
     if (a?.kind === "vote" && ballot?.open()) {
       ev.preventDefault();
@@ -431,7 +493,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
   };
   document.addEventListener("keydown", onKey);
 
-  // A vote cast, changed or taken back elsewhere on this page's candidate (the review queue, the
+  // A vote cast, changed or taken back elsewhere on this candidate (the review queue, the
   // assistant's step 6). The counts here include this browser's answer as it was: move it.
   const onVoted = (ev: Event) => {
     const d = (ev as CustomEvent<VotedDetail>).detail;
@@ -452,24 +514,42 @@ export const mountCandidate: MountPage = (el, ctx) => {
 
   return {
     show(param) {
-      visibleNow = true;
-      const { id } = parseCandidateParam(param);
-      if (cand && cand.id !== id) plate.clear();
-      plate.mount(); // re-shows the same candidate when coming back to it
-      show(param);
+      active = true;
+      void show(param);
+    },
+    ready(ok) {
+      if (plateReady === ok) return;
+      plateReady = ok;
+      renderBallot();
+    },
+    note(n) {
+      if (!n || (!n.focused && !n.allShown && n.missingGap === null)) {
+        noteEl.hidden = true;
+        noteEl.innerHTML = "";
+        return;
+      }
+      const missing = n.missingGap !== null ? `The find's own exposures are not in these frames (nearest is ${gapText(n.missingGap)} away). ` : "";
+      const toggle = n.focused
+        ? html`Showing the ${n.shown} exposures within a day of the find. <button class="rv-link" type="button" data-all="1">Show all ${n.all}</button>`
+        : n.allShown
+          ? html`Showing every exposure. <button class="rv-link" type="button" data-all="0">Only those near the find</button>`
+          : "";
+      noteEl.hidden = false;
+      noteEl.innerHTML = missing + toggle;
     },
     hide() {
-      visibleNow = false;
-      plate.unmount();
-      document.title = "SkyShift";
+      active = false;
+      token++;
+      noteEl.hidden = true;
     },
     destroy() {
+      active = false;
+      token++;
       document.removeEventListener("keydown", onKey);
       window.removeEventListener(VOTED_EVENT, onVoted);
-      checkSlot.clear();
+      checkSlot?.clear();
       nextSlot?.clear();
-      plate.unmount();
       el.innerHTML = "";
     },
   };
-};
+}
