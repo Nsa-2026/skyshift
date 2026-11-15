@@ -120,7 +120,9 @@ describe("Results sections", () => {
     expect(sure.querySelectorAll(".sc-check h3.sc-claim")).toHaveLength(11);
     expect(text(sure.querySelector(".sc-summary"))).toBe("9 of 11 checks pass and 2 have not run.");
     // what the search can find: V5 recall with what it covers, V4, and the made-up distant planets
-    expect([...sure.querySelectorAll(".rs-fig")].map(text)).toEqual(["93%", "60 of 60", expect.stringMatching(/^\d+%$/)]);
+    // V5 from the shipped validation.json (it changes with every data refresh), not pinned
+    const v5 = validation.checks.find((c) => c.id === "V5")!;
+    expect([...sure.querySelectorAll(".rs-fig")].map(text)).toEqual([`${Math.round(Number(v5.value) * 100)}%`, "60 of 60", expect.stringMatching(/^\d+%$/)]);
     expect(text(sure.querySelector(".rs-figures"))).toContain(RECALL_SCOPE);
     page.destroy();
   });
