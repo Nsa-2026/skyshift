@@ -74,7 +74,7 @@ describe("hours summary", () => {
   const s = summarize(H);
   it("counts dots and movers by class, with the suspect's grade", () => {
     expect(strip(s.lead)).toBe(
-      "Here SkyShift found 14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
+      "14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
     );
     expect(s.rest).toBe("4 dots match Gaia stars, 2 have no Gaia match and 1 looks like an artefact.");
   });
@@ -95,7 +95,7 @@ describe("hours summary", () => {
     };
     const m: Measured = { ...H, tracks: [...H.tracks, later] };
     expect(strip(summarize(m).lead)).toBe(
-      "Here SkyShift found 14 dots in 4 photos, and 3 movers: 1 known asteroid (in 2 sessions), 1 suspect (grade B) and 1 other mover.",
+      "14 dots in 4 photos, and 3 movers: 1 known asteroid (in 2 sessions), 1 suspect (grade B) and 1 other mover.",
     );
     const known = listItems(m, detOf(hours), 2).filter((i) => i.cls === "known");
     expect(known).toHaveLength(1);
@@ -143,13 +143,13 @@ describe("months summary", () => {
   it("counts distinct sources (at least, when capped) and only the shifts the plate draws as moved", () => {
     expect(sourcesByClass(M)).toMatchObject({ star: 2, other: 1, artifact: 1, suspect: 1 });
     // Barnard's Star at 115σ moved; the suspect (3.2σ) and the source without Gaia (3.6σ) are under 5σ.
-    expect(strip(s.lead)).toBe("Here SkyShift found at least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(strip(s.lead)).toBe("At least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
     expect(s.rest).toBe(
       "2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion. " +
         "Of the sources, at least 2 match Gaia stars, at least 1 has no Gaia match, 1 looks like an artefact and 1 is a suspect.",
     );
     expect(strip(summarize({ ...M, shifts: M.shifts.map((x) => ({ ...x, pm_snr: 6 })) }, months.gaia).lead)).toBe(
-      "Here SkyShift found at least 5 sources in 48 photos, and 3 moved between visits: 1 Gaia star, 1 suspect and 1 source without Gaia.",
+      "At least 5 sources in 48 photos, and 3 moved between visits: 1 Gaia star, 1 suspect and 1 source without Gaia.",
     );
   });
   it("says provisional, the photos without dots and the cap", () => {
@@ -299,20 +299,20 @@ describe("stages", () => {
   it("extracted: classed against Gaia only, movers not linked yet (never 'no movers')", () => {
     const m: Measured = { ...H, stage: "extracted", tracks: [] };
     const s = summarize(m);
-    expect(strip(s.lead)).toBe("Here SkyShift found 14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
+    expect(strip(s.lead)).toBe("14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
     expect(s.notes[0]).toBe(
       "Early results from the hunt zone: each photo's detections classed against Gaia only, before the zone is combined.",
     );
     const mo: Measured = { ...M, stage: "extracted", shifts: [], truncated: false };
     expect(strip(summarize(mo).lead)).toBe(
-      "Here SkyShift found 12 detections in 48 photos, classed against Gaia only: sources aren't linked and motions aren't fitted yet.",
+      "12 detections in 48 photos, classed against Gaia only: sources aren't linked and motions aren't fitted yet.",
     );
     expect(stageLabel("extracted")).toBe("Extracted");
   });
   it("an unknown stage, or missing pieces, never break the summary", () => {
     const m = { ...H, stage: "re_run", counts: undefined, tracks: undefined } as unknown as Measured;
     const s = summarize(m);
-    expect(strip(s.lead)).toBe("Here SkyShift found 0 dots in 4 photos, and no movers.");
+    expect(strip(s.lead)).toBe("0 dots in 4 photos, and no movers.");
     expect(s.notes[0]).toBe("Results from the hunt zone, at the stage it calls re run.");
     expect(stageLabel("re_run")).toBe("Re run");
     expect(stageLabel(undefined)).toBe("");

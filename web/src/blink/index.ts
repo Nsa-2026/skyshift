@@ -334,15 +334,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
               title="Draw what SkyShift measured on the plate"><span class="bk-meas-knob" aria-hidden="true"><i></i></span>On the plate</button>
           </div>
           <p class="bk-meas-lead"></p>
-          <p class="bk-meas-rest"></p>
+          <p class="bk-meas-rest pro-only"></p>
           <ul class="bk-meas-key" aria-label="Marks"></ul>
-          <p class="bk-meas-how"></p>
+          <p class="bk-meas-short plain-only"></p>
+          <p class="bk-meas-how pro-only"></p>
           <div class="bk-meas-items">
             <p class="bk-meas-lh" id="${uid}-ml"></p>
             <ul class="bk-meas-list" aria-labelledby="${uid}-ml"></ul>
             <button class="btn btn-ghost bk-meas-all" type="button" aria-expanded="false" hidden></button>
           </div>
-          <p class="bk-meas-notes"></p>
+          <p class="bk-meas-notes pro-only"></p>
           <p class="bk-meas-pro pro-only"></p>
         ${opts.viewer ? "</details>" : "</section>"}
       </div>
@@ -388,6 +389,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     all: $<HTMLButtonElement>(".bk-meas-all"),
     notes: $<HTMLParagraphElement>(".bk-meas-notes"),
     pro: $<HTMLParagraphElement>(".bk-meas-pro"),
+    short: $<HTMLParagraphElement>(".bk-meas-short"),
   };
   const off = document.createElement("canvas");
   const offCtx = off.getContext("2d");
@@ -1603,7 +1605,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const st = measuredState(F);
     mp.panel.hidden = st.kind === "absent";
     const on = st.kind === "measured";
-    for (const e of [mp.rest, mp.key, mp.how, mp.items, mp.notes, mp.pro]) e.hidden = !on;
+    for (const e of [mp.rest, mp.key, mp.how, mp.short, mp.items, mp.notes, mp.pro]) e.hidden = !on;
     mp.stage.hidden = !on;
     $<HTMLButtonElement>(".bk-meas-toggle").hidden = !on;
     if (mp.count) mp.count.textContent = "";
@@ -1643,6 +1645,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       "Violet diamonds are where the Minor Planet Center predicts asteroids." +
       (saturatedHere() ? " A dashed ring is a saturated star: its burnt core gives no single detection, so its pieces aren't drawn." : "") +
       (arrows ? ` ${arrowNote(m.clock)}` : "");
+    // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced.
+    mp.short.textContent =
+      "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "");
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
     mp.pro.textContent =
@@ -1663,7 +1668,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.list.innerHTML = shown
       .map(
         (it) => html`<li><button class="bk-mi" type="button" data-item="${esc(it.key)}" aria-pressed="${it.key === pinned}"
-          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n">${esc(it.numbers)}</span></button></li>`,
+          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n pro-only">${esc(it.numbers)}</span></button></li>`,
       )
       .join("");
     const more = measItems.length - LIST_SHOWN;

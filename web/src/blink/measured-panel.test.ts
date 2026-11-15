@@ -92,7 +92,7 @@ describe("what SkyShift measured", () => {
     await h.show(hoursView, hours(), URL);
     expect(panel().hidden).toBe(false);
     expect(lead().textContent).toBe(
-      "Here SkyShift found 14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
+      "14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
     );
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Final");
     const legend = [...el.querySelectorAll(".bk-meas-key li")].map((li) => li.textContent);
@@ -100,6 +100,11 @@ describe("what SkyShift measured", () => {
     expect(legend).toEqual(["Suspect", "Known asteroid or comet", "Other mover", "Artefact", "Gaia star", "Other source", "Saturated star"]);
     const how = el.querySelector(".bk-meas-how")!.textContent!;
     expect(how).toMatch(/each as big as its source looks on the plate/);
+    // Plain view: one short line; the long explanation, breakdown and notes are Advanced only.
+    expect(el.querySelector(".bk-meas-short")!.textContent).toBe(
+      "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids. Arrows: motion.",
+    );
+    for (const c of [".bk-meas-how", ".bk-meas-rest", ".bk-meas-notes"]) expect(el.querySelector(c)!.classList.contains("pro-only")).toBe(true);
     expect(how).toMatch(/a little bigger, so a match reads as a circle inside a ring/);
     expect(how).toMatch(/Arrows join each mover's dots in time order, to scale\. One too short to see is drawn longer, with its factor \(×10\)/);
     expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("Movers and artefacts on all detectors");
@@ -145,7 +150,7 @@ describe("what SkyShift measured", () => {
 
   it("months: shifts, distinct sources, provisional, missing photos and the cap", async () => {
     await h.show(monthsView, months(), URL);
-    expect(lead().textContent).toBe("Here SkyShift found at least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(lead().textContent).toBe("At least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
     expect(el.querySelector(".bk-meas-rest")!.textContent).toMatch(/^2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion\./);
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Provisional");
     const how = el.querySelector(".bk-meas-how")!.textContent!;
@@ -173,7 +178,7 @@ describe("what SkyShift measured", () => {
     f.measured!.tracks = [];
     await h.show(hoursView, f, URL);
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Extracted");
-    expect(lead().textContent).toBe("Here SkyShift found 14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
+    expect(lead().textContent).toBe("14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
     const g = hours();
     g.measured!.stage = "something_new";
     await h.show({ ...hoursView, ra: 123.95 }, g, URL);
