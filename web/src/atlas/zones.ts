@@ -192,10 +192,9 @@ export function areaName(a: Pick<ZoneArea, "zones">): string {
   return `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]} zones`;
 }
 
-/** The badge's text, longest first: "Hunt and pilot zones, 272 to check", then "272 to check". */
+/** Keep the map quiet at every width; full zone names remain in the accessible list. */
 export function badgeTexts(a: Pick<ZoneArea, "zones" | "count">): string[] {
-  const n = `${countText(a.count)} to check`;
-  return [`${areaName(a)}, ${n}`, n];
+  return [`${countText(a.count)} to check`];
 }
 
 /**
