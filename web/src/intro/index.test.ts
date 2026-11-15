@@ -52,13 +52,13 @@ describe("mountOpening", () => {
   });
 
   it("adds a Replay intro button to the footer", () => {
-    mountOpening(app, env({ hash: "#/about" }), load);
+    mountOpening(app, env({ hash: "#/about", search: "?intro=0" }), load);
     const replay = app.querySelector<HTMLButtonElement>(".foot-links .foot-replay")!;
     expect(replay.textContent).toBe("Replay intro");
     expect(replay.type).toBe("button");
   });
 
-  it("loads and plays again on each home visit after the previous opening closes", async () => {
+  it("loads and plays again on each page load after the previous opening closes", async () => {
     expect(mountOpening(app, env(), load)).toBe(true);
     await flush();
     expect(playOpening).toHaveBeenCalledTimes(1);
@@ -94,22 +94,27 @@ describe("mountOpening", () => {
     expect(storage).not.toHaveBeenCalled();
   });
 
-  it("shows a still title on normal reduced-motion home visits", async () => {
+  it("shows a still title on reduced-motion page loads", async () => {
     expect(mountOpening(app, env({ reducedMotion: true }), load)).toBe(true);
     await flush();
     expect(playOpening.mock.calls[0][1]).toMatchObject({ still: true });
   });
 
-  it("plays on home links with attribution tags", async () => {
-    expect(mountOpening(app, env({ search: "?utm_source=mail&fbclid=example" }), load)).toBe(true);
+  it("plays when the browser reopens a sky view the map wrote into the address", async () => {
+    expect(mountOpening(app, env({ hash: "#/sky/42,10,360,mol", search: "?utm_source=mail" }), load)).toBe(true);
     await flush();
     expect(playOpening).toHaveBeenCalledTimes(1);
   });
 
-  it("doesn't load the module for deep links or embeds", async () => {
-    expect(mountOpening(app, env({ hash: "#/explore" }), load)).toBe(false);
-    expect(mountOpening(app, env({ search: "?t=barnard" }), load)).toBe(false);
+  it("plays on deep links too", async () => {
+    expect(mountOpening(app, env({ hash: "#/explore", search: "?t=barnard" }), load)).toBe(true);
+    await flush();
+    expect(playOpening).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't load the module for embeds or ?intro=0", async () => {
     expect(mountOpening(app, env({ search: "?embed=1" }), load)).toBe(false);
+    expect(mountOpening(app, env({ search: "?intro=0", hash: "#/sky" }), load)).toBe(false);
     await flush();
     expect(load).not.toHaveBeenCalled();
   });
@@ -121,7 +126,7 @@ describe("mountOpening", () => {
   });
 
   it("replays on request, and only one at a time", async () => {
-    mountOpening(app, env({ hash: "#/about" }), load);
+    mountOpening(app, env({ hash: "#/about", search: "?intro=0" }), load);
     const replay = app.querySelector<HTMLButtonElement>(".foot-replay")!;
     replay.click();
     replay.click();
@@ -147,7 +152,7 @@ describe("mountOpening", () => {
   it("cancels a delayed replay when the visitor navigates before it loads", async () => {
     let resolve!: () => void;
     const slow = vi.fn(() => new Promise<never>((r) => (resolve = () => r({ playOpening } as never))));
-    mountOpening(app, env({ hash: "#/about" }), slow);
+    mountOpening(app, env({ hash: "#/about", search: "?intro=0" }), slow);
     app.querySelector<HTMLButtonElement>(".foot-replay")!.click();
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     resolve();
