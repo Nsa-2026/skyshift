@@ -16,6 +16,7 @@ import { planMarks, type Plan, type PlanDet, type PlanStar } from "./layout";
 import { arrowPath, bigStar, compass, diamond, factorSpot, flagMark, hatchPattern, label, measuredMark, pencil, reticle, ring, scaleBar } from "./marks";
 import {
   burntCores,
+  fillHoles,
   mean,
   median,
   niceArcsec,
@@ -32,6 +33,8 @@ import {
   subtract,
   unstretch,
   visibleExtent,
+  type FillSource,
+  type Filled,
   type Limits,
   type StretchKind,
 } from "./math";
@@ -64,7 +67,7 @@ import {
   type MeasuredItem,
 } from "./measured";
 import { driftPx, findMover, followShifts, type Mover } from "./motion";
-import { buildLut, diffIndex, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
+import { buildLut, diffIndex, fade, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
 import { drawStrip, plateDate, updateStrip } from "./strip";
 
 type Mode = "blink" | "difference" | "stack";
@@ -78,6 +81,8 @@ const MAX_RINGS = 80;
 const SATURATED_G = 9;
 /** A source "shows" on the plate down to this grey (0–1 of the stretch), or 2σ over the sky if higher. */
 const VISIBLE_GREY = 0.12;
+/** How far the part of a photo filled from its other photos is lightened toward the glass. */
+const FILL_FADE = 0.35;
 /** Search for a source's edge out to this far, arcsec (Barnard's Star in D4 reaches about 55″). */
 const MAX_REACH_ARCSEC = 120;
 const html = String.raw;
@@ -135,6 +140,21 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>, done:
 }
 
 const um = (n: number | null) => n == null || !Number.isFinite(n) ? "unknown" : n.toFixed(2);
+/** A field's width against the full Moon (about 30′ across), in plain words: 5 → "about a sixth of…". */
+export function fieldVsMoon(arcmin: number): string {
+  const r = arcmin / 30;
+  if (r >= 1.5) return `about ${Math.round(r)} full Moons wide`;
+  if (r >= 0.85) return "about as wide as the full Moon";
+  const parts: [number, string][] = [
+    [1 / 6, "a sixth"],
+    [1 / 4, "a quarter"],
+    [1 / 3, "a third"],
+    [1 / 2, "half"],
+    [2 / 3, "two thirds"],
+  ];
+  const [, word] = parts.reduce((a, b) => (Math.abs(b[0] - r) < Math.abs(a[0] - r) ? b : a));
+  return `about ${word} of the full Moon's width`;
+}
 const pct = (f: number | null) => f == null ? "unknown" : (f >= 0.1 ? `${(f * 100).toFixed(0)}%` : f > 0 ? `${(f * 100).toFixed(f >= 0.01 ? 1 : 2)}%` : "0%");
 const icon = {
   play: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.6v10.8c0 .5.6.8 1 .5l8-5.4c.4-.3.4-.8 0-1L8 4.1c-.4-.3-1 0-1 .5z"/></svg>`,
@@ -177,7 +197,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
             <span class="bk-det-label"></span>
           </p>
           <div class="bk-plate">
-            <canvas class="bk-canvas" role="img" aria-label="SPHEREx frame. Click a dot to flag it."></canvas>
+            <canvas class="bk-canvas" role="img" aria-label="SPHEREx frame. Click a dot to flag it${opts.viewer ? "; double-click to zoom in there" : ""}."></canvas>
             <div class="bk-progress" hidden><i></i></div>
             <div class="bk-msg" role="status" aria-live="polite" hidden>
               <p class="bk-msg-text"></p>
@@ -275,7 +295,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <div class="bk-adj-row">
             <span class="bk-adj-k" id="${uid}-mk">Marks</span>
             <div class="bk-marks" role="group" aria-labelledby="${uid}-mk">
-              <button class="bk-mk" type="button" data-ov="measured" aria-pressed="true"
+              <button class="bk-mk" type="button" data-ov="measured" aria-pressed="${!opts.viewer}"
                 title="What SkyShift measured in these photos: circles by class, with motion arrows"><i class="sw sw-measured"></i>Measured</button>
               <button class="bk-mk" type="button" data-ov="gaia" aria-pressed="true"><i class="sw sw-gaia"></i>Gaia</button>
               <button class="bk-mk" type="button" data-ov="known" aria-pressed="true"
@@ -304,25 +324,33 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <p class="bk-adj-keys">Space plays, ← → step, hold C to compare.</p>
         </div>
 
-        <section class="bk-meas" aria-labelledby="${uid}-mt" hidden>
+        ${opts.viewer
+          ? // The Viewer folds it to one line so the plate stays clear: opening it draws SkyShift's
+            // circles on the plate too, folding it hides them (the switch inside sets them either way).
+            html`<details class="bk-meas" hidden>
+          <summary class="bk-meas-sum"><h2 class="bk-meas-title" id="${uid}-mt">What SkyShift measured</h2>
+            <span class="bk-meas-count"></span></summary>
+          <div class="bk-meas-head">`
+          : html`<section class="bk-meas" aria-labelledby="${uid}-mt" hidden>
           <div class="bk-meas-head">
-            <h2 class="bk-meas-title" id="${uid}-mt">What SkyShift measured</h2>
+            <h2 class="bk-meas-title" id="${uid}-mt">What SkyShift measured</h2>`}
             <span class="bk-meas-stage" hidden></span>
-            <button class="bk-meas-toggle" type="button" data-ov="measured" aria-pressed="true"
+            <button class="bk-meas-toggle" type="button" data-ov="measured" aria-pressed="${!opts.viewer}"
               title="Draw what SkyShift measured on the plate"><span class="bk-meas-knob" aria-hidden="true"><i></i></span>On the plate</button>
           </div>
           <p class="bk-meas-lead"></p>
-          <p class="bk-meas-rest"></p>
+          <p class="bk-meas-rest pro-only"></p>
           <ul class="bk-meas-key" aria-label="Marks"></ul>
-          <p class="bk-meas-how"></p>
+          <p class="bk-meas-short plain-only"></p>
+          <p class="bk-meas-how pro-only"></p>
           <div class="bk-meas-items">
             <p class="bk-meas-lh" id="${uid}-ml"></p>
             <ul class="bk-meas-list" aria-labelledby="${uid}-ml"></ul>
             <button class="btn btn-ghost bk-meas-all" type="button" aria-expanded="false" hidden></button>
           </div>
-          <p class="bk-meas-notes"></p>
+          <p class="bk-meas-notes pro-only"></p>
           <p class="bk-meas-pro pro-only"></p>
-        </section>
+        ${opts.viewer ? "</details>" : "</section>"}
       </div>
     </div>
   `;
@@ -353,6 +381,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const hold = $<HTMLButtonElement>(".bk-hold");
   const mp = {
     panel: $<HTMLElement>(".bk-meas"),
+    /** The folded line's count (Viewer only). */
+    count: el.querySelector<HTMLSpanElement>(".bk-meas-count"),
     stage: $<HTMLElement>(".bk-meas-stage"),
     lead: $<HTMLParagraphElement>(".bk-meas-lead"),
     rest: $<HTMLParagraphElement>(".bk-meas-rest"),
@@ -364,6 +394,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     all: $<HTMLButtonElement>(".bk-meas-all"),
     notes: $<HTMLParagraphElement>(".bk-meas-notes"),
     pro: $<HTMLParagraphElement>(".bk-meas-pro"),
+    short: $<HTMLParagraphElement>(".bk-meas-short"),
   };
   const off = document.createElement("canvas");
   const offCtx = off.getContext("2d");
@@ -405,7 +436,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     got: new Map(),
     pending: false,
   };
-  const overlays = { measured: true, gaia: true, known: true, faint: false, target: true, guides: true };
+  // On the Viewer, SkyShift's measured circles start off (the plate shows Gaia's rings) and opening
+  // "What SkyShift measured" turns them on; other plates start with them on.
+  const overlays = { measured: !opts.viewer, gaia: true, known: true, faint: false, target: true, guides: true };
   /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
   let trackM: TrackMarks | null = null;
   let trackBy = new Map<string, TrackSpot>();
@@ -448,6 +481,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let shown: Float32Array | null = null;
   /** The burnt cores painted as ink over `shown` (null in Difference): with it, where the hatch shows. */
   let shownMask: Uint8Array | null = null;
+  /** Hours clock: 1 where the plate shows a pixel filled from the visit's other photos (not in `shown`). */
+  let shownFill: Uint8Array | null = null;
   let shownSigned = false;
   let shownLim: (Limits & { sigma?: number; n?: number }) | null = null;
   let firstShow = true;
@@ -456,10 +491,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const leveled = new Map<number, Float32Array>();
   const smoothed = new Map<number, Float32Array>();
   const burnt = new Map<number, Uint8Array>();
+  const filledFrames = new Map<number, Filled>();
   let stackVals: { key: string; vals: Float32Array; sky: number; sigma: number; burnt: Uint8Array } | null = null;
   const limitCache = new Map<string, Limits & { sigma?: number; n?: number }>();
   let lut: { key: string; data: Uint8ClampedArray } = { key: "", data: new Uint8ClampedArray(0) };
   let hatch: { key: string; pattern: CanvasPattern | null } = { key: "", pattern: null };
+  let fillHatch: { key: string; pattern: CanvasPattern | null } = { key: "", pattern: null };
   let cssSize = 0;
   let dpr = 1;
 
@@ -505,6 +542,35 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     return b;
   }
+  /** The hours clock fills each photo's no-data part (past the detector's edge) from the visit's
+   *  other photos, drawn paler and hatched. The months clock does not: its visits are six months apart. */
+  const fillsHoles = () => view?.clock === "hours" && frames.length > 1;
+  /** Photo i with its no-data pixels filled from the others (math.ts fillHoles), on photo i's level.
+   *  Frames that follow a mover have their own centres: each other photo is lined up on the sky first. */
+  function filledOf(i: number): Filled {
+    let fl = filledFrames.get(i);
+    if (!fl) {
+      const [nx, ny] = size();
+      const f = frames[i];
+      const c0 = centreOf(f.epoch);
+      const others: FillSource[] = [];
+      frames.forEach((g, j) => {
+        if (j === i || g.vals.length !== nx * ny) return;
+        const cj = centreOf(g.epoch);
+        let dx = 0;
+        let dy = 0;
+        if (F && (cj.ra !== c0.ra || cj.dec !== c0.dec)) {
+          const p = skyToPixel(cj, F, c0);
+          dx = p.x - (nx - 1) / 2;
+          dy = p.y - (ny - 1) / 2;
+        }
+        others.push({ vals: g.vals, sky: g.sky, burnt: burntOf(j), dx, dy });
+      });
+      fl = fillHoles(level(i), levelSky ? 0 : f.sky, burntOf(i), others, nx, ny);
+      filledFrames.set(i, fl);
+    }
+    return fl;
+  }
   const following = () => follow && !!shifts && shifts.length === frames.length;
   /** Mean of every frame; shifted along the mover first when Follow is on (shift-and-add). */
   function stack(): NonNullable<typeof stackVals> {
@@ -534,6 +600,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   function resetCaches() {
     leveled.clear();
     smoothed.clear();
+    filledFrames.clear();
     stackVals = null;
     limitCache.clear();
   }
@@ -566,10 +633,22 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     let lim: Limits & { sigma?: number; n?: number };
     let mask: Uint8Array | null = null;
     let signed = false;
+    // What is painted; `values` and `mask` stay the photo's own data (marks, hover, notes).
+    let painted: Float32Array | null = null;
+    let paintedMask: Uint8Array | null = null;
+    let fill: Uint8Array | null = null;
     if (comparing || mode === "blink") {
       values = level(shownIndex());
       lim = limitsFor("blink");
       mask = burntOf(shownIndex());
+      if (fillsHoles()) {
+        const fl = filledOf(shownIndex());
+        if (fl.count) {
+          painted = fl.vals;
+          paintedMask = fl.burnt;
+          fill = fl.filled;
+        }
+      }
     } else if (mode === "difference") {
       values = subtract(diffBase(idx), diffBase(ref));
       lim = limitsFor("difference");
@@ -587,10 +666,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       off.height = ny;
     }
     const img = offCtx.createImageData(nx, ny);
-    paint(values, img.data, lut.data, signed ? diffIndex(lim) : plainIndex(lim, stretchKind), mask);
+    paint(painted ?? values, img.data, lut.data, signed ? diffIndex(lim) : plainIndex(lim, stretchKind), paintedMask ?? mask);
+    if (fill) fade(img.data, fill, palette.glass, FILL_FADE);
     offCtx.putImageData(img, 0, 0);
     shown = values;
     shownMask = mask;
+    shownFill = fill;
     shownSigned = signed;
     shownLim = lim;
     draw();
@@ -644,31 +725,101 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     ctx.restore();
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(off, vp.u0, vp.v0, vp.vw, vp.vh, vp.ox, vp.oy, vp.vw * vp.s, vp.vh * vp.s);
+    drawFillHatch(vp);
     drawMarks(vp);
     if (overlays.guides) drawGuides(vp, plain && positive);
     drawNoDataNote(vp);
   }
 
-  /** The plate's no-data area (raw 0: past this photo's edge) gets a small note, when it is not a sliver. */
+  /** Faint hatch lines over the part of the photo filled from the visit's other photos (shownFill). */
+  function drawFillHatch(vp: VP) {
+    if (!ctx || !shownFill) return;
+    const [nx, ny] = size();
+    if (shownFill.length !== nx * ny) return;
+    const hk = `${dpr}`;
+    if (fillHatch.key !== hk) fillHatch = { key: hk, pattern: hatchPattern(ctx, dpr, "rgba(0, 0, 0, 0)", cssColor("--hair-strong", "#a9b1b6")) };
+    if (!fillHatch.pattern) return;
+    const x0 = Math.max(0, Math.floor(vp.u0));
+    const x1 = Math.min(nx, Math.ceil(vp.u0 + vp.vw));
+    const y0 = Math.max(0, Math.floor(vp.v0));
+    const y1 = Math.min(ny, Math.ceil(vp.v0 + vp.vh));
+    const S = vp.s * dpr;
+    ctx.save();
+    // The pattern is in device pixels, like the no-data hatch: draw untransformed so lines stay crisp.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    let any = false;
+    for (let y = y0; y < y1; y++) {
+      const Y = (vp.oy + (y - vp.v0) * vp.s) * dpr;
+      for (let x = x0; x < x1; ) {
+        if (!shownFill[y * nx + x]) {
+          x++;
+          continue;
+        }
+        let e = x + 1;
+        while (e < x1 && shownFill[y * nx + e]) e++;
+        ctx.rect((vp.ox + (x - vp.u0) * vp.s) * dpr, Y, (e - x) * S, S);
+        any = true;
+        x = e;
+      }
+    }
+    if (any) {
+      ctx.clip();
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = fillHatch.pattern;
+      ctx.fillRect(Math.round(vp.ox * dpr), Math.round(vp.oy * dpr), Math.round(vp.vw * vp.s * dpr), Math.round(vp.vh * vp.s * dpr));
+    }
+    ctx.restore();
+  }
+
+  /** The plate's no-data area (raw 0: past this photo's edge) gets a small note, when it is not a
+   *  sliver; so does the part filled from the visit's other photos (hours clock). */
   const NO_DATA_NOTE = "No data here: edge of this photo";
-  let noDataCache: { vals: Float32Array | null; key: string; spot: ReturnType<typeof noDataSpot> } = { vals: null, key: "", spot: null };
+  const FILLED_NOTE = "Not in this photo: filled from its other photos";
+  type Spot = ReturnType<typeof noDataSpot>;
+  let noDataCache: { vals: Float32Array | null; fill: Uint8Array | null; key: string; empty: Spot; filled: Spot } = {
+    vals: null,
+    fill: null,
+    key: "",
+    empty: null,
+    filled: null,
+  };
   function drawNoDataNote(vp: VP) {
     if (!ctx || !shown || !F) return;
     const [nx, ny] = size();
     if (shown.length !== nx * ny) return;
     const key = `${vp.u0.toFixed(1)},${vp.v0.toFixed(1)},${vp.vw.toFixed(1)}`;
-    if (noDataCache.vals !== shown || noDataCache.key !== key) noDataCache = { vals: shown, key, spot: noDataSpot(shown, shownMask, nx, ny, vp) };
-    const spot = noDataCache.spot;
-    if (!spot || spot.frac < 0.03) return;
+    if (noDataCache.vals !== shown || noDataCache.fill !== shownFill || noDataCache.key !== key) {
+      let empty: Spot;
+      let filled: Spot = null;
+      if (shownFill && shownFill.length === nx * ny) {
+        // noDataSpot counts NaN pixels whose mask is 0: mask out the filled part, then all but it.
+        const fill = shownFill;
+        const notEmpty = new Uint8Array(nx * ny);
+        const notFilled = new Uint8Array(nx * ny);
+        for (let k = 0; k < notEmpty.length; k++) {
+          notEmpty[k] = shownMask?.[k] || fill[k] ? 1 : 0;
+          notFilled[k] = fill[k] ? 0 : 1;
+        }
+        empty = noDataSpot(shown, notEmpty, nx, ny, vp);
+        filled = noDataSpot(shown, notFilled, nx, ny, vp);
+      } else empty = noDataSpot(shown, shownMask, nx, ny, vp);
+      noDataCache = { vals: shown, fill: shownFill, key, empty, filled };
+    }
+    drawNote(NO_DATA_NOTE, noDataCache.empty, vp);
+    drawNote(FILLED_NOTE, noDataCache.filled, vp);
+  }
+  function drawNote(text: string, spot: Spot, vp: VP) {
+    if (!ctx || !spot || spot.frac < 0.03) return;
     const p = toScreen({ x: spot.x - 0.5, y: spot.y - 0.5 }, vp);
     ctx.save();
     ctx.font = `600 11px ${fontFamily}`;
-    const w = ctx.measureText(NO_DATA_NOTE).width;
+    const w = ctx.measureText(text).width;
     const left = vp.ox + 6;
     const right = vp.ox + vp.vw * vp.s - 6;
     const x = Math.min(Math.max(p.X - w / 2, left), right - w);
     const y = Math.min(Math.max(p.Y + 4, vp.oy + 14), vp.oy + vp.vh * vp.s - 6);
-    label(ctx, NO_DATA_NOTE, x, y, cssColor("--ink-2", "#4a5560"), cssColor("--sheet-2", "#e3e8e7"));
+    label(ctx, text, x, y, cssColor("--ink-2", "#4a5560"), cssColor("--sheet-2", "#e3e8e7"));
     ctx.restore();
   }
 
@@ -1324,7 +1475,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         const sky = pixelToSky({ x: hover.u - 0.5, y: hover.v - 0.5 }, F, centreOf(allAtOnce() ? cur()?.epoch ?? null : shownEpoch()));
         const v = shown[y * nx + x];
         let val: string;
-        if (Number.isNaN(v)) val = burntAt(y * nx + x) ? "saturated" : "no data";
+        if (Number.isNaN(v))
+          val = burntAt(y * nx + x) ? "saturated" : shownFill?.[y * nx + x] ? "not in this photo (filled from its other photos)" : "no data";
         else if (shownSigned && shownLim?.sigma && shownLim.sigma > 0)
           val = `${v >= 0 ? "+" : "−"}${Math.abs(v / shownLim.sigma).toFixed(1)}σ`;
         // All wavelengths: the plate is already in units of sky noise, sky at 0.
@@ -1353,7 +1505,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       key.innerHTML = `<span class="bk-keybar" aria-hidden="true"></span><span>±${shownLim.n}σ</span>`;
       key.title = `Colours run from ${shownLim.n} noise sigmas of light lost (blue) to ${shownLim.n} gained (red).`;
     } else if (mode === "blink" && !comparing) {
-      key.innerHTML = `<span class="bk-hint">Click a dot to flag it</span>`;
+      key.innerHTML = `<span class="bk-hint">Click a dot to flag it${opts.viewer ? " · double-click to zoom in" : ""}</span>`;
     }
     // The red circles' key, when the candidate has a spot in these frames.
     if (overlays.target && trackM && frames.some((f) => spotFor(f.epoch))) {
@@ -1381,10 +1533,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     press("[data-clock]", "data-clock", view.clock);
     const fovs = ALLOWED_FOV[view.clock];
     $(".bk-fov").innerHTML = fovs
-      .map(
-        (f) => html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
-          aria-label="${f} arcminute field" title="${f} arcminute field">${f}′</button>`,
-      )
+      .map((f, i) => {
+        if (!opts.viewer) {
+          return html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
+          aria-label="${f} arcminute field" title="${f} arcminute field">${f}′</button>`;
+        }
+        const word = i === 0 ? "Close-up" : "Wide";
+        const about = `${word}: ${f} arcminutes, ${fieldVsMoon(f)}`;
+        return html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
+          aria-label="${about}" title="${about}">${word}</button>`;
+      })
       .join("");
     const have = rawF ? waveDets() : [];
     // A static file holds every detector prepared; a live answer only the one asked for, so any other is a request away.
@@ -1571,9 +1729,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const st = measuredState(F);
     mp.panel.hidden = st.kind === "absent";
     const on = st.kind === "measured";
-    for (const e of [mp.rest, mp.key, mp.how, mp.items, mp.notes, mp.pro]) e.hidden = !on;
+    for (const e of [mp.rest, mp.key, mp.how, mp.short, mp.items, mp.notes, mp.pro]) e.hidden = !on;
     mp.stage.hidden = !on;
     $<HTMLButtonElement>(".bk-meas-toggle").hidden = !on;
+    if (mp.count) mp.count.textContent = "";
     if (st.kind === "absent") return;
     if (st.kind === "missing") {
       const r = reasonLine(st.reason);
@@ -1610,6 +1769,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       "Violet diamonds are where the Minor Planet Center predicts asteroids." +
       (saturatedHere() ? " A dashed ring is a saturated star: its burnt core gives no single detection, so its pieces aren't drawn." : "") +
       (arrows ? ` ${arrowNote(m.clock)}` : "");
+    // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced.
+    mp.short.textContent =
+      "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "");
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
     mp.pro.textContent =
@@ -1624,12 +1786,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const hours = m.clock === "hours";
     mp.items.hidden = !measItems.length;
     if (!measItems.length) return;
+    if (mp.count) mp.count.textContent = `(${measItems.length})`;
     mp.lh.textContent = hours ? (waveGroups.size ? "Movers and artefacts on all detectors" : `Movers and artefacts on D${view.det}`) : "What moved between visits";
     const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
     mp.list.innerHTML = shown
       .map(
         (it) => html`<li><button class="bk-mi" type="button" data-item="${esc(it.key)}" aria-pressed="${it.key === pinned}"
-          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n">${esc(it.numbers)}</span></button></li>`,
+          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n pro-only">${esc(it.numbers)}</span></button></li>`,
       )
       .join("");
     const more = measItems.length - LIST_SHOWN;
@@ -2137,6 +2300,16 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     draw();
     renderCaption();
   };
+  // Opening "What SkyShift measured" draws its circles on the plate; folding it clears the plate again.
+  if (mp.panel instanceof HTMLDetailsElement) {
+    const fold = mp.panel;
+    fold.addEventListener("toggle", () => {
+      if (overlays.measured === fold.open) return;
+      overlays.measured = fold.open;
+      renderControls();
+      draw();
+    });
+  }
   mp.list.addEventListener("pointerover", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
   mp.list.addEventListener("pointerleave", () => focusOn(document.activeElement && itemOf(document.activeElement) ? itemOf(document.activeElement)!.dataset.item ?? null : null));
   mp.list.addEventListener("focusin", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
@@ -2219,8 +2392,27 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
   });
 
-  // Plate: hover reads a pixel, click flags a dot, drag pans when zoomed.
+  // Plate: hover reads a pixel, click flags a dot, double-click (or double-tap) zooms in on that
+  // spot (1× → 2× → 4× → back to 1×), drag pans when zoomed.
   let down: { X: number; Y: number; u: number; v: number; moved: boolean } | null = null;
+  let lastTap: { t: number; X: number; Y: number } | null = null;
+  const DOUBLE_MS = 350;
+  const DOUBLE_PX = 24;
+  function zoomAt(u: number, v: number) {
+    const next = zoom >= 4 ? 1 : zoom * 2;
+    zoom = next;
+    if (next === 1) {
+      const [nx, ny] = size();
+      centre = { u: nx / 2, v: ny / 2 };
+    } else {
+      centre = { u, v };
+      const vp = viewport(); // keeps the view inside the frame near the edges
+      centre = { u: vp.u0 + vp.vw / 2, v: vp.v0 + vp.vh / 2 };
+    }
+    canvas.classList.toggle("is-zoomed", next > 1);
+    renderControls();
+    draw();
+  }
   const local = (ev: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
     return { X: ev.clientX - r.left, Y: ev.clientY - r.top };
@@ -2261,6 +2453,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const { u, v } = toImage(X, Y);
     const [nx, ny] = size();
     if (u < 0 || v < 0 || u > nx || v > ny) return;
+    // Viewer: a second click close in time and place zooms there (the first one picked the spot).
+    const now = performance.now();
+    if (opts.viewer && lastTap && now - lastTap.t < DOUBLE_MS && Math.hypot(X - lastTap.X, Y - lastTap.Y) < DOUBLE_PX) {
+      lastTap = null;
+      zoomAt(u, v);
+      return;
+    }
+    lastTap = { t: now, X, Y };
     const shownE = cur()?.epoch;
     if (!shownE) return;
     const sky = pixelToSky({ x: u - 0.5, y: v - 0.5 }, F, centreOf(shownE));

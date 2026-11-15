@@ -1,5 +1,5 @@
 // The globe: Aladin Lite 3.8.2 with IRSA HiPS and a selectable plate-negative display.
-// Each searched zone is one graphic-overlay polygon (the union of its boxes, one faint fill);
+// Searched zones use a canvas with seam-safe paths (one faint fill per union of boxes);
 // heat cells (off unless Adjust turns them on) are polygons too. Objects to check and featured
 // targets are catalogs with custom canvas shapes (pencil marks). Zone badges and target names
 // are drawn on a canvas of our own over the map, placed so they never cover a zone, a mark or each
@@ -18,6 +18,7 @@ import { paintSearch, type SearchInk } from "./searchdraw";
 import { offsetPa, sepDeg } from "./sphere";
 import { LABEL_MIN_PX, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, type Level } from "./zoom";
 import { areaAt, badgeTexts, densifyRing, type ZoneArea } from "./zones";
+import { zoneEdges, zoneFills } from './zone-paths';
 
 /** The parts of the 3.8.2 API this page uses beyond src/sky/aladin.d.ts. */
 interface Al extends AladinInstance {
@@ -261,7 +262,6 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   // ---- overlays -------------------------------------------------------------------------
   const quiet = (color: string) => ({ color, hoverColor: color, selectionColor: color });
   const heatOv = A.graphicOverlay({ name: "Objects to check per cell", ...quiet(ink.red), lineWidth: 1 }) as AladinOverlay;
-  const zoneOv = A.graphicOverlay({ name: "Zones", ...quiet(ink.red), lineWidth: 1.5 }) as AladinOverlay;
 
   let model: MapModel | null = null;
   let level: Level = levelFor(init.view.fov);
@@ -352,7 +352,6 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   const targetCat = A.catalog({ name: "Featured targets", shape: targetShape, sourceSize: 18 }) as AladinCatalog;
 
   al.addOverlay(heatOv);
-  al.addOverlay(zoneOv);
   // Labels last, so a name is never crossed out by a mark beside it.
   al.addCatalog(provisionalCat);
   al.addCatalog(targetCat);
@@ -427,21 +426,32 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
 
   /** Each area once: its union outline and one faint fill. */
   function drawZones() {
-    zoneOv.removeAll();
-    if (!model || !model.layers.zones) return;
+    const ctx = prepare(zoneCanvas);
+    if (!ctx || !model || !model.layers.zones) return;
     const { fill, edge } = zoneStyle(level);
+    const maxJump = host.clientWidth / 2;
+    // Keep the full ellipse even when zoomed in: an offscreen seam must not draw a chord through the view.
+    const rx = 180 * host.clientWidth / scaleFov();
+    const ellipse = mol ? { cx: host.clientWidth / 2, cy: host.clientHeight / 2, rx, ry: rx / 2 } : undefined;
+    const project = (p: SkyPos) => !mol && sepDeg(p, view()) > 90 ? null : rawScreen(p);
+    function path(points: Vec[], closed: boolean) {
+      if (!points.length) return;
+      ctx!.moveTo(points[0].x, points[0].y);
+      for (const p of points.slice(1)) ctx!.lineTo(p.x, p.y);
+      if (closed) ctx!.closePath();
+    }
     for (const a of model.areas) {
-      for (const ring of a.rings) {
-        zoneOv.add(
-          A.polygon(densifyRing(ring, 0.5), {
-            fill: fill > 0,
-            fillColor: rgba(zoneInk(), fill),
-            ...quiet(rgba(zoneInk(), edge)),
-            lineWidth: 1.5,
-            opacity: 1,
-          }),
-        );
+      if (fill > 0) {
+        ctx.beginPath();
+        for (const points of zoneFills(a, project, maxJump, ellipse)) path(points, true);
+        ctx.fillStyle = rgba(zoneInk(), fill);
+        ctx.fill();
       }
+      ctx.beginPath();
+      for (const points of zoneEdges(a, project, maxJump, ellipse)) path(points, false);
+      ctx.strokeStyle = rgba(zoneInk(), edge);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }
 
@@ -490,6 +500,10 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   const imageCanvas = mapEl.querySelector(".aladin-imageCanvas");
   if (imageCanvas?.parentElement) imageCanvas.after(searchCanvas);
   else mapEl.appendChild(searchCanvas);
+  const zoneCanvas = document.createElement('canvas');
+  zoneCanvas.className = 'atl-zonecanvas';
+  zoneCanvas.setAttribute('aria-hidden', 'true');
+  searchCanvas.after(zoneCanvas);
 
   /** Size a canvas to the map at the screen's pixel ratio; its 2D context, scaled to CSS px. */
   function prepare(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
@@ -726,13 +740,13 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       level = nextLevel;
       order = nextOrder;
       drawHeat();
-      drawZones();
       if (dotsChanged) {
         drawSignals();
         drawProvisional();
       }
       drawTargets();
     }
+    drawZones();
     drawSearch();
     drawLabels();
     cb.onView(v);
@@ -866,11 +880,9 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       layers = m.layers;
       if (layersChanged) {
         applyBackground();
-        if (prev) drawZones();
         repaint();
       }
       if (!prev || prev.candidates !== m.candidates || prev.layers.heat !== m.layers.heat) drawHeat();
-      if (!prev || prev.areas !== m.areas || prev.layers.zones !== m.layers.zones) drawZones();
       if (!prev || prev.candidates !== m.candidates || prev.layers.signals !== m.layers.signals) drawSignals();
       if (!prev || prev.targets !== m.targets) drawTargets();
       if (!prev || prev.provisional !== m.provisional || prev.layers.provisional !== m.layers.provisional) drawProvisional();
@@ -878,6 +890,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       if (prev && prev.selectedId !== m.selectedId) repaint();
       // The page's panels may have moved (the header, a message): refit the whole sky, place names again.
       clip(fitView());
+      drawZones();
       drawLabels();
     },
     view,
@@ -956,6 +969,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       for (const t of ["wheel", "pointerup", "touchend"]) mapEl.removeEventListener(t, onInput, { capture: true });
       ro?.disconnect();
       searchCanvas.remove();
+      zoneCanvas.remove();
       labelCanvas.remove();
       mapEl.remove();
     },

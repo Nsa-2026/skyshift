@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mountOpening } from "./index";
-import type { OpeningEnv } from "./rules";
+import { browserEnv, type OpeningEnv } from "./rules";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -32,6 +32,7 @@ describe("mountOpening", () => {
     vi.clearAllMocks();
     const store = memoryStorage();
     Object.defineProperty(window, "localStorage", { configurable: true, get: () => store });
+    vi.spyOn(window, "sessionStorage", "get").mockReturnValue(memoryStorage());
     app = document.createElement("div");
     app.innerHTML = `<footer class="foot"><p class="foot-links"><a href="#/about">About</a></p></footer>`;
     document.body.append(app);
@@ -58,15 +59,55 @@ describe("mountOpening", () => {
     expect(replay.type).toBe("button");
   });
 
-  it("loads and plays again on each page load after the previous opening closes", async () => {
-    expect(mountOpening(app, env(), load)).toBe(true);
+  it("plays once in a tab, skips refreshes, and plays again in a new tab", async () => {
+    expect(mountOpening(app, undefined, load)).toBe(true);
     await flush();
     expect(playOpening).toHaveBeenCalledTimes(1);
     closeLast();
-    expect(mountOpening(app, env(), load)).toBe(true);
+    expect(mountOpening(app, undefined, load)).toBe(false);
+    await flush();
+    expect(load).toHaveBeenCalledTimes(1);
+    // Closing a tab discards its sessionStorage; reopening has a fresh store.
+    vi.spyOn(window, "sessionStorage", "get").mockReturnValue(memoryStorage());
+    expect(mountOpening(app, undefined, load)).toBe(true);
     await flush();
     expect(load).toHaveBeenCalledTimes(2);
     expect(playOpening).toHaveBeenCalledTimes(2);
+  });
+
+  it("records the visit before the animation loads or closes", async () => {
+    let resolve!: () => void;
+    const slow = vi.fn(() => new Promise<never>(r => (resolve = () => r({ playOpening } as never))));
+    expect(mountOpening(app, undefined, slow)).toBe(true);
+    expect(browserEnv().visitedInTab).toBe(true);
+    resolve();
+    await flush();
+  });
+
+  it("allows manual replay after a refresh", async () => {
+    mountOpening(app, undefined, load);
+    await flush();
+    closeLast();
+    const refreshed = document.createElement("div");
+    refreshed.innerHTML = '<p class="foot-links"></p>';
+    document.body.append(refreshed);
+    expect(mountOpening(refreshed, undefined, load)).toBe(false);
+    refreshed.querySelector<HTMLButtonElement>(".foot-replay")!.click();
+    await flush();
+    expect(playOpening).toHaveBeenCalledTimes(2);
+  });
+
+  it("remembers an explicit skip even if the Viewer later rewrites the query", () => {
+    history.replaceState(null, "", "/?intro=0");
+    expect(mountOpening(app, undefined, load)).toBe(false);
+    history.replaceState(null, "", "/?t=barnard#/explore");
+    expect(mountOpening(app, undefined, load)).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("does not consume the opening on an embedded visit", () => {
+    expect(mountOpening(app, env({ search: "?embed=1" }), load)).toBe(false);
+    expect(browserEnv().visitedInTab).toBe(false);
   });
 
   it("ignores an old seen marker without reading, rewriting or deleting it", async () => {
@@ -92,6 +133,18 @@ describe("mountOpening", () => {
     await flush();
     expect(playOpening).toHaveBeenCalledTimes(1);
     expect(storage).not.toHaveBeenCalled();
+  });
+
+  it("keeps the site usable when tab storage is blocked or full", async () => {
+    const blocked = () => { throw new Error("denied"); };
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(blocked);
+    expect(mountOpening(app, undefined, load)).toBe(true);
+    await flush();
+    closeLast();
+    vi.spyOn(window, "sessionStorage", "get").mockReturnValue({ ...memoryStorage(), setItem: blocked });
+    expect(mountOpening(app, undefined, load)).toBe(true);
+    await flush();
+    expect(playOpening).toHaveBeenCalledTimes(2);
   });
 
   it("shows a still title on reduced-motion page loads", async () => {

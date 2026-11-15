@@ -458,95 +458,167 @@
   opacity: 0.5;
 }
 
-/* ---- Results: one page in sections (page.ts) ----
-   The title and a contents line, then each section under a strong hairline with a large heading
-   that opens and closes it. The parts inside keep their own look, one heading level down. */
-.rs-head {
-  display: grid;
-  gap: var(--s4);
-  padding-bottom: var(--s6);
-}
-.rs-head .sc-lede {
-  max-width: 62ch;
-}
+/* ---- Results: a one-screen overview and one page per section (page.ts, overview.ts) ----
+   The overview: the title, then four cards in a 2 × 2 grid (one column on phones), each under one
+   strong hairline: a heading, one big figure, one sentence, "More →". Then a line or two under the
+   cards. A section's page: "← Results", its title, its content, the other pages at the foot. */
 .rs-synthetic:empty {
   display: none;
 }
-.rs-toc ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2) var(--s5);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.rs-toc li[hidden] {
+.rs-view[hidden],
+.rs-strip[hidden] {
   display: none;
 }
-.rs-toc a {
+.rs-h1:focus {
+  outline: none;
+}
+.rs-ov-head {
+  display: grid;
+  gap: var(--s2);
+  padding-bottom: var(--s6);
+}
+.rs-ov-head .sc-lede {
+  max-width: 62ch;
+}
+.rs-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s6) var(--s7);
+}
+.rs-card {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--s3);
+  min-width: 0;
+  padding-top: var(--s4);
+  border-top: 1px solid var(--hair-strong);
+}
+.rs-card-h,
+.rs-strip-h {
+  font-size: var(--step-1);
+  font-weight: 650;
+  line-height: 1.3;
+}
+.rs-card-body {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rs-card-big {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--s3);
+  font-size: var(--step-1);
+  font-weight: 600;
+  line-height: 1.25;
+}
+.rs-card-big .sc-mark {
+  align-self: center;
+}
+.rs-card-n {
+  font-size: clamp(2.25rem, 1.8rem + 1.3vw, 3rem);
+  font-weight: 650;
+  font-variation-settings: "wdth" 85;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+  line-height: 1;
+}
+.rs-card-line {
+  max-width: 50ch;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.rs-card-wait {
+  color: var(--ink-3);
+}
+.rs-card-meta {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+.rs-card-act {
+  margin-top: var(--s1);
+}
+.rs-card-act .btn {
+  min-height: 36px;
+}
+.rs-card-more {
+  justify-self: start;
+  font-weight: 600;
+  text-underline-offset: 0.2em;
+}
+/* the search's progress as one thin bar: searched, solid ink */
+.rs-bar {
+  width: min(100%, 26rem);
+  height: 6px;
+  margin: var(--s1) 0;
+  border-radius: 999px;
+  background: var(--sheet-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  overflow: hidden;
+}
+.rs-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+/* under the cards: the distant planet, and (Advanced) data, methods and tools, one line each */
+.rs-strips {
+  display: grid;
+  gap: var(--s3);
+  margin-top: var(--s6);
+}
+.rs-strip {
+  max-width: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s4);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--hair);
+}
+.rs-strip-text {
+  color: var(--ink-2);
+}
+.rs-strip-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+}
+
+/* a section's page */
+.rs-page-head {
+  display: grid;
+  justify-items: start;
+  gap: var(--s2);
+  padding-bottom: var(--s5);
+}
+.rs-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 36px;
   color: var(--ink-2);
   font-weight: 550;
   text-decoration: none;
-  text-underline-offset: 0.2em;
 }
-.rs-toc a:hover {
+.rs-back:hover {
   color: var(--ink);
   text-decoration: underline;
+  text-underline-offset: 0.2em;
 }
-
-.rs-sec {
-  display: grid;
-  gap: var(--s4);
-  padding: var(--s6) 0 var(--s7);
-  border-top: 1px solid var(--hair-strong);
-  min-width: 0;
-  scroll-margin-top: var(--s4);
-}
-.rs-sec[hidden],
-.rs-body[hidden],
-.rs-gist[hidden] {
-  display: none;
-}
-.rs-h2 {
-  font-size: clamp(1.75rem, 1.4rem + 1vw, 2.25rem);
-  font-weight: 700;
-  font-variation-settings: "wdth" 108;
-  letter-spacing: -0.015em;
-  line-height: 1.1;
-}
-.rs-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s3);
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.rs-chev {
-  flex: none;
-  color: var(--ink-3);
-}
-.rs-toggle:hover .rs-chev {
-  color: var(--ink);
-}
-.rs-toggle[aria-expanded="false"] .rs-chev {
-  transform: rotate(-90deg);
-}
-.rs-gist {
+.rs-needs {
   max-width: 62ch;
   color: var(--ink-2);
 }
+
 .rs-body {
   min-width: 0;
 }
 
-/* parts drawn inside a section: one level down, a quieter hairline */
+/* parts drawn inside a section's page: one level down, a quieter hairline */
 .rs .sc-h2 {
   font-size: var(--step-2);
   font-weight: 680;
@@ -589,6 +661,90 @@
   flex-wrap: wrap;
   gap: var(--s2) var(--s5);
   font-weight: 550;
+}
+
+/* ---- the plain view (Advanced off): one key number or list per section, a few short lines ---- */
+.rs-big {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--s3);
+  max-width: none;
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+.rs-big-n {
+  font-size: clamp(2.5rem, 2rem + 1.6vw, 3.25rem);
+  font-weight: 650;
+  font-variation-settings: "wdth" 85;
+  line-height: 1;
+  letter-spacing: -0.015em;
+}
+/* the one footnote line under a block */
+.rs-foot {
+  max-width: 62ch;
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+.rs-best {
+  max-width: 78ch;
+}
+.rs-best b {
+  font-weight: 700;
+}
+.rs-best a {
+  margin-left: var(--s1);
+  font-weight: 550;
+}
+.rs-planet {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s6);
+  padding-top: var(--s5);
+  border-top: 1px solid var(--hair);
+}
+.rs-planet p {
+  max-width: 62ch;
+}
+.rs-planet a {
+  font-weight: 550;
+}
+.rs-plain {
+  display: grid;
+  gap: var(--s4);
+  justify-items: start;
+}
+.rs-plain .rs-big .sc-mark {
+  align-self: center;
+}
+.rs-tests {
+  display: grid;
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rs-tests li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 62ch);
+  column-gap: var(--s3);
+  align-items: start;
+  font-size: 1.125rem;
+  line-height: 1.4;
+}
+.rs-tests .sc-mark {
+  margin-top: 0.1em;
+}
+.rs-tally {
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+html:not([data-details="on"]) .rs .cm-embedded {
+  gap: var(--s4);
+}
+/* the list's page leads with its count (plain): the vote tally above it is Advanced's */
+html:not([data-details="on"]) .rs .cm-embedded > .cm-head {
+  display: none;
 }
 
 /* what the search can find: figure on the left, what it counts on the right */
@@ -650,15 +806,9 @@
   max-width: 70rem;
 }
 
-/* with Advanced off: one quiet line where sections 5 and 6 would be */
+/* with Advanced off: one quiet line where data, methods and tools would be */
 .rs-more {
-  max-width: none;
-  padding-top: var(--s6);
-  border-top: 1px solid var(--hair);
   color: var(--ink-2);
-}
-.rs-more[hidden] {
-  display: none;
 }
 .rs-more-btn {
   padding: 0;
@@ -681,8 +831,15 @@
     grid-template-columns: minmax(0, 1fr);
     row-gap: var(--s2);
   }
-  .rs-sec {
-    padding: var(--s5) 0 var(--s6);
+  .rs-cards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s5);
+  }
+  .rs-ov-head {
+    padding-bottom: var(--s5);
+  }
+  .rs-strips {
+    margin-top: var(--s5);
   }
   .sc-head {
     padding-bottom: var(--s6);

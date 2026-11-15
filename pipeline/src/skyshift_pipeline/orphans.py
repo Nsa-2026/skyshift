@@ -262,6 +262,8 @@ def member_positions(store: Store, zone: C.Zone, sids: np.ndarray, workers: int 
     st = {"files": len(groups), "files_missing": 0, "rows_missing": 0}
 
     def one(item):
+        """(part, rows missing) of one dot file; part None when the file is missing. Counts go back to the caller:
+        a shared `st[k] += int(arr.sum())` loses another thread's update when the thread switches mid-statement."""
         (obs_id, det), idx = item
         rel = dots_rel(str(obs_id), int(det))
         try:
@@ -271,17 +273,14 @@ def member_positions(store: Store, zone: C.Zone, sids: np.ndarray, workers: int 
                 cols = [c for c in DOT_COLUMNS if c in pf.schema_arrow.names]
                 df = pf.read(columns=cols).to_pandas()
         except FileNotFoundError:
-            st["files_missing"] += 1
-            return None
+            return None, 0
         except Exception:
             try:
                 df = pd.read_parquet(io.BytesIO(store.read_bytes(rel)))
             except FileNotFoundError:
-                st["files_missing"] += 1
-                return None
+                return None, 0
         rows = row_all[idx]
         ok = rows < len(df)
-        st["rows_missing"] += int((~ok).sum())
         df = df.iloc[rows[ok]].reset_index(drop=True)
         out = pd.DataFrame({c: (df[c].to_numpy() if c in df else np.full(len(df), np.nan)) for c in DOT_COLUMNS})
         out["psf_pos_ok"] = (df["psf_pos_ok"].fillna(False).to_numpy(bool) if "psf_pos_ok" in df
@@ -294,13 +293,16 @@ def member_positions(store: Store, zone: C.Zone, sids: np.ndarray, workers: int 
         if p >= 0:
             mj = out["mjd"].to_numpy(np.float64)
             out["mjd"] = np.where(np.isfinite(mj), mj, float(photos["mjd"].iloc[p]))
-        return out
+        return out, int((~ok).sum())
 
     if groups:
         with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
-            parts = [p for p in ex.map(one, groups.items()) if p is not None]
+            results = list(ex.map(one, groups.items()))
     else:
-        parts = []
+        results = []
+    parts = [p for p, _ in results if p is not None]
+    st["files_missing"] = sum(p is None for p, _ in results)
+    st["rows_missing"] = sum(m for _, m in results)
     if not parts:
         return pd.DataFrame(columns=["source_id", *DOT_COLUMNS, "detector", "session", "visit"]), st
     d = pd.concat(parts, ignore_index=True)

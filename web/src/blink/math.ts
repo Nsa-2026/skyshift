@@ -205,6 +205,82 @@ export function noDataSpot(
   return { x: best.x + 0.5, y: best.y + 0.5, frac: pts.length / total };
 }
 
+/** One photo of a set, for fillHoles: its values, sky level, burnt cores and where it sits. */
+export interface FillSource {
+  vals: Float32Array;
+  sky: number;
+  burnt: Uint8Array | null;
+  /** Pixel offset of this photo's grid from the photo being filled: the same sky point is at
+   *  (x − dx, y − dy) here. 0, 0 when every photo has the same centre. */
+  dx: number;
+  dy: number;
+}
+
+export interface Filled {
+  /** The photo with its no-data pixels filled where the others have data. */
+  vals: Float32Array;
+  /** 1 where a pixel was filled (from other photos, not seen in this one). */
+  filled: Uint8Array;
+  /** The photo's burnt cores, plus filled pixels where the others are mostly burnt. */
+  burnt: Uint8Array;
+  /** Filled pixels. */
+  count: number;
+}
+
+/**
+ * Fill a photo's no-data pixels (past the detector's edge, or masked) from other photos of the
+ * same sky taken around the same time (one visit of the hours clock): per pixel, the median of the
+ * others, each taken at its own sky level, then put at this photo's level (`sky`). The median
+ * keeps fixed stars and drops what moved (an asteroid crosses a pixel in one photo, not most).
+ * A pixel the others mostly see as a burnt core is marked burnt. Burnt cores of this photo are not
+ * no data and stay as they are. Pixels no other photo covers stay NaN.
+ */
+export function fillHoles(
+  vals: Float32Array,
+  sky: number,
+  burnt: Uint8Array | null,
+  others: FillSource[],
+  nx: number,
+  ny: number,
+): Filled {
+  const out = vals.slice();
+  const filled = new Uint8Array(vals.length);
+  const outBurnt = burnt ? burnt.slice() : new Uint8Array(vals.length);
+  const shifts = others.map((o) => ({ o, dx: Math.round(o.dx), dy: Math.round(o.dy) }));
+  const buf = new Float64Array(others.length);
+  let count = 0;
+  for (let y = 0; y < ny; y++)
+    for (let x = 0; x < nx; x++) {
+      const k = y * nx + x;
+      if (!Number.isNaN(vals[k]) || burnt?.[k]) continue;
+      let m = 0;
+      let nBurnt = 0;
+      for (const { o, dx, dy } of shifts) {
+        const xx = x - dx;
+        const yy = y - dy;
+        if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+        const kk = yy * nx + xx;
+        const v = o.vals[kk];
+        if (Number.isNaN(v)) {
+          if (o.burnt?.[kk]) nBurnt++;
+        } else buf[m++] = v - o.sky;
+      }
+      if (nBurnt > m) {
+        outBurnt[k] = 1;
+        filled[k] = 1;
+        count++;
+        continue;
+      }
+      if (!m) continue;
+      const s = buf.subarray(0, m).sort();
+      const h = m >> 1;
+      out[k] = sky + (m % 2 ? s[h] : (s[h - 1] + s[h]) / 2);
+      filled[k] = 1;
+      count++;
+    }
+  return { vals: out, filled, burnt: outBurnt, count };
+}
+
 /** Nice scale-bar length (arcsec) close to `targetArcsec`. */
 export function niceArcsec(targetArcsec: number): { arcsec: number; label: string } {
   const steps = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600];

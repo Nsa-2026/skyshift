@@ -103,10 +103,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   el.innerHTML = html`
     <div class="cm${embedded ? " cm-embedded" : ""}">
       ${
+        // Inside Results the count and the rule lead (Advanced off); the vote counts, the source and
+        // the fuller text are "pro-only" (src/prefs/details.ts). The Community page itself is unchanged.
         embedded
           ? html`<div class="cm-head">
-        <p class="cm-lead" aria-live="polite">Counting votes…</p>
-        <p class="cm-source"></p>
+        <p class="cm-lead pro-only" aria-live="polite">Counting votes…</p>
+        <p class="cm-source pro-only"></p>
       </div>`
           : html`<header class="cm-head">
         <h1 class="cm-title">Community</h1>
@@ -132,6 +134,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
       }
 
       <section class="cm-astro" ${embedded ? html`aria-label="The list for astronomers"` : html`aria-labelledby="cm-astro-h"`}>
+        ${
+          embedded
+            ? html`<p class="cm-count plain-only" aria-live="polite"></p>
+        <p class="cm-rule plain-only">An object joins at ${CONSENSUS.minVotes} votes, ${CONSENSUS_PCT}% agreeing.</p>`
+            : ""
+        }
         <div class="cm-sec-head">
           ${embedded ? "" : html`<h2 id="cm-astro-h">The list for astronomers</h2>`}
           <div class="cm-exports">
@@ -139,12 +147,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
             <button class="btn" type="button" data-act="json" disabled>Download JSON</button>
           </div>
         </div>
-        <p class="cm-sub">Candidates with at least ${CONSENSUS.minVotes} votes where ${CONSENSUS_PCT}% or more said
+        <p class="cm-sub${embedded ? " pro-only" : ""}">Candidates with at least ${CONSENSUS.minVotes} votes where ${CONSENSUS_PCT}% or more said
           <b>mover</b> or <b>changing</b>. Each one is a lead for an astronomer to check, not a discovery.</p>
-        <div class="cm-astro-body"></div>
+        <div class="cm-astro-body${embedded ? " pro-only" : ""}"></div>
         <p class="cm-status" role="status" aria-live="polite"></p>
 
-        <div class="cm-next">
+        <div class="cm-next${embedded ? " pro-only" : ""}">
           <h3>What happens next</h3>
           <dl class="cm-routes">
             <div>
@@ -223,6 +231,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   const leadEl = $<HTMLParagraphElement>(".cm-lead");
   const sourceEl = $<HTMLParagraphElement>(".cm-source");
   const astroEl = $<HTMLDivElement>(".cm-astro-body");
+  const countEl = el.querySelector<HTMLParagraphElement>(".cm-count");
   const statusEl = $<HTMLParagraphElement>(".cm-status");
   const actSubEl = $<HTMLParagraphElement>(".cm-activity-sub");
   const debateEl = $<HTMLOListElement>(".cm-debate-list");
@@ -284,7 +293,19 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     }
   }
 
+  /** Results' plain line: how many are on the list, and where to see them. */
+  function renderCount() {
+    if (!countEl) return;
+    const listed = rows.some((r) => r.kind && r.kind !== "flag");
+    countEl.innerHTML = rows.length
+      ? html`${n(rows.length)} ${plural(rows.length, "object is", "objects are")} on the list.${
+          listed ? html` <a href="#/candidates/verdict=mover,changing">See ${plural(rows.length, "it", "them")}</a>` : ""
+        }`
+      : html`Nothing on the list yet. <a href="#/candidates/one=1">Vote now</a>`;
+  }
+
   function renderAstro() {
+    renderCount();
     csvBtn.disabled = jsonBtn.disabled = rows.length === 0;
     if (!rows.length) {
       astroEl.innerHTML = embedded
@@ -415,6 +436,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     loading = refresh()
       .catch(() => {
         leadEl.textContent = "Couldn't count the votes. Reload the page to try again.";
+        if (countEl) countEl.textContent = leadEl.textContent;
       })
       .finally(() => {
         loading = null;

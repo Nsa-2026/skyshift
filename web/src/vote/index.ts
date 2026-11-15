@@ -452,7 +452,7 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
   render();
 
   return {
-    pick(p: DotPick) {
+    pick(p: DotPick, focus = true) {
       pending = p;
       open = null;
       justVoted = null;
@@ -464,7 +464,7 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
         say(toVoteError(e).message, "error");
       }
       render();
-      focusDesk("[data-act=flag]");
+      if (focus) focusDesk("[data-act=flag]");
     },
     view(v: View) {
       const moved = !view || view.ra !== v.ra || view.dec !== v.dec || view.fov !== v.fov;

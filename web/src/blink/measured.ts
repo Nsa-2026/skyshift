@@ -250,7 +250,7 @@ export function stageNote(m: Pick<Measured, "zone" | "stage">): string {
   }
 }
 
-/** "Here SkyShift found N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
+/** "N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
 export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
   const photos = plural(m.photos ?? 0, "photo");
   const counts = Object.fromEntries(CLASS_ORDER.map((k) => [k, m.counts?.[k] ?? 0])) as Record<MeasuredClass, number>;
@@ -263,7 +263,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
   if (early) {
     const n = total(counts);
     lead =
-      `Here SkyShift found <b>${n.toLocaleString("en-GB")}</b> ${m.clock === "hours" ? (n === 1 ? "dot" : "dots") : n === 1 ? "detection" : "detections"} in ${photos}, ` +
+      `<b>${n.toLocaleString("en-GB")}</b> ${m.clock === "hours" ? (n === 1 ? "dot" : "dots") : n === 1 ? "detection" : "detections"} in ${photos}, ` +
       (m.clock === "hours"
         ? "classed against Gaia only: movers aren't linked yet."
         : "classed against Gaia only: sources aren't linked and motions aren't fitted yet.");
@@ -296,7 +296,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
     if (art.length) parts.push(plural(art.length, "artefact"));
     const mov = by("mover");
     if (mov.length) parts.push(plural(mov.length, "other mover"));
-    lead = `Here SkyShift found <b>${dots.toLocaleString("en-GB")}</b> ${dots === 1 ? "dot" : "dots"} in ${photos}`;
+    lead = `<b>${dots.toLocaleString("en-GB")}</b> ${dots === 1 ? "dot" : "dots"} in ${photos}`;
     const movers = m.tracks.length - known.length + knownObjects;
     lead += movers
       ? `, and <b>${movers}</b> ${movers === 1 ? "mover" : "movers"}: ${listJoin(parts)}.`
@@ -332,7 +332,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
     if (by("artifact")) parts.push(plural(by("artifact"), "artefact"));
     const others = moved.length - by("star") - by("suspect") - by("artifact");
     if (others) parts.push(plural(others, "source without Gaia", "sources without Gaia"));
-    lead = `Here SkyShift found ${atLeast}<b>${n.toLocaleString("en-GB")}</b> ${n === 1 ? "source" : "sources"} in ${photos}`;
+    lead = `${atLeast ? "At least " : ""}<b>${n.toLocaleString("en-GB")}</b> ${n === 1 ? "source" : "sources"} in ${photos}`;
     lead += moved.length
       ? `, and <b>${moved.length}</b> moved between visits: ${listJoin(parts)}.`
       : ", and none moved measurably between visits.";

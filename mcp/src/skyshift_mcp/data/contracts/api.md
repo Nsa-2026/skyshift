@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.11)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.16)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -11,7 +11,12 @@ v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
 v3.9: `measure.source`, which detector, visits and exposures the shift was measured in;
 v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree;
 v3.11: bright-star fragments and blends: candidates' `blend` reason, distant.json `dropped.blend`, the measured
-layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`).
+layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`;
+v3.12: shape candidates' two-source fit: the measured layer's `split_by_fit` companion, `why` names it;
+v3.13: measured class `stack`, sources seen only on the visit stacks;
+v3.14: optional API keys, `POST /api/keys`, `GET`/`DELETE /api/keys/me`, error codes `unauthorized` and `rate_limited`;
+v3.15: validation.json V6 and V7 are run (15 Nov): units `slope` and `objects`;
+v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's latest vote counts).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -55,6 +60,11 @@ GET  /api/export?ra=&dec=&det=&clock=&format=
 POST /api/jobs?ra=&dec=&size=       GET /api/jobs/<id>      # off unless SKYSHIFT_ENABLE_SCIENCE_JOBS=1
 POST /api/reference?ra=&dec=
 
+# v3.14 optional API keys: every endpoint still works without one
+POST   /api/keys         { label? }  → { key, id, label, created, header:"X-API-Key" }   # shown once
+GET    /api/keys/me      X-API-Key   → { id, label, created }
+DELETE /api/keys/me      X-API-Key   → { id, revoked:true }
+
 # static twins, same shapes
 /data/<slug>/frames.json   /data/<slug>/object.json
 /data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
@@ -80,7 +90,8 @@ POST /api/reference?ra=&dec=
   Gaia fields keep Gaia's units: `pmra` (already × cos dec), `pmdec` in mas/yr, `parallax` in mas.
 - Field names are snake_case. A missing value is `null`, never omitted.
 - Gaia ids are strings (JavaScript loses precision above 2^53).
-- Errors: HTTP 4xx/5xx with `{ "error": { "code": "bad_request" | "not_found" | "upstream" | "internal", "message": "..." } }`.
+- Errors: HTTP 4xx/5xx with `{ "error": { "code": "bad_request" | "not_found" | "upstream" | "internal" | "unauthorized" | "rate_limited", "message": "..." } }`.
+  `unauthorized` (401) and `rate_limited` (429, with `Retry-After` in seconds) come only from API keys (v3.14).
 - Examples in fixtures/api/ carry `"synthetic": true` and a `note`. Real responses leave both out.
 
 ## Time, detector, visits and sessions
@@ -123,11 +134,13 @@ exposures than the static files. The static twins (scripts/precompute) use all o
 
 | clock | live `/api/frames` | static `/data/<slug>/` |
 |---|---|---|
-| months | at most **6 exposures per visit** in each stack, spread evenly over the visit (first and last included) | every exposure of the visit |
-| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions with 2 or more exposures preferred) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
+| months | at most **6 exposures per visit** in each stack, spread evenly over the visit's exposures that cover at least 90% of the field (from the search footprints; when too few, those plus the ones that fill most of the still-empty field) | every exposure of the visit |
+| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions whose exposures cover at least 90% of the field preferred, then sessions with 2 or more exposures) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
 
-The hours clock shows one visit: the one with the most exposures of that detector (the latest on
-a tie). `n_exposures` always reports the exposures really in the frame: a capped months stack of
+The hours clock shows one visit: the one with the most exposures of that detector covering at least half the
+field (from the search footprints; then the most covering 90%, then the most exposures, the latest on a tie).
+An exposure covering under half the field is left out when its session has better ones. Pixels with raw 0 are
+no data (the field's edge in that photo), never sky. `n_exposures` always reports the exposures really in the frame: a capped months stack of
 a 19-exposure visit says 6; an hours frame says 1.
 
 Response fields:
@@ -162,13 +175,14 @@ Response fields:
 `gaia[]` and `known[]` are catalogue **predictions**. `measured` is what our pipeline (pipeline/,
 contracts/dots.md) **detected** in the photos of this response: the dots of each photo, the sources
 it linked, the movers it paired, and the motions it fitted. Built by the server from
-`gs://nasa-glazing-data/results/<zone>/` and `dots/` (read-only), and by scripts/precompute for the
+`gs://nasa-glazing-data/results/<zone>/` and the zone's dot files (read-only; `dots/`, or the folder its link read:
+contracts/dots.md "Folders"), and by scripts/precompute for the
 static twins (`--measured-only` rewrites only `measured` and `measured_reason`).
 
 ```
 measured: { zone, stage, zone_box:{ra:[min,max], dec:[min,max]}, clock,
             photos, photos_missing, truncated,
-            counts:{ star, known, mover, suspect, artifact, other },
+            counts:{ star, known, mover, suspect, artifact, other, stack? },   # stack: v3.13, optional
             detections:[{ epoch_id, ra, dec, snr, flux_ujy, n_dots, class,
                           source_id|null, gaia_id|null, known_name|null, track_id|null,
                           grade|null, reasons:[code…],
@@ -189,7 +203,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | clock | string | `months` or `hours`, as the response |
 | photos, photos_missing | int | Photos of this response whose dot file was read / had no dot file (not in the zone's photo list, or not extracted yet) |
 | truncated | bool | true when `detections` was capped (at most 250 per epoch: every `known`, `mover`, `suspect`, `artifact` first, then `star` and `other` by S/N) |
-| counts | {class: int} | Detections per class, all six keys, **before** the cap |
+| counts | {class: int} | Detections per class, all six keys (and `stack` from v3.13, where the zone has a `stack_sources` table), **before** the cap |
 | detections | [object] | Below. Sorted by `epoch_id`, then `snr` descending |
 | tracks | [object] | Hours clock: the pipeline's movers with at least one dot in this response. Months: `[]` |
 | shifts | [object] | Months clock: fitted motions, below. Hours: `[]` |
@@ -203,13 +217,13 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | snr | float | Hours: the dot's S/N. Months: √Σ snr² of those dots |
 | flux_ujy | float, µJy | Hours: the dot's `flux_ujy` (r = 2 px aperture, raw; × 1.033 for the total). Months: median of those dots' `flux_ujy` (they span the detector's wavelengths) |
 | n_dots | int | Dots behind it (hours: 1) |
-| class | string | `star` \| `known` \| `mover` \| `suspect` \| `artifact` \| `other`, rules below |
-| source_id | int or null | The pipeline's linked source (contracts/dots.md `source_id`, below 2⁵³). Months: always set. Hours: the source within 4″, else null |
+| class | string | `star` \| `known` \| `mover` \| `suspect` \| `artifact` \| `other` \| `stack` (v3.13), rules below |
+| source_id | int or null | The pipeline's linked source (contracts/dots.md `source_id`, below 2⁵³). Months: always set, except a `split_by_fit` companion (v3.12, below) and a `stack` source (v3.13): null. Hours: the source within 4″, else null |
 | gaia_id | string or null | Gaia DR3 source_id of the source's crossid match (`results/<zone>/crossids.parquet`), a string like `gaia[].id`. It is in `gaia[]` when that list goes deep enough |
 | known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`) |
 | track_id | string or null | `tracks[].id` of the mover it belongs to |
 | grade | `"A"` \| `"B"` \| `"C"` or null | Suspects only, from the zone's suspects table when it is graded (vetting); null otherwise |
-| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. `blend` (v3.11), on any class but `artifact`: its linked source is tagged `blend` by the pipeline's `fragments` step (two or more Gaia DR3 stars, G < 18, within 8″: one detection, several stars); the class stays. Else `[]` |
+| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. `blend` (v3.11), on any class but `artifact`: its linked source is tagged `blend` by the pipeline's `fragments` step (two or more Gaia DR3 stars, G < 18, within 8″: one detection, several stars); the class stays. `split_by_fit` (v3.12, months clock, class `other`): a second object merged into a shape candidate's source that the pipeline's two-source fit separated (contracts/dots.md `shape_candidates`, `companion_split`). One detection per visit epoch in which the candidate's source has one, at the fitted position (that visit's own fit when it has one, else the overall fit), `source_id`, `gaia_id` null, `flux_ujy` = the source's detection × the companion's flux ratio in the epoch's detector (the source's own detection keeps the blended flux), `snr` = the companion's S/N in that detector over the fit's photos, `n_dots` 0 (it has no dots of its own: detection gave one per photo). Draw it as its own circle. Else `[]` |
 | parent_gaia_id | string or null | **Optional** (v3.11). Class `artifact` with reason `bright_fragment`: Gaia DR3 source_id (a string like `gaia_id`) of the bright star whose ring this is a piece of (`fragments` step: the brightest Gaia star with G < 12 within 60″). All fragments of one star share it: draw that star once, not each piece. Null otherwise or when no such star is listed. Older responses lack the field: read as null |
 | blend_gaia_ids | [string] or null | **Optional** (v3.11). Reason `blend`: the Gaia DR3 source_ids (strings, nearest first) of the stars merged into this detection. Null otherwise. Older responses lack the field: read as null |
 
@@ -219,15 +233,16 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 |---|---|---|
 | suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
 | known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
-| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` |
+| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` ; or (v3.13) a stack source with `artifact_zone` (reason `stack_near_bright`) |
 | mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
 | star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
-| other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else |
+| other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else; and (v3.12) a second object the two-source fit split off a shape candidate's source (reason `split_by_fit`, below) |
+| stack | Not used | (v3.13) A source the pipeline's `stack` step found on the visit stacks (`results/<zone>/stack_sources.parquet`, contracts/dots.md) with no single-photo linked source within 3″ (`source_id` −1), not `transient` and not `artifact_zone` (those are class `artifact`, reason `stack_near_bright`): fainter than the single-photo limit, the second star of a close pair, or a star in a bright star's glow. One detection per visit epoch (the stack visit whose `mjd_visit` lies within the epoch's `mjd_start`–`mjd_end`, ± 20 days) in which its forced S/N over that visit's photos (all detectors) is ≥ 5: `ra`, `dec` its free-fit position in that visit (else the stack position), `snr` that S/N, `flux_ujy` that visit's inverse-variance mean flux (all detectors, so mixed wavelengths), `n_dots` the photos measured, `source_id` null, `gaia_id` its Gaia DR3 match within 2″ (else null), `reasons` `[]`. Drawn as "seen in the stack only": not a single-photo detection |
 
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
 3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
 `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`, and from 14 Nov
-evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`), and (v3.11, both clocks) `bright_fragment`: a piece
+evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`; v3.13 `stack_near_bright`: a stack source with no catalogue entry within 8″ of a much brighter source or 20–30″ from it, where the ePSF fit leaves pieces), and (v3.11, both clocks) `bright_fragment`: a piece
 of a saturated star's ring (the pipeline's `fragments` step, `results/<zone>/fragments.parquet`: BLOOM on most of its
 dots and no Gaia DR3 or 2MASS entry within 3″), with `parent_gaia_id`.
 Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
@@ -368,6 +383,28 @@ degrees) or a built-in name. No SIMBAD (CDS is down).
 moved to the present for fast stars. 400 `bad_request` if `q` can't be parsed; 404 `not_found`
 for an unknown name.
 
+## API keys (v3.14, optional)
+
+Every endpoint works without a key, as before; the site itself never sends one. A key names the script
+or person behind a request, so its use shows in the logs, a per-key limit can apply, and a key can be
+revoked without blocking anyone else.
+
+- `POST /api/keys` with an optional JSON body `{ "label": "my script" }` (at most 60 printable characters;
+  missing or empty = null) → 201 `{ key, id, label, created, header: "X-API-Key" }`, `Cache-Control: no-store`.
+  `key` is `sks_` + 32 URL-safe characters and is shown only in this answer; the server keeps only its
+  SHA-256. `id` is the first 12 hex digits of that hash, safe to show and log. `created` is ISO 8601 UTC.
+  At most 10 new keys per hour from one address (per server instance): then 429 `rate_limited`.
+- Send the key as the header `X-API-Key: sks_…` (or `Authorization: Bearer sks_…`) on any `/api/` request.
+  No header: anonymous, unchanged. An unknown or revoked key: 401 `unauthorized`, never silently anonymous.
+- A valid key may make `SKYSHIFT_KEY_LIMIT` requests per hour (default 1000, counted per server instance);
+  past it 429 `rate_limited` with `Retry-After`. Anonymous requests have no limit unless the server sets
+  `SKYSHIFT_ANON_LIMIT` (per address per hour; unset = none).
+- `GET /api/keys/me` → `{ id, label, created }` for the key sent. `DELETE /api/keys/me` revokes it
+  → `{ id, revoked: true }`. Both 401 without a valid key. A revoked key may still pass on another
+  server instance for up to 5 minutes (each instance remembers a checked key that long).
+- Answers served from the hosting CDN's cache never reach the server, so they are neither checked nor counted.
+- Keys live in `gs://nasa-glazing-data/apikeys/<sha256>.json` (`SKYSHIFT_KEYS` overrides the place).
+
 ## Static twins
 
 | path | written by | shape |
@@ -415,8 +452,9 @@ else any detector. The server reads the targets from `scripts/validate/data/targ
 `headline` is the text the scoreboard prints (a poor number is still printed). `rows` holds one
 flat object per item (a target, an asteroid, a star); P1 lists its keys per check in the note.
 Written by scripts/validate/build_validation.py. Eleven checks, as in the plans
-(docs/skyshift-hackathon-plan.html, "How we know it works"). V6 and V7 belonged to cut work
-(S2, S3) and stay `pending`; V9–V11 were added on 14 Nov. The file lists them in this order:
+(docs/skyshift-hackathon-plan.html, "How we know it works"). V6 and V7 belonged to work cut on 14 Nov
+(S2, S3) and were run on 15 Nov with V2's measurement (scripts/validate/v6_v7_motion.py, v3.15); V9–V11 were
+added on 14 Nov. The file lists them in this order:
 
 | id | claim | unit of `value` | expected |
 |---|---|---|---|
@@ -425,8 +463,8 @@ Written by scripts/validate/build_validation.py. Eleven checks, as in the plans
 | V3 | Position error floor | arcsec | ~0.25″, 10 or more reference stars |
 | V4 | Asteroids re-found, targeted | asteroids | N of 60; median offset under 1 px; control under 5% |
 | V5 | Asteroids re-found, blind (S1) | recall | Recall at V < 16 ≥ 50% (gate G2); control near 0 |
-| V6 | Fast stars (S2) | null | Cut: `pending` |
-| V7 | Brown dwarfs (S3) | null | Cut: `pending` |
+| V6 | Fast stars (S2) | slope | Measured against Gaia's predicted shift for the 40 fastest Gaia stars with G > 12: slope near 1 |
+| V7 | Brown dwarfs (S3) | objects | A count: brown dwarfs faster than 1″/yr shifting the predicted way (≥ 3σ, within 30°) |
 | V8 | Spectra and speed | ratio | Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s |
 | V9 | Astrometry matches Gaia | mas/yr | Proper-motion bias near 0; pull scatter near 1 |
 | V10 | Galaxy distances match SDSS | dz/(1+z) | σ_NMAD ~0.02 for bright galaxies (AB < 17) |
@@ -564,7 +602,7 @@ spectral. shape_report.json has the rule and its checks. Hunt (14 Nov, 38% of th
 Gaia stars fire at 0.17% (10 of 5,803), Gaia pairs 3–10″ apart at 21% (383 of 1,809), along the pair's axis
 to 2° (median); 49 listed, of which about 23 would be expected from the single stars' rate. Single stars
 that fire mostly have faint uncatalogued neighbours (at 6σ: 4% of them, and 77% of the pairs), so a shape
-candidate is a lead for a human, not a detection.
+candidate is a lead for a human, not a detection. From v3.12 the pipeline fits each listed source's pixels with one ePSF and with two (contracts/dots.md `shape_candidates`): where two fit clearly better, `why` ends with e.g. "Fit: a two-object fit puts a second object 12″ south (PA 183°) of it, 1.7 mag fainter at 0.93 µm and 1.5 mag fainter at 4.7 µm, not in Gaia, CatWISE or 2MASS, and it stays put between visits (two objects fit better than one by Δχ² 37,613)." ("catalogued there as 2MASS K 13.4" when a catalogue entry sits within 3″ of it; "a second object next to it that moved 17″ between visits (something passing by?)" when it moves); where it doesn't, "Fit: two objects don't fit clearly better than one here." No field changes.
 
 Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
@@ -827,7 +865,7 @@ single-process server only (scripts/run-local.sh).
 | collection | fields |
 |---|---|
 | candidates | `ra, dec, mjd, clock, source: "user" \| "pipeline", created` |
-| votes | `candidate_id, answer: mover \| changing \| junk \| unsure, ts, voter` |
+| votes | `candidate_id, answer: mover \| changing \| junk \| unsure \| withdrawn, ts, voter` |
 
 - Rules are **create-only**: anyone may read and create; nobody may update or delete. Each create
   must have exactly these fields, with the right types and allowed values.
@@ -839,6 +877,15 @@ single-process server only (scripts/run-local.sh).
   as the rules require).
 - `ts` is set with `serverTimestamp()`. `voter` is a random id kept in the browser, never a
   name or email.
+- Changing or taking back a vote (v3.16): a new `votes` document with the new answer, or with
+  `withdrawn` to take the vote back. Nothing is updated or deleted, so the history stays. Per
+  candidate, only each voter's latest document (largest `ts`) counts: its answer, or nothing when it is
+  `withdrawn`. A document whose `ts` is not set yet (a write still pending) is the latest. Every reader
+  that counts votes (web/src/vote, web/src/community, mcp/) applies this rule before counting or
+  computing consensus. `withdrawn` is never shown as an answer.
+- Voter ids are anonymous and readable, so the rules can't stop a later document written in another
+  voter's name, just as they can't stop new ids voting again. Counts are a community signal, not a
+  secure ballot.
 - `created` (candidates) is set with `serverTimestamp()`; the rules require
   `created == request.time`. Lists of candidates sort newest first by `created`. Candidates made
   before v2.1 have no `created`: sort them last. Read it as a Firestore Timestamp (`toMillis()`).
@@ -966,3 +1013,53 @@ stars must not read as one plain star. All additive:
   older responses lack them (read as null). Readers: draw one mark for a fragment's parent star and strike
   the fragments through; label a blend as more than one star.
 - Without `results/<zone>/fragments.parquet` (a zone the step hasn't run on) nothing changes.
+
+## Changes in v3.12 (15 Nov 2026): shape candidates' two-source fit
+
+At 1–2 SPHEREx pixels a second object merged into a star gives one dot per photo, so it had no position, flux or
+circle of its own. The pipeline now fits every shape candidate's pixels with one ePSF and with two (contracts/dots.md
+`shape_candidates`, new columns). All additive:
+- candidates.json: a shape candidate's `why` ends with the fit in plain words (where the second object sits, how much
+  fainter it is per wavelength, whether it moved between visits, Δχ²). No new field or reason code.
+- measured layer (months clock): a separated second object is its own detection, class `other`, reason
+  `split_by_fit`, `source_id` and `gaia_id` null, `n_dots` 0. Readers that show reasons as given need no change;
+  suggested words: "a second object a two-object fit split off this source".
+- Without the new columns (a shape_candidates.parquet written before the fit) nothing changes.
+
+## Changes in v3.13 (15 Nov 2026): the measured class `stack`
+
+The pipeline's new `stack` step (contracts/dots.md, `stack_sources`, `stack_forced`) detects on per-visit stacks
+of a zone's photos (2″ grid, matched filter, a second pass on the residual) and fits every photo at all those
+positions at once. Additive:
+- measured layer (`/api/frames`, frames files), months clock only: class `stack` for stack sources with no
+  single-photo linked source within 3″ (rules above); uncatalogued ones in a much brighter source's misfit core
+  (< 8″) or at the ePSF's edge (20–30″) are class `artifact` with the new reason `stack_near_bright`; and the
+  `counts` key `stack` where the zone has a
+  `stack_sources` table. Zones without it, the hours clock and older responses: no such class or key (read a
+  missing key as 0). Readers that don't know the class may draw it as `other`.
+
+## Changes in v3.14 (15 Nov 2026): optional API keys
+
+Additive. `POST /api/keys`, `GET /api/keys/me` and `DELETE /api/keys/me` (section "API keys"), the request
+header `X-API-Key` (or `Authorization: Bearer`), and two error codes: `unauthorized` (401, a key that is
+unknown or revoked) and `rate_limited` (429). Requests without a key are unchanged; readers that never send
+a key need no change.
+
+## Changes in v3.15 (15 Nov 2026): V6 and V7 are run
+
+validation.json's V6 (fast stars) and V7 (brown dwarfs), cut on 14 Nov, now carry results, with the plan's tests
+(scripts/validate/v6_v7_motion.py: V2's measurement on each object). V6: `value` is the slope of measured against
+Gaia's predicted shift (unit `slope`), over the 40 fastest Gaia stars with G > 12. V7: `value` is the number of
+brown dwarfs faster than 1″/yr that shift the predicted way (unit `objects`): measured shift ≥ 3σ and within 30°
+of the prediction. Rows: one per object (keys listed in the note). The shape is unchanged; a reader that shows
+every check in file order needs no change. A missing input still gives `pending`.
+
+## Changes in v3.16 (15 Nov 2026): change or take back a vote
+
+- Firestore `votes.answer` may also be `withdrawn`: it takes back this voter's vote on the candidate.
+- Each voter's latest vote per candidate counts (largest `ts`, a pending one is the latest); a latest
+  `withdrawn` counts as no vote. Before v3.16 a second vote from the same voter could only be a stray;
+  readers that kept the earliest now keep the latest.
+- The rules allow the fifth answer; they stay create-only. The rules change lands in the same PR as the
+  web/src/vote change, and both deploy together (`infra/firebase/deploy.sh`, rules then hosting).
+- mcp/ counts each voter's latest vote the same way.

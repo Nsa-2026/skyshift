@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chromeOpacity, mountZoomFocus } from './focus';
 
 describe('zoom-driven chrome opacity',()=>{
-  it('keeps the overview clear and fades progressively to a fourfold zoom',()=>{
+  it('fades immediately and clears after a small 1.3x zoom',()=>{
     expect(chromeOpacity(180,false)).toBe(1);
-    expect(chromeOpacity(180/1.15,false)).toBe(1);
+    expect(chromeOpacity(180/1.05,false)).toBeLessThan(1);
+    expect(chromeOpacity(180/1.1,false)).toBeLessThan(.8);
+    expect(chromeOpacity(180/1.3,false)).toBe(0);
     expect(chromeOpacity(45,false)).toBe(0);
     expect(chromeOpacity(1,false)).toBe(0);
-    const values=[180,150,120,90,60,45].map(fov=>chromeOpacity(fov,false));
+    const values=[180,170,160,150,140,130].map(fov=>chromeOpacity(fov,false));
     expect(values[2]).toBeGreaterThan(0);expect(values[2]).toBeLessThan(1);
     expect(values.every((value,i)=>i===0||value<=values[i-1])).toBe(true);
   });

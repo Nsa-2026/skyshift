@@ -904,6 +904,20 @@
   order: -1;
   max-width: 64ch;
 }
+/* its plain lines (Advanced off): what the list is, how many are on it, the rule */
+.cm-embedded .cm-plain {
+  max-width: 60ch;
+  font-size: var(--step-1);
+  line-height: 1.45;
+}
+.cm-embedded .cm-astro > .cm-count {
+  order: -1;
+  font-size: var(--step-1);
+}
+.cm-embedded .cm-rule {
+  max-width: 64ch;
+  color: var(--ink-2);
+}
 .cm-embedded .cm-next > h3:not(:first-child) {
   margin-top: var(--s4);
 }

@@ -1,0 +1,205 @@
+/* The original five-field game, using the live site's Lightbox surfaces and controls.
+   Every rule is local to Sky hunt; the shared Viewer and other Learn pages retain their styles. */
+.sky-hunt { max-width: 1180px; margin: 0 auto; min-width: 0; }
+.sky-hunt p { line-height: 1.75; }
+.sky-hunt button { cursor: pointer; }
+.sky-hunt button:disabled { cursor: default; opacity: .55; }
+.sky-hunt .guide-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 0 24px; border-bottom: 1px solid var(--hair); font-size: 13px; }
+.sky-hunt .guide-nav > div { display: flex; flex-wrap: wrap; gap: 20px; }
+.sky-hunt .guide-nav a { color: var(--ink-2); text-decoration: none; }
+.sky-hunt .guide-nav a:hover { color: var(--ink); text-decoration: underline; }
+.sky-hunt .guide-welcome { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(24px, 5vw, 72px); align-items: center; padding: 52px 0 48px; }
+.sky-hunt .guide-kicker { color: var(--ink-2); font-size: 13px; margin-bottom: 20px; }
+.sky-hunt h1 { font-size: clamp(32px, 4.1vw, 52px); font-weight: 650; line-height: 1.4; letter-spacing: -.025em; }
+.sky-hunt .guide-lead { margin-top: 20px; font-size: 17px; color: var(--ink-2); }
+.sky-hunt .guide-promise { display: flex; flex-wrap: wrap; gap: 22px; list-style: none; padding: 0; margin: 26px 0; font-size: 13px; color: var(--ink-2); }
+.sky-hunt .guide-promise li { display: flex; align-items: center; gap: 8px; }
+.sky-hunt .guide-promise li > span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--hair-strong); border-radius: 50%; font-size: 12px; color: var(--ink); }
+.sky-hunt .guide-primary { min-height: 44px; padding: 11px 25px; border: 1px solid var(--ink); border-radius: var(--radius-ctl); color: var(--glass); background: var(--ink); font-size: 14px; font-weight: 600; }
+.sky-hunt .guide-primary:hover:enabled { background: #2b3445; }
+.sky-hunt .guide-primary:disabled { color: var(--ink-3); background: var(--sheet-2); border-color: var(--hair); }
+.sky-hunt .guide-time { margin-top: 12px; font-size: 12px; color: var(--ink-3); }
+.sky-hunt .guide-preview { margin: 0; padding: 26px 0 0; min-width: 0; }
+.sky-hunt .guide-preview-plates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.sky-hunt .guide-preview-plates > div { padding: 6px; background: var(--sheet); box-shadow: var(--shadow-plate); }
+.sky-hunt .guide-preview-plates > div:nth-child(2) { margin-top: 28px; }
+.sky-hunt .guide-preview-plates > div:nth-child(3) { margin-top: 56px; }
+.sky-hunt .guide-preview canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: pixelated; background: var(--sheet-2); }
+.sky-hunt .guide-preview-plates span { display: block; text-align: center; font-size: 10px; padding: 8px 0 3px; color: var(--ink-2); white-space: nowrap; }
+.sky-hunt .guide-preview figcaption { color: var(--ink-2); font-size: 13px; line-height: 1.8; margin: 26px 0 10px; }
+.sky-hunt .guide-preview-source { font-size: 11px; color: var(--ink-3); }
+.sky-hunt .guide-shelf-section { display: flex; align-items: center; justify-content: space-between; gap: 24px; border-top: 1px solid var(--hair); padding: 26px 0; }
+.sky-hunt .guide-shelf-section h2 { font-size: 19px; }
+.sky-hunt .guide-shelf-section p { color: var(--ink-2); font-size: 13px; margin-top: 8px; }
+.sky-hunt .guide-collection { display: flex; gap: 10px; }
+.sky-hunt .collection-star { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px dashed var(--hair-strong); border-radius: 50%; background: transparent; font-size: 24px; color: var(--ink-3); }
+.sky-hunt .collection-star.collected { border-style: solid; border-color: var(--pencil-red); color: var(--pencil-red); background: #cf233808; }
+.sky-hunt .guide-levels, .sky-hunt .learn-extras { border-top: 1px solid var(--hair); padding: 24px 0; }
+.sky-hunt summary { cursor: pointer; line-height: 1.7; }
+.sky-hunt .guide-levels > summary, .sky-hunt .learn-extras > summary { font-size: 18px; font-weight: 600; }
+.sky-hunt .lesson-progress { font-size: 13px; font-weight: 400; color: var(--ink-2); margin-left: 12px; white-space: nowrap; }
+.sky-hunt .lesson-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.sky-hunt .lesson-cards button { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 20px; padding: 20px 16px; text-align: left; background: var(--sheet); color: var(--ink); border: 1px solid var(--hair); border-radius: 10px; min-width: 0; }
+.sky-hunt .lesson-cards button:hover { border-color: var(--ink-2); }
+.sky-hunt .lesson-cards .is-collected { border-color: var(--pencil-red); }
+.sky-hunt .lesson-number { font-size: 24px; font-variation-settings: 'wdth' 85; color: var(--pencil-red); }
+.sky-hunt .lesson-copy { display: grid; gap: 8px; }
+.sky-hunt .lesson-copy strong { font-size: 15px; font-weight: 600; }
+.sky-hunt .lesson-copy small, .sky-hunt .lesson-target { color: var(--ink-2); font-size: 12px; line-height: 1.7; }
+.sky-hunt .lesson-target { color: var(--ink-3); font-size: 11px; }
+.sky-hunt .lesson-arrow { position: absolute; top: 20px; right: 16px; font-size: 18px; color: var(--ink-3); }
+.sky-hunt .extras-intro { margin-top: 12px; font-size: 14px; color: var(--ink-2); }
+.sky-hunt .extras-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 26px; }
+.sky-hunt .story-cards { display: grid; align-content: start; gap: 16px; }
+.sky-hunt .story-cards button { display: flex; align-items: center; gap: 16px; padding: 0 0 16px; border: 0; border-bottom: 1px solid var(--hair); border-radius: 0; background: transparent; text-align: left; color: var(--ink); }
+.sky-hunt .story-cards img { width: 80px; height: 80px; object-fit: cover; border-radius: 5px; flex-shrink: 0; }
+.sky-hunt .story-cards button > span { display: grid; gap: 7px; }
+.sky-hunt .story-cards small { color: var(--ink-3); font-size: 11px; }
+.sky-hunt .story-cards strong { font-size: 16px; font-weight: 600; }
+.sky-hunt .story-cards button > span > span { font-size: 12px; color: var(--ink-2); line-height: 1.7; }
+.sky-hunt .story-cards b { margin-left: auto; font-size: 20px; font-weight: 400; color: var(--ink-2); }
+.sky-hunt .curiosity { border-left: 1px solid var(--hair); padding-left: 32px; min-width: 0; }
+.sky-hunt .curiosity h3 { font-size: 18px; }
+.sky-hunt .curiosity > p { color: var(--ink-2); font-size: 13px; margin-top: 12px; }
+.sky-hunt .button-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 18px 0; }
+.sky-hunt .button-row label { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); width: 100%; }
+.sky-hunt .sky-date { width: 100%; min-width: 0; max-width: 290px; border-radius: 8px; }
+.sky-hunt .curiosity details { color: var(--ink-3); font-size: 12px; }
+.sky-hunt .curiosity details p { margin-top: 8px; }
+.sky-hunt .date-events article { padding: 14px 0; border-bottom: 1px solid var(--hair); font-size: 13px; }
+.sky-hunt .date-events time, .sky-hunt .date-events small { color: var(--ink-3); font-size: 11px; }
+.sky-hunt .date-events p { margin: 6px 0; }
+.sky-hunt #learn-culture { display: flex; flex-wrap: wrap; gap: 20px; margin: 28px 0 14px; font-size: 13px; }
+.sky-hunt .culture-credit { max-width: 100%; color: var(--ink-3); font-size: 11px; }
+.sky-hunt .story-panel { margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--hair); }
+.sky-hunt .story-panel .eyebrow { color: var(--ink-3); font-size: 12px; margin-bottom: 10px; }
+.sky-hunt .story-panel h2 { font-size: 26px; line-height: 1.5; }
+.sky-hunt .story-grid { display: grid; grid-template-columns: minmax(160px, .8fr) 1.4fr; gap: 32px; align-items: start; margin: 22px 0; }
+.sky-hunt .story-grid figure { margin: 0; }
+.sky-hunt .story-grid img { width: 100%; max-width: 340px; border-radius: 4px; }
+.sky-hunt .story-grid figcaption { font-size: 12px; color: var(--ink-3); margin-top: 10px; line-height: 1.8; }
+.sky-hunt .story-grid h3 { font-size: 17px; margin: 20px 0 10px; }
+.sky-hunt .story-grid h3:first-child { margin-top: 0; }
+.sky-hunt .story-grid p { font-size: 14px; margin: 12px 0; }
+.sky-hunt .story-grid blockquote { font-size: 18px; border-left: 2px solid var(--pencil-red); padding: 8px 16px; margin: 12px 0; }
+.sky-hunt .story-grid a { font-size: 13px; }
+.sky-hunt .story-feedback { margin-top: 12px; font-size: 13px; color: var(--pass); }
+.sky-hunt .guide-stage { padding: 22px 0 12px; scroll-margin-top: 24px; }
+.sky-hunt .guide-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sky-hunt .guide-text { background: transparent; border: 1px solid var(--hair-strong); border-radius: var(--radius-ctl); min-height: 38px; padding: 7px 16px; color: var(--ink-2); font-size: 13px; }
+.sky-hunt .guide-text:hover:enabled { background: var(--sheet-2); color: var(--ink); }
+.sky-hunt .guide-count { font-size: 13px; color: var(--ink-2); }
+.sky-hunt .guide-progress { display: block; width: 100%; height: 3px; margin: 20px 0; accent-color: var(--pencil-red); }
+.sky-hunt .is-hunting .guide-progress { display: none; }
+.sky-hunt .guide-heading { font-size: clamp(22px, 2.8vw, 32px); line-height: 1.5; text-align: center; margin: 26px auto 10px; }
+.sky-hunt .guide-instruction { text-align: center; color: var(--ink-2); margin: 0 auto 22px; font-size: 14px; }
+.sky-hunt .hunt-mission { display: flex; justify-content: center; gap: 30px; margin: 26px 0 16px; font-size: 12px; color: var(--ink-3); }
+.sky-hunt .hunt-mission .current { color: var(--pencil-red); font-weight: 650; }
+.sky-hunt .hunt-mission + .guide-heading { margin-top: 0; }
+.sky-hunt .hunt-map { position: relative; width: 100%; height: clamp(300px, 54vh, 580px); min-width: 0; background: var(--glass); border: 1px solid var(--hair-strong); border-radius: 6px; overflow: hidden; isolation: isolate; box-shadow: var(--shadow-plate); }
+.sky-hunt .hunt-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; image-rendering: pixelated; }
+.sky-hunt .hunt-canvas:active { cursor: grabbing; }
+.sky-hunt .hunt-canvas:focus-visible { box-shadow: inset 0 0 0 3px var(--pencil-blue); }
+.sky-hunt .hunt-map-label { position: absolute; top: 14px; left: 14px; display: flex; gap: 14px; border: 1px solid var(--hair); border-radius: 6px; padding: 7px 10px; font-size: 11px; color: var(--ink-2); background: #f8faf9ed; pointer-events: none; }
+.sky-hunt .hunt-zoom-controls { display: flex; flex-direction: column; gap: 6px; position: absolute; top: 14px; right: 14px; }
+.sky-hunt .hunt-zoom-controls button { width: 38px; height: 38px; padding: 0; border: 1px solid var(--hair-strong); border-radius: 50%; color: var(--ink); background: var(--sheet); font-size: 21px; }
+.sky-hunt .hunt-zoom-controls .hunt-reset { font-size: 10px; }
+.sky-hunt .hunt-overview { position: absolute; bottom: 12px; left: 12px; padding: 5px; border: 1px solid var(--hair-strong); border-radius: 5px; background: #f8faf9ed; line-height: 1; }
+.sky-hunt .hunt-mini { display: block; width: 86px; height: 86px; cursor: crosshair; }
+.sky-hunt .hunt-overview > span { display: block; font-size: 9px; color: var(--ink-2); line-height: 1.5; padding: 5px 0 0; }
+.sky-hunt .hunt-map-prompt { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); border: 1px solid var(--hair); border-radius: var(--radius-ctl); padding: 7px 14px; background: #f8faf9ed; color: var(--ink-2); font-size: 11px; pointer-events: none; white-space: nowrap; }
+.sky-hunt .hunt-win { position: absolute; top: 42%; left: 50%; transform: translateX(-50%); background: var(--sheet); color: var(--pass); border: 1px solid var(--pass); border-radius: 10px; padding: 18px 24px; font-size: 22px; pointer-events: none; white-space: nowrap; }
+.sky-hunt .hunt-tools { display: flex; justify-content: center; flex-wrap: wrap; align-items: center; gap: 18px; margin: 16px 0 0; }
+.sky-hunt .hunt-tools button, .sky-hunt .hunt-retry { min-height: 38px; padding: 8px 16px; border: 1px solid transparent; border-radius: var(--radius-ctl); background: var(--sheet-2); color: var(--ink); font-size: 12px; }
+.sky-hunt .hunt-tools button[aria-pressed=true], .sky-hunt .hunt-tools button[aria-checked=true] { background: var(--ink); color: var(--glass); }
+.sky-hunt .hunt-frames { display: flex; gap: 3px; background: var(--sheet-2); padding: 3px; border-radius: var(--radius-ctl); }
+.sky-hunt .hunt-frames button { display: flex; align-items: center; gap: 7px; padding: 6px 12px; min-height: 32px; }
+.sky-hunt .hunt-frames button[aria-pressed=true] { background: var(--sheet); color: var(--ink); box-shadow: 0 1px 3px #18202e20; }
+.sky-hunt .hunt-frames button > span { font-size: 11px; }
+.sky-hunt .hunt-frames small { font-size: 11px; }
+.sky-hunt .hunt-frames .recorded > span { color: var(--pass); font-weight: 700; }
+.sky-hunt .hunt-bottom { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 12px; }
+.sky-hunt .hunt-date { color: var(--ink-3); font-size: 11px; text-align: center; }
+.sky-hunt .hunt-retry { background: transparent; border-color: var(--hair); }
+.sky-hunt .hunt-trail-note { margin: 10px auto 0; text-align: center; font-size: 12px; color: var(--ink-2); }
+.sky-hunt .guide-feedback { min-height: 24px; text-align: center; font-size: 13px; color: var(--ink-2); margin: 14px auto 10px; }
+.sky-hunt .guide-actions { display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sky-hunt .guide-notes { margin: 24px auto 0; max-width: 760px; }
+.sky-hunt .guide-data { border-top: 1px solid var(--hair); padding-top: 16px; font-size: 13px; color: var(--ink-2); }
+.sky-hunt .guide-data p { margin: 12px 0; }
+.sky-hunt .guide-data details { margin: 18px 0; }
+.sky-hunt .guide-data output { display: block; margin-top: 8px; }
+.sky-hunt .year-slider { display: block; width: 100%; accent-color: var(--pencil-red); margin: 16px 0; }
+.sky-hunt .guide-star-map svg { display: block; width: 100%; margin: 20px 0; background: var(--sheet); border: 1px solid var(--hair); border-radius: 4px; }
+.sky-hunt .map-asterism { stroke: var(--pencil-blue); stroke-width: 1; fill: var(--pencil-blue); }
+.sky-hunt .map-target { fill: var(--pencil-red); }
+.sky-hunt .guide-star-map text { fill: var(--ink); font-size: 11px; }
+.sky-hunt .guide-reward { max-width: 440px; margin: 28px auto; text-align: center; }
+.sky-hunt .reward-stamp { display: block; color: var(--pass); font-size: 13px; margin-bottom: 16px; }
+.sky-hunt .guide-image { position: relative; max-width: 300px; margin: 0 auto; background: var(--sheet-2); border: 6px solid var(--sheet); box-shadow: var(--shadow-plate); }
+.sky-hunt .guide-canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.sky-hunt .guide-marker { position: absolute; width: 36px; height: 36px; border: 1.5px solid var(--pencil-red); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.sky-hunt .guide-photo-tag { position: absolute; top: 8px; left: 8px; padding: 3px 7px; background: #f8faf9e6; color: var(--ink); font-size: 11px; border-radius: 3px; }
+.sky-hunt .guide-photo-date, .sky-hunt .guide-missing { margin: 10px auto; color: var(--ink-3); font-size: 11px; }
+.sky-hunt .guide-reward > strong { display: block; font-size: 25px; margin-top: 18px; }
+.sky-hunt .guide-reward > small { display: block; font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.sky-hunt .guide-shelf { color: var(--pencil-red); text-align: center; font-size: 13px; margin: 12px auto; }
+.sky-hunt .evidence { display: inline-block; font-size: 12px; }
+@media (max-width: 1000px) {
+  .sky-hunt .lesson-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sky-hunt .guide-welcome { gap: 28px; }
+  .sky-hunt .guide-promise { gap: 12px; }
+  .sky-hunt .extras-grid { gap: 24px; }
+  .sky-hunt .curiosity { padding-left: 24px; }
+}
+@media (max-width: 680px) {
+  .sky-hunt .guide-nav { align-items: flex-start; padding-bottom: 18px; }
+  .sky-hunt .guide-nav > div { gap: 12px; font-size: 12px; }
+  .sky-hunt .guide-welcome { grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 30px 0; }
+  .sky-hunt h1 { font-size: 34px; }
+  .sky-hunt .guide-kicker { margin-bottom: 12px; }
+  .sky-hunt .guide-lead { font-size: 15px; margin-top: 14px; }
+  .sky-hunt .guide-promise { gap: 16px; margin: 20px 0; font-size: 12px; }
+  .sky-hunt .guide-promise li { gap: 6px; }
+  .sky-hunt .guide-promise li > span { width: 22px; height: 22px; }
+  .sky-hunt .guide-preview { padding: 0; }
+  .sky-hunt .guide-preview-plates { gap: 10px; }
+  .sky-hunt .guide-preview-plates > div:nth-child(2) { margin-top: 12px; }
+  .sky-hunt .guide-preview-plates > div:nth-child(3) { margin-top: 24px; }
+  .sky-hunt .guide-preview-plates span { font-size: 9px; padding: 6px 0 2px; }
+  .sky-hunt .guide-preview figcaption { margin-top: 18px; font-size: 12px; }
+  .sky-hunt .guide-preview figcaption br { display: none; }
+  .sky-hunt .guide-shelf-section { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .sky-hunt .guide-collection { gap: 12px; }
+  .sky-hunt .lesson-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sky-hunt .lesson-cards button { padding: 16px 12px; gap: 14px; }
+  .sky-hunt .lesson-arrow { top: 16px; right: 12px; }
+  .sky-hunt .lesson-copy strong { font-size: 14px; }
+  .sky-hunt .lesson-copy small { font-size: 11px; }
+  .sky-hunt .extras-grid, .sky-hunt .story-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .sky-hunt .curiosity { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--hair); }
+  .sky-hunt .story-grid img { max-width: 256px; }
+  .sky-hunt .guide-stage { padding-top: 16px; }
+  .sky-hunt .guide-top .guide-text { font-size: 12px; padding: 6px 12px; }
+  .sky-hunt .guide-count { font-size: 12px; }
+  .sky-hunt .hunt-mission { gap: 18px; margin-top: 24px; font-size: 11px; }
+  .sky-hunt .guide-heading { font-size: 22px; }
+  .sky-hunt .guide-instruction { font-size: 12px; margin-bottom: 16px; }
+  .sky-hunt .hunt-map { height: min(360px, 52vh); min-height: 280px; }
+  .sky-hunt .hunt-map-label { top: 8px; left: 8px; font-size: 9px; gap: 8px; padding: 5px 7px; }
+  .sky-hunt .hunt-zoom-controls { right: 8px; top: 8px; }
+  .sky-hunt .hunt-zoom-controls button { width: 34px; height: 34px; }
+  .sky-hunt .hunt-overview { left: 8px; bottom: 8px; }
+  .sky-hunt .hunt-mini { width: 58px; height: 58px; }
+  .sky-hunt .hunt-overview > span { max-width: 65px; font-size: 8px; }
+  .sky-hunt .hunt-map-prompt { left: auto; right: 8px; bottom: 8px; transform: none; max-width: calc(100% - 96px); white-space: normal; font-size: 9px; padding: 5px 9px; }
+  .sky-hunt .hunt-tools { gap: 10px; margin-top: 12px; }
+  .sky-hunt .hunt-tools button { padding: 7px 12px; font-size: 11px; }
+  .sky-hunt .hunt-frames button > span { display: none; }
+  .sky-hunt .hunt-frames button { padding: 6px 10px; }
+  .sky-hunt .hunt-bottom { gap: 8px; flex-wrap: wrap; }
+  .sky-hunt .guide-actions { flex-direction: column; gap: 8px; }
+  .sky-hunt .guide-actions .guide-primary { max-width: 100%; font-size: 13px; }
+  .sky-hunt .guide-feedback { font-size: 12px; }
+  .sky-hunt .hunt-win { font-size: 18px; padding: 14px 18px; }
+}

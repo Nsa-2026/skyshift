@@ -50,6 +50,12 @@ export interface LiveDeps {
   embedded?: boolean;
   /** The route an open zone is written under, as <hashBase>/<zone>. Default "#/live". */
   hashBase?: string;
+  /**
+   * Plain words for a host page (Results): with Advanced off only the progress in plain words, the bar,
+   * one line and the map show; the legends, pace and deadline sums, machines and zone ids are marked
+   * "pro-only" (src/prefs/details.ts) and come back with Advanced on. Off by default.
+   */
+  plain?: boolean;
 }
 
 /** The Live page's handle, plus pause and resume for a host that shows it as a section (Results). */
@@ -93,19 +99,21 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
   const hashBase = deps.hashBase ?? "#/live";
   const loadSuspects = deps.loadSuspects ?? ((url: string, signal: AbortSignal) => loadZoneSuspectsFile(url, signal));
   const doc = deps.doc ?? document;
+  const plain = deps.plain === true;
+  const pro = plain ? " pro-only" : "";
   el.innerHTML = html`
-    <div class="lv${deps.embedded ? " lv-embedded" : ""}">
+    <div class="lv${deps.embedded ? " lv-embedded" : ""}${plain ? " lv-plain" : ""}">
       <div class="lv-intro">
         <div class="lv-titlerow">
           ${deps.embedded ? "" : html`<h1 class="lv-title">Live search</h1>`}
           <p class="lv-updated" data-slot="updated"></p>
         </div>
-        <p class="lv-lede" data-slot="lede">Cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.</p>
+        <p class="lv-lede${pro}" data-slot="lede">Cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.</p>
         <div class="lv-status" data-slot="status" role="status" aria-live="polite"><p class="lv-muted">Loading tonight's run…</p></div>
         <div class="lv-progress" data-slot="progress"></div>
-        <div class="lv-time" data-slot="time"></div>
+        <div class="lv-time${pro}" data-slot="time"></div>
       </div>
-      <div class="lv-facts" data-slot="facts" hidden>
+      <div class="lv-facts${pro}" data-slot="facts" hidden>
         <div class="lv-counters" data-slot="counters"></div>
         <div class="lv-mach" data-slot="machines"></div>
       </div>
@@ -151,7 +159,8 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
       );
     } else if (sum?.stale && sum.age !== null) {
       parts.push(
-        `<p class="lv-alert lv-stale">No news from the machines for ${fmtDuration(sum.age)}, so these numbers may be out of date.</p>`,
+        // plain (Results): "Updated … ago" above says it already
+        `<p class="lv-alert lv-stale${pro}">No news from the machines for ${fmtDuration(sum.age)}, so these numbers may be out of date.</p>`,
       );
     }
     fill("status", parts.join(""));
@@ -177,6 +186,8 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     if (!s || geom?.key !== next.key || !updateZones(s, run.zones, next)) {
       geom = next;
       plot.innerHTML = mapSvg(run.zones, geom, { hunt, selected, tabbable }) + axisLabels(geom, hunt);
+      // The hunt zone's name is an internal one: plain view leaves it out (the box labels: live.css).
+      if (plain) plot.querySelector(".lv-ax-hunt")?.classList.add("pro-only");
     }
     geom = next;
     ring(svg()!, "lv-sel", selected, geom);
@@ -262,10 +273,10 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     if (!run) return;
     sum = summarize(run, now());
     fill("lede", ledeText(run, sum));
-    fill("progress", progressHtml(sum, now(), run.notes));
+    fill("progress", progressHtml(sum, now(), run.notes, plain));
     fill("counters", countersHtml(sum));
     fill("machines", machinesHtml(sum));
-    fill("lists", listsHtml(sum, now()));
+    fill("lists", listsHtml(sum, now(), plain));
     slot("facts").hidden = false;
     slot("stage").hidden = false;
     renderTimes();

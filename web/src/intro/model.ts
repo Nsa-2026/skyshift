@@ -57,7 +57,7 @@ export type SceneState = ReturnType<typeof sceneAt>;
 export const CHAPTERS = [
   "From the stars around us to one small world.",
   "Padua, 1609. Galileo turns a telescope to the sky.",
-  "Look closer. Then closer still.",
+  "Look closer.",
   "Four centuries later, SPHEREx maps the whole sky in 102 colours.",
 ] as const;
 

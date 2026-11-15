@@ -43,7 +43,7 @@ const M46: Window = { lo: 4.4, hi: 4.8, name: "4.40–4.80 µm", plain: "4.6 mic
 export const PRESETS: readonly Preset[] = [
   {
     id: "cold",
-    label: "Find cold objects",
+    label: "Temperature",
     red: M46,
     green: K,
     blue: J,
@@ -54,7 +54,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "nir",
-    label: "Compare with 2MASS",
+    label: "Star colours",
     red: K,
     green: H,
     blue: J,

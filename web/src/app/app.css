@@ -124,33 +124,36 @@
   /* The stage column is as wide as the plate's mat (blink.css), so no gap opens between the
      plate and the card when the plate is limited by the viewport height. */
   grid-template-columns: minmax(0, calc(max(300px, 100svh - 236px) + 24px)) minmax(340px, 1fr);
-  grid-template-areas:
-    "stage card"
-    "below below";
+  grid-template-areas: "stage evidence";
   gap: var(--s6) var(--s7);
   align-items: start;
+}
+/* The Viewer's two columns: the plate, its controls and the sky around it on the left; the
+   object card, its charts and flagging on the right. */
+.vw-main {
+  grid-area: stage;
+  min-width: 0;
+  display: grid;
+  gap: var(--s5);
+  align-content: start;
+}
+.vw-side {
+  grid-area: evidence;
+  min-width: 0;
+  display: grid;
+  gap: var(--s5);
+  align-content: start;
 }
 .page-blink[hidden],
 .page-score[hidden] {
   display: none;
 }
 .stage {
-  grid-area: stage;
   min-width: 0;
 }
 .side-card {
-  grid-area: card;
   min-width: 0;
   max-width: 620px;
-}
-.below {
-  grid-area: below;
-  display: grid;
-  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
-  gap: var(--s7);
-  align-items: start;
-  padding-top: var(--s6);
-  border-top: 1px solid var(--hair);
 }
 .side-vote,
 .sky {
@@ -186,10 +189,7 @@
   }
   .page-blink {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "stage" "card" "below";
-  }
-  .below {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "stage" "evidence";
   }
 }
 

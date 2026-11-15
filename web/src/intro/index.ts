@@ -1,7 +1,7 @@
 // The opening's entry point, the only part in the main bundle: decide whether it plays (rules.ts),
 // add "Replay intro" to the footer, and load the overlay itself only when it is shown.
 import "./replay.css";
-import { browserEnv, openingMode, type OpeningEnv } from "./rules";
+import { browserEnv, openingMode, rememberTabVisit, type OpeningEnv } from "./rules";
 import type { OpeningOptions } from "./opening";
 
 type Loader = () => Promise<typeof import("./opening")>;
@@ -57,7 +57,7 @@ function prefersReducedMotion(): boolean {
 
 /**
  * Mount the opening: a "Replay intro" button in the footer, and the opening itself on
- * every page load (rules.ts). Returns whether it is starting now.
+ * the first visit in this tab (rules.ts). Returns whether it is starting now.
  */
 export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), load: Loader = loadOpening): boolean {
   const links = app.querySelector(".foot-links");
@@ -72,6 +72,7 @@ export function mountOpening(app: HTMLElement, env: OpeningEnv = browserEnv(), l
     links.append(" ", replay);
   }
   const mode = openingMode(env);
+  if (new URLSearchParams(env.search).get("embed") !== "1") rememberTabVisit();
   if (mode) void playOpeningLater(app, { auto: true, still: mode === "still" }, load);
   return mode !== null;
 }

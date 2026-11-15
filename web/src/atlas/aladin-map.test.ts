@@ -171,10 +171,17 @@ describe("Aladin map: the whole sky fills the map", () => {
 
 describe("Aladin map: zones", () => {
   it("draws the hunt zone and the pilot inside it as one polygon with one fill", () => {
-    const { map, polygons } = setup();
+    const ctx = { setTransform: vi.fn(), clearRect: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn() };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      return this.classList.contains('atl-zonecanvas') ? ctx as unknown as CanvasRenderingContext2D : null;
+    });
+    const { map, host } = setup();
     map.update(model());
-    expect(polygons).toHaveLength(1);
-    expect(polygons[0].opts.fill).toBe(true);
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.atl-zonecanvas')).not.toBeNull();
+    map.destroy();
+    expect(host.querySelector('.atl-zonecanvas')).toBeNull();
   });
 
   it("opens a zone from a click on it on the whole sky, and the Viewer from anywhere else", () => {

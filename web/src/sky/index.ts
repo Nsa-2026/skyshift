@@ -234,6 +234,10 @@ export const mountSky: MountSky = (el, opts) => {
     const parts = [mark("field") + fieldText.charAt(0).toUpperCase() + fieldText.slice(1)];
     if (gaiaOn) parts.push(mark("gaia") + gaiaText);
     keyEl.innerHTML = `${parts.join(", ")} and ${mark("target")}the target.`;
+    // The background is years older than the blink: say so, or a moving star looks like a mismatch.
+    if (base.years) {
+      keyEl.innerHTML += ` The ${base.label} background was photographed in ${base.years}, so stars that move sit away from their image in it.`;
+    }
   }
 
   function drawField() {
@@ -497,6 +501,7 @@ export const mountSky: MountSky = (el, opts) => {
         o.setAttribute("aria-pressed", String(o.dataset.base === base.id)),
       );
       applyBase();
+      renderKey();
     }),
   );
   q<HTMLButtonElement>("[data-spherex]").addEventListener("click", () => {

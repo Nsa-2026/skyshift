@@ -7,7 +7,19 @@ import { IrsaError, REQUEST_TIMEOUT_MS, type Fetcher } from "./cube";
 import { describeFailure } from "./failure";
 import { mountFilters, type FiltersHandle } from "./index";
 
-const VIEW: View = { ra: 133.79, dec: -7.24, clock: "months", fov: 5, det: 6, slug: null, name: null };
+// Hours: every filter reads NASA's archive there. On Months, Temperature and Star colours read the
+// blink's own snapshots instead (one picture per date, visit.ts), tested at the end.
+const VIEW: View = { ra: 133.79, dec: -7.24, clock: "hours", fov: 5, det: 6, slug: null, name: null };
+const MONTHS: View = { ...VIEW, clock: "months" };
+
+// The blink's snapshots (api/client) never answer here, so a Months colour filter stays loading.
+vi.mock("../api/client", async (orig) => ({
+  ...(await orig<typeof import("../api/client")>()),
+  loadFrames: vi.fn(
+    (_q: unknown, signal?: AbortSignal) =>
+      new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
+  ),
+}));
 
 /** Buttons the blink's root click handler acted on (it reads data-mode, data-retry, … on any button). */
 let blinkSaw: string[] = [];
@@ -253,6 +265,23 @@ describe("filters and NASA's archive", () => {
       filters.active(true);
     }).not.toThrow();
     expect(el.childElementCount).toBe(0);
+  });
+});
+
+describe("colour filters that follow the blink's dates", () => {
+  it("keeps the blink playing under Temperature on Months, and pauses it under a still picture", async () => {
+    mount(bad502);
+    filters.goto(MONTHS, null);
+    const play = $<HTMLButtonElement>(el, ".bk-play");
+    choose(el, "cold");
+    expect(noteText(el)).toMatch(/snapshots for every date/);
+    expect(play.getAttribute("aria-pressed")).toBe("true");
+    expect(el.querySelector(".bk")!.classList.contains("flt-on")).toBe(false);
+    choose(el, "wave");
+    expect(play.getAttribute("aria-pressed")).toBe("false");
+    choose(el, "none");
+    expect(play.getAttribute("aria-pressed")).toBe("true");
+    expect(blinkSaw).toEqual([]);
   });
 });
 

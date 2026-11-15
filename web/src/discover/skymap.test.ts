@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Candidate } from "../api/types";
 import { aitoff, eqToGal, galToEq, glyphPath, gratStep, latLabel, meanLon, mountSkyMap, raLabel, wrap180 } from "./skymap";
 
@@ -114,10 +114,76 @@ describe("the map", () => {
     map.setFiltered(["a", "b", "c"]);
     const zones = el.querySelector<HTMLElement>(".skymap-zones")!;
     expect(zones.hidden).toBe(false);
-    expect(zones.querySelector('[aria-pressed="true"]')?.textContent).toBe("Hunt");
+    const select = zones.querySelector<HTMLSelectElement>("select")!;
+    expect(select.value).toBe("hunt");
     expect(el.querySelector(".skymap-caption")?.textContent).toContain("hunt zone");
-    zones.querySelector<HTMLButtonElement>('[data-zone="pilot"]')!.click();
+    select.value = "pilot";
+    select.dispatchEvent(new Event("change"));
     expect(el.querySelector(".skymap-caption")?.textContent).toContain("pilot zone");
     map.destroy();
+  });
+
+  it("opens fullscreen only on request, and Escape restores the map, selection and keyboard focus", () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const opened = vi.fn();
+    const map = mountSkyMap(el, { onOpen: opened });
+    map.setData([cand("a", 122, 16), cand("b", 269, 5, "mover", "hunt")]);
+    map.setFiltered(["a"]);
+    const select = el.querySelector<HTMLSelectElement>(".skymap-zones select")!;
+    select.value = "hunt";
+    select.dispatchEvent(new Event("change"));
+    el.querySelector<HTMLButtonElement>('[data-frame="gal"]')!.click();
+    const button = el.querySelector<HTMLButtonElement>("[data-fullscreen]")!;
+    expect(document.querySelector(".skymap-dialog")).toBeNull();
+
+    // jsdom has no top-layer implementation; exercise the same cancel event a browser emits.
+    const proto = HTMLDialogElement.prototype;
+    const show = Object.getOwnPropertyDescriptor(proto, "showModal");
+    const close = Object.getOwnPropertyDescriptor(proto, "close");
+    Object.defineProperty(proto, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.open = true; } });
+    Object.defineProperty(proto, "close", { configurable: true, value(this: HTMLDialogElement) { this.open = false; } });
+    try {
+      button.click();
+      const dialog = document.querySelector<HTMLDialogElement>(".skymap-dialog")!;
+      expect(dialog.open).toBe(true);
+      expect(button.textContent).toBe("Exit full screen");
+      expect(dialog.contains(el)).toBe(true);
+      dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+      expect(document.querySelector(".skymap-dialog")).toBeNull();
+      expect(el.parentElement).toBe(document.body);
+      expect(document.activeElement).toBe(button);
+      expect(button.textContent).toBe("Full screen");
+      expect(document.body.classList.contains("skymap-fullscreen-open")).toBe(false);
+      expect(select.value).toBe("hunt");
+      expect(el.querySelector('[data-frame="gal"]')?.getAttribute("aria-pressed")).toBe("true");
+      const plot = el.querySelector<HTMLElement>(".skymap-plot")!;
+      plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+      plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      expect(opened).toHaveBeenCalledWith("a");
+
+      button.click();
+      plot.focus();
+      plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+      plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      expect(opened).toHaveBeenLastCalledWith("a");
+      expect(document.querySelector(".skymap-dialog")).toBeNull();
+
+      button.click();
+      map.closeFullscreen();
+      expect(document.querySelector(".skymap-dialog")).toBeNull();
+      expect(el.parentElement).toBe(document.body);
+      button.click();
+      map.destroy();
+      expect(document.querySelector(".skymap-dialog")).toBeNull();
+      expect(document.body.classList.contains("skymap-fullscreen-open")).toBe(false);
+    } finally {
+      map.destroy();
+      el.remove();
+      if (show) Object.defineProperty(proto, "showModal", show);
+      else Reflect.deleteProperty(proto, "showModal");
+      if (close) Object.defineProperty(proto, "close", close);
+      else Reflect.deleteProperty(proto, "close");
+    }
   });
 });

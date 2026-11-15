@@ -78,7 +78,7 @@ practice round, nothing requires an account).
 | `#/explore` | **Blink**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
 | `#/live` | **Live search**: tonight's pipeline run along the ecliptic, zone by zone (map, counters, machines, time left), provisional results per zone | `src/live` |
 | `#/community` | **Community**: what people have reviewed, consensus results, the list going to astronomers | `src/community` |
-| `#/results` | **Results**: validation checks and what the pipeline found (`#/score` redirects here) | `src/score` |
+| `#/results` | **Results**: a one-screen overview, four cards (one figure, one short sentence, "More →" each); `#/results/<found\|sure\|progress\|astronomers\|methods\|tools>` is each section's own page (`#/score`, `#/live`, `#/tools` redirect here) | `src/score` |
 | `#/learn` | **Learn**: short lessons with real SPHEREx examples, glossary, the practice round's teaching | `src/learn` |
 | `#/tools` | **Tools and data**: downloads, batch coordinates, API, citation (for professionals) | `src/tools` |
 | `#/about` | **About**: the challenge, method, data, limits, credits, FAQ | `src/community` |

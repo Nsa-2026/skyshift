@@ -3,7 +3,8 @@
 Open items, grouped by owner (CLAUDE.md, "Areas and owners"). Tick or delete an item in the PR that fixes it.
 Updated 14 Nov, 18:10. Done since the first list: the exporter's `snr` 0 (#173), merge_suspects' zone fields (#174),
 the distant-planet search on the results page (#170, #177), WISE 0855 visit 3 (#164), grades on every page (#161),
-tracklets on main with one free-dot table, Cloud Run serving the measured layer (revision 00010).
+tracklets on main with one free-dot table, Cloud Run serving the measured layer (revision 00010), the flaky
+test_calib psf test (a thread pool's shared `+=` counter lost a photo: spectra 82959cc, motion_io and orphans after).
 
 ## Needs a VM run (not before the 10:00 deadline: every CPU goes to the sky run)
 
@@ -19,8 +20,6 @@ tracklets on main with one free-dot table, Cloud Run serving the measured layer 
 
 ## P1: pipeline/
 
-- [ ] `tests/test_calib.py::test_calib_fits_psf_positions_separately_and_loaders_use_them` is flaky. It failed once
-  on #177's CI (`assert 14900 == 17880`; #177 changes no pipeline code) and passed on rerun.
 - [ ] `det` has no null in the contract, so a source with no usable spectrum is exported with the fallback D2
   (`DEFAULT_DET`, #173). If that misleads, make `det` nullable: a contract PR plus web `Candidate.det`.
 
