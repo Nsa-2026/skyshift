@@ -16,16 +16,11 @@ import { Plate } from "./plate";
 import {
   KIND_TEXT,
   SITE,
-  abMag,
-  detText,
   esc,
   flagText,
-  galacticText,
   kindName,
   nearestKnownText,
   reasonText,
-  seenText,
-  ujy,
 } from "./text";
 import { formatRaDec } from "../app/astro";
 
@@ -52,30 +47,6 @@ export function embedCode(c: Candidate): string {
     embed: "1",
   });
   return `<iframe src="${SITE}/?${p}" width="760" height="820" style="border:0" loading="lazy" title="${esc(`SkyShift: ${kindName(c.kind).toLowerCase()} ${c.id}`)}"></iframe>`;
-}
-
-function measurementsHtml(c: Candidate): string {
-  const rows: [string, string][] = [];
-  if (c.pm_mas_yr != null) {
-    const err = c.pm_err_mas_yr != null ? ` ± ${(c.pm_err_mas_yr / 1000).toFixed(3)}″/yr` : "";
-    const sig = c.pm_err_mas_yr ? `, ${(c.pm_mas_yr / c.pm_err_mas_yr).toFixed(1)}σ` : "";
-    rows.push(["Proper motion", `${(c.pm_mas_yr / 1000).toFixed(3)}″/yr${err}${sig}`]);
-    rows.push(["", `<span class="rv-soft">${Math.round(c.pm_mas_yr).toLocaleString("en-US")} mas/yr${c.pa_deg != null ? `, position angle ${c.pa_deg.toFixed(1)}° east of north` : ""}</span>`]);
-  }
-  if (c.rate_arcsec_h != null) rows.push(["Rate", `${c.rate_arcsec_h.toFixed(2)}″/h${c.pa_deg != null ? `, position angle ${c.pa_deg.toFixed(1)}°` : ""}`]);
-  if (c.snr != null) rows.push(["Signal to noise", c.snr.toFixed(1)]);
-  if (c.flux_ujy != null && c.flux_ujy > 0)
-    rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">(AB ${abMag(c.flux_ujy).toFixed(1)})</span>`]);
-  rows.push(["Detector", esc(detText(c.det))]);
-  rows.push(["Seen", `${esc(seenText(c))} <span class="rv-soft">(MJD ${c.mjd.toFixed(4)})</span>`]);
-  rows.push([
-    "Pipeline score",
-    c.score != null
-      ? `${c.score.toFixed(2)} <span class="rv-soft">of 1, higher is more promising</span>`
-      : `<span class="rv-soft">Not scored: this step has no score yet</span>`,
-  ]);
-  rows.push(["Galactic latitude", esc(galacticText(c.galactic_b))]);
-  return dl(rows);
 }
 
 function cataloguesHtml(c: Candidate): string {
@@ -268,10 +239,6 @@ export const mountCandidate: MountPage = (el, ctx) => {
       <section class="rv-sec" aria-labelledby="cd-why-h">
         <h2 class="rv-h" id="cd-why-h">Why it's listed</h2>
         ${reasonsHtml(c)}
-      </section>
-      <section class="rv-sec" aria-labelledby="cd-m-h">
-        <h2 class="rv-h" id="cd-m-h">Measurements</h2>
-        ${measurementsHtml(c)}
       </section>
       <section class="rv-sec" aria-labelledby="cd-c-h">
         <h2 class="rv-h" id="cd-c-h">Catalogues at this spot</h2>
