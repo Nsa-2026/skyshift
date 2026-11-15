@@ -527,9 +527,9 @@ describe("the Viewer's plain version", () => {
     expect(plainVerdict({ draw: true, why: "ok" } as never)).toBe("");
   });
 
-  it("circles only what a visitor can act on", () => {
-    expect(["suspect", "known", "mover", "star"].every((c) => viewerShows(c as never))).toBe(true);
-    expect(["artifact", "other", "stack"].some((c) => viewerShows(c as never))).toBe(false);
+  it("circles every real source, and no camera glitch or grade C suspect", () => {
+    expect(["suspect", "known", "mover", "star", "other", "stack"].every((c) => viewerShows(c as never))).toBe(true);
+    expect(viewerShows("artifact")).toBe(false);
     expect(viewerShows("suspect", "C")).toBe(false);
   });
 });

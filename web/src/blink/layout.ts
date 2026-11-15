@@ -16,6 +16,9 @@ export interface PlanStar {
   saturated: boolean;
   /** Gets a ring of its own (bright enough, or a dot shows; not the target; not over the hatch). */
   ringed: boolean;
+  /** A detection on this plate (any of its photos) is matched to it: SPHEREx sees it on its own.
+   *  Known even when the measured layer is off, so close pairs plan the same either way. */
+  detected?: boolean;
 }
 
 /** A measured detection in view, at this epoch. `i` is the caller's index. */
@@ -150,10 +153,10 @@ export function planMarks(allStars: PlanStar[], dets: PlanDet[], o: PlanOptions)
       hidden.set(j, parent ?? d.parentGaiaId ?? "");
       return;
     }
-    // Until the server says so: an artefact or unmatched dot inside a bright star's glow is a piece
-    // of it; inside a saturated star's blob, so is any dot (a "star" there matched a Gaia star lost
-    // in the glow).
-    const anyClass = d.cls !== "artifact" && d.cls !== "other";
+    // Until the server says so: an artefact or unmatched dot (one photo's, or the stack's only) inside
+    // a bright star's glow is a piece of it; inside a saturated star's blob, so is any dot (a "star"
+    // there matched a Gaia star lost in the glow).
+    const anyClass = d.cls !== "artifact" && d.cls !== "other" && d.cls !== "stack";
     for (const b of bright)
       if ((!anyClass || b.saturated) && dist(d, b) <= circleRadius(b.extent, o.floor)) {
         hidden.set(j, b.id);
@@ -215,9 +218,11 @@ export function planMarks(allStars: PlanStar[], dets: PlanDet[], o: PlanOptions)
       c.blend = blend;
       c.r = Math.max(r, ...blend.map((id) => dist(d, byId.get(id)!) + o.floor * 0.75));
     } else {
+      // Half the way to the next detection: neighbours' circles meet, never overlap (they used to
+      // reach three quarters of the way, and close pairs read as double rings).
       let nn = Infinity;
       for (const k of visible) if (k !== j) nn = Math.min(nn, dist(D[k], d));
-      r = Math.min(r, Math.max(o.floor, 0.75 * nn));
+      r = Math.min(r, Math.max(o.floor, 0.5 * nn));
       c.r = r;
     }
     const match = b ?? (d.gaiaId && byId.has(d.gaiaId) ? d.gaiaId : undefined);
@@ -240,26 +245,73 @@ export function planMarks(allStars: PlanStar[], dets: PlanDet[], o: PlanOptions)
     : [];
   const isBig = new Set(big.map((b) => b.id));
 
-  // 5. Gaia rings, a little bigger than the circle they hold, the circle's offset included.
+  // 5. Gaia rings, a little bigger than the circle they hold, the circle's offset included. One
+  // ring per blob: brightest first, a ringed star that SPHEREx doesn't see on its own (no detection
+  // matched to it on this plate) and that sits within 9″ of a ring already planned, or inside that
+  // ring's blob, is no ring of its own. More than 3 mag fainter it is lost in that light (no mark);
+  // else it joins that ring as a blend (one ring, a dot per star). Under a saturated star's dashed
+  // ring it is always lost. Without this, close pairs got two or three overlapping rings.
   const matched = new Map(circles.filter((c) => c.star).map((c) => [c.star!, c]));
+  const seen = new Set<string>(stars.filter((s) => s.detected).map((s) => s.id));
+  for (const d of D) if (d.gaiaId) seen.add(d.gaiaId);
+  for (const c of circles) if (c.star) seen.add(c.star);
   const rings: PlanRing[] = [];
-  for (const s of stars) {
-    if (!s.ringed || inBlend.has(s.id) || isBig.has(s.id)) continue;
-    let r = circleRadius(s.extent, o.floor);
-    r += ringGap(r);
-    const c = matched.get(s.id);
-    if (c) r = Math.max(r, c.r + dist(c, s) + ringGap(c.r));
-    rings.push({ id: s.id, X: s.X, Y: s.Y, r });
-  }
+  /** Rings (and dashed rings) planned so far: where they sit, how far their blob reaches, their brightest G. */
+  const heads: { X: number; Y: number; inner: number; g: number; ring: PlanRing | null }[] = [];
+  for (const b of big) heads.push({ X: b.X, Y: b.Y, inner: b.r, g: g(byId.get(b.id)!), ring: null });
   for (const c of circles)
-    if (c.blend)
-      rings.push({
+    if (c.blend) {
+      const ring: PlanRing = {
         id: c.blend[0],
         X: c.X,
         Y: c.Y,
         r: c.r + ringGap(c.r),
         blend: c.blend.map((id) => ({ id, X: byId.get(id)!.X, Y: byId.get(id)!.Y })),
-      });
+      };
+      rings.push(ring);
+      heads.push({ X: c.X, Y: c.Y, inner: c.r, g: Math.min(...c.blend.map((id) => g(byId.get(id)!))), ring });
+    }
+  const lone = stars.filter((s) => s.ringed && !inBlend.has(s.id) && !isBig.has(s.id)).sort((a, b) => g(a) - g(b));
+  for (const s of lone) {
+    let r = circleRadius(s.extent, o.floor);
+    r += ringGap(r);
+    const c = matched.get(s.id);
+    // A matched star's ring hugs the circle it holds (bright stars: their whole blob). Sized on the
+    // star's own reach instead, a faint star in a bright star's halo got a ring far wider than its circle.
+    if (c) r = c.bright ? Math.max(r, c.r + dist(c, s) + ringGap(c.r)) : c.r + dist(c, s) + ringGap(c.r);
+    if (!seen.has(s.id)) {
+      const h = nearest(
+        heads.filter((t) => dist(s, t) <= Math.max(blendPx, t.inner)),
+        s,
+      );
+      if (h) {
+        if (!h.ring || g(s) - h.g > BLEND_DMAG) continue; // lost in a brighter star's light
+        h.ring.blend ??= [{ id: h.ring.id, X: h.ring.X, Y: h.ring.Y }];
+        h.ring.blend.push({ id: s.id, X: s.X, Y: s.Y });
+        h.ring.r = Math.max(h.ring.r, dist(h.ring, s) + o.floor * 0.75 + ringGap(o.floor));
+        continue;
+      }
+    }
+    const ring: PlanRing = { id: s.id, X: s.X, Y: s.Y, r };
+    rings.push(ring);
+    heads.push({ X: s.X, Y: s.Y, inner: c ? Math.max(c.r, circleRadius(s.extent, o.floor)) : circleRadius(s.extent, o.floor), g: g(s), ring });
+  }
+
+  // 6. Two stars SPHEREx sees apart, close together: their rings meet rather than overlap. A ring
+  // that isn't a bright star's or a blend's is no wider than half the way to the next mark (plus the
+  // gap), never tighter than the circle it holds. A faint star in a bright one's halo reads that halo
+  // as its own reach; without this its ring swallowed its neighbours.
+  const brightIds = new Set(bright.map((b) => b.id));
+  for (const rg of rings) {
+    if (rg.blend || brightIds.has(rg.id)) continue;
+    const c = matched.get(rg.id);
+    let nn = Infinity;
+    for (const t of rings) if (t !== rg) nn = Math.min(nn, dist(t, rg));
+    for (const k of circles) if (k !== c) nn = Math.min(nn, dist(k, rg));
+    if (!Number.isFinite(nn)) continue;
+    const hold = c ? c.r + dist(c, rg) + ringGap(c.r) : o.floor + ringGap(o.floor);
+    rg.r = Math.max(hold, Math.min(rg.r, nn / 2 + ringGap(o.floor)));
+  }
 
   // Map positions in D back to the caller's indices.
   const hiddenByIndex = new Map([...hidden].map(([j, p]) => [D[j].i, p]));

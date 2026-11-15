@@ -63,16 +63,19 @@ export function flagMark(ctx: Ctx, x: number, y: number, r: number): void {
 
 export type MeasuredShape = "star" | "known" | "mover" | "suspect" | "artifact" | "other" | "stack";
 
-/** Stroke per class: width, alpha, and a dash (dots for `other`). */
+/** Stroke per class: width, alpha, and a dash. */
 export const MEASURED_STROKE: Record<MeasuredShape, { width: number; alpha: number; dash: number[] }> = {
   star: { width: 1.1, alpha: 0.75, dash: [] },
-  other: { width: 1.5, alpha: 0.8, dash: [0.01, 3] },
+  // No Gaia match: a thin solid slate circle, no blue ring around it. (It was dotted: on a small
+  // circle the dots read as specks, not as a circle.)
+  other: { width: 1.3, alpha: 0.85, dash: [] },
   known: { width: 1.4, alpha: 0.9, dash: [] },
   mover: { width: 1.6, alpha: 0.9, dash: [] },
   suspect: { width: 2.4, alpha: 0.95, dash: [] },
   artifact: { width: 1.25, alpha: 0.7, dash: [] },
-  // Seen only on the visit stacks: short dashes, quieter than a single-photo source.
-  stack: { width: 1.2, alpha: 0.7, dash: [2.5, 2.5] },
+  // Seen only on the visit stacks: dashed, long enough that a small circle still reads as one, and
+  // quieter than a single-photo source (often too faint for the plate to show).
+  stack: { width: 1.15, alpha: 0.6, dash: [3.5, 2.5] },
 };
 
 /** The path of a measured mark: a circle, doubled for known, side ticks for a mover, struck through for an artefact. */
@@ -114,21 +117,28 @@ export function measuredMark(ctx: Ctx, cls: MeasuredShape, x: number, y: number,
  * they carry their factor: never shortened, so there is no break to explain.
  */
 export function arrowPath(ctx: Ctx, pts: { X: number; Y: number }[], head = 6): boolean {
-  if (pts.length < 2) return false;
+  const barbs = arrowBarbs(pts, head);
+  if (!barbs) return false;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.X, p.Y) : ctx.moveTo(p.X, p.Y)));
+  for (const [b, q] of barbs) {
+    ctx.moveTo(b.X, b.Y);
+    ctx.lineTo(q.X, q.Y);
+  }
+  return true;
+}
+
+/** An arrow's two head strokes (tip → barb end), or null when it is too short to draw (under 1.5 px). */
+export function arrowBarbs(pts: { X: number; Y: number }[], head = 6): [{ X: number; Y: number }, { X: number; Y: number }][] | null {
+  if (pts.length < 2) return null;
   const a = pts[pts.length - 2];
   const b = pts[pts.length - 1];
   let len = 0;
   for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].X - pts[i - 1].X, pts[i].Y - pts[i - 1].Y);
-  if (len < 1.5) return false;
-  ctx.beginPath();
-  pts.forEach((p, i) => (i ? ctx.lineTo(p.X, p.Y) : ctx.moveTo(p.X, p.Y)));
+  if (len < 1.5) return null;
   const ang = Math.atan2(b.Y - a.Y, b.X - a.X);
   const h = Math.min(head, len * 0.6);
-  for (const s of [-1, 1]) {
-    ctx.moveTo(b.X, b.Y);
-    ctx.lineTo(b.X - h * Math.cos(ang + s * 0.45), b.Y - h * Math.sin(ang + s * 0.45));
-  }
-  return true;
+  return [-1, 1].map((s) => [b, { X: b.X - h * Math.cos(ang + s * 0.45), Y: b.Y - h * Math.sin(ang + s * 0.45) }]);
 }
 
 /** Where a stretched arrow's factor ("×10") goes: beside its middle, on the side away from the head's turn. */

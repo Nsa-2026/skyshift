@@ -17,6 +17,7 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "astronomy-engine": "2.1.19",
     "firebase": "^11.0.2"
   }
 }

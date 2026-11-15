@@ -920,6 +920,10 @@ details.bk-meas > :not(summary) + :not(summary) {
 .bk-mtag[data-cls="stack"] {
   color: var(--m-stack);
 }
+/* A planet's name on hover: quiet, like its label on the plate. */
+.bk-mtag[data-cls="planet"] {
+  color: var(--ink-2);
+}
 .bk-mtag {
   font-weight: 650;
   margin-right: 4px;

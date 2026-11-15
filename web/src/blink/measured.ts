@@ -695,12 +695,13 @@ export function withoutArtefacts(m: Measured): Measured {
 }
 
 // ---- the Viewer's plain version (BlinkOptions.viewer) -----------------------------------------
-// The Viewer draws only marks a visitor can act on, and says them in plain words: no grey circles
-// (artefacts, sources without a Gaia match, stack-only sources, grade C suspects), no σ, mas/yr,
+// The Viewer circles every real source and says it in plain words: no grey circles (artefacts,
+// grade C suspects), no σ, mas/yr,
 // S/N or µJy. The To check and Learn plates keep the full version above.
 
-/** Classes the Viewer neither circles nor puts in its legend. */
-export const VIEWER_HIDDEN: ReadonlySet<MeasuredClass> = new Set<MeasuredClass>(["artifact", "other", "stack"]);
+/** Classes the Viewer neither circles nor puts in its legend: camera glitches only. Sources Gaia
+ *  doesn't list (`other`) and stack-only sources are real: the Viewer circles them too. */
+export const VIEWER_HIDDEN: ReadonlySet<MeasuredClass> = new Set<MeasuredClass>(["artifact"]);
 /** Does the Viewer circle this detection? */
 export const viewerShows = (cls: MeasuredClass, grade?: string | null): boolean => !VIEWER_HIDDEN.has(cls) && !greyed(cls, grade);
 
