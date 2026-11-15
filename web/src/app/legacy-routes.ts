@@ -2,16 +2,15 @@
 // (#/explore/…, #/analyze/…, #/research/…) and by earlier pages map to the new place.
 // `advanced` asks the shell to turn the Advanced switch on (the section needs it).
 // Returns null when the hash is already one of ours.
-import {PRESETS, candidatesHash, presetState} from '../discover/filters';
-
 export interface LegacyRoute {hash: string; advanced?: boolean}
 
-/** "To check" with the "Community says real" filter: the consensus list. */
+/** The Community page, including the welcome note and consensus list. */
 export function communityHash(): string {
-  const preset = PRESETS.find(p => p.id === 'community-real');
-  return preset ? candidatesHash(presetState(preset)) : '#/candidates';
+  return '#/community';
 }
 
+/** To check with "One at a time" on (discover's view key, not a filter). */
+export const ONE_AT_A_TIME = '#/candidates/one=1';
 const MEASUREMENTS = ['motion', 'spectrum', 'lightcurve', 'compare', 'crossmatch', 'signals'];
 const METHODS = ['data', 'processing', 'validation', 'sensitivity', 'export'];
 
@@ -32,19 +31,25 @@ export function legacyHash(hash: string): LegacyRoute | null {
   }
   if (head === 'analyze') {
     if (feature === 'candidates') return {hash:at('candidates')};
-    if (feature === 'review') return {hash:'#/review'};
+    if (feature === 'review') return {hash:ONE_AT_A_TIME};
     if (feature === 'c' && rest) return {hash:`#/c/${rest}`};
     if (MEASUREMENTS.includes(feature)) return {hash:`#/explore/${feature}`, advanced:true};
     return {hash:'#/explore', advanced:true};
   }
   if (head === 'research') {
-    if (feature === 'live') return {hash:at('live')};
+    // The live status is Results' Search progress section, with its open zone after it.
+    if (feature === 'live') return {hash:at('results/progress')};
     if (feature === 'results') return {hash:'#/results'};
-    if (feature === 'tools') return {hash:at('tools'), advanced:true};
+    if (feature === 'tools') return {hash:at('results/tools'), advanced:true};
     if (METHODS.includes(feature)) return {hash:`#/explore/${feature}`, advanced:true};
     return {hash:'#/explore/data', advanced:true};
   }
-  if (head === 'community') return {hash:communityHash()};
+  // The review queue is To check's "One at a time" view now.
+  if (head === 'review') return {hash:ONE_AT_A_TIME};
+  // Live search and Tools are sections of Results now (Tools needs Advanced).
+  const after = [feature, ...tail].filter(Boolean).join('/');
+  if (head === 'live') return {hash:at('results/progress', after)};
+  if (head === 'tools') return {hash:at('results/tools', after), advanced:true};
   if (head === 'score') return {hash:'#/results'};
   return null;
 }

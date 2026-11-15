@@ -52,7 +52,7 @@ it("opens on the Sky with the four screens and Learn one click away, and loads n
     "#/learn",
   ]);
   expect(root.querySelector(".top .details-switch")!.textContent).toBe("Advanced");
-  expect([...root.querySelectorAll<HTMLAnchorElement>(".foot-links a")].map((a) => a.textContent)).toEqual(["Learn", "About"]);
+  expect([...root.querySelectorAll<HTMLAnchorElement>(".foot-links a")].map((a) => a.textContent)).toEqual(["Community", "Learn", "About"]);
   expect(loadFrames).not.toHaveBeenCalled();
 });
 

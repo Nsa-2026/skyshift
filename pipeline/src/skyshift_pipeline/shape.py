@@ -761,7 +761,7 @@ def main(argv: list[str] | None = None) -> int:
     import time
     from pathlib import Path
 
-    from .store import Store, photolist_rel, results_rel
+    from .store import Store, linked_dots_dir, photolist_rel, results_rel, use_dots_dir
 
     ap = argparse.ArgumentParser(prog="python -m skyshift_pipeline.shape", description=__doc__.split("\n")[0])
     ap.add_argument("--zone", default="hunt")
@@ -781,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     t0 = time.time()
     store = Store(a.root)
+    use_dots_dir(linked_dots_dir(store, a.zone))  # the folder the zone's link read (members.dot_row points into it)
     if a.out:
         Path(a.out).mkdir(parents=True, exist_ok=True)
 
