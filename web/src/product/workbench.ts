@@ -8,6 +8,7 @@ import {mountComparison} from './comparison';
 import {renderFindings, renderCalibration, renderFrameQuality} from './findings';
 import {MODES, workspaceHref, workspaceState, type WorkspaceState} from './workspace-state';
 import {targetBySlug} from '../app/state';
+import {mountDashboardLayout} from './panels';
 
 export type Layer = 'raw' | 'model' | 'resid' | 'refdiff';
 export const targetFor = (view: View): Target => ({
@@ -32,7 +33,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
   host.innerHTML=`<p class="wb-context"></p>
     <div class="wb-quality" aria-label="Current observation quality"></div>
     <nav class="wb-tabs" aria-label="Evidence sections" hidden></nav>
-    <div class="wb-dashboard-controls" hidden><p>Open several dashboards to view them together.</p><button class="btn btn-ghost" type="button" data-open-all>Open all</button><button class="btn btn-ghost" type="button" data-close-all>Close all</button></div>
+    <div class="wb-dashboard-controls" hidden><p>Open several dashboards to view them together. Drag a header to move one, its corner to resize it.</p><button class="btn btn-ghost" type="button" data-open-all>Open all</button><button class="btn btn-ghost" type="button" data-close-all>Close all</button><button class="btn btn-ghost" type="button" data-reset-layout title="Put every dashboard back in its first place and size">Reset layout</button></div>
     <p class="wb-status" role="status" aria-live="polite"></p>
     <p class="wb-empty" hidden>No dashboards open. Choose one or more above.</p>
     <div class="wb-dashboards">
@@ -93,6 +94,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
     });
   }
   if(typeof MutationObserver!=='undefined')new MutationObserver(pack).observe(grid,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class']});
+  const arranged=mountDashboardLayout(grid,pack);
+  $('[data-reset-layout]').addEventListener('click',()=>arranged.reset());
   let state:WorkspaceState={mode:'explore',tab:''}, view:View|undefined;
   let object:ObjectResponse|null=null, epoch:Epoch|undefined;
   let presentation:BlinkPresentation|undefined;
@@ -202,7 +205,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
     host.querySelectorAll<HTMLElement>('[data-wb]').forEach(el=>{el.hidden=!open.includes(el.dataset.wb!)});
     science.panel(open);
     $<HTMLDetailsElement>('.wb-comparison').open=open.includes('compare')&&visible;
-    science.pause(); metadata(); load(); pack();
+    science.pause(); metadata(); load(); arranged.apply();
   }
   layer.onchange=()=>opts.layer(layer.value as Layer);
   build.onclick=async()=>{

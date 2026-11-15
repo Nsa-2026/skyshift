@@ -22,6 +22,7 @@ import {mountGuidedPractice} from '../product/practice';
 import {SCREENS,siteRoute,viewerState} from './navigation';
 import {legacyHash} from './legacy-routes';
 import {getDetails,onDetails,setDetails} from '../prefs/details';
+import {mountPlateDivider} from '../product/panels';
 import {observationForSky,type SkySelection} from './sky-entry';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { mountOpening } from "../intro";
@@ -129,6 +130,7 @@ export function startApp(root: HTMLElement): void {
   const $ = <T extends Element>(sel: string) => root.querySelector(sel) as T;
   const msg = $<HTMLParagraphElement>(".find-msg");
   mountDetailsSwitch($<HTMLElement>(".details-slot"));
+  mountPlateDivider($<HTMLElement>(".page-blink"), $<HTMLElement>(".vw-side"));
   const input = $<HTMLInputElement>("#q");
 
   let view: View | null = null;

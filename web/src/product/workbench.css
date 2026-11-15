@@ -181,3 +181,18 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
 .wb-dashboard-grid [data-science="crossmatch"] {order:4;}
 .wb-dashboard-grid [data-wb="signals"] {order:5;}
 /* Each dashboard at its full height (no inner scroll): the masonry grid packs them without gaps. */
+
+/* Movable dashboards (panels.ts): drag the header to move, the corner to resize. Only in the grid. */
+#science-workbench .wb-dashboard {position:relative;}
+.wb-move,.wb-grip {display:none;}
+.wb-dashboard-grid .wb-draggable {cursor:grab;touch-action:none;}
+.wb-dashboard-grid .wb-move {display:grid;place-items:center;flex:none;width:24px;height:32px;margin-right:calc(-1 * var(--s2));padding:0;border:0;border-radius:6px;background:transparent;color:var(--ink-3);font:inherit;font-size:14px;letter-spacing:-3px;cursor:grab;}
+.wb-dashboard-grid .wb-move:hover,.wb-dashboard-grid .wb-move:focus-visible {background:var(--sheet-2);color:var(--ink);}
+.wb-dashboard-grid .wb-dashboard-head h2 {flex:1 1 auto;}
+.wb-dashboard-grid .wb-grip {display:block;position:absolute;right:2px;bottom:2px;width:20px;height:20px;padding:0;border:0;border-radius:0 0 10px 0;background:linear-gradient(135deg,transparent 0 50%,var(--ink-3) 50% 56%,transparent 56% 66%,var(--ink-3) 66% 72%,transparent 72% 82%,var(--ink-3) 82% 88%,transparent 88%);opacity:.55;cursor:nwse-resize;touch-action:none;z-index:2;}
+.wb-dashboard-grid .wb-grip:hover,.wb-dashboard-grid .wb-grip:focus-visible {opacity:1;}
+.wb-dashboard-grid .wb-sized {overflow:auto;}
+.wb-dashboard-grid .wb-dragging {opacity:.6;outline:2px dashed var(--pencil-blue);outline-offset:2px;}
+.wb-dashboard-grid .wb-resizing {outline:2px solid var(--pencil-blue);outline-offset:2px;}
+html.wb-moving,html.wb-moving * {cursor:grabbing !important;user-select:none;}
+html.wb-sizing,html.wb-sizing * {cursor:nwse-resize !important;user-select:none;}
