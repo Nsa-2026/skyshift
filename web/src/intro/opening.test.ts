@@ -68,13 +68,13 @@ describe("the opening overlay", () => {
     expect(el.querySelector(".op-sky")!.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("credits the SPHEREx sky and the Gaia stars, says the flight is illustrative and the rest drawn in code", () => {
+  it("credits the SPHEREx sky and the Gaia stars, and says the rest is drawn in code", () => {
     const el = open();
     const credit = el.querySelector(".op-credit")!.textContent!;
     expect(credit).toContain("SPHEREx DR1");
     expect(credit).toContain("NASA/JPL-Caltech/IPAC (IRSA)");
     expect(credit).toContain("Gaia DR3 (ESA/Gaia/DPAC)");
-    expect(credit).toMatch(/flight through them is illustrative/);
+    expect(credit).not.toMatch(/illustrative/);
     expect(credit).toContain("drawn in code");
   });
 
