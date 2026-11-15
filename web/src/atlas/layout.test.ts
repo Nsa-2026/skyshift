@@ -2,7 +2,7 @@
 // the mini blink's epochs and cut-out.
 import { describe, expect, it } from "vitest";
 import type { Epoch } from "../api/types";
-import { fitWidth, limbEllipse } from "./aladin-map";
+import { fitFov, limbEllipse } from "./aladin-map";
 import { wholeGeometry } from "./fallback";
 import { inView } from "./map";
 import { cropValues, cropWindow, epochCaption, pickEpochs } from "./miniblink";
@@ -25,19 +25,44 @@ describe("limbEllipse", () => {
   });
 });
 
-describe("fitWidth", () => {
-  it("narrows a wide map to 2:1 for the whole-sky ellipse only", () => {
-    expect(fitWidth(true, 360, 1440, 694)).toBe(2 * (694 - 20));
-    expect(fitWidth(false, 180, 1440, 694)).toBe(1440);
-    expect(fitWidth(true, 200, 1440, 694)).toBe(1440);
-    // Already narrower than 2:1: nothing to do.
-    expect(fitWidth(true, 360, 800, 694)).toBe(800);
+describe("fitFov", () => {
+  it("fills the width with the whole-sky ellipse when the map is 2:1 or taller", () => {
+    // 1440 × 813 (1440 × 900 less the header): the 1440 × 720 ellipse fits.
+    expect(fitFov(true, 1440, 813)).toBe(360);
+    const e = limbEllipse(true, fitFov(true, 1440, 813), 1440, 813)!;
+    expect(e.rx * 2).toBe(1440);
+    expect(e.ry * 2).toBeLessThanOrEqual(813);
   });
 
-  it("holds the narrow width while the field shrinks a little", () => {
-    expect(fitWidth(true, 350, 1440, 694, 10, true)).toBe(1348);
-    expect(fitWidth(true, 350, 1440, 694, 10, false)).toBe(1440);
-    expect(fitWidth(true, 300, 1440, 694, 10, true)).toBe(1440);
+  it("zooms out past 360° on a map wider than 2:1, so the poles stay on screen", () => {
+    const fov = fitFov(true, 1388, 606, 8);
+    expect(fov).toBeGreaterThan(360);
+    const e = limbEllipse(true, fov, 1388, 606)!;
+    expect(e.ry * 2).toBeCloseTo(606 - 16);
+    expect(e.rx).toBeCloseTo(2 * e.ry);
+  });
+
+  it("fits the globe's disk to the shorter side", () => {
+    // A phone: the disk is as wide as the map.
+    expect(fitFov(false, 375, 700)).toBe(180);
+    // A desktop: the disk is as tall as the map, less the margin.
+    const fov = fitFov(false, 1440, 813, 8);
+    expect(limbEllipse(false, fov, 1440, 813)!.ry * 2).toBeCloseTo(813 - 16);
+  });
+
+  it("keeps the whole sky clear of the header floating over the map's top", () => {
+    // 1388 × 693, the header 77 px over it: the ellipse ends 8 px below the header, and as far above the bottom.
+    const fov = fitFov(true, 1388, 693, 8, 77);
+    const e = limbEllipse(true, fov, 1388, 693)!;
+    expect(e.cy - e.ry).toBeCloseTo(77 + 8);
+    expect(e.cy + e.ry).toBeCloseTo(693 - 77 - 8);
+    // A header that would halve the sky is ignored.
+    expect(fitFov(true, 1388, 300, 8, 120)).toBeCloseTo(fitFov(true, 1388, 300, 8));
+  });
+
+  it("falls back to the projection's widest field on a map with no size", () => {
+    expect(fitFov(true, 0, 0)).toBe(360);
+    expect(fitFov(false, 400, 10)).toBe(180);
   });
 });
 
@@ -49,11 +74,16 @@ describe("wholeGeometry", () => {
     expect(2 * g.s).toBeLessThanOrEqual(640 - 24);
   });
 
-  it("lifts it towards the top of a tall stage, inside the stage", () => {
-    const g = wholeGeometry(390, 454);
-    expect(g.s).toBeCloseTo((390 - 24) / 4);
-    expect(g.cy).toBeLessThan(227);
-    expect(g.cy - g.s).toBeGreaterThan(0);
+  it("centres it on a tall stage too, as wide as the stage allows", () => {
+    const g = wholeGeometry(375, 707);
+    expect(g.s).toBeCloseTo((375 - 24) / 4);
+    expect(g.cy).toBe(353.5);
+  });
+
+  it("keeps the flat map clear of the header over the stage's top", () => {
+    const g = wholeGeometry(1440, 900, 77);
+    expect(g.cy - g.s).toBeGreaterThanOrEqual(77);
+    expect(g.cy + g.s).toBeLessThanOrEqual(900 - 77);
   });
 });
 

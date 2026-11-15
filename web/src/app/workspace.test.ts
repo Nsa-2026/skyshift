@@ -41,7 +41,7 @@ it('keeps the observation, selected signal and player instance through screen an
   expect(engine.show).toHaveBeenCalledTimes(1);
   expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:false});
   expect(fetcher).not.toHaveBeenCalled();
-  expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Sky','Viewer','To check','Results']);
+  expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Sky','Viewer','To check','Community','Results','Learn']);
   expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Viewer');
   expect(root.querySelector('.feature-nav')).toBeNull();
   expect(root.querySelector('#card .cd-spec')).toBeNull();
@@ -79,7 +79,7 @@ it('keeps the observation, selected signal and player instance through screen an
   expect(new URLSearchParams(location.search).get('t')).toBe('elpis');
   expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:true});
   expect(engine.singleDetector).toHaveBeenLastCalledWith(true);
-  expect(root.querySelector('.nav [aria-current]')).toBeNull();
+  expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Learn');
   const practiceLoads=engine.show.mock.calls.length;
   await change('#/explore/motion');
   expect(engine.singleDetector).toHaveBeenLastCalledWith(false);

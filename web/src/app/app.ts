@@ -18,7 +18,6 @@ import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
-import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
 import {SCREENS,siteRoute,viewerState} from './navigation';
 import {legacyHash} from './legacy-routes';
@@ -113,7 +112,7 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-tools" data-page="tools" hidden></main>
     <main class="page page-live" data-page="live" hidden></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
-      <p class="foot-links"><a href="#/learn">Learn</a> <a href="#/about">About</a></p>
+      <p class="foot-links"><a href="#/community">Community</a> <a href="#/learn">Learn</a> <a href="#/about">About</a></p>
       <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids and comets: Minor Planet Center orbits, computed with kete (Dar Dahlen, first written at Caltech/IPAC, BSD-3-Clause). Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
@@ -202,7 +201,6 @@ export function startApp(root: HTMLElement): void {
     $<HTMLDetailsElement>('.workspace-vote').open=true;
     requestAnimationFrame(()=>$<HTMLElement>('#vote').scrollIntoView({block:'start'}));
   });
-  let score: { destroy(): void } | null = null;
 
   function say(text: string, kind: "info" | "error" = "info") {
     msg.textContent = text;
@@ -399,9 +397,11 @@ export function startApp(root: HTMLElement): void {
   const pageMounts: Record<string, MountPage> = {
     atlas: mountAtlas,
     discover: mountDiscover,
-    learn: loadCultureStories(mountLearn),
+    learn: mountLearn,
     tools: mountTools,
     live: mountLive,
+    // Results in sections: show("<section>[/<part>]") opens and scrolls; hide() stops the live polling.
+    results: mountScore,
     review: mountReview,
     candidate: mountCandidate,
     community: mountCommunity,
@@ -456,7 +456,6 @@ export function startApp(root: HTMLElement): void {
     document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
-    if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
       if(!practicing){
