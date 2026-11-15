@@ -238,8 +238,10 @@ export function aboutHtml(): string {
             haven't been checked against real objects.</dd></div>
           <div><dt>Candidates are leads, not discoveries</dt><dd>The pipeline and the votes point at something worth a
             look. Astronomers confirm it with other data before anything is called new.</dd></div>
-          <div><dt>Some checks are pending</dt><dd>Fast Gaia stars (V6) and known brown dwarfs (V7) were cut in the one-day
-            build. They stay on Results as pending.</dd></div>
+          <div><dt>Most brown dwarfs move too little in a year</dt><dd>Of the 24 known brown dwarfs faster than 1″ a year
+            that we measured, 14 move only 0.5–1.6″ between visits, against an error of 0.4–0.9″: too little to show a direction. Of the
+            other 10, 8 went the way Gaia predicts. A star as bright or brighter within 12″ can pull a faint dot's
+            position.</dd></div>
         </dl>
       </section>
 

@@ -8,7 +8,7 @@ or next to "### Measured results"; its "#### Limits of these checks" covers only
 
 ### How we know it works
 
-SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We checked each against sources that know the answer: ESA's Gaia star catalogue, NASA/IRSA's asteroid predictions, Minor Planet Center orbits, the 2MASS and WISE infrared surveys, SDSS galaxy redshifts and published asteroid sizes. Where we could, a control repeats the test where the right answer is "nothing", to count chance hits. Targets were set before running; results are from real SPHEREx data (DR1 + QR3, 14 Nov 2026). ″ = arcsecond; mas = 0.001″; px = one 6.15″ SPHEREx pixel. Nine of eleven pass; V6 and V7 were cut.
+SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We checked each against sources that know the answer: ESA's Gaia star catalogue, NASA/IRSA's asteroid predictions, Minor Planet Center orbits, the 2MASS and WISE infrared surveys, SDSS galaxy redshifts and published asteroid sizes. Where we could, a control repeats the test where the right answer is "nothing", to count chance hits. Targets were set before running; results are from real SPHEREx data (DR1 + QR3, 14 Nov 2026). ″ = arcsecond; mas = 0.001″; px = one 6.15″ SPHEREx pixel. All eleven pass; V6 and V7 ran on 15 Nov.
 
 | Check | Compared against | Result | Control or comparison |
 |---|---|---|---|
@@ -17,8 +17,8 @@ SkyShift measures positions, motions and brightness on NASA's SPHEREx images. We
 | V3 Position error floor | 344 Gaia stars that barely move (G 13–17), same images | 0.36″ visit to visit: motions above 1.1″/yr show at 3σ in one year | 0.36–0.90″ across the five fields |
 | V4 Asteroids re-found where predicted | IRSA's Moving Object Search Tool (MOST), asteroids 1–60 | 60 of 60, in 246 of 300 photos; median offset 0.13 px (0.77″) | Same test 3′ away: 2 of 300 photos (0.7%) |
 | V5 Asteroids found blind | Every known asteroid's position from Minor Planet Center orbits | Hunt zone: 413 of 457 known-asteroid sessions brighter than V 16 (90%), 30 of 30 objects. Pilot (gate G2): 83 of 90 (92%), 8 of 8 | Every prediction moved 2′: 0% in both zones |
-| V6 Fast stars | — | Cut for the one-day build, not run | — |
-| V7 Brown dwarfs | — | Cut for the one-day build, not run | — |
+| V6 Fast stars | Gaia proper motion and parallax of the 40 fastest stars fainter than G 12 | 40 of 40 measured: slope 0.943 ± 0.029 of measured against predicted shift, RMS 0.6″; 39 of 40 within 3σ | Without the 6 blended with a star as bright or brighter: slope 0.972 ± 0.019 |
+| V7 Brown dwarfs | Gaia motions of 24 ultracool dwarfs faster than 1″/yr, plus WISE 0855's published astrometry | 8 of the 10 predicted to move at least 3σ went the predicted way (within 30°); 23 of 24 measured agree within 3σ | The other 14 move too little in one year to show a direction. The 3σ rule was set after the first run, which counted all 24: 9 of 24 |
 | V8 Brightness and speed | 2MASS Ks and WISE W1, stars of 10–13 mag | Hunt zone: SPHEREx ÷ Ks 0.993 (scatter 2.9%, 25,696 stars); ÷ W1 1.029 (1.9%, 27,860 stars). Pilot: Ks 0.993, W1 1.026. Speed: median 7.9 s to the first frame over 20 live requests, all answered | Targets: within 20%; first frame under 15 s |
 | V9 Star motions vs Gaia | Gaia DR3 proper motions, 211,326 stars (hunt zone) | Bias 2 (RA) and −7 (Dec) mas/yr; scatter 146 and 144 mas/yr (about 0.15″/yr per star). Pilot, 32,446 stars: bias 3 and −6, scatter 147 and 145 | Pull scatter 0.97 and 0.96; pilot 0.98 and 0.96 (1 = error bars the right size) |
 | V10 Galaxy distances | SDSS DR17 spectroscopic redshifts | Hunt zone: 8,552 galaxies brighter than K_AB 17: σ_NMAD 0.023, 2.7% outliers. Pilot, 1,211: 0.021, 2.2% | All 10,328 matched galaxies: 0.026, 5.6% outliers (pilot, 1,415: 0.024, 4.2%) |

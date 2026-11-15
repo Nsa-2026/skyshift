@@ -101,8 +101,10 @@ MEANS = {
     "V5": "Blind: the pipeline's mover search, which knows nothing of asteroids, finds known asteroids and "
           "comets (Minor Planet Center orbits) in the hunt and pilot zones. recall = share of known-object "
           "sessions found; control = predictions moved 2′.",
-    "V6": "Fast-star search (S2): cut for the one-day build, not run.",
-    "V7": "Brown-dwarf search (S3): cut for the one-day build, not run.",
+    "V6": "Fast stars (S2): V2's measurement on the 40 fastest Gaia stars with G > 12; value = slope of the "
+          "measured against Gaia's predicted shift (near 1 = right), rows per star.",
+    "V7": "Brown dwarfs (S3): V2's measurement on brown dwarfs faster than 1\u2033/yr (Gaia's ultracool dwarfs "
+          "and WISE 0855); value = how many shift the predicted way (>= 3 sigma, within 30 degrees).",
     "V8": "SPHEREx fluxes agree with 2MASS Ks and WISE W1 (ratio near 1), so spectra are on the right scale; "
           "and how long the live API takes to send the first frame.",
     "V9": "Proper motions fitted from SPHEREx positions agree with Gaia DR3 on average (bias near 0) and their "
@@ -253,7 +255,8 @@ NONLINEAR in a source's core means saturated.
   object missing from those orbits cannot be matched.
 - Saturated stars are measured on their wings. Ghosts, halos, crosstalk and the other
   record-only flags mark pixels that can mimic a source: a candidate with `flags` needs care.
-- Validation checks V6 (fast stars) and V7 (brown dwarfs) were cut and stay pending.
+- Validation checks V6 (fast stars) and V7 (brown dwarfs) were cut on 14 Nov and run on 15 Nov,
+  on known objects outside the zones; the validation tool has their numbers.
 """
 
 

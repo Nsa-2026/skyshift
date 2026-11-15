@@ -413,3 +413,119 @@ def test_merge_suspects_keeps_each_zones_vetting():
     # a partial file keeps what it has, nothing invented
     m3 = bv.merge_suspects([("hunt", {**old, "provisional": True})])
     assert m3["provisional"] is True and m3["vetting"] == {"hunt": {"provisional": True}} and "vetoes" not in m3
+
+
+# --- V6, V7 -----------------------------------------------------------------------------------
+
+def test_v6_status():
+    assert bv.v6_status(30, 40, 0.97) == "pass"
+    assert bv.v6_status(20, 40, 1.10) == "pass"
+    assert bv.v6_status(19, 40, 1.00) == "partial"  # under half the list
+    assert bv.v6_status(30, 40, 1.15) == "partial"
+    assert bv.v6_status(30, 40, 0.75) == "fail"
+    assert bv.v6_status(4, 40, 1.0) == "fail"
+    assert bv.v6_status(0, 0, None) == "pending"
+
+
+def test_v7_status():
+    assert bv.v7_status(8, 10) == "pass"  # of the dwarfs whose predicted shift is visible
+    assert bv.v7_status(4, 4) == "partial"  # too few to pass
+    assert bv.v7_status(5, 10) == "partial"
+    assert bv.v7_status(4, 10) == "fail"
+    assert bv.v7_status(0, 0) == "fail"
+
+
+def _motion_row(name, me, mn, pe, pn, sigma, measured=True, reason=None):
+    import math
+
+    import _motion
+
+    if not measured:
+        return {"name": name, "source_id": "1", "pm_mas_yr": 3000.0, "measured": False, "reason": reason}
+    return {"name": name, "source_id": "1", "g": 14.0, "pm_mas_yr": 3000.0, "measured": True, "reason": None, "det": 5,
+            "visits": [1, 3], "dt_yr": 1.0, "shift_arcsec": math.hypot(me, mn), "predicted_arcsec": math.hypot(pe, pn),
+            "sigma_arcsec": sigma, "pa_deg": _motion.pa_deg(me, mn), "predicted_pa_deg": _motion.pa_deg(pe, pn),
+            "angle_deg": _motion.angle_deg(me, mn, pe, pn), "dev_sigma": math.hypot(me - pe, mn - pn) / sigma,
+            "d_east_arcsec": me, "d_north_arcsec": mn, "pred_east_arcsec": pe, "pred_north_arcsec": pn, "n_ref_stars": 50}
+
+
+def _motion_file(tmp_path, name, rows):
+    d = {"generated": "2026-11-15T12:00:00Z", "list_source": "test", "list_cut": "test", "per_visit": 10,
+         "spectrum_per_det": 3, "rows": rows}
+    (tmp_path / name).write_text(json.dumps(d))
+
+
+def test_v6_v7_pending_without_input(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)
+    for c in (bv.v6(), bv.v7()):
+        assert c["status"] == "pending" and c["headline"] and set(c) == KEYS
+
+
+def test_v6_slope_and_note(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)
+    rows = [_motion_row(f"s{i}", 1.02 * pe, 1.02 * pn, pe, pn, 0.5) for i, (pe, pn) in
+            enumerate([(-5.0, 1.0), (3.0, 4.0), (0.5, -6.0), (2.0, 2.0)] * 3)]
+    rows.append(_motion_row("lost", 0, 0, 0, 0, 1, measured=False, reason="not_detected"))
+    _motion_file(tmp_path, bv.V6_FILE, rows)
+    c = bv.v6()
+    assert c["value"] == pytest.approx(1.02, abs=1e-3)
+    assert c["status"] == "pass"  # 12 of 13 measured, slope within 0.10
+    assert c["headline"].startswith("12 of 13 fastest Gaia stars measured: slope 1.02")
+    assert "1 not detected" in c["note"]
+    tail = c["note"].rsplit("Rows:", 1)[1]
+    assert ". " not in tail and all(k in tail for row in c["rows"] for k in row)
+
+
+def test_v7_counts_the_predicted_direction_of_the_visible_ones(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)
+    rows = [_motion_row("a", -2.0, 0.1, -2.1, 0.0, 0.4),     # predicted 5 sigma; measured 5 sigma, 3 deg: agrees
+            _motion_row("b", 0.0, 2.0, -2.0, 0.0, 0.4),      # predicted 5 sigma; 90 deg off
+            _motion_row("c", -0.6, 0.0, -1.0, 0.0, 0.4),     # predicted 2.5 sigma: not visible, left out
+            _motion_row("d", 1.5, 1.5, 1.4, 1.6, 0.3),       # predicted 7 sigma; agrees
+            _motion_row("e", -1.3, 0.0, -1.0, 0.0, 0.4)]     # predicted 2.5 sigma: left out though it "agrees"
+    _motion_file(tmp_path, bv.V7_FILE, rows)
+    c = bv.v7()
+    assert c["value"] == 2 and c["unit"] == "objects"
+    assert c["status"] == "partial"  # 2 of 3 visible: 67%, and fewer than 5
+    assert c["headline"].startswith("2 of 3 brown dwarfs whose motion SPHEREx can show in one year")
+    assert "of all 5 measured, 4 agree with the predicted shift within 3 sigma" in c["headline"]
+    assert "every measured dwarf: 3 of 5 shift the predicted way" in c["note"]  # the first rule stays in the note
+    assert "Visible but not the predicted way: b: 2.0\" for 2.0\"" in c["note"]
+    assert "The other 2 are predicted to move 1.0-1.0\" between the visits against an error of 0.4-0.4\"" in c["note"]
+
+
+def test_v7_visible_uses_the_prediction_not_the_measurement():
+    import _motion
+
+    assert _motion.visible({"predicted_arcsec": 1.2, "sigma_arcsec": 0.4})
+    assert not _motion.visible({"predicted_arcsec": 1.1, "sigma_arcsec": 0.4, "shift_arcsec": 5.0})
+    assert not _motion.visible({"predicted_arcsec": None, "sigma_arcsec": 0.4})
+
+
+def test_v6_reports_the_slope_without_blends_but_the_status_uses_all(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)
+    rows = [_motion_row(f"s{i}", pe, pn, pe, pn, 0.5) for i, (pe, pn) in enumerate([(-5.0, 1.0), (3.0, 4.0)] * 3)]
+    bad = _motion_row("Gaia DR3 9 (2MASS J1)", -0.1, 0.05, -2.3, 1.1, 0.4)  # followed a static neighbour
+    bad.update(blend_arcsec=7.7, blend_g=14.0, g=16.2)
+    _motion_file(tmp_path, bv.V6_FILE, rows + [bad])
+    c = bv.v6()
+    assert c["value"] < 1.0  # every measured star counts
+    assert "without the 1 blended with a brighter star, slope 1.0 +- 0.0" in c["headline"]
+    assert "Gaia DR3 9 (G 16.2): G 14.0 at 7.7\", measured 0.11\" for 2.55\"" in c["note"]
+    assert c["rows"][-1]["blend_arcsec"] == 7.7
+
+
+def test_update_only_replaces_just_those_checks(tmp_path, monkeypatch):
+    monkeypatch.setattr(bv, "DATA", tmp_path)
+    out = tmp_path / "validation.json"
+    keep = {"id": "V5", "claim": "x", "status": "pass", "headline": "kept", "value": 1, "unit": None, "expected": "",
+            "note": None, "rows": []}
+    old6 = dict(keep, id="V6", status="pending", headline="Cut")
+    out.write_text(json.dumps({"generated": "2026-11-14", "data_release": "DR1", "checks": [keep, old6]}))
+    _motion_file(tmp_path, bv.V6_FILE, [_motion_row(f"s{i}", 2.0, 1.0, 2.0, 1.0, 0.4) for i in range(6)])
+    bv.update_only(out, ["V6"])
+    d = json.loads(out.read_text())
+    assert [c["id"] for c in d["checks"]] == ["V5", "V6"]
+    assert d["checks"][0] == keep and d["checks"][1]["status"] == "pass"
+    with pytest.raises(SystemExit):
+        bv.update_only(out, ["V5"])  # a zone check needs its reports
