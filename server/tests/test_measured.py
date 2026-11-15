@@ -577,3 +577,15 @@ def test_shape_fit_companion_is_its_own_detection_v3_12(root):
     json.dumps(m, allow_nan=False)
     mh, _ = M.build(_hours_meta(), root=root)
     assert not any("split_by_fit" in d["reasons"] for d in mh["detections"])
+
+
+def test_stack_enabled_per_zone(monkeypatch):
+    """SKYSHIFT_MEASURED_STACK: unset/0 off, 1 every zone, else only the zones listed ("+", "," or spaces)."""
+    from skyshift_server import measured as M
+    monkeypatch.delenv("SKYSHIFT_MEASURED_STACK", raising=False)
+    assert not M.stack_enabled("t_barnard")
+    monkeypatch.setenv("SKYSHIFT_MEASURED_STACK", "1")
+    assert M.stack_enabled("t_rdra") and M.stack_enabled("t_barnard")
+    monkeypatch.setenv("SKYSHIFT_MEASURED_STACK", "t_barnard+t_rwaur+t_epsindib+t_wise0855")
+    assert M.stack_enabled("t_barnard") and M.stack_enabled("t_wise0855")
+    assert not M.stack_enabled("t_rdra") and not M.stack_enabled("hunt")
