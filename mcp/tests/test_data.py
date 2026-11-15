@@ -231,9 +231,13 @@ def test_batch_check_limit(offline):
 # ---------------------------------------------------------------- votes (Firestore)
 
 def _vote(cid, answer, voter, ts):
-    return {"name": f"projects/p/databases/(default)/documents/votes/{voter}-{ts}",
-            "fields": {"candidate_id": {"stringValue": cid}, "answer": {"stringValue": answer},
-                       "voter": {"stringValue": voter}, "ts": {"timestampValue": ts}}}
+    """A Firestore REST votes document; voter None or ts None leave that field out."""
+    fields = {"candidate_id": {"stringValue": cid}, "answer": {"stringValue": answer}}
+    if voter is not None:
+        fields["voter"] = {"stringValue": voter}
+    if ts is not None:
+        fields["ts"] = {"timestampValue": ts}
+    return {"name": f"projects/p/databases/(default)/documents/votes/{voter}-{ts}", "fields": fields}
 
 
 FLAG = {"name": "projects/p/databases/(default)/documents/candidates/flagUSER1",
@@ -288,10 +292,13 @@ def test_top_voted_aggregates_and_joins(firestore):
     assert "SECRETVOTER" not in raw
     out = json.loads(raw)
     assert out["vote_documents"] == 7 and out["candidates_voted"] == 3 and not out["truncated"]
+    assert "latest vote" in out["counting"]
     first, second, third = out["rows"]
-    assert first["candidate_id"] == CAND_MOVER and first["votes"] == 4 and first["voters"] == 3
-    assert first["by_answer"] == {"mover": 3, "changing": 0, "junk": 1, "unsure": 0}
+    # voter a voted mover twice: only the latest counts (v3.16)
+    assert first["candidate_id"] == CAND_MOVER and first["votes"] == 3 and first["voters"] == 3
+    assert first["by_answer"] == {"mover": 2, "changing": 0, "junk": 1, "unsure": 0}
     assert first["voters_by_answer"]["mover"] == 2
+    assert first["first_ts"] == "2026-11-14T10:05:00Z" and first["last_ts"] == "2026-11-14T12:00:00Z"
     assert first["what"].startswith("pipeline candidate") and first["candidate"]["kind"] == "mover"
     assert second["candidate_id"] == "flagUSER1" and second["flag"]["clock"] == "months"
     assert second["flag"]["ra"] == pytest.approx(269.462429) and "blink_page" in second
@@ -304,10 +311,110 @@ def test_top_voted_by_answer_and_votes_for(firestore):
     raw = run(tools_data.votes_for(CAND_MOVER))
     assert "SECRETVOTER" not in raw and "voter\"" not in raw
     one = json.loads(raw)
-    assert one["votes"] == 4 and one["voters"] == 3 and one["last_ts"] == "2026-11-14T12:00:00Z"
-    assert one["latest"][0] == {"answer": "junk", "ts": "2026-11-14T12:00:00Z"}
+    assert one["votes"] == 3 and one["voters"] == 3 and one["last_ts"] == "2026-11-14T12:00:00Z"
+    assert one["latest"] == [{"answer": "junk", "ts": "2026-11-14T12:00:00Z"},
+                             {"answer": "mover", "ts": "2026-11-14T11:00:00Z"},
+                             {"answer": "mover", "ts": "2026-11-14T10:05:00Z"}]
     none = json.loads(run(tools_data.votes_for("nobody-voted")))
     assert none["votes"] == 0 and none["what"] == "unknown"
+
+
+# ---------------------------------------------------------------- votes: change or take back (v3.16)
+
+def _counted(*docs):
+    """_aggregate over plain field dicts, as _load_votes yields them."""
+    return tools_data._aggregate([tools_data._fs_fields(d) for d in docs])
+
+
+def test_vote_change_counts_once_with_latest_answer(firestore):
+    # read order is not time order: the change (later ts) comes first
+    firestore["docs"] = [_vote("c1", "junk", "SECRETVOTER-a", "2026-11-15T09:00:00Z"),
+                         _vote("c1", "mover", "SECRETVOTER-a", "2026-11-15T08:00:00Z"),
+                         _vote("c1", "mover", "SECRETVOTER-b", "2026-11-15T08:30:00Z")]
+    raw = run(tools_data.votes_for("c1"))
+    assert "SECRETVOTER" not in raw and '"voter"' not in raw
+    one = json.loads(raw)
+    assert one["votes"] == 2 and one["voters"] == 2
+    assert one["by_answer"] == {"mover": 1, "changing": 0, "junk": 1, "unsure": 0}
+    assert one["voters_by_answer"] == {"mover": 1, "changing": 0, "junk": 1, "unsure": 0}
+    assert one["latest"] == [{"answer": "junk", "ts": "2026-11-15T09:00:00Z"},
+                             {"answer": "mover", "ts": "2026-11-15T08:30:00Z"}]
+    assert one["first_ts"] == "2026-11-15T08:30:00Z"   # voter a's first vote no longer counts
+    assert one["vote_documents_read"] == 3
+
+
+def test_vote_take_back_counts_as_none(firestore):
+    firestore["docs"] = [_vote("c1", "mover", "SECRETVOTER-a", "2026-11-15T08:00:00Z"),
+                         _vote("c1", "withdrawn", "SECRETVOTER-a", "2026-11-15T09:00:00Z"),
+                         _vote("c2", "mover", "SECRETVOTER-a", "2026-11-15T08:00:00Z"),
+                         _vote("c2", "withdrawn", "SECRETVOTER-a", "2026-11-15T08:10:00Z"),
+                         _vote("c2", "changing", "SECRETVOTER-a", "2026-11-15T08:20:00Z"),   # voted again
+                         _vote("c2", "unsure", "SECRETVOTER-b", "2026-11-15T08:30:00Z")]
+    raw = run(tools_data.votes_for("c1"))
+    assert "withdrawn" not in raw
+    one = json.loads(raw)
+    assert one["votes"] == 0 and one["voters"] == 0 and one["latest"] == []
+    assert one["first_ts"] is None and one["last_ts"] is None
+    assert set(one["by_answer"]) == set(tools_data.ANSWERS)
+    top_raw = run(tools_data.top_voted())
+    assert "withdrawn" not in top_raw
+    top = json.loads(top_raw)
+    assert top["candidates_voted"] == 1 and [r["candidate_id"] for r in top["rows"]] == ["c2"]
+    assert top["rows"][0]["by_answer"] == {"mover": 0, "changing": 1, "junk": 0, "unsure": 1}
+    assert top["rows"][0]["votes"] == 2 and top["rows"][0]["voters"] == 2
+
+
+def test_vote_without_ts_is_the_latest():
+    pending = _vote("c1", "junk", "SECRETVOTER-a", None)   # serverTimestamp() not set yet
+    later = _vote("c1", "mover", "SECRETVOTER-a", "2026-11-15T23:59:59Z")
+    a = _counted(pending, later)["c1"]
+    assert a["votes"] == 1 and a["by_answer"]["junk"] == 1 and a["by_answer"]["mover"] == 0
+    assert a["first_ts"] is None and a["last_ts"] is None
+    gone = _counted(_vote("c1", "mover", "SECRETVOTER-a", "2026-11-15T10:00:00Z"),
+                    _vote("c1", "withdrawn", "SECRETVOTER-a", None))
+    assert gone == {}
+    # two without a ts, or an equal ts: the later one in read order
+    assert _counted(_vote("c1", "junk", "v", None), _vote("c1", "unsure", "v", None))["c1"]["by_answer"]["unsure"] == 1
+    tie = "2026-11-15T10:00:00Z"
+    assert _counted(_vote("c1", "junk", "v", tie), _vote("c1", "mover", "v", tie))["c1"]["by_answer"]["mover"] == 1
+
+
+def test_vote_ts_order_with_fractions():
+    # Firestore writes 0, 3, 6 or 9 fractional digits: '…:00.5Z' is later than '…:00Z'
+    a = _counted(_vote("c1", "junk", "v", "2026-11-15T10:00:00.500Z"),
+                 _vote("c1", "mover", "v", "2026-11-15T10:00:00Z"),
+                 _vote("c1", "unsure", "w", "2026-11-15T09:59:59.999999999Z"))["c1"]
+    assert a["by_answer"] == {"mover": 0, "changing": 0, "junk": 1, "unsure": 1}
+    assert a["first_ts"] == "2026-11-15T09:59:59.999999999Z" and a["last_ts"] == "2026-11-15T10:00:00.500Z"
+
+
+def test_votes_without_voter_count_on_their_own(firestore):
+    firestore["docs"] = [_vote("c1", "mover", None, "2026-11-15T08:00:00Z"),
+                         _vote("c1", "mover", None, "2026-11-15T08:01:00Z"),
+                         _vote("c1", "withdrawn", None, "2026-11-15T08:02:00Z"),   # takes nothing back
+                         _vote("c1", "junk", "SECRETVOTER-a", "2026-11-15T08:03:00Z")]
+    one = json.loads(run(tools_data.votes_for("c1")))
+    assert one["votes"] == 3 and one["voters"] == 1
+    assert one["by_answer"] == {"mover": 2, "changing": 0, "junk": 1, "unsure": 0}
+    assert one["voters_by_answer"] == {"mover": 0, "changing": 0, "junk": 1, "unsure": 0}
+    assert len(one["latest"]) == 3
+
+
+def test_top_voted_by_answer_after_change(firestore):
+    firestore["docs"] = [_vote("c1", "mover", "SECRETVOTER-a", "2026-11-15T08:00:00Z"),
+                         _vote("c1", "mover", "SECRETVOTER-b", "2026-11-15T08:00:00Z"),
+                         _vote("c1", "mover", "SECRETVOTER-c", "2026-11-15T08:00:00Z"),
+                         _vote("c2", "mover", "SECRETVOTER-a", "2026-11-15T07:00:00Z"),
+                         _vote("c2", "mover", "SECRETVOTER-b", "2026-11-15T07:00:00Z"),
+                         # two of c1's voters change their mind: c1 falls to one mover vote
+                         _vote("c1", "junk", "SECRETVOTER-a", "2026-11-15T09:00:00Z"),
+                         _vote("c1", "withdrawn", "SECRETVOTER-b", "2026-11-15T09:00:00Z")]
+    movers = json.loads(run(tools_data.top_voted(answer="mover")))
+    assert [(r["candidate_id"], r["by_answer"]["mover"]) for r in movers["rows"]] == [("c2", 2), ("c1", 1)]
+    junk = json.loads(run(tools_data.top_voted(answer="junk")))
+    assert [r["candidate_id"] for r in junk["rows"]] == ["c1"] and junk["matching"] == 1
+    every = json.loads(run(tools_data.top_voted()))
+    assert [(r["candidate_id"], r["votes"]) for r in every["rows"]] == [("c1", 2), ("c2", 2)]   # c1 newer
 
 
 def test_votes_paging_and_cache(firestore):

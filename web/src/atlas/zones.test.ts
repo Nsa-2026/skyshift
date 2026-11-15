@@ -131,7 +131,8 @@ describe("zone geometry", () => {
   it("names areas and writes the badge in words", () => {
     expect(areaName({ zones: ["hunt"] })).toBe("Hunt zone");
     expect(areaName({ zones: ["hunt", "pilot"] })).toBe("Hunt and pilot zones");
-    expect(areaName({ zones: ["hunt", "pilot", "ecl13"] })).toBe("Hunt, pilot and ecl13 zones");
+    expect(areaName({ zones: ["hunt", "pilot", "ecl13"] })).toBe("Hunt and pilot zones and 1 searched area");
+    expect(areaName({ zones: ["ecl13", "ecl14"] })).toBe("2 searched areas");
     expect(badgeTexts({ zones: ["hunt"], count: 230 })).toEqual(["230 to check"]);
     expect(badgeTexts({ zones: ["hunt", "pilot"], count: 1272 })).toEqual(["1,272 to check"]);
   });

@@ -219,6 +219,12 @@ describe("URLs", () => {
     expect(discoverQuery("#/candidates/one=1", "")).toBe("");
     expect(isDiscoverUrl("#/candidates/one=1")).toBe(true);
   });
+
+  it("leaves out the map view (map=1) too: the same filter on the sky map", () => {
+    expect(discoverQuery("#/candidates/kind=mover&map=1", "")).toBe("kind=mover");
+    expect(discoverQuery("#/candidates/map=1", "")).toBe("");
+    expect(isDiscoverUrl("#/candidates/map=1")).toBe(true);
+  });
 });
 
 describe("keyAction", () => {

@@ -1,4 +1,4 @@
-import { smooth, type SceneState } from './model';
+import { descentAt, smooth, type SceneState } from './model';
 import { noise, rasterSphere, sphereLookup, restoreSphereLighting, type Material } from './spheres';
 import { earthMaterial, gasOrRockMaterial, type Kind } from './planet-materials';
 import { createEarthMask } from './planet-mask';
@@ -63,17 +63,52 @@ function sphereSprite(kind: Kind, size: number, turns: number): HTMLCanvasElemen
   return sprite.canvas;
 }
 
-/** Positions are scenic composition, not a representation of measured planetary positions. */
+/** Earth on the title: lower right, sunlit from the upper left. */
+export function earthAtStart(w: number, h: number) {
+  return { x: w * .74, y: h * .76, r: Math.min(w, h) * .19 };
+}
+/**
+ * The point of Earth the camera dives to, in Earth radii from its centre (screen axes, y down):
+ * on the night side, just past the evening terminator. A straight dive keeps it still on screen.
+ */
+const TARGET = { x: .6, y: .48 };
+/** Toward the Sun on screen: the sprite's light direction, turned with the sprite. */
+const SUN = [-.873, -.487];
+export function diveTarget(w: number, h: number): [number, number] {
+  const e = earthAtStart(w, h);
+  return [e.x + TARGET.x * e.r, e.y + TARGET.y * e.r];
+}
+/** Earth's final size, in title radii, at the end of the dive (the clouds take over before). */
+const ZOOM = 28;
+/**
+ * How far the camera has come toward Earth's surface: 0 on the title, toward 1 at the clouds.
+ * It eases in, then accelerates; everything seen from the camera scales as depth / (depth − τ).
+ */
+export function diveDepth(p: number): number {
+  return 1 - Math.exp(-Math.log(ZOOM) * Math.pow(descentAt(p), 2.6));
+}
+/** Depths along the dive, Earth = 1: nearer planets slide out sooner and faster (parallax). */
+const PLANETS = [
+  { kind: 'saturn' as const, x: .18, y: .23, size: .058, depth: .6 },
+  { kind: 'jupiter' as const, x: .84, y: .25, size: .066, depth: .74 },
+  { kind: 'mars' as const, x: .15, y: .72, size: .033, depth: .5 },
+];
+
+/**
+ * Positions are scenic composition, not measured planetary positions. One straight camera move:
+ * everything expands from the dive target, each body by depth / (depth − τ).
+ */
 export function orbitalLayout(w: number, h: number, p: number) {
-  const m = Math.min(w, h), dive = smooth(p, 0, .28), retreat = smooth(p, 0, .25);
+  const m = Math.min(w, h), tau = diveDepth(p), [tx, ty] = diveTarget(w, h), e = earthAtStart(w, h);
+  const grow = 1 / (1 - tau);
   return {
-    earth: { x: w * (.74 - .24 * dive), y: h * (.76 + .43 * dive), r: m * .19 * Math.exp(dive * 2.9) },
-    planets: [
-      { kind: 'saturn' as const, x: w * (.18 - retreat * .17), y: h * (.23 - retreat * .18), r: m * .058 * (1 + retreat * .3) },
-      { kind: 'jupiter' as const, x: w * (.84 + retreat * .20), y: h * (.25 - retreat * .19), r: m * .066 * (1 + retreat * .2) },
-      { kind: 'mars' as const, x: w * (.15 - retreat * .18), y: h * (.72 + retreat * .06), r: m * .033 * (1 + retreat * .45) },
-    ],
-    alpha: 1 - smooth(p, .10, .24), turns: 22 / 360 + dive * .07,
+    earth: { x: tx + (e.x - tx) * grow, y: ty + (e.y - ty) * grow, r: e.r * grow },
+    planets: PLANETS.map(({ kind, x, y, size, depth }) => {
+      // Past the camera: gone (never drawn behind it).
+      const f = tau < depth * .97 ? depth / (depth - tau) : Infinity;
+      return { kind, x: tx + (w * x - tx) * f, y: ty + (h * y - ty) * f, r: m * size * f };
+    }),
+    alpha: 1 - smooth(p, .17, .24), turns: 22 / 360, tau,
   };
 }
 
@@ -97,12 +132,14 @@ function rings(c: CanvasRenderingContext2D, r: number, front: boolean) {
 export function paintPlanetaryOpening(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) {
   const size = earthSpriteSize(w, h);
   if (pending.has(size) && !planetaryCacheReady(size)) return;
-  const alpha = s.earth * (1 - smooth(s.p, .20, .30));
+  const alpha = s.earth;
   if (alpha <= 0) return;
   const layout = orbitalLayout(w, h, s.p);
   c.save(); c.globalAlpha = alpha;
   c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
   if (layout.alpha > 0) for (const planet of layout.planets) {
+    const reach = planet.r * (planet.kind === 'saturn' ? 2.3 : 1);
+    if (!Number.isFinite(planet.r) || planet.x + reach < 0 || planet.x - reach > w || planet.y + reach < 0 || planet.y - reach > h) continue;
     c.save(); c.globalAlpha *= layout.alpha;
     c.translate(planet.x, planet.y); c.rotate(planet.kind === 'saturn' ? -.36 : -.16);
     if (planet.kind === 'saturn') rings(c, planet.r, false);
@@ -111,12 +148,35 @@ export function paintPlanetaryOpening(c: CanvasRenderingContext2D, w: number, h:
     if (planet.kind === 'saturn') rings(c, planet.r, true);
     c.restore();
   }
-  const { x, y, r } = layout.earth;
-  const atmosphere = c.createRadialGradient(x, y, r * .99, x, y, r * 1.10);
-  atmosphere.addColorStop(0, '#60b5ff70'); atmosphere.addColorStop(.25, '#4a9cf82a'); atmosphere.addColorStop(1, '#357ad500');
-  c.fillStyle = atmosphere; c.beginPath(); c.arc(x, y, r * 1.10, 0, TAU); c.fill();
+  const { x, y, r } = layout.earth, tau = layout.tau;
+  // The air glows thicker as the camera comes down through it.
+  const air = 1.10 + .14 * smooth(tau, .3, .97);
+  const atmosphere = c.createRadialGradient(x, y, r * .985, x, y, r * air);
+  atmosphere.addColorStop(0, '#6cbcff80'); atmosphere.addColorStop(.22, '#4a9cf838'); atmosphere.addColorStop(1, '#357ad500');
+  c.fillStyle = atmosphere; c.beginPath(); c.arc(x, y, r * air, 0, TAU); c.fill();
   c.save(); c.translate(x, y); c.rotate(-.10);
   const body = sphereSprite('earth', size, layout.turns);
   c.drawImage(body, -r, -r, r * 2, r * 2);
-  c.restore(); c.restore();
+  c.restore();
+  // Dusk falls as the camera comes down: the night side widens over the disc until the screen is
+  // night (an illustration; it keeps the low-resolution day side from filling the screen).
+  const dusk = smooth(s.p, .15, .235);
+  if (dusk > 0) {
+    const edge = .594 - dusk * 1.75, vx = -SUN[0], vy = -SUN[1];
+    const shade = c.createLinearGradient(x + vx * r * (edge - .45), y + vy * r * (edge - .45), x + vx * r * (edge + .22), y + vy * r * (edge + .22));
+    shade.addColorStop(0, 'rgba(3,7,16,0)'); shade.addColorStop(.5, 'rgba(3,7,16,.55)'); shade.addColorStop(1, 'rgba(3,7,16,.96)');
+    c.save(); c.globalAlpha = alpha * Math.min(1, dusk * 1.6);
+    c.fillStyle = shade; c.beginPath(); c.arc(x, y, r * 1.001, 0, TAU); c.fill();
+    c.restore();
+  }
+  // Inside the atmosphere: night air closes in before the clouds.
+  const haze = smooth(tau, .8, .975);
+  if (haze > 0) {
+    const veil = c.createLinearGradient(0, 0, 0, h);
+    veil.addColorStop(0, `rgba(22,44,82,${(.75 * haze).toFixed(3)})`);
+    veil.addColorStop(.6, `rgba(10,24,48,${(.62 * haze).toFixed(3)})`);
+    veil.addColorStop(1, `rgba(5,12,26,${(.55 * haze).toFixed(3)})`);
+    c.fillStyle = veil; c.fillRect(0, 0, w, h);
+  }
+  c.restore();
 }

@@ -374,7 +374,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     return ` Dashed: ${n} in ${zoneLabel(provisional.zone)}, ${provisional.provisional ? "before the WISE check" : "after the WISE check, not yet reviewed"}.`;
   }
 
-  const zoneLabel = (name: string) => (/^ecl/i.test(name) ? `zone ${name}` : zoneName(name));
+  // Run zones (ecl…) are internal names: say "this area" instead.
+  const zoneLabel = (name: string) => (/^ecl/i.test(name) ? "this area" : zoneName(name));
 
   // ---- URL -----------------------------------------------------------------------------------
   let hashTimer: ReturnType<typeof setTimeout> | null = null;

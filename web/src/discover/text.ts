@@ -1,6 +1,13 @@
 // Plain words for the codes the pipeline writes (DESIGN.md "Candidates", "Smart filters").
 // Codes stay in title attributes and exports; people read these.
-import { GRADE_TEXT, gradeLabel } from "../api/grades";
+import { gradeLabel } from "../api/grades";
+
+/** What each grade means, in this page's plain words (api/grades.ts keeps the shared wording). */
+export const GRADE_PLAIN: Record<"A" | "B" | "C", string> = {
+  A: "Passes all our checks and sits on a track over two or more sessions, moving at 5σ or more.",
+  B: "Passes all our checks, but its motion isn't shown: most are two dots minutes apart in one session.",
+  C: "Fails one of our checks (most likely a camera glitch) or sits on a catalogued source. It stays listed so anyone can see why.",
+};
 import type { CandidateKind } from "../api/types";
 
 export interface KindText {
@@ -40,13 +47,13 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   at_control_level: { label: "As common as chance pairs", tone: "doubt", detail: "Pairs this far apart turn up as often in a shuffled control." },
   over_pm_cap: { label: "Faster than the motion limit", tone: "doubt", detail: "Faster than any star the fit is trusted for." },
   short_span: { label: "Seen over a short time", tone: "doubt", detail: "Its detections cover too little time to trust the motion." },
-  outlier: { label: "Outlier pixels", tone: "caution", detail: "The pipeline marked pixels here as outliers: often a cosmic ray or a bad pixel." },
-  repeat_position: { label: "Same spot days apart", tone: "caution", detail: "Something sits at nearly this spot in sessions days apart: a fixed artefact, not a mover." },
+  outlier: { label: "Outlier pixels", tone: "caution", detail: "Pixels here were marked as outliers: often a cosmic ray or a bad pixel." },
+  repeat_position: { label: "Same spot days apart", tone: "caution", detail: "Something sits at nearly this spot in sessions days apart: something fixed in the images, not a mover." },
 
   // Codes the exporter sends that had no text, so they read as "Pm fit" and counted as doubt.
   // Wording from contracts/api.md, candidates.json "reasons".
   pm_fit: { label: "Motion fitted across visits", tone: "support", detail: "Its motion was fitted over every detection in every visit." },
-  vetted: { label: "Passed every check", tone: "support", detail: "It came through all of the pipeline's checks with nothing against it." },
+  vetted: { label: "Passed every check", tone: "support", detail: "It came through all of our checks with nothing against it." },
   catwise_pm_agrees: { label: "CatWISE lists the same motion", tone: "support", detail: "CatWISE lists the same motion for the source here." },
   no_gaia: { label: "Not in Gaia (G < 20)", tone: "support", detail: "Gaia DR3 lists nothing brighter than G 20 here." },
   gaia_nearby: { label: "Within 50 pc", tone: "support", detail: "Gaia has it with a parallax of 20 mas or more, so it is closer than 50 parsecs." },
@@ -59,12 +66,12 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   known_object_near: { label: "Known object predicted nearby", tone: "doubt", detail: "A known asteroid or comet was predicted within 2′ at that time: this may be that object, slightly off its prediction." },
   class_galaxy: { label: "Looks extended", tone: "doubt", detail: "The classifier calls it a galaxy, which would explain the spectrum or the shape without anything new: galaxies look extended by nature." },
   class_unsure: { label: "Shape unclear", tone: "doubt", detail: "Point-like but with no Gaia star, so the classifier could not decide what it is." },
-  gaia_unchecked: { label: "Gaia not checked", tone: "doubt", detail: "Gaia could not be checked when the pipeline ran." },
-  catwise_unchecked: { label: "CatWISE not checked", tone: "doubt", detail: "CatWISE could not be checked when the pipeline ran." },
+  gaia_unchecked: { label: "Gaia not checked", tone: "doubt", detail: "Gaia could not be checked when this list was made." },
+  catwise_unchecked: { label: "CatWISE not checked", tone: "doubt", detail: "CatWISE could not be checked when this list was made." },
 
   outlier_flag: { label: "Outlier pixels", tone: "caution", detail: "The OUTLIER flag is set on its pixels: often a cosmic ray or a bad pixel." },
   bad_pixels_near: { label: "Bad pixels nearby", tone: "caution", detail: "A masked pixel (cosmic ray, hot, dead or persistent) touches one of its detections." },
-  detector_excess: { label: "From a detector with excess movers", tone: "caution", detail: "Seen only in detectors where this zone has at least 1.5 times its usual share of unexplained movers: those are likely artefacts." },
+  detector_excess: { label: "From a detector with excess movers", tone: "caution", detail: "Seen only in detectors where this zone has at least 1.5 times its usual share of unexplained movers: those are likely camera glitches." },
 
   // The suspects' failed vetting gates: a mover with any of them is grade C. Wording from
   // contracts/api.md, suspects.json "reasons". Artefact gates are cautions, so "hide artefact
@@ -85,7 +92,7 @@ export const REASON_TEXT: Record<string, ReasonText> = {
   steady_pa: { label: "Same direction every time", tone: "support", detail: "Its photos show the stretch pointing the same way on the sky, in both visits, although the detector turns between visits. Noise points anywhere." },
   one_catalogue_source: { label: "Catalogues list one object", tone: "support", detail: "Gaia DR3 and CatWISE2020 list a single object within 15″, so a second one would be new." },
   one_visit: { label: "Stretched in one visit only", tone: "doubt", detail: "Only one of the two visits shows the stretch: something may have passed by, or one visit is noisier." },
-  not_vetted: { label: "Not vetted", tone: "doubt", detail: "There was no pixel data to run the artefact checks on, so nothing was ruled out." },
+  not_vetted: { label: "Not vetted", tone: "doubt", detail: "There was no pixel data to run the camera-glitch checks on, so nothing was ruled out." },
 };
 
 /** Codes the exporter may use for the same two cautions (exact names still settling). */
@@ -137,10 +144,10 @@ export const GRADE_VALUES = ["A", "B", "C", "none"] as const;
 
 /** A grade facet value in words, for the filter, the chips in use and their titles. */
 export function gradeFacetText(v: string): { label: string; title: string } {
-  if (v === "A" || v === "B" || v === "C") return { label: gradeLabel(v), title: `grade ${v}: ${GRADE_TEXT[v].plain}` };
+  if (v === "A" || v === "B" || v === "C") return { label: gradeLabel(v), title: `grade ${v}: ${GRADE_PLAIN[v]}` };
   return {
     label: "No grade",
-    title: "No grade: fast movers found before the vetting ran, and every moving star and odd spectrum (only fast movers are graded).",
+    title: "No grade: fast movers found before our checks ran, and every moving star and odd spectrum (only fast movers are graded).",
   };
 }
 
@@ -154,11 +161,4 @@ export const REVIEW_TEXT: Record<ReviewState, string> = {
 export function humanize(code: string): string {
   const s = code.replace(/[_-]+/g, " ").trim();
   return s ? s[0].toUpperCase() + s.slice(1) : code;
-}
-
-/** Zones as a phrase: "the pilot zone", "the pilot and hunt zones". */
-export function zonesPhrase(zones: string[]): string {
-  if (!zones.length) return "the survey";
-  if (zones.length === 1) return `the ${zones[0]} zone`;
-  return `the ${zones.slice(0, -1).join(", ")} and ${zones[zones.length - 1]} zones`;
 }

@@ -72,7 +72,7 @@ practice round, nothing requires an account).
 | Route | Page | Owner folder |
 |---|---|---|
 | `#/` (and `#/sky/<state>`) | **Sky** (the home page): the whole SPHEREx sky as a zoomable globe, candidates as a heat map that resolves into single signals as you zoom, click one to preview its blink | `src/atlas` |
-| `#/candidates` | **To check** (objects to check): smart filters, the list, small sky map (was "Discover" at `#/`) | `src/discover` |
+| `#/candidates` | **To check** (objects to check): smart filters and the list; the same set on a sky map of its own (`…&map=1`), opened from the list (was "Discover" at `#/`) | `src/discover` |
 | `#/review` | **Review queue**: one candidate at a time, big plate, vote with keys 1–4, skip, progress; practice round first time | `src/review` |
 | `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, the check assistant, measurements, votes and consensus, report and share | `src/review` (+ `src/assist`) |
 | `#/explore` | **Blink**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
@@ -86,9 +86,10 @@ Nav: Sky, To check, Review, Blink, Live search, Community, Results, Learn. Foote
 
 **Honest names (14 Nov, 17:00).** The pipeline's list is "objects to check" (or "unvetted detections"), never
 "candidates": vetting the hunt zone's 228 fast movers found 211 resting on two dots in one session,
-most of the rest artefacts or catalogued sources, and none showing motion. Next to a count of the list,
-one plain line says what it is: "Things our pipeline couldn't explain with Gaia, WISE or a known
-asteroid. Most are detector artefacts until people check them." Only an object at consensus is a
+most of the rest artefacts or catalogued sources, and none showing motion. Under the page title,
+one plain line says what it is: "Spots in NASA's SPHEREx pictures that known stars and asteroids don't
+explain. Many are just camera glitches, so people need to look." On the page, say "camera glitch", not
+"artefact", and "we" or "our checks", not "the pipeline". Only an object at consensus is a
 "candidate" (the list for astronomers). Wherever asteroid recall appears, say what it covers: 30
 distinct known asteroids moving 10–90″/h, brighter than V 16; slower movers not checked.
 Deep links `?t=<slug>` and `?ra=&dec=` open Explore.
@@ -107,13 +108,22 @@ Each has `why` (one sentence), `reasons` (codes → plain-language chips), `scor
 - **Presets** first, as a short row of choices: "Most promising", "Needs your vote" (fewest votes),
   "Possible brown dwarfs" (high_pm, red or methane, no Gaia match), "Unknown fast movers" (mover,
   no known object within 60″), "Community says real" (consensus mover/changing).
-- **Facets**: kind; zone; detector; labels (molecules, red); evidence; caution flags (hide artefacts);
-  catalogue match (none / Gaia / CatWISE); review state (unreviewed / in review / consensus).
-- **Ranges**: score, S/N, brightness (µJy), motion (″/h or mas/yr), motion significance (pm/err),
-  distance to nearest known object, galactic latitude |b| (hide the crowded plane).
+- **Facets in view** (only these): kind; discovery type, the vetting grade (when the list carries grades); votes (unreviewed /
+  in review / consensus, and "Hide ones I voted on"); possible camera glitches (any / with / without).
+- **More filters** (one closed section, shown only with Advanced on): labels (molecules, red); why it's
+  listed; hide doubtful ones; catalogue match (Gaia / CatWISE); nearest known object; ranges for score,
+  motion significance (pm/err), motion (mas/yr, ″/h), S/N, brightness (µJy); hide the Milky Way plane
+  (|b| < 10°); detector; zone. A link with any filter still applies it, hidden control or not: its chip
+  above the list shows it and removes it.
+- **Check them individually** (`one=1`): the review queue in the list's place, on the same filters.
+  "Back to the list" above it, or the browser's Back, returns to the list.
 - **Sort**: most promising, fewest votes, most votes, brightest, fastest, newest.
 - Every filter lives in the URL (shareable, embeddable). Counts update live ("38 of 194").
-- The sky map (Aitoff, galactic or equatorial) shows the same filtered set; hover links to the list.
+- The sky map (Aitoff, galactic or equatorial) is a view of its own, opened by "See them on the sky" in the
+  list's toolbar: `#/candidates/<filter>&map=1` (`map=1` is a view, like `one=1`, never a filter), so it can be
+  shared and Back returns to the list. It shows the same filtered set full width, with a count, the filters in
+  use and "Back to the list" (same filters); a point opens its object. Close-ups go one search zone at a time,
+  from a row labelled "Search zone" (10° boxes along the ecliptic, numbered from RA 0°; plus hunt and pilot).
 
 ### Votes and consensus (Firestore `votes`, candidate_id = the candidate's id)
 Answers: mover / changing / junk / unsure. A candidate reaches **consensus** with ≥ 5 votes and

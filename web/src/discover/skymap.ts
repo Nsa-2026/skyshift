@@ -1,7 +1,8 @@
 // The sky map: Aitoff projection in SVG, equatorial or galactic, the whole sky or zoomed to the
 // candidates. Every candidate is a point shaped by kind (circle, triangle, square: colour is never
-// the only cue); the filtered set is drawn in colour, the rest as faint context. Hover, focus and
-// the list highlight the same point.
+// the only cue); the filtered set is drawn in colour, the rest as faint context. Hover and keyboard
+// focus show a point's details. It fills the To check page's map view (#/candidates/…&map=1), so its
+// height follows the window; close-ups go one search zone at a time.
 import { GRADE_TEXT, gradeLabel, gradeOf } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { formatRaDec } from "../app/astro";
@@ -12,6 +13,10 @@ const gradeCls = (c: Candidate) => (gradeOf(c) === "C" ? " is-gradec" : "");
 
 const D2R = Math.PI / 180;
 const html = String.raw;
+/** What the zone row's names are (pipeline/src/skyshift_pipeline/config.py, ecliptic_zones). */
+const ZONES_HINT = "The sky patches we searched: 10° boxes along the ecliptic, numbered from RA 0° (n1 is the box north of it).";
+/** On the whole sky, ring and name each zone only while there are this few. */
+const MAX_RINGS = 6;
 
 // ---- projection maths --------------------------------------------------------------------------
 
@@ -30,6 +35,29 @@ export function aitoff(lonDeg: number, latDeg: number, centerLon = 0): { x: numb
   const alpha = Math.acos(Math.max(-1, Math.min(1, Math.cos(phi) * Math.cos(lam / 2))));
   const sinc = alpha < 1e-12 ? 1 : Math.sin(alpha) / alpha;
   return { x: -(2 * Math.cos(phi) * Math.sin(lam / 2)) / sinc, y: Math.sin(phi) / sinc };
+}
+
+/** Invert the projection at the view centre, so the graticule follows a dragged view. */
+export function inverseAitoff(x: number, y: number, centerLon = 0): { lon: number; lat: number } {
+  let lon = -x / D2R;
+  let lat = y / D2R;
+  const limit = (v: number, max: number) => Math.max(-max, Math.min(max, v));
+  const eps = 0.0001;
+  for (let i = 0; i < 24; i++) {
+    const p = aitoff(centerLon + lon, lat, centerLon);
+    const dx = p.x - x;
+    const dy = p.y - y;
+    if (Math.hypot(dx, dy) < 1e-9) break;
+    const a = aitoff(centerLon + lon + eps, lat, centerLon);
+    const b = aitoff(centerLon + lon, lat + eps, centerLon);
+    const ax = (a.x - p.x) / eps, ay = (a.y - p.y) / eps;
+    const bx = (b.x - p.x) / eps, by = (b.y - p.y) / eps;
+    const det = ax * by - ay * bx;
+    if (Math.abs(det) < 1e-12) break;
+    lon = limit(lon - limit((dx * by - dy * bx) / det, 30), 179.999);
+    lat = limit(lat - limit((dy * ax - dx * ay) / det, 30), 89.999);
+  }
+  return { lon: centerLon + lon, lat };
 }
 
 // IAU 1958 galactic frame, J2000 rotation (ICRS → galactic).
@@ -123,6 +151,17 @@ export function glyphSvg(kind: CandidateKind, size = 12, cls = ""): string {
   return html`<svg class="kind-glyph kind-${kind} ${cls}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true" focusable="false"><path d="${glyphPath(kind, size / 2, size / 2 + (kind === "mover" ? size * 0.04 : 0), r)}"/></svg>`;
 }
 
+/** The map's own glyph (the whole-sky oval with two points), for the link that opens it. */
+export function mapGlyph(width = 18): string {
+  return html`<svg class="map-glyph" width="${width}" height="${Math.round(width * 0.6)}" viewBox="0 0 20 12" aria-hidden="true" focusable="false"><ellipse cx="10" cy="6" rx="9" ry="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1 6h18" fill="none" stroke="currentColor" stroke-width="0.9" opacity="0.45"/><circle cx="6.5" cy="3.9" r="1.5" fill="currentColor"/><circle cx="13" cy="7.9" r="1.5" fill="currentColor"/></svg>`;
+}
+
+/** A search zone's name for people: "pilot" → "Pilot", "ecl12n1" → "Ecl12 n1". */
+export function zoneLabel(zone: string): string {
+  const s = zone.replace(/^(ecl\d+)([ns]\d+)$/i, "$1 $2");
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
 // ---- the map ------------------------------------------------------------------------------------
 
 export type Frame = "eq" | "gal";
@@ -171,6 +210,18 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   let zones: string[] = [];
   let W = 0;
   let H = 0;
+  const view = { x: 0, y: 0, scale: 1 };
+  let baseK = 1;
+  let baseX = 0;
+  let baseY = 0;
+  let sceneKey = "";
+  let drawn = { k: 1, cx: 0, cy: 0 };
+  let previewFrame: number | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let gesture: { x: number; y: number; distance: number; view: typeof view; k: number } | null = null;
+  let moved = false;
+  let suppressClick = false;
 
   el.classList.add("skymap");
   el.innerHTML = html`
@@ -187,16 +238,25 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
         <button type="button" data-frame="eq" title="Equatorial: right ascension and declination">RA, Dec</button>
         <button type="button" data-frame="gal" title="Galactic: longitude l and latitude b">Galactic</button>
       </div>
-      <label class="skymap-zones" hidden><span>Zone</span><select class="skymap-zone-select" aria-label="Zone shown close up"></select></label>
+      <div class="skymap-navigation" role="group" aria-label="Map zoom">
+        <button type="button" class="btn btn-sm" data-map-action="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+        <output class="skymap-scale" aria-label="Zoom level">100%</output>
+        <button type="button" class="btn btn-sm" data-map-action="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button type="button" class="btn btn-sm" data-map-action="reset" title="Return to the selected zone or whole sky (0)">Reset view</button>
+      </div>
+      <label class="skymap-zones" title="${ZONES_HINT}" hidden><span>Search zone</span><select class="skymap-zone-select" aria-label="Search zone shown close up"></select></label>
     </div>
     <div class="skymap-plot" tabindex="0" role="group"
-      aria-roledescription="sky map" aria-describedby="skymap-help">
+      aria-roledescription="sky map" aria-describedby="skymap-help skymap-controls-help">
       <svg class="skymap-svg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
       <div class="skymap-tip" hidden></div>
     </div>
     <div class="skymap-foot">
       <svg class="skymap-loc" viewBox="0 0 100 52" width="100" height="52" aria-hidden="true"></svg>
-      <p class="skymap-caption" id="skymap-help"></p>
+      <div>
+        <p class="skymap-caption" id="skymap-help"></p>
+        <p class="skymap-help" id="skymap-controls-help">Drag to move. Scroll or pinch to zoom. Use +/− to zoom, Shift + arrows to move, and 0 to reset.</p>
+      </div>
     </div>
     <ul class="skymap-legend" aria-label="Legend"></ul>
     <p class="visually-hidden" aria-live="polite" data-live></p>
@@ -208,6 +268,84 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   const loc = el.querySelector<SVGSVGElement>(".skymap-loc")!;
   const legend = el.querySelector<HTMLUListElement>(".skymap-legend")!;
   const live = el.querySelector<HTMLParagraphElement>("[data-live]")!;
+  const zoomIn = el.querySelector<HTMLButtonElement>('[data-map-action="in"]')!;
+  const zoomOut = el.querySelector<HTMLButtonElement>('[data-map-action="out"]')!;
+  const reset = el.querySelector<HTMLButtonElement>('[data-map-action="reset"]')!;
+  const scaleLabel = el.querySelector<HTMLOutputElement>(".skymap-scale")!;
+
+  const minScale = () => zoom === "sky" ? 1 : 0.25;
+  const clampScale = (s: number) => Math.max(minScale(), Math.min(64, s));
+  const camera = () => {
+    const k = baseK * view.scale;
+    return { k, cx: W / 2 - (baseX + view.x) * k, cy: H / 2 + (baseY + view.y) * k };
+  };
+  function constrainView() {
+    // Keep the centre on the projected sky; Reset view is always available after moving.
+    let x = baseX + view.x, y = baseY + view.y;
+    const r = Math.hypot(x / Math.PI, y / (Math.PI / 2));
+    if (r > 0.999) { x *= 0.999 / r; y *= 0.999 / r; }
+    view.x = x - baseX;
+    view.y = y - baseY;
+  }
+  function updateNavigation() {
+    zoomIn.disabled = view.scale >= 64;
+    zoomOut.disabled = view.scale <= minScale();
+    reset.disabled = view.scale === 1 && Math.hypot(view.x, view.y) < 1e-9;
+    scaleLabel.value = `${Math.round(view.scale * 100)}%`;
+  }
+  function cancelPreview() {
+    if (previewFrame !== null) cancelAnimationFrame(previewFrame);
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    previewFrame = null;
+    settleTimer = null;
+  }
+  function stopGesture() {
+    pointers.clear();
+    gesture = null;
+    plot.classList.remove("is-dragging");
+  }
+  function resetView() {
+    stopGesture();
+    Object.assign(view, { x: 0, y: 0, scale: 1 });
+    setHot(null, null);
+    render();
+  }
+  function previewView() {
+    const c = camera();
+    const ratio = c.k / drawn.k;
+    const box = { x: drawn.cx - c.cx / ratio, y: drawn.cy - c.cy / ratio, width: W / ratio, height: H / ratio };
+    svg.setAttribute("viewBox", `${box.x} ${box.y} ${box.width} ${box.height}`);
+    // Reveal points beyond the old viewport while dragging, without rebuilding 11,000 marks.
+    for (const rect of svg.querySelectorAll("clipPath rect, .sm-bg")) {
+      for (const [key, value] of Object.entries(box)) rect.setAttribute(key, String(value));
+    }
+    svg.style.setProperty("--sm-point-scale", String(1 / ratio));
+  }
+  function queueView() {
+    updateNavigation();
+    if (previewFrame === null) {
+      if (typeof requestAnimationFrame === "function") {
+        previewFrame = requestAnimationFrame(() => { previewFrame = null; previewView(); });
+      } else previewView();
+    }
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    if (!pointers.size) settleTimer = setTimeout(() => { settleTimer = null; render(); }, 120);
+  }
+  function zoomAt(factor: number, x = W / 2, y = H / 2, preview = false) {
+    const scale = clampScale(view.scale * factor);
+    const ratio = scale / view.scale;
+    const { k } = camera();
+    view.x += (x - W / 2) / k * (1 - 1 / ratio);
+    view.y += (H / 2 - y) / k * (1 - 1 / ratio);
+    view.scale = scale;
+    constrainView();
+    setHot(null, null);
+    if (preview) queueView();
+    else render();
+  }
+  zoomIn.addEventListener("click", () => zoomAt(1.5));
+  zoomOut.addEventListener("click", () => zoomAt(1 / 1.5));
+  reset.addEventListener("click", resetView);
 
   const zonesEl = el.querySelector<HTMLLabelElement>(".skymap-zones")!;
   const zoneSelect = zonesEl.querySelector<HTMLSelectElement>("select")!;
@@ -226,7 +364,11 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   let nativeFullscreen = false;
 
   function closeFullscreen(restoreFocus = false) {
-    if (!placeholder.isConnected) return;
+    stopGesture();
+    if (!placeholder.isConnected) {
+      if (previewFrame !== null || settleTimer !== null) render();
+      return;
+    }
     nativeFullscreen = false;
     if (document.fullscreenElement === el) void document.exitFullscreen().catch(() => {});
     dialog.close();
@@ -304,6 +446,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   };
 
   function render() {
+    cancelPreview();
     markSegs();
     W = Math.max(1, Math.round(plot.clientWidth || 380));
     H = Math.max(1, Math.round(plot.clientHeight || W * 0.62));
@@ -313,6 +456,12 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
 
     const raw = all.map((c) => ({ c, ...coords(c) }));
     const zone = zones.length > 1 ? activeZone() : null;
+    const nextKey = `${frame}/${zoom}/${zone}`;
+    if (nextKey !== sceneKey) {
+      stopGesture();
+      Object.assign(view, { x: 0, y: 0, scale: 1 });
+      sceneKey = nextKey;
+    }
     const focus = zoom === "fit" ? raw.filter((p) => zone === null || p.c.zone === zone) : raw;
     const centerLon = zoom === "fit" && focus.length ? meanLon(focus.map((p) => p.lon)) : 0;
     const proj = raw.map((p) => ({ ...p, u: aitoff(p.lon, p.lat, centerLon) }));
@@ -348,6 +497,16 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       cx = W / 2 - ((x0 + x1) / 2) * k;
       cy = H / 2 + ((y0 + y1) / 2) * k;
     }
+    baseK = k;
+    baseX = (W / 2 - cx) / k;
+    baseY = (cy - H / 2) / k;
+    constrainView();
+    ({ k, cx, cy } = camera());
+    drawn = { k, cx, cy };
+    svg.style.removeProperty("--sm-point-scale");
+    updateNavigation();
+    const viewCenter = inverseAitoff(baseX + view.x, baseY + view.y, centerLon);
+    const closeView = zoom === "fit" || view.scale > 1.01;
     const toS = (u: { x: number; y: number }) => ({ sx: cx + u.x * k, sy: cy - u.y * k });
 
     pts = proj.map((p) => ({ c: p.c, lon: p.lon, lat: p.lat, ...toS(p.u) }));
@@ -364,17 +523,17 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
 
     // Graticule
     const visLatSpan = H / k / D2R;
-    const step = zoom === "sky" ? 30 : gratStep(visLatSpan);
-    const latC = fproj.length && zoom === "fit" ? (Math.min(...fproj.map((p) => p.lat)) + Math.max(...fproj.map((p) => p.lat))) / 2 : 0;
-    const latLo = zoom === "sky" ? -90 : Math.max(-90, latC - visLatSpan);
-    const latHi = zoom === "sky" ? 90 : Math.min(90, latC + visLatSpan);
-    const lonHalf = zoom === "sky" ? 180 : Math.min(180, (W / k / D2R) / Math.max(0.2, Math.cos(latC * D2R)));
-    const lonLo = centerLon - lonHalf;
-    const lonHi = centerLon + lonHalf;
-    const fine = zoom === "fit" ? Math.max(step / 20, 0.02) : 2;
+    const step = closeView ? gratStep(visLatSpan) : 30;
+    const latC = viewCenter.lat;
+    const latLo = closeView ? Math.max(-90, latC - visLatSpan) : -90;
+    const latHi = closeView ? Math.min(90, latC + visLatSpan) : 90;
+    const lonHalf = closeView ? Math.min(180, (W / k / D2R) / Math.max(0.2, Math.cos(latC * D2R))) : 180;
+    const lonLo = (closeView ? viewCenter.lon : centerLon) - lonHalf;
+    const lonHi = (closeView ? viewCenter.lon : centerLon) + lonHalf;
+    const fine = closeView ? Math.max(step / 20, 0.02) : 2;
     const lines: string[] = [];
     const labels: string[] = [];
-    const lonStep = zoom === "sky" ? 30 : frame === "eq" ? raStep(step) : step;
+    const lonStep = closeView ? frame === "eq" ? raStep(step) : step : 30;
     for (let L = Math.ceil(lonLo / lonStep) * lonStep; L <= lonHi + 1e-9; L += lonStep) {
       if (zoom === "sky" && Math.abs(wrap180(L - centerLon)) >= 179.9) continue;
       const seg: string[] = [];
@@ -382,10 +541,10 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       for (let b = Math.max(latLo, -89.9); b <= Math.min(latHi, 89.9) + 1e-9; b += fine) {
         const s = toS(aitoff(L, b, centerLon));
         seg.push(`${seg.length ? "L" : "M"}${s.sx.toFixed(1)},${s.sy.toFixed(1)}`);
-        if (zoom === "fit" && s.sy <= H - 6 && s.sy >= H - 30 && (!best || s.sy > best.sy)) best = s;
+        if (closeView && s.sy <= H - 6 && s.sy >= H - 30 && (!best || s.sy > best.sy)) best = s;
       }
       lines.push(seg.join(""));
-      if (zoom === "fit" && best && best.sx > 28 && best.sx < W - 28) {
+      if (closeView && best && best.sx > 28 && best.sx < W - 28) {
         const txt = frame === "eq" ? raLabel(L) : `l ${Math.round(((L % 360) + 360) % 360 * 100) / 100}°`;
         labels.push(html`<text class="sm-tick" x="${best.sx.toFixed(1)}" y="${H - 6}" text-anchor="middle">${txt}</text>`);
       }
@@ -394,14 +553,17 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       if (zoom === "sky" && Math.abs(B) >= 90) continue;
       const seg: string[] = [];
       let best: { sx: number; sy: number } | null = null;
-      const lstep = zoom === "fit" ? Math.max(lonHalf / 120, 0.01) : 2;
+      const lstep = closeView ? Math.max(lonHalf / 120, 0.01) : 2;
+      let previousX: number | null = null;
       for (let L = lonLo; L <= lonHi + 1e-9; L += lstep) {
-        const s = toS(aitoff(zoom === "sky" ? Math.min(L, centerLon + 179.99) : L, B, centerLon));
-        seg.push(`${seg.length ? "L" : "M"}${s.sx.toFixed(1)},${s.sy.toFixed(1)}`);
-        if (zoom === "fit" && s.sx >= 4 && (!best || s.sx < best.sx)) best = s;
+        const s = toS(aitoff(closeView ? L : Math.min(L, centerLon + 179.99), B, centerLon));
+        const connected = previousX !== null && Math.abs(s.sx - previousX) < Math.PI * k;
+        seg.push(`${connected ? "L" : "M"}${s.sx.toFixed(1)},${s.sy.toFixed(1)}`);
+        previousX = s.sx;
+        if (closeView && s.sx >= 4 && (!best || s.sx < best.sx)) best = s;
       }
       lines.push(seg.join(""));
-      if (zoom === "fit" && best && best.sy > 14 && best.sy < H - 24) {
+      if (closeView && best && best.sy > 14 && best.sy < H - 24) {
         const txt = frame === "eq" ? latLabel(B, step < 1) : `b ${latLabel(B, step < 1)}`;
         labels.push(html`<text class="sm-tick" x="6" y="${(best.sy - 4).toFixed(1)}">${txt}</text>`);
       }
@@ -423,19 +585,20 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       if (p) marks.push(html`<path class="sm-pt kind-${p.c.kind}${gradeCls(p.c)}" d="${glyphPath(p.c.kind, p.sx, p.sy, rr)}"/>`);
     }
     parts.push(`<g class="sm-pts">${marks.join("")}</g>`);
-    if (zoom === "sky") parts.push(zoneRings(pts));
+    // A few far-apart zones get a ring and a name; a run of them along the ecliptic shows by its points.
+    if (zoom === "sky" && zones.length <= MAX_RINGS) parts.push(zoneRings(pts));
     parts.push(`<g class="sm-hot"></g>`);
     parts.push(labels.join(""));
     parts.push(`</g>`);
 
     svg.innerHTML = parts.join("");
-    loc.innerHTML = zoom === "fit" && fproj.length ? locator(frame, fproj) : "";
+    loc.innerHTML = closeView && fproj.length ? locator(frame, [viewCenter]) : "";
     loc.style.display = loc.innerHTML ? "" : "none";
 
     const spanDeg = Math.round((W / k / D2R) * 10) / 10;
     caption.textContent =
-      zoom === "fit"
-        ? `${zone ? `The ${zone} zone` : "Zoomed to the objects to check"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
+      closeView
+        ? `${zoom === "fit" && zone ? `Search zone ${zoneLabel(zone)}` : "Zoomed to the objects to check"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
         : "The whole sky, north up, east left. The shaded band is the Milky Way plane, where stars crowd.";
     renderLegend();
     drawHot();
@@ -450,9 +613,10 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       const cx = ps.reduce((a, p) => a + p.sx, 0) / ps.length;
       const cy = ps.reduce((a, p) => a + p.sy, 0) / ps.length;
       const r = Math.min(40, Math.max(...ps.map((p) => Math.hypot(p.sx - cx, p.sy - cy))) + 8);
-      const right = cx + r + 4 + zone.length * 6.5 < W;
+      const name = zoneLabel(zone);
+      const right = cx + r + 4 + name.length * 6.5 < W;
       out.push(
-        html`<circle class="sm-zone" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"/><text class="sm-zone-name" x="${(right ? cx + r + 4 : cx - r - 4).toFixed(1)}" y="${(cy + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${escAttr(zone[0]?.toUpperCase() + zone.slice(1))}</text>`,
+        html`<circle class="sm-zone" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"/><text class="sm-zone-name" x="${(right ? cx + r + 4 : cx - r - 4).toFixed(1)}" y="${(cy + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${escAttr(name)}</text>`,
       );
     }
     return out.join("");
@@ -517,7 +681,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     if (outside) {
       const n = document.createElement("p");
       n.className = "sm-tip-note";
-      n.textContent = zones.length > 1 ? `In the ${p.c.zone} zone, outside this close-up.` : "Outside this view.";
+      n.textContent = zones.length > 1 ? `In search zone ${zoneLabel(p.c.zone)}, outside this close-up.` : "Outside this view.";
       tip.append(n);
     } else if (!filteredSet.has(p.c.id)) {
       const n = document.createElement("p");
@@ -546,6 +710,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   }
 
   function setHot(id: string | null, from: "map" | "list" | null) {
+    if (id === null) plot.classList.remove("is-point");
     if (hot === id && hotFrom === from) return;
     hot = id;
     hotFrom = id ? from : null;
@@ -572,16 +737,70 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const r = svg.getBoundingClientRect();
     return { x: ((ev.clientX - r.left) / (r.width || W)) * W, y: ((ev.clientY - r.top) / (r.height || H)) * H };
   };
+  const pointerCentre = () => {
+    const [a, b] = [...pointers.values()];
+    return b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(b.x - a.x, b.y - a.y) }
+      : { x: a.x, y: a.y, distance: 0 };
+  };
+  function beginGesture() {
+    gesture = { ...pointerCentre(), view: { ...view }, k: camera().k };
+  }
+  plot.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    if (previewFrame !== null || settleTimer !== null) render();
+    if (!pointers.size) { moved = false; suppressClick = false; }
+    pointers.set(ev.pointerId, local(ev));
+    plot.setPointerCapture?.(ev.pointerId);
+    plot.focus({ preventScroll: true });
+    if (pointers.size > 1) { moved = true; suppressClick = true; }
+    beginGesture();
+  });
   plot.addEventListener("pointermove", (ev) => {
     const { x, y } = local(ev);
+    if (pointers.has(ev.pointerId) && gesture) {
+      pointers.set(ev.pointerId, { x, y });
+      const centre = pointerCentre();
+      if (!moved && Math.hypot(centre.x - gesture.x, centre.y - gesture.y) < 4) return;
+      moved = true;
+      suppressClick = true;
+      plot.classList.add("is-dragging");
+      const scale = clampScale(gesture.view.scale * (gesture.distance > 0 ? centre.distance / gesture.distance : 1));
+      const ratio = scale / gesture.view.scale;
+      view.scale = scale;
+      view.x = gesture.view.x + ((gesture.x - W / 2) - (centre.x - W / 2) / ratio) / gesture.k;
+      view.y = gesture.view.y + ((H / 2 - gesture.y) - (H / 2 - centre.y) / ratio) / gesture.k;
+      constrainView();
+      setHot(null, null);
+      queueView();
+      return;
+    }
+    if (pointers.size || previewFrame !== null || settleTimer !== null) return;
     const p = nearest(x, y);
-    plot.style.cursor = p ? "pointer" : "";
+    plot.classList.toggle("is-point", !!p);
     setHot(p ? p.c.id : null, p ? "map" : null);
   });
+  const endPointer = (ev: PointerEvent) => {
+    if (!pointers.delete(ev.pointerId)) return;
+    if (plot.hasPointerCapture?.(ev.pointerId)) plot.releasePointerCapture(ev.pointerId);
+    if (moved || previewFrame !== null || settleTimer !== null) render();
+    if (pointers.size) beginGesture();
+    else { gesture = null; plot.classList.remove("is-dragging"); }
+  };
+  plot.addEventListener("pointerup", endPointer);
+  plot.addEventListener("pointercancel", endPointer);
+  plot.addEventListener("lostpointercapture", endPointer);
+  plot.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const { x, y } = local(ev);
+    const delta = ev.deltaY * (ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? H : 1);
+    zoomAt(Math.exp(-Math.max(-0.7, Math.min(0.7, delta * 0.002))), x, y, true);
+  }, { passive: false });
   plot.addEventListener("pointerleave", () => {
     if (hotFrom === "map") setHot(null, null);
   });
   plot.addEventListener("click", (ev) => {
+    if (suppressClick) { suppressClick = false; return; }
+    if (previewFrame !== null || settleTimer !== null) render();
     const { x, y } = local(ev);
     const p = nearest(x, y);
     if (p) {
@@ -590,6 +809,26 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     }
   });
   plot.addEventListener("keydown", (ev) => {
+    if (ev.key === "+" || ev.key === "=" || ev.key === "-" || ev.key === "_") {
+      ev.preventDefault();
+      zoomAt(ev.key === "+" || ev.key === "=" ? 1.5 : 1 / 1.5);
+      return;
+    }
+    if (ev.key === "0" || ev.key === "Home") {
+      ev.preventDefault();
+      resetView();
+      return;
+    }
+    if (ev.shiftKey && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) {
+      ev.preventDefault();
+      const { k } = camera();
+      view.x += (ev.key === "ArrowLeft" ? -40 : ev.key === "ArrowRight" ? 40 : 0) / k;
+      view.y += (ev.key === "ArrowDown" ? -40 : ev.key === "ArrowUp" ? 40 : 0) / k;
+      constrainView();
+      setHot(null, null);
+      render();
+      return;
+    }
     if (!filtered.length) return;
     const i = hot ? filtered.indexOf(hot) : -1;
     if (ev.key === "ArrowRight" || ev.key === "ArrowDown") {
@@ -645,7 +884,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       byIdAll = new Map(next.map((c) => [c.id, c]));
       zones = [...new Set(next.map((c) => c.zone))].sort();
       zoneSelect.innerHTML = zones
-        .map((z) => html`<option value="${escAttr(z)}">${escAttr(z[0]?.toUpperCase() + z.slice(1))}</option>`)
+        .map((z) => html`<option value="${escAttr(z)}">${escAttr(zoneLabel(z))}</option>`)
         .join("");
       render();
     },
@@ -662,6 +901,8 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     closeFullscreen,
     destroy() {
       ro?.disconnect();
+      cancelPreview();
+      stopGesture();
       closeFullscreen();
       document.removeEventListener("fullscreenchange", onFullscreenChange);
       el.innerHTML = "";
