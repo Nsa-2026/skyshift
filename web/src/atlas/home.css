@@ -2,7 +2,8 @@
    The sentence, the search box and Adjust float top left, under the header; the status line and the
    zoom bottom left and right, all inside the map's gutter. As the sky zooms in, the header and these
    panels fade (focus.ts) and one button brings them back. The key and the list wait below. */
-.atl {position:relative;}
+/* The full-width map must not enlarge the grid column used by the content below it. */
+.atl {position:relative;grid-template-columns:minmax(0,1fr);}
 .atl [hidden] {display:none!important;}
 
 /* --atl-left and --atl-vw come from where the page sits (measure() in index.ts), so the map reaches
