@@ -185,6 +185,14 @@ export function densifyRing(ring: readonly [number, number][], stepDeg = 0.5): [
 
 /** "Hunt zone"; "Hunt and pilot zones"; "Hunt, pilot and ecl13 zones". */
 export function areaName(a: Pick<ZoneArea, "zones">): string {
+  // Run zones (ecl…) are internal names: counted, never named.
+  const run = a.zones.filter((z) => /^ecl/i.test(z)).length;
+  const named = a.zones.filter((z) => !/^ecl/i.test(z));
+  if (run) {
+    const more = `${run} ${run === 1 ? "searched area" : "searched areas"}`;
+    if (!named.length) return more.charAt(0).toUpperCase() + more.slice(1);
+    return `${areaName({ zones: named })} and ${more}`;
+  }
   const names = a.zones.map((z) => zoneName(z).replace(/ zone$/, ""));
   if (names.length === 1) return `${names[0]} zone`;
   const rest = names.slice(1).map((s) => s.charAt(0).toLowerCase() + s.slice(1));

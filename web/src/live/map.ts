@@ -159,7 +159,8 @@ const STATE_WORDS: Record<SkyZone["state"], string> = {
 };
 
 export function zoneTitle(z: Pick<SkyZone, "name">): string {
-  return z.name === "hunt" ? "Hunt zone" : `Zone ${z.name}`;
+  // Run zones (ecl…) are internal names: the public sees "Area of sky", the panel says where it is.
+  return z.name === "hunt" ? "Hunt zone" : z.name === "pilot" ? "Pilot zone" : "Area of sky";
 }
 
 /** What a screen reader hears on a zone. */
