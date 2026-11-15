@@ -827,7 +827,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     document.documentElement.classList.toggle("sky-colour", !layers.negative);
   }
 
+  /**
+   * The tour is what the whole sky does when nobody has asked for anything in particular. It
+   * must never run when the page was opened at a position: a pasted coordinate, a link to a
+   * zone, a candidate's own view. Flying that person to Barnard's Star would throw away the
+   * very thing they came to look at.
+   */
   function tourShouldRun(): boolean {
+    if (parseState(requestedParam)) return false;
     return visible && !reduced && !selected && !pinPos && !document.hidden;
   }
 

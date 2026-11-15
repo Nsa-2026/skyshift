@@ -240,6 +240,7 @@
   .nav {gap:var(--s1);font-size:.875rem;overflow-x:auto;scrollbar-width:none;}
   .nav::-webkit-scrollbar {display:none;}
   .nav a {flex:0 0 auto;padding-inline:2px;}
+}
 
 /* ---- arriving at a page ----
    Routes used to cut: the old page vanished and the new one was simply there, which is hardest

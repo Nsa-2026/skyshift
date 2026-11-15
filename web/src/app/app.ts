@@ -473,11 +473,6 @@ export function startApp(root: HTMLElement): void {
       (entering as HTMLElement).classList.add("is-entering");
     }
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
-    const navKey = page === "candidate" ? "review" : page;
-    root.querySelectorAll<HTMLAnchorElement>(".nav a").forEach((a) =>
-      a.dataset.route === navKey ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
-    );
-    if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
       if(!practicing){
