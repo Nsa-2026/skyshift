@@ -1,9 +1,9 @@
 import { wholeFov } from './zoom';
 
-/** Fade from the first zoom movement; a 2× zoom clears the viewing chrome. */
+/** Fade as soon as zooming starts; a 1.3× zoom clears the viewing chrome. */
 export function chromeOpacity(fov: number, mol: boolean): number {
   if (!Number.isFinite(fov) || fov <= 0) return 1;
-  const start = wholeFov(mol) / 1.05, end = wholeFov(mol) / 2;
+  const start = wholeFov(mol), end = wholeFov(mol) / 1.3;
   if (fov >= start) return 1;
   if (fov <= end) return 0;
   const t = Math.log(fov / end) / Math.log(start / end);
