@@ -62,7 +62,11 @@ MAX_PER_EPOCH = 250
 EXTRACTED_MAX_PER_EPOCH = 400
 SHIFT_MIN_SNR = 3.0
 MAX_SHIFTS = 300
-MONTHS_MAX_PHOTOS_PER_VISIT = 12  # dot files read per visit epoch (spread over the visit)
+# Dot files read per visit epoch: every photo of the visit in the response (contracts/api.md: "the dots of that visit's
+# photos in this response"), spread over the visit only beyond this. Live stacks hold 6 photos (blink.LIVE_PER_VISIT);
+# the static ones every exposure of the visit (43 at most in web/public/data on 15 Nov). It was 12: a source dotted only
+# in the skipped photos of a 19-photo visit had no detection although the plate (all 19) shows it.
+MONTHS_MAX_PHOTOS_PER_VISIT = 64
 ZONES_TTL_S = 300.0
 # Zones not in skyrun/progress.json, looked for by name (results/<name>/summary.json) in case the folder
 # listing misses them: the pilot, the test fields and the featured targets' zones (pipeline config.ZONES).
@@ -961,8 +965,8 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
 
 
 def _photos_of(meta: dict, epoch_keys: dict[str, list[str]]) -> dict[str, list[str]]:
-    """Photo keys per epoch: as given, hours epochs from their id, at most MONTHS_MAX_PHOTOS_PER_VISIT
-    a visit (spread over it)."""
+    """Photo keys per epoch: as given (a visit: all of them up to MONTHS_MAX_PHOTOS_PER_VISIT, then spread over
+    it), hours epochs from their id."""
     photos: dict[str, list[str]] = {}
     for ep in meta.get("epochs") or []:
         keys = epoch_keys.get(ep["id"])

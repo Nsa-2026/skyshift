@@ -397,8 +397,31 @@ def test_photo_keys_and_exposure_ids():
     assert M._key_of_exposure("d2-2025W42_2A_0213_1") == "2025W42_2A_0213_1D2"
     assert M._key_of_exposure("d2-v1") == "v1D2" and M._key_of_exposure("x") is None
     meta = _months_meta()
-    keys = M.photo_keys({"d2-v1": [f"O{i}D2" for i in range(30)], "d2-v2": ["P1D2"]}, meta)
-    assert len(keys) == M.MONTHS_MAX_PHOTOS_PER_VISIT + 1 and keys[0] == "O0D2" and "O29D2" in keys
+    # every photo of a visit (a static stack holds 18-43), spread over it only beyond the cap
+    keys = M.photo_keys({"d2-v1": [f"O{i}D2" for i in range(43)], "d2-v2": ["P1D2"]}, meta)
+    assert keys == [f"O{i}D2" for i in range(43)] + ["P1D2"]
+    n = M.MONTHS_MAX_PHOTOS_PER_VISIT
+    keys = M.photo_keys({"d2-v1": [f"O{i}D2" for i in range(3 * n)], "d2-v2": ["P1D2"]}, meta)
+    assert len(keys) == n + 1 and keys[0] == "O0D2" and f"O{3 * n - 1}D2" in keys
+
+
+def test_months_reads_every_photo_of_the_visit(root):
+    """A faint source dotted in 1 of a visit's 19 photos is a detection of that visit (the plate stacks all 19). With 12
+    dot files a visit (spread), photo 1 was never read and the source had no circle."""
+    d = Path(root) / "dots"
+    keys = [f"V{i:02d}D2" for i in range(19)]
+    for i, k in enumerate(keys):
+        pts = [(off(0.3, 0, *S1), 200.0, 0, 0)]
+        if i == 1:
+            pts.append((off(0, 0.4, *S2), 5.5, 0, 0))
+        _dots(d / f"{k}.parquet", T1 + i * 0.1, pts)
+    meta = {**_months_meta(), "epochs": [{"id": "d2-v1", "kind": "visit", "mjd_mid": T1 + 0.9, "det": 2}]}
+    m, reason = M.build(meta, {"d2-v1": keys}, root=root)
+    assert reason is None and (m["photos"], m["photos_missing"]) == (19, 0)
+    got = {x["source_id"]: x for x in m["detections"]}
+    assert got[111]["n_dots"] == 19 and got[111]["class"] == "star"
+    assert got[222]["n_dots"] == 1 and got[222]["snr"] == pytest.approx(5.5, abs=0.05)
+    assert "V01D2" not in M._spread(keys, 12)  # what the old cap of 12 read
 
 
 def test_fragments_tags_v3_11(root):

@@ -7,6 +7,7 @@ exporter (pipeline: `uv run skyshift-candidates`) has written web/public/data/ca
     uv run python ../scripts/candidates/frames.py                  # mover=25,high_pm=20,spectral=15,shape=15
     uv run python ../scripts/candidates/frames.py --top mover=5,high_pm=0,spectral=0,shape=0 --dry-run
     uv run python ../scripts/candidates/frames.py --known-only           # only known[] again (MPC)
+    uv run python ../scripts/candidates/frames.py --measured-only [--clock hours|months]  # only measured again
 
 For each kind, the candidates with the highest `score` (any zone) get frames, and so does every mover
 of grade A or B, whatever `--top` says (they are few, and /api/frames has no time parameter: a live
@@ -271,36 +272,14 @@ def refresh_known(cand_dir: Path, cache: Cache) -> None:
     log.info("known[] recomputed in %d frames files", len(new))
 
 
-STATIC_KEEP = 40  # star and other detections kept per epoch (all other classes kept)
-
-
-def trim_measured(meta: dict, keep: int = STATIC_KEEP) -> dict:
-    """Static cap on `measured.detections` (contracts/api.md: at most 250 an epoch, `truncated` true
-    when capped, `counts` the totals before the cap): every known, mover, suspect and artifact, then
-    the `keep` highest-S/N star and other detections of each epoch. Keeps cand/ small for the site."""
-    m = meta.get("measured")
-    if not m or not m.get("detections"):
-        return meta
-    seen: dict[str, int] = {}
-    out = []
-    for d in sorted(m["detections"], key=lambda d: (d["epoch_id"], -(d.get("snr") or 0.0))):
-        if d.get("class") in ("star", "other"):
-            n = seen.get(d["epoch_id"], 0)
-            if n >= keep:
-                continue
-            seen[d["epoch_id"]] = n + 1
-        out.append(d)
-    if len(out) < len(m["detections"]):
-        m["detections"], m["truncated"] = out, True
-    return meta
-
-
-def refresh_measured(cand_dir: Path, cands: list[dict], cache: Cache) -> None:
+def refresh_measured(cand_dir: Path, cands: list[dict], cache: Cache, clock: str | None = None) -> None:
     """Only `measured` and `measured_reason` again in every cand/<id>/frames.json (server measured.py,
-    results/<zone>/ and dots/), with the candidate's zone. Every file is computed before any is
-    written; a read failure ("unavailable") stops and nothing is written.
+    results/<zone>/ and dots/), with the candidate's zone; `clock` ("hours" or "months"): only the files of
+    that clock. Every file is computed before any is written; a read failure ("unavailable") stops and
+    nothing is written. The detections are written as measured.py gives them: the contract's cap (250 an
+    epoch, measured.MAX_PER_EPOCH) and no tighter one, so every star the plate shows keeps its circle.
 
-        cd server && uv run python ../scripts/candidates/frames.py --measured-only
+        cd server && uv run python ../scripts/candidates/frames.py --measured-only [--clock hours]
     """
     from precompute import months_keys
     from skyshift_server import measured
@@ -309,12 +288,14 @@ def refresh_measured(cand_dir: Path, cands: list[dict], cache: Cache) -> None:
     new: dict[Path, dict] = {}
     for path in sorted(cand_dir.glob("*/frames.json")):
         meta = json.loads(path.read_text())
+        if clock and meta["clock"] != clock:
+            continue
         keys = months_keys(meta, cache) if meta["clock"] == "months" else {}
         m, why = measured.build(meta, keys, zone=zone_of.get(path.parent.name))
         if why == "unavailable":
             raise RuntimeError(f"{path.parent.name}: the measured layer could not be read; nothing written")
         meta["measured"], meta["measured_reason"] = m, why
-        new[path] = trim_measured(meta)
+        new[path] = meta
         log.info("%s: measured %s", path.parent.name,
                  f"zone {m['zone']} ({m['stage']}): {m['counts']}, {len(m['tracks'])} tracks, {len(m['shifts'])} shifts, "
                  f"{m['photos']} photos ({m['photos_missing']} missing)" if m else why)
@@ -342,6 +323,8 @@ def main() -> int:
                     help="recompute only known[] of the existing cand/<id>/frames.json (MPC) and stop")
     ap.add_argument("--measured-only", action="store_true",
                     help="recompute only measured of the existing cand/<id>/frames.json (results/, dots/) and stop")
+    ap.add_argument("--clock", choices=("hours", "months"),
+                    help="with --measured-only: only the frames files of this clock")
     ap.add_argument("--cache", help="cache folder or gs:// (default: SKYSHIFT_CACHE or ~/.cache/skyshift)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
@@ -354,7 +337,7 @@ def main() -> int:
         refresh_known(out / "cand", Cache(a.cache))
         return 0
     if a.measured_only:
-        refresh_measured(out / "cand", json.loads(path.read_text())["candidates"], Cache(a.cache))
+        refresh_measured(out / "cand", json.loads(path.read_text())["candidates"], Cache(a.cache), a.clock)
         return 0
     doc = json.loads(path.read_text())
     top = {k: int(v) for k, v in (x.split("=") for x in a.top.split(",") if x)}
