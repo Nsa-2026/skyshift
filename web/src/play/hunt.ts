@@ -13,16 +13,16 @@ type Options={
   complete:()=>void;
 };
 export function mountHunt(host:HTMLElement,options:Options){
-  host.innerHTML=`<div class="hunt-mission"><span class="hunt-phase">① 搜寻</span><span class="hunt-stage-trail">② 跟踪三次</span><span class="hunt-stage-found">③ 收集</span></div>
-    <h2 class="guide-heading" tabindex="-1">这片星空里，谁偷偷动了？</h2><p class="guide-instruction">拖动地图找一找，放大后点一颗可疑的星。</p>
-    <div class="hunt-map"><canvas class="hunt-canvas" tabindex="0" role="img" aria-label="可拖动缩放的真实星空地图。方向键移动视野，加减号缩放，空格换照片，回车标记视野中心。"></canvas>
+  host.innerHTML=`<div class="hunt-mission"><span class="hunt-phase">① Search</span><span class="hunt-stage-trail">② Follow three times</span><span class="hunt-stage-found">③ Collect</span></div>
+    <h2 class="guide-heading" tabindex="-1">What moved in this field?</h2><p class="guide-instruction">Pan and zoom, then select a star to follow.</p>
+    <div class="hunt-map"><canvas class="hunt-canvas" tabindex="0" role="img" aria-label="Real sky map. Use arrow keys to pan, plus and minus to zoom, Space to change observations, and Enter to mark the centre."></canvas>
       <div class="hunt-map-label"><span class="hunt-area"></span><span class="hunt-zoom"></span></div>
-      <div class="hunt-zoom-controls"><button class="hunt-in" aria-label="放大地图">＋</button><button class="hunt-out" aria-label="缩小地图">−</button><button class="hunt-reset">全图</button></div>
-      <div class="hunt-overview"><canvas class="hunt-mini" aria-label="全图导航，点击可移动视野"></canvas><span>全图 · 点这里跳转</span></div>
-      <div class="hunt-map-prompt">拖动找星 · 滚轮 / ＋ 放大</div><div class="hunt-win" hidden>✦ 跟住它了！</div>
+      <div class="hunt-zoom-controls"><button class="hunt-in" aria-label="Zoom in">＋</button><button class="hunt-out" aria-label="Zoom out">−</button><button class="hunt-reset">Full field</button></div>
+      <div class="hunt-overview"><canvas class="hunt-mini" aria-label="Field overview. Select a position to move the view."></canvas><span>Overview. Select to navigate.</span></div>
+      <div class="hunt-map-prompt">Pan to search. Scroll or use + to zoom.</div><div class="hunt-win" hidden>✦ You followed it!</div>
     </div>
-    <div class="hunt-tools"><button class="hunt-play" aria-pressed="false">▶ 来回对比</button><div class="hunt-frames" aria-label="三次真实观测"></div>${options.changeNight?'<button class="hunt-night" role="switch" aria-label="红外夜视" aria-checked="false">☾ 打开夜视</button>':''}</div>
-    <div class="hunt-bottom"><p class="hunt-date"></p><button class="hunt-retry" hidden>← 换一颗找找</button></div><p class="hunt-trail-note" aria-live="polite"></p>`;
+    <div class="hunt-tools"><button class="hunt-play" aria-pressed="false">▶ Compare observations</button><div class="hunt-frames" aria-label="Three real observations"></div>${options.changeNight?'<button class="hunt-night" role="switch" aria-label="Infrared vision" aria-checked="false">☾ Switch on infrared vision</button>':''}</div>
+    <div class="hunt-bottom"><p class="hunt-date"></p><button class="hunt-retry" hidden>← Try another star</button></div><p class="hunt-trail-note" aria-live="polite"></p>`;
   const $=<T extends HTMLElement=HTMLElement>(s:string)=>host.querySelector<T>(s)!;
   let observations=options.observations,night=options.night,frame=0,phase:'search'|'follow'|'found'='search',selected:Point|undefined;
   let world:Size={width:observations[0].set.frames.size[0],height:observations[0].set.frames.size[1]},screen:Size={width:800,height:500};
@@ -36,8 +36,8 @@ export function mountHunt(host:HTMLElement,options:Options){
   function prepare(){
     const limits=displayLimits(observations);images=observations.map(o=>{const c=document.createElement('canvas');drawObservation(c,o,limits);return c});
     world={width:images[0].width,height:images[0].height};
-    $('.hunt-frames').innerHTML=observations.map((_,i)=>`<button data-frame="${i}" aria-pressed="${frame===i}"><span>${i+1}</span><small>照片 ${i+1}</small></button>`).join('');
-    $('.hunt-area').textContent=`真实星空 · ${Math.round(world.width*observations[0].set.frames.pixel_arcsec/60)}′ 天区`;
+    $('.hunt-frames').innerHTML=observations.map((_,i)=>`<button data-frame="${i}" aria-pressed="${frame===i}"><span>${i+1}</span><small>Visit ${i+1}</small></button>`).join('');
+    $('.hunt-area').textContent=`Real sky · ${Math.round(world.width*observations[0].set.frames.pixel_arcsec/60)}′ field`;
   }
   function local(event:PointerEvent|WheelEvent){const r=canvas.getBoundingClientRect();return {x:event.clientX-r.left,y:event.clientY-r.top}}
   function inMap(p:Point){return p.x>=0&&p.y>=0&&p.x<world.width&&p.y<world.height}
@@ -67,13 +67,13 @@ export function mountHunt(host:HTMLElement,options:Options){
       const box=hintBox(),p=toScreen(box,camera,world,screen);ctx.fillStyle='#a35f0012';ctx.fillRect(p.x,p.y,box.width*scale,box.height*scale);ctx.strokeStyle='#a35f00';ctx.setLineDash([8,6]);ctx.strokeRect(p.x,p.y,box.width*scale,box.height*scale);ctx.setLineDash([]);
     }
     const ring=(point:Point,colour:string,label:string)=>{const p=toScreen(point,camera,world,screen);ctx.strokeStyle=colour;ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,14,0,Math.PI*2);ctx.stroke();ctx.fillStyle=colour;ctx.fillText(label,p.x+19,p.y-10)};
-    rejected.forEach(p=>ring(p,'#747a8488','已试过'));
+    rejected.forEach(p=>ring(p,'#747a8488','Already tried'));
     marks.forEach((p,i)=>ring(p,phase==='found'?'#1f7a4d':'#2556c8',String(i+1)));
-    if(selected)ring(selected,phase==='found'?'#1f7a4d':'#a35f00',phase==='search'?'可疑位置':phase==='found'?'跟踪成功':'待记录');
+    if(selected)ring(selected,phase==='found'?'#1f7a4d':'#a35f00',phase==='search'?'Selected point':phase==='found'?'Followed':'Ready to mark');
     if(keyboard){ctx.strokeStyle='#cf2338';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(screen.width/2-8,screen.height/2);ctx.lineTo(screen.width/2+8,screen.height/2);ctx.moveTo(screen.width/2,screen.height/2-8);ctx.lineTo(screen.width/2,screen.height/2+8);ctx.stroke()}
     ctx.restore();
     $('.hunt-zoom').textContent=`${camera.zoom.toFixed(1)}×`;
-    $('.hunt-date').textContent=`照片 ${frame+1} / ${observations.length} · ${dateLabel(observations[frame].epoch.mjd_mid)}${night&&options.changeNight?' · 夜视已开':''}`;
+    $('.hunt-date').textContent=`Observation ${frame+1} of ${observations.length} · ${dateLabel(observations[frame].epoch.mjd_mid)}${night&&options.changeNight?' · Infrared vision on':''}`;
     host.querySelectorAll<HTMLButtonElement>('[data-frame]').forEach(b=>{const i=Number(b.dataset.frame);b.setAttribute('aria-pressed',String(frame===i));b.disabled=phase!=='search'||busy;b.classList.toggle('recorded',marks.some(m=>m.epoch===observations[i].epoch.id))});
     drawOverview();
   }
@@ -86,46 +86,46 @@ export function mountHunt(host:HTMLElement,options:Options){
   function controls(){
     const following=phase==='follow',found=phase==='found';
     $('.hunt-phase').classList.toggle('current',phase==='search');$('.hunt-stage-trail').classList.toggle('current',following);$('.hunt-stage-found').classList.toggle('current',found);
-    $('.hunt-stage-trail').textContent=following?`② 跟踪 ${marks.length} / ${observations.length}`:'② 跟踪三次';
-    $('.guide-heading').textContent=found?'三张照片，都跟住了。':following?`再找出照片 ${frame+1} 里的同一颗星。`:options.target.slug==='wise0855'?'打开夜视，搜出藏起来的星。':['rwaur','rdra'].includes(options.target.slug)?'这片星空里，谁在改变亮暗？':'这片星空里，谁偷偷动了？';
-    $('.guide-instruction').textContent=found?'这次，是你从一整片星空里把它找了出来。':following?'点它现在的位置，留下一个脚印。':'拖动地图找一找，放大后点一颗可疑的星。';
+    $('.hunt-stage-trail').textContent=following?`② Follow ${marks.length} of ${observations.length}`:'② Follow three times';
+    $('.guide-heading').textContent=found?'You found it in all three observations.':following?`Find the same star in observation ${frame+1}.`:options.target.slug==='wise0855'?'Switch on infrared vision and find the hidden star.':['rwaur','rdra'].includes(options.target.slug)?'What changes brightness in this field?':'What moved in this field?';
+    $('.guide-instruction').textContent=found?'You found a known target in a whole field of stars.':following?'Select its position to leave a mark.':'Pan and zoom, then select a star to follow.';
     $('.hunt-win').hidden=!found;$('.hunt-retry').hidden=!following;
-    $('.hunt-map-prompt').textContent=following?'点星星，留下位置 · 可拖动 / 放大':found?'✦ 已在三次观测中找回目标':'拖动找星 · 滚轮 / ＋ 放大';
-    $('.hunt-trail-note').textContent=following?`${'● '.repeat(marks.length)}${'○ '.repeat(observations.length-marks.length)} 每张照片都要重新找到它。`:phase==='search'?'点中只是线索，跟住三张照片才算找到。':'';
-    const play=$<HTMLButtonElement>('.hunt-play');play.disabled=phase!=='search'||busy;play.textContent=reduced()?'↔ 换一张':timer?'Ⅱ 暂停对比':'▶ 来回对比';play.setAttribute('aria-pressed',String(!!timer));
-    const nightButton=$<HTMLButtonElement>('.hunt-night');if(nightButton){nightButton.disabled=phase!=='search'||busy;nightButton.setAttribute('aria-checked',String(night));nightButton.textContent=busy?'夜视切换中…':night?'☾ 夜视已开':'☾ 打开夜视'}
-    options.help(hints<2?`✧ 给我一点线索${hints?'（再缩小范围）':''}`:'线索已缩到最小范围',hint,hints>=2||found||busy);
-    if(found)options.action('收进我的星空 ✦',options.complete);
-    else if(following)options.action(selected?(frame===observations.length-1?'核对三个脚印 →':'留下脚印，看下一张 →'):'点出这张照片里的同一颗星',record,!selected);
-    else options.action(busy?'正在切换照片…':options.changeNight&&!night?'先打开夜视，再找星星':selected?'跟踪这颗星 →':'先在地图上选一颗可疑的星',follow,!selected||busy||!!options.changeNight&&!night);
+    $('.hunt-map-prompt').textContent=following?'Mark the star. Pan or zoom as needed.':found?'✦ Found in three observations':'Pan to search. Scroll or use + to zoom.';
+    $('.hunt-trail-note').textContent=following?`${'● '.repeat(marks.length)}${'○ '.repeat(observations.length-marks.length)} Find it again in each observation.`:phase==='search'?'One selection is a clue. Follow the star in all three observations to complete the hunt.':'';
+    const play=$<HTMLButtonElement>('.hunt-play');play.disabled=phase!=='search'||busy;play.textContent=reduced()?'↔ Next observation':timer?'Ⅱ Pause comparison':'▶ Compare observations';play.setAttribute('aria-pressed',String(!!timer));
+    const nightButton=$<HTMLButtonElement>('.hunt-night');if(nightButton){nightButton.disabled=phase!=='search'||busy;nightButton.setAttribute('aria-checked',String(night));nightButton.textContent=busy?'Switching infrared bands…':night?'☾ Infrared vision on':'☾ Switch on infrared vision'}
+    options.help(hints<2?`✧ Show a clue${hints?' (a closer look)':''}`:'The closest clue is shown',hint,hints>=2||found||busy);
+    if(found)options.action('Add to my collection ✦',options.complete);
+    else if(following)options.action(selected?(frame===observations.length-1?'Check all three positions →':'Mark it and continue →'):'Select the same star in this observation',record,!selected);
+    else options.action(busy?'Switching observations…':options.changeNight&&!night?'Switch on infrared vision first':selected?'Follow this star →':'Select a star on the map first',follow,!selected||busy||!!options.changeNight&&!night);
   }
   function hint(){
     if(hints>=2||phase==='found'||busy)return;hints++;const b=hintBox();
-    options.feedback(hints===1?`看看 ${b.name} 附近的黄色区域。试着放大、来回对比。`:'范围再小一点了。黄色方框里找找看，仍然需要跟住三张照片。');
+    options.feedback(hints===1?`Look in the yellow region near ${b.name}. Zoom in and compare the observations.`:'The clue is closer now. Search inside the yellow box, then follow your star through all three observations.');
     if(hints===2)camera=clampCamera({x:b.x+b.width/2,y:b.y+b.height/2,zoom:4},world,screen);
     controls();draw();$('.guide-heading').scrollIntoView({block:'start'});
   }
   function pick(point:Point){
-    if(phase==='found'||busy)return;pause();if(!inMap(point)){options.feedback('这里超出了照片边界，往有星星的地方拖一拖。');controls();return}
+    if(phase==='found'||busy)return;pause();if(!inMap(point)){options.feedback('That position is outside the image. Pan back into the observed field.');controls();return}
     selected=point;keyboard=false;controls();draw();
-    options.feedback(phase==='search'?'记下这个可疑位置了。跟踪它，看看是不是同一颗。':'位置已标记。点下面的按钮，留下这个脚印。');
+    options.feedback(phase==='search'?'Position selected. Follow it to check whether it is the same star.':'Position selected. Use the button below to save this mark.');
   }
   function follow(){
-    if(!selected||busy||options.changeNight&&!night)return;pause();camera=clampCamera({...selected,zoom:Math.max(4,camera.zoom)},world,screen);phase='follow';frame=0;marks=[];selected=undefined;options.feedback('照片换回最早的一张。在这片区域里重新找到它。');controls();draw();$('.guide-heading').scrollIntoView({block:'start'});
+    if(!selected||busy||options.changeNight&&!night)return;pause();camera=clampCamera({...selected,zoom:Math.max(4,camera.zoom)},world,screen);phase='follow';frame=0;marks=[];selected=undefined;options.feedback('Back to the earliest observation. Find the same star again in this region.');controls();draw();$('.guide-heading').scrollIntoView({block:'start'});
   }
   function record(){
     if(!selected||phase!=='follow')return;
     marks.push({...selected,epoch:observations[frame].epoch.id});
-    if(frame<observations.length-1){frame++;selected=undefined;options.feedback('脚印留下了。时间往后走，再点出同一颗星。');controls();draw();$('.guide-heading').scrollIntoView({block:'start'});return}
+    if(frame<observations.length-1){frame++;selected=undefined;options.feedback('Position saved. Time moves on: select the same star again.');controls();draw();$('.guide-heading').scrollIntoView({block:'start'});return}
     const radius=18.45/observations[0].set.frames.pixel_arcsec;
-    if(verifyTrail(marks,expected(),radius)){phase='found';options.feedback('✦ 搜寻完成 · 三个脚印都对上了');controls();draw()}
-    else{rejected.push(marks[0]);rejected=rejected.slice(-8);backToSearch();options.feedback('这条线索还没对上。回到大地图，换一颗试试；也可以要一点线索。')}
+    if(verifyTrail(marks,expected(),radius)){phase='found';options.feedback('✦ Hunt complete. All three positions match.');controls();draw()}
+    else{rejected.push(marks[0]);rejected=rejected.slice(-8);backToSearch();options.feedback('Those positions do not match yet. Try another star on the map, or ask for a clue.')}
   }
   function backToSearch(){pause();phase='search';marks=[];selected=undefined;camera=clampCamera({...camera,zoom:1.6},world,screen);controls();draw()}
   function zoom(factor:number,anchor:Point={x:screen.width/2,y:screen.height/2}){camera=zoomAt(camera,camera.zoom*factor,anchor,world,screen);draw()}
   $('.hunt-in').onclick=()=>zoom(1.5);$('.hunt-out').onclick=()=>zoom(1/1.5);
   $('.hunt-reset').onclick=()=>{camera={x:world.width/2,y:world.height/2,zoom:1};draw()};
-  $('.hunt-retry').onclick=()=>{backToSearch();options.feedback('回到地图了，换一颗继续找。')};
+  $('.hunt-retry').onclick=()=>{backToSearch();options.feedback('Back on the map. Choose another star to follow.')};
   $('.hunt-play').onclick=()=>{
     if(phase!=='search'||busy)return;
     if(reduced()){frame=(frame+1)%observations.length;draw();return}
@@ -135,8 +135,8 @@ export function mountHunt(host:HTMLElement,options:Options){
   $('.hunt-frames').onclick=event=>{const button=(event.target as HTMLElement).closest<HTMLButtonElement>('[data-frame]');if(!button||phase!=='search'||busy)return;pause();frame=Number(button.dataset.frame);controls();draw()};
   if(options.changeNight)$('.hunt-night').onclick=async()=>{
     if(busy||phase!=='search')return;pause();busy=true;controls();
-    try{const next=await options.changeNight!(!night);if(disposed)return;observations=next;night=!night;selected=undefined;rejected=[];marks=[];frame=0;prepare();camera=clampCamera(camera,world,screen);options.feedback(night?'夜视打开了。继续在地图里找可疑的星。':'夜视已关闭，仍在同一片天空。')}
-    catch(error){if(!disposed)options.feedback(`暂时没打开夜视，再试一次。${(error as Error).message}`)}
+    try{const next=await options.changeNight!(!night);if(disposed)return;observations=next;night=!night;selected=undefined;rejected=[];marks=[];frame=0;prepare();camera=clampCamera(camera,world,screen);options.feedback(night?'Infrared vision is on. Continue searching the field.':'Infrared vision is off. You are still in the same field.')}
+    catch(error){if(!disposed)options.feedback(`Infrared vision could not load. Please try again. ${(error as Error).message}`)}
     finally{if(!disposed){busy=false;controls();draw()}}
   };
   const pointers=new Map<number,Point>();let start:Point|undefined,last:Point|undefined,dragged=false,pinched=false,pinchDistance=0;

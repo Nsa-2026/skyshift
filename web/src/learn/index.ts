@@ -24,6 +24,7 @@ import { fillAnswerKey, teachersHtml } from "./teachers";
 export type LearnRoute =
   | { view: "home" }
   | { view: "hunt" }
+  | { view: "detective" }
   | { view: "lesson"; n: number }
   | { view: "glossary"; slug: string | null }
   | { view: "teachers" }
@@ -36,6 +37,7 @@ export function parseLearnRoute(param: string | null | undefined): LearnRoute {
   const [head, ...rest] = p.split("/");
   if (!head) return { view: "home" };
   if (head === "hunt" || head === "play") return { view: "hunt" };
+  if (head === "detective") return { view: "detective" };
   if (/^\d+$/.test(head)) {
     const n = Number(head);
     return n >= 1 && n <= LESSON_COUNT ? { view: "lesson", n } : { view: "home" };
@@ -55,6 +57,8 @@ export const learnHref = (r: LearnRoute): string =>
     ? "#/learn"
     : r.view === "hunt"
       ? "#/learn/hunt"
+    : r.view === "detective"
+      ? "#/learn/detective"
     : r.view === "lesson"
       ? `#/learn/${r.n}`
       : r.view === "glossary"
@@ -68,6 +72,8 @@ export function learnTitle(r: LearnRoute): string {
   const name =
     r.view === "hunt"
       ? "Sky hunt"
+    : r.view === "detective"
+      ? "Sky detective"
     : r.view === "lesson"
       ? `${LESSONS[r.n - 1].title}`
       : r.view === "glossary"
@@ -110,6 +116,7 @@ function sideNav(r: LearnRoute, p: Progress): string {
       ${meter(p)}
       <p class="ln-side-progress">${progressLine(p)}</p>
       <ul class="ln-side-more">
+        <li><a href="#/learn/detective" ${here("detective")}>Sky detective</a></li>
         <li><a href="#/learn/hunt" ${here("hunt")}>Sky hunt</a></li>
         <li><a href="#/learn/practice">Guided practice</a></li>
         <li><a href="#/learn/stories" ${here("stories")}>Stories in the sky</a></li>
@@ -148,7 +155,7 @@ function cardsHtml(practice: PracticeState): string {
       href: "#/learn/hunt",
       kicker: "Explore by playing",
       title: "Sky hunt",
-      text: "Find the same star in three real observations. Explore five fields, switch on infrared vision and build your own collection. Activities in Chinese.",
+      text: "Find the same star in three real observations. Explore five fields, switch on infrared vision and build your own collection. Explore at your own pace.",
       meta: "Five fields to explore",
       pic: `<span class="ln-card-pic ln-card-sky" role="img" aria-label="Real SPHEREx infrared sky"></span>`,
     },
@@ -228,6 +235,7 @@ function homeHtml(p: Progress, practice: PracticeState): string {
           <a class="btn btn-primary" href="#/learn/${all ? 1 : next}">${cta} ${arrowR}</a>
           <a class="btn btn-ghost" href="#/learn/practice">Guided practice</a>
           <a class="btn btn-ghost ln-hunt-entry" href="#/learn/hunt">Sky hunt ↗</a>
+          <a class="btn btn-ghost ln-detective-start" href="#/learn/detective">Sky detective ↗</a>
         </p>
         <div class="ln-home-progress">
           ${meter(p, "ln-meter ln-home-meter")}
@@ -235,7 +243,7 @@ function homeHtml(p: Progress, practice: PracticeState): string {
           ${started ? `<button type="button" class="btn btn-ghost ln-reset">Clear my progress</button>` : ""}
         </div>
       </header>
-      <div class="ln-home-fig ln-fig" role="group" aria-label="Real SPHEREx example: Barnard's Star"></div>
+      <div class="ln-home-figure-area"><div class="ln-home-fig ln-fig" role="group" aria-label="Real SPHEREx example: Barnard's Star"></div></div>
       <section class="ln-path" aria-labelledby="ln-path-h">
         <h2 id="ln-path-h" class="ln-sec-h">The course</h2>
         <ol class="ln-course">
@@ -256,6 +264,7 @@ function homeHtml(p: Progress, practice: PracticeState): string {
       </section>
       <section class="ln-home-more" aria-labelledby="ln-more-h">
         <h2 id="ln-more-h" class="ln-sec-h">Practise, explore, teach</h2>
+        <a class="ln-detective-entry" href="#/learn/detective"><span><span class="ln-card-k">NASA data, in your hands</span><strong>Sky detective: old clues, new light.</strong><span>Find a star by its neighbours, compare real visits and explore an infrared spectrum. Three investigations. One observation notebook.</span></span><span class="ln-detective-action">Start investigating ↗</span></a>
         ${cardsHtml(practice)}
       </section>
     </section>`;
@@ -347,6 +356,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
   let host: FigureHost | null = null;
   let lastRoute: LearnRoute | null = null;
   let hunt: PageHandle | null = null;
+  let detective: PageHandle | null = null;
   let visible = false;
   el.classList.add("ln-page");
 
@@ -354,6 +364,8 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
     ctl?.abort();
     hunt?.destroy?.();
     hunt = null;
+    detective?.destroy?.();
+    detective = null;
     host?.plates.forEach((p) => p.destroy());
     host?.cleanups.forEach((f) => f());
     host = null;
@@ -371,6 +383,8 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
       el.innerHTML = `<div class="ln ln-is-home">${homeHtml(p, practiceState(kv))}</div>`;
     } else if (r.view === "hunt") {
       el.innerHTML = `<div class="ln ln-is-home ln-is-hunt"><div class="ln-hunt-host"><p role="status">Loading Sky hunt…</p></div></div>`;
+    } else if (r.view === "detective") {
+      el.innerHTML = `<div class="ln ln-is-home ln-is-detective"><div class="ln-detective-host"><p role="status">Loading Sky detective…</p></div></div>`;
     } else {
       const main =
         r.view === "lesson"
@@ -413,6 +427,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
     }
     if (r.view === "stories") void openStories(r, host.signal);
     if (r.view === "hunt") void openHunt(host.signal);
+    if (r.view === "detective") void openDetective(host.signal);
     el.querySelector(".ln-reset")?.addEventListener("click", () => {
       resetProgress(kv);
       render({ view: "home" });
@@ -432,6 +447,21 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
       if (signal.aborted || !visible) return;
       console.warn("Learn: Sky hunt didn't load", e);
       body.innerHTML = `<p class="ln-fail" role="alert">Couldn't load Sky hunt. Reload the page to try again.</p>`;
+    }
+  }
+
+  async function openDetective(signal: AbortSignal) {
+    const body = el.querySelector<HTMLElement>(".ln-detective-host");
+    if (!body) return;
+    try {
+      const m = await import("./detective");
+      if (signal.aborted || !visible) return;
+      detective = m.mountDetective(body, ctx);
+      detective.show(null);
+    } catch (e) {
+      if (signal.aborted || !visible) return;
+      console.warn("Learn: Sky detective didn't load", e);
+      body.innerHTML = `<p class="ln-fail" role="alert">Couldn't load Sky detective. Reload the page to try again.</p>`;
     }
   }
 
@@ -489,6 +519,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
     hide() {
       visible = false;
       hunt?.hide?.();
+      detective?.hide?.();
       host?.plates.forEach((p) => p.suspend());
       closeTermPopover();
       lastRoute = null;

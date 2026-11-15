@@ -2,11 +2,11 @@ import type {ObjectData, Target} from '../api/science-client';
 import type {GaiaStar,Measure,SkyPos} from '../api/types';
 import {separation} from '../product/evidence';
 export const LESSONS = [
-  {slug:'barnard',title:'会走路的星',subtitle:'找一颗偷偷走动的星',hint:'恒星的位置变化很小。来回比较两次观测，试着找出向北挪动的点。',western:'蛇夫座 Ophiuchus'},
-  {slug:'epsindib',title:'南天的邻居',subtitle:'这次，动得更轻一点',hint:'两颗褐矮星在这里看起来像一个点。仔细比较位置，不要把噪声闪烁当成移动。',western:'印第安座 Indus'},
-  {slug:'rwaur',title:'不走，也会变',subtitle:'看看亮暗有没有变化',hint:'这次检查会变亮或变暗的目标。它不需要明显移动；饱和核心会影响亮度判断。',western:'御夫座 Auriga'},
-  {slug:'rdra',title:'星星的呼吸',subtitle:'再找一颗会变的星',hint:'检查这颗变星。同波段中也有波长采样差异，测光与饱和状态要一起看。',western:'天龙座 Draco'},
-  {slug:'wise0855',title:'打开红外夜视',subtitle:'用夜视镜找藏起来的星',hint:'短波里不明显的目标，可能在长波里留下线索。切换到覆盖 4.6 µm 的 D6，再判断。',western:'长蛇座 Hydra'},
+  {slug:'barnard',title:'A star on the move',subtitle:'Find a star that shifts between visits',hint:'The shift is small. Compare the observations and look for a point moving north.',western:'Ophiuchus'},
+  {slug:'epsindib',title:'A southern neighbour',subtitle:'Look for a gentler shift',hint:'Two brown dwarfs appear as one point here. Compare their position carefully and distinguish motion from flickering noise.',western:'Indus'},
+  {slug:'rwaur',title:'A change without a move',subtitle:'Watch the brightness change',hint:'Look for a target that brightens or fades. It need not move; saturation can affect how bright its core appears.',western:'Auriga'},
+  {slug:'rdra',title:'A star that pulses',subtitle:'Find another changing star',hint:'Inspect this variable star. Wavelength sampling varies even within a detector, so consider photometry and saturation together.',western:'Draco'},
+  {slug:'wise0855',title:'Switch on infrared vision',subtitle:'Find a star hidden at short wavelengths',hint:'A target that is faint at short wavelengths may appear at longer wavelengths. Switch to D6, which covers 4.6 µm, and compare.',western:'Hydra'},
 ];
 export function expectedPosition(target:Target,object:ObjectData,epoch:number):SkyPos{
   const g=object.gaia as GaiaStar|null;
