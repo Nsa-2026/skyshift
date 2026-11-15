@@ -9,8 +9,8 @@ const resolve=(hash:string,search='',advanced=false)=>{
 };
 
 describe('top-level screens',()=>{
-  it('has Sky, Viewer, To check, Community and Results, each resolving to its own screen',()=>{
-    expect(SCREENS.map(s=>s.label)).toEqual(['Sky','Viewer','To check','Community','Results']);
+  it('has Sky, Viewer, To check, Community, Results and Learn, each resolving to its own screen',()=>{
+    expect(SCREENS.map(s=>s.label)).toEqual(['Sky','Viewer','To check','Community','Results','Learn']);
     for(const s of SCREENS)expect(siteRoute(s.href).screen).toBe(s.id);
   });
   it('opens the Sky at home, and the Viewer for shared observations and the embed',()=>{
@@ -22,7 +22,7 @@ describe('top-level screens',()=>{
     expect(siteRoute('#/',false,'?ra=10&dec=20')).toMatchObject({page:'explore',screen:'viewer'});
     expect(siteRoute('#/sky',false,'?t=barnard')).toMatchObject({page:'atlas'});
   });
-  it('puts every page under its screen; Learn and About under none',()=>{
+  it('puts every page under its screen; About under none',()=>{
     expect(siteRoute('#/c/shape%2Fexample')).toMatchObject({page:'candidate',param:'shape/example',screen:'viewer'});
     expect(siteRoute('#/candidates/kind=mover')).toMatchObject({page:'discover',param:'kind=mover',screen:'check'});
     expect(siteRoute('#/review')).toMatchObject({page:'review',screen:'check'});
@@ -30,7 +30,8 @@ describe('top-level screens',()=>{
     expect(siteRoute('#/results')).toMatchObject({page:'results',screen:'results'});
     expect(siteRoute('#/live')).toMatchObject({page:'live',screen:'results'});
     expect(siteRoute('#/tools/api')).toMatchObject({page:'tools',param:'api',screen:'results'});
-    expect(siteRoute('#/learn/glossary')).toMatchObject({page:'learn',screen:null});
+    expect(siteRoute('#/learn/glossary')).toMatchObject({page:'learn',screen:'learn'});
+    expect(siteRoute('#/learn/stories/planets/2026-11')).toMatchObject({page:'learn',param:'stories/planets/2026-11',screen:'learn'});
     expect(siteRoute('#/about')).toMatchObject({page:'about',screen:null});
   });
   it('opens Viewer sections, with the measurements when Advanced is on',()=>{
@@ -42,7 +43,7 @@ describe('top-level screens',()=>{
     expect(viewerHref('compare')).toBe('#/explore/compare');
   });
   it('plays guided practice in Learn on the Viewer\'s player',()=>{
-    expect(siteRoute('#/learn/practice')).toMatchObject({page:'explore',screen:null,workspace:{mode:'explore',tab:'play'}});
+    expect(siteRoute('#/learn/practice')).toMatchObject({page:'explore',screen:'learn',workspace:{mode:'explore',tab:'play'}});
     expect(viewerHref('play')).toBe('#/learn/practice');
   });
 });

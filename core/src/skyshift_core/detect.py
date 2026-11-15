@@ -86,6 +86,7 @@ def detect(
     aperture_r: float = APERTURE_R_PX,
     window_sigma: float = WINDOW_SIGMA_PX,
     deblend_cont: float = 0.005,
+    clean_param: float = 1.0,
     bkg: Background | None = None,
 ) -> NDArray[np.void]:
     """Detect sources on a cutout.
@@ -93,6 +94,8 @@ def detect(
     data: IMAGE (MJy/sr). flags: FLAGS; the bad-pixel mask is applied (SOURCE is never masked).
     variance: VARIANCE; the noise is max(sqrt(VARIANCE), background rms map).
     thresh: detection threshold in sigma per pixel.
+    deblend_cont, clean_param: sep.extract's (clean_param 1.0 is sep's default; larger cleans fewer faint
+    neighbours into a brighter source's wings).
     bkg: optional precomputed background(d, m, box=box) of this same data and mask (d = data with
     the bad pixels zeroed), to skip computing it twice; the result is identical.
     Returns a structured array with DETECTION_DTYPE, sorted by flux, brightest first.
@@ -117,7 +120,16 @@ def detect(
     mm = np.ascontiguousarray(m)
     # filter_type "conv": sep's default "matched" filter with a noise map merged stars 4 px apart
     # on the first photo; plain convolution keeps them apart.
-    objs = sep.extract(sub, thresh, err=err, mask=mm, minarea=minarea, deblend_cont=deblend_cont, filter_type="conv")
+    objs = sep.extract(sub, thresh, err=err, mask=mm, minarea=minarea, deblend_cont=deblend_cont,
+                       clean_param=clean_param, filter_type="conv")
+    return measure_objects(sub, err, mm, objs, aperture_r=aperture_r, window_sigma=window_sigma)
+
+
+def measure_objects(sub: NDArray[np.float64], err: NDArray[np.float64], mm: NDArray[np.bool_], objs: NDArray[np.void], *,
+                    aperture_r: float = APERTURE_R_PX, window_sigma: float = WINDOW_SIGMA_PX) -> NDArray[np.void]:
+    """detect's measurement of sep.extract objects on a background-subtracted image `sub` (C-contiguous float64, bad
+    pixels 0) with noise `err` and mask `mm`: windowed centroid from the peak, r = aperture_r aperture.
+    Returns DETECTION_DTYPE sorted by flux, brightest first."""
     out = np.zeros(len(objs), dtype=DETECTION_DTYPE)
     if len(objs) == 0:
         return out

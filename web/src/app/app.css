@@ -220,6 +220,7 @@
     text-align:center;
     flex:1 1 auto;
     min-height:44px;
+    white-space:nowrap;
   }
   .lede {display:none;}
   .find {max-width:none;}
@@ -232,4 +233,11 @@
   .featured .chip {
     flex: none;
   }
+}
+/* Six nav entries on one row on phones: small type, tight gaps, no wrapping inside a name;
+   below ~360px the row scrolls sideways instead of overflowing the page. */
+@media (max-width: 480px) {
+  .nav {gap:var(--s1);font-size:.875rem;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar {display:none;}
+  .nav a {flex:0 0 auto;padding-inline:2px;}
 }
