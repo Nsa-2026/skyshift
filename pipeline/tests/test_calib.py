@@ -440,6 +440,35 @@ def test_spectra_parallel_psf_counts_do_not_lose_photos(tmp_path, rng, monkeypat
     assert stats["member_rows_missing"] == 0
 
 
+def test_parallel_member_loaders_count_every_missing_row(tmp_path, rng):
+    """motion_io and orphans count missing rows and files per photo in their thread pools. A shared
+    `counts[k] += int(arr.sum())` lost whole photos' counts once threads switched often (10 µs: ~1 call in 4)."""
+    import sys
+
+    from skyshift_pipeline import orphans as O
+
+    d, xid = make(rng, n_photos=6, per_photo=100)
+    store = write_store(tmp_path, d, xid)
+    mem = store.read_parquet(results_rel("pilot", "members.parquet"))
+    past_end = [pd.DataFrame({"source_id": np.arange(10**6 + 50 * i, 10**6 + 50 * (i + 1)), "obs_id": f"P{i}",
+                              "detector": np.int8(2), "dot_row": np.int32(10**5)}) for i in range(6)]
+    gone = pd.DataFrame({"source_id": [2 * 10**6], "obs_id": "GONE", "detector": np.int8(2), "dot_row": np.int32(0)})
+    mem = pd.concat([mem, *past_end, gone], ignore_index=True)
+    store.write_parquet(results_rel("pilot", "members.parquet"), mem)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-5)
+    try:
+        for _ in range(20):
+            MI.clear_cache()
+            _, st, _ = MI.member_dots_raw(store, ZONE, workers=2)
+            assert (st["member_rows_missing"], st["member_files_missing"]) == (300, 1)
+            _, so = O.member_positions(store, ZONE, mem["source_id"].to_numpy(), workers=2)
+            assert (so["rows_missing"], so["files_missing"]) == (300, 1)
+    finally:
+        sys.setswitchinterval(old)
+        MI.clear_cache()
+
+
 def test_use_psf_picks_the_position_with_the_smaller_calibrated_error(monkeypatch):
     """ePSF a 2.5″ floor 0.15″ vs centroid a 5″ floor 0.08″: crossover at S/N √((25 − 6.25)/(0.0225 − 0.0064)) ≈ 34."""
     cal = {"pos_err": {"detectors": {"2": {"a_arcsec": 5.0, "floor_arcsec": 0.08}}},

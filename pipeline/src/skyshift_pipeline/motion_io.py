@@ -179,16 +179,16 @@ def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.D
     groups = members.groupby(["obs_id", "detector"], observed=True, sort=True).indices
     sid_all = members["source_id"].to_numpy(np.int64)
     row_all = members["dot_row"].to_numpy(np.int64)
-    counts = {"rows_missing": 0, "files_missing": 0}
     jac = np.full((len(photos), 2, 2), np.nan, np.float32)
 
     def one(item):
+        """(part, rows missing) of one dot file; part None when the file is missing. Counts go back to the caller:
+        a shared `counts[k] += int(arr.sum())` loses another thread's update when the thread switches mid-statement."""
         (obs_id, det), idx = item
         try:
             raw = store.read_bytes(dots_rel(obs_id, int(det)))
         except FileNotFoundError:
-            counts["files_missing"] += 1
-            return None
+            return None, 0
         df = pd.read_parquet(io.BytesIO(raw))
         sc = spacecraft_km(raw)
         p = pidx.get((str(obs_id), int(det)), -1)
@@ -196,7 +196,6 @@ def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.D
             jac[p] = calib.photo_jacobian(df["x"], df["y"], df["ra"], df["dec"])
         rows = row_all[idx]
         ok = rows < len(df)
-        counts["rows_missing"] += int((~ok).sum())
         df = df.iloc[rows[ok]].reset_index(drop=True)
         out = {k: pick(df, v) for k, v in DOT_ALIASES.items()}
         out["psf_pos_ok"] = pick(df, DOT_ALIASES["psf_pos_ok"], False).astype(bool)
@@ -208,10 +207,11 @@ def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.D
         for k, v in zip(("x_sc_km", "y_sc_km", "z_sc_km"), sc):
             if v is not None and not np.isfinite(part[k].to_numpy(np.float64)).any():
                 part[k] = float(v)
-        return part
+        return part, int((~ok).sum())
 
     with ThreadPoolExecutor(max_workers=max(4, min(workers, 32))) as ex:
-        parts = [p for p in ex.map(one, groups.items()) if p is not None]
+        results = list(ex.map(one, groups.items()))
+    parts = [p for p, _ in results if p is not None]
     cols = ["source_id", "obs_id", "detector", "photo", *DOT_ALIASES]
     if parts:
         d = pd.concat(parts, ignore_index=True)
@@ -240,8 +240,8 @@ def member_dots_raw(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.D
     d["flags_peak"] = pd.to_numeric(d["flags_peak"], errors="coerce").fillna(0).astype(np.int64)
 
     # dots far from their source (a dot file rewritten after link) are stale: drop
-    st = {"member_dots": int(len(members)), "member_files_missing": counts["files_missing"],
-          "member_rows_missing": counts["rows_missing"]}
+    st = {"member_dots": int(len(members)), "member_files_missing": sum(p is None for p, _ in results),
+          "member_rows_missing": sum(m for _, m in results)}
     if store.exists(results_rel(zone.name, "fixed.parquet")) and len(d):
         fx = store.read_parquet(results_rel(zone.name, "fixed.parquet"), columns=["source_id", "ra", "dec"]).set_index("source_id")
         pos = fx.index.get_indexer(d["source_id"].to_numpy())
