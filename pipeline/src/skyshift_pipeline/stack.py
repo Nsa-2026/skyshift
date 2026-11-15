@@ -939,7 +939,9 @@ def summarise(forced: pd.DataFrame, n_src: int) -> pd.DataFrame:
     vis = sorted(f["visit"].unique())
     snr_v = v.pivot(index="i", columns="visit", values="snr").reindex(index=out.index, columns=vis)
     flux_v = v.pivot(index="i", columns="visit", values="flux").reindex(index=out.index, columns=vis)
+    mjd_v = f.drop_duplicates(["obs_id", "detector"]).groupby("visit")["mjd"].median().reindex(vis)
     out["visits"] = [np.asarray(vis, np.int16)] * n_src
+    out["mjd_visit"] = [mjd_v.to_numpy(float)] * n_src
     out["snr_visit"] = [np.asarray(r, np.float32) for r in snr_v.to_numpy()]
     out["flux_visit_ujy"] = [np.asarray(r, np.float32) for r in flux_v.to_numpy()]
     s2 = np.square(np.clip(f["snr"].to_numpy(float), 0, None))
@@ -1214,7 +1216,7 @@ def stack_report(s: pd.DataFrame, rc: pd.DataFrame, zone: C.Zone, grid: Grid, mj
            "found_pass2": int((s["found_pass"] >= 2).sum()),
            "new_near_bright": int((new["bright_sep_arcsec"].notna()).sum()),
            "uncatalogued": int((s["cat"] == "").sum()), "artifact_zone": int(s["artifact_zone"].sum()),
-           "new_stack_class": int((new["cat"].notna() & ~s.loc[new.index, "artifact_zone"]).sum())}
+           "new_stack_class": int((~new["artifact_zone"]).sum())}
     # pairs: Gaia pairs 6–15″ (both G < 19) inside the zone; split = each star has its own source within 2.5″
     if not rc.empty:
         g = rc[(rc["cat"] == "gaia") & (rc["g_mag"] < 19)].reset_index(drop=True)
