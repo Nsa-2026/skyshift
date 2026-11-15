@@ -1356,3 +1356,7 @@ a.btn {
     box-shadow: none;
   }
 }
+
+/* The interactive hunt shares the Learn shell and opens at full content width. */
+.ln.ln-is-hunt { padding-top: 0; }
+.ln-hunt-host { min-width: 0; }

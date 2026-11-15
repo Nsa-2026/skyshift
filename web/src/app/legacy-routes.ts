@@ -50,6 +50,7 @@ export function legacyHash(hash: string): LegacyRoute | null {
   const after = [feature, ...tail].filter(Boolean).join('/');
   if (head === 'live') return {hash:at('results/progress', after)};
   if (head === 'tools') return {hash:at('results/tools', after), advanced:true};
+  if (head === 'play') return {hash:'#/learn/hunt'};
   if (head === 'score') return {hash:'#/results'};
   return null;
 }
