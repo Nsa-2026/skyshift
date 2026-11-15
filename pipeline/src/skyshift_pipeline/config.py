@@ -1049,4 +1049,11 @@ STACK_CAT_MATCH_ARCSEC = 3.0     # CatWISE2020 and 2MASS (moved with the row's p
 STACK_SINGLE_MATCH_ARCSEC = 3.0  # a single-photo source (results/<zone>/sources.parquet) this close is the same source
 STACK_BRIGHT_G = 12.0            # bright star context: nearest Gaia G < this ...
 STACK_BRIGHT_RADIUS_ARCSEC = 120.0  # ... within this
+# artifact_zone: an uncatalogued source < CORE or RING″ from a source with S/N >= MIN_SNR and >= RATIO × its own (the
+# misfit core and the ePSF's edge at 20″). Proto boxes: 54 of 696 uncatalogued sources < 8″, 125 at 20–30″.
+STACK_ARTIFACT_MIN_SNR = 100.0
+STACK_ARTIFACT_RATIO = 5.0
+STACK_ARTIFACT_RADIUS_ARCSEC = 60.0
+STACK_ARTIFACT_CORE_ARCSEC = 8.0
+STACK_ARTIFACT_RING_ARCSEC = (20.0, 30.0)
 STACK_TASK_PHOTOS = 8            # photos per worker task (one detector × visit, so the worker sums its own stack)

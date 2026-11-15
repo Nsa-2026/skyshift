@@ -1177,7 +1177,31 @@ def match_catalogues(store: Store, zone: C.Zone, s: pd.DataFrame, rc: pd.DataFra
         i, d = nearest(ra, dec, bra, bdec, C.STACK_BRIGHT_RADIUS_ARCSEC, grid.ra0, grid.dec0)
         s["bright_sep_arcsec"] = d.astype(np.float32)
         s["bright_g"] = np.where(i >= 0, gaia["g_mag"].to_numpy(float)[np.maximum(i, 0)], np.nan).astype(np.float32)
+    s["brighter_sep_arcsec"] = brighter_sep(s["ra"].to_numpy(), s["dec"].to_numpy(), s["snr_all"].to_numpy(float),
+                                            grid).astype(np.float32)
+    d = s["brighter_sep_arcsec"].to_numpy(float)
+    lo, hi = C.STACK_ARTIFACT_RING_ARCSEC
+    s["artifact_zone"] = (s["cat"] == "").to_numpy() & ((d < C.STACK_ARTIFACT_CORE_ARCSEC) | ((d >= lo) & (d <= hi)))
     return s
+
+
+def brighter_sep(ra, dec, snr, grid: Grid) -> np.ndarray:
+    """Distance (arcsec) to the nearest source with S/N ≥ STACK_ARTIFACT_MIN_SNR and ≥ STACK_ARTIFACT_RATIO × this
+    one's, within STACK_ARTIFACT_RADIUS_ARCSEC; NaN none."""
+    n = len(ra)
+    out = np.full(n, np.nan)
+    snr = np.nan_to_num(np.asarray(snr, float), nan=0.0)
+    b = np.nonzero(snr >= C.STACK_ARTIFACT_MIN_SNR)[0]
+    if n == 0 or b.size == 0:
+        return out
+    x, y = grid.xy(ra, dec)
+    xy = np.column_stack([x, y]) * grid.pix
+    tree = cKDTree(xy[b])
+    for i, js in enumerate(tree.query_ball_point(xy, C.STACK_ARTIFACT_RADIUS_ARCSEC)):
+        js = [b[j] for j in js if b[j] != i and snr[b[j]] >= C.STACK_ARTIFACT_RATIO * max(snr[i], 1.0)]
+        if js:
+            out[i] = float(np.min(np.hypot(*(xy[js] - xy[i]).T)))
+    return out
 
 
 def stack_report(s: pd.DataFrame, rc: pd.DataFrame, zone: C.Zone, grid: Grid, mjd: float) -> dict:
@@ -1188,7 +1212,9 @@ def stack_report(s: pd.DataFrame, rc: pd.DataFrame, zone: C.Zone, grid: Grid, mj
            "new_by_catalogue": {"gaia": int((new["cat"] == "gaia").sum()), "catwise_only": int((new["cat"] == "catwise").sum()),
                                 "2mass_only": int((new["cat"] == "2mass").sum()), "none": int((new["cat"] == "").sum())},
            "found_pass2": int((s["found_pass"] >= 2).sum()),
-           "new_near_bright": int((new["bright_sep_arcsec"].notna()).sum())}
+           "new_near_bright": int((new["bright_sep_arcsec"].notna()).sum()),
+           "uncatalogued": int((s["cat"] == "").sum()), "artifact_zone": int(s["artifact_zone"].sum()),
+           "new_stack_class": int((new["cat"].notna() & ~s.loc[new.index, "artifact_zone"]).sum())}
     # pairs: Gaia pairs 6–15″ (both G < 19) inside the zone; split = each star has its own source within 2.5″
     if not rc.empty:
         g = rc[(rc["cat"] == "gaia") & (rc["g_mag"] < 19)].reset_index(drop=True)
