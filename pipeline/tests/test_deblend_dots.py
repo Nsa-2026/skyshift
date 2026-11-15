@@ -24,14 +24,15 @@ FEATURED = ("t_rdra", "t_barnard", "t_rwaur", "t_epsindib", "t_wise0855")
 
 def test_zone_settings_and_folder_names():
     assert C.DOTS_DEBLEND_CONT == 0.005 and C.DOTS_FINE_DEBLEND_CONT == 1e-4
-    for z in FEATURED:
-        assert C.zone_dots(z) == ("dots_deblend1e-4", 1e-4)
+    for z in FEATURED:  # fine detection v2 (15 Nov night): its own folder, named from every setting
+        assert C.zone_dots(z) == ("dots_deblend1e-4_cp3_g6_psf", 1e-4)
     for z in ("hunt", "pilot", "t_nep", "ecl26n3", "ecl07n1", None):  # the sky run is unchanged
         assert C.zone_dots(z) == ("dots", 0.005)
     assert C.dots_dir_for(0.005) == "dots"
     assert C.dots_dir_for(5e-5) == "dots_deblend5e-5"
     assert C.dots_dir_for(2.5e-4) == "dots_deblend2.5e-4"
     assert C.dots_dir_for(0.001) == "dots_deblend1e-3"
+    assert C.dots_dir_for(1e-4) == "dots_deblend1e-4"  # the plain 1e-4 run of 15 Nov keeps its folder
 
 
 def test_fine_setting_finds_a_star_in_a_bright_stars_glow():
@@ -63,6 +64,16 @@ def test_dots_table_passes_the_setting(monkeypatch):
     D.dots_table(l2, "X", 1)
     D.dots_table(l2, "X", 1, deblend_cont=1e-4)
     assert seen == [0.005, 1e-4]
+    seen.clear()
+
+    def fake_detect2(*a, **k):
+        seen.append((k.get("deblend_cont"), k.get("clean_param")))
+        return np.zeros(0, dtype=[("x", "f8"), ("y", "f8"), ("snr", "f8")])
+
+    monkeypatch.setattr(D, "detect", fake_detect2)
+    D.dots_table(l2, "X", 1)
+    D.dots_table(l2, "X", 1, settings=C.zone_detect("t_rdra"))
+    assert seen == [(0.005, 1.0), (1e-4, 3.0)]
 
 
 @pytest.fixture
@@ -91,15 +102,21 @@ def test_fine_zone_writes_its_own_folder_and_never_touches_existing_files(tmp_pa
     monkeypatch.setattr(C, "DOTS_FINE_ZONES", (fine_zone,))
     st = D.process_photos(str(root), [(OBS, 1, str(src), 3, 1)], fine_zone)[0]
     assert st["status"] == "done" and st.get("forced_kept") is True and st["forced_bytes"] == 0
-    new = root / dots_rel(OBS, 1, "dots_deblend1e-4")
+    folder = C.zone_dots(fine_zone)[0]
+    assert folder == "dots_deblend1e-4_cp3_g6_psf"
+    new = root / dots_rel(OBS, 1, folder)
     meta = D.photo_meta(new)
-    assert meta["detect"]["deblend_cont"] == 1e-4 and meta["detect"]["dots_dir"] == "dots_deblend1e-4"
+    assert meta["detect"]["deblend_cont"] == 1e-4 and meta["detect"]["dots_dir"] == folder
+    assert meta["detect"]["clean_param"] == 3.0 and meta["detect"]["sat_guard_px"] == 6.0 and meta["detect"]["psf_pass"]
+    assert meta["detect"]["psf_pass_config"]["sep_flag"] == 0x200 and "n_psf_pass" in meta["detect"]
     assert meta["n_forced"] > 100 and meta["calibration"]["astrometry_vs_gaia"]["n"] >= 10
     assert (root / dots_rel(OBS, 1, "dots")).read_bytes() == old_dots
     assert (root / D.forced_rel(OBS, 1)).read_bytes() == old_forced
     a, b = pd.read_parquet(root / dots_rel(OBS, 1, "dots")), pd.read_parquet(new)
     assert list(a.columns) == list(b.columns) and len(b) >= len(a)
     assert (np.diff(b["flux_ujy"].to_numpy()) <= 0).all()  # same row order rule: brightest first
+    assert int(((b["sep_flag"] & C.SEP_FLAG_PSF_PASS) != 0).sum()) == meta["detect"]["n_psf_pass"]
+    assert not (a["sep_flag"] & C.SEP_FLAG_PSF_PASS).any()  # the sky run never sets it
     # restart: skipped in the zone's folder
     assert D.process_photo(str(root), OBS, 1, str(src), 3, 1, fine_zone)["status"] == "skipped"
 
@@ -111,7 +128,7 @@ def test_fine_zone_writes_forced_when_missing(tmp_path, fine_zone, monkeypatch):
     monkeypatch.setattr(C, "DOTS_FINE_ZONES", (fine_zone,))
     st = D.process_photo(str(root), OBS, 1, str(src), 3, 1, fine_zone)
     assert st["status"] == "done" and not st.get("forced_kept") and st["forced_bytes"] > 0
-    assert (root / D.forced_rel(OBS, 1)).exists() and (root / dots_rel(OBS, 1, "dots_deblend1e-4")).exists()
+    assert (root / D.forced_rel(OBS, 1)).exists() and (root / dots_rel(OBS, 1, C.zone_dots(fine_zone)[0])).exists()
     assert not (root / dots_rel(OBS, 1, "dots")).exists()
 
 
@@ -124,7 +141,7 @@ def test_dots_dir_follows_link(tmp_path):
     assert linked_dots_dir(store, "t_rdra") == "dots"  # never linked
     store.write_json(results_rel("t_rdra", "summary.json"), {"steps": {"link": {"fixed": 3}}})
     assert linked_dots_dir(store, "t_rdra") == "dots"  # linked before 15 Nov: dots/
-    assert step_dots_dir(store, zone, "dots") == step_dots_dir(store, zone, "link") == "dots_deblend1e-4"
+    assert step_dots_dir(store, zone, "dots") == step_dots_dir(store, zone, "link") == "dots_deblend1e-4_cp3_g6_psf"
     assert step_dots_dir(store, zone, "spectra") == "dots"  # link hasn't read the new folder yet
     store.write_json(results_rel("t_rdra", "summary.json"), {"steps": {"link": {"dots_dir": "dots_deblend1e-4"}}})
     assert step_dots_dir(store, zone, "spectra") == step_dots_dir(store, zone, "suspects") == "dots_deblend1e-4"
