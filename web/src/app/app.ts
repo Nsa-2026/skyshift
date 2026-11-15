@@ -523,6 +523,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
-  // The opening (src/intro): every home entry, loaded on demand.
+  // The opening (src/intro): every page load (not in-app navigation), loaded on demand.
   if (!embed) mountOpening(root, openingEnv);
 }
