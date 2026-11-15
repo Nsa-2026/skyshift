@@ -144,6 +144,25 @@
   gap: var(--s5);
   align-content: start;
 }
+/* Two columns: the plate stays on screen while the page scrolls. The left column is pinned and
+   scrolls by itself when it is taller than the window; the plate's mat stays at its top, so the
+   controls and the sky below it pass under the plate. Padding keeps the panels' shadows. */
+@media (min-width: 1101px) {
+  .page-blink:not([data-practice="true"]) .vw-main {
+    position: sticky;
+    top: var(--s3);
+    max-height: calc(100svh - 2 * var(--s3));
+    overflow-y: auto;
+    scrollbar-width: thin;
+    padding: 0 var(--s4) var(--s5);
+    margin: 0 calc(-1 * var(--s4));
+  }
+  .page-blink:not([data-practice="true"]) .vw-main .bk-mat {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+}
 .page-blink[hidden],
 .page-score[hidden] {
   display: none;

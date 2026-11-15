@@ -1204,3 +1204,21 @@
     max-width: 240px;
   }
 }
+
+/* Bright named stars on the fallback map: a small warm dot and a light name. */
+.atl-svg-star {
+  fill: #fff6d8;
+}
+.atl-svg-starname {
+  fill: var(--ink);
+  font-size: 11px;
+  font-weight: 500;
+  font-stretch: 87.5%;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--glass);
+  stroke-opacity: 0.7;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
