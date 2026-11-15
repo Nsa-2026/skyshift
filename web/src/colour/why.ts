@@ -118,3 +118,13 @@ export function saturationText(who: string, kept: { um: number; share: number }[
     `squares show the affected spots. It might be possible to fix this with NASA's original, sharper pictures.`
   );
 }
+
+/** The same "too bright" reason for the per-date pictures, which show the lost core as no data. */
+export function saturationSnapshotText(who: string): string {
+  return (
+    `${who} is too bright for SPHEREx. Its light overflowed the camera's pixels, so on each date SPHEREx ` +
+    `has no usable readings in the middle of the star (the striped spot), and the colours just around it ` +
+    `are wrong. The red squares show the affected area. It might be possible to fix this with NASA's ` +
+    `original, sharper pictures.`
+  );
+}

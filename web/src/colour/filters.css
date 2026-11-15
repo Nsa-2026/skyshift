@@ -294,6 +294,32 @@
   box-shadow: var(--shadow-plate);
   font-size: var(--step--1);
 }
+/* Brightness slider, directly under the picture it changes. */
+.flt-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s2) var(--s4);
+  margin-top: var(--s3);
+}
+.flt-tools .flt-range[hidden] {
+  display: none;
+}
+/* Why Play and the dates are off under a still filter picture, with one way out. */
+.flt-still {
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.flt-still[hidden] {
+  display: none;
+}
+.flt-still-go {
+  margin-left: var(--s2);
+  font-size: inherit;
+}
+.flt-tools[hidden],
 .flt-key[hidden] {
   display: none;
 }
@@ -368,4 +394,182 @@
   .flt-key-list li > :last-child {
     grid-column: 2;
   }
+}
+
+/* ---- composition (layer A3): a ring on each source with a molecule, a patch on glowing dust ---- */
+.flt-overlay .cp-ring,
+.flt-overlay .cp-picked,
+.flt-overlay .cp-none,
+.flt-overlay .cp-cant {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.flt-overlay .cp-ring {
+  stroke-width: 2.5px;
+  /* A dark edge keeps a coloured ring readable over a bright star. */
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.95));
+}
+.flt-overlay .cp-maybe {
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+}
+.flt-overlay .cp-none {
+  stroke: #cfd6e0;
+  stroke-opacity: 0.4;
+  stroke-width: 1px;
+}
+.flt-overlay .cp-cant {
+  stroke: #cfd6e0;
+  stroke-opacity: 0.55;
+  stroke-width: 1.2px;
+}
+.flt-overlay .cp-picked {
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+.flt-overlay .cp-glow {
+  shape-rendering: crispEdges;
+}
+.flt-overlay .cp-label {
+  fill: #fff;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.9);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.flt-key .sw-ring {
+  border: 2.5px solid var(--c, #cfd6e0);
+  border-radius: 50%;
+  background: #10141b;
+  box-shadow: none;
+}
+.flt-key .sw-svg {
+  box-shadow: none;
+}
+.flt-readout[hidden] {
+  display: none;
+}
+.flt-key .sw-glow {
+  width: 30px;
+  border-radius: 2px;
+  /* The map's own shading over black sky: faint to strong. */
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 14%, #10141b), color-mix(in srgb, var(--c) 40%, #10141b));
+  box-shadow: none;
+}
+/* The key: one line per molecule that is in the picture, with its count. */
+.cp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cp-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ink-2);
+}
+.cp-legend b {
+  color: var(--ink);
+  font-weight: 650;
+}
+.cp-legend .sw {
+  flex: none;
+}
+.cp-line {
+  color: var(--ink);
+}
+.cp-line b {
+  font-weight: 650;
+}
+.cp-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+  color: var(--ink-2);
+}
+.cp-bands {
+  display: grid;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cp-bands li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 0 var(--s2);
+  align-items: center;
+}
+.cp-bands .sw {
+  width: 14px;
+  height: 14px;
+}
+.cp-bands small {
+  grid-column: 2;
+  color: var(--ink-2);
+  font-size: inherit;
+}
+.cp-all summary {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.cp-detail {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-left: 3px solid var(--ink);
+  background: var(--glass);
+  color: var(--ink);
+}
+.cp-detail h3 {
+  font-size: var(--step-0);
+  font-weight: 650;
+}
+.cp-table {
+  overflow-x: auto;
+}
+.cp-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.cp-table th,
+.cp-table td {
+  padding: 4px var(--s2) 4px 0;
+  border-bottom: 1px solid var(--hair);
+  text-align: left;
+  vertical-align: top;
+}
+.cp-table thead th {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.cp-table tbody th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cp-table tbody th span {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.cp-row-found td:first-of-type {
+  font-weight: 650;
+}
+.cp-row-cant td,
+.cp-row-none td {
+  color: var(--ink-2);
+}
+
+/* Colour pictures that follow the dates: which wavelengths this date's snapshots saw. */
+.flt-date-note {
+  color: var(--ink-2);
+  max-width: 72ch;
 }

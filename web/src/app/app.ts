@@ -107,6 +107,7 @@ export function startApp(root: HTMLElement): void {
     },
     onEpoch(e) {
       sky.epoch(e.mjd_mid);
+      filters.epoch(e);
     },
   });
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.

@@ -347,6 +347,66 @@ export async function planField(
   return { n, pixelArcsec, tileOf, offset, tiles };
 }
 
+/**
+ * The same field, reading only the pixels where `keep` is set (the rest come back as "no data").
+ * For data that matters around a few sources only, such as exposure counts near bright stars.
+ */
+export function maskPlan(plan: FieldPlan, keep: Uint8Array): FieldPlan {
+  // Where each packed index of the full plan sits in its tile: row y and column x.
+  const starts = plan.tiles.map((t) => {
+    const pos: number[] = [];
+    let p = 0;
+    for (const s of t.spans) {
+      pos.push(p);
+      p += s.x1 - s.x0 + 1;
+    }
+    return pos;
+  });
+  const locate = (t: number, o: number): { y: number; x: number } => {
+    const pos = starts[t];
+    let lo = 0;
+    let hi = pos.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (pos[mid] <= o) lo = mid;
+      else hi = mid - 1;
+    }
+    const span = plan.tiles[t].spans[lo];
+    return { y: span.y, x: span.x0 + o - pos[lo] };
+  };
+  const total = plan.n * plan.n;
+  const xs = new Int32Array(total);
+  const ys = new Int32Array(total);
+  const tileOf = new Int16Array(total).fill(-1);
+  const rows = plan.tiles.map(() => new Map<number, [number, number]>());
+  for (let k = 0; k < total; k++) {
+    const t = plan.tileOf[k];
+    if (t < 0 || !keep[k]) continue;
+    const { x, y } = locate(t, plan.offset[k]);
+    xs[k] = x;
+    ys[k] = y;
+    tileOf[k] = t;
+    const r = rows[t].get(y);
+    rows[t].set(y, r ? [Math.min(r[0], x), Math.max(r[1], x)] : [x, x]);
+  }
+  const tiles = plan.tiles.map((t, ti) => ({
+    info: t.info,
+    spans: [...rows[ti].entries()].sort((a, b) => a[0] - b[0]).map(([y, [x0, x1]]) => ({ y, x0, x1 })),
+  }));
+  const rowStart = tiles.map((t) => {
+    const m = new Map<number, number>();
+    let pos = 0;
+    for (const s of t.spans) {
+      m.set(s.y, pos - s.x0);
+      pos += s.x1 - s.x0 + 1;
+    }
+    return m;
+  });
+  const offset = new Int32Array(total);
+  for (let k = 0; k < total; k++) if (tileOf[k] >= 0) offset[k] = rowStart[tileOf[k]].get(ys[k])! + xs[k];
+  return { n: plan.n, pixelArcsec: plan.pixelArcsec, tileOf, offset, tiles };
+}
+
 /** One wavelength plane sampled onto the field (NaN where the cube has no data). */
 export async function samplePlane(
   plan: FieldPlan,
@@ -378,7 +438,7 @@ export async function sampleInt(
   if (BLANK_FRAMES.has(plane)) return out;
   const views = await Promise.all(
     plan.tiles.map(async (t) =>
-      readSpans(t.info, await findHdu(t.info, name, fetcher, signal), plane, t.spans, fetcher, signal),
+      t.spans.length ? readSpans(t.info, await findHdu(t.info, name, fetcher, signal), plane, t.spans, fetcher, signal) : new DataView(new ArrayBuffer(0)),
     ),
   );
   for (let k = 0; k < out.length; k++) {
