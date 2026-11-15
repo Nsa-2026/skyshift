@@ -8,6 +8,13 @@ once instead of after the 40-70 s live measurement. It is the live API's own ans
     python3 scripts/precompute/suspect_objects.py --api http://localhost:8080
     python3 scripts/precompute/suspect_objects.py --top 300     # also the first 300 of the To check queue
 
+The live API answers within its 40 s budget, so for most spots the answer is partial (no Gaia,
+measure_reason "no_time", part of the spectrum). --full builds each spot here with the engine and
+no time limit instead, replacing every partial file (suspects first, then candidates with frames,
+then the queue). Run it from server/ (it imports skyshift_server, like precompute.py):
+
+    cd server && uv run python ../scripts/precompute/suspect_objects.py --full --top 300 --jobs 10
+
 Who: the suspects in web/public/data/suspects.json plus the candidates in candidates.json with a
 frames_url; with --top N, also the first N of the To check queue (web/src/review/model.ts
 queueOrder before any votes: no grade C, grade A first, then score, S/N and id). The position is
@@ -21,7 +28,7 @@ import json
 import sys
 import time
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +46,44 @@ def fetch(api: str, ra: float, dec: float, tries: int = 3) -> dict:
                 raise
             time.sleep(5 * (i + 1))
     raise RuntimeError("unreachable")
+
+
+def _partial(path: Path) -> bool:
+    try:
+        o = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001 - missing or broken: build it
+        return True
+    return o.get("measure_reason") == "no_time"
+
+
+def _gaia_up() -> bool:
+    try:
+        urllib.request.urlopen("https://gea.esac.esa.int/tap-server/tap/availability", timeout=15)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def build_full(ra: float, dec: float, gaia_up: bool) -> dict:
+    """GET /api/object built here with no time limit (precompute.py's way)."""
+    from precompute import clean
+    from skyshift_server import blink, gaia
+    from skyshift_server.budget import Budget
+    from skyshift_server.cache import Cache
+    from skyshift_server.errors import UpstreamError
+
+    if not gaia_up:  # ESA unreachable: fail at once instead of a 90 s connect timeout per query
+        def _down(*_a, **_k):
+            raise UpstreamError("Gaia archive unreachable")
+        gaia.cone = _down
+    import os
+    cache = Cache(os.environ.get("SKYSHIFT_CACHE", str(Path.home() / ".cache" / "skyshift")))
+    budget = Budget(None)  # no time limit, but it records what was left out (e.g. IRSA down: fallback photos)
+    out = clean(blink.build_object(ra, dec, cache=cache, budget=budget))
+    cut = [r for r in budget.partial if "gaia" not in r.lower()]
+    if cut:
+        raise RuntimeError("partial: " + "; ".join(cut))
+    return out
 
 
 def _desc(v: object) -> tuple[int, float]:
@@ -59,6 +104,7 @@ def main() -> int:
     p.add_argument("--jobs", type=int, default=10)
     p.add_argument("--force", action="store_true")
     p.add_argument("--top", type=int, default=0, help="also the first N of the To check queue")
+    p.add_argument("--full", action="store_true", help="build here without the live time limit; replace partial files")
     a = p.parse_args()
 
     cands = json.loads((DATA / "candidates.json").read_text())["candidates"]
@@ -69,14 +115,25 @@ def main() -> int:
         if not c.get("frames_url") and c["id"] not in suspects and c["id"] not in top:
             continue
         out = DATA / "cand" / c["id"] / "object.json"
-        if out.exists() and not a.force:
+        if out.exists() and not a.force and not (a.full and _partial(out)):
             continue
         todo.append((c, out))
-    print(f"{len(todo)} to fetch", flush=True)
+    # Suspects first, then candidates with frames, then the queue.
+    todo.sort(key=lambda t: (t[0]["id"] not in suspects, not t[0].get("frames_url")))
+    print(f"{len(todo)} to {'build' if a.full else 'fetch'}", flush=True)
 
     failed = 0
-    with ThreadPoolExecutor(a.jobs) as ex:
-        futs = {ex.submit(fetch, a.api, c["ra"], c["dec"]): (c, out) for c, out in todo}
+    if a.full:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        up = _gaia_up()
+        print(f"Gaia archive {'up' if up else 'DOWN: built without Gaia'}", flush=True)
+        ex = ProcessPoolExecutor(a.jobs)
+        submit = lambda c: ex.submit(build_full, c["ra"], c["dec"], up)  # noqa: E731
+    else:
+        ex = ThreadPoolExecutor(a.jobs)
+        submit = lambda c: ex.submit(fetch, a.api, c["ra"], c["dec"])  # noqa: E731
+    with ex:
+        futs = {submit(c): (c, out) for c, out in todo}
         for f in as_completed(futs):
             c, out = futs[f]
             try:
