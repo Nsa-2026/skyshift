@@ -24,6 +24,7 @@ interface Al extends AladinInstance {
   zoomToFoV?(fov: number, seconds: number, done?: () => void): void;
   increaseZoom?(): void;
   decreaseZoom?(): void;
+  stopAnimation?(): void;
 }
 
 interface Hips extends AladinHiPS {
@@ -307,6 +308,10 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   al.addCatalog(labelCat);
   applyBackground();
   applyGrid(init.gal);
+
+  function stopFlight() {
+    try { al.stopAnimation?.(); } catch { /* Older viewers may not expose cancellation. */ }
+  }
 
   function curFov(): number {
     try {
@@ -653,6 +658,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     },
     view,
     flyTo(to, animate) {
+      stopFlight();
       const fov = to.fov;
       try {
         if (animate && al.animateToRaDec && al.zoomToFoV) {
@@ -686,6 +692,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       onMove();
     },
     zoomBy(f) {
+      stopFlight();
       try {
         if (f > 1 && al.decreaseZoom) al.decreaseZoom();
         else if (f < 1 && al.increaseZoom) al.increaseZoom();
@@ -696,6 +703,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       onMove();
     },
     panBy(dx, dy) {
+      stopFlight();
       const v = view();
       const w = mapEl.clientWidth || host.clientWidth || 1;
       const h = mapEl.clientHeight || host.clientHeight || 1;

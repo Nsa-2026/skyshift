@@ -46,6 +46,18 @@ export interface LiveDeps {
   doc?: Document;
   /** A zone's suspects from its suspects_url (default: loadZoneSuspectsFile). A plain list of rows works too. */
   loadSuspects?: (url: string, signal: AbortSignal) => Promise<Suspect[] | ZoneSuspects>;
+  /** A section of another page (Results → Search progress): that page gives the heading, so no h1 here. */
+  embedded?: boolean;
+  /** The route an open zone is written under, as <hashBase>/<zone>. Default "#/live". */
+  hashBase?: string;
+}
+
+/** The Live page's handle, plus pause and resume for a host that shows it as a section (Results). */
+export interface LivePage extends PageHandle {
+  /** Start refreshing again and keep the open zone as it is (show(param) sets the zone from a route). */
+  resume(): void;
+  /** Stop refreshing and the minute ticker, like hide(). */
+  pause(): void;
 }
 
 /** What a loader gave: a read file as is; a bare list as a file without the vetting's zone fields. */
@@ -76,15 +88,16 @@ function errorTone(e: unknown, run: SkyRun | null): string {
   return run ? "lv-stale" : "";
 }
 
-export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps = {}): PageHandle {
+export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps = {}): LivePage {
   const now = deps.now ?? Date.now;
+  const hashBase = deps.hashBase ?? "#/live";
   const loadSuspects = deps.loadSuspects ?? ((url: string, signal: AbortSignal) => loadZoneSuspectsFile(url, signal));
   const doc = deps.doc ?? document;
   el.innerHTML = html`
-    <div class="lv">
+    <div class="lv${deps.embedded ? " lv-embedded" : ""}">
       <div class="lv-intro">
         <div class="lv-titlerow">
-          <h1 class="lv-title">Live search</h1>
+          ${deps.embedded ? "" : html`<h1 class="lv-title">Live search</h1>`}
           <p class="lv-updated" data-slot="updated"></p>
         </div>
         <p class="lv-lede" data-slot="lede">Cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.</p>
@@ -267,7 +280,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     tabbable = name;
     renderMap();
     renderPanel();
-    const want = `#/live/${encodeURIComponent(name)}`;
+    const want = `${hashBase}/${encodeURIComponent(name)}`;
     if (location.hash !== want) history.replaceState(history.state, "", `${location.pathname}${location.search}${want}`);
     if (opts.focusMap) focusZone(name);
   }
@@ -281,7 +294,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     svg()
       ?.querySelectorAll<SVGGElement>("g.z[aria-pressed='true']")
       .forEach((g) => g.setAttribute("aria-pressed", "false"));
-    if (location.hash.startsWith("#/live/")) history.replaceState(history.state, "", `${location.pathname}${location.search}#/live`);
+    if (location.hash.startsWith(`${hashBase}/`)) history.replaceState(history.state, "", `${location.pathname}${location.search}${hashBase}`);
     if (restoreFocus && hadFocus && was) focusZone(was);
   }
 
@@ -395,23 +408,30 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     if (shown) renderTimes();
   }, now);
 
+  function resume() {
+    shown = true;
+    if (run) renderTimes();
+    refresher.start();
+    ticker.start();
+  }
+  function pause() {
+    shown = false;
+    refresher.stop();
+    ticker.stop();
+  }
+
   return {
     show(param) {
-      shown = true;
       if (param) {
         const name = decodeURIComponent(param);
         if (run?.zones.some((z) => z.name === name)) openZone(name);
         else pending = name;
       } else if (selected) closePanel(false);
-      if (run) renderTimes();
-      refresher.start();
-      ticker.start();
+      resume();
     },
-    hide() {
-      shown = false;
-      refresher.stop();
-      ticker.stop();
-    },
+    hide: pause,
+    resume,
+    pause,
     destroy() {
       shown = false;
       refresher.destroy();

@@ -57,7 +57,7 @@ export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;
 
 // ---- P3: src/card/index.ts exports mountCard --------------------------------------------
 export interface CardHandle {
-  section?(value: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve'): void;
+  section?(value: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' | ('motion' | 'spectrum')[]): void;
   reference?(points: {um:number; flux_ujy:number}[]): void;
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;

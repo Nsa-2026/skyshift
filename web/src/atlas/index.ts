@@ -36,6 +36,7 @@ import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, 
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
 import { cellSideDeg } from "./healpix";
+import { mountZoomFocus } from './focus';
 import { liveLine, loadSearch, loadZoneSuspects, provisionalZone, type ProvisionalSet, type SearchLayer } from "./search";
 
 const html = String.raw;
@@ -59,7 +60,7 @@ const BACKGROUNDS: { id: BackgroundId; label: string; about: string }[] = [
 export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   el.classList.add("atl");
   el.innerHTML = html`
-    <div class="atl-intro">
+    <div class="atl-intro" data-map-chrome>
       <h1 class="atl-lede" id="atl-title">
         Start with the sky.
         <span class="atl-lede-2">Drag, zoom, or pick a point.</span>
@@ -67,7 +68,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       <p class="sky-survey" data-survey>Sky: 2MASS · Signals: SPHEREx</p>
     </div>
 
-    <div class="atl-controls">
+    <div class="atl-controls" data-map-chrome>
       <div class="atl-controls-main">
         <div class="seg" role="group" aria-label="Map shape">
           <button type="button" data-proj="globe" aria-pressed="true" title="A globe: the sky as a sphere, half at a time">Globe</button>
@@ -94,7 +95,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         <button class="atl-adjust" type="button" aria-expanded="false" aria-controls="atl-more">Adjust</button>
       </div>
     </div>
-    <div class="atl-more" id="atl-more" hidden>
+    <div class="atl-more" id="atl-more" data-map-chrome hidden>
       <div class="atl-more-row">
         <span class="atl-more-label" id="atl-bg-label">Background</span>
         <div class="seg" role="group" aria-labelledby="atl-bg-label">
@@ -138,13 +139,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
           <button class="atl-pin-x" type="button" data-pin-x aria-label="Close">×</button>
         </div>
       </div>
-      <p class="atl-status" data-status aria-live="polite"></p>
-      <div class="atl-zoom" role="group" aria-label="Zoom">
+      <p class="atl-status" data-status data-map-chrome aria-live="polite"></p>
+      <div class="atl-zoom" data-map-chrome role="group" aria-label="Zoom">
         <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
         <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" data-zoom="all" title="Back to the whole sky">Whole sky</button>
       </div>
-      <button class="btn atl-continue" type="button" data-show-paths>Choose your next step ↓</button>
+      <button class="atl-reveal" type="button" data-map-controls aria-label="Show controls" aria-expanded="false" title="Show controls (Escape)" hidden>Show controls</button>
+      <button class="btn atl-continue" type="button" data-show-paths data-map-chrome>Choose your next step ↓</button>
       <aside class="atl-drawer" data-drawer aria-labelledby="atl-dr-title" hidden></aside>
     </div>
 
@@ -188,13 +190,20 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const adjust = q<HTMLButtonElement>(".atl-adjust");
   const more = q<HTMLDivElement>("#atl-more");
   more.prepend(q<HTMLElement>('.atl-controls-main'));
+  const zoomFocus = mountZoomFocus(el);
 
   /** The stage bleeds to the window's edges and ends at the bottom of the first screen. */
   function measure() {
     try {
       el.style.setProperty("--atl-vw", `${document.documentElement.clientWidth}px`);
+      const header = el.closest('#app')?.querySelector<HTMLElement>(':scope > .top');
+      el.style.setProperty('--atl-header-height', `${header?.getBoundingClientRect().height ?? 0}px`);
+      const intro = q<HTMLElement>('.atl-intro');
+      const controls = q<HTMLElement>('.atl-controls');
+      el.style.setProperty('--atl-intro-bottom', `${intro.offsetTop + intro.offsetHeight}px`);
+      el.style.setProperty('--atl-controls-bottom', `${controls.offsetTop + controls.offsetHeight}px`);
       const top = stage.getBoundingClientRect().top + scrollY;
-      if (top > 0) el.style.setProperty("--atl-top", `${Math.round(top)}px`);
+      if (Number.isFinite(top)) el.style.setProperty("--atl-top", `${Math.max(0,Math.round(top))}px`);
     } catch {
       /* CSS defaults hold */
     }
@@ -537,6 +546,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     level = nextLevel;
     stage.classList.toggle("is-whole", level === "whole");
     state = { ...state, ra: wrap360(v.ra), dec: v.dec, fov: v.fov };
+    zoomFocus.update(v.fov, map?.kind === 'svg' ? false : state.mol);
     publishSky();
     writeHash();
     hideTip();
@@ -792,6 +802,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (!map) return;
     const v = map.view();
     state={...state,ra:v.ra,dec:v.dec,fov:v.fov};publishSky();
+    zoomFocus.update(v.fov, map.kind === 'svg' ? false : state.mol);
     level = levelFor(v.fov);
     renderKey();
     renderStatus(v);
@@ -843,6 +854,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       syncSeg("[data-proj]", next.mol ? "mol" : "globe", "proj");
     }
     map?.flyTo({ ra: next.ra, dec: next.dec, fov: next.fov }, animate && !reduced);
+    if (map) zoomFocus.update(map.view().fov, map.kind === 'svg' ? false : state.mol);
   }
 
   async function start() {
@@ -887,6 +899,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       syncSeg("[data-proj]", mol ? "mol" : "globe", "proj");
       map?.setProjection(mol);
       if (map && levelFor(map.view().fov) === "whole") map.flyTo({ ...map.view(), fov: wholeFov(mol) }, false);
+      if (map) zoomFocus.update(map.view().fov, map.kind === 'svg' ? false : state.mol);
       writeHash();
     }),
   );
@@ -1116,6 +1129,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       requestedParam = param;
       const wasVisible = visible;
       visible = true;
+      zoomFocus.show();
       measure();
       if (!started) {
         void start();
@@ -1136,6 +1150,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     hide() {
       visible = false;
+      zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
       drawer?.pause();
@@ -1145,6 +1160,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     destroy() {
       destroyed = true;
+      zoomFocus.destroy();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
       stopSearch();

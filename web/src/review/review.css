@@ -849,3 +849,30 @@
     grid-template-areas: "label" "meaning";
   }
 }
+
+/* Inside To check ("One at a time", src/discover): the switch above already names it, so the title
+   is for screen readers (except "Practice round", which says something new); the progress line and
+   the practice button make one quiet row. The plate leaves room for the page's toolbar above it. */
+.rq-embedded .rq-head {
+  align-items: center;
+  padding: var(--s3) 0 var(--s4);
+}
+.rq-embedded .rq-title {
+  font-size: var(--step-1);
+}
+.rq-embedded:not([data-mode="practice"]):not([data-mode="summary"]) .rq-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.rq-embedded .rq-main {
+  --rv-plate: calc(max(300px, 100svh - 270px) + 24px);
+  grid-template-columns: minmax(0, var(--rv-plate)) minmax(300px, 480px);
+  gap: var(--s5) var(--s6);
+}
+.rq-embedded .rq-end {
+  padding: var(--s5) 0;
+}

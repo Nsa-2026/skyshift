@@ -310,10 +310,23 @@ export function isDiscoverUrl(hash: string): boolean {
  */
 export function discoverQuery(hash: string, search: string): string {
   const rest = hash.replace(/^#\/?(?:(?:analyze\/)?candidates|discover)/, "").replace(/^[/?]+/, "");
-  if (rest) return rest;
+  if (rest) return withoutOne(rest);
   const s = new URLSearchParams(search);
   for (const k of VIEW_KEYS) s.delete(k);
   return s.toString();
+}
+
+/** The list's "One at a time" switch ("one=1") is a view, not a filter: drop it, keep the rest as written. */
+function withoutOne(query: string): string {
+  return query
+    .split("&")
+    .filter((p) => p && !/^one(=|$)/.test(p))
+    .join("&");
+}
+
+/** The queue's candidates: all of them, or only those in scope (the To check page's filtered list). */
+export function inScope<T extends { id: string }>(cands: readonly T[], scope: ReadonlySet<string> | null): T[] {
+  return scope ? cands.filter((c) => scope.has(c.id)) : [...cands];
 }
 
 // ---- keyboard ------------------------------------------------------------------------------
