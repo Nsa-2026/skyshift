@@ -231,6 +231,22 @@
   color: var(--ink-3);
   font-weight: 450;
 }
+/* The candidate's red circles (BlinkHandle.track): solid measured, dashed predicted. */
+.bk-trk {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ink-2);
+  font-weight: 450;
+  white-space: nowrap;
+}
+.bk-trk span + .bk-mg {
+  margin-left: 6px;
+}
+.bk-mg[data-cls="track"],
+.bk-mtag[data-cls="track"] {
+  color: var(--pencil-red);
+}
 .bk-warn {
   color: var(--warn);
 }

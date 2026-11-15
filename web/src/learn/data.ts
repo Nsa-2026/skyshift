@@ -1,4 +1,4 @@
-// Real examples for the lessons, read from the static files (/data/<slug>/) the way the Blink
+// Real examples for the lessons, read from the static files (/data/<slug>/) the way the Viewer
 // page reads them. Pure helpers (sessions, no-data blobs, crops) are exported for tests.
 import { epochsFor, loadFrameData, loadFrames, toMJySr } from "../api/client";
 import type { Clock, Det, Epoch, FramesResponse, KnownObject, SkyPos } from "../api/types";
