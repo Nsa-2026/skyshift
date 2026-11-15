@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { whyUnreliable, type TargetCheck } from "./why";
+import { saturationSnapshotText, whyUnreliable, type TargetCheck } from "./why";
 
 const base: TargetCheck = {
   name: "Barnard's Star",
@@ -56,5 +56,10 @@ describe("why a colour isn't reliable", () => {
     const r = whyUnreliable({ ...base, name: "WISE 0855−0714", blend: { shortUm: 1.24, longUm: 4.6 } });
     expect(r.map((x) => x.key)).toEqual(["blend"]);
     expect(r[0].text).toMatch(/share the same pixels/);
+  });
+  it("per-date pictures describe the lost core as no data, without claiming a direction", () => {
+    const t = saturationSnapshotText("Barnard's Star");
+    expect(t).toMatch(/no usable readings in the middle of the star/);
+    expect(t).not.toMatch(/redder|bluer/);
   });
 });

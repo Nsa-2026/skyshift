@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMultipart, readSpans, readTileInfo, sampleInt, samplePlane, planField, type Fetcher, type TileInfo } from "./cube";
+import { maskPlan, parseMultipart, readSpans, readTileInfo, sampleInt, samplePlane, planField, type Fetcher, type TileInfo } from "./cube";
 import { BLOCK, parseHeader } from "./fits";
 
 function card(k: string, v: string): string {
@@ -128,6 +128,25 @@ describe("cube reads", () => {
     expect(Array.from(v.slice(0, 3))).toEqual([10, 13, 20]);
     expect(Number.isNaN(v[3])).toBe(true);
     expect(Array.from((await samplePlane(plan, 50, fetcher)).slice(0, 1)).every(Number.isNaN)).toBe(true);
+  });
+  it("maskPlan reads only the kept pixels, and they keep their values", async () => {
+    const info: TileInfo = { ...(await readTileInfo(7, fetcher)) };
+    const plan = {
+      n: 2,
+      pixelArcsec: 12.9,
+      tileOf: Int16Array.from([0, 0, 0, -1]),
+      offset: Int32Array.from([0, 3, 4, 0]),
+      tiles: [{ info, spans: [{ y: 1, x0: 0, x1: 3 }, { y: 2, x0: 0, x1: 3 }] }],
+    };
+    const part = maskPlan(plan, Uint8Array.from([0, 1, 1, 1]));
+    expect(part.tiles[0].spans).toEqual([{ y: 1, x0: 3, x1: 3 }, { y: 2, x0: 0, x1: 0 }]); // 2 pixels, not 8
+    const v = await samplePlane(part, 0, fetcher);
+    expect(Number.isNaN(v[0])).toBe(true);
+    expect(Array.from(v.slice(1, 3))).toEqual([13, 20]);
+    expect(Number.isNaN(v[3])).toBe(true);
+    const none = maskPlan(plan, new Uint8Array(4));
+    expect(none.tiles[0].spans).toEqual([]);
+    expect(Array.from(await sampleInt(none, "NHITS", 0, fetcher))).toEqual([0, 0, 0, 0]);
   });
   it("reads NHITS planes by walking the headers after IMAGE", async () => {
     const info = await readTileInfo(7, fetcher);
