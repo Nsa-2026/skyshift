@@ -1,25 +1,28 @@
 // The opening: "The sky is never still." A scroll-driven overlay from the SPHEREx sky down to
-// Earth, to one person looking up, into her eye and out onto the sky again, then it fades into
-// the page underneath. Loaded on demand (src/intro/index.ts), so the home page never waits.
-// Original detailed planets and chosen goddess by 春。 with Codex, from 1390d01 in
-// “讨论项目网站首页与接入”. The overlay ends on the current page, including the neutral sky map.
+// Earth, to Galileo in Padua looking through his telescope, along the tube and out through its lens
+// onto the sky again, then it fades into the page underneath. Loaded on demand
+// (src/intro/index.ts), so the home page never waits. Original detailed planets by 春。 with Codex,
+// from 1390d01 in “讨论项目网站首页与接入”. The overlay ends on the current page, including the
+// neutral sky map.
 //
 // The background is real SPHEREx data: the IRSA SPHEREx DR1 all-sky HiPS cube
 // (https://irsa.ipac.caltech.edu/data/hips/SPHEREx/spherex_allsky_cube), frame 25 (the middle
 // channel of D2, 1.346 µm: CUBE_UM in src/sky/layers.ts). Order-3 tiles, reprojected to a 50°
 // SIN view at RA 281°, Dec −4° (the Milky Way in Aquila and Scutum, Galactic longitude ≈ 28°;
-// the branch's Galactic-centre field has no-data gaps right where the title and pupil sit),
+// the branch's Galactic-centre field has no-data gaps right where the title and the lens sit),
 // ×0.78 with gamma 1.1 and a 0.5 px Gaussian blur (keeps the file small), 1600 × 1000 WebP q55.
-// Everything else is drawn in code (scene.ts, portrait.ts).
+// Everything else is drawn in code (scene.ts, portrait.ts, src/opening/galileo.ts).
 import "./opening.css";
 import { CHAPTERS, chapterAt, sceneAt, scrollProgress } from "./model";
 import { paintScene } from "./scene";
 import { preparePlanetaryOpening, type PlanetPreparation } from './planet-worker-client';
+import { loadStars, setStarLayer, STARS_URL } from './stars';
 
 export const SKY_URL = "/opening/spherex-sky.webp";
 // English wording: the author's own (1390d01 on codex/frontend-unified) wherever it exists.
 const CREDIT_SKY = "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).";
-const CREDIT_ART = "Earth, planets and figure drawn in code.";
+const CREDIT_STARS = "Stars: Gaia DR3 (ESA/Gaia/DPAC), real positions; the flight through them is illustrative.";
+const CREDIT_ART = "Illustration: Earth, planets and Galileo drawn in code.";
 
 export type CloseReason = "skip" | "end" | "navigate";
 
@@ -30,6 +33,8 @@ export interface OpeningOptions {
   returnFocus?: HTMLElement | null;
   onClose?(reason: CloseReason): void;
   skyUrl?: string;
+  /** Gaia stars for the dive (stars.ts); a missing or broken file just leaves them out. */
+  starsUrl?: string;
 }
 
 export interface OpeningHandle {
@@ -74,7 +79,7 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     </div>
     <p class="op-chapter" aria-hidden="true"><span class="op-chapter-no"></span><span class="op-chapter-text"></span></p>
     <p class="visually-hidden" id="op-how">Explore the sky opens the site. Escape also closes the opening.</p>
-    <p class="op-credit"><span class="op-credit-sky">${CREDIT_SKY}</span> ${CREDIT_ART}</p>
+    <p class="op-credit"><span class="op-credit-sky">${CREDIT_SKY}</span> <span class="op-credit-stars">${CREDIT_STARS}</span> ${CREDIT_ART}</p>
     <div class="op-progress" aria-hidden="true"><span></span></div>
     <div class="op-track" aria-hidden="true"></div>
   `;
@@ -95,6 +100,9 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     // No sky, no sky credit; the scenery still works on the dark ground.
     sky.remove();
     $(".op-credit-sky")?.remove();
+    // The stars live in the sky layer, registered with it: they go too.
+    setStarLayer(null);
+    $(".op-credit-stars")?.remove();
   });
   img.src = opts.skyUrl ?? SKY_URL;
 
@@ -220,6 +228,7 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     cancelAnimationFrame(revealFrame);
     clearTimeout(revealTimer);
     preparation?.cancel();
+    setStarLayer(null);
     el.removeEventListener("scroll", schedule);
     removeEventListener("resize", onResize);
     removeEventListener("hashchange", onHash);
@@ -243,6 +252,29 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   motion?.addEventListener?.("change", onMotion);
   document.addEventListener('visibilitychange', onVisibility);
   el.addEventListener('transitionend', onTransitionEnd);
+
+  // Gaia stars load in the background; until (or unless) they arrive, the dive runs without them.
+  // Their canvas joins the sky layer and takes the image's drift at the image's current time, so
+  // both turn as one.
+  void loadStars(opts.starsUrl ?? STARS_URL).then(catalog => {
+    if (closed) return;
+    if (!catalog || !sky.isConnected) {
+      $(".op-credit-stars")?.remove();
+      return;
+    }
+    const stars = document.createElement("canvas");
+    stars.className = "op-stars";
+    img.after(stars);
+    try {
+      const [drift] = img.getAnimations?.() ?? [], [own] = stars.getAnimations?.() ?? [];
+      if (drift && own) own.currentTime = drift.currentTime;
+    } catch {
+      /* no Web Animations: the drift starts now, a few pixels apart at most */
+    }
+    setStarLayer(stars, catalog);
+    sceneProgress = -1;
+    schedule();
+  });
 
   onVisibility();
   el.scrollTop = 0;

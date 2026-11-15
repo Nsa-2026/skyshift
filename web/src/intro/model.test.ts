@@ -17,7 +17,7 @@ describe("scroll drives the opening", () => {
     for (const cut of [0, 0.25, 0.45, 0.7, 0.9, 1]) {
       const a = sceneAt(cut - 1e-7);
       const b = sceneAt(cut + 1e-7);
-      for (const key of ["earth", "ground", "figure", "face", "eye", "pupil", "clouds", "chrome", "veil"] as const) {
+      for (const key of ["earth", "ground", "figure", "face", "scope", "aperture", "clouds", "stars", "descent", "chrome", "veil"] as const) {
         expect(Math.abs(a[key] - b[key])).toBeLessThan(0.001);
         expect(b[key]).toBeGreaterThanOrEqual(0);
         expect(b[key]).toBeLessThanOrEqual(1);
