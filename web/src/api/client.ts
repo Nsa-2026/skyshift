@@ -82,6 +82,11 @@ export interface FramesQuery {
   det?: Det;
   /** Featured target slug: tried first as static files. */
   slug?: string | null;
+  /**
+   * Hours clock, live API only (contracts/api.md v3.19): a time (MJD, UTC), e.g. a mover's find.
+   * The answer shows the visit that holds it, with the session nearest it whole.
+   */
+  mjd?: number;
 }
 
 /**
@@ -114,6 +119,7 @@ export async function loadFrames(q: FramesQuery, signal?: AbortSignal): Promise<
   }
   const p = new URLSearchParams({ ra: String(q.ra), dec: String(q.dec), clock: q.clock, fov: String(fov) });
   if (q.det) p.set("det", String(q.det));
+  if (q.clock === "hours" && q.mjd !== undefined && Number.isFinite(q.mjd) && q.mjd > 0) p.set("mjd", String(q.mjd));
   const jsonUrl = new URL(`/api/frames?${p}`, base()).href;
   const frames = await getReal<FramesResponse>(jsonUrl, signal);
   return { frames, jsonUrl, origin: "api" };

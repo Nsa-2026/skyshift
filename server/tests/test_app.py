@@ -185,6 +185,43 @@ def test_frames_defaults(client, monkeypatch):
     assert seen == [(1.0, 2.0, 5.0, "months", 2), (1.0, 2.0, 20.0, "hours", 2)]
 
 
+def test_frames_mjd_hours_only_checked_and_in_the_key(client, monkeypatch):
+    """contracts/api.md v3.19: optional mjd for clock=hours, passed to the engine, part of the cache
+    key (rounded to 1e-6 day); requests without it are unchanged (no mjd passed, same key)."""
+    seen = []
+    monkeypatch.setattr(blink, "build_frames",
+                        lambda *a, cache=None, **kw: seen.append((a, kw.get("mjd"))) or _frames_result())
+    p = {"ra": 1, "dec": 2, "clock": "hours", "det": 4}
+    client.get("/api/frames", params=p)
+    r = client.get("/api/frames", params={**p, "mjd": 61074.655105})
+    assert r.status_code == 200, r.text
+    client.get("/api/frames", params={**p, "mjd": 61074.6551051})  # the same to 1e-6 day: cached
+    client.get("/api/frames", params={**p, "mjd": 61077.6})  # another time: another build
+    client.get("/api/frames", params=p)  # without mjd: its own answer, still cached
+    assert seen == [((1.0, 2.0, 20.0, "hours", 4), None), ((1.0, 2.0, 20.0, "hours", 4), 61074.655105),
+                    ((1.0, 2.0, 20.0, "hours", 4), 61077.6)]
+    for bad in ({**p, "mjd": "nan"}, {**p, "mjd": "inf"}, {**p, "mjd": 60000}, {**p, "mjd": 70000},
+                {**p, "mjd": "x"}, {**p, "clock": "months", "mjd": 61074.6},
+                {**p, "view": "resid", "mjd": 61074.6}):
+        _err(client.get("/api/frames", params=bad), 400, "bad_request")
+    assert len(seen) == 3
+
+
+def test_frames_without_mjd_keep_their_cache_key(client, monkeypatch):
+    """Adding mjd must not move the frames answers cached before it: one stored under the old key
+    (no mjd in it) is still served, and a request with mjd builds its own."""
+    built = []
+    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: built.append(kw) or _frames_result())
+    old = app_mod._key("frames", ra=1.0, dec=2.0, fov=20.0, clock="hours", det=4,
+                       known=app_mod.known_mod.INDEX_KEY, measured=app_mod.measured_mod.VERSION)
+    stored = {**_frames_result().meta, "epochs": [], "clock": "hours"}
+    app_mod._cache_put_json(f"frames/{old}/frames.json", stored)
+    p = {"ra": 1, "dec": 2, "clock": "hours", "det": 4}
+    assert client.get("/api/frames", params=p).json() == stored and built == []
+    client.get("/api/frames", params={**p, "mjd": 61074.655105})
+    assert len(built) == 1
+
+
 def test_data_route_unknown_key(client):
     _err(client.get("/api/data/" + "0" * 32 + "/frames/x.bin"), 404, "not_found")
     _err(client.get("/api/data/notahash/frames/x.bin"), 404, "not_found")

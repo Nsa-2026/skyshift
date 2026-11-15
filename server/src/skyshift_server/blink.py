@@ -18,6 +18,9 @@ then; the median removes them), at the times the search gives, while the cutouts
 The live months clock stacks at most LIVE_PER_VISIT exposures a visit, and the live hours clock
 shows at most LIVE_HOURS_FRAMES exposures (whole runs of a few sessions spread over the visit:
 pick_hours_live); precompute stacks all and keeps every hours frame (up to HOURS_MAX_FRAMES).
+With a time (GET /api/frames `mjd`, a mover's find) the hours clock shows the visit that holds it and
+keeps the session nearest it whole, so the find's own exposures and its track are in the answer
+(pick_hours_at: at most LIVE_HOURS_FRAMES, or that session plus a pair when it has 5).
 
 Coverage (coverage.py): the search returns every image whose footprint holds the centre, so a
 centre near a detector's edge gives frames that are partly empty. Before downloading, each image's
@@ -285,6 +288,37 @@ def pick_hours_live(images: list[Image], max_frames: int = LIVE_HOURS_FRAMES,
     return sorted((im for r in best for im in r), key=lambda im: im.mjd)
 
 
+def pick_hours_at(images: list[Image], mjd: float, max_frames: int = LIVE_HOURS_FRAMES,
+                  per_session: int = LIVE_PER_SESSION, cover: Coverage | None = None) -> list[Image]:
+    """The hours clock at a time (contracts/api.md v3.19, GET /api/frames `mjd`): the visit of the
+    exposure nearest `mjd` (the visit that holds it, when one does) and that exposure's session (the
+    session nearest `mjd`) whole, every exposure of it in time order whatever its coverage (a mover's
+    `mjd` is the middle of the exposures it was found in, so they are there). The frames left come from
+    the visit's other sessions as pick_hours_live picks them: at most max(max_frames, the session +
+    per_session) in all, so a 5-exposure session still gets a pair from another session (7 frames, one
+    wave of downloads: cutouts.MAX_IN_FLIGHT is 12) instead of a lone exposure. max_frames 0: the
+    session, then whole sessions of the visit from its start, up to HOURS_MAX_FRAMES.
+    Returned in download order: the session first, then the others by time (exposure_epochs sorts the
+    frames by time)."""
+    if not images:
+        return []
+    near = min(images, key=lambda im: (abs(im.mjd - mjd), im.mjd))
+    own = sorted((im for im in images if im.visit == near.visit and im.session == near.session),
+                 key=lambda im: im.mjd)
+    rest = [im for im in images if im.visit == near.visit and im.session != near.session]
+    others: list[Image] = []
+    if rest and max_frames:
+        left = max(max_frames, len(own) + (per_session or 0)) - len(own)
+        if left > 0:
+            others = pick_hours_live(rest, left, per_session, visit=near.visit, cover=cover)
+    elif rest:
+        for run in hours_runs(pick_hours_images(rest, near.visit, cover)):  # whole sessions, in time order
+            if len(own) + len(others) + len(run) > HOURS_MAX_FRAMES:
+                break
+            others += run
+    return own + sorted(others, key=lambda im: im.mjd)
+
+
 def _spread(part: list[Image], n: int) -> list[Image]:
     """n of the time-sorted images, evenly spread (first and last included)."""
     idx = np.unique(np.rint(np.linspace(0, len(part) - 1, n)).astype(int))
@@ -478,7 +512,8 @@ def _timed(budget: Budget | None, name: str, fn, *a, **k):
 def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "hours"], det: int,
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
                  hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None,
-                 measured: bool = True, visit: int | None = None, view: str = "raw") -> Frames:
+                 measured: bool = True, visit: int | None = None, view: str = "raw",
+                 mjd: float | None = None) -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
     hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
@@ -489,8 +524,13 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     the cutouts download). Precompute passes False and fills it once for its merged detectors.
     visit: hours clock, show this visit instead of the one with the most exposures of `det`
     (precompute: one visit for every detector of a file, so paired detectors show the same
-    moments); NotFoundError when `det` has no exposure in it."""
+    moments); NotFoundError when `det` has no exposure in it.
+    mjd: hours clock (GET /api/frames `mjd`, contracts/api.md v3.19), the visit that holds this time
+    and the session nearest it whole, the rest from the visit's other sessions (pick_hours_at), the
+    session's cutouts asked for first. With `visit`, within that visit."""
     _check(clock, fov, det)
+    if mjd is not None and clock != "hours":
+        raise bad_request("mjd works with clock=hours only")
     # Imported analysis fields remain available offline; all other raw fields use
     # the team's canonical search/cutout/zodi/stack engine below.
     if view != 'raw':
@@ -515,8 +555,13 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
                             if found.images else "no SPHEREx images at this position")
     prefix = f"{clock[0]}{fov_i}"
     cover = coverage.for_frames(images, ra, dec, clock, fov)
-    chosen = (pick_months_images(images, per_visit, cover) if clock == "months"
-              else pick_hours_live(images, hours_frames or 0, visit=visit, cover=cover))
+    if clock == "months":
+        chosen = pick_months_images(images, per_visit, cover)
+    elif mjd is not None:  # in download order: the session nearest mjd first
+        chosen = pick_hours_at([im for im in images if visit is None or im.visit == visit], mjd,
+                               hours_frames or 0, cover=cover)
+    else:
+        chosen = pick_hours_live(images, hours_frames or 0, visit=visit, cover=cover)
     if not chosen:
         raise NotFoundError(f"no SPHEREx images of detector {det} in visit {visit} at this position")
     log_partial_cover(chosen, cover, clock, fov, det, ra, dec)

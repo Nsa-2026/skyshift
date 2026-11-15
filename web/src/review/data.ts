@@ -149,9 +149,10 @@ export function focusFrames(frames: FramesResponse, c: Pick<Candidate, "mjd" | "
 export const OWN_GAP_DAYS = 2 / 1440;
 
 /**
- * Hours candidates: days from the find's mjd to the nearest frame of `det`. Live hours frames show
- * the visit with the most exposures (the API has no time parameter), which may not be the find's
- * session. null for months, an unknown mjd or no frames of `det`.
+ * Hours candidates: days from the find's mjd to the nearest frame of `det`. Live hours frames are
+ * asked at the find's mjd (candidateFrames), so its session is there; a static file, or a detector
+ * that saw the spot at another moment, may still show other exposures. null for months, an
+ * unknown mjd or no frames of `det`.
  */
 export function findGap(frames: FramesResponse, c: Pick<Candidate, "mjd" | "clock">, det: Det): number | null {
   if (frames.clock !== "hours" || c.clock !== "hours" || !(c.mjd > 0)) return null;
@@ -179,8 +180,17 @@ export function isLive(c: Candidate, view: View): boolean {
 }
 
 /**
+ * The time an hours candidate's live frames are asked at (contracts/api.md v3.19 `mjd`): its find,
+ * so the API shows the visit that holds it and the session it was found in, whole, and the measured
+ * layer can link its track. undefined for months (either side) or an unknown mjd.
+ */
+export function liveMjd(c: Pick<Candidate, "mjd" | "clock">, view: Pick<View, "clock">): number | undefined {
+  return c.clock === "hours" && view.clock === "hours" && c.mjd > 0 ? c.mjd : undefined;
+}
+
+/**
  * Frames for a candidate's view: its static frames_url (relative URLs resolve against it) when
- * the view is the candidate's own clock, else the live API.
+ * the view is the candidate's own clock, else the live API (hours: at the find's time, liveMjd).
  */
 export async function candidateFrames(c: Candidate, view: View, signal?: AbortSignal): Promise<LoadedFrames> {
   if (c.frames_url && view.clock === c.clock) {
@@ -192,7 +202,8 @@ export async function candidateFrames(c: Candidate, view: View, signal?: AbortSi
       if ((e as Error).name === "AbortError") throw e;
     }
   }
-  return loadFrames({ ra: view.ra, dec: view.dec, clock: view.clock, fov: view.fov, det: view.det }, signal);
+  const mjd = liveMjd(c, view);
+  return loadFrames({ ra: view.ra, dec: view.dec, clock: view.clock, fov: view.fov, det: view.det, ...(mjd ? { mjd } : {}) }, signal);
 }
 
 /** Frame data warms the HTTP cache (immutable on the server), so the blink starts at once. */

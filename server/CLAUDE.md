@@ -3,6 +3,7 @@ Owner: P2. Also owns the root Dockerfile, scripts/precompute/ and web/public/dat
 FastAPI on Cloud Run (us-east4, 0–4 instances). Implements contracts/api.md exactly.
 - The engine is blink.build_frames(ra, dec, fov, clock, det) and blink.build_object(ra, dec), used by app.py and scripts/precompute/. Modules: search, cutouts, stack, blink, coverage, obj, gaia, known. It uses core/ for the visit rule, masks and measurement.
 - Coverage: each search image keeps its footprint (s_region). coverage.py gives the share of the field it covers before any download, and the selection prefers full frames (months: >= 90% first; hours: the visit with the most exposures covering >= 50%, sessions covering >= 90% first, exposures under 50% dropped when their session has better). No footprint (a search saved before 14 Nov evening): time alone, as before.
+- Hours at a time (contracts v3.19): /api/frames?clock=hours&mjd= → blink.pick_hours_at: the visit of the exposure nearest mjd, its session whole (any coverage) and asked for first, the rest by pick_hours_live; at most 6, or the session + 2 when it has 5. mjd is in the cache key only when sent. The review pages send a mover's mjd.
 - Search: astroquery Irsa.query_sia, collections spherex_dr1 and spherex_qr3 (skip *_deep). The TAP table name is unverified.
   When SIA fails or takes over 20 s (502 Proxy Error from 14 Nov 16:05 UTC), search_fallback.py answers from a saved
   search at this spot, else the pipeline's photolists/zones/<zone>.parquet of every zone whose box holds it, else a saved

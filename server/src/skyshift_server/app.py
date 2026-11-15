@@ -73,6 +73,7 @@ FOV_DEFAULT = {"months": 5.0, "hours": 20.0}
 DET_DEFAULT = 2
 R_MAX_ARCMIN = 60.0          # covers the corners of the 60' hours field (half-diagonal 42.4')
 MJD_RANGE = (33282.0, 88069.0)  # 1900-2100
+MJD_SPHEREX = (60745.0, 64328.0)  # /api/frames mjd (contracts v3.19): SPHEREx's launch, 11 Mar 2025, to 2035
 
 CACHE_REAL = "public, max-age=3600"
 CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
@@ -522,7 +523,7 @@ def resolve(q: str = "") -> JSONResponse:
 
 @app.get("/api/frames")
 async def frames(request: Request, ra: float, dec: float, fov: float | None = None, clock: str = "months",
-                 det: int = DET_DEFAULT, view: str = 'raw') -> JSONResponse:
+                 det: int = DET_DEFAULT, view: str = 'raw', mjd: float | None = None) -> JSONResponse:
     ra, dec = _check_pos(ra, dec)
     if clock not in FOV_ALLOWED:
         raise bad_request("clock must be months or hours")
@@ -535,16 +536,34 @@ async def frames(request: Request, ra: float, dec: float, fov: float | None = No
 
     if view not in ('raw', 'resid', 'model', 'refdiff'):
         raise bad_request('view must be raw, resid, model or refdiff')
+    mjd = _check_frames_mjd(mjd, clock, view)
     key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY,
-               measured=measured_mod.VERSION, **({'view': view} if view != 'raw' else {}))
+               measured=measured_mod.VERSION, **({'view': view} if view != 'raw' else {}),
+               **({"mjd": mjd} if mjd is not None else {}))  # requests without mjd keep their keys
     cached = await run_in_threadpool(_cache_get_json, f"frames/{key}/frames.json")
     # a cached answer is rebuilt (its cutouts are cached) when a zone has since got results here
     if cached is not None and not await run_in_threadpool(_measured_stale, cached):
         return _json(cached)
+    at = f" at MJD {mjd}" if mjd is not None else ""
     content, cache_control, *why = await _shared(
-        request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec})",
-        lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget, view))
+        request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec}){at}",
+        lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget, view, mjd))
     return _json(content, cache_control, why[0] if why else None)
+
+
+def _check_frames_mjd(mjd: float | None, clock: str, view: str) -> float | None:
+    """GET /api/frames `mjd` (contracts/api.md v3.19): hours clock, raw view, within SPHEREx's era.
+    Rounded to 1e-6 day (0.09 s), as /api/known, for the cache key."""
+    if mjd is None:
+        return None
+    if clock != "hours":
+        raise bad_request("mjd works with clock=hours only")
+    if view != "raw":
+        raise bad_request("mjd works with view=raw only")
+    _finite("mjd", mjd)
+    if not MJD_SPHEREX[0] <= mjd <= MJD_SPHEREX[1]:
+        raise bad_request("mjd must be between 60745 (SPHEREx launch, 11 Mar 2025) and 64328 (2035)")
+    return round(mjd, 6)
 
 
 def _measured_stale(cached: dict) -> bool:
@@ -556,10 +575,11 @@ def _measured_stale(cached: dict) -> bool:
 
 
 def _build_frames(key: str, ra: float, dec: float, fov: float, clock: str, det: int,
-                  budget: Budget, view: str = "raw") -> tuple[dict, str]:
+                  budget: Budget, view: str = "raw", mjd: float | None = None) -> tuple[dict, str]:
     """(response JSON, Cache-Control) of a live frames build; caches a complete one whole."""
     try:
-        result = _call("blink", "build_frames", ra, dec, fov, clock, det, budget=budget, **({"view": view} if view != "raw" else {}))
+        result = _call("blink", "build_frames", ra, dec, fov, clock, det, budget=budget,
+                       **({"view": view} if view != "raw" else {}), **({"mjd": mjd} if mjd is not None else {}))
     except ApiError as e:
         budget.cut(f"error {e.status}: {e.message[:120]}")
         raise
