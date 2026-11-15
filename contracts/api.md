@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.16)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.17)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -16,7 +16,8 @@ v3.12: shape candidates' two-source fit: the measured layer's `split_by_fit` com
 v3.13: measured class `stack`, sources seen only on the visit stacks;
 v3.14: optional API keys, `POST /api/keys`, `GET`/`DELETE /api/keys/me`, error codes `unauthorized` and `rate_limited`;
 v3.15: validation.json V6 and V7 are run (15 Nov): units `slope` and `objects`;
-v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's latest vote counts).
+v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's latest vote counts;
+v3.17: planets and their large moons (JPL Horizons) count as known bodies for movers).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -555,7 +556,7 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | rate_arcsec_h | float ″/h or null | mover: apparent rate from a weighted straight-line fit of its dots' positions against time (dot positions re-read from dots/). null for `two_detectors` (one moment) and other kinds |
 | pm_mas_yr, pm_err_mas_yr | float mas/yr or null | high_pm only: total proper motion and its 1σ error (the pipeline's `pm`, `pm_err`) |
 | pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover from its dots (null without a rate). null for spectral. shape: not a motion but the axis of the stretch on the sky, east of north, **0–180** (where the second object would sit, on either side) |
-| nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known asteroid or comet predicted in the same session, moved to `mjd`; **null = none within 600″**. Always null for high_pm and spectral (not checked) |
+| nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known body predicted in the same session, moved to `mjd`: an asteroid or comet (MPC orbits) or, from v3.17, a planet or large moon (JPL Horizons); **null = none within 600″**. Always null for high_pm and spectral (not checked) |
 | gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: false (suspects have no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match. shape: a Gaia DR3 star within 6″ is the one listed object |
 | catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one. shape: a CatWISE2020 source within 6″ (the listed object, or its infrared entry) |
 | galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
@@ -642,7 +643,7 @@ candidate they are those of its (first) source.
 |---|---|---|
 | two_exposures | mover | Seen at different places in two or more exposures of one session |
 | two_detectors | mover | Seen by two detectors at the same moment (D1+D4, D2+D5, D3+D6), in one exposure only |
-| known_object_near | mover | A known asteroid or comet was predicted within 2′ at that time: it may be that object, slightly off its prediction |
+| known_object_near | mover | A known asteroid, comet, planet or moon was predicted within 2′ at that time: it may be that object, slightly off its prediction |
 | motion_not_significant | mover | The motion is under 3σ of its position errors: it may not move at all |
 | bad_pixels_near | mover | A masked pixel (cosmic ray, hot or dead pixel, persistence…) touches one of its dots |
 | outlier_flag | mover | The OUTLIER flag (bit 19, recorded, not masked) is set on its pixels. Hunt: 92 of 228 suspects (40%), almost all in D4–D6 |
@@ -677,8 +678,8 @@ candidate they are those of its (first) source.
 | blend | high_pm, spectral, shape | v3.11. Two or more Gaia DR3 stars (G < 18) within 8″ of its source (the pipeline's `fragments` step): the detection may be two stars merged by the 7.5″ PSF, so a shift, colour or stretch may come from the pair. A high_pm row with a blend on either side also counts as a Gaia star (`status` gaia) |
 
 **why**, examples (from the hunt export): "Seen at different places in 2 exposures 4.3 minutes apart,
-moving about 55″ an hour; no known asteroid or comet was predicted within 10′." · "Seen at different
-places in 3 exposures over 4.3 minutes, moving about 55″ an hour; the nearest known asteroid or comet was
+moving about 55″ an hour; no known asteroid, comet, planet or moon was predicted within 10′." · "Seen at different
+places in 3 exposures over 4.3 minutes, moving about 55″ an hour; the nearest known asteroid, comet, planet or moon was
 predicted 2.1′ away, but another unexplained mover was seen 3″ from here 168.6 days apart, so it may be a
 fixed source." · "Moves 1.10″ a year between visits; Gaia lists this star with the same motion, a known
 nearby star that shows the method works." · "Moves 0.95″ a year between visits, but CatWISE lists a
@@ -1063,3 +1064,12 @@ every check in file order needs no change. A missing input still gives `pending`
 - The rules allow the fifth answer; they stay create-only. The rules change lands in the same PR as the
   web/src/vote change, and both deploy together (`infra/firebase/deploy.sh`, rules then hosting).
 - mcp/ counts each voter's latest vote the same way.
+
+## Changes in v3.17 (15 Nov 2026): planets and moons are known bodies
+
+- The pipeline's known-object check (suspects' 30″ cut, candidates.json `nearest_known_arcsec`, reason
+  `known_object_near`) now also uses the planets and their large moons from JPL Horizons, next to MPC asteroids
+  and comets. MPC orbits hold no moons: before this, Iapetus, Titan, Rhea, Hyperion, Titania and Uranus itself
+  were listed as unknown movers. A mover within 30″ of a predicted moon is no longer a candidate.
+- `why` says "no known asteroid, comet, planet or moon was predicted within 10′" (and "the nearest known asteroid,
+  comet, planet or moon was predicted … away"). No field, type or unit changes; `known[].source` in frames is unchanged.
