@@ -740,13 +740,16 @@
   color: var(--ink-3);
   font-size: var(--step--1);
 }
-.rs-best {
+.rs-best,
+.rs-known {
   max-width: 78ch;
 }
-.rs-best b {
+.rs-best b,
+.rs-known b {
   font-weight: 700;
 }
-.rs-best a {
+.rs-best a,
+.rs-known a {
   margin-left: var(--s1);
   font-weight: 550;
 }

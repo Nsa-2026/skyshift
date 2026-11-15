@@ -274,6 +274,12 @@ export function strongestMovers(c: CandidatesResponse | null): number {
   return list.filter((x) => x.kind === "mover" && gradeOf(x) === "A").length;
 }
 
+/** Moving stars Gaia already lists (kind high_pm with gaia_match): found again, on our own. */
+export function knownMovingStars(c: CandidatesResponse | null): number {
+  const list = c && Array.isArray(c.candidates) ? c.candidates : [];
+  return list.filter((x) => x.kind === "high_pm" && x.gaia_match === true).length;
+}
+
 /** The distant-planet search in one or two sentences; "" until the file is there. */
 export function distantPlain(d: DistantResponse | null): string {
   const head = distantVerdict(d);

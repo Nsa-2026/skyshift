@@ -36,7 +36,7 @@ import type {
 import { DETECTORS } from "../app/astro";
 import { RECALL_SCOPE, checkInfo, checkTitle, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
 import { renderDistant } from "./distant";
-import { checkLine, distantPlain, limitations, plainResults, plainTally, strongestMovers, sureFigure } from "./plain";
+import { checkLine, distantPlain, knownMovingStars, limitations, plainResults, plainTally, strongestMovers, sureFigure } from "./plain";
 import {
   bigValue,
   blinkHref,
@@ -456,6 +456,7 @@ export function renderObjects(c: CandidatesResponse | null): string {
   const areas = zoneList(c!.zones).length;
   const where = areas > 1 ? `, from ${intText(areas)} areas of sky` : "";
   const best = strongestMovers(c);
+  const known = knownMovingStars(c);
   return html`<div class="rs-objects">
     <p class="rs-big"><span class="rs-big-n">${esc(intText(list.length))}</span> ${list.length === 1 ? "object" : "objects"} to check</p>
     ${kinds ? html`<p class="rs-count">${esc(`${kinds}${where}.`)}</p>` : ""}
@@ -464,6 +465,12 @@ export function renderObjects(c: CandidatesResponse | null): string {
       best
         ? html`<p class="rs-best">Strongest leads: <b>${esc(intText(best))}</b> fast ${best === 1 ? "mover" : "movers"} on ${best === 1 ? "a steady path" : "steady paths"}.
             <a href="#/candidates/kind=mover&amp;grade=A">See ${best === 1 ? "it" : "them"}</a></p>`
+        : ""
+    }
+    ${
+      known
+        ? html`<p class="rs-known">SkyShift re-found <b>${esc(intText(known))}</b> moving ${known === 1 ? "star" : "stars"} Gaia already lists, a sign the method works.
+            <a href="#/candidates/kind=high_pm&amp;gaia=yes&amp;show=gaia_known">See ${known === 1 ? "it" : "them"}</a></p>`
         : ""
     }
     <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/candidates/one=1">Review them</a></p>

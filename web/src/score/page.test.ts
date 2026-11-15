@@ -46,7 +46,7 @@ function snapshot(empty = false): Snapshot {
   return { mode: "local", note: null, votes, info, listed: 1, dataRelease: "DR1", mine: {}, loadedAt: Date.now(), lookup: async () => new Map() };
 }
 
-/** A small candidates file in the contract's shape: zone ids, kinds, one grade A mover. */
+/** A small candidates file in the contract's shape: zone ids, kinds, one grade A mover, one moving star Gaia lists. */
 const CANDS = {
   generated: "2026-11-15",
   data_release: "DR1+QR3",
@@ -56,8 +56,8 @@ const CANDS = {
     { kind: "mover", grade: "A" },
     { kind: "mover", grade: "B" },
     { kind: "mover", grade: "C" },
-    { kind: "high_pm" },
-    { kind: "high_pm" },
+    { kind: "high_pm", gaia_match: true },
+    { kind: "high_pm", gaia_match: false },
     { kind: "spectral" },
   ],
 };
@@ -322,6 +322,9 @@ describe("each section's own page", () => {
     expect(text(found.querySelector(".rs-best"))).toBe("Strongest leads: 1 fast mover on a steady path. See it");
     expect([...found.querySelectorAll(".rs-links a")].map(text)).toEqual(["See the list", "Review them"]);
     expect(found.querySelector(".rs-best a")!.getAttribute("href")).toBe("#/candidates/kind=mover&grade=A");
+    // The moving stars Gaia already lists: a line, and the To check list filtered to them (set aside there by default).
+    expect(text(found.querySelector(".rs-known"))).toBe("SkyShift re-found 1 moving star Gaia already lists, a sign the method works. See it");
+    expect(found.querySelector(".rs-known a")!.getAttribute("href")).toBe("#/candidates/kind=high_pm&gaia=yes&show=gaia_known");
     expect(seenText(found, "pro-only")).toContain(distantPlain(distant));
     expect(found.querySelector("h3#sc-suspects-h")).not.toBeNull();
     expect(found.querySelector("h3#sc-distant-h")).not.toBeNull();
