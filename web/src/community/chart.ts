@@ -4,7 +4,9 @@
 import type { Activity, Bin } from "./stats";
 
 const SVG = "http://www.w3.org/2000/svg";
-const HEIGHT = 176;
+// Tall enough that the chart column keeps pace with Most debated beside it (two entries open).
+// Two entries run about 450px; the chart plus its heading and sub-line lands within ~25px of that.
+const HEIGHT = 360;
 const M = { top: 22, right: 8, bottom: 26, left: 34 };
 
 const hourFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
