@@ -69,7 +69,7 @@ describe("plainResults", () => {
 
 describe("plainTally", () => {
   it("counts from the file, without codes", () => {
-    expect(plainTally(validation.checks)).toBe("2 not run yet.");
+    expect(plainTally(validation.checks)).toBe("");
     expect(plainTally([{ status: "pass" }, { status: "partial" }, { status: "fail" }])).toBe(
       "1 passed in part, 1 failed.",
     );
@@ -104,7 +104,7 @@ describe("what we found", () => {
 
 describe("the overview's lines", () => {
   it("counts the checks that ran, with the mark of the weakest", () => {
-    expect(sureFigure(validation.checks)).toEqual({ num: "9 of 9", label: "checks we ran passed", status: "pass" });
+    expect(sureFigure(validation.checks)).toEqual({ num: "11 of 11", label: "checks we ran passed", status: "pass" });
     expect(sureFigure([{ status: "pass" }, { status: "partial" }, { status: "pending" }])).toEqual({ num: "1 of 2", label: "checks we ran passed", status: "partial" });
     expect(sureFigure([{ status: "fail" }])).toEqual({ num: "0 of 1", label: "check we ran passed", status: "fail" });
     expect(sureFigure([{ status: "pending" }])).toBeNull();

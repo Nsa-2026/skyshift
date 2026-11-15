@@ -337,7 +337,7 @@ describe("each section's own page", () => {
     await open(s, "sure");
     const sure = s.el.querySelector("#rs-sure-body")!;
     // the figure first, then the results, then one footnote
-    expect(text(sure.querySelector(".rs-plain .rs-big"))).toBe("9 of 9 checks we ran passed");
+    expect(text(sure.querySelector(".rs-plain .rs-big"))).toBe("11 of 11 checks we ran passed");
     const items = [...sure.querySelectorAll<HTMLElement>(".rs-tests li")];
     expect(items.length).toBeGreaterThanOrEqual(3);
     expect(items.length).toBeLessThanOrEqual(5);
@@ -347,10 +347,10 @@ describe("each section's own page", () => {
       expect(li.className).toMatch(/^sc-(pass|partial|fail)$/);
       expect(li.querySelector("svg.sc-mark")).not.toBeNull();
     }
-    expect(text(sure.querySelector(".rs-tally"))).toBe("2 not run yet. See every check");
+    expect(text(sure.querySelector(".rs-tally"))).toBe("See every check");
     expect(sure.querySelectorAll(".sc-check")).toHaveLength(11);
     expect(sure.querySelectorAll(".sc-check h3.sc-claim")).toHaveLength(11);
-    expect(text(sure.querySelector(".sc-summary"))).toBe("9 of 11 checks pass and 2 have not run.");
+    expect(text(sure.querySelector(".sc-summary"))).toBe("All 11 checks pass.");
     // what the search can find: V5 recall with what it covers, V4, and the made-up distant planets
     expect([...sure.querySelectorAll(".rs-fig")].map(text)).toEqual([`${Math.round(Number(v5.value) * 100)}%`, "60 of 60", expect.stringMatching(/^\d+%$/)]);
     expect(text(sure.querySelector(".rs-figures"))).toContain(RECALL_SCOPE);
@@ -409,7 +409,7 @@ describe("each section's own page", () => {
     await open(s, "sure");
     let seen = seenText(s.el, "plain-only");
     for (const id of ["V1", "V2", "V5", "V9", "V11"]) expect(seen).toMatch(new RegExp(`\\b${id}\\b`));
-    expect(seen).toMatch(/9 of 11 checks pass and 2 have not run/);
+    expect(seen).toMatch(/All 11 checks pass/);
     expect(seen).toContain("What the search can find");
     await open(s, "found");
     seen = seenText(s.el, "plain-only");
@@ -446,7 +446,7 @@ describe("Advanced's pages", () => {
     expect(getDetails()).toBe(true);
     expect(shown(s.el)).toEqual(["methods"]);
     const methods = s.el.querySelector("#rs-methods-body")!;
-    expect(text(methods.querySelector(".tl-validation"))).toContain("9 of 11 checks pass and 2 have not run.");
+    expect(text(methods.querySelector(".tl-validation"))).toContain("All 11 checks pass.");
     expect(methods.querySelector('.tl-tested a[href="#/results/sure/V2"]')).not.toBeNull();
     // Advanced turned off on the page: one line says what it needs, and the content hides
     setDetails(false);

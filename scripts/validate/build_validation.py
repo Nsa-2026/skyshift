@@ -7,7 +7,8 @@ Every check is printed even when its number is poor; a check with no input yet i
   V3  the same `measure`: sigma_arcsec from the reference stars
   V4  data/v4_asteroids.json                    (v4_asteroids.py)
   V5  <results>/<zone>/recall.json + summary.json (pipeline score; gs://nasa-glazing-data/results/)
-  V6  cut (S2)          V7  cut (S3)
+  V6  data/v6_fast_stars.json  (v6_v7_motion.py: V2's measurement on the 40 fastest Gaia stars with G > 12)
+  V7  data/v7_brown_dwarfs.json (v6_v7_motion.py: the same on Gaia's ultracool dwarfs faster than 1"/yr + WISE 0855)
   V8  data/v8_spectra_<zone>.json (v8_spectra.py: the zone's stars vs 2MASS Ks and CatWISE W1)
       + data/demo_check.json (scripts/demo_check.py --json; --demo-check PATH overrides): median time to first frame
   V9  <results>/<zone>/astrometry_report.json   (pipeline astrometry)
@@ -34,6 +35,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import _motion
 import distant
 from _common import BUCKET, CACHE, DATA, today, write_json
 
@@ -168,6 +170,31 @@ def v8_status(spectra_pass: bool | None, median_first_frame_s: float | None, spe
     if "fail" in halves:
         return "fail"
     return "pass" if len(halves) == 2 else "partial"
+
+
+def v6_status(n_measured: int, n_listed: int, slope: float | None) -> str:
+    """Fast stars: the slope of measured against predicted shift. pass: within 0.10 of 1 on at least half the
+    list; partial: within 0.20 on at least 5 stars; else fail. Nothing listed: pending."""
+    if not n_listed:
+        return "pending"
+    if slope is None or n_measured < 5:
+        return "fail"
+    off = round(abs(slope - 1), 9)  # 1.10 is within 0.10
+    if off <= 0.10 and n_measured >= n_listed / 2:
+        return "pass"
+    return "partial" if off <= 0.20 else "fail"
+
+
+def v7_status(n_agree: int, n_visible: int) -> str:
+    """Brown dwarfs: of those whose predicted shift is visible (_motion.visible: >= 3 sigma), pass when at least 5
+    and 80% of them shift the predicted way (>= 3 sigma, within 30 deg); partial from 50%; else fail. None
+    visible: fail; no input: pending."""
+    if n_visible <= 0:
+        return "fail"
+    frac = n_agree / n_visible
+    if n_visible >= 5 and frac >= 0.8:
+        return "pass"
+    return "partial" if frac >= 0.5 else "fail"
 
 
 def v10_status(sigma_nmad: float | None) -> str:
@@ -334,6 +361,134 @@ def v2_v3(site: Path) -> tuple[dict, dict]:
                    f"{b3['min_rate_3sigma_arcsec_yr']}\"/yr are seen at 3 sigma in one year",
                    value=b3["sigma_arcsec"], unit="arcsec", expected=exp3, note=note3, rows=rows3)
     return c2, c3
+
+
+# --- V6, V7 -----------------------------------------------------------------------------------
+
+V6_FILE = "v6_fast_stars.json"
+V7_FILE = "v7_brown_dwarfs.json"
+MOTION_ROW_KEYS = ("name", "source_id", "g", "abs_g", "pm_mas_yr", "ruwe", "measured", "reason", "det", "visits", "dt_yr",
+                   "shift_arcsec", "predicted_arcsec", "sigma_arcsec", "pa_deg", "predicted_pa_deg", "angle_deg",
+                   "dev_sigma", "d_east_arcsec", "d_north_arcsec", "pred_east_arcsec", "pred_north_arcsec", "n_ref_stars",
+                   "blend_arcsec", "blend_g", "search")
+
+
+def _motion_rows(d: dict) -> list[dict]:
+    return [{k: x.get(k) for k in MOTION_ROW_KEYS if k in x or k in ("measured", "reason")} for x in d.get("rows", [])]
+
+
+def _reasons_text(rows: list[dict]) -> str:
+    from collections import Counter
+
+    c = Counter(x.get("reason") or "unknown" for x in rows if not x.get("measured"))
+    return ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in c.most_common())
+
+
+def _motion_method(d: dict) -> str:
+    return ("Each object is measured exactly as V2 (server obj.measure, the code behind /api/object): its first and last "
+            f"visit stacks in one detector (the best S/N not saturated, from a {d.get('spectrum_per_det', 3)}-exposure-per-"
+            f"detector spectrum), at most {d.get('per_visit')} exposures per visit, on the 15' grid, with quiet Gaia stars "
+            "as the frame and error floor (sigma_arcsec). Predicted = the Gaia model (proper motion and parallax) moved "
+            "between the two stacks' median times. SPHEREx photos from SkyShift's whole-sky photo lists (IRSA's search was "
+            "down; where no list reaches, the pipeline's index of every file on NASA's S3 copy), pixels from NASA's S3 copy, Gaia cones from the ARI Heidelberg mirror of gaiadr3.gaia_source (ESA's "
+            f"archive was down); list: {d.get('list_source')} ({d.get('list_cut')}); run {d.get('generated')}.")
+
+
+def _fit(rows: list[dict]) -> dict:
+    return _motion.slope_fit([(x["d_east_arcsec"], x["d_north_arcsec"]) for x in rows],
+                             [(x["pred_east_arcsec"], x["pred_north_arcsec"]) for x in rows],
+                             [x["sigma_arcsec"] for x in rows])
+
+
+def _blend_text(blended: list[dict]) -> str:
+    if not blended:
+        return " No measured object has a Gaia neighbour as bright (in G) within the 2 px (12.3\") centroid search radius."
+    names = "; ".join(f"{x['name'].split(' (')[0]} (G {r(x.get('g'), 1)}): G {r(x['blend_g'], 1)} at {x['blend_arcsec']}\", "
+                      f"measured {r(x['shift_arcsec'])}\" for {r(x['predicted_arcsec'])}\"" for x in blended)
+    return (f" Blends (blend_arcsec, from Gaia alone, before the measurement): a Gaia star at most 1 mag fainter in G within "
+            f"the measurement's 2 px (12.3\") centroid search radius of the object at either stack time, which the centroid "
+            f"can lock onto: {names}.")
+
+
+def v6() -> dict:
+    claim, exp = "Fast stars (S2)", "Slope near 1 (40 fastest Gaia stars with G > 12)"
+    d = load(DATA / V6_FILE)
+    if not d or not d.get("rows"):
+        return check("V6", claim, "pending", "Not run yet", expected=exp)
+    rows = _motion_rows(d)
+    meas = [x for x in d["rows"] if x.get("measured")]
+    fit = _fit(meas)
+    blended = [x for x in meas if x.get("blend_arcsec") is not None]
+    clean = [x for x in meas if x.get("blend_arcsec") is None]
+    fit_clean = _fit(clean) if blended and clean else None
+    within = [x for x in meas if x.get("dev_sigma") is not None and x["dev_sigma"] <= 3]
+    slope = fit["slope"]
+    st = v6_status(len(meas), len(rows), slope)
+    rng = sorted(x["predicted_arcsec"] for x in meas)
+    head = (f"{len(meas)} of {len(rows)} fastest Gaia stars measured: slope {r(slope, 3)} +- {r(fit['slope_err'], 3)} "
+            f"(measured against predicted shift), RMS {r(fit['rms_arcsec'])}\"; {len(within)} of {len(meas)} within 3 sigma"
+            + (f"; without the {len(blended)} blended with a brighter star, slope {r(fit_clean['slope'], 3)} +- "
+               f"{r(fit_clean['slope_err'], 3)}" if fit_clean else "")
+            if meas else f"0 of {len(rows)} fastest Gaia stars measured")
+    note = (_motion_method(d)
+            + f" Slope: a line through the origin fitted to both components (east, north) of every measured star, weights "
+              f"1/sigma^2 (the status uses every measured star); RMS and median of the residual vectors "
+              f"|measured - predicted|: {r(fit['rms_arcsec'])}\" and {r(fit['median_resid_arcsec'])}\"."
+            + (f" Predicted shifts {rng[0]}-{rng[-1]}\"." if rng else "")
+            + _blend_text(blended)
+            + (f" Not measured: {_reasons_text(d['rows'])}." if len(meas) < len(rows) else "")
+            + " Rows: " + ", ".join(MOTION_ROW_KEYS) + ".")
+    return check("V6", claim, st, head, value=r(slope, 3), unit="slope", expected=exp, note=note, rows=rows)
+
+
+def _faint_text(meas: list[dict], vis: list[dict]) -> str:
+    """V7: how far the dwarfs that can't show their direction move, against their errors (from the rows)."""
+    faint = [x for x in meas if x not in vis]
+    if not faint:
+        return ""
+    pred = sorted(x["predicted_arcsec"] for x in faint if x.get("predicted_arcsec") is not None)
+    sig = sorted(x["sigma_arcsec"] for x in faint if x.get("sigma_arcsec") is not None)
+    if not pred or not sig:
+        return ""
+    return (f" The other {len(faint)} are predicted to move {r(pred[0])}-{r(pred[-1])}\" between the visits against an "
+            f"error of {r(sig[0])}-{r(sig[-1])}\", which no measurement can show at 3 sigma.")
+
+
+def v7() -> dict:
+    claim, exp = "Brown dwarfs (S3)", "A count: brown dwarfs faster than 1\"/yr shifting the predicted way"
+    d = load(DATA / V7_FILE)
+    if not d or not d.get("rows"):
+        return check("V7", claim, "pending", "Not run yet", expected=exp)
+    rows = _motion_rows(d)
+    meas = [x for x in d["rows"] if x.get("measured")]
+    vis = [x for x in meas if _motion.visible(x)]
+    agree_vis = [x for x in vis if _motion.in_predicted_direction(x)]
+    agree_all = [x for x in meas if _motion.in_predicted_direction(x)]
+    within = [x for x in meas if x.get("dev_sigma") is not None and x["dev_sigma"] <= 3]
+    blended = [x for x in meas if x.get("blend_arcsec") is not None]
+    missed = [x for x in vis if x not in agree_vis]
+    st = v7_status(len(agree_vis), len(vis))
+    head = (f"{len(agree_vis)} of {len(vis)} brown dwarfs whose motion SPHEREx can show in one year (predicted shift >= "
+            f"{_motion.V7_MIN_SIGMA:g} sigma) shift the predicted way; of all {len(meas)} measured, {len(within)} agree "
+            f"with the predicted shift within 3 sigma")
+    note = (_motion_method(d)
+            + " The list: Gaia's ultracool dwarfs faster than 1\"/yr (the L dwarfs and fainter: at the star/brown-dwarf "
+              "boundary and below) plus WISE 0855-0714 (published astrometry). The plan's Gagne list was not loaded (CDS is "
+              "down). \"The predicted way\": the measured shift is at least 3 sigma and within 30 deg of the predicted one. "
+              "Counted over the dwarfs whose predicted shift is at least 3 sigma (from Gaia's prediction and the error bar, "
+              "not from the measurement)."
+            + _faint_text(meas, vis)
+            + " This rule was set on 15 Nov after the first run, which counted every "
+              f"measured dwarf: {len(agree_all)} of {len(meas)} shift the predicted way at 3 sigma by that count."
+            + (" Visible but not the predicted way: " + "; ".join(
+                f"{x['name'].split(' (')[0]}: {r(x['shift_arcsec'])}\" for {r(x['predicted_arcsec'])}\" +- "
+                f"{r(x['sigma_arcsec'])}\", {round(x['angle_deg'])} deg off"
+                + (f", detection S/N {' and '.join(str(round(v)) for v in x['target_snr'])}" if x.get("target_snr") else "")
+                for x in missed) + "." if missed else "")
+            + _blend_text(blended)
+            + (f" Not measured: {_reasons_text(d['rows'])}." if len(meas) < len(rows) else "")
+            + " Rows: " + ", ".join(MOTION_ROW_KEYS) + ".")
+    return check("V7", claim, st, head, value=len(agree_vis), unit="objects", expected=exp, note=note, rows=rows)
 
 
 # --- V4 ---------------------------------------------------------------------------------------
@@ -689,6 +844,24 @@ def fetch_results(zone: str, dest: Path) -> None:
         subprocess.run([gcloud, "storage", "cp", f"{BUCKET}/results/{zone}/{name}", str(dest / zone / name)], check=False)
 
 
+ONLY = {"V1": lambda: v1(), "V4": lambda: v4(), "V6": lambda: v6(), "V7": lambda: v7(), "V11": lambda: v11()}
+
+
+def update_only(out: Path, ids: list[str]) -> None:
+    """Recompute the checks `ids` (those with no zone or site input: ONLY) in the published file, in place."""
+    bad = [i for i in ids if i not in ONLY]
+    if bad:
+        raise SystemExit(f"--only takes {', '.join(ONLY)}; not {', '.join(bad)}")
+    d = json.loads(out.read_text())
+    new = {i: ONLY[i]() for i in ids}
+    d["checks"] = [new.pop(c["id"], c) for c in d["checks"]] + list(new.values())
+    d["generated"] = today()
+    write_json(out, d)
+    for c in d["checks"]:
+        print(f"{c['id']:4s} {c['status']:8s} {c['headline'][:150]}")
+    print(f"-> {out} (recomputed {', '.join(ids)})")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--site-data", type=Path, default=SITE_DATA, help="folder with <slug>/object.json (default web/public/data)")
@@ -701,6 +874,9 @@ def main() -> None:
     ap.add_argument("--demo-check", type=Path,
                     help="JSON written by scripts/demo_check.py --json (V8 speed; default data/demo_check.json if it exists)")
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--only", metavar="IDS",
+                    help="recompute only these checks (e.g. V6,V7) and keep every other check of --out as it is; "
+                         "suspects.json and distant.json are not touched")
     ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
                     help="write the zones' merged suspects here when the pipeline wrote real ones (default web/public/data)")
     ap.add_argument("--distant-out", type=Path, default=SITE_DATA / "distant.json",
@@ -708,15 +884,15 @@ def main() -> None:
     args = ap.parse_args()
 
     zones = as_zones(args.zone or args.zones)
+    if args.only:
+        update_only(args.out, [x.strip().upper() for x in args.only.split(",") if x.strip()])
+        return
     if args.fetch_results is not None:
         for z in as_zones(args.fetch_results) or zones:
             fetch_results(z, args.results)
     c2, c3 = v2_v3(args.site_data)
     checks = [
-        v1(), c2, c3, v4(), v5(args.results, zones),
-        check("V6", "Fast stars (S2)", "pending", "Cut for the one-day build", expected="Slope near 1",
-              note="S2 was cut on Saturday; the pipeline's high-PM search (V9 data) covers fast stars in the zone."),
-        check("V7", "Brown dwarfs (S3)", "pending", "Cut for the one-day build", expected="A count", note="S3 was cut on Saturday."),
+        v1(), c2, c3, v4(), v5(args.results, zones), v6(), v7(),
         v8(demo_check_path(args.demo_check), zones, args.results), v9(args.results, zones), v10(args.results, zones), v11(),
     ]
     write_json(args.out, {"generated": today(), "data_release": DATA_RELEASE, "checks": checks})

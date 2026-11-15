@@ -57,8 +57,8 @@ different wavelength. A change from D1 to D6 is colour, not motion.
 ## What is measured, and how we checked it
 
 Every check is on the scoreboard at [#/score](https://skyshift.web.app/#/score), read from
-`web/public/data/validation.json`, with the poor numbers printed too. On 14 November 2026,
-8 of 11 checks pass, 1 is partial and 2 were cut. Measured on real SPHEREx data (DR1 + QR3):
+`web/public/data/validation.json`, with the poor numbers printed too. On 15 November 2026
+all 11 checks pass (the site has the latest numbers). Measured on real SPHEREx data (DR1 + QR3):
 
 | Check | Result |
 |---|---|
@@ -67,13 +67,14 @@ Every check is on the scoreboard at [#/score](https://skyshift.web.app/#/score),
 | V3 Position error | 0.36″ from 344 quiet Gaia stars around Barnard's Star; 0.36–0.90″ across the five fields |
 | V4 Known asteroids, targeted | 60 of 60 asteroids re-found where IRSA's Moving Object Search Tool predicted them, in 249 of 300 photos; the same test 3′ away hit 3 of 300 photos (1.0%) |
 | V5 Known asteroids, blind | 12 deg² pilot (990 photos): 63 of 68 asteroid sessions brighter than V 16 found as movers (93%); control 0% |
+| V6 Fast stars | 40 fastest Gaia stars fainter than G 12: slope 0.943 ± 0.029 of measured against predicted shift, RMS 0.6″; 39 of 40 within 3σ |
+| V7 Brown dwarfs | 8 of the 10 brown dwarfs predicted to move at least 3σ in a year shift the predicted way; 23 of 24 agree with Gaia within 3σ |
 | V8 Spectra | SPHEREx ÷ 2MASS Ks 1.010 (scatter 3.0%, 3,918 stars); ÷ WISE W1 0.994 (scatter 1.8%, 4,240 stars) |
 | V9 Proper motions | 32,446 pilot stars against Gaia: bias 20 and 0 mas/yr, scatter 216 and 240 mas/yr, pull scatter 0.96 and 1.07 |
 | V10 Galaxy distances | 1,227 galaxies brighter than K AB 17 against SDSS DR17: σ_NMAD 0.023, 2% outliers |
 | V11 Asteroid sizes | 11 asteroids: diameter 1.06× the published value on the median (scatter 14%); albedo 0.71× (ours run low) |
 
 **Pending, said plainly:**
-- V6 (fast Gaia stars) and V7 (known brown dwarfs) were cut in the one-day build.
 - V8's speed test (time to the first frame for 10 random coordinates) has not been run against the
   deployed site. One test on 14 November gave frames for RA 150.1°, Dec +2.2° in about 9 s.
 - The 100 deg² hunt zone has not finished, so the list of unknown movers on the scoreboard is empty.

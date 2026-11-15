@@ -50,10 +50,10 @@ describe("Data and methods", () => {
     expect(all).not.toMatch(/SkyBoT|SIMBAD/);
   });
 
-  it("sums up the published checks from validation.json, pending ones included", () => {
+  it("sums up the published checks from validation.json", () => {
     const text = textOf(validationHtml(validation as ValidationResponse));
-    expect(text).toContain("9 of 11 checks pass and 2 have not run.");
-    expect(text).toContain("Not run: V6 (fast stars) and V7 (brown dwarfs), cut for the one-day build.");
+    expect(text).toContain("All 11 checks pass.");
+    expect(text).not.toContain("Not run");
     expect(validationHtml(validation as ValidationResponse)).toContain('href="#/results/sure"');
   });
 
@@ -64,13 +64,13 @@ describe("Data and methods", () => {
       checks: [
         { id: "V1", claim: "Five test objects recovered", status: "pass", headline: "5 of 5", value: 5, unit: "targets", expected: "", note: null, rows: [] },
         { id: "V2", claim: "Motion matches Gaia", status: "fail", headline: "off", value: null, unit: null, expected: "", note: null, rows: [] },
-        { id: "V3", claim: "Position error floor", status: "pending", headline: "Not run yet", value: null, unit: null, expected: "", note: null, rows: [] },
+        { id: "V3", claim: "Position error floor", status: "pending", headline: "Numbers after the pilot", value: null, unit: null, expected: "", note: null, rows: [] },
       ],
     } as unknown as ValidationResponse;
     const text = textOf(validationHtml(v));
     expect(text).toMatch(/^1 of 11 checks pass, 1 fails and 9 have not run\./);
-    expect(text).toContain("V3 (position error floor: not run yet)");
-    expect(text).toContain("V7 (brown dwarfs: cut from the one-day build)");
+    expect(text).toContain("V3 (position error floor: numbers after the pilot)");
+    expect(text).toContain("V7 (brown dwarfs: not run yet)");
   });
 
   it("says plainly when the checks aren't published", () => {
