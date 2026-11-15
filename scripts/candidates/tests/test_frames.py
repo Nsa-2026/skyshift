@@ -113,6 +113,43 @@ def test_build_mover_checked_retries_once(monkeypatch, attempts, ok, refreshes):
     assert calls == refreshes
 
 
+def _measured(epoch_ids: list[str], n_star: int) -> dict:
+    dets = [{"epoch_id": e, "ra": 10.0, "dec": 20.0 + i / 3600.0, "snr": 300.0 - i, "flux_ujy": 1.0, "n_dots": 1,
+             "class": "star", "source_id": i, "gaia_id": str(i), "known_name": None, "track_id": None, "grade": None,
+             "reasons": []} for e in epoch_ids for i in range(n_star)]
+    dets += [{**dets[0], "class": "other", "snr": 6.0, "source_id": None, "gaia_id": None}]
+    return {"zone": "hunt", "stage": "final", "zone_box": None, "clock": "hours", "photos": len(epoch_ids),
+            "photos_missing": 0, "truncated": False, "counts": {"star": n_star * len(epoch_ids), "other": 1},
+            "detections": dets, "tracks": [], "shifts": []}
+
+
+def test_refresh_measured_keeps_every_detection_measured_gives(tmp_path, monkeypatch):
+    """No static cap below the contract's 250 an epoch: the hunt mover's photos hold ~235 stars each and the plate
+    shows them; 40 kept per photo left most of them without a circle (hunt-665380068525-88045793)."""
+    from skyshift_server import measured
+    import precompute
+
+    calls = []
+
+    def fake_build(meta, keys, zone=None):
+        calls.append((meta["clock"], zone))
+        return _measured([e["id"] for e in meta["epochs"]], 235), None
+
+    monkeypatch.setattr(measured, "build", fake_build)
+    monkeypatch.setattr(precompute, "months_keys", lambda meta, cache: {})
+    for cid, clock in (("h", "hours"), ("m", "months")):
+        (tmp_path / cid).mkdir()
+        (tmp_path / cid / "frames.json").write_text(json.dumps(
+            {"clock": clock, "epochs": [{"id": "d2-a", "mjd_mid": 61000.0}, {"id": "d2-b", "mjd_mid": 61000.01}]}))
+    F.refresh_measured(tmp_path, [cand("h", zone="hunt")], cache=None, clock="hours")
+    assert calls == [("hours", "hunt")]  # --clock hours: the months file is left as it is
+    assert "measured" not in json.loads((tmp_path / "m" / "frames.json").read_text())
+    m = json.loads((tmp_path / "h" / "frames.json").read_text())["measured"]
+    assert len(m["detections"]) == 2 * 235 + 1 and m["truncated"] is False
+    F.refresh_measured(tmp_path, [], cache=None)
+    assert [c[0] for c in calls[1:]] == ["hours", "months"]
+
+
 def test_mpc_index_ok_false_without_the_index(tmp_path, monkeypatch):
     """An empty cache: the static build must stop rather than write frames without known objects."""
     from skyshift_server import known

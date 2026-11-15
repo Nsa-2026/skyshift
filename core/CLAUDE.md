@@ -32,6 +32,10 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   candidates -> api `known[]` entries (source "mpc"). build_index / `python -m skyshift_core.known_index` makes the
   .npz from the MPC snapshot parquets. kete is the optional extra `known` (`uv sync --extra known`).
   Design and numbers: docs/research/2026-11-14-live-known-mpc.md.
+- planets: near_planet(ra, dec, mjd) -> (planet, sep_arcsec) | None, near_planets (arrays), planet_label ("Saturn" within
+  SELF_ARCSEC, else "a moon of Saturn"), positions(mjd). Mars, Jupiter, Saturn, Uranus, Neptune with their moons and
+  glare (radii *_RADIUS_ARCMIN 60/80/45/5/3, justified in the module): MPC files hold none. astropy's built-in ephemeris
+  (no network), geocentric astrometric: vs JPL Horizons ≤ 20″ (Jupiter, Saturn), ≤ 7″ (Mars, Uranus), ≤ 4″ (Neptune).
 
 ## Tests and fixtures
 - `uv run pytest` (network test: `SKYSHIFT_NETWORK=1 uv run pytest -k url`).

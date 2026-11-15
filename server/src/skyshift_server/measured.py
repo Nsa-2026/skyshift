@@ -45,6 +45,7 @@ from typing import Any
 
 import numpy as np
 from skyshift_core import MASK_BITS, SAT_BITS
+from skyshift_core.planets import near_planets, planet_label
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +63,11 @@ MAX_PER_EPOCH = 250
 EXTRACTED_MAX_PER_EPOCH = 400
 SHIFT_MIN_SNR = 3.0
 MAX_SHIFTS = 300
-MONTHS_MAX_PHOTOS_PER_VISIT = 12  # dot files read per visit epoch (spread over the visit)
+# Dot files read per visit epoch: every photo of the visit in the response (contracts/api.md: "the dots of that visit's
+# photos in this response"), spread over the visit only beyond this. Live stacks hold 6 photos (blink.LIVE_PER_VISIT);
+# the static ones every exposure of the visit (43 at most in web/public/data on 15 Nov). It was 12: a source dotted only
+# in the skipped photos of a 19-photo visit had no detection although the plate (all 19) shows it.
+MONTHS_MAX_PHOTOS_PER_VISIT = 64
 ZONES_TTL_S = 300.0
 # Zones not in skyrun/progress.json, looked for by name (results/<name>/summary.json) in case the folder
 # listing misses them: the pilot, the test fields and the featured targets' zones (pipeline config.ZONES).
@@ -961,8 +966,8 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
 
 
 def _photos_of(meta: dict, epoch_keys: dict[str, list[str]]) -> dict[str, list[str]]:
-    """Photo keys per epoch: as given, hours epochs from their id, at most MONTHS_MAX_PHOTOS_PER_VISIT
-    a visit (spread over it)."""
+    """Photo keys per epoch: as given (a visit: all of them up to MONTHS_MAX_PHOTOS_PER_VISIT, then spread over
+    it), hours epochs from their id."""
     photos: dict[str, list[str]] = {}
     for ep in meta.get("epochs") or []:
         keys = epoch_keys.get(ep["id"])
@@ -1127,6 +1132,20 @@ def _epoch_square(ep: dict, meta: dict) -> tuple[float, float, float]:
     return float(c["ra"]), float(c["dec"]), meta["size"][0] * float(meta["pixel_arcsec"]) / 2.0 / 3600.0
 
 
+def _near_planet_labels(mv: dict, movers: list[int]) -> dict[int, str]:
+    """{mover: "Saturn" | "a moon of Saturn" | …} for the movers near a planet at their time (skyshift_core.planets);
+    one vectorised ephemeris call. A failure names none (the classes stay as before)."""
+    if not movers:
+        return {}
+    try:
+        names, sep = near_planets(np.asarray(mv["ra"], float)[movers], np.asarray(mv["dec"], float)[movers],
+                                  np.asarray(mv["mjd"], float)[movers])
+    except Exception:  # noqa: BLE001
+        log.exception("measured: planet check failed")
+        return {}
+    return {m: planet_label(str(n), float(s)) for m, n, s in zip(movers, names, sep) if n}
+
+
 def _hours(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, list[str]], F: _Field,
            T: Tables, Z: Zone) -> tuple[list[dict], list[dict]]:
     known_by_epoch: dict[str, list[dict]] = defaultdict(list)
@@ -1183,10 +1202,13 @@ def _hours(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, lis
     # 2. classify each mover with dots here
     track_info: dict[int, dict] = {}
     gaia = meta.get("gaia") or []
+    planets = _near_planet_labels(mv, list(track_dots))
     for m, members in track_dots.items():
         members.sort(key=lambda t: per_ep[t[0]][2].mjd)
         cell, mjd = int(mv["cell"][m]), float(mv["mjd"][m])
-        sus = T.suspects.get(_mkey(cell, mjd))
+        # v3.18: a planet or one of its moons is known (MPC orbits hold none), even in a suspects table written before
+        # the pipeline's `planets` veto
+        sus = T.suspects.get(_mkey(cell, mjd)) if m not in planets else None
         known_name, best = None, KNOWN_TRACK_ARCSEC
         for pi, j in members:
             ep, key, d, sel, src, trk = per_ep[pi]
@@ -1202,6 +1224,7 @@ def _hours(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, lis
             cls, tid, grade, reasons = "suspect", sus[0], sus[1], list(sus[2])
         else:
             tid = f"{Z.name}-m{cell}-{int(round(mjd * 1440.0))}"
+            known_name = known_name if known_name is not None else planets.get(m)  # an MPC match names it better
             if known_name is not None:
                 cls = "known"
             elif flags & ART_MASK:
