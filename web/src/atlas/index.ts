@@ -428,6 +428,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   function renderKey() {
+    const positive = !layers.negative && !stage.classList.contains("is-fallback");
+    keyEl.classList.toggle("is-positive", positive);
     const zonesKey = layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far, each with how many objects it has to check. ` : "";
     const heat = (() => {
       if (!layers.heat || !showsHeat(level)) return "";
@@ -447,7 +449,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (level === "whole") {
       keyEl.innerHTML = `${zonesKey}${heat}${kindIcon("target", 16)} Featured targets. Click a zone to zoom in, a target or any other spot to blink it.${searchKey()}`;
     } else if (level === "mid") {
-      keyEl.innerHTML = `${zonesKey}${heat}Dots: objects to check, red for movers and moving stars, violet for odd spectra. Zoom in to see what kind each is. ${kindIcon("target", 16)} Featured targets.${searchKey()}`;
+      keyEl.innerHTML = `${zonesKey}${heat}Open rings: objects to check, ${positive ? "cyan" : "red"} for movers and moving stars; violet diamonds for odd spectra. Grey: grade C, fails a pipeline check. Zoom in for motion marks. ${kindIcon("target", 16)} Featured targets.${searchKey()}`;
     } else {
       const gradeC = shown.some(isGradeC)
         ? ` <span class="atl-key-group is-gradec">${kindIcon("mover", 16)} Grey: grade C, fails a pipeline check (not put to a vote).</span>`
@@ -599,8 +601,9 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     tip.textContent = oneLine(c);
     tip.hidden = false;
     const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
     const left = Math.max(6, Math.min(stage.clientWidth - w - 6, x + 14));
-    const top = Math.max(6, y - 34);
+    const top = Math.max(6, Math.min(stage.clientHeight - h - 6, y - h - 12));
     tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
   }
 
@@ -839,6 +842,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       syncSeg("[data-neg]", layers.negative ? "1" : "0", "neg");
       stage.classList.toggle("is-positive", !layers.negative);
       map?.update(model());
+      renderKey();
     }),
   );
   q<HTMLButtonElement>("[data-mismatch]").addEventListener("click", (ev) => {

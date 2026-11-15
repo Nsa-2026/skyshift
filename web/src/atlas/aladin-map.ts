@@ -13,7 +13,7 @@ import { cellOutline, rampAlpha, rampIndex, rampSteps, type Cell } from "./heat"
 import { countText, isGradeC, oneLine } from "./kinds";
 import { BADGE, NAME, aroundBox, aroundPoint, boundsOf, boxHolds, estimateSize, placeLabels, type Box, type LabelSpec, type Placed, type Size } from "./labels";
 import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView } from "./map";
-import { arrowLengthPx, drawLabel, drawSignal, drawTarget, nearestHit, paToScreen, type Ink, type Vec } from "./marks";
+import { arrowLengthPx, drawLabel, drawSignal, drawSignalDot, drawTarget, nearestHit, paToScreen, signalInk, type Ink, type Vec } from "./marks";
 import { paintSearch, type SearchInk } from "./searchdraw";
 import { offsetPa, sepDeg } from "./sphere";
 import { LABEL_MIN_PX, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, type Level } from "./zoom";
@@ -58,8 +58,6 @@ export const SPHEREX_FRAME = cubeFrameForDet(3);
 const NEGATIVE_OPACITY = 0.62;
 /** Radius of a provisional suspect's dashed grey ring, px (a candidate's mark is solid pencil). */
 const PROV_R = 6;
-/** Radius of an object's dot in the middle range, px. */
-const DOT_R = 2.6;
 /** Room kept above and below the whole sky, px. */
 const FIT_MARGIN = 8;
 
@@ -288,20 +286,11 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     return { north: { x: n[0] - x, y: n[1] - y }, east: { x: e[0] - x, y: e[1] - y } };
   }
 
-  /** An object in the middle range: a small dot in its kind's pencil, on a glass halo. */
+  /** A compact hollow mark, with contrast adapted to the survey or plate negative. */
   function drawDot(ctx: CanvasRenderingContext2D, c: Candidate, x: number, y: number) {
-    const muted = isGradeC(c);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, hoverId === c.id ? DOT_R + 1.5 : DOT_R, 0, Math.PI * 2);
-    ctx.globalAlpha = muted ? 0.5 : 0.8;
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = ink.glass;
-    ctx.stroke();
-    ctx.globalAlpha = muted ? 0.6 : 0.9;
-    ctx.fillStyle = muted ? ink.ink2 : c.kind === "spectral" ? ink.violet : ink.red;
-    ctx.fill();
-    ctx.restore();
+    drawSignalDot(ctx, signalInk(ink, layers.negative), c.kind, x, y, {
+      selected: model?.selectedId === c.id, hovered: hoverId === c.id, muted: isGradeC(c),
+    });
   }
 
   const signalShape: ShapeFn = (s, ctx, vp) => {
@@ -317,9 +306,9 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     }
     const pxPerArcsec = width / (fov * 3600);
     const selected = model?.selectedId === c.id;
-    drawSignal(ctx, ink, c.kind, s.x, s.y, dir, arrowLengthPx(c.pm_mas_yr, pxPerArcsec), { selected, hovered: hoverId === c.id, muted: isGradeC(c) });
+    drawSignal(ctx, signalInk(ink, layers.negative), c.kind, s.x, s.y, dir, arrowLengthPx(c.pm_mas_yr, pxPerArcsec), { selected, hovered: hoverId === c.id, muted: isGradeC(c) });
     if (level === "detail") {
-      drawLabel(ctx, ink, s.x + 12, s.y + 14, oneLine(c), { color: ink.ink2, align: "left", weight: 550, size: 11.5 });
+      drawLabel(ctx, ink, s.x + 12, s.y + 14, oneLine(c), { ...text(), align: "left", weight: 550, size: 11.5 });
     }
   };
 
