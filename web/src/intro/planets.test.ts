@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { diveDepth, diveTarget, orbitalLayout, paintPlanetaryOpening } from './planets';
+import { describe, expect, it, vi } from 'vitest';
+import { diveDepth, diveTarget, drawDusk, duskOpacity, duskRow, orbitalLayout, paintPlanetaryOpening } from './planets';
 import { sceneAt } from './model';
 import { rasterSphere, sphereLookup, type Material } from './spheres';
 
@@ -90,5 +90,25 @@ describe('planet composition and scroll', () => {
     expect(gone(1)).toBeLessThanOrEqual(.18);
     const before = at(0), passing = at(.09);
     passing.forEach((q, i) => { if (Number.isFinite(q.r)) expect(q.r).toBeGreaterThan(before[i].r); });
+  });
+});
+
+describe('dusk over Earth', () => {
+  it('is a dark strip computed per pixel with the same ramp as the old gradient', () => {
+    const row = duskRow(.2, 1, 512);
+    const colour = (i: number) => [...row.slice(i * 4, i * 4 + 3)];
+    const alphaAt = (x: number) => row[Math.min(511, Math.max(0, Math.floor((x + 1.02) / 2.04 * 512))) * 4 + 3] / 255;
+    for (let i = 0; i < 512; i++) expect(colour(i)).toEqual([3, 7, 16]);
+    const from = .2 - .45;
+    expect(alphaAt(from - .05)).toBe(0);
+    for (const t of [.1, .3, .5, .7, .9]) expect(alphaAt(from + .67 * t)).toBeCloseTo(duskOpacity(t), 1);
+    expect(alphaAt(1)).toBeCloseTo(.96, 2);
+    expect(duskRow(.2, .5, 512)[511 * 4 + 3]).toBe(Math.round(255 * .5 * .96));
+  });
+  it('draws nothing at zero strength or a broken radius', () => {
+    const fill = vi.fn();
+    const c = { fill } as unknown as CanvasRenderingContext2D;
+    drawDusk(c, 0, 0, 100, .2, 0); drawDusk(c, 0, 0, NaN, .2, 1); drawDusk(c, 0, 0, 0, .2, 1);
+    expect(fill).not.toHaveBeenCalled();
   });
 });
