@@ -6,7 +6,8 @@
 //   machines: [{ name, cpus, kind, status, zone }],
 //   zones: [{ name, ra: [lo, hi], dec: [lo, hi], state, machine, photos, dots, extracted_at, combined_at,
 //             sources, movers, suspects, recall, final?, error?, suspects_url?, deferred?, checks? }],
-//   notes?: { deferred, provisional } }
+//   notes?: { deferred, provisional }, paused_at? }
+// paused_at: set when the machines were stopped on purpose; the page then says the search is paused, not stale.
 // RA/Dec in degrees (ICRS); a zone is ra[0] ≤ RA < ra[1], dec[0] ≤ Dec < dec[1]. Times ISO UTC.
 
 export const ZONE_STATES = ["queued", "extracting", "extracted", "combining", "combined", "failed"] as const;
@@ -89,6 +90,8 @@ export interface SkyNotes {
 export interface SkyRun {
   schema: number;
   updated: number | null;
+  /** When the search was paused on purpose (machines stopped), or null while it runs. */
+  paused_at: number | null;
   started: number | null;
   ends: number | null;
   deadline: number;
@@ -300,6 +303,7 @@ export function parseSkyrun(raw: unknown): SkyRun {
   return {
     schema,
     updated: parseTime(raw.updated),
+    paused_at: parseTime(raw.paused_at),
     started: parseTime(raw.started),
     ends: parseTime(raw.ends),
     deadline: parseTime(raw.deadline) ?? DEFAULT_DEADLINE,
@@ -522,7 +526,7 @@ export function summarize(run: SkyRun, now: number): RunSummary {
     endsIn: run.ends !== null ? run.ends - now : null,
     deadlineIn: run.deadline - now,
     age,
-    stale: age !== null && age > STALE_AFTER_MS,
+    stale: run.paused_at === null && age !== null && age > STALE_AFTER_MS,
     finished: hasZones ? counts.queued + counts.extracting + counts.extracted + counts.combining === 0 : false,
     cpus: run.machines.reduce((s, m) => s + (m.cpus ?? 0), 0),
     machines,

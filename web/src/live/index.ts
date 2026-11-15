@@ -157,6 +157,8 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
       parts.push(
         `<p class="lv-alert ${errorTone(error, run)}"><span>${errorSentence(error, run, t)}</span> <button type="button" class="btn btn-ghost lv-retry" data-retry data-key="retry">Try again</button></p>`,
       );
+    } else if (run?.paused_at != null) {
+      parts.push(`<p class="lv-alert lv-calm">The search is paused. These are the numbers from when it stopped, ${fmtTimePair(run.paused_at, t)}.</p>`);
     } else if (sum?.stale && sum.age !== null) {
       parts.push(
         // plain (Results): "Updated … ago" above says it already
