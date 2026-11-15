@@ -100,6 +100,11 @@
 @media(max-width:720px) {
   .atl .atl-top {top:calc(var(--atl-header-height, 0px) + var(--s3));left:var(--s3);width:calc(100% - 2 * var(--s3));}
   .atl .atl-intro {gap:var(--s2);padding:var(--s3);}
+  /* The panel's padding drops to --s3 here, but the scrolling strip of choices still bled by --s4,
+     so it pushed the panel 4px wider than the map on each side and the Adjust button lost its
+     right edge. The bleed follows the padding, and nothing inside may force the panel wider. */
+  .atl .atl-top > *,.atl .atl-intro > * {min-width:0;}
+  .atl .atl-intro .atl-controls-main {margin:0 calc(-1 * var(--s3));padding:2px var(--s3);}
   .atl .atl-lede {font-size:var(--step--1);}
   .atl .atl-status {left:var(--s3);right:var(--s3);bottom:calc(var(--s3) + 48px);max-width:none;}
   .atl .atl-zoom {right:var(--s3);bottom:var(--s3);}
@@ -195,4 +200,24 @@ html.sky-dark .atl .atl-below {
     bottom: calc(var(--s3) + 104px);
     max-width: none;
   }
+}
+
+
+/* ---- the two controls that must stay usable while zoomed in ----
+   The chrome recedes as you zoom, which is right for the panels: they are in the way of the
+   sky. It is wrong for these two. The zoom cluster is how you get back out, and the status
+   line is how you know what you are looking at, so fading them to a fifth is fading exactly
+   what is needed at exactly the moment it is needed — and a click that misses the faded minus
+   button lands on the map, where any spot opens the Viewer. That is how zooming out ended up
+   navigating away.
+
+   It also closes a contrast failure: at 0.7 the status pill's white composites down over the
+   dark sky until its dark text measures about 1.1:1. */
+.atl .atl-zoom,
+.atl .atl-status {
+  opacity: max(var(--sky-chrome-opacity, 1), 0.92);
+}
+.atl .atl-zoom:hover,
+.atl .atl-zoom:focus-within {
+  opacity: 1;
 }

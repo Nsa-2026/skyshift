@@ -214,10 +214,13 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let state: AtlasState = { ra: 0, dec: 0, fov: WHOLE_FOV, gal: false, mol: false, kinds: [...KINDS] };
   // No heat map by default: each zone is one outline with its count, and objects show as dots closer in.
   // SPHEREx, not 2MASS: the page says "NASA's SPHEREx sky" and the challenge is SPHEREx's, so
-  // the sky it opens on should be the mission's own. 2MASS is one click away in Adjust. The heat
-  // map comes back with it — without it the opening view has no red to zoom into, which is what
-  // the lede tells people to do.
-  let layers: Layers = { heat: true, zones: true, signals: true, search: false, provisional: true, background: "spherex", negative: false };
+  // the sky it opens on should be the mission's own. 2MASS is one click away in Adjust.
+  //
+  // The heat map stays off. Turning it on gives the whole sky the red patches the lede asks
+  // people to zoom into, but one zoom later the same layer is a red blanket over most of the
+  // frame, on top of the zone outlines: worse than having no red at all. The zones already
+  // show where the work is.
+  let layers: Layers = { heat: false, zones: true, signals: true, search: false, provisional: true, background: "spherex", negative: false };
   stage.classList.add("is-positive");
   /** Tonight's search (the sky run's progress file), refreshed every minute while the page shows. */
   let search: SearchLayer | null = null;
@@ -705,7 +708,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     // somebody touched the control it named whichever survey the markup was written with.
     q<HTMLElement>("[data-survey]").textContent =
       `Sky: ${BACKGROUNDS.find((x) => x.id === layers.background)!.label}. Objects to check: SPHEREx.`;
-    startTour();
     const v = map.view();
     state = { ...state, ra: v.ra, dec: v.dec, fov: v.fov };
     publishSky();
@@ -1033,7 +1035,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     hide() {
       visible = false;
       document.documentElement.classList.remove("sky-dark");
-      tour?.stop();
       zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
@@ -1046,7 +1047,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     destroy() {
       destroyed = true;
       document.documentElement.classList.remove("sky-dark");
-      tour?.destroy();
       zoomFocus.destroy();
       chromeObs?.disconnect();
       if (viewRaf) clearTimeout(viewRaf);
