@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC example made by scripts/make_fixtures.py. Fake pixels and made-up numbers in the shape of contracts/api.md. Not real SPHEREx data.",
+  "key": "sks_SYNTHETICxxxxxxxxxxxxxxxxxxxxxxx",
+  "id": "0123456789ab",
+  "label": "my script",
+  "created": "2026-11-15T07:00:00Z",
+  "header": "X-API-Key"
+}

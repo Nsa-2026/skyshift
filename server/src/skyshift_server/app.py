@@ -49,6 +49,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import apikeys
 from . import known as known_mod
 from . import measured as measured_mod
 from . import resolve as resolve_mod
@@ -170,6 +171,90 @@ async def _http_error(_: Request, e: StarletteHTTPException) -> JSONResponse:
 async def _internal_error(_: Request, e: Exception) -> JSONResponse:
     log.exception("internal error")
     return _error(500, "internal", f"{type(e).__name__}: internal error")
+
+
+# ---------------------------------------------------------------- optional API keys (v3.14)
+
+_keys: apikeys.KeyStore | None = None
+_limits = apikeys.RateLimiter()
+
+
+def get_keys() -> apikeys.KeyStore:
+    global _keys
+    if _keys is None:
+        _keys = apikeys.KeyStore()
+    return _keys
+
+
+def reset_keys(store: apikeys.KeyStore | None = None) -> None:
+    """For tests: use another key store (None = build from SKYSHIFT_KEYS on next use) and forget all counts."""
+    global _keys
+    _keys = store
+    _limits.reset()
+
+
+def _limited(retry_after: int, message: str) -> JSONResponse:
+    r = _error(429, "rate_limited", message)
+    r.headers["Retry-After"] = str(retry_after)
+    return r
+
+
+def _address(headers: Any, scope: dict) -> str:
+    """The caller's address: Firebase Hosting and Cloud Run put it first in X-Forwarded-For."""
+    fwd = headers.get("x-forwarded-for") or ""
+    first = fwd.split(",", 1)[0].strip()
+    if first:
+        return first
+    client = scope.get("client")
+    return client[0] if client else "?"
+
+
+class ApiKeyMiddleware:
+    """No key header: anonymous (limited only if SKYSHIFT_ANON_LIMIT is set). A key header: it must be a
+    known key (else 401), counted against SKYSHIFT_KEY_LIMIT. Sets request.state.api_key = (key, record)."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not path.startswith("/api/") or path == "/api/health":
+            await self.inner(scope, receive, send)
+            return
+        from starlette.datastructures import Headers
+
+        headers = Headers(scope=scope)
+        key = apikeys.from_headers(headers)
+        state = scope.setdefault("state", {})
+        state["api_key"] = None
+        if key is None:
+            wait = _limits.hit("anon:" + _address(headers, scope), apikeys.anon_limit())
+            if wait:
+                await _limited(wait, "Too many requests from this address. Wait, or send an API key "
+                                     "(POST /api/keys).")(scope, receive, send)
+                return
+            await self.inner(scope, receive, send)
+            return
+        try:
+            record = await run_in_threadpool(get_keys().lookup, key)
+        except Exception:  # noqa: BLE001 - a key-store outage must not block a key holder
+            log.exception("api key lookup failed")
+            record = {"id": "unchecked", "label": None, "created": None}
+        if record is None:
+            await _error(401, "unauthorized", "Unknown or revoked API key. Send no key to call the API "
+                                               "anonymously, or make a new one with POST /api/keys.")(scope, receive, send)
+            return
+        wait = _limits.hit("key:" + record["id"], apikeys.key_limit())
+        if wait:
+            await _limited(wait, f"This API key made over {apikeys.key_limit()} requests in the last hour."
+                           )(scope, receive, send)
+            return
+        state["api_key"] = (key, record)
+        log.info("api key %s %s %s", record["id"], scope.get("method"), path)
+        await self.inner(scope, receive, send)
+
+
+app.add_middleware(ApiKeyMiddleware)
 
 
 # ---------------------------------------------------------------- helpers
@@ -382,6 +467,52 @@ def health() -> JSONResponse:
     root = get_cache().root
     return _json({"status": "ok", "version": VERSION, "engine_version": ENGINE_VERSION,
                   "cache": "gcs" if root.startswith("gs://") else "local"}, CACHE_NONE)
+
+
+@app.post("/api/keys", status_code=201)
+async def create_key(request: Request) -> JSONResponse:
+    raw = await request.body()
+    body: Any = {}
+    if raw.strip():
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            raise bad_request("the body must be JSON, e.g. {\"label\": \"my script\"}")
+        if not isinstance(body, dict):
+            raise bad_request("the body must be a JSON object")
+    try:
+        label = apikeys.clean_label(body.get("label"))
+    except ValueError as e:
+        raise bad_request(str(e))
+    wait = _limits.hit("create:" + _address(request.headers, request.scope), apikeys.CREATE_PER_HOUR)
+    if wait:
+        return _limited(wait, f"At most {apikeys.CREATE_PER_HOUR} new API keys per hour from one address.")
+    content = await run_in_threadpool(get_keys().create, label)
+    log.info("api key %s created", content["id"])
+    r = _json(content, CACHE_NONE)
+    r.status_code = 201
+    return r
+
+
+def _key_of(request: Request) -> tuple[str, dict]:
+    held = getattr(request.state, "api_key", None)
+    if not held:
+        raise ApiError(401, "unauthorized", "Send your API key in the X-API-Key header.")
+    return held
+
+
+@app.get("/api/keys/me")
+def key_me(request: Request) -> JSONResponse:
+    _, record = _key_of(request)
+    return _json({"id": record["id"], "label": record.get("label"), "created": record.get("created")}, CACHE_NONE)
+
+
+@app.delete("/api/keys/me")
+def key_revoke(request: Request) -> JSONResponse:
+    key, record = _key_of(request)
+    get_keys().revoke(key)
+    log.info("api key %s revoked", record["id"])
+    return _json({"id": record["id"], "revoked": True}, CACHE_NONE)
 
 
 @app.get("/api/resolve")

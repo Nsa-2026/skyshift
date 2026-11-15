@@ -380,6 +380,14 @@ def distant():
     })
 
 
+def api_key():
+    """v3.14: the answer of POST /api/keys. The key is made up and was never valid."""
+    write_json("keys_create.json", {"synthetic": True, "note": NOTE,
+                                     "key": "sks_SYNTHETICxxxxxxxxxxxxxxxxxxxxxxx", "id": "0123456789ab",
+                                     "label": "my script", "created": "2026-11-15T07:00:00Z",
+                                     "header": "X-API-Key"})
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     mids, _ = months_barnard()
@@ -390,6 +398,7 @@ def main():
     validation()
     suspects()
     distant()
+    api_key()
     for p in sorted(OUT.rglob("*")):
         if p.is_file():
             print(p.relative_to(ROOT), p.stat().st_size)
