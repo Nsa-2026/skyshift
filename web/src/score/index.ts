@@ -1,6 +1,7 @@
-// Results (#/results, #/results/<section>): one page in sections (page.ts). "What we found" and
-// "How sure we are" read /data/candidates.json, /data/suspects.json, /data/distant.json and
-// /data/validation.json; missing files show a pending state, never fixtures.
+// Results (#/results, #/results/<section>): a one-screen overview of four cards, and one page per
+// section (page.ts, overview.ts). "What we found" and "How sure we are" read /data/candidates.json,
+// /data/suspects.json, /data/distant.json and /data/validation.json; missing files show a pending
+// state, never fixtures.
 import type { DistantResponse, SuspectsResponse, ValidationResponse } from "../api/types";
 import { wireSuspectsCsv } from "./page";
 import { renderPage } from "./render";
@@ -15,6 +16,7 @@ export {
   type ResultsDeps,
   type ResultsPage,
   type SectionId,
+  type ViewId,
 } from "./page";
 // The shell mounts Results as before (mountScore(el)); the handle also has show(param) and hide(),
 // and mountScore(el, ctx) takes the shell's context once it passes one (see page.ts).

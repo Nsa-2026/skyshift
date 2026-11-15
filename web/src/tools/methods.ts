@@ -199,7 +199,7 @@ export function validationHtml(v: ValidationResponse | null): string {
   const notRun = pending.length
     ? ` Not run: ${named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}` : named[0]}${why ? `, ${esc(lower(why))}` : ""}.`
     : "";
-  return `<p>${esc(sentence)}${notRun} Each check, with the target set before it ran, the measured number and every row, is under ${RESULTS_LINK} above. Failing and partial results stay there with their numbers.</p>`;
+  return `<p>${esc(sentence)}${notRun} Each check, with the target set before it ran, the measured number and every row, is under ${RESULTS_LINK}. Failing and partial results stay there with their numbers.</p>`;
 }
 
 function checksHtml(ids: string[] | undefined): string {

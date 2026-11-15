@@ -36,7 +36,7 @@ import type {
 import { DETECTORS } from "../app/astro";
 import { RECALL_SCOPE, checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
 import { renderDistant } from "./distant";
-import { distantPlain, plainResults, plainTally, strongestMovers } from "./plain";
+import { distantPlain, plainResults, plainTally, strongestMovers, sureFigure } from "./plain";
 import {
   bigValue,
   blinkHref,
@@ -410,7 +410,7 @@ const KIND_WORDS: Record<CandidateKind, [string, string]> = {
   mover: ["fast mover", "fast movers"],
   high_pm: ["moving star", "moving stars"],
   spectral: ["odd spectrum", "odd spectra"],
-  shape: ["that may be one object or two", "that may be one object or two"],
+  shape: ["possible double", "possible doubles"],
 };
 const KIND_ORDER: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 
@@ -445,15 +445,14 @@ export function renderObjects(c: CandidatesResponse | null): string {
     <p class="rs-big"><span class="rs-big-n">${esc(intText(list.length))}</span> ${list.length === 1 ? "object" : "objects"} to check</p>
     ${kinds ? html`<p class="rs-count">${esc(`${kinds}${where}.`)}</p>` : ""}
     <p class="sc-sub pro-only">Listed${esc(zonesText(c!.zones))}.</p>
-    <p class="sc-intro">Things we couldn't explain with Gaia, WISE or a known asteroid. Most turn out to be detector
-      glitches once people look.</p>
     ${
       best
-        ? html`<p class="rs-best">Strongest leads: <b>${esc(intText(best))}</b> fast ${best === 1 ? "mover" : "movers"} seen on the same
-            steady path at different times. <a href="#/candidates/kind=mover&amp;grade=A">See ${best === 1 ? "it" : "them"}</a></p>`
+        ? html`<p class="rs-best">Strongest leads: <b>${esc(intText(best))}</b> fast ${best === 1 ? "mover" : "movers"} on ${best === 1 ? "a steady path" : "steady paths"}.
+            <a href="#/candidates/kind=mover&amp;grade=A">See ${best === 1 ? "it" : "them"}</a></p>`
         : ""
     }
-    <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/candidates/one=1">Check them one at a time</a></p>
+    <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/candidates/one=1">Review them</a></p>
+    <p class="rs-foot">Things Gaia, WISE and known asteroids don't explain. Most are detector glitches.</p>
   </div>`;
 }
 
@@ -462,7 +461,7 @@ export function renderDistantPlain(d: DistantResponse | null): string {
   const text = distantPlain(d);
   if (!text) return "";
   return html`<div class="rs-planet plain-only">
-    <h3 class="rs-h3">A distant planet?</h3>
+    <h3 class="rs-h3" id="rs-planet-h">A distant planet?</h3>
     <p>${esc(text)} <a href="#/results/found/distant">How we looked</a></p>
   </div>`;
 }
@@ -482,10 +481,11 @@ export function renderFound(
     <div class="rs-pro pro-only">${demote(renderSuspects(sr) + renderDistant(dist))}</div></div>`;
 }
 
-/** The plain view of "How sure we are": what we tested, a few results with their marks, the tally. */
+/** The plain view of "How sure we are": how many checks passed, a few results with their marks, a footnote. */
 export function renderSurePlain(v: ValidationResponse | null): string {
   const results = plainResults(v);
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
+  const fig = sureFigure(checks);
   const tally = plainTally(checks);
   const list = results.length
     ? html`<ul class="rs-tests">${results
@@ -495,9 +495,9 @@ export function renderSurePlain(v: ValidationResponse | null): string {
         .join("")}</ul>`
     : "";
   return html`<div class="rs-plain plain-only">
-    <p class="rs-say">We first tested the search on things already known${results.length ? ":" : "."}</p>
+    ${fig ? html`<p class="rs-big sc-${fig.status}">${statusMark(fig.status, 24)}<span class="rs-big-n">${esc(fig.num)}</span> ${esc(fig.label)}</p>` : ""}
     ${list}
-    <p class="rs-tally">${esc(tally)} <button type="button" class="rs-more-btn" data-advanced-on>See every check and its numbers</button></p>
+    <p class="rs-tally">${tally ? `${esc(tally)} ` : ""}<button type="button" class="rs-more-btn" data-advanced-on>See every check</button></p>
   </div>`;
 }
 

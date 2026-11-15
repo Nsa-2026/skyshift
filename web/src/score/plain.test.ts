@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import validationJson from "../../public/data/validation.json";
 import distantJson from "../../public/data/distant.json";
 import type { DistantResponse, ValidationCheck, ValidationResponse } from "../api/types";
-import { distantPlain, plainResults, plainTally, strongestMovers } from "./plain";
+import { distantPlain, distantVerdict, foundLine, plainResults, plainTally, strongestMovers, sureFigure, sureLine } from "./plain";
 
 const validation = validationJson as unknown as ValidationResponse;
 const distant = distantJson as unknown as DistantResponse;
@@ -29,7 +29,7 @@ describe("plainResults", () => {
     for (const x of r) expect(x.text).not.toMatch(/\bV\d+\b|σ|S\/N|pipeline|recall/);
     const v5 = validation.checks.find((c) => c.id === "V5")!;
     expect(r.find((x) => x.id === "V5")?.text).toBe(
-      `Found ${Math.round(Number(v5.value) * 100)}% of bright known asteroids without being told where to look.`,
+      `Found ${Math.round(Number(v5.value) * 100)}% of bright known asteroids unaided.`,
     );
   });
 
@@ -46,9 +46,9 @@ describe("plainResults", () => {
     };
     expect(plainResults(v)).toEqual([
       { id: "V4", status: "pass", text: "Found 58 of 60 known asteroids where NASA predicted them." },
-      { id: "V2", status: "partial", text: "Barnard's Star moved as far as Gaia predicts, to within 13%." },
-      { id: "V1", status: "pass", text: "Found 4 of 5 test stars and brown dwarfs where they should be, in 18 of 20 visits." },
-      { id: "V8", status: "pass", text: "Star brightness agrees with older sky surveys to within 5%." },
+      { id: "V2", status: "partial", text: "Barnard's Star moved as Gaia predicts, within 13%." },
+      { id: "V1", status: "pass", text: "Found 4 of 5 test stars, in 18 of 20 visits." },
+      { id: "V8", status: "pass", text: "Star brightness matches older surveys within 5%." },
     ]);
   });
 
@@ -69,11 +69,12 @@ describe("plainResults", () => {
 
 describe("plainTally", () => {
   it("counts from the file, without codes", () => {
-    expect(plainTally(validation.checks)).toBe("All 9 checks we ran passed; 2 more weren't run.");
+    expect(plainTally(validation.checks)).toBe("2 not run yet.");
     expect(plainTally([{ status: "pass" }, { status: "partial" }, { status: "fail" }])).toBe(
-      "1 of the 3 checks we ran passed, 1 in part, 1 failed.",
+      "1 passed in part, 1 failed.",
     );
-    expect(plainTally([{ status: "pass" }, { status: "pending" }])).toBe("The one check we ran passed; 1 more wasn't run.");
+    expect(plainTally([{ status: "pass" }, { status: "pending" }])).toBe("1 not run yet.");
+    expect(plainTally([{ status: "pass" }])).toBe("");
     expect(plainTally([{ status: "pending" }])).toBe("The checks haven't run yet.");
   });
 });
@@ -91,12 +92,48 @@ describe("what we found", () => {
     const inj = distant.injection!;
     const added = inj.distances.reduce((a, r) => a + r.injected, 0).toLocaleString("en-GB");
     const verdict = distant.control.beyond_chance
-      ? "More possible pairs turned up than chance explains: worth a closer look, not yet a discovery."
-      : "No sign of one in the patch of sky we searched.";
+      ? "More pairs than chance explains: worth a closer look."
+      : "No sign of one in the area searched.";
     expect(distantPlain(distant)).toBe(
-      `${verdict} The same search found ${Math.round(inj.recovered_frac! * 100)}% of ${added} made-up planets we hid in the real photos.`,
+      `${verdict} The search found ${Math.round(inj.recovered_frac! * 100)}% of ${added} test planets hidden in the photos.`,
     );
     const beyond = { ...distant, control: { ...distant.control, beyond_chance: true }, injection: null } as unknown as DistantResponse;
-    expect(distantPlain(beyond)).toBe("More possible pairs turned up than chance explains: worth a closer look, not yet a discovery.");
+    expect(distantPlain(beyond)).toBe("More pairs than chance explains: worth a closer look.");
+  });
+});
+
+describe("the overview's lines", () => {
+  it("counts the checks that ran, with the mark of the weakest", () => {
+    expect(sureFigure(validation.checks)).toEqual({ num: "9 of 9", label: "checks we ran passed", status: "pass" });
+    expect(sureFigure([{ status: "pass" }, { status: "partial" }, { status: "pending" }])).toEqual({ num: "1 of 2", label: "checks we ran passed", status: "partial" });
+    expect(sureFigure([{ status: "fail" }])).toEqual({ num: "0 of 1", label: "check we ran passed", status: "fail" });
+    expect(sureFigure([{ status: "pending" }])).toBeNull();
+  });
+
+  it("says the asteroids and Barnard's Star from the file, and Barnard's Star only when its check passed", () => {
+    expect(sureLine(validation)).toBe("60 of 60 known asteroids found; Barnard's Star matches Gaia.");
+    const v = (over: Partial<ValidationCheck>): ValidationResponse => ({
+      generated: "2026-11-15",
+      data_release: "DR1",
+      checks: [
+        check("V4", { value: 58, unit: "asteroids", headline: "Re-found 58 of 60 asteroids where NASA predicted them" }),
+        check("V2", { headline: "Barnard's Star moved 10.83\"; Gaia predicts 10.27\" (+12.2%)", ...over }),
+      ],
+    });
+    expect(sureLine(v({ status: "partial" }))).toBe("58 of 60 known asteroids found.");
+    expect(sureLine(v({}))).toBe("58 of 60 known asteroids found; Barnard's Star matches Gaia.");
+    expect(sureLine(null)).toBe("");
+  });
+
+  it("names the strongest leads, or what the objects are", () => {
+    expect(foundLine(null)).toBe("Things Gaia, WISE and known asteroids don't explain.");
+    expect(foundLine({ candidates: [{ kind: "mover", grade: "A" }, { kind: "mover", grade: "A" }] } as never)).toBe(
+      "Strongest leads: 2 fast movers on steady paths.",
+    );
+  });
+
+  it("gives the distant-planet verdict alone", () => {
+    expect(distantVerdict(null)).toBe("");
+    expect(distantPlain(distant).startsWith(distantVerdict(distant))).toBe(true);
   });
 });
