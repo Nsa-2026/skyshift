@@ -1,6 +1,6 @@
 // The seams between areas. src/app (P3) owns the page and calls these; each area implements
 // its own module behind one of these interfaces. Keep them small: change one only with both owners.
-import type { Clock, Det, FramesResponse, ObjectResponse, SkyPos } from "../api/types";
+import type { Clock, Det, Epoch, FramesResponse, ObjectResponse, SkyPos } from "../api/types";
 
 /** A dot someone clicked in the blink: the frame's sky position and the clicked epoch's time. */
 export interface DotPick extends SkyPos {
@@ -65,7 +65,17 @@ export interface BlinkOptions {
 
 export interface BlinkHandle {
   /** Show frames for this view. jsonUrl resolves epoch data_url. Preloads every epoch before playing. */
-  show(view: View, frames: FramesResponse, jsonUrl: string, options?: { singleDetector?: boolean }): Promise<void>;
+  show(
+    view: View,
+    frames: FramesResponse,
+    jsonUrl: string,
+    options?: { singleDetector?: boolean },
+  ): Promise<void>;
+  /** Hours clock: has the shown photo a no-data part (past the detector's edge) worth filling? */
+  needsFill?(): boolean;
+  /** Exposures used only to fill the plate's no-data edge on the hours clock, never blinked
+   *  (data_url resolved against url). Replaces earlier ones; show() clears them. */
+  fill?(sources: { epoch: Epoch; url: string }[]): void;
   /** Loading or error state while app fetches frames. message null clears it. */
   status(kind: "loading" | "error" | "idle", message?: string): void;
   highlight?(pos:SkyPos|null):void;

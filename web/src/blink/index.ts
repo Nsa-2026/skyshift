@@ -504,6 +504,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const smoothed = new Map<number, Float32Array>();
   const burnt = new Map<number, Uint8Array>();
   const filledFrames = new Map<number, Filled>();
+  /** Exposures used only to fill the edge (not blinked): the rest of the visit, when the plate
+   *  shows a few exposures of one session that all share one edge (an object to check). */
+  let fillSrc: { epoch: Epoch; url: string }[] = [];
+  let fillOnly: (Frame & { burnt: Uint8Array })[] = [];
   let stackVals: { key: string; vals: Float32Array; sky: number; sigma: number; burnt: Uint8Array } | null = null;
   const limitCache = new Map<string, Limits & { sigma?: number; n?: number }>();
   let lut: { key: string; data: Uint8ClampedArray } = { key: "", data: new Uint8ClampedArray(0) };
@@ -556,7 +560,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
   /** The hours clock fills each photo's no-data part (past the detector's edge) from the visit's
    *  other photos, drawn paler and hatched. The months clock does not: its visits are six months apart. */
-  const fillsHoles = () => view?.clock === "hours" && frames.length > 1;
+  const fillsHoles = () => view?.clock === "hours" && frames.length + fillOnly.length > 1;
   /** Photo i with its no-data pixels filled from the others (math.ts fillHoles), on photo i's level.
    *  Frames that follow a mover have their own centres: each other photo is lined up on the sky first. */
   function filledOf(i: number): Filled {
@@ -578,6 +582,18 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         }
         others.push({ vals: g.vals, sky: g.sky, burnt: burntOf(j), dx, dy });
       });
+      for (const g of fillOnly) {
+        if (g.vals.length !== nx * ny) continue;
+        const cj = centreOf(g.epoch);
+        let dx = 0;
+        let dy = 0;
+        if (F && (cj.ra !== c0.ra || cj.dec !== c0.dec)) {
+          const p = skyToPixel(cj, F, c0);
+          dx = p.x - (nx - 1) / 2;
+          dy = p.y - (ny - 1) / 2;
+        }
+        others.push({ vals: g.vals, sky: g.sky, burnt: g.burnt, dx, dy });
+      }
       fl = fillHoles(level(i), levelSky ? 0 : f.sky, burntOf(i), others, nx, ny);
       filledFrames.set(i, fl);
     }
@@ -789,6 +805,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const NO_DATA_NOTE = "No data here: edge of this photo";
   const FILLED_NOTE = "Not in this photo: filled from its other photos";
   type Spot = ReturnType<typeof noDataSpot>;
+  type NoteBox = { x: number; y: number; w: number };
+  /** Vertical step between two notes that would overlap (CSS px; the label is 11 px text). */
+  const NOTE_LINE = 20;
   let noDataCache: { vals: Float32Array | null; fill: Uint8Array | null; key: string; empty: Spot; filled: Spot } = {
     vals: null,
     fill: null,
@@ -818,21 +837,28 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       } else empty = noDataSpot(shown, shownMask, nx, ny, vp);
       noDataCache = { vals: shown, fill: shownFill, key, empty, filled };
     }
-    drawNote(NO_DATA_NOTE, noDataCache.empty, vp);
-    drawNote(FILLED_NOTE, noDataCache.filled, vp);
+    const first = drawNote(NO_DATA_NOTE, noDataCache.empty, vp);
+    drawNote(FILLED_NOTE, noDataCache.filled, vp, first);
   }
-  function drawNote(text: string, spot: Spot, vp: VP) {
-    if (!ctx || !spot || spot.frac < 0.03) return;
+  /** Draw a note near `spot`; it moves a line down (or up) rather than cover the note `avoid`. */
+  function drawNote(text: string, spot: Spot, vp: VP, avoid: NoteBox | null = null): NoteBox | null {
+    if (!ctx || !spot || spot.frac < 0.03) return null;
     const p = toScreen({ x: spot.x - 0.5, y: spot.y - 0.5 }, vp);
     ctx.save();
     ctx.font = `600 11px ${fontFamily}`;
     const w = ctx.measureText(text).width;
     const left = vp.ox + 6;
     const right = vp.ox + vp.vw * vp.s - 6;
+    const top = vp.oy + 14;
+    const bottom = vp.oy + vp.vh * vp.s - 6;
     const x = Math.min(Math.max(p.X - w / 2, left), right - w);
-    const y = Math.min(Math.max(p.Y + 4, vp.oy + 14), vp.oy + vp.vh * vp.s - 6);
+    let y = Math.min(Math.max(p.Y + 4, top), bottom);
+    if (avoid && Math.abs(y - avoid.y) < NOTE_LINE && x < avoid.x + avoid.w && avoid.x < x + w) {
+      y = avoid.y + NOTE_LINE <= bottom ? avoid.y + NOTE_LINE : avoid.y - NOTE_LINE;
+    }
     label(ctx, text, x, y, cssColor("--ink-2", "#4a5560"), cssColor("--sheet-2", "#e3e8e7"));
     ctx.restore();
+    return { x, y, w };
   }
 
   function drawMarks(vp: VP) {
@@ -2192,6 +2218,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       else loaded.push({ epoch: eps[i], vals: r, sky: median(r), sigma: robustSigma([r], 40_000) });
     });
     frames = loaded;
+    fillOnly = [];
     burnt.clear();
     resetCaches();
     busy = null;
@@ -2221,6 +2248,37 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       draw();
     }
     root.dataset.ready = "true";
+    if (fillSrc.length && next.clock === "hours") void loadFill(gen, nx, ny);
+  }
+
+  /** Most fill exposures loaded beside the plate's own, spread over the visit (other pointings). */
+  const FILL_EXTRA = 8;
+  /** Load a spread of the visit's other exposures, used only to fill the plate's edge, then repaint. */
+  async function loadFill(gen: number, nx: number, ny: number): Promise<void> {
+    const seen = new Set(frames.map((f) => f.epoch.id));
+    const rest = fillSrc
+      .filter((s) => s.epoch.det === view?.det && !seen.has(s.epoch.id) && (seen.add(s.epoch.id), true))
+      .sort((a, b) => a.epoch.mjd_mid - b.epoch.mjd_mid);
+    const n = Math.min(FILL_EXTRA, rest.length);
+    if (!n) return;
+    const pick = n === rest.length ? rest : Array.from({ length: n }, (_, k) => rest[Math.round((k * (rest.length - 1)) / Math.max(1, n - 1))]);
+    const got = await pool(pick, 4, async (s) => toMJySr(await cachedFrame(s.epoch, s.url), s.epoch), () => {}, () => !destroyed && gen === loadCtl);
+    if (destroyed || gen !== loadCtl) return;
+    const extra: typeof fillOnly = [];
+    // All wavelengths: the plate is in units of each detector's noise (combineFrames); so is the fill.
+    const inNoise = waveGroups.size > 0;
+    got.forEach((r, i) => {
+      if (!r || r instanceof Error || r.length !== nx * ny) return;
+      const sky = median(r);
+      const sigma = robustSigma([r], 40_000);
+      const b = burntCores(r, nx, ny, sky, sigma);
+      const vals = inNoise ? combineFrames([{ vals: r, burnt: b, sky, sigma }]) : r;
+      extra.push({ epoch: pick[i].epoch, vals, sky: inNoise ? 0 : sky, sigma: inNoise ? 1 : sigma, burnt: b });
+    });
+    if (!extra.length) return;
+    fillOnly = extra;
+    filledFrames.clear();
+    if (frames.length) paintImage();
   }
 
   /** Offer "Follow the mover" when a fast mover sits at the centre and drifts visibly. */
@@ -2596,7 +2654,23 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       // Red circles stay with the frames they were made for: none of these epochs, no circles.
       if (trackM && !resp.epochs.some((e) => trackBy.has(e.id))) setTrack(null);
       setSingleDetector(options?.singleDetector ?? false);
+      fillSrc = [];
       await load(next, resp, url);
+    },
+    needsFill() {
+      // A no-data part (past the detector's edge, not a burnt core) on more than 0.5% of the photo.
+      const f = frames[idx];
+      if (!f || view?.clock !== "hours" || fillOnly.length) return false;
+      const b = burntOf(idx);
+      let n = 0;
+      for (let i = 0; i < f.vals.length; i++) if (Number.isNaN(f.vals[i]) && !b[i]) n++;
+      return n > f.vals.length * 0.005;
+    },
+    fill(sources) {
+      fillSrc = sources;
+      if (!view || !rawF || view.clock !== "hours" || !frames.length) return;
+      const [nx, ny] = rawF.size;
+      void loadFill(loadCtl, nx, ny);
     },
     singleDetector(locked) {
       if (setSingleDetector(locked) && view && rawF) void load(view, rawF, rawUrl);

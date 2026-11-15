@@ -4,7 +4,8 @@
 // Motion dashboard when Advanced is on): the list around the candidate (back, previous, next),
 // what it is and how fast it moves, its grade, and its vote (change it or reset it).
 import { failedGates, gatesPhrase, nearSourceOf, votable } from "../api/grades";
-import type { Candidate, FramesResponse } from "../api/types";
+import { epochsFor } from "../api/client";
+import type { Candidate, Epoch, FramesResponse } from "../api/types";
 import type { TrackMarks, View } from "../app/modules";
 import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
@@ -74,7 +75,7 @@ export async function suspectFrames(
   c: Candidate,
   view: View,
   all: boolean,
-): Promise<{ frames: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote }> {
+): Promise<{ frames: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote; fill: Epoch[] }> {
   const loaded = await framesFor(c, view);
   const f = focusFrames(loaded.frames, c, view.det);
   const gap = findGap(loaded.frames, c, view.det);
@@ -83,6 +84,8 @@ export async function suspectFrames(
     frames,
     jsonUrl: loaded.jsonUrl,
     marks: buildTrackMarks(c, frames),
+    // A few exposures of one session share one edge: the visit's others fill it (never blinked).
+    fill: !all && f.focused ? epochsFor(loaded.frames, view.det) : [],
     note: {
       focused: !all && f.focused,
       shown: f.shown,
