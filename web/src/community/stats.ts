@@ -246,6 +246,88 @@ export function agreement(mine: Record<string, Answer>, counts: Map<string, Coun
   return { voted, settled, agreed, rate: settled ? agreed / settled : null, answers };
 }
 
+/** One of this browser's own votes, with what everyone else made of the same object. */
+export interface MyVote {
+  id: string;
+  /** What this browser answered. */
+  mine: Answer;
+  counts: Counts;
+  verdict: Verdict;
+  /** True once the object has settled on an answer that is not this browser's. */
+  differs: boolean;
+}
+
+/**
+ * This browser's votes, the still-open ones first.
+ *
+ * That order is the useful one: an object still short of consensus is one another pair of eyes can
+ * still move, so it is what a voter can act on. Settled ones are a record, and the ones that
+ * settled against this browser come last of those, where they read as something to go and look at
+ * rather than a scolding.
+ */
+export function myVotes(mine: Record<string, Answer>, counts: Map<string, Counts>): MyVote[] {
+  const out: MyVote[] = [];
+  for (const [id, a] of Object.entries(mine)) {
+    if (!isAnswer(a)) continue;
+    const c = counts.get(id) ?? emptyCounts();
+    const v = verdict(c);
+    out.push({ id, mine: a, counts: c, verdict: v, differs: v.state === "consensus" && v.answer !== a });
+  }
+  const rank = (m: MyVote) => (m.verdict.state !== "consensus" ? 0 : m.differs ? 2 : 1);
+  return out.sort((x, y) => rank(x) - rank(y) || y.verdict.votes - x.verdict.votes || x.id.localeCompare(y.id));
+}
+
+/** This browser's own votes as a file to save. Local only: no voter id goes in it. */
+export function myVotesFile(
+  format: "csv" | "json",
+  rows: readonly MyVote[],
+  lookup: (id: string) => CandInfo | undefined,
+  meta: AstroJsonMeta,
+  base: string,
+): { name: string; text: string; type: string } {
+  const name = `skyshift-my-votes-${meta.generated.slice(0, 10)}.${format}`;
+  if (format === "csv") {
+    const head = "candidate_id,my_answer,state,consensus,votes,mover,changing,junk,unsure,ra_deg,dec_deg,mjd,clock,link";
+    const body = rows.map((r) => {
+      const i = lookup(r.id);
+      return [
+        r.id, r.mine, r.verdict.state, r.verdict.answer ?? "", r.verdict.votes,
+        r.counts.mover, r.counts.changing, r.counts.junk, r.counts.unsure,
+        i ? round(i.ra, 6) : "", i ? round(i.dec, 6) : "", i ? round(i.mjd, 6) : "", i?.clock ?? "",
+        candidateLink(base, r.id),
+      ].map(csvCell).join(",");
+    });
+    return { name, text: [head, ...body].join("\n") + "\n", type: "text/csv;charset=utf-8" };
+  }
+  const text = JSON.stringify(
+    {
+      ...meta,
+      rule: { min_votes: CONSENSUS.minVotes, min_agree_pct: CONSENSUS_PCT },
+      note: "One browser's own votes on SkyShift, read from this browser. Not a user account: no name, no voter id, nothing that identifies anyone.",
+      count: rows.length,
+      votes: rows.map((r) => {
+        const i = lookup(r.id);
+        return {
+          id: r.id,
+          my_answer: r.mine,
+          state: r.verdict.state,
+          consensus: r.verdict.answer,
+          votes: r.verdict.votes,
+          counts: { ...r.counts },
+          ra_deg: i ? round(i.ra, 6) : null,
+          dec_deg: i ? round(i.dec, 6) : null,
+          mjd: i ? round(i.mjd, 6) : null,
+          clock: i?.clock ?? null,
+          link: candidateLink(base, r.id),
+        };
+      }),
+    },
+    null,
+    2,
+  );
+  return { name, text: text + "\n", type: "application/json" };
+}
+
 // ---- the list for astronomers ----------------------------------------------------------------
 
 /** What the page knows about a candidate: from candidates.json, or a dot someone flagged. */

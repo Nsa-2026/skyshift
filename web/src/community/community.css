@@ -114,6 +114,9 @@
 .cm-welcome {
   display: grid;
   gap: var(--s3);
+  /* In the two-column masthead the note is stretched down three rows; without this its own rows
+     spread out and the signature drifts away from the paragraph it signs. */
+  align-content: start;
   max-width: var(--cm-measure);
   padding-block: var(--s3) var(--s6);
   border-bottom: 1px solid var(--hair);
@@ -464,6 +467,64 @@
   color: var(--ink-2);
   font-variation-settings: "wdth" 85;
   overflow-wrap: anywhere;
+}
+
+/* this browser's own votes: one row per object, the still-open ones first */
+.cm-mine-list {
+  display: grid;
+  gap: var(--s4);
+  margin: var(--s4) 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: var(--cm-measure);
+}
+.cm-mine {
+  display: grid;
+  gap: 6px;
+}
+.cm-mine-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.cm-mine-foot {
+  align-items: center;
+}
+.cm-mine-answer {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.cm-mine-answer b {
+  font-weight: 650;
+  color: var(--ink);
+}
+.cm-mine-state {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+/* Still open is the actionable one, so it is the one that carries weight. */
+.cm-mine-state.is-open {
+  color: var(--ink);
+  font-weight: 550;
+}
+/* No colour marks a vote that went the other way: mover's own segment is already --pencil-red, so
+   a red label beside a red bar reads as part of the bar. The row says it in words instead. */
+.cm-mine-state.is-differs {
+  color: var(--ink-2);
+}
+.cm-mine-foot .cm-split {
+  flex: none;
+  width: 140px;
+}
+.cm-mine-note {
+  margin-top: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+}
+.cm-mine-exports[hidden] {
+  display: none;
 }
 
 /* this browser */

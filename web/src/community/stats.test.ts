@@ -11,6 +11,8 @@ import {
   cleanVotes,
   floorTo,
   mostDebated,
+  myVotes,
+  myVotesFile,
   nextStep,
   summarize,
   tally,
@@ -210,6 +212,65 @@ describe("agreement (this browser)", () => {
   it("has no rate before anything settles", () => {
     expect(agreement({ x: "mover" }, new Map()).rate).toBeNull();
     expect(agreement({}, new Map())).toMatchObject({ voted: 0, rate: null });
+  });
+});
+
+describe("this browser's own votes", () => {
+  const counts = new Map<string, Counts>([
+    ["settled-agree", c(5)],        // consensus mover, and so did this browser
+    ["settled-differ", c(0, 0, 5)], // consensus junk, this browser said mover
+    ["open-many", c(2, 0, 2)],      // split
+    ["open-one", c(1)],             // only this browser
+  ]);
+  const mine: Record<string, Answer> = {
+    "settled-agree": "mover",
+    "settled-differ": "mover",
+    "open-many": "mover",
+    "open-one": "mover",
+  };
+
+  it("puts the still-open ones first, then settled, then the ones that went the other way", () => {
+    expect(myVotes(mine, counts).map((m) => m.id)).toEqual(["open-many", "open-one", "settled-agree", "settled-differ"]);
+  });
+
+  it("marks only a settled vote against this browser as differing", () => {
+    const by = new Map(myVotes(mine, counts).map((m) => [m.id, m]));
+    expect(by.get("settled-differ")?.differs).toBe(true);
+    expect(by.get("settled-agree")?.differs).toBe(false);
+    expect(by.get("open-many")?.differs).toBe(false); // open is not disagreement yet
+  });
+
+  it("keeps an object the page has no counts for, as this browser's vote alone", () => {
+    const only = myVotes({ unknown: "unsure" }, new Map());
+    expect(only).toHaveLength(1);
+    expect(only[0]).toMatchObject({ id: "unknown", mine: "unsure" });
+    expect(only[0].verdict.votes).toBe(0);
+  });
+
+  it("drops anything that isn't one of the four answers", () => {
+    expect(myVotes({ x: "nonsense" as Answer }, new Map())).toEqual([]);
+  });
+
+  const meta = { generated: "2026-11-15T10:00:00.000Z", votes_from: "local" as const, data_release: "DR1" };
+
+  it("exports a CSV with one row per vote and no voter id anywhere", () => {
+    const text = myVotesFile("csv", myVotes(mine, counts), () => undefined, meta, "https://skyshift.web.app/").text;
+    const lines = text.trim().split("\n");
+    expect(lines).toHaveLength(5); // header + four votes
+    expect(lines[0]).toBe("candidate_id,my_answer,state,consensus,votes,mover,changing,junk,unsure,ra_deg,dec_deg,mjd,clock,link");
+    expect(text).not.toMatch(/voter/i);
+  });
+
+  it("names the file by the day it was made and carries the consensus rule in the JSON", () => {
+    const f = myVotesFile("json", myVotes(mine, counts), () => undefined, meta, "https://skyshift.web.app/");
+    expect(f.name).toBe("skyshift-my-votes-2026-11-15.json");
+    const j = JSON.parse(f.text);
+    expect(j.count).toBe(4);
+    expect(j.rule.min_votes).toBe(CONSENSUS.minVotes);
+    expect(j.votes[0]).toMatchObject({ id: "open-many", my_answer: "mover", state: "in_review" });
+    // No voter id travels with the file: the only mention of the word is the note saying so.
+    expect(j.votes.every((v: Record<string, unknown>) => !("voter" in v))).toBe(true);
+    expect(Object.keys(j)).not.toContain("voter");
   });
 });
 
