@@ -61,6 +61,7 @@ export class Plate {
   mount(): void {
     if (this.blink) return;
     this.blink = mountBlink(this.blinkEl, {
+      hideArtefacts: true,
       onViewChange: (change) => {
         if (!this.current) return;
         const v = { ...this.current.view, ...change };

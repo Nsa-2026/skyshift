@@ -41,6 +41,11 @@ import {
 import {
   CLASS_INFO,
   greyed,
+  plainBlendWords,
+  plainShiftWords,
+  viewerShows,
+  VIEWER_HIDDEN,
+  withoutArtefacts,
   stageLabel,
   CLASS_ORDER,
   classInfo,
@@ -439,6 +444,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   // On the Viewer, SkyShift's measured circles start off (the plate shows Gaia's rings) and opening
   // "What SkyShift measured" turns them on; other plates start with them on.
   const overlays = { measured: !opts.viewer, gaia: true, known: true, faint: false, target: true, guides: true };
+  // The Viewer and the To check plates leave artefacts (camera glitches) out entirely.
+  const noArtefacts = !!opts.viewer || !!opts.hideArtefacts;
+  /** The response's measured layer, without artefacts where this plate leaves them out. */
+  const measuredHere = () => {
+    const st = measuredState(F);
+    return noArtefacts && st.kind === "measured" ? { ...st, m: withoutArtefacts(st.m) } : st;
+  };
   /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
   let trackM: TrackMarks | null = null;
   let trackBy = new Map<string, TrackSpot>();
@@ -958,7 +970,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       planStars.push({ id: o.s.id, X: o.p.X, Y: o.p.Y, g: o.s.g, extent: reach(o.px), saturated, ringed: ringed.has(o.s.id) });
     }
     const measuredOn = !!meas && overlays.measured;
-    const ds = measuredOn && e ? (measAt.get(e.id) ?? []) : [];
+    // The Viewer circles only what a visitor can act on: no grey circles (VIEWER_HIDDEN, grade C).
+    const ds = (measuredOn && e ? (measAt.get(e.id) ?? []) : []).filter((d) => !opts.viewer || viewerShows(d.class, d.grade));
     const planDets: PlanDet[] = [];
     ds.forEach((d, i) => {
       const px = skyToPixel(d, F!, c);
@@ -1162,6 +1175,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       for (const t of m.tracks) {
         const dots = trackDotsFor(t, epochDet, view.det);
         if (dots.length < 2) continue;
+        if (opts.viewer && greyed(t.class, trackGrade.get(t.id))) continue;
         const a = motionArrow(dots.map(toS));
         if (!a || !a.pts.some((q) => inView(q))) continue;
         const col = pen(greyed(t.class, trackGrade.get(t.id)) ? "--m-artifact" : classInfo(t.class).token);
@@ -1195,6 +1209,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       if (first && last && first !== last)
         m.shifts.forEach((s, i) => {
           if (!shiftVerdict(s, G).draw) return;
+          if (opts.viewer && greyed(s.class, sourceGrade.get(s.source_id))) return;
           const d0 = measAt.get(first.id)?.find((d) => d.source_id === s.source_id);
           const d1 = measAt.get(last.id)?.find((d) => d.source_id === s.source_id);
           const f0 = toS(shiftAt(s, first.mjd_mid));
@@ -1206,7 +1221,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           const col = pen(greyed(s.class, grade) ? "--m-artifact" : classInfo(s.class).token);
           if (arrowPath(ctx, a.pts, 6)) stroke(col, 1.6);
           stretched(a, col);
-          const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(shiftNumbers(s) + "." + longer(a))}</span>`;
+          const words = opts.viewer ? plainShiftWords(s) : shiftNumbers(s) + ".";
+          const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(words + longer(a))}</span>`;
           hits.push({ X: a.pts[0].X, Y: a.pts[0].Y, r: 8, html });
           hits.push({ X: a.pts[a.pts.length - 1].X, Y: a.pts[a.pts.length - 1].Y, r: 8, html });
         });
@@ -1223,7 +1239,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         if (d.class === "suspect" && d.grade) label(ctx, d.grade, cc.X + cc.r * 0.75 + 3, cc.Y - cc.r * 0.75 - 2, col, halo);
         const blendTag = cc.blend && d.class === "star";
         const notes: string[] = [];
-        if (cc.blend && !blendTag) notes.push(blendWords(cc.blend.length));
+        if (cc.blend && !blendTag) notes.push(opts.viewer ? plainBlendWords(cc.blend.length) : blendWords(cc.blend.length));
         const off = offsetWords(cc.offsetArcsec);
         if (off) notes.push(off);
         if (cc.bright) {
@@ -1231,12 +1247,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           notes.push(sat ? "a saturated star: the circle holds its whole blob" : "a bright star: the circle holds its whole glow");
           if (cc.fragments) notes.push(`${cc.fragments} ${cc.fragments === 1 ? "piece" : "pieces"} of its glow hidden`);
         }
-        const tag = blendTag ? blendWords(cc.blend!.length) : describeDetection(d);
+        const tag = blendTag ? (opts.viewer ? plainBlendWords(cc.blend!.length) : blendWords(cc.blend!.length)) : describeDetection(d);
+        // The Viewer leaves out signal-to-noise and µJy: the notes say what matters.
+        const vals = opts.viewer ? notes : [detectionNumbers(d), ...notes];
         hits.push({
           X: cc.X,
           Y: cc.Y,
           r: cc.r + 4,
-          html: `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}"${d.grade ? ` data-grade="${d.grade}"` : ""}>${esc(tag)}</span> <span class="bk-val">${esc([detectionNumbers(d), ...notes].join("; "))}</span>`,
+          html: `<span class="bk-pos">${formatRaDec(d)}</span> <span class="bk-mtag" data-cls="${d.class}"${d.grade ? ` data-grade="${d.grade}"` : ""}>${esc(tag)}</span> <span class="bk-val">${esc(vals.join("; "))}</span>`,
         });
       }
     }
@@ -1506,6 +1524,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       key.title = `Colours run from ${shownLim.n} noise sigmas of light lost (blue) to ${shownLim.n} gained (red).`;
     } else if (mode === "blink" && !comparing) {
       key.innerHTML = `<span class="bk-hint">Click a dot to flag it${opts.viewer ? " · double-click to zoom in" : ""}</span>`;
+      // The Viewer says what its blue circles are, without opening anything.
+      if (opts.viewer && overlays.gaia && F?.gaia.length) {
+        key.insertAdjacentHTML(
+          "afterbegin",
+          `<span class="bk-gaia-key" title="Gaia is a European space telescope that has mapped the positions and motions of nearly two billion stars."><i class="bk-gaia-ring" aria-hidden="true"></i>Blue circles: stars Gaia already knows</span>`,
+        );
+      }
     }
     // The red circles' key, when the candidate has a spot in these frames.
     if (overlays.target && trackM && frames.some((f) => spotFor(f.epoch))) {
@@ -1698,7 +1723,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   // ---- what SkyShift measured: the panel under the controls --------------------------------
   /** Index the response's measured layer for this detector and pick the arrow exaggeration. */
   function prepareMeasured() {
-    const st = measuredState(F);
+    const st = measuredHere();
     meas = st.kind === "measured" ? st.m : null;
     measAt = new Map();
     epochDet = new Map((F?.epochs ?? []).map((e) => [e.id, e.det]));
@@ -1716,7 +1741,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     meas.tracks ??= [];
     meas.shifts ??= [];
     meas.detections ??= [];
-    measItems = listItems(meas, epochDet, view.det, F.gaia);
+    measItems = listItems(meas, epochDet, view.det, F.gaia, !!opts.viewer);
   }
 
   /** Is there a saturated star to explain: Gaia lists one under G 9, or a photo of this detector has saturated pixels. */
@@ -1726,10 +1751,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   function renderMeasured() {
-    const st = measuredState(F);
+    const st = measuredHere();
     mp.panel.hidden = st.kind === "absent";
     const on = st.kind === "measured";
     for (const e of [mp.rest, mp.key, mp.how, mp.short, mp.items, mp.notes, mp.pro]) e.hidden = !on;
+
     mp.stage.hidden = !on;
     $<HTMLButtonElement>(".bk-meas-toggle").hidden = !on;
     if (mp.count) mp.count.textContent = "";
@@ -1742,19 +1768,21 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     const m = st.m;
     mp.panel.dataset.state = "measured";
-    const s = summarize(m, F?.gaia);
+    const s = summarize(m, F?.gaia, { artefacts: !noArtefacts });
     mp.lead.innerHTML = s.lead;
     mp.rest.textContent = s.rest;
     mp.rest.hidden = !s.rest;
-    mp.stage.textContent = stageLabel(m.stage);
+    // The Viewer leaves out the pipeline stage ("Final", "Provisional"): it means nothing to visitors.
+    mp.stage.textContent = opts.viewer ? "" : stageLabel(m.stage);
     mp.stage.dataset.stage = String(m.stage ?? "");
     mp.stage.hidden = !mp.stage.textContent;
     mp.key.innerHTML = classesPresent(m)
+      .filter((c) => !opts.viewer || !VIEWER_HIDDEN.has(c))
       .flatMap((c) => {
         const li = `<li title="${esc(CLASS_INFO[c].about)}">${glyph(c)}<span>${CLASS_INFO[c].name}</span></li>`;
         // Grade C suspects fail a check: greyed on the plate, so the legend says so.
         const hasC = c === "suspect" && m.detections.some((d) => d.class === "suspect" && d.grade === "C");
-        return hasC
+        return hasC && !opts.viewer
           ? [li, `<li title="A suspect that fails one of our checks (its reasons say which).">${glyph(c, "C")}<span>Suspect, grade C</span></li>`]
           : [li];
       })
@@ -1770,13 +1798,26 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       (saturatedHere() ? " A dashed ring is a saturated star: its burnt core gives no single detection, so its pieces aren't drawn." : "") +
       (arrows ? ` ${arrowNote(m.clock)}` : "");
     // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced.
-    mp.short.textContent =
-      "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "");
+    mp.short.textContent = opts.viewer
+      ? "Blue circles: stars Gaia already knows, where Gaia says they are on this date. A circle inside one is where " +
+        "SkyShift found that star in this photo. Violet diamonds: known asteroids." +
+        (arrows ? " Arrows: how far something moved between visits." : "")
+      : "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "");
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
     mp.pro.textContent =
-      `Detections per class, before the cap: ${CLASS_ORDER.map((k) => `${k} ${c[k] ?? 0}`).join(", ")}. ` +
+      `Detections per class, before the cap: ${CLASS_ORDER.filter((k) => !noArtefacts || k !== "artifact")
+        .map((k) => `${k} ${c[k] ?? 0}`)
+        .join(", ")}. ` +
       `${m.photos} photos read, ${m.photos_missing} without dots. Zone box RA ${m.zone_box?.ra?.join("–")}°, Dec ${m.zone_box?.dec?.join("–")}°.`;
+    // The Viewer keeps only the summary, the legend, the plain line and the list, even under Advanced
+    // (emptied, not just hidden: research mode shows .pro-only with !important). The long breakdown
+    // (σ, artefact counts, zone names) stays on the To check plate.
+    if (opts.viewer)
+      for (const e of [mp.rest, mp.how, mp.notes, mp.pro]) {
+        e.textContent = "";
+        e.hidden = true;
+      }
     renderMeasuredList();
   }
 
@@ -1787,7 +1828,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.items.hidden = !measItems.length;
     if (!measItems.length) return;
     if (mp.count) mp.count.textContent = `(${measItems.length})`;
-    mp.lh.textContent = hours ? (waveGroups.size ? "Movers and artefacts on all detectors" : `Movers and artefacts on D${view.det}`) : "What moved between visits";
+    mp.lh.textContent = opts.viewer
+      ? hours ? "What moved between photos" : "What moved between visits"
+      : hours
+        ? `Movers${noArtefacts ? "" : " and artefacts"} on ${waveGroups.size ? "all detectors" : `D${view.det}`}`
+        : "What moved between visits";
     const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
     mp.list.innerHTML = shown
       .map(

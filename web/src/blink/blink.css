@@ -231,6 +231,23 @@
   color: var(--ink-3);
   font-weight: 450;
 }
+/* The Viewer's line saying what the blue circles are (BlinkOptions.viewer). */
+.bk-gaia-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-weight: 450;
+}
+.bk-gaia-key + .bk-hint::before {
+  content: "· ";
+}
+.bk-gaia-ring {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--pencil-blue);
+  border-radius: 50%;
+}
 /* The candidate's red circles (BlinkHandle.track): solid measured, dashed predicted. */
 .bk-trk {
   display: inline-flex;

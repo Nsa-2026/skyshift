@@ -251,7 +251,7 @@ export function stageNote(m: Pick<Measured, "zone" | "stage">): string {
 }
 
 /** "N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
-export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
+export function summarize(m: Measured, gaia?: GaiaStar[], opts: { artefacts?: boolean } = {}): Summary {
   const photos = plural(m.photos ?? 0, "photo");
   const counts = Object.fromEntries(CLASS_ORDER.map((k) => [k, m.counts?.[k] ?? 0])) as Record<MeasuredClass, number>;
   m = { ...m, counts, tracks: m.tracks ?? [], shifts: m.shifts ?? [], detections: m.detections ?? [] };
@@ -358,7 +358,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
   if (m.truncated) {
     const unit = m.clock === "hours" ? "photo" : "visit";
     notes.push(
-      `A busy field: each ${unit} shows at most 250 marks, every mover, suspect and artefact first, then the brightest of the rest.`,
+      `A busy field: each ${unit} shows at most 250 marks, every mover, suspect${opts.artefacts === false ? "" : " and artefact"} first, then the brightest of the rest.`,
     );
   }
   return { lead, rest, notes };
@@ -613,6 +613,62 @@ export interface MeasuredItem {
 export const greyed = (cls: MeasuredClass, grade?: string | null): boolean =>
   cls === "artifact" || (cls === "suspect" && grade === "C");
 
+/**
+ * The measured layer without artefacts (camera glitches): no dots, movers or shifts of that class,
+ * and a zero count. The Viewer and the To check plates (BlinkOptions.hideArtefacts) show this, so
+ * the plate, legend, summary and list all leave them out. A new object: the response is untouched.
+ */
+export function withoutArtefacts(m: Measured): Measured {
+  const keep = <T extends { class: MeasuredClass }>(xs: T[] | undefined) => (xs ?? []).filter((x) => x.class !== "artifact");
+  return {
+    ...m,
+    counts: { ...m.counts, artifact: 0 },
+    detections: keep(m.detections),
+    tracks: keep(m.tracks),
+    shifts: keep(m.shifts),
+  };
+}
+
+// ---- the Viewer's plain version (BlinkOptions.viewer) -----------------------------------------
+// The Viewer draws only marks a visitor can act on, and says them in plain words: no grey circles
+// (artefacts, sources without a Gaia match, stack-only sources, grade C suspects), no σ, mas/yr,
+// S/N or µJy. The To check and Learn plates keep the full version above.
+
+/** Classes the Viewer neither circles nor puts in its legend. */
+export const VIEWER_HIDDEN: ReadonlySet<MeasuredClass> = new Set<MeasuredClass>(["artifact", "other", "stack"]);
+/** Does the Viewer circle this detection? */
+export const viewerShows = (cls: MeasuredClass, grade?: string | null): boolean => !VIEWER_HIDDEN.has(cls) && !greyed(cls, grade);
+
+const COMPASS = [
+  "north", "north-northeast", "northeast", "east-northeast", "east", "east-southeast", "southeast", "south-southeast",
+  "south", "south-southwest", "southwest", "west-southwest", "west", "west-northwest", "northwest", "north-northwest",
+];
+/** A position angle (degrees east of north) as a compass direction: 163 → "south-southeast". */
+export const compass = (deg: number): string => COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+
+/** "2 Gaia stars too close together for SPHEREx to tell apart". */
+export const plainBlendWords = (n: number): string => `${n} Gaia stars too close together for SPHEREx to tell apart`;
+
+/** Why a shift has no arrow, in plain words ("" when it has one). */
+export function plainVerdict(v: ShiftVerdict): string {
+  if (v.draw) return "";
+  switch (v.why) {
+    case "gaia_disagrees": {
+      const pm = (v.gaiaPm ?? 0) / 1000;
+      return `No arrow on the plate: Gaia measures only ${num(pm, pm < 0.1 ? 3 : 2)}″ a year for this star.`;
+    }
+    case "artifact":
+      return "No arrow on the plate: our checks set it aside.";
+    default:
+      return "No arrow on the plate: too small to be sure.";
+  }
+}
+
+/** A shift in plain words: its direction, and why it has no arrow when it has none. */
+export function plainShiftWords(s: MeasuredShift, v?: ShiftVerdict): string {
+  return [`Towards the ${compass(s.pa_deg)}.`, v ? plainVerdict(v) : ""].filter(Boolean).join(" ");
+}
+
 const ITEM_ORDER: MeasuredClass[] = ["suspect", "known", "mover", "artifact", "star", "other"];
 /** Suspects A, B, ungraded, then C (after the other movers, before artefacts). */
 const rank = (it: MeasuredItem) => (it.cls === "suspect" && it.grade === "C" ? 2.5 : ITEM_ORDER.indexOf(it.cls));
@@ -630,9 +686,11 @@ function span(days: number): string {
  * Hours: each track with a dot on this detector, then lone known/suspect/mover/artefact dots.
  * Months: each fitted shift, then suspect or artefact sources without one.
  */
-export function listItems(m: Measured, epochDet: Map<string, number>, det: number, gaia?: GaiaStar[]): MeasuredItem[] {
+export function listItems(m: Measured, epochDet: Map<string, number>, det: number, gaia?: GaiaStar[], plain = false): MeasuredItem[] {
   const onDet = (id: string) => epochDet.get(id) === det;
   const items: MeasuredItem[] = [];
+  /** The Viewer's version: photos instead of dots, no S/N or µJy. */
+  const seen = (n: number) => `Seen in ${plural(n, "photo")}`;
   if (m.clock === "hours") {
     // One entry per known object, however many sessions paired it.
     const knownBy = new Map<string, MeasuredTrack[]>();
@@ -647,7 +705,9 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         key: `k:${name}`,
         cls: "known",
         label: `Known: ${name}`,
-        numbers: `${plural(dots.length, "dot")} in ${ts.length} sessions${d ? `. ${detectionNumbers(d)}` : ""}`,
+        numbers: plain
+          ? `${seen(dots.length)}, over ${ts.length} sessions.`
+          : `${plural(dots.length, "dot")} in ${ts.length} sessions${d ? `. ${detectionNumbers(d)}` : ""}`,
         at: Object.fromEntries(dots.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
         pos: { ra: dots[0].ra, dec: dots[0].dec },
         epochs: dots.map((x) => x.epoch_id),
@@ -672,7 +732,9 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         key: `t:${t.id}`,
         cls: t.class,
         label,
-        numbers: `${plural(dots.length, "dot")}${apart}${how}${d ? `. ${detectionNumbers(d)}` : ""}`,
+        numbers: plain
+          ? `${seen(dots.length)}${apart}${how}.`
+          : `${plural(dots.length, "dot")}${apart}${how}${d ? `. ${detectionNumbers(d)}` : ""}`,
         at: Object.fromEntries(dots.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
         pos: { ra: dots[0].ra, dec: dots[0].dec },
         epochs: dots.map((x) => x.epoch_id),
@@ -701,7 +763,7 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         key: k,
         cls: d.class,
         label: describeDetection(d),
-        numbers: n > 1 ? `In ${n} exposures. ${detectionNumbers(d)}` : detectionNumbers(d),
+        numbers: plain ? `${seen(n)}.` : n > 1 ? `In ${n} exposures. ${detectionNumbers(d)}` : detectionNumbers(d),
         at: Object.fromEntries(ds.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
         pos: { ra: d.ra, dec: d.dec },
         epochs: ds.map((x) => x.epoch_id),
@@ -719,7 +781,7 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
       const g = s.gaia_id ? G.get(s.gaia_id) : undefined;
       const notes: string[] = [];
       const n = blendCount(s, m, gaia ?? []);
-      if (n > 1) notes.push(`${blendWords(n)}.`);
+      if (n > 1) notes.push(`${plain ? plainBlendWords(n) : blendWords(n)}.`);
       if (g && n < 2) {
         const o = offsetArcsec(gaiaAt(g, s.mjd_from), s);
         const w = offsetWords(Math.hypot(o.east, o.north));
@@ -731,7 +793,9 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         cls: s.class,
         grade,
         label: describeShift(s, grade),
-        numbers: [shiftNumbers(s) + (notes.length ? "." : ""), ...notes].join(" "),
+        numbers: plain
+          ? [`Towards the ${compass(s.pa_deg)}.`, ...notes.filter((x) => !x.startsWith("Not on the plate")), plainVerdict(v)].filter(Boolean).join(" ")
+          : [shiftNumbers(s) + (notes.length ? "." : ""), ...notes].join(" "),
         at: {},
         pos: { ra: s.ra, dec: s.dec },
         epochs: [],
@@ -750,7 +814,9 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         key: `src:${id}`,
         cls: d.class,
         label: describeDetection(d),
-        numbers: `In ${plural(new Set(ds.map((x) => x.epoch_id)).size, "visit")}. ${detectionNumbers(d)}`,
+        numbers: plain
+          ? `Seen in ${plural(new Set(ds.map((x) => x.epoch_id)).size, "visit")}.`
+          : `In ${plural(new Set(ds.map((x) => x.epoch_id)).size, "visit")}. ${detectionNumbers(d)}`,
         at: Object.fromEntries(mine.map((x) => [x.epoch_id, { ra: x.ra, dec: x.dec }])),
         pos: { ra: d.ra, dec: d.dec },
         epochs: mine.map((x) => x.epoch_id),
@@ -759,7 +825,9 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
     }
   }
   // Shifts with an arrow first, then class, then as listed (tracks in the server's order, shifts by pm_snr).
+  // The Viewer leaves artefacts out (it doesn't draw them either).
   return items
+    .filter((it) => !plain || it.cls !== "artifact")
     .map((it, i) => ({ it, i }))
     .sort((a, b) => Number(!!a.it.undrawn) - Number(!!b.it.undrawn) || byClass(a.it, b.it) || a.i - b.i)
     .map((x) => x.it);

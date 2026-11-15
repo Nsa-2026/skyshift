@@ -56,6 +56,11 @@ export interface BlinkOptions {
    * Other plates (To check, Learn) leave it out and keep the usual behaviour.
    */
   viewer?: boolean;
+  /**
+   * Leave SkyShift's artefacts (camera glitches) out of the plate, the legend, the summary and the
+   * list. The To check plates (src/review/plate.ts) set it; the Viewer always does.
+   */
+  hideArtefacts?: boolean;
 }
 
 export interface BlinkHandle {
