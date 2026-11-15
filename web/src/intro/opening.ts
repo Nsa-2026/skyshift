@@ -1,16 +1,17 @@
 // The opening: "The sky is never still." A scroll-driven overlay from the SPHEREx sky down to
-// Earth, to one person looking up, into her eye and out onto the sky again, then it fades into
-// the page underneath. Loaded on demand (src/intro/index.ts), so the home page never waits.
-// Original detailed planets and chosen goddess by 春。 with Codex, from 1390d01 in
-// “讨论项目网站首页与接入”. The overlay ends on the current page, including the neutral sky map.
+// Earth, to Galileo in Padua looking through his telescope, along the tube and out through its lens
+// onto the sky again, then it fades into the page underneath. Loaded on demand
+// (src/intro/index.ts), so the home page never waits. Original detailed planets by 春。 with Codex,
+// from 1390d01 in “讨论项目网站首页与接入”. The overlay ends on the current page, including the
+// neutral sky map.
 //
 // The background is real SPHEREx data: the IRSA SPHEREx DR1 all-sky HiPS cube
 // (https://irsa.ipac.caltech.edu/data/hips/SPHEREx/spherex_allsky_cube), frame 25 (the middle
 // channel of D2, 1.346 µm: CUBE_UM in src/sky/layers.ts). Order-3 tiles, reprojected to a 50°
 // SIN view at RA 281°, Dec −4° (the Milky Way in Aquila and Scutum, Galactic longitude ≈ 28°;
-// the branch's Galactic-centre field has no-data gaps right where the title and pupil sit),
+// the branch's Galactic-centre field has no-data gaps right where the title and the lens sit),
 // ×0.78 with gamma 1.1 and a 0.5 px Gaussian blur (keeps the file small), 1600 × 1000 WebP q55.
-// Everything else is drawn in code (scene.ts, portrait.ts).
+// Everything else is drawn in code (scene.ts, portrait.ts, src/opening/galileo.ts).
 import "./opening.css";
 import { CHAPTERS, chapterAt, sceneAt, scrollProgress } from "./model";
 import { paintScene } from "./scene";
