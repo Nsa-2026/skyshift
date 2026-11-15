@@ -1,7 +1,7 @@
 // Page shell: coordinate box, target chips, URL state, and the wiring between areas.
 // Areas plug in through the interfaces in ./modules.ts.
 import { ApiFailure, loadFrames, loadObject, resolve } from "../api/client";
-import type { FramesResponse, ObjectResponse } from "../api/types";
+import type { Candidate, FramesResponse, ObjectResponse } from "../api/types";
 import { mountBlink } from "../blink";
 import { mountCard } from "../card";
 import { mountScore } from "../score";
@@ -14,7 +14,7 @@ import { mountLearn } from "../learn";
 import { mountTools } from "../tools";
 import { mountLive } from "../live";
 import { mountDetailsSwitch } from "../prefs/details";
-import { mountCandidate, mountReview } from "../review";
+import { candidateView, mountReview, mountSuspect, suspectFrames } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
 import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
@@ -92,7 +92,6 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-atlas" data-page="atlas" hidden></main>
     <main class="page page-discover" data-page="discover" hidden></main>
     <main class="page page-review" data-page="review" hidden></main>
-    <main class="page page-candidate" data-page="candidate" hidden></main>
     <main class="page page-blink" data-page="explore" hidden>
       <header class="workspace-head">
         <div><h1 id="blink-h1">Viewer</h1><p class="workspace-description"></p></div>
@@ -105,6 +104,8 @@ export function startApp(root: HTMLElement): void {
         <section id="sky" class="sky vw-panel" aria-label="Sky around this spot"></section>
       </div>
       <div class="vw-side">
+        <!-- #/c/<id>: the object to check on this plate, its vote and the list around it. -->
+        <section id="suspect" class="side-suspect vw-panel" aria-label="Object to check" hidden></section>
         <!-- Here, not above the plate: a bar appearing above it moved the plate under the pointer. -->
         <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
         <section id="card" class="side-card" aria-label="Object"></section>
@@ -145,6 +146,10 @@ export function startApp(root: HTMLElement): void {
   let epochMjd = 0;
   let selectedSignal: {ra:number;dec:number;pmra_arcsec_yr?:number;pmdec_arcsec_yr?:number;mjd_ref?:number} | null = null;
   let selectedSky:SkySelection|null=null;
+  /** #/c/<id>: the candidate the plate is on (null otherwise), and whether all its exposures show. */
+  let suspectCand: Candidate | null = null;
+  let suspectAll = false;
+  const atSuspect = (v: View | null): boolean => !!v && !!suspectCand && v.ra === suspectCand.ra && v.dec === suspectCand.dec;
   let returnSkyHash='#/sky';
   function highlightSelected() {
     if(!selectedSignal){blink.highlight?.(null);return;}
@@ -181,6 +186,20 @@ export function startApp(root: HTMLElement): void {
   });
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
   const filters = mountFilters($("#blink"));
+  const suspect = mountSuspect($("#suspect"), {
+    open(c) {
+      suspectCand = c;
+      suspectAll = false;
+      const next = candidateView(c);
+      void go(next, { push: false });
+      writeView(next, true);
+    },
+    showing: (c) => suspectCand === c && atSuspect(view),
+    showAll(all) {
+      suspectAll = all;
+      if (view) void go(view, { objectToo: false });
+    },
+  });
   // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
   const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
   const vote: VoteHandle = mountVote($("#vote"));
@@ -237,6 +256,14 @@ export function startApp(root: HTMLElement): void {
       history.replaceState(null, "", `${location.pathname}${location.search}#/explore`);
       route();
     }
+    // Moving the plate off the object to check leaves it: the address becomes the plain Viewer,
+    // as a new history entry so Back returns to the object.
+    let leftSuspect = false;
+    if (suspectCand && !atSuspect(next) && parseRoute().candidate) {
+      history.pushState(null, "", `${location.pathname}${location.search}#/explore`);
+      leftSuspect = true;
+      route();
+    }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
     if (moved) {layer = 'raw';selectSignal(null);}
     view = next;
@@ -245,7 +272,7 @@ export function startApp(root: HTMLElement): void {
     const layerCaption = $<HTMLElement>('.science-layer-caption');
     layerCaption.hidden = layer === 'raw';
     $<HTMLElement>('[data-layer-description]').textContent = LAYER_LABELS[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
-    if (push) writeView(next);
+    if (push) writeView(next, leftSuspect);
     blinkName = next.name ?? formatRaDec(next);
     if (viewerNow().tab !== 'play') $<HTMLHeadingElement>("#blink-h1").textContent = blinkName;
     if (current === "explore") document.title = `${blinkName}: SkyShift`;
@@ -290,12 +317,19 @@ export function startApp(root: HTMLElement): void {
     }
 
     if (!moved && !objectToo) workbench.object(object);
+    // An object to check: its own frames (static first), near the find on the hours clock, with red
+    // circles where it should be in each frame.
+    const cand = layer === 'raw' && atSuspect(next) ? suspectCand : null;
+    if (cand) suspect.ready(false);
     try {
-      const loaded = layer === 'raw' ? await loadFrames(next, fsig) : await (async () => {
+      const forCand = cand ? await suspectFrames(cand, next, suspectAll) : null;
+      const loaded = forCand ?? (layer === 'raw' ? await loadFrames(next, fsig) : await (async () => {
         const extended = await loadScienceFrames(targetFor(next), next.det, next.clock, fsig, layer, next.fov);
         return { frames: extended.data as FramesResponse, jsonUrl: extended.jsonUrl };
-      })();
+      })());
       if (fsig.aborted) return;
+      suspect.note(forCand?.note ?? null);
+      blink.track?.(forCand?.marks ?? null);
       frames = loaded.frames;
       workbench.frames(frames,loaded.jsonUrl);
       sky.goto(next, frames);
@@ -305,6 +339,7 @@ export function startApp(root: HTMLElement): void {
         {singleDetector:layer !== 'raw' || viewerNow().tab === 'play'});
       if (fsig.aborted) return;
       blink.status('idle');
+      if (cand) suspect.ready(true);
       practice.ready(blink.canCompare?.() ?? false);
       highlightSelected();
     } catch (e) {
@@ -393,7 +428,7 @@ export function startApp(root: HTMLElement): void {
       $<HTMLAnchorElement>('.wordmark').href=returnHash;
     },
     navigate(hash) {
-      if(current==='atlas'&&selectedSky&&siteRoute(hash).page==='explore'){enterSkyArea(hash);return;}
+      if(current==='atlas'&&selectedSky&&siteRoute(hash).page==='explore'&&!siteRoute(hash).candidate){enterSkyArea(hash);return;}
       location.hash = hash;
     },
     explore(at) {
@@ -414,7 +449,6 @@ export function startApp(root: HTMLElement): void {
     // Results in sections: show("<section>[/<part>]") opens and scrolls; hide() stops the live polling.
     results: mountScore,
     review: mountReview,
-    candidate: mountCandidate,
     community: mountCommunity,
     about: mountAbout,
   };
@@ -453,7 +487,7 @@ export function startApp(root: HTMLElement): void {
 
   function route() {
     if (resolveCtl) { cancelResolve(); say(''); }
-    const { page, param, screen, workspace } = parseRoute();
+    const { page, param, screen, workspace, candidate } = parseRoute();
     const practicing=page==='explore' && workspace?.tab==='play';
     if(page==='explore')blink.singleDetector?.(practicing || layer !== 'raw');
     filters.active(!practicing && layer === 'raw');
@@ -469,10 +503,26 @@ export function startApp(root: HTMLElement): void {
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
-      if(!practicing){
+      // A candidate's address opens on the candidate (the suspect panel calls go() once it is read).
+      if(!practicing && !candidate){
         const first = readView() ?? viewForTarget(TARGETS[0]);
         void go(first, { push: false });
         writeView(first, true);
+      }
+    }
+    // #/c/<id>: the object to check, its ballot at the top of the side column.
+    const suspectEl = $<HTMLElement>('#suspect');
+    if (page === 'explore' && candidate && !practicing) {
+      suspectEl.hidden = false;
+      if (!suspectCand) blink.status('loading', 'Loading the object to check…');
+      suspect.show(candidate);
+    } else if (!suspectEl.hidden || suspectCand) {
+      suspectEl.hidden = true;
+      suspect.hide();
+      if (page === 'explore') {
+        suspectCand = null;
+        suspect.note(null);
+        blink.track?.(null);
       }
     }
     if(page === 'explore' && workspace){

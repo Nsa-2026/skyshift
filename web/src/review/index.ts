@@ -1,5 +1,6 @@
-// The Review queue (#/review) and the Candidate page (#/c/<id>), DESIGN.md "Pages".
+// The Review queue (#/review) and the suspect panel the Viewer shows for a candidate (#/c/<id>).
 import "./review.css";
 
-export { mountCandidate } from "./candidate";
+export { mountSuspect, suspectFrames, type SuspectFramesNote, type SuspectHandle, type SuspectOptions } from "./candidate";
 export { mountQueue, mountReview, type QueueHandle, type QueueOptions } from "./review";
+export { candidateView } from "./data";

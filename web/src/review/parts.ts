@@ -6,7 +6,7 @@ import { formatRaDec } from "../app/astro";
 import type { Answer, Counts } from "../vote/model";
 import { VoteError } from "../vote/model";
 import type { Votes } from "./data";
-import { withVote } from "./model";
+import { movedVote } from "./model";
 import { KIND_ICON, abMag, esc, kindName, motion, ujy } from "./text";
 
 const html = String.raw;
@@ -131,19 +131,40 @@ export async function copyWithFeedback(btn: HTMLButtonElement, text: string): Pr
 export const SAMPLE_NOTE =
   "Sample data: a real pilot sample from fixtures/api/candidates.json, shown in development because /data/candidates.json isn't published yet.";
 
-/** Cast a vote. Returns the new counts, or an error in plain words. */
+/**
+ * Cast or change this browser's vote (contracts/api.md v3.16: a new vote document; each voter's
+ * latest one counts). `previous` is the vote it replaces, if any. Returns the new counts, or an
+ * error in plain words.
+ */
 export async function castVote(
   v: Votes,
   c: Candidate,
   a: Answer,
   counts: Counts | null,
-): Promise<{ ok: true; counts: Counts } | { ok: false; message: string; already: boolean }> {
+  previous: Answer | null = null,
+): Promise<{ ok: true; counts: Counts } | { ok: false; message: string }> {
   try {
     await v.api.castVote(c.id, a);
-    return { ok: true, counts: withVote(counts ?? undefined, a) };
+    return { ok: true, counts: movedVote(counts ?? undefined, previous, a) };
   } catch (e) {
     const err = e instanceof VoteError ? e : new VoteError("Something went wrong saving the vote. Try again.");
-    return { ok: false, message: err.message, already: err.kind === "already" };
+    return { ok: false, message: err.message };
+  }
+}
+
+/** Take this browser's vote back (an answer `withdrawn`, v3.16). Returns the new counts, or an error. */
+export async function takeBackVote(
+  v: Votes,
+  c: Candidate,
+  counts: Counts | null,
+  previous: Answer | null,
+): Promise<{ ok: true; counts: Counts } | { ok: false; message: string }> {
+  try {
+    await v.api.withdrawVote(c.id);
+    return { ok: true, counts: movedVote(counts ?? undefined, previous, null) };
+  } catch (e) {
+    const err = e instanceof VoteError ? e : new VoteError("Something went wrong taking the vote back. Try again.");
+    return { ok: false, message: err.message };
   }
 }
 

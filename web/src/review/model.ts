@@ -61,6 +61,15 @@ export function withVote(c: Counts | undefined, a: Answer): Counts {
   return out;
 }
 
+/** Counts after one voter's vote moves from `from` to `to` (null: no vote), never below zero. */
+export function movedVote(c: Counts | undefined, from: Answer | null, to: Answer | null): Counts {
+  const out = { ...(c ?? emptyCounts()) };
+  if (from === to) return out;
+  if (from) out[from] = Math.max(0, out[from] - 1);
+  if (to) out[to] += 1;
+  return out;
+}
+
 // ---- ordering ----------------------------------------------------------------------------------
 
 const desc = (a: number | null, b: number | null): number => {

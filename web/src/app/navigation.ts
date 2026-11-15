@@ -16,7 +16,7 @@ export const SCREENS: readonly ScreenLink[] = [
 
 /** Which screen each page belongs to (its nav entry); About belongs to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
-  atlas:'sky', explore:'viewer', candidate:'viewer',
+  atlas:'sky', explore:'viewer',
   discover:'check', review:'check', community:'community',
   results:'results', live:'results', tools:'results',
   learn:'learn', about:null,
@@ -28,6 +28,8 @@ export interface SiteRoute {
   screen: Screen | null;
   /** The Viewer's evidence section (only for page "explore"). */
   workspace?: WorkspaceState;
+  /** #/c/<id>: the Viewer on this candidate (decoded id, with its list query after "?"). */
+  candidate?: string;
 }
 
 const tabsOf = (mode: 'analyze' | 'research') => MODES[mode].tabs.map(([key]) => key as string);
@@ -72,7 +74,8 @@ export function siteRoute(hash: string, embed = false, search = '', advanced = f
   if (head === 'explore') return viewer(param, advanced);
   // Guided practice lives in Learn but plays on the Viewer's own player.
   if (head === 'learn' && parts[0] === 'practice') return viewer('play', advanced);
-  if (head === 'c' && param) return page('candidate', candidateId(param));
+  // A candidate opens the Viewer itself on its spot, with its ballot beside the plate.
+  if (head === 'c' && param) return {...viewer(null, advanced), candidate:candidateId(param)};
   if (head === 'score' || head === 'results') return page('results', param);
   if (head === 'candidates' || head === 'discover') return page('discover', param);
   if (head === 'sky') return page('atlas', param);

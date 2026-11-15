@@ -23,7 +23,7 @@ describe('top-level screens',()=>{
     expect(siteRoute('#/sky',false,'?t=barnard')).toMatchObject({page:'atlas'});
   });
   it('puts every page under its screen; About under none',()=>{
-    expect(siteRoute('#/c/shape%2Fexample')).toMatchObject({page:'candidate',param:'shape/example',screen:'viewer'});
+    expect(siteRoute('#/c/shape%2Fexample')).toMatchObject({page:'explore',candidate:'shape/example',screen:'viewer'});
     expect(siteRoute('#/candidates/kind=mover')).toMatchObject({page:'discover',param:'kind=mover',screen:'check'});
     expect(siteRoute('#/review')).toMatchObject({page:'review',screen:'check'});
     expect(siteRoute('#/community')).toMatchObject({page:'community',screen:'community'});
@@ -72,7 +72,7 @@ describe('old links',()=>{
     expect(legacyHash('#/analyze/spectrum')).toEqual({hash:'#/explore/spectrum',advanced:true});
     expect(resolve('#/analyze/crossmatch')).toMatchObject({page:'explore',workspace:{mode:'analyze',tab:'crossmatch'}});
     expect(resolve('#/analyze/candidates/kind=mover&grade=A')).toMatchObject({page:'discover',param:'kind=mover&grade=A'});
-    expect(resolve('#/analyze/c/shape%2Fexample')).toMatchObject({page:'candidate',param:'shape/example'});
+    expect(resolve('#/analyze/c/shape%2Fexample')).toMatchObject({page:'explore',candidate:'shape/example'});
     expect(legacyHash('#/analyze/review')).toEqual({hash:'#/candidates/one=1'});
     expect(resolve('#/review')).toMatchObject({page:'discover',param:'one=1',screen:'check'});
     expect(legacyHash('#/explore/analyze/lightcurve')).toEqual({hash:'#/explore/lightcurve',advanced:true});

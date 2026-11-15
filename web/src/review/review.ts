@@ -11,7 +11,7 @@ import { Ballot } from "./ballot";
 import { candidateSet, preload, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { gradeCCount, inScope, keyAction, queueOrder } from "./model";
 import { lastDiscoverHash, trackDiscover } from "./nav";
-import { SAMPLE_NOTE, castVote, factsHtml, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
+import { SAMPLE_NOTE, castVote, factsHtml, fillNearSource, gradeHtml, headHtml, motionHtml, takeBackVote, visible } from "./parts";
 import { Plate } from "./plate";
 import { PRACTICE, judge, markPracticeDone, practiceDone, practiceSummary, type PracticeResult } from "./practice";
 import { MOVER_CAUTION, answerLabel, esc } from "./text";
@@ -143,6 +143,8 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
   let mine: Answer | null = null;
   let justNow = false;
   let saving: Answer | null = null;
+  let withdrawing = false;
+  let notice: string | null = null;
   let error: string | null = null;
 
   const plate = new Plate($(".rq-plate"), {
@@ -192,6 +194,8 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
         justNow,
         counts,
         saving,
+        withdrawing,
+        notice,
         waiting: !plateReady && !mine,
         error,
         local: v?.api.mode === "local",
@@ -394,6 +398,8 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
     mine = v.api.myVote(c.id);
     justNow = votedNow.has(c.id);
     saving = null;
+    withdrawing = false;
+    notice = null;
     error = null;
     counts = countsAll.get(c.id) ?? emptyCounts();
     plateReady = false;
@@ -408,6 +414,7 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
       });
     ballot = new Ballot(ballotEl, {
       onVote: voteQueue,
+      onWithdraw: withdrawQueue,
       kind: c.kind,
       full: false,
       after: html`<div class="rq-after"><button class="btn btn-primary" type="button" data-act="next">Next object</button><span class="rv-soft">or press Enter</span></div>`,
@@ -428,7 +435,7 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
     v.api
       .countsFor([c.id])
       .then((m) => {
-        if (current !== c || saving || justNow) return;
+        if (current !== c || saving || withdrawing || justNow) return;
         counts = m.get(c.id) ?? emptyCounts();
         countsAll.set(c.id, counts);
         renderBallot();
@@ -440,11 +447,13 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
 
   async function voteQueue(a: Answer) {
     const c = current;
-    if (!c || !v || !ballot?.open() || mode !== "queue") return;
+    if (!c || !v || !ballot?.open() || mode !== "queue" || a === mine) return;
+    const previous = mine;
     saving = a;
     error = null;
+    notice = null;
     renderBallot();
-    const r = await castVote(v, c, a, counts);
+    const r = await castVote(v, c, a, counts, previous);
     if (current !== c) return;
     saving = null;
     if (r.ok) {
@@ -452,17 +461,43 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
       countsAll.set(c.id, r.counts);
       mine = a;
       justNow = true;
+      // A changed vote is still one object reviewed.
+      if (!previous && !votedNow.has(c.id)) {
+        reviewed++;
+        writeSession(reviewed);
+      }
       votedNow.add(c.id);
-      reviewed++;
-      writeSession(reviewed);
       renderProgress();
       const skip = movesEl.querySelector<HTMLButtonElement>("[data-act='skip']");
       if (skip) skip.innerHTML = "<kbd>S</kbd>Next";
     } else {
-      error = r.already ? "This browser already voted on this one. Votes can't be changed." : r.message;
+      error = r.message;
     }
     renderBallot();
     if (r.ok) ballotEl.querySelector<HTMLButtonElement>("[data-act='next']")?.focus({ preventScroll: true });
+  }
+
+  async function withdrawQueue() {
+    const c = current;
+    if (!c || !v || !mine || saving || withdrawing || mode !== "queue") return;
+    withdrawing = true;
+    error = null;
+    renderBallot();
+    const r = await takeBackVote(v, c, counts, mine);
+    if (current !== c) return;
+    withdrawing = false;
+    if (r.ok) {
+      counts = r.counts;
+      countsAll.set(c.id, r.counts);
+      mine = null;
+      justNow = false;
+      notice = "Your vote is taken back. Pick an answer to vote again.";
+      const skip = movesEl.querySelector<HTMLButtonElement>("[data-act='skip']");
+      if (skip) skip.innerHTML = "<kbd>S</kbd>Skip";
+    } else {
+      error = r.message;
+    }
+    renderBallot();
   }
 
   function skippedCount(): number {
