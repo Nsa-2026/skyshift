@@ -142,13 +142,16 @@ export function toMJySr(raw: Uint16Array, epoch: Pick<Epoch, "scale" | "zero">):
   return out;
 }
 
+/** Static first: `staticUrl` (a candidate's cand/<id>/object.json), then /data/<slug>/object.json, then /api/object. */
 export async function loadObject(
   pos: { ra: number; dec: number; slug?: string | null },
   signal?: AbortSignal,
+  staticUrl?: string | null,
 ): Promise<ObjectResponse> {
-  if (pos.slug) {
+  for (const url of [staticUrl, pos.slug ? `/data/${pos.slug}/object.json` : null]) {
+    if (!url) continue;
     try {
-      return await getReal<ObjectResponse>(`/data/${pos.slug}/object.json`, signal);
+      return await getReal<ObjectResponse>(url, signal);
     } catch (e) {
       if ((e as Error).name === "AbortError") throw e;
     }

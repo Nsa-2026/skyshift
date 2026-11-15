@@ -1,6 +1,6 @@
 // Page shell: coordinate box, target chips, URL state, and the wiring between areas.
 // Areas plug in through the interfaces in ./modules.ts.
-import { ApiFailure, loadFrames, loadObject, resolve } from "../api/client";
+import { ApiFailure, candidateFramesUrl, loadFrames, loadObject, resolve } from "../api/client";
 import type { Candidate, FramesResponse, ObjectResponse } from "../api/types";
 import { mountBlink } from "../blink";
 import { mountCard } from "../card";
@@ -304,7 +304,10 @@ export function startApp(root: HTMLElement): void {
       objectCtl = new AbortController();
       const osig = objectCtl.signal;
       card.status("loading");
-      loadObject(next, osig)
+      // A suspect's spectrum is precomputed (scripts/precompute/suspect_objects.py): cand/<id>/object.json.
+      const objectUrl = atSuspect(next) && suspectCand
+        ? candidateFramesUrl(`cand/${encodeURIComponent(suspectCand.id)}/object.json`) : null;
+      loadObject(next, osig, objectUrl)
         .then((o) => {
           if (osig.aborted) return;
           object = o;
@@ -314,6 +317,7 @@ export function startApp(root: HTMLElement): void {
         .catch((e) => {
           if (osig.aborted) return;
           object = null;
+          card.status("idle");
           card.show(next, null, frames);
           if (!(e instanceof ApiFailure && e.status === 404)) card.status("error", errorText(e));
         });
