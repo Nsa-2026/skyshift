@@ -106,6 +106,8 @@ describe("the map", () => {
     expect(el.querySelector(".sm-pt.kind-high_pm")).not.toBeNull();
     expect(el.querySelector(".sm-ctx")?.getAttribute("d")).toMatch(/^M/);
     expect(el.querySelector(".skymap-legend")?.textContent).toContain("Moving stars1 of 2");
+    // The rest are named for what they are: not in this list (filtered out, or set aside as not worth checking).
+    expect(el.querySelector(".skymap-legend")?.textContent).toContain("Not in this list");
     const plot = el.querySelector<HTMLElement>(".skymap-plot")!;
     expect(plot.getAttribute("aria-label")).toContain("2 objects to check");
     plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));

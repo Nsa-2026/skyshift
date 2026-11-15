@@ -642,7 +642,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
         html`<li>${glyphSvg("mover", 12, "is-gradec")}<span title="${escAttr(GRADE_TEXT.C.plain)}">Grey: grade C, fails a check</span><span class="sm-n">${gradeC.toLocaleString("en-GB")}</span></li>`,
       );
     if (filtered.length < all.length)
-      items.push(html`<li><svg class="kind-glyph" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle class="sm-ctx" cx="6" cy="6" r="2"/></svg><span>Not matching the filters</span></li>`);
+      items.push(html`<li><svg class="kind-glyph" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle class="sm-ctx" cx="6" cy="6" r="2"/></svg><span>Not in this list</span></li>`);
     legend.innerHTML = items.join("");
   }
 
@@ -686,7 +686,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     } else if (!filteredSet.has(p.c.id)) {
       const n = document.createElement("p");
       n.className = "sm-tip-note";
-      n.textContent = "Outside the current filters.";
+      n.textContent = "Not in this list.";
       tip.append(n);
     }
     tip.hidden = false;

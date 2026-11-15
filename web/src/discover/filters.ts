@@ -7,6 +7,10 @@
 //   const f = filterRows(rows, state);                 // f.rows passes; f.without(key) for facet counts
 //   const list = sortRows(f.rows, state.sort);
 //   const link = candidatesHash(state);                // shareable link to the same list
+//
+// By default the list holds only what's worth checking: setAsideOf() names the groups it sets aside
+// (moving stars Gaia knows, movers whose motion isn't significant, grade C movers), and show=… in
+// the URL adds them back (show=all for every group).
 import { gradeOf, gradeRank, leadRank } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { consensus as voteConsensus, type Answer, type Counts } from "../vote/model";
@@ -69,6 +73,9 @@ export interface FilterState {
   /** Hide candidates this browser already voted on. */
   hideMine: boolean;
   ranges: Partial<Record<RangeKey, Range>>;
+  /** The groups the list normally sets aside (SET_ASIDE) that it shows too. Empty: only what's
+   *  worth checking. Not a filter: it widens the list, so it isn't counted or chipped. */
+  show: SetAside[];
   sort: SortKey;
 }
 
@@ -88,8 +95,46 @@ export function defaultState(): FilterState {
     cautions: "any",
     hideMine: false,
     ranges: {},
+    show: [],
     sort: "promising",
   };
+}
+
+// ---- worth checking: what the list sets aside unless asked ------------------------------------
+
+/** The groups the list sets aside by default, in the order the page names them:
+ *  - gaia_known: moving stars Gaia already lists (kind high_pm, gaia_match): they show the method
+ *    works, but there is nothing new to find;
+ *  - not_significant: fast movers below grade A whose motion is under 3σ (reason
+ *    motion_not_significant): they may not move at all;
+ *  - grade_c: fast movers that fail a check (grade C), never put to a vote. */
+export const SET_ASIDE = ["gaia_known", "not_significant", "grade_c"] as const;
+export type SetAside = (typeof SET_ASIDE)[number];
+
+/** The set-aside group a candidate falls in, or null when it is worth checking. From its fields
+ *  only (contracts/api.md candidates.json): grade A movers, moving stars without a Gaia match,
+ *  odd spectra and "one or two?" are always worth checking. */
+export function setAsideOf(c: Candidate): SetAside | null {
+  if (c.kind === "high_pm") return c.gaia_match ? "gaia_known" : null;
+  if (c.kind !== "mover") return null;
+  const g = gradeOf(c);
+  if (g === "C") return "grade_c";
+  if (g !== "A" && c.reasons.includes("motion_not_significant")) return "not_significant";
+  return null;
+}
+
+/** Does this state set anything aside? Not when every group is shown, and not when it asks for a
+ *  community verdict: what people agreed on counts more than our checks ("Community says real"
+ *  matches the list for astronomers, set-aside ones included). */
+export function setsAside(s: FilterState): boolean {
+  return s.verdict.length === 0 && SET_ASIDE.some((g) => !s.show.includes(g));
+}
+
+/** Is this candidate listed under the state's set-aside rule? */
+export function shownBy(s: FilterState, c: Candidate): boolean {
+  if (!setsAside(s)) return true;
+  const g = setAsideOf(c);
+  return g === null || s.show.includes(g);
 }
 
 // ---- rows: a candidate with what the community said about it --------------------------------
@@ -240,8 +285,9 @@ export function isDoubted(c: Candidate, doubts: (code: string) => boolean = isDo
   return c.reasons.some(doubts);
 }
 
-/** Keys of the independent tests: facet counts leave their own key out. */
-export type TestKey = ListKey | "gaia" | "catwise" | "doubts" | "cautions" | "mine" | RangeKey;
+/** Keys of the independent tests: facet counts leave their own key out. "scope" is the set-aside
+ *  rule (what's worth checking), so f.without("scope") is everything the other filters let through. */
+export type TestKey = ListKey | "gaia" | "catwise" | "doubts" | "cautions" | "mine" | "scope" | RangeKey;
 
 interface Test {
   key: TestKey;
@@ -273,6 +319,7 @@ function tests(s: FilterState, doubts: (code: string) => boolean): Test[] {
       out.push({ key: k, pass: (r) => inRange(spec.value(r.c), range, spec.missing) });
     }
   }
+  if (setsAside(s)) out.push({ key: "scope", pass: (r) => shownBy(s, r.c) });
   return out;
 }
 
@@ -319,6 +366,12 @@ export const FACET_VALUES: Record<ListKey, (r: Row) => string[]> = {
   det: (r) => [String(r.c.det)],
   zone: (r) => [r.c.zone],
   grade: (r) => [gradeKey(r.c)],
+};
+
+/** A row's set-aside group as a facet value ([] when it is worth checking), for countBy. */
+export const setAsideValues = (r: Row): string[] => {
+  const g = setAsideOf(r.c);
+  return g ? [g] : [];
 };
 
 /** The grade facet's value for a candidate: its grade, or "none" (read from the file, never guessed). */
@@ -418,6 +471,8 @@ export function stateToQuery(s: FilterState): string {
     const r = s.ranges[k];
     if (isActiveRange(r)) add(k, `${r.min == null ? "" : fmtNum(r.min)}-${r.max == null ? "" : fmtNum(r.max)}`);
   }
+  const show = SET_ASIDE.filter((g) => s.show.includes(g));
+  if (show.length) add("show", show.length === SET_ASIDE.length ? "all" : show.join(","));
   if (s.sort !== "promising") add("sort", s.sort);
   return parts.join("&");
 }
@@ -442,6 +497,9 @@ export function queryToState(q: string): FilterState {
     const r = v ? parseRange(v) : null;
     if (r) s.ranges[k] = r;
   }
+  // show=all, or some of the set-aside groups: show=gaia_known,grade_c.
+  const show = (p.get("show") ?? "").split(",").map((x) => x.trim());
+  s.show = show.includes("all") ? [...SET_ASIDE] : SET_ASIDE.filter((g) => show.includes(g));
   const sort = p.get("sort") as SortKey | null;
   if (sort && SORT_KEYS.includes(sort)) s.sort = sort;
   return s;
@@ -502,6 +560,8 @@ export interface Preset {
   state: Partial<FilterState>;
 }
 
+/** Every preset starts from what's worth checking (show: none of the set-aside groups). "Community
+ *  says real" asks for a verdict, so nothing is set aside there (setsAside). */
 export const PRESETS: Preset[] = [
   {
     id: "promising",
@@ -573,6 +633,7 @@ export function withoutTest(s: FilterState, key: TestKey): FilterState {
   else if (key === "doubts") next.hideDoubts = false;
   else if (key === "cautions") next.cautions = "any";
   else if (key === "mine") next.hideMine = false;
+  else if (key === "scope") next.show = [...SET_ASIDE];
   else delete next.ranges[key as RangeKey];
   return next;
 }

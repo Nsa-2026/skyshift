@@ -649,6 +649,34 @@
   display: none;
 }
 
+/* What's worth checking: the groups set aside, each a chip that adds it back, and "Show all". */
+.dv-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 var(--s3);
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.dv-scope[hidden] {
+  display: none;
+}
+.dv-scope-text {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 550;
+}
+.dv-scope-groups {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dv-scope .btn-link {
+  padding: 4px 2px;
+}
+
 /* "Community says real": what the list is, and its download for astronomers. */
 .dv-real {
   margin: 0 0 var(--s3);

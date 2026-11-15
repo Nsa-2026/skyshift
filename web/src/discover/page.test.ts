@@ -55,9 +55,10 @@ describe("the Candidates page", () => {
   it("shows the intro, counts, list and presets with an interactive sky map beside the intro", async () => {
     const { el } = await mount();
     expect(el.querySelector(".dv-title")?.textContent).toContain("SPHEREx");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("194 objects");
+    // What's worth checking: the pilot's 142 moving stars all have a Gaia match, so they're set aside.
+    expect(el.querySelector(".dv-count")?.textContent).toBe("52 of 194 objects");
     expect(el.querySelectorAll(".dv-row")).toHaveLength(50);
-    expect(el.querySelector(".dv-more-n")?.textContent).toBe("Showing 50 of 194.");
+    expect(el.querySelector(".dv-more-n")?.textContent).toBe("Showing 50 of 52.");
     expect(el.querySelectorAll("[data-preset]")).toHaveLength(6);
     expect(el.querySelector<HTMLElement>(".dv-map")!.hidden).toBe(false);
     expect(el.querySelector(".dv-map .skymap")).not.toBeNull();
@@ -127,7 +128,8 @@ describe("the Candidates page", () => {
   });
 
   it("shows votes on rows: a verdict, and this browser's own vote", async () => {
-    const { el } = await mount("#/candidates/sort=most");
+    // pilot-pm-0000 is a moving star Gaia knows: set aside unless shown.
+    const { el } = await mount("#/candidates/show=all&sort=most");
     const first = el.querySelector(".dv-row")!;
     expect(first.getAttribute("data-id")).toBe("pilot-pm-0000");
     expect(first.querySelector(".dv-votes")?.textContent).toContain("Verdict: mover");
@@ -147,7 +149,7 @@ describe("the Candidates page", () => {
     expect(el.querySelector('[data-preset="check-first"]')).not.toBeNull();
     el.querySelector<HTMLButtonElement>('#fx-cautions-t + .seg button[data-v="no"]')!.click();
     expect(location.hash).toBe("#/candidates/cautions=hide");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("192 of 194 objects");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("50 of 194 objects"); // 52 worth checking, 2 cautioned
     expect([...el.querySelectorAll(".achip")].map((b) => b.textContent)).toEqual(["No possible glitches"]);
     el.querySelector<HTMLButtonElement>('#fx-cautions-t + .seg button[data-v="any"]')!.click();
     const ids = [...el.querySelectorAll(".dv-row")].map((r) => r.getAttribute("data-id"));
@@ -155,12 +157,30 @@ describe("the Candidates page", () => {
   });
 
   it("says what to do when nothing matches", async () => {
-    const { el } = await mount("#/candidates/kind=mover&gaia=yes");
+    let { el } = await mount("#/candidates/kind=mover&gaia=yes&show=all");
     expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
     expect(el.querySelector(".dv-state")?.textContent).toContain("Nothing matches these filters.");
     expect(el.querySelector(".dv-state")?.textContent).toContain("Removing “Fast mover” would bring back 142 objects.");
     el.querySelector<HTMLButtonElement>("[data-relax]")!.click();
-    expect(location.hash).toBe("#/candidates/gaia=yes");
+    expect(location.hash).toBe("#/candidates/gaia=yes&show=all");
+    // Without show=all, those 142 are set aside: the Gaia filter is the one to drop.
+    document.body.innerHTML = "";
+    ({ el } = await mount("#/candidates/kind=mover&gaia=yes"));
+    expect(el.querySelector(".dv-state")?.textContent).toContain("Removing “In Gaia” would bring back 27 objects.");
+    el.querySelector<HTMLButtonElement>("[data-relax]")!.click();
+    expect(location.hash).toBe("#/candidates/kind=mover");
+  });
+
+  it("names the set-aside ones a link asks for, and shows them in one click", async () => {
+    const { el } = await mount("#/candidates/kind=high_pm&gaia=yes");
+    expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
+    const state = el.querySelector(".dv-state")!;
+    expect(state.querySelector(".dv-state-title")?.textContent).toBe("Nothing worth checking matches these filters.");
+    expect(state.querySelector(".dv-state-text")?.textContent).toBe("142 moving stars Gaia already knows match them, but they're set aside.");
+    state.querySelector<HTMLButtonElement>("[data-show-aside]")!.click();
+    expect(location.hash).toBe("#/candidates/kind=high_pm&gaia=yes&show=all");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("142 of 194 objects");
+    expect(el.querySelectorAll(".dv-row")).toHaveLength(50);
   });
 
   it("applies a link's filter whose control is hidden (Advanced off), shows its chip and removes it", async () => {
@@ -174,7 +194,7 @@ describe("the Candidates page", () => {
     expect(chip.textContent).toBe("Not in Gaia");
     chip.click();
     expect(location.hash).toBe("#/candidates");
-    expect(el.querySelector(".dv-count")?.textContent).toBe("194 objects");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("52 of 194 objects");
     expect(el.querySelector(".achip")).toBeNull();
   });
 
@@ -182,7 +202,7 @@ describe("the Candidates page", () => {
     const { el } = await mount("#/candidates/snr=100000-");
     expect(el.querySelector<HTMLElement>(".fx-more")!.hidden).toBe(true);
     expect(el.querySelectorAll(".dv-row")).toHaveLength(0);
-    expect(el.querySelector(".dv-state")?.textContent).toMatch(/Removing “Signal to noise [^”]+” would bring back 194 objects\./);
+    expect(el.querySelector(".dv-state")?.textContent).toMatch(/Removing “Signal to noise [^”]+” would bring back 52 objects\./);
     el.querySelector<HTMLButtonElement>("[data-relax]")!.click();
     expect(location.hash).toBe("#/candidates");
   });
@@ -236,6 +256,10 @@ describe("the Candidates page with vetting grades", () => {
 
   it("greys a grade C row, says what it failed in words, and asks no vote", async () => {
     const { el } = await mount("#/candidates/grade=C");
+    // Grade C is set aside: the link finds it there and shows it in one click.
+    expect(el.querySelector(".dv-state-text")?.textContent).toBe("1 grade C fast mover matches them, but it's set aside.");
+    el.querySelector<HTMLButtonElement>("[data-show-aside]")!.click();
+    expect(location.hash).toBe("#/candidates/grade=C&show=all");
     expect(el.querySelector(".dv-count")?.textContent).toBe("1 of 194 objects");
     const row = el.querySelector(".dv-row")!;
     expect(row.classList.contains("is-gradec")).toBe(true);
@@ -255,7 +279,9 @@ describe("the Candidates page with vetting grades", () => {
     const { el } = await mount();
     const b = el.querySelector<HTMLInputElement>('.fx input[value="B"]')!;
     expect(b.closest("label")?.querySelector(".fx-n")?.textContent).toBe("25");
-    expect(el.querySelector('.fx[data-facet="grade"] input[value="none"]')?.closest("label")?.querySelector(".fx-n")?.textContent).toBe("168");
+    // Counts are of what's listed: 1 ungraded mover + 25 moving stars without a Gaia match; grade C is set aside.
+    expect(el.querySelector('.fx[data-facet="grade"] input[value="none"]')?.closest("label")?.querySelector(".fx-n")?.textContent).toBe("26");
+    expect(el.querySelector('.fx[data-facet="grade"] input[value="C"]')?.closest("label")?.querySelector(".fx-n")?.textContent).toBe("0");
     b.checked = true;
     b.dispatchEvent(new Event("change", { bubbles: true }));
     expect(location.hash).toBe("#/candidates/grade=B");
@@ -267,11 +293,11 @@ describe("the Candidates page with vetting grades", () => {
     const d = graded();
     const movers = d.candidates.filter((c) => c.kind === "mover");
     const [c, none] = [movers[1].id, movers[2].id];
-    let { el } = await mount("#/candidates/kind=mover");
+    let { el } = await mount("#/candidates/kind=mover&show=grade_c");
     expect(el.querySelector<HTMLSelectElement>(".dv-select")!.value).toBe("promising");
     expect(ids(el).at(-1)).toBe(c);
     document.body.innerHTML = "";
-    ({ el } = await mount("#/candidates/kind=mover&sort=grade"));
+    ({ el } = await mount("#/candidates/kind=mover&show=grade_c&sort=grade"));
     expect(el.querySelector<HTMLSelectElement>(".dv-select")!.value).toBe("grade");
     expect(ids(el).slice(-2)).toEqual([c, none]);
     const snr = (id: string | null) => d.candidates.find((x) => x.id === id)!.snr ?? 0;
@@ -285,6 +311,124 @@ describe("the Candidates page with vetting grades", () => {
     expect(el.querySelector<HTMLElement>('.fx[data-facet="grade"]')!.hidden).toBe(true);
     expect(el.querySelectorAll(".tag-grade, .is-gradec, .dv-gradec")).toHaveLength(0);
     expect(el.querySelector('.fx input[value="B"]')).toBeNull();
+  });
+});
+
+describe("what's worth checking, and what's set aside", () => {
+  /** The fixture's 27 fast movers graded like the published list: 3 A, 8 B, 6 B whose motion isn't
+   *  significant, 10 C (some also not significant: C wins). Its 142 moving stars with a Gaia match stay. */
+  function shaped(): CandidatesResponse {
+    const d = structuredClone(data);
+    d.candidates
+      .filter((c) => c.kind === "mover")
+      .forEach((m, i) => {
+        if (i < 3) m.grade = "A";
+        else if (i < 11) m.grade = "B";
+        else if (i < 17) {
+          m.grade = "B";
+          m.reasons = ["two_exposures", "motion_not_significant"];
+        } else {
+          m.grade = "C";
+          m.reasons = i % 2 ? ["two_exposures", "hot_pixel"] : ["motion_not_significant", "bad_column"];
+        }
+      });
+    return d;
+  }
+  const scope = (el: HTMLElement) => el.querySelector<HTMLElement>(".dv-scope")!;
+  const groups = (el: HTMLElement) => [...scope(el).querySelectorAll<HTMLButtonElement>(".fchip[data-scope]")];
+
+  beforeEach(() => loadCandidates.mockResolvedValue(shaped()));
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("lists only what's worth checking and names each group set aside, with its count", async () => {
+    const { el } = await mount();
+    // 3 A + 8 B movers, and 25 moving stars without a Gaia match.
+    expect(el.querySelector(".dv-count")?.textContent).toBe("36 of 194 objects");
+    expect(scope(el).hidden).toBe(false);
+    expect(scope(el).querySelector(".dv-scope-text")?.textContent).toBe("Only what's worth checking is listed.");
+    expect(groups(el).map((b) => b.textContent)).toEqual([
+      "142 moving stars Gaia already knows",
+      "6 fast movers whose motion isn't significant",
+      "10 grade C fast movers",
+    ]);
+    expect(groups(el).map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "false"]);
+    expect(groups(el)[0].title).toContain("Gaia lists these stars with the same motion");
+    expect(scope(el).querySelector('[data-scope="all"]')?.textContent).toBe("Show all 194");
+    // The filters' counts and the map's legend are of what's listed, out of everything.
+    expect(el.querySelector('.fx input[value="high_pm"]')?.closest("label")?.querySelector(".fx-n")?.textContent).toBe("25");
+    expect(el.querySelector(".dv-map .skymap-legend")?.textContent).toContain("Fast movers11 of 27");
+    expect(el.querySelector(".dv-map .skymap-legend")?.textContent).toContain("Moving stars25 of 167");
+    expect(el.querySelector(".dv-filters-btn")?.textContent).toBe("Filters"); // not a filter
+    expect(el.querySelector(".achip")).toBeNull();
+  });
+
+  it("adds one group back with its chip, all of them with 'Show all', and sets them aside again", async () => {
+    const { el } = await mount();
+    groups(el)[2].click();
+    expect(location.hash).toBe("#/candidates/show=grade_c");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("46 of 194 objects");
+    expect(scope(el).querySelector(".dv-scope-text")?.textContent).toBe("What's worth checking is listed, plus what you added.");
+    expect(groups(el)[2].getAttribute("aria-pressed")).toBe("true");
+    expect(el.querySelector(".dv-map .skymap-legend")?.textContent).toContain("Fast movers21 of 27");
+    scope(el).querySelector<HTMLButtonElement>('[data-scope="all"]')!.click();
+    expect(location.hash).toBe("#/candidates/show=all");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("194 objects");
+    expect(scope(el).querySelector(".dv-scope-text")?.textContent).toBe("Everything is listed, including 158 objects usually set aside.");
+    expect(groups(el).map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true", "true"]);
+    const back = scope(el).querySelector<HTMLButtonElement>('[data-scope="none"]')!;
+    expect(back.textContent).toBe("Only what's worth checking");
+    back.click();
+    expect(location.hash).toBe("#/candidates");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("36 of 194 objects");
+  });
+
+  it("counts the groups under the other filters, and keeps the choice through 'Clear all'", async () => {
+    const { el } = await mount("#/candidates/kind=mover");
+    expect(groups(el).map((b) => b.textContent)).toEqual(["6 fast movers whose motion isn't significant", "10 grade C fast movers"]);
+    expect(scope(el).querySelector('[data-scope="all"]')?.textContent).toBe("Show all 27");
+    scope(el).querySelector<HTMLButtonElement>('[data-scope="all"]')!.click();
+    expect(location.hash).toBe("#/candidates/kind=mover&show=all");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 objects");
+    el.querySelector<HTMLButtonElement>("[data-clear]")!.click();
+    expect(location.hash).toBe("#/candidates/show=all");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("194 objects");
+    // Nothing set aside under these filters: no line at all.
+    document.body.innerHTML = "";
+    const { el: el2 } = await mount("#/candidates/kind=spectral");
+    expect(scope(el2).hidden).toBe(true);
+  });
+
+  it("names every set-aside group a link finds", async () => {
+    const { el } = await mount("#/candidates/reason=motion_not_significant");
+    expect(el.querySelector(".dv-state-text")?.textContent).toBe(
+      "6 fast movers whose motion isn't significant and 5 grade C fast movers match them, but they're set aside.",
+    );
+    el.querySelector<HTMLButtonElement>("[data-show-aside]")!.click();
+    expect(location.hash).toBe("#/candidates/reason=motion_not_significant&show=all");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("11 of 194 objects");
+  });
+
+  it("starts the presets from what's worth checking; 'Community says real' sets nothing aside", async () => {
+    const { el } = await mount("#/candidates/show=all");
+    el.querySelector<HTMLButtonElement>('[data-preset="needs-vote"]')!.click();
+    expect(location.hash).toBe("#/candidates/review=none,some&mine=hide&sort=fewest");
+    expect(el.querySelector(".dv-count")?.textContent).toBe("36 of 194 objects");
+    el.querySelector<HTMLButtonElement>('[data-preset="community-real"]')!.click();
+    expect(location.hash).toBe("#/candidates/review=consensus&verdict=mover,changing&sort=most");
+    // pilot-pm-0000 is a moving star Gaia knows, and the community agreed it moves: it's listed.
+    expect(el.querySelector(".dv-row")?.getAttribute("data-id")).toBe("pilot-pm-0000");
+    expect(scope(el).querySelector(".dv-scope-text")?.textContent).toBe("Nothing is set aside here: what the community agreed on counts more than our checks.");
+    expect(groups(el)).toHaveLength(0);
+  });
+
+  it("walks the same list in 'Check them individually': nothing set aside is opened", async () => {
+    const navigate = (await mount()).navigate;
+    document.querySelector<HTMLButtonElement>("[data-one-on]")!.click();
+    const h = navigate.mock.calls.at(-1)?.[0] as string;
+    const c = shaped().candidates.find((x) => x.id === decodeURIComponent(h.slice(4)))!;
+    expect(c.kind === "high_pm" ? c.gaia_match : c.grade === "C" || (c.grade !== "A" && c.reasons.includes("motion_not_significant"))).toBe(false);
   });
 });
 
@@ -393,12 +537,24 @@ describe("the map view", () => {
     expect(el.querySelector('[data-preset="fast-movers"]')?.getAttribute("aria-pressed")).toBe("true");
     expect([...sky(el).querySelectorAll(".dv-sky-chips li")].map((li) => li.textContent)).toEqual(["Fast mover", "No known object within 60″"]);
     document.body.innerHTML = "";
+    // No filters: what's set aside still counts as filtered, so it never says "All" with some missing.
     ({ el } = await mount("#/candidates/map=1"));
+    expect(sky(el).querySelector(".dv-sky-count")?.textContent).toBe("52 of 194 objects, filtered:");
+    expect([...sky(el).querySelectorAll(".dv-sky-chips li")].map((li) => li.textContent)).toEqual(["Only what's worth checking"]);
+    expect(sky(el).querySelector(".skymap-legend")?.textContent).toContain("Moving stars25 of 167");
+    expect(sky(el).querySelector(".skymap-legend")?.textContent).toContain("Fast movers27 of 27");
+    expect(sky(el).querySelector(".skymap-legend")?.textContent).toContain("Not in this list");
+    document.body.innerHTML = "";
+    ({ el } = await mount("#/candidates/show=gaia_known&map=1"));
+    expect(sky(el).querySelector(".dv-sky-count")?.textContent).toBe("All 194 objects, no filters.");
+    document.body.innerHTML = "";
+    ({ el } = await mount("#/candidates/show=all&map=1"));
     expect(sky(el).querySelector(".dv-sky-count")?.textContent).toBe("All 194 objects, no filters.");
     expect(sky(el).querySelector<HTMLElement>(".dv-sky-chips")!.hidden).toBe(true);
+    expect(sky(el).querySelector(".skymap-legend")?.textContent).toContain("Moving stars167 of 167");
     const change = sky(el).querySelector<HTMLAnchorElement>("[data-sky-change]")!;
     expect(change.textContent).toBe("Filter them");
-    expect(change.getAttribute("href")).toBe("#/candidates");
+    expect(change.getAttribute("href")).toBe("#/candidates/show=all");
   });
 
   it("keeps one interactive map and its zoom when moving between the list preview and expanded view", async () => {
