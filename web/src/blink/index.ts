@@ -1471,7 +1471,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       const pxPerArcsec = vp.s / f.pixel_arcsec;
       const order = [...plan.circles].sort((a, b) => DRAW_ORDER.indexOf(ds[a.i].class) - DRAW_ORDER.indexOf(ds[b.i].class));
       for (const cc of order) {
-        const d = ds[cc.i];
+        // A bright star's own measurement (layout.ts: the nearest dot within 6″ of where Gaia puts it)
+        // is that Gaia star, whatever the server's match: Barnard's Star moves too fast for it, and
+        // read "Source Gaia doesn't list" now that the Viewer circles those.
+        const d0 = ds[cc.i];
+        const d = cc.bright && (d0.class === "other" || d0.class === "stack") ? { ...d0, class: "star" as const } : d0;
         const col = pen(greyed(d.class, d.grade) ? "--m-artifact" : classInfo(d.class).token);
         // The candidate's own red circle already marks this suspect: one red ring, not two.
         const onTrack =
