@@ -156,6 +156,39 @@ def test_fragments_step_tags_fragments_saturated_stars_and_blends(tmp_path, monk
     assert summ["tags"]["blend"] == 2 and summ["tags"]["duplicate"] == 2 and "error" not in summ
 
 
+def test_every_distance_takes_the_nearer_of_spectrum_and_link_positions():
+    """bright_*, the blend count and a fragment's parent are measured from link's position too (as cat/match_dist), the
+    smaller wins; a source whose two positions agree keeps its spectrum position's values."""
+    star, b0, b1 = (125.0, 19.0), (125.5, 19.5), (126.0, 20.0)
+    ref = pd.DataFrame({
+        "ref_id": ["gaia:1", "gaia:2", "gaia:3", "gaia:4", "2mass:K"], "cat": ["gaia"] * 4 + ["tmass"],
+        "ra": [star[0], off(b0, -5, 0)[0], off(b0, 12, 0)[0], b1[0], off(b1, 0, 40)[0]],
+        "dec": [star[1], off(b0, -5, 0)[1], off(b0, 12, 0)[1], b1[1], off(b1, 0, 40)[1]],
+        "epoch_mjd": [GAIA_EPOCH_MJD] * 4 + [np.nan], "pmra": 0.0, "pmdec": [0.0] * 4 + [np.nan],
+        "g": [8.0, 17.0, 17.5, 13.0, np.nan], "k": [np.nan] * 4 + [6.0], "w1": np.nan})
+    # 0: a ring piece 20″ east of the G 8 star, link's position 12″ east; 1: 5″ / 12″ from two faint stars, link's 11″ / 6″;
+    # 2: on a G 13 star, both positions agree (0.2″), a K 6 2MASS star 40″ north
+    pos = [off(star, 20, 0), b0, b1]
+    lpos = [off(star, 12, 0), off(b0, 6, 0), off(b1, 0.2, 0)]
+    ra, dec = np.array([p[0] for p in pos]), np.array([p[1] for p in pos])
+    lra, ldec = np.array([p[0] for p in lpos]), np.array([p[1] for p in lpos])
+    mjd = np.full(3, EPOCH)
+    cat, st = F.catalogue_columns(ra, dec, mjd, ref, (lra, ldec))
+    assert st["link_position_also"] == 2
+    assert cat.loc[0, "bright_ref_id"] == "gaia:1" and cat.loc[0, "bright_dist_arcsec"] == pytest.approx(12.0, abs=0.01)
+    assert cat.loc[0, "cat_dist_arcsec"] == pytest.approx(12.0, abs=0.01)
+    assert cat.loc[1, "n_gaia_8"] == 2 and list(cat.loc[1, "blend_ids"]) == [2, 3]   # 5″ (spectrum) and 6″ (link), nearest first
+    assert cat.loc[1, "blend_sep_arcsec"] == pytest.approx(17.0, abs=0.01)          # the two stars' own separation
+    assert cat.loc[2, "n_gaia_8"] == 1 and cat.loc[2, "cat_dist_arcsec"] == pytest.approx(0.0, abs=0.01)
+    assert cat.loc[2, "bright_band"] == "K" and cat.loc[2, "bright_dist_arcsec"] == pytest.approx(40.0, abs=0.01)
+    spec_only, _ = F.catalogue_columns(ra, dec, mjd, ref, None)
+    assert spec_only.loc[0, "bright_dist_arcsec"] == pytest.approx(20.0, abs=0.01) and spec_only.loc[1, "n_gaia_8"] == 1
+    par, _ = F.parents(ra[:1], dec[:1], mjd[:1], ref, np.array([7, 8, 9]), [(ra, dec), (lra, ldec)], None, (lra[:1], ldec[:1]))
+    assert par.loc[0, "parent_gaia_id"] == 1 and par.loc[0, "parent_dist_arcsec"] == pytest.approx(12.0, abs=0.01)
+    par, _ = F.parents(ra[:1], dec[:1], mjd[:1], ref, np.array([7, 8, 9]), [(ra, dec)], None)
+    assert par.loc[0, "parent_dist_arcsec"] == pytest.approx(20.0, abs=0.01)
+
+
 def test_without_flags_peak_sat_frac_is_nan(tmp_path):
     store = make_zone(tmp_path, flags_peak=False)
     shares, st = F.member_flag_shares(store, ZONE, np.array([1, 2, 99]), workers=2)
