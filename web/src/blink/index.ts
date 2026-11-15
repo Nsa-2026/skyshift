@@ -407,6 +407,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
   let trackM: TrackMarks | null = null;
   let trackBy = new Map<string, TrackSpot>();
+  let trackGen = 0;
+  /** The crosshair's widest opening around the red circles, for this plate and view. */
+  let rgapMemo = { key: "", gap: 0 };
   // What SkyShift measured (contracts/api.md v3.3), prepared once per response and detector.
   let meas: Measured | null = null;
   let measAt = new Map<string, MeasuredDetection[]>();
@@ -904,18 +907,38 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     // The candidate in every frame: a red circle, solid where measured, dashed where predicted.
     // Wider than its source and its measured circle, so it never hides the dot. Stack: every
     // frame's spot, faint (moved with the mover when following it). Not over the no-data hatch.
+    // The crosshair opens past every frame's circle near the centre, and holds still while blinking:
+    // it keeps the widest opening it needed on this plate and view (no pulse that reads as motion).
+    const gapKey = `${trackGen}|${loadCtl}|${frames.length}|${mode}|${vp.s.toFixed(3)}|${vp.u0.toFixed(2)}|${vp.v0.toFixed(2)}`;
+    let rgap = Math.max(gap, rgapMemo.key === gapKey ? rgapMemo.gap : 0);
     if (overlays.target && trackM) {
       const red = pen("--pencil-red");
+      const len = Math.max(7, gap * 0.6);
+      const circleAt = (s: TrackSpot, ep: Epoch, i: number) => {
+        let px = skyToPixel(s, F!, centreOf(ep));
+        if (i >= 0 && following()) px = { x: px.x - shifts![i].dx, y: px.y - shifts![i].dy };
+        const p = toScreen(px, vp);
+        return { px, p, r: Math.min(56, Math.max(8, psf * 1.3, Math.min(48, reach(px) + 3))) };
+      };
+      const clear = (p: { X: number; Y: number }, r: number) => {
+        const d = Math.hypot(p.X - tp.X, p.Y - tp.Y);
+        if (d - r < gap + len) rgap = Math.max(rgap, Math.min(64, d + r + 3));
+      };
+      frames.forEach((f, i) => {
+        const s = spotFor(f.epoch);
+        if (s) {
+          const t = circleAt(s, f.epoch, i);
+          if (inView(t.p, 0)) clear(t.p, t.r);
+        }
+      });
       const list = e ? [{ s: spotFor(e), i: -1, ep: e }] : frames.map((f, i) => ({ s: spotFor(f.epoch), i, ep: f.epoch }));
       for (const { s, i, ep } of list) {
         if (!s) continue;
-        let px = skyToPixel(s, F, centreOf(ep));
-        if (i >= 0 && following()) px = { x: px.x - shifts![i].dx, y: px.y - shifts![i].dy };
-        const p = toScreen(px, vp);
+        const { px, p, r: r0 } = circleAt(s, ep, i);
         if (!inView(p, 0) || hatched(px)) continue;
-        let r = Math.max(8, psf * 1.3, Math.min(48, reach(px) + 3));
-        for (const cc of plan.circles) if (Math.hypot(cc.X - p.X, cc.Y - p.Y) <= cc.r) r = Math.max(r, cc.r + 5);
-        r = Math.min(r, 56);
+        let r = r0;
+        for (const cc of plan.circles) if (Math.hypot(cc.X - p.X, cc.Y - p.Y) <= cc.r) r = Math.min(56, Math.max(r, cc.r + 5));
+        clear(p, r);
         ring(ctx, p.X, p.Y, r);
         ctx.save();
         if (!s.measured) ctx.setLineDash(TRACK_DASH);
@@ -926,8 +949,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       }
     }
 
+    rgapMemo = { key: gapKey, gap: rgap };
     if (overlays.target) {
-      reticle(ctx, tp.X, tp.Y, gap, Math.max(7, gap * 0.6));
+      reticle(ctx, tp.X, tp.Y, rgap, Math.max(7, rgap * 0.6));
       pencil(ctx, pen("--pencil-red"), 1.75);
     }
 
@@ -1687,6 +1711,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     return `<span class="bk-mtag" data-cls="track">${s.measured ? "Red circle" : "Dashed red circle"}</span> <span class="bk-val">${esc(text)}</span>`;
   }
   function setTrack(marks: TrackMarks | null) {
+    trackGen++;
     trackM = marks?.spots.length ? marks : null;
     trackBy = new Map((trackM?.spots ?? []).map((s) => [s.epoch_id, s]));
   }
