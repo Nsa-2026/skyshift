@@ -921,6 +921,10 @@ FRAGMENTS_BLOOM_FRAC = 0.5         # BLOOM (3×3 `flags`) on more than this shar
 FRAGMENTS_MATCH_ARCSEC = 3.0       # ... and no Gaia / 2MASS entry this close, nor a Gaia star it is the kept source of
 #                                    (FRAGMENTS_STAR_ARCSEC): bright_fragment; with either: saturated_star
 FRAGMENTS_MATCH_CATALOGUES = ("gaia", "tmass")  # the catalogues of that test (match_dist_arcsec)
+# Every distance from a source (catalogue, bright neighbour, blend count, a fragment's parent) is also measured from link's
+# position (fixed.parquet) where it lies more than this from the source's (sources.parquet); the smaller wins: a
+# saturated star's spectrum position can sit 5–9″ off it, a release-split piece's link position 6–7″ off its spectrum's.
+FRAGMENTS_LINK_MIN_OFFSET_ARCSEC = 0.5
 # Which source is which Gaia star: each source's home is the nearest Gaia star (moved to its epoch) within that star's
 # radius, by G: (G below, radius ″), first that applies, else FRAGMENTS_MATCH_ARCSEC. A saturated star's position sits
 # further off (hunt: a G 7.2 star's nearest source 4.8″, a G 10.6 one 3.6″), and so does a fainter star's inside a
