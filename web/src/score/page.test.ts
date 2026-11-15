@@ -15,6 +15,7 @@ import { cleanVotes, type CandInfo } from "../community/stats";
 import { SECTIONS, createResultsPage, mountResults, parseResultsParam, type ResultsDeps } from "./page";
 import { completenessRows } from "./render";
 import { RECALL_SCOPE } from "./checks";
+import { distantPlain } from "./plain";
 
 const validation = validationJson as unknown as ValidationResponse;
 const distant = distantJson as unknown as DistantResponse;
@@ -127,7 +128,7 @@ describe("Results sections", () => {
     page.destroy();
   });
 
-  it("counts the objects to check by kind, with the plain line next to the count", async () => {
+  it("counts the objects to check by kind, with the plain line next to the count and the strongest leads", async () => {
     const { el, page } = setup({
       loadCandidates: async () =>
         ({
@@ -135,14 +136,18 @@ describe("Results sections", () => {
           data_release: "DR1",
           zones: ["hunt", "pilot"],
           counts: { mover: 2, high_pm: 1, spectral: 0, shape: 1 },
-          candidates: [{ kind: "mover" }, { kind: "mover" }, { kind: "high_pm" }, { kind: "shape" }],
+          candidates: [{ kind: "mover", grade: "A" }, { kind: "mover", grade: "C" }, { kind: "high_pm" }, { kind: "shape" }],
         }) as never,
     });
     await page.ready();
-    expect(text(el.querySelector(".rs-count"))).toBe(
-      "The pipeline listed 4 objects to check in the hunt and pilot zones: 2 fast movers, 1 moving star and 1 that may be one object or two.",
-    );
-    expect(text(el.querySelector(".rs-objects"))).toContain("Most are detector artefacts until people check them.");
+    expect(text(el.querySelector(".rs-big"))).toBe("4 objects to check");
+    expect(text(el.querySelector(".rs-count"))).toBe("2 fast movers, 1 moving star and 1 that may be one object or two, from 2 areas of sky.");
+    // the zone ids are for Advanced only
+    expect(text(el.querySelector(".rs-objects .pro-only"))).toBe("Listed in the hunt and pilot zones.");
+    expect(text(el.querySelector(".rs-objects"))).toContain("Most turn out to be detector glitches once people look.");
+    const best = el.querySelector(".rs-best")!;
+    expect(text(best)).toBe("Strongest leads: 1 fast mover seen on the same steady path at different times. See it");
+    expect(best.querySelector("a")!.getAttribute("href")).toBe("#/candidates/kind=mover&grade=A");
     page.destroy();
   });
 
@@ -157,6 +162,157 @@ describe("Results sections", () => {
     expect(text(astro)).toContain("It reaches consensus once it has at least 5 votes and 70% or more agree on one answer.");
     // the Community page's other parts stay on that page
     expect(astro.querySelector("h1, .cm-activity, .cm-debated, .cm-you, .cm-nick")).toBeNull();
+    page.destroy();
+  });
+});
+
+/**
+ * The text a visitor sees: leaves out what `skip` marks (prefs.css hides .pro-only with Advanced off,
+ * .plain-only with it on), anything hidden, the body of a closed <details>, and the map drawing (its
+ * box labels are hidden in the plain view by live.css).
+ */
+function seenText(root: Element, skip: "pro-only" | "plain-only"): string {
+  const out: string[] = [];
+  const walk = (n: Node) => {
+    for (const c of Array.from(n.childNodes)) {
+      if (c.nodeType === Node.TEXT_NODE) out.push(c.textContent ?? "");
+      if (!(c instanceof Element)) continue;
+      if (c.classList.contains(skip) || c.hasAttribute("hidden") || c.localName === "svg") continue;
+      if (c instanceof HTMLDetailsElement && !c.open) {
+        const s = c.querySelector(":scope > summary");
+        if (s) walk(s);
+        continue;
+      }
+      walk(c);
+    }
+  };
+  walk(root);
+  return out.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** Words and codes the plain view never shows (the user: "no jargon like V2"). */
+const JARGON: RegExp[] = [
+  /\bV\d+\b/,
+  /pipeline/i,
+  /S\/N/,
+  /σ/,
+  /χ²/,
+  /\bgates?\b/i,
+  /\bstages?\b/i,
+  /provisional/i,
+  /extracted/i,
+  /combined zones|zones combined/i,
+  /\bgrade [ABC]\b/i,
+  /\brecall\b/i,
+  /\bMJD\b/,
+  /\becl\d+/i,
+  /\b(hunt|pilot) zone/i,
+  /\borphans?\b/i,
+];
+
+/** A small candidates file in the contract's shape: zone ids, kinds, one grade A mover. */
+const CANDS = {
+  generated: "2026-11-15",
+  data_release: "DR1+QR3",
+  zones: ["hunt", "pilot", "ecl00", "ecl12n1"],
+  counts: { mover: 3, high_pm: 2, spectral: 1, shape: 0 },
+  candidates: [
+    { kind: "mover", grade: "A" },
+    { kind: "mover", grade: "B" },
+    { kind: "mover", grade: "C" },
+    { kind: "high_pm" },
+    { kind: "high_pm" },
+    { kind: "spectral" },
+  ],
+};
+
+describe("plain view (Advanced off)", () => {
+  async function drawn() {
+    const s = setup({ loadCandidates: async () => CANDS as never, loadDistant: async () => distant });
+    await s.page.ready();
+    await vi.waitFor(() => expect(s.el.querySelector("#rs-progress-body .lv-big")).not.toBeNull());
+    return s;
+  }
+
+  it("shows no check codes and none of the jargon, and says each section's point", async () => {
+    const { el, page } = await drawn();
+    const seen = seenText(el, "pro-only");
+    for (const re of JARGON) expect(seen, `plain view shows ${re}`).not.toMatch(re);
+    // what we found: the count by kind, the strongest leads, the distant planet, where to look
+    expect(seen).toContain("6 objects to check");
+    expect(seen).toContain("3 fast movers, 2 moving stars and 1 odd spectrum, from 4 areas of sky.");
+    expect(seen).toContain("Strongest leads: 1 fast mover");
+    expect(seen).toContain(distantPlain(distant));
+    // how sure we are: plain results from validation.json, then the tally
+    expect(seen).toContain("Found 60 of 60 known asteroids where NASA predicted them.");
+    expect(seen).toContain("All 9 checks we ran passed; 2 more weren't run.");
+    // search progress: the big number in plain words
+    expect(text(el.querySelector("#rs-progress-body .lv-big.plain-only"))).toMatch(/^\d+ of 333 areas of sky searched \d+(\.\d)?%$/);
+    expect(seen).toMatch(/[\d,]+ photos read so far\./);
+    // list for astronomers: one sentence, the count, the rule in one line, the downloads
+    expect(seen).toContain("Objects that people agree move or change go on a list for astronomers");
+    expect(seen).toContain("1 object is on the list so far.");
+    expect(seen).toContain("An object joins the list once at least 5 people have voted and 70% or more of them agree.");
+    expect(seen).toContain("Download CSV");
+    page.destroy();
+  });
+
+  it("keeps the codes, tables, machines and zone ids for Advanced", async () => {
+    const { el, page } = await drawn();
+    setDetails(true);
+    const seen = seenText(el, "plain-only");
+    for (const id of ["V1", "V2", "V5", "V9", "V11"]) expect(seen).toMatch(new RegExp(`\\b${id}\\b`));
+    expect(seen).toMatch(/9 of 11 checks pass and 2 have not run/);
+    expect(seen).toContain("What the search can find");
+    expect(seen).toContain("Unknown movers");
+    expect(seen).toContain("Listed in the hunt, pilot, ecl00 and ecl12n1 zones.");
+    expect(seen).toMatch(/\d+ of 333 zones combined/);
+    expect(seen).toContain("Machines");
+    expect(seen).toContain("What happens next");
+    expect(seen).not.toContain("areas of sky searched");
+    page.destroy();
+  });
+
+  it("lists a few plain results, each with its check's own mark", async () => {
+    const { el, page } = await drawn();
+    const items = [...el.querySelectorAll<HTMLElement>(".rs-tests li")];
+    expect(items.length).toBeGreaterThanOrEqual(3);
+    expect(items.length).toBeLessThanOrEqual(5);
+    const v5 = validation.checks.find((c) => c.id === "V5")!;
+    expect(text(items[0])).toBe(`Pass: Found ${Math.round(Number(v5.value) * 100)}% of bright known asteroids without being told where to look.`);
+    for (const li of items) {
+      expect(li.className).toMatch(/^sc-(pass|partial|fail)$/);
+      expect(li.querySelector("svg.sc-mark")).not.toBeNull();
+    }
+    page.destroy();
+  });
+
+  it("turns Advanced on from 'See every check' and keeps that section in view", async () => {
+    const { el, page } = await drawn();
+    el.querySelector<HTMLButtonElement>("#rs-sure [data-advanced-on]")!.click();
+    expect(getDetails()).toBe(true);
+    const scroll = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
+    expect(scroll.mock.contexts.at(-1)).toBe(el.querySelector("#rs-sure"));
+    page.destroy();
+  });
+
+  it("turns Advanced on for a link to one check or to the full distant-planet search", async () => {
+    const { el, page } = await drawn();
+    page.show("found/distant");
+    await wait(5);
+    expect(getDetails()).toBe(true);
+    const scroll = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
+    expect(scroll.mock.contexts.at(-1)).toBe(el.querySelector("#sc-distant-h"));
+    setDetails(false);
+    page.show("sure/V2");
+    await wait(5);
+    expect(getDetails()).toBe(true);
+    expect(scroll.mock.contexts.at(-1)).toBe(el.querySelector("#sc-V2"));
+    // a section the plain view shows stays plain
+    setDetails(false);
+    page.show("progress");
+    await wait(5);
+    expect(getDetails()).toBe(false);
     page.destroy();
   });
 });

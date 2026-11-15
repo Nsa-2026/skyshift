@@ -73,7 +73,9 @@ export function pctWord(p: number): string {
  * The stacked bar: combined (solid dark), extracted but not yet combined (mid, hatched), not yet extracted
  * (light, dotted), with the projection for `ends` as a marker; under it, the time gone towards the deadline.
  */
-export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES): string {
+export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES, plain = false): string {
+  // plain (Results): the bar alone shows with Advanced off; its key, the pace and the deadline sums are pro-only.
+  const pro = plain ? " pro-only" : "";
   const b = sum.bar;
   const ext = Math.max(0, b.extractedPct - b.combinedPct);
   const rest = Math.max(0, 100 - b.extractedPct);
@@ -83,8 +85,8 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
   if (b.projectedPct !== null) {
     const x = b.projectedPct;
     const side = x < 25 ? "start" : x > 75 ? "end" : "mid";
-    marker = html`<span class="lv-proj" style="left:${x.toFixed(2)}%" aria-hidden="true"></span>
-      <p class="lv-proj-label" data-side="${side}" style="--x:${x.toFixed(2)}%">${pctWord(x)} expected ${by}</p>`;
+    marker = html`<span class="lv-proj${pro}" style="left:${x.toFixed(2)}%" aria-hidden="true"></span>
+      <p class="lv-proj-label${pro}" data-side="${side}" style="--x:${x.toFixed(2)}%">${pctWord(x)} expected ${by}</p>`;
   }
   const c = sum.counts;
   const nComb = c.combined;
@@ -98,7 +100,7 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
   ].join("");
   const time =
     b.timePct !== null
-      ? html`<div class="lv-tbar">
+      ? html`<div class="lv-tbar${pro}">
           <div class="lv-tbar-track" aria-hidden="true"><span style="width:${b.timePct.toFixed(2)}%"></span></div>
           <p class="lv-note">${pctWord(b.timePct)} of the time to the deadline at ${fmtTimePair(sum.deadline, now)} has gone.</p>
         </div>`
@@ -117,14 +119,31 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
       </div>
       ${marker}
     </div>
-    <ul class="lv-pkey">${key}</ul>
+    <ul class="lv-pkey${pro}">${key}</ul>
     ${time}
-    <p class="lv-honest">${honest}</p>
-    ${bulge ? `<p class="lv-honest lv-deferred">${bulge}</p>` : ""}`;
+    <p class="lv-honest${pro}">${honest}</p>
+    ${bulge ? `<p class="lv-honest lv-deferred${pro}">${bulge}</p>` : ""}`;
 }
 
-/** The big line, the progress bars, and the map's legend as one sentence. */
-export function progressHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES): string {
+/**
+ * The plain view's lines (Results with Advanced off): areas of sky searched, photos read, and the
+ * map's colours in a few words. Shown only while Advanced is off.
+ */
+export function plainProgressHtml(sum: RunSummary): string {
+  const c = sum.counts;
+  const busy = c.extracting + c.combining;
+  const photos = sum.photos > 0 ? `<b>${fmtCount(sum.photos)}</b> photos read so far. ` : "";
+  const map = busy
+    ? "On the map, red areas are searched and striped ones are being searched now."
+    : "On the map, red areas are searched.";
+  return html`
+    <p class="lv-big plain-only"><span class="lv-big-n">${fmtCount(c.combined)}</span> of ${fmtCount(sum.total)} areas of sky searched <span class="lv-big-pct">${pctWord(sum.combinedPct)}</span></p>
+    <p class="lv-plain-note plain-only">${photos}${map}</p>`;
+}
+
+/** The big line, the progress bars, and the map's legend as one sentence (plain: see plainProgressHtml). */
+export function progressHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES, plain = false): string {
+  const pro = plain ? " pro-only" : "";
   const c = sum.counts;
   const pctText = pctWord(sum.combinedPct);
   const lowRed = swatch("combined", "1");
@@ -141,9 +160,10 @@ export function progressHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_
   ];
   const legend = parts.slice(0, -1).join("; ") + "; and " + parts[parts.length - 1] + ".";
   return html`
-    <p class="lv-big"><span class="lv-big-n">${fmtCount(c.combined)}</span> of ${fmtCount(sum.total)} zones combined <span class="lv-big-pct">${pctText}</span></p>
-    ${barHtml(sum, now, notes)}
-    <p class="lv-legend">On the map: ${legend} The dashed line is the ecliptic; the heavy outline is the hunt zone, searched this morning.</p>`;
+    <p class="lv-big${pro}"><span class="lv-big-n">${fmtCount(c.combined)}</span> of ${fmtCount(sum.total)} zones combined <span class="lv-big-pct">${pctText}</span></p>
+    ${plain ? plainProgressHtml(sum) : ""}
+    ${barHtml(sum, now, notes, plain)}
+    <p class="lv-legend${pro}">On the map: ${legend} The dashed line is the ecliptic; the heavy outline is the hunt zone, searched this morning.</p>`;
 }
 
 export function countersHtml(sum: RunSummary): string {
@@ -241,7 +261,8 @@ export function machinesHtml(sum: RunSummary): string {
 }
 
 // ---- side: what's at work, what just finished ------------------------------------------------------
-export function listsHtml(sum: RunSummary, now: number): string {
+export function listsHtml(sum: RunSummary, now: number, plain = false): string {
+  const pro = plain ? ` class="pro-only"` : "";
   const recent = sum.recent
     .map((z) => {
       const s = z.suspects !== null ? `, ${fmtCount(z.suspects)} ${z.suspects === 1 ? "suspect" : "suspects"}` : "";
@@ -249,9 +270,9 @@ export function listsHtml(sum: RunSummary, now: number): string {
     })
     .join("");
   return html`
-    <p class="lv-hint">Pick a zone on the map for its numbers.</p>
-    ${recent ? `<div><h2 class="lv-h">Just combined</h2><ul class="lv-list">${recent}</ul></div>` : ""}
-    <div>
+    <p class="lv-hint">Pick ${plain ? "an area" : "a zone"} on the map for its numbers.</p>
+    ${recent ? `<div${pro}><h2 class="lv-h">Just combined</h2><ul class="lv-list">${recent}</ul></div>` : ""}
+    <div${pro}>
       <h2 class="lv-h">What the numbers mean</h2>
       <p class="lv-note">A <b>dot</b> is one detection on one photo. A <b>source</b> is the dots of one object, linked. A <b>mover</b> is a source that shifts between photos. A <b>suspect</b> is a mover that no catalogue explains: something for people to check, most often a detector artefact.</p>
     </div>`;

@@ -3,6 +3,7 @@ import publishedJson from "../../public/data/distant.json";
 import type { DistantResponse } from "../api/types";
 import { chanceText, dropText, renderDistant, verdictText, zoneText } from "./distant";
 import { mountScore, renderScore } from "./index";
+import { distantPlain } from "./plain";
 
 // A small hand-made file in the contract's shape (contracts/api.md v3.6). Used here only, never copied to public/data.
 const DIST: DistantResponse = {
@@ -185,11 +186,15 @@ describe("distant-planet search section", () => {
     expect(dropText({ bright_fragment: 2, odd_code: 1, zone_edge: 0 })).toBe("pieces of bright stars (2) and odd code (1)");
   });
 
-  it("sits after the suspects on the page, and mountScore loads /data/distant.json", async () => {
+  it("sits after the suspects on the page (Advanced), a plain line before them, and mountScore loads /data/distant.json", async () => {
     const d = el();
     renderScore(d, null, null, DIST);
-    const sections = [...d.querySelectorAll(".rs-found > section")].map((s) => s.className);
+    const sections = [...d.querySelectorAll(".rs-found > .pro-only > section")].map((s) => s.className);
     expect(sections.slice(-2)).toEqual(["sc-suspects", "sc-distant"]);
+    // Advanced off: the search in a line or two, from the file, with the way into the full account
+    const plain = d.querySelector(".rs-found > .rs-planet.plain-only")!;
+    expect(text(plain)).toContain(distantPlain(DIST));
+    expect(plain.querySelector('a[href="#/results/found/distant"]')).not.toBeNull();
     document.body.innerHTML = "";
     const urls: string[] = [];
     vi.stubGlobal(
