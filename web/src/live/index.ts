@@ -170,7 +170,8 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     if (!run) return;
     sum = summarize(run, now());
     fill("updated", updatedText(sum));
-    fill("time", timeHtml(sum, run, now()));
+    // Results (plain): no run-end and deadline sums, no machines (user, 15 Nov): just the rate.
+    fill("time", plain ? "" : timeHtml(sum, run, now()));
     renderStatus();
   }
 
@@ -275,7 +276,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
     fill("lede", ledeText(run, sum));
     fill("progress", progressHtml(sum, now(), run.notes, plain));
     fill("counters", countersHtml(sum));
-    fill("machines", machinesHtml(sum));
+    fill("machines", plain ? "" : machinesHtml(sum));
     fill("lists", listsHtml(sum, now(), plain));
     slot("facts").hidden = false;
     slot("stage").hidden = false;

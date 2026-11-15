@@ -66,7 +66,7 @@ describe("Live search page", () => {
     // the 25 Galactic bulge zones: the run's note as written, and that tonight likely won't reach them
     expect(el.querySelector(".lv-deferred")!.textContent).toBe(`${sample.notes.deferred} The 25 likely won't be reached tonight.`);
     expect(el.querySelectorAll('g.z[data-deferred="1"]')).toHaveLength(25);
-    expect(el.querySelector('g.z[data-zone="ecl26"]')!.getAttribute("aria-label")).toMatch(/^Zone ecl26: queued last, a Galactic bulge zone\./);
+    expect(el.querySelector('g.z[data-zone="ecl26"]')!.getAttribute("aria-label")).toMatch(/^Area of sky: queued last, a Galactic bulge zone\./);
     expect(el.querySelector(".lv-legend")!.textContent!.replace(/\s+/g, " ")).toContain(
       "147 queued, empty; and 25 Galactic bulge zones, fine grey stipple, queued last and likely not reached tonight.",
     );
@@ -96,7 +96,8 @@ describe("Live search page", () => {
     el.querySelector<SVGGElement>(`g.z[data-zone="${name}"]`)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const panel = el.querySelector<HTMLElement>(".lv-panel")!;
     expect(panel.hidden).toBe(false);
-    expect(panel.textContent).toContain(`Zone ${name}`);
+    expect(panel.textContent).toContain("Area of sky");
+    expect(panel.textContent).not.toContain(name);
     expect(panel.textContent).toMatch(/Provisional: zone edges and the CatWISE check pending\./);
     expect(panel.textContent).toMatch(/\d deg²/);
     expect(panel.textContent).toMatch(/[\d,.]+( million)? dots/);
@@ -288,10 +289,10 @@ describe("Live search page", () => {
     expect(up.getAttribute("tabindex")).toBe("0");
     expect(hunt.getAttribute("tabindex")).toBe("-1");
     up.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(el.querySelector<HTMLElement>(".lv-panel")!.textContent).toContain("Zone ecl12n1");
+    expect(el.querySelector<HTMLElement>(".lv-panel")!.textContent).toContain("Area of sky");
     // with the panel open, arrows browse
     up.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-    expect(el.querySelector<HTMLElement>(".lv-panel")!.textContent).toMatch(/Zone ecl13/);
+    expect(el.querySelector<HTMLElement>(".lv-panel")!.textContent).toMatch(/Area of sky/);
     el.querySelector(".lv-panel")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(el.querySelector<HTMLElement>(".lv-panel")!.hidden).toBe(true);
     handle.destroy();
