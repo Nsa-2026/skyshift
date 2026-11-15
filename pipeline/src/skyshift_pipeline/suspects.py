@@ -3,6 +3,8 @@
 A mover becomes a suspect when:
 - no known object (MPC asteroids and comets, JPL Horizons planets and moons; any brightness) lies within
   KNOWN_ARCSEC of it in the same session;
+- it is not near a planet at its time (skyshift_core.planets, offline: Mars 60′, Jupiter 80′, Saturn 45′,
+  Uranus 5′, Neptune 3′; the planet itself, its moons, listed or not, and its glare; summary `cut_planet`);
 - it has none of the GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM bits;
 - no bright fixed source (snr >= BRIGHT_FIXED_SNR) lies within BRIGHT_FIXED_ARCSEC;
 - the SOURCE bit is not set at the peak pixel of every one of its dots (SOURCE marks catalogue
@@ -34,6 +36,7 @@ import time
 
 import numpy as np
 import pandas as pd
+from skyshift_core.planets import near_planets
 
 from . import config as C
 from . import log
@@ -321,6 +324,15 @@ def wise_veto(store: Store, zone: C.Zone, refcat_hit: np.ndarray | None, have_re
     return hit, name, {}
 
 
+def near_planet_names(movers: pd.DataFrame) -> np.ndarray:
+    """The planet each mover lies near at its time ("" for none): the planet itself, one of its moons or its glare
+    (skyshift_core.planets: MPC orbits hold no planets or moons)."""
+    if len(movers) == 0:
+        return np.zeros(0, dtype=object)
+    return near_planets(movers["ra"].to_numpy(np.float64), movers["dec"].to_numpy(np.float64),
+                        movers["mjd"].to_numpy(np.float64))[0]
+
+
 def select(movers: pd.DataFrame, fixed: pd.DataFrame, pred: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """Every cut except Gaia. Returns the survivors with nearest_known_arcsec, and counts."""
     m = movers.copy()
@@ -328,15 +340,18 @@ def select(movers: pd.DataFrame, fixed: pd.DataFrame, pred: pd.DataFrame) -> tup
     if len(m) == 0:
         return m, st
     m["nearest_known_arcsec"] = nearest_known_arcsec(m, pred)
-    known = m["nearest_known_arcsec"] <= C.KNOWN_ARCSEC
+    known = (m["nearest_known_arcsec"] <= C.KNOWN_ARCSEC).to_numpy()
+    planet = near_planet_names(m) != ""
     veto = (m["flags"].to_numpy(np.int64) & C.SUSPECT_VETO_BITS) != 0
     bright = near_bright_fixed(m, fixed)
     fpk = m["flags_peak_all"].to_numpy(np.int64) if "flags_peak_all" in m else np.zeros(len(m), np.int64)
     source = (fpk & C.SOURCE_BIT) != 0
-    st.update({"cut_known": int(known.sum()), "cut_flags": int((~known & veto).sum()),
-               "cut_bright_fixed": int((~known & ~veto & bright).sum()),
-               "cut_source_bit": int((~known & ~veto & ~bright & source).sum())})
-    return m[~known & ~veto & ~bright & ~source].reset_index(drop=True), st
+    gone = known | planet
+    st.update({"cut_known": int(known.sum()), "cut_planet": int((~known & planet).sum()),
+               "cut_flags": int((~gone & veto).sum()),
+               "cut_bright_fixed": int((~gone & ~veto & bright).sum()),
+               "cut_source_bit": int((~gone & ~veto & ~bright & source).sum())})
+    return m[~gone & ~veto & ~bright & ~source].reset_index(drop=True), st
 
 
 def rank(s: pd.DataFrame) -> pd.DataFrame:
@@ -498,7 +513,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     s, vst = grade(store, zone, s, movers, fixed, ref, wsource)
     st["vetting"] = vst
     wcat = "catwise" if "CatWISE" in wsource else "allwise" if "AllWISE" in wsource else ""
-    vetting = {"vetoes": ["mpc", *(["gaia"] if source else []), *([wcat] if wcat else [])],
+    vetting = {"vetoes": ["mpc", "planets", *(["gaia"] if source else []), *([wcat] if wcat else [])],
                # Gaia-only refcat with no WISE veto (or Gaia unreachable): red WISE-only sources may still be in the list
                "provisional": not (source and wsource), "grades": vst["grades"], "gates": vst["gates"]}
     s = rank(s)

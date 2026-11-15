@@ -44,6 +44,8 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
   Reads only some columns (range reads), the dot files' `flags` and the movers' dots: ~0.4 GB from the bucket for the hunt.
+  It drops movers near a planet itself (suspects tables written before the `planets` veto); `uv run skyshift-candidates
+  --drop-planets ../web/public/data/candidates.json` applies only that to an existing export (reads no zone).
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,
@@ -158,6 +160,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   A failed query writes nothing and `known` still succeeds (summary `planets.error`): run `known` again. ecl35 from a
   laptop: Saturn and Neptune in 55 of 491 sessions, 16 of its 91 movers within 1.1″ of a moon, 2.5 min.
   Changing the bodies means deleting cache/planets/<zone>/, then `known`, `suspects` and the exporter again.
+  On top of that, offline: suspects and skyshift-candidates drop every mover near a planet (skyshift_core.planets,
+  astropy's built-in ephemeris, contracts/api.md v3.18), which also catches moons outside PLANET_SYSTEMS (Carme),
+  the planet's glare, and zones whose `known` ran before the Horizons step. Never SkyBoT.
 - minorplanetcenter.net times out from GCP machines (14 Nov). The newest snapshot in cache/mpc/orbits/ is always reused,
   so refresh it from a laptop: `uv run skyshift-pipeline mpc-orbits --root gs://nasa-glazing-data [--force]` (~1 min, gcloud
   login; not part of `all`, no --zone). It writes today's mpcorb_/cometels_<date>.parquet, which then win; old ones stay.
@@ -286,7 +291,10 @@ The step never raises (errors go to its stats).
   Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
   stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over nonfixed_dots (not suspects' freedots.parquet: that one
   has pixel x, y and no near-fixed dots, for vet's hot-pixel maps).
-- suspects: no known object within 30″ (same session), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
+- suspects: no known object within 30″ (same session), not near a planet at its time (skyshift_core.planets: Mars 60′,
+  Jupiter 80′, Saturn 45′, Uranus 5′, Neptune 3′: the planet, its moons, its glare; summary `cut_planet`, veto
+  `planets`; 15 Nov: 131 of the 1,885 movers listed in candidates.json, 54 of the 56 grade A, e.g. Iapetus ×17, Oberon
+  ×17, Himalia ×13), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
   no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″ (from refcat/<zone>.parquet;
   the services only if that file is missing: 50-circle ESA batches took 30+ min for 30k movers).
 - Vetting (vet.py, 14 Nov; config VET_*): after those cuts every suspect gets `grade` and `reasons`. Gates on its own dots
