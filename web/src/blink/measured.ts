@@ -251,7 +251,7 @@ export function stageNote(m: Pick<Measured, "zone" | "stage">): string {
 }
 
 /** "N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
-export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
+export function summarize(m: Measured, gaia?: GaiaStar[], opts: { artefacts?: boolean } = {}): Summary {
   const photos = plural(m.photos ?? 0, "photo");
   const counts = Object.fromEntries(CLASS_ORDER.map((k) => [k, m.counts?.[k] ?? 0])) as Record<MeasuredClass, number>;
   m = { ...m, counts, tracks: m.tracks ?? [], shifts: m.shifts ?? [], detections: m.detections ?? [] };
@@ -358,7 +358,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
   if (m.truncated) {
     const unit = m.clock === "hours" ? "photo" : "visit";
     notes.push(
-      `A busy field: each ${unit} shows at most 250 marks, every mover, suspect and artefact first, then the brightest of the rest.`,
+      `A busy field: each ${unit} shows at most 250 marks, every mover, suspect${opts.artefacts === false ? "" : " and artefact"} first, then the brightest of the rest.`,
     );
   }
   return { lead, rest, notes };
@@ -612,6 +612,22 @@ export interface MeasuredItem {
 /** Grade C suspects fail a check: drawn greyed like artefacts, still labelled "Suspect, grade C". */
 export const greyed = (cls: MeasuredClass, grade?: string | null): boolean =>
   cls === "artifact" || (cls === "suspect" && grade === "C");
+
+/**
+ * The measured layer without artefacts (camera glitches): no dots, movers or shifts of that class,
+ * and a zero count. The Viewer and the To check plates (BlinkOptions.hideArtefacts) show this, so
+ * the plate, legend, summary and list all leave them out. A new object: the response is untouched.
+ */
+export function withoutArtefacts(m: Measured): Measured {
+  const keep = <T extends { class: MeasuredClass }>(xs: T[] | undefined) => (xs ?? []).filter((x) => x.class !== "artifact");
+  return {
+    ...m,
+    counts: { ...m.counts, artifact: 0 },
+    detections: keep(m.detections),
+    tracks: keep(m.tracks),
+    shifts: keep(m.shifts),
+  };
+}
 
 // ---- the Viewer's plain version (BlinkOptions.viewer) -----------------------------------------
 // The Viewer draws only marks a visitor can act on, and says them in plain words: no grey circles

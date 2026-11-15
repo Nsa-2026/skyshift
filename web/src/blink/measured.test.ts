@@ -34,6 +34,7 @@ import {
   compass,
   plainVerdict,
   viewerShows,
+  withoutArtefacts,
 } from "./measured";
 
 const hours = hoursJson as unknown as FramesResponse;
@@ -425,5 +426,24 @@ describe("the Viewer's plain version", () => {
     expect(["suspect", "known", "mover", "star"].every((c) => viewerShows(c as never))).toBe(true);
     expect(["artifact", "other", "stack"].some((c) => viewerShows(c as never))).toBe(false);
     expect(viewerShows("suspect", "C")).toBe(false);
+  });
+});
+
+describe("without artefacts (the Viewer and the To check plates)", () => {
+  it("drops artefact dots, movers and shifts, and their words, and leaves the response alone", () => {
+    const h = withoutArtefacts(H);
+    expect(h.detections.some((d) => d.class === "artifact")).toBe(false);
+    expect(h.counts.artifact).toBe(0);
+    expect(H.detections.some((d) => d.class === "artifact")).toBe(true);
+    expect(classesPresent(h)).not.toContain("artifact");
+    const s = summarize(h, hours.gaia, { artefacts: false });
+    expect(strip(s.lead)).toBe("13 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.");
+    expect(s.rest).toBe("4 dots match Gaia stars and 2 have no Gaia match.");
+    expect(listItems(h, detOf(hours), 2, hours.gaia).map((i) => i.cls)).toEqual(["suspect", "known", "mover"]);
+    const m = withoutArtefacts(M);
+    expect(m.shifts.some((x) => x.class === "artifact")).toBe(false);
+    const all = [summarize(m, months.gaia, { artefacts: false }), summarize({ ...m, truncated: true }, months.gaia, { artefacts: false })];
+    expect(all.map((x) => [x.lead, x.rest, ...x.notes].join(" ")).join(" ")).not.toMatch(/artefact/i);
+    expect(listItems(m, detOf(months), 2, months.gaia).some((i) => i.cls === "artifact")).toBe(false);
   });
 });

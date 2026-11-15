@@ -284,3 +284,66 @@ describe("what SkyShift measured, on the Viewer", () => {
     expect(fov[0].title).toMatch(/^Close-up: 5 arcminutes, about a sixth of the full Moon's width$/);
   });
 });
+
+// The To check plates (src/review/plate.ts, BlinkOptions.hideArtefacts): the full panel, minus
+// artefacts on the plate, in the legend, the summary and the list.
+describe("what SkyShift measured, on the To check plates", () => {
+  let el: HTMLDivElement;
+  let h: BlinkHandle;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint16Array(N * N).fill(1000).buffer)),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    el = document.createElement("div");
+    document.body.append(el);
+    vi.spyOn(el, "getClientRects").mockReturnValue({ length: 1 } as unknown as DOMRectList);
+    h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn(), hideArtefacts: true });
+  });
+  afterEach(() => {
+    h.destroy();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    el.remove();
+  });
+
+  it("hours: no artefact in the legend, the heading, the list or the Advanced lines", async () => {
+    await h.show(hoursView, hours(), URL);
+    const text = (sel: string) => el.querySelector(sel)!.textContent!.replace(/\s+/g, " ").trim();
+    expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Final");
+    expect([...el.querySelectorAll(".bk-meas-key li")].map((li) => li.textContent)).toEqual([
+      "Suspect",
+      "Known asteroid or comet",
+      "Other mover",
+      "Gaia star",
+      "Other source",
+      "Saturated star",
+    ]);
+    expect(text(".bk-meas-lh")).toBe("Movers on all detectors");
+    expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual([
+      "Suspect, grade B",
+      "Known: (433) Eros",
+      "Other mover: near a Gaia star",
+    ]);
+    expect(text(".bk-meas")).not.toMatch(/artefact|artifact/i);
+  });
+
+  it("months: the artefact source is left out of the list", async () => {
+    await h.show(monthsView, months(), URL);
+    expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual([
+      "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
+      "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
+      "Source without Gaia moved 0.39″ ± 0.11″ in 1.0 yr",
+    ]);
+    expect(el.querySelector(".bk-meas")!.textContent).not.toMatch(/artefact|artifact/i);
+  });
+});

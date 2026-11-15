@@ -11,7 +11,7 @@ export type Answer = (typeof ANSWERS)[number];
 export const ANSWER_TEXT: Record<Answer, { label: string; meaning: string }> = {
   mover: { label: "Mover", meaning: "It changes place." },
   changing: { label: "Changing", meaning: "Same place, brightness changes." },
-  junk: { label: "Junk", meaning: "An artefact (cosmic ray, ghost, edge)." },
+  junk: { label: "Junk", meaning: "A camera glitch (cosmic ray, ghost, edge)." },
   unsure: { label: "Not sure", meaning: "Can't tell from these frames." },
 };
 

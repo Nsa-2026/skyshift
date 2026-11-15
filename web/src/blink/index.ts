@@ -45,6 +45,7 @@ import {
   plainShiftWords,
   viewerShows,
   VIEWER_HIDDEN,
+  withoutArtefacts,
   stageLabel,
   CLASS_ORDER,
   classInfo,
@@ -443,6 +444,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   // On the Viewer, SkyShift's measured circles start off (the plate shows Gaia's rings) and opening
   // "What SkyShift measured" turns them on; other plates start with them on.
   const overlays = { measured: !opts.viewer, gaia: true, known: true, faint: false, target: true, guides: true };
+  // The Viewer and the To check plates leave artefacts (camera glitches) out entirely.
+  const noArtefacts = !!opts.viewer || !!opts.hideArtefacts;
+  /** The response's measured layer, without artefacts where this plate leaves them out. */
+  const measuredHere = () => {
+    const st = measuredState(F);
+    return noArtefacts && st.kind === "measured" ? { ...st, m: withoutArtefacts(st.m) } : st;
+  };
   /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
   let trackM: TrackMarks | null = null;
   let trackBy = new Map<string, TrackSpot>();
@@ -1715,7 +1723,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   // ---- what SkyShift measured: the panel under the controls --------------------------------
   /** Index the response's measured layer for this detector and pick the arrow exaggeration. */
   function prepareMeasured() {
-    const st = measuredState(F);
+    const st = measuredHere();
     meas = st.kind === "measured" ? st.m : null;
     measAt = new Map();
     epochDet = new Map((F?.epochs ?? []).map((e) => [e.id, e.det]));
@@ -1743,7 +1751,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   function renderMeasured() {
-    const st = measuredState(F);
+    const st = measuredHere();
     mp.panel.hidden = st.kind === "absent";
     const on = st.kind === "measured";
     for (const e of [mp.rest, mp.key, mp.how, mp.short, mp.items, mp.notes, mp.pro]) e.hidden = !on;
@@ -1760,7 +1768,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     const m = st.m;
     mp.panel.dataset.state = "measured";
-    const s = summarize(m, F?.gaia);
+    const s = summarize(m, F?.gaia, { artefacts: !noArtefacts });
     mp.lead.innerHTML = s.lead;
     mp.rest.textContent = s.rest;
     mp.rest.hidden = !s.rest;
@@ -1798,7 +1806,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
     mp.pro.textContent =
-      `Detections per class, before the cap: ${CLASS_ORDER.map((k) => `${k} ${c[k] ?? 0}`).join(", ")}. ` +
+      `Detections per class, before the cap: ${CLASS_ORDER.filter((k) => !noArtefacts || k !== "artifact")
+        .map((k) => `${k} ${c[k] ?? 0}`)
+        .join(", ")}. ` +
       `${m.photos} photos read, ${m.photos_missing} without dots. Zone box RA ${m.zone_box?.ra?.join("–")}°, Dec ${m.zone_box?.dec?.join("–")}°.`;
     // The Viewer keeps only the summary, the legend, the plain line and the list, even under Advanced
     // (emptied, not just hidden: research mode shows .pro-only with !important). The long breakdown
@@ -1820,7 +1830,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (mp.count) mp.count.textContent = `(${measItems.length})`;
     mp.lh.textContent = opts.viewer
       ? hours ? "What moved between photos" : "What moved between visits"
-      : hours ? (waveGroups.size ? "Movers and artefacts on all detectors" : `Movers and artefacts on D${view.det}`) : "What moved between visits";
+      : hours
+        ? `Movers${noArtefacts ? "" : " and artefacts"} on ${waveGroups.size ? "all detectors" : `D${view.det}`}`
+        : "What moved between visits";
     const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
     mp.list.innerHTML = shown
       .map(
