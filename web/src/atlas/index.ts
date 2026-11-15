@@ -692,6 +692,20 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
 
   function afterMapReady() {
     if (!map) return;
+    // The controls' pressed state is written into the markup, which is built before `layers`
+    // exists, so it can only ever be a copy of the defaults. Sync it from `layers` once the
+    // page is up, or changing a default silently leaves the control showing the old one.
+    syncSeg("[data-bg]", layers.background, "bg");
+    syncSeg("[data-neg]", layers.negative ? "1" : "0", "neg");
+    el.querySelectorAll<HTMLButtonElement>("[data-layer]").forEach((b) => {
+      const key = b.dataset.layer as "heat" | "zones" | "signals" | "search" | "provisional";
+      if (key in layers) b.setAttribute("aria-pressed", String(layers[key]));
+    });
+    // The same goes for the line naming the survey: it was only rewritten on a change, so until
+    // somebody touched the control it named whichever survey the markup was written with.
+    q<HTMLElement>("[data-survey]").textContent =
+      `Sky: ${BACKGROUNDS.find((x) => x.id === layers.background)!.label}. Objects to check: SPHEREx.`;
+    startTour();
     const v = map.view();
     state = { ...state, ra: v.ra, dec: v.dec, fov: v.fov };
     publishSky();
@@ -993,6 +1007,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   return {
     show(param) {
       requestedParam = param;
+      // The Sky page is the one page whose chrome sits on the sky itself, so its panels and the
+      // site header take a dark glass here and the page's own light surfaces everywhere else.
+      // The class goes on at show and off at hide, so no other page inherits it.
+      document.documentElement.classList.add("sky-dark");
       const wasVisible = visible;
       visible = true;
       zoomFocus.show();
@@ -1014,6 +1032,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     hide() {
       visible = false;
+      document.documentElement.classList.remove("sky-dark");
+      tour?.stop();
       zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
@@ -1025,6 +1045,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     destroy() {
       destroyed = true;
+      document.documentElement.classList.remove("sky-dark");
+      tour?.destroy();
       zoomFocus.destroy();
       chromeObs?.disconnect();
       if (viewRaf) clearTimeout(viewRaf);

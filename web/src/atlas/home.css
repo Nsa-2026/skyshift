@@ -106,3 +106,52 @@
   /* The search panel spans the top: the button sits bottom left, beside the zoom buttons. */
   .atl .atl-reveal {top:auto;right:auto;left:var(--s3);bottom:var(--s3);}
 }
+
+
+/* ---- the Sky page's chrome, on dark glass ----
+   This page's panels and the site header sit on the sky itself, not on the bench, so a near
+   opaque white bar across the top reads as a strip laid over the picture. They take a dark
+   glass here and keep the page's own light surfaces everywhere else.
+
+   Tokens are redefined rather than colours overridden, so every control inside follows at once.
+   --ink and --glass are a pair — a filled control is --ink behind --glass — so both flip, or
+   the primary button ends up light on light. --sheet-2 is the segmented controls' track, which
+   left on the page's light grey would put light labels on a light strip. */
+html.sky-dark #app.cosmic-shell .top,
+html.sky-dark .atl .atl-below,
+html.sky-dark .atl .atl-intro,
+html.sky-dark .atl .atl-more {
+  --ink: #f4f7fd;
+  --ink-2: rgb(229 235 247 / 86%);
+  --ink-3: rgb(229 235 247 / 66%);
+  --sheet: rgb(12 14 22 / 68%);
+  --sheet-2: rgb(255 255 255 / 12%);
+  --glass: #0b0d14;
+  --hair: rgb(255 255 255 / 16%);
+  --hair-strong: rgb(255 255 255 / 26%);
+  --cosmic-surface: rgb(10 12 20 / 72%);
+  color: var(--ink);
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+}
+html.sky-dark #app.cosmic-shell .top {
+  border-bottom: 1px solid var(--hair);
+}
+html.sky-dark .atl .atl-intro,
+html.sky-dark .atl .atl-more {
+  border: 1px solid var(--hair);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 42%);
+}
+/* The message line is pinned to the panel's ink upstream; it has to follow the flip too. */
+html.sky-dark #app .atl .atl-top .atl-msg {
+  color: var(--ink-2);
+}
+
+/* Below the map the shell's own dark backdrop shows through, so the key, the list and the
+   source line need the light ink too. They are not panels, so they take none of the glass. */
+html.sky-dark .atl .atl-below {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top: 1px solid var(--hair);
+}
