@@ -151,6 +151,7 @@ export interface SkyMapHandle {
   setFiltered(ids: string[]): void;
   /** Highlight a point from outside (a list row); null clears. */
   highlight(id: string | null): void;
+  closeFullscreen(): void;
   destroy(): void;
 }
 
@@ -173,6 +174,10 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
 
   el.classList.add("skymap");
   el.innerHTML = html`
+    <div class="skymap-head">
+      <h2 id="dv-map-title" class="dv-h2">On the sky</h2>
+      <button type="button" class="btn btn-sm" data-fullscreen aria-haspopup="dialog">Full screen</button>
+    </div>
     <div class="skymap-bar">
       <div class="seg" role="group" aria-label="Map extent">
         <button type="button" data-zoom="fit" title="Zoom to the objects to check">Close up</button>
@@ -182,7 +187,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
         <button type="button" data-frame="eq" title="Equatorial: right ascension and declination">RA, Dec</button>
         <button type="button" data-frame="gal" title="Galactic: longitude l and latitude b">Galactic</button>
       </div>
-      <div class="seg skymap-zones" role="group" aria-label="Zone shown close up" hidden></div>
+      <label class="skymap-zones" hidden><span>Zone</span><select class="skymap-zone-select" aria-label="Zone shown close up"></select></label>
     </div>
     <div class="skymap-plot" tabindex="0" role="group"
       aria-roledescription="sky map" aria-describedby="skymap-help">
@@ -204,13 +209,63 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   const legend = el.querySelector<HTMLUListElement>(".skymap-legend")!;
   const live = el.querySelector<HTMLParagraphElement>("[data-live]")!;
 
-  const zonesEl = el.querySelector<HTMLDivElement>(".skymap-zones")!;
-  zonesEl.addEventListener("click", (ev) => {
-    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-zone]");
-    if (!b) return;
-    zonePick = b.dataset.zone ?? null;
+  const zonesEl = el.querySelector<HTMLLabelElement>(".skymap-zones")!;
+  const zoneSelect = zonesEl.querySelector<HTMLSelectElement>("select")!;
+  zoneSelect.addEventListener("change", () => {
+    zonePick = zoneSelect.value;
     render();
   });
+
+  // Keep one map instance and its selected zone/filters when moving into the top layer.
+  // The modal also provides a full-window view if native fullscreen is unavailable or denied.
+  const fullscreenBtn = el.querySelector<HTMLButtonElement>("[data-fullscreen]")!;
+  const dialog = document.createElement("dialog");
+  dialog.className = "skymap-dialog";
+  dialog.setAttribute("aria-label", "On the sky");
+  const placeholder = document.createComment("sky map position");
+  let nativeFullscreen = false;
+
+  function closeFullscreen(restoreFocus = false) {
+    if (!placeholder.isConnected) return;
+    nativeFullscreen = false;
+    if (document.fullscreenElement === el) void document.exitFullscreen().catch(() => {});
+    dialog.close();
+    placeholder.replaceWith(el);
+    dialog.remove();
+    document.body.classList.remove("skymap-fullscreen-open");
+    fullscreenBtn.textContent = "Full screen";
+    render();
+    if (restoreFocus) fullscreenBtn.focus({ preventScroll: true });
+  }
+
+  fullscreenBtn.addEventListener("click", () => {
+    if (dialog.open) {
+      closeFullscreen(true);
+      return;
+    }
+    el.before(placeholder);
+    document.body.append(dialog);
+    dialog.append(el);
+    dialog.showModal();
+    document.body.classList.add("skymap-fullscreen-open");
+    fullscreenBtn.textContent = "Exit full screen";
+    render();
+    fullscreenBtn.focus({ preventScroll: true });
+    if (document.fullscreenEnabled && el.requestFullscreen) {
+      void el.requestFullscreen().catch(() => {});
+    }
+  });
+  dialog.addEventListener("cancel", (ev) => {
+    ev.preventDefault();
+    closeFullscreen(true);
+  });
+  const onFullscreenChange = () => {
+    if (document.fullscreenElement === el) {
+      if (dialog.open) nativeFullscreen = true;
+      else void document.exitFullscreen().catch(() => {});
+    } else if (nativeFullscreen) closeFullscreen(true);
+  };
+  document.addEventListener("fullscreenchange", onFullscreenChange);
 
   /** The zone shown close up: the person's pick, else the one with the most filtered candidates. */
   function activeZone(): string | null {
@@ -250,8 +305,8 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
 
   function render() {
     markSegs();
-    W = Math.max(240, Math.round(plot.clientWidth || 380));
-    H = Math.round(W * 0.62);
+    W = Math.max(1, Math.round(plot.clientWidth || 380));
+    H = Math.max(1, Math.round(plot.clientHeight || W * 0.62));
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("width", String(W));
     svg.setAttribute("height", String(H));
@@ -263,9 +318,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const proj = raw.map((p) => ({ ...p, u: aitoff(p.lon, p.lat, centerLon) }));
     const fproj = zoom === "fit" ? proj.filter((p) => zone === null || p.c.zone === zone) : proj;
     zonesEl.hidden = !(zoom === "fit" && zones.length > 1);
-    zonesEl.innerHTML = zones
-      .map((z) => html`<button type="button" data-zone="${escAttr(z)}" aria-pressed="${z === zone}">${escAttr(z[0]?.toUpperCase() + z.slice(1))}</button>`)
-      .join("");
+    zoneSelect.value = zone ?? "";
 
     // Screen transform: unit Aitoff coordinates → px.
     let k: number;
@@ -531,7 +584,10 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
   plot.addEventListener("click", (ev) => {
     const { x, y } = local(ev);
     const p = nearest(x, y);
-    if (p) opts.onOpen(p.c.id);
+    if (p) {
+      closeFullscreen();
+      opts.onOpen(p.c.id);
+    }
   });
   plot.addEventListener("keydown", (ev) => {
     if (!filtered.length) return;
@@ -544,7 +600,9 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       setHot(filtered[(i - 1 + filtered.length) % filtered.length], "map");
     } else if (ev.key === "Enter" && hot) {
       ev.preventDefault();
-      opts.onOpen(hot);
+      const id = hot;
+      closeFullscreen();
+      opts.onOpen(id);
     } else if (ev.key === "Escape") {
       setHot(null, null);
     }
@@ -564,11 +622,14 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
 
   let ro: ResizeObserver | null = null;
   let lastW = 0;
+  let lastH = 0;
   if (typeof ResizeObserver !== "undefined") {
     ro = new ResizeObserver(() => {
       const w = Math.round(plot.clientWidth);
-      if (w && Math.abs(w - lastW) > 2) {
+      const h = Math.round(plot.clientHeight);
+      if (w && h && (Math.abs(w - lastW) > 2 || Math.abs(h - lastH) > 2)) {
         lastW = w;
+        lastH = h;
         render();
       }
     });
@@ -583,6 +644,9 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       all = next;
       byIdAll = new Map(next.map((c) => [c.id, c]));
       zones = [...new Set(next.map((c) => c.zone))].sort();
+      zoneSelect.innerHTML = zones
+        .map((z) => html`<option value="${escAttr(z)}">${escAttr(z[0]?.toUpperCase() + z.slice(1))}</option>`)
+        .join("");
       render();
     },
     setFiltered(ids) {
@@ -595,8 +659,11 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       if (id === null && hotFrom !== "list") return;
       setHot(id, id ? "list" : null);
     },
+    closeFullscreen,
     destroy() {
       ro?.disconnect();
+      closeFullscreen();
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
       el.innerHTML = "";
     },
   };

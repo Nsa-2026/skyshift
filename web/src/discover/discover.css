@@ -545,7 +545,8 @@
   font-size: var(--step--1);
   color: var(--ink-2);
 }
-.dv-select {
+.dv-select,
+.skymap-zone-select {
   min-height: 30px;
   padding: 0 30px 0 12px;
   border: 1px solid var(--hair-strong);
@@ -1179,13 +1180,23 @@
 }
 .dv-map-inner {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--s2);
 }
 .skymap {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--s2);
+}
+.skymap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--s2);
 }
 .skymap-bar {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -1196,8 +1207,23 @@
   padding: 0 10px;
   font-size: var(--step--1);
 }
+.skymap-zones {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-width: 0;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.skymap-zones select {
+  flex: 1;
+  min-width: 0;
+}
 .skymap-plot {
   position: relative;
+  min-width: 0;
+  aspect-ratio: 100 / 62;
   border-radius: var(--radius-panel);
   background: var(--sheet);
   box-shadow: inset 0 0 0 1px var(--hair);
@@ -1205,10 +1231,40 @@
   touch-action: manipulation;
 }
 .skymap-svg {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   font-family: var(--font);
+}
+.skymap-dialog {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: clamp(12px, 2vw, 24px);
+  border: 0;
+  background: var(--sheet);
+  color: var(--ink);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.skymap-dialog .skymap {
+  height: 100%;
+  grid-template-rows: auto auto minmax(120px, 1fr) auto auto;
+}
+.skymap-dialog .skymap-plot {
+  min-height: 0;
+  aspect-ratio: auto;
+}
+.skymap:fullscreen {
+  padding: clamp(12px, 2vw, 24px);
+  background: var(--sheet);
+}
+body.skymap-fullscreen-open {
+  overflow: hidden;
 }
 .sm-bg {
   fill: var(--glass);
