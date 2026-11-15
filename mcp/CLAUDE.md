@@ -9,7 +9,8 @@ Owner: P1. MCP server (stdio; `--http` for streamable HTTP) that exposes SkyShif
   server.py (core tools: candidates, blink, measure, known, gaia, resolve). One module per stream,
   imported at the end of server.py: tools_reference.py (featured_targets, validation, resources,
   prompts), tools_data.py (measured_dots, batch_check, top_voted, votes_for: Firestore read-only,
-  never voter ids), tools_spectrum.py (spectrum PNG; bands copied from pipeline INDEX_WINDOWS).
+  never voter ids; each voter's latest vote per candidate counts, `withdrawn` = none, v3.16),
+  tools_spectrum.py (spectrum PNG; bands copied from pipeline INDEX_WINDOWS).
 - data/ holds copies of web/src/data/targets.json and contracts/{api,flags}.md for an installed
   package; a checkout reads the repo files. A stale copy only warns in tests: refresh with cp.
 - Pinned to the mcp v1 SDK (FastMCP); v2 renamed it MCPServer. Clients only see the protocol.

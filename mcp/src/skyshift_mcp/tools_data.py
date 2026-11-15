@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 import weakref
 from collections import defaultdict
@@ -317,8 +318,13 @@ VOTE_PAGE = 300
 VOTE_CAP = 5000
 VOTES_TTL = 120.0
 ANSWERS = ("mover", "changing", "junk", "unsure")
+WITHDRAWN = "withdrawn"   # v3.16: takes this voter's vote back; never an answer in outputs
 ANSWER_MEANING = {"mover": "it moves", "changing": "its brightness changes",
                   "junk": "an artefact or nothing", "unsure": "can't tell"}
+COUNTING = ("Each voter's latest vote per candidate counts (contracts/api.md v3.16): a changed vote "
+            "counts once, with its new answer; a vote taken back counts as none. Votes without a "
+            "voter id count one each. first_ts and last_ts span the votes that count.")
+_TS = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?Z")
 _votes: weakref.WeakKeyDictionary[Client, dict[str, Any]] = weakref.WeakKeyDictionary()
 
 
@@ -388,26 +394,60 @@ async def _load_votes(c: Client) -> dict[str, Any]:
         return hit
 
 
-def _aggregate(votes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """candidate_id → counts. Voter ids are only counted (distinct), never returned."""
-    acc: dict[str, dict[str, Any]] = {}
-    for v in votes:
-        cid, ans = v.get("candidate_id"), v.get("answer")
+def _ts_order(ts: Any) -> str | None:
+    """A Firestore timestamp as a string that sorts in time order (RFC 3339 UTC with 0–9 fractional
+    digits, padded to 9, so '…:00.5Z' sorts after '…:00Z'); None when the document has no time."""
+    if not isinstance(ts, str):
+        return None
+    m = _TS.fullmatch(ts)
+    return f"{m[1]}.{(m[2] or '').ljust(9, '0')}" if m else ts
+
+
+def _newest_first(v: dict[str, Any]) -> tuple[int, str]:
+    """Sort key, larger = later: a document without a ts (a write still pending) is the latest."""
+    t = _ts_order(v.get("ts"))
+    return (1, "") if t is None else (0, t)
+
+
+def _counted(votes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The vote documents that count (contracts/api.md v3.16). Per candidate, each voter's latest
+    document only: largest ts, a document without a ts is the latest, ties go to the later one in
+    read order. A latest `withdrawn` counts as no vote. Documents without a voter id count on their
+    own. Documents without a candidate_id are dropped."""
+    latest: dict[tuple[str, Any], dict[str, Any]] = {}
+    for i, v in enumerate(votes):
+        cid, voter = v.get("candidate_id"), v.get("voter")
         if not isinstance(cid, str) or not cid:
             continue
+        key = (cid, voter) if isinstance(voter, str) and voter else (cid, i)
+        have = latest.get(key)
+        if have is None or _newest_first(v) >= _newest_first(have):
+            latest[key] = v
+    return [v for v in latest.values() if v.get("answer") != WITHDRAWN]
+
+
+def _aggregate(votes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """candidate_id → counts of the votes that count (`_counted`). first_ts and last_ts span those
+    votes only (a changed or taken-back vote's older documents don't count). Voter ids are only
+    counted (distinct), never returned."""
+    acc: dict[str, dict[str, Any]] = {}
+    for v in _counted(votes):
+        cid, ans = v["candidate_id"], v.get("answer")
         a = acc.setdefault(cid, {"votes": 0, "by_answer": dict.fromkeys(ANSWERS, 0), "_voters": set(),
                                  "_voters_by": defaultdict(set), "first_ts": None, "last_ts": None})
         a["votes"] += 1
         if ans in a["by_answer"]:
             a["by_answer"][ans] += 1
         voter = v.get("voter")
-        if voter is not None:
+        if isinstance(voter, str) and voter:
             a["_voters"].add(voter)
             a["_voters_by"][ans].add(voter)
         ts = v.get("ts")
-        if isinstance(ts, str):
-            a["first_ts"] = min(a["first_ts"] or ts, ts)
-            a["last_ts"] = max(a["last_ts"] or ts, ts)
+        if _ts_order(ts) is not None:
+            if a["first_ts"] is None or _ts_order(ts) < _ts_order(a["first_ts"]):
+                a["first_ts"] = ts
+            if a["last_ts"] is None or _ts_order(ts) > _ts_order(a["last_ts"]):
+                a["last_ts"] = ts
     out = {}
     for cid, a in acc.items():
         out[cid] = {"candidate_id": cid, "votes": a["votes"], "voters": len(a["_voters"]),
@@ -466,19 +506,22 @@ async def top_voted(
     limit: Annotated[int, Field(ge=1, le=50)] = 10,
 ) -> str:
     """What visitors of the SkyShift site voted on (Firestore `votes`, read-only, cached 2 minutes).
-    Counts per candidate: all votes, distinct voters (voter ids are never shown), and per answer
-    (mover = it moves, changing = brightness changes, junk = artefact or nothing, unsure). Each row
-    says what was voted on: a pipeline candidate from candidates.json, or a flag a visitor placed
-    (Firestore `candidates`: ra, dec, mjd, clock, source). Votes are opinions, not measurements."""
+    Only each voter's latest vote per candidate counts: a changed vote counts once, with its new
+    answer, and a vote taken back counts as none (contracts v3.16). Counts per candidate: votes,
+    distinct voters (voter ids are never shown), and per answer (mover = it moves, changing =
+    brightness changes, junk = artefact or nothing, unsure); first_ts and last_ts span the votes that
+    count. Candidates whose every vote was taken back are not listed. Each row says what was voted on:
+    a pipeline candidate from candidates.json, or a flag a visitor placed (Firestore `candidates`:
+    ra, dec, mjd, clock, source). Votes are opinions, not measurements."""
     c = client()
     loaded, data = await asyncio.gather(_load_votes(c), c.candidates())
     agg = list(_aggregate(loaded["votes"]).values())
     voted = len(agg)
     if answer:
         agg = [a for a in agg if a["by_answer"][answer] > 0]
-        key = lambda a: (a["by_answer"][answer], a["voters_by_answer"][answer], a["last_ts"] or "")
+        key = lambda a: (a["by_answer"][answer], a["voters_by_answer"][answer], _ts_order(a["last_ts"]) or "")
     else:
-        key = lambda a: (a["votes"], a["voters"], a["last_ts"] or "")
+        key = lambda a: (a["votes"], a["voters"], _ts_order(a["last_ts"]) or "")
     agg.sort(key=key, reverse=True)
     rows = agg[:limit]
     sem = asyncio.Semaphore(4)
@@ -491,25 +534,27 @@ async def top_voted(
     return _json({"source": "Firestore votes (read-only)", "fetched": loaded["fetched"],
                   "vote_documents": len(loaded["votes"]), "truncated": loaded["truncated"],
                   "truncated_note": f"only the first {VOTE_CAP} vote documents were read" if loaded["truncated"] else None,
-                  "answer_meaning": ANSWER_MEANING, "answer": answer,
+                  "answer_meaning": ANSWER_MEANING, "counting": COUNTING, "answer": answer,
                   "candidates_voted": voted, "matching": len(agg),
                   "shown": len(shown), "rows": list(shown)})
 
 
 @app.tool()
 async def votes_for(candidate_id: Annotated[str, Field(min_length=1, max_length=128, description="A candidates.json id or a Firestore candidates document id")]) -> str:
-    """Community votes on one candidate or flag (Firestore `votes`, read-only): counts per answer,
-    distinct voters (ids never shown), first and last vote, the latest votes (answer and time only),
-    and what was voted on."""
+    """Community votes on one candidate or flag (Firestore `votes`, read-only). Only each voter's
+    latest vote counts: a changed vote counts once, with its new answer, and a vote taken back counts
+    as none (contracts v3.16). Returns counts per answer, distinct voters (ids never shown), first and
+    last time among the votes that count, `latest` (up to 20 of the votes that count, newest first:
+    answer and time only; a null ts is a write still pending) and what was voted on."""
     c = client()
     loaded, data = await asyncio.gather(_load_votes(c), c.candidates())
     mine = [v for v in loaded["votes"] if v.get("candidate_id") == candidate_id]
     agg = _aggregate(mine).get(candidate_id) or {
         "candidate_id": candidate_id, "votes": 0, "voters": 0, "by_answer": dict.fromkeys(ANSWERS, 0),
         "voters_by_answer": dict.fromkeys(ANSWERS, 0), "first_ts": None, "last_ts": None}
-    latest = sorted(({"answer": v.get("answer"), "ts": v.get("ts")} for v in mine),
-                    key=lambda v: v["ts"] or "", reverse=True)[:20]
+    latest = [{"answer": v.get("answer"), "ts": v.get("ts")}
+              for v in sorted(_counted(mine), key=_newest_first, reverse=True)[:20]]
     return _json({"source": "Firestore votes (read-only)", "fetched": loaded["fetched"],
                   "vote_documents_read": len(loaded["votes"]), "truncated": loaded["truncated"],
-                  "answer_meaning": ANSWER_MEANING, **agg, "latest": latest,
+                  "answer_meaning": ANSWER_MEANING, "counting": COUNTING, **agg, "latest": latest,
                   **await _describe(c, candidate_id, data["candidates"])})
