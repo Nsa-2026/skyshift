@@ -90,6 +90,9 @@ export interface CardHandle {
   section?(value: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' | ('motion' | 'spectrum')[]): void;
   reference?(points: {um:number; flux_ujy:number}[]): void;
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
+  /** An element shown in place of the name and the measurement (in the Motion dashboard when the
+   *  Advanced dashboards are on): a candidate's own panel, its facts and its vote. null: none. */
+  lead?(el: HTMLElement | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;
 }
 export interface CardOptions {

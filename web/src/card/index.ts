@@ -80,6 +80,13 @@ export const mountCard: MountCard = (el, options = {}) => {
   let width = 0;
   let resizeObserver: ResizeObserver | undefined;
   const readables: Readable[] = [];
+  /** A candidate's panel in place of the name and the measurement (CardHandle.lead). */
+  let lead: HTMLElement | null = null;
+  const LEAD = `<div class="cd-lead" data-card-lead></div>`;
+  /** Put the lead element into its placeholder after a render. */
+  function placeLead() {
+    if (lead) el.querySelector<HTMLElement>("[data-card-lead]")?.append(lead);
+  }
 
   function measureWidth(): number {
     const panel = el.querySelector<HTMLElement>('[data-card-dashboard="spectrum"]') ?? el.querySelector<HTMLElement>('[data-card-dashboard]');
@@ -106,17 +113,19 @@ export const mountCard: MountCard = (el, options = {}) => {
       el.innerHTML = section.map(key => {
         noteId = `${id}-${key}`;
         const notes = notesFor(object);
-        const content = pending ? skeletonHtml(false) : headHtml(view, object, false) + (key === 'motion'
+        const content = key === 'motion' && lead ? LEAD : pending ? skeletonHtml(false) : headHtml(view, object, false) + (key === 'motion'
           ? measureHtml(shown!, notes)
           : (options.plots === false ? '' : spectrumHtml(object, notes)) + notesHtml(notes));
         return dashboardHtml(key, content);
       }).join('');
       noteId = id;
+      placeLead();
       wire();
       return;
     }
     if (pending) {
-      el.innerHTML = headHtml(view, null, true) + skeletonHtml(false) + lookForHtml(view);
+      el.innerHTML = (lead ? LEAD : headHtml(view, null, true) + skeletonHtml(false)) + lookForHtml(view);
+      placeLead();
       return;
     }
     const notes = section === 'summary'
@@ -125,12 +134,13 @@ export const mountCard: MountCard = (el, options = {}) => {
         : 'Some spectral measurements are saturated. Brightness estimates in those bands are approximate.'}))
       : notesFor(object);
     el.innerHTML = [
-      headHtml(view, object, false),
-      ['all','summary','motion'].includes(section) ? measureHtml(shown, notes) : '',
+      lead ? LEAD : headHtml(view, object, false),
+      !lead && ['all','summary','motion'].includes(section) ? measureHtml(shown, notes) : '',
       options.plots === false || !['all','spectrum'].includes(section) ? "" : spectrumHtml(object, notes),
       options.plots === false || !['all','lightcurve'].includes(section) ? "" : lightCurveHtml(object),
       ['all','summary'].includes(section) ? lookForHtml(view) : '',
     ].join("");
+    placeLead();
     wire();
   }
 
@@ -460,7 +470,10 @@ export const mountCard: MountCard = (el, options = {}) => {
   function showLoading() {
     el.dataset.state = "loading";
     el.setAttribute("aria-busy", "true");
-    el.innerHTML = Array.isArray(section) ? section.map(key=>dashboardHtml(key,skeletonHtml(true))).join('') : skeletonHtml(true);
+    el.innerHTML = Array.isArray(section)
+      ? section.map(key=>dashboardHtml(key,key==='motion'&&lead?LEAD:skeletonHtml(true))).join('')
+      : (lead ? LEAD : '') + skeletonHtml(true);
+    placeLead();
   }
 
   function showError(message?: string) {
@@ -470,7 +483,10 @@ export const mountCard: MountCard = (el, options = {}) => {
     const content = html`${shown ? headHtml(shown.view, null, false) : ""}
       <p class="cd-error" role="alert">${esc(text)}</p>
       ${shown ? lookForHtml(shown.view) : ""}`;
-    el.innerHTML = Array.isArray(section) ? section.map(key=>dashboardHtml(key,content)).join('') : content;
+    el.innerHTML = Array.isArray(section)
+      ? section.map(key=>dashboardHtml(key,key==='motion'&&lead?LEAD:content)).join('')
+      : (lead ? LEAD : content);
+    placeLead();
   }
 
   // ---- interaction ---------------------------------------------------------------------------
@@ -595,6 +611,12 @@ export const mountCard: MountCard = (el, options = {}) => {
       if(shown) render();
     },
     reference(points) { reference = points; if (shown) render(); },
+    lead(value) {
+      if (value === lead) return;
+      lead?.remove();
+      lead = value;
+      if (shown) render();
+    },
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;

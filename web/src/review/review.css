@@ -651,7 +651,7 @@
   font-size: var(--step-2);
 }
 
-/* ---- The object to check in the Viewer (#/c/<id>): a panel at the top of its side column ----- */
+/* ---- The object to check in the Viewer (#/c/<id>): its list and vote, below the dashboards --- */
 .sp,
 .sp-body {
   display: grid;
@@ -660,15 +660,6 @@
 }
 .sp-nav {
   padding: 0;
-}
-.sp-more > summary {
-  color: var(--ink-2);
-  font-weight: 600;
-  cursor: pointer;
-}
-.sp-more[open] {
-  display: grid;
-  gap: var(--s5);
 }
 /* ---- Review queue ---------------------------------------------------------------------------- */
 .rq-head {
