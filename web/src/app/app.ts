@@ -17,13 +17,16 @@ import { mountDetailsSwitch } from "../prefs/details";
 import { mountCandidate, mountReview } from "../review";
 import { mountAbout, mountCommunity } from "../community";
 import { mountWorkbench, targetFor, type Layer } from "../product/workbench";
-import {MODES, workspaceState, workspaceHref} from "../product/workspace-state";
+import {MODES, workspaceHref, type WorkspaceState} from "../product/workspace-state";
 import {loadCultureStories} from "../product/stories";
 import {mountGuidedPractice} from '../product/practice';
-import {AREA_FEATURES,AREA_LABELS,areaRoute} from './navigation';
+import {SCREENS,siteRoute,viewerState} from './navigation';
+import {legacyHash} from './legacy-routes';
+import {getDetails,onDetails,setDetails} from '../prefs/details';
 import {observationForSky,type SkySelection} from './sky-entry';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { mountOpening } from "../intro";
+import { browserEnv } from "../intro/rules";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -33,9 +36,9 @@ import { TARGETS, isEmbed, readView, targetBySlug, viewForTarget, writeView } fr
 const html = String.raw;
 /** Each page's name in the browser tab ("Candidates: SkyShift"); the home page is plain SkyShift. */
 const PAGE_TITLES: Record<string, string> = {
-  discover: "Candidates",
-  review: "Review",
-  explore: "Workspace",
+  discover: "To check",
+  review: "To check, one at a time",
+  explore: "Viewer",
   live: "Live search",
   community: "Community",
   results: "Results",
@@ -53,6 +56,8 @@ const LAYER_LABELS: Record<Layer, string> = {
 
 export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
+  // Remember the entry URL before the atlas writes its current sky into the hash.
+  const openingEnv = browserEnv();
   root.classList.toggle('cosmic-shell', !embed);
   root.innerHTML = html`
     ${embed ? '' : '<div class="site-sky" aria-hidden="true"></div>'}
@@ -61,16 +66,11 @@ export function startApp(root: HTMLElement): void {
         <a class="wordmark" href="#/sky" aria-label="SkyShift sky map">SkyShift</a>
         <p class="lede">Find what moves in NASA's SPHEREx sky, together.</p>
       </div>
-      <nav class="nav" aria-label="Workspace view">
-        <a href="#/explore" data-level="explore">Explore</a>
-        <a href="#/analyze" data-level="analyze">Analyze</a>
-        <a href="#/research" data-level="research">Research</a>
+      <nav class="nav" aria-label="Screens">
+        ${SCREENS.map(s => `<a href="${s.href}" data-screen="${s.id}">${s.label}</a>`).join("")}
       </nav>
-    </header>
-    <div class="area-features" ${embed?'hidden':''}>
-      <nav class="feature-nav" aria-label="Explore features"></nav>
       <div class="details-slot"></div>
-    </div>
+    </header>
     <form class="find" role="search" ${embed?'hidden':''}>
       <label class="visually-hidden" for="q">Coordinates or a featured name</label>
       <input id="q" class="input find-input" name="q" autocomplete="off" spellcheck="false"
@@ -93,7 +93,7 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-candidate" data-page="candidate" hidden></main>
     <main class="page page-blink" data-page="explore" hidden>
       <header class="workspace-head">
-        <div><p class="workspace-eyebrow">Your workspace</p><h1 id="blink-h1">Explore the sky</h1><p class="workspace-description"></p><a class="btn btn-primary workspace-practice" href="#/explore/play">Try guided practice →</a></div>
+        <div><h1 id="blink-h1">Viewer</h1><p class="workspace-description"></p></div>
       </header>
       <section class="practice-task" aria-label="Practice task" hidden></section>
       <section class="practice-panel" aria-label="Guided practice" hidden></section>
@@ -113,7 +113,7 @@ export function startApp(root: HTMLElement): void {
     <main class="page page-tools" data-page="tools" hidden></main>
     <main class="page page-live" data-page="live" hidden></main>
     <footer class="foot" ${embed ? "hidden" : ""}>
-      <p class="foot-links"><a href="#/about">About</a> <a href="#/learn">Learn</a> <a href="#/tools">Tools and data</a> <a href="#/results">How we know it works</a></p>
+      <p class="foot-links"><a href="#/community">Community</a> <a href="#/learn">Learn</a> <a href="#/about">About</a></p>
       <p>SPHEREx data: NASA/JPL-Caltech/IPAC (IRSA). Stars: ESA Gaia DR3. Known asteroids and comets: Minor Planet Center orbits, computed with kete (Dar Dahlen, first written at Caltech/IPAC, BSD-3-Clause). Sky view: Aladin Lite (CDS, GPL-3.0) with IRSA HiPS. Votes: Google Firebase.</p>
     </footer>
   `;
@@ -157,7 +157,7 @@ export function startApp(root: HTMLElement): void {
       go({ ...view, ...change }, { objectToo: false });
     },
     onPick(pick) {
-      if(workspaceState(parseRoute().param).tab==='play')return;
+      if(viewerNow().tab==='play')return;
       vote.pick(pick);
       selectSignal(pick);
     },
@@ -202,7 +202,6 @@ export function startApp(root: HTMLElement): void {
     $<HTMLDetailsElement>('.workspace-vote').open=true;
     requestAnimationFrame(()=>$<HTMLElement>('#vote').scrollIntoView({block:'start'}));
   });
-  let score: { destroy(): void } | null = null;
 
   function say(text: string, kind: "info" | "error" = "info") {
     msg.textContent = text;
@@ -225,8 +224,7 @@ export function startApp(root: HTMLElement): void {
     const { push = true, objectToo = true, nav = false } = opts;
     if (nav && current !== "explore") {
       exploreStarted = true;
-      const mode=parseRoute().mode??'explore';
-      history.replaceState(null, "", `${location.pathname}${location.search}${workspaceHref(mode,lastTabs[mode]??'')}`);
+      history.replaceState(null, "", `${location.pathname}${location.search}#/explore`);
       route();
     }
     const moved = !view || view.ra !== next.ra || view.dec !== next.dec;
@@ -239,7 +237,7 @@ export function startApp(root: HTMLElement): void {
     $<HTMLElement>('[data-layer-description]').textContent = LAYER_LABELS[layer] + ' · Derived analysis layer; original measurements remain in the object card.';
     if (push) writeView(next);
     blinkName = next.name ?? formatRaDec(next);
-    $<HTMLHeadingElement>("#blink-h1").textContent = MODES[workspaceState(parseRoute().param).mode].title;
+    if (viewerNow().tab !== 'play') $<HTMLHeadingElement>("#blink-h1").textContent = blinkName;
     if (current === "explore") document.title = `${blinkName}: SkyShift`;
     markChips(next.slug);
     input.value = next.name ?? formatRaDec(next);
@@ -250,7 +248,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
-    filters.active(layer === 'raw' && workspaceState(parseRoute().param).tab !== 'play');
+    filters.active(layer === 'raw' && viewerNow().tab !== 'play');
     filters.loading(next);
 
     frames = null;
@@ -294,7 +292,7 @@ export function startApp(root: HTMLElement): void {
       filters.goto(next, frames);
       card.show(next, object, frames);
       await blink.show({ ...next, slug: layer === 'raw' ? next.slug : null }, loaded.frames, loaded.jsonUrl,
-        {singleDetector:layer !== 'raw' || workspaceState(parseRoute().param).tab === 'play'});
+        {singleDetector:layer !== 'raw' || viewerNow().tab === 'play'});
       if (fsig.aborted) return;
       blink.status('idle');
       practice.ready(blink.canCompare?.() ?? false);
@@ -385,7 +383,7 @@ export function startApp(root: HTMLElement): void {
       $<HTMLAnchorElement>('.wordmark').href=returnHash;
     },
     navigate(hash) {
-      if(current==='atlas'&&selectedSky&&areaRoute(hash).page==='explore'){enterSkyArea(hash);return;}
+      if(current==='atlas'&&selectedSky&&siteRoute(hash).page==='explore'){enterSkyArea(hash);return;}
       location.hash = hash;
     },
     explore(at) {
@@ -403,6 +401,8 @@ export function startApp(root: HTMLElement): void {
     learn: loadCultureStories(mountLearn),
     tools: mountTools,
     live: mountLive,
+    // Results in sections: show("<section>[/<part>]") opens and scrolls; hide() stops the live polling.
+    results: mountScore,
     review: mountReview,
     candidate: mountCandidate,
     community: mountCommunity,
@@ -410,10 +410,19 @@ export function startApp(root: HTMLElement): void {
   };
   const pages = new Map<string, PageHandle>();
   let current = "";
-  const lastTabs:Record<string,string>={analyze:'motion',research:'data'};
   let exploreStarted = false;
 
-  function parseRoute() {return areaRoute(location.hash,embed,location.search);}
+  /** Rewrite an old link in place (turning Advanced on when its section needs it), then resolve. */
+  function parseRoute() {
+    const legacy = legacyHash(location.hash);
+    if (legacy) {
+      if (legacy.advanced) setDetails(true);
+      history.replaceState(history.state, "", `${location.pathname}${location.search}${legacy.hash}`);
+    }
+    return siteRoute(location.hash, embed, location.search, getDetails());
+  }
+  /** The Viewer's section for the current address (the summary when the page isn't the Viewer). */
+  function viewerNow(): WorkspaceState { return parseRoute().workspace ?? viewerState(null, getDetails()); }
 
   function enterSkyArea(hash:string) {
     if(!selectedSky){location.hash=hash;return;}
@@ -426,7 +435,7 @@ export function startApp(root: HTMLElement): void {
   }
 
   root.addEventListener('click',event=>{
-    const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-level],a[data-enter-area]');
+    const link=(event.target as Element).closest<HTMLAnchorElement>('a[data-enter-area],a[data-screen="viewer"]');
     if(!link||current!=='atlas'||!selectedSky||event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
     event.preventDefault();
     enterSkyArea(link.hash);
@@ -434,8 +443,8 @@ export function startApp(root: HTMLElement): void {
 
   function route() {
     if (resolveCtl) { cancelResolve(); say(''); }
-    const { page, param, mode, feature } = parseRoute();
-    const practicing=page==='explore' && workspaceState(param).tab==='play';
+    const { page, param, screen, workspace } = parseRoute();
+    const practicing=page==='explore' && workspace?.tab==='play';
     if(page==='explore')blink.singleDetector?.(practicing || layer !== 'raw');
     filters.active(!practicing && layer === 'raw');
     if (current && current !== page) pages.get(current)?.hide?.();
@@ -448,7 +457,6 @@ export function startApp(root: HTMLElement): void {
     document.title = name ? `${name}: SkyShift` : "SkyShift";
     root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
-    if (page === "results" && !score) score = mountScore($("#score"));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;
       if(!practicing){
@@ -457,35 +465,24 @@ export function startApp(root: HTMLElement): void {
         writeView(first, true);
       }
     }
-    if(page === 'explore'){
-      const state=workspaceState(param);
-      if(state.mode!=='explore')lastTabs[state.mode]=state.tab;
+    if(page === 'explore' && workspace){
+      const state=workspace;
       $<HTMLElement>('.page-blink').dataset.workspaceMode=state.mode;
       $<HTMLElement>('.page-blink').dataset.practice=String(practicing);
       $<HTMLElement>('#science-workbench').hidden=practicing;
       $<HTMLElement>('.practice-task').hidden=!practicing;
       $<HTMLElement>('.practice-panel').hidden=!practicing;
-      $<HTMLElement>('.workspace-description').textContent=MODES[state.mode].description;
-      $<HTMLHeadingElement>('#blink-h1').textContent=MODES[state.mode].title;
+      $<HTMLElement>('.workspace-description').textContent=practicing?MODES.explore.description:'';
+      $<HTMLHeadingElement>('#blink-h1').textContent=practicing?'Guided practice':(blinkName??'Viewer');
       workbench.mode(state);
       if(practicing)practice.show();
     }
-    root.querySelectorAll<HTMLAnchorElement>('[data-level]').forEach(a=>{
-      const area=a.dataset.level as 'explore'|'analyze'|'research';
-      a.href=workspaceHref(area,lastTabs[area]??'');
-      if(area===mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
+    root.querySelectorAll<HTMLAnchorElement>('[data-screen]').forEach(a=>{
+      if(a.dataset.screen===screen)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');
     });
-    root.dataset.area=mode??'sky';
-    $<HTMLElement>('.area-features').hidden=embed||mode===null;
+    root.dataset.screen=screen??page;
     $<HTMLAnchorElement>('.wordmark').href=returnSkyHash;
-    const featureNav=$<HTMLElement>('.feature-nav');
-    featureNav.setAttribute('aria-label',mode?`${AREA_LABELS[mode]} features`:'Sky map');
-    featureNav.innerHTML=(mode?AREA_FEATURES[mode]:[]).map(item=>{
-      const href=item.id==='measurements'?workspaceHref('analyze',lastTabs.analyze):item.id==='methods'?workspaceHref('research',lastTabs.research):item.href;
-      return `<a href="${href}" data-feature="${item.id}" ${item.id===feature?'aria-current="page"':''}>${item.label}</a>`;
-    }).join('');
-    $<HTMLFormElement>('.find').hidden=embed||page!=='explore';
-    $<HTMLElement>('.details-slot').hidden=page === 'explore';
+    $<HTMLFormElement>('.find').hidden=embed||page!=='explore'||practicing;
     const mount = pageMounts[page];
     if (mount) {
       let handle = pages.get(page);
@@ -498,6 +495,8 @@ export function startApp(root: HTMLElement): void {
     if (page !== "explore") window.scrollTo({ top: 0 });
   }
   addEventListener("hashchange", route);
+  // Advanced on the Viewer opens the measurements; off returns to the summary.
+  onDetails(() => { if (current === "explore") route(); });
 
   addEventListener('skyshift:gaia', (event) => {
     const data = (event as CustomEvent<{ra: number; dec: number; stars: FramesResponse['gaia']}>).detail;
@@ -525,6 +524,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
-  // The opening (src/intro): first visit to the bare home URL only, loaded on demand.
-  if (!embed) mountOpening(root);
+  // The opening (src/intro): every home entry, loaded on demand.
+  if (!embed) mountOpening(root, openingEnv);
 }

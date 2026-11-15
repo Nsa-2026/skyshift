@@ -32,6 +32,7 @@ interface Al extends AladinInstance {
   getZoomFactor?(): number;
   setFoVRange?(min: number | null, max: number | null): void;
   pix2world?(x: number, y: number): [number, number] | undefined;
+  stopAnimation?(): void;
 }
 
 interface Hips extends AladinHiPS {
@@ -95,11 +96,15 @@ export const projectionMax = (mol: boolean): number => (mol ? 360 : 180);
  * Aladin's field for the whole sky as large as the map holds it: the whole-sky ellipse (2:1) or the
  * globe's disk, as wide as the map unless that makes it taller than the map (less a margin).
  * Aladin takes a field past the projection's widest (getFov() then still says 360 or 180).
+ * `inset` is what floats over the map's top (the site header): the sky, centred, keeps clear of it
+ * at the top and the bottom alike, unless that would halve it.
  */
-export function fitFov(mol: boolean, w: number, h: number, margin = FIT_MARGIN): number {
+export function fitFov(mol: boolean, w: number, h: number, margin = FIT_MARGIN, inset = 0): number {
   const max = projectionMax(mol);
   if (!(w > 0) || !(h > 2 * margin)) return max;
-  return Math.max(max, (180 * w) / (h - 2 * margin));
+  const clear = h - 2 * (margin + Math.max(0, inset));
+  const room = clear >= h / 2 ? clear : h - 2 * margin;
+  return Math.max(max, (180 * w) / room);
 }
 
 /**
@@ -207,7 +212,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     }
   }
 
-  const fitNow = () => fitFov(mol, host.clientWidth, host.clientHeight);
+  const fitNow = () => fitFov(mol, host.clientWidth, host.clientHeight, FIT_MARGIN, cb.insetTop?.() ?? 0);
   const wantsWhole = (fov: number | undefined) => fov != null && fov >= projectionMax(mol) * 0.999;
 
   const al = A.aladin(mapEl, {
@@ -355,6 +360,10 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   al.addCatalog(labelCat);
   applyBackground();
   applyGrid(init.gal);
+
+  function stopFlight() {
+    try { al.stopAnimation?.(); } catch { /* Older viewers may not expose cancellation. */ }
+  }
 
   function curFov(): number {
     try {
@@ -578,7 +587,10 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     const H = host.clientHeight;
     if (!(W > 0) || !(H > 0)) return;
     const bounds: Box = { x0: 4, y0: 4, x1: W - 4, y1: H - 4 };
-    const obstacles: Box[] = [...(cb.reserved?.() ?? [])];
+    const reserved = cb.reserved?.() ?? [];
+    const obstacles: Box[] = [...reserved];
+    // Under a panel: no name or badge (it would be drawn over the panel's edge).
+    const covered = (p: { x: number; y: number }) => reserved.some((r) => boxHolds(r, p));
     const specs: (LabelSpec & ({ kind: "zone"; area: ZoneArea } | { kind: "target"; target: Target }))[] = [];
     const badges = level === "whole" || level === "mid";
     if (model.layers.zones) {
@@ -588,6 +600,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
         obstacles.push(b);
         if (!badges) continue;
         const anchor = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
+        if (covered(anchor)) continue;
         specs.push({ kind: "zone", area: a, id: `zone:${a.id}`, texts: badgeTexts(a), anchor, places: (s) => aroundBox(b, s, bounds) });
       }
     }
@@ -598,6 +611,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       if (!p || p.x < 0 || p.y < 0 || p.x > W || p.y > H) continue;
       // Only the globe's near side: a name never floats over a target behind it.
       if (!mol && sepDeg(t, v) > 90) continue;
+      if (covered(p)) continue;
       marks.push({ t, p });
       obstacles.push({ x0: p.x - 9, y0: p.y - 9, x1: p.x + 9, y1: p.y + 9 });
     }
@@ -862,10 +876,13 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       if (!prev || prev.provisional !== m.provisional || prev.layers.provisional !== m.layers.provisional) drawProvisional();
       if (!prev || prev.search !== m.search || prev.layers.search !== m.layers.search) drawSearch();
       if (prev && prev.selectedId !== m.selectedId) repaint();
+      // The page's panels may have moved (the header, a message): refit the whole sky, place names again.
+      clip(fitView());
       drawLabels();
     },
     view,
     flyTo(to, animate) {
+      stopFlight();
       // The whole sky means as large as the map holds it.
       const whole = wantsWhole(to.fov);
       const fov = whole ? fitNow() : to.fov;
@@ -905,6 +922,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       onMove();
     },
     zoomBy(f) {
+      stopFlight();
       try {
         if (f > 1 && al.decreaseZoom) al.decreaseZoom();
         else if (f < 1 && al.increaseZoom) al.increaseZoom();
@@ -915,6 +933,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       onMove();
     },
     panBy(dx, dy) {
+      stopFlight();
       const v = view();
       const w = host.clientWidth || 1;
       const h = host.clientHeight || 1;

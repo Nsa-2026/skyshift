@@ -23,6 +23,9 @@ function setup(opts: { fov?: number; zoomFactor?: boolean } = {}) {
       fov = value;
     }),
     setFoVRange: vi.fn(),
+    animateToRaDec: vi.fn(),
+    zoomToFoV: vi.fn<(fov: number, seconds: number) => void>(),
+    stopAnimation: vi.fn(),
     pix2world: vi.fn().mockReturnValue([130, 19]),
     world2pix: (ra: number, dec: number) => toScreen(ra, dec),
     setBaseImageLayer: vi.fn(),
@@ -99,6 +102,20 @@ afterEach(() => {
 });
 
 describe("Aladin map: the whole sky fills the map", () => {
+  it("keeps manual zoom after interrupting an unfinished flight", () => {
+    const { map, al } = setup();
+    let flight: ReturnType<typeof setTimeout> | undefined;
+    al.zoomToFoV.mockImplementation((value) => {
+      flight = setTimeout(() => al.setFoV(value), 1100);
+    });
+    al.stopAnimation.mockImplementation(() => clearTimeout(flight));
+    map.flyTo({ ra: 125, dec: 19, fov: 40 }, true);
+    map.zoomBy(1 / 1.6);
+    vi.advanceTimersByTime(1200);
+    expect(map.view().fov).toBeCloseTo(225);
+    map.destroy();
+  });
+
   it("opens the whole sky as large as the map holds it, with no outer ellipse", () => {
     const { A, host, inner, map } = setup();
     // 1440 × 400: the 2:1 ellipse is held by the height, so Aladin zooms out past 360°.

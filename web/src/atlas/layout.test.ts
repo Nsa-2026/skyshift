@@ -50,6 +50,16 @@ describe("fitFov", () => {
     expect(limbEllipse(false, fov, 1440, 813)!.ry * 2).toBeCloseTo(813 - 16);
   });
 
+  it("keeps the whole sky clear of the header floating over the map's top", () => {
+    // 1388 × 693, the header 77 px over it: the ellipse ends 8 px below the header, and as far above the bottom.
+    const fov = fitFov(true, 1388, 693, 8, 77);
+    const e = limbEllipse(true, fov, 1388, 693)!;
+    expect(e.cy - e.ry).toBeCloseTo(77 + 8);
+    expect(e.cy + e.ry).toBeCloseTo(693 - 77 - 8);
+    // A header that would halve the sky is ignored.
+    expect(fitFov(true, 1388, 300, 8, 120)).toBeCloseTo(fitFov(true, 1388, 300, 8));
+  });
+
   it("falls back to the projection's widest field on a map with no size", () => {
     expect(fitFov(true, 0, 0)).toBe(360);
     expect(fitFov(false, 400, 10)).toBe(180);
@@ -68,6 +78,12 @@ describe("wholeGeometry", () => {
     const g = wholeGeometry(375, 707);
     expect(g.s).toBeCloseTo((375 - 24) / 4);
     expect(g.cy).toBe(353.5);
+  });
+
+  it("keeps the flat map clear of the header over the stage's top", () => {
+    const g = wholeGeometry(1440, 900, 77);
+    expect(g.cy - g.s).toBeGreaterThanOrEqual(77);
+    expect(g.cy + g.s).toBeLessThanOrEqual(900 - 77);
   });
 });
 

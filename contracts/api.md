@@ -164,7 +164,8 @@ Response fields:
 `gaia[]` and `known[]` are catalogue **predictions**. `measured` is what our pipeline (pipeline/,
 contracts/dots.md) **detected** in the photos of this response: the dots of each photo, the sources
 it linked, the movers it paired, and the motions it fitted. Built by the server from
-`gs://nasa-glazing-data/results/<zone>/` and `dots/` (read-only), and by scripts/precompute for the
+`gs://nasa-glazing-data/results/<zone>/` and the zone's dot files (read-only; `dots/`, or the folder its link read:
+contracts/dots.md "Folders"), and by scripts/precompute for the
 static twins (`--measured-only` rewrites only `measured` and `measured_reason`).
 
 ```

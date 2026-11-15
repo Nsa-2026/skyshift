@@ -4,6 +4,8 @@ Steps: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classi
 fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects, all (in that order).
 ROOT is an fsspec root: gs://nasa-glazing-data (default) or a local folder.
 Every step skips outputs that already exist, so a stopped run can simply be started again.
+Dot files: dots/, or for the zones of config DOTS_FINE_ZONES (finer deblending) their own folder (config.zone_dots);
+dots and link use the zone's folder, later steps the one link recorded in results/<zone>/summary.json.
 `all` on a zone larger than TILE_AUTO_MIN_DEG2 (config) runs link … suspects per sky tile in parallel processes
 and merges them into the same results/<zone>/ files (tiles.py); --tiles off|N and --tile-deg D override that.
 completeness (synthetic movers in a 1° sub-area, inject.py) always runs once per zone, after the tiles; env
@@ -29,7 +31,7 @@ import time
 
 from . import config as C
 from . import log
-from .store import Store, results_rel
+from .store import Store, dots_dir, linked_dots_dir, results_rel, use_dots_dir
 
 MOTION_STEPS = ("crossid", "calib", "colours", "lightcurves", "fragments", "astrometry", "highpm")  # from stored dots only
 STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "calib", "qa", "classify", "photoz",
@@ -92,6 +94,15 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
             L.exception("completeness %s failed; the zone's run goes on", zone.name)
             return {"error": repr(e)}
     raise ValueError(step)
+
+
+def step_dots_dir(store: Store, zone: C.Zone, step: str) -> str:
+    """The dot-file folder a step of this zone reads: `dots` and `link` use the zone's detection setting
+    (config.zone_dots); later steps the folder `link` recorded, so members.dot_row and the files always match
+    (a zone linked before its re-extraction keeps reading dots/ until link runs again)."""
+    if step in ("dots", "link"):
+        return C.zone_dots(zone.name)[0]
+    return linked_dots_dir(store, zone.name)
 
 
 def _update_summary(store: Store, zone: C.Zone, step: str, out: dict, seconds: float) -> None:
@@ -163,14 +174,18 @@ def main(argv: list[str] | None = None) -> int:
     for step in steps:
         if grid and step in TILED_STEPS:
             if step == TILED_STEPS[0]:
-                L.info("=== %s, tiled (%s) ===", " → ".join(TILED_STEPS), zone.name)
+                use_dots_dir(step_dots_dir(store, zone, TILED_STEPS[0]))  # the tiles run link first
+                L.info("=== %s, tiled (%s, %s/) ===", " → ".join(TILED_STEPS), zone.name, dots_dir())
                 out = tiles.run(store, zone, grid, args.workers, work_dir=args.tile_dir, keep_work=args.keep_tiles,
                                 edge_margin=args.zone_edge == "border")
+                if isinstance(out.get("link"), dict):
+                    out["link"]["dots_dir"] = dots_dir()
                 for k, v in out.items():
                     _update_summary(store, zone, k, v, v.pop("step_seconds", 0.0) if isinstance(v, dict) else 0.0)
             continue
         t0 = time.time()
-        L.info("=== %s (%s) ===", step, zone.name)
+        use_dots_dir(step_dots_dir(store, zone, step))
+        L.info("=== %s (%s, %s/) ===", step, zone.name, dots_dir())
         out = _run_step(step, store, zone, args)
         dt = time.time() - t0
         _update_summary(store, zone, step, out, dt)

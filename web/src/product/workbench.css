@@ -109,8 +109,8 @@ html:not([data-details="on"]) #science-workbench .expert-only { display:none; }
 .page-blink[data-workspace-mode="research"] .pro-only {display:revert!important;}
 .page-blink[data-workspace-mode="research"] .plain-only {display:none!important;}
 html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #science-workbench .expert-only {display:block;}
-#science-workbench [data-wb="compare"]>details {margin:0;}
-#science-workbench [data-wb="compare"]>details>summary {display:none;}
+#science-workbench [data-wb="compare"] .wb-comparison {margin:0;}
+#science-workbench [data-wb="compare"] .wb-comparison>summary {display:none;}
 .stories-page {max-width:1000px;margin:var(--s6) auto;}
 .stories-page header {max-width:68ch;margin:var(--s5) 0;}
 .stories-page h1 {font-size:clamp(1.8rem,4vw,2.5rem);margin:var(--s2) 0 var(--s4);}
@@ -148,3 +148,39 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
    cannot slide over the following vote/sky row while scrolling on desktop. */
 .science-layer-caption {display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;}
 .science-layer-caption .btn {font-size:var(--step--1);}
+
+.wb-layer-note{margin:.5rem 0 0;color:var(--ink-2);font-size:var(--step--1);line-height:1.45}
+.wb-layer-note:empty{display:none}
+
+/* Evidence dashboards share the selected sky and remain open independently. */
+#science-workbench[data-mode="analyze"] {max-width:none;}
+.wb-dashboard-toggles {gap:var(--s2);margin-bottom:var(--s3);border-bottom:0;padding:0;}
+.wb-dashboard-toggles button {display:inline-flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s3);border:1px solid var(--hair-strong);border-radius:var(--radius-ctl);background:transparent;color:var(--ink-2);font:inherit;font-size:var(--step--1);cursor:pointer;}
+.wb-dashboard-toggles button[aria-pressed="true"] {background:var(--sheet);color:var(--ink);border-color:var(--pencil-blue);box-shadow:inset 0 -2px var(--pencil-blue);font-weight:650;}
+.wb-dashboard-toggles button span {width:1em;text-align:center;color:var(--pencil-blue);}
+.wb-dashboard-controls {display:flex;align-items:center;flex-wrap:wrap;gap:var(--s2) var(--s3);margin:0 0 var(--s5);}
+.wb-dashboard-controls p {flex:1 1 200px;color:var(--ink-2);font-size:var(--step--1);margin:0;}
+.wb-dashboard-controls .btn {font-size:var(--step--1);min-height:36px;padding:var(--s1) var(--s2);}
+.wb-empty {color:var(--ink-2);padding:var(--s6) 0;}
+.wb-dashboard-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:var(--s4);align-items:start;}
+.wb-dashboard-grid .wb-card-slot,.wb-dashboard-grid .wb-science,.wb-dashboard-grid .science-panels,.wb-dashboard-grid .science-sections {display:contents;}
+.wb-dashboard-grid .cd[data-dashboard-count] {display:contents;container-type:normal;}
+#science-workbench .wb-dashboard {min-width:0;margin:0;padding:var(--s4);border:1px solid var(--hair-strong);border-radius:12px;background:var(--sheet);overflow-wrap:anywhere;container-type:inline-size;}
+#science-workbench .wb-dashboard-head {display:flex;align-items:center;justify-content:space-between;gap:var(--s3);border-bottom:1px solid var(--hair);padding-bottom:var(--s3);margin-bottom:var(--s4);}
+#science-workbench .wb-dashboard-head h2 {margin:0;font-size:var(--step-0);font-weight:650;}
+.wb-dashboard-close {flex:none;display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--hair);border-radius:50%;background:transparent;color:var(--ink-2);font:inherit;font-size:1.25rem;cursor:pointer;}
+.wb-dashboard-close:hover {background:var(--sheet-2);color:var(--ink);}
+.wb-dashboard-grid .science-actions,.wb-dashboard-grid #science-status {grid-column:1/-1;order:-1;}
+.wb-dashboard-grid #science-status:empty {display:none;}
+.wb-dashboard-grid .cd-name {font-size:var(--step-1);}
+.wb-dashboard-grid .cd-dl {grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));}
+.wb-dashboard-grid [data-card-dashboard="motion"] {order:0;}
+.wb-dashboard-grid [data-card-dashboard="spectrum"] {order:1;}
+.wb-dashboard-grid [data-science="lightcurve"] {order:2;}
+.wb-dashboard-grid [data-wb="compare"] {order:3;}
+.wb-dashboard-grid [data-science="crossmatch"] {order:4;}
+.wb-dashboard-grid [data-wb="signals"] {order:5;}
+#science-workbench[data-mode="analyze"]:not([data-open-dashboards="1"]) .wb-dashboard-body {max-height:560px;overflow:auto;scrollbar-gutter:stable;}
+@media(max-width:600px) {
+  #science-workbench[data-mode="analyze"] .wb-dashboard-body {max-height:none;overflow:visible;}
+}

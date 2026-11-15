@@ -58,6 +58,8 @@ export interface MapCallbacks {
   onHover(c: Candidate | null, x: number, y: number): void;
   /** Boxes on the map covered by the page's own controls: labels keep off them. */
   reserved?(): Box[];
+  /** Pixels at the map's top under the floating site header: the whole sky is fitted clear of them. */
+  insetTop?(): number;
 }
 
 export interface MapHandle {

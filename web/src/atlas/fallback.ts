@@ -40,12 +40,13 @@ export interface FallbackInit {
 
 /**
  * Size and height of the whole-sky Aitoff map in a w × h stage: `s` px per Aitoff unit (the
- * ellipse is 4s × 2s), centred; on a tall stage (a phone) it sits near the top instead, clear of
- * the status line and zoom buttons at the bottom.
+ * ellipse is 4s × 2s), centred as the globe is (the map fills the page and the search panel
+ * floats over it), and clear of the `inset` the site header covers at the top, as on the globe.
  */
-export function wholeGeometry(w: number, h: number): { s: number; cy: number } {
-  // Centred, as the globe is: the map fills the page and the search panel floats over it.
-  const s = Math.max(1, Math.min((w - 24) / 4, (h - 24) / 2));
+export function wholeGeometry(w: number, h: number, inset = 0): { s: number; cy: number } {
+  const clear = h - 24 - 2 * Math.max(0, inset);
+  const room = clear >= h / 2 ? clear : h - 24;
+  const s = Math.max(1, Math.min((w - 24) / 4, room / 2));
   return { s, cy: h / 2 };
 }
 
@@ -95,7 +96,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   function makeProjector(): Projector {
     const { w, h } = size();
     if (v.fov > LEVEL_FOV.whole) {
-      const { s, cy } = wholeGeometry(w, h);
+      const { s, cy } = wholeGeometry(w, h, cb.insetTop?.() ?? 0);
       const lon0 = gal ? 0 : wrap360(Math.round(inFrame(v).ra / 15) * 15);
       return {
         whole: true,
@@ -214,7 +215,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
 
     // The sky's outline (whole sky) or the glass (close-up).
     if (p.whole) {
-      const { s, cy } = wholeGeometry(w, h);
+      const { s, cy } = wholeGeometry(w, h, cb.insetTop?.() ?? 0);
       parts.push(`<ellipse class="atl-svg-sky" cx="${f1(w / 2)}" cy="${f1(cy)}" rx="${f1(2 * s)}" ry="${f1(s)}"/>`);
       let grid = "";
       for (let lon = 0; lon < 360; lon += 30) {
@@ -306,7 +307,10 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         }
       }
       // Each searched area once: the union of its zones' boxes, one outline and one faint fill.
-      const obstacles: Box[] = [...(cb.reserved?.() ?? [])];
+      const reserved = cb.reserved?.() ?? [];
+      const obstacles: Box[] = [...reserved];
+      // Under a panel: no name or badge (it would be drawn over the panel's edge).
+      const covered = (q: Vec) => reserved.some((r) => boxHolds(r, q));
       const specs: FallbackSpec[] = [];
       const bounds: Box = { x0: 4, y0: 4, x1: w - 4, y1: h - 4 };
       if (model.layers.zones) {
@@ -327,8 +331,8 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           if (!d || !b) continue;
           parts.push(`<path class="atl-svg-zone is-${level}" fill-rule="evenodd" d="${d}"/>`);
           obstacles.push(b);
-          if (level === "whole" || level === "mid") {
-            const anchor = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
+          const anchor = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
+          if ((level === "whole" || level === "mid") && !covered(anchor)) {
             specs.push({ kind: "zone", area: a, id: `zone:${a.id}`, texts: badgeTexts(a), anchor, places: (s) => aroundBox(b, s, bounds) });
           }
         }
@@ -338,7 +342,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         if (!q || q.x < -20 || q.y < -20 || q.x > w + 20 || q.y > h + 20) continue;
         const r = `M${f1(q.x + 3.5)} ${f1(q.y)}h4.5M${f1(q.x - 3.5)} ${f1(q.y)}h-4.5M${f1(q.x)} ${f1(q.y + 3.5)}v4.5M${f1(q.x)} ${f1(q.y - 3.5)}v-4.5`;
         parts.push(`<g class="atl-svg-target"><path class="atl-svg-halo" d="${r}"/><path d="${r}"/></g>`);
-        if (q.x < 0 || q.y < 0 || q.x > w || q.y > h) continue;
+        if (q.x < 0 || q.y < 0 || q.x > w || q.y > h || covered(q)) continue;
         obstacles.push({ x0: q.x - 9, y0: q.y - 9, x1: q.x + 9, y1: q.y + 9 });
         specs.push({ kind: "target", target: t, id: `target:${t.slug}`, texts: [t.short], anchor: q, places: (s) => aroundPoint(q.x, q.y, s) });
       }
@@ -359,7 +363,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         const cy = (y0 + y1) / 2;
         labels.push(
           pl.kind === "zone"
-            ? `<g class="atl-svg-badge"><rect x="${f1(x0)}" y="${f1(y0)}" width="${f1(x1 - x0)}" height="${f1(y1 - y0)}" rx="${f1((y1 - y0) / 2)}"/><text x="${f1(x0 + BADGE.padX)}" y="${f1(cy)}">${esc(pl.text)}</text></g>`
+            ? `<g class="atl-svg-badge"><rect x="${f1(x0)}" y="${f1(y0)}" width="${f1(x1 - x0)}" height="${f1(y1 - y0)}" rx="${f1((y1 - y0) / 2)}"/><text x="${f1((x0 + x1) / 2)}" y="${f1(cy)}" text-anchor="middle">${esc(pl.text)}</text></g>`
             : `<text class="atl-svg-name" x="${f1(x0)}" y="${f1(cy)}">${esc(pl.text)}</text>`,
         );
       }
@@ -393,6 +397,20 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       parts.push(`<g class="atl-svg-scale"><path d="M16 ${f1(y)}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${f1(y)}">${label}</text></g>`);
     }
     wrap.innerHTML = `<svg class="atl-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the objects to check${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
+    // Each badge's pill fits its text as the browser set it (centred on the place it was given).
+    for (const g of wrap.querySelectorAll<SVGGElement>(".atl-svg-badge")) {
+      const t = g.querySelector<SVGTextElement>("text");
+      const r = g.querySelector<SVGRectElement>("rect");
+      try {
+        const len = t?.getComputedTextLength?.() ?? 0;
+        if (!t || !r || !(len > 0)) continue;
+        const bw = len + 2 * BADGE.padX;
+        r.setAttribute("x", f1(Number(t.getAttribute("x")) - bw / 2));
+        r.setAttribute("width", f1(bw));
+      } catch {
+        /* the measured pill stays */
+      }
+    }
   }
 
   // ---- interaction ---------------------------------------------------------------------------
@@ -539,6 +557,14 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   }
 
   render();
+  // Badges are sized with the page's font: measure again once it has loaded.
+  try {
+    void document.fonts?.ready.then(() => {
+      if (!destroyed) schedule();
+    });
+  } catch {
+    /* sizes stay as measured */
+  }
 
   return {
     kind: "svg",

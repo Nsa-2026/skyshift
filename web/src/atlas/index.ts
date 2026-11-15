@@ -40,6 +40,7 @@ import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, 
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
 import { WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsDots, showsHeat, showsSignals, wholeFov, type Level } from "./zoom";
 import { cellSideDeg } from "./healpix";
+import { mountZoomFocus } from './focus';
 import { liveLine, loadSearch, loadZoneSuspects, provisionalZone, type ProvisionalSet, type SearchLayer } from "./search";
 import { areaFov, areaName, badgeTexts, zoneAreas, type ZoneArea } from "./zones";
 
@@ -71,7 +72,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       <div class="atl-note" data-note role="status"><p>Loading the sky…</p></div>
       <div class="atl-tip" data-tip role="tooltip" hidden></div>
 
-      <div class="atl-top" data-top>
+      <div class="atl-top" data-top data-map-chrome>
         <div class="atl-intro">
           <h1 class="atl-lede" id="atl-title">Blink any spot of NASA's SPHEREx sky and see what moved.</h1>
           <div class="atl-controls-side">
@@ -133,12 +134,13 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         </div>
       </div>
 
-      <p class="atl-status" data-status aria-live="polite"></p>
-      <div class="atl-zoom" role="group" aria-label="Zoom">
+      <p class="atl-status" data-status data-map-chrome aria-live="polite"></p>
+      <div class="atl-zoom" data-map-chrome role="group" aria-label="Zoom">
         <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
         <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" data-zoom="all" title="Back to the whole sky">Whole sky</button>
       </div>
+      <button class="atl-reveal" type="button" data-map-controls aria-label="Show controls" aria-expanded="false" title="Show controls (Escape)" hidden>Show controls</button>
     </div>
 
     <div class="atl-below">
@@ -168,6 +170,17 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const input = q<HTMLInputElement>("#atl-q");
   const adjust = q<HTMLButtonElement>(".atl-adjust");
   const more = q<HTMLDivElement>("#atl-more");
+  const zoomFocus = mountZoomFocus(el);
+  // When the panels fade out or come back, the names on the map may use or must leave their room.
+  const chromeObs =
+    typeof MutationObserver === "function"
+      ? new MutationObserver(() => {
+          if (map && visible) map.update(model());
+        })
+      : null;
+  for (const n of el.querySelectorAll("[data-top], [data-map-controls]")) chromeObs?.observe(n, { attributes: true, attributeFilter: ["inert", "hidden"] });
+  /** How far the site header reaches down over the map (it floats there, and fades as the sky zooms in). */
+  let headerH = 0;
 
   /**
    * The stage bleeds to the window's edges, whatever the page's own gutters, and ends at the
@@ -180,8 +193,16 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       const left = el.getBoundingClientRect().left + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.borderLeftWidth) || 0);
       el.style.setProperty("--atl-vw", `${vw}px`);
       el.style.setProperty("--atl-left", `${-Math.round(left)}px`);
+      // Panels start below the header, and the whole sky is fitted clear of it.
+      const header = el.closest("#app")?.querySelector<HTMLElement>(":scope > .top");
+      const over = header ? header.getBoundingClientRect().bottom - stage.getBoundingClientRect().top : 0;
+      const before = headerH;
+      headerH = Number.isFinite(over) ? Math.max(0, Math.round(over)) : 0;
+      el.style.setProperty("--atl-header-height", `${headerH}px`);
+      // The panels moved: refit the whole sky and place the names again.
+      if (headerH !== before && map) map.update(model());
       const top = stage.getBoundingClientRect().top + scrollY;
-      if (top > 0) el.style.setProperty("--atl-top", `${Math.round(top)}px`);
+      if (Number.isFinite(top)) el.style.setProperty("--atl-top", `${Math.max(0, Math.round(top))}px`);
     } catch {
       /* CSS defaults hold */
     }
@@ -513,6 +534,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     level = nextLevel;
     stage.classList.toggle("is-whole", level === "whole");
     state = { ...state, ra: wrap360(v.ra), dec: v.dec, fov: v.fov };
+    zoomFocus.update(v.fov, map?.kind === 'svg' ? false : state.mol);
     publishSky();
     writeHash();
     hideTip();
@@ -585,8 +607,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function reserved(): Box[] {
     const s = stage.getBoundingClientRect();
     const out: Box[] = [];
-    for (const n of stage.querySelectorAll<HTMLElement>(".atl-intro, .atl-more, .atl-status, .atl-zoom")) {
-      if (n.hidden || !n.offsetParent) continue;
+    // The header over the map, unless it has faded out.
+    const header = el.closest("#app")?.querySelector<HTMLElement>(":scope > .top");
+    if (headerH > 0 && !header?.hasAttribute("inert")) out.push({ x0: 0, y0: -1000, x1: s.width || 1e5, y1: headerH });
+    for (const n of stage.querySelectorAll<HTMLElement>(".atl-intro, .atl-more, .atl-status, .atl-zoom, .atl-reveal")) {
+      if (n.hidden || !n.offsetParent || n.closest("[inert]")) continue;
       const r = n.getBoundingClientRect();
       if (!(r.width > 0) || !(r.height > 0)) continue;
       out.push({ x0: r.left - s.left, y0: r.top - s.top, x1: r.right - s.left, y1: r.bottom - s.top });
@@ -611,6 +636,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     onHover: (c: Candidate | null, x: number, y: number) => showTip(c, x, y),
     reserved,
+    insetTop: () => headerH,
   };
 
   function showNote(text: string | null) {
@@ -665,6 +691,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     const v = map.view();
     state = { ...state, ra: v.ra, dec: v.dec, fov: v.fov };
     publishSky();
+    zoomFocus.update(v.fov, map.kind === "svg" ? false : state.mol);
     level = levelFor(v.fov);
     stage.classList.toggle("is-whole", level === "whole");
     renderKey();
@@ -715,6 +742,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       syncSeg("[data-proj]", next.mol ? "mol" : "globe", "proj");
     }
     map?.flyTo({ ra: next.ra, dec: next.dec, fov: next.fov }, animate && !reduced);
+    if (map) zoomFocus.update(map.view().fov, map.kind === 'svg' ? false : state.mol);
   }
 
   async function start() {
@@ -760,6 +788,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       syncSeg("[data-proj]", mol ? "mol" : "globe", "proj");
       map?.setProjection(mol);
       if (map && levelFor(map.view().fov) === "whole") map.flyTo({ ...map.view(), fov: wholeFov(mol) }, false);
+      if (map) zoomFocus.update(map.view().fov, map.kind === 'svg' ? false : state.mol);
       writeHash();
     }),
   );
@@ -962,6 +991,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       requestedParam = param;
       const wasVisible = visible;
       visible = true;
+      zoomFocus.show();
       measure();
       if (!started) {
         void start();
@@ -980,6 +1010,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     hide() {
       visible = false;
+      zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
       hideTip();
@@ -990,6 +1021,8 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     destroy() {
       destroyed = true;
+      zoomFocus.destroy();
+      chromeObs?.disconnect();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
       stopSearch();

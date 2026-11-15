@@ -6,7 +6,7 @@ import {json, loadAnalysis, hasScience, type Target, type Candidate} from '../ap
 import {mountScience} from '../card/science';
 import {mountComparison} from './comparison';
 import {renderFindings, renderCalibration, renderFrameQuality} from './findings';
-import {MODES, workspaceHref, type WorkspaceState} from './workspace-state';
+import {MODES, workspaceHref, workspaceState, type WorkspaceState} from './workspace-state';
 import {targetBySlug} from '../app/state';
 
 export type Layer = 'raw' | 'model' | 'resid' | 'refdiff';
@@ -14,6 +14,15 @@ export const targetFor = (view: View): Target => ({
   slug:view.slug??'', name:view.name??'Selected sky', ra:view.ra, dec:view.dec,
   default_det:view.det, clock:view.clock, fov:view.fov, n_frames:0, n_visits:0,
 });
+
+/** Where the derived images (sky model, residual, DR1 difference) exist: the five featured stars'
+ *  prepared fields, on the Months clock at 5′. Elsewhere /api/frames?view= answers 404, so the
+ *  options are greyed out with the reason instead of failing and snapping back. */
+export function layerAvailability(view:Pick<View,'slug'|'clock'|'fov'>):{ok:boolean;reason:string} {
+  if(!hasScience(view.slug))return {ok:false,reason:"Sky model, residual and DR1 difference exist only for the five featured stars: Barnard's Star, Eps Indi B, WISE 0855, RW Aur and R Dra."};
+  if(view.clock!=='months'||view.fov!==5)return {ok:false,reason:'These images are made on the Months clock at 5′. Switch the player to Months and 5′ to use them.'};
+  return {ok:true,reason:''};
+}
 
 export function mountWorkbench(host:HTMLElement, opts:{
   card:CardHandle; cardElement:HTMLElement;
@@ -23,12 +32,15 @@ export function mountWorkbench(host:HTMLElement, opts:{
   host.innerHTML=`<p class="wb-context"></p>
     <div class="wb-quality" aria-label="Current observation quality"></div>
     <nav class="wb-tabs" aria-label="Evidence sections" hidden></nav>
+    <div class="wb-dashboard-controls" hidden><p>Open several dashboards to view them together.</p><button class="btn btn-ghost" type="button" data-open-all>Open all</button><button class="btn btn-ghost" type="button" data-close-all>Close all</button></div>
     <p class="wb-status" role="status" aria-live="polite"></p>
+    <p class="wb-empty" hidden>No dashboards open. Choose one or more above.</p>
+    <div class="wb-dashboards">
     <div class="wb-card-slot"></div>
     <div class="wb-guide" data-wb="explore">
       <p>Follow the marked target as the dates change. A jump may be motion; a change in brightness needs a closer look.</p>
-      <a class="btn" href="#/analyze">Analyze this target <span aria-hidden="true">→</span></a>
-      <a class="wb-learn" href="#/explore/learn">New to blinking? Start with a lesson.</a>
+      <a class="btn" href="#/explore/motion">Measure this target <span aria-hidden="true">→</span></a>
+      <a class="wb-learn" href="#/learn">New to blinking? Start with a lesson.</a>
     </div>
     <section data-wb="signals" hidden><h2>Signals to check</h2><div class="wb-findings-body"></div>
       <p class="source">Background frequencies rank follow-up checks; they are not probabilities that an object is real. Cold-source false alarms remain uncalibrated.</p>
@@ -40,22 +52,49 @@ export function mountWorkbench(host:HTMLElement, opts:{
         <option value="raw">SPHEREx observations</option><option value="model">Static sky model</option>
         <option value="resid">Model residual</option><option value="refdiff">DR1 reference difference</option>
       </select></label>
+      <p class="wb-layer-note" role="status"></p>
       <p class="source">Published models, residuals and DR1 differences use the analysis cube. They currently support the five featured science targets at 5′ on the Months clock; their measured footprint can be smaller. Original object measurements remain separate.</p>
       <p class="wb-capability" role="status"></p><button class="btn wb-build" type="button" hidden>Build an analysis for this sky</button>
     </section>
     <section data-wb="validation" hidden><h2>Validation</h2><div class="wb-calibration-body"></div></section>
-    <div class="wb-science"></div>`;
+    <div class="wb-science"></div></div>`;
   const $=<T extends HTMLElement=HTMLElement>(s:string)=>host.querySelector<T>(s)!;
   $('.wb-card-slot').append(opts.cardElement);
   const layer=$<HTMLSelectElement>('.wb-layer'), build=$<HTMLButtonElement>('.wb-build');
   const science=mountScience($('.wb-science'),opts.reference,()=>object?.spectrum??[]);
   const comparison=mountComparison($('.wb-comparison'));
+  for(const [key,label] of MODES.analyze.tabs){
+    const panel=host.querySelector<HTMLElement>(`section[data-wb="${key}"], section[data-science="${key}"]`);
+    if(!panel)continue;
+    panel.classList.add('wb-dashboard');
+    const body=document.createElement('div');body.className='wb-dashboard-body';
+    body.append(...panel.childNodes);panel.append(body);
+    const header=document.createElement('header');header.className='wb-dashboard-head';
+    header.innerHTML=`<h2>${label}</h2><button class="wb-dashboard-close" type="button" data-close-dashboard="${key}" aria-label="Close ${label} dashboard">×</button>`;
+    panel.prepend(header);
+  }
   let state:WorkspaceState={mode:'explore',tab:''}, view:View|undefined;
   let object:ObjectResponse|null=null, epoch:Epoch|undefined;
   let presentation:BlinkPresentation|undefined;
   let frameSource:{frames:FramesResponse;url:string}|null=null;
   let controller=new AbortController(), jobController=new AbortController();
   let scienceLoaded=false, findingsLoaded=false, calibrated=false, visible=true, capabilitiesLoaded=false;
+  const panels=()=>state.mode==='explore'?['explore']:state.mode==='analyze'?(state.panels??[state.tab]):[state.tab];
+  function choosePanels(keys:string[]){
+    show(workspaceState(`analyze/${keys.join('+')||'dashboards'}`));
+    location.hash=workspaceHref('analyze',keys.join('+')||'dashboards');
+  }
+  host.addEventListener('click',event=>{
+    const button=(event.target as Element).closest<HTMLButtonElement>('[data-toggle-dashboard],[data-close-dashboard],[data-open-all],[data-close-all]');
+    if(!button||state.mode!=='analyze')return;
+    const key=button.dataset.toggleDashboard??button.dataset.closeDashboard;
+    const keys=panels(), all=MODES.analyze.tabs.map(([key])=>key);
+    if(button.hasAttribute('data-open-all'))choosePanels(all);
+    else if(button.hasAttribute('data-close-all'))choosePanels([]);
+    else choosePanels(all.filter(k=>k===key?!keys.includes(k):keys.includes(k)));
+    const selector=key?`[data-toggle-dashboard="${key}"]`:button.hasAttribute('data-open-all')?'[data-open-all]':'[data-close-all]';
+    host.querySelector<HTMLButtonElement>(selector)?.focus({preventScroll:true});
+  });
 
   async function capabilities(){
     if(capabilitiesLoaded)return; capabilitiesLoaded=true;
@@ -89,8 +128,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
   }
   function load(){
     if(!view||!visible)return;
-    const panel=state.mode==='explore'?'explore':state.tab;
-    if(['spectrum','lightcurve','crossmatch','data','processing','sensitivity','export'].includes(panel)&&!scienceLoaded){
+    const open=panels();
+    if(open.some(panel=>['spectrum','lightcurve','crossmatch','data','processing','sensitivity','export'].includes(panel))&&!scienceLoaded){
       scienceLoaded=true;
       const selected=view, signal=controller.signal;
       void science.load(targetFor(selected),signal).then(loaded=>{
@@ -98,8 +137,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
         if(!loaded&&!signal.aborted&&controller.signal===signal)scienceLoaded=false;
       });
     }
-    if(panel==='signals')void findings();
-    if(panel==='validation'&&!calibrated){calibrated=true;void renderCalibration($('.wb-calibration-body'));}
+    if(open.includes('signals'))void findings();
+    if(open.includes('validation')&&!calibrated){calibrated=true;void renderCalibration($('.wb-calibration-body'));}
     if(state.mode==='research')void capabilities();
   }
   function metadata(){
@@ -119,15 +158,27 @@ export function mountWorkbench(host:HTMLElement, opts:{
   function show(next:WorkspaceState){
     state=next;
     host.dataset.mode=state.mode; host.dataset.panel=state.tab;
-    const panel=state.mode==='explore'?'explore':state.tab;
-    const cardSection=panel==='explore'?'summary':panel==='motion'?'motion':panel==='spectrum'?'spectrum':null;
-    opts.cardElement.hidden=cardSection===null;
-    if(cardSection)opts.card.section?.(cardSection);
+    const open=panels();
+    host.dataset.openDashboards=String(open.length);
+    const cardSections=open.filter((key):key is 'motion'|'spectrum'=>key==='motion'||key==='spectrum');
+    opts.cardElement.hidden=state.mode!=='explore'&&!cardSections.length;
+    opts.card.section?.(state.mode==='explore'?'summary':cardSections);
     const tabs=$('.wb-tabs'); tabs.hidden=state.mode==='explore';
-    tabs.innerHTML=MODES[state.mode].tabs.map(([key,label])=>`<a href="${workspaceHref(state.mode,key)}" ${key===state.tab?'aria-current="page"':''}>${label}</a>`).join('');
-    host.querySelectorAll<HTMLElement>('[data-wb]').forEach(el=>{el.hidden=el.dataset.wb!==panel});
-    science.panel(panel);
-    $<HTMLDetailsElement>('.wb-comparison').open=panel==='compare'&&visible;
+    tabs.classList.toggle('wb-dashboard-toggles',state.mode==='analyze');
+    tabs.setAttribute('aria-label',state.mode==='analyze'?'Dashboards':'Evidence sections');
+    if(state.mode==='analyze'){
+      if(!tabs.querySelector('button'))tabs.innerHTML=MODES.analyze.tabs.map(([key,label])=>`<button type="button" data-toggle-dashboard="${key}" aria-pressed="false"><span aria-hidden="true">+</span> ${label}</button>`).join('');
+      tabs.querySelectorAll<HTMLButtonElement>('button').forEach(button=>{
+        const pressed=open.includes(button.dataset.toggleDashboard!);
+        button.setAttribute('aria-pressed',String(pressed));button.querySelector('span')!.textContent=pressed?'✓':'+';
+      });
+    }else tabs.innerHTML=MODES[state.mode].tabs.map(([key,label])=>`<a href="${workspaceHref(state.mode,key)}" ${key===state.tab?'aria-current="page"':''}>${label}</a>`).join('');
+    $('.wb-dashboard-controls').hidden=state.mode!=='analyze';
+    $('.wb-empty').hidden=state.mode!=='analyze'||open.length>0;
+    $('.wb-dashboards').classList.toggle('wb-dashboard-grid',state.mode==='analyze');
+    host.querySelectorAll<HTMLElement>('[data-wb]').forEach(el=>{el.hidden=!open.includes(el.dataset.wb!)});
+    science.panel(open);
+    $<HTMLDetailsElement>('.wb-comparison').open=open.includes('compare')&&visible;
     science.pause(); metadata(); load();
   }
   layer.onchange=()=>opts.layer(layer.value as Layer);
@@ -169,6 +220,9 @@ export function mountWorkbench(host:HTMLElement, opts:{
         if(!view||view.ra!==next.ra||view.dec!==next.dec)comparison.setTarget(targetFor(next));
       }
       view=next;layer.value=selectedLayer;build.disabled=false;
+      const available=layerAvailability(next);
+      layer.querySelectorAll<HTMLOptionElement>('option:not([value="raw"])').forEach(o=>{o.disabled=!available.ok;});
+      $('.wb-layer-note').textContent=available.reason;
       // Static first: a featured field's products are files; elsewhere the API answers (or says why not).
       const published=hasScience(next.slug);
       $<HTMLAnchorElement>('.wb-science-json').href=published?`/science-data/${next.slug}/science.json`:`/api/science?ra=${next.ra}&dec=${next.dec}`;
@@ -194,7 +248,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
     active(value:boolean){
       visible=value;
       if(!value){science.pause();jobController.abort();$<HTMLDetailsElement>('.wb-comparison').open=false;}
-      else{if(controller.signal.aborted){controller=new AbortController();scienceLoaded=false;findingsLoaded=false;}load();}
+      else{if(controller.signal.aborted){controller=new AbortController();scienceLoaded=false;findingsLoaded=false;}$<HTMLDetailsElement>('.wb-comparison').open=panels().includes('compare');load();}
     },
   };
 }

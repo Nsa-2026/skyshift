@@ -96,6 +96,33 @@ IRSA_URI_PREFIX = "ibe/data/spherex/"  # spherex.artifact.uri = this + the S3 ke
 # S/N 9 with no false detections on a blank frame; then keep aperture snr >= DOT_MIN_SNR.
 DETECT_THRESH = 2.0
 DOT_MIN_SNR = 5.0
+# sep deblend_cont of core.detect: a blob is split where a branch holds at least this share of its light. At 0.005 a
+# star beside a much brighter star's glow is never split off (R Dra, 2025W43_2A_0464_2D4, peak 2,623 MJy/sr: 0 of 4
+# Gaia neighbours at 92–162″ with S/N 43–59; at 1e-4, 3 of 4). The sky run keeps DOTS_DEBLEND_CONT; the zones of
+# DOTS_FINE_ZONES use DOTS_FINE_DEBLEND_CONT. Dot files are never rewritten (members.dot_row points at rows) and these
+# zones' photos also lie in ecliptic zones, so each other setting has its own folder, dots_deblend<value>/ (dots_dir_for):
+# `dots` and `link` of such a zone use it; later steps read the folder `link` recorded (results/<zone>/summary.json
+# steps.link.dots_dir; "dots" when absent). Each dot file's metadata records the setting (`detect`).
+DOTS_DIR = "dots"              # the sky run's dot files: dots/<obs_id>D<det>.parquet
+DOTS_DEBLEND_CONT = 0.005
+DOTS_FINE_DEBLEND_CONT = 1e-4  # one line to change; a new value gets a new folder (files are never mixed)
+DOTS_FINE_ZONES = ("t_rdra", "t_barnard", "t_rwaur", "t_epsindib", "t_wise0855")
+
+
+def dots_dir_for(deblend_cont: float) -> str:
+    """The folder of dot files made with this deblend_cont: DOTS_DIR for the sky run's value, else dots_deblend<v>
+    (1e-4 -> dots_deblend1e-4)."""
+    if float(deblend_cont) == float(DOTS_DEBLEND_CONT):
+        return DOTS_DIR
+    mant, exp = f"{float(deblend_cont):.6e}".split("e")
+    mant = mant.rstrip("0").rstrip(".")
+    return f"{DOTS_DIR}_deblend{mant}e{int(exp)}"
+
+
+def zone_dots(zone: str | None) -> tuple[str, float]:
+    """(folder, deblend_cont) the `dots` step uses for this zone (None: the sky run's)."""
+    d = DOTS_FINE_DEBLEND_CONT if zone in DOTS_FINE_ZONES else DOTS_DEBLEND_CONT
+    return dots_dir_for(d), d
 PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots
@@ -146,18 +173,58 @@ MOVER_MIN_COVER_SESSIONS = 3  # sessions whose footprints contain the candidate
 # star joins the star's fixed group. Hunt, 14 Nov, 36-session sample: 17 of 42 known V < 17 object-sessions that link
 # missed had their dots (≤ 1″ from the MPC position) inside a star's group, 3–13″ from its median. A would-be fixed
 # group's dots farther than this from its median are released and regrouped among themselves (a second star chained
-# to the first is fixed again with >= FIXED_MIN_SESSIONS sessions; a one-session track is left free). None = off.
+# to the first is fixed again with >= FIXED_MIN_SESSIONS sessions; a one-session track is left free). None = off (with
+# every rule below that releases or keeps released groups).
 FIXED_RELEASE_ARCSEC = 6.0
+# Review of #176 (14 Nov, hunt): 25 of 44 missed V < 16 sightings sat inside a star's group, most closer than 6″ (Alekto
+# s75: a 2,600 µJy asteroid chained into a 476 µJy star 3.4–4.8″ away), and the release made 85 uncatalogued fixed sources
+# on a 2.1 deg² box (wing fragments ~7.7″ from S/N ~370 stars, seen in a few of the star's sessions). So also released:
+FIXED_RELEASE_FLUX_RATIO = 3.0      # a dot >= this × its group's median flux in its detector (not saturated at the peak)
+FIXED_RELEASE_SESSION_ARCSEC = 2.0  # a session whose dots' mean is > this + FIXED_RELEASE_SESSION_SIGMA × the mean's σ from
+FIXED_RELEASE_SESSION_SIGMA = 3.0   # the median of the group's session means (those of its visit when it has >= 3 there)
+# ... and > this × the median offset of those sessions: a slow mover (0.02–0.2″/h, a distant planet) drifts through all
+# its sessions and must stay one single-visit fixed source for `orphans` (completeness test: without it, 0.05–0.2″/h
+# single-visit fixed fell from 90% to 2–51%). A star's sessions scatter ~0.3″, so one session 2–6″ off still goes.
+# Of such a session only the dots themselves > FIXED_RELEASE_SESSION_ARCSEC + SIGMA × their σ off go: the star's stay.
+FIXED_RELEASE_SESSION_SPREAD = 5.0
+LINK_POS_ERR_SCALE = 1.6            # σ of a dot position = pos_err (contracts/dots.md, from S/N) × this (1.4–1.8 vs Gaia)
+# A released group seen in >= FIXED_MIN_SESSIONS sessions stays its own fixed source only when catalogued (a refcat
+# Gaia/CatWISE/2MASS entry, moved to the group's time, within FIXED_RELEASE_CATALOG_ARCSEC; link reads refcat/<zone>.parquet
+# when present) or seen in >= FIXED_RELEASE_KEEP_SHARE of its parent's sessions. Otherwise its far dots go back to the
+# parent and its dots released by flux or session offset stay free (never fixed). None = keep every such group.
+FIXED_RELEASE_KEEP_SHARE = 0.5
+FIXED_RELEASE_CATALOG_ARCSEC = 2.5
+# A free dot >= this × the median flux, in its detector, of every fixed source within FIXED_VETO_ARCSEC (not saturated at
+# the peak) escapes the 6″ veto: an asteroid passing a fainter star. None = the plain veto.
+FIXED_VETO_BRIGHT_RATIO = 3.0
 # Mover vetting (link.vet_reason, after the session-coverage test; stats vetoed_<rule>; SKYSHIFT_MOVER_VET=off keeps
 # every candidate, with the columns). Hunt, 14 Nov: of 6,143 movers 4,464 were seen in two exposures and 4,045 of those
 # matched no MPC object; 209 of the 228 suspects were two-dot pairs. Known asteroids with V < 17 showed a dot in every
 # exposure that covered them in 848 of 893 movers; chance pairs (two unrelated dots ≤ 3″ + 1″/min × Δt apart) don't.
 # On the sample (87 suspects): missed 43, both dots at a frame edge 21, flux jump 21, kept 2.
-MOVER_COVER_EDGE_PX = 10.0       # an exposure covers a track when one of its photos holds it this far inside (px)
+# Review (14 Nov): the missed rule dropped 239 of 1,652 known-asteroid movers zone-wide; the "missed" exposures had the
+# track merged into a star's detection (Aegina s201: the nearest dot an S/N 60–220 star 10–14″ away), 3–14 px from the
+# frame edge, outside the zone box (dots are clipped there), or one real non-detection.
+MOVER_COVER_EDGE_PX = 25.0       # an exposure covers a track when one of its photos holds it this far inside (px)
+MOVER_EDGE_VETO_PX = 10.0        # the `edge` rule: a dot in a photo holding the track less than this far inside
 MOVER_COVER_FIXED_SLACK_ARCSEC = 2.0  # ... and the track isn't within FIXED_VETO_ARCSEC + this of a fixed source
                                  # (link drops dots there: no dot is expected). None = no exclusion
+MOVER_COVER_BLEND_ARCSEC = 15.0  # ... and that photo has no dot (fixed members too) this close to the track (merged
+                                 # into another source's detection). None = no exclusion
+MOVER_COVER_BRIGHT = (100.0, 30.0)  # ... nor a dot of S/N >= [0] within [1]″ (a bright star's isophote). None = off
 MOVER_MAX_MISSED_FEW = 0         # tracks seen in <= 2 exposures: covering exposures without a dot allowed
+MOVER_MAX_MISSED_PAIRED = 1      # ... seen in 2 exposures, each with a simultaneous detector pair (D1+D4, D2+D5, D3+D6)
 MOVER_MAX_MISSED = 1             # tracks seen in >= 3 exposures: ... allowed (a masked pixel, a faint exposure)
+MOVER_COVER_ZONE_MARGIN_ARCSEC = 10.0  # a track position closer than this to the zone box's edge doesn't cover (dots are
+                                 # clipped at the box; a 2-dot track's direction is rough: Alekto s43, 1″ inside)
+# `still` (a star seen in < 3 sessions, never fixed): a free dot of another session within MOVER_STILL_FREE_ARCSEC, in
+# >= MOVER_STILL_FREE_MIN_SESSIONS sessions or in one of its detectors with a flux within MOVER_STILL_FREE_FLUX_RATIO.
+MOVER_STILL_FREE_ARCSEC = 2.0
+MOVER_STILL_FREE_MIN_SESSIONS = 2
+MOVER_STILL_FREE_FLUX_RATIO = 2.0
+# ... or seen in 2 exposures and moved less than this × σ (dot_sigma_arcsec). None = off: on the boxes 16 of 25 known
+# two-exposure asteroids moved < 3σ (S/N 6–30 dots 2.1 min apart at 20–100″/h), as many as the unmatched pairs.
+MOVER_STILL_SIGMA = None
 MOVER_LINE_MAX_ARCSEC = 4.0      # >= 3 exposures: largest distance of an exposure's position from the fitted line
                                  # (known: max 3.2″, 99% < 2.6″)
 MOVER_FLUX_RATIO_MAX = 3.0       # largest max/min flux among one detector's dots (known: max 2.6, 99% < 2.2)
