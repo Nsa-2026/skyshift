@@ -56,12 +56,12 @@
 #app.cosmic-shell .workspace-eyebrow,
 #app.cosmic-shell .workspace-description { color: var(--cosmic-muted); }
 #app.cosmic-shell .workspace-head .btn-primary { background: var(--sheet); color: var(--ink); }
-#app.cosmic-shell .page-blink > .stage,
+#app.cosmic-shell .page-blink .stage,
 #app.cosmic-shell #science-workbench,
+#app.cosmic-shell .page-blink .vw-panel,
 #app.cosmic-shell .practice-task,
 #app.cosmic-shell .practice-panel,
 #app.cosmic-shell .workspace-selection,
-#app.cosmic-shell .page-blink > .below > *,
 #app.cosmic-shell .page:not(.page-atlas):not(.page-blink),
 #app.cosmic-shell .atl-below {
   min-width: 0;
@@ -73,8 +73,7 @@
   box-shadow: 0 12px 40px #0003;
 }
 #app.cosmic-shell .page:not(.page-atlas):not(.page-blink) { margin-top: var(--s5); }
-#app.cosmic-shell .page-blink > .stage { padding: var(--s3); }
-#app.cosmic-shell .below { border-top-color: var(--cosmic-line); }
+#app.cosmic-shell .page-blink .stage { padding: var(--s3); }
 #app.cosmic-shell .foot,
 #app.cosmic-shell .foot a,
 #app.cosmic-shell .foot-replay { color: var(--cosmic-muted); border-color: var(--cosmic-line); }

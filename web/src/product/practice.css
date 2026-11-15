@@ -28,7 +28,7 @@
 .page-blink[data-practice="true"] {grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);grid-template-areas:"heading heading" "task task" "stage evidence";}
 .page-blink[data-practice="true"]:has(.workspace-selection[hidden]) {grid-template-areas:"heading heading" "task task" "stage evidence";}
 .page-blink[data-practice="true"] .stage {width:min(100%,640px);justify-self:start;}
-.page-blink[data-practice="true"] .below,.page-blink[data-practice="true"] .workspace-selection,.page-blink[data-practice="true"] .bk-clock,.page-blink[data-practice="true"] .bk-meas {display:none!important;}
+.page-blink[data-practice="true"] .vw-side,.page-blink[data-practice="true"] #sky,.page-blink[data-practice="true"] .workspace-selection,.page-blink[data-practice="true"] .bk-clock,.page-blink[data-practice="true"] .bk-meas {display:none!important;}
 .workspace-practice {margin-top:var(--s4);text-decoration:none;}
 .page-blink:not([data-workspace-mode="explore"]) .workspace-practice,.page-blink[data-practice="true"] .workspace-practice {display:none;}
 @media(max-width:1000px) {

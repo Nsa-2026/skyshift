@@ -47,13 +47,17 @@ describe("mountSky without WebGL2 (jsdom)", () => {
     expect(el.querySelector<HTMLElement>(".sky-more")!.hidden).toBe(false);
 
     // The key is one sentence with the pencil marks; turning Gaia off drops its clause.
+    // A second sentence dates the background survey, and follows the background buttons.
     const key = () => el.querySelector(".sky-key")!.textContent!.replace(/\s+/g, " ").trim();
-    expect(key()).toBe("The plate's 5′ field, Gaia DR3 stars and the target."); // no frames: no epoch date
+    const old2mass = " The 2MASS background was photographed in 1997–2001, so stars that move sit away from their image in it.";
+    expect(key()).toBe("The plate's 5′ field, Gaia DR3 stars and the target." + old2mass); // no frames: no epoch date
     sky.epoch(61000);
-    expect(key()).toMatch(/^The plate's 5′ field, Gaia DR3 stars on \d+ \w+ 2025 and the target\.$/);
+    expect(key()).toMatch(/^The plate's 5′ field, Gaia DR3 stars on \d+ \w+ 2025 and the target\. The 2MASS background/);
     expect(el.querySelectorAll(".sky-key .key")).toHaveLength(3);
     el.querySelector<HTMLButtonElement>("[data-gaia]")!.click();
-    expect(key()).toBe("The plate's 5′ field and the target.");
+    expect(key()).toBe("The plate's 5′ field and the target." + old2mass);
+    el.querySelector<HTMLButtonElement>("[data-base=allwise]")!.click();
+    expect(key()).toContain("The AllWISE background was photographed in 2010–2011");
 
     toggle.click();
     expect(el.querySelector<HTMLElement>(".sky-body")!.hidden).toBe(true);

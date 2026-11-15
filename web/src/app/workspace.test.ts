@@ -44,7 +44,6 @@ it('keeps the observation, selected signal and player instance through screen an
   expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Sky','Viewer','To check','Community','Results','Learn']);
   expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Viewer');
   expect(root.querySelector('.feature-nav')).toBeNull();
-  expect(root.querySelector('#card .cd-spec')).toBeNull();
   const epoch=frames.epochs[1];engine.options!.onEpoch?.(epoch);
   engine.options!.onPick({ra:269.45,dec:4.69,mjd:epoch.mjd_mid,clock:'months',det:2,epoch_id:epoch.id});
   const change=async(hash:string)=>{history.pushState(null,'',hash);dispatchEvent(new HashChangeEvent('hashchange'));await settled();};
@@ -64,7 +63,8 @@ it('keeps the observation, selected signal and player instance through screen an
   expect(loadFrames).toHaveBeenCalledTimes(1);
   expect(root.querySelector('.wb-metadata')!.textContent).toContain(epoch.id);
   expect(root.querySelector('.workspace-selection')!.hasAttribute('hidden')).toBe(false);
-  expect(root.querySelector('#card .cd-spec')).toBeNull();
+  // The Viewer shows the whole card, its spectrum included (Alexandra's layout).
+  expect(root.querySelector('#card .cd-spec')).not.toBeNull();
   // An old Analyze link lands on the same Viewer section, with Advanced turned on.
   await change('#/analyze/spectrum');
   expect(location.hash).toBe('#/explore/spectrum');

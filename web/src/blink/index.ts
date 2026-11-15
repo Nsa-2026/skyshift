@@ -135,6 +135,21 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>, done:
 }
 
 const um = (n: number | null) => n == null || !Number.isFinite(n) ? "unknown" : n.toFixed(2);
+/** A field's width against the full Moon (about 30′ across), in plain words: 5 → "about a sixth of…". */
+export function fieldVsMoon(arcmin: number): string {
+  const r = arcmin / 30;
+  if (r >= 1.5) return `about ${Math.round(r)} full Moons wide`;
+  if (r >= 0.85) return "about as wide as the full Moon";
+  const parts: [number, string][] = [
+    [1 / 6, "a sixth"],
+    [1 / 4, "a quarter"],
+    [1 / 3, "a third"],
+    [1 / 2, "half"],
+    [2 / 3, "two thirds"],
+  ];
+  const [, word] = parts.reduce((a, b) => (Math.abs(b[0] - r) < Math.abs(a[0] - r) ? b : a));
+  return `about ${word} of the full Moon's width`;
+}
 const pct = (f: number | null) => f == null ? "unknown" : (f >= 0.1 ? `${(f * 100).toFixed(0)}%` : f > 0 ? `${(f * 100).toFixed(f >= 0.01 ? 1 : 2)}%` : "0%");
 const icon = {
   play: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.6v10.8c0 .5.6.8 1 .5l8-5.4c.4-.3.4-.8 0-1L8 4.1c-.4-.3-1 0-1 .5z"/></svg>`,
@@ -177,7 +192,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
             <span class="bk-det-label"></span>
           </p>
           <div class="bk-plate">
-            <canvas class="bk-canvas" role="img" aria-label="SPHEREx frame. Click a dot to flag it."></canvas>
+            <canvas class="bk-canvas" role="img" aria-label="SPHEREx frame. Click a dot to flag it; double-click to zoom in there."></canvas>
             <div class="bk-progress" hidden><i></i></div>
             <div class="bk-msg" role="status" aria-live="polite" hidden>
               <p class="bk-msg-text"></p>
@@ -275,7 +290,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <div class="bk-adj-row">
             <span class="bk-adj-k" id="${uid}-mk">Marks</span>
             <div class="bk-marks" role="group" aria-labelledby="${uid}-mk">
-              <button class="bk-mk" type="button" data-ov="measured" aria-pressed="true"
+              <button class="bk-mk" type="button" data-ov="measured" aria-pressed="false"
                 title="What SkyShift measured in these photos: circles by class, with motion arrows"><i class="sw sw-measured"></i>Measured</button>
               <button class="bk-mk" type="button" data-ov="gaia" aria-pressed="true"><i class="sw sw-gaia"></i>Gaia</button>
               <button class="bk-mk" type="button" data-ov="known" aria-pressed="true"
@@ -304,11 +319,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           <p class="bk-adj-keys">Space plays, ← → step, hold C to compare.</p>
         </div>
 
-        <section class="bk-meas" aria-labelledby="${uid}-mt" hidden>
+        <!-- Folded to one line so the plate stays clear: opening it draws SkyShift's circles on the
+             plate too, closing it hides them (the switch inside still sets them either way). -->
+        <details class="bk-meas" hidden>
+          <summary class="bk-meas-sum"><h2 class="bk-meas-title" id="${uid}-mt">What SkyShift measured</h2>
+            <span class="bk-meas-count"></span></summary>
           <div class="bk-meas-head">
-            <h2 class="bk-meas-title" id="${uid}-mt">What SkyShift measured</h2>
             <span class="bk-meas-stage" hidden></span>
-            <button class="bk-meas-toggle" type="button" data-ov="measured" aria-pressed="true"
+            <button class="bk-meas-toggle" type="button" data-ov="measured" aria-pressed="false"
               title="Draw what SkyShift measured on the plate"><span class="bk-meas-knob" aria-hidden="true"><i></i></span>On the plate</button>
           </div>
           <p class="bk-meas-lead"></p>
@@ -322,7 +340,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           </div>
           <p class="bk-meas-notes"></p>
           <p class="bk-meas-pro pro-only"></p>
-        </section>
+        </details>
       </div>
     </div>
   `;
@@ -352,7 +370,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   const contrastIn = $<HTMLInputElement>(".bk-contrast");
   const hold = $<HTMLButtonElement>(".bk-hold");
   const mp = {
-    panel: $<HTMLElement>(".bk-meas"),
+    panel: $<HTMLDetailsElement>(".bk-meas"),
+    count: $<HTMLSpanElement>(".bk-meas-count"),
     stage: $<HTMLElement>(".bk-meas-stage"),
     lead: $<HTMLParagraphElement>(".bk-meas-lead"),
     rest: $<HTMLParagraphElement>(".bk-meas-rest"),
@@ -405,7 +424,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     got: new Map(),
     pending: false,
   };
-  const overlays = { measured: true, gaia: true, known: true, faint: false, target: true, guides: true };
+  // SkyShift's measured circles start off (the plate shows Gaia's rings); "What SkyShift measured" turns them on.
+  const overlays = { measured: false, gaia: true, known: true, faint: false, target: true, guides: true };
   /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
   let trackM: TrackMarks | null = null;
   let trackBy = new Map<string, TrackSpot>();
@@ -1353,7 +1373,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       key.innerHTML = `<span class="bk-keybar" aria-hidden="true"></span><span>±${shownLim.n}σ</span>`;
       key.title = `Colours run from ${shownLim.n} noise sigmas of light lost (blue) to ${shownLim.n} gained (red).`;
     } else if (mode === "blink" && !comparing) {
-      key.innerHTML = `<span class="bk-hint">Click a dot to flag it</span>`;
+      key.innerHTML = `<span class="bk-hint">Click a dot to flag it · double-click to zoom in</span>`;
     }
     // The red circles' key, when the candidate has a spot in these frames.
     if (overlays.target && trackM && frames.some((f) => spotFor(f.epoch))) {
@@ -1381,10 +1401,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     press("[data-clock]", "data-clock", view.clock);
     const fovs = ALLOWED_FOV[view.clock];
     $(".bk-fov").innerHTML = fovs
-      .map(
-        (f) => html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
-          aria-label="${f} arcminute field" title="${f} arcminute field">${f}′</button>`,
-      )
+      .map((f, i) => {
+        const word = i === 0 ? "Close-up" : "Wide";
+        const about = `${word}: ${f} arcminutes, ${fieldVsMoon(f)}`;
+        return html`<button type="button" data-fov="${f}" aria-pressed="${f === view!.fov}"
+          aria-label="${about}" title="${about}">${word}</button>`;
+      })
       .join("");
     const have = rawF ? waveDets() : [];
     // A static file holds every detector prepared; a live answer only the one asked for, so any other is a request away.
@@ -1574,6 +1596,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     for (const e of [mp.rest, mp.key, mp.how, mp.items, mp.notes, mp.pro]) e.hidden = !on;
     mp.stage.hidden = !on;
     $<HTMLButtonElement>(".bk-meas-toggle").hidden = !on;
+    mp.count.textContent = "";
     if (st.kind === "absent") return;
     if (st.kind === "missing") {
       const r = reasonLine(st.reason);
@@ -1624,6 +1647,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const hours = m.clock === "hours";
     mp.items.hidden = !measItems.length;
     if (!measItems.length) return;
+    mp.count.textContent = `(${measItems.length})`;
     mp.lh.textContent = hours ? (waveGroups.size ? "Movers and artefacts on all detectors" : `Movers and artefacts on D${view.det}`) : "What moved between visits";
     const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
     mp.list.innerHTML = shown
@@ -2137,6 +2161,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     draw();
     renderCaption();
   };
+  // Opening "What SkyShift measured" draws its circles on the plate; folding it clears the plate again.
+  mp.panel.addEventListener("toggle", () => {
+    if (overlays.measured === mp.panel.open) return;
+    overlays.measured = mp.panel.open;
+    renderControls();
+    draw();
+  });
   mp.list.addEventListener("pointerover", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
   mp.list.addEventListener("pointerleave", () => focusOn(document.activeElement && itemOf(document.activeElement) ? itemOf(document.activeElement)!.dataset.item ?? null : null));
   mp.list.addEventListener("focusin", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
@@ -2219,8 +2250,27 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
   });
 
-  // Plate: hover reads a pixel, click flags a dot, drag pans when zoomed.
+  // Plate: hover reads a pixel, click flags a dot, double-click (or double-tap) zooms in on that
+  // spot (1× → 2× → 4× → back to 1×), drag pans when zoomed.
   let down: { X: number; Y: number; u: number; v: number; moved: boolean } | null = null;
+  let lastTap: { t: number; X: number; Y: number } | null = null;
+  const DOUBLE_MS = 350;
+  const DOUBLE_PX = 24;
+  function zoomAt(u: number, v: number) {
+    const next = zoom >= 4 ? 1 : zoom * 2;
+    zoom = next;
+    if (next === 1) {
+      const [nx, ny] = size();
+      centre = { u: nx / 2, v: ny / 2 };
+    } else {
+      centre = { u, v };
+      const vp = viewport(); // keeps the view inside the frame near the edges
+      centre = { u: vp.u0 + vp.vw / 2, v: vp.v0 + vp.vh / 2 };
+    }
+    canvas.classList.toggle("is-zoomed", next > 1);
+    renderControls();
+    draw();
+  }
   const local = (ev: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
     return { X: ev.clientX - r.left, Y: ev.clientY - r.top };
@@ -2261,6 +2311,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const { u, v } = toImage(X, Y);
     const [nx, ny] = size();
     if (u < 0 || v < 0 || u > nx || v > ny) return;
+    // Second click close in time and place: zoom there (the first click already picked the spot).
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < DOUBLE_MS && Math.hypot(X - lastTap.X, Y - lastTap.Y) < DOUBLE_PX) {
+      lastTap = null;
+      zoomAt(u, v);
+      return;
+    }
+    lastTap = { t: now, X, Y };
     const shownE = cur()?.epoch;
     if (!shownE) return;
     const sky = pixelToSky({ x: u - 0.5, y: v - 0.5 }, F, centreOf(shownE));

@@ -96,14 +96,18 @@ export function startApp(root: HTMLElement): void {
       </header>
       <section class="practice-task" aria-label="Practice task" hidden></section>
       <section class="practice-panel" aria-label="Guided practice" hidden></section>
-      <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
-      <section class="stage" aria-label="Blink"><div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div><div id="blink"></div></section>
-      <section id="card" class="side-card" aria-label="Object"></section>
-      <div class="below">
-        <details class="workspace-vote"><summary>Flag what you notice</summary><section id="vote" class="side-vote" aria-label="Flag and vote"></section></details>
-        <section id="sky" class="sky" aria-label="Sky around this spot"></section>
+      <!-- Two columns: the plate with its controls and the sky around it; the object and flagging. -->
+      <div class="vw-main">
+        <section class="stage" aria-label="Blink"><div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div><div id="blink"></div></section>
+        <section id="sky" class="sky vw-panel" aria-label="Sky around this spot"></section>
       </div>
-      <section id="science-workbench" aria-label="Workspace evidence"></section>
+      <div class="vw-side">
+        <!-- Here, not above the plate: a bar appearing above it moved the plate under the pointer. -->
+        <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
+        <section id="card" class="side-card" aria-label="Object"></section>
+        <section id="science-workbench" aria-label="Workspace evidence"></section>
+        <section id="vote" class="side-vote vw-panel" aria-label="Flag and vote"></section>
+      </div>
     </main>
     <main class="page page-score" data-page="results" hidden><div id="score"></div></main>
     <main class="page page-community" data-page="community" hidden></main>
@@ -199,7 +203,6 @@ export function startApp(root: HTMLElement): void {
     if(!selectedSignal||!view)return;
     vote.pick({...selectedSignal,mjd:epochMjd,det:view.det,clock:view.clock,epoch_id:frames?.epochs.find(e=>e.mjd_mid===epochMjd)?.id??''});
     location.hash=workspaceHref('explore');
-    $<HTMLDetailsElement>('.workspace-vote').open=true;
     requestAnimationFrame(()=>$<HTMLElement>('#vote').scrollIntoView({block:'start'}));
   });
 

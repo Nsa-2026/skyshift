@@ -733,6 +733,37 @@
   font-weight: 650;
   color: var(--ink);
 }
+/* Folded to one line under the controls; the arrow says it opens. */
+.bk-meas[hidden] {
+  display: none;
+}
+.bk-meas-sum {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  cursor: pointer;
+  list-style: none;
+  padding: var(--s2) 0;
+}
+.bk-meas-sum::-webkit-details-marker {
+  display: none;
+}
+.bk-meas-sum::before {
+  content: "▸";
+  color: var(--ink-2);
+  transition: transform 120ms ease;
+}
+.bk-meas[open] > .bk-meas-sum::before {
+  transform: rotate(90deg);
+}
+.bk-meas-sum .bk-meas-title {
+  display: inline;
+  margin: 0;
+}
+.bk-meas-count {
+  color: var(--ink-2);
+  font-weight: 600;
+}
 .bk-meas-stage {
   padding: 1px 8px;
   border-radius: var(--radius-ctl);

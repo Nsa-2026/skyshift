@@ -267,8 +267,8 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
   }
 
   /** Move keyboard focus onto the desk's first useful control. */
-  function focusDesk(sel: string) {
-    deskEl.querySelector<HTMLElement>(sel)?.focus();
+  function focusDesk(sel: string, preventScroll = false) {
+    deskEl.querySelector<HTMLElement>(sel)?.focus({ preventScroll });
   }
 
   async function load() {
@@ -464,7 +464,10 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
         say(toVoteError(e).message, "error");
       }
       render();
-      focusDesk("[data-act=flag]");
+      // Without scrolling: a click on the plate must not move the page (the desk can be far below
+      // the plate, and a moving plate breaks double-click zoom). The Viewer's selection bar beside
+      // the plate offers "Flag this position", which scrolls here.
+      focusDesk("[data-act=flag]", true);
     },
     view(v: View) {
       const moved = !view || view.ra !== v.ra || view.dec !== v.dec || view.fov !== v.fov;

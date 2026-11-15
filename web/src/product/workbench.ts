@@ -38,8 +38,6 @@ export function mountWorkbench(host:HTMLElement, opts:{
     <div class="wb-dashboards">
     <div class="wb-card-slot"></div>
     <div class="wb-guide" data-wb="explore">
-      <p>Follow the marked target as the dates change. A jump may be motion; a change in brightness needs a closer look.</p>
-      <a class="btn" href="#/explore/motion">Measure this target <span aria-hidden="true">→</span></a>
       <a class="wb-learn" href="#/learn">New to blinking? Start with a lesson.</a>
     </div>
     <section data-wb="signals" hidden><h2>Signals to check</h2><div class="wb-findings-body"></div>
@@ -162,7 +160,9 @@ export function mountWorkbench(host:HTMLElement, opts:{
     host.dataset.openDashboards=String(open.length);
     const cardSections=open.filter((key):key is 'motion'|'spectrum'=>key==='motion'||key==='spectrum');
     opts.cardElement.hidden=state.mode!=='explore'&&!cardSections.length;
-    opts.card.section?.(state.mode==='explore'?'summary':cardSections);
+    // The Viewer shows the whole card (measurement, facts, spectrum, brightness, what to look for);
+    // the Advanced dashboards show one part each.
+    opts.card.section?.(state.mode==='explore'?'all':cardSections);
     const tabs=$('.wb-tabs'); tabs.hidden=state.mode==='explore';
     tabs.classList.toggle('wb-dashboard-toggles',state.mode==='analyze');
     tabs.setAttribute('aria-label',state.mode==='analyze'?'Dashboards':'Evidence sections');
