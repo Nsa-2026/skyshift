@@ -1,7 +1,7 @@
 // Top-level screens: Sky · Viewer · To check · Community · Results, plus Advanced.
 // Learn and About are pages reached from the footer. Old links are rewritten first by
 // ./legacy-routes.ts; this file resolves the site's own hashes to a page and its screen.
-import {MODES, type WorkspaceState} from '../product/workspace-state';
+import {MODES, analysisPanels, workspaceState, type WorkspaceState} from '../product/workspace-state';
 
 export type Screen = 'sky' | 'viewer' | 'check' | 'community' | 'results';
 export interface ScreenLink {id:Screen; label:string; href:string}
@@ -36,6 +36,7 @@ const tabsOf = (mode: 'analyze' | 'research') => MODES[mode].tabs.map(([key]) =>
 export function viewerState(param: string | null, advanced = false): WorkspaceState {
   const section = (param ?? '').split('/')[0];
   if (section === 'play') return {mode:'explore', tab:'play'};
+  if (section === 'dashboards' || (section.includes('+') && analysisPanels(section).length)) return workspaceState(`analyze/${section}`);
   if (tabsOf('analyze').includes(section)) return {mode:'analyze', tab:section};
   if (tabsOf('research').includes(section)) return {mode:'research', tab:section};
   return advanced ? {mode:'analyze', tab:'motion'} : {mode:'explore', tab:''};
