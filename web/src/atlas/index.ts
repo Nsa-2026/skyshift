@@ -83,14 +83,17 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
             </form>
             <button class="atl-adjust" type="button" aria-expanded="false" aria-controls="atl-more">Adjust</button>
           </div>
+          <div class="atl-shape">
+            <span class="atl-shape-label" id="atl-shape-label">Map shape</span>
+            <div class="seg" role="group" aria-labelledby="atl-shape-label">
+              <button type="button" data-proj="mol" aria-pressed="false" title="Oval: the whole sky at once (Mollweide projection)"><span class="atl-shape-icon is-oval" aria-hidden="true"></span>Oval</button>
+              <button type="button" data-proj="globe" aria-pressed="true" title="Globe: half the sky at a time; drag to turn it"><span class="atl-shape-icon" aria-hidden="true"></span>Globe</button>
+            </div>
+          </div>
           <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
         </div>
         <div class="atl-more" id="atl-more" hidden>
           <div class="atl-more-row">
-            <div class="seg" role="group" aria-label="Map shape">
-              <button type="button" data-proj="globe" aria-pressed="true" title="A globe: the sky as a sphere, half at a time">Globe</button>
-              <button type="button" data-proj="mol" aria-pressed="false" title="The whole sky at once (Mollweide projection)">Whole sky</button>
-            </div>
             <div class="seg" role="group" aria-label="Coordinate grid">
               <button type="button" data-frame="eq" aria-pressed="true" title="Right ascension and declination">Equatorial</button>
               <button type="button" data-frame="gal" aria-pressed="false" title="Galactic longitude and latitude: the Milky Way runs along the equator">Galactic</button>
