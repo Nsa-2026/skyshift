@@ -34,7 +34,7 @@ vi.mock("./parts", async (orig) => ({ ...(await orig<typeof import("./parts")>()
 vi.mock("./assist", async (orig) => ({ ...(await orig<typeof import("./assist")>()), loadAssist: async () => null }));
 
 const { mountQueue } = await import("./review");
-const { mountCandidate } = await import("./candidate");
+const { mountSuspect } = await import("./candidate");
 
 function memKV(): KV {
   const m = new Map<string, string>();
@@ -254,8 +254,8 @@ describe("review queue: vote, go back, change, reset", () => {
   });
 });
 
-// ---- the candidate page --------------------------------------------------------------------------
-describe("candidate page: change or reset an earlier vote", () => {
+// ---- a candidate in the Viewer (#/c/<id>) ---------------------------------------------------------
+describe("the Viewer's object panel: change or reset an earlier vote", () => {
   afterEach(() => (document.body.innerHTML = ""));
 
   it("opens with the earlier answer selected, changes it, and resets it", async () => {
@@ -268,9 +268,11 @@ describe("candidate page: change or reset an earlier vote", () => {
     await store.vote("c1", "mover", "someone_else_1");
     const el = document.createElement("main");
     document.body.append(el);
-    const page = mountCandidate(el, { navigate: vi.fn(), explore: vi.fn() } as never);
+    const page = mountSuspect(el, { open: vi.fn(), showing: () => true, showAll: vi.fn() });
     page.show("c1");
     await settle(10);
+    page.ready(true); // the plate shows its frames
+    await settle();
     const pressed = () => [...el.querySelectorAll<HTMLButtonElement>(".cd-ballot button[aria-pressed='true']")].map((b) => b.dataset.answer);
     expect(pressed()).toEqual(["unsure"]);
     expect(el.querySelector(".rv-yours")!.textContent).toBe("You said Not sure on an earlier visit. Pick another answer to change it, or reset it.");
@@ -289,6 +291,6 @@ describe("candidate page: change or reset an earlier vote", () => {
     expect((await api.countsFor(["c1"])).get("c1")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
     // Focus goes back to the choices, so the keyboard can pick again.
     expect(document.activeElement?.classList.contains("rv-choice")).toBe(true);
-    page.destroy?.();
+    page.hide();
   });
 });
