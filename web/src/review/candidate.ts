@@ -244,7 +244,8 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     let items = await listFor(set.candidates, q, all, votedFor);
     let inList = true;
     if (!items.some((x) => x.id === c.id)) {
-      items = await listFor(set.candidates, "", all, votedFor);
+      // Not in the list: step through everything, including the groups the list sets aside by default.
+      items = await listFor(set.candidates, "show=all", all, votedFor);
       inList = false;
     }
     if (cand !== c) return;
