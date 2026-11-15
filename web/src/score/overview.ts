@@ -4,7 +4,7 @@
 // up; a card whose file is missing says so in a sentence. Pure functions: data in, HTML out.
 import type { CandidatesResponse, DistantResponse, ValidationResponse } from "../api/types";
 import { CONSENSUS, CONSENSUS_PCT, type AstroRow } from "../community/stats";
-import { fmtCount } from "../live/format";
+import { fmtAbout, fmtCount } from "../live/format";
 import type { RunSummary } from "../live/model";
 import { pctWord, updatedText } from "../live/render";
 import { pendingChecks, withAllChecks } from "./checks";
@@ -44,7 +44,7 @@ export function progressCardHtml(sum: RunSummary | null, error: string | null = 
   const pct = pctWord(sum.combinedPct);
   return html`${figure(`${fmtCount(c.combined)} of ${fmtCount(sum.total)}`, "areas of sky searched")}
     <div class="rs-bar" role="img" aria-label="${esc(pct)} of the areas searched"><span style="width:${Math.min(100, Math.max(0, sum.combinedPct)).toFixed(2)}%"></span></div>
-    ${line(sum.photos > 0 ? `${fmtCount(sum.photos)} photos read.` : "")}
+    ${line(sum.photos > 0 ? `${fmtCount(sum.photos)} photos read${sum.photosPerHour ? `, about ${fmtAbout(sum.photosPerHour)} an hour` : ""}.` : "")}
     <p class="rs-card-meta">${esc(updatedText(sum))}</p>`;
 }
 

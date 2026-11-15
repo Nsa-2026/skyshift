@@ -9,7 +9,7 @@
       "aspect": "16:10",
       "min_px": [1600, 1000],
       "credit": "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).",
-      "brief": "Real SPHEREx data, never generated, painted or retouched. A wide field of the sky made from a SPHEREx release (today: the IRSA SPHEREx DR1 all-sky HiPS cube, one 1.35 µm channel, a 50° view of the Milky Way in Aquila and Scutum). One channel in grey or a composite of SPHEREx channels; stretch, crop and scale for display only. No added stars, nebulae, planets, flares or text. Keep the middle and the lower middle free of no-data gaps: the title sits in the middle at the start and the pupil opens there at the end. It is shown behind the whole opening, slightly zoomed and turned, so leave a margin of plain sky at the edges. If the field, release or wavelength changes, change alt and credit to match."
+      "brief": "Real SPHEREx data, never generated, painted or retouched. A wide field of the sky made from a SPHEREx release (today: the IRSA SPHEREx DR1 all-sky HiPS cube, one 1.35 µm channel, a 50° view of the Milky Way in Aquila and Scutum). One channel in grey or a composite of SPHEREx channels; stretch, crop and scale for display only. No added stars, nebulae, planets, flares or text. Keep the middle and the lower middle free of no-data gaps: the title sits in the middle at the start and the telescope's lens opens there at the end. It is shown behind the whole opening, slightly zoomed and turned, so leave a margin of plain sky at the edges. If the field, release or wavelength changes, change alt and credit to match."
     },
     {
       "id": "earth",
@@ -29,7 +29,7 @@
       "aspect": "3:1",
       "min_px": [2400, 800],
       "credit": "hills, made with Higgsfield",
-      "brief": "The ground the person stands on: low, dark hills or open land at night, nearly a silhouette (deep blue-black, a faint rim of skyglow along the ridges). Everything above the ridges must be transparent (WebP or PNG with alpha): the SPHEREx sky shows through there, and it is the only sky in the opening. The ground line where the figure stands is the image's middle row; ridges sit above it, the nearest ground below. No people, buildings, lit windows, trees with lights, Moon, stars or sky. It spans the screen's width and crops at the sides on phones, so keep anything that matters in the middle third."
+      "brief": "The ground Galileo stands on: low, dark hills or open land at night, nearly a silhouette (deep blue-black, a faint rim of skyglow along the ridges). Everything above the ridges must be transparent (WebP or PNG with alpha): the SPHEREx sky shows through there, and it is the only sky in the opening. The ground line where the figure stands is the image's middle row; ridges sit above it, the nearest ground below. No people, buildings, lit windows, trees with lights, Moon, stars or sky. It spans the screen's width and crops at the sides on phones, so keep anything that matters in the middle third."
     }
   ]
 }

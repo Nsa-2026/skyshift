@@ -1,7 +1,8 @@
 // The sky map: Aitoff projection in SVG, equatorial or galactic, the whole sky or zoomed to the
 // candidates. Every candidate is a point shaped by kind (circle, triangle, square: colour is never
-// the only cue); the filtered set is drawn in colour, the rest as faint context. Hover, focus and
-// the list highlight the same point.
+// the only cue); the filtered set is drawn in colour, the rest as faint context. Hover and keyboard
+// focus show a point's details. It fills the To check page's map view (#/candidates/…&map=1), so its
+// height follows the window; close-ups go one search zone at a time.
 import { GRADE_TEXT, gradeLabel, gradeOf } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { formatRaDec } from "../app/astro";
@@ -12,6 +13,10 @@ const gradeCls = (c: Candidate) => (gradeOf(c) === "C" ? " is-gradec" : "");
 
 const D2R = Math.PI / 180;
 const html = String.raw;
+/** What the zone row's names are (pipeline/src/skyshift_pipeline/config.py, ecliptic_zones). */
+const ZONES_HINT = "The sky patches we searched: 10° boxes along the ecliptic, numbered from RA 0° (n1 is the box north of it).";
+/** On the whole sky, ring and name each zone only while there are this few. */
+const MAX_RINGS = 6;
 
 // ---- projection maths --------------------------------------------------------------------------
 
@@ -146,6 +151,17 @@ export function glyphSvg(kind: CandidateKind, size = 12, cls = ""): string {
   return html`<svg class="kind-glyph kind-${kind} ${cls}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true" focusable="false"><path d="${glyphPath(kind, size / 2, size / 2 + (kind === "mover" ? size * 0.04 : 0), r)}"/></svg>`;
 }
 
+/** The map's own glyph (the whole-sky oval with two points), for the link that opens it. */
+export function mapGlyph(width = 18): string {
+  return html`<svg class="map-glyph" width="${width}" height="${Math.round(width * 0.6)}" viewBox="0 0 20 12" aria-hidden="true" focusable="false"><ellipse cx="10" cy="6" rx="9" ry="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1 6h18" fill="none" stroke="currentColor" stroke-width="0.9" opacity="0.45"/><circle cx="6.5" cy="3.9" r="1.5" fill="currentColor"/><circle cx="13" cy="7.9" r="1.5" fill="currentColor"/></svg>`;
+}
+
+/** A search zone's name for people: "pilot" → "Pilot", "ecl12n1" → "Ecl12 n1". */
+export function zoneLabel(zone: string): string {
+  const s = zone.replace(/^(ecl\d+)([ns]\d+)$/i, "$1 $2");
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
 // ---- the map ------------------------------------------------------------------------------------
 
 export type Frame = "eq" | "gal";
@@ -228,7 +244,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
         <button type="button" class="btn btn-sm" data-map-action="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
         <button type="button" class="btn btn-sm" data-map-action="reset" title="Return to the selected zone or whole sky (0)">Reset view</button>
       </div>
-      <label class="skymap-zones" hidden><span>Zone</span><select class="skymap-zone-select" aria-label="Zone shown close up"></select></label>
+      <label class="skymap-zones" title="${ZONES_HINT}" hidden><span>Search zone</span><select class="skymap-zone-select" aria-label="Search zone shown close up"></select></label>
     </div>
     <div class="skymap-plot" tabindex="0" role="group"
       aria-roledescription="sky map" aria-describedby="skymap-help skymap-controls-help">
@@ -569,7 +585,8 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       if (p) marks.push(html`<path class="sm-pt kind-${p.c.kind}${gradeCls(p.c)}" d="${glyphPath(p.c.kind, p.sx, p.sy, rr)}"/>`);
     }
     parts.push(`<g class="sm-pts">${marks.join("")}</g>`);
-    if (zoom === "sky") parts.push(zoneRings(pts));
+    // A few far-apart zones get a ring and a name; a run of them along the ecliptic shows by its points.
+    if (zoom === "sky" && zones.length <= MAX_RINGS) parts.push(zoneRings(pts));
     parts.push(`<g class="sm-hot"></g>`);
     parts.push(labels.join(""));
     parts.push(`</g>`);
@@ -581,7 +598,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     const spanDeg = Math.round((W / k / D2R) * 10) / 10;
     caption.textContent =
       closeView
-        ? `${zone ? `The ${zone} zone` : "Zoomed to the objects to check"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
+        ? `${zoom === "fit" && zone ? `Search zone ${zoneLabel(zone)}` : "Zoomed to the objects to check"}: ${spanDeg}° across, north up, east left. The inset shows where on the sky.`
         : "The whole sky, north up, east left. The shaded band is the Milky Way plane, where stars crowd.";
     renderLegend();
     drawHot();
@@ -596,9 +613,10 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       const cx = ps.reduce((a, p) => a + p.sx, 0) / ps.length;
       const cy = ps.reduce((a, p) => a + p.sy, 0) / ps.length;
       const r = Math.min(40, Math.max(...ps.map((p) => Math.hypot(p.sx - cx, p.sy - cy))) + 8);
-      const right = cx + r + 4 + zone.length * 6.5 < W;
+      const name = zoneLabel(zone);
+      const right = cx + r + 4 + name.length * 6.5 < W;
       out.push(
-        html`<circle class="sm-zone" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"/><text class="sm-zone-name" x="${(right ? cx + r + 4 : cx - r - 4).toFixed(1)}" y="${(cy + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${escAttr(zone[0]?.toUpperCase() + zone.slice(1))}</text>`,
+        html`<circle class="sm-zone" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"/><text class="sm-zone-name" x="${(right ? cx + r + 4 : cx - r - 4).toFixed(1)}" y="${(cy + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${escAttr(name)}</text>`,
       );
     }
     return out.join("");
@@ -663,7 +681,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
     if (outside) {
       const n = document.createElement("p");
       n.className = "sm-tip-note";
-      n.textContent = zones.length > 1 ? `In the ${p.c.zone} zone, outside this close-up.` : "Outside this view.";
+      n.textContent = zones.length > 1 ? `In search zone ${zoneLabel(p.c.zone)}, outside this close-up.` : "Outside this view.";
       tip.append(n);
     } else if (!filteredSet.has(p.c.id)) {
       const n = document.createElement("p");
@@ -866,7 +884,7 @@ export function mountSkyMap(el: HTMLElement, opts: SkyMapOptions): SkyMapHandle 
       byIdAll = new Map(next.map((c) => [c.id, c]));
       zones = [...new Set(next.map((c) => c.zone))].sort();
       zoneSelect.innerHTML = zones
-        .map((z) => html`<option value="${escAttr(z)}">${escAttr(z[0]?.toUpperCase() + z.slice(1))}</option>`)
+        .map((z) => html`<option value="${escAttr(z)}">${escAttr(zoneLabel(z))}</option>`)
         .join("");
       render();
     },

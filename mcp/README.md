@@ -38,7 +38,7 @@ Another site (a local server, a preview channel): set `SKYSHIFT_BASE`, e.g.
 | `known_objects` | `/api/known` | Asteroids and comets predicted near a position at an MJD (MPC orbits) |
 | `gaia_stars` | `/api/gaia` | Gaia DR3 stars near a position, brightest first |
 | `batch_check` | `/api/resolve`, `/data/candidates.json` | Up to 50 names or positions: featured field, candidates nearby, a site link; `measure` for the first 5 |
-| `top_voted`, `votes_for` | Firestore `votes` (public, read-only) | Community votes per candidate (mover, changing, junk, unsure) and distinct voters; voter ids are never returned |
+| `top_voted`, `votes_for` | Firestore `votes` (public, read-only) | Community votes per candidate (mover, changing, junk, unsure) and distinct voters; only each voter's latest vote counts (a changed vote once, with its new answer; a vote taken back not at all; contracts v3.16); voter ids are never returned |
 | `featured_targets` | bundled `targets.json` | The featured targets: what to look for, what to expect, links |
 | `validation` | `/data/validation.json` | The checks V1–V11 in plain words, or one check in full |
 | `resolve` | `/api/resolve`, else bundled `targets.json` | A name or coordinate string → ICRS degrees; featured names (the asteroids too, e.g. `Elpis`) without case |

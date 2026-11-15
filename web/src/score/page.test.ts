@@ -197,7 +197,7 @@ describe("the overview (#/results)", () => {
     expect(text(card("progress").querySelector(".rs-card-big"))).toBe(`${combined} of 333 areas of sky searched`);
     const sum = summarize(parseSkyrun(sample), Date.parse("2026-11-14T19:14:40Z"));
     expect(card("progress").querySelector<HTMLElement>(".rs-bar > span")!.style.width).toBe(`${sum.combinedPct.toFixed(2)}%`);
-    expect(text(card("progress").querySelector(".rs-card-line"))).toBe(`${sample.totals.photos.toLocaleString("en-US")} photos read.`);
+    expect(text(card("progress").querySelector(".rs-card-line"))).toMatch(new RegExp(`^${sample.totals.photos.toLocaleString("en-US")} photos read, about [\\d,]+ an hour\\.$`));
     expect(text(card("progress").querySelector(".rs-card-meta"))).toBe("Updated 2 min ago");
     // no map, no machines on the overview
     expect(card("progress").querySelector("svg, .lv-mach")).toBeNull();
@@ -367,7 +367,7 @@ describe("each section's own page", () => {
     expect(prog.querySelector(".lv-title, h1")).toBeNull();
     expect(text(prog.querySelector(".lv-big.plain-only"))).toMatch(/^\d+ of 333 areas of sky searched \d+(\.\d)?%$/);
     const seen = seenText(prog, "pro-only");
-    expect(seen).toMatch(/[\d,]+ photos read\./);
+    expect(seen).toMatch(/[\d,]+ photos read, about [\d,]+ an hour\./);
     // the lede is Advanced's: the number leads
     expect(seen).not.toContain("cloud machines");
     s.page.destroy();
@@ -419,7 +419,8 @@ describe("each section's own page", () => {
     await vi.waitFor(() => expect(s.el.querySelector("#rs-progress-body .lv-big")).not.toBeNull());
     seen = seenText(s.el, "plain-only");
     expect(seen).toMatch(/\d+ of 333 zones combined/);
-    expect(seen).toContain("Machines");
+    expect(seen).not.toContain("Machines");
+    expect(seen).not.toMatch(/until the deadline|expected by|Just combined/);
     expect(seen).not.toContain("areas of sky searched");
     await open(s, "astronomers");
     expect(seenText(s.el, "plain-only")).toContain("What happens next");

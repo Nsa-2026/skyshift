@@ -74,7 +74,7 @@ export const mountReview: MountPage = (el) => mountQueue(el);
 export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandle {
   trackDiscover();
   const embedded = opts.embedded ?? null;
-  const QUEUE_TITLE = embedded ? "One at a time" : "Review";
+  const QUEUE_TITLE = embedded ? "Check them individually" : "Review";
   const h = embedded ? "h2" : "h1";
   /** Headings inside the queue sit one level under its title. */
   const sub = embedded ? "h3" : "h2";
@@ -609,7 +609,7 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
       // Embedded, the page's own title comes back when the queue hides.
       if (!shown) pageTitle = document.title;
       shown = true;
-      document.title = embedded ? "To check, one at a time: SkyShift" : "Review: SkyShift";
+      document.title = embedded ? "To check, individually: SkyShift" : "Review: SkyShift";
       started ??= start();
     },
     hide() {

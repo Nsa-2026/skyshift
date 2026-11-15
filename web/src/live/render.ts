@@ -82,7 +82,8 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
   const endsAt = sum.ends !== null ? fmtTimePair(sum.ends, now) : null;
   const by = endsAt ? `by ${endsAt}` : "by the run's end";
   let marker = "";
-  if (b.projectedPct !== null) {
+  // Results (plain) drops the projection, the deadline bar and the pace sums altogether.
+  if (b.projectedPct !== null && !plain) {
     const x = b.projectedPct;
     const side = x < 25 ? "start" : x > 75 ? "end" : "mid";
     marker = html`<span class="lv-proj${pro}" style="left:${x.toFixed(2)}%" aria-hidden="true"></span>
@@ -99,7 +100,7 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
     `<li><span class="lv-key lv-seg-rest"></span>${zn(nRest)} (${pctWord(rest)}) not yet extracted</li>`,
   ].join("");
   const time =
-    b.timePct !== null
+    b.timePct !== null && !plain
       ? html`<div class="lv-tbar${pro}">
           <div class="lv-tbar-track" aria-hidden="true"><span style="width:${b.timePct.toFixed(2)}%"></span></div>
           <p class="lv-note">${pctWord(b.timePct)} of the time to the deadline at ${fmtTimePair(sum.deadline, now)} has gone.</p>
@@ -121,8 +122,8 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
     </div>
     <ul class="lv-pkey${pro}">${key}</ul>
     ${time}
-    <p class="lv-honest${pro}">${honest}</p>
-    ${bulge ? `<p class="lv-honest lv-deferred${pro}">${bulge}</p>` : ""}`;
+    ${plain ? "" : `<p class="lv-honest">${honest}</p>`}
+    ${bulge && !plain ? `<p class="lv-honest lv-deferred">${bulge}</p>` : ""}`;
 }
 
 /**
@@ -132,7 +133,8 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
 export function plainProgressHtml(sum: RunSummary): string {
   const c = sum.counts;
   const busy = c.extracting + c.combining;
-  const photos = sum.photos > 0 ? `<b>${fmtCount(sum.photos)}</b> photos read. ` : "";
+  const rate = sum.photosPerHour ? `, about <b>${fmtAbout(sum.photosPerHour)}</b> an hour` : "";
+  const photos = sum.photos > 0 ? `<b>${fmtCount(sum.photos)}</b> photos read${rate}. ` : "";
   const map = busy ? "Map: red searched, striped in progress." : "Map: red searched.";
   return html`
     <p class="lv-big plain-only"><span class="lv-big-n">${fmtCount(c.combined)}</span> of ${fmtCount(sum.total)} areas of sky searched <span class="lv-big-pct">${pctWord(sum.combinedPct)}</span></p>
@@ -269,7 +271,7 @@ export function listsHtml(sum: RunSummary, now: number, plain = false): string {
     .join("");
   return html`
     <p class="lv-hint">${plain ? "Pick an area for its numbers." : "Pick a zone on the map for its numbers."}</p>
-    ${recent ? `<div${pro}><h2 class="lv-h">Just combined</h2><ul class="lv-list">${recent}</ul></div>` : ""}
+    ${recent && !plain ? `<div><h2 class="lv-h">Just combined</h2><ul class="lv-list">${recent}</ul></div>` : ""}
     <div${pro}>
       <h2 class="lv-h">What the numbers mean</h2>
       <p class="lv-note">A <b>dot</b> is one detection on one photo. A <b>source</b> is the dots of one object, linked. A <b>mover</b> is a source that shifts between photos. A <b>suspect</b> is a mover that no catalogue explains: something for people to check, most often a detector artefact.</p>
