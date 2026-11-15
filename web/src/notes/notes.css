@@ -1,0 +1,145 @@
+/* Notes on an object to check: the panel under "Sky around this spot" in the Viewer's left column,
+   and the roundup rows the Community page reuses the same marks for. Quiet by design — this sits
+   beside the plate, and nothing here should pull the eye off it. */
+.notes {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+}
+.notes[hidden] {
+  display: none;
+}
+
+.nt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.nt-h {
+  margin: 0;
+  font-size: var(--step-1);
+}
+.nt-count {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.nt-sub {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.nt-form {
+  display: grid;
+  gap: var(--s3);
+  margin-top: var(--s2);
+}
+.nt-body {
+  width: 100%;
+  min-height: 4.75rem;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+.nt-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+/* Empty until something is wrong, but it keeps its line so the button never jumps. */
+.nt-problem {
+  margin: 0;
+  min-height: 1.25em;
+  font-size: var(--step--1);
+  color: var(--bad, #d14343);
+}
+
+.nt-list {
+  display: grid;
+  gap: var(--s4);
+  margin: var(--s3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nt-note {
+  display: grid;
+  gap: 4px;
+  padding-left: var(--s4);
+  border-left: 2px solid var(--hair);
+}
+.nt-note-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0;
+}
+.nt-who {
+  font-weight: 600;
+}
+.nt-when {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin-right: auto;
+}
+.nt-body-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The made-up ones. A dashed outline and the word, on every single row: the panel must never read
+   as if these were other people's words. */
+.nt-tag,
+.cm-round-tag {
+  font-size: var(--step--2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border: 1px dashed var(--ink-3, var(--hair));
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.nt-sample {
+  border-left-style: dashed;
+}
+
+/* Quiet until the note is hovered or the button is tabbed to: it is a small, destructive thing. */
+.nt-del {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  cursor: pointer;
+  opacity: 0;
+}
+.nt-note:hover .nt-del,
+.nt-del:focus-visible {
+  opacity: 1;
+}
+.nt-del:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+@media (hover: none) {
+  /* No hover to reveal it, so it stays visible on touch. */
+  .nt-del {
+    opacity: 1;
+  }
+}
+
+.nt-fine {
+  margin: var(--s2) 0 0;
+  max-width: 64ch;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}

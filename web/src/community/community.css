@@ -86,8 +86,25 @@
 
 /* ---- Community ------------------------------------------------------------------------------ */
 .cm {
+  /* One reading edge for the whole page. Every prose block used to stop somewhere else -- the
+     welcome note at 68ch, the lede at 31em of a 30px face (930px), the sub at 66ch, the routes at
+     60ch, the honest paragraphs at 72ch -- so six different right edges stacked down the page with
+     nothing to line up on. They all share this one now. Blocks that are meant to be wide (the
+     pairs, the tables, the chart) say so for themselves. */
+  --cm-measure: 34rem;
+
   display: grid;
   gap: var(--s8);
+}
+/* The standalone page only. Results mounts this same block as .cm-embedded and sets its own
+   measures there (.cm-plain 60ch, .cm-rule and .cm-sub 64ch, .cm-next > p 72ch); without the
+   :not() this 34rem would undercut the ones it does not already override -- the count line, the
+   lede, the source note and the routes -- and leave that page with the mixed edges this token
+   exists to remove. */
+.cm:not(.cm-embedded) p,
+.cm:not(.cm-embedded) dd,
+.cm:not(.cm-embedded) .cm-empty {
+  max-width: var(--cm-measure);
 }
 .cm-head {
   display: grid;
@@ -97,7 +114,10 @@
 .cm-welcome {
   display: grid;
   gap: var(--s3);
-  max-width: 68ch;
+  /* In the two-column masthead the note is stretched down three rows; without this its own rows
+     spread out and the signature drifts away from the paragraph it signs. */
+  align-content: start;
+  max-width: var(--cm-measure);
   padding-block: var(--s3) var(--s6);
   border-bottom: 1px solid var(--hair);
 }
@@ -110,8 +130,8 @@
   font-weight: 600;
 }
 .cm-lead {
-  max-width: 31em;
-  font-size: clamp(1.25rem, 0.95rem + 1.25vw, 1.875rem);
+  max-width: var(--cm-measure);
+  font-size: clamp(1.1875rem, 1rem + 0.8vw, 1.625rem);
   font-weight: 420;
   line-height: 1.32;
   letter-spacing: -0.008em;
@@ -132,7 +152,7 @@
   border: 1px dashed var(--hair-strong);
   border-radius: var(--radius-panel);
   color: var(--ink);
-  max-width: 72ch;
+  max-width: var(--cm-measure);
 }
 .cm-source:empty {
   display: none;
@@ -146,6 +166,47 @@
 .cm-cta .btn {
   text-decoration: none;
   min-height: 40px;
+}
+
+/* Wide enough for two columns, the masthead takes them: the welcome note on the left, the count
+   and the two ways in on the right. One column left the top two thirds of the panel empty while
+   the note and the lede queued down its left edge. */
+/* From 1024, not 1280: on a 1084px laptop the panel is about 1000px wide and the masthead used
+   only the left 544 of it, so the note and the lede still queued down one edge with the other half
+   empty -- the fault this split exists to fix, at a width it did not reach. Two measures that both
+   shrink would have moved the note's right edge off the body text below it; instead the note's
+   column is rigid at the measure and the lede's takes what is left, so the one reading edge holds
+   and the lede is what gives way as the window narrows. */
+/* The standalone masthead only: Results' .cm-embedded head holds the plain line, the lede and the
+   source and none of the areas below, so two columns there would leave the whole "note" column
+   empty and push its text 34rem in from the left edge. */
+@media (min-width: 1024px) {
+  .cm:not(.cm-embedded) > .cm-head {
+    grid-template-columns: var(--cm-measure) minmax(0, var(--cm-measure));
+    grid-template-areas:
+      "title title"
+      "note  lead"
+      "note  source"
+      "note  cta";
+    grid-template-rows: auto auto auto 1fr;
+    justify-items: stretch;
+    column-gap: var(--s7);
+    padding-bottom: var(--s6);
+    border-bottom: 1px solid var(--hair);
+  }
+  .cm:not(.cm-embedded) > .cm-head > .cm-title { grid-area: title; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-welcome { grid-area: note; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-lead { grid-area: lead; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-source { grid-area: source; }
+  .cm:not(.cm-embedded) > .cm-head > .cm-cta { grid-area: cta; align-self: start; }
+  /* the rule under the note becomes the rule under the whole masthead */
+  .cm:not(.cm-embedded) > .cm-head > .cm-welcome {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .cm:not(.cm-embedded) > .cm-head > .cm-cta {
+    justify-content: start;
+  }
 }
 
 .cm-astro {
@@ -237,6 +298,9 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s4) var(--s7);
   margin: 0;
+  /* Across the full 1342px the second route sat alone far out right, a clear gap from the first.
+     Two measures wide keeps the pair reading as a pair. */
+  max-width: calc(2 * var(--cm-measure) + var(--s7));
 }
 .cm-routes dt {
   font-weight: 650;
@@ -245,16 +309,40 @@
 .cm-routes dd {
   margin: 0;
   color: var(--ink-2);
-  max-width: 60ch;
 }
 .cm-honest {
-  max-width: 72ch;
+  max-width: var(--cm-measure);
 }
 
 .cm-pair {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: var(--s7) var(--s8);
+  max-width: calc(2 * var(--cm-measure) + var(--s8));
+}
+/* Both pairs end together. The chart used to be a fixed height picked to match one particular
+   wording of the list beside it; any other wording, and the row ended ragged. Instead a pair
+   stretches and the taller-growing child takes the leftover height -- the plot on the left of the
+   lower pair (its floor is chart.ts MIN_HEIGHT), the roundup's list on the right of the upper one
+   -- so the two columns stay level whatever the words do. */
+.cm-pair {
+  align-items: stretch;
+}
+/* Stretched, a column's own rows must not spread to fill it: they stay stacked at the top and the
+   one row meant to grow (the plot, the roundup's list) is the only one that takes the slack. */
+.cm-pair > section,
+.cm-pair > .cm-side > section {
+  align-content: start;
+}
+.cm-pair:not(.cm-pair-you) > .cm-activity {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.cm-pair:not(.cm-pair-you) > .cm-activity > .cm-chart {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+/* An empty chart is meant to take no room, so that row goes back to its natural height. */
+.cm-pair:not(.cm-pair-you):has(.cm-chart[data-empty="true"]) {
   align-items: start;
 }
 .cm-pair > section {
@@ -263,7 +351,22 @@
   min-width: 0;
 }
 
-/* activity chart */
+/* activity chart. With no votes in yet the plot still held its 176px and the table view still
+   offered itself, so the section opened on a tall blank with a lone "Show as a table" adrift at the
+   foot of it. Empty, it takes no room: the sub above already says the chart arrives with the votes. */
+.cm-chart[data-empty="true"] {
+  padding: 0;
+  margin-top: 0;
+  border: 0;
+  background: none;
+}
+.cm-chart[data-empty="true"] .cm-plot {
+  min-height: 0;
+}
+.cm-chart[data-empty="true"] .cm-tableview {
+  display: none;
+}
+
 .cm-chart {
   position: relative;
   padding: var(--s4) var(--s4) var(--s3);
@@ -271,7 +374,8 @@
 }
 .cm-plot {
   position: relative;
-  min-height: 176px;
+  /* Floor only: chart.ts draws to the height this box actually gets. Keep in step with MIN_HEIGHT. */
+  min-height: 300px;
   border-radius: var(--radius-panel);
   outline: none;
 }
@@ -370,6 +474,22 @@
   display: grid;
   gap: 6px;
 }
+/* the rest of Most debated, folded away */
+.cm-debate-rest > details > summary {
+  color: var(--ink-2);
+  cursor: pointer;
+  width: fit-content;
+  font-size: var(--step--1);
+}
+.cm-debate-rest > details > summary:hover {
+  color: var(--ink);
+}
+.cm-debate-rest > details[open] > summary {
+  margin-bottom: var(--s4);
+}
+.cm-debate-rest .cm-debate-list {
+  margin-top: 0;
+}
 .cm-debate-row {
   display: flex;
   align-items: baseline;
@@ -391,6 +511,64 @@
   color: var(--ink-2);
   font-variation-settings: "wdth" 85;
   overflow-wrap: anywhere;
+}
+
+/* this browser's own votes: one row per object, the still-open ones first */
+.cm-mine-list {
+  display: grid;
+  gap: var(--s4);
+  margin: var(--s4) 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: var(--cm-measure);
+}
+.cm-mine {
+  display: grid;
+  gap: 6px;
+}
+.cm-mine-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.cm-mine-foot {
+  align-items: center;
+}
+.cm-mine-answer {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.cm-mine-answer b {
+  font-weight: 650;
+  color: var(--ink);
+}
+.cm-mine-state {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+/* Still open is the actionable one, so it is the one that carries weight. */
+.cm-mine-state.is-open {
+  color: var(--ink);
+  font-weight: 550;
+}
+/* No colour marks a vote that went the other way: mover's own segment is already --pencil-red, so
+   a red label beside a red bar reads as part of the bar. The row says it in words instead. */
+.cm-mine-state.is-differs {
+  color: var(--ink-2);
+}
+.cm-mine-foot .cm-split {
+  flex: none;
+  width: 140px;
+}
+.cm-mine-note {
+  margin-top: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+}
+.cm-mine-exports[hidden] {
+  display: none;
 }
 
 /* this browser */
@@ -923,4 +1101,114 @@
 }
 .cm-embedded .cm-next > p {
   max-width: 72ch;
+}
+
+/* ---- Notes ----------------------------------------------------------------------------------
+   Short messages people leave beside the votes. Kept in this browser (community/posts.ts), so the
+   panel stays plain: no counts to compare, no ranking, nothing that implies an audience. */
+
+/* ---- the column beside Your votes: how consensus works, then the roundup of notes ---- */
+/* How consensus works is a fixed read; the roundup takes whatever height is left and scrolls, so
+   the right column ends exactly where Your votes does instead of trailing off into white space. */
+.cm-side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--s7);
+  min-width: 0;
+  min-height: 0;
+}
+.cm-side > .cm-how,
+.cm-side > .cm-roundup {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+  align-content: start;
+}
+.cm-roundup {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  min-height: 0;
+}
+
+.cm-round-count {
+  margin: 0;
+}
+/* The list fills this box and is taken out of flow inside it, so its own length never sets the
+   row's height. That matters: left in flow, fourteen notes made the row taller than Your votes
+   and left eight hundred pixels of white under the votes instead of the other way round. The box
+   is the one that stretches, the list scrolls inside it, and the pair ends level either way. */
+.cm-round-scroll {
+  position: relative;
+  min-height: 11rem;
+  min-width: 0;
+}
+.cm-round-list {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--s4);
+  margin: 0;
+  padding: 0 var(--s4) 0 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cm-round-note {
+  display: grid;
+  gap: 3px;
+  padding-left: var(--s4);
+  border-left: 2px solid var(--hair);
+}
+.cm-round-sample {
+  border-left-style: dashed;
+}
+.cm-round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0;
+}
+.cm-round-who {
+  font-weight: 600;
+}
+.cm-round-when {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin-right: auto;
+}
+.cm-round-body {
+  margin: 0;
+  overflow-wrap: anywhere;
+  /* Three lines each: a long note should not push every other one out of the column. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.cm-round-about {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.cm-round-empty {
+  padding-left: 0;
+  border: 0;
+}
+.cm-round-fine {
+  margin: var(--s2) 0 0;
+}
+
+/* One column: there is no second column to end level with, so the roundup takes its own height --
+   but only up to a screenful. Left to grow it added two thousand pixels of notes to a page that is
+   already long on a phone, which is the opposite of what it is here for. */
+@media (max-width: 1023px) {
+  .cm-side {
+    grid-template-rows: auto auto;
+  }
+  .cm-round-scroll {
+    height: min(32rem, 60vh);
+  }
 }
