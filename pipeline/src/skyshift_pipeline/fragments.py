@@ -14,9 +14,11 @@ One row per sources.parquet row (results/<zone>/fragments.parquet; contracts/dot
   read per dot file, as orphans); sat_frac: OVERFLOW or NONLINEAR at the peak (`flags_peak`; NaN when the files lack it).
 - cat_dist_arcsec: nearest Gaia DR3 / 2MASS / CatWISE2020 entry of refcat/<zone>.parquet, Gaia moved by its proper motion
   to the source's epoch (crossids `epoch_mjd`, else crossid.source_epochs); match_dist_arcsec the same over
-  FRAGMENTS_MATCH_CATALOGUES only (the tag's test). NaN beyond FRAGMENTS_CAT_SEARCH_ARCSEC. Measured from the source's
-  position (sources.parquet) and, where it differs, from link's (fixed.parquet); the smaller wins: a saturated star's
-  member dots are mostly its wings, so its spectrum position can sit 5–9″ off the star (hunt: 162 such stars).
+  FRAGMENTS_MATCH_CATALOGUES only (the tag's test). NaN beyond FRAGMENTS_CAT_SEARCH_ARCSEC.
+- Every distance from a source (these, bright_*, n_gaia_8 / blend_ids, a fragment's parent, a star's home sources) is
+  measured from the source's position (sources.parquet) and, where link's (fixed.parquet) differs by more than
+  FRAGMENTS_LINK_MIN_OFFSET_ARCSEC, from link's too; the smaller wins (per Gaia star for the blend count): a saturated
+  star's member dots are mostly its wings, so its spectrum position can sit 5–9″ off the star (hunt: 162 such stars).
 - bright_ref_id, bright_dist_arcsec, bright_mag, bright_band: the nearest star with G < FRAGMENTS_BRIGHT_G, K < _K or
   W1 < _W1 within FRAGMENTS_BRIGHT_ARCSEC (G alone misses red giants).
 - n_gaia_8, blend_ids: Gaia stars G < FRAGMENTS_BLEND_G_MAX within FRAGMENTS_BLEND_ARCSEC (their ids, nearest first,
@@ -164,6 +166,36 @@ def gaia_pairs(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, g: pd.DataFrame
     return (si[ok], gi[ok], d[ok]) + ((e[ok], n[ok]) if offsets else ())
 
 
+def link_offset(ra: np.ndarray, dec: np.ndarray, link_pos: tuple[np.ndarray, np.ndarray] | None) -> np.ndarray:
+    """Indices of the sources whose link position (fixed.parquet; aligned with ra, dec) lies more than
+    FRAGMENTS_LINK_MIN_OFFSET_ARCSEC from (ra, dec): there every distance is also measured from link's, the smaller wins."""
+    if link_pos is None or not len(ra):
+        return np.zeros(0, np.int64)
+    lra, ldec = (np.asarray(x, np.float64) for x in link_pos)
+    with np.errstate(invalid="ignore"):
+        return np.flatnonzero(np.isfinite(lra) & np.isfinite(ldec)
+                              & (angsep(ra, dec, lra, ldec) * 3600.0 > C.FRAGMENTS_LINK_MIN_OFFSET_ARCSEC))
+
+
+def gaia_pairs_both(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, g: pd.DataFrame, radius_arcsec: float,
+                    link_pos: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[np.ndarray, ...]:
+    """gaia_pairs from each source's position and, where link's differs (link_offset), from link's too: one row per
+    (source, star) at the smaller separation. Returns (source index, row in g, separation ″, the star's ra, dec at the
+    source's epoch)."""
+    si, gi, d, pe, pn = gaia_pairs(ra, dec, mjd, g, radius_arcsec, offsets=True)
+    sra, sdec = tangent_deproject(ra[si], dec[si], pe, pn)
+    off = link_offset(ra, dec, link_pos)
+    if len(off):
+        lra, ldec = (np.asarray(x, np.float64)[off] for x in link_pos)
+        s2, g2, d2, e2, n2 = gaia_pairs(lra, ldec, np.asarray(mjd, np.float64)[off], g, radius_arcsec, offsets=True)
+        r2, q2 = tangent_deproject(lra[s2], ldec[s2], e2, n2)
+        si, gi, d = np.r_[si, off[s2]], np.r_[gi, g2], np.r_[d, d2]
+        sra, sdec = np.r_[sra, r2], np.r_[sdec, q2]
+        k = _min_pair_index(si, gi, d, len(g))
+        si, gi, d, sra, sdec = si[k], gi[k], d[k], sra[k], sdec[k]
+    return si, gi, d, np.asarray(sra, np.float64), np.asarray(sdec, np.float64)
+
+
 def nearest_static(ra: np.ndarray, dec: np.ndarray, ref: pd.DataFrame, radius_arcsec: float) -> tuple[np.ndarray, np.ndarray]:
     """Nearest row of `ref` (positions as listed, not moved) within radius: (separation ″ or NaN, row or -1)."""
     n = len(ra)
@@ -174,6 +206,19 @@ def nearest_static(ra: np.ndarray, dec: np.ndarray, ref: pd.DataFrame, radius_ar
     ok = np.isfinite(d)
     sep = np.where(ok, np.rad2deg(2 * np.arcsin(np.clip(np.where(ok, d, 0) / 2, 0, 1))) * 3600.0, np.nan)
     return sep, np.where(ok, i, -1).astype(np.int64)
+
+
+def nearest_static_both(ra: np.ndarray, dec: np.ndarray, ref: pd.DataFrame, radius_arcsec: float,
+                        link_pos: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """nearest_static from each source's position and, where link's differs (link_offset), from link's: the nearer."""
+    sep, i = nearest_static(ra, dec, ref, radius_arcsec)
+    off = link_offset(ra, dec, link_pos)
+    if len(off):
+        s2, i2 = nearest_static(np.asarray(link_pos[0], np.float64)[off], np.asarray(link_pos[1], np.float64)[off], ref,
+                                radius_arcsec)
+        better = np.isfinite(s2) & ~(s2 >= sep[off])  # NaN sep: anything is better
+        sep[off[better]], i[off[better]] = s2[better], i2[better]
+    return sep, i
 
 
 def nearest_of_pairs(n: int, si: np.ndarray, d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -208,25 +253,23 @@ def nearest_distances(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: 
 def catalogue_columns(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: pd.DataFrame,
                       link_pos: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[pd.DataFrame, dict]:
     """cat_dist_arcsec, match_dist_arcsec, bright_*, n_gaia_8, blend_ids for sources at (ra, dec) and epochs mjd.
-    link_pos: link's positions (fixed.parquet) of the same sources; where one is > 0.5″ from (ra, dec), the catalogue
-    distances are also measured from it and the smaller wins (a saturated star's spectrum position can sit 5–9″ off it)."""
+    link_pos: link's positions (fixed.parquet) of the same sources; where one is more than
+    FRAGMENTS_LINK_MIN_OFFSET_ARCSEC from (ra, dec), every distance here is also measured from it and the smaller wins
+    (a saturated star's spectrum position can sit 5–9″ off it): per Gaia star, so a blend counts the stars within 8″ of
+    either position."""
     n = len(ra)
     cats = refcat["cat"].to_numpy()
     g = refcat[cats == "gaia"].reset_index(drop=True)
     # Gaia, moved to each source's epoch: nearest (any G), the blend count (G < BLEND_G_MAX), bright neighbours
     rad = max(C.FRAGMENTS_CAT_SEARCH_ARCSEC, C.FRAGMENTS_BLEND_ARCSEC)
-    si, gi, d, pe, pn = gaia_pairs(ra, dec, mjd, g, rad, offsets=True)
+    si, gi, d, sra, sdec = gaia_pairs_both(ra, dec, mjd, g, rad, link_pos)
     near = nearest_distances(ra, dec, mjd, refcat, (si, gi, d))
-    moved_link = 0
-    if link_pos is not None:
-        lra, ldec = (np.asarray(x, np.float64) for x in link_pos)
-        with np.errstate(invalid="ignore"):
-            off = np.flatnonzero(np.isfinite(lra) & (angsep(ra, dec, lra, ldec) * 3600.0 > 0.5))
-        moved_link = int(len(off))
+    off = link_offset(ra, dec, link_pos)
+    for cat in ("tmass", "catwise"):  # (Gaia: already the smaller of the two in the pairs)
         if len(off):
-            alt = nearest_distances(lra[off], ldec[off], mjd[off], refcat)
-            for k, v in alt.items():
-                near[k][off] = _fmin({"a": near[k][off], "b": v}, ("a", "b"))
+            alt, _ = nearest_static(np.asarray(link_pos[0], np.float64)[off], np.asarray(link_pos[1], np.float64)[off],
+                                    refcat[cats == cat].reset_index(drop=True), C.FRAGMENTS_CAT_SEARCH_ARCSEC)
+            near[cat][off] = _fmin({"a": near[cat][off], "b": alt}, ("a", "b"))
     gmag = g["g"].to_numpy(np.float64)
     with np.errstate(invalid="ignore"):
         bl = (d <= C.FRAGMENTS_BLEND_ARCSEC) & (gmag[gi] < C.FRAGMENTS_BLEND_G_MAX)
@@ -236,15 +279,15 @@ def catalogue_columns(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: 
     many = n8 >= C.FRAGMENTS_BLEND_MIN_GAIA
     if many.any():
         sel = bl & many[si]
-        s2, g2, d2, e2, n2 = si[sel], gi[sel], d[sel], pe[sel], pn[sel]
+        s2, g2, d2, r2, q2 = si[sel], gi[sel], d[sel], sra[sel], sdec[sel]
         order = np.lexsort((d2, s2))
-        s2, g2, e2, n2 = s2[order], g2[order], e2[order], n2[order]
+        s2, g2, r2, q2 = s2[order], g2[order], r2[order], q2[order]
         ids = gaia_numeric_id(g["ref_id"].to_numpy()[g2])
         cuts = np.flatnonzero(np.diff(s2)) + 1
         for s, part in zip(s2[np.r_[0, cuts]], np.split(ids, cuts)):
             blend_ids[int(s)] = part
         a = np.r_[0, cuts]  # each source's nearest two (every group has >= 2 rows): their separation and ΔG (>= 0)
-        blend_sep[s2[a]] = np.hypot(e2[a] - e2[a + 1], n2[a] - n2[a + 1])
+        blend_sep[s2[a]] = angsep(r2[a], q2[a], r2[a + 1], q2[a + 1]) * 3600.0
         blend_dg[s2[a]] = np.abs(gmag[g2[a]] - gmag[g2[a + 1]])
     # bright neighbours: Gaia G (moved), 2MASS K, CatWISE W1
     bd = np.full(n, np.nan)
@@ -258,7 +301,7 @@ def catalogue_columns(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: 
 
     with np.errstate(invalid="ignore"):
         gb = g[gmag < C.FRAGMENTS_BRIGHT_G].reset_index(drop=True)
-    si_b, gi_b, d_b = gaia_pairs(ra, dec, mjd, gb, C.FRAGMENTS_BRIGHT_ARCSEC)
+    si_b, gi_b, d_b, _, _ = gaia_pairs_both(ra, dec, mjd, gb, C.FRAGMENTS_BRIGHT_ARCSEC, link_pos)
     best, arg = nearest_of_pairs(n, si_b, d_b)
     has = arg >= 0
     rows = np.where(has, gi_b[np.where(has, arg, 0)] if len(gi_b) else 0, 0)
@@ -268,7 +311,7 @@ def catalogue_columns(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: 
         r = refcat[cats == cat]
         with np.errstate(invalid="ignore"):
             r = r[r[col].to_numpy(np.float64) < lim].reset_index(drop=True)
-        sep, i = nearest_static(ra, dec, r, C.FRAGMENTS_BRIGHT_ARCSEC)
+        sep, i = nearest_static_both(ra, dec, r, C.FRAGMENTS_BRIGHT_ARCSEC, link_pos)
         j = np.where(i >= 0, i, 0)
         take(sep, r["ref_id"].astype(str).to_numpy()[j] if len(r) else np.full(n, ""),
              r[col].to_numpy(np.float64)[j] if len(r) else np.full(n, np.nan), band)
@@ -279,7 +322,7 @@ def catalogue_columns(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: 
         "bright_band": bband.astype(str), "n_gaia_8": n8, "blend_ids": blend_ids,
         "blend_sep_arcsec": blend_sep.astype(np.float32), "blend_dg": blend_dg.astype(np.float32)})
     st = {"refcat_rows": {k: int((cats == k).sum()) for k in ("gaia", "tmass", "catwise")}, "gaia_pairs": int(len(si)),
-          "link_position_also": moved_link,
+          "link_position_also": int(len(off)),
           "bright_stars": {"G": int(len(gb)), "K": int(((cats == "tmass") & (refcat["k"].to_numpy(np.float64) < C.FRAGMENTS_BRIGHT_K)).sum()),
                            "W1": int(((cats == "catwise") & (refcat["w1"].to_numpy(np.float64) < C.FRAGMENTS_BRIGHT_W1)).sum())}}
     return out, st
@@ -303,13 +346,20 @@ def star_radius(gmag) -> np.ndarray:
     return by_g(gmag, C.FRAGMENTS_STAR_ARCSEC, C.FRAGMENTS_MATCH_ARCSEC)
 
 
+def _min_pair_index(si: np.ndarray, gi: np.ndarray, d: np.ndarray, n_g: int) -> np.ndarray:
+    """Rows to keep for one row per (source, star): the smallest d."""
+    if not len(si):
+        return np.zeros(0, np.int64)
+    key = si.astype(np.int64) * max(n_g, 1) + gi
+    order = np.lexsort((d, key))
+    return order[np.r_[True, np.diff(key[order]) != 0]]
+
+
 def _min_pairs(si: np.ndarray, gi: np.ndarray, d: np.ndarray, n_g: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One row per (source, star): the smallest d."""
     if not len(si):
         return si, gi, d
-    key = si.astype(np.int64) * max(n_g, 1) + gi
-    order = np.lexsort((d, key))
-    first = order[np.r_[True, np.diff(key[order]) != 0]]
+    first = _min_pair_index(si, gi, d, n_g)
     return si[first], gi[first], d[first]
 
 
@@ -416,20 +466,22 @@ def tags(bloom_frac, match_dist, n_gaia_8, kept=None, duplicate=None) -> np.ndar
 
 
 def parents(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: pd.DataFrame, sid: np.ndarray,
-            positions: list[tuple[np.ndarray, np.ndarray]], xgaia: pd.Series | None = None) -> tuple[pd.DataFrame, dict]:
+            positions: list[tuple[np.ndarray, np.ndarray]], xgaia: pd.Series | None = None,
+            link_pos: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[pd.DataFrame, dict]:
     """The bright star whose ring each position (a bright_fragment) is part of: the brightest Gaia star with
     G < FRAGMENTS_PARENT_G within FRAGMENTS_PARENT_ARCSEC, moved to the epoch (the nearer on a tie). parent_gaia_id
     (−1: none), parent_mag (its G), parent_dist_arcsec; parent_source_id: the star's own fixed source (−1: none), the
     source crossid matched to it or star_sources kept for it (xgaia: gaia_id → source_id), else the nearest source within
     FRAGMENTS_MATCH_ARCSEC of the star in any of `positions` (the zone's sources' ra/dec arrays, aligned with `sid`:
-    sources.parquet's, link's)."""
+    sources.parquet's, link's). link_pos: link's positions of these fragments (aligned with ra, dec); the search and
+    parent_dist_arcsec use the smaller of the two distances (gaia_pairs_both)."""
     n = len(ra)
     out = pd.DataFrame({"parent_source_id": np.full(n, -1, np.int64), "parent_gaia_id": np.full(n, -1, np.int64),
                         "parent_mag": np.full(n, np.nan, np.float32), "parent_dist_arcsec": np.full(n, np.nan, np.float32)})
     g = refcat[refcat["cat"].to_numpy() == "gaia"]
     with np.errstate(invalid="ignore"):
         g = g[g["g"].to_numpy(np.float64) < C.FRAGMENTS_PARENT_G].reset_index(drop=True)
-    si, gi, d, pe, pn = gaia_pairs(ra, dec, mjd, g, C.FRAGMENTS_PARENT_ARCSEC, offsets=True)
+    si, gi, d, star_ra, star_dec = gaia_pairs_both(ra, dec, mjd, g, C.FRAGMENTS_PARENT_ARCSEC, link_pos)
     st = {"with_parent": 0, "with_parent_source": 0, "parent_source_by_crossid": 0}
     if not len(si):
         return out, st
@@ -447,7 +499,7 @@ def parents(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, refcat: pd.DataFra
         st["parent_source_by_crossid"] = int((psid >= 0).sum())
     left = psid < 0
     if left.any():  # the star's position at that epoch, against every source position within the match radius
-        sra, sdec = tangent_deproject(ra[s[left]], dec[s[left]], pe[first][left], pn[first][left])
+        sra, sdec = star_ra[first][left], star_dec[first][left]
         best, arg = np.full(int(left.sum()), np.inf), np.full(int(left.sum()), -1, np.int64)
         for pra, pdec in positions:
             ok = np.isfinite(pra) & np.isfinite(pdec)
@@ -513,7 +565,8 @@ def compute(store: Store, zone: C.Zone, workers: int = 16, dots_store: Store | N
     kept = star["kept"].to_numpy()  # a star's own source: crossid's match, else the one star_sources kept (it may sit > 3″ off)
     kg = pd.Series(sid[kept], index=star["star_gaia_id"].to_numpy()[kept])
     xk = kg if xgaia is None else pd.concat([xgaia, kg[~kg.index.isin(xgaia.index)]])
-    par, st["parents"] = parents(ra[f], dec[f], mjd[f], refcat, sid, [(ra, dec)] + ([link_pos] if link_pos else []), xk)
+    par, st["parents"] = parents(ra[f], dec[f], mjd[f], refcat, sid, [(ra, dec)] + ([link_pos] if link_pos else []), xk,
+                                 (link_pos[0][f], link_pos[1][f]) if link_pos else None)
     dd = np.flatnonzero(tag == "duplicate")  # a duplicate's parent: the star it is a second source of, and its kept source
     for c in par.columns:  # −1 / NaN on every other row
         col = np.full(len(out), -1, np.int64) if par[c].dtype == np.int64 else np.full(len(out), np.nan, np.float32)

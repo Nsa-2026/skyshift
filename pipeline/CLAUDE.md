@@ -25,7 +25,10 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   duplicates), candidates.py (fragments and duplicates never listed, blend → reason `blend`), server measured.py
   (duplicate drawn as its star's bright_fragment). Rerun after it: highpm, orphans, shape, candidates. Hunt (15 Nov,
   14 Nov tables): 3,537 bright_fragment / 223 duplicate / 363 saturated_star / 13,224 blend of 314,467 sources; Gaia
-  stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s).
+  stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s). Every distance from a
+  source (catalogue, bright neighbour, blend count per Gaia star, a fragment's parent) takes the nearer of its spectrum
+  and link positions (FRAGMENTS_LINK_MIN_OFFSET_ARCSEC). Hunt (15 Nov 00:01Z tables): parent_dist of 491 fragments
+  nearer (median 25.0 → 21.8″), bright_* of 894 sources, 9 more blends, no other tag changes.
 - stack (stack.py, 15 Nov; not in `all`; zones of config STACK_ZONES, the five featured targets): `uv run
   skyshift-pipeline stack --zone t_barnard --root gs://nasa-glazing-data --workers 8 --cache /tmp/stack-t_barnard`.
   Reads each photo's IMAGE/FLAGS/VARIANCE block over the zone once (S3 section reads, cached as npz in --cache),
@@ -52,12 +55,33 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   20″ weighted by flux ratio × share of light in the window, summed as a vector, explain it when the projection on the
   measured PA ≥ 0.25 × excess; galaxy veto (classify galaxy, a good photo-z, or no Gaia star and ext > 1 / size > 1.12).
   The 49 listed → 5 (#2, #13, #25, #26, #29: the review's keepers): 28 galaxy-like, 17 neighbours (13 of them 2MASS).
+  Two-source fit (15 Nov, shape_fit.py; `shape` runs it on the listed rows, `--no-fit` skips it; `python -m
+  skyshift_pipeline.shape_fit --zone hunt [--rows <parquet>] [--tables <dir>] [--out <dir>]` refits an existing
+  file): each candidate's member photos (≤ 400) read back from S3 (13 × 13 px of IMAGE, FLAGS, VARIANCE; the EPSF
+  table once per detector: the same in every photo), one ePSF vs two, the companion at ONE sky offset for all photos
+  (grid ±21″ then refined, the brighter one is the primary), Gaia/CatWISE neighbours ≤ 3 mag fainter as their own
+  ePSFs. F2 is free per photo, so a bright star's ePSF errors lower χ² too (15 isolated Gaia stars of the
+  candidates' G: Δχ² 300–2,700, one 39,000): the split rests on the companion's S/N (error = max(formal, the photos'
+  scatter)) ≥ 5 in a detector and > −3 in all, 4.5–21″ out. Controls: 5 of 15 split, all onto CatWISE W1 16.5–17.1
+  entries ~4 mag fainter (real, named via `companion_catalog`). Hunt: 4 of 5 split (5–12″, 0.8–1.9 mag fainter,
+  Δχ² 12k–38k, none moves; #5's companion is a 2MASS entry); ~4 min per candidate on a loaded laptop. Columns
+  `companion_*` (contracts/dots.md); server measured.py draws a split companion (reason `split_by_fit`).
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - astrometry (14 Nov night, ASTRO_SAT_OFFSET): saturated dots sit ~0.01–0.06 px off the star along −x (fixed in pixels,
   the 180° roll made it a fake westward pm: −110 mas/yr at G 8–10). Per detector × depth bin (band mag − 50% saturation
   mag) the median pixel offset vs Gaia is removed via each photo's Jacobian; frame offsets use unsaturated dots only.
   Hunt: G 8–10 −112 → −33, G 10–11 −81 → −28 mas/yr (pm − Gaia − ϖ·k); the rest is bright unsaturated dots (~−0.001 px).
+- astrometry (15 Nov, ASTRO_PIXEL_MAP, ASTRO_BRIGHT_OFFSET): unsaturated dots also sit off in fixed pixels: a static map
+  per detector (128 px cells, rms 3–9 mpx, up to 0.04 px) and a brightness term on the dot's own level (AB from flux_ujy −
+  the detector's 50% saturation AB): −0.3 to −4.5 mpx along x just below saturation, +0.3 to +1.4 at the faint end.
+  Fitted once per zone on quiet Gaia stars' unsaturated dots after the frame offsets (tiled: from the tiles' frame
+  residuals, which now carry x, y, snr, level, kind and the Jacobian: ~27 M rows for the hunt), removed via the Jacobian.
+  Hunt, fitted on half the stars, the other half, RA: G 9–10 −34 → −8, G 10–11 −29 → −11, G 11–12 −19 → −3,
+  G 12–13 −7 → +2, G > 18 +15 → +2 mas/yr; G < 8 (saturated) −76 → −47. highpm: fast Gaia stars 77 → 78 of 106,
+  fp_control 1 → 1, Gaia stars G 9–13 with a fake pm 18 → 14. Open: 6 of those 14 sit in the zone's SW corner
+  (RA < 121, Dec < 15: 43 such stars; elsewhere 0.07%). Not the calib quadratics of photos that cover only a patch of the
+  zone (604 of 3,552 photos have a coefficient > 2″; leaving their dots out: 6 → 4).
 - highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
   asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
   status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.
@@ -244,6 +268,10 @@ The step never raises (errors go to its stats).
   Hunt: 124 tracks (all known asteroids, none mixed), 1245 of 6143 movers; control (each session's movers moved
   0.5–1.5°) 0 tracks in 4 runs; recall at V < 16 90.4% → 94.7% (433/457), control 0; 0 of 228 suspects on a track.
   The rest of the misses: no dot (12), or a dot inside a star's fixed group (≤ 4″, not a free dot).
+  score tells the two kinds of dot apart (members.parquet: a dot in a fixed source's group vs a free dot, the only kind
+  link pairs): recall_units `dot_free`/`dot_fixed`/`miss`, recall.json `free_dot_share` and `misses`. Hunt (15 Nov
+  tables, V < 16): dot_share 97.4% but free_dot_share 95.0%; misses no_dot 11, fixed_dot 11, free_dot 1; control
+  dot_share 13.6% → free 2.2% (most chance dots within 12″ are stars').
   Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
   stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over nonfixed_dots (not suspects' freedots.parquet: that one
   has pixel x, y and no near-fixed dots, for vet's hot-pixel maps).
