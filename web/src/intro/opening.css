@@ -23,8 +23,8 @@
   display: none;
 }
 .op-track {
-  height: 600vh;
-  height: 600svh;
+  height: 700vh;
+  height: 700svh;
   pointer-events: none;
 }
 .op.is-still .op-track {

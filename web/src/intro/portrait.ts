@@ -13,11 +13,11 @@ export function portraitCamera(w: number, h: number, s: SceneState) {
   const faceTarget = Math.min(h * .62, w * .70) / 46;
   const eyeTarget = Math.min(w, h) * .6 / GODDESS_EYE_WIDTH;
   const faceScale = wide * Math.pow(faceTarget / wide, s.face);
-  const eyeScale = faceScale * Math.pow(eyeTarget / faceScale, s.eye);
+  const eyeScale = faceScale * Math.pow(eyeTarget / faceScale, s.scope);
   const full = Math.hypot(w, h) / (PORTRAIT_EYE.radius * 1.8);
-  const scale = eyeScale * Math.pow(full / eyeScale, s.pupil);
-  const focusX = GODDESS_HEAD.x + (PORTRAIT_EYE.x - GODDESS_HEAD.x) * s.eye;
-  const focusY = GODDESS_HEAD.y + (PORTRAIT_EYE.y - GODDESS_HEAD.y) * s.eye;
+  const scale = eyeScale * Math.pow(full / eyeScale, s.aperture);
+  const focusX = GODDESS_HEAD.x + (PORTRAIT_EYE.x - GODDESS_HEAD.x) * s.scope;
+  const focusY = GODDESS_HEAD.y + (PORTRAIT_EYE.y - GODDESS_HEAD.y) * s.scope;
   // Figure feet are at y=0; anchor them to the ground before the camera starts moving.
   const standingHeadY = h * .86 + GODDESS_HEAD.y * wide;
   return {

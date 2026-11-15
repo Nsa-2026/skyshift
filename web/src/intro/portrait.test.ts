@@ -12,7 +12,7 @@ describe('supplied goddess camera', () => {
     expect(75 * cam.scale).toBeLessThanOrEqual(w * .46 + 1e-8);
   });
   it.each([[1440, 1000], [390, 844]])('centres the model pupil, rather than the old face coordinates, at %i×%i', (w, h) => {
-    const cam = portraitCamera(w, h, sceneAt(.70));
+    const cam = portraitCamera(w, h, sceneAt(.72));
     expect(cam.x + (GODDESS_PUPIL.x - cam.focusX) * cam.scale).toBeCloseTo(w / 2);
     expect(cam.y + (GODDESS_PUPIL.y - cam.focusY) * cam.scale).toBeCloseTo(h / 2);
     expect(GODDESS_EYE_WIDTH * cam.scale).toBeCloseTo(Math.min(w, h) * .6);

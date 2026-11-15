@@ -19,7 +19,7 @@ import { preparePlanetaryOpening, type PlanetPreparation } from './planet-worker
 export const SKY_URL = "/opening/spherex-sky.webp";
 // English wording: the author's own (1390d01 on codex/frontend-unified) wherever it exists.
 const CREDIT_SKY = "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).";
-const CREDIT_ART = "Earth, planets and figure drawn in code.";
+const CREDIT_ART = "Illustration: Earth, planets and Galileo drawn in code.";
 
 export type CloseReason = "skip" | "end" | "navigate";
 
