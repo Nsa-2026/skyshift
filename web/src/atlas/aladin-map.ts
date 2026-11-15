@@ -131,7 +131,11 @@ export function limbEllipse(mol: boolean, fovDeg: number, w: number, h: number):
  * objects to check; a zone is drawn in the sky's own pale ink (ink on the negative).
  */
 export function zoneStyle(level: Level): { fill: number; edge: number } {
-  if (level === "whole") return { fill: 0.2, edge: 0.9 };
+  // The fill is light on the whole sky on purpose. Overlapping zones merge into areas that can
+  // wrap right round the ecliptic, and at 0.2 that area read as a white band laid over the survey
+  // rather than as a patch of it. The edge at 0.9 is what marks the zone out; the fill only has to
+  // tint what is inside it.
+  if (level === "whole") return { fill: 0.1, edge: 0.9 };
   if (level === "mid") return { fill: 0.06, edge: 0.6 };
   return { fill: 0, edge: 0.3 };
 }
@@ -172,9 +176,19 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   }
 
   /** Negative: grey scale reversed, so the dark sky becomes glass and stars become ink. */
-  function style(h: Hips) {
+  /**
+   * 2MASS and AllWISE are colour JPEGs, so "native" is their own real colour. The SPHEREx cube
+   * is one 12-bit channel of 102, which "native" draws blown out and white, so its colour has
+   * to come from a colour map. Linear, not asinh: at SPHEREX_FRAME (about 2 µm) the zodiacal
+   * light is in the picture and NASA does not subtract it (Expsupp 2.2), so the whole sky is
+   * bright and asinh lifts the faint end until it all reads white.
+   *
+   * That is a colour map over one wavelength, not an RGB composite of three.
+   */
+  function style(h: Hips, id?: BackgroundId) {
     try {
       if (layers.negative) h.setColormap?.("grayscale", { reversed: true, stretch: "linear" });
+      else if ((id ?? layers.background) === "spherex") h.setColormap?.("magma", { reversed: false, stretch: "linear" });
       else h.setColormap?.("native", { reversed: false });
       h.setOpacity(layers.negative ? NEGATIVE_OPACITY : 1);
     } catch {
@@ -193,12 +207,12 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       // inside a detector instead, once Aladin has read the cube's properties.
       successCallback: (layer) => {
         if (id === "spherex") setSlice(layer as Hips);
-        if (id === layers.background) style(layer as Hips);
+        if (id === layers.background) style(layer as Hips, id);
       },
     }) as Hips;
     hips[id] = made;
     if (id === "spherex") setSlice(made);
-    style(made);
+    style(made, id);
     return made;
   }
 

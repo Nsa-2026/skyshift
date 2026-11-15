@@ -183,12 +183,26 @@ export function densifyRing(ring: readonly [number, number][], stepDeg = 0.5): [
   return pts;
 }
 
-/** "Hunt zone"; "Hunt and pilot zones"; "Hunt, pilot and ecl13 zones". */
+/**
+ * "Hunt zone"; "Hunt and pilot zones"; "Hunt, pilot and ecl13 zones"; past three, the busiest two
+ * and a count: "Ecl11, ecl17 and 17 more zones".
+ *
+ * The cap is the point. Near the ecliptic a score of zones overlap into one area, and naming them
+ * all gave a badge that ran most of the way across the sky and jumped about as the map turned.
+ * Nobody reads the nineteenth name; the two busiest and how many follow is the whole of what the
+ * badge has to say, and the names are all in the list beside the map anyway.
+ */
+const NAMED = 3;
+
 export function areaName(a: Pick<ZoneArea, "zones">): string {
   const names = a.zones.map((z) => zoneName(z).replace(/ zone$/, ""));
   if (names.length === 1) return `${names[0]} zone`;
-  const rest = names.slice(1).map((s) => s.charAt(0).toLowerCase() + s.slice(1));
-  const all = [names[0], ...rest];
+  const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+  if (names.length > NAMED) {
+    const shown = [names[0], ...names.slice(1, NAMED - 1).map(lower)];
+    return `${shown.join(", ")} and ${names.length - shown.length} more zones`;
+  }
+  const all = [names[0], ...names.slice(1).map(lower)];
   return `${all.slice(0, -1).join(", ")} and ${all[all.length - 1]} zones`;
 }
 

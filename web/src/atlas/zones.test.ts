@@ -132,6 +132,10 @@ describe("zone geometry", () => {
     expect(areaName({ zones: ["hunt"] })).toBe("Hunt zone");
     expect(areaName({ zones: ["hunt", "pilot"] })).toBe("Hunt and pilot zones");
     expect(areaName({ zones: ["hunt", "pilot", "ecl13"] })).toBe("Hunt, pilot and ecl13 zones");
+    // Past three the badge names the two busiest and counts the rest: near the ecliptic a score of
+    // zones merge into one area, and the full list ran most of the way across the sky.
+    expect(areaName({ zones: ["ecl11", "ecl17", "ecl16", "ecl21"] })).toBe("Ecl11, ecl17 and 2 more zones");
+    expect(areaName({ zones: Array.from({ length: 19 }, (_, i) => `ecl${i}`) })).toBe("Ecl0, ecl1 and 17 more zones");
     expect(badgeTexts({ zones: ["hunt"], count: 230 })).toEqual(["Hunt zone, 230 to check", "230 to check"]);
     expect(badgeTexts({ zones: ["hunt", "pilot"], count: 1272 })[0]).toBe("Hunt and pilot zones, 1,272 to check");
   });

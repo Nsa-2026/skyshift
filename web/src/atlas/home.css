@@ -100,9 +100,124 @@
 @media(max-width:720px) {
   .atl .atl-top {top:calc(var(--atl-header-height, 0px) + var(--s3));left:var(--s3);width:calc(100% - 2 * var(--s3));}
   .atl .atl-intro {gap:var(--s2);padding:var(--s3);}
+  /* The panel's padding drops to --s3 here, but the scrolling strip of choices still bled by --s4,
+     so it pushed the panel 4px wider than the map on each side and the Adjust button lost its
+     right edge. The bleed follows the padding, and nothing inside may force the panel wider. */
+  .atl .atl-top > *,.atl .atl-intro > * {min-width:0;}
+  .atl .atl-intro .atl-controls-main {margin:0 calc(-1 * var(--s3));padding:2px var(--s3);}
   .atl .atl-lede {font-size:var(--step--1);}
   .atl .atl-status {left:var(--s3);right:var(--s3);bottom:calc(var(--s3) + 48px);max-width:none;}
   .atl .atl-zoom {right:var(--s3);bottom:var(--s3);}
   /* The search panel spans the top: the button sits bottom left, beside the zoom buttons. */
   .atl .atl-reveal {top:auto;right:auto;left:var(--s3);bottom:var(--s3);}
+}
+
+
+/* ---- the Sky page's chrome, on dark glass ----
+   This page's panels and the site header sit on the sky itself, not on the bench, so a near
+   opaque white bar across the top reads as a strip laid over the picture. They take a dark
+   glass here and keep the page's own light surfaces everywhere else.
+
+   Tokens are redefined rather than colours overridden, so every control inside follows at once.
+   --ink and --glass are a pair — a filled control is --ink behind --glass — so both flip, or
+   the primary button ends up light on light. --sheet-2 is the segmented controls' track, which
+   left on the page's light grey would put light labels on a light strip. */
+html.sky-dark #app.cosmic-shell .top,
+html.sky-dark .atl .atl-below,
+html.sky-dark .atl .atl-intro,
+html.sky-dark .atl .atl-more {
+  --ink: #f4f7fd;
+  --ink-2: rgb(229 235 247 / 86%);
+  --ink-3: rgb(229 235 247 / 66%);
+  --sheet: rgb(12 14 22 / 68%);
+  --sheet-2: rgb(255 255 255 / 12%);
+  --glass: #0b0d14;
+  --hair: rgb(255 255 255 / 16%);
+  --hair-strong: rgb(255 255 255 / 26%);
+  --cosmic-surface: rgb(10 12 20 / 72%);
+  color: var(--ink);
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+}
+html.sky-dark #app.cosmic-shell .top {
+  border-bottom: 1px solid var(--hair);
+}
+html.sky-dark .atl .atl-intro,
+html.sky-dark .atl .atl-more {
+  border: 1px solid var(--hair);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 42%);
+}
+/* The message line is pinned to the panel's ink upstream; it has to follow the flip too. */
+html.sky-dark #app .atl .atl-top .atl-msg {
+  color: var(--ink-2);
+}
+
+/* Below the map the shell's own dark backdrop shows through, so the key, the list and the
+   source line need the light ink too. They are not panels, so they take none of the glass. */
+html.sky-dark .atl .atl-below {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top: 1px solid var(--hair);
+}
+
+
+/* ---- the controls sit at the foot of the map ----
+   The search panel used to hang under the header, across the part of the sky the eye lands on
+   first. At the foot it joins the status line and the zoom into one band of instruments and
+   leaves the whole upper sky clear, which is what the page is for. Adjust grows upward from
+   it and still clears the header.
+
+   The tour's card has to move with it. Both are translucent, and left where it was the card
+   sat underneath the panel: two panes of dark glass stacked, with the text of each showing
+   through the other. It goes to the other side, clear of the zoom cluster.
+
+   Only from 1024px. The two sit side by side along the foot, and the panel is up to 440px
+   with the card up to about 400px: narrower than that they overlap each other, so below it
+   the panel stays under the header and the card keeps the near corner. Phones keep their own
+   arrangement (the rule below 720px): there the map is tall and narrow, the panel spans the
+   full width, and the foot already holds the status and the reveal button. */
+@media (min-width: 1024px) {
+  .atl .atl-top {
+    top: auto;
+    bottom: calc(var(--s4) + 52px);
+    align-content: end;
+    max-height: calc(100% - var(--atl-header-height, 0px) - 2 * var(--s4) - 108px);
+  }
+  .atl-tour {
+    left: auto;
+    right: clamp(16px, 4vw, 48px);
+    bottom: calc(clamp(56px, 9vh, 104px) + 64px);
+  }
+}
+
+/* On a phone the card shares the foot with the status line, which spans the full width there,
+   so it sits above it rather than on it, and takes the same gutters. */
+@media (max-width: 720px) {
+  .atl-tour {
+    left: var(--s3);
+    right: var(--s3);
+    bottom: calc(var(--s3) + 104px);
+    max-width: none;
+  }
+}
+
+
+/* ---- the two controls that must stay usable while zoomed in ----
+   The chrome recedes as you zoom, which is right for the panels: they are in the way of the
+   sky. It is wrong for these two. The zoom cluster is how you get back out, and the status
+   line is how you know what you are looking at, so fading them to a fifth is fading exactly
+   what is needed at exactly the moment it is needed — and a click that misses the faded minus
+   button lands on the map, where any spot opens the Viewer. That is how zooming out ended up
+   navigating away.
+
+   It also closes a contrast failure: at 0.7 the status pill's white composites down over the
+   dark sky until its dark text measures about 1.1:1. */
+.atl .atl-zoom,
+.atl .atl-status {
+  opacity: max(var(--sky-chrome-opacity, 1), 0.92);
+}
+.atl .atl-zoom:hover,
+.atl .atl-zoom:focus-within {
+  opacity: 1;
 }
