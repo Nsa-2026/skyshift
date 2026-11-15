@@ -257,6 +257,106 @@ def test_pick_hours_live_edge_cases():
     assert [im.obs_id for im in got] == ["S00_0", "S02_0", "S04_0", "S07_0", "S09_0", "S11_0"]
 
 
+def _sessions_of(picked):
+    by: dict[int, list[str]] = {}
+    for im in sorted(picked, key=lambda im: im.mjd):
+        by.setdefault(im.session, []).append(im.obs_id)
+    return list(by.values())
+
+
+def test_pick_hours_at_keeps_the_find_session_whole():
+    """contracts/api.md v3.19 (`mjd`): ecl22-447170132180-87947503 was found in exposures 3-4 of a
+    session whose first 2 the live hours clock showed. With its time, the session is there whole."""
+    sizes = [4, 1, 3, 1, 2, 5, 1, 3, 2, 1, 4, 3, 1, 2, 5, 1, 3, 2, 1, 4, 3]
+    images = search.rows_to_images(_visit_rows(sizes))
+    s10 = [im for im in images if im.obs_id.startswith("S10_")]
+    find = (s10[2].mjd + s10[3].mjd) / 2  # a mover's mjd: the middle of the two exposures it was found in
+    picked = blink.pick_hours_at(images, find, 6, 2)
+    assert [im.obs_id for im in picked[:4]] == ["S10_0", "S10_1", "S10_2", "S10_3"]  # asked for first
+    assert [im.obs_id for im in picked[4:]] == sorted(im.obs_id for im in picked[4:])  # then by time
+    # 6 in all: the session (4) and one pair of another session, as pick_hours_live picks with 2 left
+    assert len(picked) == 6 and _sessions_of(picked) == [["S00_0", "S00_1"], ["S10_0", "S10_1", "S10_2", "S10_3"]]
+    # a session of 5 gets a pair too: 7 frames, never a lone exposure of another session
+    s5 = next(im for im in images if im.obs_id == "S05_2")
+    picked = blink.pick_hours_at(images, s5.mjd, 6, 2)
+    assert len(picked) == 7 and [im.obs_id for im in picked[:5]] == [f"S05_{k}" for k in range(5)]
+    assert all(len(s) >= 2 for s in _sessions_of(picked))
+    # a session of 2 leaves 4 frames: two pairs spread over the visit's other sessions
+    s8 = next(im for im in images if im.obs_id == "S08_0")
+    picked = blink.pick_hours_at(images, s8.mjd + 0.0007, 6, 2)
+    assert len(picked) == 6 and _sessions_of(picked) == [["S00_0", "S00_1"], ["S08_0", "S08_1"], ["S20_0", "S20_1"]]
+    # no cap (as precompute): the session, then whole sessions from the visit's start, up to 48
+    full = blink.pick_hours_at(images, find, 0)
+    assert len(full) <= blink.HOURS_MAX_FRAMES and {im.obs_id for im in s10} <= {im.obs_id for im in full}
+    assert all(len(s) == n for s, n in zip(_sessions_of(full), sizes))  # whole sessions
+
+
+def test_pick_hours_at_picks_the_visit_that_holds_the_time():
+    """Without a time the hours clock shows the visit with the most exposures; 8 of 10 sampled movers
+    were found in another one (142-363 days away). The time picks the visit, the latest is no tie-break."""
+    rows = _visit_rows([2, 2], start=60900.0) + _visit_rows([3, 3, 3, 3], start=61080.0)
+    for r in rows[:4]:
+        r["obs_id"] = "E" + r["obs_id"]  # unique ids in the early visit
+    images = search.rows_to_images(rows)
+    assert blink.best_hours_visit(images) == 2
+    picked = blink.pick_hours_at(images, 60901.5 + 1.0 / 1440, 6, 2)
+    assert {im.visit for im in picked} == {1} and [im.obs_id for im in picked[:2]] == ["ES01_0", "ES01_1"]
+    assert len(picked) == 4  # the small visit fits whole
+    # a time outside every visit: the visit of the nearest exposure (the client compares mjd_mid with it)
+    assert {im.visit for im in blink.pick_hours_at(images, 61200.0, 6, 2)} == {2}
+    assert {im.visit for im in blink.pick_hours_at(images, 60000.0, 6, 2)} == {1}
+    assert blink.pick_hours_at([], 61000.0) == []
+
+
+def test_pick_hours_at_keeps_partial_exposures_of_the_find_session():
+    """The session nearest mjd is kept whole whatever its coverage (every photo the search returns holds
+    the centre, and the find is there); the other sessions keep the coverage preferences."""
+    images = search.rows_to_images(_visit_rows([3, 2, 2, 2]))
+    frac = {im.obs_id: (0.3 if im.obs_id == "S01_1" else 1.0) for im in images}
+
+    class Cover:
+        def frac(self, im):
+            return frac[im.obs_id]
+
+    s1 = [im for im in images if im.session == images[3].session]
+    picked = blink.pick_hours_at(images, s1[1].mjd, 4, 2, cover=Cover())
+    assert [im.obs_id for im in picked[:2]] == ["S01_0", "S01_1"]
+    assert blink.hours_runs(s1, Cover()) == [[s1[0]]]  # the old rule would drop the partial one
+
+
+def test_hours_frames_at_a_time(world, monkeypatch):
+    """build_frames(mjd=): the visit that holds the time (visit 1 here; without it the later of two
+    equal visits), its session whole and asked for first, the measured layer reading those photos."""
+    seen = {}
+
+    def fake_load(ra, dec, r_deg, keys, **kw):
+        seen["keys"] = list(keys)
+        return blink.measured_mod.Loaded(reason="not_processed")
+
+    monkeypatch.setattr(blink.measured_mod, "enabled", lambda: True)
+    monkeypatch.setattr(blink.measured_mod, "load", fake_load)
+    asked = []
+    real_fetch_many = cutouts.fetch_many
+
+    def fetch_many(images, *a, **k):
+        asked.append([im.obs_id for im in images])
+        return real_fetch_many(images, *a, **k)
+
+    monkeypatch.setattr(cutouts, "fetch_many", fetch_many)
+    plain = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"])
+    assert plain.meta["epochs"][0]["mjd_mid"] == pytest.approx(MJD1 + VISIT2, abs=1e-5)
+    at = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], mjd=MJD1 + 3.0)
+    eps = at.meta["epochs"]
+    assert [e["mjd_mid"] for e in eps] == pytest.approx([MJD1, MJD1 + 0.0015, MJD1 + 3.0], abs=1e-5)
+    assert asked[-1][0] == "2025W18_1B_0002_1"  # the session nearest mjd is asked for first
+    assert sorted(seen["keys"]) == sorted(k for ks in at.epoch_keys.values() for k in ks)
+    assert "2025W18_1B_0002_1D1" in seen["keys"]  # its photo's dots are read: its track can be linked
+    assert at.meta["measured"] is None and at.meta["measured_reason"] == "not_processed"
+    with pytest.raises(ApiError) as e:
+        blink.build_frames(STAR_RA, STAR_DEC, 5, "months", 1, cache=world["cache"], mjd=MJD1)
+    assert e.value.code == "bad_request"
+
+
 def test_hours_live_cap_and_full_set(world, monkeypatch):
     rows = _visit_rows([3, 1, 3, 3], start=MJD1, det=1)
     monkeypatch.setattr(search, "_query_sia", lambda ra, dec, c: rows if c == "spherex_dr1" else [])

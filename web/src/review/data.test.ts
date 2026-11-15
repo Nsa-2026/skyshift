@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Epoch, FramesResponse } from "../api/types";
 import { embedCode, shareUrl } from "./candidate";
-import { OWN_GAP_DAYS, candidateView, findGap, focusFrames, gapText, toCandidate, toCandidateSet } from "./data";
+import { OWN_GAP_DAYS, candidateFrames, candidateView, findGap, focusFrames, gapText, liveMjd, toCandidate, toCandidateSet } from "./data";
 import { cand } from "./testkit";
 
 function epoch(id: string, mjd: number, det: 1 | 2 | 3 | 4 | 5 | 6 = 3): Epoch {
@@ -131,6 +131,53 @@ describe("the plate's view and frames", () => {
     expect(gapText(-0.5)).toBe("12 hours");
     expect(gapText(3.25)).toBe("3.3 days");
     expect(gapText(40)).toBe("40 days");
+  });
+});
+
+describe("live frames at the find's time (contracts/api.md v3.19)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** candidateFrames with fetch stubbed: the URLs it asked for. */
+  async function asked(c: ReturnType<typeof cand>, clock: "hours" | "months" = c.clock): Promise<string[]> {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(String(url));
+        return { ok: true, status: 200, json: async () => frames([epoch("e1", 61074.65, c.det)], clock) };
+      }),
+    );
+    await candidateFrames(c, { ...candidateView(c), clock, fov: clock === "hours" ? 20 : 5 });
+    return calls;
+  }
+
+  it("asks the live hours clock at a mover's mjd, so its own session is in the answer", async () => {
+    // ecl22-447170132180-87947503: no static frames; found in exposures 3-4 of a session.
+    const mover = cand("ecl22-447170132180-87947503", { kind: "mover", clock: "hours", det: 4, mjd: 61074.655105 });
+    const [url] = await asked(mover);
+    const q = new URL(url).searchParams;
+    expect(new URL(url).pathname).toBe("/api/frames");
+    expect(Object.fromEntries(q)).toEqual({ ra: "10", dec: "-5", clock: "hours", fov: "20", det: "4", mjd: "61074.655105" });
+  });
+
+  it("sends no time for months, for an hours candidate seen on months, or without a find time", async () => {
+    for (const [c, clock] of [
+      [cand("pm", { clock: "months" }), "months"],
+      [cand("mv", { kind: "mover", clock: "hours" }), "months"],
+      [cand("mv0", { kind: "mover", clock: "hours", mjd: 0 }), "hours"],
+    ] as const) {
+      const [url] = await asked(c, clock);
+      expect(new URL(url).searchParams.has("mjd")).toBe(false);
+    }
+    expect(liveMjd({ clock: "months", mjd: 60900 }, { clock: "hours" })).toBeUndefined();
+    expect(liveMjd({ clock: "hours", mjd: 60900.5 }, { clock: "hours" })).toBe(60900.5);
+  });
+
+  it("still reads a candidate's static frames first, without the API", async () => {
+    const c = cand("st", { kind: "mover", clock: "hours", det: 4, mjd: 61074.655105, frames_url: "cand/st/frames.json" });
+    const urls = await asked(c);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("/data/cand/st/frames.json");
   });
 });
 
