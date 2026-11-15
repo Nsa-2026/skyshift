@@ -476,3 +476,42 @@ def test_zone_reads_the_dots_folder_its_link_read(root):
     m2, _ = M.build(_hours_meta(), zone="zz", root=root)
     assert m2["zone"] == "zz" and len(m2["detections"]) == 15
     assert M._zone_from_summary("old", {"zone": {"ra": [0, 1], "dec": [0, 1]}, "steps": {"link": {}}}).dots_dir == "dots"
+
+
+def test_shape_fit_companion_is_its_own_detection_v3_12(root):
+    """results/<zone>/shape_candidates.parquet with the two-source fit (contracts v3.12): a split companion is drawn
+    on the months clock as its own `other` detection (reason split_by_fit, no source, no dots) beside its source in
+    every visit, at that visit's own fitted position; flux = the source's × the ratio in the epoch's detector. A row the
+    fit didn't split, the hours clock, and a file without the fit columns add nothing."""
+    keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
+    m0, _ = M.build(_months_meta(), keys, root=root)
+    z = Path(root) / "results" / "zz"
+    _write(z / "shape_candidates.parquet", {"source_id": np.array([111, 222], np.int64), "why": ["a", "b"]})  # pre-fit
+    M.reset()
+    m1, _ = M.build(_months_meta(), keys, root=root)
+    assert m1["detections"] == m0["detections"]
+    c1, c2 = off(0, -10, *S1), off(0.5, -10, *S1)  # visit 1, visit 2 (0.5" apart: it stays put)
+    nan = float("nan")
+    _write(z / "shape_candidates.parquet", {
+        "source_id": np.array([111, 222], np.int64), "companion_split": np.array([True, False]),
+        "companion_ra": np.array([off(0.25, -10, *S1)[0], S2[0]]), "companion_dec": np.array([c1[1], S2[1]]),
+        "companion_flux_ratio": np.array([0.3, 0.1]),
+        **{f"companion_flux_ratio_d{d}": np.array([0.25 if d == 2 else nan, 0.1]) for d in range(1, 7)},
+        **{f"companion_snr_d{d}": np.array([30.0 if d == 2 else nan, 2.0]) for d in range(1, 7)},
+        "companion_visit_mjd": pa.array([[T1 + 1, T3 - 1], []], pa.list_(pa.float64())),
+        "companion_visit_ra": pa.array([[c1[0], c2[0]], []], pa.list_(pa.float64())),
+        "companion_visit_dec": pa.array([[c1[1], c2[1]], []], pa.list_(pa.float64()))})
+    M.reset()
+    m, reason = M.build(_months_meta(), keys, root=root)
+    assert reason is None
+    comp = [d for d in m["detections"] if "split_by_fit" in d["reasons"]]
+    assert len(comp) == 2 and {d["epoch_id"] for d in comp} == {"d2-v1", "d2-v2"}
+    star = {d["epoch_id"]: d for d in m["detections"] if d["source_id"] == 111}
+    for d, pos in zip(sorted(comp, key=lambda d: d["epoch_id"]), (c1, c2)):
+        assert d["class"] == "other" and d["source_id"] is None and d["gaia_id"] is None and d["n_dots"] == 0
+        assert _find(m, d["epoch_id"], pos, tol=0.05) is d
+        assert d["flux_ujy"] == pytest.approx(star[d["epoch_id"]]["flux_ujy"] * 0.25, rel=1e-3) and d["snr"] == 30.0
+    assert m["counts"]["other"] == m0["counts"]["other"] + 2
+    json.dumps(m, allow_nan=False)
+    mh, _ = M.build(_hours_meta(), root=root)
+    assert not any("split_by_fit" in d["reasons"] for d in mh["detections"])

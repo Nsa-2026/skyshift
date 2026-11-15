@@ -348,6 +348,9 @@ class Tables:
     # results/<zone>/fragments.parquet (v3.11), tagged rows only: source_id -> (tag, parent_gaia_id, blend_gaia_ids);
     # None when the zone has no such file (then nothing changes)
     frag: dict[int, tuple[str, str | None, list[str] | None]] | None = None
+    # results/<zone>/shape_candidates.parquet (v3.12), rows the two-source fit split: source_id -> the companion
+    # (_load_companions); None without the file or its fit columns (then nothing changes)
+    companions: dict[int, dict] | None = None
     loaded: float = field(default_factory=time.monotonic)
 
     def nbytes(self) -> int:
@@ -424,7 +427,7 @@ def _load_tables(st: Store, zone: Zone) -> Tables:
                     highpm[sid] = (cls, reasons if cls == "artifact" else [])
     tables = Tables(zone, np.asarray(src["source_id"], np.int64)[order], np.asarray(src["ra"], float)[order],
                     np.asarray(src["dec"], float)[order], gaia, mv, suspects, ast, highpm,
-                    _load_fragments(st, base))
+                    _load_fragments(st, base), _load_companions(st, base))
     log.info("measured: zone %s tables loaded in %.1f s (%d sources, %d movers, %d suspects, %d shifts, %.1f MB)",
              zone.name, time.perf_counter() - t0, len(order), len(mv.get("ra", ())), len(suspects),
              len(ast.get("source_id", ())), tables.nbytes() / 1e6)
@@ -472,6 +475,79 @@ def _apply_fragments(dets: list[dict], shifts: list[dict], frag: dict) -> None:
     for s in shifts:
         if frag.get(int(s["source_id"]), ("",))[0] == "bright_fragment" and s["class"] in ("star", "other"):
             s["class"] = "artifact"
+
+
+COMPANION_COLS = ["companion_split", "companion_ra", "companion_dec", "companion_flux_ratio",
+                  *[f"companion_flux_ratio_d{d}" for d in range(1, 7)], *[f"companion_snr_d{d}" for d in range(1, 7)],
+                  "companion_visit_mjd", "companion_visit_ra", "companion_visit_dec"]
+COMPANION_VISIT_DAYS = 30.0  # a visit's own fit is used for an epoch whose span it falls in, ± this
+
+
+def _load_companions(st: Store, base: str) -> dict[int, dict] | None:
+    """v3.12: the shape candidates' second objects the two-source fit split off (shape_candidates.parquet rows with
+    companion_split), by the source they were merged into; None without the file or its fit columns."""
+    try:
+        t = st.read_table(f"{base}/shape_candidates.parquet", ["source_id"], COMPANION_COLS)
+    except Exception:  # noqa: BLE001
+        log.warning("measured: %s/shape_candidates.parquet unreadable; no fitted companions", base, exc_info=True)
+        return None
+    if t is None or "companion_split" not in t or "companion_ra" not in t:
+        return None
+    out: dict[int, dict] = {}
+
+    def f(name: str, i: int) -> float:
+        v = t[name][i] if name in t else None
+        return float(v) if v is not None and np.isfinite(float(v)) else float("nan")
+
+    def lst(name: str, i: int) -> list:
+        return list((t[name][i] if name in t else None) or [])
+
+    for i, sid in enumerate(t["source_id"]):
+        split = t["companion_split"][i]
+        if split is None or not bool(split):
+            continue
+        ra, dec = f("companion_ra", i), f("companion_dec", i)
+        if not (math.isfinite(ra) and math.isfinite(dec)):
+            continue
+        vis = [(float(m), float(a), float(b)) for m, a, b in
+               zip(lst("companion_visit_mjd", i), lst("companion_visit_ra", i), lst("companion_visit_dec", i))]
+        out[int(sid)] = {"ra": ra, "dec": dec, "visits": vis, "ratio": f("companion_flux_ratio", i),
+                         "ratio_d": {d: f(f"companion_flux_ratio_d{d}", i) for d in range(1, 7)},
+                         "snr_d": {d: f(f"companion_snr_d{d}", i) for d in range(1, 7)}}
+    return out
+
+
+def _companion_dets(dets: list[dict], epochs: list[dict], comp: dict[int, dict]) -> list[dict]:
+    """v3.12: one `other` detection (reason split_by_fit, no source, no dots) per visit epoch for each fitted companion
+    whose source has a detection there: at that visit's own fitted position when the epoch's span holds it, else the
+    overall fit; flux = the source's detection × the companion's ratio in the epoch's detector (overall ratio if none)."""
+    by_id = {e["id"]: e for e in epochs}
+    out = []
+    for d in dets:
+        sid = d.get("source_id")
+        c = comp.get(int(sid)) if sid is not None else None
+        if c is None:
+            continue
+        ep = by_id.get(d["epoch_id"], {})
+        ra, dec = c["ra"], c["dec"]
+        lo = float(ep.get("mjd_start") or ep.get("mjd_mid") or float("nan")) - COMPANION_VISIT_DAYS
+        hi = float(ep.get("mjd_end") or ep.get("mjd_mid") or float("nan")) + COMPANION_VISIT_DAYS
+        inside = [v for v in c["visits"] if lo <= v[0] <= hi]
+        if inside:
+            mid = float(ep.get("mjd_mid") or inside[0][0])
+            _, ra, dec = min(inside, key=lambda v: abs(v[0] - mid))
+        det = int(ep["det"]) if ep.get("det") is not None else None
+        ratio = c["ratio_d"].get(det, float("nan")) if det else float("nan")
+        if not math.isfinite(ratio):
+            ratio = c["ratio"]
+        snr = c["snr_d"].get(det, float("nan")) if det else float("nan")
+        if not math.isfinite(snr):
+            snr = max([v for v in c["snr_d"].values() if math.isfinite(v)], default=0.0)
+        if d.get("flux_ujy") is None or not math.isfinite(ratio):
+            continue
+        flux = d["flux_ujy"] * ratio
+        out.append(_det(d["epoch_id"], ra % 360.0, dec, snr, flux, 0, "other", reasons=["split_by_fit"]))
+    return out
 
 
 _tables: OrderedDict[tuple, Tables] = OrderedDict()
@@ -762,6 +838,8 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
     else:
         dets = _months(loaded, meta, epochs, photos, F, T)
     shifts = _shifts(meta, epochs, F, T) if clock == "months" else []
+    if clock == "months" and T.companions:
+        dets += _companion_dets(dets, epochs, T.companions)
     if T.frag is not None:
         _apply_fragments(dets, shifts, T.frag)
     return _finish(dets, tracks, shifts, zone=Z.name, stage=Z.stage, zone_box=Z.box(), clock=clock,
