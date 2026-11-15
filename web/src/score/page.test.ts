@@ -408,9 +408,26 @@ describe("each section's own page", () => {
     setDetails(true);
     await open(s, "sure");
     let seen = seenText(s.el, "plain-only");
-    for (const id of ["V1", "V2", "V5", "V9", "V11"]) expect(seen).toMatch(new RegExp(`\\b${id}\\b`));
+    // every check by its title alone: no code shows (it stays the anchor for #/results/sure/V5)
+    expect(seen).not.toMatch(/\bV\d+\b/);
+    for (const t of ["Five test objects recovered", "Motion matches Gaia", "Asteroids re-found, blind", "Asteroid sizes match published values"]) {
+      expect(seen).toContain(t);
+    }
+    expect(seen).not.toContain("(S1)");
     expect(seen).toMatch(/All 11 checks pass/);
     expect(seen).toContain("What the search can find");
+    expect(seen).toContain("Known limitations");
+    // each card: one short line, the method behind a closed "How it was tested"
+    const cards = [...s.el.querySelectorAll<HTMLElement>("#rs-sure-body .sc-check")];
+    expect(cards).toHaveLength(11);
+    for (const c of cards) {
+      const line = text(c.querySelector(".sc-line"));
+      expect(line.split(" ").length, line).toBeLessThanOrEqual(15);
+      expect(line, line).not.toMatch(/σ|S\/N|\bpx\b|sigma/);
+      expect(c.querySelector<HTMLDetailsElement>(":scope > details.sc-how")!.open).toBe(false);
+      expect(seenText(c, "plain-only")).not.toMatch(/\bV\d+\b/);
+    }
+    expect(seen).not.toContain("Recovered = ");
     await open(s, "found");
     seen = seenText(s.el, "plain-only");
     expect(seen).toContain("Unknown movers");
@@ -424,6 +441,34 @@ describe("each section's own page", () => {
     expect(seen).not.toContain("areas of sky searched");
     await open(s, "astronomers");
     expect(seenText(s.el, "plain-only")).toContain("What happens next");
+    s.page.destroy();
+  });
+
+  it("lists the known limitations in plain words with Advanced off, after the results", async () => {
+    const s = setup();
+    await open(s, "sure");
+    const sure = s.el.querySelector("#rs-sure-body")!;
+    const box = sure.querySelector<HTMLElement>(".rs-limits.plain-only")!;
+    expect(box).not.toBeNull();
+    expect(text(box.querySelector("h3"))).toBe("Known limitations");
+    // it follows the plain list of results
+    expect(sure.querySelector(".rs-plain")!.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const items = [...box.querySelectorAll("li")].map(text);
+    expect(items.length).toBeGreaterThanOrEqual(4);
+    expect(items.length).toBeLessThanOrEqual(6);
+    for (const t of items) expect(t.split(" ").length, t).toBeLessThanOrEqual(20);
+    // the sky covered comes from the live feed, the checks not run from validation.json
+    const sum = summarize(parseSkyrun(sample), Date.parse("2026-11-14T19:14:40Z"));
+    expect(items).toContain(`So far the search has covered only part of the planets' path across the sky: ${sum.counts.combined} of ${sum.total} areas.`);
+    // every check has run (validation.json), so no "not run" line
+    expect(items.some((t) => /not run/.test(t))).toBe(false);
+    expect(items.some((t) => /^Nothing is confirmed yet/.test(t))).toBe(true);
+    expect(items.some((t) => /not to the photos/.test(t))).toBe(true);
+    const seen = seenText(s.el, "pro-only");
+    expect(seen).toContain("Known limitations");
+    for (const re of JARGON) expect(seen, `limitations show ${re}`).not.toMatch(re);
+    // and with Advanced on, after the checks
+    expect(sure.querySelector(".rs-pro .rs-limits")).not.toBeNull();
     s.page.destroy();
   });
 

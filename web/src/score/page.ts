@@ -29,7 +29,8 @@ import { safeStorage, type KV } from "../vote/model";
 import { VOTED_EVENT } from "../vote/store";
 import { downloadText, suspectsCsv } from "./format";
 import { astronomersCardHtml, foundCardHtml, planetLineHtml, progressCardHtml, sureCardHtml } from "./overview";
-import { renderFound, renderSure, syntheticNote } from "./render";
+import { skyLimit } from "./plain";
+import { renderFound, renderSure, syntheticNote, type AreasDone } from "./render";
 import "./score.css";
 
 export type SectionId = "found" | "sure" | "progress" | "astronomers" | "methods" | "tools";
@@ -208,7 +209,7 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
     strip.hidden = !strip.innerHTML;
     body("found").innerHTML = renderFound(sr, dist, cands);
     wireSuspectsCsv(body("found"), sr);
-    body("sure").innerHTML = renderSure(val, dist);
+    body("sure").innerHTML = renderSure(val, dist, areasOf(run));
     const valid = el.querySelector<HTMLElement>(".tl-validation");
     if (valid) valid.innerHTML = validationHtml(val);
     // The part a route asked for may have just been drawn: go there again.
@@ -233,6 +234,20 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
   const loadRun = deps.live?.load ?? ((signal: AbortSignal) => loadSkyrun(signal));
   let run: SkyRun | null = null;
   let runAt = -Infinity;
+  /** Areas of the planets' path searched so far, for How sure we are's limitations. */
+  const areasOf = (r: SkyRun | null): AreasDone => {
+    if (!r) return null;
+    const sum = summarize(r, liveNow());
+    return { done: sum.counts.combined, total: sum.total };
+  };
+  /** The limitation on sky covered, with its number once the feed is read (gone if all is searched). */
+  function updateSkyLimit() {
+    const a = areasOf(run);
+    el.querySelectorAll<HTMLElement>('[data-limit="sky"]').forEach((n) => {
+      if (a && a.total > 0 && a.done >= a.total) n.remove();
+      else n.textContent = skyLimit(a);
+    });
+  }
   /** The overview's progress card: read the feed once, at most once a minute; redraw "Updated … ago" each time. */
   function refreshProgressCard() {
     if (run) card("progress").innerHTML = progressCardHtml(summarize(run, liveNow()));
@@ -243,6 +258,7 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
         if (ctl.signal.aborted) return;
         run = r;
         card("progress").innerHTML = progressCardHtml(summarize(r, liveNow()));
+        updateSkyLimit();
       },
       (e) => {
         if (ctl.signal.aborted || run) return;
@@ -330,6 +346,8 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
       refreshProgressCard();
       void refreshAstronomersCard();
     }
+    // How sure we are names how much sky was searched: the same read, at most once a minute
+    if (next === "sure") refreshProgressCard();
     // the list's page reads the votes when shown (the card's read is shared for a minute)
     if (next === "astronomers") community.show(null);
     if (next === "methods") mountMethods();

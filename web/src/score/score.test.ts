@@ -3,7 +3,7 @@ import validationFx from "../../../fixtures/api/validation.json";
 import suspectsFx from "../../../fixtures/api/suspects.json";
 import publishedJson from "../../public/data/validation.json";
 import type { SuspectsResponse, ValidationResponse } from "../api/types";
-import { CHECKS, countStatuses, summarySentence, withAllChecks } from "./checks";
+import { CHECKS, checkTitle, countStatuses, summarySentence, withAllChecks } from "./checks";
 import {
   bigValue,
   blinkHref,
@@ -94,7 +94,7 @@ describe("checks and counts", () => {
 });
 
 describe("rendering the fixtures", () => {
-  it("prints every check with its figure, measured sentence, target and status word", () => {
+  it("prints every check with its title, status, figure and one line; the rest behind How it was tested", () => {
     const d = el();
     renderScore(d, validation, suspects);
     expect(d.querySelectorAll(".sc-check")).toHaveLength(11);
@@ -102,12 +102,23 @@ describe("rendering the fixtures", () => {
     expect(text(v2.querySelector(".sc-claim"))).toBe("Motion matches Gaia");
     expect(text(v2.querySelector(".sc-status"))).toBe("Pass");
     expect(text(v2.querySelector(".sc-num"))).toBe("10.21″/yr");
-    expect(text(v2.querySelector(".sc-measured"))).toBe("Barnard's Star: 10.2″/yr at 356°; Gaia says 10.39″/yr at 355.6°.");
-    expect(text(v2.querySelector(".sc-target"))).toBe("Target set before the run: Within 15% and 10° of 10.39″/yr.");
-    // a poor number is still printed, as the large figure
+    // no headline writer matches the fixture's wording: its first clause stands in
+    expect(text(v2.querySelector(".sc-line"))).toBe("Barnard's Star: 10.2″/yr at 356°.");
+    // the measured sentence, the target and the method wait behind a closed disclosure
+    const how = v2.querySelector<HTMLDetailsElement>("details.sc-how")!;
+    expect(how.open).toBe(false);
+    expect(text(how.querySelector("summary"))).toBe("How it was tested");
+    expect(text(how.querySelector(".sc-measured"))).toBe("Barnard's Star: 10.2″/yr at 356°; Gaia says 10.39″/yr at 355.6°.");
+    expect(text(how.querySelector(".sc-target"))).toBe("Target set before the run: Within 15% and 10° of 10.39″/yr.");
+    expect(v2.querySelector(".sc-main .sc-measured, .sc-main .sc-target")).toBeNull();
+    // no code on the card: it is only the anchor
+    expect(v2.querySelector(".sc-id")).toBeNull();
+    expect(v2.textContent).not.toMatch(/\bV\d+\b/);
+    // a poor number is still printed, as the large figure, without a unit word that repeats it
     const v1 = d.querySelector("#sc-V1")!;
     expect(text(v1.querySelector(".sc-num-v"))).toBe("4 of 5");
-    expect(text(v1.querySelector(".sc-num-u"))).toBe("targets");
+    expect(v1.querySelector(".sc-num-u")).toBeNull();
+    expect(text(v1.querySelector(".sc-line"))).toBe("Found 4 of 5 test objects where predicted.");
     expect(text(v1.querySelector(".sc-status"))).toBe("Partial");
     expect(v1.classList.contains("sc-lead")).toBe(true);
     expect(d.querySelectorAll(".sc-lead")).toHaveLength(1);
@@ -138,7 +149,7 @@ describe("rendering the fixtures", () => {
   it("puts rows behind a disclosure whose label says what a click does", () => {
     const d = el();
     renderScore(d, validation, suspects);
-    const det = d.querySelector<HTMLDetailsElement>("#sc-V1 details")!;
+    const det = d.querySelector<HTMLDetailsElement>("#sc-V1 .sc-how .sc-rows")!;
     expect(det.open).toBe(false);
     expect(text(det.querySelector(".sc-show"))).toBe("Show the 5 rows");
     expect(text(det.querySelector(".sc-hide"))).toBe("Hide the rows");
@@ -149,17 +160,20 @@ describe("rendering the fixtures", () => {
     expect(det.querySelectorAll("tbody tr")).toHaveLength(5);
     expect(text(det.querySelector("tbody td"))).toBe("Barnard's Star");
     expect(det.querySelector("tbody td.num")).not.toBeNull();
-    // V4 is partial with no rows: no disclosure at all
-    expect(d.querySelector("#sc-V4 details")).toBeNull();
+    // V4 is partial with no rows: no rows disclosure, only How it was tested
+    expect(d.querySelector("#sc-V4 .sc-rows")).toBeNull();
+    expect(d.querySelectorAll("#sc-V4 details")).toHaveLength(1);
   });
 
   it("drops the note's row-key list and falls back to plain words", () => {
     const d = el();
     renderScore(d, validation, suspects);
-    // fixture V1's note is only "rows: …": the plain description shows instead
-    expect(text(d.querySelector("#sc-V1 .sc-note"))).toBe(CHECKS[0].plain);
-    // pending checks say what they will do, in the main column
-    expect(text(d.querySelector("#sc-V6 .sc-plain"))).toBe(CHECKS[5].plain);
+    // fixture V1's note is only "rows: …": the plain description shows instead, under How it was tested
+    expect(d.querySelector("#sc-V1 .sc-note")).toBeNull();
+    expect(text(d.querySelector("#sc-V1 .sc-how .sc-plain"))).toBe(CHECKS[0].plain);
+    // pending checks say why in their line; what they will do is under How it was tested
+    expect(text(d.querySelector("#sc-V6 .sc-line"))).toBe("Not run yet.");
+    expect(text(d.querySelector("#sc-V6 .sc-how .sc-plain"))).toBe(CHECKS[5].plain);
     expect(text(d.querySelector("#sc-V6 .sc-measured"))).toBe("Not run yet.");
   });
 
@@ -238,8 +252,10 @@ describe("pending state", () => {
     const d = el();
     renderScore(d, null, null);
     const blocks = [...d.querySelectorAll(".sc-check")];
-    expect(blocks.map((b) => text(b.querySelector(".sc-id")))).toEqual(CHECKS.map((c) => c.id));
-    expect(blocks.map((b) => text(b.querySelector(".sc-claim")))).toEqual(CHECKS.map((c) => c.claim));
+    // the code is the anchor (#/results/sure/V5), the title is what shows, without its plan code
+    expect(blocks.map((b) => b.id)).toEqual(CHECKS.map((c) => `sc-${c.id}`));
+    expect(blocks.map((b) => text(b.querySelector(".sc-claim")))).toEqual(CHECKS.map((c) => checkTitle(c.claim)));
+    expect(text(d.querySelector("#sc-V5 .sc-claim"))).toBe("Asteroids re-found, blind");
     expect(blocks.every((b) => b.classList.contains("sc-pending"))).toBe(true);
     expect(d.querySelector(".sc-lead")).toBeNull();
     expect(d.querySelector(".sc-num")).toBeNull();

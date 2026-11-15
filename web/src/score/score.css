@@ -78,44 +78,98 @@
 }
 
 /* ---- one check ----
-   Reading path down the main column: claim, figure, measured against target. How it was
-   computed sits beside the figure as a margin note on wide screens, below it otherwise. */
+   Condensed: the mark in the rail, then the title, the figure beside one plain line, and
+   "How it was tested" (closed) with the measured sentence, target, method and rows. */
 .sc-check {
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr);
   grid-template-areas:
     "rail claim"
     "rail main"
-    "rail note"
-    "rail rows";
-  grid-template-rows: auto auto auto 1fr;
+    "rail how";
   column-gap: var(--s6);
-  row-gap: var(--s3);
+  row-gap: var(--s2);
   align-items: start;
-  padding: var(--s7) 0;
+  padding: var(--s5) 0;
   border-top: 1px solid var(--hair);
 }
-.sc-rail { grid-area: rail; }
-.sc-claim { grid-area: claim; }
-.sc-main { grid-area: main; }
-.sc-note { grid-area: note; }
-.sc-rows { grid-area: rows; }
+.sc-check > .sc-status { grid-area: rail; padding-top: 0.2em; }
+.sc-check > .sc-claim { grid-area: claim; }
+.sc-check > .sc-main { grid-area: main; }
+.sc-check > .sc-how { grid-area: how; }
+.sc-check .sc-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--s4);
+  row-gap: var(--s1);
+}
+.sc-check .sc-num {
+  margin: 0;
+  font-size: 2rem;
+}
+.sc-check.sc-lead .sc-num {
+  font-size: 2.5rem;
+}
+.sc-line {
+  max-width: 62ch;
+  font-size: 1.0625rem;
+  line-height: 1.45;
+}
+.sc-pending .sc-line {
+  color: var(--ink-2);
+}
+.sc-how {
+  min-width: 0;
+}
+.sc-how > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+  color: var(--pencil-blue);
+  font-size: 0.9375rem;
+  font-weight: 560;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 4px;
+}
+.sc-how > summary::-webkit-details-marker {
+  display: none;
+}
+.sc-how > summary:hover span {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.sc-how[open] > summary .sc-chev {
+  transform: rotate(180deg);
+}
+.sc-how-body {
+  display: grid;
+  justify-items: start;
+  gap: var(--s3);
+  padding: var(--s2) 0 var(--s2);
+}
+.sc-how-body .sc-note {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
 
-@media (min-width: 1180px) {
-  .sc-check {
-    grid-template-columns: var(--rail) minmax(0, 34rem) minmax(0, 1fr);
-    grid-template-areas:
-      "rail claim claim"
-      "rail main  note"
-      "rail rows  rows";
-    grid-template-rows: auto auto 1fr;
-  }
-  .sc-note {
-    max-width: 52ch;
-    padding: var(--s1) 0 0 var(--s4);
-    font-size: 0.875rem;
-    line-height: 1.55;
-  }
+/* Known limitations: after the plain list, and after the checks with Advanced on */
+.rs-limits {
+  margin-top: var(--s6);
+}
+.rs-limits-list {
+  display: grid;
+  gap: var(--s2);
+  max-width: 66ch;
+  margin: var(--s3) 0 0;
+  padding-left: 1.2em;
+  color: var(--ink-2);
+}
+.rs-limits-list li::marker {
+  color: var(--ink-3);
 }
 
 .sc-rail {
@@ -849,10 +903,9 @@ html:not([data-details="on"]) .rs .cm-embedded > .cm-head {
   }
   .sc-check {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "rail" "claim" "main" "note" "rows";
-    grid-template-rows: none;
-    row-gap: var(--s3);
-    padding: var(--s6) 0;
+    grid-template-areas: "rail" "claim" "main" "how";
+    row-gap: var(--s2);
+    padding: var(--s5) 0;
   }
   .sc-rail {
     display: flex;
@@ -868,11 +921,13 @@ html:not([data-details="on"]) .rs .cm-embedded > .cm-head {
   .sc-claim {
     font-size: 1.375rem;
   }
-  .sc-num {
-    font-size: 2.25rem;
+  .sc-num,
+  .sc-check .sc-num {
+    font-size: 2rem;
   }
-  .sc-lead .sc-num {
-    font-size: 3rem;
+  .sc-lead .sc-num,
+  .sc-check.sc-lead .sc-num {
+    font-size: 2.25rem;
   }
   .sc-vs {
     font-size: var(--step-0);
