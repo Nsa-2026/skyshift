@@ -6,9 +6,12 @@ once instead of after the 40-70 s live measurement. It is the live API's own ans
     python3 scripts/precompute/suspect_objects.py                  # missing files only
     python3 scripts/precompute/suspect_objects.py --force --jobs 8
     python3 scripts/precompute/suspect_objects.py --api http://localhost:8080
+    python3 scripts/precompute/suspect_objects.py --top 300     # also the first 300 of the To check queue
 
 Who: the suspects in web/public/data/suspects.json plus the candidates in candidates.json with a
-frames_url. The position is the candidate's ra/dec, the same spot the Viewer opens on.
+frames_url; with --top N, also the first N of the To check queue (web/src/review/model.ts
+queueOrder before any votes: no grade C, grade A first, then score, S/N and id). The position is
+the candidate's ra/dec, the same spot the Viewer opens on.
 """
 
 from __future__ import annotations
@@ -38,18 +41,32 @@ def fetch(api: str, ra: float, dec: float, tries: int = 3) -> dict:
     raise RuntimeError("unreachable")
 
 
+def _desc(v: object) -> tuple[int, float]:
+    """Sort key for 'high to low, missing last' (byPromise in web/src/review/model.ts)."""
+    return (1, 0.0) if not isinstance(v, (int, float)) else (0, -float(v))
+
+
+def queue_top(cands: list[dict], n: int) -> list[dict]:
+    """The To check queue's first n candidates before any votes."""
+    q = [c for c in cands if c.get("grade") != "C"]
+    q.sort(key=lambda c: (0 if c.get("grade") == "A" else 1, _desc(c.get("score")), _desc(c.get("snr")), c["id"]))
+    return q[:n]
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--api", default="https://skyshift.web.app")
     p.add_argument("--jobs", type=int, default=10)
     p.add_argument("--force", action="store_true")
+    p.add_argument("--top", type=int, default=0, help="also the first N of the To check queue")
     a = p.parse_args()
 
     cands = json.loads((DATA / "candidates.json").read_text())["candidates"]
     suspects = {s["id"] for s in json.loads((DATA / "suspects.json").read_text())["suspects"]}
+    top = {c["id"] for c in queue_top(cands, a.top)}
     todo = []
     for c in cands:
-        if not c.get("frames_url") and c["id"] not in suspects:
+        if not c.get("frames_url") and c["id"] not in suspects and c["id"] not in top:
             continue
         out = DATA / "cand" / c["id"] / "object.json"
         if out.exists() and not a.force:
