@@ -102,9 +102,9 @@ export function paintClouds(c: CanvasRenderingContext2D, w: number, h: number, s
   }
 
   // The clouds part from the middle: a widening opening onto the ground, its edge torn by wisps.
-  const open = smooth(s.p, .285, .4);
+  const open = smooth(s.p, .3, .4);
   if (open > 0) {
-    const r = m * (.06 + open * .9);
+    const r = m * (.22 + open * .85);
     l.globalCompositeOperation = 'destination-out'; l.globalAlpha = 1;
     const hole = l.createRadialGradient(cx, cy, 0, cx, cy, r);
     hole.addColorStop(0, 'rgba(0,0,0,1)'); hole.addColorStop(.35, 'rgba(0,0,0,.9)'); hole.addColorStop(1, 'rgba(0,0,0,0)');

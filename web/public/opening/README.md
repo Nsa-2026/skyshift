@@ -29,14 +29,23 @@ If the manifest or a file is missing or broken, the opening falls back to what s
 
 | Slot | Today | Shape | Where it shows |
 |---|---|---|---|
-| `sky` | `spherex-sky.webp`, real SPHEREx DR1 data | 16:10, ≥ 1600 × 1000 | Behind the whole opening: under the title, and through the pupil at the end. |
+| `sky` | `spherex-sky.webp`, real SPHEREx DR1 data | 16:10, ≥ 1600 × 1000 | Behind the whole opening: under the title, and through the telescope's lens at the end. |
 | `earth` | Drawn in code | 1:1, ≥ 1600 × 1600 | Earth from space, the first descent. Cut to a circle; turns slowly; grows to about three screens wide before it fades. |
-| `horizon` | Drawn in code | 3:1, ≥ 2400 × 800, transparent above the ridges | The ground the figure stands on. Its middle row is the ground line. Spans the screen's width; crops at the sides on phones. |
+| `horizon` | Drawn in code | 3:1, ≥ 2400 × 800, transparent above the ridges | The ground Galileo stands on. Its middle row is the ground line. Spans the screen's width; crops at the sides on phones. |
+
+Galileo and his telescope are not a slot: they are drawn as vectors in `web/src/opening/galileo.ts`
+(camera in `web/src/intro/portrait.ts`), because the camera zooms 150–300× from the wide shot
+into the objective lens, and no picture holds that. What the drawing follows: Galileo in Padua in
+1609–10, a man of about 45 with a short reddish-brown beard and a receding hairline, in a
+professor's long dark gown with a small plain white collar, no hat; a telescope of about a metre
+(his surviving instruments of 1609–10 are 92 and 98 cm), slightly tapered, in red-brown leather
+with gold tooling, objective at the wide far end. The hills carry a low, unlit skyline of Padua
+(the campanile, the Palazzo della Ragione, the Basilica of Saint Anthony), drawn in `scene.ts`.
+
+At the end the camera swings round to face the objective and the lens is cut out of the canvas:
+the window shows the `sky` image behind it. Nothing is painted inside the window.
 
 `stars-gaia.bin` is not a slot either: it is data, the real stars of the dive (see below).
-
-The figure and its eye are not a slot: they are drawn as vectors in `web/src/intro/portrait.ts`
-because the camera zooms about 250× into the pupil, and no picture holds that.
 
 ## Stars (`stars-gaia.bin`)
 
@@ -63,7 +72,8 @@ console says why once.
 
 ## Honesty
 
-- The sky is always real SPHEREx data. Never a generated or painted sky, never added objects.
+- The sky is always real SPHEREx data. Never a generated or painted sky, never added objects. The
+  telescope's lens is a window cut through to it: no stars or objects are drawn in it.
 - The stars over it are real Gaia DR3 stars, never random points or invented stars. Only the
   camera's flight through them is illustrative, and the credit says so.
 - Generated or drawn art is labelled "Illustration" on screen; the code adds the word, so a
@@ -81,4 +91,4 @@ Built from the slots on screen. Today:
 
 With a generated Earth:
 
-> Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA). Illustration: Earth, made with Higgsfield; hills and figure drawn in code.
+> Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA). Illustration: Earth, made with Higgsfield; planets and Galileo drawn in code.
