@@ -8,9 +8,9 @@ const resolve=(hash:string,search='',advanced=false)=>{
   return siteRoute(legacy?.hash??hash,false,search,advanced||!!legacy?.advanced);
 };
 
-describe('four screens',()=>{
-  it('has Sky, Viewer, To check and Results, each resolving to its own screen',()=>{
-    expect(SCREENS.map(s=>s.label)).toEqual(['Sky','Viewer','To check','Results']);
+describe('top-level screens',()=>{
+  it('has Sky, Viewer, To check, Community and Results, each resolving to its own screen',()=>{
+    expect(SCREENS.map(s=>s.label)).toEqual(['Sky','Viewer','To check','Community','Results']);
     for(const s of SCREENS)expect(siteRoute(s.href).screen).toBe(s.id);
   });
   it('opens the Sky at home, and the Viewer for shared observations and the embed',()=>{
@@ -26,7 +26,7 @@ describe('four screens',()=>{
     expect(siteRoute('#/c/shape%2Fexample')).toMatchObject({page:'candidate',param:'shape/example',screen:'viewer'});
     expect(siteRoute('#/candidates/kind=mover')).toMatchObject({page:'discover',param:'kind=mover',screen:'check'});
     expect(siteRoute('#/review')).toMatchObject({page:'review',screen:'check'});
-    expect(siteRoute('#/community')).toMatchObject({page:'community',screen:'check'});
+    expect(siteRoute('#/community')).toMatchObject({page:'community',screen:'community'});
     expect(siteRoute('#/results')).toMatchObject({page:'results',screen:'results'});
     expect(siteRoute('#/live')).toMatchObject({page:'live',screen:'results'});
     expect(siteRoute('#/tools/api')).toMatchObject({page:'tools',param:'api',screen:'results'});
@@ -64,7 +64,7 @@ describe('old links',()=>{
     expect(resolve('#/explore/learn/stories')).toMatchObject({page:'learn',param:'stories'});
     expect(resolve('#/explore/play')).toMatchObject({page:'explore',workspace:{tab:'play'}});
     expect(legacyHash('#/explore/community')?.hash).toBe(communityHash());
-    expect(resolve('#/explore/community')).toMatchObject({page:'community',screen:'check'});
+    expect(resolve('#/explore/community')).toMatchObject({page:'community',screen:'community'});
   });
   it('map Analyze to the Viewer\'s sections with Advanced on, and keep filters and ids',()=>{
     expect(legacyHash('#/analyze')).toEqual({hash:'#/explore',advanced:true});
@@ -87,7 +87,7 @@ describe('old links',()=>{
   });
   it('keep the community page reachable and map the score page',()=>{
     expect(communityHash()).toBe('#/community');
-    expect(resolve('#/community')).toMatchObject({page:'community',screen:'check'});
+    expect(resolve('#/community')).toMatchObject({page:'community',screen:'community'});
     expect(resolve('#/score')).toMatchObject({page:'results'});
   });
 });

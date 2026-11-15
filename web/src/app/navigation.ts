@@ -1,21 +1,22 @@
-// Four screens and one switch (decided 15 Nov): Sky · Viewer · To check · Results, plus Advanced.
+// Top-level screens: Sky · Viewer · To check · Community · Results, plus Advanced.
 // Learn and About are pages reached from the footer. Old links are rewritten first by
 // ./legacy-routes.ts; this file resolves the site's own hashes to a page and its screen.
 import {MODES, type WorkspaceState} from '../product/workspace-state';
 
-export type Screen = 'sky' | 'viewer' | 'check' | 'results';
+export type Screen = 'sky' | 'viewer' | 'check' | 'community' | 'results';
 export interface ScreenLink {id:Screen; label:string; href:string}
 export const SCREENS: readonly ScreenLink[] = [
   {id:'sky', label:'Sky', href:'#/sky'},
   {id:'viewer', label:'Viewer', href:'#/explore'},
   {id:'check', label:'To check', href:'#/candidates'},
+  {id:'community', label:'Community', href:'#/community'},
   {id:'results', label:'Results', href:'#/results'},
 ];
 
 /** Which screen each page belongs to (its nav entry); Learn and About belong to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
   atlas:'sky', explore:'viewer', candidate:'viewer',
-  discover:'check', review:'check', community:'check',
+  discover:'check', review:'check', community:'community',
   results:'results', live:'results', tools:'results',
   learn:null, about:null,
 };
