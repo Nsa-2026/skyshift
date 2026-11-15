@@ -695,14 +695,19 @@ export function withoutArtefacts(m: Measured): Measured {
 }
 
 // ---- the Viewer's plain version (BlinkOptions.viewer) -----------------------------------------
-// The Viewer draws only marks a visitor can act on, and says them in plain words: no grey circles
-// (artefacts, sources without a Gaia match, stack-only sources, grade C suspects), no σ, mas/yr,
+// The Viewer circles every real source and says it in plain words: no grey circles (artefacts,
+// grade C suspects), no σ, mas/yr,
 // S/N or µJy. The To check and Learn plates keep the full version above.
 
-/** Classes the Viewer neither circles nor puts in its legend. */
-export const VIEWER_HIDDEN: ReadonlySet<MeasuredClass> = new Set<MeasuredClass>(["artifact", "other", "stack"]);
-/** Does the Viewer circle this detection? */
-export const viewerShows = (cls: MeasuredClass, grade?: string | null): boolean => !VIEWER_HIDDEN.has(cls) && !greyed(cls, grade);
+/** Classes the Viewer neither circles nor puts in its legend: camera glitches only. Sources Gaia
+ *  doesn't list (`other`) are real: the Viewer circles them too. */
+export const VIEWER_HIDDEN: ReadonlySet<MeasuredClass> = new Set<MeasuredClass>(["artifact"]);
+/** Nor, with Advanced off, stack-only sources: too faint for one photo (or the summed plate) to
+ *  show, their circles read as marks on blank sky. Advanced circles them. */
+export const PLAIN_HIDDEN: ReadonlySet<MeasuredClass> = new Set<MeasuredClass>(["stack"]);
+/** Does the Viewer circle this detection (Advanced on or off)? */
+export const viewerShows = (cls: MeasuredClass, grade?: string | null, advanced = false): boolean =>
+  !VIEWER_HIDDEN.has(cls) && (advanced || !PLAIN_HIDDEN.has(cls)) && !greyed(cls, grade);
 
 const COMPASS = [
   "north", "north-northeast", "northeast", "east-northeast", "east", "east-southeast", "southeast", "south-southeast",
