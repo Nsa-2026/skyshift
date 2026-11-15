@@ -14,6 +14,10 @@ FastAPI on Cloud Run (us-east4, 0–4 instances). Implements contracts/api.md ex
 - Cache in gs://nasa-glazing-data/cache/. Static files first: scripts/precompute writes web/public/data/<slug>/.
 - Live builds answer inside Firebase Hosting's 60 s: a 40 s Budget (budget.py), most useful cutouts first, partial answers served with no-store and not cached, 503 "upstream" past 48 s, identical requests share one build. Cloud Run reads S3 first (SKYSHIFT_PIXELS=s3first) with one range request per HDU (cutouts._region_fast). One "timing ..." log line per build.
 - Tests: uv run pytest (offline: every upstream call is replaced; cutouts come from fixtures/fits/). Container: Dockerfile at the repo root, because the image needs core/ and server/; deploy with --source . from the root.
+- Optional API keys (apikeys.py, contracts/api.md v3.14): POST /api/keys, GET/DELETE /api/keys/me. ApiKeyMiddleware checks
+  X-API-Key (or Bearer) on /api/ except /api/health: no key = anonymous, unchanged; unknown key 401; per-key limit
+  SKYSHIFT_KEY_LIMIT/h (default 1000), anonymous limit only if SKYSHIFT_ANON_LIMIT is set. Counts are per instance.
+  Store: gs://nasa-glazing-data/apikeys/<sha256>.json (SKYSHIFT_KEYS); a key-store outage lets key holders through.
 - A missing engine answers 404. Fixture examples ("synthetic": true) only with SKYSHIFT_ALLOW_SYNTHETIC=1 (tests).
 - Science workspace (supplemental, not the scored pipeline): /api/analysis, /api/science, /api/science/capabilities,
   /api/enrichment, /api/export and /api/frames?view=model|resid|refdiff read the five featured fields' products in

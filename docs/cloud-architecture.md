@@ -46,6 +46,7 @@ us nothing.
 | `forced/` | pipeline `dots` | One file per photo: brightness at every catalogue star, detected or not | Parquet | ~1–1.5 MB per photo |
 | `cache/mpc/` | pipeline `known`, `mpc-orbits` | `orbits/`: dated MPC orbit snapshots (asteroids, comets); `<zone>/`: known asteroids and comets predicted in each photo | Parquet (orbits); JSON per session | small per session |
 | `cache/` (rest) | server | Live API cutouts and frames | as the API needs | grows with use |
+| `apikeys/` | server | Optional API keys (contracts/api.md v3.14): one `<sha256>.json` per key `{id, label, created}`, never the key itself; deleting a file revokes that key | JSON | tiny |
 | `results/<zone>/` | pipeline `link`, `score`, `suspects` | `fixed`, `movers`, `suspects` tables, `recall.json`, `summary.json` | Parquet + JSON | < 100 MB |
 | `results/validation/` | scripts/validate | V1–V8 outputs | JSON, Parquet | small |
 | `logs/<machine>/` | the machines | One log per job run, `latest-status.txt` | text | small |
@@ -158,4 +159,4 @@ No keys are created or downloaded; the machines and Cloud Run get credentials fr
 
 Pilot and validation on the test machine: a few hours, about €1–2. Hunt zone: under an hour of
 spot, about €1. Storage: a few GB, cents. Within the plan's €15 of the €264 credit.
-After the final submission: delete both machines. On Monday: delete `dots/` and `cache/`.
+After the final submission: delete both machines. On Monday: delete `dots/` and `cache/` (keep `apikeys/` while the API runs).

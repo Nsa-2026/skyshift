@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.13)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.14)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -13,7 +13,8 @@ v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector 
 v3.11: bright-star fragments and blends: candidates' `blend` reason, distant.json `dropped.blend`, the measured
 layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`;
 v3.12: shape candidates' two-source fit: the measured layer's `split_by_fit` companion, `why` names it;
-v3.13: measured class `stack`, sources seen only on the visit stacks).
+v3.13: measured class `stack`, sources seen only on the visit stacks;
+v3.14: optional API keys, `POST /api/keys`, `GET`/`DELETE /api/keys/me`, error codes `unauthorized` and `rate_limited`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -57,6 +58,11 @@ GET  /api/export?ra=&dec=&det=&clock=&format=
 POST /api/jobs?ra=&dec=&size=       GET /api/jobs/<id>      # off unless SKYSHIFT_ENABLE_SCIENCE_JOBS=1
 POST /api/reference?ra=&dec=
 
+# v3.14 optional API keys: every endpoint still works without one
+POST   /api/keys         { label? }  → { key, id, label, created, header:"X-API-Key" }   # shown once
+GET    /api/keys/me      X-API-Key   → { id, label, created }
+DELETE /api/keys/me      X-API-Key   → { id, revoked:true }
+
 # static twins, same shapes
 /data/<slug>/frames.json   /data/<slug>/object.json
 /data/<slug>/index.json    /data/<slug>/frames_<clock>_<fov>.json
@@ -82,7 +88,8 @@ POST /api/reference?ra=&dec=
   Gaia fields keep Gaia's units: `pmra` (already × cos dec), `pmdec` in mas/yr, `parallax` in mas.
 - Field names are snake_case. A missing value is `null`, never omitted.
 - Gaia ids are strings (JavaScript loses precision above 2^53).
-- Errors: HTTP 4xx/5xx with `{ "error": { "code": "bad_request" | "not_found" | "upstream" | "internal", "message": "..." } }`.
+- Errors: HTTP 4xx/5xx with `{ "error": { "code": "bad_request" | "not_found" | "upstream" | "internal" | "unauthorized" | "rate_limited", "message": "..." } }`.
+  `unauthorized` (401) and `rate_limited` (429, with `Retry-After` in seconds) come only from API keys (v3.14).
 - Examples in fixtures/api/ carry `"synthetic": true` and a `note`. Real responses leave both out.
 
 ## Time, detector, visits and sessions
@@ -373,6 +380,28 @@ degrees) or a built-in name. No SIMBAD (CDS is down).
 `slug` is set for featured targets, so the site can load `/data/<slug>/`. Built-in positions are
 moved to the present for fast stars. 400 `bad_request` if `q` can't be parsed; 404 `not_found`
 for an unknown name.
+
+## API keys (v3.14, optional)
+
+Every endpoint works without a key, as before; the site itself never sends one. A key names the script
+or person behind a request, so its use shows in the logs, a per-key limit can apply, and a key can be
+revoked without blocking anyone else.
+
+- `POST /api/keys` with an optional JSON body `{ "label": "my script" }` (at most 60 printable characters;
+  missing or empty = null) → 201 `{ key, id, label, created, header: "X-API-Key" }`, `Cache-Control: no-store`.
+  `key` is `sks_` + 32 URL-safe characters and is shown only in this answer; the server keeps only its
+  SHA-256. `id` is the first 12 hex digits of that hash, safe to show and log. `created` is ISO 8601 UTC.
+  At most 10 new keys per hour from one address (per server instance): then 429 `rate_limited`.
+- Send the key as the header `X-API-Key: sks_…` (or `Authorization: Bearer sks_…`) on any `/api/` request.
+  No header: anonymous, unchanged. An unknown or revoked key: 401 `unauthorized`, never silently anonymous.
+- A valid key may make `SKYSHIFT_KEY_LIMIT` requests per hour (default 1000, counted per server instance);
+  past it 429 `rate_limited` with `Retry-After`. Anonymous requests have no limit unless the server sets
+  `SKYSHIFT_ANON_LIMIT` (per address per hour; unset = none).
+- `GET /api/keys/me` → `{ id, label, created }` for the key sent. `DELETE /api/keys/me` revokes it
+  → `{ id, revoked: true }`. Both 401 without a valid key. A revoked key may still pass on another
+  server instance for up to 5 minutes (each instance remembers a checked key that long).
+- Answers served from the hosting CDN's cache never reach the server, so they are neither checked nor counted.
+- Keys live in `gs://nasa-glazing-data/apikeys/<sha256>.json` (`SKYSHIFT_KEYS` overrides the place).
 
 ## Static twins
 
@@ -996,3 +1025,10 @@ positions at once. Additive:
   `counts` key `stack` where the zone has a
   `stack_sources` table. Zones without it, the hours clock and older responses: no such class or key (read a
   missing key as 0). Readers that don't know the class may draw it as `other`.
+
+## Changes in v3.14 (15 Nov 2026): optional API keys
+
+Additive. `POST /api/keys`, `GET /api/keys/me` and `DELETE /api/keys/me` (section "API keys"), the request
+header `X-API-Key` (or `Authorization: Bearer`), and two error codes: `unauthorized` (401, a key that is
+unknown or revoked) and `rate_limited` (429). Requests without a key are unchanged; readers that never send
+a key need no change.

@@ -27,6 +27,8 @@ To do: docs/TODO.md (open items by owner; tick or delete an item in the PR that 
 - Deploy after every major change, whoever makes it (person or agent): once it is merged, deploy main right away.
   Site and data: `git pull` on main, `(cd web && npm ci && npm run build) && infra/firebase/deploy.sh hosting`.
   API (server/, core/): `infra/run/deploy.sh` first. Firestore rules only when they change. Name the deployed commit in the PR.
+- Every change someone asks for ends with a deploy, so they can see it live. Ship only what was asked:
+  no extra, unrequested changes in that PR or deploy.
 - No secrets in the repo or in chat. Google access comes from gcloud. Anything else goes in .env.
 - All product code is written after Sat 14 Nov 09:00. Keep the Co-Authored-By line on commits.
 
@@ -83,7 +85,7 @@ To do: docs/TODO.md (open items by owner; tick or delete an item in the PR that 
 
 ## Cloud
 - Google Cloud project nasa-glazing, region us-east4, zone us-east4-a.
-- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
+- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, results/, cache/, apikeys/, logs/. What runs where and what we store: docs/cloud-architecture.md.
 - Firestore (us-east4): candidates, votes. Create-only rules. Site on Firebase Hosting, API on Cloud Run.
 - Machines: skyshift-test (e2-standard-8) for most work; skyshift-worker (n2-highcpu-64 spot)
   only for the hunt zone after gate G2. Both stop themselves after each job; use infra/worker/vm.sh.

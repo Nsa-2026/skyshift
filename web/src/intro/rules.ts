@@ -1,8 +1,7 @@
-// Show the opening on every home visit. Observation links, area routes and embeds keep
-// their direct entry; reduced motion gets the still title card instead of the journey.
-
-/** Attribution tags do not turn a home visit into an observation/deep link. */
-const TRACKING = /^(utm_\w+|fbclid|gclid|msclkid)$/i;
+// The opening plays every time the site is opened (a full page load), whatever the address:
+// the home, a sky view the map wrote into the URL, a target link, a restored browser tab.
+// In-app navigation never replays it. Embeds and `?intro=0` skip it; reduced motion gets the
+// still title card instead of the journey.
 
 export interface OpeningEnv {
   hash: string;
@@ -10,24 +9,17 @@ export interface OpeningEnv {
   reducedMotion: boolean;
 }
 
-/** The home itself, optionally carrying only attribution tags. */
-export function isBareHome(hash: string, search: string): boolean {
-  return (hash === "" || hash === "#" || hash === "#/") &&
-    [...new URLSearchParams(search).keys()].every(key => TRACKING.test(key));
-}
-
-/** Explicit local-review/replay link. Observation links retain their normal entry. */
-export function isOpeningPreview(hash: string, search: string): boolean {
-  const query = new URLSearchParams(search);
-  return query.get('intro') === '1' && [...query.keys()].every(key => key === 'intro' || TRACKING.test(key)) &&
-    (isBareHome(hash, '') || hash === '#/sky' || hash.startsWith('#/sky/'));
-}
-
 export type OpeningMode = "play" | "still";
 
-/** Visiting the home is sufficient; no persistent storage gate is read or written. */
+/** Embedded views (the MCP and other sites) and an explicit `?intro=0` never show the opening. */
+export function skipsOpening(search: string): boolean {
+  const query = new URLSearchParams(search);
+  return query.get("embed") === "1" || query.get("intro") === "0";
+}
+
+/** Every page load plays the opening; no persistent storage gate is read or written. */
 export function openingMode(env: OpeningEnv): OpeningMode | null {
-  if (!isBareHome(env.hash, env.search)) return null;
+  if (skipsOpening(env.search)) return null;
   return env.reducedMotion ? "still" : "play";
 }
 
@@ -43,4 +35,18 @@ export function browserEnv(): OpeningEnv {
     search: location.search,
     reducedMotion,
   };
+}
+
+/**
+ * Where the site lands under the opening: the Sky, never the Viewer (user, 15 Nov). A Viewer
+ * address (the bare home with ?t= or ?ra=, or #/explore…) is replaced by "#/sky"; every other
+ * page (a candidate, To check, Results, Learn, practice) keeps its address. null: leave it as is.
+ */
+export function landingUnderOpening(env: OpeningEnv): string | null {
+  if (!openingMode(env)) return null;
+  const hash = env.hash.replace(/^#\/?/, "");
+  const query = new URLSearchParams(env.search);
+  const target = query.has("t") || query.has("ra");
+  if (hash === "" ? target : hash === "explore" || hash.startsWith("explore/")) return "#/sky";
+  return null;
 }

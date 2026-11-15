@@ -25,7 +25,7 @@ import {getDetails,onDetails,setDetails} from '../prefs/details';
 import {observationForSky,type SkySelection} from './sky-entry';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { mountOpening } from "../intro";
-import { browserEnv } from "../intro/rules";
+import { browserEnv, landingUnderOpening } from "../intro/rules";
 import { formatRaDec } from "./astro";
 import { featuredNear } from "./state";
 import { parseCoords } from "./coords";
@@ -57,6 +57,9 @@ export function startApp(root: HTMLElement): void {
   const embed = isEmbed();
   // Remember the entry URL before the atlas writes its current sky into the hash.
   const openingEnv = browserEnv();
+  // The opening ends on the Sky, not the Viewer: a Viewer address becomes #/sky before anything loads.
+  const landing = embed ? null : landingUnderOpening(openingEnv);
+  if (landing) history.replaceState(history.state, "", `${location.pathname}${landing}`);
   root.classList.toggle('cosmic-shell', !embed);
   root.innerHTML = html`
     ${embed ? '' : '<div class="site-sky" aria-hidden="true"></div>'}
@@ -527,6 +530,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
-  // The opening (src/intro): every home entry, loaded on demand.
+  // The opening (src/intro): every page load (not in-app navigation), loaded on demand.
   if (!embed) mountOpening(root, openingEnv);
 }

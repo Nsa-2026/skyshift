@@ -1,5 +1,6 @@
 """Errors the API turns into the contract's error JSON (contracts/api.md, Conventions):
 HTTP 4xx/5xx with {"error": {"code": "bad_request" | "not_found" | "upstream" | "internal", "message"}}.
+API keys (apikeys.py, v3.14) add "unauthorized" (401) and "rate_limited" (429).
 
 The engine (search, cutouts, gaia, known, ...) may raise these:
 - NotFoundError: nothing to show (e.g. no SPHEREx coverage at a position)  -> 404 not_found
