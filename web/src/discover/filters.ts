@@ -20,13 +20,13 @@ export type SortKey = "promising" | "grade" | "fewest" | "most" | "brightest" | 
 export const SORTS: { key: SortKey; label: string; hint?: string }[] = [
   {
     key: "promising",
-    label: "Pipeline score",
-    hint: "Grade A first and grade C last; then the highest pipeline score, with possible artefacts and the pipeline's doubts after the rest. Nothing is hidden.",
+    label: "Score",
+    hint: "Grade A first and grade C last; then the highest score, with possible camera glitches and doubtful ones after the rest. Nothing is hidden.",
   },
   {
     key: "grade",
-    label: "Vetting grade",
-    hint: "Fast movers by the pipeline's vetting grade: A, then B, then C, then everything without a grade; each by S/N, highest first.",
+    label: "Discovery type",
+    hint: "Fast movers by discovery type: A, then B, then C, then everything without a grade; each by S/N, highest first.",
   },
   { key: "fewest", label: "Fewest votes" },
   { key: "most", label: "Most votes" },
@@ -162,7 +162,7 @@ export interface RangeSpec {
 }
 
 export const RANGES: Record<RangeKey, RangeSpec> = {
-  score: { key: "score", label: "Pipeline score", code: "score", unit: "", log: false, digits: 2, fixed: [0, 1], value: (c) => c.score, missing: "excluded" },
+  score: { key: "score", label: "Score", code: "score", unit: "", log: false, digits: 2, fixed: [0, 1], value: (c) => c.score, missing: "excluded" },
   sig: { key: "sig", label: "How sure the motion is", code: "pm_mas_yr / pm_err_mas_yr", unit: "σ", log: true, digits: 1, fixed: null, value: significance, missing: "excluded" },
   pm: { key: "pm", label: "Motion between visits", code: "pm_mas_yr", unit: "mas/yr", log: true, digits: 0, fixed: null, value: (c) => c.pm_mas_yr, missing: "excluded" },
   rate: { key: "rate", label: "Motion within hours", code: "rate_arcsec_h", unit: "″/h", log: true, digits: 1, fixed: null, value: (c) => c.rate_arcsec_h, missing: "excluded" },
@@ -471,10 +471,22 @@ export function isOneAtATime(paramOrHash: string | null | undefined): boolean {
   return new URLSearchParams(q.replace(/^[#/?]+/, "")).get(ONE_KEY) === "1";
 }
 
+/** The map view's key: the same filter on a page of its own, the sky map in place of the list.
+ *  Like "one", a view and not a filter (queryToState ignores it). */
+export const MAP_KEY = "map";
+
+/** Is the map view on in this query or hash? ("map=1", "kind=mover&map=1", "#/candidates/map=1") */
+export function isMapView(paramOrHash: string | null | undefined): boolean {
+  const q = paramOrHash?.startsWith("#") ? routeQuery(paramOrHash) : (paramOrHash ?? "");
+  return new URLSearchParams(q.replace(/^[#/?]+/, "")).get(MAP_KEY) === "1";
+}
+
 /** The shareable hash for a filter state: "#/candidates" or "#/candidates/kind=mover&sort=fewest";
- *  with one: true, the "One at a time" view of it: "#/candidates/one=1", "#/candidates/kind=mover&one=1". */
-export function candidatesHash(s: FilterState, opts: { one?: boolean } = {}): string {
-  const q = [stateToQuery(s), opts.one ? `${ONE_KEY}=1` : ""].filter(Boolean).join("&");
+ *  with one: true, the "One at a time" view of it: "#/candidates/one=1", "#/candidates/kind=mover&one=1";
+ *  with map: true, the map view of it (which wins over one): "#/candidates/kind=mover&map=1". */
+export function candidatesHash(s: FilterState, opts: { one?: boolean; map?: boolean } = {}): string {
+  const view = opts.map ? `${MAP_KEY}=1` : opts.one ? `${ONE_KEY}=1` : "";
+  const q = [stateToQuery(s), view].filter(Boolean).join("&");
   return q ? `${CANDIDATES_ROUTE}/${q}` : CANDIDATES_ROUTE;
 }
 
@@ -494,7 +506,7 @@ export const PRESETS: Preset[] = [
   {
     id: "promising",
     label: "Most promising",
-    hint: "Highest pipeline score first, without the ones the pipeline doubts or artefacts are near.",
+    hint: "Highest score first, without doubtful ones or possible camera glitches.",
     state: { sort: "promising", hideDoubts: true, cautions: "no" },
   },
   {
@@ -524,7 +536,7 @@ export const PRESETS: Preset[] = [
   {
     id: "check-first",
     label: "Check first",
-    hint: "Ones that may be artefacts (outlier pixels, the same spot days apart, ghosts): a quick look settles most.",
+    hint: "Ones that may be camera glitches (odd pixels, ghosts, the same spot days apart): a quick look settles most.",
     state: { cautions: "yes", review: ["none", "some"], sort: "fewest" },
   },
 ];
