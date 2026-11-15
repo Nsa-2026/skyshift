@@ -8,7 +8,7 @@ import { loadObject } from '../api/client';
 
 export const mountPlay: MountPage = (host, ctx) => {
   host.classList.add('sky-hunt');
-  host.lang = 'zh-CN';
+  host.lang = 'en';
   const controller = new AbortController();
   const game = mountLearning(host, slug => {
     const t = TARGETS.find(t => t.slug === slug);

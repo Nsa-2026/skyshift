@@ -13,7 +13,7 @@ import { learnHref, mountLearn, parseLearnRoute } from '../learn';
 import { LESSONS, readProgress } from './model';
 import { mountLearning } from './index';
 
-const historical = vi.hoisted(() => ({ nasa: null as any }));
+const historical = vi.hoisted(() => ({ nasa: null as any, gx: null as any }));
 const nasaFile = resolve(dirname(fileURLToPath(import.meta.url)), '../../public/guxing/guxing-nasa.js');
 vi.mock('../api/client', async original => ({ ...await original<object>(), loadObject: vi.fn() }));
 vi.mock('../api/science-client', async original => ({ ...await original<object>(), loadAnalysis: vi.fn() }));
@@ -22,7 +22,7 @@ vi.mock('../product/observations', () => ({
   drawObservation: (canvas: HTMLCanvasElement) => { canvas.width = 100; canvas.height = 100; },
 }));
 vi.mock('./culture', () => ({ loadCulture: vi.fn().mockResolvedValue(undefined), culture: () => ({
-  gx: { locate: () => ({ mansion: { zh: '尾宿' }, nearest: [{ asterism_zh: '宗人' }] }), mansion: () => ({ zh: '尾宿' }), segments: () => [] },
+  gx: historical.gx,
   nasa: historical.nasa,
 }) }));
 
@@ -33,9 +33,12 @@ const button = (selector: string) => host.querySelector<HTMLButtonElement>(selec
 const enter = () => host.querySelector<HTMLCanvasElement>('.hunt-canvas')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
 beforeEach(() => {
-  const module = { exports: {} };
-  runInNewContext(readFileSync(nasaFile, 'utf8'), { module });
-  historical.nasa = module.exports;
+  const sandbox: Record<string, any> = {};
+  for (const name of ['guxing-data', 'guxing', 'guxing-nasa']) {
+    runInNewContext(readFileSync(resolve(dirname(nasaFile), `${name}.js`), 'utf8'), sandbox);
+  }
+  historical.nasa = sandbox.GUXING_NASA;
+  historical.gx = new sandbox.Guxing();
   storage = new Map();
   vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, String(value)) });
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')));
@@ -75,12 +78,24 @@ function track() {
   for (let i = 0; i < 3; i++) { enter(); button('.guide-next').click(); }
 }
 
+// Traditional names and explicitly labelled source quotations may keep their original language.
+function expectEnglishUi() {
+  const copy = host.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll('[lang="zh"]').forEach(el => el.remove());
+  expect(copy.textContent).not.toMatch(/\p{Script=Han}/u);
+  for (const el of copy.querySelectorAll('[aria-label], [title], [alt]')) {
+    for (const attr of ['aria-label', 'title', 'alt']) expect(el.getAttribute(attr) ?? '').not.toMatch(/\p{Script=Han}/u);
+  }
+}
+
 describe('the restored five-field game', () => {
   it('keeps all five fields, three distinct observations, night vision and collection rewards', async () => {
     mount();
+    expectEnglishUi();
     expect(host.querySelectorAll('.lesson-cards [data-lesson]')).toHaveLength(5);
     for (const lesson of LESSONS) {
       await start(lesson.slug);
+      expectEnglishUi();
       expect(host.querySelectorAll('[data-frame]')).toHaveLength(3);
       if (lesson.slug === 'wise0855') {
         expect(button('.hunt-night').getAttribute('aria-checked')).toBe('false');
@@ -90,13 +105,14 @@ describe('the restored five-field game', () => {
       }
       track();
       expect(readProgress()).not.toContain(lesson.slug);
-      expect(button('.guide-next').textContent).toBe('收进我的星空 ✦');
+      expect(button('.guide-next').textContent).toBe('Add to my collection ✦');
       button('.guide-next').click();
       expect(readProgress()).toContain(lesson.slug);
       const slider = host.querySelector<HTMLInputElement>('.year-slider')!;
       expect([slider.min, slider.max]).toEqual(['-200', '3000']);
       slider.value = '1054'; slider.dispatchEvent(new Event('input'));
       expect(host.querySelector('.year-output')!.textContent).toBeTruthy();
+      expectEnglishUi();
       button('.guide-exit').click();
     }
     expect(host.querySelectorAll('.collection-star.collected')).toHaveLength(5);
@@ -111,9 +127,9 @@ describe('the restored five-field game', () => {
       for (let offset = 0; offset < 5; offset++) canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
       enter(); button('.guide-next').click();
     }
-    expect(host.querySelector('.guide-feedback')!.textContent).toContain('这条线索还没对上');
+    expect(host.querySelector('.guide-feedback')!.textContent).toContain('Those positions do not match yet');
     expect(readProgress()).toEqual([]);
-    track(); expect(button('.guide-next').textContent).toBe('收进我的星空 ✦');
+    track(); expect(button('.guide-next').textContent).toBe('Add to my collection ✦');
   });
 
   it('preserves old collection records and both historical stories, with day selection and tonight', async () => {
@@ -122,16 +138,20 @@ describe('the restored five-field game', () => {
     for (const id of ['SN1054', 'SN1572']) {
       button(`[data-story="${id}"]`).click();
       await vi.waitFor(() => expect(host.querySelector('.story-collect')).not.toBeNull());
+      expectEnglishUi();
+      expect(host.querySelector('.story-panel blockquote')!.textContent).toBeTruthy();
+      expect((host.querySelector('.story-panel details') as HTMLDetailsElement).open).toBe(false);
       button('.story-collect').click(); expect(readProgress()).toContain(id);
     }
     const day = historical.nasa.planets.events[0].time.slice(0, 10);
     host.querySelector<HTMLInputElement>('.sky-date')!.value = day; button('.date-go').click();
     await vi.waitFor(() => expect(host.querySelector('.date-events article')).not.toBeNull());
     expect(host.querySelector('.date-status')!.textContent).toContain(day);
+    expectEnglishUi();
     button('.date-today').click();
     expect(host.querySelector<HTMLInputElement>('.sky-date')!.value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     host.querySelector<HTMLInputElement>('.sky-date')!.value = '2028-01-01'; button('.date-go').click();
-    expect(host.querySelector('.date-status')!.textContent).toContain('请选择 2026–2027');
+    expect(host.querySelector('.date-status')!.textContent).toContain('Choose a valid date in 2026–2027');
     expect(readProgress()).toContain('barnard');
   });
 
