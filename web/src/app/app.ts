@@ -6,6 +6,7 @@ import { mountBlink } from "../blink";
 import { mountCard } from "../card";
 import { mountScore } from "../score";
 import { mountSky } from "../sky";
+import { mountNotesPanel } from "../notes";
 import { mountFilters } from "../colour";
 import { mountVote } from "../vote";
 import { mountDiscover } from "../discover";
@@ -103,6 +104,9 @@ export function startApp(root: HTMLElement): void {
       <div class="vw-main">
         <section class="stage" aria-label="Blink"><div class="science-layer-caption" role="status" hidden><span data-layer-description></span><button class="btn" type="button" data-raw-source>Show observations</button></div><div id="blink"></div></section>
         <section id="sky" class="sky vw-panel" aria-label="Sky around this spot"></section>
+        <!-- #/c/<id> only: notes on the object being checked. The left column ends well above the
+             evidence beside it while the sky card is closed; this is what fills it. -->
+        <section id="notes" class="notes vw-panel" aria-label="Notes on this object" hidden></section>
       </div>
       <div class="vw-side">
         <!-- Here, not above the plate: a bar appearing above it moved the plate under the pointer. -->
@@ -221,6 +225,8 @@ export function startApp(root: HTMLElement): void {
   // ctx (below) exists by the time anyone clicks: a featured target's field opens its static data.
   const card: CardHandle = mountCard($("#card"), { onExplore: (at) => ctx.explore(at) });
   const vote: VoteHandle = mountVote($("#vote"));
+  // Under the sky card, and only on #/c/<id>: what people noticed about this object.
+  const notes = mountNotesPanel($("#notes"));
   const sky: SkyHandle = mountSky($("#sky"), {
     onClick(pos) {
       if (view) go({ ...view, ...pos, slug: null, name: null });
@@ -556,8 +562,10 @@ export function startApp(root: HTMLElement): void {
       card.lead?.(suspectEl);
       if (!suspectCand) blink.status('loading', 'Loading the object to check…');
       suspect.show(candidate);
+      notes.show(candidate);
     } else if (!suspectEl.hidden || suspectCand) {
       suspectEl.hidden = true;
+      notes.hide();
       card.lead?.(null);
       suspect.hide();
       if (page === 'explore') {
