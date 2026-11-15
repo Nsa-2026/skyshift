@@ -2,12 +2,12 @@
 // and detector, with red circles where it should be in each frame, and this panel sits at the top
 // of the Viewer's side column: the list around it, the vote (change it or reset it), what happens
 // next, and the details behind it.
-import { failedGates, gatesPhrase, gradeOf, isGate, nearSourceOf, votable } from "../api/grades";
+import { failedGates, gatesPhrase, nearSourceOf, votable } from "../api/grades";
 import type { Candidate, FramesResponse } from "../api/types";
 import type { TrackMarks, View } from "../app/modules";
 import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
-import { AssistSlot, detailsOn, loadAssist, votesSummary } from "./assist";
+import { AssistSlot, detailsOn, loadAssist } from "./assist";
 import { Ballot } from "./ballot";
 import { OWN_GAP_DAYS, candidateSet, findGap, focusFrames, framesFor, gapText, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { LIST_HASH, keyAction, neighbours, parseCandidateParam } from "./model";
@@ -19,10 +19,7 @@ import {
   KIND_TEXT,
   SITE,
   esc,
-  flagText,
   kindName,
-  nearestKnownText,
-  reasonText,
 } from "./text";
 import { formatRaDec } from "../app/astro";
 
@@ -51,52 +48,6 @@ export function embedCode(c: Candidate): string {
   return `<iframe src="${SITE}/?${p}" width="760" height="820" style="border:0" loading="lazy" title="${esc(`SkyShift: ${kindName(c.kind).toLowerCase()} ${c.id}`)}"></iframe>`;
 }
 
-function cataloguesHtml(c: Candidate): string {
-  const pmDiffers = (code: string) => c.reasons.includes(code);
-  return dl([
-    ["Known asteroids and comets", esc(nearestKnownText(c))],
-    [
-      "Gaia DR3",
-      c.gaia_match
-        ? pmDiffers("gaia_pm_disagrees")
-          ? "A star sits here, but Gaia lists a different motion."
-          : "A star sits here."
-        : "No star here.",
-    ],
-    [
-      "CatWISE2020",
-      c.catwise_match
-        ? pmDiffers("catwise_pm_disagrees")
-          ? "A source sits here, but CatWISE lists a different motion."
-          : "A source sits here."
-        : "No source here.",
-    ],
-  ]);
-}
-
-const dl = (rows: [string, string][]) =>
-  html`<dl class="rv-dl">${rows.map(([k, v]) => html`<div${k ? "" : ` class="rv-dl-cont"`}><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
-
-/** Reasons as chips. Each chip is a button: it opens one plain sentence on what the reason means.
- *  A grade C candidate's failed checks are listed under its grade, so they aren't repeated here. */
-export function reasonsHtml(c: Candidate): string {
-  const reasons = gradeOf(c) === "C" ? c.reasons.filter((r) => !isGate(r)) : c.reasons;
-  if (!reasons.length) return html`<p class="rv-soft">The pipeline gave no extra reasons.</p>`;
-  const toneWord = { for: "supports it", doubt: "a reason for doubt", info: "context" } as const;
-  return html`<ul class="rv-chips">
-    ${reasons
-      .map((code, i) => {
-        const r = reasonText(code);
-        return html`<li><button class="rv-chip" type="button" data-tone="${r.tone}" data-tip="${esc(r.tip)}"
-          aria-expanded="false" aria-controls="rv-chip-tip" id="rv-chip-${i}">
-          <span class="rv-chip-mark" aria-hidden="true">${r.tone === "for" ? "+" : r.tone === "doubt" ? "?" : "i"}</span>${esc(r.chip)}<span class="visually-hidden">, ${toneWord[r.tone]}</span>
-        </button></li>`;
-      })
-      .join("")}
-  </ul>
-  <p class="rv-chip-tip" id="rv-chip-tip" aria-live="polite">Tap a reason to read what it means.</p>`;
-}
-
 /** Grade C: no ballot. Say why, and that the plate is still there to blink. */
 export function noVoteHtml(c: Candidate): string {
   const gates = failedGates(c);
@@ -104,13 +55,8 @@ export function noVoteHtml(c: Candidate): string {
   return html`<section class="rv-ballot rv-novote" aria-labelledby="cd-novote-h" data-state="closed">
     <h2 class="rv-h" id="cd-novote-h">No vote on this one</h2>
     <p class="rv-novote-text">The pipeline graded it C: it fails a check${why}, so it is most likely an artefact or a catalogued source. Votes go to grade A and B objects.</p>
-    <p class="rv-soft">You can still blink it and read every reason below.</p>
+    <p class="rv-soft">You can still blink it.</p>
   </section>`;
-}
-
-function cautionsHtml(c: Candidate): string {
-  if (!c.flags.length) return html`<p class="rv-soft">No artefact flags near it.</p>`;
-  return html`<ol class="rv-notes">${c.flags.map((f) => html`<li>${esc(flagText(f))}</li>`).join("")}</ol>`;
 }
 
 /** What the plate note says about the frames shown for a candidate. */
@@ -204,7 +150,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
   const prevEl = $<HTMLAnchorElement>(".cd-prev");
   const nextEl = $<HTMLAnchorElement>(".cd-next");
   let checkSlot: AssistSlot | null = null;
-  let nextSlot: AssistSlot | null = null;
 
   let set: CandidateSet | null = null;
   let v: Votes | null = null;
@@ -235,7 +180,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       local: v?.api.mode === "local",
       kind: cand.kind,
     });
-    updateWhatNext();
   }
 
   // ---- the check assistant's slots (src/assist, optional) -------------------------------------
@@ -243,24 +187,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     const mod = await loadAssist();
     if (!mod || cand !== c || !checkSlot) return;
     checkSlot.mount(mod.mountChecklist && ((slot) => mod.mountChecklist!(slot, c, { details: detailsOn() })));
-    mountWhatNext(c);
-  }
-  function mountWhatNext(c: Candidate) {
-    loadAssist().then((mod) => {
-      if (!mod?.mountWhatNext || cand !== c || !nextSlot) return;
-      const ok = nextSlot.mount((slot) => mod.mountWhatNext!(slot, c, votesSummary(counts ?? emptyCounts(), mine)));
-      // The assistant writes the next steps: the ballot keeps only the short line.
-      ballot?.setFull(!ok);
-    });
-  }
-  let lastSummary = "";
-  function updateWhatNext() {
-    if (!cand || !nextSlot) return;
-    const sum = votesSummary(counts ?? emptyCounts(), mine);
-    const key = JSON.stringify(sum);
-    if (key === lastSummary) return;
-    lastSummary = key;
-    if (!nextSlot.update(sum)) mountWhatNext(cand);
   }
 
   /** Vote, change the answer, or (null) reset it. One write at a time: the ballot is shut while saving. */
@@ -296,24 +222,10 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       ${motionHtml(c)}
       ${gradeHtml(c, true)}
       <div class="cd-ballot">${open ? "" : noVoteHtml(c)}</div>
-      <!-- Slot: src/assist mountWhatNext (report drafts, citation), mounted only if src/assist exists. -->
-      <section class="cand-next" aria-label="What next" hidden></section>
       <details class="sp-more">
         <summary>More about this object</summary>
         <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
         <section class="cand-check" aria-label="Check this object" hidden></section>
-        <section class="rv-sec" aria-labelledby="sp-why-h">
-          <h3 class="rv-h" id="sp-why-h">Why it's listed</h3>
-          ${reasonsHtml(c)}
-        </section>
-        <section class="rv-sec" aria-labelledby="sp-c-h">
-          <h3 class="rv-h" id="sp-c-h">Catalogues at this spot</h3>
-          ${cataloguesHtml(c)}
-        </section>
-        <section class="rv-sec" aria-labelledby="sp-f-h">
-          <h3 class="rv-h" id="sp-f-h">Cautions</h3>
-          ${cautionsHtml(c)}
-        </section>
         <section class="rv-sec" aria-labelledby="sp-p-h">
           <h3 class="rv-h" id="sp-p-h">Position</h3>
           <p class="cd-pos"><span class="cd-radec">${formatRaDec(c)}</span>
@@ -332,10 +244,7 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       </details>
     `;
     checkSlot?.clear();
-    nextSlot?.clear();
     checkSlot = new AssistSlot(bodyEl.querySelector<HTMLElement>(".cand-check")!);
-    nextSlot = new AssistSlot(bodyEl.querySelector<HTMLElement>(".cand-next")!);
-    lastSummary = "";
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
     ballot = open ? new Ballot(bodyEl.querySelector(".cd-ballot")!, { onVote: vote, onReset: () => vote(null), full: true, kind: c.kind }) : null;
     renderBallot();
@@ -346,17 +255,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
   }
 
   bodyEl.addEventListener("click", (ev) => {
-    const chip = (ev.target as Element).closest<HTMLButtonElement>("button.rv-chip");
-    if (chip) {
-      const open = chip.getAttribute("aria-expanded") !== "true";
-      bodyEl.querySelectorAll<HTMLButtonElement>("button.rv-chip").forEach((b) => b.setAttribute("aria-expanded", String(b === chip && open)));
-      const tip = bodyEl.querySelector<HTMLElement>(".rv-chip-tip");
-      if (tip) {
-        tip.textContent = open ? chip.dataset.tip ?? "" : "Tap a reason to read what it means.";
-        tip.dataset.open = String(open);
-      }
-      return;
-    }
     const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-act]");
     if (!b || !cand) return;
     const c = cand;
@@ -417,7 +315,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     }
     emptyEl.innerHTML = html`<h2 class="rv-empty-title">${title}</h2>${body}`;
     checkSlot?.clear();
-    nextSlot?.clear();
   }
 
   async function show(param: string) {
@@ -548,7 +445,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       document.removeEventListener("keydown", onKey);
       window.removeEventListener(VOTED_EVENT, onVoted);
       checkSlot?.clear();
-      nextSlot?.clear();
       el.innerHTML = "";
     },
   };
