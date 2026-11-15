@@ -520,10 +520,13 @@ def pass2a(ctx: dict, tile: Tile) -> dict:
     # dots and the photos' Jacobians (whole dot files: the untiled values) for phase b
     dd = d[d["source_id"].isin(owned)].reset_index(drop=True)
     own.write_parquet("astro_dots.parquet", dd)
-    own.write_parquet("frame_residuals.parquet", astrometry.frame_residuals(dd, xid))
-    if C.ASTRO_SAT_OFFSET:
-        jac = astrometry.photo_jacobians(dd, motion_io.member_dots_raw(ts, tz, thr)[2])
+    jac = (astrometry.photo_jacobians(dd, motion_io.member_dots_raw(ts, tz, thr)[2])
+           if C.ASTRO_SAT_OFFSET or astrometry.pixel_terms_on() else None)
+    # with Jacobians the frame residuals also carry what the zone's pixel offsets need (astrometry.pixel_offsets)
+    own.write_parquet("frame_residuals.parquet", astrometry.frame_residuals(dd, xid, jac if astrometry.pixel_terms_on() else None))
+    if jac is not None:
         own.write_parquet("astro_jac.parquet", jac)
+    if C.ASTRO_SAT_OFFSET:
         own.write_parquet("sat_residuals.parquet", astrometry.sat_residuals(dd, xid, jac))
     motion_io.clear_cache()
     st.update({"member_dots": {k: v for k, v in mst.items() if not isinstance(v, (dict, list))},
@@ -532,9 +535,9 @@ def pass2a(ctx: dict, tile: Tile) -> dict:
 
 
 def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.DataFrame, offsets: pd.DataFrame | None,
-           qa_red: pd.DataFrame | None = None, sat: pd.DataFrame | None = None) -> dict:
+           qa_red: pd.DataFrame | None = None, sat: pd.DataFrame | None = None, pix: dict | None = None) -> dict:
     """classify (zone locus), photoz, light-curve errors (zone model, bad photos and qa's red ones) and summaries,
-    astrometry (zone frame offsets and saturated-dot offsets)."""
+    astrometry (zone frame offsets, saturated-dot offsets and the unsaturated dots' pixel offsets)."""
     from . import astrometry, classify, lightcurves, photoz
     t0 = time.time()
     ts = _ctx_store(ctx, tile, zone_calib=True)
@@ -572,15 +575,16 @@ def pass2b(ctx: dict, tile: Tile, locus: dict, lc_model: dict, bad_keys: pd.Data
     xid_rel = results_rel(tz.name, "crossids.parquet")
     xid = ts.read_parquet(xid_rel) if ts.exists(xid_rel) else None
     jac = own.read_parquet("astro_jac.parquet") if own.exists("astro_jac.parquet") else None
-    raw, st_raw = astrometry.fit(d, xid, frame=False, jac=jac, sat=sat)
+    raw, st_raw = astrometry.fit(d, xid, frame=False, jac=jac, sat=sat, pix=pix)
     if C.ASTRO_FRAME_CORRECT and xid is not None:
-        cor, st_cor = astrometry.fit(d, xid, frame=True, offsets=offsets, jac=jac, sat=sat)
+        cor, st_cor = astrometry.fit(d, xid, frame=True, offsets=offsets, jac=jac, sat=sat, pix=pix)
     else:
         cor, st_cor = raw, st_raw
     own.write_parquet("astrometry.parquet", cor)
     own.write_parquet("astrometry_raw.parquet", raw)
     st["astrometry"] = {k: v for k, v in st_cor.items() if k in ("fitted", "with_parallax", "spacecraft_position_dots", "sources_in",
-                                                                 "saturated_dots", "saturated_dots_corrected")}
+                                                                 "saturated_dots", "saturated_dots_corrected",
+                                                                 "unsaturated_dots", "pixel_dots_corrected")}
     st["astrometry"]["corrected"] = cor is not raw
     st.update({"wall_s": round(time.time() - t0, 1), "peak_rss_mb": _peak_rss_mb()})
     return st
@@ -1089,6 +1093,9 @@ class Run:
         # the saturated-dot offsets (pixels) on every tile's saturated reference dots, after the zone's frame offsets
         sres = _df(_read_parts(w, T, "sat_residuals.parquet"))
         self.sat = astrometry.sat_offsets(sres, self.offsets if C.ASTRO_FRAME_CORRECT else None) if C.ASTRO_SAT_OFFSET else None
+        # the unsaturated dots' pixel offsets (detector map, brightness term) on every tile's reference dots, likewise
+        self.pix = (astrometry.pixel_offsets(res, self.offsets if C.ASTRO_FRAME_CORRECT else None)
+                    if astrometry.pixel_terms_on() and len(res) else None)
         st.update({"locus": {f"{k[0]}_D{k[1]}" + (f"_s{k[2]}" if len(k) > 2 else ""): round(v, 5)
                              for k, v in sorted(self.locus.items(), key=lambda kv: tuple(map(str, kv[0])))}, **self.frame_stats})
         self._timed("reduce2", t0)
@@ -1139,12 +1146,15 @@ class Run:
         sums = {k: sum(st["astrometry"].get(k, 0) for st in self.pass2b_stats) for k in ("fitted", "with_parallax", "spacecraft_position_dots")}
         cor_df = cor.to_pandas() if cor is not None else pd.DataFrame(columns=astrometry.COLUMNS)
         raw_df = raw.to_pandas() if raw is not None else pd.DataFrame(columns=astrometry.COLUMNS)
-        sat_dots = {k: sum(st["astrometry"].get(k, 0) for st in self.pass2b_stats) for k in ("saturated_dots", "saturated_dots_corrected")}
+        sat_dots = {k: sum(st["astrometry"].get(k, 0) for st in self.pass2b_stats)
+                    for k in ("saturated_dots", "saturated_dots_corrected", "unsaturated_dots", "pixel_dots_corrected")}
         rep = {"zone": z.name, "frame_correction": self.frame_stats if corrected else {"photos_corrected": 0},
                "fitted": sums["fitted"], "with_parallax": sums["with_parallax"],
                "spacecraft_position_dots": sums["spacecraft_position_dots"],
                "saturated_offsets": astrometry.sat_report(getattr(self, "sat", None), sat_dots["saturated_dots"],
                                                           sat_dots["saturated_dots_corrected"]),
+               "pixel_offsets": astrometry.pixel_report(getattr(self, "pix", None), sat_dots["unsaturated_dots"],
+                                                        sat_dots["pixel_dots_corrected"]),
                "vs_gaia_frame_corrected": astrometry.report(cor_df, xid) if corrected else None,
                "vs_gaia_raw": astrometry.report(raw_df, xid)}
         s.write_json(results_rel(z.name, "astrometry_report.json"), rep)
@@ -1179,7 +1189,7 @@ class Run:
             steps["reduce"] = self.reduce2(pool)
             t0 = time.time()
             self.pass2b_stats = pool.map(pass2b, [(self.ctx, t, self.locus, self.lc_model, self.bad_keys, self.offsets, self.qa_red,
-                                                    self.sat) for t in self.tiles])
+                                                    self.sat, getattr(self, "pix", None)) for t in self.tiles])
             self._timed("pass2b", t0)
             xid = s.read_parquet(results_rel(z.name, "crossids.parquet")) if s.exists(results_rel(z.name, "crossids.parquet")) else None
             steps["merge"] = self.merge2(xid)

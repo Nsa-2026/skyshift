@@ -48,6 +48,18 @@ from every saturated dot through its photo's Jacobian
 (motion_io's, from the whole dot file). Fitted once per zone, like the frame offsets (tiles: sat_residuals per tile,
 sat_offsets on all of them); the report lists the offsets. The frame offsets then use unsaturated dots only.
 
+Unsaturated dots (ASTRO_PIXEL_MAP, ASTRO_BRIGHT_OFFSET; 15 Nov): calib's per-photo distortion is at most quadratic, and
+after it and the frame offsets the quiet Gaia stars' dots still sit off Gaia by amounts fixed in detector pixels, which
+the roll turns into fake motion just the same: (1) a static map per detector (pixel_offsets `map`: the median offset in
+ASTRO_MAP_CELL_PX cells, bilinear between cell centres), which gives each star its own fake motion because it sits at
+another x in each visit; (2) a brightness term (`bright`: the median offset per bin of the dot's own depth, bright_level:
+its AB magnitude from flux_ujy against its detector's saturation), the centroid moving along −x as a star nears
+saturation below the flags and along +x at the faint end, which gave bright stars a shared westward fake motion and faint
+ones an eastward one. Both are fitted on the zone's unsaturated dots of quiet Gaia
+stars after the frame offsets (each on what the other leaves, ASTRO_PIXEL_ITER times; centroid and ePSF positions
+separately) and subtracted from every unsaturated dot through its photo's Jacobian. Fitted once per zone from the frame
+residuals (tiles: frame_residuals with the Jacobians per tile, pixel_offsets on all of them).
+
 Writes results/<zone>/astrometry.parquet and astrometry_report.json: SPHEREx proper motion vs Gaia for
 matched stars (bias, robust scatter, median error, pull scatter), overall, by median dot S/N and by Gaia G,
 with and without the frame correction, the saturated-dot offsets, and the fast Gaia stars one by one.
@@ -306,9 +318,10 @@ def _setup(d: pd.DataFrame):
     return d, sid_u, s, N, ra0, dec0, east, north, sc, xyz
 
 
-def frame_residuals(d: pd.DataFrame, crossids: pd.DataFrame | None) -> pd.DataFrame:
+def frame_residuals(d: pd.DataFrame, crossids: pd.DataFrame | None, jac: pd.DataFrame | None = None) -> pd.DataFrame:
     """The reference dots' residuals against Gaia (obs_id, detector, e, n ″), as frame_offsets measures them: tiles.py
-    collects them from every tile and takes the per-photo medians over the whole zone (photo_offsets)."""
+    collects them from every tile and takes the per-photo medians over the whole zone (photo_offsets). With the photos'
+    Jacobians (photo_jacobians' table) also what pixel_offsets needs: PIX_COLUMNS and JAC_COLUMNS."""
     d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
     refs = frame_refs(d, east, north, ra0, dec0, s, sid_u, crossids, xyz, unsat=C.ASTRO_SAT_OFFSET)
     if refs is None:
@@ -316,8 +329,12 @@ def frame_residuals(d: pd.DataFrame, crossids: pd.DataFrame | None) -> pd.DataFr
                              "e": pd.Series(dtype=np.float64), "n": pd.Series(dtype=np.float64)})
     m, re, rn = refs
     ok = d["photo"].to_numpy(np.int64)[m] >= 0
-    return pd.DataFrame({"obs_id": d["obs_id"].astype(str).to_numpy()[m][ok], "detector": d["detector"].to_numpy(np.int8)[m][ok],
-                         "e": re[ok], "n": rn[ok]})
+    out = pd.DataFrame({"obs_id": d["obs_id"].astype(str).to_numpy()[m][ok], "detector": d["detector"].to_numpy(np.int8)[m][ok],
+                        "e": re[ok], "n": rn[ok]})
+    if jac is not None:
+        idx = np.flatnonzero(m)[ok]
+        out = pd.concat([out, _pix_columns(d, idx, jac)], axis=1)
+    return out
 
 
 def photo_offsets(res: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -505,13 +522,244 @@ def sat_report(tab: pd.DataFrame | None, dots: int = 0, corrected: int = 0) -> d
             "saturated_dots": int(dots), "dots_corrected": int(corrected), "offsets": rows}
 
 
+# --- unsaturated dots: a detector map and a brightness term, fixed in detector pixels ------------------------------
+PIX_COLUMNS = ["source_id", "x", "y", "snr", "level", "psf"]
+MAP_COLUMNS = ["kind", "detector", "cx", "cy", "dx_px", "dy_px", "n", "applied"]
+BRIGHT_COLUMNS = ["kind", "detector", "bin", "lo", "hi", "dx_px", "dy_px", "dx_err_px", "dy_err_px", "n", "applied"]
+KINDS = ("centroid", "psf")
+
+
+def pixel_terms_on() -> bool:
+    return bool(C.ASTRO_PIXEL_MAP or C.ASTRO_BRIGHT_OFFSET)
+
+
+def bright_level(d: pd.DataFrame) -> np.ndarray:
+    """The brightness the unsaturated offset follows, from the dot itself (no catalogue: a new object gets it too): its
+    AB magnitude from flux_ujy (calibrated r = 2 px aperture, on the total-flux scale) minus the AB magnitude at which half
+    the stars saturate in its detector (ASTRO_SAT_DEPTH_BANDS); < 0 = brighter. NaN without flux_ujy or detector, or
+    flux <= 0. (The peak, peak_mjysr, tops out at ~100 MJy/sr in D1–D4 below the flags and separates the brightest
+    unsaturated dots less well.)"""
+    if "flux_ujy" not in d or "detector" not in d or not len(d):
+        return np.full(len(d), np.nan)
+    f = pd.to_numeric(d["flux_ujy"], errors="coerce").to_numpy(np.float64)
+    det = d["detector"].to_numpy(np.int64)
+    sat_ab = np.full(len(d), np.nan)
+    for k, (_, _, ab) in C.ASTRO_SAT_DEPTH_BANDS.items():
+        sat_ab[det == k] = ab
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(f > 0, 23.9 - 2.5 * np.log10(f), np.nan) - sat_ab
+
+
+def _col(d: pd.DataFrame, name: str, default=np.nan, dtype=np.float64) -> np.ndarray:
+    return d[name].to_numpy(dtype) if name in d else np.full(len(d), default, dtype)
+
+
+def _pix_columns(d: pd.DataFrame, idx: np.ndarray, jac: pd.DataFrame | None) -> pd.DataFrame:
+    """PIX_COLUMNS and JAC_COLUMNS of the dots d.iloc[idx] (x, y NaN without them: no map)."""
+    sub = d.iloc[idx]
+    out = pd.DataFrame({"source_id": sub["source_id"].to_numpy(np.int64), "x": _col(sub, "x").astype(np.float32), "y": _col(sub, "y").astype(np.float32),
+                        "snr": _col(sub, "snr").astype(np.float32), "level": bright_level(sub).astype(np.float32),
+                        "psf": sub["pos_psf"].fillna(False).to_numpy(bool) if "pos_psf" in sub else np.zeros(len(sub), bool)})
+    J = _jacobian_at(d, idx, jac).reshape(-1, 4)
+    for j, c in enumerate(JAC_COLUMNS):
+        out[c] = J[:, j]
+    return out
+
+
+def _to_pixels(e: np.ndarray, n: np.ndarray, J: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(″ east, north) → (px along x, y) through J (n, 2, 2); NaN where J is singular or missing."""
+    dj = J[:, 0, 0] * J[:, 1, 1] - J[:, 0, 1] * J[:, 1, 0]
+    ok = np.isfinite(dj) & (np.abs(np.nan_to_num(dj)) > 1e-6)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        dx = np.where(ok, (J[:, 1, 1] * e - J[:, 0, 1] * n) / dj, np.nan)
+        dy = np.where(ok, (J[:, 0, 0] * n - J[:, 1, 0] * e) / dj, np.nan)
+    return dx, dy
+
+
+def _ncell() -> int:
+    return int(np.ceil(C.DETECTOR_PX / C.ASTRO_MAP_CELL_PX))
+
+
+def _map_eval(tab: pd.DataFrame | None, kind: np.ndarray, det: np.ndarray, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(Δx, Δy) px of the map at (x, y): bilinear between cell centres (clamped at the edges), 0 in cells not applied."""
+    ox, oy = np.zeros(len(det)), np.zeros(len(det))
+    if tab is None or not len(tab) or not len(det):
+        return ox, oy
+    nc, cell = _ncell(), float(C.ASTRO_MAP_CELL_PX)
+    fx = np.clip(np.nan_to_num(np.asarray(x, np.float64), nan=-1.0) / cell - 0.5, 0.0, nc - 1.0)
+    fy = np.clip(np.nan_to_num(np.asarray(y, np.float64), nan=-1.0) / cell - 0.5, 0.0, nc - 1.0)
+    i0 = np.minimum(np.floor(fx).astype(np.int64), nc - 2)
+    j0 = np.minimum(np.floor(fy).astype(np.int64), nc - 2)
+    u, v = fx - i0, fy - j0
+    good = np.isfinite(np.asarray(x, np.float64)) & np.isfinite(np.asarray(y, np.float64))
+    t = tab[tab["applied"].to_numpy(bool)]
+    for (kd, k), g in t.groupby(["kind", "detector"]):
+        m = good & (kind == KINDS.index(kd)) & (det == k)
+        if not m.any():
+            continue
+        for col, out in (("dx_px", ox), ("dy_px", oy)):
+            G = np.zeros((nc, nc))
+            G[g["cx"].to_numpy(np.int64), g["cy"].to_numpy(np.int64)] = g[col].to_numpy(np.float64)
+            a, b, uu, vv = i0[m], j0[m], u[m], v[m]
+            out[m] = (G[a, b] * (1 - uu) * (1 - vv) + G[a + 1, b] * uu * (1 - vv) + G[a, b + 1] * (1 - uu) * vv
+                      + G[a + 1, b + 1] * uu * vv)
+    return ox, oy
+
+
+def _bright_eval(tab: pd.DataFrame | None, kind: np.ndarray, det: np.ndarray, level: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(Δx, Δy) px of the brightness table at each dot's level (its bin where applied; else 0, NaN level: 0)."""
+    ox, oy = np.zeros(len(det)), np.zeros(len(det))
+    if tab is None or not len(tab) or not len(det):
+        return ox, oy
+    t = tab[tab["applied"].to_numpy(bool)]
+    for r in t.itertuples():
+        with np.errstate(invalid="ignore"):
+            m = (kind == KINDS.index(r.kind)) & (det == r.detector) & (level >= r.lo) & (level < r.hi)
+        ox[m], oy[m] = r.dx_px, r.dy_px
+    return ox, oy
+
+
+def _median_err(v: np.ndarray) -> float:
+    # error of a median: 1.2533 σ/√n, σ from the MAD
+    return 1.2533 * 1.4826 * float(np.median(np.abs(v - np.median(v)))) / np.sqrt(v.size) if v.size else np.nan
+
+
+def pixel_offsets(res: pd.DataFrame, offsets: pd.DataFrame | None = None) -> dict:
+    """The unsaturated dots' offsets fixed in detector pixels, from frame_residuals rows with the pixel columns (jac
+    given): each row's photo offset removed (offsets: photo_offsets' table, `good` rows; None: none), the residual turned
+    into pixels, then per position kind (centroid, ePSF) and detector a map on ASTRO_MAP_CELL_PX cells (median of the
+    S/N >= ASTRO_MAP_MIN_SNR dots, ASTRO_MAP_MIN_DOTS a cell) and a brightness table (median per ASTRO_BRIGHT_BINS bin of
+    bright_level, ASTRO_BRIGHT_MIN_DOTS a bin), each fitted on what the other leaves, ASTRO_PIXEL_ITER times.
+    Returns {"map": MAP_COLUMNS table, "bright": BRIGHT_COLUMNS table, "reference_dots": n}."""
+    out = {"map": pd.DataFrame(columns=MAP_COLUMNS), "bright": pd.DataFrame(columns=BRIGHT_COLUMNS), "reference_dots": 0}
+    if not len(res) or not set(JAC_COLUMNS) <= set(res.columns):
+        return out
+    e, n = res["e"].to_numpy(np.float64), res["n"].to_numpy(np.float64)
+    if offsets is not None and len(offsets):
+        o = offsets[offsets["good"].to_numpy(bool)]
+        key = pd.MultiIndex.from_arrays([o["obs_id"].astype(str).to_numpy(), o["detector"].to_numpy(np.int64)])
+        pos = key.get_indexer(pd.MultiIndex.from_arrays([res["obs_id"].astype(str).to_numpy(), res["detector"].to_numpy(np.int64)]))
+        ok, p = pos >= 0, np.maximum(pos, 0)
+        if len(o):
+            e = e - np.where(ok, o["oe"].to_numpy(np.float64)[p], 0.0)
+            n = n - np.where(ok, o["on"].to_numpy(np.float64)[p], 0.0)
+    dx, dy = _to_pixels(e, n, res[JAC_COLUMNS].to_numpy(np.float64).reshape(-1, 2, 2))
+    use = np.isfinite(dx) & np.isfinite(dy)
+    det = res["detector"].to_numpy(np.int64)
+    kind = res["psf"].to_numpy(bool).astype(np.int8)  # index into KINDS: 0 centroid, 1 ePSF
+    x, y = res["x"].to_numpy(np.float64), res["y"].to_numpy(np.float64)
+    snr, level = res["snr"].to_numpy(np.float64), res["level"].to_numpy(np.float64)
+    nc, cell = _ncell(), C.ASTRO_MAP_CELL_PX
+    in_map = use & np.isfinite(x) & np.isfinite(y) & (snr >= C.ASTRO_MAP_MIN_SNR)
+    cx = np.clip(np.nan_to_num(x // cell, nan=0).astype(np.int64), 0, nc - 1)
+    cy = np.clip(np.nan_to_num(y // cell, nan=0).astype(np.int64), 0, nc - 1)
+    edges = np.array([-np.inf, *C.ASTRO_BRIGHT_BINS, np.inf])
+    lb = np.digitize(level, edges) - 1  # NaN → len(edges) - 1: no bin
+    in_bright = use & np.isfinite(level)
+    mx = my = bx = by = np.zeros(len(res))
+    mrows: list[dict] = []
+    brows: list[dict] = []
+    for it in range(max(1, C.ASTRO_PIXEL_ITER)):
+        if C.ASTRO_PIXEL_MAP:
+            mrows = []
+            for (kd, k), idx in pd.DataFrame({"k": kind[in_map], "d": det[in_map]}).groupby(["k", "d"]).indices.items():
+                ii = np.flatnonzero(in_map)[idx]
+                c = cx[ii] * nc + cy[ii]
+                g = pd.DataFrame({"c": c, "x": dx[ii] - bx[ii], "y": dy[ii] - by[ii]}).groupby("c").agg(
+                    dx_px=("x", "median"), dy_px=("y", "median"), n=("x", "size"))
+                for ci, r in g.iterrows():
+                    mrows.append({"kind": KINDS[kd], "detector": int(k), "cx": int(ci // nc), "cy": int(ci % nc), "dx_px": float(r.dx_px),
+                                  "dy_px": float(r.dy_px), "n": int(r.n), "applied": bool(r.n >= C.ASTRO_MAP_MIN_DOTS)})
+            mtab = pd.DataFrame(mrows, columns=MAP_COLUMNS)
+            mx, my = _map_eval(mtab, kind, det, x, y)
+        if C.ASTRO_BRIGHT_OFFSET:
+            brows = []
+            for kc, kd in enumerate(KINDS):
+                for k in range(1, 7):
+                    mk = in_bright & (kind == kc) & (det == k)
+                    if not mk.any():
+                        continue
+                    for b in range(len(edges) - 1):
+                        m = mk & (lb == b)
+                        if not m.any():
+                            continue
+                        vx, vy = dx[m] - mx[m], dy[m] - my[m]
+                        lo, hi = edges[b], edges[b + 1]
+                        label = f"<{hi:g}" if not np.isfinite(lo) else f">={lo:g}" if not np.isfinite(hi) else f"{lo:g}..{hi:g}"
+                        brows.append({"kind": kd, "detector": k, "bin": label, "lo": float(lo), "hi": float(hi),
+                                      "dx_px": float(np.median(vx)), "dy_px": float(np.median(vy)), "dx_err_px": _median_err(vx),
+                                      "dy_err_px": _median_err(vy), "n": int(m.sum()), "applied": bool(m.sum() >= C.ASTRO_BRIGHT_MIN_DOTS)})
+            btab = pd.DataFrame(brows, columns=BRIGHT_COLUMNS)
+            bx, by = _bright_eval(btab, kind, det, level)
+        if not (C.ASTRO_PIXEL_MAP and C.ASTRO_BRIGHT_OFFSET):
+            break
+    out["map"] = pd.DataFrame(mrows, columns=MAP_COLUMNS)
+    out["bright"] = pd.DataFrame(brows, columns=BRIGHT_COLUMNS)
+    out["reference_dots"] = int(use.sum())
+    return out
+
+
+def pixel_shift(d: pd.DataFrame, idx: np.ndarray, jac: pd.DataFrame | None, pix: dict | None) -> tuple[np.ndarray, np.ndarray]:
+    """(east, north ″) to subtract from the dots d.iloc[idx]: pixel_offsets' map at their (x, y) plus their brightness
+    bin's offset, through their photo's Jacobian (0 without one)."""
+    z = np.zeros(idx.size)
+    if pix is None or not idx.size:
+        return z, z
+    sub = d.iloc[idx]
+    det = sub["detector"].to_numpy(np.int64)
+    kind = (sub["pos_psf"].fillna(False).to_numpy(bool) if "pos_psf" in sub else np.zeros(idx.size, bool)).astype(np.int8)
+    mx, my = _map_eval(pix.get("map") if C.ASTRO_PIXEL_MAP else None, kind, det, _col(sub, "x"), _col(sub, "y"))
+    bx, by = _bright_eval(pix.get("bright") if C.ASTRO_BRIGHT_OFFSET else None, kind, det, bright_level(sub))
+    dx, dy = mx + bx, my + by
+    J = _jacobian_at(d, idx, jac)
+    de = J[:, 0, 0] * dx + J[:, 0, 1] * dy
+    dn = J[:, 1, 0] * dx + J[:, 1, 1] * dy
+    ok = np.isfinite(de) & np.isfinite(dn)
+    return np.where(ok, de, 0.0), np.where(ok, dn, 0.0)
+
+
+def pixel_report(pix: dict | None, dots: int = 0, corrected: int = 0) -> dict:
+    """astrometry_report.json `pixel_offsets`: per kind and detector the map's size (cells, rms and largest |Δ| in px)
+    and its cells, the brightness table, and dot counts."""
+    def num(v, nd=5):
+        return None if v is None or not np.isfinite(v) else round(float(v), nd)
+    out = {"enabled": {"map": bool(C.ASTRO_PIXEL_MAP), "bright": bool(C.ASTRO_BRIGHT_OFFSET)},
+           "cell_px": int(C.ASTRO_MAP_CELL_PX), "level": "AB(flux_ujy) - detector saturation AB",
+           "reference_dots": 0,
+           "unsaturated_dots": int(dots), "dots_corrected": int(corrected), "map": [], "bright": []}
+    if pix is None:
+        return out
+    out["reference_dots"] = int(pix.get("reference_dots", 0))
+    nc = _ncell()
+    mt = pix.get("map")
+    if mt is not None and len(mt):
+        for (kd, k), g in mt.groupby(["kind", "detector"]):
+            a = g[g["applied"].to_numpy(bool)]
+            gx, gy = np.full((nc, nc), np.nan), np.full((nc, nc), np.nan)
+            gx[a["cx"].to_numpy(np.int64), a["cy"].to_numpy(np.int64)] = a["dx_px"].to_numpy(np.float64)
+            gy[a["cx"].to_numpy(np.int64), a["cy"].to_numpy(np.int64)] = a["dy_px"].to_numpy(np.float64)
+            out["map"].append({"kind": kd, "detector": int(k), "cells": int(len(g)), "cells_applied": int(len(a)),
+                               "dots": int(g["n"].sum()),
+                               "rms_dx_px": num(np.std(a["dx_px"])) if len(a) else None,
+                               "rms_dy_px": num(np.std(a["dy_px"])) if len(a) else None,
+                               "max_abs_px": num(np.max(np.abs(a[["dx_px", "dy_px"]].to_numpy()))) if len(a) else None,
+                               "dx_px": [[num(v) for v in row] for row in gx], "dy_px": [[num(v) for v in row] for row in gy]})
+    bt = pix.get("bright")
+    if bt is not None and len(bt):
+        out["bright"] = [{"kind": r.kind, "detector": int(r.detector), "bin": r.bin, "dx_px": num(r.dx_px), "dy_px": num(r.dy_px),
+                          "dx_err_px": num(r.dx_err_px), "dy_err_px": num(r.dy_err_px), "n": int(r.n), "applied": bool(r.applied)}
+                         for r in bt.itertuples()]
+    return out
+
+
 def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = True,
         offsets: pd.DataFrame | None = None, jac: pd.DataFrame | None = None,
-        sat: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
+        sat: pd.DataFrame | None = None, pix: dict | None = None) -> tuple[pd.DataFrame, dict]:
     """Member dots (source_id, ra, dec, mjd, pos_err_arcsec, visit, photo, snr, x/y/z_sc_km, flags_peak) → one row per
     fitted source (COLUMNS). offsets: per-photo frame offsets from photo_offsets (else measured on these dots).
-    jac: photo_jacobians' table (None: no saturated-dot correction); sat: sat_offsets' table (None: measured on these
-    dots, after the frame offsets, and returned in the stats as `sat_table`)."""
+    jac: photo_jacobians' table (None: no saturated-dot or pixel correction); sat: sat_offsets' table (None: measured on
+    these dots, after the frame offsets, and returned in the stats as `sat_table`); pix: pixel_offsets' tables for the
+    unsaturated dots (None: measured on these dots likewise, returned as `pix_tables`)."""
     d, sid_u, s, N, ra0, dec0, east, north, sc, xyz = _setup(d)
     n_dots = np.bincount(s, minlength=N)
     mjd = d["mjd"].to_numpy(np.float64)
@@ -539,6 +787,23 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         east[si] -= se
         north[si] -= sn
         st.update({"saturated_dots": int(si.size), "saturated_dots_corrected": int(((se != 0) | (sn != 0)).sum())})
+    if pixel_terms_on() and jac is not None:
+        if pix is None:  # measured on these dots, after the frame offsets (as tiles.py: frame_residuals, pixel_offsets)
+            refs = frame_refs(d, east0, north0, ra0, dec0, s, sid_u, crossids, xyz, unsat=True)
+            if refs is not None:
+                m, re, rn = refs
+                k = np.flatnonzero(m)
+                rows = pd.concat([pd.DataFrame({"obs_id": d["obs_id"].astype(str).to_numpy()[k],
+                                                "detector": d["detector"].to_numpy(np.int8)[k], "e": re - fe[k], "n": rn - fn[k]}),
+                                  _pix_columns(d, k, jac)], axis=1)
+                pix = pixel_offsets(rows)
+            st["pix_tables"] = pix
+        ui = np.flatnonzero(~sat_dots(d))
+        pe_, pn_ = pixel_shift(d, ui, jac, pix)
+        east, north = east.copy(), north.copy()
+        east[ui] -= pe_
+        north[ui] -= pn_
+        st.update({"unsaturated_dots": int(ui.size), "pixel_dots_corrected": int(((pe_ != 0) | (pn_ != 0)).sum())})
     Pe, Pn = parallax_factors(ra0[s], dec0[s], xyz)
     n_visits = count_distinct(s, d["visit"].to_numpy(np.int64), N)
     use_plx = n_visits >= C.ASTRO_PARALLAX_MIN_VISITS
@@ -717,25 +982,26 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     t0 = time.time()
     d, st = member_dots(store, zone, workers)
     # each photo's Jacobian (whole dot file; cached by member_dots) for the saturated-dot offset
-    jac = photo_jacobians(d, member_dots_raw(store, zone, workers)[2]) if C.ASTRO_SAT_OFFSET else None
+    jac = photo_jacobians(d, member_dots_raw(store, zone, workers)[2]) if C.ASTRO_SAT_OFFSET or pixel_terms_on() else None
     xid_rel = results_rel(zone.name, "crossids.parquet")
     crossids = store.read_parquet(xid_rel) if store.exists(xid_rel) else None
     if crossids is None:
         L.warning("astrometry %s: no crossids.parquet: no frame correction, no Gaia comparison", zone.name)
     if C.ASTRO_FRAME_CORRECT and crossids is not None:
-        # the saturated-dot offsets are measured after the frame offsets, then used by both fits (as tiles.py)
+        # the saturated-dot and pixel offsets are measured after the frame offsets, then used by both fits (as tiles.py)
         cor, st_cor = fit(d, crossids, frame=True, jac=jac)
-        sat = st_cor.pop("sat_table", None)
-        raw, st_raw = fit(d, crossids, frame=False, jac=jac, sat=sat)
+        sat, pix = st_cor.pop("sat_table", None), st_cor.pop("pix_tables", None)
+        raw, st_raw = fit(d, crossids, frame=False, jac=jac, sat=sat, pix=pix)
     else:
         raw, st_raw = fit(d, crossids, frame=False, jac=jac)
-        sat = st_raw.pop("sat_table", None)
+        sat, pix = st_raw.pop("sat_table", None), st_raw.pop("pix_tables", None)
         cor, st_cor = raw, st_raw
     store.write_parquet(results_rel(zone.name, "astrometry.parquet"), cor)
     rep = {"zone": zone.name, "frame_correction": {k: v for k, v in st_cor.items() if k.startswith(("photos", "frame"))},
            "fitted": st_cor.get("fitted", 0), "with_parallax": st_cor.get("with_parallax", 0),
            "spacecraft_position_dots": st_cor.get("spacecraft_position_dots", 0),
            "saturated_offsets": sat_report(sat, st_cor.get("saturated_dots", 0), st_cor.get("saturated_dots_corrected", 0)),
+           "pixel_offsets": pixel_report(pix, st_cor.get("unsaturated_dots", 0), st_cor.get("pixel_dots_corrected", 0)),
            "vs_gaia_frame_corrected": report(cor, crossids) if cor is not raw else None,
            "vs_gaia_raw": report(raw, crossids)}
     store.write_json(results_rel(zone.name, "astrometry_report.json"), rep)

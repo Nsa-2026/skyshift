@@ -52,6 +52,16 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   the 180° roll made it a fake westward pm: −110 mas/yr at G 8–10). Per detector × depth bin (band mag − 50% saturation
   mag) the median pixel offset vs Gaia is removed via each photo's Jacobian; frame offsets use unsaturated dots only.
   Hunt: G 8–10 −112 → −33, G 10–11 −81 → −28 mas/yr (pm − Gaia − ϖ·k); the rest is bright unsaturated dots (~−0.001 px).
+- astrometry (15 Nov, ASTRO_PIXEL_MAP, ASTRO_BRIGHT_OFFSET): unsaturated dots also sit off in fixed pixels: a static map
+  per detector (128 px cells, rms 3–9 mpx, up to 0.04 px) and a brightness term on the dot's own level (AB from flux_ujy −
+  the detector's 50% saturation AB): −0.3 to −4.5 mpx along x just below saturation, +0.3 to +1.4 at the faint end.
+  Fitted once per zone on quiet Gaia stars' unsaturated dots after the frame offsets (tiled: from the tiles' frame
+  residuals, which now carry x, y, snr, level, kind and the Jacobian: ~27 M rows for the hunt), removed via the Jacobian.
+  Hunt, fitted on half the stars, the other half, RA: G 9–10 −34 → −8, G 10–11 −29 → −11, G 11–12 −19 → −3,
+  G 12–13 −7 → +2, G > 18 +15 → +2 mas/yr; G < 8 (saturated) −76 → −47. highpm: fast Gaia stars 77 → 78 of 106,
+  fp_control 1 → 1, Gaia stars G 9–13 with a fake pm 18 → 14. Open: 6 of those 14 sit in the zone's SW corner
+  (RA < 121, Dec < 15: 43 such stars; elsewhere 0.07%). Not the calib quadratics of photos that cover only a patch of the
+  zone (604 of 3,552 photos have a coefficient > 2″; leaving their dots out: 6 → 4).
 - highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
   asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
   status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.
