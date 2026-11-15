@@ -31,6 +31,9 @@ import {
   knownClass,
   normalizeMeasured,
   reasonWords,
+  compass,
+  plainVerdict,
+  viewerShows,
 } from "./measured";
 
 const hours = hoursJson as unknown as FramesResponse;
@@ -394,5 +397,33 @@ describe("classes added on the server (v3.12, v3.13)", () => {
     expect(sourcesByClass(withStack).stack).toBe(1);
     expect(classesPresent(withStack)).toContain("stack");
     expect(strip(summarize(withStack).rest ?? "")).toContain("1 shows only in the visit stacks");
+  });
+});
+
+describe("the Viewer's plain version", () => {
+  it("lists no artefacts and says it without S/N, µJy, σ or mas/yr", () => {
+    const items = listItems(H, detOf(hours), 2, hours.gaia, true);
+    expect(items.map((i) => i.cls)).toEqual(["suspect", "known", "mover"]);
+    expect(items[0].numbers).toBe("Seen in 3 photos, 4.3 min apart.");
+    const all = [...items, ...listItems(M, detOf(months), 2, months.gaia, true)].map((i) => i.numbers).join(" ");
+    expect(all).not.toMatch(/S\/N|µJy|σ|mas\/yr|Artefact/);
+    for (const it of listItems(M, detOf(months), 2, months.gaia, true).filter((i) => i.shift != null)) {
+      expect(it.numbers).toMatch(/^Towards the (north|south|east|west)/);
+    }
+  });
+
+  it("names directions and why a shift has no arrow", () => {
+    expect(compass(357)).toBe("north");
+    expect(compass(163)).toBe("south-southeast");
+    expect(compass(-90)).toBe("west");
+    expect(plainVerdict({ draw: false, why: "gaia_disagrees", gaiaPm: 6 })).toBe("No arrow on the plate: Gaia measures only 0.006″ a year for this star.");
+    expect(plainVerdict({ draw: false, why: "weak" } as never)).toBe("No arrow on the plate: too small to be sure.");
+    expect(plainVerdict({ draw: true, why: "ok" } as never)).toBe("");
+  });
+
+  it("circles only what a visitor can act on", () => {
+    expect(["suspect", "known", "mover", "star"].every((c) => viewerShows(c as never))).toBe(true);
+    expect(["artifact", "other", "stack"].some((c) => viewerShows(c as never))).toBe(false);
+    expect(viewerShows("suspect", "C")).toBe(false);
   });
 });

@@ -249,7 +249,7 @@ describe("what SkyShift measured, on the Viewer", () => {
     const panel = el.querySelector<HTMLDetailsElement>(".bk-meas")!;
     expect(panel.tagName).toBe("DETAILS");
     expect(panel.open).toBe(false);
-    expect(el.querySelector(".bk-meas-sum")!.textContent!.replace(/\s+/g, " ").trim()).toBe("What SkyShift measured (4)");
+    expect(el.querySelector(".bk-meas-sum")!.textContent!.replace(/\s+/g, " ").trim()).toBe("What SkyShift measured (3)");
     expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
     panel.open = true;
     panel.dispatchEvent(new Event("toggle"));
@@ -259,6 +259,22 @@ describe("what SkyShift measured, on the Viewer", () => {
     panel.open = false;
     panel.dispatchEvent(new Event("toggle"));
     expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+  });
+
+  it("says it in plain words: no artefacts, no stage badge, no S/N or µJy, and what the blue circles are", async () => {
+    await h.show(hoursView, hours(), URL);
+    const text = (sel: string) => el.querySelector(sel)!.textContent!.replace(/\s+/g, " ").trim();
+    const items = [...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent);
+    expect(items).toEqual(["Suspect, grade B", "Known: (433) Eros", "Other mover: near a Gaia star"]);
+    expect(text(".bk-meas-key")).not.toMatch(/Artefact|Other source|stack only/);
+    expect(el.querySelector<HTMLElement>(".bk-meas-stage")!.hidden).toBe(true);
+    for (const sel of [".bk-meas-rest", ".bk-meas-how", ".bk-meas-notes", ".bk-meas-pro"]) expect(text(sel)).toBe("");
+    expect(text(".bk-meas-lh")).toBe("What moved between photos");
+    expect(text(".bk-meas-short")).toMatch(/^Blue circles: stars Gaia already knows/);
+    const numbers = [...el.querySelectorAll(".bk-mi-n")].map((x) => x.textContent!).join(" ");
+    expect(numbers).toMatch(/Seen in \d+ photos/);
+    expect(numbers).not.toMatch(/S\/N|µJy|σ|mas\/yr/);
+    expect(text(".bk-key")).toMatch(/^Blue circles: stars Gaia already knows ?Click a dot to flag it/); // the "·" between them is CSS
   });
 
   it("names the fields Close-up and Wide, with their size against the Moon", async () => {
