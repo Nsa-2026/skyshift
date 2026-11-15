@@ -25,7 +25,10 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   duplicates), candidates.py (fragments and duplicates never listed, blend → reason `blend`), server measured.py
   (duplicate drawn as its star's bright_fragment). Rerun after it: highpm, orphans, shape, candidates. Hunt (15 Nov,
   14 Nov tables): 3,537 bright_fragment / 223 duplicate / 363 saturated_star / 13,224 blend of 314,467 sources; Gaia
-  stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s).
+  stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s). Every distance from a
+  source (catalogue, bright neighbour, blend count per Gaia star, a fragment's parent) takes the nearer of its spectrum
+  and link positions (FRAGMENTS_LINK_MIN_OFFSET_ARCSEC). Hunt (15 Nov 00:01Z tables): parent_dist of 491 fragments
+  nearer (median 25.0 → 21.8″), bright_* of 894 sources, 9 more blends, no other tag changes.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
