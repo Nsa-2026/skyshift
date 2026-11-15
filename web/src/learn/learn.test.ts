@@ -309,7 +309,8 @@ describe("the Learn page", () => {
     expect(el.querySelectorAll(".ln-plan li")).toHaveLength(5);
     expect(el.querySelectorAll(".ln-sheet tbody tr").length).toBeGreaterThanOrEqual(5);
     expect(el.querySelector(".ln-print")).not.toBeNull();
-    expect(el.querySelector('a[href="#/tools"]')).not.toBeNull();
+    expect(el.querySelector('a[href="#/results/tools"]')).not.toBeNull();
+    expect(el.querySelector('a[href="#/candidates/one=1"]')).not.toBeNull();
     expect(el.textContent).not.toMatch(/Blink page|Review queue/);
     page.destroy();
   });

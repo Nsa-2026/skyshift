@@ -4,6 +4,7 @@ import { epochsFor, loadObject } from "../api/client";
 import { formatMjd } from "../app/astro";
 import { frameSet, target } from "./data";
 import { exploreHref } from "./lessons";
+import { ONE_AT_A_TIME } from "../app/legacy-routes";
 import { term as t } from "./glossary";
 
 /** Gaia DR3 proper motion of Barnard's Star, ″/yr (targets.json "expected"). */
@@ -16,7 +17,7 @@ export function teachersHtml(): string {
   </header>
   <div class="ln-teach-intro">
     <p class="ln-lede-p">Students measure how far the fastest star in our sky moved between SPHEREx visits and check the answer against ESA's Gaia. Ages 13 and up; one computer, tablet or phone per pair. No account, nothing to install.</p>
-    <p class="ln-noprint"><button type="button" class="btn btn-primary ln-print">Print this plan</button> <a class="btn btn-ghost" href="#/tools">Tools and data</a></p>
+    <p class="ln-noprint"><button type="button" class="btn btn-primary ln-print">Print this plan</button> <a class="btn btn-ghost" href="#/results/tools">Tools and data</a></p>
   </div>
 
   <section class="ln-teach-sec" aria-labelledby="ln-t-plan">
@@ -57,9 +58,9 @@ export function teachersHtml(): string {
     <ul class="ln-links">
       <li><a href="#/learn/1">The seven lessons</a>: ten minutes of reading before class.</li>
       <li><a href="#/learn/glossary">The glossary</a>: every word in one sentence.</li>
-      <li><a href="#/tools">Tools and data</a>: downloads, batch coordinates and the API for older students.</li>
+      <li><a href="#/results/tools">Tools and data</a>: downloads, batch coordinates and the API for older students.</li>
       <li><a href="#/learn/practice">Guided practice</a>: three real fields with known answers, a good warm-up.</li>
-      <li><a href="#/review">To check, one at a time</a>: a class can vote on real objects together.</li>
+      <li><a href="${ONE_AT_A_TIME}">To check, one at a time</a>: a class can vote on real objects together.</li>
       <li><a href="#/learn/stories">Stories in the sky</a>: guest stars from Chinese histories, for history or culture lessons.</li>
     </ul>
   </section>`;

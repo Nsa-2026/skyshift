@@ -1,7 +1,7 @@
 // The course: seven short lessons, each one screen of plain words around one real example.
 // Facts follow CLAUDE.md "Domain facts", web/DESIGN.md and the validation results; numbers
 // that come from the data (dates, rates, measured shifts) are filled in by figures.ts.
-import { communityHash } from "../app/legacy-routes";
+import { ONE_AT_A_TIME, communityHash } from "../app/legacy-routes";
 import { term as t } from "./glossary";
 
 export type FigureId = "six" | "barnard" | "clocks" | "fakes" | "colours" | "votes" | "planetx";
@@ -121,7 +121,7 @@ export const LESSONS: Lesson[] = [
     tryText: "Guided practice blinks three real fields whose answers are known, then tells you what to look for. After that, check real objects one at a time.",
     tryIt: [
       { label: "Start guided practice", href: "#/learn/practice" },
-      { label: "Check objects one at a time", href: "#/review" },
+      { label: "Check objects one at a time", href: ONE_AT_A_TIME },
     ],
   },
   {
@@ -151,15 +151,15 @@ export const LESSONS: Lesson[] = [
       `<p>One person's eyes can be fooled. Many people looking at the same dot rarely are.</p>`,
     body: () => `
       <p>The pipeline lists objects to check: fast movers, moving stars and odd spectra it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts, so Junk is often the right answer. You blink each one and answer Mover, Changing, Junk or Not sure.</p>
-      <p>An object reaches ${t("consensus")} with at least 5 votes and at least 70% on one answer. Consensus movers and changing sources go on the list for astronomers: To check, filtered to "Community says real", with CSV and JSON downloads.</p>
+      <p>An object reaches ${t("consensus")} with at least 5 votes and at least 70% on one answer. Consensus movers and changing sources go on the list for astronomers on the Community page, under To check, with CSV and JSON downloads.</p>
       <p>Then astronomers take over. A new asteroid or comet needs its positions reported to the ${t("MPC", "Minor Planet Center")}. A new nearby star or brown dwarf goes to the Backyard Worlds: Planet 9 forum, where volunteers who hunt brown dwarfs in NASA's WISE images check it against other surveys. SkyShift drafts the report; it never sends anything for you.</p>
       <p>No account needed: your votes carry a random id kept in your browser, never your name or email.</p>`,
     figure: "votes",
     tryTitle: "Try it yourself",
-    tryText: "Your first few checks are a practice round with known answers.",
+    tryText: "Check real objects one at a time, then see what the community agreed on.",
     tryIt: [
-      { label: "Check objects one at a time", href: "#/review" },
-      { label: "What the community says is real", href: communityHash() },
+      { label: "Check objects one at a time", href: ONE_AT_A_TIME },
+      { label: "What the community agreed on", href: communityHash() },
     ],
   },
   {
