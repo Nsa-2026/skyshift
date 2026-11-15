@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/api/candidates.json";
 import type { CandidatesResponse } from "../api/types";
 import type { Snapshot } from "../community/source";
-import type { QueueOptions } from "../review";
+import { votable } from "../api/grades";
 import type { Answer } from "../vote/model";
 
 const loadCandidates = vi.fn<() => Promise<CandidatesResponse | null>>();
@@ -23,10 +23,6 @@ vi.mock("./votes", () => ({
   },
   onVoted: () => () => {},
 }));
-// The review queue (src/review) is the real one on the site; here a stand-in records what it's given.
-const queue = { scope: vi.fn(), show: vi.fn(), hide: vi.fn(), destroy: vi.fn() };
-const mountQueue = vi.fn((_el: HTMLElement, _opts: QueueOptions) => queue);
-vi.mock("../review", () => ({ mountQueue: (el: HTMLElement, opts: QueueOptions) => mountQueue(el, opts) }));
 const download = vi.fn();
 vi.mock("./export", async (orig) => ({ ...(await orig<typeof import("./export")>()), download: (...a: unknown[]) => download(...a) }));
 const loadSnapshot = vi.fn<(o: unknown) => Promise<Snapshot>>();
@@ -301,94 +297,46 @@ describe("Check them individually", () => {
     document.body.innerHTML = "";
   });
   const on = (el: HTMLElement) => el.querySelector<HTMLButtonElement>("[data-one-on]")!;
-  const back = (el: HTMLElement) => el.querySelector<HTMLButtonElement>("[data-one-off]")!;
   const view = (el: HTMLElement) => el.querySelector<HTMLElement>(".dv")!.dataset.view;
-  const lastScope = () => queue.scope.mock.calls.at(-1)?.[0] as string[] | null;
-  const movers = data.candidates.filter((c) => c.kind === "mover").map((c) => c.id);
+  const byId = new Map(data.candidates.map((c) => [c.id, c]));
+  const opened = (navigate: ReturnType<typeof vi.fn>) => {
+    const h = navigate.mock.calls.at(-1)?.[0] as string;
+    expect(h).toMatch(/^#\/c\//);
+    return byId.get(decodeURIComponent(h.slice(4)))!;
+  };
 
-  it("is off by default: the list shows, with the intro's button and no switch in the toolbar", async () => {
-    const { el } = await mount();
+  it("is a button in the intro: the list shows, no queue, no switch in the toolbar", async () => {
+    const { el, navigate } = await mount();
     expect(on(el).textContent).toBe("Check them individually");
-    expect(on(el).title).toContain("individually");
-    expect(el.querySelector("[data-one], .dv-one, .dv-toolbar [role='switch']")).toBeNull();
-    expect(back(el).hidden).toBe(true);
+    expect(on(el).title).toContain("Viewer");
+    expect(el.querySelector("[data-one], [data-one-off], .dv-queue, .dv-toolbar [role='switch']")).toBeNull();
     expect(view(el)).toBe("list");
-    expect(el.querySelector<HTMLElement>(".dv-queue")!.hidden).toBe(true);
     expect(el.querySelectorAll(".dv-row")).toHaveLength(50);
-    expect(mountQueue).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("puts the review queue in the list's place, on the filtered set, and writes one=1 to the URL", async () => {
-    const { el } = await mount("#/candidates/kind=mover");
+  it("opens the Viewer on an object from the filtered list that takes votes and isn't yours yet", async () => {
+    const { el, navigate } = await mount("#/candidates/kind=mover");
     on(el).click();
-    expect(location.hash).toBe("#/candidates/kind=mover&one=1");
-    expect(view(el)).toBe("one");
-    expect(back(el).hidden).toBe(false);
-    expect(back(el).textContent).toBe("Back to the list");
-    expect(document.activeElement).toBe(back(el));
-    expect(el.querySelector<HTMLElement>(".dv-queue")!.hidden).toBe(false);
-    expect(mountQueue).toHaveBeenCalledTimes(1);
-    expect(mountQueue.mock.calls[0][0]).toBe(el.querySelector(".dv-queue"));
-    expect([...lastScope()!].sort()).toEqual([...movers].sort());
-    expect(queue.show).toHaveBeenCalled();
-    // Its end links: back to this list, and to what the community says is real.
-    const opts = mountQueue.mock.calls[0][1];
-    expect(opts.embedded?.listHref()).toBe("#/candidates/kind=mover");
-    expect(opts.embedded?.realHref()).toBe("#/candidates/review=consensus&verdict=mover,changing&sort=most");
+    const c = opened(navigate);
+    expect(c.kind).toBe("mover");
+    expect(votable(c)).toBe(true);
+    expect(c.id).not.toBe("pilot-pm-0000"); // this browser voted on it
+    expect(location.hash).toBe("#/candidates/kind=mover"); // the list stays the place to come back to
   });
 
-  it("leaves with 'Back to the list': the list again, same filters, focus on its count", async () => {
-    const { el } = await mount("#/candidates/kind=mover");
-    on(el).click();
-    back(el).click();
+  it("does the same from a one=1 link (shared, or the old #/review), leaving the plain list behind it", async () => {
+    const { navigate } = await mount("#/candidates/kind=mover&one=1");
+    expect(opened(navigate).kind).toBe("mover");
     expect(location.hash).toBe("#/candidates/kind=mover");
-    expect(view(el)).toBe("list");
-    expect(back(el).hidden).toBe(true);
-    expect(queue.hide).toHaveBeenCalled();
-    expect(el.querySelector(".dv-count")?.textContent).toBe("27 of 194 objects");
-    expect(document.activeElement).toBe(el.querySelector(".dv-count"));
   });
 
-  it("leaves with the browser's Back: turning it on is a new history entry", async () => {
-    const { el, page } = await mount("#/candidates/kind=mover");
-    const before = history.length;
-    on(el).click();
-    expect(history.length).toBe(before + 1);
-    const popped = new Promise((r) => addEventListener("popstate", r, { once: true }));
-    history.back();
-    await popped;
-    expect(location.hash).toBe("#/candidates/kind=mover");
-    page.show("kind=mover"); // what the shell's router does on the hashchange
-    expect(view(el)).toBe("list");
-    expect(back(el).hidden).toBe(true);
-    expect(el.querySelectorAll(".dv-row")).toHaveLength(27);
-  });
-
-  it("opens from a shared link and follows the filters: a preset narrows the queue's set", async () => {
-    const { el } = await mount("#/candidates/one=1");
-    expect(view(el)).toBe("one");
-    expect(back(el).hidden).toBe(false);
-    expect(lastScope()).toHaveLength(194);
-    el.querySelector<HTMLButtonElement>('[data-preset="fast-movers"]')!.click();
-    expect(location.hash).toBe("#/candidates/kind=mover&known=60-&one=1");
-    expect(lastScope()).toHaveLength(27);
-    expect(mountQueue).toHaveBeenCalledTimes(1); // one queue, new scope
-  });
-
-  it("follows the router (the old #/review link maps to #/candidates/one=1) and hides with the page", async () => {
-    const { el, page } = await mount();
+  it("follows the router to one=1 too", async () => {
+    const { page, navigate } = await mount();
+    expect(navigate).not.toHaveBeenCalled();
     page.show("kind=mover&one=1");
-    expect(view(el)).toBe("one");
-    expect(lastScope()).toHaveLength(27);
-    expect(queue.show).toHaveBeenCalled();
-    page.hide?.();
-    expect(queue.hide).toHaveBeenCalled();
-    queue.hide.mockClear();
-    page.show("kind=mover");
-    expect(view(el)).toBe("list");
-    expect(back(el).hidden).toBe(true);
-    expect(queue.hide).toHaveBeenCalled();
-    expect(el.querySelectorAll(".dv-row")).toHaveLength(27);
+    expect(opened(navigate).kind).toBe("mover");
+    expect(location.hash).toBe("#/candidates/kind=mover");
   });
 });
 
@@ -474,25 +422,20 @@ describe("the map view", () => {
     expect(el.querySelectorAll(".skymap")).toHaveLength(1); // one map, kept
   });
 
-  it("opens objects directly from the preview and hides it while reviewing individually", async () => {
-    const { el, page, navigate } = await mount("#/candidates/kind=mover");
+  it("opens objects directly from the preview", async () => {
+    const { el, navigate } = await mount("#/candidates/kind=mover");
     const preview = el.querySelector<HTMLElement>(".dv-map")!;
     const plot = preview.querySelector<HTMLElement>(".skymap-plot")!;
     plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
     plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
     expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/c\/pilot-/));
-    page.show("kind=mover&one=1");
-    expect(preview.hidden).toBe(true);
-    page.show("kind=mover");
     expect(preview.hidden).toBe(false);
-    expect(preview.querySelector(".skymap-plot")).toBe(plot);
   });
 
-  it("wins over one=1: no review queue behind the map", async () => {
-    const { el } = await mount("#/candidates/kind=mover&one=1&map=1");
+  it("wins over one=1: the map stays, the Viewer doesn't open", async () => {
+    const { el, navigate } = await mount("#/candidates/kind=mover&one=1&map=1");
     expect(view(el)).toBe("map");
-    expect(el.querySelector<HTMLElement>(".dv-queue")!.hidden).toBe(true);
-    expect(mountQueue).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
 
@@ -537,10 +480,11 @@ describe("Community says real, and the list for astronomers", () => {
 
   it("says what to do before the community has agreed on anything, and sends you to vote", async () => {
     voteCounts = new Map();
-    const { el } = await mount("#/candidates/review=consensus&verdict=mover,changing&sort=most");
+    const { el, navigate } = await mount("#/candidates/review=consensus&verdict=mover,changing&sort=most");
     expect(el.querySelector(".dv-state")?.textContent).toContain("Nothing the community agreed on yet.");
     el.querySelector<HTMLButtonElement>("[data-vote-now]")!.click();
-    expect(location.hash).toBe("#/candidates/review=none,some&mine=hide&sort=fewest&one=1");
+    expect(location.hash).toBe("#/candidates/review=none,some&mine=hide&sort=fewest");
+    expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/c\//));
     expect(el.querySelector('[data-preset="needs-vote"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 

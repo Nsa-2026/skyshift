@@ -1,19 +1,19 @@
 // To check (#/candidates, was "Discover"): what the pipeline found, filtered and sorted by anyone,
 // on a list. Every filter lives in the URL (#/candidates/kind=…&sort=…); the filter model itself
 // is pure, in ./filters.ts.
-// "Check them individually" (one=1, e.g. #/candidates/kind=mover&one=1) puts the review queue (src/review)
-// in the list's place, on the same filtered set. The map view (map=1, e.g.
+// "Check them individually" (and a one=1 link, e.g. #/candidates/kind=mover&one=1, or the old #/review)
+// opens the Viewer on the object in this list that needs votes most; its Previous and Next walk the list. The map view (map=1, e.g.
 // #/candidates/kind=mover&map=1, opened from the toolbar's "See them on the sky") is a page of its
 // own: the same interactive sky map (./skymap.ts) shown beside the intro, with more room.
 // Downloads: this list, and the list for astronomers (src/community, the Community page's own list and rule).
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
 import { loadCandidates } from "../api/client";
-import { GRADE_TEXT, failedGates, gatesPhrase, gradeLabel, gradeOf, isGate } from "../api/grades";
+import { GRADE_TEXT, failedGates, gatesPhrase, gradeLabel, gradeOf, isGate, votable } from "../api/grades";
 import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
-import { mountQueue, type QueueHandle } from "../review";
+import { queueOrder } from "../review/model";
 import {rememberDiscover,trackDiscover} from '../review/nav';
 import { isEmbed } from "../app/state";
 import { getDetails, onDetails } from "../prefs/details";
@@ -93,7 +93,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
         <p class="dv-note" data-note hidden></p>
         <div class="dv-actions">
           <button type="button" class="btn btn-primary" data-one-on
-            title="Check the objects in this list individually, the ones that need votes first: a big blink, then your vote (keys 1 to 4)">Check them individually</button>
+            title="Open the Viewer on the object in this list that needs votes most, then step through the list with Previous and Next">Check them individually</button>
           <a class="btn btn-ghost" href="#/about">How it works</a>
         </div>
       </section>
@@ -130,7 +130,6 @@ export const mountDiscover: MountPage = (el, ctx) => {
       <section class="dv-results" aria-labelledby="dv-count">
         <div class="dv-toolbar" hidden>
           <h2 id="dv-count" class="dv-count" aria-live="polite" tabindex="-1"></h2>
-          <button type="button" class="btn btn-sm dv-back" data-one-off hidden>Back to the list</button>
           <button type="button" class="btn btn-sm dv-filters-btn" aria-haspopup="dialog">Filters</button>
           <label class="dv-sort"><span>Sort by</span>
             <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}"${s.hint ? ` title="${esc(s.hint)}"` : ""}>${s.label}</option>`).join("")}</select>
@@ -146,7 +145,6 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <button type="button" class="btn-link" data-astro="csv">Download the list for astronomers (CSV)</button>
           <span class="dv-dl-status" data-dl-status role="status" aria-live="polite"></span></p>
         <ul class="dv-active" aria-label="Filters in use" hidden></ul>
-        <div class="dv-queue" hidden></div>
         <div class="dv-cols" aria-hidden="true" hidden><span>Object</span><span>Measured</span><span>Votes</span></div>
         <ol class="dv-list" aria-labelledby="dv-count"></ol>
         <div class="dv-more" hidden><p class="dv-more-n"></p><button type="button" class="btn" data-more>Show more</button></div>
@@ -175,8 +173,6 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const stateEl = $<HTMLDivElement>(".dv-state");
   const rootEl = $<HTMLDivElement>(".dv");
   const oneOnBtn = $<HTMLButtonElement>("[data-one-on]");
-  const backBtn = $<HTMLButtonElement>("[data-one-off]");
-  const queueEl = $<HTMLDivElement>(".dv-queue");
   const realEl = $<HTMLParagraphElement>(".dv-real");
   const dlEl = $<HTMLDetailsElement>(".dv-dl");
 
@@ -192,12 +188,11 @@ export const mountDiscover: MountPage = (el, ctx) => {
   let f: Filtered = filterRows([], defaultState());
   let sorted: Row[] = [];
   let state: FilterState = queryToState(routeQuery(location.hash));
-  /** "Check them individually": the review queue in place of the list, on the same filter (one=1 in the URL). */
+  /** A one=1 link: open the Viewer on the first object to check once the list and its votes are in. */
   let one = isOneAtATime(location.hash);
   /** The map view: the filtered set on a large sky map, a page of its own (map=1 in the URL; it wins over one=1). */
   let mapView = isMapView(location.hash);
   if (mapView) one = false;
-  let queue: QueueHandle | null = null;
   /** The page is on screen (between the shell's show and hide). */
   let onScreen = false;
   let shown = PAGE;
@@ -248,8 +243,6 @@ export const mountDiscover: MountPage = (el, ctx) => {
     buildFilters();
     apply();
     renderOne();
-    // Opened on "Check them individually" (a shared link, or the old #/review): the queue, not the intro.
-    if (one && onScreen) revealQueue();
     loadVotes();
   }
 
@@ -302,61 +295,43 @@ export const mountDiscover: MountPage = (el, ctx) => {
     renderReal();
     renderList();
     renderSky();
-    syncQueue();
+    syncOne();
   }
 
   // ---- check them individually ------------------------------------------------------------------
-  // The review queue (src/review, mountQueue) in place of the list, limited to the filtered set.
-  // A view of this page, not a page of its own: "one=1" joins the filter in the URL. On from the
-  // intro's button (a new history entry, so Back returns to the list); off from "Back to the list".
+  // The Viewer is where people check and vote. "Check them individually" opens it on the object in
+  // this list that needs votes most (what has no consensus, grade A first, fewest votes); the
+  // Viewer's Previous and Next walk the same list, and its Back returns here. A one=1 link (shared,
+  // or the old #/review) does the same once the votes are in, and leaves the plain list behind it.
 
-  function setOne(on: boolean, opts: { focus?: boolean } = {}) {
-    if (on === one) return;
-    one = on;
-    writeUrl(on);
-    renderOne();
-    if (on) revealQueue();
-    // Back to the list after voting: its vote counts catch up.
-    else if (data && voteStatus !== "loading" && Date.now() - votesAt > 20_000) loadVotes();
-    // The button pressed is gone now: keep the keyboard next to where it was.
-    if (opts.focus) (on ? backBtn : countEl).focus();
+  /** The object to start on: the first that still needs your vote, else the first that takes votes, else the first. */
+  function firstToCheck(): Candidate | null {
+    const cands = sorted.map((r) => r.c);
+    const fresh = cands.filter((c) => !(reader?.votedOn(c.id) ?? false));
+    return queueOrder(fresh, counts)[0] ?? cands.find((c) => votable(c)) ?? cands[0] ?? null;
   }
 
-  /** Bring the toolbar ("Back to the list") and the plate under it to the top of the window: after
-   *  the shell's own scroll to the top when the URL turned it on, at once when the button did. */
-  function revealQueue() {
-    if (toolbar.hidden) return;
-    const later = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb: () => void) => setTimeout(cb, 0);
-    later(() => toolbar.scrollIntoView?.({ block: "start" }));
+  function startChecking() {
+    const c = firstToCheck();
+    if (one) {
+      one = false;
+      writeUrl(); // the list's own URL, without one=1, is what the Viewer's Back returns to
+    }
+    if (c) open(c.id);
+  }
+
+  /** A one=1 link: wait for the list and its vote counts, then go. */
+  function syncOne() {
+    if (!one || !onScreen || loading || !data || voteStatus === "idle" || voteStatus === "loading") return;
+    startChecking();
   }
 
   function renderOne() {
-    rootEl.dataset.view = mapView ? "map" : one ? "one" : "list";
-    backBtn.hidden = !one || mapView;
-    queueEl.hidden = !one;
-    syncQueue();
+    rootEl.dataset.view = mapView ? "map" : "list";
     renderSky();
   }
 
-  /** Mount the queue on first use; hand it the filtered set; show or hide it with the page. */
-  function syncQueue() {
-    if (!one || loading) {
-      queue?.hide?.();
-      return;
-    }
-    queue ??= mountQueue(queueEl, {
-      embedded: {
-        listHref: () => candidatesHash(state),
-        realHref: () => candidatesHash(presetState(PRESETS.find((p) => p.id === "community-real")!)),
-      },
-    });
-    // The queue keeps its own order inside the set (what needs votes first). No list: every object.
-    queue.scope(data ? f.rows.map((r) => r.c.id) : null);
-    if (onScreen) queue.show(null);
-  }
-
-  oneOnBtn.addEventListener("click", () => setOne(true, { focus: true }));
-  backBtn.addEventListener("click", () => setOne(false, { focus: true }));
+  oneOnBtn.addEventListener("click", () => startChecking());
 
   // ---- the community's list ---------------------------------------------------------------------
 
@@ -947,7 +922,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
         <div class="dv-state-actions"><button type="button" class="btn btn-primary" data-vote-now>Check the ones that need votes</button><button type="button" class="btn btn-ghost" data-clear-all>Show the whole list</button></div>`;
       stateEl.querySelector("[data-vote-now]")?.addEventListener("click", () => {
         setState(presetState(PRESETS.find((p) => p.id === "needs-vote")!));
-        setOne(true, { focus: true });
+        startChecking();
       });
       stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
       return;
@@ -1142,8 +1117,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       onScreen = true;
       const q = routeQuery(param);
       const fromUrl = queryToState(q);
-      // #/candidates/one=1 (and the old #/review, mapped to it): the same filter, one at a time.
-      const wasOne = one;
+      // #/candidates/one=1 (and the old #/review, mapped to it): the Viewer on this list's first object to check.
       one = isOneAtATime(q);
       // #/candidates/…&map=1: the same filter on the sky map, a page of its own.
       const wasMap = mapView;
@@ -1155,7 +1129,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
         apply();
       }
       renderOne();
-      if (one && !wasOne && data) revealQueue();
+      syncOne();
       if (mapView && !wasMap) $<HTMLElement>("#dv-sky-title").focus({ preventScroll: true });
       // Votes may have changed on the Review page: refresh at most every 20 s.
       if (data && voteStatus !== "loading" && Date.now() - votesAt > 20_000) loadVotes();
@@ -1165,14 +1139,12 @@ export const mountDiscover: MountPage = (el, ctx) => {
       map?.closeFullscreen();
       map?.highlight(null);
       openSheet(false);
-      queue?.hide?.();
     },
     destroy() {
       offVoted();
       offDetails();
       thumbs.destroy();
       map?.destroy();
-      queue?.destroy();
       document.removeEventListener("click", onDocClick);
       document.body.classList.remove("dv-sheet-open");
       el.innerHTML = "";
