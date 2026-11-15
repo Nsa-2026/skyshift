@@ -1,7 +1,4 @@
 // Planets on the plate: the cheap ecliptic check, and Saturn's place against a real photo.
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import * as A from "astronomy-engine";
 import { describe, expect, it } from "vitest";
 import { pixelToSky, sepArcsec, skyToPixel } from "../app/astro";
@@ -35,25 +32,22 @@ describe("near the ecliptic", () => {
 });
 
 describe("Saturn on a real photo", () => {
-  // web/public/data/cand/ecl35-515160213269-87870596: D2 exposure at MJD 61021.246, 195 × 195 px of
-  // 6.15″ centred on (356.37841, −4.139208). Saturn's burnt disc: centroid (137.3, 94.0) px, the
-  // same within 0.5 px in all three exposures (raw-0 core and >10 MJy/sr plateau alike).
+  // Candidate ecl35-515160213269-87870596 (its folder left public/data with the movers near a planet,
+  // c884cb9; frames.json in git at f253977): three D2 exposures, 195 × 195 px of 6.15″ centred on
+  // (356.37841, −4.139208). Saturn's burnt disc: centroid (137.3, 94.0) px, the same within 0.5 px in
+  // all three (raw-0 core and >10 MJy/sr plateau alike); this place fell on a raw-0 pixel in each.
   const frame = { pixel_arcsec: 6.15, size: [195, 195] as [number, number] };
   const centre = { ra: 356.37841, dec: -4.139208 };
   const disc = pixelToSky({ x: 137.3, y: 94.0 }, frame, centre);
+  const mjds = [61021.246276, 61021.247768, 61021.249261];
 
-  it("puts Saturn on its disc: under 2 px from its centroid, inside the burnt core of every exposure", () => {
-    const dir = resolve(dirname(fileURLToPath(import.meta.url)), "../../public/data/cand/ecl35-515160213269-87870596") + "/";
-    const f = JSON.parse(readFileSync(dir + "frames.json", "utf8")) as { epochs: { mjd_mid: number; data_url: string }[] };
-    expect(f.epochs).toHaveLength(3);
-    for (const e of f.epochs) {
-      const s = planetSpots(A, e.mjd_mid).find((p) => p.name === "Saturn")!;
+  it("puts Saturn on its disc: under 2 px from its centroid, inside its burnt core", () => {
+    for (const mjd of mjds) {
+      const s = planetSpots(A, mjd).find((p) => p.name === "Saturn")!;
       // Measured 8.5″ (1.4 px): the core is about 16 px wide.
       expect(sepArcsec(s, disc)).toBeLessThan(2 * 6.15);
       const px = skyToPixel(s, frame, centre);
-      const buf = readFileSync(dir + e.data_url);
-      const raw = new Uint16Array(buf.buffer, buf.byteOffset, buf.length / 2);
-      expect(raw[Math.round(px.y) * 195 + Math.round(px.x)]).toBe(0);
+      expect(Math.hypot(px.x - 137.3, px.y - 94.0)).toBeLessThan(2);
     }
   });
 
