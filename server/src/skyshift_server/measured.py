@@ -82,6 +82,11 @@ ART_MASK = sum(1 << b for b in ART_BITS.values())
 PEAK_MASK = MASK_BITS & ~SAT_BITS  # a mask bit at the peak, saturation aside
 CLASSES = ("star", "known", "mover", "suspect", "artifact", "other")
 _KEEP_FIRST = {"known", "mover", "suspect", "artifact"}
+# v3.13: sources only the pipeline's visit stacks found (results/<zone>/stack_sources.parquet), months clock only
+STACK_CLASS = "stack"
+STACK_MIN_SNR = 5.0          # a stack source is drawn in a visit where its forced S/N over that visit is at least this
+STACK_LINKED_ARCSEC = 3.0    # a stack source with a linked source this close is that source (pipeline STACK_SINGLE_MATCH_ARCSEC)
+STACK_VISIT_TOL_DAYS = 20.0  # a stack visit (its photos' median MJD) belongs to the epoch whose span holds it, ± this
 
 DOT_COLS = ["mjd", "ra", "dec", "pos_err_arcsec", "snr", "flux_ujy", "flags", "flags_peak", "elong"]
 DOT_V4 = ["ra_psf", "dec_psf", "psf_pos_ok", "pos_err_psf_arcsec"]
@@ -93,6 +98,12 @@ def enabled() -> bool:
 
 def dots_only_enabled() -> bool:
     return os.environ.get("SKYSHIFT_MEASURED_DOTS_ONLY", "1") != "0"
+
+
+def stack_enabled() -> bool:
+    """v3.13 class `stack`: off until SKYSHIFT_MEASURED_STACK=1, because the site reads CLASS_INFO[class] and an
+    unknown class would break its measured layer (web/src/blink/measured.ts); turn on once the site knows it."""
+    return os.environ.get("SKYSHIFT_MEASURED_STACK", "0") == "1"
 
 
 # --- storage ----------------------------------------------------------------------------------
@@ -348,11 +359,17 @@ class Tables:
     # results/<zone>/fragments.parquet (v3.11), tagged rows only: source_id -> (tag, parent_gaia_id, blend_gaia_ids);
     # None when the zone has no such file (then nothing changes)
     frag: dict[int, tuple[str, str | None, list[str] | None]] | None = None
+    # results/<zone>/shape_candidates.parquet (v3.12), rows the two-source fit split: source_id -> the companion
+    # (_load_companions); None without the file or its fit columns (then nothing changes)
+    companions: dict[int, dict] | None = None
+    # results/<zone>/stack_sources.parquet (v3.13), the rows drawn as class stack or artifact; None without the file
+    stack: dict[str, Any] | None = None
     loaded: float = field(default_factory=time.monotonic)
 
     def nbytes(self) -> int:
         n = sum(a.nbytes for a in (self.src_id, self.src_ra, self.src_dec, self.src_gaia))
         n += sum(a.nbytes for a in self.ast.values())
+        n += sum(a.nbytes for a in (self.stack or {}).values() if isinstance(a, np.ndarray))
         return n + 200 * len(self.mv.get("ra", ())) + 150 * len(self.frag or ())
 
 
@@ -424,7 +441,9 @@ def _load_tables(st: Store, zone: Zone) -> Tables:
                     highpm[sid] = (cls, reasons if cls == "artifact" else [])
     tables = Tables(zone, np.asarray(src["source_id"], np.int64)[order], np.asarray(src["ra"], float)[order],
                     np.asarray(src["dec"], float)[order], gaia, mv, suspects, ast, highpm,
-                    _load_fragments(st, base))
+                    _load_fragments(st, base), _load_companions(st, base),
+                    stack=_load_stack(st, base, np.asarray(src["ra"], float), np.asarray(src["dec"], float))
+                    if stack_enabled() else None)
     log.info("measured: zone %s tables loaded in %.1f s (%d sources, %d movers, %d suspects, %d shifts, %.1f MB)",
              zone.name, time.perf_counter() - t0, len(order), len(mv.get("ra", ())), len(suspects),
              len(ast.get("source_id", ())), tables.nbytes() / 1e6)
@@ -453,6 +472,93 @@ def _load_fragments(st: Store, base: str) -> dict[int, tuple[str, str | None, li
     return out
 
 
+def _load_stack(st: Store, base: str, src_ra: np.ndarray, src_dec: np.ndarray) -> dict[str, Any] | None:
+    """The stack sources the measured layer draws (contracts/dots.md stack_sources, api.md v3.13): no linked source of
+    this zone within STACK_LINKED_ARCSEC (the table's own source_id -1, checked again against the linked sources read
+    now, in case link ran again after stack), not transient. Per-visit S/N, flux and position as (n, visits) arrays,
+    sorted by dec. None without the file, or when it can't be read (the layer then reads as before)."""
+    try:
+        t = st.read_table(f"{base}/stack_sources.parquet",
+                          ["ra", "dec", "source_id", "transient", "artifact_zone", "n_photos", "visits", "mjd_visit",
+                           "snr_visit", "flux_visit_ujy"],
+                          ["gaia_ref_id", "visits_free", "ra_visit", "dec_visit"])
+    except Exception:  # noqa: BLE001
+        log.warning("measured: %s/stack_sources.parquet unreadable; no stack class", base, exc_info=True)
+        return None
+    if t is None:
+        return None
+    keep = (np.asarray(t["source_id"], np.int64) < 0) & ~np.asarray(t["transient"], bool)
+    keep[keep] = ~_near_any(np.asarray(t["ra"], float)[keep], np.asarray(t["dec"], float)[keep], src_ra, src_dec,
+                            STACK_LINKED_ARCSEC)
+    rows = np.nonzero(keep)[0]
+    rows = rows[np.argsort(np.asarray(t["dec"], float)[rows], kind="stable")]
+    visits = [int(v) for v in (t["visits"][0] if len(t["visits"]) else [])]
+    mjd = np.asarray(t["mjd_visit"][0] if len(t["mjd_visit"]) else [], float)
+    col = {v: j for j, v in enumerate(visits)}
+    n, k = len(rows), len(visits)
+    snr, flux = np.full((n, k), np.nan), np.full((n, k), np.nan)
+    rav, decv = np.full((n, k), np.nan), np.full((n, k), np.nan)
+    free = all(c in t for c in ("visits_free", "ra_visit", "dec_visit"))
+    for a, i in enumerate(rows):
+        if len(t["snr_visit"][i]) == k:
+            snr[a] = np.asarray(t["snr_visit"][i], float)
+            flux[a] = np.asarray(t["flux_visit_ujy"][i], float)
+        if free:
+            for v, r, d in zip(t["visits_free"][i] or [], t["ra_visit"][i] or [], t["dec_visit"][i] or []):
+                if int(v) in col:
+                    rav[a, col[int(v)]], decv[a, col[int(v)]] = r, d
+    gaia = np.full(n, None, object)
+    if "gaia_ref_id" in t:
+        g = np.asarray(t["gaia_ref_id"], object)[rows]
+        gaia = np.array([str(x).removeprefix("gaia:") if x else None for x in g], object)
+    return {"ra": np.asarray(t["ra"], float)[rows], "dec": np.asarray(t["dec"], float)[rows],
+            "artifact": np.asarray(t["artifact_zone"], bool)[rows], "n_photos": np.asarray(t["n_photos"], int)[rows],
+            "gaia": gaia, "mjd": mjd, "snr": snr, "flux": flux, "ra_v": rav, "dec_v": decv}
+
+
+def _near_any(ra: np.ndarray, dec: np.ndarray, ref_ra: np.ndarray, ref_dec: np.ndarray, r_arcsec: float) -> np.ndarray:
+    """True where a reference point lies within r_arcsec (unit vectors: any part of the sky)."""
+    from scipy.spatial import cKDTree
+
+    if not len(ra) or not len(ref_ra):
+        return np.zeros(len(ra), bool)
+
+    def unit(a, d):
+        a, d = np.radians(a), np.radians(d)
+        return np.column_stack([np.cos(d) * np.cos(a), np.cos(d) * np.sin(a), np.sin(d)])
+
+    chord = 2.0 * math.sin(math.radians(r_arcsec / 7200.0))
+    dist, _ = cKDTree(unit(ref_ra, ref_dec)).query(unit(ra, dec), distance_upper_bound=chord)
+    return np.isfinite(dist)
+
+
+def _months_stack(ep: dict, era: float, edec: float, half: float, S: dict[str, Any]) -> list[dict]:
+    """v3.13: the stack sources in this months epoch's square, from the stack visit its time span holds, where their
+    forced S/N over that visit is >= STACK_MIN_SNR: class stack, or artifact (reason stack_near_bright) in a bright
+    source's artifact zone. Position: the visit's free fit, else the stack position."""
+    if not len(S["mjd"]) or ep.get("mjd_mid") is None:
+        return []
+    lo = float(ep.get("mjd_start") or ep["mjd_mid"]) - STACK_VISIT_TOL_DAYS
+    hi = float(ep.get("mjd_end") or ep["mjd_mid"]) + STACK_VISIT_TOL_DAYS
+    inside = np.nonzero((S["mjd"] >= lo) & (S["mjd"] <= hi))[0]
+    if not inside.size:
+        return []
+    j = int(inside[np.argmin(np.abs(S["mjd"][inside] - float(ep["mjd_mid"])))])
+    a, b = np.searchsorted(S["dec"], [edec - half - 1.0 / 60.0, edec + half + 1.0 / 60.0])
+    idx = np.arange(a, b)
+    ra = np.where(np.isfinite(S["ra_v"][idx, j]), S["ra_v"][idx, j], S["ra"][idx])
+    dec = np.where(np.isfinite(S["dec_v"][idx, j]), S["dec_v"][idx, j], S["dec"][idx])
+    ok = _in_square(ra, dec, era, edec, half) & (np.nan_to_num(S["snr"][idx, j], nan=-1.0) >= STACK_MIN_SNR)
+    out = []
+    for q in np.nonzero(ok)[0]:
+        i = idx[q]
+        art = bool(S["artifact"][i])
+        out.append(_det(ep["id"], float(ra[q]) % 360.0, float(dec[q]), float(S["snr"][i, j]), float(S["flux"][i, j]),
+                        int(S["n_photos"][i]), "artifact" if art else STACK_CLASS, gaia_id=S["gaia"][i],
+                        reasons=["stack_near_bright"] if art else []))
+    return out
+
+
 def _apply_fragments(dets: list[dict], shifts: list[dict], frag: dict) -> None:
     """v3.11: a linked source tagged bright_fragment is an `artifact` (+ reason `bright_fragment`, `parent_gaia_id`);
     one tagged blend keeps its class and gains the reason `blend` and `blend_gaia_ids` (not on an artifact). Every
@@ -472,6 +578,79 @@ def _apply_fragments(dets: list[dict], shifts: list[dict], frag: dict) -> None:
     for s in shifts:
         if frag.get(int(s["source_id"]), ("",))[0] == "bright_fragment" and s["class"] in ("star", "other"):
             s["class"] = "artifact"
+
+
+COMPANION_COLS = ["companion_split", "companion_ra", "companion_dec", "companion_flux_ratio",
+                  *[f"companion_flux_ratio_d{d}" for d in range(1, 7)], *[f"companion_snr_d{d}" for d in range(1, 7)],
+                  "companion_visit_mjd", "companion_visit_ra", "companion_visit_dec"]
+COMPANION_VISIT_DAYS = 30.0  # a visit's own fit is used for an epoch whose span it falls in, ± this
+
+
+def _load_companions(st: Store, base: str) -> dict[int, dict] | None:
+    """v3.12: the shape candidates' second objects the two-source fit split off (shape_candidates.parquet rows with
+    companion_split), by the source they were merged into; None without the file or its fit columns."""
+    try:
+        t = st.read_table(f"{base}/shape_candidates.parquet", ["source_id"], COMPANION_COLS)
+    except Exception:  # noqa: BLE001
+        log.warning("measured: %s/shape_candidates.parquet unreadable; no fitted companions", base, exc_info=True)
+        return None
+    if t is None or "companion_split" not in t or "companion_ra" not in t:
+        return None
+    out: dict[int, dict] = {}
+
+    def f(name: str, i: int) -> float:
+        v = t[name][i] if name in t else None
+        return float(v) if v is not None and np.isfinite(float(v)) else float("nan")
+
+    def lst(name: str, i: int) -> list:
+        return list((t[name][i] if name in t else None) or [])
+
+    for i, sid in enumerate(t["source_id"]):
+        split = t["companion_split"][i]
+        if split is None or not bool(split):
+            continue
+        ra, dec = f("companion_ra", i), f("companion_dec", i)
+        if not (math.isfinite(ra) and math.isfinite(dec)):
+            continue
+        vis = [(float(m), float(a), float(b)) for m, a, b in
+               zip(lst("companion_visit_mjd", i), lst("companion_visit_ra", i), lst("companion_visit_dec", i))]
+        out[int(sid)] = {"ra": ra, "dec": dec, "visits": vis, "ratio": f("companion_flux_ratio", i),
+                         "ratio_d": {d: f(f"companion_flux_ratio_d{d}", i) for d in range(1, 7)},
+                         "snr_d": {d: f(f"companion_snr_d{d}", i) for d in range(1, 7)}}
+    return out
+
+
+def _companion_dets(dets: list[dict], epochs: list[dict], comp: dict[int, dict]) -> list[dict]:
+    """v3.12: one `other` detection (reason split_by_fit, no source, no dots) per visit epoch for each fitted companion
+    whose source has a detection there: at that visit's own fitted position when the epoch's span holds it, else the
+    overall fit; flux = the source's detection × the companion's ratio in the epoch's detector (overall ratio if none)."""
+    by_id = {e["id"]: e for e in epochs}
+    out = []
+    for d in dets:
+        sid = d.get("source_id")
+        c = comp.get(int(sid)) if sid is not None else None
+        if c is None:
+            continue
+        ep = by_id.get(d["epoch_id"], {})
+        ra, dec = c["ra"], c["dec"]
+        lo = float(ep.get("mjd_start") or ep.get("mjd_mid") or float("nan")) - COMPANION_VISIT_DAYS
+        hi = float(ep.get("mjd_end") or ep.get("mjd_mid") or float("nan")) + COMPANION_VISIT_DAYS
+        inside = [v for v in c["visits"] if lo <= v[0] <= hi]
+        if inside:
+            mid = float(ep.get("mjd_mid") or inside[0][0])
+            _, ra, dec = min(inside, key=lambda v: abs(v[0] - mid))
+        det = int(ep["det"]) if ep.get("det") is not None else None
+        ratio = c["ratio_d"].get(det, float("nan")) if det else float("nan")
+        if not math.isfinite(ratio):
+            ratio = c["ratio"]
+        snr = c["snr_d"].get(det, float("nan")) if det else float("nan")
+        if not math.isfinite(snr):
+            snr = max([v for v in c["snr_d"].values() if math.isfinite(v)], default=0.0)
+        if d.get("flux_ujy") is None or not math.isfinite(ratio):
+            continue
+        flux = d["flux_ujy"] * ratio
+        out.append(_det(d["epoch_id"], ra % 360.0, dec, snr, flux, 0, "other", reasons=["split_by_fit"]))
+    return out
 
 
 _tables: OrderedDict[tuple, Tables] = OrderedDict()
@@ -762,10 +941,13 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
     else:
         dets = _months(loaded, meta, epochs, photos, F, T)
     shifts = _shifts(meta, epochs, F, T) if clock == "months" else []
+    if clock == "months" and T.companions:
+        dets += _companion_dets(dets, epochs, T.companions)
     if T.frag is not None:
         _apply_fragments(dets, shifts, T.frag)
+    classes = CLASSES + (STACK_CLASS,) if clock == "months" and T.stack is not None else CLASSES
     return _finish(dets, tracks, shifts, zone=Z.name, stage=Z.stage, zone_box=Z.box(), clock=clock,
-                   n_have=len(have), n_all=len(all_keys)), None
+                   n_have=len(have), n_all=len(all_keys), classes=classes), None
 
 
 def _photos_of(meta: dict, epoch_keys: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -785,11 +967,11 @@ def _photos_of(meta: dict, epoch_keys: dict[str, list[str]]) -> dict[str, list[s
 
 
 def _finish(dets: list[dict], tracks: list[dict], shifts: list[dict], *, zone: str | None, stage: str,
-            zone_box: dict | None, clock: str, n_have: int, n_all: int) -> dict:
+            zone_box: dict | None, clock: str, n_have: int, n_all: int, classes: tuple[str, ...] = CLASSES) -> dict:
     """The `measured` object: counts before the cap, sorted by epoch id then S/N. Cap per epoch:
     MAX_PER_EPOCH with the non-star classes first; stage "extracted": the EXTRACTED_MAX_PER_EPOCH
     brightest (S/N) of every class, so the stars to compare with Gaia stay."""
-    counts = {c: 0 for c in CLASSES}
+    counts = {c: 0 for c in classes}
     for d in dets:
         counts[d["class"]] += 1
     by_epoch: dict[str, list[dict]] = defaultdict(list)
@@ -1110,6 +1292,10 @@ def _months(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, li
             cls, reasons = _months_class(T, int(F.id[s]), gid is not None)
             out.append(_det(ep["id"], rra % 360.0, rdec, math.sqrt(s2[s]), float(np.median(flux[groups[s]])),
                             int(cnt[s]), cls, source_id=int(F.id[s]), gaia_id=gid, reasons=reasons))
+    if T.stack is not None:  # v3.13, in the epochs that have photos here
+        for ep in epochs:
+            if photos.get(ep["id"]):
+                out += _months_stack(ep, *_epoch_square(ep, meta), T.stack)
     return out
 
 
@@ -1216,4 +1402,24 @@ def stale(cached: dict, *, root: str | None = None) -> bool:
             except Exception:  # noqa: BLE001
                 return False
         return False
-    return z is not None and (z.name, z.stage) != (m.get("zone"), m.get("stage"))
+    if z is None:
+        return False
+    if (z.name, z.stage) != (m.get("zone"), m.get("stage")):
+        return True
+    # v3.13: a months answer built before the zone's stack table existed
+    return (stack_enabled() and cached.get("clock") == "months" and STACK_CLASS not in (m.get("counts") or {})
+            and stack_exists(z.name, root))
+
+
+def stack_exists(zone: str, root: str | None = None) -> bool:
+    """Whether results/<zone>/stack_sources.parquet exists (one metadata request, remembered EXISTS_TTL_S)."""
+    try:
+        st = store(root)
+        key = f"results/{zone}/stack_sources.parquet"
+        known = _known_presence(st, key)
+        if known is None:
+            known = st.exists(key)
+            _remember(st, key, known)
+        return known
+    except Exception:  # noqa: BLE001
+        return False

@@ -61,7 +61,7 @@ export function flagMark(ctx: Ctx, x: number, y: number, r: number): void {
 // and a Gaia ring is always a little bigger than the circle it holds, so agreement reads as a circle
 // inside a ring. A saturated star with no detection of its own gets one dashed ring (`bigStar`).
 
-export type MeasuredShape = "star" | "known" | "mover" | "suspect" | "artifact" | "other";
+export type MeasuredShape = "star" | "known" | "mover" | "suspect" | "artifact" | "other" | "stack";
 
 /** Stroke per class: width, alpha, and a dash (dots for `other`). */
 export const MEASURED_STROKE: Record<MeasuredShape, { width: number; alpha: number; dash: number[] }> = {
@@ -71,6 +71,8 @@ export const MEASURED_STROKE: Record<MeasuredShape, { width: number; alpha: numb
   mover: { width: 1.6, alpha: 0.9, dash: [] },
   suspect: { width: 2.4, alpha: 0.95, dash: [] },
   artifact: { width: 1.25, alpha: 0.7, dash: [] },
+  // Seen only on the visit stacks: short dashes, quieter than a single-photo source.
+  stack: { width: 1.2, alpha: 0.7, dash: [2.5, 2.5] },
 };
 
 /** The path of a measured mark: a circle, doubled for known, side ticks for a mover, struck through for an artefact. */
@@ -97,11 +99,11 @@ export function measuredPath(ctx: Ctx, cls: MeasuredShape, x: number, y: number,
  * read on a dark core; stars and other sources (hundreds of them) stay a plain thin line.
  */
 export function measuredMark(ctx: Ctx, cls: MeasuredShape, x: number, y: number, r: number, color: string, halo: string): void {
-  const s = MEASURED_STROKE[cls];
+  const s = MEASURED_STROKE[cls] ?? MEASURED_STROKE.other;
   measuredPath(ctx, cls, x, y, r);
   ctx.save();
   ctx.setLineDash(s.dash);
-  if (cls !== "star" && cls !== "other") pencil(ctx, halo, s.width + 2, 0.5);
+  if (cls !== "star" && cls !== "other" && cls !== "stack") pencil(ctx, halo, s.width + 2, 0.5);
   pencil(ctx, color, s.width, s.alpha);
   ctx.restore();
 }

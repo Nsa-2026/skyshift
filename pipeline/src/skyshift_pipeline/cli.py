@@ -20,6 +20,11 @@ skyshift-pipeline s3index [--root ROOT] [--collections dr1,qr3] [--workers 64] [
   Level 2 file, reads its headers (--workers concurrent reads over --procs processes, default one per CPU) and writes
   photolists/s3index/<dr1|qr3>/<period>.parquet + .json, then _complete.json. Resumable: done periods are skipped
   (their failed files are tried again) unless --force. photolist falls back to it when TAP fails.
+
+skyshift-pipeline stack --zone ZONE [--root ROOT] [--workers N] [--cache DIR] [--limit N]
+  Not part of `all`: detect on per-visit stacks of the zone's photos, then a joint ePSF fit of every photo at all
+  those sources (stack.py) → results/<zone>/stack_sources.parquet, stack_forced.parquet, stack.json. Reads the photos'
+  pixels over the zone once into --cache (kept: a rerun reads nothing); --limit N: N photos per detector × visit.
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "
 ZONE_STEPS = ("completeness",)  # once per zone on its own sub-area, also in a tiled `all` (after the tiles)
 TILED_STEPS = tuple(s for s in STEPS[STEPS.index("link"):] if s not in ZONE_STEPS)  # what `all` runs per tile (tiles.py)
 TOOLS = ("mpc-orbits", "s3index")  # run by hand, never by `all`; no zone
+EXTRA_STEPS = ("stack",)  # zone steps run by hand, never by `all` (stack: the featured zones, config STACK_ZONES)
 L = log.get("cli")
 
 
@@ -86,6 +92,9 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step == "suspects":
         from . import suspects
         return suspects.run(store, zone)
+    if step == "stack":
+        from . import stack
+        return stack.run(store, zone, workers=args.workers, limit=args.limit, cache=args.cache)
     if step == "completeness":
         from . import inject
         try:
@@ -119,7 +128,7 @@ def _update_summary(store: Store, zone: C.Zone, step: str, out: dict, seconds: f
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="skyshift-pipeline", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=(*STEPS, "all", *TOOLS))
+    ap.add_argument("step", choices=(*STEPS, "all", *TOOLS, *EXTRA_STEPS))
     ap.add_argument("--zone", choices=sorted(C.ZONES), help="required for every step except mpc-orbits")
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--workers", type=int, default=None, help="default: one per CPU (s3index: 64 concurrent reads)")
@@ -137,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tile-deg", type=float, default=None, help="all: tile core side in degrees (tiles any zone)")
     ap.add_argument("--tile-dir", default=os.environ.get("SKYSHIFT_TILE_DIR") or None,
                     help="all, tiled: local work dir (default: env SKYSHIFT_TILE_DIR, else the system temp dir); removed after")
+    ap.add_argument("--cache", default=None,
+                    help="stack: local folder for the photos' pixel blocks (default: the temp dir; kept, so a rerun reads nothing)")
     ap.add_argument("--keep-tiles", action="store_true", help="all, tiled: keep the work dir (per-tile tables)")
     ap.add_argument("--zone-edge", choices=("border", "clip"), default="border" if C.TILE_ZONE_EDGE_MARGIN else "clip",
                     help="all, tiled: load the 2′ border outside the zone box too (default), or clip there as untiled runs do")

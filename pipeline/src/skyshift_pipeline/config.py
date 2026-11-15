@@ -406,6 +406,28 @@ ASTRO_SAT_MIN_DOTS = 200       # saturated reference dots needed for a detector'
 ASTRO_SAT_DEPTH_BANDS = {1: ("j", 0.91, 10.5), 2: ("j", 0.91, 10.8), 3: ("k", 1.85, 11.0), 4: ("w1", 2.70, 11.1),
                          5: ("w2", 3.34, 9.6), 6: ("w2", 3.34, 9.0)}
 ASTRO_SAT_DEPTH_BINS = (-2.5, -1.0, -0.5, 0.0, 0.5, 1.5)  # bin edges (mag; open-ended both ways); NaN depth: "all"
+DETECTOR_PX = 2040             # SPHEREx images are 2040 × 2040
+# Unsaturated dots (15 Nov; astrometry.pixel_offsets): after calib (per-photo distortion, at most quadratic) and the frame
+# offsets, quiet Gaia stars' dots still sit off Gaia by amounts fixed in each detector's pixels, which the 180° roll turns
+# into fake motion as for saturated dots. (1) A static map per detector (ASTRO_PIXEL_MAP): hunt rms 3–5 mpx in x, 3–9 in
+# y on 128 px cells, up to 0.04 px; visit 1 and visit 2 measure the same map (r 0.87–1.0). A star sits at another x in
+# each visit, so the map gives every star its own fake motion. (2) A brightness term (ASTRO_BRIGHT_OFFSET), following the
+# dot's own level (bright_level: AB from flux_ujy − the detector's 50% saturation AB): the centroid moves along −x as a dot
+# nears saturation below the flags (hunt: −0.3 to −4.5 mpx within 0.5 mag of it) and along +x at the faint end (+0.3 to
+# +1.4 mpx at 5–7 mag below it); the median pm − Gaia − ϖ·k in RA was −34 mas/yr at G 9–10, −19 at G 11–12, +15 beyond
+# G 18. Both are fitted on the zone's unsaturated dots of quiet Gaia stars after the frame offsets (alternately,
+# ASTRO_PIXEL_ITER times) and subtracted from every unsaturated dot through its photo's Jacobian; centroid and ePSF
+# positions separately. Saturated dots keep ASTRO_SAT_OFFSET. Hunt, fitted on half the stars, the other half:
+# G 9–10 −34 → −8, G 10–11 −29 → −11, G 11–12 −19 → −3, G 12–13 −7 → +2, G > 18 +15 → +2 mas/yr.
+ASTRO_PIXEL_MAP = True
+ASTRO_MAP_CELL_PX = 128        # map cells (px); bilinear between cell centres, 0 in cells with too few dots
+ASTRO_MAP_MIN_SNR = 20.0       # dots that measure the map
+ASTRO_MAP_MIN_DOTS = 50        # ... per cell
+ASTRO_BRIGHT_OFFSET = True
+# bin edges (open-ended both ways) of the dot's own depth: AB from flux_ujy − the detector's 50% saturation AB above
+ASTRO_BRIGHT_BINS = (-0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0)
+ASTRO_BRIGHT_MIN_DOTS = 300    # reference dots needed for a brightness bin's offset (fewer: none)
+ASTRO_PIXEL_ITER = 3
 ASTRO_REPORT_SNR_BINS = (5.0, 10.0, 20.0, 50.0, 100.0, 1e9)  # median dot S/N bins of the report
 ASTRO_REPORT_G_BINS = (0.0, 8.0, 10.0, 11.0, 12.0, 14.0, 17.0, 21.0)  # Gaia G bins of the report (saturated: G < ~12)
 # highpm: "Planet X"-style search for nearby cold movers not in Gaia
@@ -921,6 +943,10 @@ FRAGMENTS_BLOOM_FRAC = 0.5         # BLOOM (3×3 `flags`) on more than this shar
 FRAGMENTS_MATCH_ARCSEC = 3.0       # ... and no Gaia / 2MASS entry this close, nor a Gaia star it is the kept source of
 #                                    (FRAGMENTS_STAR_ARCSEC): bright_fragment; with either: saturated_star
 FRAGMENTS_MATCH_CATALOGUES = ("gaia", "tmass")  # the catalogues of that test (match_dist_arcsec)
+# Every distance from a source (catalogue, bright neighbour, blend count, a fragment's parent) is also measured from link's
+# position (fixed.parquet) where it lies more than this from the source's (sources.parquet); the smaller wins: a
+# saturated star's spectrum position can sit 5–9″ off it, a release-split piece's link position 6–7″ off its spectrum's.
+FRAGMENTS_LINK_MIN_OFFSET_ARCSEC = 0.5
 # Which source is which Gaia star: each source's home is the nearest Gaia star (moved to its epoch) within that star's
 # radius, by G: (G below, radius ″), first that applies, else FRAGMENTS_MATCH_ARCSEC. A saturated star's position sits
 # further off (hunt: a G 7.2 star's nearest source 4.8″, a G 10.6 one 3.6″), and so does a fainter star's inside a
@@ -1066,3 +1092,59 @@ TRACK_RECOVER_EXT_H = 60.0       # sessions up to this far before the first / af
 TRACK_RECOVER_R_MIN_ARCSEC = 3.0
 TRACK_RECOVER_R_MAX_ARCSEC = 8.0
 TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
+
+# --- stack (stack.py, 15 Nov night): detect on per-visit stacks, then a joint ePSF fit in every photo ---------------
+# Single photos (6.15″ px, FWHM 7.5″) miss sources below their limit, 8–15″ pairs and stars in a bright star's glow.
+# Each visit's ~18 dithered photos per detector (~110 over the six) are resampled onto one tangent-plane grid.
+STACK_ZONES = DOTS_FINE_ZONES    # the zones `stack` runs on by default (the five featured targets)
+STACK_PIX_ARCSEC = 2.0           # grid pixel of the stacks
+STACK_NATIVE_PIX_ARCSEC = 6.152  # SPHEREx pixel (the matched filter's ePSF on the grid)
+STACK_MARGIN_ARCSEC = 60.0       # grid beyond the zone box: sources there are fitted (neighbours) but not written
+STACK_PAD_PX = 40                # native pixels read beyond the grid (the photo's background mesh, the ePSF stamps)
+STACK_BKG_BOX = 32               # photo background mesh (native px; core.detect's)
+STACK_GRID_BKG_BOX = 32          # stack background mesh (grid px = 64″): a bright star's glow out of the detection maps
+STACK_MIN_PHOTOS = 3             # grid pixels covered by fewer photos of a stack are not searched in it
+STACK_DETECT_SNR = 5.0           # a peak of a matched-filter S/N map (ePSF of the detector), noise normalised on the map
+STACK_EDGE_PX = 3                # peaks this close to the grid edge are skipped
+STACK_MERGE_ARCSEC = 2.5         # peaks of different stacks within this are one source
+STACK_RESID_PASSES = 1           # detect again on the residual stacks (every source's ePSF fit subtracted in each photo)
+STACK_RESID_PSF_ERR = 0.05       # residual maps: noise² += (this × model)², the ePSF's own misfit near bright sources
+STACK_RESID_MIN_SEP_ARCSEC = 4.0  # a residual peak closer than this to a source is that source's misfit
+# Residual maps: every source's leftover counts as noise, F × E(r): E = the STACK_WING_PCT percentile of
+# |residual flux| / F at distance r around the STACK_WING_MAX_STARS brightest sources (S/N >= STACK_WING_MIN_SNR) of
+# that stack, out to STACK_WING_RADIUS_ARCSEC (the ePSF stops at 20″; the misfit core and the wing beyond are measured).
+# Without it (proto box A, 15 Nov night): 575 of 1,321 residual detections had no catalogue entry, piled at < 8″ and
+# 20–30″ (the ePSF's edge) from bright sources.
+STACK_WING_MIN_SNR = 300.0
+STACK_WING_MAX_STARS = 300
+STACK_WING_PCT = 80.0
+STACK_WING_RADIUS_ARCSEC = 60.0
+STACK_STAMP_HALF = 3             # ePSF stamp 7 × 7 native px (the ePSF is 0 beyond ±3.2 px)
+STACK_FIT_TILE_PX = 256          # a photo's block is fitted in tiles of this many native px (bounded sparse solves) ...
+STACK_FIT_TILE_MARGIN_PX = 8     # ... each with the sources this far outside it as neighbours
+STACK_FREE_MIN_SNR = 5.0         # free-position fit for a source in a photo where its fixed fit has this S/N
+STACK_PRIOR_STACK_ARCSEC = 0.6   # free fit: prior σ of the position around the stack position
+STACK_PRIOR_GAIA_ARCSEC = 0.15   # ... around Gaia DR3 moved to the photo's time (pm + parallax)
+STACK_FREE_MAX_SHIFT_PX = 1.0    # a free fit moving further than this is not kept (free_ok false)
+STACK_CG_ITER = 300              # joint flux fit: conjugate gradients on the normal equations (sparse, all sources)
+STACK_CG_RTOL = 1e-6
+STACK_RIDGE_REL = 1e-5           # ... + this × the diagonal (two sources at one spot share the flux instead of diverging)
+STACK_DEDUPE_ARCSEC = 2.0        # after refining, sources this close are one (the stronger stays)
+STACK_KEEP_SNR = 5.0             # a source is kept with forced S/N >= this in at least one stack (detector × visit,
+                                 # visit or all), from its photo fluxes (inverse-variance mean)
+STACK_NEG_SNR = 5.0              # ... and no detector below −this (a misfit piece of a bright star: proto box A, 57 of
+                                 # 62 such residual detections had no catalogue entry)
+STACK_TRANSIENT_SHARE = 0.5      # one photo holds more than this share of a source's χ² (S/N²): `transient` (a mover)
+STACK_GAIA_MATCH_ARCSEC = 2.0    # catalogue match at the source's epoch (Gaia DR3 moved with pm)
+STACK_CAT_MATCH_ARCSEC = 3.0     # CatWISE2020 and 2MASS (moved with the row's pm when it has one)
+STACK_SINGLE_MATCH_ARCSEC = 3.0  # a single-photo source (results/<zone>/sources.parquet) this close is the same source
+STACK_BRIGHT_G = 12.0            # bright star context: nearest Gaia G < this ...
+STACK_BRIGHT_RADIUS_ARCSEC = 120.0  # ... within this
+# artifact_zone: an uncatalogued source < CORE or RING″ from a source with S/N >= MIN_SNR and >= RATIO × its own (the
+# misfit core and the ePSF's edge at 20″). Proto boxes: 54 of 696 uncatalogued sources < 8″, 125 at 20–30″.
+STACK_ARTIFACT_MIN_SNR = 100.0
+STACK_ARTIFACT_RATIO = 5.0
+STACK_ARTIFACT_RADIUS_ARCSEC = 60.0
+STACK_ARTIFACT_CORE_ARCSEC = 8.0
+STACK_ARTIFACT_RING_ARCSEC = (20.0, 30.0)
+STACK_TASK_PHOTOS = 8            # photos per worker task (one detector × visit, so the worker sums its own stack)

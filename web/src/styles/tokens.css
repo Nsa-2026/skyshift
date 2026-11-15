@@ -29,6 +29,7 @@
   --m-suspect: var(--pencil-red);   /* a mover nothing explains yet: thick circle and its grade */
   --m-artifact: #7c848f;            /* not a real source: grey circle, struck through */
   --m-other: #3f4857;               /* no Gaia match (galaxy, faint or red star, lone dot): dotted circle */
+  --m-stack: #4f6283;               /* seen only on the visit stacks (v3.13): muted slate blue, dashed circle */
   --warn: #b4232f;         /* saturated cores, errors */
   --pass: #1f7a4d;         /* validation pass */
   --partial: #a35f00;      /* validation partial */

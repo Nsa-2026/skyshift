@@ -74,7 +74,8 @@ export interface FramesResponse {
 // ---- The measured layer (contracts/api.md v3.3, "measured: what SkyShift measured") ------------
 
 /** First rule that applies, per clock (contracts/api.md). `known` and `mover` occur on the hours clock only. */
-export type MeasuredClass = "star" | "known" | "mover" | "suspect" | "artifact" | "other";
+/** `stack` (v3.13, months): seen only on the per-visit stacks. Unknown classes are read as `other`. */
+export type MeasuredClass = "star" | "known" | "mover" | "suspect" | "artifact" | "other" | "stack";
 export type MeasuredReason = "not_processed" | "processing" | "no_dots" | "unavailable";
 
 /** Hours: one per dot of a photo. Months: one per linked source and visit (that visit's dots). */
@@ -162,8 +163,8 @@ export interface Measured {
   photos_missing: number;
   /** true when detections was capped (250 per epoch, non-star classes first). */
   truncated: boolean;
-  /** Detections per class, before the cap. */
-  counts: Record<MeasuredClass, number>;
+  /** Detections per class, before the cap. `stack` (v3.13) only where the zone has stack sources. */
+  counts: Record<Exclude<MeasuredClass, "stack">, number> & { stack?: number };
   /** Sorted by epoch_id, then snr descending. */
   detections: MeasuredDetection[];
   /** Hours: movers with a dot in this response. Months: []. */

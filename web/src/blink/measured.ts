@@ -14,7 +14,7 @@ import type {
 import { gaiaAt } from "../app/astro";
 
 /** Legend and drawing order: what matters most first (drawn last, so it sits on top). */
-export const CLASS_ORDER: MeasuredClass[] = ["suspect", "known", "mover", "artifact", "star", "other"];
+export const CLASS_ORDER: MeasuredClass[] = ["suspect", "known", "mover", "artifact", "star", "other", "stack"];
 
 export interface ClassInfo {
   /** Plain name in the legend and the list. */
@@ -52,7 +52,33 @@ export const CLASS_INFO: Record<MeasuredClass, ClassInfo> = {
     about: "No Gaia match: a galaxy, a faint or red star, or a lone dot.",
     token: "--m-other",
   },
+  stack: {
+    name: "Seen in the stack only",
+    about:
+      "Found only when a visit's photos are added up: fainter than one photo shows, the second star of a close pair, or a star in a bright star's glow.",
+    token: "--m-stack",
+  },
 };
+
+/** A class this page knows; anything newer than this code is drawn and counted as `other`. */
+export const knownClass = (c: string | null | undefined): MeasuredClass =>
+  c != null && Object.prototype.hasOwnProperty.call(CLASS_INFO, c) ? (c as MeasuredClass) : "other";
+/** The legend entry for a class, `other` for one this page doesn't know. */
+export const classInfo = (c: string | null | undefined): ClassInfo => CLASS_INFO[knownClass(c)];
+
+/**
+ * The measured layer with every class one this page knows (unknown → `other`, the contract's
+ * catch-all), so a class added on the server never breaks the plate. The same object when nothing changes.
+ */
+export function normalizeMeasured(m: Measured): Measured {
+  const fix = <T extends { class: MeasuredClass }>(xs: T[] | undefined): T[] | undefined =>
+    xs?.some((x) => knownClass(x.class) !== x.class) ? xs.map((x) => ({ ...x, class: knownClass(x.class) })) : xs;
+  const detections = fix(m.detections);
+  const tracks = fix(m.tracks);
+  const shifts = fix(m.shifts);
+  if (detections === m.detections && tracks === m.tracks && shifts === m.shifts) return m;
+  return { ...m, detections: detections ?? [], tracks: tracks ?? [], shifts: shifts ?? [] };
+}
 
 /** Reason codes in plain words. Codes not listed are shown as given (the contract asks for that). */
 const REASON_WORDS: Record<string, string> = {
@@ -85,6 +111,8 @@ const REASON_WORDS: Record<string, string> = {
   // Proposed codes (not in contracts/api.md yet): read when the server sends them.
   bright_fragment: "a piece of a bright star's glow",
   blend: "two Gaia stars blended in SPHEREx's 6″ pixels",
+  split_by_fit: "a second object a two-object fit split off this source",
+  stack_near_bright: "next to a much brighter source, where the star fit leaves pieces",
 };
 
 /**
@@ -111,7 +139,7 @@ export type MeasuredState =
  * why. Neither field (files and answers older than v3.3), or null without a reason: nothing.
  */
 export function measuredState(f: Pick<FramesResponse, "measured" | "measured_reason"> | null | undefined): MeasuredState {
-  if (f?.measured && typeof f.measured === "object") return { kind: "measured", m: f.measured };
+  if (f?.measured && typeof f.measured === "object") return { kind: "measured", m: normalizeMeasured(f.measured) };
   if (typeof f?.measured_reason === "string" && f.measured_reason) return { kind: "missing", reason: f.measured_reason };
   return { kind: "absent" };
 }
@@ -185,9 +213,9 @@ export function sourcesByClass(m: Measured): Record<MeasuredClass, number> {
   const seen = new Map<string, MeasuredClass>();
   m.detections.forEach((d, i) => {
     const k = d.source_id != null ? `s${d.source_id}` : `d${i}`;
-    if (!seen.has(k)) seen.set(k, d.class);
+    if (!seen.has(k)) seen.set(k, knownClass(d.class));
   });
-  const out = { star: 0, known: 0, mover: 0, suspect: 0, artifact: 0, other: 0 } as Record<MeasuredClass, number>;
+  const out = { star: 0, known: 0, mover: 0, suspect: 0, artifact: 0, other: 0, stack: 0 } as Record<MeasuredClass, number>;
   for (const c of seen.values()) out[c] = (out[c] ?? 0) + 1;
   return out;
 }
@@ -313,6 +341,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[]): Summary {
     if (src.other) r.push(`${atLeast}${src.other.toLocaleString("en-GB")} ${src.other === 1 ? "has" : "have"} no Gaia match`);
     if (src.artifact) r.push(`${src.artifact.toLocaleString("en-GB")} ${src.artifact === 1 ? "looks" : "look"} like ${src.artifact === 1 ? "an artefact" : "artefacts"}`);
     if (src.suspect && !by("suspect")) r.push(`${src.suspect} ${src.suspect === 1 ? "is a suspect" : "are suspects"}`);
+    if (src.stack) r.push(`${src.stack.toLocaleString("en-GB")} ${src.stack === 1 ? "shows" : "show"} only in the visit stacks, fainter than one photo`);
     const weakNote = weak
       ? `${weak.toLocaleString("en-GB")} weaker ${weak === 1 ? "shift is" : "shifts are"} listed but not drawn: under ${SHIFT_MIN_SNR}σ, or Gaia measures a different motion.`
       : "";
@@ -382,8 +411,10 @@ export function describeDetection(d: MeasuredDetection): string {
       return `Artefact${tail || ", reason not given"}`;
     case "star":
       return (d.reasons ?? []).includes("blend") ? blendWords(Math.max(2, extras(d).blend_gaia_ids?.length ?? 2)) : "Gaia star";
+    case "stack":
+      return "Seen in the stack only";
     default:
-      return "Other source";
+      return `Other source${tail}`;
   }
 }
 
@@ -396,7 +427,7 @@ export function detectionNumbers(d: MeasuredDetection): string {
 
 /** "Gaia star moved 0.42″ ± 0.08″ in 1.0 yr". */
 export function describeShift(s: MeasuredShift, grade?: string | null): string {
-  const name = CLASS_INFO[s.class]?.name ?? "Source";
+  const name = classInfo(s.class).name;
   const who = s.class === "star" ? "Gaia star" : s.class === "other" ? "Source without Gaia" : grade ? `${name}, grade ${grade},` : name;
   return `${who} moved ${arcsec(s.shift_arcsec)} ± ${arcsec(s.err_arcsec)} in ${num(s.dt_yr, 1)} yr`;
 }
@@ -634,7 +665,7 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
           ? `Known: ${t.known_name ?? d?.known_name ?? "asteroid or comet"}`
           : d
             ? describeDetection({ ...d, class: t.class })
-            : CLASS_INFO[t.class].name;
+            : classInfo(t.class).name;
       const apart = dots.length > 1 ? `, ${span(dots[dots.length - 1].mjd - dots[0].mjd)} apart` : "";
       const how = t.evidence === "two_detectors" ? ". Seen in two detectors at once" : "";
       items.push({

@@ -1,8 +1,9 @@
 // Semantic zoom (web/DESIGN.md "Sky"): the field of view decides what the map draws.
-//   > 60°      whole sky: heat map of order-3 cells (~7°), zones outlined
-//   8°–60°     finer heat cells (order 5, ~1.8°) with their counts, featured targets labelled
-//   0.5°–8°    single signals as pencil marks
+//   > 60°      whole sky: each searched zone one outline with a count badge, featured targets
+//   8°–60°     the zones' outlines and each object to check as a small dot
+//   0.5°–8°    each object to check as its pencil mark
 //   < 0.5°     the same marks with their numbers written beside them
+// The heat map (order-3 cells far out, order 5 in the middle range) is off unless Adjust turns it on.
 // Pure.
 import { cellSideDeg } from "./healpix";
 
@@ -19,6 +20,8 @@ export function levelFor(fovDeg: number): Level {
 
 export const showsHeat = (l: Level): boolean => l === "whole" || l === "mid";
 export const showsSignals = (l: Level): boolean => l === "close" || l === "detail";
+/** Objects to check are drawn from the middle range in: small dots there, pencil marks closer. */
+export const showsDots = (l: Level): boolean => l !== "whole";
 
 /** Screen size of one cell, px, for a map `widthPx` wide showing `fovDeg` across. */
 export function cellPx(order: number, fovDeg: number, widthPx: number): number {

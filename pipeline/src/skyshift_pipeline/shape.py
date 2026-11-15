@@ -775,6 +775,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--keep", action="store_true", help="also write every measured source (shape_all.parquet) to --out")
     ap.add_argument("--merge-into", help="only add the rows of --rows to this candidates.json (no measurement)")
     ap.add_argument("--rows", help="with --merge-into: a shape_candidates.parquet")
+    ap.add_argument("--no-fit", action="store_true", help="skip the two-source fit of the candidates (shape_fit.py)")
     a = ap.parse_args(argv)
     if a.merge_into:
         print(json.dumps(merge_into(a.merge_into, a.rows, a.zone)))
@@ -831,6 +832,11 @@ def main(argv: list[str] | None = None) -> int:
     chk_by_sig = {f"sig>={s:g}": {k: checks(t, s)[k] for k in ("single_fire_rate",)} | {"pair_recall": checks(t, s)["pairs"]["dG<=1"]["recall"]}
                   for s in (5, 6, 10, 15, 20, 30)}
     out = candidate_table(c, stats_from_sources(sources[sources["source_id"].isin(c["source_id"])]))
+    fit_info = None
+    if not a.no_fit:  # one ePSF against two on each candidate's pixels (shape_fit.py): new columns, `why` names a companion
+        from . import shape_fit
+
+        out, fit_info = shape_fit.run(store, a.zone, out, a.tables, refcat=refcat, workers=a.workers)
     rule = {k: (str(v) if isinstance(v, tuple) or (isinstance(v, float) and not math.isfinite(v)) else v)
             for k, v in globals().items() if k.startswith("SHAPE_") and isinstance(v, (int, float, tuple))}
     report = {"zone": a.zone, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "measure": info, "checks": chk,
@@ -840,9 +846,13 @@ def main(argv: list[str] | None = None) -> int:
         Path(a.out).mkdir(parents=True, exist_ok=True)
         out.to_parquet(Path(a.out) / "shape_candidates.parquet", index=False)
         (Path(a.out) / "shape_report.json").write_text(json.dumps(report, indent=1, default=str))
+        if fit_info is not None:
+            (Path(a.out) / "shape_fit_report.json").write_text(json.dumps(fit_info, indent=1, default=str))
     else:
         store.write_parquet(results_rel(a.zone, "shape_candidates.parquet"), out)
         store.write_json(results_rel(a.zone, "shape_report.json"), report)
+        if fit_info is not None:
+            store.write_json(results_rel(a.zone, "shape_fit_report.json"), fit_info)
     print(json.dumps({"checks": chk, "at_list": chk_list, "by_sig": chk_by_sig, "selection": sel}, indent=1, default=str))
     return 0
 

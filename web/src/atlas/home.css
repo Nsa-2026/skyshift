@@ -1,44 +1,63 @@
-/* The common entry is a real, interactive sky. Area-specific tools come afterwards. */
+/* Sky, the home page: the map fills the window edge to edge, the site header floating over its top.
+   The sentence, the search box and Adjust float top left, under the header; the status line and the
+   zoom bottom left and right, all inside the map's gutter. As the sky zooms in, the header and these
+   panels fade (focus.ts) and one button brings them back. The key and the list wait below. */
 .atl {position:relative;}
 .atl [hidden] {display:none!important;}
-.atl .atl-stage {height:max(360px,100dvh);max-height:none;border-block:0;}
+
+/* --atl-left and --atl-vw come from where the page sits (measure() in index.ts), so the map reaches
+   both window edges whatever the page's own gutters are. --atl-top is 0 when the header floats. */
+.atl .atl-stage,
+.atl .atl-stage.is-fallback.is-whole {
+  margin-inline:0;
+  margin-left:var(--atl-left, calc(50% - var(--atl-vw, 100vw) / 2));
+  width:var(--atl-vw, 100vw);
+  max-width:none;
+  height:max(360px, calc(100dvh - var(--atl-top, 0px)));
+  min-height:0;
+  max-height:none;
+  border-block:0;
+}
 /* Draw the sky behind navigation from the start, so fading it never leaves a gap. */
 #app.cosmic-shell.sky-focus-active > .top {position:absolute;top:0;left:0;right:0;margin-inline:0;width:auto;z-index:8;}
-.atl .atl-intro {position:absolute;z-index:3;left:var(--s4);top:calc(var(--atl-header-height,0px) + var(--s4));max-width:400px;padding:var(--s4);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);}
-.atl .atl-lede {font-size:var(--step-2);font-weight:650;}
-.atl .atl-lede-2 {margin-top:var(--s2);font-size:var(--step--1);font-weight:400;}
-.sky-survey {margin-top:var(--s2);font-size:var(--step--2);color:var(--ink-2);}
-.atl:has(.is-fallback) .sky-survey {display:none;}
-.atl .atl-controls {position:absolute;z-index:4;top:calc(var(--atl-header-height,0px) + var(--s4));right:var(--s4);padding:var(--s3);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);}
-.atl .atl-controls-side {flex-wrap:nowrap;gap:var(--s3);}
-.atl .atl-find {min-width:0;}
-.atl .atl-find-input {width:clamp(160px,20vw,280px);}
-.atl .atl-more {position:absolute;z-index:6;right:var(--s4);top:calc(var(--atl-header-height,0px) + 80px);display:grid;gap:var(--s5);width:min(460px,calc(100% - 32px));max-height:calc(100dvh - var(--atl-header-height,0px) - 96px);overflow:auto;padding:var(--s5);border:1px solid var(--hair);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 8px 28px -16px var(--ink-2);}
-.atl .atl-controls-main {display:flex;flex-direction:column;align-items:flex-start;gap:var(--s4);overflow:visible;}
-.atl .atl-kinds {flex-wrap:wrap;}
-.atl .atl-more-row {align-items:flex-start;}
-.atl .atl-msg {position:absolute;left:var(--s4);top:calc(var(--atl-header-height,0px) + 140px);z-index:4;max-width:min(460px,calc(100% - 32px));padding:var(--s3);border-radius:var(--radius-panel);background:var(--sheet);}
-.atl .atl-status {bottom:74px;max-width:calc(100% - 260px);}
-.atl .atl-zoom {bottom:74px;}
-.atl .atl-continue {position:absolute;z-index:3;bottom:var(--s4);left:50%;transform:translateX(-50%);background:var(--sheet);color:var(--ink);box-shadow:0 4px 20px -10px var(--ink-3);white-space:nowrap;}
-.atl .has-drawer .atl-continue {display:none;}
-.atl:has(.has-drawer) .atl-controls,.atl:has(.has-drawer) .atl-more {visibility:hidden;pointer-events:none;}
-.sky-paths {padding:var(--s7) 0 var(--s6);scroll-margin-top:var(--s5);}
-.sky-paths-head {display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s3);margin-bottom:var(--s5);}
-.sky-paths h2 {font-size:var(--step-2);letter-spacing:-.02em;}
-.sky-paths-head p,.sky-paths-note {color:var(--ink-2);font-size:var(--step--1);}
-.sky-paths-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s5);}
-.sky-paths-grid a {display:grid;gap:var(--s4);padding:var(--s5);text-decoration:none;border-top:2px solid var(--hair-strong);background:var(--sheet);color:var(--ink);}
-.sky-paths-grid a:hover {border-top-color:var(--pencil-red);background:var(--sheet-2);}
-.sky-paths-grid strong {display:flex;justify-content:space-between;gap:var(--s3);font-size:var(--step-1);}
-.sky-paths-grid a>span {color:var(--ink-2);max-width:32ch;}
-.sky-paths-note {margin-top:var(--s5);}
-.atl .atl-below {border-top:1px solid var(--hair);padding-top:var(--s4);}
-.atl-count-box {margin-bottom:var(--s4);}
-.atl .atl-pin {z-index:9;}
-@media(min-width:721px) {
-  .atl .atl-drawer {top:calc(var(--atl-header-height,0px) + var(--s4));}
+.atl-labelcanvas {position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none;}
+
+.atl .atl-top {
+  position:absolute;z-index:4;top:calc(var(--atl-header-height, 0px) + var(--s4));left:var(--s4);
+  display:grid;align-content:start;gap:var(--s2);
+  width:min(440px, calc(100% - 2 * var(--s4)));
+  max-height:calc(100% - var(--atl-header-height, 0px) - 2 * var(--s4) - 56px);
+  pointer-events:none;
 }
+.atl .atl-top > * {pointer-events:auto;}
+.atl .atl-intro {
+  display:grid;gap:var(--s3);margin:0;padding:var(--s4);
+  border-radius:var(--radius-panel);background:var(--sheet);
+  box-shadow:0 4px 20px -10px var(--ink-3);
+}
+.atl .atl-lede {max-width:none;font-size:var(--step-0);font-weight:620;line-height:1.3;}
+.atl .atl-controls-side {display:flex;flex-wrap:nowrap;align-items:center;gap:var(--s2);}
+.atl .atl-find {display:flex;flex:1;gap:var(--s2);min-width:0;}
+.atl .atl-find-input {flex:1;width:auto;min-width:0;}
+.atl .atl-adjust {flex:none;}
+/* The shell's dark-sky text colour would vanish on the panel: the message keeps the panel's ink. */
+#app .atl .atl-top .atl-msg {margin:0;padding:0;background:none;color:var(--ink-2);font-size:var(--step--1);}
+#app .atl .atl-top .atl-msg[data-kind="error"] {color:var(--warn);}
+.atl .atl-msg:empty {display:none;}
+.atl .atl-more {
+  display:grid;gap:var(--s4);min-height:0;overflow:auto;padding:var(--s4);
+  border:1px solid var(--hair);border-radius:var(--radius-panel);background:var(--sheet);
+  box-shadow:0 8px 28px -16px var(--ink-2);
+}
+.atl .atl-more-row {display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) var(--s3);}
+.atl .atl-kinds {display:flex;flex-wrap:wrap;gap:var(--s2);}
+.atl .atl-more-note {color:var(--ink-2);font-size:var(--step--1);}
+
+.atl .atl-status {left:var(--s4);bottom:var(--s4);max-width:calc(100% - 2 * var(--s4) - 240px);}
+.atl .atl-zoom {right:var(--s4);bottom:var(--s4);}
+
+.atl .atl-below {border-top:1px solid var(--hair);padding-top:var(--s4);margin-top:var(--s5);}
+.atl-count-box {margin-bottom:var(--s4);}
 
 /* Zoom changes only opacity, keeping the sky's size and pointer coordinates stable. */
 .atl [data-map-chrome],
@@ -53,11 +72,12 @@
   visibility:hidden;
   transition:opacity 180ms ease,visibility 0s linear 180ms;
 }
+/* The way back to the controls: top right under the header, clear of the zoom buttons. */
 .atl .atl-reveal {
   position:absolute;
   z-index:7;
-  bottom:var(--s3);
-  right:var(--s3);
+  top:calc(var(--atl-header-height, 0px) + var(--s4));
+  right:var(--s4);
   width:40px;
   min-height:40px;
   padding:0;
@@ -72,33 +92,17 @@
 .atl .atl-reveal::before {content:'☰';font-size:18px;line-height:1;}
 .atl .atl-reveal:hover {background:#172b3bf2;}
 .atl .atl-reveal:focus-visible {outline:2px solid #bfdcff;outline-offset:3px;}
-.atl .has-drawer .atl-reveal {display:none;}
 @media(prefers-reduced-motion:reduce) {
   .atl [data-map-chrome],.atl [data-map-chrome][inert],
   #app.sky-focus-active > .top,#app.sky-focus-active > .top[inert] {transition:none;}
 }
 
-@media(max-width:1000px) {
-  .atl .atl-intro {max-width:360px;}
-  .atl .atl-controls {top:calc(var(--atl-intro-bottom,114px) + 12px);left:var(--s4);right:auto;}
-  .atl .atl-more {top:calc(var(--atl-controls-bottom,182px) + 8px);left:var(--s4);right:auto;max-height:max(140px,calc(100dvh - var(--atl-top,80px) - var(--atl-controls-bottom,182px) - 20px));}
-  .atl .atl-msg {top:calc(var(--atl-controls-bottom,182px) + 8px);}
-}
 @media(max-width:720px) {
-  .atl .atl-intro {max-width:calc(100% - 32px);padding:var(--s3);}
-  .atl .atl-lede {font-size:var(--step-1);}
-  .atl .atl-controls {top:calc(var(--atl-intro-bottom,126px) + 12px);left:var(--s4);right:var(--s4);}
-  .atl .atl-controls-side {width:100%;gap:var(--s2);}
-  .atl .atl-find {flex:1;}
-  .atl .atl-find-input {width:100%;min-width:0;flex:1;}
-  .atl .atl-adjust {flex:none;}
-  .atl .atl-more {top:calc(var(--atl-controls-bottom,196px) + 8px);}
-  .atl .atl-msg {top:calc(var(--atl-controls-bottom,196px) + 8px);}
-  .atl .atl-status {left:var(--s3);bottom:112px;max-width:calc(100% - 24px);}
-  .atl .atl-zoom {bottom:64px;right:var(--s3);}
-  .atl:has(.atl-reveal:not([hidden])) .atl-continue {left:var(--s3);transform:none;max-width:calc(100% - 80px);}
-  .atl .atl-stage.is-fallback.is-whole {height:max(360px,100dvh);}
-  .sky-paths {padding-top:var(--s6);}
-  .sky-paths-grid {grid-template-columns:minmax(0,1fr);gap:var(--s3);}
-  .sky-paths-grid a {gap:var(--s2);padding:var(--s4);}
+  .atl .atl-top {top:calc(var(--atl-header-height, 0px) + var(--s3));left:var(--s3);width:calc(100% - 2 * var(--s3));}
+  .atl .atl-intro {gap:var(--s2);padding:var(--s3);}
+  .atl .atl-lede {font-size:var(--step--1);}
+  .atl .atl-status {left:var(--s3);right:var(--s3);bottom:calc(var(--s3) + 48px);max-width:none;}
+  .atl .atl-zoom {right:var(--s3);bottom:var(--s3);}
+  /* The search panel spans the top: the button sits bottom left, beside the zoom buttons. */
+  .atl .atl-reveal {top:auto;right:auto;left:var(--s3);bottom:var(--s3);}
 }

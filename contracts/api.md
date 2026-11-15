@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.11)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.13)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -11,7 +11,9 @@ v3.8: the science workspace endpoints and `/science-data/<slug>/`, supplemental;
 v3.9: `measure.source`, which detector, visits and exposures the shift was measured in;
 v3.10: stricter spectral and shape candidate rules, `steady_pa` = both detector arrays agree;
 v3.11: bright-star fragments and blends: candidates' `blend` reason, distant.json `dropped.blend`, the measured
-layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`).
+layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`;
+v3.12: shape candidates' two-source fit: the measured layer's `split_by_fit` companion, `why` names it;
+v3.13: measured class `stack`, sources seen only on the visit stacks).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -171,7 +173,7 @@ static twins (`--measured-only` rewrites only `measured` and `measured_reason`).
 ```
 measured: { zone, stage, zone_box:{ra:[min,max], dec:[min,max]}, clock,
             photos, photos_missing, truncated,
-            counts:{ star, known, mover, suspect, artifact, other },
+            counts:{ star, known, mover, suspect, artifact, other, stack? },   # stack: v3.13, optional
             detections:[{ epoch_id, ra, dec, snr, flux_ujy, n_dots, class,
                           source_id|null, gaia_id|null, known_name|null, track_id|null,
                           grade|null, reasons:[code…],
@@ -192,7 +194,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | clock | string | `months` or `hours`, as the response |
 | photos, photos_missing | int | Photos of this response whose dot file was read / had no dot file (not in the zone's photo list, or not extracted yet) |
 | truncated | bool | true when `detections` was capped (at most 250 per epoch: every `known`, `mover`, `suspect`, `artifact` first, then `star` and `other` by S/N) |
-| counts | {class: int} | Detections per class, all six keys, **before** the cap |
+| counts | {class: int} | Detections per class, all six keys (and `stack` from v3.13, where the zone has a `stack_sources` table), **before** the cap |
 | detections | [object] | Below. Sorted by `epoch_id`, then `snr` descending |
 | tracks | [object] | Hours clock: the pipeline's movers with at least one dot in this response. Months: `[]` |
 | shifts | [object] | Months clock: fitted motions, below. Hours: `[]` |
@@ -206,13 +208,13 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | snr | float | Hours: the dot's S/N. Months: √Σ snr² of those dots |
 | flux_ujy | float, µJy | Hours: the dot's `flux_ujy` (r = 2 px aperture, raw; × 1.033 for the total). Months: median of those dots' `flux_ujy` (they span the detector's wavelengths) |
 | n_dots | int | Dots behind it (hours: 1) |
-| class | string | `star` \| `known` \| `mover` \| `suspect` \| `artifact` \| `other`, rules below |
-| source_id | int or null | The pipeline's linked source (contracts/dots.md `source_id`, below 2⁵³). Months: always set. Hours: the source within 4″, else null |
+| class | string | `star` \| `known` \| `mover` \| `suspect` \| `artifact` \| `other` \| `stack` (v3.13), rules below |
+| source_id | int or null | The pipeline's linked source (contracts/dots.md `source_id`, below 2⁵³). Months: always set, except a `split_by_fit` companion (v3.12, below) and a `stack` source (v3.13): null. Hours: the source within 4″, else null |
 | gaia_id | string or null | Gaia DR3 source_id of the source's crossid match (`results/<zone>/crossids.parquet`), a string like `gaia[].id`. It is in `gaia[]` when that list goes deep enough |
 | known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`) |
 | track_id | string or null | `tracks[].id` of the mover it belongs to |
 | grade | `"A"` \| `"B"` \| `"C"` or null | Suspects only, from the zone's suspects table when it is graded (vetting); null otherwise |
-| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. `blend` (v3.11), on any class but `artifact`: its linked source is tagged `blend` by the pipeline's `fragments` step (two or more Gaia DR3 stars, G < 18, within 8″: one detection, several stars); the class stays. Else `[]` |
+| reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. `blend` (v3.11), on any class but `artifact`: its linked source is tagged `blend` by the pipeline's `fragments` step (two or more Gaia DR3 stars, G < 18, within 8″: one detection, several stars); the class stays. `split_by_fit` (v3.12, months clock, class `other`): a second object merged into a shape candidate's source that the pipeline's two-source fit separated (contracts/dots.md `shape_candidates`, `companion_split`). One detection per visit epoch in which the candidate's source has one, at the fitted position (that visit's own fit when it has one, else the overall fit), `source_id`, `gaia_id` null, `flux_ujy` = the source's detection × the companion's flux ratio in the epoch's detector (the source's own detection keeps the blended flux), `snr` = the companion's S/N in that detector over the fit's photos, `n_dots` 0 (it has no dots of its own: detection gave one per photo). Draw it as its own circle. Else `[]` |
 | parent_gaia_id | string or null | **Optional** (v3.11). Class `artifact` with reason `bright_fragment`: Gaia DR3 source_id (a string like `gaia_id`) of the bright star whose ring this is a piece of (`fragments` step: the brightest Gaia star with G < 12 within 60″). All fragments of one star share it: draw that star once, not each piece. Null otherwise or when no such star is listed. Older responses lack the field: read as null |
 | blend_gaia_ids | [string] or null | **Optional** (v3.11). Reason `blend`: the Gaia DR3 source_ids (strings, nearest first) of the stars merged into this detection. Null otherwise. Older responses lack the field: read as null |
 
@@ -222,15 +224,16 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 |---|---|---|
 | suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
 | known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
-| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` |
+| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` ; or (v3.13) a stack source with `artifact_zone` (reason `stack_near_bright`) |
 | mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
 | star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
-| other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else |
+| other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else; and (v3.12) a second object the two-source fit split off a shape candidate's source (reason `split_by_fit`, below) |
+| stack | Not used | (v3.13) A source the pipeline's `stack` step found on the visit stacks (`results/<zone>/stack_sources.parquet`, contracts/dots.md) with no single-photo linked source within 3″ (`source_id` −1), not `transient` and not `artifact_zone` (those are class `artifact`, reason `stack_near_bright`): fainter than the single-photo limit, the second star of a close pair, or a star in a bright star's glow. One detection per visit epoch (the stack visit whose `mjd_visit` lies within the epoch's `mjd_start`–`mjd_end`, ± 20 days) in which its forced S/N over that visit's photos (all detectors) is ≥ 5: `ra`, `dec` its free-fit position in that visit (else the stack position), `snr` that S/N, `flux_ujy` that visit's inverse-variance mean flux (all detectors, so mixed wavelengths), `n_dots` the photos measured, `source_id` null, `gaia_id` its Gaia DR3 match within 2″ (else null), `reasons` `[]`. Drawn as "seen in the stack only": not a single-photo detection |
 
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
 3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
 `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`, and from 14 Nov
-evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`), and (v3.11, both clocks) `bright_fragment`: a piece
+evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`; v3.13 `stack_near_bright`: a stack source with no catalogue entry within 8″ of a much brighter source or 20–30″ from it, where the ePSF fit leaves pieces), and (v3.11, both clocks) `bright_fragment`: a piece
 of a saturated star's ring (the pipeline's `fragments` step, `results/<zone>/fragments.parquet`: BLOOM on most of its
 dots and no Gaia DR3 or 2MASS entry within 3″), with `parent_gaia_id`.
 Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
@@ -567,7 +570,7 @@ spectral. shape_report.json has the rule and its checks. Hunt (14 Nov, 38% of th
 Gaia stars fire at 0.17% (10 of 5,803), Gaia pairs 3–10″ apart at 21% (383 of 1,809), along the pair's axis
 to 2° (median); 49 listed, of which about 23 would be expected from the single stars' rate. Single stars
 that fire mostly have faint uncatalogued neighbours (at 6σ: 4% of them, and 77% of the pairs), so a shape
-candidate is a lead for a human, not a detection.
+candidate is a lead for a human, not a detection. From v3.12 the pipeline fits each listed source's pixels with one ePSF and with two (contracts/dots.md `shape_candidates`): where two fit clearly better, `why` ends with e.g. "Fit: a two-object fit puts a second object 12″ south (PA 183°) of it, 1.7 mag fainter at 0.93 µm and 1.5 mag fainter at 4.7 µm, not in Gaia, CatWISE or 2MASS, and it stays put between visits (two objects fit better than one by Δχ² 37,613)." ("catalogued there as 2MASS K 13.4" when a catalogue entry sits within 3″ of it; "a second object next to it that moved 17″ between visits (something passing by?)" when it moves); where it doesn't, "Fit: two objects don't fit clearly better than one here." No field changes.
 
 Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
@@ -969,3 +972,27 @@ stars must not read as one plain star. All additive:
   older responses lack them (read as null). Readers: draw one mark for a fragment's parent star and strike
   the fragments through; label a blend as more than one star.
 - Without `results/<zone>/fragments.parquet` (a zone the step hasn't run on) nothing changes.
+
+## Changes in v3.12 (15 Nov 2026): shape candidates' two-source fit
+
+At 1–2 SPHEREx pixels a second object merged into a star gives one dot per photo, so it had no position, flux or
+circle of its own. The pipeline now fits every shape candidate's pixels with one ePSF and with two (contracts/dots.md
+`shape_candidates`, new columns). All additive:
+- candidates.json: a shape candidate's `why` ends with the fit in plain words (where the second object sits, how much
+  fainter it is per wavelength, whether it moved between visits, Δχ²). No new field or reason code.
+- measured layer (months clock): a separated second object is its own detection, class `other`, reason
+  `split_by_fit`, `source_id` and `gaia_id` null, `n_dots` 0. Readers that show reasons as given need no change;
+  suggested words: "a second object a two-object fit split off this source".
+- Without the new columns (a shape_candidates.parquet written before the fit) nothing changes.
+
+## Changes in v3.13 (15 Nov 2026): the measured class `stack`
+
+The pipeline's new `stack` step (contracts/dots.md, `stack_sources`, `stack_forced`) detects on per-visit stacks
+of a zone's photos (2″ grid, matched filter, a second pass on the residual) and fits every photo at all those
+positions at once. Additive:
+- measured layer (`/api/frames`, frames files), months clock only: class `stack` for stack sources with no
+  single-photo linked source within 3″ (rules above); uncatalogued ones in a much brighter source's misfit core
+  (< 8″) or at the ePSF's edge (20–30″) are class `artifact` with the new reason `stack_near_bright`; and the
+  `counts` key `stack` where the zone has a
+  `stack_sources` table. Zones without it, the hours clock and older responses: no such class or key (read a
+  missing key as 0). Readers that don't know the class may draw it as `other`.

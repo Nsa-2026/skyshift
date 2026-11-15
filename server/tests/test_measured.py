@@ -476,3 +476,104 @@ def test_zone_reads_the_dots_folder_its_link_read(root):
     m2, _ = M.build(_hours_meta(), zone="zz", root=root)
     assert m2["zone"] == "zz" and len(m2["detections"]) == 15
     assert M._zone_from_summary("old", {"zone": {"ra": [0, 1], "dec": [0, 1]}, "steps": {"link": {}}}).dots_dir == "dots"
+
+
+def _stack_sources(root: str) -> dict:
+    """results/zz/stack_sources.parquet (contracts/dots.md, api.md v3.13): two visits at T1 and T3."""
+    new = off(30, 30)      # stack only: S/N 8 in visit 0, 3 in visit 1; a free-fit position in visit 0 (0.4" E)
+    glow = off(65, 60)     # stack only, in a bright source's artifact zone
+    # relinked: the table says no single-photo source, but the zone's linked sources now have one 1.5″ away
+    pts = {"new": new, "glow": glow, "linked": S1, "moving": off(-30, 30), "far": FAR, "relinked": off(1.5, 0, *S2)}
+    nan = float("nan")
+    _write(Path(root) / "results" / "zz" / "stack_sources.parquet", {
+        "stack_id": np.arange(6, dtype=np.int64),
+        "ra": np.array([p[0] for p in pts.values()]), "dec": np.array([p[1] for p in pts.values()]),
+        "source_id": np.array([-1, -1, 111, -1, -1, -1], np.int64),
+        "transient": np.array([False, False, False, True, False, False]),
+        "artifact_zone": np.array([False, True, False, False, False, False]),
+        "n_photos": np.array([40, 40, 40, 40, 40, 40], np.int32),
+        "visits": pa.array([[0, 1]] * 6, pa.list_(pa.int16())),
+        "mjd_visit": pa.array([[T1 + 0.5, T3 - 0.5]] * 6, pa.list_(pa.float64())),
+        "snr_visit": pa.array([[8.0, 3.0], [6.0, 7.0], [300.0, 300.0], [20.0, nan], [50.0, 50.0], [9.0, 9.0]],
+                              pa.list_(pa.float32())),
+        "flux_visit_ujy": pa.array([[12.0, 5.0], [10.0, 11.0], [900.0, 900.0], [30.0, nan], [80.0, 80.0], [9.0, 9.0]],
+                                   pa.list_(pa.float32())),
+        "visits_free": pa.array([[0], [], [0, 1], [], [], []], pa.list_(pa.int16())),
+        "ra_visit": pa.array([[off(0.4, 0, *new)[0]], [], [S1[0], S1[0]], [], [], []], pa.list_(pa.float64())),
+        "dec_visit": pa.array([[new[1]], [], [S1[1], S1[1]], [], [], []], pa.list_(pa.float64())),
+        "gaia_ref_id": ["gaia:77", "", "gaia:4242424242424242424", "", "", ""],
+    })
+    return pts
+
+
+def test_stack_class_v3_13(root, monkeypatch):
+    """results/<zone>/stack_sources.parquet: a stack-only source is class stack in the visits where its forced S/N is
+    >= 5 (at its free-fit position there), one in a bright source's artifact zone is an artifact (stack_near_bright);
+    linked (by the table or by the zone's linked sources now), transient and far ones are not drawn. counts.stack only
+    on the months clock with the table, and only with SKYSHIFT_MEASURED_STACK=1 (until the site knows the class)."""
+    keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
+    m0, _ = M.build(_months_meta(), keys, root=root)
+    assert "stack" not in m0["counts"]
+    cached = {"center": {"ra": RA0, "dec": DEC0}, "clock": "months", "measured": m0, "measured_reason": None}
+    assert not M.stale(cached, root=root)
+    pts = _stack_sources(root)
+    M.reset()
+    off_, _ = M.build(_months_meta(), keys, root=root)  # the switch is off by default: nothing changes
+    assert off_ == m0 and not M.stale(cached, root=root)
+    monkeypatch.setenv("SKYSHIFT_MEASURED_STACK", "1")
+    M.reset()
+    assert M.stale(cached, root=root)  # built before the table: rebuilt
+    m, reason = M.build(_months_meta(), keys, root=root)
+    assert reason is None and not M.stale({**cached, "measured": m}, root=root)
+    st = [d for d in m["detections"] if d["class"] == "stack"]
+    assert [d["epoch_id"] for d in st] == ["d2-v1"]
+    d = st[0]
+    assert (d["snr"], d["flux_ujy"], d["n_dots"], d["source_id"], d["gaia_id"], d["reasons"]) == (
+        8.0, 12.0, 40, None, "77", [])
+    assert _find(m, "d2-v1", off(0.4, 0, *pts["new"]), tol=0.05) is d
+    art = [d for d in m["detections"] if "stack_near_bright" in d["reasons"]]
+    assert sorted(d["epoch_id"] for d in art) == ["d2-v1", "d2-v2"] and {d["class"] for d in art} == {"artifact"}
+    assert m["counts"]["stack"] == 1 and m["counts"]["artifact"] == m0["counts"]["artifact"] + 2
+    assert sum(m["counts"].values()) == sum(m0["counts"].values()) + 3
+    json.dumps(m, allow_nan=False)
+    h, _ = M.build(_hours_meta(), root=root)
+    assert "stack" not in h["counts"] and all(d["class"] != "stack" for d in h["detections"])
+
+
+def test_shape_fit_companion_is_its_own_detection_v3_12(root):
+    """results/<zone>/shape_candidates.parquet with the two-source fit (contracts v3.12): a split companion is drawn
+    on the months clock as its own `other` detection (reason split_by_fit, no source, no dots) beside its source in
+    every visit, at that visit's own fitted position; flux = the source's × the ratio in the epoch's detector. A row the
+    fit didn't split, the hours clock, and a file without the fit columns add nothing."""
+    keys = {"d2-v1": ["OBS_1D2", "OBS_2D2"], "d2-v2": ["OBS_3D2"]}
+    m0, _ = M.build(_months_meta(), keys, root=root)
+    z = Path(root) / "results" / "zz"
+    _write(z / "shape_candidates.parquet", {"source_id": np.array([111, 222], np.int64), "why": ["a", "b"]})  # pre-fit
+    M.reset()
+    m1, _ = M.build(_months_meta(), keys, root=root)
+    assert m1["detections"] == m0["detections"]
+    c1, c2 = off(0, -10, *S1), off(0.5, -10, *S1)  # visit 1, visit 2 (0.5" apart: it stays put)
+    nan = float("nan")
+    _write(z / "shape_candidates.parquet", {
+        "source_id": np.array([111, 222], np.int64), "companion_split": np.array([True, False]),
+        "companion_ra": np.array([off(0.25, -10, *S1)[0], S2[0]]), "companion_dec": np.array([c1[1], S2[1]]),
+        "companion_flux_ratio": np.array([0.3, 0.1]),
+        **{f"companion_flux_ratio_d{d}": np.array([0.25 if d == 2 else nan, 0.1]) for d in range(1, 7)},
+        **{f"companion_snr_d{d}": np.array([30.0 if d == 2 else nan, 2.0]) for d in range(1, 7)},
+        "companion_visit_mjd": pa.array([[T1 + 1, T3 - 1], []], pa.list_(pa.float64())),
+        "companion_visit_ra": pa.array([[c1[0], c2[0]], []], pa.list_(pa.float64())),
+        "companion_visit_dec": pa.array([[c1[1], c2[1]], []], pa.list_(pa.float64()))})
+    M.reset()
+    m, reason = M.build(_months_meta(), keys, root=root)
+    assert reason is None
+    comp = [d for d in m["detections"] if "split_by_fit" in d["reasons"]]
+    assert len(comp) == 2 and {d["epoch_id"] for d in comp} == {"d2-v1", "d2-v2"}
+    star = {d["epoch_id"]: d for d in m["detections"] if d["source_id"] == 111}
+    for d, pos in zip(sorted(comp, key=lambda d: d["epoch_id"]), (c1, c2)):
+        assert d["class"] == "other" and d["source_id"] is None and d["gaia_id"] is None and d["n_dots"] == 0
+        assert _find(m, d["epoch_id"], pos, tol=0.05) is d
+        assert d["flux_ujy"] == pytest.approx(star[d["epoch_id"]]["flux_ujy"] * 0.25, rel=1e-3) and d["snr"] == 30.0
+    assert m["counts"]["other"] == m0["counts"]["other"] + 2
+    json.dumps(m, allow_nan=False)
+    mh, _ = M.build(_hours_meta(), root=root)
+    assert not any("split_by_fit" in d["reasons"] for d in mh["detections"])
