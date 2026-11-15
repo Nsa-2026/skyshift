@@ -77,13 +77,13 @@
   display: grid;
   gap: var(--s3);
 }
-.tl-sec > h2 {
+.tl-sec > .tl-h2 {
   font-size: var(--step-2);
   font-weight: 680;
   letter-spacing: -0.012em;
   scroll-margin-top: var(--s5);
 }
-.tl-sec > h2:focus:not(:focus-visible) {
+.tl-sec > .tl-h2:focus:not(:focus-visible) {
   box-shadow: none;
 }
 .tl-sec > p,
@@ -470,4 +470,33 @@
   .tl-lede {
     font-size: var(--step-0);
   }
+}
+
+/* ---- as a section of Results (#/results/tools): one column, the in-page links as one quiet row ---- */
+.tl.tl-embedded {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "toc" "main";
+  padding-top: 0;
+}
+.tl-embedded .tl-toc {
+  padding-bottom: var(--s6);
+}
+.tl-embedded .tl-toc ul {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+}
+.tl-embedded .tl-main {
+  gap: var(--s7);
+}
+
+/* Data and methods (Results, with Advanced on): the check behind a step, quieter than the step. */
+.tl-tested {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+.tl-validation > p {
+  color: var(--ink-2);
+  max-width: 70ch;
 }

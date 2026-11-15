@@ -18,6 +18,22 @@ A zone's derived tables point into the folder its `link` read: `results/<zone>/s
 (absent = `dots`). Every reader of a zone's dot files (pipeline steps after link, candidates, shape, server
 measured.py) reads that folder.
 
+**Fine detection v2 (15 Nov night).** The folder name is built from every setting that differs from the sky run's:
+`dots[_deblend<value>][_cp<clean_param>][_g<guard px>][_psf]` (config.dots_dir_for). The `DOTS_FINE_ZONES` now use
+`dots_deblend1e-4_cp3_g6_psf/`; `dots_deblend1e-4/` (plain 1e-4) stays as written and is read only by a zone whose
+link recorded it. v2 is three changes. (1) sep `clean_param` 3 (sky run: 1, sep's default): fewer faint stars are
+cleaned into a brighter one's wings. (2) Saturation guard: a dot that the sky run's setting (0.005, clean_param 1) does
+not also find within 1 px is dropped when it lies within `DETECT_SAT_GUARD_PX` (6 px) of an OVERFLOW or NONLINEAR pixel:
+those are pieces of a saturated star's wings, not stars. (3) ePSF second pass: the ePSF of every unsaturated dot with
+S/N ≥ 10 is subtracted, sep runs again on the residual within 6 px of those dots, and a new dot is kept when it is
+> 1 px from every dot, has S/N ≥ 5 on the residual, passes a mirror test (the residual at its point reflection through
+the dot it sits beside is < 0.5 × its flux, ≥ 3σ less) and passes the saturation guard. Such dots have `sep_flag` bit
+0x200 and are measured on the residual (IMAGE minus the subtracted ePSF models): x, y, flux, snr, shape, ePSF flux and
+position, apertures. The bright neighbour's own row is measured on IMAGE as before, so it still includes the
+companion's light. Rows stay sorted by flux_ujy, brightest first. Test on 43 hunt photos (D1–D6): Gaia pairs 2–3 px
+found 9% → 81%, known asteroids within 6 px of a brighter star 4 → 14 of 17; estimated fake dots per photo (~21,900
+dots) ~12 with clean_param 3 and the second pass, up to ~50 with 1e-4 as well, mostly near G < 10 stars.
+
 | column | type | unit | meaning |
 |---|---|---|---|
 | obs_id | string | | IRSA observation id, e.g. `2025W18_1B_0074_2` |
@@ -49,7 +65,7 @@ measured.py) reads that folder.
 | ra_psf, dec_psf | float64 | deg | **v4.** x_psf, y_psf through the same WCS as ra, dec (ICRS, as measured). Per-axis scatter against Gaia, S/N ≥ 5, per photo's offset removed: D1–D3 0.20–0.26″ (centroid 0.41–0.69″), D4–D6 0.26–0.31″ (0.38–0.47″); 0.10–0.18″ at S/N 50–300 |
 | pos_err_psf_arcsec | float32 | arcsec | **v4.** 1σ per axis of ra_psf, dec_psf: the fit's covariance, √((σx² + σy²)/2) × 6.152″, in quadrature with 0.13″ (config `PSF_POS_ERR_FLOOR_ARCSEC`; robust pull scatter against Gaia then 0.8–1.2 per detector and axis, S/N ≥ 5). pos_err_arcsec where `psf_pos_ok` is false |
 | psf_pos_ok | bool | | **v4.** True where x_psf … pos_err_psf_arcsec come from the ePSF fit: it ran (EPSF HDU present, config `DOTS_PSF_POSITION`, not saturated (no OVERFLOW/NONLINEAR in the 3×3), snr ≥ `PSF_POS_MIN_SNR` = 5, ≥ 12 good pixels), converged within 10 steps, F > 0, ended ≤ 1 px from the centroid. Pilot photos: 98–99% of unsaturated dots, 99.9% of Gaia-matched ones |
-| sep_flag | int16 | | **v4.** sep's extraction flags from core.detect (sep.extract `flag`): 1 = blended (deblended from a neighbour), 2 = truncated (touches the edge or a masked area), 4/8 = pixel-stack or singular-moment trouble. For vetting; 5–26% of dots on the pilot photos have one set |
+| sep_flag | int16 | | **v4.** sep's extraction flags from core.detect (sep.extract `flag`): 1 = blended (deblended from a neighbour), 2 = truncated (touches the edge or a masked area), 4/8 = pixel-stack or singular-moment trouble. 0x200 (ours, 15 Nov) = found by the ePSF second pass in a residual image (Folders, fine detection v2). For vetting; 5–26% of dots on the pilot photos have one set |
 | flux_ap_ujy | fixed_size_list&lt;float32&gt;[5] | µJy | Aperture fluxes at radii 1.0, 1.5, 2.0, 3.0, 4.5 px (config `AP_RADII_PX`, also in the photo metadata), background = mean of the 5.5–8 px annulus around the dot, masked pixels left out |
 | flux_ap_err_ujy | fixed_size_list&lt;float32&gt;[5] | µJy | Their errors (noise max(√VARIANCE, background rms), incl. the annulus' error) |
 
@@ -95,7 +111,8 @@ key-value metadata under the key `skyshift_photo` (read it with `skyshift_pipeli
 `schema` (1), `obs_id`, `detector`, `status` (`done` | `done_finast`), `pipeline_version` (PRIMARY `VERSION`),
 `epsf_calib` (ePSF calibration id from the IMAGE HISTORY), `n_dots`, `n_forced` (null without a refcat),
 `detect` (15 Nov: `thresh`, `min_snr`, `deblend_cont`, `dots_dir`, the settings that made the file; absent in older
-files, which used thresh 2, min_snr 5, deblend_cont 0.005), `read_s`, `detect_s`, `forced_s`, `stages_s` (seconds per stage), `zodi_median_mjysr`, `bkg_median_mjysr`,
+files, which used thresh 2, min_snr 5, deblend_cont 0.005; v2 adds `clean_param`, `sat_guard_px`, `psf_pass`, and the
+counts `n_guard_dropped`, `n_psf_pass`), `read_s`, `detect_s`, `forced_s`, `stages_s` (seconds per stage), `zodi_median_mjysr`, `bkg_median_mjysr`,
 `ujy_per_mjysr`, `aperture_radii_px`, `aperture_bkg_annulus_px`, `psf_fit` (`half_px`, `model_frac`, `noise`; v4 also
 `position` (true if x_psf … were fitted), `pos_min_snr`, `pos_err_floor_arcsec`),
 `header` (IMAGE header values as written by IRSA, null when absent: MJD-BEG/AVG/END, XPOSURE, TELAPSE;

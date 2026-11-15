@@ -19,6 +19,31 @@ afterEach(() => {
 });
 
 describe("atlas startup navigation", () => {
+  it("clears a stale header gap when the map starts at the top and tracks header resizing", () => {
+    vi.mocked(loadAtlasData).mockReturnValueOnce(new Promise(() => {}));
+    const root = document.createElement("div");
+    root.id = "app";
+    const header = document.createElement("header");
+    header.className = "top";
+    const el = document.createElement("section");
+    el.style.setProperty("--atl-top", "80px");
+    root.append(header, el);
+    document.body.append(root);
+    let headerHeight = 76;
+    vi.spyOn(header, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0, y: 0, top: 0, left: 0, width: 1200, height: headerHeight,
+      right: 1200, bottom: headerHeight, toJSON: () => ({}),
+    }));
+    page = mountAtlas(el, { skySelection: vi.fn(), explore: vi.fn() } as unknown as PageContext);
+    page.show("10,20,5");
+    expect(el.style.getPropertyValue("--atl-top")).toBe("0px");
+    expect(el.style.getPropertyValue("--atl-header-height")).toBe("76px");
+    headerHeight = 120;
+    window.dispatchEvent(new Event("resize"));
+    expect(el.style.getPropertyValue("--atl-top")).toBe("0px");
+    expect(el.style.getPropertyValue("--atl-header-height")).toBe("120px");
+  });
+
   it("uses the latest sky when navigation changes while candidates are loading", async () => {
     let ready!: (data: AtlasData) => void;
     vi.mocked(loadAtlasData).mockReturnValueOnce(new Promise((resolve) => { ready = resolve; }));
