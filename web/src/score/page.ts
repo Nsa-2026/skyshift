@@ -5,8 +5,11 @@
 //
 // Routes: #/results/<section>[/<more>] → show("<section>[/<more>]") scrolls to that section and
 // opens it. <more> is a check id under "sure" (V5), "suspects" or "distant" under "found", a zone
-// under "progress" (hunt), a Tools part under "tools" (batch). A section that needs Advanced turns
-// it on: following a link to it asks for it.
+// under "progress" (hunt), a Tools part under "tools" (batch). A section, or a part, that only
+// Advanced shows turns it on: following a link to it asks for it.
+//
+// Advanced off (the default) each section says its point in a few plain sentences; the codes,
+// tables, caveats and internals are "pro-only" (src/prefs/details.ts) and show with Advanced on.
 //
 // Live polling runs only while Results is shown, the progress section is open and near the screen
 // (IntersectionObserver); hide() stops it. Until the shell calls show() and hide(), the page follows
@@ -37,10 +40,10 @@ export interface SectionInfo {
 }
 
 export const SECTIONS: readonly SectionInfo[] = [
-  { id: "found", title: "What we found", gist: "The objects our pipeline put up to check, the unknown movers among them, and the search for a distant planet." },
-  { id: "sure", title: "How sure we are", gist: "The checks V1–V11 against what is already known, and how much of what is there the search finds." },
-  { id: "progress", title: "Search progress", gist: "The run along the ecliptic, zone by zone, as the cloud machines report it." },
-  { id: "astronomers", title: "List for astronomers", gist: "What people agreed on, with the next step for each: leads to check, not discoveries." },
+  { id: "found", title: "What we found", gist: "The objects we put up to check, the strongest leads, and the search for a distant planet." },
+  { id: "sure", title: "How sure we are", gist: "How the search did on things already known." },
+  { id: "progress", title: "Search progress", gist: "How much of the sky along the planets' path has been searched so far." },
+  { id: "astronomers", title: "List for astronomers", gist: "What people agreed on: leads for astronomers to check, not discoveries." },
   { id: "methods", title: "Data and methods", gist: "Where the pixels come from and what happens to them before a number reaches this page.", advanced: true, closed: true },
   { id: "tools", title: "Tools", gist: "Downloads, batch coordinates, the API, an MCP server for AI assistants, and how to cite.", advanced: true, closed: true },
 ];
@@ -177,7 +180,8 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
   });
 
   // ---- 3: Search progress (the Live page as a section) --------------------------------------------
-  const live: LivePage = createLivePage(body("progress"), ctx, { ...deps.live, embedded: true, hashBase: "#/results/progress" });
+  // Plain by default: the big number, the bar, one line and the map; machines, legends, pace and zone ids with Advanced.
+  const live: LivePage = createLivePage(body("progress"), ctx, { ...deps.live, embedded: true, plain: true, hashBase: "#/results/progress" });
   const IO = deps.observer === undefined ? (typeof IntersectionObserver === "function" ? IntersectionObserver : null) : deps.observer;
   let liveInView = !IO;
   let liveRunning = false;
@@ -241,13 +245,25 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
     if (id === "tools" && open) showTools();
   }
 
+  /** One check or part of a section (V5 under sure, distant under found, batch under tools), if drawn. */
+  function partOf(section: SectionId, more: string | null): HTMLElement | null {
+    const id = (more ?? "").replace(/[^\w-]/g, "");
+    if (!id) return null;
+    if (section === "sure") return el.querySelector<HTMLElement>(`#sc-${id}`);
+    if (section === "found") return el.querySelector<HTMLElement>(`#sc-${id}-h`);
+    if (section === "tools") return el.querySelector<HTMLElement>(`#tl-${id}-h`);
+    return null;
+  }
+
+  /** A section, or a part of one, that only Advanced shows (the checks by code, the full distant-planet search). */
+  function needsAdvanced(section: SectionId, more: string | null): boolean {
+    if (SECTIONS.find((s) => s.id === section)!.advanced) return true;
+    return !!partOf(section, more)?.closest(".pro-only");
+  }
+
   /** Bring a section, or one check or part of it, to the top of the screen; focus its heading. */
   function scrollToSection(section: SectionId, more: string | null, focus = true) {
-    const id = (more ?? "").replace(/[^\w-]/g, "");
-    let target: HTMLElement | null = null;
-    if (id && section === "sure") target = el.querySelector<HTMLElement>(`#sc-${id}`);
-    if (id && section === "found") target = el.querySelector<HTMLElement>(`#sc-${id}-h`);
-    if (id && section === "tools") target = el.querySelector<HTMLElement>(`#tl-${id}-h`);
+    const target = partOf(section, more);
     (target ?? sec(section)).scrollIntoView?.({ block: "start" });
     // A Tools part's heading takes focus itself (tabindex -1); otherwise the section's toggle does.
     if (focus) (section === "tools" && target ? target : toggle(section)).focus({ preventScroll: true });
@@ -257,8 +273,11 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
   // few seconds keep the target in place as they grow, unless the person scrolls or acts first.
   let settle: { section: SectionId; more: string | null; until: number } | null = null;
   function reanchor() {
-    if (settle && Date.now() < settle.until) scrollToSection(settle.section, settle.more, false);
-    else settle = null;
+    if (settle && Date.now() < settle.until) {
+      // A route to a part that only Advanced shows, drawn after the route was followed: show it.
+      if (settle.more && !getDetails() && needsAdvanced(settle.section, settle.more)) setDetails(true);
+      scrollToSection(settle.section, settle.more, false);
+    } else settle = null;
   }
   const stopSettling = () => (settle = null);
   const INTENT = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
@@ -268,8 +287,7 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
 
   /** Open a section (Advanced first, if it needs it) and bring it, or one part of it, into view. */
   function go(section: SectionId, more: string | null) {
-    const info = SECTIONS.find((s) => s.id === section)!;
-    if (info.advanced && !getDetails()) setDetails(true);
+    if (!getDetails() && needsAdvanced(section, more)) setDetails(true);
     if (!isOpen(section)) setOpen(section, true);
     if (section === "progress" && more) {
       live.show(more);
@@ -289,8 +307,12 @@ export function createResultsPage(el: HTMLElement, ctx: PageContext, deps: Resul
       setOpen(id, !isOpen(id));
       return;
     }
-    if (t.closest("[data-advanced-on]")) {
+    const on = t.closest<HTMLElement>("[data-advanced-on]");
+    if (on) {
       setDetails(true);
+      // From inside a section ("See every check"): the parts above it grow, so keep that section in view.
+      const s = on.closest<HTMLElement>(".rs-sec")?.dataset.section;
+      if (s && isSection(s)) scrollToSection(s, null);
       return;
     }
     // A contents link to where the address already points: no hashchange, so go there here.
