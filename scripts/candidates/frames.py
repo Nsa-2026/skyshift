@@ -198,11 +198,17 @@ def build_one(c: dict, cache: Cache, out: Path) -> bool:
 
 
 def needs_build(c: dict, out: Path) -> bool:
-    """No frames yet, or a mover's frames without its own exposures (built from a partial search)."""
+    """No frames yet, frames of another detector than the candidate's (a re-export can change its best detector,
+    and the site then asks the live API for the missing one), or a mover's frames without its own exposures (built
+    from a partial search)."""
     p = out / "cand" / c["id"] / "frames.json"
     if not p.exists():
         return True
-    return c["kind"] == "mover" and missing_own(c, json.loads(p.read_text())["epochs"]) is not None
+    eps = json.loads(p.read_text())["epochs"]
+    dets = {int(e["det"]) for e in eps if e.get("det") is not None}
+    if dets and c.get("det") is not None and int(c["det"]) not in dets:
+        return True
+    return c["kind"] == "mover" and missing_own(c, eps) is not None
 
 
 def drop_without_own(cands: list[dict], cand_dir: Path) -> None:

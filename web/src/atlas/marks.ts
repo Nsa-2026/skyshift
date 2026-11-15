@@ -192,7 +192,16 @@ export function drawSignal(
   ctx.restore();
 }
 
-/** A featured target: a small ink reticle and its short name. */
+/** A soft look for marks and names on the sky: a colour and a blurred shadow under it, no hard halo. */
+export interface SoftLook {
+  color: string;
+  shadow: string;
+}
+
+/**
+ * A featured target: a small reticle and its short name. With `soft`, the reticle is drawn in that
+ * colour on a soft shadow (the map's own look); without it, ink on a glass halo.
+ */
 export function drawTarget(
   ctx: CanvasRenderingContext2D,
   ink: Ink,
@@ -200,14 +209,22 @@ export function drawTarget(
   y: number,
   label: string | null,
   side: "right" | "left" = "right",
+  soft?: SoftLook,
 ): void {
   ctx.save();
   ctx.lineCap = "round";
   ctx.globalAlpha = 0.9;
-  for (const [stroke, width] of [
-    [ink.glass, 4],
-    [ink.ink, 1.5],
-  ] as const) {
+  const passes: (readonly [string, number])[] = soft
+    ? [[soft.color, 1.5]]
+    : [
+        [ink.glass, 4],
+        [ink.ink, 1.5],
+      ];
+  if (soft) {
+    ctx.shadowColor = soft.shadow;
+    ctx.shadowBlur = 3;
+  }
+  for (const [stroke, width] of passes) {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = width;
     ctx.beginPath();
@@ -236,6 +253,8 @@ export interface LabelOpts {
   size?: number;
   /** Halo colour behind the letters. */
   halo?: string;
+  /** A soft blurred shadow of this colour instead of the halo (names on the sky map). */
+  shadow?: string;
 }
 
 /** Text with a glass halo so it reads on any sky. Archivo, semi-condensed for labels and numbers. */
@@ -251,9 +270,14 @@ export function drawLabel(ctx: CanvasRenderingContext2D, ink: Ink, x: number, y:
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = o.halo ?? ink.glass;
-  ctx.lineWidth = 3.5;
-  ctx.strokeText(text, x, y);
+  if (o.shadow) {
+    ctx.shadowColor = o.shadow;
+    ctx.shadowBlur = 4;
+  } else {
+    ctx.strokeStyle = o.halo ?? ink.glass;
+    ctx.lineWidth = 3.5;
+    ctx.strokeText(text, x, y);
+  }
   ctx.fillStyle = o.color;
   ctx.fillText(text, x, y);
   ctx.restore();

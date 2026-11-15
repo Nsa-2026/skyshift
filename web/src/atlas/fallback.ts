@@ -6,14 +6,20 @@
 import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
 import { ang2pixNest } from "./healpix";
-import { cellOutline, isNested, rampAlpha, rampIndex, rampSteps, zoneLabelAnchor, zoneOutline, zoneSideAnchor, type Cell } from "./heat";
-import { countText, isGradeC, zoneName } from "./kinds";
+import { cellOutline, rampAlpha, rampIndex, rampSteps, type Cell } from "./heat";
+import { countText, isGradeC } from "./kinds";
+import { BADGE, NAME, aroundBox, aroundPoint, boundsOf, boxHolds, boxesHit, estimateSize, placeLabels, type Box, type LabelSpec, type Placed } from "./labels";
 import type { MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, diamond, moverTick, nearestHit, paToScreen, starArrow, MARK_R, type Vec } from "./marks";
 import { suspectAlpha } from "./search";
 import { zoneLook } from "./searchdraw";
 import { aitoff, aitoffInverse, fromGalactic, gnomonic, gnomonicInverse, lonLat, offsetPa, wrap360 } from "./sphere";
-import { LABEL_MIN_PX, LEVEL_FOV, WHOLE_FOV, cellPx, heatOrder, levelFor, showsHeat, showsSignals } from "./zoom";
+import { LABEL_MIN_PX, LEVEL_FOV, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, showsSignals } from "./zoom";
+import { areaAt, badgeTexts, densifyRing, type ZoneArea } from "./zones";
+
+type Kinded = { kind: "zone"; area: ZoneArea } | { kind: "target"; target: Target };
+type FallbackSpec = LabelSpec & Kinded;
+type FallbackLabel = Placed & Kinded;
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const f1 = (n: number) => n.toFixed(1);
@@ -34,13 +40,14 @@ export interface FallbackInit {
 
 /**
  * Size and height of the whole-sky Aitoff map in a w × h stage: `s` px per Aitoff unit (the
- * ellipse is 4s × 2s), centred; on a tall stage (a phone) it sits near the top instead, clear of
- * the status line and zoom buttons at the bottom.
+ * ellipse is 4s × 2s), centred as the globe is (the map fills the page and the search panel
+ * floats over it), and clear of the `inset` the site header covers at the top, as on the globe.
  */
-export function wholeGeometry(w: number, h: number): { s: number; cy: number } {
-  const s = Math.max(1, Math.min((w - 24) / 4, (h - 24) / 2));
-  const cy = h > w * 0.75 ? Math.min(h / 2, s + 36) : h / 2;
-  return { s, cy };
+export function wholeGeometry(w: number, h: number, inset = 0): { s: number; cy: number } {
+  const clear = h - 24 - 2 * Math.max(0, inset);
+  const room = clear >= h / 2 ? clear : h - 24;
+  const s = Math.max(1, Math.min((w - 24) / 4, room / 2));
+  return { s, cy: h / 2 };
 }
 
 export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: MapCallbacks): MapHandle {
@@ -53,6 +60,29 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   let model: MapModel | null = null;
   let proj: Projector | null = null;
   let destroyed = false;
+  /** Badges and names as last placed, for clicks on them. */
+  let placed: FallbackLabel[] = [];
+
+  /** Text width from a 2D canvas when the browser has one (it does without WebGL), else an estimate. */
+  let measureCtx: CanvasRenderingContext2D | null | undefined;
+  function measure(text: string, px: number, padX: number, h: number): { w: number; h: number } {
+    if (measureCtx === undefined) {
+      try {
+        measureCtx = typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent) ? null : document.createElement("canvas").getContext("2d");
+      } catch {
+        measureCtx = null;
+      }
+    }
+    if (!measureCtx) return estimateSize(text, px, padX, h);
+    const family = getComputedStyle(host).fontFamily || "sans-serif";
+    measureCtx.font = `650 ${px}px ${family}`;
+    try {
+      (measureCtx as CanvasRenderingContext2D & { fontStretch?: string }).fontStretch = "semi-condensed";
+    } catch {
+      /* normal width */
+    }
+    return { w: Math.ceil(measureCtx.measureText(text).width + 2 * padX + 2), h };
+  }
 
   const size = () => ({ w: Math.max(200, host.clientWidth || 800), h: Math.max(200, host.clientHeight || 500) });
 
@@ -66,7 +96,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   function makeProjector(): Projector {
     const { w, h } = size();
     if (v.fov > LEVEL_FOV.whole) {
-      const { s, cy } = wholeGeometry(w, h);
+      const { s, cy } = wholeGeometry(w, h, cb.insetTop?.() ?? 0);
       const lon0 = gal ? 0 : wrap360(Math.round(inFrame(v).ra / 15) * 15);
       return {
         whole: true,
@@ -164,11 +194,18 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
     return `<g class="atl-svg-mark${selected ? " is-selected" : ""}${muted ? " is-gradec" : ""}"><path class="atl-svg-halo" d="${d}"/><path d="${d}" stroke="${color}"/>${reticle}</g>`;
   }
 
+  /** An object in the middle range: a small dot in its kind's pencil. */
+  function dotSvg(c: Candidate, at: Vec): string {
+    const kind = isGradeC(c) ? " is-gradec" : c.kind === "spectral" ? " is-spectral" : "";
+    return `<circle class="atl-svg-dot${kind}" cx="${f1(at.x)}" cy="${f1(at.y)}" r="2.6"/>`;
+  }
+
   function render() {
     if (destroyed) return;
     const { w, h } = size();
     const p = makeProjector();
     proj = p;
+    placed = [];
     const level = levelFor(v.fov);
     const order = heatOrder(v.fov, w);
     const maxJump = w * 0.4;
@@ -178,7 +215,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
 
     // The sky's outline (whole sky) or the glass (close-up).
     if (p.whole) {
-      const { s, cy } = wholeGeometry(w, h);
+      const { s, cy } = wholeGeometry(w, h, cb.insetTop?.() ?? 0);
       parts.push(`<ellipse class="atl-svg-sky" cx="${f1(w / 2)}" cy="${f1(cy)}" rx="${f1(2 * s)}" ry="${f1(s)}"/>`);
       let grid = "";
       for (let lon = 0; lon < 360; lon += 30) {
@@ -269,40 +306,66 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           }
         }
       }
+      // Each searched area once: the union of its zones' boxes, one outline and one faint fill.
+      const reserved = cb.reserved?.() ?? [];
+      const obstacles: Box[] = [...reserved];
+      // Under a panel: no name or badge (it would be drawn over the panel's edge).
+      const covered = (q: Vec) => reserved.some((r) => boxHolds(r, q));
+      const specs: FallbackSpec[] = [];
+      const bounds: Box = { x0: 4, y0: 4, x1: w - 4, y1: h - 4 };
       if (model.layers.zones) {
-        for (const z of model.zones) {
-          const d = path(zoneOutline(z, 0.5), true, p, maxJump);
-          if (d) parts.push(`<path class="atl-svg-zone" d="${d}"/>`);
-          // As on the globe: beside the zone on the whole sky (with its count), under its box closer in.
-          const side = level === "whole";
-          const at = p.project(side ? zoneSideAnchor(z) : zoneLabelAnchor(z));
-          const name = side ? `${zoneName(z.zone)}, ${new Intl.NumberFormat("en-GB").format(z.count)}` : zoneName(z.zone);
-          if (at && level !== "detail" && !(side && isNested(z, model.zones)))
-            labels.push(
-              side
-                ? `<text class="atl-svg-zone-label" x="${f1(at.x - 6)}" y="${f1(at.y)}" text-anchor="end">${esc(name)}</text>`
-                : `<text class="atl-svg-zone-label" x="${f1(at.x + 2)}" y="${f1(at.y + 12)}">${esc(name)}</text>`,
-            );
+        for (const a of model.areas) {
+          let d = "";
+          const pts: Vec[] = [];
+          for (const ring of a.rings) {
+            const dense = densifyRing(ring, 0.5);
+            const r = path(dense, true, p, maxJump);
+            if (!r) continue;
+            d += r;
+            for (const [ra, dec] of dense) {
+              const q = p.project({ ra, dec });
+              if (q) pts.push(q);
+            }
+          }
+          const b = boundsOf(pts);
+          if (!d || !b) continue;
+          parts.push(`<path class="atl-svg-zone is-${level}" fill-rule="evenodd" d="${d}"/>`);
+          obstacles.push(b);
+          const anchor = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
+          if ((level === "whole" || level === "mid") && !covered(anchor)) {
+            specs.push({ kind: "zone", area: a, id: `zone:${a.id}`, texts: badgeTexts(a), anchor, places: (s) => aroundBox(b, s, bounds) });
+          }
         }
       }
-      // A phone's whole sky has no room for names: the marks stay, and a tap opens each one.
-      const named = !(p.whole && w < 640);
       for (const t of model.targets) {
         const q = p.project(t);
         if (!q || q.x < -20 || q.y < -20 || q.x > w + 20 || q.y > h + 20) continue;
         const r = `M${f1(q.x + 3.5)} ${f1(q.y)}h4.5M${f1(q.x - 3.5)} ${f1(q.y)}h-4.5M${f1(q.x)} ${f1(q.y + 3.5)}v4.5M${f1(q.x)} ${f1(q.y - 3.5)}v-4.5`;
-        const left = q.x > w * 0.78;
-        const label = named
-          ? `<text x="${f1(left ? q.x - 11 : q.x + 11)}" y="${f1(q.y)}"${left ? ' text-anchor="end"' : ""}>${esc(t.short)}</text>`
-          : "";
-        parts.push(`<g class="atl-svg-target"><path class="atl-svg-halo" d="${r}"/><path d="${r}"/>${label}</g>`);
+        parts.push(`<g class="atl-svg-target"><path class="atl-svg-halo" d="${r}"/><path d="${r}"/></g>`);
+        if (q.x < 0 || q.y < 0 || q.x > w || q.y > h || covered(q)) continue;
+        obstacles.push({ x0: q.x - 9, y0: q.y - 9, x1: q.x + 9, y1: q.y + 9 });
+        specs.push({ kind: "target", target: t, id: `target:${t.slug}`, texts: [t.short], anchor: q, places: (s) => aroundPoint(q.x, q.y, s) });
       }
-      if (showsSignals(level) && model.layers.signals) {
+      if (showsDots(level) && model.layers.signals) {
         for (const c of model.candidates) {
           const q = p.project(c);
           if (!q || q.x < -30 || q.y < -30 || q.x > w + 30 || q.y > h + 30) continue;
-          parts.push(markSvg(c, q, p, model.selectedId === c.id));
+          parts.push(level === "mid" ? dotSvg(c, q) : markSvg(c, q, p, model.selectedId === c.id));
         }
+      }
+      // Names and badges go on last, placed clear of the zones, the marks and each other.
+      placed = placeLabels(specs, (t, s) => (s.kind === "zone" ? measure(t, BADGE.font, BADGE.padX, BADGE.h) : measure(t, NAME.font, 0, NAME.h)), obstacles, bounds).map((pl) => {
+        const s = specs.find((x) => x.id === pl.id)!;
+        return s.kind === "zone" ? { ...pl, kind: "zone" as const, area: s.area } : { ...pl, kind: "target" as const, target: s.target };
+      });
+      for (const pl of placed) {
+        const { x0, y0, x1, y1 } = pl.box;
+        const cy = (y0 + y1) / 2;
+        labels.push(
+          pl.kind === "zone"
+            ? `<g class="atl-svg-badge"><rect x="${f1(x0)}" y="${f1(y0)}" width="${f1(x1 - x0)}" height="${f1(y1 - y0)}" rx="${f1((y1 - y0) / 2)}"/><text x="${f1((x0 + x1) / 2)}" y="${f1(cy)}" text-anchor="middle">${esc(pl.text)}</text></g>`
+            : `<text class="atl-svg-name" x="${f1(x0)}" y="${f1(cy)}">${esc(pl.text)}</text>`,
+        );
       }
       // Provisional suspects: hollow dashed rings, never a pencil mark (they are not candidates).
       if (showsSignals(level) && model.layers.provisional && model.provisional) {
@@ -322,11 +385,32 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       const nice = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200].reduce((b, n) => (Math.abs(n - want) < Math.abs(b - want) ? n : b), 1);
       const len = (nice / 60) * p.pxPerDeg;
       const label = nice >= 60 ? `${nice / 60}°` : `${nice}′`;
-      parts.push(
-        `<g class="atl-svg-scale"><path d="M16 ${h - 18}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${h - 18}">${label}</text></g>`,
-      );
+      // Bottom left, lifted above the status line (or anything else floating there).
+      let y = h - 18;
+      const reserved = cb.reserved?.() ?? [];
+      for (let i = 0; i < 4; i++) {
+        const box = { x0: 16, y0: y - 8, x1: 16 + len + 40, y1: y + 8 };
+        const hit = reserved.find((r) => boxesHit(box, r, 0));
+        if (!hit) break;
+        y = hit.y0 - 14;
+      }
+      parts.push(`<g class="atl-svg-scale"><path d="M16 ${f1(y)}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${f1(y)}">${label}</text></g>`);
     }
     wrap.innerHTML = `<svg class="atl-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the objects to check${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
+    // Each badge's pill fits its text as the browser set it (centred on the place it was given).
+    for (const g of wrap.querySelectorAll<SVGGElement>(".atl-svg-badge")) {
+      const t = g.querySelector<SVGTextElement>("text");
+      const r = g.querySelector<SVGRectElement>("rect");
+      try {
+        const len = t?.getComputedTextLength?.() ?? 0;
+        if (!t || !r || !(len > 0)) continue;
+        const bw = len + 2 * BADGE.padX;
+        r.setAttribute("x", f1(Number(t.getAttribute("x")) - bw / 2));
+        r.setAttribute("width", f1(bw));
+      } catch {
+        /* the measured pill stays */
+      }
+    }
   }
 
   // ---- interaction ---------------------------------------------------------------------------
@@ -336,13 +420,25 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   }
 
   function signalAt(x: number, y: number): Candidate | null {
-    if (!model || !proj || !model.layers.signals || !showsSignals(levelFor(v.fov))) return null;
+    const level = levelFor(v.fov);
+    if (!model || !proj || !model.layers.signals || !showsDots(level)) return null;
     const pts: { id: string; x: number; y: number; c: Candidate }[] = [];
     for (const c of model.candidates) {
       const q = proj.project(c);
       if (q) pts.push({ id: c.id, x: q.x, y: q.y, c });
     }
-    return nearestHit(pts, x, y, 14)?.c ?? null;
+    return nearestHit(pts, x, y, showsSignals(level) ? 14 : 9)?.c ?? null;
+  }
+
+  function labelAt(x: number, y: number): FallbackLabel | null {
+    return placed.find((p) => boxHolds(p.box, { x, y })) ?? null;
+  }
+
+  /** On the whole sky a zone is a small patch: a click anywhere on it opens it. */
+  function zoneAt(x: number, y: number): ZoneArea | null {
+    if (!model || !proj || !model.layers.zones || !proj.whole) return null;
+    const pos = proj.unproject(x, y);
+    return pos ? areaAt(model.areas, pos) : null;
   }
 
   function targetAt(x: number, y: number): Target | null {
@@ -388,7 +484,7 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       const s = signalAt(at.x, at.y);
       const t = s ? null : targetAt(at.x, at.y);
       const cellEl = (ev.target as Element | null)?.closest?.("[data-cell]");
-      wrap.classList.toggle("is-pointing", !!(s || t || cellEl));
+      wrap.classList.toggle("is-pointing", !!(s || t || cellEl || labelAt(at.x, at.y) || zoneAt(at.x, at.y)));
       cb.onHover(s, at.x, at.y);
     }
   });
@@ -398,10 +494,14 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
     drag = null;
     if (wasMoved) return;
     const at = local(ev);
+    const l = labelAt(at.x, at.y);
+    if (l) return l.kind === "zone" ? cb.onZone(l.area) : cb.onTarget(l.target);
     const s = signalAt(at.x, at.y);
     if (s) return cb.onSignal(s);
     const t = targetAt(at.x, at.y);
     if (t) return cb.onTarget(t);
+    const z = zoneAt(at.x, at.y);
+    if (z) return cb.onZone(z);
     const cellEl = (ev.target as Element | null)?.closest?.("[data-cell]");
     if (cellEl && model && proj) {
       const order = heatOrder(v.fov, size().w);
@@ -457,6 +557,14 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
   }
 
   render();
+  // Badges are sized with the page's font: measure again once it has loaded.
+  try {
+    void document.fonts?.ready.then(() => {
+      if (!destroyed) schedule();
+    });
+  } catch {
+    /* sizes stay as measured */
+  }
 
   return {
     kind: "svg",

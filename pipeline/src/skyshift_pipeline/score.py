@@ -5,7 +5,11 @@ Units: one known object in one session (the zone's time runs) where it was predi
 - recall: a mover of that session, or a dot `tracklets` recovered on a track's predicted path in that session
   (tracklet_dots.parquet), within MATCH_ARCSEC of the prediction moved (the object's rates) to its time;
   recall_movers: movers alone (the measure before tracklets);
-- dot share: any dot within MATCH_ARCSEC in one of the unit's photos (detection vs linking);
+- dot share: any dot within MATCH_ARCSEC in one of the unit's photos (detection vs linking); free dot share: such a dot
+  in no fixed group of link (members.parquet), the only kind link can pair into a mover. A dot inside a fixed group is
+  a star's (the object merged into it, or its own dot absorbed by a fixed source): it says nothing about linking.
+- miss: why a unit wasn't found, the first that applies: no_dot (no dot within MATCH_ARCSEC), fixed_dot (only dots
+  inside fixed groups), free_dot (a free dot, but no mover or recovered dot);
 - control: the same with each unit moved CONTROL_OFFSET_ARCSEC in a random direction (fixed seed),
   the chance-match rate.
 Also per object (found in any of its sessions), recall by V bins with counts, and V < 12
@@ -85,6 +89,55 @@ def match_dots(p: pd.DataFrame, dots_by_photo: dict[tuple[str, int], SkyTree], r
     return hit
 
 
+def match_dot_kinds(p: pd.DataFrame, dots_by_photo: dict[tuple[str, int], SkyTree],
+                    in_fixed: dict[tuple[str, int], np.ndarray], radius: float = C.MATCH_ARCSEC) -> tuple[np.ndarray, np.ndarray]:
+    """Per prediction row: (free, fixed) — a dot of the same photo within `radius` that is in no fixed group / one that is
+    a fixed source's member. in_fixed: per photo, per dot row of its tree, True for a member (fixed_member_rows); a photo
+    missing from it has free dots only."""
+    free, fixed = np.zeros(len(p), dtype=bool), np.zeros(len(p), dtype=bool)
+    for i, (o, d, ra, dec) in enumerate(zip(p["obs_id"], p["detector"], p["ra"], p["dec"])):
+        t = dots_by_photo.get((o, int(d)))
+        if t is None:
+            continue
+        hits = t.query_radius(ra, dec, radius)[0]
+        if not hits:
+            continue
+        f = in_fixed.get((o, int(d)))
+        member = f[np.asarray(hits, np.int64)] if f is not None else np.zeros(len(hits), bool)
+        fixed[i], free[i] = bool(member.any()), bool((~member).any())
+    return free, fixed
+
+
+def fixed_member_rows(store: Store, zone: C.Zone, photos: set[tuple[str, int]]) -> dict[tuple[str, int], np.ndarray] | None:
+    """Per photo (obs_id, detector) of `photos`: the dot rows (as in the dot file) that are members of a fixed source
+    (link's members.parquet). None when the file is missing or unreadable: dots then have no kind."""
+    rel = results_rel(zone.name, "members.parquet")
+    try:
+        if not store.exists(rel):
+            return None
+        m = store.read_parquet(rel, columns=["obs_id", "detector", "dot_row"])
+    except Exception:  # noqa: BLE001  (an old or broken members table: recall without the dot kinds)
+        L.warning("score %s: %s unreadable; dots within the match radius are not split into free and fixed", zone.name, rel,
+                  exc_info=True)
+        return None
+    ob = m["obs_id"] if isinstance(m["obs_id"].dtype, pd.CategoricalDtype) else m["obs_id"].astype("category")
+    names = pd.Index(ob.cat.categories.astype(str))
+    key = ob.cat.codes.to_numpy(np.int64) * 8 + m["detector"].to_numpy(np.int64)
+    ph = sorted(photos)
+    code = names.get_indexer([o for o, _ in ph])
+    want = np.array([c * 8 + int(d) for c, (_, d) in zip(code, ph) if c >= 0], np.int64)
+    sel = np.isin(key, want)
+    k, r = key[sel], m["dot_row"].to_numpy(np.int64)[sel]
+    order = np.argsort(k, kind="stable")
+    k, r = k[order], r[order]
+    out: dict[tuple[str, int], np.ndarray] = {}
+    if len(k):
+        cuts = np.flatnonzero(np.diff(k)) + 1
+        for kk, rr in zip(k[np.r_[0, cuts]], np.split(r, cuts)):
+            out[(str(names[kk // 8]), int(kk % 8))] = rr
+    return out
+
+
 def control_shift(p: pd.DataFrame, seed: int = C.CONTROL_SEED, offset: float = C.CONTROL_OFFSET_ARCSEC) -> pd.DataFrame:
     """Every unit moved `offset` arcsec in one random direction (the same for all its photos)."""
     rng = np.random.default_rng(seed)
@@ -97,21 +150,34 @@ def control_shift(p: pd.DataFrame, seed: int = C.CONTROL_SEED, offset: float = C
     return q
 
 
+MISSES = ("no_dot", "fixed_dot", "free_dot")  # recall_units `miss`, the first that applies ("" = found)
+
+
 def summarize_units(p: pd.DataFrame, mover_hit: np.ndarray, dot_hit: np.ndarray,
                     ctl_mover_hit: np.ndarray, ctl_dot_hit: np.ndarray,
-                    rec_hit: np.ndarray | None = None, ctl_rec_hit: np.ndarray | None = None) -> pd.DataFrame:
+                    rec_hit: np.ndarray | None = None, ctl_rec_hit: np.ndarray | None = None,
+                    kinds: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None) -> pd.DataFrame:
     """Per unit: mover (a mover matched), recovered (a tracklets-recovered dot matched), found = either; ctl_* the same
-    for the control; dot = any dot."""
+    for the control; dot = any dot. kinds: (free, fixed, ctl_free, ctl_fixed) per prediction row (match_dot_kinds): then
+    also dot_free / dot_fixed (a dot in no fixed group / one inside a fixed group, in any of its photos), their ctl_*
+    twins and `miss` (MISSES, "" when found)."""
     q = p[["unit", "name", "number", "v", "mjd", "session"]].copy()
     q["mover"], q["dot"], q["ctl_mover"], q["ctl_dot"] = mover_hit, dot_hit, ctl_mover_hit, ctl_dot_hit
     q["recovered"] = rec_hit if rec_hit is not None else False
     q["ctl_recovered"] = ctl_rec_hit if ctl_rec_hit is not None else False
+    extra = {}
+    if kinds is not None:
+        for c, v in zip(("dot_free", "dot_fixed", "ctl_dot_free", "ctl_dot_fixed"), kinds):
+            q[c] = np.asarray(v, bool)
+            extra[c] = (c, "any")
     u = q.groupby("unit").agg(name=("name", "first"), number=("number", "first"), v=("v", "min"),
                               session=("session", "first"), mjd=("mjd", "mean"), n_photos=("mjd", "size"), mover=("mover", "any"),
                               dot=("dot", "any"), ctl_mover=("ctl_mover", "any"), ctl_dot=("ctl_dot", "any"),
-                              recovered=("recovered", "any"), ctl_recovered=("ctl_recovered", "any")).reset_index()
+                              recovered=("recovered", "any"), ctl_recovered=("ctl_recovered", "any"), **extra).reset_index()
     u["found"] = u["mover"] | u["recovered"]
     u["ctl_found"] = u["ctl_mover"] | u["ctl_recovered"]
+    if kinds is not None:
+        u["miss"] = np.select([u["found"], ~u["dot"], ~u["dot_free"]], ["", "no_dot", "fixed_dot"], "free_dot").astype(object)
     return u
 
 
@@ -123,10 +189,15 @@ def _rates(u: pd.DataFrame) -> dict:
     """found / recall: a mover or a tracklets-recovered dot; *_movers: movers alone (the measure before tracklets)."""
     f = u["found"] if "found" in u else u["mover"]
     cf = u["ctl_found"] if "ctl_found" in u else u["ctl_mover"]
-    return {"n": int(len(u)), "found": int(f.sum()), "recall": _share(f),
-            "found_movers": int(u["mover"].sum()), "recall_movers": _share(u["mover"]),
-            "dot_share": _share(u["dot"]), "control_recall": _share(cf), "control_recall_movers": _share(u["ctl_mover"]),
-            "control_dot_share": _share(u["ctl_dot"])}
+    out = {"n": int(len(u)), "found": int(f.sum()), "recall": _share(f),
+           "found_movers": int(u["mover"].sum()), "recall_movers": _share(u["mover"]),
+           "dot_share": _share(u["dot"]), "control_recall": _share(cf), "control_recall_movers": _share(u["ctl_mover"]),
+           "control_dot_share": _share(u["ctl_dot"])}
+    if "dot_free" in u:  # dots split into free ones and fixed sources' members (members.parquet)
+        out.update(free_dot_share=_share(u["dot_free"]), control_free_dot_share=_share(u["ctl_dot_free"]))
+    if "miss" in u:
+        out["misses"] = {k: int((u["miss"] == k).sum()) for k in MISSES}
+    return out
 
 
 def recall_report(units: pd.DataFrame, v_max: float = C.SCORE_V_MAX) -> dict:
@@ -135,7 +206,7 @@ def recall_report(units: pd.DataFrame, v_max: float = C.SCORE_V_MAX) -> dict:
     for lo, hi in zip(C.V_BINS[:-1], C.V_BINS[1:]):
         u = units[(units["v"] >= lo) & (units["v"] < hi)]
         by_v.append({"v_min": None if lo < -50 else lo, "v_max": hi, **_rates(u)})
-    cols = [c for c in ("mover", "dot", "ctl_mover", "ctl_dot", "found", "ctl_found") if c in main]
+    cols = [c for c in ("mover", "dot", "ctl_mover", "ctl_dot", "found", "ctl_found", "dot_free", "ctl_dot_free") if c in main]
     obj = main.groupby("name").agg(**{c: (c, "any") for c in cols}) if len(main) else main
     unsat = main[main["v"] >= C.SCORE_V_SATURATED]
     sat = main[main["v"] < C.SCORE_V_SATURATED]
@@ -145,6 +216,7 @@ def recall_report(units: pd.DataFrame, v_max: float = C.SCORE_V_MAX) -> dict:
         "n_found_movers": r["found_movers"], "recall_movers": r["recall_movers"],
         "dot_share": r["dot_share"], "control_recall": r["control_recall"], "control_recall_movers": r["control_recall_movers"],
         "control_dot_share": r["control_dot_share"],
+        **{k: r[k] for k in ("free_dot_share", "control_free_dot_share", "misses") if k in r},
         "per_object": _rates(obj) if len(obj) else {"n": 0},
         f"v_{C.SCORE_V_SATURATED:g}_to_{v_max:g}": _rates(unsat),
         f"v_lt_{C.SCORE_V_SATURATED:g}_saturated": _rates(sat),
@@ -185,20 +257,35 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     p = p[have].reset_index(drop=True)  # only photos that have been through `dots`
     ctl = control_shift(p)
     rec = recovered_dots(store, zone)
-    units = summarize_units(p, match_movers(p, movers), match_dots(p, trees),
-                            match_movers(ctl, movers), match_dots(ctl, trees),
-                            match_movers(p, rec), match_movers(ctl, rec))
+    rows = fixed_member_rows(store, zone, set(trees))
+    if rows is None:  # no members table: "a dot" only, as before
+        dot, ctl_dot, kinds = match_dots(p, trees), match_dots(ctl, trees), None
+    else:
+        in_fixed = {}
+        for k, t in trees.items():
+            m = np.zeros(t.n, bool)
+            r = rows.get(k)
+            if r is not None:
+                m[r[(r >= 0) & (r < t.n)]] = True
+            in_fixed[k] = m
+        kinds = (*match_dot_kinds(p, trees, in_fixed), *match_dot_kinds(ctl, trees, in_fixed))
+        dot, ctl_dot = kinds[0] | kinds[1], kinds[2] | kinds[3]
+    units = summarize_units(p, match_movers(p, movers), dot, match_movers(ctl, movers), ctl_dot,
+                            match_movers(p, rec), match_movers(ctl, rec), kinds)
     rep = recall_report(units)
     out = {"zone": zone.name, "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "match_arcsec": C.MATCH_ARCSEC, "edge_px": C.SCORE_EDGE_PX, "control_offset_arcsec": C.CONTROL_OFFSET_ARCSEC,
            "control_seed": C.CONTROL_SEED, "unit": f"one known object in one session with >= {C.SCORE_MIN_EXPOSURES} exposures covering it",
            "found_by": "a mover, or a dot tracklets recovered on a track's predicted path (recall_movers: movers alone)",
+           "dot_kinds": ("free: a dot in no fixed group of link (members.parquet), the kind link pairs into movers; fixed: a "
+                         "fixed source's member (a star's dot, or the object's own dot absorbed by one)") if kinds else None,
            "recovered_dots": int(len(rec)), "photos_with_predictions": int(len(trees)), **rep}
     store.write_json(results_rel(zone.name, "recall.json"), out)
     store.write_parquet(results_rel(zone.name, "recall_units.parquet"), units)
-    L.info("score %s: recall %s (%d of %d object-sessions; movers alone %s) at V<%.0f; per object %s; dots %s; control %s "
-           "-> G2 %s", zone.name, rep["recall"], rep["n_found"], rep["n_known"], rep["recall_movers"], C.SCORE_V_MAX,
-           rep["per_object"], rep["dot_share"], rep["control_recall"], "PASS" if rep["g2_pass"] else "FAIL")
+    L.info("score %s: recall %s (%d of %d object-sessions; movers alone %s) at V<%.0f; per object %s; dots %s (free %s); "
+           "misses %s; control %s -> G2 %s", zone.name, rep["recall"], rep["n_found"], rep["n_known"], rep["recall_movers"],
+           C.SCORE_V_MAX, rep["per_object"], rep["dot_share"], rep.get("free_dot_share"), rep.get("misses"),
+           rep["control_recall"], "PASS" if rep["g2_pass"] else "FAIL")
     for b in rep["by_v"]:
         L.info("score %s:   V %s-%s: %s", zone.name, b["v_min"], b["v_max"], b)
     return {k: v for k, v in out.items() if k != "by_v"} | {"wall_s": round(time.time() - t0, 1)}
