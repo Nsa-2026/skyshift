@@ -164,7 +164,10 @@ export function startApp(root: HTMLElement): void {
     },
     onPick(pick) {
       if(viewerNow().tab==='play')return;
-      vote.pick(pick);
+      // A click on the plate picks the dot but leaves focus (and the page) where it is: moving focus
+      // to Flag it scrolled the page and made Space flag the dot instead of playing. "Flag this
+      // position" beside the plate takes people to the desk.
+      vote.pick(pick, false);
       selectSignal(pick);
     },
     onEpoch(e) {

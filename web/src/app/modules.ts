@@ -100,7 +100,8 @@ export type MountSky = (el: HTMLElement, opts: { onClick?(pos: SkyPos): void }) 
 // ---- P4: src/vote/index.ts exports mountVote --------------------------------------------
 export interface VoteHandle {
   /** A dot was flagged in the blink. */
-  pick(p: DotPick): void;
+  /** focus false: pick without moving keyboard focus to Flag it (a click on the plate). */
+  pick(p: DotPick, focus?: boolean): void;
   /** The view changed: show candidates near it. */
   view(v: View): void;
 }

@@ -18,7 +18,7 @@ export const TWO_MASS: SkyLayer = {
   label: "2MASS",
   url: "https://irsa.ipac.caltech.edu/data/hips/CDS/2MASS/Color",
   format: "jpeg",
-  about: "2MASS colour, photographed 1997–2001: J 1.23 µm, H 1.66 µm, K 2.16 µm (IRSA)",
+  about: "2MASS colour: J 1.23 µm, H 1.66 µm, K 2.16 µm (IRSA)",
   years: "1997–2001",
 };
 
@@ -27,7 +27,7 @@ export const ALLWISE: SkyLayer = {
   label: "AllWISE",
   url: "https://irsa.ipac.caltech.edu/data/hips/CDS/AllWISE/RGB-W4-W2-W1",
   format: "jpeg",
-  about: "AllWISE colour, photographed 2010–2011: W1 3.4 µm, W2 4.6 µm, W4 22 µm (IRSA)",
+  about: "AllWISE colour: W1 3.4 µm, W2 4.6 µm, W4 22 µm (IRSA)",
   years: "2010–2011",
 };
 
