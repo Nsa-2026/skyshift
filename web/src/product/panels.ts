@@ -320,3 +320,32 @@ export function mountPlateDivider(page: HTMLElement, side: HTMLElement): void {
     set(current() + dir * 40);
   });
 }
+
+/**
+ * The room the plate's stage needs besides the plate itself, so the plate can be sized to leave its
+ * controls on screen: set as --vw-chrome on `page` (app.css). An opened "What SkyShift measured"
+ * counts as its summary line only (opening it scrolls the column instead of shrinking the plate).
+ */
+export function plateChrome(stageH: number, plateH: number, measH = 0, summaryH = 0, margin = 24): number {
+  return Math.round(stageH - plateH - Math.max(0, measH - summaryH) + margin);
+}
+
+export function mountPlateFit(page: HTMLElement, stage: HTMLElement): void {
+  let last = 0;
+  const update = () => {
+    const plate = stage.querySelector<HTMLElement>('.bk-plate');
+    if (!plate || page.hidden) return;
+    const stageH = stage.getBoundingClientRect().height, plateH = plate.getBoundingClientRect().height;
+    if (!(stageH > 0) || !(plateH > 0)) return;
+    const meas = stage.querySelector<HTMLElement>('.bk-meas');
+    const summary = meas?.querySelector<HTMLElement>('summary');
+    const chrome = plateChrome(stageH, plateH, meas?.getBoundingClientRect().height ?? 0, summary?.getBoundingClientRect().height ?? 0);
+    // A few pixels either way are wrapping noise: ignoring them keeps the plate from oscillating.
+    if (Math.abs(chrome - last) <= 4) return;
+    last = chrome;
+    page.style.setProperty('--vw-chrome', `${chrome}px`);
+  };
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(update).observe(stage);
+  window.addEventListener('resize', update);
+  update();
+}

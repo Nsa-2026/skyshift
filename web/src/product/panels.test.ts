@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {LAYOUT_KEY, dashboardKey, moveKey, readLayout, spanFor} from './panels';
+import {LAYOUT_KEY, dashboardKey, moveKey, plateChrome, readLayout, spanFor} from './panels';
 
 describe('moveKey', () => {
   it('moves a dashboard earlier or later and keeps the others in order', () => {
@@ -46,5 +46,15 @@ describe('dashboardKey', () => {
     expect(dashboardKey(el)).toBe('lightcurve');
     el.dataset.cardDashboard = 'motion';
     expect(dashboardKey(el)).toBe('motion');
+  });
+});
+
+describe('plateChrome', () => {
+  it('is the stage without the plate, plus the margins', () => {
+    expect(plateChrome(797, 395)).toBe(426);
+  });
+  it('counts an opened "What SkyShift measured" as its summary line only', () => {
+    expect(plateChrome(1097, 395, 343, 43)).toBe(426);
+    expect(plateChrome(797, 395, 43, 43)).toBe(426);
   });
 });
