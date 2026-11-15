@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.16)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.18)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -16,7 +16,10 @@ v3.12: shape candidates' two-source fit: the measured layer's `split_by_fit` com
 v3.13: measured class `stack`, sources seen only on the visit stacks;
 v3.14: optional API keys, `POST /api/keys`, `GET`/`DELETE /api/keys/me`, error codes `unauthorized` and `rate_limited`;
 v3.15: validation.json V6 and V7 are run (15 Nov): units `slope` and `objects`;
-v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's latest vote counts).
+v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's latest vote counts;
+v3.17: planets and their large moons (JPL Horizons) count as known bodies for movers;
+v3.18: a mover near a planet is known whatever it is (moon, glare): the suspects' veto `planets`, no such mover in
+candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -220,7 +223,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | class | string | `star` \| `known` \| `mover` \| `suspect` \| `artifact` \| `other` \| `stack` (v3.13), rules below |
 | source_id | int or null | The pipeline's linked source (contracts/dots.md `source_id`, below 2⁵³). Months: always set, except a `split_by_fit` companion (v3.12, below) and a `stack` source (v3.13): null. Hours: the source within 4″, else null |
 | gaia_id | string or null | Gaia DR3 source_id of the source's crossid match (`results/<zone>/crossids.parquet`), a string like `gaia[].id`. It is in `gaia[]` when that list goes deep enough |
-| known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`) |
+| known_name | string or null | `known[].name` of the entry with the same `epoch_id` it matched (class `known`); or (v3.18) for a mover near a planet that no `known[]` entry matched, the planet's name (`Mars`, `Jupiter`, `Saturn`, `Uranus`, `Neptune`) within its disc and the ephemeris error (Mars 30″, Jupiter and Saturn 45″, Uranus 15″, Neptune 10″), else `a moon of <planet>` (e.g. `a moon of Saturn`; near Jupiter it may be its glare). Show it as given |
 | track_id | string or null | `tracks[].id` of the mover it belongs to |
 | grade | `"A"` \| `"B"` \| `"C"` or null | Suspects only, from the zone's suspects table when it is graded (vetting); null otherwise |
 | reasons | [string] | `suspect`: the suspects table's `reasons` passed through **as they are** (the gates it fails, the codes of suspects.json, e.g. `hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `flux_ratio`, `red_photo`, `2mass`; new codes from the vetting may appear: show them as given), `[]` if none or ungraded. `artifact`: why, codes below. `mover`: `near_gaia` when a `gaia[]` star is within 6″. `blend` (v3.11), on any class but `artifact`: its linked source is tagged `blend` by the pipeline's `fragments` step (two or more Gaia DR3 stars, G < 18, within 8″: one detection, several stars); the class stays. `split_by_fit` (v3.12, months clock, class `other`): a second object merged into a shape candidate's source that the pipeline's two-source fit separated (contracts/dots.md `shape_candidates`, `companion_split`). One detection per visit epoch in which the candidate's source has one, at the fitted position (that visit's own fit when it has one, else the overall fit), `source_id`, `gaia_id` null, `flux_ujy` = the source's detection × the companion's flux ratio in the epoch's detector (the source's own detection keeps the blended flux), `snr` = the companion's S/N in that detector over the fit's photos, `n_dots` 0 (it has no dots of its own: detection gave one per photo). Draw it as its own circle. Else `[]` |
@@ -232,7 +235,7 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 | class | hours clock (a dot) | months clock (a linked source in one visit) |
 |---|---|---|
 | suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
-| known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
+| known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or (v3.18) in a mover near a planet at its time (the suspects' `planets` veto, below), even one a suspects table written before that veto lists (this rule comes before `suspect`); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
 | artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` ; or (v3.13) a stack source with `artifact_zone` (reason `stack_near_bright`) |
 | mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
 | star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
@@ -255,7 +258,7 @@ in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-
 | id | string | Unique in the response. The suspect's id (suspects.json `id`) for a suspect, else `<zone>-m<cell>-<minute>` with the mover's `cell` and round(mjd × 1440). Opaque |
 | class | string | `suspect`, `known`, `artifact` or `mover`, as its dots' class |
 | suspect_id | string or null | suspects.json / candidates.json `id` for a suspect, else null |
-| known_name | string or null | `known[].name` it matched (class `known`) |
+| known_name | string or null | `known[].name` it matched (class `known`), or (v3.18) the planet or `a moon of <planet>`, as in `detections` |
 | evidence | string | `two_exposures` or `two_detectors`, as the pipeline found it |
 | dots | [object] | Its dots in this response, **in time order**: `ra`, `dec` (deg), `mjd` (the photo's MJD-AVG), `epoch_id`. Draw the arrow from the first to the last. Dots in photos outside this response are not listed, so a track may have one dot (e.g. its partner detector is not in the file) |
 
@@ -483,7 +486,7 @@ A reader shows every check the file holds, in file order; an id missing from the
               n_sessions?|null, rate_arcsec_h?|null, pa_deg?|null, rate_sigma?|null }] }   # optional, 14 Nov (tracks)
 ```
 
-Movers with no known-object match from MPC (contracts/dots.md). Written by the pipeline's
+Movers with no known-object match (MPC; from v3.17 also Horizons' planets and moons) and (v3.18) not near a planet (contracts/dots.md). Written by the pipeline's
 `suspects` step (`results/<zone>/suspects.json`, copied to `web/public/data/suspects.json`).
 They are also written to Firestore `candidates` with `source: "pipeline"`.
 Ranked by `grade` (A, B, C), then `snr` (highest first). A file without `grade` (written before 14 Nov evening) is
@@ -492,7 +495,7 @@ ungraded: show its suspects as unvetted, not as B.
 | field | type | meaning |
 |---|---|---|
 | zone | string | Pipeline zone, `pilot` or `hunt` |
-| vetoes | string[] | Zone-level checks every listed suspect passed: `mpc` (no known object within 30″), `gaia` (no Gaia DR3 within 6″), and `catwise` (CatWISE2020, 6″) or `allwise` (AllWISE, 6″: zones with a Gaia-only refcat). A catalogue missing here was not checked |
+| vetoes | string[] | Zone-level checks every listed suspect passed: `mpc` (no known object within 30″), `planets` (v3.18: not near a planet at its time, see below), `gaia` (no Gaia DR3 within 6″), and `catwise` (CatWISE2020, 6″) or `allwise` (AllWISE, 6″: zones with a Gaia-only refcat). A catalogue missing here was not checked |
 | provisional | bool | true when Gaia or every WISE catalogue could not be checked (e.g. a Gaia-only refcat with AllWISE unreachable): very red WISE-only sources may still be listed. Say so next to the zone's suspects |
 | grades | object | Count of suspects per grade, `{ "A": n, "B": n, "C": n }` |
 | gates | object | Per gate name (below), the suspects failing it; a suspect can fail several |
@@ -511,6 +514,15 @@ ungraded: show its suspects as unvetted, not as B.
 | rate_arcsec_h | float, ″/h, or null, **optional** | The track's apparent rate at this suspect's time (local fit over the track's movers); null off a track |
 | pa_deg | float, degrees, or null, **optional** | The track's direction of motion, east of north, 0–360; null off a track |
 | rate_sigma | float, ″/h, or null, **optional** | 1σ error of `rate_arcsec_h` (scaled up by √χ²_ν of the fit when > 1); null off a track |
+
+**Planets (v3.18).** Besides the 30″ match to Horizons' planets and named moons (v3.17, part of `mpc`'s known
+check), a mover is known (veto `planets`) when it lies within a planet's radius at its time: Mars 60′, Jupiter 80′,
+Saturn 45′, Uranus 5′, Neptune 3′ from the planet's geocentric astrometric position (skyshift_core.planets:
+astropy's built-in ephemeris, within 20″ of JPL Horizons, no network). The radii hold the moons SPHEREx sees at
+their farthest (Callisto, Himalia, Elara; Iapetus, Phoebe; Oberon; Triton), moons no list names (Carme), and the
+planet's glare. 15 Nov: 131 of the 1,885 movers then listed in candidates.json, 54 of its 56 grade A (Iapetus,
+Oberon, Himalia, Uranus, Neptune, Phoebe, Titan, the Galilean moons, …; 18 of the 131 are no listed body: Jupiter's
+glare, grades B and C). Files written before v3.18 lack `planets` in `vetoes`: their suspects may include such movers.
 
 ### candidates.json
 
@@ -555,7 +567,7 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | rate_arcsec_h | float ″/h or null | mover: apparent rate from a weighted straight-line fit of its dots' positions against time (dot positions re-read from dots/). null for `two_detectors` (one moment) and other kinds |
 | pm_mas_yr, pm_err_mas_yr | float mas/yr or null | high_pm only: total proper motion and its 1σ error (the pipeline's `pm`, `pm_err`) |
 | pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover from its dots (null without a rate). null for spectral. shape: not a motion but the axis of the stretch on the sky, east of north, **0–180** (where the second object would sit, on either side) |
-| nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known asteroid or comet predicted in the same session, moved to `mjd`; **null = none within 600″**. Always null for high_pm and spectral (not checked) |
+| nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known body predicted in the same session, moved to `mjd`: an asteroid or comet (MPC orbits) or, from v3.17, a planet or large moon (JPL Horizons); **null = none within 600″**. Always null for high_pm and spectral (not checked) |
 | gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: false (suspects have no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match. shape: a Gaia DR3 star within 6″ is the one listed object |
 | catwise_match | bool | A CatWISE2020 source sits here. mover: false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one. shape: a CatWISE2020 source within 6″ (the listed object, or its infrared entry) |
 | galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
@@ -573,7 +585,8 @@ field, `det` (and its simultaneous partner for `two_detectors`), the exposures w
 spectral: months clock, 5′ field, `det`, every exposure of every visit (as the featured targets).
 Several detectors may share one file (sorted by `mjd_mid`, then `det`); the client filters by `det`.
 
-**Which objects.** mover: every row of `results/<zone>/suspects.parquet` (suspects.json's rules). high_pm:
+**Which objects.** mover: every row of `results/<zone>/suspects.parquet` (suspects.json's rules), except (v3.18)
+a mover near a planet at its time (the `planets` veto, applied by the exporter too for tables written before it). high_pm:
 the `vetted` rows of `highpm_candidates.parquet` (from 14 Nov evening; before, every row). Unvetted rows are
 fakes or not movers: a Gaia or CatWISE motion that isn't ours, chance-level pairs, too few sessions, nothing to
 check against, or a known slow Gaia star (contracts/dots.md, highpm_candidates).
@@ -642,7 +655,7 @@ candidate they are those of its (first) source.
 |---|---|---|
 | two_exposures | mover | Seen at different places in two or more exposures of one session |
 | two_detectors | mover | Seen by two detectors at the same moment (D1+D4, D2+D5, D3+D6), in one exposure only |
-| known_object_near | mover | A known asteroid or comet was predicted within 2′ at that time: it may be that object, slightly off its prediction |
+| known_object_near | mover | A known asteroid, comet, planet or moon was predicted within 2′ at that time: it may be that object, slightly off its prediction |
 | motion_not_significant | mover | The motion is under 3σ of its position errors: it may not move at all |
 | bad_pixels_near | mover | A masked pixel (cosmic ray, hot or dead pixel, persistence…) touches one of its dots |
 | outlier_flag | mover | The OUTLIER flag (bit 19, recorded, not masked) is set on its pixels. Hunt: 92 of 228 suspects (40%), almost all in D4–D6 |
@@ -677,8 +690,8 @@ candidate they are those of its (first) source.
 | blend | high_pm, spectral, shape | v3.11. Two or more Gaia DR3 stars (G < 18) within 8″ of its source (the pipeline's `fragments` step): the detection may be two stars merged by the 7.5″ PSF, so a shift, colour or stretch may come from the pair. A high_pm row with a blend on either side also counts as a Gaia star (`status` gaia) |
 
 **why**, examples (from the hunt export): "Seen at different places in 2 exposures 4.3 minutes apart,
-moving about 55″ an hour; no known asteroid or comet was predicted within 10′." · "Seen at different
-places in 3 exposures over 4.3 minutes, moving about 55″ an hour; the nearest known asteroid or comet was
+moving about 55″ an hour; no known asteroid, comet, planet or moon was predicted within 10′." · "Seen at different
+places in 3 exposures over 4.3 minutes, moving about 55″ an hour; the nearest known asteroid, comet, planet or moon was
 predicted 2.1′ away, but another unexplained mover was seen 3″ from here 168.6 days apart, so it may be a
 fixed source." · "Moves 1.10″ a year between visits; Gaia lists this star with the same motion, a known
 nearby star that shows the method works." · "Moves 0.95″ a year between visits, but CatWISE lists a
@@ -1063,3 +1076,24 @@ every check in file order needs no change. A missing input still gives `pending`
 - The rules allow the fifth answer; they stay create-only. The rules change lands in the same PR as the
   web/src/vote change, and both deploy together (`infra/firebase/deploy.sh`, rules then hosting).
 - mcp/ counts each voter's latest vote the same way.
+
+## Changes in v3.17 (15 Nov 2026): planets and moons are known bodies
+
+- The pipeline's known-object check (suspects' 30″ cut, candidates.json `nearest_known_arcsec`, reason
+  `known_object_near`) now also uses the planets and their large moons from JPL Horizons, next to MPC asteroids
+  and comets. MPC orbits hold no moons: before this, Iapetus, Titan, Rhea, Hyperion, Titania and Uranus itself
+  were listed as unknown movers. A mover within 30″ of a predicted moon is no longer a candidate.
+- `why` says "no known asteroid, comet, planet or moon was predicted within 10′" (and "the nearest known asteroid,
+  comet, planet or moon was predicted … away"). No field, type or unit changes; `known[].source` in frames is unchanged.
+
+## Changes in v3.18 (15 Nov 2026): a mover near a planet is known, whatever it is
+
+- v3.17 drops a mover within 30″ of a Horizons prediction; that needs the zone's `known` step rerun (network) and
+  misses moons outside its list (Carme) and the planet's glare. From v3.18 a mover within a planet's radius at its
+  time (Mars 60′, Jupiter 80′, Saturn 45′, Uranus 5′, Neptune 3′: the planet, its moons, its glare;
+  skyshift_core.planets, offline) is known too: suspects.json drops it and lists the veto `planets` (after `mpc`),
+  candidates.json doesn't list it (the exporter applies it to older tables too), and the measured layer classes its
+  track and dots `known` with `known_name` the planet (`Saturn`) or `a moon of Saturn`, even when an older suspects
+  table lists it.
+- Shapes unchanged; `known_name` gains values that are not `known[]` names, so show it as text. Readers that map
+  veto codes to words get one more code (`planets`). MPC stays the only source of asteroids and comets (no SkyBoT).
