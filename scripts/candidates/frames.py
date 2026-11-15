@@ -197,6 +197,19 @@ def build_one(c: dict, cache: Cache, out: Path) -> bool:
     return True
 
 
+def mpc_index_ok(cache: Cache) -> bool:
+    """The MPC index loads from this cache. Without it every frames file would get known[] = [] (blink logs and goes
+    on), so the static build stops instead: copy gs://nasa-glazing-data/cache/<known.INDEX_KEY> into the local cache
+    or pass --cache gs://nasa-glazing-data/cache."""
+    from skyshift_server import known
+    try:
+        known.mpc_index(cache)
+        return True
+    except Exception as e:  # noqa: BLE001 - UpstreamError, or a read failure
+        log.error("MPC index unavailable (%s): known[] would be empty in every frames file; stopping", e)
+        return False
+
+
 def needs_build(c: dict, out: Path) -> bool:
     """No frames yet, frames of another detector than the candidate's (a re-export can change its best detector,
     and the site then asks the live API for the missing one), or a mover's frames without its own exposures (built
@@ -335,6 +348,8 @@ def main() -> int:
 
     path = Path(a.candidates)
     out = path.parent
+    if not (a.dry_run or a.measured_only) and not mpc_index_ok(Cache(a.cache)):
+        return 2
     if a.known_only:
         refresh_known(out / "cand", Cache(a.cache))
         return 0
