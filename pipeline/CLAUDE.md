@@ -30,7 +30,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   and link positions (FRAGMENTS_LINK_MIN_OFFSET_ARCSEC). Hunt (15 Nov 00:01Z tables): parent_dist of 491 fragments
   nearer (median 25.0 → 21.8″), bright_* of 894 sources, 9 more blends, no other tag changes.
 - stack (stack.py, 15 Nov; not in `all`; zones of config STACK_ZONES, the five featured targets): `uv run
-  skyshift-pipeline stack --zone t_barnard --root gs://nasa-glazing-data --workers 8 --cache /tmp/stack-t_barnard`.
+  skyshift-pipeline stack --zone t_barnard --root gs://nasa-glazing-data --workers 8 --cache /tmp/stack-t_barnard`;
+  all five on skyshift-test: `infra/worker/vm.sh run test 'infra/worker/stack_featured.sh'` (marker
+  skyrun/final/stack_featured.txt; ~1–1.5 h, Barnard ~15 min, 4 GB in the main process).
   Reads each photo's IMAGE/FLAGS/VARIANCE block over the zone once (S3 section reads, cached as npz in --cache),
   stacks each visit × detector on a 2″ grid, detects on matched-filter S/N maps, fits every photo at all sources at once
   (ePSF at pixel centres, Gaia positions moved to the photo time), detects again on the residual stacks, fits again →
