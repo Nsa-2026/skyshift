@@ -1,4 +1,4 @@
-/* To check (#/candidates): intro band, presets, smart filters, the candidate list; the sky map on its own view.
+/* To check (#/candidates): intro band, sky map, presets, smart filters and the candidate list.
    Lightbox rules (web/DESIGN.md): quiet ink on glass, space instead of boxes, capsule controls,
    Archivo with the width axis doing the work, units always, colour never the only cue. */
 
@@ -47,7 +47,7 @@
 .dv {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "intro" "presets" "results";
+  grid-template-areas: "intro" "map" "presets" "results";
   gap: var(--s5) var(--s6);
   align-items: start;
 }
@@ -55,21 +55,37 @@
 .dv-presets { grid-area: presets; }
 .dv-filters { grid-area: filters; }
 .dv-results { grid-area: results; }
+.dv-map { grid-area: map; min-width: 0; }
 .dv-sky { grid-area: sky; }
+.dv[data-view="one"] { grid-template-areas: "intro" "presets" "results"; }
 
 @media (min-width: 900px) {
   .dv {
-    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-columns: 236px minmax(0, 1fr) clamp(300px, 27vw, 380px);
     grid-template-areas:
-      "intro intro"
-      "presets presets"
-      "filters results";
+      "intro intro map"
+      "presets presets presets"
+      "filters results results";
     column-gap: var(--s6);
+  }
+  .dv[data-view="one"] {
+    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-areas: "intro intro" "presets presets" "filters results";
   }
 }
 @media (min-width: 1200px) {
   .dv {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr) clamp(340px, 27vw, 400px);
+  }
+  .dv[data-view="list"] {
+    grid-template-areas:
+      "intro intro map"
+      "presets presets map"
+      "filters results map";
+  }
+  .dv-map {
+    position: sticky;
+    top: var(--s4);
   }
 }
 /* The map view (#/candidates/…&map=1): the map page alone, full width. */
