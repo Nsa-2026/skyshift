@@ -160,8 +160,9 @@ with the most exposures:
   A mover's `mjd` is the middle of the exposures it was found in, so they are in it.
 - The rest: filled from the visit's other sessions by the rule above (the first 2 of sessions spread over
   the visit, full-field sessions preferred), at most 6 exposures in all, or the session plus 2 when it
-  has 5 or more (sessions have 1–5). The session's exposures are downloaded first, so when the archive is
-  slow the other sessions are cut before it (a partial answer, as always, is not cached).
+  has 5 or more (sessions have 1–5). The session's exposures are asked for first. All of them start
+  at once (at most 7, one wave of downloads), so a slow archive can still leave any frame out: such an
+  answer is partial and not cached, as always, and asking again finds the downloaded pieces.
 - `det`: the visit and the session are `det`'s own at this position. D1+D4, D2+D5 and D3+D6 are exposed
   together, so a paired detector gives the same session. `fov`: changes only which of the other sessions'
   exposures are preferred (coverage), never the session nearest `mjd`.
