@@ -594,7 +594,7 @@ def _map_eval(tab: pd.DataFrame | None, kind: np.ndarray, det: np.ndarray, x: np
     good = np.isfinite(np.asarray(x, np.float64)) & np.isfinite(np.asarray(y, np.float64))
     t = tab[tab["applied"].to_numpy(bool)]
     for (kd, k), g in t.groupby(["kind", "detector"]):
-        m = good & (kind == kd) & (det == k)
+        m = good & (kind == KINDS.index(kd)) & (det == k)
         if not m.any():
             continue
         for col, out in (("dx_px", ox), ("dy_px", oy)):
@@ -614,7 +614,7 @@ def _bright_eval(tab: pd.DataFrame | None, kind: np.ndarray, det: np.ndarray, le
     t = tab[tab["applied"].to_numpy(bool)]
     for r in t.itertuples():
         with np.errstate(invalid="ignore"):
-            m = (kind == r.kind) & (det == r.detector) & (level >= r.lo) & (level < r.hi)
+            m = (kind == KINDS.index(r.kind)) & (det == r.detector) & (level >= r.lo) & (level < r.hi)
         ox[m], oy[m] = r.dx_px, r.dy_px
     return ox, oy
 
@@ -646,7 +646,7 @@ def pixel_offsets(res: pd.DataFrame, offsets: pd.DataFrame | None = None) -> dic
     dx, dy = _to_pixels(e, n, res[JAC_COLUMNS].to_numpy(np.float64).reshape(-1, 2, 2))
     use = np.isfinite(dx) & np.isfinite(dy)
     det = res["detector"].to_numpy(np.int64)
-    kind = np.where(res["psf"].to_numpy(bool), KINDS[1], KINDS[0])
+    kind = res["psf"].to_numpy(bool).astype(np.int8)  # index into KINDS: 0 centroid, 1 ePSF
     x, y = res["x"].to_numpy(np.float64), res["y"].to_numpy(np.float64)
     snr, level = res["snr"].to_numpy(np.float64), res["level"].to_numpy(np.float64)
     nc, cell = _ncell(), C.ASTRO_MAP_CELL_PX
@@ -668,15 +668,15 @@ def pixel_offsets(res: pd.DataFrame, offsets: pd.DataFrame | None = None) -> dic
                 g = pd.DataFrame({"c": c, "x": dx[ii] - bx[ii], "y": dy[ii] - by[ii]}).groupby("c").agg(
                     dx_px=("x", "median"), dy_px=("y", "median"), n=("x", "size"))
                 for ci, r in g.iterrows():
-                    mrows.append({"kind": kd, "detector": int(k), "cx": int(ci // nc), "cy": int(ci % nc), "dx_px": float(r.dx_px),
+                    mrows.append({"kind": KINDS[kd], "detector": int(k), "cx": int(ci // nc), "cy": int(ci % nc), "dx_px": float(r.dx_px),
                                   "dy_px": float(r.dy_px), "n": int(r.n), "applied": bool(r.n >= C.ASTRO_MAP_MIN_DOTS)})
             mtab = pd.DataFrame(mrows, columns=MAP_COLUMNS)
             mx, my = _map_eval(mtab, kind, det, x, y)
         if C.ASTRO_BRIGHT_OFFSET:
             brows = []
-            for kd in KINDS:
+            for kc, kd in enumerate(KINDS):
                 for k in range(1, 7):
-                    mk = in_bright & (kind == kd) & (det == k)
+                    mk = in_bright & (kind == kc) & (det == k)
                     if not mk.any():
                         continue
                     for b in range(len(edges) - 1):
@@ -707,7 +707,7 @@ def pixel_shift(d: pd.DataFrame, idx: np.ndarray, jac: pd.DataFrame | None, pix:
         return z, z
     sub = d.iloc[idx]
     det = sub["detector"].to_numpy(np.int64)
-    kind = np.where(sub["pos_psf"].fillna(False).to_numpy(bool), KINDS[1], KINDS[0]) if "pos_psf" in sub else np.full(idx.size, KINDS[0])
+    kind = (sub["pos_psf"].fillna(False).to_numpy(bool) if "pos_psf" in sub else np.zeros(idx.size, bool)).astype(np.int8)
     mx, my = _map_eval(pix.get("map") if C.ASTRO_PIXEL_MAP else None, kind, det, _col(sub, "x"), _col(sub, "y"))
     bx, by = _bright_eval(pix.get("bright") if C.ASTRO_BRIGHT_OFFSET else None, kind, det, bright_level(sub))
     dx, dy = mx + bx, my + by
