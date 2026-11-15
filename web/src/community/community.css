@@ -318,8 +318,32 @@
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: var(--s7) var(--s8);
-  align-items: start;
   max-width: calc(2 * var(--cm-measure) + var(--s8));
+}
+/* Both pairs end together. The chart used to be a fixed height picked to match one particular
+   wording of the list beside it; any other wording, and the row ended ragged. Instead a pair
+   stretches and the taller-growing child takes the leftover height -- the plot on the left of the
+   lower pair (its floor is chart.ts MIN_HEIGHT), the roundup's list on the right of the upper one
+   -- so the two columns stay level whatever the words do. */
+.cm-pair {
+  align-items: stretch;
+}
+/* Stretched, a column's own rows must not spread to fill it: they stay stacked at the top and the
+   one row meant to grow (the plot, the roundup's list) is the only one that takes the slack. */
+.cm-pair > section,
+.cm-pair > .cm-side > section {
+  align-content: start;
+}
+.cm-pair:not(.cm-pair-you) > .cm-activity {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.cm-pair:not(.cm-pair-you) > .cm-activity > .cm-chart {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+/* An empty chart is meant to take no room, so that row goes back to its natural height. */
+.cm-pair:not(.cm-pair-you):has(.cm-chart[data-empty="true"]) {
+  align-items: start;
 }
 .cm-pair > section {
   display: grid;
@@ -350,7 +374,8 @@
 }
 .cm-plot {
   position: relative;
-  min-height: 360px;
+  /* Floor only: chart.ts draws to the height this box actually gets. Keep in step with MIN_HEIGHT. */
+  min-height: 300px;
   border-radius: var(--radius-panel);
   outline: none;
 }
@@ -1076,4 +1101,114 @@
 }
 .cm-embedded .cm-next > p {
   max-width: 72ch;
+}
+
+/* ---- Notes ----------------------------------------------------------------------------------
+   Short messages people leave beside the votes. Kept in this browser (community/posts.ts), so the
+   panel stays plain: no counts to compare, no ranking, nothing that implies an audience. */
+
+/* ---- the column beside Your votes: how consensus works, then the roundup of notes ---- */
+/* How consensus works is a fixed read; the roundup takes whatever height is left and scrolls, so
+   the right column ends exactly where Your votes does instead of trailing off into white space. */
+.cm-side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--s7);
+  min-width: 0;
+  min-height: 0;
+}
+.cm-side > .cm-how,
+.cm-side > .cm-roundup {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+  align-content: start;
+}
+.cm-roundup {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  min-height: 0;
+}
+
+.cm-round-count {
+  margin: 0;
+}
+/* The list fills this box and is taken out of flow inside it, so its own length never sets the
+   row's height. That matters: left in flow, fourteen notes made the row taller than Your votes
+   and left eight hundred pixels of white under the votes instead of the other way round. The box
+   is the one that stretches, the list scrolls inside it, and the pair ends level either way. */
+.cm-round-scroll {
+  position: relative;
+  min-height: 11rem;
+  min-width: 0;
+}
+.cm-round-list {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--s4);
+  margin: 0;
+  padding: 0 var(--s4) 0 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cm-round-note {
+  display: grid;
+  gap: 3px;
+  padding-left: var(--s4);
+  border-left: 2px solid var(--hair);
+}
+.cm-round-sample {
+  border-left-style: dashed;
+}
+.cm-round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0;
+}
+.cm-round-who {
+  font-weight: 600;
+}
+.cm-round-when {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin-right: auto;
+}
+.cm-round-body {
+  margin: 0;
+  overflow-wrap: anywhere;
+  /* Three lines each: a long note should not push every other one out of the column. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.cm-round-about {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.cm-round-empty {
+  padding-left: 0;
+  border: 0;
+}
+.cm-round-fine {
+  margin: var(--s2) 0 0;
+}
+
+/* One column: there is no second column to end level with, so the roundup takes its own height --
+   but only up to a screenful. Left to grow it added two thousand pixels of notes to a page that is
+   already long on a phone, which is the opposite of what it is here for. */
+@media (max-width: 1023px) {
+  .cm-side {
+    grid-template-rows: auto auto;
+  }
+  .cm-round-scroll {
+    height: min(32rem, 60vh);
+  }
 }

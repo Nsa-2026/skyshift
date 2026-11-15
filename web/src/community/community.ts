@@ -6,6 +6,7 @@ import { FORUM_URL } from "../vote";
 import { ANSWERS, ANSWER_TEXT, safeStorage, type Counts, type KV } from "../vote/model";
 import { VOTED_EVENT } from "../vote/store";
 import { mountActivityChart, votesWord, type ChartHandle } from "./chart";
+import { NICKNAME_KEY, objectsIn, readPosts, roundup, timeAgo, type Shown } from "../notes";
 import { loadSnapshot, type Snapshot } from "./source";
 import {
   CONSENSUS,
@@ -26,12 +27,16 @@ import {
 
 export const MPC_URL = "https://minorplanetcenter.net/";
 export const MPCHECKER_URL = "https://minorplanetcenter.net/cgi-bin/checkmp.cgi";
-export const NICKNAME_KEY = "skyshift.nickname";
+// Re-exported: the name lives with the notes model, which both this page and the notes panel
+// on an object sign with. Importers (and the tests) have always asked this module for it.
+export { NICKNAME_KEY };
 /** Re-read the votes when the page is shown again after this long. */
 const STALE_MS = 60_000;
 /** Most debated: how many stay open. The rest sit behind a disclosure so the column keeps pace
     with the activity chart beside it. */
 const DEBATED_OPEN = 2;
+/** Notes in the roundup. Enough to scroll through, few enough to stay a column and not a page. */
+const ROUNDUP_MAX = 14;
 
 const html = String.raw;
 const nf = new Intl.NumberFormat("en-GB");
@@ -154,10 +159,24 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
             <p class="cm-fine">Kept in this browser only and never sent with your votes.</p>
           </form>
         </section>
-        <section class="cm-how" aria-labelledby="cm-how-h">
-          <h2 id="cm-how-h">How consensus works</h2>
-          ${consensusRule}
-        </section>
+        <div class="cm-side">
+          <section class="cm-how" aria-labelledby="cm-how-h">
+            <h2 id="cm-how-h">How consensus works</h2>
+            ${consensusRule}
+          </section>
+          <section class="cm-roundup" aria-labelledby="cm-round-h">
+            <div class="cm-sec-head">
+              <h2 id="cm-round-h">Notes on objects</h2>
+              <p class="cm-round-count cm-fine"></p>
+            </div>
+            <p class="cm-sub">What people wrote beside their votes, newest first. Write one on an object's own page.</p>
+            <div class="cm-round-scroll"><ol class="cm-round-list"></ol></div>
+            <p class="cm-round-fine cm-fine">Your own notes stay in this browser and are never sent with your votes.
+              The ones marked <b>Sample</b> are made up, to show what a discussion here would look like — no one wrote
+              them. Real discussion happens on the
+              <a href="${FORUM_URL}" target="_blank" rel="noopener">Backyard Worlds forum</a>.</p>
+          </section>
+        </div>
       </div>`}
 
       <section class="cm-astro" ${embedded ? html`aria-label="The list for astronomers"` : html`aria-labelledby="cm-astro-h"`}>
@@ -215,6 +234,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
           <ol class="cm-debate-list"></ol>
         </section>
       </div>
+
 `}
     </div>
   `;
@@ -235,6 +255,13 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   const nickForm = $<HTMLFormElement>(".cm-nick");
   const nickInput = $<HTMLInputElement>("#cm-nick-input");
   const nickClear = $<HTMLButtonElement>("[data-act=nick-clear]");
+  /** Null in the astronomers' variant, which renders no roundup (like `chart` below). */
+  const round = embedded
+    ? null
+    : {
+        list: $<HTMLOListElement>(".cm-round-list"),
+        count: $<HTMLParagraphElement>(".cm-round-count"),
+      };
   const csvBtn = $<HTMLButtonElement>("[data-act=csv]");
   const jsonBtn = $<HTMLButtonElement>("[data-act=json]");
   // The astronomers' variant has no activity, debated or "you" parts: their renderers return early.
@@ -436,11 +463,49 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
           </li>`;
         })
         .join("") +
-      html`<li class="cm-mine-note cm-fine">A vote is cast once per browser and stays as it is: that is what makes the
-        count above auditable. ${open ? html`${n(open)} of these ${plural(open, "is", "are")} still open, so another
+      html`<li class="cm-mine-note cm-fine">One vote per browser, and you can change or reset yours on the object's own
+        page: only your latest answer counts, and nothing is deleted, which is what keeps the count above auditable.
+        ${open ? html`${n(open)} of these ${plural(open, "is", "are")} still open, so another
         pair of eyes can still move ${plural(open, "it", "them")} — send the link on, or take it to the
         <a href="${FORUM_URL}" target="_blank" rel="noopener">Backyard Worlds forum</a>, where the volunteers and
         astronomers discuss them.` : html`Disagreeing isn't wrong: early votes are how hard cases get found.`}</li>`;
+  }
+
+  /**
+   * The roundup: notes from across the objects, newest first and capped, so the column beside
+   * Your votes is the same height as it instead of ending in white space.
+   *
+   * Two sources, never confused for each other (src/notes/feed.ts): what this browser wrote, and
+   * the sample comments, which carry the tag on every row. Bodies are text someone typed: escape.
+   */
+  function renderRoundup() {
+    if (!round) return;
+    const at = now();
+    // Objects with votes, so the roundup is about what the page is already showing.
+    const ids = snap ? [...tally(snap.votes).keys()].filter((id) => info.get(id)?.kind !== "flag") : [];
+    const rows = roundup(ids, readPosts(kv), at, ROUNDUP_MAX);
+    const objects = objectsIn(rows);
+    round.count.textContent = rows.length
+      ? `${nf.format(rows.length)} ${plural(rows.length, "note", "notes")} on ${nf.format(objects)} ${plural(objects, "object", "objects")}`
+      : "";
+    if (!rows.length) {
+      round.list.innerHTML = html`<li class="cm-round-empty cm-fine">Nothing yet. Notes appear here as objects are checked.</li>`;
+      return;
+    }
+    round.list.innerHTML = rows
+      .map((r: Shown) => {
+        const i = r.about ? info.get(r.about) : undefined;
+        return html`<li class="cm-round-note${r.sample ? " cm-round-sample" : ""}">
+          <p class="cm-round-head">
+            <span class="cm-round-who">${esc(r.who)}</span>
+            <span class="cm-round-when">${esc(timeAgo(r.ts, at))}</span>
+            ${r.sample ? html`<span class="cm-round-tag">Sample</span>` : ""}
+          </p>
+          <p class="cm-round-body">${esc(r.body)}</p>
+          ${r.about ? html`<p class="cm-round-about">on ${candidateLinkHtml(r.about, i)}</p>` : ""}
+        </li>`;
+      })
+      .join("");
   }
 
   function renderAll(s: Snapshot) {
@@ -449,6 +514,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     renderActivity(s);
     renderDebated(s);
     renderYou(s);
+    renderRoundup();
   }
 
   async function refresh() {
@@ -563,6 +629,8 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   el.addEventListener("click", onClick);
   nickForm?.addEventListener("submit", onNick);
   addEventListener(VOTED_EVENT, onVoted);
+  // The roundup's own notes need no snapshot, so the column is filled before the votes land.
+  renderRoundup();
 
   return {
     show() {

@@ -245,6 +245,55 @@ describe("Community page", () => {
     expect(el.querySelector(".cm-lead")!.textContent).toMatch(/No votes yet\. The pipeline has listed 194 objects to check/);
     expect(el.querySelector(".cm-source")!.textContent).toMatch(/Everyone's votes/);
   });
+
+  it("fills the column beside Your votes with a roundup of notes, every made-up one tagged", async () => {
+    const { el } = await mounted([
+      ["pilot-m1", ["mover", "mover", "mover", "mover", "mover"]],
+      ["pilot-p1", ["mover", "junk", "unsure"]],
+    ]);
+    // How consensus works and the roundup are one column, so the pair ends level.
+    const side = el.querySelector(".cm-pair-you > .cm-side")!;
+    expect(side.querySelector(".cm-how")).not.toBeNull();
+    const round = side.querySelector(".cm-roundup")!;
+    const rows = round.querySelectorAll(".cm-round-note");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      const tagged = r.classList.contains("cm-round-sample");
+      expect(!!r.querySelector(".cm-round-tag")).toBe(tagged);
+      if (tagged) expect(r.querySelector(".cm-round-tag")!.textContent).toBe("Sample");
+    }
+    // Every row here is made up so far, and the fine print has to say so.
+    expect([...rows].every((r) => r.classList.contains("cm-round-sample"))).toBe(true);
+    const fine = round.querySelector(".cm-round-fine")!.textContent!.replace(/\s+/g, " ");
+    expect(fine).toMatch(/made up/);
+    expect(fine).toMatch(/no one wrote them/);
+    expect(round.querySelector(".cm-round-count")!.textContent).toMatch(/notes? on \d+ objects?/);
+    // It links the objects it is talking about, and never offers to write one here.
+    expect(round.querySelector(".cm-round-about a")).not.toBeNull();
+    expect(round.querySelector("textarea")).toBeNull();
+    expect(el.querySelector(".cm-notes")).toBeNull();
+  });
+
+  it("puts this browser's own note in the roundup, untagged and above the samples", async () => {
+    const kv = memKV();
+    kv.set(
+      "skyshift.local.posts",
+      JSON.stringify([{ id: "p-1", about: "pilot-m1", name: "Plate reader", body: "Sits on a spike.", ts: Date.now() }]),
+    );
+    const el = document.createElement("div");
+    document.body.append(el);
+    const page = mountCommunityWith(el, ctx(), {
+      kv,
+      load: (k) => loadSnapshot({ kv: k, api: localApi(k), catalogue: async () => catalogue }),
+    });
+    page.show(null);
+    await page.ready();
+    const first = el.querySelector(".cm-round-note")!;
+    expect(first.classList.contains("cm-round-sample")).toBe(false);
+    expect(first.querySelector(".cm-round-who")!.textContent).toBe("Plate reader");
+    expect(first.querySelector(".cm-round-body")!.textContent).toBe("Sits on a spike.");
+    expect(first.querySelector(".cm-round-tag")).toBeNull();
+  });
 });
 
 describe("About page", () => {

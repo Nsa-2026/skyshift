@@ -4,9 +4,11 @@
 import type { Activity, Bin } from "./stats";
 
 const SVG = "http://www.w3.org/2000/svg";
-// Tall enough that the chart column keeps pace with Most debated beside it (two entries open).
-// Two entries run about 450px; the chart plus its heading and sub-line lands within ~25px of that.
-const HEIGHT = 360;
+// The plot fills whatever height the row gives it (community.css: the pair stretches, and the
+// plot is the activity column's 1fr row), so the chart keeps pace with Most debated beside it
+// however long that list's words run. A fixed height only ever matched one wording. This is the
+// floor it will not go below, for the single-column layout and a short list.
+const MIN_HEIGHT = 300;
 const M = { top: 22, right: 8, bottom: 26, left: 34 };
 
 const hourFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -76,8 +78,9 @@ export function mountActivityChart(host: HTMLElement): ChartHandle {
     if (!data || !data.bins.length) return;
     const bins = data.bins;
     const width = Math.max(240, Math.round(plot.clientWidth || 640));
+    const height = Math.max(MIN_HEIGHT, Math.round(plot.clientHeight || MIN_HEIGHT));
     const innerW = width - M.left - M.right;
-    const innerH = HEIGHT - M.top - M.bottom;
+    const innerH = height - M.top - M.bottom;
     const max = Math.max(1, ...bins.map((b) => b.count));
     const step = tickStep(max);
     const top = Math.ceil(max / step) * step;
@@ -87,7 +90,7 @@ export function mountActivityChart(host: HTMLElement): ChartHandle {
     if (band - bw < 2) bw = Math.max(1, band - 2);
     geom = { band, left: M.left, tops: bins.map((b) => y(b.count)) };
 
-    const svg = el("svg", { width, height: HEIGHT, viewBox: `0 0 ${width} ${HEIGHT}`, "aria-hidden": "true", focusable: "false" });
+    const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true", focusable: "false" });
     // grid and y ticks
     for (let v = 0; v <= top; v += step) {
       svg.append(el("line", { x1: M.left, x2: width - M.right, y1: y(v), y2: y(v), class: v === 0 ? "cm-base" : "cm-grid" }));
@@ -103,7 +106,7 @@ export function mountActivityChart(host: HTMLElement): ChartHandle {
       if (!mark) return;
       const cx = M.left + band * i + band / 2;
       const text = unit === "hour" ? (d.getHours() === 0 ? dayFmt.format(b.start) : hourFmt.format(b.start)) : dayFmt.format(b.start);
-      svg.append(el("text", { x: cx, y: HEIGHT - 8, class: "cm-xtick", "text-anchor": "middle" }, text));
+      svg.append(el("text", { x: cx, y: height - 8, class: "cm-xtick", "text-anchor": "middle" }, text));
     });
     // columns
     let peak = 0;
