@@ -114,30 +114,16 @@ describe("what SkyShift measured", () => {
     expect(el.querySelector(".bk-meas-notes")!.textContent).toBe("Final results from the hunt zone.");
   });
 
-  it("the toggle sits with the Gaia and Known marks, is off by default and mirrors the panel's", async () => {
+  it("the toggle sits with the Gaia and Known marks, is on by default and mirrors the panel's", async () => {
     await h.show(hoursView, hours(), URL);
     const marks = [...el.querySelectorAll<HTMLButtonElement>(".bk-marks button")].map((b) => b.dataset.ov);
     expect(marks.slice(0, 3)).toEqual(["measured", "gaia", "known"]);
     expect(toggles()).toHaveLength(2);
-    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
     el.querySelector<HTMLButtonElement>(".bk-meas-toggle")!.click();
-    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
     el.querySelector<HTMLButtonElement>(".bk-marks [data-ov='measured']")!.click();
-    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
-  });
-
-  it("is folded to one line with its count; opening it draws the circles, folding it clears them", async () => {
-    await h.show(hoursView, hours(), URL);
-    const panel = el.querySelector<HTMLDetailsElement>(".bk-meas")!;
-    expect(panel.tagName).toBe("DETAILS");
-    expect(panel.open).toBe(false);
-    expect(el.querySelector(".bk-meas-sum")!.textContent!.replace(/\s+/g, " ").trim()).toBe("What SkyShift measured (4)");
-    panel.open = true;
-    panel.dispatchEvent(new Event("toggle"));
     expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
-    panel.open = false;
-    panel.dispatchEvent(new Event("toggle"));
-    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
   });
 
   it("a list entry names itself under the plate on focus, and a click pins it and shows a photo it is in", async () => {
@@ -217,5 +203,63 @@ describe("what SkyShift measured", () => {
     await h.show(hoursView, hours(), URL);
     h.status("error", "The live service failed.");
     expect(panel().hidden).toBe(true);
+  });
+});
+
+// The Viewer tab's plate (BlinkOptions.viewer): the circles start off and the panel is one folded
+// line with its count; opening it draws the circles. Field buttons read Close-up/Wide, and a
+// double-click zooms. Other plates keep the panel above.
+describe("what SkyShift measured, on the Viewer", () => {
+  let el: HTMLDivElement;
+  let h: BlinkHandle;
+  const toggles = () => [...el.querySelectorAll<HTMLButtonElement>("button[data-ov='measured']")];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint16Array(N * N).fill(1000).buffer)),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    el = document.createElement("div");
+    document.body.append(el);
+    vi.spyOn(el, "getClientRects").mockReturnValue({ length: 1 } as unknown as DOMRectList);
+    h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn(), viewer: true });
+  });
+  afterEach(() => {
+    h.destroy();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    el.remove();
+  });
+
+  it("is folded to one line with its count; opening it draws the circles, folding it clears them", async () => {
+    await h.show(hoursView, hours(), URL);
+    const panel = el.querySelector<HTMLDetailsElement>(".bk-meas")!;
+    expect(panel.tagName).toBe("DETAILS");
+    expect(panel.open).toBe(false);
+    expect(el.querySelector(".bk-meas-sum")!.textContent!.replace(/\s+/g, " ").trim()).toBe("What SkyShift measured (4)");
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+    el.querySelector<HTMLButtonElement>(".bk-meas-toggle")!.click(); // the switch still works while open
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+    panel.open = false;
+    panel.dispatchEvent(new Event("toggle"));
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+  });
+
+  it("names the fields Close-up and Wide, with their size against the Moon", async () => {
+    await h.show(monthsView, months(), URL);
+    const fov = [...el.querySelectorAll<HTMLButtonElement>(".bk-fov button")];
+    expect(fov.map((b) => b.textContent)).toEqual(["Close-up", "Wide"]);
+    expect(fov[0].title).toMatch(/^Close-up: 5 arcminutes, about a sixth of the full Moon's width$/);
   });
 });

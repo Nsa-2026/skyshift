@@ -50,6 +50,12 @@ export interface BlinkOptions {
   onPick(pick: DotPick): void;
   /** Current epoch changed (for the sky view and the card). */
   onEpoch?(epoch: { id: string; mjd_mid: number; det: Det; presentation?: BlinkPresentation }): void;
+  /**
+   * The Viewer tab's plate (Alexandra's layout): SkyShift's measured circles start off and their
+   * list is folded to one line that turns them on; Close-up/Wide field buttons; double-click zooms.
+   * Other plates (To check, Learn) leave it out and keep the usual behaviour.
+   */
+  viewer?: boolean;
 }
 
 export interface BlinkHandle {

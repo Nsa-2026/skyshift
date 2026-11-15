@@ -764,7 +764,7 @@
   color: var(--ink-2);
   font-weight: 600;
 }
-.bk-meas > :not(summary) + :not(summary) {
+details.bk-meas > :not(summary) + :not(summary) {
   margin-top: var(--s2);
 }
 .bk-meas-stage {

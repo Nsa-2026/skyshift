@@ -158,6 +158,7 @@ export function startApp(root: HTMLElement): void {
   }
 
   const blink: BlinkHandle = mountBlink($("#blink"), {
+    viewer: true,
     onViewChange(change) {
       if (!view) return;
       go({ ...view, ...change }, { objectToo: false });
