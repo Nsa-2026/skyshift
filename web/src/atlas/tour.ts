@@ -48,6 +48,24 @@ export const DEFAULT_TIMINGS: TourTimings = { travelMs: 4200, dwellMs: 5200, res
  */
 export const TOUR_FOV = 200;
 
+/**
+ * How far the view keeps drifting while a card is up, in degrees on the sky.
+ *
+ * The tour never comes to a stop. A still view invites the eye to settle on tile seams and on
+ * the stepped edge of the sky, and a hard stop followed by a hard start reads as two cuts; a
+ * view that is always moving, fast between targets and barely at all beside one, reads as one
+ * continuous flight. The target crosses the centre halfway through its own card: the approach
+ * aims half of this short of it and the drift carries on half past.
+ */
+export const DRIFT_DEG = 9;
+
+/** The drift in right ascension that covers DRIFT_DEG on the sky at this declination. */
+function driftRa(dec: number): number {
+  const c = Math.cos((dec * Math.PI) / 180);
+  // Near the poles a degree of RA is almost no sky at all, so the offset would run away.
+  return DRIFT_DEG / Math.max(0.25, c);
+}
+
 export interface TourDeps {
   /** The map's own flyTo: the tour never reaches past this. */
   flyTo(to: { ra: number; dec: number; fov?: number }, animate: boolean, seconds?: number): void;
@@ -131,6 +149,8 @@ export function createTour(stops: readonly TourStop[], deps: TourDeps): TourHand
     const s = stops[i];
     if (!s) return;
     showCard(s);
+    // Still moving, just barely: the target crosses the centre about halfway through its card.
+    deps.flyTo({ ra: s.ra + driftRa(s.dec) / 2, dec: s.dec, fov: TOUR_FOV }, true, t.dwellMs / 1000);
     after(t.dwellMs, () => {
       if (running) travel(i + 1);
     });
@@ -140,9 +160,14 @@ export function createTour(stops: readonly TourStop[], deps: TourDeps): TourHand
     i = ((to % stops.length) + stops.length) % stops.length;
     const s = stops[i];
     hideCard();
-    // The drift lasts the whole leg, less a moment, so the view settles and the sky it brought
-    // into frame has arrived before the card goes up.
-    deps.flyTo({ ra: s.ra, dec: s.dec, fov: TOUR_FOV }, true, Math.max(0.6, (t.travelMs - 600) / 1000));
+    // Aim half the drift short of the target, so the slow pass that follows carries it through
+    // the centre rather than away from it. The leg lasts all but a moment of its own time, so
+    // the sky it brings into frame has arrived before the card goes up.
+    deps.flyTo(
+      { ra: s.ra - driftRa(s.dec) / 2, dec: s.dec, fov: TOUR_FOV },
+      true,
+      Math.max(0.6, (t.travelMs - 600) / 1000),
+    );
     after(t.travelMs, land);
   }
 

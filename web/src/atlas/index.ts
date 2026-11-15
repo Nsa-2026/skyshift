@@ -559,8 +559,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     const changed = nextLevel !== level;
     level = nextLevel;
     stage.classList.toggle("is-whole", level === "whole");
-    // A view change the tour did not cause is somebody driving, whatever moved it.
-    if (tour?.running && Date.now() > tourFlightUntil) tour.interrupted();
     state = { ...state, ra: wrap360(v.ra), dec: v.dec, fov: v.fov };
     zoomFocus.update(v.fov, map?.kind === 'svg' ? false : state.mol);
     publishSky();
@@ -833,14 +831,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     return visible && !reduced && !selected && !pinPos && !document.hidden;
   }
 
-  /**
-   * Until this moment, view changes are the tour's own flight and must not be mistaken for the
-   * person taking over. Anything after it is somebody driving — the zoom buttons, a drag, the
-   * keyboard — and the tour stands down. Going by who moved the view, rather than by how far it
-   * is zoomed in, is what lets the tour zoom in at all without stopping itself.
-   */
-  let tourFlightUntil = 0;
-
   function syncTour() {
     if (!tour) return;
     if (tourShouldRun()) tour.start();
@@ -850,11 +840,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function startTour() {
     tour?.destroy();
     tour = createTour(TARGETS, {
-      flyTo: (to, animate, seconds) => {
-        // Cover the whole flight plus a moment: every view event it fires is the tour's own.
-        tourFlightUntil = Date.now() + (seconds ?? 1.1) * 1000 + 900;
-        map?.flyTo(to, animate, seconds);
-      },
+      flyTo: (to, animate, seconds) => map?.flyTo(to, animate, seconds),
       card: q<HTMLDivElement>("[data-tour]"),
       reducedMotion: reduced,
     });
@@ -1142,10 +1128,19 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   });
 
   // Keyboard on the map: arrows pan, + and − zoom, Enter opens the signal nearest the centre.
-  // Anybody touching the map takes the view off the tour at once: it is their view from then on,
-  // and the tour only comes back after the map has been left alone for a while.
+  /**
+   * Anybody touching this page takes the view off the tour at once, and the tour comes back only
+   * after things have been left alone for a while. The listener is on the whole page rather than
+   * the map, so the zoom buttons, Fly, the projection and the layer switches all count as taking
+   * over, not only a drag on the sky.
+   *
+   * It goes by what the person did, never by the view having changed. Reading it off the view
+   * meant deciding whether each change was the tour's own flight, which came down to a time
+   * window; Aladin's trailing events landed outside it and the tour stood itself down for the
+   * full quiet period, leaving the sky still for seconds at a time.
+   */
   for (const ev of ["pointerdown", "wheel", "keydown"] as const) {
-    mapEl.addEventListener(ev, () => tour?.interrupted(), { passive: true });
+    el.addEventListener(ev, () => tour?.interrupted(), { passive: true });
   }
   mapEl.addEventListener("keydown", (ev) => {
     if (!map) return;
