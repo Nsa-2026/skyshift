@@ -47,7 +47,6 @@ import {
   plainBlendWords,
   plainShiftWords,
   viewerShows,
-  VIEWER_HIDDEN,
   withoutArtefacts,
   stageLabel,
   CLASS_ORDER,
@@ -79,6 +78,7 @@ import {
 import { driftPx, findMover, followShifts, type Mover } from "./motion";
 import { buildLut, diffIndex, fade, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
 import { drawStrip, plateDate, updateStrip } from "./strip";
+import { getDetails, onDetails } from "../prefs/details";
 
 type Mode = "blink" | "difference" | "stack";
 const DETS: Det[] = [1, 2, 3, 4, 5, 6];
@@ -1078,8 +1078,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       })
       .filter((o) => inView(o.p) && !hatched(o.px));
     const measuredOn = !!meas && overlays.measured;
-    // The Viewer circles every real source; not camera glitches or grade C suspects (viewerShows).
-    const ds = (measuredOn && e ? (measAt.get(e.id) ?? []) : []).filter((d) => !opts.viewer || viewerShows(d.class, d.grade));
+    // The Viewer circles every real source the plate shows; not camera glitches or grade C suspects,
+    // and stack-only sources only with Advanced on (viewerShows).
+    const ds = (measuredOn && e ? (measAt.get(e.id) ?? []) : []).filter((d) => !opts.viewer || viewerShows(d.class, d.grade, getDetails()));
     const foundHere = new Set(ds.map((d) => d.gaia_id).filter((id): id is string => !!id));
     const ringable = gaiaIn
       .filter((o) => !overlays.target || Math.hypot(o.p.X - tp.X, o.p.Y - tp.Y) > gap)
@@ -2037,7 +2038,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.stage.textContent = opts.viewer ? "" : stageLabel(m.stage);
     mp.stage.dataset.stage = String(m.stage ?? "");
     mp.stage.hidden = !mp.stage.textContent;
-    const present = classesPresent(m).filter((c) => !opts.viewer || !VIEWER_HIDDEN.has(c));
+    // The Viewer's legend names only what its plate draws.
+    const present = classesPresent(m).filter((c) => !opts.viewer || viewerShows(c, null, getDetails()));
     mp.key.innerHTML = present
       .flatMap((c) => {
         const name = (opts.viewer ? VIEWER_NAME[c] : undefined) ?? CLASS_INFO[c].name;
@@ -2061,16 +2063,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       "Violet diamonds are where the Minor Planet Center predicts asteroids." +
       (saturatedHere() ? " A dashed ring is a saturated star: its burnt core gives no single detection, so its pieces aren't drawn." : "") +
       (arrows ? ` ${arrowNote(m.clock)}` : "");
-    // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced.
-    const unlisted = present.includes("other") || present.includes("stack");
+    // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced. (This
+    // line is plain-only, where stack-only sources aren't drawn: no dashed circles to explain.)
     mp.short.textContent = opts.viewer
       ? "Blue circles: stars Gaia already knows, where Gaia says they are on this date. A circle inside one is where " +
         "SkyShift found that star in this photo." +
-        (unlisted
-          ? present.includes("stack")
-            ? " Grey circles: sources Gaia doesn't list (dashed: seen only when the photos are added up)."
-            : " Grey circles: sources Gaia doesn't list."
-          : "") +
+        (present.includes("other") ? " Grey circles: sources Gaia doesn't list." : "") +
         " Violet diamonds: known asteroids." +
         (arrows ? (m.clock === "hours" ? " Arrows: how something moved between photos." : " Arrows: how far something moved between visits.") : "") +
         " Camera glitches are hidden."
@@ -2874,6 +2872,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   window.addEventListener("blur", onBlur);
   const onVisibility = () => setPlaying(playing || resumeOnVisible);
   document.addEventListener("visibilitychange", onVisibility);
+  // The Viewer draws stack-only sources (and names them in its legend) only with Advanced on.
+  const offDetails = opts.viewer
+    ? onDetails(() => {
+        renderMeasured();
+        draw();
+      })
+    : () => {};
 
   // Size the canvas to the plate, at device resolution; redraw the strip at its new width.
   let stripWidth = 0;
@@ -2980,6 +2985,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       document.removeEventListener("pointerdown", onDocDown);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("blur", onBlur);
+      offDetails();
       el.innerHTML = "";
     },
   };
