@@ -1189,3 +1189,60 @@
     max-width: 240px;
   }
 }
+
+
+/* The tour's card: it sits over the map while the view rests on a featured target, and is gone
+   the instant anybody touches the map, so it never covers something being looked at. */
+.atl-tour {
+  position: absolute;
+  left: clamp(16px, 4vw, 48px);
+  bottom: clamp(56px, 9vh, 104px);
+  z-index: 3;
+  max-width: min(34ch, calc(100% - 32px));
+  padding: 14px 18px 16px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  /* 62%, not less: over the brightest part of the galactic plane a thinner glass leaves the
+     body text at about 4.6:1, which passes AA with nothing to spare. */
+  background: rgb(10 12 20 / 62%);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 46%);
+  pointer-events: none;
+  animation: atl-tour-in 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.atl-tour-kind {
+  margin: 0 0 2px;
+  font-size: 0.74rem;
+  font-stretch: 112%;
+  letter-spacing: 0.06em;
+  color: rgb(226 232 245 / 82%);
+}
+.atl-tour-name {
+  margin: 0;
+  font-size: 1.22rem;
+  font-stretch: 118%;
+  line-height: 1.15;
+  color: #f4f6fb;
+}
+.atl-tour-look {
+  margin: 7px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: rgb(226 232 245 / 82%);
+}
+@keyframes atl-tour-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atl-tour {
+    animation: none;
+  }
+}
