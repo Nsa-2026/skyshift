@@ -34,9 +34,9 @@ import type {
   ValidationResponse,
 } from "../api/types";
 import { DETECTORS } from "../app/astro";
-import { RECALL_SCOPE, checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
+import { RECALL_SCOPE, checkInfo, checkTitle, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
 import { renderDistant } from "./distant";
-import { distantPlain, plainResults, plainTally, strongestMovers, sureFigure } from "./plain";
+import { checkLine, distantPlain, limitations, plainResults, plainTally, strongestMovers, sureFigure } from "./plain";
 import {
   bigValue,
   blinkHref,
@@ -164,7 +164,7 @@ export function completenessRows(v: ValidationResponse | null, dist: DistantResp
       text: "of known asteroids found without being told where to look, counted session by session.",
       scope: RECALL_SCOPE,
       href: "#/results/sure/V5",
-      link: "The check, V5",
+      link: "See the check",
     });
   }
   const v4 = ran("V4");
@@ -175,7 +175,7 @@ export function completenessRows(v: ValidationResponse | null, dist: DistantResp
       text: `${big4.unit ? `${prettyText(big4.unit)} ` : ""}found where IRSA's Moving Object Search Tool predicted them.`,
       scope: "Asteroids numbered 1 to 60, looked for at their predicted positions; the same search 3′ away gives the chance rate.",
       href: "#/results/sure/V4",
-      link: "The check, V4",
+      link: "See the check",
     });
   }
   const inj = dist?.injection;
@@ -249,10 +249,20 @@ function rowsBlock(c: ValidationCheck): string {
   const hide = rows.length === 1 ? "Hide the row" : "Hide the rows";
   return html`<details class="sc-rows">
     <summary><span class="sc-show">${show}</span><span class="sc-hide">${hide}</span>${CHEVRON}</summary>
-    ${renderRowsTable(rows, `${c.id}, ${c.claim}: one row per item`)}
+    ${renderRowsTable(rows, `${checkTitle(c.claim)}: one row per item`)}
   </details>`;
 }
 
+/** A figure's unit, unless it only repeats the figure or the title ("5 of 5 targets", "95% recall"). */
+function figureUnit(big: { num: string; unit: string }): string {
+  if (!big.unit || /^\d[\d,]* of \d/.test(big.num) || big.unit.toLowerCase() === "recall") return "";
+  return big.unit;
+}
+
+/**
+ * One check: its title, its mark, the key figure and one plain line. What was measured, the target,
+ * the method and the rows wait behind "How it was tested", closed. The code (V1) is only the anchor.
+ */
 export function renderCheck(c: ValidationCheck, lead = false): string {
   const st = normStatus(c.status);
   const info = checkInfo(c.id);
@@ -260,33 +270,38 @@ export function renderCheck(c: ValidationCheck, lead = false): string {
   const headline = typeof c.headline === "string" ? c.headline.trim() : "";
   const pending = st === "pending";
   const big = pending ? null : bigValue(c.value, c.unit, headline);
+  const unit = big ? figureUnit(big) : "";
   const figure = big
     ? html`<p class="sc-num"><span class="sc-num-v">${esc(big.num)}</span>${
-        big.unit ? html`<span class="sc-num-u">${esc(prettyText(big.unit))}</span>` : ""
+        unit ? html`<span class="sc-num-u">${esc(prettyText(unit))}</span>` : ""
       }</p>`
     : "";
+  const line = checkLine(c);
   const measured = headline ? html`<span class="sc-measured">${esc(sentence(prettyText(headline)))}</span> ` : "";
   const target = c.expected
     ? html`<span class="sc-target">Target set before the run: ${esc(sentence(prettyText(c.expected)))}</span>`
     : "";
   const note = noteText(c.note);
-  // A check not run yet says what it will do, in plain words, where its figure would be.
   const plain = info && (pending || !note) ? info.plain : "";
+  const how = [
+    plain ? html`<p class="sc-plain">${esc(plain)}</p>` : "",
+    measured || target ? html`<p class="sc-vs">${measured}${target}</p>` : "",
+    !pending && info?.scope ? html`<p class="sc-vs sc-scope">${esc(info.scope)}</p>` : "",
+    note ? html`<p class="sc-note">${esc(prettyText(note))}</p>` : "",
+    rowsBlock(c),
+  ].join("");
   return html`
     <article class="sc-check sc-${st}${lead && big ? " sc-lead" : ""}" id="sc-${id}" aria-labelledby="sc-${id}-claim">
-      <div class="sc-rail">
-        <span class="sc-id">${id}</span>
-        <span class="sc-status">${statusMark(st)}<span class="sc-word">${STATUS_WORD[st]}</span></span>
-      </div>
-      <h2 class="sc-claim" id="sc-${id}-claim">${esc(prettyText(c.claim))}</h2>
+      <h2 class="sc-claim" id="sc-${id}-claim">${esc(checkTitle(prettyText(c.claim)))}</h2>
+      <p class="sc-status">${statusMark(st)}<span class="sc-word">${STATUS_WORD[st]}</span></p>
       <div class="sc-main">
         ${figure}
-        ${pending && plain ? html`<p class="sc-plain">${esc(plain)}</p>` : ""}
-        ${measured || target ? html`<p class="sc-vs">${measured}${target}</p>` : ""}
-        ${!pending && info?.scope ? html`<p class="sc-vs sc-scope">${esc(info.scope)}</p>` : ""}
+        ${line ? html`<p class="sc-line">${esc(line)}</p>` : ""}
       </div>
-      ${note ? html`<p class="sc-note">${esc(prettyText(note))}</p>` : !pending && plain ? html`<p class="sc-note">${esc(plain)}</p>` : ""}
-      ${rowsBlock(c)}
+      <details class="sc-how">
+        <summary><span>${pending ? "What it would test" : "How it was tested"}</span>${CHEVRON}</summary>
+        <div class="sc-how-body">${how}</div>
+      </details>
     </article>`;
 }
 
@@ -501,15 +516,33 @@ export function renderSurePlain(v: ValidationResponse | null): string {
   </div>`;
 }
 
-/** "How sure we are": in plain words; with Advanced on, the summary, what the search can find, and every check V1–V11. */
-export function renderSure(v: ValidationResponse | null, dist: DistantResponse | null): string {
+/** Areas of the planets' path searched so far (the live feed), for the limitation on sky covered. */
+export type AreasDone = { done: number; total: number } | null;
+
+/**
+ * "Known limitations": what the results don't show, a few plain bullets. Drawn twice on the page,
+ * after the plain list (Advanced off) and after the checks (Advanced on); `cls` says which.
+ */
+export function renderLimits(v: ValidationResponse | null, dist: DistantResponse | null, areas: AreasDone, cls: string): string {
+  const items = limitations(v, dist, areas);
+  if (!items.length) return "";
+  return html`<section class="rs-limits${cls ? ` ${cls}` : ""}" aria-label="Known limitations">
+    <h3 class="rs-h3">Known limitations</h3>
+    <ul class="rs-limits-list">${items.map((l) => html`<li data-limit="${esc(l.key)}">${esc(l.text)}</li>`).join("")}</ul>
+  </section>`;
+}
+
+/** "How sure we are": in plain words; with Advanced on, the summary, what the search can find, every check, the limits. */
+export function renderSure(v: ValidationResponse | null, dist: DistantResponse | null, areas: AreasDone = null): string {
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
   return html`<div class="rs-sure">
     ${renderSurePlain(v)}
+    ${renderLimits(v, dist, areas, "plain-only")}
     <div class="rs-pro pro-only">
       ${renderSureHead(checks, v)}
       ${renderCompleteness(v, dist)}
       <div class="sc-checks" role="group" aria-label="The checks">${demote(checks.map((c, i) => renderCheck(c, i === 0)).join(""))}</div>
+      ${renderLimits(v, dist, areas, "")}
     </div>
   </div>`;
 }

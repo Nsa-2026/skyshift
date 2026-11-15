@@ -3,8 +3,8 @@
 // Advanced view (render.ts, distant.ts). Pure functions: strings in, strings out.
 import { gradeOf } from "../api/grades";
 import type { CandidatesResponse, CheckStatus, DistantResponse, ValidationCheck, ValidationResponse } from "../api/types";
-import { countStatuses, normStatus } from "./checks";
-import { bigValue } from "./format";
+import { checkTitle, countStatuses, normStatus } from "./checks";
+import { bigValue, prettyText, sentence } from "./format";
 
 /** One result in the plain list under "How sure we are": the check's own status, one sentence. */
 export interface PlainResult {
@@ -110,6 +110,160 @@ export function plainTally(checks: Pick<ValidationCheck, "status">[]): string {
     n.pending ? `${int(n.pending)} not run yet` : "",
   ].filter(Boolean);
   return parts.length ? `${parts.join(", ")}.` : "";
+}
+
+// ---- one line per check (the cards with Advanced on) ----------------------------------------------
+
+/** "1.06" → "6%": how far a ratio sits from 1, as a whole percentage. */
+const offBy = (r: number): string => `${Math.round(Math.abs(r - 1) * 100)}%`;
+
+/**
+ * One short plain sentence per check, from its value and headline; null when the number can't be
+ * read (the card then falls back to the headline's first clause).
+ */
+const LINES: Record<string, Writer> = {
+  V1: (c, h) => {
+    const n = countOf(c);
+    if (!n) return null;
+    const v = /\bin (\d+) of (\d+) visits\b/.exec(h);
+    const visits = v ? (v[1] === v[2] ? `, in all ${v[2]} visits` : `, in ${v[1]} of ${v[2]} visits`) : "";
+    return `Found ${n} test objects where predicted${visits}.`;
+  },
+  V2: (_c, h) => {
+    // "Gaia predicts 10.27" (+5.5%, 2.2°, …)": the gap in distance and in direction.
+    const m = /Gaia predicts[^(]*\(\s*([+\-−]?\d+(?:\.\d+)?)\s*%(?:,\s*(\d+(?:\.\d+)?)\s*°)?/.exec(h);
+    if (!m || !/Barnard/.test(h)) return null;
+    const dist = within(Number(m[1].replace("−", "-")));
+    return m[2] != null
+      ? `Barnard's Star moved as Gaia predicts: within ${dist} in distance, ${Math.max(1, Math.ceil(Number(m[2]) - 1e-9))}° in direction.`
+      : `Barnard's Star moved as Gaia predicts, within ${dist}.`;
+  },
+  V3: (_c, h) => {
+    const e = /Position error (\d+(?:\.\d+)?)"/.exec(h);
+    if (!e) return null;
+    const m = /motions above (\d+(?:\.\d+)?)"\/yr/.exec(h);
+    return m
+      ? `Positions repeat to ${e[1]}″, so motions above ${m[1]}″ a year show within a year.`
+      : `Positions repeat to ${e[1]}″.`;
+  },
+  V4: (c, h) => {
+    const n = countOf(c);
+    if (!n) return null;
+    const ctl = /control[^;]*?(\d+(?:\.\d+)?)%/.exec(h);
+    return `Found ${n} known asteroids where NASA predicted them${ctl ? `; chance matches ${ctl[1]}%` : ""}.`;
+  },
+  V5: (c) =>
+    typeof c.value === "number" && c.value >= 0 && c.value <= 1
+      ? `Found ${pct(c.value)} of bright known asteroids without being told where to look.`
+      : null,
+  V6: (_c, h) => {
+    const m = /^(\d+) of (\d+) fastest Gaia stars measured: slope (\d+(?:\.\d+)?)/.exec(h.trim());
+    if (!m) return null;
+    const who = m[1] === m[2] ? `All ${m[2]}` : `${m[1]} of ${m[2]}`;
+    return `${who} of the fastest Gaia stars moved as predicted, within ${offBy(Number(m[3]))}.`;
+  },
+  V7: (_c, h) => {
+    const m = /^(\d+) of (\d+) brown dwarfs/.exec(h.trim());
+    if (!m) return null;
+    return `${m[1]} of ${m[2]} brown dwarfs with a visible yearly shift moved the predicted way.`;
+  },
+  V8: (c, h) => {
+    const ratios = [...h.matchAll(/\b(?:Ks|W1) (\d+\.\d+)\b/g)].map((m) => Number(m[1]));
+    if (!ratios.length && c.unit === "ratio" && typeof c.value === "number") ratios.push(c.value);
+    if (!ratios.length || ratios.some((r) => !(r > 0))) return null;
+    const off = Math.max(...ratios.map((r) => Math.abs(1 - r) * 100));
+    const t = /time to first frame (\d+(?:\.\d+)?) s\b/.exec(h);
+    return `Star brightness matches older surveys within ${within(off)}${t ? `; first image in ${t[1]} s` : ""}.`;
+  },
+  V9: (c, h) => {
+    const m = /^([\d,]+) stars vs Gaia/.exec(h.trim());
+    if (!m || normStatus(c.status) !== "pass") return null;
+    return `Motions of ${m[1]} stars match Gaia on average, with honest error bars.`;
+  },
+  V10: (_c, h) => {
+    const m = /^([\d,]+) bright galaxies[^:]*:\s*sigma_NMAD (\d+(?:\.\d+)?)(?:, outliers (\d+(?:\.\d+)?%))?/.exec(h.trim());
+    if (!m) return null;
+    return `Distances of ${m[1]} bright galaxies match SDSS: typical scatter ${m[2]}${m[3] ? `, ${m[3]} far off` : ""}.`;
+  },
+  V11: (_c, h) => {
+    const n = /^(\d+) asteroids\b/.exec(h.trim());
+    const d = /diameter (\d+(?:\.\d+)?)x published/.exec(h);
+    if (!n || !d) return null;
+    const dr = Number(d[1]);
+    const a = /albedo (\d+(?:\.\d+)?)x/.exec(h);
+    const ar = a ? Number(a[1]) : null;
+    const size = `Sizes of ${n[1]} asteroids came out ${offBy(dr)} ${dr >= 1 ? "above" : "below"} published`;
+    return ar != null ? `${size}; reflectivity ${offBy(ar)} ${ar >= 1 ? "above" : "below"}.` : `${size}.`;
+  },
+};
+
+/** The headline's first clause, as a sentence: the card's line when no writer reads the number. */
+function firstClause(h: string): string {
+  const t = h.split(/;\s/)[0].trim();
+  return t ? sentence(prettyText(t)) : "";
+}
+
+/**
+ * The one line under a check's title: a plain sentence with its numbers, or for a check that
+ * hasn't run, why ("Cut for the one-day build.").
+ */
+export function checkLine(c: ValidationCheck): string {
+  const h = typeof c.headline === "string" ? c.headline.trim() : "";
+  if (normStatus(c.status) === "pending") return h ? sentence(prettyText(h)) : "Not run yet.";
+  const w = LINES[c.id];
+  return (w ? w(c, h) : null) ?? firstClause(h);
+}
+
+// ---- Known limitations ----------------------------------------------------------------------------
+
+/** One limitation; `key` lets the page update one in place (the sky covered, once the feed is read). */
+export interface Limitation {
+  key: string;
+  text: string;
+}
+
+const COUNT_WORD = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven"];
+
+/** How much of the planets' path the search has covered: "12 of 333 areas" once known. */
+export function skyLimit(areas: { done: number; total: number } | null = null): string {
+  const n = areas && areas.total > 0 && areas.done < areas.total ? `: ${int(areas.done)} of ${int(areas.total)} areas` : "";
+  return `So far the search has covered only part of the planets' path across the sky${n}.`;
+}
+
+/**
+ * What the results don't show, in plain words, at most 20 each. Each comes from the published files
+ * or what the checks themselves say; one whose source is missing is left out.
+ */
+export function limitations(
+  v: ValidationResponse | null,
+  d: DistantResponse | null,
+  areas: { done: number; total: number } | null = null,
+): Limitation[] {
+  const checks = Array.isArray(v?.checks) ? v!.checks : [];
+  const out: Limitation[] = [
+    { key: "confirmed", text: "Nothing is confirmed yet: most objects to check are detector glitches, sorted only by people's votes." },
+  ];
+  if (!areas || areas.done < areas.total) out.push({ key: "sky", text: skyLimit(areas) });
+  if (d?.injection && /detection[^.]*not tested/i.test(d.injection.method ?? "")) {
+    out.push({
+      key: "planet",
+      text: "Made-up planets were added to the list of sources, not to the photos, so spotting a faint one is untested.",
+    });
+  }
+  const v5 = checks.find((c) => c.id === "V5");
+  if (v5 && normStatus(v5.status) !== "pending") {
+    out.push({ key: "speed", text: "Asteroid finding was tested at 10–90″ an hour; slower movers aren't checked against real ones yet." });
+  }
+  out.push({ key: "bright", text: "Very bright stars, like Barnard's Star, overload their centre pixels; we measure them from the edges." });
+  const notRun = checks.filter((c) => normStatus(c.status) === "pending");
+  if (checks.length && notRun.length) {
+    const names = notRun.map((c) => checkTitle(c.claim));
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+    const cut = notRun.every((c) => /\bcut\b/i.test(String(c.headline ?? ""))) ? ", cut from the one-day build" : "";
+    const n = notRun.length < COUNT_WORD.length ? COUNT_WORD[notRun.length] : int(notRun.length);
+    out.push({ key: "notrun", text: `${n} ${notRun.length === 1 ? "check was" : "checks were"} not run: ${list}${cut}.` });
+  }
+  return out;
 }
 
 // ---- What we found ------------------------------------------------------------------------------

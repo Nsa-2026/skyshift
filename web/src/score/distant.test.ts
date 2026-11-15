@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import publishedJson from "../../public/data/distant.json";
 import type { DistantResponse } from "../api/types";
-import { chanceText, dropText, renderDistant, verdictText, zoneText } from "./distant";
+import { chanceText, distanceText, dropText, renderDistant, verdictText, zoneText } from "./distant";
 import { mountScore, renderScore } from "./index";
 import { distantPlain } from "./plain";
 
@@ -133,7 +133,7 @@ describe("distant-planet search section", () => {
     // sensitivity
     expect(text(s)).toContain("We added 192 made-up planets at 70–1,000 AU");
     expect(text(s)).toContain("The search found 184 of them (96%). At every distance it found at least 91%, and 83% in the hardest single setting.");
-    expect(text(s)).toContain("typically 1.6% off the true one");
+    expect(text(s)).toContain("It put them at the right distance to within about 1.6% (e.g. a planet at 300 AU came out at about 295–305 AU).");
     const inj = [...s.querySelectorAll(".sc-distant-injection tbody tr")].map((r) => [...r.children].map(text));
     expect(inj[0]).toEqual(["70 AU", "63", "61 97%", "70 AU"]);
     expect(inj).toHaveLength(3);
@@ -145,6 +145,13 @@ describe("distant-planet search section", () => {
     expect(limits.some((t) => t.includes("more than 1″ an hour"))).toBe(true);
     expect(text(s.querySelector(".sc-zone"))).toContain("14 Nov 2026, 17:35 UTC");
     expect(s.querySelector<HTMLAnchorElement>('a[href="/data/distant.json"]')).not.toBeNull();
+  });
+
+  it("gives the distance error with a worked example at 300 AU, rounded from the percentage", () => {
+    expect(distanceText(0.016)).toContain("within about 1.6% (e.g. a planet at 300 AU came out at about 295–305 AU)");
+    expect(distanceText(0.01)).toContain("about 1% (e.g. a planet at 300 AU came out at about 297–303 AU)");
+    expect(distanceText(0.05)).toContain("about 5% (e.g. a planet at 300 AU came out at about 285–315 AU)");
+    expect(distanceText(0.001)).toContain("299–301 AU");
   });
 
   it("follows the file's own verdict when a search finds more than chance", () => {
