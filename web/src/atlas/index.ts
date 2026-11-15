@@ -213,7 +213,11 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   // ---- state ---------------------------------------------------------------------------------
   let state: AtlasState = { ra: 0, dec: 0, fov: WHOLE_FOV, gal: false, mol: false, kinds: [...KINDS] };
   // No heat map by default: each zone is one outline with its count, and objects show as dots closer in.
-  let layers: Layers = { heat: false, zones: true, signals: true, search: false, provisional: true, background: "2mass", negative: false };
+  // SPHEREx, not 2MASS: the page says "NASA's SPHEREx sky" and the challenge is SPHEREx's, so
+  // the sky it opens on should be the mission's own. 2MASS is one click away in Adjust. The heat
+  // map comes back with it — without it the opening view has no red to zoom into, which is what
+  // the lede tells people to do.
+  let layers: Layers = { heat: true, zones: true, signals: true, search: false, provisional: true, background: "spherex", negative: false };
   stage.classList.add("is-positive");
   /** Tonight's search (the sky run's progress file), refreshed every minute while the page shows. */
   let search: SearchLayer | null = null;

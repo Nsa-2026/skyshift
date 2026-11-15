@@ -1356,3 +1356,13 @@ a.btn {
     box-shadow: none;
   }
 }
+
+
+/* The home figure does not follow the page. It shares .ln-fig with the lesson figures, where
+   sticky is right: there the figure sits beside one column of prose and nothing follows it.
+   The home layout has a third row across the full width ("more"), and the sticky figure held
+   its place over that row as it scrolled up, covering 449px of the cards underneath. Measured:
+   widening the rows changes nothing, dropping sticky takes the overlap to zero. */
+.ln-home-fig {
+  position: static;
+}
