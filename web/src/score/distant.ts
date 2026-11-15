@@ -123,6 +123,17 @@ function onePairText(d: DistantResponse): string {
   return `The pair: two faint sources ${arcsec(p.sep_arcsec)} apart${along}, which one orbit about ${int(p.distance_au)} AU from the Sun would explain.${flux}${chance}`;
 }
 
+/**
+ * How close the fitted distance came, with a worked example at 300 AU: 0.016 → "within about 1.6%
+ * (… 295–305 AU)". The example's margin is rounded to whole AU, or to 5 AU once it passes 10.
+ */
+export function distanceText(frac: number): string {
+  const f = Math.abs(frac);
+  const raw = 300 * f;
+  const m = Math.max(1, raw < 10 ? Math.round(raw) : Math.round(raw / 5) * 5);
+  return `It put them at the right distance to within about ${dec(f * 100)}% (e.g. a planet at 300 AU came out at about ${int(300 - m)}–${int(300 + m)} AU).`;
+}
+
 function injectionPart(d: DistantResponse): string {
   const inj = d.injection;
   if (!inj || !inj.distances.length) {
@@ -141,7 +152,7 @@ function injectionPart(d: DistantResponse): string {
     bits.push(`At every distance it found at least ${pct(worst)}${cell != null ? `, and ${pct(cell)} in the hardest single setting` : ""}.`);
   }
   if (inj.distance_err_median_frac != null) {
-    bits.push(`The distance it gave was typically ${dec(inj.distance_err_median_frac * 100)}% off the true one.`);
+    bits.push(distanceText(inj.distance_err_median_frac));
   }
   const rows = inj.distances
     .map(

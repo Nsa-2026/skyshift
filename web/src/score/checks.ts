@@ -117,6 +117,11 @@ export const CHECKS: CheckInfo[] = [
   },
 ];
 
+/** "Asteroids re-found, blind (S1)" → "Asteroids re-found, blind": the title without its plan code. */
+export function checkTitle(claim: string): string {
+  return claim.replace(/\s*\((?:[SV]\d+)\)\s*$/, "").trim() || claim;
+}
+
 export function checkInfo(id: string): CheckInfo | undefined {
   return CHECKS.find((c) => c.id === id);
 }
