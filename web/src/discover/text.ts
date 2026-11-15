@@ -151,6 +151,29 @@ export function gradeFacetText(v: string): { label: string; title: string } {
   };
 }
 
+/** The groups the list sets aside unless asked (filters.ts SET_ASIDE), in plain words:
+ *  "8,108 moving stars Gaia already knows". `short` names the group inside a sentence. */
+export const SET_ASIDE_TEXT: Record<"gaia_known" | "not_significant" | "grade_c", { one: string; many: string; short: string; title: string }> = {
+  gaia_known: {
+    one: "moving star Gaia already knows",
+    many: "moving stars Gaia already knows",
+    short: "moving stars Gaia already knows",
+    title: "Gaia lists these stars with the same motion. Finding them again shows the method works, but there's nothing new to find.",
+  },
+  not_significant: {
+    one: "fast mover whose motion isn't significant",
+    many: "fast movers whose motion isn't significant",
+    short: "fast movers whose motion isn't significant",
+    title: "Their motion is under 3σ of the position errors, so they may not move at all.",
+  },
+  grade_c: {
+    one: "grade C fast mover",
+    many: "grade C fast movers",
+    short: "grade C fast movers",
+    title: "They fail one of our checks (most likely a camera glitch) or sit on a catalogued source, so they aren't put to a vote.",
+  },
+};
+
 export type ReviewState = "none" | "some" | "consensus";
 export const REVIEW_TEXT: Record<ReviewState, string> = {
   none: "Not reviewed yet",

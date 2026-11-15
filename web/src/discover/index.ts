@@ -6,6 +6,9 @@
 // #/candidates/kind=mover&map=1, opened from the toolbar's "See them on the sky") is a page of its
 // own: the same interactive sky map (./skymap.ts) shown beside the intro, with more room.
 // Downloads: this list, and the list for astronomers (src/community, the Community page's own list and rule).
+// What's worth checking: the list sets aside moving stars Gaia already knows, fast movers whose motion
+// isn't significant and grade C fast movers (./filters.ts setAsideOf). A line under the toolbar names
+// each group with its count, one click from the list (show=… in the URL), and "Show all" adds them all.
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
 import { loadCandidates } from "../api/client";
@@ -26,6 +29,7 @@ import {
   PLANE_B,
   PRESETS,
   RANGES,
+  SET_ASIDE,
   SORTS,
   activeCount,
   activePreset,
@@ -49,6 +53,8 @@ import {
   presetState,
   queryToState,
   sameState,
+  setAsideValues,
+  setsAside,
   significance,
   sortRows,
   toRows,
@@ -59,12 +65,13 @@ import {
   type Range,
   type RangeKey,
   type Row,
+  type SetAside,
   type SortKey,
   type TestKey,
   type Tri,
 } from "./filters";
 import { glyphSvg, mapGlyph, mountSkyMap, type SkyMapHandle } from "./skymap";
-import { GRADE_PLAIN, GRADE_VALUES, KIND_TEXT, KINDS, REVIEW_TEXT, flagText, gradeFacetText, labelText, reasonText, type ReviewState } from "./text";
+import { GRADE_PLAIN, GRADE_VALUES, KIND_TEXT, KINDS, REVIEW_TEXT, SET_ASIDE_TEXT, flagText, gradeFacetText, labelText, reasonText, type ReviewState } from "./text";
 import { thumbLoader } from "./thumb";
 import { onVoted, openVoteReader, type VoteReader } from "./votes";
 
@@ -140,6 +147,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
           </details>
           <a class="btn btn-sm dv-skylink" href="#/candidates/map=1" title="These objects on a large sky map">${mapGlyph()}See them on the sky</a>
         </div>
+        <div class="dv-scope" hidden></div>
         <p class="dv-real" hidden>These are the objects the community agreed move or change: at least ${CONSENSUS.minVotes} votes with ${CONSENSUS_PCT}% agreeing.
           They go to astronomers as leads to check, not discoveries.
           <button type="button" class="btn-link" data-astro="csv">Download the list for astronomers (CSV)</button>
@@ -164,6 +172,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const fxBody = $<HTMLDivElement>(".fx-body");
   const toolbar = $<HTMLDivElement>(".dv-toolbar");
   const countEl = $<HTMLHeadingElement>(".dv-count");
+  const scopeEl = $<HTMLDivElement>(".dv-scope");
   const filtersBtn = $<HTMLButtonElement>(".dv-filters-btn");
   const sortSel = $<HTMLSelectElement>(".dv-select");
   const activeEl = $<HTMLUListElement>(".dv-active");
@@ -276,6 +285,9 @@ export const mountDiscover: MountPage = (el, ctx) => {
     rememberDiscover();
   }
 
+  /** "Clear all": no filters, the same order, and the same set-aside groups shown (not a filter). */
+  const cleared = (): FilterState => ({ ...defaultState(), sort: state.sort, show: [...state.show] });
+
   function setState(next: FilterState, opts: { keepPage?: boolean } = {}) {
     state = next;
     if (!opts.keepPage) shown = PAGE;
@@ -291,6 +303,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     for (const u of updates) u();
     renderPresets();
     renderToolbar();
+    renderScope();
     renderActive();
     renderReal();
     renderList();
@@ -733,7 +746,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   sortSel.addEventListener("change", () => setState({ ...state, sort: sortSel.value as SortKey }, { keepPage: true }));
   filtersBtn.addEventListener("click", () => openSheet(true));
   el.querySelectorAll<HTMLButtonElement>("[data-close-sheet]").forEach((b) => b.addEventListener("click", () => openSheet(false)));
-  $<HTMLButtonElement>("[data-clear]").addEventListener("click", () => setState({ ...defaultState(), sort: state.sort }));
+  $<HTMLButtonElement>("[data-clear]").addEventListener("click", () => setState(cleared()));
   filtersEl.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && filtersEl.dataset.open === "true") openSheet(false);
   });
@@ -831,6 +844,66 @@ export const mountDiscover: MountPage = (el, ctx) => {
     });
   }
 
+  // ---- what's worth checking: the groups set aside, each one click away -------------------------
+  // Counts are under the other filters (f.without("scope")), like the facet counts, so they say
+  // what a click would add to this list.
+
+  scopeEl.addEventListener("click", (ev) => {
+    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-scope]");
+    if (!b) return;
+    const v = b.dataset.scope!;
+    const g = v as SetAside;
+    const show = v === "all" ? [...SET_ASIDE] : v === "none" ? [] : state.show.includes(g) ? state.show.filter((x) => x !== g) : [...state.show, g];
+    setState({ ...state, show });
+    (scopeEl.querySelector<HTMLButtonElement>(`button[data-scope="${cssEsc(v)}"]`) ?? scopeEl.querySelector<HTMLButtonElement>("button[data-scope]") ?? countEl).focus();
+  });
+
+  /** "8,108 moving stars Gaia already knows". */
+  const asideText = (g: SetAside, n: number) => plural(n, SET_ASIDE_TEXT[g].one, SET_ASIDE_TEXT[g].many);
+
+  function renderScope() {
+    const base = f.without("scope");
+    const n = countBy(base, setAsideValues);
+    const aside = SET_ASIDE.reduce((a, g) => a + (n.get(g) ?? 0), 0);
+    if (state.verdict.length) {
+      // "Community says real": a verdict outranks our checks, so nothing is set aside.
+      scopeEl.hidden = aside === 0;
+      scopeEl.innerHTML = html`<p class="dv-scope-text">Nothing is set aside here: what the community agreed on counts more than our checks.</p>`;
+      return;
+    }
+    const groups = SET_ASIDE.filter((g) => (n.get(g) ?? 0) > 0 || state.show.includes(g));
+    scopeEl.hidden = groups.length === 0;
+    if (!groups.length) {
+      scopeEl.innerHTML = "";
+      return;
+    }
+    const hiding = groups.some((g) => !state.show.includes(g) && (n.get(g) ?? 0) > 0);
+    const lead = !state.show.length
+      ? "Only what's worth checking is listed."
+      : hiding
+        ? "What's worth checking is listed, plus what you added."
+        : `Everything is listed, including ${plural(aside, "object", "objects")} usually set aside.`;
+    const action = hiding
+      ? html`<button type="button" class="btn-link" data-scope="all" title="List everything, set-aside ones too">Show all ${base.length.toLocaleString("en-GB")}</button>`
+      : html`<button type="button" class="btn-link" data-scope="none" title="Set these groups aside again">Only what's worth checking</button>`;
+    scopeEl.innerHTML = html`<p class="dv-scope-text">${esc(lead)}</p>
+      <span class="dv-scope-label" id="dv-scope-l">Also show:</span>
+      <span class="dv-scope-groups" role="group" aria-labelledby="dv-scope-l">${groups
+        .map((g) => {
+          const on = state.show.includes(g);
+          return html`<button type="button" class="fchip" data-scope="${g}" aria-pressed="${on}" title="${esc(SET_ASIDE_TEXT[g].title)}">${esc(asideText(g, n.get(g) ?? 0))}</button>`;
+        })
+        .join("")}</span>
+      ${action}`;
+  }
+
+  /** The set-aside rule in a few words, for the map page's list of what's filtered (null: nothing set aside). */
+  function scopeChip(): string | null {
+    if (!setsAside(state) || f.without("scope").length === sorted.length) return null;
+    if (!state.show.length) return "Only what's worth checking";
+    return `Worth checking, plus ${SET_ASIDE.filter((g) => state.show.includes(g)).map((g) => SET_ASIDE_TEXT[g].short).join(" and ")}`;
+  }
+
   function renderActive() {
     const chips = activeChips(state);
     activeEl.hidden = chips.length === 0;
@@ -839,7 +912,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       (chips.length > 1 ? html`<li><button type="button" class="btn-link" data-i="all">Clear all</button></li>` : "");
     activeEl.querySelectorAll<HTMLButtonElement>("button[data-i]").forEach((b) =>
       b.addEventListener("click", () => {
-        if (b.dataset.i === "all") setState({ ...defaultState(), sort: state.sort });
+        if (b.dataset.i === "all") setState(cleared());
         else setState(chips[Number(b.dataset.i)].remove());
         activeEl.querySelector<HTMLButtonElement>("button")?.focus() ?? countEl.focus();
       }),
@@ -911,7 +984,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       stateEl.innerHTML = html`
         <p class="dv-state-title">Nothing to check first.</p>
         <p class="dv-state-text">Nothing unsettled here looks like a camera glitch: no odd pixels, ghosts or halos near it, and no spot seen again days apart.</p>
-        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Show the whole list</button></div>`;
+        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Back to the list</button></div>`;
       stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
       return;
     }
@@ -919,12 +992,30 @@ export const mountDiscover: MountPage = (el, ctx) => {
       stateEl.innerHTML = html`
         <p class="dv-state-title">Nothing the community agreed on yet.</p>
         <p class="dv-state-text">An object joins this list when ${CONSENSUS.minVotes} people have voted and ${CONSENSUS_PCT}% of them say it moves or changes. Those go to astronomers. Your votes get it there.</p>
-        <div class="dv-state-actions"><button type="button" class="btn btn-primary" data-vote-now>Check the ones that need votes</button><button type="button" class="btn btn-ghost" data-clear-all>Show the whole list</button></div>`;
+        <div class="dv-state-actions"><button type="button" class="btn btn-primary" data-vote-now>Check the ones that need votes</button><button type="button" class="btn btn-ghost" data-clear-all>Back to the list</button></div>`;
       stateEl.querySelector("[data-vote-now]")?.addEventListener("click", () => {
         setState(presetState(PRESETS.find((p) => p.id === "needs-vote")!));
         startChecking();
       });
       stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
+      return;
+    }
+    // Only set-aside ones match (a link to grade C, say): name them and show them in one click.
+    const asideRows = f.activeKeys.includes("scope") ? f.without("scope") : [];
+    if (asideRows.length) {
+      const n = countBy(asideRows, setAsideValues);
+      const groups = SET_ASIDE.filter((g) => n.get(g)).map((g) => asideText(g, n.get(g)!));
+      const named = groups.length > 1 ? `${groups.slice(0, -1).join(", ")} and ${groups.at(-1)}` : groups[0];
+      const one = asideRows.length === 1;
+      stateEl.innerHTML = html`
+        <p class="dv-state-title">Nothing worth checking matches these filters.</p>
+        <p class="dv-state-text">${esc(`${named} ${one ? "matches" : "match"} them, but ${one ? "it's" : "they're"} set aside.`)}</p>
+        <div class="dv-state-actions">
+          <button type="button" class="btn" data-show-aside>Show ${asideRows.length === 1 ? "it" : "them"}</button>
+          <button type="button" class="btn btn-ghost" data-clear-all>Clear all filters</button>
+        </div>`;
+      stateEl.querySelector("[data-show-aside]")?.addEventListener("click", () => setState(withoutTest(state, "scope")));
+      stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(cleared()));
       return;
     }
     stateEl.innerHTML = html`
@@ -939,7 +1030,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
         <button type="button" class="btn btn-ghost" data-clear-all>Clear all filters</button>
       </div>`;
     stateEl.querySelector("[data-relax]")?.addEventListener("click", () => hint && setState(withoutTest(state, hint.key)));
-    stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState({ ...defaultState(), sort: state.sort }));
+    stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(cleared()));
   }
 
   function renderNoData() {
@@ -1083,12 +1174,14 @@ export const mountDiscover: MountPage = (el, ctx) => {
       chipsEl.hidden = change.hidden = true;
       return;
     }
-    const chips = activeChips(state);
+    // What's set aside counts as filtered here, so the count never claims "All" while some are missing.
+    const scope = scopeChip();
+    const chips = [...(scope ? [scope] : []), ...activeChips(state).map((c) => c.label)];
     count.textContent = chips.length
       ? `${sorted.length.toLocaleString("en-GB")} of ${plural(rows.length, "object", "objects")}, filtered:`
       : `All ${plural(rows.length, "object", "objects")}, no filters.`;
     chipsEl.hidden = !chips.length;
-    chipsEl.innerHTML = chips.map((c) => html`<li>${esc(c.label)}</li>`).join("");
+    chipsEl.innerHTML = chips.map((c) => html`<li>${esc(c)}</li>`).join("");
     change.hidden = false;
     change.textContent = chips.length ? "Change filters" : "Filter them";
     const host = on ? skyEl.querySelector<HTMLElement>("[data-skymap]")! : mapPreview;

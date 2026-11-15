@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import fixture from "../../../fixtures/api/candidates.json";
 import type { Candidate, CandidatesResponse } from "../api/types";
@@ -5,6 +7,7 @@ import type { Counts } from "../vote/model";
 import {
   PRESETS,
   RANGES,
+  SET_ASIDE,
   SORTS,
   activeCount,
   activePreset,
@@ -25,6 +28,9 @@ import {
   queryToState,
   routeQuery,
   sameState,
+  setAsideOf,
+  setAsideValues,
+  setsAside,
   significance,
   sortRows,
   stateToQuery,
@@ -36,6 +42,8 @@ import {
 
 const data = fixture as unknown as CandidatesResponse;
 const all = data.candidates;
+/** The list the site publishes (scripts/precompute), for the set-aside rule's invariants. */
+const published = JSON.parse(readFileSync(join(__dirname, "../../public/data/candidates.json"), "utf8")) as CandidatesResponse;
 
 const base: Candidate = {
   id: "x", kind: "high_pm", ra: 122, dec: 16, mjd: 61000, clock: "months", det: 2, zone: "pilot",
@@ -46,6 +54,10 @@ const base: Candidate = {
 const c = (o: Partial<Candidate>): Candidate => ({ ...base, ...o });
 const votes = (mover = 0, changing = 0, junk = 0, unsure = 0): Counts => ({ mover, changing, junk, unsure });
 const st = (o: Partial<FilterState>): FilterState => ({ ...defaultState(), ...o });
+/** The same, with every set-aside group shown (show=all): filters on the whole sample. */
+const every = (o: Partial<FilterState> = {}): FilterState => st({ show: [...SET_ASIDE], ...o });
+/** The pilot sample's 142 moving stars all have a Gaia match: 52 of its 194 are worth checking. */
+const WORTH = all.filter((x) => !(x.kind === "high_pm" && x.gaia_match)).length;
 
 describe("rows and consensus", () => {
   it("reads review state and the verdict from the counts (≥ 5 votes, ≥ 70 % on one answer)", () => {
@@ -97,13 +109,15 @@ describe("measured values", () => {
 describe("filtering the pilot sample", () => {
   const rows = toRows(all, new Map());
 
-  it("keeps everything with no filters", () => {
-    expect(filterRows(rows, defaultState()).rows).toHaveLength(194);
+  it("keeps everything worth checking with no filters, and everything with show=all", () => {
+    expect(WORTH).toBe(52);
+    expect(filterRows(rows, defaultState()).rows).toHaveLength(WORTH);
+    expect(filterRows(rows, every()).rows).toHaveLength(194);
   });
 
   it("ORs within a facet and ANDs between facets", () => {
     expect(filterRows(rows, st({ kind: ["mover"] })).rows).toHaveLength(27);
-    expect(filterRows(rows, st({ kind: ["mover", "high_pm"] })).rows).toHaveLength(194);
+    expect(filterRows(rows, every({ kind: ["mover", "high_pm"] })).rows).toHaveLength(194);
     const f = filterRows(rows, st({ kind: ["high_pm"], gaia: "no" }));
     expect(f.rows.every((r) => r.c.kind === "high_pm" && !r.c.gaia_match)).toBe(true);
     expect(f.rows.length).toBe(all.filter((x) => x.kind === "high_pm" && !x.gaia_match).length);
@@ -119,7 +133,7 @@ describe("filtering the pilot sample", () => {
   });
 
   it("hides the pipeline's doubts, artefact cautions and my own votes", () => {
-    const doubtless = filterRows(rows, st({ hideDoubts: true })).rows;
+    const doubtless = filterRows(rows, every({ hideDoubts: true })).rows;
     expect(doubtless).toHaveLength(35); // 27 movers (support reasons only) + 8 vetted moving stars
     const flagged = toRows([c({ id: "f", flags: ["ghost"] }), c({ id: "g" })], new Map(), (id) => id === "g");
     expect(filterRows(flagged, st({ cautions: "no" })).rows.map((r) => r.c.id)).toEqual(["g"]);
@@ -148,9 +162,9 @@ describe("filtering the pilot sample", () => {
     const bright = filterRows(rows, st({ ranges: { flux: { min: 2000, max: null } } })).rows;
     expect(bright.length).toBeGreaterThan(0);
     expect(bright.every((r) => (r.c.flux_ujy ?? 0) >= 2000)).toBe(true);
-    expect(filterRows(rows, st({ ranges: { b: { min: 10, max: null } } })).rows).toHaveLength(194); // pilot is at b ≈ +25°
-    expect(filterRows(rows, st({ ranges: { b: { min: 30, max: null } } })).rows).toHaveLength(0);
-    expect(filterRows(rows, st({ label: ["red"] })).rows).toHaveLength(16);
+    expect(filterRows(rows, every({ ranges: { b: { min: 10, max: null } } })).rows).toHaveLength(194); // pilot is at b ≈ +25°
+    expect(filterRows(rows, every({ ranges: { b: { min: 30, max: null } } })).rows).toHaveLength(0);
+    expect(filterRows(rows, every({ label: ["red"] })).rows).toHaveLength(16);
   });
 
   it("filters by verdict only where there is one", () => {
@@ -160,14 +174,124 @@ describe("filtering the pilot sample", () => {
   });
 
   it("suggests the one filter whose removal brings back the most", () => {
-    const s = st({ kind: ["mover"], gaia: "yes" });
+    const s = every({ kind: ["mover"], gaia: "yes" });
     const f = filterRows(rows, s);
     expect(f.rows).toHaveLength(0);
     const hint = bestRelaxation(f);
     expect(hint).toEqual({ key: "kind", n: 142 }); // the 142 Gaia matches are all moving stars
-    expect(stateToQuery(withoutTest(s, hint!.key))).toBe("gaia=yes");
+    expect(stateToQuery(withoutTest(s, hint!.key))).toBe("gaia=yes&show=all");
     expect(filterRows(rows, withoutTest(s, "gaia")).rows).toHaveLength(27);
     expect(withoutTest(st({ ranges: { score: { min: 0.1, max: null } } }), "score").ranges).toEqual({});
+    // Without show=all, those 142 are set aside: the hint is the Gaia filter, and the set-aside rule is a test of its own.
+    const d = filterRows(rows, st({ kind: ["mover"], gaia: "yes" }));
+    expect(bestRelaxation(d)).toEqual({ key: "gaia", n: 27 });
+    const known = filterRows(rows, st({ kind: ["high_pm"], gaia: "yes" }));
+    expect(known.rows).toHaveLength(0);
+    expect(bestRelaxation(known)).toEqual({ key: "scope", n: 142 });
+    expect(stateToQuery(withoutTest(st({ kind: ["high_pm"], gaia: "yes" }), "scope"))).toBe("kind=high_pm&gaia=yes&show=all");
+  });
+});
+
+describe("what's worth checking (the set-aside rule)", () => {
+  const mover = (o: Partial<Candidate>) => c({ kind: "mover", ...o });
+  const ns = ["two_exposures", "motion_not_significant"];
+
+  it("sets aside moving stars Gaia knows, grade C movers, and movers below A whose motion isn't significant: from fields only", () => {
+    expect(setAsideOf(c({ kind: "high_pm", gaia_match: true }))).toBe("gaia_known");
+    expect(setAsideOf(c({ kind: "high_pm", gaia_match: false }))).toBeNull();
+    expect(setAsideOf(c({ kind: "high_pm", gaia_match: false, reasons: ["pm_pair", "implausible_pm"] }))).toBeNull();
+    expect(setAsideOf(mover({ grade: "A" }))).toBeNull();
+    expect(setAsideOf(mover({ grade: "A", reasons: ns }))).toBeNull(); // grade A is always worth checking
+    expect(setAsideOf(mover({ grade: "B" }))).toBeNull();
+    expect(setAsideOf(mover({ grade: "B", reasons: ns }))).toBe("not_significant");
+    expect(setAsideOf(mover({ grade: "C", reasons: ["hot_pixel"] }))).toBe("grade_c");
+    expect(setAsideOf(mover({ grade: "C", reasons: ns }))).toBe("grade_c"); // one group each: C wins
+    expect(setAsideOf(mover({}))).toBeNull(); // not vetted yet: nothing says to set it aside
+    expect(setAsideOf(mover({ reasons: ns }))).toBe("not_significant");
+    // Odd spectra and "one or two?" stay as they are, whatever their fields say.
+    expect(setAsideOf(c({ kind: "spectral", gaia_match: true, reasons: ns }))).toBeNull();
+    expect(setAsideOf(c({ kind: "shape", gaia_match: true, grade: "C" }))).toBeNull();
+  });
+
+  // A small list shaped like the published one: kinds, grades and reasons, not ids.
+  const mix = [
+    ...Array.from({ length: 6 }, (_, i) => c({ id: `pm-known-${i}`, kind: "high_pm", gaia_match: true })),
+    ...Array.from({ length: 2 }, (_, i) => c({ id: `pm-new-${i}`, kind: "high_pm", gaia_match: false })),
+    ...Array.from({ length: 3 }, (_, i) => mover({ id: `a-${i}`, grade: "A" })),
+    ...Array.from({ length: 4 }, (_, i) => mover({ id: `b-${i}`, grade: "B" })),
+    ...Array.from({ length: 5 }, (_, i) => mover({ id: `b-ns-${i}`, grade: "B", reasons: ns })),
+    ...Array.from({ length: 7 }, (_, i) => mover({ id: `c-${i}`, grade: "C", reasons: i % 2 ? ns : ["bad_column"] })),
+    ...Array.from({ length: 2 }, (_, i) => c({ id: `sp-${i}`, kind: "spectral" })),
+    c({ id: "sh", kind: "shape" }),
+  ];
+  const rows = toRows(mix, new Map());
+  const byKind = (rs: ReturnType<typeof toRows>) => Object.fromEntries(countBy(rs, FACET_VALUES.kind));
+
+  it("lists by default only what's worth checking, and counts what it sets aside", () => {
+    const f = filterRows(rows, defaultState());
+    expect(byKind(f.rows)).toEqual({ high_pm: 2, mover: 7, spectral: 2, shape: 1 }); // 3 A + 4 B
+    expect(f.activeKeys).toEqual(["scope"]);
+    expect(f.without("scope")).toHaveLength(mix.length);
+    expect(Object.fromEntries(countBy(f.without("scope"), setAsideValues))).toEqual({ gaia_known: 6, not_significant: 5, grade_c: 7 });
+    expect(f.rows.length + 6 + 5 + 7).toBe(mix.length);
+    expect(activeCount(defaultState())).toBe(0); // a baseline, not a filter
+  });
+
+  it("adds back the groups asked for, and everything with show=all", () => {
+    expect(filterRows(rows, st({ show: ["gaia_known"] })).rows).toHaveLength(12 + 6);
+    expect(filterRows(rows, st({ show: ["not_significant", "grade_c"] })).rows).toHaveLength(12 + 5 + 7);
+    const f = filterRows(rows, every());
+    expect(f.rows).toHaveLength(mix.length);
+    expect(f.activeKeys).toEqual([]); // nothing set aside: no test at all
+    expect(setsAside(every())).toBe(false);
+    expect(activeCount(every())).toBe(0);
+  });
+
+  it("keeps facet counts to what's listed, so a grade C link finds nothing until the group is shown", () => {
+    const f = filterRows(rows, st({ grade: ["C"] }));
+    expect(f.rows).toHaveLength(0);
+    expect(countBy(f.without("grade"), FACET_VALUES.grade).get("C") ?? 0).toBe(0);
+    // The set-aside ones that match (the page offers these first: they're what the link asked for).
+    expect(f.without("scope")).toHaveLength(7);
+    expect(bestRelaxation(f)).toEqual({ key: "grade", n: 12 });
+    expect(filterRows(rows, withoutTest(st({ grade: ["C"] }), "scope")).rows).toHaveLength(7);
+    expect(filterRows(rows, st({ grade: ["C"], show: ["grade_c"] })).rows).toHaveLength(7);
+  });
+
+  it("sets nothing aside when the filter asks for a community verdict: what people agreed on outranks our checks", () => {
+    const voted = toRows(mix, new Map([["pm-known-0", votes(6)], ["c-0", votes(5)], ["a-0", votes(5)]]));
+    const real = presetState(PRESETS.find((p) => p.id === "community-real")!);
+    expect(setsAside(real)).toBe(false);
+    expect(filterRows(voted, real).rows.map((r) => r.c.id).sort()).toEqual(["a-0", "c-0", "pm-known-0"]);
+    // The Community page's own link (verdict only) too.
+    expect(filterRows(voted, queryToState("verdict=mover,changing")).rows).toHaveLength(3);
+    // "Community verdict" alone (review=consensus) is a vote filter like the others: the rule applies.
+    expect(filterRows(voted, st({ review: ["consensus"] })).rows.map((r) => r.c.id)).toEqual(["a-0"]);
+  });
+
+  it("starts every other preset from what's worth checking", () => {
+    for (const p of PRESETS.filter((x) => x.id !== "community-real")) {
+      const s = presetState(p);
+      expect(setsAside(s), p.id).toBe(true);
+      expect(filterRows(rows, s).rows.every((r) => setAsideOf(r.c) === null), p.id).toBe(true);
+    }
+  });
+
+  it("holds on the published list: the groups split it, and what's left is what's worth checking", () => {
+    const cands = published.candidates;
+    const f = filterRows(toRows(cands, new Map()), defaultState());
+    const n = countBy(f.without("scope"), setAsideValues);
+    const aside = SET_ASIDE.reduce((a, g) => a + (n.get(g) ?? 0), 0);
+    expect(f.rows.length + aside).toBe(cands.length);
+    for (const r of f.rows) {
+      const x = r.c;
+      if (x.kind === "high_pm") expect(x.gaia_match).toBe(false);
+      if (x.kind === "mover") expect(x.grade === "A" || (x.grade !== "C" && !x.reasons.includes("motion_not_significant"))).toBe(true);
+    }
+    // Odd spectra and "one or two?" are all listed, as before.
+    for (const k of ["spectral", "shape"] as const) expect(f.rows.filter((r) => r.c.kind === k).length).toBe(cands.filter((x) => x.kind === k).length);
+    expect(n.get("gaia_known") ?? 0).toBe(cands.filter((x) => x.kind === "high_pm" && x.gaia_match).length);
+    expect(n.get("grade_c") ?? 0).toBe(cands.filter((x) => x.kind === "mover" && x.grade === "C").length);
   });
 });
 
@@ -184,8 +308,9 @@ describe("presets", () => {
       "Community says real",
       "Check first",
     ]);
-    expect(n("promising")).toBe(35);
-    expect(n("needs-vote")).toBe(194);
+    // Each starts from what's worth checking: the pilot's 142 moving stars Gaia knows are set aside.
+    expect(n("promising")).toBe(27); // 35 with show=all: the 8 vetted moving stars all have a Gaia match
+    expect(n("needs-vote")).toBe(WORTH);
     expect(n("brown-dwarfs")).toBe(7);
     expect(n("fast-movers")).toBe(27);
     expect(n("community-real")).toBe(0);
@@ -277,6 +402,21 @@ describe("the URL", () => {
     );
     expect(sameState(queryToState(q), s)).toBe(true);
     expect(queryToState(q)).toEqual(s);
+  });
+
+  it("writes the set-aside groups shown as show=…, show=all for all three, and nothing for none", () => {
+    expect(stateToQuery(st({ show: ["grade_c", "gaia_known"] }))).toBe("show=gaia_known,grade_c"); // in SET_ASIDE order
+    expect(stateToQuery(every())).toBe("show=all");
+    expect(stateToQuery(every({ kind: ["high_pm"], gaia: "yes", sort: "fewest" }))).toBe("kind=high_pm&gaia=yes&show=all&sort=fewest");
+    expect(queryToState("show=all").show).toEqual([...SET_ASIDE]);
+    expect(queryToState("show=grade_c,nope,gaia_known").show).toEqual(["gaia_known", "grade_c"]);
+    expect(queryToState("show=nope").show).toEqual([]);
+    expect(queryToState("kind=mover").show).toEqual([]);
+    expect(candidatesHash(queryToState("show=all"), { map: true })).toBe("#/candidates/show=all&map=1");
+    // Not a filter: no count, and a preset with show=all is a different list (not the preset).
+    expect(activeCount(queryToState("show=all"))).toBe(0);
+    expect(activePreset(queryToState("kind=mover&known=60-&show=all"))).toBeNull();
+    expect(sameState(queryToState("show=gaia_known,not_significant,grade_c"), every())).toBe(true);
   });
 
   it("writes 'only artefact cautions' as cautions=only", () => {
