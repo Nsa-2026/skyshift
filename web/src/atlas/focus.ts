@@ -1,9 +1,9 @@
 import { wholeFov } from './zoom';
 
-/** Equal zoom ratios fade equally; the overview stays legible and a 4× zoom clears it. */
+/** Fade from the first zoom movement; a 2× zoom clears the viewing chrome. */
 export function chromeOpacity(fov: number, mol: boolean): number {
   if (!Number.isFinite(fov) || fov <= 0) return 1;
-  const start = wholeFov(mol) / 1.15, end = wholeFov(mol) / 4;
+  const start = wholeFov(mol) / 1.05, end = wholeFov(mol) / 2;
   if (fov >= start) return 1;
   if (fov <= end) return 0;
   const t = Math.log(fov / end) / Math.log(start / end);
