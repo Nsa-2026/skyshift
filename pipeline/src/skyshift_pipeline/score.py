@@ -26,11 +26,18 @@ import pandas as pd
 
 from . import config as C
 from . import log
-from .known import load_predictions
+from .known import PLANET_CLASSES, load_predictions
 from .sky import SkyTree, angsep, offset_radec
 from .store import Store, dots_rel, photolist_rel, results_rel
 
 L = log.get("score")
+
+
+def asteroids_only(pred: pd.DataFrame) -> pd.DataFrame:
+    """The predictions without known_planets' planets and moons: recall is about asteroids and comets."""
+    if len(pred) and "class" in pred:
+        return pred[~pred["class"].isin(PLANET_CLASSES)].reset_index(drop=True)
+    return pred
 
 
 def score_units(pred: pd.DataFrame, zone: C.Zone, v_max: float, edge_px: float = C.SCORE_EDGE_PX,
@@ -242,6 +249,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None) -> dict:
     movers = store.read_parquet(results_rel(zone.name, "movers.parquet"))
     if pred is None:
         pred = load_predictions(store, photos, zone)
+    pred = asteroids_only(pred)
     v_top = max(C.V_BINS[-1], C.SCORE_V_MAX)
     p = score_units(pred, zone, v_top)
     L.info("score %s: %d predictions inside photos, %d with V < %.0f in %d units", zone.name, len(pred), len(p), v_top, p["unit"].nunique() if len(p) else 0)

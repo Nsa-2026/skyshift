@@ -509,9 +509,9 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         sig = f", {snr:.0f}σ" if math.isfinite(snr) else ""
         seen += f"; followed over {n} sessions of its visit at {trate:.1f}″ an hour{sig}"
     if nearest_known is None or not math.isfinite(nearest_known):
-        known = "no known asteroid or comet was predicted within 10′"
+        known = "no known asteroid, comet, planet or moon was predicted within 10′"
     else:
-        known = f"the nearest known asteroid or comet was predicted {_fmt_dist(nearest_known)} away"
+        known = f"the nearest known asteroid, comet, planet or moon was predicted {_fmt_dist(nearest_known)} away"
     if repeat is not None:
         known += (f", but another unexplained mover was seen {_fmt_dist(repeat[0])} from here {_fmt_days(repeat[1])} "
                   "apart, so it may be a fixed source")

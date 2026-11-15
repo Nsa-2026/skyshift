@@ -147,8 +147,17 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   bright dots in visits 1–3): every visit-3 D6 photo is at least amber. In `all` a failing qa is logged and skipped.
 - `known` uses MPC asteroid + comet orbits propagated with kete from SPHEREx's own position (IMAGE header X_SC..,
   geocentric equatorial km, at MJD-AVG); cache/mpc/<zone>/ with exact per-photo positions, orbit snapshots
-  cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. MPC is the only source of known objects (no flag, no env var).
+  cache/mpc/orbits/{mpcorb,cometels}_<date>.parquet. MPC is the only source of asteroids and comets (no flag, no env var).
   Comets have no V and no non-gravitational terms; C/2025 R2 still agreed with JPL Horizons to ~1″.
+- `known` then adds the planets and their large moons (known_planets.py, 15 Nov; config PLANET_SYSTEMS), which MPC
+  orbits don't hold: on 15 Nov 11 of the 22 movers with static frames were Iapetus (×6), Titan, Rhea, Hyperion,
+  Titania or Uranus, each within 0.4″ of JPL Horizons. Horizons (geocentric: ≤ 2.3″ off at Jupiter, far inside
+  KNOWN_ARCSEC) only for the visits where a planet comes within PLANETS_MARGIN_DEG + its system's radius of the zone
+  box; 10-minute tables interpolated to each photo → cache/planets/<zone>/run_<obs_id>.json, the MPC files' shape,
+  class `planet`/`moon`. load_predictions reads both folders (suspects, orphans); score leaves planets and moons out.
+  A failed query writes nothing and `known` still succeeds (summary `planets.error`): run `known` again. ecl35 from a
+  laptop: Saturn and Neptune in 55 of 491 sessions, 16 of its 91 movers within 1.1″ of a moon, 2.5 min.
+  Changing the bodies means deleting cache/planets/<zone>/, then `known`, `suspects` and the exporter again.
 - minorplanetcenter.net times out from GCP machines (14 Nov). The newest snapshot in cache/mpc/orbits/ is always reused,
   so refresh it from a laptop: `uv run skyshift-pipeline mpc-orbits --root gs://nasa-glazing-data [--force]` (~1 min, gcloud
   login; not part of `all`, no --zone). It writes today's mpcorb_/cometels_<date>.parquet, which then win; old ones stay.
