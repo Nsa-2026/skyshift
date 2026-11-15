@@ -285,7 +285,7 @@ export function startApp(root: HTMLElement): void {
     frameCtl = new AbortController();
     const fsig = frameCtl.signal;
     blink.status("loading", next.slug ? "Loading frames…" : "Building frames from SPHEREx (up to 15 s)…");
-    filters.active(layer === 'raw' && viewerNow().tab !== 'play');
+    filters.active(layer === 'raw');
     filters.loading(next);
 
     frames = null;
@@ -490,7 +490,7 @@ export function startApp(root: HTMLElement): void {
     const { page, param, screen, workspace, candidate } = parseRoute();
     const practicing=page==='explore' && workspace?.tab==='play';
     if(page==='explore')blink.singleDetector?.(practicing || layer !== 'raw');
-    filters.active(!practicing && layer === 'raw');
+    filters.active(layer === 'raw'); // guided practice keeps the Viewer's filters
     if (current && current !== page) pages.get(current)?.hide?.();
     blink.active?.(page === 'explore');
     workbench.active(page === 'explore' && !practicing);
