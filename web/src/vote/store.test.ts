@@ -27,8 +27,12 @@ vi.mock("firebase/firestore", () => ({
             { id: "broken", data: () => ({ ra: "x" }) },
           ]
         : [
-            { id: "v1", data: () => ({ candidate_id: "near", answer: "mover", voter: "a", ts: 1 }) },
-            { id: "v2", data: () => ({ candidate_id: "near", answer: "junk", voter: "b", ts: 1 }) },
+            { id: "v1", data: () => ({ candidate_id: "near", answer: "mover", voter: "voter_a1", ts: { toMillis: () => 1 } }) },
+            { id: "v2", data: () => ({ candidate_id: "near", answer: "junk", voter: "voter_b1", ts: { toMillis: () => 1 } }) },
+            // voter_b1 takes the vote back; voter_c1 changes junk → changing (still pending: ts null)
+            { id: "v3", data: () => ({ candidate_id: "near", answer: "withdrawn", voter: "voter_b1", ts: { toMillis: () => 5 } }) },
+            { id: "v4", data: () => ({ candidate_id: "pipe", answer: "junk", voter: "voter_c1", ts: { toMillis: () => 2 } }) },
+            { id: "v5", data: () => ({ candidate_id: "pipe", answer: "changing", voter: "voter_c1", ts: null }) },
           ];
     return { docs, forEach: (f: (d: (typeof docs)[number]) => void) => docs.forEach(f) };
   },
@@ -56,13 +60,20 @@ describe("LocalStore", () => {
     expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 0, changing: 1, junk: 0, unsure: 0 });
   });
 
-  it("refuses a second vote from the same voter", async () => {
+  it("keeps a change and a take back as new documents; only each voter's latest counts (v3.16)", async () => {
     const s = new LocalStore(memKV());
     const c = await s.flag(doc);
     await s.vote(c.id, "mover", "voter_12345");
-    await expect(s.vote(c.id, "junk", "voter_12345")).rejects.toMatchObject({ kind: "already" });
+    await s.vote(c.id, "junk", "voter_12345"); // a change of mind, not refused
     await s.vote(c.id, "junk", "voter_67890");
-    expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 1, changing: 0, junk: 1, unsure: 0 });
+    expect(s.written.votes.map((v) => v.answer)).toEqual(["mover", "junk", "junk"]);
+    expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 0, changing: 0, junk: 2, unsure: 0 });
+    await s.vote(c.id, "withdrawn", "voter_67890");
+    expect(s.written.votes[3]).toMatchObject({ candidate_id: c.id, answer: "withdrawn", voter: "voter_67890" });
+    expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 0, changing: 0, junk: 1, unsure: 0 });
+    const all = await s.allVotes();
+    expect(all.map((v) => [v.voter, v.answer])).toEqual([["voter_12345", "junk"]]);
+    await expect(s.vote(c.id, "maybe" as never, "voter_12345")).rejects.toMatchObject({ kind: "invalid" });
   });
 
   it("only lets the browser create source user", async () => {
@@ -88,9 +99,11 @@ describe("FirestoreStore", () => {
     const s = new FirestoreStore({ apiKey: "k", projectId: "nasa-glazing" });
     const c = await s.flag(doc);
     await s.vote(c.id, "unsure", "voter_12345");
+    await s.vote(c.id, "withdrawn", "voter_12345");
     expect(sent).toEqual([
       { path: "candidates", data: { ra: 10, dec: 20, mjd: 60800.5, clock: "hours", source: "user", created: SERVER_TS } },
       { path: "votes", data: { candidate_id: c.id, answer: "unsure", ts: SERVER_TS, voter: "voter_12345" } },
+      { path: "votes", data: { candidate_id: c.id, answer: "withdrawn", ts: SERVER_TS, voter: "voter_12345" } },
     ]);
   });
 
@@ -101,9 +114,19 @@ describe("FirestoreStore", () => {
     expect(near.map((c) => c.id)).toEqual(["near", "pipe"]);
     expect(near.map((c) => c.created)).toEqual([1700000000000, null]);
     expect((await s.allCandidates()).map((c) => c.id)).toEqual(["near", "pipe", "far-in-ra"]);
-    expect((await s.allVotes()).map((v) => v.answer)).toEqual(["mover", "junk"]);
+  });
+
+  it("reads voter and ts, so counts and allVotes keep each voter's latest and never withdrawn", async () => {
+    const { FirestoreStore } = await import("./firestore");
+    const s = new FirestoreStore({ apiKey: "k", projectId: "p" });
+    const all = await s.allVotes();
+    expect(all.map((v) => [v.candidate_id, v.voter, v.answer, v.ts])).toEqual([
+      ["near", "voter_a1", "mover", 1],
+      ["pipe", "voter_c1", "changing", null],
+    ]);
     const counts = await s.counts(["near", "pipe"]);
-    expect(counts.get("near")).toEqual({ mover: 1, changing: 0, junk: 1, unsure: 0 });
+    expect(counts.get("near")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
+    expect(counts.get("pipe")).toEqual({ mover: 0, changing: 1, junk: 0, unsure: 0 });
   });
 });
 
@@ -119,19 +142,90 @@ describe("vote API for other pages (voteApi, getVoteStore)", () => {
 
     // Pipeline candidates from /data/candidates.json vote by their own id.
     await api.castVote("pilot-pm-0003", "mover");
-    expect(seen).toHaveBeenCalledWith({ candidateId: "pilot-pm-0003", answer: "mover" });
+    expect(seen).toHaveBeenCalledWith({ candidateId: "pilot-pm-0003", answer: "mover", previous: null });
     expect(api.myVote("pilot-pm-0003")).toBe("mover");
     expect(api.myVote("pilot-pm-0004")).toBeNull();
     expect(s.written.votes[0]).toMatchObject({ candidate_id: "pilot-pm-0003", answer: "mover", voter: api.voterId() });
 
-    await expect(api.castVote("pilot-pm-0003", "junk")).rejects.toMatchObject({ kind: "already" });
     await expect(api.castVote("pilot-pm-0005", "maybe" as never)).rejects.toMatchObject({ kind: "invalid" });
+    await expect(api.castVote("pilot-pm-0005", "withdrawn" as never)).rejects.toMatchObject({ kind: "invalid" });
+    expect(s.written.votes).toHaveLength(1);
 
     const counts = await api.countsFor(["pilot-pm-0003", "pilot-pm-0004", "pilot-pm-0003"]);
     expect([...counts.keys()]).toEqual(["pilot-pm-0003", "pilot-pm-0004"]);
     expect(counts.get("pilot-pm-0003")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
     expect(counts.get("pilot-pm-0004")).toEqual({ mover: 0, changing: 0, junk: 0, unsure: 0 });
     expect((await api.countsFor([])).size).toBe(0);
+  });
+
+  it("changes a vote: a new document, the memory follows, the event says what it was", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    const seen = vi.fn();
+    const on = (e: Event) => seen((e as CustomEvent).detail);
+    window.addEventListener(VOTED_EVENT, on);
+    try {
+      await api.castVote("c1", "mover");
+      await api.castVote("c1", "mover"); // the same answer: nothing written, no event
+      expect(s.written.votes).toHaveLength(1);
+      expect(seen).toHaveBeenCalledTimes(1);
+
+      await api.castVote("c1", "junk");
+      expect(s.written.votes.map((v) => v.answer)).toEqual(["mover", "junk"]);
+      expect(seen).toHaveBeenLastCalledWith({ candidateId: "c1", answer: "junk", previous: "mover" });
+      expect(api.myVote("c1")).toBe("junk");
+      expect(voteApi(s, kv).myVote("c1")).toBe("junk"); // remembered in this browser
+      expect((await api.countsFor(["c1"])).get("c1")).toEqual({ mover: 0, changing: 0, junk: 1, unsure: 0 });
+    } finally {
+      window.removeEventListener(VOTED_EVENT, on);
+    }
+  });
+
+  it("takes a vote back: a withdrawn document, forgotten here, event answer null", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    const seen = vi.fn();
+    const on = (e: Event) => seen((e as CustomEvent).detail);
+    window.addEventListener(VOTED_EVENT, on);
+    try {
+      await api.withdrawVote("c1"); // no vote here: nothing to take back
+      expect(s.written.votes).toHaveLength(0);
+      expect(seen).not.toHaveBeenCalled();
+
+      await api.castVote("c1", "changing");
+      await s.vote("c1", "mover", "someone_else_1");
+      await api.withdrawVote("c1");
+      expect(s.written.votes.map((v) => v.answer)).toEqual(["changing", "mover", "withdrawn"]);
+      expect(s.written.votes[2]).toMatchObject({ candidate_id: "c1", voter: api.voterId() });
+      expect(seen).toHaveBeenLastCalledWith({ candidateId: "c1", answer: null, previous: "changing" });
+      expect(api.myVote("c1")).toBeNull();
+      expect(voteApi(s, kv).myVote("c1")).toBeNull();
+      expect((await api.countsFor(["c1"])).get("c1")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
+      expect((await api.allVotes()).map((v) => [v.voter, v.answer])).toEqual([["someone_else_1", "mover"]]);
+
+      await api.withdrawVote("c1"); // already taken back: nothing more
+      expect(s.written.votes).toHaveLength(3);
+
+      // Voting again after a take back is a first vote again.
+      await api.castVote("c1", "unsure");
+      expect(seen).toHaveBeenLastCalledWith({ candidateId: "c1", answer: "unsure", previous: null });
+      expect((await api.countsFor(["c1"])).get("c1")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 1 });
+    } finally {
+      window.removeEventListener(VOTED_EVENT, on);
+    }
+  });
+
+  it("keeps the vote in memory when taking it back fails", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    await api.castVote("c1", "mover");
+    s.vote = () => Promise.reject({ code: "unavailable" });
+    await expect(api.withdrawVote("c1")).rejects.toMatchObject({ kind: "offline" });
+    await expect(api.castVote("c1", "junk")).rejects.toMatchObject({ kind: "offline" });
+    expect(api.myVote("c1")).toBe("mover");
   });
 
   it("lists all votes and all flagged candidates", async () => {
@@ -184,6 +278,7 @@ describe("vote API for other pages (voteApi, getVoteStore)", () => {
 describe("errors in plain words", () => {
   it("maps Firestore codes", () => {
     expect(toVoteError({ code: "permission-denied" }).kind).toBe("denied");
+    expect(toVoteError({ code: "permission-denied" }).message).not.toMatch(/can't be changed/);
     expect(toVoteError({ code: "unavailable" }).kind).toBe("offline");
     expect(toVoteError({ code: "resource-exhausted" }).kind).toBe("busy");
     expect(toVoteError(new Error("boom")).message).not.toContain("boom");

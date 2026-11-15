@@ -17,13 +17,15 @@ import { sepArcsec } from "../app/astro";
 import {
   candidateDoc,
   countVotes,
+  latestVotes,
   toCandidate,
   toVoteRecord,
   voteDoc,
-  type Answer,
   type Candidate,
   type CandidateFields,
   type Counts,
+  type StoredAnswer,
+  type VoteLike,
   type VoteRecord,
 } from "./model";
 import { toVoteError, withTimeout, type FirebaseConfig, type VoteStore } from "./store";
@@ -65,7 +67,8 @@ export class FirestoreStore implements VoteStore {
   }
 
   async counts(ids: string[]): Promise<Map<string, Counts>> {
-    const votes: { candidate_id: string; answer: Answer }[] = [];
+    // Whole documents, voter and ts included: countVotes keeps each voter's latest (v3.16).
+    const votes: VoteLike[] = [];
     const chunks: string[][] = [];
     for (let i = 0; i < ids.length; i += IN_CHUNK) chunks.push(ids.slice(i, i + IN_CHUNK));
     // A few queries in flight at once: one after another, 1,333 candidates took 7–12 s.
@@ -74,7 +77,7 @@ export class FirestoreStore implements VoteStore {
       while (next < chunks.length) {
         const chunk = chunks[next++];
         const snap = await withTimeout(getDocs(query(collection(this.db, "votes"), where("candidate_id", "in", chunk))), TIMEOUT_MS);
-        snap.forEach((d) => votes.push(d.data() as { candidate_id: string; answer: Answer }));
+        snap.forEach((d) => votes.push(d.data() as VoteLike));
       }
     };
     try {
@@ -100,7 +103,10 @@ export class FirestoreStore implements VoteStore {
   async allVotes(): Promise<VoteRecord[]> {
     try {
       const snap = await withTimeout(getDocs(query(collection(this.db, "votes"), limit(MAX_ALL))), TIMEOUT_MS);
-      return snap.docs.map((d) => toVoteRecord(d.data())).filter((v): v is VoteRecord => v !== null);
+      // Only the votes that count: each voter's latest per candidate, never `withdrawn` (v3.16).
+      return latestVotes(snap.docs.map((d) => d.data() as VoteLike))
+        .map(toVoteRecord)
+        .filter((v): v is VoteRecord => v !== null);
     } catch (e) {
       throw toVoteError(e);
     }
@@ -115,7 +121,8 @@ export class FirestoreStore implements VoteStore {
     }
   }
 
-  async vote(candidateId: string, answer: Answer, voter: string): Promise<void> {
+  /** A vote, a change (a newer doc) or `withdrawn`. Create-only: nothing is updated or deleted. */
+  async vote(candidateId: string, answer: StoredAnswer, voter: string): Promise<void> {
     const doc = voteDoc(candidateId, answer, voter, serverTimestamp());
     try {
       await withTimeout(addDoc(collection(this.db, "votes"), doc), TIMEOUT_MS);

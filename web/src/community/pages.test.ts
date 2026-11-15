@@ -90,7 +90,7 @@ describe("loadSnapshot", () => {
     });
     const s = await loadSnapshot({ kv: memKV(), api, catalogue: async () => catalogue });
     expect(s.mode).toBe("firestore");
-    expect(s.votes.map((v) => [v.candidate_id, v.answer])).toEqual([["fs-1", "mover"], ["pilot-m1", "junk"]]); // one vote per voter
+    expect(s.votes.map((v) => [v.candidate_id, v.answer])).toEqual([["fs-1", "mover"], ["pilot-m1", "mover"]]); // each voter's latest (v3.16)
     const a = await s.lookup(["fs-1", "pilot-m1"]);
     const b = await s.lookup(["sus-1"]);
     expect(allCandidates).toHaveBeenCalledTimes(1);

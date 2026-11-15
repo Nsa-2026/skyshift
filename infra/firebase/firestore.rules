@@ -3,6 +3,8 @@ rules_version = '2';
 // Firestore rules for SkyShift (contracts/api.md, "Firestore: flags and votes").
 // Create-only: anyone may read and create; nobody may update or delete.
 // Each create must have exactly the contract's fields, with the right types and allowed values.
+// Changing a vote is a new votes document with the new answer; taking it back is a new one with
+// answer 'withdrawn' (v3.16). Readers count each voter's latest document per candidate.
 // Pipeline suspects (source "pipeline") are written server-side with the Admin SDK, which
 // bypasses these rules, so browsers may only create source "user".
 service cloud.firestore {
@@ -27,7 +29,7 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // votes: { candidate_id, answer, ts, voter }
+    // votes: { candidate_id, answer, ts, voter }; answer 'withdrawn' takes a vote back (v3.16)
     match /votes/{id} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasOnly(['candidate_id', 'answer', 'ts', 'voter'])
@@ -35,7 +37,7 @@ service cloud.firestore {
         && request.resource.data.candidate_id is string
         && request.resource.data.candidate_id.size() > 0
         && request.resource.data.candidate_id.size() <= 128
-        && request.resource.data.answer in ['mover', 'changing', 'junk', 'unsure']
+        && request.resource.data.answer in ['mover', 'changing', 'junk', 'unsure', 'withdrawn']
         && request.resource.data.ts == request.time        // serverTimestamp()
         && request.resource.data.voter is string
         && request.resource.data.voter.matches('^[A-Za-z0-9_-]{8,64}$');

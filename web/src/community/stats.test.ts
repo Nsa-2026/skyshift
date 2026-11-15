@@ -91,7 +91,7 @@ describe("verdict: consensus is ≥ 5 votes and ≥ 70% on one answer", () => {
 });
 
 describe("cleanVotes", () => {
-  it("drops malformed rows and keeps one vote per voter and candidate (the earliest)", () => {
+  it("drops malformed rows and keeps each voter's latest vote per candidate (v3.16)", () => {
     const rows = cleanVotes([
       { candidate_id: "a", answer: "junk", voter: "x_voter_1", ts: 2000 },
       { candidate_id: "a", answer: "mover", voter: "x_voter_1", ts: 1000 },
@@ -104,10 +104,28 @@ describe("cleanVotes", () => {
       "nope",
     ]);
     expect(rows).toEqual([
-      { candidate_id: "a", answer: "mover", voter: "x_voter_1", ts: 1000 },
+      { candidate_id: "a", answer: "junk", voter: "x_voter_1", ts: 2000 },
       { candidate_id: "c", answer: "mover", voter: "z_voter_1", ts: 3000 },
       { candidate_id: "b", answer: "unsure", voter: "y_voter_1", ts: null },
     ]);
+  });
+
+  it("a latest withdrawn leaves no vote; a pending one is the latest", () => {
+    const rows = cleanVotes([
+      { candidate_id: "a", answer: "mover", voter: "x_voter_1", ts: 1000 },
+      { candidate_id: "a", answer: "withdrawn", voter: "x_voter_1", ts: 2000 },
+      { candidate_id: "a", answer: "junk", voter: "y_voter_1", ts: 1500 },
+      { candidate_id: "b", answer: "withdrawn", voter: "x_voter_1", ts: 1000 },
+      { candidate_id: "b", answer: "changing", voter: "x_voter_1", ts: 3000 },
+      { candidate_id: "c", answer: "mover", voter: "x_voter_1", ts: null },
+      { candidate_id: "c", answer: "junk", voter: "x_voter_1", ts: 5000 },
+    ]);
+    expect(rows.map((v) => [v.candidate_id, v.voter, v.answer])).toEqual([
+      ["a", "y_voter_1", "junk"],
+      ["b", "x_voter_1", "changing"],
+      ["c", "x_voter_1", "mover"],
+    ]);
+    expect(tally(rows).get("a")).toEqual(c(0, 0, 1, 0));
   });
 });
 

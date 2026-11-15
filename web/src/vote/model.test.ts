@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 import rules from "../../../infra/firebase/firestore.rules?raw";
 import {
+  ANSWERS,
   BrowserMemory,
   CSV_COLUMNS,
   KEYS,
   VOTER_RE,
   VoteError,
+  WITHDRAWN,
   candidateDoc,
   candidateFields,
   consensus,
   countVotes,
   csvCell,
   fieldRadiusArcsec,
+  latestVotes,
   nearby,
   toCandidate,
   toCsv,
@@ -66,8 +69,11 @@ describe("document shapes (contracts/api.md, firestore.rules)", () => {
     expect(() => voteDoc("a".repeat(129), "mover", "voter_12345", 0)).toThrow(VoteError);
     expect(() => voteDoc("abc", "maybe" as never, "voter_12345", 0)).toThrow(VoteError);
     expect(() => voteDoc("abc", "junk", "me@mail.com", 0)).toThrow(VoteError);
-    for (const a of ["mover", "changing", "junk", "unsure"] as const) expect(voteDoc("abc", a, "voter_12345", 0).answer).toBe(a);
-    expect(rules).toContain("['mover', 'changing', 'junk', 'unsure']");
+    for (const a of ["mover", "changing", "junk", "unsure", "withdrawn"] as const) expect(voteDoc("abc", a, "voter_12345", 0).answer).toBe(a);
+    // v3.16: the rules allow the four answers and `withdrawn`, nothing else.
+    expect(rules).toContain("['mover', 'changing', 'junk', 'unsure', 'withdrawn']");
+    expect(rules).toContain(`[${[...ANSWERS, WITHDRAWN].map((a) => `'${a}'`).join(", ")}]`);
+    expect(ANSWERS).not.toContain(WITHDRAWN);
     expect(rules).toContain("^[A-Za-z0-9_-]{8,64}$");
   });
 });
@@ -113,6 +119,20 @@ describe("browser memory", () => {
     m.rememberFlag("c2", 123);
     expect(new BrowserMemory(kv).flaggedAt("c2")).toBe(123);
   });
+  it("changes and forgets a vote", () => {
+    const kv = memKV();
+    const m = new BrowserMemory(kv);
+    m.rememberVote("c1", "junk");
+    m.rememberVote("c1", "mover");
+    m.rememberVote("c2", "unsure");
+    expect(new BrowserMemory(kv).votedFor("c1")).toBe("mover");
+    m.forgetVote("c1");
+    m.forgetVote("never");
+    expect(new BrowserMemory(kv).votedFor("c1")).toBeNull();
+    expect(new BrowserMemory(kv).votedFor("c2")).toBe("unsure");
+    kv.set(KEYS.voted, JSON.stringify({ c3: "withdrawn" }));
+    expect(m.votedFor("c3")).toBeNull();
+  });
   it("survives junk in storage", () => {
     const m = new BrowserMemory(memKV({ [KEYS.voted]: "{nope", [KEYS.flagged]: "[1,2]" }));
     expect(m.votedFor("x")).toBeNull();
@@ -132,6 +152,79 @@ describe("counts", () => {
     expect(c.get("a")).toEqual({ mover: 2, changing: 0, junk: 1, unsure: 0 });
     expect(c.get("b")).toEqual({ mover: 0, changing: 0, junk: 0, unsure: 1 });
     expect(c.get("z")).toBeUndefined();
+  });
+
+  it("counts each voter's latest vote only, from raw documents (v3.16)", () => {
+    const c = countVotes([
+      { candidate_id: "a", answer: "mover", voter: "v_one_123", ts: { toMillis: () => 1000 } },
+      { candidate_id: "a", answer: "junk", voter: "v_one_123", ts: { toMillis: () => 2000 } }, // changed
+      { candidate_id: "a", answer: "mover", voter: "v_two_123", ts: { toMillis: () => 1500 } },
+      { candidate_id: "a", answer: "withdrawn", voter: "v_two_123", ts: null }, // taken back, still pending
+      { candidate_id: "a", answer: "unsure", voter: "v_three_1", ts: 900 },
+      { candidate_id: "b", answer: "mover", voter: "v_two_123", ts: 1 },
+      { candidate_id: "w", answer: "withdrawn", voter: "v_one_123", ts: 5 },
+    ]);
+    expect(c.get("a")).toEqual({ mover: 0, changing: 0, junk: 1, unsure: 1 });
+    expect(c.get("b")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
+    expect(c.has("w")).toBe(false);
+  });
+});
+
+describe("latestVotes (v3.16: change or take back)", () => {
+  const v = (candidate_id: string, voter: string | undefined, answer: string, ts: unknown) => ({ candidate_id, voter, answer, ts });
+
+  it("keeps each voter's newest document per candidate", () => {
+    const docs = [
+      v("a", "x_voter_1", "mover", 1000),
+      v("a", "x_voter_1", "changing", 3000),
+      v("a", "x_voter_1", "junk", 2000),
+      v("b", "x_voter_1", "unsure", 500),
+    ];
+    expect(latestVotes(docs)).toEqual([docs[1], docs[3]]);
+  });
+
+  it("drops a voter whose latest document is withdrawn, and keeps a vote cast after a take back", () => {
+    const docs = [
+      v("a", "x_voter_1", "mover", 1000),
+      v("a", "x_voter_1", "withdrawn", 2000),
+      v("b", "x_voter_1", "mover", 1000),
+      v("b", "x_voter_1", "withdrawn", 2000),
+      v("b", "x_voter_1", "junk", 3000),
+    ];
+    expect(latestVotes(docs)).toEqual([docs[4]]);
+  });
+
+  it("reads Timestamps and Dates; a pending (null) ts is the latest", () => {
+    const docs = [
+      v("a", "x_voter_1", "junk", null),
+      v("a", "x_voter_1", "mover", { toMillis: () => 9e12 }),
+      v("b", "x_voter_1", "mover", new Date(2000)),
+      v("b", "x_voter_1", "changing", new Date(1000)),
+      v("c", "x_voter_1", "mover", 1000),
+      v("c", "x_voter_1", "withdrawn", null),
+    ];
+    expect(latestVotes(docs)).toEqual([docs[0], docs[2]]);
+  });
+
+  it("on equal times the later document in input order wins", () => {
+    const docs = [
+      v("a", "x_voter_1", "mover", 1000),
+      v("a", "x_voter_1", "junk", 1000),
+      v("c", "y_voter_1", "mover", null),
+      v("c", "y_voter_1", "unsure", null),
+    ];
+    expect(latestVotes(docs)).toEqual([docs[1], docs[3]]);
+  });
+
+  it("counts documents without a voter id each on their own, and drops unknown answers", () => {
+    const docs = [v("a", undefined, "mover", 1), v("a", undefined, "mover", 2), v("a", "", "junk", 3), v("a", "x_voter_1", "maybe", 4)];
+    expect(latestVotes(docs)).toEqual([docs[0], docs[1], docs[2]]);
+    expect(latestVotes([])).toEqual([]);
+  });
+
+  it("keeps voters and candidates apart", () => {
+    const docs = [v("a", "x_voter_1", "mover", 1), v("a", "y_voter_1", "junk", 2), v("b", "x_voter_1", "withdrawn", 3)];
+    expect(latestVotes(docs)).toEqual([docs[0], docs[1]]);
   });
 });
 
@@ -158,6 +251,7 @@ describe("vote records", () => {
     });
     expect(toVoteRecord({ candidate_id: "a", answer: "junk", ts: null })?.ts).toBeNull();
     expect(toVoteRecord({ candidate_id: "a", answer: "maybe" })).toBeNull();
+    expect(toVoteRecord({ candidate_id: "a", answer: "withdrawn", ts: 1, voter: "v_12345678" })).toBeNull();
     expect(toVoteRecord({ answer: "junk" })).toBeNull();
     expect(toVoteRecord("x")).toBeNull();
   });

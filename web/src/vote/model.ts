@@ -8,6 +8,16 @@ import type { View } from "../app/modules";
 export const ANSWERS = ["mover", "changing", "junk", "unsure"] as const;
 export type Answer = (typeof ANSWERS)[number];
 
+/**
+ * The stored answer that takes a vote back (contracts/api.md v3.16). Never shown as an answer:
+ * a voter whose latest document says `withdrawn` has no vote on that candidate.
+ */
+export const WITHDRAWN = "withdrawn" as const;
+/** What a `votes` document may hold: one of the four answers, or `withdrawn`. */
+export type StoredAnswer = Answer | typeof WITHDRAWN;
+
+const isAnswer = (a: unknown): a is Answer => (ANSWERS as readonly unknown[]).includes(a);
+
 export const ANSWER_TEXT: Record<Answer, { label: string; meaning: string }> = {
   mover: { label: "Mover", meaning: "It changes place." },
   changing: { label: "Changing", meaning: "Same place, brightness changes." },
@@ -34,10 +44,13 @@ export interface CandidateDoc<TS = unknown> extends CandidateFields {
   created: TS;
 }
 
-/** A `votes` document. ts is serverTimestamp() in Firestore, epoch ms in local mode. */
+/**
+ * A `votes` document. ts is serverTimestamp() in Firestore, epoch ms in local mode. A change of
+ * mind is a new document; `withdrawn` takes the vote back (v3.16). Only the latest one counts.
+ */
 export interface VoteDoc<TS = unknown> {
   candidate_id: string;
-  answer: Answer;
+  answer: StoredAnswer;
   ts: TS;
   voter: string;
 }
@@ -50,7 +63,11 @@ export interface Candidate extends CandidateFields {
 
 export type Counts = Record<Answer, number>;
 
-/** Plain-words failure the panel can print. kind lets the panel choose what to offer. */
+/**
+ * Plain-words failure the panel can print. kind lets the panel choose what to offer.
+ * "already" is no longer thrown (votes can be changed since contract v3.16); it stays in the
+ * type so older callers still compile.
+ */
 export class VoteError extends Error {
   constructor(
     message: string,
@@ -100,11 +117,12 @@ export function toMillis(t: unknown): number | null {
 
 export const VOTER_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
-/** A vote document. Pass serverTimestamp() as ts for Firestore. */
-export function voteDoc<TS>(candidate_id: string, answer: Answer, voter: string, ts: TS): VoteDoc<TS> {
+/** A vote document: one of the four answers, or `withdrawn` to take the vote back.
+ *  Pass serverTimestamp() as ts for Firestore. */
+export function voteDoc<TS>(candidate_id: string, answer: StoredAnswer, voter: string, ts: TS): VoteDoc<TS> {
   if (typeof candidate_id !== "string" || candidate_id.length < 1 || candidate_id.length > 128)
     throw new VoteError("This candidate has no usable id.", "invalid");
-  if (!(ANSWERS as readonly string[]).includes(answer)) throw new VoteError("Pick one of the four answers.", "invalid");
+  if (!isAnswer(answer) && answer !== WITHDRAWN) throw new VoteError("Pick one of the four answers.", "invalid");
   if (!VOTER_RE.test(voter)) throw new VoteError("This browser's voter id is broken. Reload the page.", "invalid");
   return { candidate_id, answer, ts, voter };
 }
@@ -194,7 +212,7 @@ function readJson<T>(kv: KV, key: string, fallback: T): T {
   }
 }
 
-/** What this browser has done: votes cast (one per candidate) and dots it flagged, with when. */
+/** What this browser has done: its current vote per candidate and the dots it flagged, with when. */
 export class BrowserMemory {
   readonly voter: string;
   constructor(private kv: KV) {
@@ -202,11 +220,19 @@ export class BrowserMemory {
   }
   votedFor(id: string): Answer | null {
     const v = readJson<Record<string, string>>(this.kv, KEYS.voted, {})[id];
-    return (ANSWERS as readonly string[]).includes(v) ? (v as Answer) : null;
+    return isAnswer(v) ? v : null;
   }
+  /** The browser's vote on id: a first vote or a change (the newer answer replaces the older). */
   rememberVote(id: string, answer: Answer): void {
     const all = readJson<Record<string, string>>(this.kv, KEYS.voted, {});
     all[id] = answer;
+    this.kv.set(KEYS.voted, JSON.stringify(all));
+  }
+  /** The vote on id was taken back: this browser has no vote on it any more. */
+  forgetVote(id: string): void {
+    const all = readJson<Record<string, string>>(this.kv, KEYS.voted, {});
+    if (!Object.prototype.hasOwnProperty.call(all, id)) return;
+    delete all[id];
     this.kv.set(KEYS.voted, JSON.stringify(all));
   }
   flaggedAt(id: string): number | null {
@@ -226,12 +252,43 @@ export { readJson };
 
 export const emptyCounts = (): Counts => ({ mover: 0, changing: 0, junk: 0, unsure: 0 });
 
-export function countVotes(votes: Pick<VoteDoc, "candidate_id" | "answer">[]): Map<string, Counts> {
+/** A vote as any reader gets it: a stored document, a VoteRecord, or a row from a test. */
+export interface VoteLike {
+  candidate_id: string;
+  answer: string;
+  voter?: unknown;
+  ts?: unknown;
+}
+
+/**
+ * The votes that count (contracts/api.md v3.16): per candidate and voter, only the latest
+ * document, the one with the largest ts. A ts that is not set yet (a pending serverTimestamp(),
+ * null) is the latest; on equal times the later document in input order wins. Then documents
+ * whose answer is not one of ANSWERS drop, so a latest `withdrawn` leaves that voter with no vote.
+ * Documents without a voter id each count on their own. Kept documents stay in input order.
+ */
+export function latestVotes<T extends { candidate_id: string; answer: string; voter?: unknown; ts?: unknown }>(docs: readonly T[]): T[] {
+  const latest = new Map<string, { doc: T; at: number; i: number }>();
+  docs.forEach((doc, i) => {
+    if (!doc || typeof doc !== "object") return;
+    const key =
+      typeof doc.voter === "string" && doc.voter ? `${doc.candidate_id}\u0000${doc.voter}` : `\u0001${i}`;
+    const at = toMillis(doc.ts) ?? Infinity;
+    const had = latest.get(key);
+    if (!had || at >= had.at) latest.set(key, { doc, at, i });
+  });
+  return [...latest.values()]
+    .sort((a, b) => a.i - b.i)
+    .map((x) => x.doc)
+    .filter((d) => isAnswer(d.answer));
+}
+
+/** Votes per candidate and answer. Only each voter's latest vote counts (latestVotes). */
+export function countVotes(votes: readonly VoteLike[]): Map<string, Counts> {
   const out = new Map<string, Counts>();
-  for (const v of votes) {
-    if (!(ANSWERS as readonly string[]).includes(v.answer)) continue;
+  for (const v of latestVotes(votes)) {
     const c = out.get(v.candidate_id) ?? emptyCounts();
-    c[v.answer] += 1;
+    c[v.answer as Answer] += 1;
     out.set(v.candidate_id, c);
   }
   return out;
@@ -247,12 +304,12 @@ export interface VoteRecord {
   voter: string;
 }
 
-/** Read a stored vote back defensively. */
+/** Read a stored vote back defensively. `withdrawn` and unknown answers read as null (no vote). */
 export function toVoteRecord(d: unknown): VoteRecord | null {
   if (!d || typeof d !== "object") return null;
   const o = d as Record<string, unknown>;
   if (typeof o.candidate_id !== "string" || !o.candidate_id) return null;
-  if (!(ANSWERS as readonly string[]).includes(o.answer as string)) return null;
+  if (!isAnswer(o.answer)) return null;
   return { candidate_id: o.candidate_id, answer: o.answer as Answer, ts: toMillis(o.ts), voter: typeof o.voter === "string" ? o.voter : "" };
 }
 

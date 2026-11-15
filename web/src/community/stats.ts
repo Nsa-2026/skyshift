@@ -3,7 +3,21 @@
 // the list for astronomers with its CSV and JSON exports. Pure: no DOM, no Firebase.
 import type { CandidateKind, Clock, Det } from "../api/types";
 import { formatMjd } from "../app/astro";
-import { ANSWERS, CONSENSUS, consensus, countVotes, csvCell, emptyCounts, toVoteRecord, total, type Answer, type Counts, type VoteRecord } from "../vote/model";
+import {
+  ANSWERS,
+  CONSENSUS,
+  consensus,
+  countVotes,
+  csvCell,
+  emptyCounts,
+  latestVotes,
+  toVoteRecord,
+  total,
+  type Answer,
+  type Counts,
+  type VoteLike,
+  type VoteRecord,
+} from "../vote/model";
 
 /** The rule lives in src/vote (CONSENSUS, consensus()): at least 5 votes and at least 70% on one answer. */
 export { CONSENSUS };
@@ -20,19 +34,19 @@ export type VoteRow = VoteRecord;
 const isAnswer = (a: unknown): a is Answer => (ANSWERS as readonly unknown[]).includes(a);
 
 /**
- * Keep well-formed votes with a voter id only, and one per voter and candidate (the earliest):
- * the rules can't stop a second vote from the same browser, so it isn't counted twice here.
+ * Keep well-formed votes with a voter id only, and only each voter's latest vote per candidate
+ * (src/vote latestVotes, contracts/api.md v3.16): a vote can be changed (a newer document) or
+ * taken back (a newer `withdrawn` document, which leaves no vote). Oldest first, pending last.
  */
 export function cleanVotes(raw: readonly unknown[]): VoteRow[] {
-  const rows = raw.map(toVoteRecord).filter((v): v is VoteRecord => v !== null && v.voter !== "");
-  rows.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
-  const seen = new Set<string>();
-  return rows.filter((v) => {
-    const key = `${v.voter}\u0000${v.candidate_id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const docs = raw.filter(
+    (d): d is VoteLike =>
+      !!d && typeof d === "object" && typeof (d as VoteLike).candidate_id === "string" && typeof (d as VoteLike).answer === "string",
+  );
+  const rows = latestVotes(docs)
+    .map(toVoteRecord)
+    .filter((v): v is VoteRecord => v !== null && v.voter !== "");
+  return rows.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
 }
 
 /** Vote counts per candidate id. */

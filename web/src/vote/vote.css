@@ -47,7 +47,7 @@
   white-space: nowrap;
 }
 
-/* Text buttons: Cancel, Not now, Vote, Vote on that one. Ink with a pale underline. */
+/* Text buttons: Cancel, Not now, Vote, Change, Take back, Vote on that one. Ink with a pale underline. */
 .vt-text {
   min-height: 36px;
   padding: 0 2px;
@@ -175,6 +175,11 @@
   line-height: 1.3;
   color: var(--ink-2);
   font-variation-settings: "wdth" 92;
+}
+/* Changing a vote: the current answer is pressed (ink, as every pressed .btn); its meaning stays readable. */
+.btn.vt-answer[aria-pressed="true"] .vt-answer-means {
+  color: inherit;
+  opacity: 0.8;
 }
 .vt-ballot:disabled .vt-answer {
   cursor: progress;

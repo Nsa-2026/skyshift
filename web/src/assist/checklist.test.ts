@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/api/candidates.json";
 import type { KV } from "../vote/model";
-import { mountChecklist } from "./checklist";
+import { VOTED_EVENT, mountChecklist } from "./checklist";
 import { blinkHref } from "./checks";
 import { REPLIES_KEY, REPLY_EVENT, loadReplies, saveReply } from "./replies";
 import type { AssistCandidate } from "./types";
@@ -168,6 +168,26 @@ describe("mountChecklist", () => {
     host.innerHTML = "";
     mountChecklist(host, mover, { kv });
     expect(host.querySelector("[data-vote]")).toBeNull();
+  });
+
+  it("follows a vote changed or taken back elsewhere on the page (skyshift:voted, v3.16)", () => {
+    const h = mountChecklist(host, mover, { kv, onVote: () => {}, myVote: "mover" });
+    const voted = (answer: string | null, previous: string | null, candidateId = mover.id) =>
+      window.dispatchEvent(new CustomEvent(VOTED_EVENT, { detail: { candidateId, answer, previous } }));
+    expect(li("call").querySelector(".as-find")!.textContent).toContain("You voted mover.");
+    voted("junk", "mover");
+    expect(li("call").dataset.status).toBe("voted");
+    expect(li("call").querySelector(".as-find")!.textContent).toContain("You voted junk.");
+    voted("maybe", "junk"); // not an answer: ignored
+    voted(null, "junk", star.id); // another candidate: ignored
+    expect(li("call").querySelector(".as-find")!.textContent).toContain("You voted junk.");
+    voted(null, "junk"); // taken back
+    expect(li("call").dataset.status).toBe("ask");
+    expect(li("call").querySelector(".as-find")!.textContent).not.toContain("You voted");
+    expect(li("call").querySelector("[data-vote]")).not.toBeNull();
+    voted("unsure", null); // voted again
+    expect(li("call").querySelector(".as-find")!.textContent).toContain("You voted not sure.");
+    h.destroy();
   });
 
   it("escapes candidate text", () => {

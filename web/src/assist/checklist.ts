@@ -21,8 +21,8 @@ export interface ChecklistOptions {
   followDetails?: boolean;
   /** Called by the "Vote on it" button of the last step. Without it the step only explains. */
   onVote?: () => void;
-  /** This browser's vote on the candidate, if any (src/vote store myVote). Votes cast on the page later
-   *  (window "skyshift:voted") are picked up by themselves. */
+  /** This browser's vote on the candidate, if any (src/vote store myVote). Votes cast, changed or
+   *  taken back on the page later (window "skyshift:voted") are picked up by themselves. */
   myVote?: Answer | null;
   /** Link for "Open it in Blink"; null hides it. Default: the Explore page at the candidate. */
   blinkHref?: string | null;
@@ -187,10 +187,13 @@ export function mountChecklist(el: HTMLElement, c: AssistCandidate, opts: Checkl
   };
   window.addEventListener(DETAILS_EVENT, onDetails);
 
+  // src/vote VotedDetail: answer is the new vote (a first one or a change), or null when it was taken back.
   const onVoted = (ev: Event) => {
-    const d = (ev as CustomEvent<{ candidateId?: string; answer?: string }>).detail;
-    if (!d || d.candidateId !== cand.id || !ANSWERS.includes(d.answer as Answer) || o.myVote === d.answer) return;
-    o = { ...o, myVote: d.answer as Answer };
+    const d = (ev as CustomEvent<{ candidateId?: string; answer?: string | null }>).detail;
+    if (!d || d.candidateId !== cand.id) return;
+    const next = d.answer === null ? null : ANSWERS.includes(d.answer as Answer) ? (d.answer as Answer) : undefined;
+    if (next === undefined || (o.myVote ?? null) === next) return;
+    o = { ...o, myVote: next };
     render();
   };
   window.addEventListener(VOTED_EVENT, onVoted);
