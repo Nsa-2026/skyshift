@@ -7,7 +7,6 @@ import { ANSWERS, ANSWER_TEXT, safeStorage, type Counts, type KV } from "../vote
 import { VOTED_EVENT } from "../vote/store";
 import { mountActivityChart, votesWord, type ChartHandle } from "./chart";
 import { loadSnapshot, type Snapshot } from "./source";
-import { REPO_URL } from "../tools/docs";
 import {
   CONSENSUS,
   CONSENSUS_PCT,
@@ -200,16 +199,6 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         </div>
       </section>
       ${embedded ? "" : html`
-
-      <section class="cm-open cm-next" aria-labelledby="cm-open-h">
-        <h2 id="cm-open-h">Anyone can use this list</h2>
-        <p class="cm-sub">Positions, times, measured motion with its error, the cautions and every vote count are
-          public, as they stand, down-voted entries included. No account, no API key.</p>
-        <p class="cm-honest">The lists above download as CSV or JSON, and the site's own data files are plain JSON at
-          stable addresses, so a script can fetch exactly what this page reads.
-          <a href="#/tools">Tools and data</a> has the endpoints and the commands to rerun the pipeline from
-          <a href="${REPO_URL}" target="_blank" rel="noopener">the repository</a>.</p>
-      </section>
 
       <div class="cm-pair">
         <section class="cm-activity" aria-labelledby="cm-activity-h">
