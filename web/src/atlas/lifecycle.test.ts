@@ -19,6 +19,20 @@ afterEach(() => {
 });
 
 describe("atlas startup navigation", () => {
+  it("keeps the whole-sky view still while the visitor is idle", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    vi.mocked(loadAtlasData).mockResolvedValueOnce(empty);
+    const el = document.createElement("section");
+    document.body.append(el);
+    page = mountAtlas(el, { skySelection: vi.fn(), explore: vi.fn() } as unknown as PageContext);
+    page.show(null);
+    await vi.waitFor(() => expect(el.querySelector(".atl-svgmap")).not.toBeNull());
+    const initialView = location.hash;
+    vi.advanceTimersByTime(20_000);
+    expect(location.hash).toBe(initialView);
+  });
+
   it("clears a stale header gap when the map starts at the top and tracks header resizing", () => {
     vi.mocked(loadAtlasData).mockReturnValueOnce(new Promise(() => {}));
     const root = document.createElement("div");

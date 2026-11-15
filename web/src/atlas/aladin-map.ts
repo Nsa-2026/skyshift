@@ -171,20 +171,10 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     }
   }
 
-  /**
-   * Negative: grey scale reversed, so the dark sky becomes glass and stars become ink.
-   * Positive: 2MASS and AllWISE are colour JPEGs, so "native" is their own real colour. The
-   * SPHEREx cube is one 12-bit channel of 102, which "native" draws blown out and white, so
-   * colour has to come from a colour map. Linear, not asinh: at SPHEREX_FRAME (about 2 µm) the
-   * zodiacal light is in the picture and NASA does not subtract it (Expsupp 2.2), so the whole
-   * sky is bright and asinh lifts the faint end until it all reads white.
-   *
-   * That is a colour map over one wavelength, not an RGB composite of three.
-   */
-  function style(h: Hips, id?: BackgroundId) {
+  /** Negative: grey scale reversed, so the dark sky becomes glass and stars become ink. */
+  function style(h: Hips) {
     try {
       if (layers.negative) h.setColormap?.("grayscale", { reversed: true, stretch: "linear" });
-      else if ((id ?? layers.background) === "spherex") h.setColormap?.("magma", { reversed: false, stretch: "linear" });
       else h.setColormap?.("native", { reversed: false });
       h.setOpacity(layers.negative ? NEGATIVE_OPACITY : 1);
     } catch {
@@ -203,12 +193,12 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       // inside a detector instead, once Aladin has read the cube's properties.
       successCallback: (layer) => {
         if (id === "spherex") setSlice(layer as Hips);
-        if (id === layers.background) style(layer as Hips, id);
+        if (id === layers.background) style(layer as Hips);
       },
     }) as Hips;
     hips[id] = made;
     if (id === "spherex") setSlice(made);
-    style(made, id);
+    style(made);
     return made;
   }
 
@@ -891,18 +881,17 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       drawLabels();
     },
     view,
-    flyTo(to, animate, seconds) {
+    flyTo(to, animate) {
       stopFlight();
       // The whole sky means as large as the map holds it.
       const whole = wantsWhole(to.fov);
       const fov = whole ? fitNow() : to.fov;
-      const secs = seconds != null && seconds > 0 ? seconds : 1.1;
       try {
         if (animate && al.animateToRaDec && al.zoomToFoV) {
-          al.animateToRaDec(to.ra, to.dec, secs);
+          al.animateToRaDec(to.ra, to.dec, 1.1);
           // Aladin's zoom animation stops at 360° (or 180°): the fit past it is set at once.
           if (whole) al.setFoV(fov!);
-          else if (fov != null) al.zoomToFoV(fov, secs);
+          else if (fov != null) al.zoomToFoV(fov, 1.1);
         } else {
           al.gotoRaDec(to.ra, to.dec);
           if (fov != null) al.setFoV(fov);

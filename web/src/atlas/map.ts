@@ -66,12 +66,7 @@ export interface MapHandle {
   readonly kind: "aladin" | "svg";
   update(model: MapModel): void;
   view(): MapView;
-  /**
-   * `seconds` is how long the flight takes when `animate` is on; it defaults to the quick hop a
-   * click wants. A long drift across the sky needs a slower one, or the view arrives well before
-   * the sky tiles behind it do and the picture tears itself together after landing.
-   */
-  flyTo(to: SkyPos & { fov?: number }, animate: boolean, seconds?: number): void;
+  flyTo(to: SkyPos & { fov?: number }, animate: boolean): void;
   setProjection(mol: boolean): void;
   setFrame(gal: boolean): void;
   zoomBy(factor: number): void;
