@@ -83,7 +83,7 @@ To do: docs/TODO.md (open items by owner; tick or delete an item in the PR that 
 
 ## Cloud
 - Google Cloud project nasa-glazing, region us-east4, zone us-east4-a.
-- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, results/, cache/, logs/. What runs where and what we store: docs/cloud-architecture.md.
+- Bucket gs://nasa-glazing-data: photolists/, refcat/, dots/, forced/, results/, cache/, apikeys/, logs/. What runs where and what we store: docs/cloud-architecture.md.
 - Firestore (us-east4): candidates, votes. Create-only rules. Site on Firebase Hosting, API on Cloud Run.
 - Machines: skyshift-test (e2-standard-8) for most work; skyshift-worker (n2-highcpu-64 spot)
   only for the hunt zone after gate G2. Both stop themselves after each job; use infra/worker/vm.sh.
