@@ -9,6 +9,7 @@ import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationRes
 import { formatMjd } from "../app/astro";
 import type { MountPage, PageContext, PageHandle } from "../app/modules";
 import { TARGETS, featuredNear } from "../app/state";
+import { apiKeyFormHtml, createApiKey, keyErrorText, keyUseExamples } from "./apikey";
 import { BATCH_LIMIT, type BatchResult, type BatchRow, batchCSV, blinkHref, decimalText, parseBatch, rowStatus, sexagesimal, skyHref } from "./batch";
 import {
   ACK_GAIA,
@@ -242,7 +243,7 @@ function pageHtml(base: string, lang: Lang, opts: ToolsOptions = {}): string {
 
   <section class="tl-sec" id="tl-api" aria-labelledby="tl-api-h">
     <h2 id="tl-api-h" class="tl-h2" tabindex="-1">API</h2>
-    <p>The same data the site uses, as JSON. No key and no sign-up. Static first: the featured targets and the lists are plain files on the site's CDN, so read those before you call the live API.</p>
+    <p>The same data the site uses, as JSON. No key needed and no sign-up; a key is optional (below). Static first: the featured targets and the lists are plain files on the site's CDN, so read those before you call the live API.</p>
 
     <h3 class="tl-h3">Static files</h3>
     <p>Same shapes as the API. The featured targets live in these folders: ${TARGETS.map((t) => `<span class="tl-slug">${esc(t.slug)}</span>: ${esc(t.name)}`).join("; ")}.</p>
@@ -259,10 +260,15 @@ function pageHtml(base: string, lang: Lang, opts: ToolsOptions = {}): string {
     <dl class="tl-fields">
       <div><dt>Units</dt><dd>Positions in ICRS degrees. Field (fov) and radius (r) in arcmin. Shifts and errors in arcsec. Wavelength in µm. Time in MJD (UTC). Flux in µJy. Frame values in MJy/sr. Gaia keeps Gaia's units: pmra and pmdec in mas/yr, parallax in mas.</dd></div>
       <div><dt>Nulls</dt><dd>A missing value is null, never left out. Gaia ids are strings, because they exceed 2⁵³.</dd></div>
-      <div><dt>Errors</dt><dd>An HTTP status with {"error": {"code", "message"}}: 400 bad_request (the message says which parameter), 404 not_found (no SPHEREx frames there, or an unknown name), 502 upstream (IRSA or the Gaia archive didn't answer), 503 upstream (the build ran past 48 s; Retry-After says when to ask again), 500 internal.</dd></div>
+      <div><dt>Errors</dt><dd>An HTTP status with {"error": {"code", "message"}}: 400 bad_request (the message says which parameter), 401 unauthorized (an unknown or revoked API key), 404 not_found (no SPHEREx frames there, or an unknown name), 429 rate_limited (an API key past its hourly limit; Retry-After says when), 502 upstream (IRSA or the Gaia archive didn't answer), 503 upstream (the build ran past 48 s; Retry-After says when to ask again), 500 internal.</dd></div>
       <div><dt>Schema</dt><dd><a href="${esc(new URL("api/openapi.json", base).href)}" target="_blank" rel="noopener">OpenAPI JSON</a>, and <a href="${esc(new URL("api/docs", base).href)}" target="_blank" rel="noopener">interactive docs</a> to try a call. Health: <a href="${esc(new URL("api/health", base).href)}" target="_blank" rel="noopener">/api/health</a>.</dd></div>
       <div><dt>Contract</dt><dd><a href="${REPO_URL}/blob/main/contracts/api.md" target="_blank" rel="noopener">contracts/api.md</a> in the repository is the full specification; fixtures/api/ holds an example of every answer.</dd></div>
     </dl>
+
+    <h3 class="tl-h3" id="tl-key-h">API key (optional)</h3>
+    <p>You don't need one. A key names your script, so we can see its use and reach you if it misbehaves, and you can revoke it without affecting anyone else. Send it in the X-API-Key header. A key may make 1,000 requests an hour; an unknown or revoked key gets 401, never an anonymous answer.</p>
+    ${apiKeyFormHtml()}
+    <p class="tl-note">The key is shown once and this page doesn't keep it. We store only a fingerprint (its SHA-256). To revoke it: <span class="tl-slug">curl -X DELETE -H "X-API-Key: sks_…" ${esc(new URL("api/keys/me", base).href)}</span>.</p>
 
     <h3 class="tl-h3">Limits, honestly</h3>
     <p>The live API is one small service with no quota per person: up to 8 machines, each working on 8 requests at a time. A spot nobody has asked for before takes from a few seconds to about 45, because the server cuts SPHEREx images out of NASA's archive and stacks them; identical requests share one build, so a retry joins the one already running. A build that runs out of its 40 s answers with what it has, sent with Cache-Control: no-store and not kept: ask again later for the whole answer. Past 48 s you get 503 upstream; when every machine is busy, HTTP 429. Please send one request at a time, wait for it, and keep what you get. For many positions, use the static files, or SPHEREx itself through <a href="https://irsa.ipac.caltech.edu/Missions/spherex.html" target="_blank" rel="noopener">IRSA</a>.</p>
@@ -693,6 +699,35 @@ export function createToolsPage(el: HTMLElement, ctx: PageContext, opts: ToolsOp
       });
       saveFile("skyshift-batch.csv", csv, "text/csv;charset=utf-8");
       announce("Downloading the table.");
+    }
+  });
+
+  // ---- optional API key ----
+  const keyForm = $<HTMLFormElement>(".tl-key-form");
+  const keyStatus = $<HTMLElement>(".tl-key-status");
+  const keyOut = $<HTMLElement>(".tl-key-out");
+  keyForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = keyForm.querySelector<HTMLButtonElement>("button[type=submit]")!;
+    const input = keyForm.querySelector<HTMLInputElement>("input")!;
+    btn.disabled = true;
+    keyStatus.textContent = "Making a key…";
+    try {
+      const k = await createApiKey(base, input.value);
+      const ex = keyUseExamples(k, base);
+      keyOut.innerHTML = `<p class="tl-warn">Copy it now: it won't be shown again.</p>
+        ${code(k.key, "Your API key")}
+        <p class="tl-note">Key id ${esc(k.id)}${k.label ? `, “${esc(k.label)}”` : ""}, made ${esc(formatWhen(k.created))}. Try it:</p>
+        ${code(ex.curl, "curl example with your key", 'data-lang-block="curl"' + (lang === "curl" ? "" : " hidden"))}
+        ${code(ex.python, "Python example with your key", 'data-lang-block="python"' + (lang === "python" ? "" : " hidden"))}`;
+      keyOut.hidden = false;
+      keyStatus.textContent = "";
+      announce("Your API key is ready. Copy it now: it won't be shown again.");
+      input.value = "";
+    } catch (e) {
+      keyStatus.textContent = keyErrorText(e);
+    } finally {
+      btn.disabled = false;
     }
   });
 

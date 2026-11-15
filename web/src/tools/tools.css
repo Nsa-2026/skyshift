@@ -294,6 +294,32 @@
   margin-bottom: var(--s2);
   font-weight: 600;
 }
+.tl-key-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  max-width: 36rem;
+}
+.tl-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+  color: var(--ink);
+  font: inherit;
+}
+.tl-input::placeholder {
+  color: var(--ink-3);
+}
+.tl-key-out {
+  display: grid;
+  gap: var(--s3);
+  max-width: 48rem;
+  margin-top: var(--s3);
+}
 .tl-drop {
   position: relative;
   max-width: 48rem;

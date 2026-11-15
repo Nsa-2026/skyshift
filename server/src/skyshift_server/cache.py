@@ -66,3 +66,15 @@ class Cache:
         tmp = p.with_name(p.name + "." + uuid.uuid4().hex + ".tmp")
         tmp.write_bytes(data)
         tmp.replace(p)  # atomic: a half-written file never counts as cached
+
+    def delete(self, key: str) -> None:
+        """Remove one key; a missing key is not an error."""
+        if self._bucket is not None:
+            from google.api_core.exceptions import NotFound
+
+            try:
+                self._blob(key).delete()
+            except NotFound:
+                pass
+            return
+        (Path(self.root) / key).unlink(missing_ok=True)
