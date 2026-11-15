@@ -4,7 +4,7 @@
 // "Check them individually" (one=1, e.g. #/candidates/kind=mover&one=1) puts the review queue (src/review)
 // in the list's place, on the same filtered set. The map view (map=1, e.g.
 // #/candidates/kind=mover&map=1, opened from the toolbar's "See them on the sky") is a page of its
-// own: the same filtered set on a large sky map (./skymap.ts), drawn only once opened.
+// own: the same interactive sky map (./skymap.ts) shown beside the intro, with more room.
 // Downloads: this list, and the list for astronomers (src/community, the Community page's own list and rule).
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
@@ -98,6 +98,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
         </div>
       </section>
 
+      <aside class="dv-map" aria-label="Objects on the sky" hidden></aside>
+
       <div class="dv-presets" role="group" aria-label="Presets" hidden>
         <div class="seg dv-seg">
           ${PRESETS.map((p) => html`<button type="button" data-preset="${p.id}" aria-pressed="false" title="${esc(p.hint)}">${esc(p.label)}</button>`).join("")}
@@ -158,6 +160,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const noteEl = $<HTMLParagraphElement>("[data-note]");
   const presetsEl = $<HTMLDivElement>(".dv-presets");
   const skyEl = $<HTMLElement>(".dv-sky");
+  const mapPreview = $<HTMLElement>(".dv-map");
   const skyLink = $<HTMLAnchorElement>(".dv-skylink");
   const filtersEl = $<HTMLElement>(".dv-filters");
   const fxBody = $<HTMLDivElement>(".fx-body");
@@ -201,8 +204,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const updates: (() => void)[] = [];
   const open = (id: string) => ctx.navigate(`#/c/${encodeURIComponent(id)}`);
 
-  /** The sky map, mounted the first time the map view opens, and the list it last drew. */
+  /** One map shared by the list's preview and the expanded view; keep its pan, zoom and selection. */
   let map: SkyMapHandle | null = null;
+  const mapEl = document.createElement("div");
+  let mapHost: HTMLElement | null = null;
   let drawn: Row[] | null = null;
   const thumbs = thumbLoader((id) => byId.get(id));
   // "More filters" shows with Advanced (the switch in the page header).
@@ -1081,16 +1086,16 @@ export const mountDiscover: MountPage = (el, ctx) => {
   }
 
   // ---- the map view -----------------------------------------------------------------------------
-  // The filtered set on a large sky map, a page of its own (map=1): what's shown and filtered, and
-  // the way back to the list with the same filters. The map itself mounts the first time it opens.
+  // Show the filtered set beside the intro; the optional map page adds context and a way back.
 
   function renderSky() {
     skyLink.href = candidatesHash(state, { map: true });
-    // Drawn once the page is in the map view (renderOne), so the map measures its real width.
+    // Wait for renderOne to expose the expanded view before measuring it.
     const on = mapView && rootEl.dataset.view === "map";
     skyEl.hidden = !on;
-    if (!on) {
-      map?.closeFullscreen(); // leaving the map page (Back, a link) never leaves the map full screen
+    mapPreview.hidden = mapView || one || !data;
+    if (!on && mapPreview.hidden) {
+      map?.closeFullscreen();
       return;
     }
     const listHash = candidatesHash(state);
@@ -1111,8 +1116,14 @@ export const mountDiscover: MountPage = (el, ctx) => {
     chipsEl.innerHTML = chips.map((c) => html`<li>${esc(c.label)}</li>`).join("");
     change.hidden = false;
     change.textContent = chips.length ? "Change filters" : "Filter them";
+    const host = on ? skyEl.querySelector<HTMLElement>("[data-skymap]")! : mapPreview;
+    if (mapHost !== host) {
+      map?.closeFullscreen();
+      host.append(mapEl);
+      mapHost = host;
+    }
     if (!map) {
-      map = mountSkyMap(skyEl.querySelector<HTMLElement>("[data-skymap]")!, { onOpen: open });
+      map = mountSkyMap(mapEl, { onOpen: open });
       map.setData(data.candidates);
     }
     if (drawn !== sorted) map.setFiltered((drawn = sorted).map((r) => r.c.id));

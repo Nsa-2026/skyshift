@@ -56,14 +56,16 @@ describe("the Candidates page", () => {
     vi.unstubAllEnvs();
   });
 
-  it("shows the intro, counts, list and presets, and a link to the map instead of the map", async () => {
+  it("shows the intro, counts, list and presets with an interactive sky map beside the intro", async () => {
     const { el } = await mount();
     expect(el.querySelector(".dv-title")?.textContent).toContain("SPHEREx");
     expect(el.querySelector(".dv-count")?.textContent).toBe("194 objects");
     expect(el.querySelectorAll(".dv-row")).toHaveLength(50);
     expect(el.querySelector(".dv-more-n")?.textContent).toBe("Showing 50 of 194.");
     expect(el.querySelectorAll("[data-preset]")).toHaveLength(6);
-    expect(el.querySelector(".dv-map, .skymap")).toBeNull(); // the map is a page of its own, drawn when opened
+    expect(el.querySelector<HTMLElement>(".dv-map")!.hidden).toBe(false);
+    expect(el.querySelector(".dv-map .skymap")).not.toBeNull();
+    expect(el.querySelector(".dv-map [data-fullscreen]")?.textContent).toBe("Full screen");
     expect(el.querySelector<HTMLElement>(".dv-sky")!.hidden).toBe(true);
     expect(el.querySelector(".dv-toolbar .dv-skylink")?.textContent).toBe("See them on the sky");
     expect(el.querySelector("[data-one-on]")?.textContent).toBe("Check them individually");
@@ -413,7 +415,7 @@ describe("the map view", () => {
     el.querySelector<HTMLSelectElement>(".dv-select")!.value = "fewest";
     el.querySelector<HTMLSelectElement>(".dv-select")!.dispatchEvent(new Event("change"));
     expect(link(el).getAttribute("href")).toBe("#/candidates/kind=mover&known=60-&sort=fewest&map=1");
-    expect(el.querySelector(".skymap")).toBeNull();
+    expect(el.querySelector(".dv-map .skymap-legend")?.textContent).toContain("Fast movers27 of 27");
   });
 
   it("opens from its URL as a page of its own: heading, what's shown and filtered, the map, the way back", async () => {
@@ -451,19 +453,39 @@ describe("the map view", () => {
     expect(change.getAttribute("href")).toBe("#/candidates");
   });
 
-  it("follows the router: list, map (drawn on first open), back to the list with the same filter", async () => {
+  it("keeps one interactive map and its zoom when moving between the list preview and expanded view", async () => {
     const { el, page } = await mount("#/candidates/kind=mover");
-    expect(el.querySelector(".skymap")).toBeNull();
+    const map = el.querySelector(".dv-map .skymap")!;
+    el.querySelector<HTMLButtonElement>('[data-map-action="in"]')!.click();
+    expect(map.querySelector<HTMLOutputElement>(".skymap-scale")!.value).toBe("150%");
     page.show("kind=mover&map=1");
     expect(view(el)).toBe("map");
-    expect(el.querySelector(".skymap")).not.toBeNull();
+    expect(sky(el).querySelector(".skymap")).toBe(map);
+    expect(el.querySelector<HTMLElement>(".dv-map")!.hidden).toBe(true);
     expect(document.activeElement).toBe(sky(el).querySelector("h1"));
     page.show("kind=mover");
     expect(view(el)).toBe("list");
     expect(sky(el).hidden).toBe(true);
+    expect(el.querySelector<HTMLElement>(".dv-map")!.hidden).toBe(false);
+    expect(el.querySelector(".dv-map .skymap")).toBe(map);
+    expect(map.querySelector<HTMLOutputElement>(".skymap-scale")!.value).toBe("150%");
     expect(el.querySelectorAll(".dv-row")).toHaveLength(27);
     page.show("kind=mover&map=1");
     expect(el.querySelectorAll(".skymap")).toHaveLength(1); // one map, kept
+  });
+
+  it("opens objects directly from the preview and hides it while reviewing individually", async () => {
+    const { el, page, navigate } = await mount("#/candidates/kind=mover");
+    const preview = el.querySelector<HTMLElement>(".dv-map")!;
+    const plot = preview.querySelector<HTMLElement>(".skymap-plot")!;
+    plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(navigate).toHaveBeenCalledWith(expect.stringMatching(/^#\/c\/pilot-/));
+    page.show("kind=mover&one=1");
+    expect(preview.hidden).toBe(true);
+    page.show("kind=mover");
+    expect(preview.hidden).toBe(false);
+    expect(preview.querySelector(".skymap-plot")).toBe(plot);
   });
 
   it("wins over one=1: no review queue behind the map", async () => {
