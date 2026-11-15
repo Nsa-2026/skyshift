@@ -66,6 +66,10 @@ def _gaia_up() -> bool:
 
 def build_full(ra: float, dec: float, gaia_up: bool) -> dict:
     """GET /api/object built here with no time limit (precompute.py's way)."""
+    import os
+    # No live request waiting: give IRSA's search time (the engine's 20 s live default counts a slow
+    # answer as IRSA down and falls back to partial photo lists).
+    os.environ.setdefault("SKYSHIFT_SIA_WAIT_S", "180")
     from precompute import clean
     from skyshift_server import blink, gaia
     from skyshift_server.budget import Budget
