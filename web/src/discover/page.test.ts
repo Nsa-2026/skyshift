@@ -583,7 +583,7 @@ describe("the filters panel", () => {
     document.body.innerHTML = "";
     setDetails(false);
     _resetDetailsForTests();
-    localStorage.removeItem(DETAILS_KEY);
+    globalThis.localStorage?.removeItem(DETAILS_KEY); // Node 26: no storage in jsdom here
   });
   const names = (root: Element) =>
     [...root.querySelectorAll(":scope > .fx-group-body > .fx:not([hidden]) > legend, :scope > .fx-group-body > .fx-set > .fx > legend, :scope > .fx-group-body > .fx-tri .fx-name")].map((n) => n.textContent);
