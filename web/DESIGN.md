@@ -72,7 +72,7 @@ practice round, nothing requires an account).
 | Route | Page | Owner folder |
 |---|---|---|
 | `#/` (and `#/sky/<state>`) | **Sky** (the home page): the whole SPHEREx sky as a zoomable globe, candidates as a heat map that resolves into single signals as you zoom, click one to preview its blink | `src/atlas` |
-| `#/candidates` | **Candidates**: smart filters, candidate list, small sky map (was "Discover" at `#/`) | `src/discover` |
+| `#/candidates` | **To check** (objects to check): smart filters, the list, small sky map (was "Discover" at `#/`) | `src/discover` |
 | `#/review` | **Review queue**: one candidate at a time, big plate, vote with keys 1–4, skip, progress; practice round first time | `src/review` |
 | `#/c/<id>` | **Candidate**: plate of that spot with the candidate marked, the check assistant, measurements, votes and consensus, report and share | `src/review` (+ `src/assist`) |
 | `#/explore` | **Blink**: blink any coordinates or a featured target (the original blink page) | `src/app` + blink, card, vote, sky |
@@ -82,12 +82,22 @@ practice round, nothing requires an account).
 | `#/learn` | **Learn**: short lessons with real SPHEREx examples, glossary, the practice round's teaching | `src/learn` |
 | `#/tools` | **Tools and data**: downloads, batch coordinates, API, citation (for professionals) | `src/tools` |
 | `#/about` | **About**: the challenge, method, data, limits, credits, FAQ | `src/community` |
-Nav: Sky, Candidates, Review, Blink, Live search, Community, Results, Learn. Footer: About, Learn, Tools and data, Results.
+Nav: Sky, To check, Review, Blink, Live search, Community, Results, Learn. Footer: About, Learn, Tools and data, Results.
+
+**Honest names (14 Nov, 17:00).** The pipeline's list is "objects to check" (or "unvetted detections"), never
+"candidates": vetting the hunt zone's 228 fast movers found 211 resting on two dots in one session,
+most of the rest artefacts or catalogued sources, and none showing motion. Next to a count of the list,
+one plain line says what it is: "Things our pipeline couldn't explain with Gaia, WISE or a known
+asteroid. Most are detector artefacts until people check them." Only an object at consensus is a
+"candidate" (the list for astronomers). Wherever asteroid recall appears, say what it covers: 30
+distinct known asteroids moving 10–90″/h, brighter than V 16; slower movers not checked.
 Deep links `?t=<slug>` and `?ra=&dec=` open Explore.
 
 ### Candidates (data: `/data/candidates.json`, type `CandidatesResponse` in `src/api/types.ts`)
 Three kinds, each with its own colour-free icon and plain name:
-- **mover** "Fast mover": moves within hours; could be an uncatalogued asteroid or comet. Clock: Hours.
+- **mover** "Fast mover": seems to move within hours; could be an uncatalogued asteroid or comet. Clock: Hours.
+  Always with the caution: "Most fast movers are seen in only two exposures of one session, which can't
+  show motion by itself: blink it and look for a steady step."
 - **high_pm** "Moving star": moves between visits; could be a nearby star or brown dwarf. Clock: Months.
 - **spectral** "Odd spectrum": molecule bands or colours worth a look (methane, water ice, CO₂).
 Each has `why` (one sentence), `reasons` (codes → plain-language chips), `score` (pipeline promise),
@@ -158,3 +168,14 @@ it can be and by the person where it can't:
 Then **What next**: for consensus movers, a draft MPC observation report (ADES PSV, clearly marked
 "draft, not submitted"); for moving stars, a Backyard Worlds forum post draft; for anything, a citation
 and a permalink. Copy buttons, never auto-submit.
+
+## Opening (`src/intro`, by 春。, #200)
+"The sky is never still": a scroll-driven overlay from the SPHEREx sky down to one person's eye and
+back out, fading into the Sky map. The one exception to "Motion"; it has its own night palette.
+- Plays **every time** someone opens the home page itself (no hash; no query beyond `utm_*`, `fbclid`,
+  `gclid`; not an embed). Any hash (`#/sky`, `#/explore`, `#/c/<id>`…), `?t=` or `?ra=&dec=` skips it.
+- Focus starts on **Skip intro**; Escape skips from anywhere. Skip, Escape and the end land on the Sky
+  map (focus on the map). The map loads underneath meanwhile.
+- Reduced motion: a still title card, same Skip; scrolling down also moves on.
+- Images: `public/opening/manifest.json` (slots `sky`, `earth`, `horizon`; see its README). The sky is
+  always real SPHEREx data with its credit; anything else is labelled "Illustration".

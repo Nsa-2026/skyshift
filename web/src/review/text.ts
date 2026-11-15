@@ -1,5 +1,6 @@
 // Plain words and numbers for candidates: kind names and icons, reason chips, caution footnotes,
 // measurements with units. Pure (strings only), so the pages and the tests share one wording.
+import { gateText, isGate } from "../api/grades";
 import type { Candidate, CandidateKind } from "../api/types";
 import { DETECTORS, formatMjd } from "../app/astro";
 import { paWord } from "../card/format";
@@ -15,10 +16,19 @@ export const esc = (s: string): string =>
 
 // ---- kinds ---------------------------------------------------------------------------------
 
+/** The honest caution on fast movers: most rest on two dots in one session (hunt zone: 211 of 228). */
+export const MOVER_CAUTION =
+  "Most fast movers are seen in only two exposures of one session, which can't show motion by itself: blink it and look for a steady step.";
+
 export const KIND_TEXT: Record<CandidateKind, { name: string; could: string }> = {
-  mover: { name: "Fast mover", could: "Moves within hours: it could be an asteroid or comet no one has catalogued." },
+  mover: { name: "Fast mover", could: `Seems to move within hours: it could be an asteroid or comet no one has catalogued. ${MOVER_CAUTION}` },
   high_pm: { name: "Moving star", could: "Moves between visits months apart: it could be a nearby star or a brown dwarf." },
   spectral: { name: "Odd spectrum", could: "Its colours or molecule bands are worth a closer look." },
+  shape: {
+    name: "One or two?",
+    could:
+      "Its shape is wider or longer than a single star's, yet Gaia and CatWISE list only one object here. A moving object passing next to a star, or an unknown companion, could look like this; so could a detector defect.",
+  },
 };
 
 /** Colour-free icons (currentColor), one per kind. 20 × 20, 1.5 px strokes like the pencil marks. */
@@ -29,6 +39,8 @@ export const KIND_ICON: Record<CandidateKind, string> = {
   high_pm: `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6.2v6.6M2.7 9.5h6.6"/><circle cx="6" cy="9.5" r="1.3" fill="currentColor" stroke="none"/><path d="M10.5 9.5h6M14 7l2.5 2.5L14 12" /></svg>`,
   // A spectrum with an absorption band.
   spectral: `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13c2-4 4-6 6-6s2 6 3.5 6S13 5 15 5s2.5 3 3 5"/><path d="M2 17h16" opacity=".5"/></svg>`,
+  // Two overlapping dots: one object or two?
+  shape: `<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="10" r="4.5"/><circle cx="12.5" cy="10" r="3.2"/><circle cx="8" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg>`,
 };
 
 export function kindName(k: CandidateKind): string {
@@ -59,6 +71,16 @@ export const REASON_TEXT: Record<string, { chip: string; tone: "for" | "doubt" |
     tone: "info",
     tip: "CatWISE2020 (infrared, from NASA's WISE) has a source here with a different motion.",
   },
+  catwise_pm_agrees: {
+    chip: "CatWISE lists the same motion",
+    tone: "for",
+    tip: "CatWISE2020 (infrared, from NASA's WISE) lists a source here moving the same way: an independent check of the motion.",
+  },
+  no_gaia: {
+    chip: "Not in Gaia (G < 20)",
+    tone: "for",
+    tip: "Gaia DR3 lists nothing brighter than G 20 here. Our Gaia catalogue stops at G 20, so a fainter Gaia source may still be there.",
+  },
   few_dots: {
     chip: "Few detections",
     tone: "doubt",
@@ -84,9 +106,37 @@ export const REASON_TEXT: Record<string, { chip: string; tone: "for" | "doubt" |
     tone: "doubt",
     tip: "The detections cover too little time to pin the motion down.",
   },
+  // shape: one object or two?
+  elongated: {
+    chip: "Stretched shape",
+    tone: "for",
+    tip: "Its image is more stretched than single stars of the same brightness on the same detector.",
+  },
+  steady_pa: {
+    chip: "Same direction every time",
+    tone: "for",
+    tip: "Its photos show the stretch pointing the same way on the sky, in both visits, although the detector turns between visits. Noise points anywhere.",
+  },
+  one_visit: {
+    chip: "Stretched in one visit only",
+    tone: "info",
+    tip: "Only one of the two visits shows the stretch: something may have passed by, or one visit is noisier.",
+  },
+  one_catalogue_source: {
+    chip: "Catalogues list one object",
+    tone: "info",
+    tip: "Gaia DR3 and CatWISE2020 list a single object within 15″, so a second one would be new.",
+  },
+  class_galaxy: {
+    chip: "Maybe a galaxy",
+    tone: "doubt",
+    tip: "The pipeline thinks it's a galaxy: galaxies look extended by nature.",
+  },
 };
 
 export function reasonText(code: string): { chip: string; tone: "for" | "doubt" | "info"; tip: string } {
+  // A failed vetting check (grade C): a reason for doubt, in plain words.
+  if (!REASON_TEXT[code] && isGate(code)) return { chip: gateText(code).label, tone: "doubt", tip: gateText(code).plain };
   return (
     REASON_TEXT[code] ?? {
       chip: code.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
@@ -180,10 +230,29 @@ export function galacticText(b: number): string {
 
 // ---- votes ---------------------------------------------------------------------------------
 
-export const answerLabel = (a: Answer): string => ANSWER_TEXT[a].label;
+/** The four stored answers stay the same for every kind (the Firestore rules allow only these);
+ *  for "shape" (one object or two?) people read them as Two objects / Changes / One object / Not sure. */
+export const SHAPE_ANSWER_TEXT: Record<Answer, { label: string; meaning: string }> = {
+  mover: { label: "Two objects", meaning: "Something sits next to it: a passing object or a companion." },
+  changing: { label: "Changes", meaning: "It looks different between visits." },
+  junk: { label: "One object", meaning: "A single star, or a defect." },
+  unsure: { label: "Not sure", meaning: ANSWER_TEXT.unsure.meaning },
+};
+
+/** Labels and meanings of the four answers for a kind (today's for every kind but shape). */
+export function answerText(kind?: CandidateKind | null): Record<Answer, { label: string; meaning: string }> {
+  return kind === "shape" ? SHAPE_ANSWER_TEXT : ANSWER_TEXT;
+}
+
+/** The ballot's question for a kind. */
+export function ballotHeading(kind?: CandidateKind | null): string {
+  return kind === "shape" ? "One object or two?" : "What do you see?";
+}
+
+export const answerLabel = (a: Answer, kind?: CandidateKind | null): string => answerText(kind)[a].label;
 
 /** One sentence on where the votes stand (DESIGN.md: ≥ 5 votes, ≥ 70 % agreeing). */
-export function consensusText(c: Consensus): string {
+export function consensusText(c: Consensus, kind?: CandidateKind | null): string {
   const pct = Math.round(c.share * 100);
   switch (c.state) {
     case "none":
@@ -193,14 +262,15 @@ export function consensusText(c: Consensus): string {
       return `${c.total} ${c.total === 1 ? "vote" : "votes"} so far. ${togo} more ${togo === 1 ? "is" : "are"} needed before the community can agree.`;
     }
     case "split":
-      return `${c.total} votes, no agreement yet: the top answer, ${answerLabel(c.top!)}, has ${pct}%. Agreement needs ${CONSENSUS_PERCENT}%.`;
+      return `${c.total} votes, no agreement yet: the top answer, ${answerLabel(c.top!, kind)}, has ${pct}%. Agreement needs ${CONSENSUS_PERCENT}%.`;
     case "reached":
-      return `The community agrees: ${answerLabel(c.answer!)}, ${c.topCount} of ${c.total} votes (${pct}%).`;
+      return `The community agrees: ${answerLabel(c.answer!, kind)}, ${c.topCount} of ${c.total} votes (${pct}%).`;
   }
 }
 
 /** Counts as a sentence, so colour is never the only cue: "3 mover, 1 changing, 0 junk, 1 not sure". */
-export function countsText(k: Counts): string {
+export function countsText(k: Counts, kind?: CandidateKind | null): string {
+  if (kind === "shape") return `${k.mover} two objects, ${k.changing} changes, ${k.junk} one object, ${k.unsure} not sure`;
   return `${k.mover} mover, ${k.changing} changing, ${k.junk} junk, ${k.unsure} not sure`;
 }
 

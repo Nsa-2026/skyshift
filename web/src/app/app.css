@@ -8,10 +8,11 @@
   padding: 0 var(--s5) var(--s7);
 }
 
-/* ---- top: wordmark + one-line lede, the find box, the scoreboard link ---- */
+/* Top-level navigation and the Advanced switch: brand, nav, switch. */
 .top {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0,1fr) auto auto;
+  grid-template-areas: "brand nav switch";
   align-items: center;
   gap: var(--s3) var(--s6);
   padding: var(--s4) 0 var(--s3);
@@ -39,6 +40,7 @@
   display: flex;
   gap: var(--s2);
   max-width: 620px;
+  margin:var(--s4) 0;
 }
 .find-input {
   flex: 1;
@@ -47,7 +49,9 @@
 
 .nav {
   display: flex;
-  gap: var(--s5);
+  gap: var(--s6);
+  align-items:center;
+  font-size:var(--step-1);
 }
 .nav a {
   color: var(--ink-2);
@@ -63,6 +67,11 @@
   color: var(--ink);
   border-bottom-color: var(--pencil-red);
 }
+
+.brand {grid-area: brand;}
+.top > .nav {grid-area: nav;}
+.top > .details-slot {grid-area: switch;}
+.top[hidden],.find[hidden],.details-slot[hidden] {display:none!important;}
 
 /* ---- featured targets: a quiet line of names, not a row of boxes ---- */
 .featured {
@@ -166,6 +175,15 @@
 }
 
 @media (max-width: 1100px) {
+  .top {
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas: "brand switch" "nav nav";
+    gap:var(--s3);
+  }
+  .nav {
+    width:100%;
+    justify-content:space-between;
+  }
   .page-blink {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "stage" "card" "below";
@@ -180,21 +198,10 @@
   justify-content: flex-end;
 }
 
-@media (max-width: 1480px) {
-  .top {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-  .nav {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    overflow-x: auto;
-    scrollbar-width: none;
-    gap: var(--s4);
-    margin: 0 calc(-1 * var(--s5));
-    padding: 0 var(--s5);
-  }
-  .nav a {
-    flex: none;
+/* Matches blink.css: with the nav on a second row the plate is 100svh − 280px. */
+@media (min-width: 1101px) and (max-width: 1480px) {
+  .page-blink {
+    grid-template-columns: minmax(0, calc(max(300px, 100svh - 280px) + 24px)) minmax(340px, 1fr);
   }
 }
 
@@ -202,26 +209,22 @@
   #app {
     padding: 0 var(--s4) var(--s6);
   }
-  .top {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .details-slot {
-    grid-row: 1;
-    grid-column: 2;
-  }
-  .lede {
-    display: none;
-  }
-  .find {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    max-width: none;
-  }
   .nav {
-    grid-row: 3;
-    margin: 0 calc(-1 * var(--s4));
-    padding: 0 var(--s4);
+    gap:var(--s2);
+    font-size:var(--step-0);
   }
+  .nav a {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    flex:1 1 auto;
+    min-height:44px;
+    white-space:nowrap;
+  }
+  .lede {display:none;}
+  .find {max-width:none;}
+  .details-slot {flex:none;}
   .featured {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -230,4 +233,11 @@
   .featured .chip {
     flex: none;
   }
+}
+/* Six nav entries on one row on phones: small type, tight gaps, no wrapping inside a name;
+   below ~360px the row scrolls sideways instead of overflowing the page. */
+@media (max-width: 480px) {
+  .nav {gap:var(--s1);font-size:.875rem;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar {display:none;}
+  .nav a {flex:0 0 auto;padding-inline:2px;}
 }

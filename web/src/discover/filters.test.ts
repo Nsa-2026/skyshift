@@ -5,6 +5,7 @@ import type { Counts } from "../vote/model";
 import {
   PRESETS,
   RANGES,
+  SORTS,
   activeCount,
   activePreset,
   bestRelaxation,
@@ -16,6 +17,7 @@ import {
   filterRows,
   inRange,
   isCautioned,
+  isOneAtATime,
   leading,
   motionArcsecYr,
   presetState,
@@ -199,6 +201,13 @@ describe("presets", () => {
     expect(pick("promising")).toEqual(["k"]);
   });
 
+  it("never share a name with a sort: a preset narrows the list, a sort only reorders it", () => {
+    const sorts = SORTS.map((s) => s.label);
+    for (const p of PRESETS) expect(sorts).not.toContain(p.label);
+    expect(SORTS.find((s) => s.key === "promising")?.label).toBe("Pipeline score");
+    expect(PRESETS.find((p) => p.id === "promising")?.label).toBe("Most promising");
+  });
+
   it("is recognised again from the URL, and only when nothing else changed", () => {
     const p = PRESETS[2];
     const s = queryToState(stateToQuery(presetState(p)));
@@ -221,7 +230,7 @@ describe("sorting", () => {
   const ids = (k: Parameters<typeof sortRows>[1]) => sortRows(rows, k).map((r) => r.c.id);
 
   it("puts scored candidates first, then by S/N", () => expect(ids("promising")).toEqual(["b", "a", "m", "n"]));
-  it("puts artefact cautions, then the pipeline's doubts, below everything else in 'Most promising'", () => {
+  it("puts artefact cautions, then the pipeline's doubts, below everything else in 'Pipeline score'", () => {
     const r = toRows(
       [
         c({ id: "best-but-outlier", score: 0.9, reasons: ["outlier"] }),
@@ -294,6 +303,30 @@ describe("the URL", () => {
     expect(routeQuery("#/candidates")).toBe("");
     expect(routeQuery("#/review")).toBe("");
     expect(routeQuery(null)).toBe("");
+  });
+
+  it("keeps 'One at a time' in the URL as one=1, after the filter, and never as a filter", () => {
+    expect(candidatesHash(defaultState(), { one: true })).toBe("#/candidates/one=1");
+    expect(candidatesHash(defaultState(), { one: false })).toBe("#/candidates");
+    const movers = queryToState("kind=mover&sort=fewest");
+    expect(candidatesHash(movers, { one: true })).toBe("#/candidates/kind=mover&sort=fewest&one=1");
+    // The parser reads it from the router's param or a whole hash; anything but "1" is off.
+    expect(isOneAtATime("one=1")).toBe(true);
+    expect(isOneAtATime("kind=mover&one=1")).toBe(true);
+    expect(isOneAtATime("?kind=mover&one=1")).toBe(true);
+    expect(isOneAtATime("#/candidates/kind=mover&one=1")).toBe(true);
+    expect(isOneAtATime("#/candidates/one=1")).toBe(true);
+    expect(isOneAtATime("#/candidates/kind=mover")).toBe(false);
+    expect(isOneAtATime("one=0")).toBe(false);
+    expect(isOneAtATime("#/review")).toBe(false);
+    expect(isOneAtATime(null)).toBe(false);
+    // Not a filter: same state, same preset, same count of filters on.
+    const q = "kind=mover&known=60-&one=1";
+    expect(sameState(queryToState(q), queryToState("kind=mover&known=60-"))).toBe(true);
+    expect(activePreset(queryToState(q))?.id).toBe("fast-movers");
+    expect(activeCount(queryToState("one=1"))).toBe(0);
+    // Round trip through the page's reader and writer.
+    expect(candidatesHash(queryToState(q), { one: isOneAtATime(q) })).toBe("#/candidates/kind=mover&known=60-&one=1");
   });
 
   it("drops what it can't read instead of failing", () => {

@@ -20,6 +20,8 @@ metadata under `skyshift_photo` (JSON); `photo_meta(path)` reads it back.
 Photos with FINAST != 0 (bad astrometry) get an empty dot file (with metadata) and no forced file.
 Row order is stable (brightest aperture flux first, as core.detect returns it): link's members.parquet
 points at rows by index.
+sep's deblend_cont is the zone's (config.zone_dots): the sky run's DOTS_DEBLEND_CONT into dots/, the featured-target
+zones' DOTS_FINE_DEBLEND_CONT into their own folder (dots_deblend1e-4/), recorded in each file's metadata (`detect`).
 One process per core; a photo whose dot file exists is skipped; a photo that keeps failing is logged
 and skipped. Each worker task is C.DOTS_TASK_PHOTOS photos (process_photos): while one photo is
 measured, the next is read in a background thread (C.DOTS_PREFETCH), so a core doesn't wait for
@@ -28,6 +30,8 @@ the network. The files are the same either way.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import io
 import json
 import multiprocessing as mp
@@ -48,7 +52,7 @@ from skyshift_core.level2 import EPSF
 
 from . import config as C
 from . import forced_sky, log
-from .psf import dot_positions, psf_photometry
+from .psf import dot_positions, psf_photometry, residual_companions
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -330,21 +334,96 @@ def _sum_circle_bkgann(d, x, y, r, err, m, annulus) -> tuple[np.ndarray, np.ndar
     return fk, ek
 
 
+def sat_distance(flags) -> np.ndarray:
+    """Distance (px) from each pixel to the nearest OVERFLOW/NONLINEAR pixel (inf when there is none)."""
+    from scipy.ndimage import distance_transform_edt
+    f = np.asarray(flags)
+    sat = (f.astype(np.int64) & SAT_BITS) != 0
+    if not sat.any():
+        return np.full(f.shape, np.inf)
+    return distance_transform_edt(~sat)
+
+
+def _at(a: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    ix, iy = pixel_of(np.asarray(x, np.float64), np.asarray(y, np.float64), a.shape)
+    return a[iy, ix]
+
+
 def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
                thresh: float = C.DETECT_THRESH, min_snr: float = C.DOT_MIN_SNR,
-               timing: dict | None = None, ctx: PhotoContext | None = None) -> pd.DataFrame:
+               timing: dict | None = None, ctx: PhotoContext | None = None,
+               deblend_cont: float = C.DOTS_DEBLEND_CONT, settings: C.DetectSettings | None = None,
+               counts: dict | None = None) -> pd.DataFrame:
     """The dot table of one opened Level 2 photo (or cutout). Uses l2.zodi and l2.epsf when present
-    (else those columns are NaN). `timing`, if given, receives seconds per stage."""
+    (else those columns are NaN). `timing`, if given, receives seconds per stage. deblend_cont: sep's
+    (config.zone_dots gives the zone's); `settings` (config.zone_detect), when given, replaces it with every setting:
+    fine detection v2 (contracts/dots.md) adds sep clean_param, the saturation guard and the ePSF second pass, whose
+    dots (sep_flag SEP_FLAG_PSF_PASS) are measured on the residual. `counts`, if given, receives n_guard_dropped and
+    n_psf_pass."""
     timing = {} if timing is None else timing
+    counts = {} if counts is None else counts
+    s = settings if settings is not None else C.DetectSettings(deblend_cont)
     t0 = time.perf_counter()
-    det = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh,
-                 bkg=None if ctx is None else ctx.background)
+    det = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh, deblend_cont=s.deblend_cont,
+                 clean_param=s.clean_param, bkg=None if ctx is None else ctx.background)
     det = det[det["snr"] >= min_snr]  # keeps detect's order (brightest first): members.parquet relies on it
     timing["detect_s"] = time.perf_counter() - t0
     if len(det) == 0:
         return empty_dots()
     if ctx is None:
         ctx = photo_context(l2, timing)
+    comp = None
+    if s.sat_guard_px > 0 or s.psf_pass:
+        t0 = time.perf_counter()
+        flags = np.asarray(l2.flags) if l2.flags is not None else np.zeros(np.shape(l2.data), np.int32)
+        dsat = sat_distance(flags)
+        if s.sat_guard_px > 0 and (s.deblend_cont != C.DOTS_DEBLEND_CONT or s.clean_param != 1.0):
+            # dots the sky run's setting doesn't also find, close to saturated pixels: pieces of a saturated star's wings
+            ref = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh, deblend_cont=C.DOTS_DEBLEND_CONT,
+                         bkg=ctx.background)
+            ref = ref[ref["snr"] >= min_snr]
+            new = np.ones(len(det), bool)
+            if len(ref):
+                d, _ = cKDTree(np.c_[ref["x"], ref["y"]]).query(np.c_[det["x"], det["y"]], k=1)
+                new = d > 1.0
+            drop = new & (_at(dsat, det["x"], det["y"]) < s.sat_guard_px)
+            det = det[~drop]
+            counts["n_guard_dropped"] = int(drop.sum())
+        timing["guard_s"] = time.perf_counter() - t0
+        if s.psf_pass and getattr(l2, "epsf", None) is not None and len(det):
+            t0 = time.perf_counter()
+            ix, iy = pixel_of(det["x"].astype(np.float64), det["y"].astype(np.float64), ctx.f3.shape)
+            sat1 = (ctx.f3[iy, ix] & SAT_BITS) != 0
+            comp = residual_companions(ctx.sub, ctx.noise0, ctx.bad, det["x"], det["y"], det["snr"], sat1, l2.epsf,
+                                       thresh=thresh, min_snr=min_snr)
+            cd = comp.dots
+            if s.sat_guard_px > 0 and len(cd):
+                cd = cd[_at(dsat, cd["x"], cd["y"]) >= s.sat_guard_px]
+            cd = cd.copy()
+            cd["sep_flag"] = cd["sep_flag"] | C.SEP_FLAG_PSF_PASS
+            comp = (cd, comp.model)
+            counts["n_psf_pass"] = int(len(cd))
+            timing["psf_pass_s"] = time.perf_counter() - t0
+        elif s.psf_pass:
+            counts["n_psf_pass"] = 0
+    if len(det) == 0 and not (comp is not None and len(comp[0])):
+        return empty_dots()
+    df = _measure_dots(l2, det, ctx, obs_id, detector, session, visit, timing)
+    if comp is not None and len(comp[0]):
+        # measured on the residual: IMAGE minus the subtracted ePSF models of the brighter dots
+        t0 = time.perf_counter()
+        l2r = copy.copy(l2)
+        l2r.data = (np.asarray(l2.data, np.float64) - comp[1]).astype(np.asarray(l2.data).dtype)
+        dfc = _measure_dots(l2r, comp[0], ctx, obs_id, detector, session, visit, {})
+        df = pd.concat([df, dfc], ignore_index=True)
+        df = df.iloc[np.argsort(-df["flux_ujy"].to_numpy(np.float64), kind="stable")].reset_index(drop=True)
+        timing["psf_pass_measure_s"] = time.perf_counter() - t0
+    return df
+
+
+def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector: int, session: int, visit: int,
+                  timing: dict) -> pd.DataFrame:
+    """Everything dots_table measures for detections `det` (core.detect's dtype) on l2.data."""
     data = np.asarray(l2.data)
     f3 = ctx.f3
     x, y = det["x"].astype(np.float64), det["y"].astype(np.float64)
@@ -629,8 +708,27 @@ def calibration_meta(dots: pd.DataFrame, forced: pd.DataFrame | None) -> dict:
     return out
 
 
+def detect_meta(deblend_cont: float = C.DOTS_DEBLEND_CONT, dots_dir: str = C.DOTS_DIR,
+                settings: C.DetectSettings | None = None, counts: dict | None = None) -> dict:
+    """The detection settings a dot file was made with (photo metadata `detect`): files made with another
+    setting live in another folder, and this says which setting a file has. Fine detection v2 settings (clean_param,
+    saturation guard, ePSF second pass) add clean_param, sat_guard_px, psf_pass and the counts n_guard_dropped,
+    n_psf_pass."""
+    out = {"thresh": C.DETECT_THRESH, "min_snr": C.DOT_MIN_SNR, "deblend_cont": float(deblend_cont), "dots_dir": dots_dir}
+    if settings is not None and (settings.clean_param != 1.0 or settings.sat_guard_px > 0 or settings.psf_pass):
+        out.update({"clean_param": float(settings.clean_param), "sat_guard_px": float(settings.sat_guard_px),
+                    "psf_pass": bool(settings.psf_pass)})
+        if settings.psf_pass:
+            out["psf_pass_config"] = {"primary_snr": C.PSF_PASS_PRIMARY_SNR, "r_px": C.PSF_PASS_R_PX,
+                                      "model_frac": C.PSF_PASS_MODEL_FRAC, "sat_r_px": C.PSF_PASS_SAT_R_PX,
+                                      "mirror_frac": C.PSF_PASS_MIRROR_FRAC, "mirror_sigma": C.PSF_PASS_MIRROR_SIGMA,
+                                      "sep_flag": C.SEP_FLAG_PSF_PASS}
+        out.update({k: int(v) for k, v in (counts or {}).items()})
+    return out
+
+
 def photo_meta_dict(l2, obs_id: str, detector: int, st: dict, ctx: PhotoContext | None,
-                    dots: pd.DataFrame, forced: pd.DataFrame | None) -> dict:
+                    dots: pd.DataFrame, forced: pd.DataFrame | None, settings: dict | None = None) -> dict:
     zodi = getattr(l2, "zodi", None)
     meta = {
         "schema": 1,
@@ -639,6 +737,7 @@ def photo_meta_dict(l2, obs_id: str, detector: int, st: dict, ctx: PhotoContext 
         "epsf_calib": epsf_calib_id(l2.header),
         "n_dots": int(len(dots)),
         "n_forced": None if forced is None else int(len(forced)),
+        "detect": settings if settings is not None else detect_meta(),
         "read_s": st.get("read_s"), "detect_s": st.get("detect_s"), "forced_s": st.get("forced_s"),
         "stages_s": {k: round(float(v), 3) for k, v in (ctx.timing if ctx else {}).items()},
         "zodi_median_mjysr": float(np.nanmedian(zodi)) if zodi is not None else None,
@@ -853,8 +952,13 @@ def _load_retrying(url: str, st: dict):
 
 def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: int, visit: int,
                        zone: str | None, st: dict) -> dict:
-    """Everything after the read: dots, forced photometry, metadata, files. Never raises."""
-    rel = dots_rel(obs_id, detector)
+    """Everything after the read: dots, forced photometry, metadata, files. Never raises.
+    The zone's detection setting and folder come from config.zone_dots. In a folder other than the sky run's,
+    an existing forced/ file is kept (forced photometry doesn't depend on deblending; other zones read it)."""
+    settings = C.zone_detect(zone)
+    ddir, deblend = settings.folder, settings.deblend_cont
+    counts: dict = {}
+    rel = dots_rel(obs_id, detector, ddir)
     try:
         if int(l2.detector) != int(detector):
             raise ValueError(f"header DETECTOR {l2.detector} != photo list {detector}")
@@ -868,7 +972,7 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
         else:
             timing: dict = {}
             ctx = photo_context(l2, timing)
-            df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx)
+            df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx, settings=settings, counts=counts)
         st["detect_s"] = round(time.time() - t0, 2)
         st["n_dots"] = int(len(df))
         ref, zobj, origin = forced_reference(store, l2, zone) if ctx is not None else (None, None, "")
@@ -878,10 +982,14 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
             forced = forced_table(l2, ctx, obs_id, detector, ref, zobj)
             st["forced_s"] = round(time.time() - t0, 2)
             st["n_forced"] = int(len(forced))
-            ft = pa.Table.from_pandas(forced, preserve_index=False)
-            st["forced_bytes"] = _retry(lambda: _write(store, forced_rel(obs_id, detector), ft))
+            frel = forced_rel(obs_id, detector)
+            if ddir != C.DOTS_DIR and store.exists(frel):
+                st["forced_kept"] = True  # never overwritten from a re-extraction into another dots folder
+            else:
+                ft = pa.Table.from_pandas(forced, preserve_index=False)
+                st["forced_bytes"] = _retry(lambda: _write(store, frel, ft))
         st["status"] = "done_finast" if "finast" in st else "done"
-        meta = photo_meta_dict(l2, obs_id, detector, st, ctx, df, forced)
+        meta = photo_meta_dict(l2, obs_id, detector, st, ctx, df, forced, detect_meta(deblend, ddir, settings, counts))
         table = dots_arrow(df, meta)
         t0 = time.time()
         st["bytes"] = _retry(lambda: _write(store, rel, table))  # last: a dot file = photo fully done
@@ -895,11 +1003,11 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
 
 def process_photo(root: str, obs_id: str, detector: int, url: str, session: int = 0, visit: int = 0,
                   zone: str | None = None) -> dict:
-    """Do one photo: forced/<...>.parquet (if the zone has a refcat), then dots/<...>.parquet with the
-    photo metadata. Returns a stats dict; never raises."""
+    """Do one photo: forced/<...>.parquet (if the zone has a refcat), then dots/<...>.parquet (the zone's
+    folder, config.zone_dots) with the photo metadata. Returns a stats dict; never raises."""
     store = _store(root)
     st = _new_stats(obs_id, detector)
-    if _already_done(store, dots_rel(obs_id, detector), st):
+    if _already_done(store, dots_rel(obs_id, detector, C.zone_dots(zone)[0]), st):
         return st
     l2 = _load_retrying(url, st)
     if l2 is None:
@@ -916,11 +1024,12 @@ def process_photos(root: str, photos: list[tuple], zone: str | None = None,
     Returns one stats dict per photo (in order); never raises."""
     prefetch = C.DOTS_PREFETCH if prefetch is None else prefetch
     store = _store(root)
+    ddir = C.zone_dots(zone)[0]
     out: list[dict] = []
     jobs = []
     for obs_id, detector, url, session, visit in photos:
         st = _new_stats(obs_id, detector)
-        if _already_done(store, dots_rel(obs_id, detector), st):
+        if _already_done(store, dots_rel(obs_id, detector, ddir), st):
             out.append(st)
         else:
             jobs.append((obs_id, int(detector), url, int(session), int(visit), st))
@@ -979,11 +1088,13 @@ def spread_limit(todo: list, limit: int | None) -> list:
 def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> dict:
     t_start = time.time()
     photos = store.read_parquet(photolist_rel(zone.name)).sort_values(["mjd", "detector"]).reset_index(drop=True)
-    done = {n for n in store.listdir("dots") if n.endswith(".parquet")}
+    ddir, deblend = C.zone_dots(zone.name)
+    done = {n for n in store.listdir(ddir) if n.endswith(".parquet")}
     todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" not in done]
     n_done_before = len(photos) - len(todo)
     todo = spread_limit(todo, limit)
-    L.info("dots %s: %d photos, %d already done, %d to do now, %d workers", zone.name, len(photos), n_done_before, len(todo), workers)
+    L.info("dots %s: %d photos, %d already done in %s/ (deblend_cont %g), %d to do now, %d workers", zone.name, len(photos),
+           n_done_before, ddir, deblend, len(todo), workers)
     stats: list[dict] = []
     if todo:
         ctx = mp.get_context("spawn")
@@ -1014,7 +1125,9 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
         "skipped_finast": len(finast),
         "failed": len(failed), "failed_photos": [f"{s['obs_id']}D{s['detector']}" for s in failed][:50],
         "remaining": int(len(photos) - n_done_before - len(done_now) - len(finast)),
-        "wall_s": round(wall, 1), "workers": workers,
+        "wall_s": round(wall, 1), "workers": workers, "dots_dir": ddir, "deblend_cont": deblend,
+        "detect_settings": dataclasses.asdict(C.zone_detect(zone.name)),
+        "forced_kept": sum(bool(s.get("forced_kept")) for s in stats),
     }
     if done_now:
         a = pd.DataFrame(done_now)

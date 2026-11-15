@@ -1,0 +1,35 @@
+{
+  "about": "Images for the opening (web/src/intro). One entry per slot; see README.md in this folder. file: a name in this folder, or null (sky: no image; earth, horizon: drawn in code).",
+  "slots": [
+    {
+      "id": "sky",
+      "kind": "real",
+      "file": "spherex-sky.webp",
+      "alt": "The Milky Way in Aquila and Scutum as SPHEREx saw it at 1.35 µm: a bright band of stars crossed by dark dust lanes.",
+      "aspect": "16:10",
+      "min_px": [1600, 1000],
+      "credit": "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).",
+      "brief": "Real SPHEREx data, never generated, painted or retouched. A wide field of the sky made from a SPHEREx release (today: the IRSA SPHEREx DR1 all-sky HiPS cube, one 1.35 µm channel, a 50° view of the Milky Way in Aquila and Scutum). One channel in grey or a composite of SPHEREx channels; stretch, crop and scale for display only. No added stars, nebulae, planets, flares or text. Keep the middle and the lower middle free of no-data gaps: the title sits in the middle at the start and the pupil opens there at the end. It is shown behind the whole opening, slightly zoomed and turned, so leave a margin of plain sky at the edges. If the field, release or wavelength changes, change alt and credit to match."
+    },
+    {
+      "id": "earth",
+      "kind": "illustration",
+      "file": null,
+      "alt": "Earth from space, half in night.",
+      "aspect": "1:1",
+      "min_px": [1600, 1600],
+      "credit": "Earth, made with Higgsfield",
+      "brief": "Earth seen from space as one full disc, centred, touching all four edges of the square (the code cuts out the circle, so whatever lies outside it is never seen). Sunlit from the upper left, night falling to the lower right, to match the blue rim drawn around it. Oceans, land and clouds as they really look from orbit: no glowing city grids, aurora rings, Moon, stars, satellites or lens flares. It grows to about three screens wide before it fades, so give it fine detail. The most honest choice is a real NASA photo (Blue Marble or DSCOVR EPIC, public domain): then set kind to real and credit it, e.g. \"Earth: NASA DSCOVR EPIC\". Generated art stays kind illustration and is labelled Illustration on screen."
+    },
+    {
+      "id": "horizon",
+      "kind": "illustration",
+      "file": null,
+      "alt": "Dark hills at night.",
+      "aspect": "3:1",
+      "min_px": [2400, 800],
+      "credit": "hills, made with Higgsfield",
+      "brief": "The ground the person stands on: low, dark hills or open land at night, nearly a silhouette (deep blue-black, a faint rim of skyglow along the ridges). Everything above the ridges must be transparent (WebP or PNG with alpha): the SPHEREx sky shows through there, and it is the only sky in the opening. The ground line where the figure stands is the image's middle row; ridges sit above it, the nearest ground below. No people, buildings, lit windows, trees with lights, Moon, stars or sky. It spans the screen's width and crops at the sides on phones, so keep anything that matters in the middle third."
+    }
+  ]
+}

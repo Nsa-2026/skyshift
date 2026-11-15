@@ -11,23 +11,47 @@ optical wavelengths for Gaia, but bright at 3–5 µm, where SPHEREx sees. Two r
    detector, and the spectrum shape agrees (rms of ln ratio across detectors <= HIGHPM_SHAPE_MAX).
    Each source keeps its best partner (smallest |ln ratio| + shape).
 2. "fit": astrometry.parquet's SPHEREx-only proper motion >= HIGHPM_FIT_MIN_MAS_YR at
-   >= HIGHPM_FIT_MIN_SNR (slower movers that stay linked as one source).
+   >= HIGHPM_FIT_MIN_SNR (slower movers that stay linked as one source); from HIGHPM_FIT_MIN_SNR_GAIA when Gaia
+   confirms a fast motion (its pm + ϖ·k >= HIGHPM_FIT_MIN_MAS_YR, agreeing with ours), from HIGHPM_FIT_MIN_SNR_CATWISE
+   when CatWISE does (no Gaia pm; CatWISE's own |pm| >= HIGHPM_FIT_MIN_MAS_YR and HIGHPM_CW_CONFIRM_SNR × its error,
+   agreeing). An unconfirmed motion never counts on weaker evidence than HIGHPM_FIT_MIN_SNR.
 `status` = "new" when neither side matches Gaia (crossids), else "gaia". A CatWISE match whose proper
-motion agrees with ours (HIGHPM_CATWISE_PM_TOL) is a bonus (`catwise_pm_agree`). `red_ratio` =
+motion agrees with ours (parallax-aware, below) is a bonus (`catwise_pm_agree`); CatWISE's motion of a saturated
+source brighter than W1 HIGHPM_CW_SAT_W1_MAX counts for nothing (neither checks nor disproves). `red_ratio` =
 D6 / D2 flux (4.4–5.0 µm over 1.1–1.6 µm): large for cold objects (methane, CO absorption bluewards).
+
+Deep checks (deep_check, HIGHPM_DEEP_CHECK) before a vetted row counts as "new": refcat stops at G 20 and crossid's
+2MASS match ignores motion. Gaia DR3 with no magnitude cut (ESA TAP sync, HIGHPM_DEEP_BATCH rows per query) around
+our position and around where our motion, less a parallax leak, puts us at 2016.0: a source whose own motion brings it
+to us is the counterpart (status "gaia", vetted unless its motion is not ours: gaia_pm_disagrees / gaia_slow). Else a
+2MASS source (refcat) where our motion puts us at its epoch makes it status "2mass". A failed query leaves the rows
+"new" (report deep_check.deep_gaia_checked false); nothing raises.
+
+Parallax: with two visits half a year apart a fit's pm is the true pm plus ϖ·(k_e, k_n), the parallax leak
+(visit_stats: k = cov(t, parallax factor) / var(t) over the source's dots; hunt k_e ≈ −4.1, k_n ≈ +1.0). So a
+Gaia counterpart is compared as its pm + its parallax × k (gaia_check), and a CatWISE counterpart (no parallax)
+as its pm + ϖ·k for the best 0 ≤ ϖ ≤ HIGHPM_CW_PLX_PER_PM × its |pm| (catwise_check; _SAT for saturated
+sources). A nearby Planet X moves AND shows parallax: both count as signal in pm_snr.
 
 Control (highpm_report.json `control_pairs`, `pair_vs_control`): the same pairing, with the same coverage
 cut, after moving every even visit's single-visit sources by each HIGHPM_CONTROL_OFFSETS: the mean is the
 number of chance pairs to expect, per separation bin (HIGHPM_PAIR_SEP_BINS).
 
 Vetting (columns `vetted`, `reason`; every candidate is kept): a candidate is vetted when `reason` is empty.
-Reasons: short_span, few_dots, bad_fit, over_pm_cap (fit: HIGHPM_FIT_*); gaia_pm_disagrees /
-catwise_pm_disagrees (either side's Gaia / CatWISE counterpart has its own pm, and it is not ours: the
-counterpart is a slower star at that spot, HIGHPM_PM_AGREE_SIGMA); at_control_level (pair: its separation bin
-has no more pairs than the control, Poisson P >= HIGHPM_PAIR_MAX_P). The report counts "new" as status new and
-vetted; `new_unvetted` and `reasons` show what was cut.
+Reasons: short_span, few_dots, few_sessions (< HIGHPM_FIT_MIN_SESSIONS sessions in a visit), bad_fit, over_pm_cap
+(fit: HIGHPM_FIT_*); gaia_pm_disagrees (a Gaia counterpart with its own pm, and pm + parallax leak is not ours: the
+counterpart is a slower star at that spot, HIGHPM_PM_AGREE_SIGMA); catwise_pm_disagrees (no Gaia pm to check,
+and the CatWISE counterpart's motion is not ours); unchecked (fit with neither a Gaia nor a CatWISE
+motion to check it, and under HIGHPM_NOCAT_MIN_SNR or saturated: an uncatalogued star never saturates; hunt: the
+only 3 still-star false positives left were G 7–8 saturated stars CatWISE does not list); at_control_level (pairs: its separation bin has no more pairs
+than the control, Poisson P >= HIGHPM_PAIR_MAX_P). A motion Gaia confirms is a known moving star: the quality
+reasons (short_span ... over_pm_cap) don't apply to it. Only vetted rows are leads (candidates.py exports only
+those). The report counts "new" as status new and vetted; `new_unvetted` and `reasons` show what was cut.
 Recall check (highpm_report.json): Gaia DR3 stars faster than HIGHPM_RECALL_MAS_YR in the zone, how
-many we detected as a source, how many came out as candidates.
+many we detected as a source, how many came out as candidates. False-positive control (`fp_control`): the
+same selection and vetting on Gaia-5p stars that are still for us (HIGHPM_STILL_*) with their Gaia entry hidden;
+the share that comes out vetted (per 100k) times the zone's fitted sources without a Gaia pm = the fakes to
+expect among the vetted "new" ones.
 
 Writes results/<zone>/highpm_candidates.parquet and highpm_report.json.
 """
@@ -54,14 +78,18 @@ L = log.get("highpm")
 COLUMNS = ["method", "status", "source_id", "source_id_b", "ra", "dec", "ra_b", "dec_b", "mjd", "mjd_b", "visit", "visit_b",
            "sep_arcsec", "pmra", "pmdec", "pm", "pm_err", "flux_ratio", "shape_rms", "n_common_det", "red_ratio",
            "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason"]
-REASONS = ("short_span", "few_dots", "bad_fit", "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees",
-           "at_control_level")
+REASONS = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap", "gaia_pm_disagrees",
+           "catwise_pm_disagrees", "unchecked", "at_control_level", "gaia_slow")
+QUALITY = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap")  # not applied to a Gaia-confirmed motion
 
 
-def source_visits(store: Store, zone: C.Zone) -> pd.DataFrame:
-    """Per source: its visit (-1 if seen in several) and mean mjd, from members + the photo list."""
-    m = store.read_parquet(results_rel(zone.name, "members.parquet"), columns=["source_id", "obs_id", "detector"])
-    p = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector", "mjd", "visit"])
+def source_visits(store: Store, zone: C.Zone, m: pd.DataFrame | None = None, p: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Per source: its visit (-1 if seen in several) and mean mjd, from members + the photo list
+    (m, p: those tables already read)."""
+    if m is None:
+        m = store.read_parquet(results_rel(zone.name, "members.parquet"), columns=["source_id", "obs_id", "detector"])
+    if p is None:
+        p = store.read_parquet(photolist_rel(zone.name), columns=["obs_id", "detector", "mjd", "visit"])
     key = pd.MultiIndex.from_arrays([p["obs_id"].astype(str), p["detector"].astype(np.int64)])
     pos = key.get_indexer(pd.MultiIndex.from_arrays([m["obs_id"].astype(str), m["detector"].astype(np.int64)]))
     ok = pos >= 0
@@ -70,6 +98,82 @@ def source_visits(store: Store, zone: C.Zone) -> pd.DataFrame:
     g = df.groupby("source_id").agg(mjd=("mjd", "mean"), vmin=("visit", "min"), vmax=("visit", "max"))
     g["visit"] = np.where(g["vmin"] == g["vmax"], g["vmin"], -1).astype(np.int64)
     return g[["mjd", "visit"]].reset_index()
+
+
+def visit_stats(m: pd.DataFrame, p: pd.DataFrame, pos: pd.DataFrame, ids) -> pd.DataFrame:
+    """Per source in `ids`: k_e, k_n (parallax leak of a proper-motion fit over its dots, mas/yr per mas: the fit's
+    pm = true pm + ϖ·k) and sessions_min (fewest sessions in any visit it is seen in).
+    m: members (source_id, obs_id, detector); p: photo list (obs_id, detector, mjd, visit[, session]);
+    pos: source_id, ra, dec. Unweighted over the dots (the fit weights them by their errors: close enough)."""
+    from .astrometry import observer_xyz_au, parallax_factors
+
+    ids = np.unique(np.asarray(ids, np.int64))
+    empty = pd.DataFrame({"source_id": ids, "k_e": 0.0, "k_n": 0.0, "sessions_min": np.int64(0)})
+    if not len(ids) or not len(m) or not len(p):
+        return empty
+    m = m[np.isin(m["source_id"].to_numpy(np.int64), ids)]
+    key = pd.MultiIndex.from_arrays([p["obs_id"].astype(str), p["detector"].astype(np.int64)])
+    j = key.get_indexer(pd.MultiIndex.from_arrays([m["obs_id"].astype(str), m["detector"].astype(np.int64)]))
+    pi = pd.Index(pos["source_id"].to_numpy(np.int64)).get_indexer(m["source_id"].to_numpy(np.int64))
+    ok = (j >= 0) & (pi >= 0)
+    if not ok.any():
+        return empty
+    sid, j, pi = m["source_id"].to_numpy(np.int64)[ok], j[ok], pi[ok]
+    mjd = p["mjd"].to_numpy(np.float64)[j]
+    vis = p["visit"].to_numpy(np.int64)[j]
+    ses = (p["session"].to_numpy(np.int64)[j] if "session" in p
+           else np.floor(mjd * 144.0).astype(np.int64))  # no session column: 10-minute bins
+    umjd, inv = np.unique(np.round(mjd, 6), return_inverse=True)
+    xyz = observer_xyz_au(umjd)[inv.ravel()]
+    pe, pn = parallax_factors(pos["ra"].to_numpy(np.float64)[pi], pos["dec"].to_numpy(np.float64)[pi], xyz)
+    u, g = np.unique(sid, return_inverse=True)
+    n = np.bincount(g).astype(np.float64)
+    t = mjd / DAYS_PER_JYEAR
+    dt = t - (np.bincount(g, t) / n)[g]
+    vt = np.bincount(g, dt * dt)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ke = np.where(vt > 0, np.bincount(g, dt * (pe - (np.bincount(g, pe) / n)[g])) / vt, 0.0)
+        kn = np.where(vt > 0, np.bincount(g, dt * (pn - (np.bincount(g, pn) / n)[g])) / vt, 0.0)
+    sv = pd.DataFrame({"g": g, "v": vis, "s": ses}).drop_duplicates()
+    smin = sv.groupby(["g", "v"]).size().groupby(level="g").min().reindex(np.arange(len(u)), fill_value=0)
+    out = pd.DataFrame({"source_id": u, "k_e": ke, "k_n": kn, "sessions_min": smin.to_numpy(np.int64)})
+    return empty[["source_id"]].merge(out, on="source_id", how="left").fillna({"k_e": 0.0, "k_n": 0.0, "sessions_min": 0}).astype(
+        {"sessions_min": np.int64})
+
+
+def gaia_check(out: pd.DataFrame, gpmra, gpmdec, gplx, k_e, k_n,
+               predicted: bool = False) -> tuple[np.ndarray, ...]:
+    """(has a Gaia pm, disagrees): Gaia's pm + its parallax × the leak k (what our fit should have measured)
+    against ours; disagrees beyond max(HIGHPM_PM_AGREE_SIGMA × pm_err, HIGHPM_CATWISE_PM_TOL × |predicted|, 100).
+    predicted: also return |Gaia's pm + parallax × leak| (mas/yr), the motion Gaia says our fit should see."""
+    plx = np.nan_to_num(np.asarray(gplx, np.float64), nan=0.0)
+    pra = np.asarray(gpmra, np.float64) + plx * np.nan_to_num(k_e)
+    pde = np.asarray(gpmdec, np.float64) + plx * np.nan_to_num(k_n)
+    d = np.hypot(out["pmra"].to_numpy(np.float64) - pra, out["pmdec"].to_numpy(np.float64) - pde)
+    tol = np.maximum.reduce([C.HIGHPM_PM_AGREE_SIGMA * np.nan_to_num(out["pm_err"].to_numpy(np.float64)),
+                             C.HIGHPM_CATWISE_PM_TOL * np.nan_to_num(np.hypot(pra, pde)), np.full(len(out), 100.0)])
+    has = np.isfinite(d)
+    if predicted:
+        return has, has & (d > tol), np.hypot(pra, pde)
+    return has, has & (d > tol)
+
+
+def catwise_check(out: pd.DataFrame, cpmra, cpmdec, cerr, k_e, k_n, plx_per_pm) -> tuple[np.ndarray, np.ndarray]:
+    """(has a CatWISE pm, agrees). CatWISE fits no parallax, so ours may exceed its pm by a leak ϖ·k with
+    0 <= ϖ <= plx_per_pm × |pm_cw| (the ϖ that fits best); agrees when the rest is within
+    max(HIGHPM_PM_AGREE_SIGMA × (pm_err ⊕ CatWISE's error), HIGHPM_CW_REL_TOL × |pm_cw|, 100 mas/yr)."""
+    ke, kn = np.nan_to_num(np.asarray(k_e, np.float64)), np.nan_to_num(np.asarray(k_n, np.float64))
+    cra, cde = np.asarray(cpmra, np.float64), np.asarray(cpmdec, np.float64)
+    dx, dy = out["pmra"].to_numpy(np.float64) - cra, out["pmdec"].to_numpy(np.float64) - cde
+    pm_cw = np.hypot(cra, cde)
+    kk = ke * ke + kn * kn
+    with np.errstate(invalid="ignore", divide="ignore"):
+        w = np.where(kk > 0, np.clip((dx * ke + dy * kn) / kk, 0.0, np.nan_to_num(plx_per_pm * pm_cw)), 0.0)
+    res = np.hypot(dx - w * ke, dy - w * kn)
+    sig = np.hypot(np.nan_to_num(out["pm_err"].to_numpy(np.float64)), np.nan_to_num(np.asarray(cerr, np.float64)))
+    tol = np.maximum.reduce([C.HIGHPM_PM_AGREE_SIGMA * sig, C.HIGHPM_CW_REL_TOL * np.nan_to_num(pm_cw), np.full(len(out), 100.0)])
+    has = np.isfinite(dx) & np.isfinite(dy)
+    return has, has & (res <= tol)
 
 
 def detector_fluxes(spec: np.ndarray) -> np.ndarray:
@@ -212,9 +316,11 @@ def pair_vs_control(real_sep: np.ndarray, ctrl: list[np.ndarray]) -> list[dict]:
 
 
 def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
+    """astrometry fits >= HIGHPM_FIT_MIN_MAS_YR down to the lower, confirmed-only significance (compute drops those under
+    HIGHPM_FIT_MIN_SNR that no catalogue motion confirms)."""
     if ast is None or not len(ast):
         return pd.DataFrame()
-    m = (ast["pm"] >= C.HIGHPM_FIT_MIN_MAS_YR) & (ast["pm_snr"] >= C.HIGHPM_FIT_MIN_SNR)
+    m = (ast["pm"] >= C.HIGHPM_FIT_MIN_MAS_YR) & (ast["pm_snr"] >= min(C.HIGHPM_FIT_MIN_SNR, C.HIGHPM_FIT_MIN_SNR_GAIA))
     a = ast[m]
     err = np.hypot(a["pmra_err"], a["pmdec_err"]) / np.sqrt(2)
     return pd.DataFrame({
@@ -226,12 +332,12 @@ def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
         "shape_rms": np.float32(0.0), "n_common_det": np.int8(0), "red_ratio": np.float32(np.nan),
         "score": (1.0 / a["pm_snr"]).to_numpy(np.float32),
         **{f"_{c}": (a[c].to_numpy(np.float64) if c in a else np.full(len(a), np.nan))
-           for c in ("n_visits", "span_yr", "chi2_nu", "n_dots")},
+           for c in ("n_visits", "span_yr", "chi2_nu", "n_dots", "n_used", "pm_snr")},
     })
 
 
 def pm_disagrees(pmra_c, pmdec_c, out: pd.DataFrame) -> np.ndarray:
-    """A counterpart's own proper motion (pmra_c, pmdec_c) disagrees with the candidate's (finite only)."""
+    """A counterpart's own proper motion (pmra_c, pmdec_c) disagrees with the candidate's (finite only; no parallax)."""
     d = np.hypot(np.asarray(pmra_c, np.float64) - out["pmra"].to_numpy(np.float64),
                  np.asarray(pmdec_c, np.float64) - out["pmdec"].to_numpy(np.float64))
     tol = np.maximum.reduce([C.HIGHPM_PM_AGREE_SIGMA * np.nan_to_num(out["pm_err"].to_numpy(np.float64)),
@@ -239,58 +345,92 @@ def pm_disagrees(pmra_c, pmdec_c, out: pd.DataFrame) -> np.ndarray:
     return np.isfinite(d) & (d > tol)
 
 
-def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: list[dict] | None) -> pd.DataFrame:
-    """`vetted` and `reason` (module docstring). pair_bins None: pairs are not tested against the control."""
+def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: list[dict] | None,
+        confirmed: np.ndarray | None = None, checked: np.ndarray | None = None,
+        gaia_slow: np.ndarray | None = None) -> pd.DataFrame:
+    """`vetted` and `reason` (module docstring). pair_bins None: pairs are not tested against the control.
+    confirmed: Gaia confirms the motion (the QUALITY reasons don't apply); checked: a Gaia or CatWISE motion exists
+    to check it against (None: every row counts as checked); gaia_slow: Gaia agrees but predicts under
+    HIGHPM_FIT_MIN_MAS_YR (pm + parallax leak), so the row is a known slow star, not a mover to list."""
+    n = len(out)
     fit = (out["method"] == "fit").to_numpy()
-    col = lambda c: out[c].to_numpy(np.float64) if c in out else np.full(len(out), np.nan)  # noqa: E731
+    col = lambda c: out[c].to_numpy(np.float64) if c in out else np.full(n, np.nan)  # noqa: E731
+    conf = np.zeros(n, bool) if confirmed is None else np.asarray(confirmed, bool)
+    chk = np.ones(n, bool) if checked is None else np.asarray(checked, bool)
     with np.errstate(invalid="ignore"):
         bad = {
             "short_span": fit & ((col("_n_visits") < C.HIGHPM_FIT_MIN_VISITS) | (col("_span_yr") < C.HIGHPM_FIT_MIN_SPAN_YR)),
-            "few_dots": fit & (col("_n_dots") < C.HIGHPM_FIT_MIN_DOTS),
+            "few_dots": fit & (np.fmin(col("_n_dots"), col("_n_used")) < C.HIGHPM_FIT_MIN_DOTS),  # dots the fit used
+            "few_sessions": fit & (col("_sessions_min") < C.HIGHPM_FIT_MIN_SESSIONS),
             "bad_fit": fit & (col("_chi2_nu") > C.HIGHPM_FIT_MAX_CHI2_NU),
             "over_pm_cap": fit & (col("pm") > C.HIGHPM_FIT_MAX_PM_MAS_YR),
-            "gaia_pm_disagrees": gaia_dis,
-            "catwise_pm_disagrees": cw_dis,
-            "at_control_level": np.zeros(len(out), bool),
+            "gaia_pm_disagrees": np.asarray(gaia_dis, bool),
+            "catwise_pm_disagrees": np.asarray(cw_dis, bool),
+            "unchecked": fit & ~chk & ((col("_pm_snr") < C.HIGHPM_NOCAT_MIN_SNR) | (col("_saturated") > 0)),
+            "at_control_level": np.zeros(n, bool),
+            "gaia_slow": np.zeros(n, bool) if gaia_slow is None else np.asarray(gaia_slow, bool),
         }
+    for k in QUALITY:
+        bad[k] &= ~conf
     if pair_bins is not None:
         sep = col("sep_arcsec")
-        ok_bin = np.zeros(len(out), bool)
+        ok_bin = np.zeros(n, bool)
         for b in pair_bins:
             lo, hi = b["sep_arcsec"]
             if b["beats_control"]:
                 ok_bin |= (sep >= lo) & (sep < hi)
         bad["at_control_level"] = ~fit & ~ok_bin
     names = np.array(REASONS)
-    bits = np.stack([bad[k] for k in REASONS], 1) if len(out) else np.zeros((0, len(REASONS)), bool)
+    bits = np.stack([bad[k] for k in REASONS], 1) if n else np.zeros((0, len(REASONS)), bool)
     out["reason"] = [",".join(names[b]) for b in bits]
-    out["vetted"] = ~bits.any(axis=1) if len(out) else np.zeros(0, bool)
+    out["vetted"] = ~bits.any(axis=1) if n else np.zeros(0, bool)
     return out
 
 
 def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | None, ast: pd.DataFrame | None,
-            pair_bins: list[dict] | None = None) -> pd.DataFrame:
+            pair_bins: list[dict] | None = None, vstats: pd.DataFrame | None = None,
+            cw_err: pd.Series | None = None) -> pd.DataFrame:
+    """Candidates (module docstring). vstats: visit_stats of the fits' sources (None: no parallax leak, sessions
+    not checked); cw_err: CatWISE pm error (mas/yr) by catwise_ref_id (None: 0)."""
     spec = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64) if len(src) else np.zeros((0, NDET * NCH_DET))
     dflux = detector_fluxes(spec)
     pairs = pair_movers(src, dflux, footprints_by_visit)
     fits = fit_movers(ast)
+    src_ix = pd.Index(src["source_id"].to_numpy(np.int64))
     if len(fits):
-        pos = pd.Index(src["source_id"].to_numpy(np.int64)).get_indexer(fits["source_id"].to_numpy(np.int64))
+        pos = src_ix.get_indexer(fits["source_id"].to_numpy(np.int64))
         okp = pos >= 0
         red = np.full(len(fits), np.nan)
         red[okp] = dflux[pos[okp], 5] / dflux[pos[okp], 1]
         fits["red_ratio"] = red.astype(np.float32)
+        if vstats is not None and len(vstats):
+            v = vstats.set_index("source_id").reindex(fits["source_id"].to_numpy(np.int64))
+            fits["_k_e"], fits["_k_n"] = v["k_e"].to_numpy(np.float64), v["k_n"].to_numpy(np.float64)
+            fits["_sessions_min"] = v["sessions_min"].to_numpy(np.float64)
     out = pd.concat([x for x in (pairs, fits) if len(x)], ignore_index=True) if (len(pairs) or len(fits)) else pd.DataFrame(columns=[*COLUMNS])
     if not len(out):
         empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in COLUMNS})
         return empty.astype({"vetted": bool, "reason": str, "method": str, "status": str})
+    n = len(out)
+    ke = out["_k_e"].to_numpy(np.float64) if "_k_e" in out else np.zeros(n)  # pairs: no leak (one visit each side)
+    kn = out["_k_n"].to_numpy(np.float64) if "_k_n" in out else np.zeros(n)
+    sat = np.zeros(n, bool)
+    if "saturated" in src:
+        sp = src_ix.get_indexer(out["source_id"].to_numpy(np.int64))
+        sat[sp >= 0] = src["saturated"].fillna(False).to_numpy(bool)[sp[sp >= 0]]
+    out["_saturated"] = sat.astype(np.float64)
+    plx_per_pm = np.where(sat, C.HIGHPM_CW_PLX_PER_PM_SAT, C.HIGHPM_CW_PLX_PER_PM)
     # Gaia and CatWISE, from either side
-    gref = np.full(len(out), "", dtype=object)
-    gid = np.full(len(out), -1, np.int64)
-    cw = np.full(len(out), "", dtype=object)
-    agree = np.zeros(len(out), bool)
-    gaia_dis = np.zeros(len(out), bool)
-    cw_dis = np.zeros(len(out), bool)
+    gref = np.full(n, "", dtype=object)
+    gid = np.full(n, -1, np.int64)
+    cw = np.full(n, "", dtype=object)
+    agree = np.zeros(n, bool)
+    g_has = np.zeros(n, bool)      # a Gaia counterpart with its own pm
+    g_slow = np.zeros(n, bool)     # ... whose pm + parallax leak is under HIGHPM_FIT_MIN_MAS_YR: a known slow star
+    gaia_dis = np.zeros(n, bool)
+    cw_has = np.zeros(n, bool)
+    cw_dis = np.zeros(n, bool)
+    cw_fast = np.zeros(n, bool)    # CatWISE's own motion is >= HIGHPM_FIT_MIN_MAS_YR (and HIGHPM_CW_CONFIRM_SNR) and agrees
     if crossids is not None and len(crossids):
         x = crossids.set_index("source_id")
         for col in ("source_id", "source_id_b"):
@@ -300,25 +440,54 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
             gref[fill] = g[fill]
             gid[fill] = r["gaia_id"].to_numpy()[fill]
             nm = r["catwise_name"].fillna("").astype(str).to_numpy()
-            cpm_ra, cpm_de = r["catwise_pmra"].to_numpy(np.float64), r["catwise_pmdec"].to_numpy(np.float64)
-            dpm = np.hypot(cpm_ra - out["pmra"].to_numpy(np.float64), cpm_de - out["pmdec"].to_numpy(np.float64))
-            tol = np.maximum(C.HIGHPM_CATWISE_PM_TOL * out["pm"].to_numpy(np.float64), 100.0)
-            agree |= np.isfinite(dpm) & (dpm <= tol)
+            cerr = np.zeros(n)
+            if cw_err is not None and "catwise_ref_id" in r:
+                cerr = np.nan_to_num(cw_err.reindex(r["catwise_ref_id"].astype(str).to_numpy()).to_numpy(np.float64))
+            has, ok = catwise_check(out, r["catwise_pmra"].to_numpy(np.float64), r["catwise_pmdec"].to_numpy(np.float64),
+                                    cerr, ke, kn, plx_per_pm)
+            # a saturated source brighter than W1 8: CatWISE's motion neither checks nor disproves ours
+            w1 = r["w1"].to_numpy(np.float64) if "w1" in r else np.full(n, np.nan)
+            with np.errstate(invalid="ignore"):
+                has &= ~(sat & (w1 < C.HIGHPM_CW_SAT_W1_MAX))
+            ok &= has
+            agree |= ok
+            cw_has |= has
+            pm_cw = np.hypot(r["catwise_pmra"].to_numpy(np.float64), r["catwise_pmdec"].to_numpy(np.float64))
+            with np.errstate(invalid="ignore"):
+                cw_fast |= ok & (pm_cw >= C.HIGHPM_FIT_MIN_MAS_YR) & (pm_cw >= C.HIGHPM_CW_CONFIRM_SNR * cerr)
             cw[(cw == "") & (nm != "")] = nm[(cw == "") & (nm != "")]
-            cw_dis |= (nm != "") & pm_disagrees(cpm_ra, cpm_de, out)
+            cw_dis |= (nm != "") & has & ~ok
             if "gaia_pmra" in r and "gaia_pmdec" in r:
-                gaia_dis |= (g != "") & pm_disagrees(r["gaia_pmra"].to_numpy(np.float64), r["gaia_pmdec"].to_numpy(np.float64), out)
+                plx = r["gaia_parallax"].to_numpy(np.float64) if "gaia_parallax" in r else np.zeros(n)
+                gh, gd, gp = gaia_check(out, r["gaia_pmra"].to_numpy(np.float64), r["gaia_pmdec"].to_numpy(np.float64),
+                                        plx, ke, kn, predicted=True)
+                g_slow |= (g != "") & gh & (gp < C.HIGHPM_FIT_MIN_MAS_YR)
+                g_has |= (g != "") & gh
+                gaia_dis |= (g != "") & gd
     out["gaia_ref_id"] = gref.astype(str)
     out["gaia_id"] = gid
     out["catwise_name"] = cw.astype(str)
     out["catwise_pm_agree"] = agree
     out["status"] = np.where(out["gaia_ref_id"] == "", "new", "gaia")
-    out = vet(out, gaia_dis, cw_dis, pair_bins)
-    # vetted first, new before gaia, then pairs before fits, then best score
-    out["_r"] = ((~out["vetted"]).astype(int) * 4 + (out["status"] != "new").astype(int) * 2
-                 + (out["method"] != "pair").astype(int))
-    out = out.sort_values(["_r", "score"], kind="stable").reset_index(drop=True)
-    return out[COLUMNS]
+    confirmed = g_has & ~gaia_dis
+    # CatWISE judges only where Gaia has no motion to compare (Gaia: parallax known, far smaller errors)
+    out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has,
+              gaia_slow=g_slow & ~gaia_dis)
+    # under HIGHPM_FIT_MIN_SNR a fit is a candidate only when a catalogue confirms a fast motion: Gaia's (pm + ϖ·k >=
+    # HIGHPM_FIT_MIN_MAS_YR, agreeing) from HIGHPM_FIT_MIN_SNR_GAIA, CatWISE's (no Gaia pm) from HIGHPM_FIT_MIN_SNR_CATWISE
+    fsnr = out["_pm_snr"].to_numpy(np.float64) if "_pm_snr" in out else np.full(n, np.inf)
+    with np.errstate(invalid="ignore"):
+        low_ok = ((confirmed & ~g_slow & (fsnr >= C.HIGHPM_FIT_MIN_SNR_GAIA))
+                  | (cw_fast & ~g_has & (fsnr >= C.HIGHPM_FIT_MIN_SNR_CATWISE)))
+        drop = (out["method"] == "fit").to_numpy() & ~(fsnr >= C.HIGHPM_FIT_MIN_SNR) & ~low_ok
+    return _ordered(out[~drop])
+
+
+def _ordered(out: pd.DataFrame) -> pd.DataFrame:
+    """COLUMNS; vetted first, new before catalogued, then pairs before fits, then best score."""
+    r = ((~out["vetted"].to_numpy(bool)).astype(int) * 4 + (out["status"] != "new").to_numpy().astype(int) * 2
+         + (out["method"] != "pair").to_numpy().astype(int))
+    return out.assign(_r=r).sort_values(["_r", "score"], kind="stable").reset_index(drop=True)[COLUMNS]
 
 
 def recall(cands: pd.DataFrame, crossids: pd.DataFrame | None, refcat: pd.DataFrame, zone: C.Zone, mjd_ref: float) -> dict:
@@ -360,27 +529,285 @@ def recall(cands: pd.DataFrame, crossids: pd.DataFrame | None, refcat: pd.DataFr
                                                       detected, rec, rec_v)][:200]}
 
 
-def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
+def catwise_pm_err(store: Store, zone: C.Zone) -> pd.Series | None:
+    """CatWISE pm error (mas/yr, mean of the two axes) by ref_id, from refcat/<zone>.parquet (None if absent)."""
+    rel = C.REFCAT_REL.format(zone=zone.name)
+    try:
+        r = store.read_parquet(rel, columns=["ref_id", "cat", "pmra_err", "pmdec_err"])
+    except Exception:  # noqa: BLE001 - an old refcat without these columns: CatWISE errors count as 0
+        return None
+    r = r[r["cat"].astype(str) == "catwise"]
+    e = np.hypot(r["pmra_err"].to_numpy(np.float64), r["pmdec_err"].to_numpy(np.float64)) / np.sqrt(2)
+    return pd.Series(e, index=r["ref_id"].astype(str).to_numpy())
+
+
+def fp_control(src: pd.DataFrame, crossids: pd.DataFrame | None, ast: pd.DataFrame | None, vstats: pd.DataFrame | None,
+               cw_err: pd.Series | None) -> dict:
+    """The fit selection and vetting on Gaia-5p stars that are still for us (|pm| < HIGHPM_STILL_PM_MAX,
+    ϖ < HIGHPM_STILL_PLX_MAX), with their Gaia entry hidden: what comes out vetted is a false positive. Its rate
+    times the fitted sources without a Gaia pm = the fakes to expect among the vetted "new" candidates."""
+    if ast is None or crossids is None or not len(ast) or "gaia_pmra" not in crossids:
+        return {}
+    x = crossids
+    has_g = x["gaia_ref_id"].fillna("").astype(str).to_numpy() != ""
+    gpm = np.hypot(x["gaia_pmra"].to_numpy(np.float64), x["gaia_pmdec"].to_numpy(np.float64))
+    plx = x["gaia_parallax"].to_numpy(np.float64) if "gaia_parallax" in x else np.zeros(len(x))
+    with np.errstate(invalid="ignore"):
+        still = has_g & np.isfinite(gpm) & (gpm < C.HIGHPM_STILL_PM_MAX) & (np.nan_to_num(plx) < C.HIGHPM_STILL_PLX_MAX)
+    with_pm = set(x["source_id"].to_numpy(np.int64)[has_g & np.isfinite(gpm)])
+    a = ast[ast["source_id"].isin(x["source_id"].to_numpy(np.int64)[still])]
+    hidden = x[x["source_id"].isin(a["source_id"])].copy()
+    hidden["gaia_ref_id"] = ""
+    hidden["gaia_id"] = -1
+    for c in ("gaia_pmra", "gaia_pmdec", "gaia_parallax"):
+        if c in hidden:
+            hidden[c] = np.nan
+    s = src[src["source_id"].isin(a["source_id"])].copy()
+    s["visit"] = -1  # fits only, no pairs
+    c = compute(s, None, hidden, a, None, vstats, cw_err)
+    fp = int((c["vetted"].to_numpy(bool) & (c["method"] == "fit").to_numpy()).sum()) if len(c) else 0
+    n_new = int((~ast["source_id"].isin(list(with_pm))).sum())
+    rate = fp / len(a) if len(a) else 0.0
+    return {"still_stars": int(len(a)), "selected": int((c["method"] == "fit").sum()) if len(c) else 0,
+            "false_positives": fp, "per_100k": round(1e5 * rate, 2), "sources_without_gaia_pm": n_new,
+            "expected_new_fakes": round(rate * n_new, 2),
+            "still_definition": {"pm_max_mas_yr": C.HIGHPM_STILL_PM_MAX, "parallax_max_mas": C.HIGHPM_STILL_PLX_MAX}}
+
+
+# --- deep checks before a vetted row counts as "new" ------------------------------------------------------------------
+def deep_gaia_tap(adql: str):
+    """ESA Gaia TAP, synchronous (its async jobs stalled for minutes, 14 Nov), HIGHPM_DEEP_TIMEOUT_S per request."""
+    import pyvo
+    import requests
+
+    from .refcat import ESA_TAP
+
+    class _Session(requests.Session):
+        def request(self, *a, **k):
+            k.setdefault("timeout", C.HIGHPM_DEEP_TIMEOUT_S)
+            return super().request(*a, **k)
+
+    return pyvo.dal.TAPService(ESA_TAP, session=_Session()).run_sync(adql, maxrec=C.REFCAT_MAXREC).to_table()
+
+
+def _leak(rows: pd.DataFrame, vstats: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray]:
+    """Each row's parallax leak k (fits: visit_stats; pairs: none, as compute)."""
+    ke, kn = np.zeros(len(rows)), np.zeros(len(rows))
+    if vstats is not None and len(vstats) and len(rows):
+        v = vstats.drop_duplicates("source_id").set_index("source_id").reindex(rows["source_id"].to_numpy(np.int64))
+        fit = (rows["method"] == "fit").to_numpy()
+        ke = np.where(fit, np.nan_to_num(v["k_e"].to_numpy(np.float64)), 0.0)
+        kn = np.where(fit, np.nan_to_num(v["k_n"].to_numpy(np.float64)), 0.0)
+    return ke, kn
+
+
+def _segment(rows: pd.DataFrame, ke, kn, mjd_to) -> tuple[np.ndarray, ...]:
+    """Our position moved to mjd_to with our pm (ra_a, dec_a) and with our pm less the largest parallax leak ϖ·k,
+    ϖ = HIGHPM_CW_PLX_PER_PM × |pm| (ra_b, dec_b): where a nearby object was then lies between the two."""
+    from .sky import offset_radec
+    dt = (np.asarray(mjd_to, np.float64) - rows["mjd"].to_numpy(np.float64)) / DAYS_PER_JYEAR / 1000.0  # yr, mas → ″
+    pmra, pmdec = rows["pmra"].to_numpy(np.float64), rows["pmdec"].to_numpy(np.float64)
+    plx = C.HIGHPM_CW_PLX_PER_PM * np.hypot(pmra, pmdec)
+    ra, dec = rows["ra"].to_numpy(np.float64), rows["dec"].to_numpy(np.float64)
+    ra_a, dec_a = offset_radec(ra, dec, pmra * dt, pmdec * dt)
+    ra_b, dec_b = offset_radec(ra, dec, (pmra - plx * ke) * dt, (pmdec - plx * kn) * dt)
+    return ra_a, dec_a, ra_b, dec_b
+
+
+def deep_gaia_query(rows: pd.DataFrame, ke, kn, tap=None) -> pd.DataFrame:
+    """Gaia DR3 sources of any G (refcat's columns, parse_gaia) within HIGHPM_DEEP_ARCSEC of each row's position or of
+    the segment its position moved back to 2016.0 takes (_segment): one ESA query per HIGHPM_DEEP_BATCH rows, two
+    circles a row. Raises when the service fails."""
+    from skyshift_core import GAIA_EPOCH_MJD
+
+    from .refcat import GAIA_SELECT, parse_gaia
+    from .sky import angsep
+    tap = tap or deep_gaia_tap
+    ra_a, dec_a, ra_b, dec_b = _segment(rows, ke, kn, GAIA_EPOCH_MJD)
+    # a circle through the segment's middle covering both ends (fine for ″-scale segments)
+    ra_m, dec_m = (ra_a + ra_b) / 2.0, (dec_a + dec_b) / 2.0
+    r_m = angsep(ra_a, dec_a, ra_b, dec_b) / 2.0 + C.HIGHPM_DEEP_ARCSEC / 3600.0
+    circles = [f"1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {a:.7f}, {d:.7f}, {r:.7f}))"
+               for i in range(len(rows))
+               for a, d, r in ((rows["ra"].iat[i], rows["dec"].iat[i], C.HIGHPM_DEEP_ARCSEC / 3600.0),
+                               (ra_m[i], dec_m[i], r_m[i]))]
+    step = 2 * C.HIGHPM_DEEP_BATCH
+    parts = [parse_gaia(tap(f"SELECT {GAIA_SELECT} FROM gaiadr3.gaia_source WHERE {' OR '.join(circles[i:i + step])}"))
+             for i in range(0, len(circles), step)]
+    g = pd.concat(parts, ignore_index=True) if parts else parse_gaia(pd.DataFrame({"source_id": []}))
+    return g.drop_duplicates("ref_id").reset_index(drop=True)
+
+
+def deep_gaia_match(rows: pd.DataFrame, ke, kn, gaia: pd.DataFrame) -> list[dict | None]:
+    """Per row, its deep Gaia counterpart: a source whose own motion (from 2016.0) puts it within
+    HIGHPM_DEEP_MATCH_ARCSEC of us at our epoch, one whose motion agrees with ours (gaia_check, parallax leak) first,
+    then the nearest; None without one."""
+    from skyshift_core import GAIA_EPOCH_MJD, propagate
+
+    from .sky import angsep
+    out: list[dict | None] = []
+    for i in range(len(rows)):
+        if not len(gaia):
+            out.append(None)
+            continue
+        r = rows.iloc[[i]]
+        pra, pde = propagate(gaia["ra"].to_numpy(), gaia["dec"].to_numpy(), gaia["pmra"].to_numpy(), gaia["pmdec"].to_numpy(),
+                             float(r["mjd"].iat[0]), epoch_mjd=GAIA_EPOCH_MJD)
+        sep = angsep(pra, pde, r["ra"].iat[0], r["dec"].iat[0]) * 3600.0
+        near = np.flatnonzero(sep <= C.HIGHPM_DEEP_MATCH_ARCSEC)
+        if not near.size:
+            out.append(None)
+            continue
+        g = gaia.iloc[near]
+        rr = pd.concat([r] * len(near), ignore_index=True)
+        has, dis, pred = gaia_check(rr, g["pmra"].to_numpy(np.float64), g["pmdec"].to_numpy(np.float64),
+                                    g["parallax"].to_numpy(np.float64), np.full(len(near), ke[i]), np.full(len(near), kn[i]),
+                                    predicted=True)
+        j = int(np.lexsort((sep[near], ~(has & ~dis)))[0])
+        out.append({"ref_id": str(g["ref_id"].iat[j]), "gaia_id": int(str(g["ref_id"].iat[j]).split(":")[-1]),
+                    "g": float(g["g_mag"].iat[j]), "pmra": float(g["pmra"].iat[j]), "pmdec": float(g["pmdec"].iat[j]),
+                    "parallax": float(g["parallax"].iat[j]), "sep_arcsec": float(sep[near][j]),
+                    "has_pm": bool(has[j]), "agrees": bool(has[j] and not dis[j]), "predicted_pm": float(pred[j])})
+    return out
+
+
+def deep_tmass_match(rows: pd.DataFrame, ke, kn, refcat: pd.DataFrame, d2_ab: np.ndarray) -> list[dict | None]:
+    """Per row, a 2MASS source (refcat) where our motion, less a parallax leak ϖ·k (0 <= ϖ <= HIGHPM_CW_PLX_PER_PM × |pm|,
+    the best one), puts us at its own epoch (within HIGHPM_DEEP_MATCH_ARCSEC), not at our own position, and with its J
+    (AB) within HIGHPM_DEEP_TMASS_MAX_DMAG of our D2 flux (AB) where both are known; None without one."""
+    from .sky import angsep
+    tm = refcat[(refcat["cat"].to_numpy() == "tmass") & np.isfinite(refcat["epoch_mjd"].to_numpy(np.float64))]
+    out: list[dict | None] = []
+    if not len(tm) or not len(rows):
+        return [None] * len(rows)
+    ra_a, dec_a, ra_b, dec_b = _segment(rows, ke, kn, 51544.5)  # J2000.0: 2MASS observed 1997.5–2001
+    tra, tde, tep = (tm[c].to_numpy(np.float64) for c in ("ra", "dec", "epoch_mjd"))
+    jab = tm["j"].to_numpy(np.float64) + 0.91 if "j" in tm else np.full(len(tm), np.nan)
+    for i in range(len(rows)):
+        r = rows.iloc[i]
+        reach = (angsep(ra_a[i], dec_a[i], ra_b[i], dec_b[i]) * 3600.0 + 3.0 * abs(r["pm"]) / 1000.0
+                 + C.HIGHPM_DEEP_ARCSEC)  # the segment, ± 1.5 yr of 2MASS epochs, the match radius
+        near = np.flatnonzero(angsep(tra, tde, (ra_a[i] + ra_b[i]) / 2.0, (dec_a[i] + dec_b[i]) / 2.0) * 3600.0 <= reach)
+        if not near.size:
+            out.append(None)
+            continue
+        e0, n0 = tangent_offset_arcsec(r["ra"], r["dec"], tra[near], tde[near])
+        dt = (tep[near] - r["mjd"]) / DAYS_PER_JYEAR
+        r0e, r0n = e0 - r["pmra"] * dt / 1000.0, n0 - r["pmdec"] * dt / 1000.0
+        ve, vn = ke[i] * dt / 1000.0, kn[i] * dt / 1000.0  # ″ per mas of parallax
+        vv = ve * ve + vn * vn
+        with np.errstate(invalid="ignore", divide="ignore"):
+            w = np.where(vv > 0, np.clip(-(r0e * ve + r0n * vn) / vv, 0.0, C.HIGHPM_CW_PLX_PER_PM * abs(r["pm"])), 0.0)
+        res = np.hypot(r0e + w * ve, r0n + w * vn)
+        dmag = np.abs(jab[near] - d2_ab[i])
+        ok = ((res <= C.HIGHPM_DEEP_MATCH_ARCSEC) & (np.hypot(e0, n0) > C.HIGHPM_DEEP_MATCH_ARCSEC)
+              & ~(np.nan_to_num(dmag, nan=0.0) > C.HIGHPM_DEEP_TMASS_MAX_DMAG))
+        if not ok.any():
+            out.append(None)
+            continue
+        j = int(np.flatnonzero(ok)[np.argmin(res[ok])])
+        out.append({"ref_id": str(tm["ref_id"].iat[near[j]]), "sep_arcsec": round(float(res[j]), 2),
+                    "offset_now_arcsec": round(float(np.hypot(e0[j], n0[j])), 1), "parallax_used_mas": round(float(w[j]), 1),
+                    "epoch_mjd": round(float(tep[near[j]]), 1),
+                    "j_ab": None if not np.isfinite(jab[near[j]]) else round(float(jab[near[j]]), 2)})
+    return out
+
+
+def deep_check(cands: pd.DataFrame, vstats: pd.DataFrame | None, refcat: pd.DataFrame, d2_ab: pd.Series | None = None,
+               tap=None) -> tuple[pd.DataFrame, dict]:
+    """Before a vetted row counts as `new`: Gaia DR3 with no magnitude cut (deep_gaia_query, deep_gaia_match) and
+    2MASS from refcat (deep_tmass_match), both following our motion back in time. A Gaia counterpart makes the row
+    status `gaia` (its gaia_ref_id, gaia_id), vetted only when Gaia's motion (with its parallax leak) agrees with ours or
+    Gaia has none (`gaia_pm_disagrees`, `gaia_slow` as compute); else a 2MASS one makes it status `2mass`. A failed
+    Gaia query keeps the rows `new` (deep_gaia_checked false); never raises. d2_ab: our D2 AB magnitude by source_id."""
+    v = cands["vetted"].to_numpy(bool) & (cands["status"] == "new").to_numpy() if len(cands) else np.zeros(0, bool)
+    idx = np.flatnonzero(v)
+    rep: dict = {"rows": int(idx.size), "deep_gaia_checked": True, "gaia_matched": 0, "gaia_agrees": 0,
+                 "gaia_disagrees": 0, "tmass_matched": 0, "matches": []}
+    if not idx.size:
+        return cands, rep
+    cands = cands.copy()
+    rows = cands.iloc[idx].reset_index(drop=True)
+    ke, kn = _leak(rows, vstats)
+    try:
+        gm = deep_gaia_match(rows, ke, kn, deep_gaia_query(rows, ke, kn, tap))
+    except Exception as e:  # noqa: BLE001 - the network: keep the rows new, say so
+        L.warning("highpm: deep Gaia check failed (%s): %d vetted rows stay new", e, idx.size)
+        rep.update({"deep_gaia_checked": False, "error": repr(e)[:200]})
+        gm = [None] * len(rows)
+    d2 = (d2_ab.reindex(rows["source_id"].to_numpy(np.int64)).to_numpy(np.float64) if d2_ab is not None
+          else np.full(len(rows), np.nan))
+    tmm = deep_tmass_match(rows, ke, kn, refcat, d2)
+    status, gref = np.array(cands["status"], dtype=object), np.array(cands["gaia_ref_id"], dtype=object)
+    gid, reason = np.array(cands["gaia_id"], dtype=np.int64), np.array(cands["reason"], dtype=object)
+    for i, k in enumerate(idx):
+        g, t = gm[i], tmm[i]
+        row = {"source_id": int(rows["source_id"].iat[i]), "method": str(rows["method"].iat[i]),
+               "pm": round(float(rows["pm"].iat[i]), 1), "gaia": g, "tmass": t}
+        rep["matches"].append(row)
+        if g is not None:
+            status[k], gref[k], gid[k] = "gaia", g["ref_id"], g["gaia_id"]
+            rep["gaia_matched"] += 1
+            if g["has_pm"] and not g["agrees"]:
+                reason[k] = "gaia_pm_disagrees"
+                rep["gaia_disagrees"] += 1
+            elif g["has_pm"]:
+                rep["gaia_agrees"] += 1
+                if g["predicted_pm"] < C.HIGHPM_FIT_MIN_MAS_YR:
+                    reason[k] = "gaia_slow"
+        elif t is not None:
+            status[k] = "2mass"
+            rep["tmass_matched"] += 1
+    cands["status"], cands["gaia_ref_id"], cands["gaia_id"], cands["reason"] = status, gref.astype(str), gid, reason
+    cands["vetted"] = cands["reason"].to_numpy(object) == ""
+    for m in rep["matches"]:
+        if m["gaia"] is not None:
+            m["gaia"] = {k: (round(v, 2) if isinstance(v, float) and np.isfinite(v) else (None if isinstance(v, float) else v))
+                         for k, v in m["gaia"].items()}
+    return _ordered(cands), rep
+
+
+def run(store: Store, zone: C.Zone, workers: int = 16, tap=None) -> dict:
     t0 = time.time()
     src = store.read_parquet(results_rel(zone.name, "sources.parquet"), columns=["source_id", "ra", "dec", "pos_err_arcsec", "flux_ujy"])
-    sv = source_visits(store, zone)
+    try:
+        sat = store.read_parquet(results_rel(zone.name, "sources.parquet"), columns=["source_id", "saturated"])
+        src = src.merge(sat, on="source_id", how="left")
+    except Exception:  # noqa: BLE001 - sources without `saturated`: every source counts as unsaturated
+        pass
+    members = store.read_parquet(results_rel(zone.name, "members.parquet"), columns=["source_id", "obs_id", "detector"])
+    pl = store.read_parquet(photolist_rel(zone.name))
+    sv = source_visits(store, zone, members, pl[["obs_id", "detector", "mjd", "visit"]])
     src = src.merge(sv, on="source_id", how="left")
     src["visit"] = src["visit"].fillna(-1).astype(np.int64)
-    photos = store.read_parquet(photolist_rel(zone.name), columns=["s_region", "visit"])
     fps: dict[int, list[Footprint]] = {}
-    for s_region, v in zip(photos["s_region"], photos["visit"]):
+    for s_region, v in zip(pl["s_region"], pl["visit"]):
         fps.setdefault(int(v), []).append(Footprint.from_s_region(s_region))
     xid_rel = results_rel(zone.name, "crossids.parquet")
     crossids = store.read_parquet(xid_rel) if store.exists(xid_rel) else None
     ast_rel = results_rel(zone.name, "astrometry.parquet")
     ast = store.read_parquet(ast_rel) if store.exists(ast_rel) else None
+    fit_ids = fit_movers(ast)["source_id"].to_numpy(np.int64) if ast is not None and len(ast) else np.zeros(0, np.int64)
+    vstats = visit_stats(members, pl[[c for c in ("obs_id", "detector", "mjd", "visit", "session") if c in pl]],
+                         src[["source_id", "ra", "dec"]], fit_ids)
+    del members
+    cw_err = catwise_pm_err(store, zone)
     ctrl = control_separations(src, fps)
     spec = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64) if len(src) else np.zeros((0, NDET * NCH_DET))
-    real = pair_movers(src, detector_fluxes(spec), fps)
+    dflux = detector_fluxes(spec)
+    real = pair_movers(src, dflux, fps)
     bins = pair_vs_control(real["sep_arcsec"].to_numpy(np.float64) if len(real) else np.zeros(0), ctrl)
-    cands = compute(src, fps, crossids, ast, bins)
-    store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
+    cands = compute(src, fps, crossids, ast, bins, vstats, cw_err)
     refcat = load_refcat(store, zone)
+    deep: dict = {"enabled": False}
+    if C.HIGHPM_DEEP_CHECK:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            d2_ab = pd.Series(-2.5 * np.log10(dflux[:, 1] / 3631e6), index=src["source_id"].to_numpy(np.int64))
+        cands, deep = deep_check(cands, vstats, refcat, d2_ab, tap)
+        deep = {"enabled": True, **deep}
+    from . import fragments  # bright_fragment, duplicate → reason `fragment` (never vetted); blend → not new (Gaia lists the stars)
+    cands, frag_st = fragments.apply_highpm(cands, fragments.load(store, zone))
+    store.write_parquet(results_rel(zone.name, "highpm_candidates.parquet"), cands)
     mjd_ref = float(np.nanmedian(src["mjd"])) if len(src) else 61000.0
     v, new = cands["vetted"].to_numpy(bool), (cands["status"] == "new").to_numpy()
     rep = {"zone": zone.name, "candidates": int(len(cands)), "vetted": int(v.sum()),
@@ -392,6 +819,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
            "control_pairs": round(float(np.mean([len(x) for x in ctrl])), 2) if ctrl else 0.0,
            "control_offsets_arcsec": [list(o) for o in C.HIGHPM_CONTROL_OFFSETS],
            "pair_vs_control": bins,
+           "fp_control": fp_control(src, crossids, ast, vstats, cw_err),
+           "deep_check": deep, "fragments": frag_st,
            "recall": recall(cands, crossids, refcat, zone, mjd_ref)}
     store.write_json(results_rel(zone.name, "highpm_report.json"), rep)
     st = {k: v for k, v in rep.items() if k != "recall"}

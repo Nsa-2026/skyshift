@@ -2,6 +2,7 @@
 // labels, and the checklist's statuses. One table each, so chips, the checklist and the drafts all
 // say the same thing. Sources: contracts/flags.md (bits and policy), contracts/dots.md and
 // pipeline/src/skyshift_pipeline/highpm.py (reasons), web/DESIGN.md (kinds, labels).
+import { gateText, isGate } from "../api/grades";
 import type { CandidateKind } from "../api/types";
 import type { Reply, StepStatus } from "./types";
 
@@ -19,6 +20,7 @@ export const KIND_TEXT: Record<CandidateKind, Words> = {
   mover: { short: "Fast mover", plain: "Moves within hours: it could be an uncatalogued asteroid or comet." },
   high_pm: { short: "Moving star", plain: "Moves between visits: it could be a nearby star or brown dwarf." },
   spectral: { short: "Odd spectrum", plain: "Its colours or molecule bands are worth a look." },
+  shape: { short: "One or two?", plain: "Wider or longer than a single star, where the catalogues list one object." },
 };
 
 /** Pipeline reason codes (Candidate.reasons). */
@@ -139,6 +141,8 @@ export function humanize(code: string): string {
 
 /** A reason in plain words; unknown codes are shown as they are, softened, with tone "caution". */
 export function reasonWords(code: string): Words & { tone: Tone } {
+  // A failed vetting check (grade C), in the words src/api/grades.ts keeps for every page.
+  if (!REASON_TEXT[code] && isGate(code)) return { short: gateText(code).label, plain: gateText(code).plain, tone: "bad" };
   return REASON_TEXT[code] ?? { short: cap(humanize(code)), plain: `Pipeline note: ${humanize(code)}.`, tone: "caution" };
 }
 

@@ -48,7 +48,7 @@ export const PRACTICE: PracticeItem[] = [
       junk:
         "It's real: Barnard's Star. Its core is so bright it saturates (solid ink), which can look odd, but the star itself steps north between visits.",
       unsure:
-        "Fair: the step is under one pixel. That's Barnard's Star, moving 10.4″ a year. Subtract two visits in the player to see it clearly.",
+        "Fair: the step is under one pixel. That's Barnard's Star, moving 10.4″ a year. Use Show changes in guided practice, or Difference in Analyze, to compare visits.",
     },
   },
   {
@@ -88,10 +88,10 @@ export function practiceSummary(results: PracticeResult[]): { right: number; of:
     of === 0
       ? "Practice skipped."
       : right === of
-        ? `${right} of ${of}. You're ready for real candidates.`
+        ? `${right} of ${of}. You're ready for real objects.`
         : right === 0
-          ? `${right} of ${of}. That's normal on a first try: real candidates come with the same four answers, and “Not sure” is always fine.`
-          : `${right} of ${of}. Good start. When a real candidate is hard to call, “Not sure” is an honest answer.`;
+          ? `${right} of ${of}. That's normal on a first try: real objects come with the same four answers, and “Not sure” is always fine.`
+          : `${right} of ${of}. Good start. When a real object is hard to call, “Not sure” is an honest answer.`;
   return { right, of, line };
 }
 

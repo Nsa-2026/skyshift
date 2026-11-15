@@ -14,6 +14,8 @@ Every check is printed even when its number is poor; a check with no input yet i
   V10 <results>/<zone>/photoz_report.json       (pipeline photoz)
   V11 scripts/science/data/asteroid_sizes.json  (scripts/science asteroids.py)
   suspects.json: <results>/<zone>/suspects.json of every zone, merged (merge_suspects)
+  distant.json: the distant-planet search (distant.py): <results>/<zone>/distant.json, else data/distant_<zone>.json,
+      + data/distant_injection_<zone>.json; the first zone with a run
 
 Zones (--zones, default hunt,pilot): V5, V8 spectra, V9, V10 and suspects.json take their headline from the first
 zone that has the input and keep the others in the rows (field `zone`) and the note. Without the hunt's reports the
@@ -32,6 +34,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import distant
 from _common import BUCKET, CACHE, DATA, today, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -44,7 +47,8 @@ TARGET_SLUGS = ("barnard", "epsindib", "wise0855", "rwaur", "rdra")
 DATA_RELEASE = "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)"
 ZONES = ("hunt", "pilot")  # headline first: the hunt is the bigger sample; the pilot holds gate G2
 G2_ZONE = "pilot"  # gate G2 was decided on the pilot before the hunt ran
-REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json")
+REPORTS = ("recall.json", "astrometry_report.json", "photoz_report.json", "suspects.json", "summary.json",
+           "distant.json")
 
 
 def load(path: Path | None) -> dict | None:
@@ -375,6 +379,11 @@ def known_source(rec: dict, summary: dict | None) -> tuple[str | None, str | Non
     return None, None
 
 
+def tracked(d: dict) -> bool:
+    """True when a recall.json counts tracklets' recovered dots in `recall` (it then has `recall_movers`, movers alone)."""
+    return d.get("recall_movers") is not None
+
+
 def recall_rows(d: dict) -> list[dict]:
     return [{"v_min": b.get("v_min"), "v_max": b.get("v_max"), "n": b.get("n"), "found": b.get("found"),
              "recall": r(b.get("recall"), 3), "control_recall": r(b.get("control_recall"), 3)} for b in d.get("by_v", [])]
@@ -415,19 +424,26 @@ def v5(res: Path | None, zones=ZONES) -> dict:
         objs = f"{po.get('found')} of {po.get('n')} objects" if po.get("n") else ""
         label = z.capitalize() + " zone" + (" (gate G2)" if z == G2_ZONE and len(reps) > 1 else "")
         if i == 0:
-            heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {vmax:g} found as "
-                         f"movers ({_pct(rec)}); control {_pct(ctl)}" + (f"; {objs}" if objs else ""))
+            # since tracklets (#150) recall.json `recall` also counts dots recovered on a mover track (`recall_movers`:
+            # movers alone); an older report has no recall_movers and its recall is movers alone
+            how = "found (as movers or recovered on a track)" if tracked(d) else "found as movers"
+            heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} known asteroid sessions at V < {vmax:g} {how} "
+                         f"({_pct(rec)}); control {_pct(ctl)}" + (f"; {objs}" if objs else ""))
         else:
             heads.append(f"{label}: {d.get('n_found')} of {d.get('n_known')} ({_pct(rec)}), control {_pct(ctl)}"
                          + (f", {objs}" if objs else ""))
         f12, n12 = bright_unsaturated(zr, vmax)
+        alone = (f"; movers alone: {d.get('n_found_movers')} of {d.get('n_known')} ({_pct(d.get('recall_movers'))})"
+                 if tracked(d) else "")
         zone_notes.append(f" {zone_text(res, z, zs)}: {d.get('photos_with_predictions'):,} photos with predictions, pipeline "
                           f"report of {d.get('generated')}"
                           + (f", MPC orbit snapshot {orbits}" if orbits else "")
-                          + (f"; V 12-{vmax:g} alone: {f12} of {n12}" if n12 else "") + ".")
+                          + (f"; V 12-{vmax:g} alone: {f12} of {n12}" if n12 else "") + alone + ".")
     d0 = reps[0][1]
+    found_by = ("a blind-search mover, or a dot recovered on a mover track's predicted path in that session, lies"
+                if tracked(d0) else "a blind-search mover lies")
     note = (f"Unit: {d0.get('unit')}. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as "
-            f"seen from SPHEREx. One counts as found when a blind-search mover lies within {d0.get('match_arcsec'):g}\" of "
+            f"seen from SPHEREx. One counts as found when {found_by} within {d0.get('match_arcsec'):g}\" of "
             f"its predicted position; control: every prediction moved {(d0.get('control_offset_arcsec') or 120) / 60:g}'. "
             f"Gate G2 is recall >= {100 * (d0.get('g2_threshold') or 0.5):.0f}% at V < {d0.get('v_max'):g}"
             + (f", decided on the {G2_ZONE} zone before the hunt ran" if len(reps) > 1 and G2_ZONE in zs else "")
@@ -628,13 +644,21 @@ def _sep_arcsec(a: dict, b: dict) -> float:
     return 3600.0 * math.hypot(dra, a["dec"] - b["dec"])
 
 
+ZONE_FIELDS = ("vetoes", "provisional", "grades", "gates")  # contracts/api.md suspects.json, zone level (vetting, 14 Nov)
+
+
 def merge_suspects(files: list[tuple[str, dict]], match_arcsec: float = 6.0, match_min: float = 2.0) -> dict | None:
     """The site's suspects.json from several zones' pipeline files, headline zone first.
 
     Every suspect gets `zone` (the run its entry comes from) and `zones` (every zone whose run found it). A suspect
     that an earlier zone already lists (same mover: within `match_arcsec` and `match_min` minutes; the pilot box lies
     inside the hunt zone) is not repeated: the earlier entry adds the zone to its `zones`. The top level keeps the
-    contract's `zone` (the headline zone) and adds `zones`. Files that don't match the contract are skipped."""
+    contract's `zone` (the headline zone) and adds `zones`. Files that don't match the contract are skipped.
+
+    Zone-level vetting fields (ZONE_FIELDS), exactly as each zone's file has them: the headline zone's at the top
+    level, like `generated` and `data_release` (so the file keeps the contract's one-zone shape), and every zone's
+    under `vetting` = {zone: {field: value}}, for the suspects whose `zone` is another. A zone whose file has none
+    (ungraded, written before 14 Nov evening) is left out of `vetting`; with no graded zone the key is absent."""
     files = [(z, d) for z, d in files if valid_suspects(d)]
     if not files:
         return None
@@ -649,8 +673,11 @@ def merge_suspects(files: list[tuple[str, dict]], match_arcsec: float = 6.0, mat
                 continue
             out.append({**s, "zone": z, "zones": [z]})
     z0, d0 = files[0]
+    vetting = {z: {k: d[k] for k in ZONE_FIELDS if k in d} for z, d in files}
+    vetting = {z: v for z, v in vetting.items() if v}
     return {"generated": d0.get("generated"), "data_release": d0.get("data_release"), "zone": z0,
-            "zones": [z for z, _ in files], "suspects": out}
+            **vetting.get(z0, {}), "zones": [z for z, _ in files], **({"vetting": vetting} if vetting else {}),
+            "suspects": out}
 
 
 def fetch_results(zone: str, dest: Path) -> None:
@@ -676,6 +703,8 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--suspects-out", type=Path, default=SITE_DATA / "suspects.json",
                     help="write the zones' merged suspects here when the pipeline wrote real ones (default web/public/data)")
+    ap.add_argument("--distant-out", type=Path, default=SITE_DATA / "distant.json",
+                    help="write the distant-planet search here when a zone has a run (default web/public/data)")
     args = ap.parse_args()
 
     zones = as_zones(args.zone or args.zones)
@@ -703,6 +732,11 @@ def main() -> None:
         write_json(args.suspects_out, sus)
         per = ", ".join(f"{z} {len(d['suspects'])}" for z, d in files if valid_suspects(d))
         print(f"-> {args.suspects_out} ({len(sus['suspects'])} suspects, headline zone {sus['zone']}; per zone: {per})")
+    dist = distant.write_site_file(args.results, zones, args.distant_out, DATA_RELEASE)
+    if dist:
+        c, k = dist["counts"], dist["control"]
+        print(f"-> {args.distant_out} ({dist['zone']}: {c['pairs_tested']} pairs tested, {c['pairs']} passing, "
+              f"chance {k['expected_pairs']}, Poisson p {k['poisson_p']})")
 
 
 if __name__ == "__main__":

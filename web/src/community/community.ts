@@ -7,6 +7,7 @@ import { ANSWERS, ANSWER_TEXT, safeStorage, type Counts, type KV } from "../vote
 import { VOTED_EVENT } from "../vote/store";
 import { mountActivityChart, votesWord, type ChartHandle } from "./chart";
 import { loadSnapshot, type Snapshot } from "./source";
+import { REPO_URL } from "../tools/docs";
 import {
   CONSENSUS,
   CONSENSUS_PCT,
@@ -16,8 +17,7 @@ import {
   mostDebated,
   summarize,
   tally,
-  toAstroCsv,
-  toAstroJson,
+  astroFile,
   type AstroRow,
   type CandInfo,
 } from "./stats";
@@ -40,6 +40,7 @@ export const KIND_NAME: Record<CandInfo["kind"], string> = {
   mover: "Fast mover",
   high_pm: "Moving star",
   spectral: "Odd spectrum",
+  shape: "One or two?",
   flag: "Flagged dot",
 };
 
@@ -81,28 +82,58 @@ export interface CommunityOptions {
   kv?: KV;
   load?: (kv: KV) => Promise<Snapshot>;
   now?: () => number;
+  /**
+   * "page" (default): the whole Community page. "astronomers": only the vote count, the list for
+   * astronomers with its downloads, what happens next and the consensus rule, for a section of
+   * another page (Results → List for astronomers) that gives the heading.
+   */
+  variant?: "page" | "astronomers";
 }
 
 export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: CommunityOptions = {}): PageHandle & { ready(): Promise<void> } {
   const kv = opts.kv ?? safeStorage();
   const load = opts.load ?? ((k: KV) => loadSnapshot({ kv: k }));
   const now = opts.now ?? (() => Date.now());
+  const embedded = opts.variant === "astronomers";
+  const toolsLink = embedded ? html`<a href="#/results/tools/downloads">Tools</a>` : html`<a href="#/tools">Tools and data</a>`;
+  const consensusRule = html`<p>Each object to check collects votes (mover, changing, junk or not sure), one per browser, and a vote can't be changed.</p>
+          <p>It reaches consensus once it has at least ${CONSENSUS.minVotes} votes and ${CONSENSUS_PCT}% or more agree on one answer.</p>
+          <p>Consensus movers and changing sources join the list for astronomers; junk and not-sure verdicts are set aside, and split votes stay open.</p>`;
 
   el.innerHTML = html`
-    <div class="cm">
-      <header class="cm-head">
+    <div class="cm${embedded ? " cm-embedded" : ""}">
+      ${
+        embedded
+          ? html`<div class="cm-head">
+        <p class="cm-lead" aria-live="polite">Counting votes…</p>
+        <p class="cm-source"></p>
+      </div>`
+          : html`<header class="cm-head">
         <h1 class="cm-title">Community</h1>
+        <article class="cm-welcome" aria-labelledby="cm-welcome-h">
+          <h2 id="cm-welcome-h">A note to fellow sky explorers</h2>
+          <p>Welcome to SkyShift, an open astronomy platform for anyone curious about the universe. Here, you can
+            explore NASA's public SPHEREx infrared images, compare observations across time, and help look for
+            things that move or change.</p>
+          <p>Whether you're a lifelong astronomy enthusiast or looking at sky survey images for the first time,
+            you're welcome here. Take your time, follow your curiosity, and learn as you go. Every careful look
+            counts, and “not sure” is a useful answer too.</p>
+          <p>We built SkyShift to share the joy of exploring the sky. Thank you for being part of it. Have fun,
+            enjoy the unexpected, and happy skywatching!</p>
+          <p class="cm-welcome-signature">— The SkyShift team</p>
+        </article>
         <p class="cm-lead" aria-live="polite">Counting votes…</p>
         <p class="cm-source"></p>
         <p class="cm-cta">
-          <a class="btn btn-primary" href="#/review">Start reviewing</a>
-          <a class="btn btn-ghost" href="#/candidates">Browse candidates</a>
+          <a class="btn btn-primary" href="#/candidates/one=1">Start reviewing</a>
+          <a class="btn btn-ghost" href="#/candidates">Browse objects to check</a>
         </p>
-      </header>
+      </header>`
+      }
 
-      <section class="cm-astro" aria-labelledby="cm-astro-h">
+      <section class="cm-astro" ${embedded ? html`aria-label="The list for astronomers"` : html`aria-labelledby="cm-astro-h"`}>
         <div class="cm-sec-head">
-          <h2 id="cm-astro-h">The list for astronomers</h2>
+          ${embedded ? "" : html`<h2 id="cm-astro-h">The list for astronomers</h2>`}
           <div class="cm-exports">
             <button class="btn" type="button" data-act="csv" disabled>Download CSV</button>
             <button class="btn" type="button" data-act="json" disabled>Download JSON</button>
@@ -131,9 +162,26 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
             </div>
           </dl>
           <p class="cm-honest">SkyShift doesn't report anything itself and claims no discoveries. Astronomers confirm,
-            and they report. The CSV and JSON give them positions, times and vote counts to start from; any other
-            candidate list can be downloaded from <a href="#/tools">Tools and data</a>.</p>
+            and they report. The CSV and JSON give them positions, times and vote counts to start from; the full list
+            of objects to check can be downloaded from ${toolsLink}.</p>
+          ${embedded ? html`<h3>How consensus works</h3>${consensusRule}` : ""}
         </div>
+      </section>
+      ${embedded ? "" : html`
+
+      <section class="cm-open cm-next" aria-labelledby="cm-open-h">
+        <h2 id="cm-open-h">Anyone can use this list</h2>
+        <p class="cm-sub">The objects to check, their positions and times, the measured motion with its error, the
+          cautions against each one, and the vote counts are all public. No account, no API key.</p>
+        <p class="cm-honest">Download the current list as CSV or JSON above. The site's own data files are plain
+          JSON at stable addresses, so a script can fetch exactly what this page reads.
+          <a href="#/tools">Tools and data</a> has working examples, the endpoints the live service exposes, and the
+          commands to rerun the pipeline from <a href="${REPO_URL}" target="_blank" rel="noopener">the
+          repository</a>.</p>
+        <p class="cm-honest">The SPHEREx images are already open at IRSA. What SkyShift adds is the layer on top:
+          positions matched across visits, motion measured with its error, catalogue cross-checks, the artefact
+          cautions, and the judgement of the people who looked. We publish that layer as it stands, including the
+          entries people have voted down.</p>
       </section>
 
       <div class="cm-pair">
@@ -165,11 +213,9 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         </section>
         <section class="cm-how" aria-labelledby="cm-how-h">
           <h2 id="cm-how-h">How consensus works</h2>
-          <p>Each candidate collects votes (mover, changing, junk or not sure), one per browser, and a vote can't be changed.</p>
-          <p>It reaches consensus once it has at least ${CONSENSUS.minVotes} votes and ${CONSENSUS_PCT}% or more agree on one answer.</p>
-          <p>Consensus movers and changing sources join the list for astronomers; junk and not-sure verdicts are set aside, and split votes stay open.</p>
+          ${consensusRule}
         </section>
-      </div>
+      </div>`}
     </div>
   `;
 
@@ -186,7 +232,8 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   const nickClear = $<HTMLButtonElement>("[data-act=nick-clear]");
   const csvBtn = $<HTMLButtonElement>("[data-act=csv]");
   const jsonBtn = $<HTMLButtonElement>("[data-act=json]");
-  const chart: ChartHandle = mountActivityChart($<HTMLDivElement>(".cm-chart"));
+  // The astronomers' variant has no activity, debated or "you" parts: their renderers return early.
+  const chart: ChartHandle | null = embedded ? null : mountActivityChart($<HTMLDivElement>(".cm-chart"));
 
   let snap: Snapshot | null = null;
   let rows: AstroRow[] = [];
@@ -206,19 +253,23 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     const flags = sum.reviewed - listedIds;
     if (!sum.votes) {
       leadEl.innerHTML = s.listed
-        ? html`No votes yet. The pipeline has listed ${n(s.listed)} candidates in NASA's SPHEREx data, and each one needs people to look at it.`
-        : html`No votes yet. Every candidate needs people to look at it: be the first.`;
+        ? html`No votes yet. The pipeline has listed ${n(s.listed)} objects to check in NASA's SPHEREx data: things it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them.`
+        : html`No votes yet. Every object on the list needs people to look at it: be the first.`;
     } else {
       const who = html`${n(sum.people)} ${plural(sum.people, "person has", "people have")} cast ${n(sum.votes)} ${plural(sum.votes, "vote", "votes")}`;
       let on: string;
       if (s.listed && listedIds) {
-        on = html`on ${n(listedIds)} of the ${n(s.listed)} candidates the pipeline listed`;
+        on = html`on ${n(listedIds)} of the ${n(s.listed)} objects the pipeline listed to check`;
         if (flags > 0) on += html` and ${n(flags)} other flagged ${plural(flags, "dot", "dots")}`;
-      } else on = html`on ${n(sum.reviewed)} ${plural(sum.reviewed, "candidate", "candidates")}`;
+      } else on = html`on ${n(sum.reviewed)} ${plural(sum.reviewed, "object", "objects")}`;
       const settled = sum.consensus
         ? html`${n(sum.consensus)} reached consensus, and ${n(sum.forAstronomers)} of them ${plural(sum.forAstronomers, "is", "are")} on the list for astronomers.`
         : html`None has reached consensus yet: that takes ${CONSENSUS.minVotes} votes with ${CONSENSUS_PCT}% agreeing.`;
-      leadEl.innerHTML = `${who} ${on}. ${settled}`;
+      // What the listed objects are, next to their count: most are artefacts until people check.
+      const what = s.listed
+        ? " The list holds things the pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them."
+        : "";
+      leadEl.innerHTML = `${who} ${on}. ${settled}${what}`;
     }
     const at = new Date(s.loadedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     const people = "People are counted by browser: each keeps a random id, never a name.";
@@ -236,8 +287,11 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   function renderAstro() {
     csvBtn.disabled = jsonBtn.disabled = rows.length === 0;
     if (!rows.length) {
-      astroEl.innerHTML = html`<p class="cm-empty">Nothing has reached consensus as a mover or changing source yet.
-        The candidates under Most debated are closest: <a href="#/review">review them</a> and your vote may settle one.</p>`;
+      astroEl.innerHTML = embedded
+        ? html`<p class="cm-empty">Nothing has reached consensus as a mover or changing source yet.
+        <a href="#/candidates/one=1">Review the objects to check</a>: your vote may settle one.</p>`
+        : html`<p class="cm-empty">Nothing has reached consensus as a mover or changing source yet.
+        The objects under Most debated are closest: <a href="#/candidates/one=1">review them</a> and your vote may settle one.</p>`;
       return;
     }
     const body = rows
@@ -264,6 +318,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   }
 
   function renderActivity(s: Snapshot) {
+    if (!chart) return;
     const a = activity(s.votes, now());
     chart.update(a);
     const span = a.bins.length;
@@ -273,9 +328,10 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   }
 
   function renderDebated(s: Snapshot) {
+    if (embedded) return;
     const list = mostDebated(tally(s.votes));
     if (!list.length) {
-      debateEl.innerHTML = html`<li class="cm-empty">No split votes right now. Candidates show here once they have three or more votes that disagree.</li>`;
+      debateEl.innerHTML = html`<li class="cm-empty">No split votes right now. Objects show here once they have three or more votes that disagree.</li>`;
       return;
     }
     debateEl.innerHTML = list
@@ -291,6 +347,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   }
 
   function renderYou(s: Snapshot) {
+    if (embedded) return;
     const nick = nickname();
     nickInput.value = nick;
     nickClear.hidden = !nick;
@@ -299,7 +356,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (!a.voted) {
       youEl.innerHTML = html`${hello}<p>You haven't voted from this browser yet. The review queue starts with a short
         practice round, so you'll know what a mover looks like first.</p>
-        <p><a class="btn" href="#/review">Review your first candidate</a></p>`;
+        <p><a class="btn" href="#/candidates/one=1">Review your first object</a></p>`;
       return;
     }
     const mix = ANSWERS.filter((x) => a.answers[x])
@@ -316,7 +373,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         : html`<div class="cm-meter" role="img" aria-label="Agreement with consensus: ${pct(a.rate)}">
             <i style="width:${(a.rate * 100).toFixed(1)}%"></i></div>`;
     youEl.innerHTML = html`${hello}
-      <p class="cm-you-lead">You've voted on ${n(a.voted)} ${plural(a.voted, "candidate", "candidates")} from this browser: ${esc(mix)}.</p>
+      <p class="cm-you-lead">You've voted on ${n(a.voted)} ${plural(a.voted, "object", "objects")} from this browser: ${esc(mix)}.</p>
       <p>${agreeText}</p>${meter}
       <p class="cm-fine">Counted from this browser's own memory of its votes. Disagreeing isn't wrong: early votes are how hard cases get found.</p>`;
   }
@@ -384,7 +441,6 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     }
   }
 
-  const stamp = () => new Date(now()).toISOString().slice(0, 10);
 
   function onClick(ev: MouseEvent) {
     const t = ev.target as Element;
@@ -403,15 +459,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (!snap) return;
     switch (btn.dataset.act) {
       case "csv":
-        download(`skyshift-list-for-astronomers-${stamp()}.csv`, toAstroCsv(rows, location.href), "text/csv;charset=utf-8");
+      case "json": {
+        const meta = { generated: new Date(now()).toISOString(), votes_from: snap.mode, data_release: snap.dataRelease };
+        const file = astroFile(btn.dataset.act, rows, meta, location.href);
+        download(file.name, file.text, file.type);
         break;
-      case "json":
-        download(
-          `skyshift-list-for-astronomers-${stamp()}.json`,
-          toAstroJson(rows, { generated: new Date(now()).toISOString(), votes_from: snap.mode, data_release: snap.dataRelease }, location.href),
-          "application/json",
-        );
-        break;
+      }
     }
   }
 
@@ -435,7 +488,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (snap) snap = { ...snap, loadedAt: -Infinity };
   };
   el.addEventListener("click", onClick);
-  nickForm.addEventListener("submit", onNick);
+  nickForm?.addEventListener("submit", onNick);
   addEventListener(VOTED_EVENT, onVoted);
 
   return {
@@ -444,9 +497,9 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     },
     destroy() {
       el.removeEventListener("click", onClick);
-      nickForm.removeEventListener("submit", onNick);
+      nickForm?.removeEventListener("submit", onNick);
       removeEventListener(VOTED_EVENT, onVoted);
-      chart.destroy();
+      chart?.destroy();
       el.innerHTML = "";
     },
     ready: () => loading ?? Promise.resolve(),

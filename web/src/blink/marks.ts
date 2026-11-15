@@ -56,6 +56,106 @@ export function flagMark(ctx: Ctx, x: number, y: number, r: number): void {
   ctx.lineTo(x + Math.cos(a) * (r + 10), y + Math.sin(a) * (r + 10));
 }
 
+// ---- What SkyShift measured: one circle per detection, its shape telling the class -------------
+// (colour is never the only cue). Each circle is as big as its source looks on the plate (layout.ts),
+// and a Gaia ring is always a little bigger than the circle it holds, so agreement reads as a circle
+// inside a ring. A saturated star with no detection of its own gets one dashed ring (`bigStar`).
+
+export type MeasuredShape = "star" | "known" | "mover" | "suspect" | "artifact" | "other" | "stack";
+
+/** Stroke per class: width, alpha, and a dash (dots for `other`). */
+export const MEASURED_STROKE: Record<MeasuredShape, { width: number; alpha: number; dash: number[] }> = {
+  star: { width: 1.1, alpha: 0.75, dash: [] },
+  other: { width: 1.5, alpha: 0.8, dash: [0.01, 3] },
+  known: { width: 1.4, alpha: 0.9, dash: [] },
+  mover: { width: 1.6, alpha: 0.9, dash: [] },
+  suspect: { width: 2.4, alpha: 0.95, dash: [] },
+  artifact: { width: 1.25, alpha: 0.7, dash: [] },
+  // Seen only on the visit stacks: short dashes, quieter than a single-photo source.
+  stack: { width: 1.2, alpha: 0.7, dash: [2.5, 2.5] },
+};
+
+/** The path of a measured mark: a circle, doubled for known, side ticks for a mover, struck through for an artefact. */
+export function measuredPath(ctx: Ctx, cls: MeasuredShape, x: number, y: number, r: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (cls === "known") {
+    ctx.moveTo(x + r + 2.5, y);
+    ctx.arc(x, y, r + 2.5, 0, Math.PI * 2);
+  } else if (cls === "mover") {
+    ctx.moveTo(x - r - 2, y);
+    ctx.lineTo(x - r - 6, y);
+    ctx.moveTo(x + r + 2, y);
+    ctx.lineTo(x + r + 6, y);
+  } else if (cls === "artifact") {
+    const k = r * Math.SQRT1_2;
+    ctx.moveTo(x - k, y + k);
+    ctx.lineTo(x + k, y - k);
+  }
+}
+
+/**
+ * Draw a measured mark. The rarer classes get a halo in the plate colour under the pencil, so they
+ * read on a dark core; stars and other sources (hundreds of them) stay a plain thin line.
+ */
+export function measuredMark(ctx: Ctx, cls: MeasuredShape, x: number, y: number, r: number, color: string, halo: string): void {
+  const s = MEASURED_STROKE[cls] ?? MEASURED_STROKE.other;
+  measuredPath(ctx, cls, x, y, r);
+  ctx.save();
+  ctx.setLineDash(s.dash);
+  if (cls !== "star" && cls !== "other" && cls !== "stack") pencil(ctx, halo, s.width + 2, 0.5);
+  pencil(ctx, color, s.width, s.alpha);
+  ctx.restore();
+}
+
+/**
+ * A motion arrow through screen points in time order, the head on the last. Nothing is drawn
+ * shorter than 1.5 px. Arrows are to scale unless stretched (measured.ts `motionArrow`), and then
+ * they carry their factor: never shortened, so there is no break to explain.
+ */
+export function arrowPath(ctx: Ctx, pts: { X: number; Y: number }[], head = 6): boolean {
+  if (pts.length < 2) return false;
+  const a = pts[pts.length - 2];
+  const b = pts[pts.length - 1];
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].X - pts[i - 1].X, pts[i].Y - pts[i - 1].Y);
+  if (len < 1.5) return false;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.X, p.Y) : ctx.moveTo(p.X, p.Y)));
+  const ang = Math.atan2(b.Y - a.Y, b.X - a.X);
+  const h = Math.min(head, len * 0.6);
+  for (const s of [-1, 1]) {
+    ctx.moveTo(b.X, b.Y);
+    ctx.lineTo(b.X - h * Math.cos(ang + s * 0.45), b.Y - h * Math.sin(ang + s * 0.45));
+  }
+  return true;
+}
+
+/** Where a stretched arrow's factor ("×10") goes: beside its middle, on the side away from the head's turn. */
+export function factorSpot(from: { X: number; Y: number }, to: { X: number; Y: number }, gap = 9): { X: number; Y: number } {
+  const ang = Math.atan2(to.Y - from.Y, to.X - from.X);
+  const mx = (from.X + to.X) / 2;
+  const my = (from.Y + to.Y) / 2;
+  // The normal that points up the plate (or right, for a vertical arrow), so labels read clear of the shaft.
+  let nx = Math.sin(ang);
+  let ny = -Math.cos(ang);
+  if (ny > 0 || (ny === 0 && nx < 0)) {
+    nx = -nx;
+    ny = -ny;
+  }
+  return { X: mx + nx * gap, Y: my + ny * gap };
+}
+
+/** A saturated (or very bright) star without a detection of its own: one long-dashed ring around its blob. */
+export function bigStar(ctx: Ctx, x: number, y: number, r: number, color: string, halo: string): void {
+  ring(ctx, x, y, r);
+  ctx.save();
+  ctx.setLineDash([7, 4]);
+  pencil(ctx, halo, 3.5, 0.5);
+  pencil(ctx, color, 1.6, 0.9);
+  ctx.restore();
+}
+
 /** Small text with a halo in the plate colour, so it reads over stars. */
 export function label(ctx: Ctx, text: string, x: number, y: number, color: string, halo: string): void {
   ctx.save();

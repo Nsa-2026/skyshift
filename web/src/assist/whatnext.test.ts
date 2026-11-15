@@ -44,6 +44,15 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 const mount = (c: AssistCandidate, votes: Counts | null = null) => mountWhatNext(host, c, votes, { base: BASE, kv, today });
 
 describe("leadSentence", () => {
+  it("asks no vote for grade C and holds its MPC draft back", () => {
+    const c: AssistCandidate = { ...mover, grade: "C", reasons: ["two_exposures", "hot_pixel"] };
+    expect(leadSentence(c, V(0))).toMatch(/^Not put to a vote: the pipeline graded it C because it fails a check\./);
+    expect(leadSentence(c, null)).not.toMatch(/vote, then come back/);
+    mount(c, V(0));
+    expect(block("mpc").textContent).toContain("Grade C: it fails a pipeline check, so don't send it");
+    expect(leadSentence({ ...mover, grade: "B" }, V(0))).toBe(leadSentence(mover, V(0)));
+  });
+
   it("speaks to the votes so far", () => {
     expect(leadSentence(mover, null)).toBe("When the community agrees on it, report it to the Minor Planet Center. Until then the drafts are here to check.");
     expect(leadSentence(star, null)).toContain("tell the Backyard Worlds forum");

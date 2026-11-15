@@ -5,6 +5,10 @@ spherex.obscore (s_region, time, band) and spherex.artifact (S3 key: uri = 'ibe/
 key; obscore's cloud_access is empty over TAP). DR1 and QR3 only (no *_deep); one row per
 (obs_id, detector), DR1 preferred. Time = (t_min + t_max) / 2. Detector from energy_bandpassname.
 If IRSA refuses the INTERSECTS query, a box on the photo centres plus a local footprint test is used.
+If TAP fails altogether (IRSA down, 14 Nov evening), or env SKYSHIFT_PHOTOLIST_SOURCE=s3index, the list comes from
+the S3 photo index (s3index.py, photolists/s3index/): same columns and values, footprints intersecting the zone box
+(great-circle edges, as INTERSECTS), same dedupe. Used only when every period shard exists; stats say whether the
+index is complete (`index_complete`, `index_failed_keys`).
 
 Sessions: a run of the zone's exposure times with gaps under 10 minutes (core.sessions on every
 photo of the zone), one value per photo. Visits: core.visits on the same times. Coverage of a
@@ -15,6 +19,7 @@ Output: photolists/zones/<zone>.parquet, one row per photo.
 
 from __future__ import annotations
 
+import os
 import time
 from collections import Counter
 
@@ -107,22 +112,28 @@ def s3_key_from_uri(uri: str) -> str:
     return key if key.split("/", 1)[0] in ("dr1", "qr3") else ""
 
 
+def dedupe(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """One row per (obs_id, detector): DR1 first, then the larger s3_key; other collections dropped."""
+    pref = {c: i for i, c in enumerate(C.COLLECTIONS)}
+    df = df.assign(_pref=df["collection"].map(pref))
+    df = df[df["_pref"].notna()]
+    df = df.sort_values(["obs_id", "detector", "_pref", "s3_key"], ascending=[True, True, True, False])
+    n_rows = len(df)
+    df = df.drop_duplicates(["obs_id", "detector"], keep="first").drop(columns=["_pref"])
+    return df.reset_index(drop=True), {"duplicates_removed": int(n_rows - len(df))}
+
+
 def clean(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """One row per (obs_id, detector), DR1 first; photos without an S3 key are dropped and counted."""
     df = raw.copy()
     df["detector"] = [detector_from_bandpass(b) for b in df["bandpass"]]
     df["s3_key"] = [s3_key_from_uri(u) for u in df["uri"]]
-    pref = {c: i for i, c in enumerate(C.COLLECTIONS)}
-    df["_pref"] = df["collection"].map(pref)
-    df = df[df["_pref"].notna()]
-    df = df.sort_values(["obs_id", "detector", "_pref", "s3_key"], ascending=[True, True, True, False])
-    n_rows = len(df)
-    df = df.drop_duplicates(["obs_id", "detector"], keep="first")
+    df, dd = dedupe(df)
     no_key = df["s3_key"] == ""
-    stats = {"tap_rows": int(len(raw)), "duplicates_removed": int(n_rows - len(df)),
+    stats = {"tap_rows": int(len(raw)), **dd,
              "no_s3_key": int(no_key.sum()),
              "no_s3_key_examples": df.loc[no_key, "obs_id"].head(5).tolist()}
-    df = df[~no_key].drop(columns=["_pref", "uri", "bandpass"])
+    df = df[~no_key].drop(columns=["uri", "bandpass"])
     df["detector"] = df["detector"].astype("int8")
     df["mjd"] = (df["t_min"] + df["t_max"]) / 2.0
     df["url"] = C.S3_HTTPS + "/" + df["s3_key"]
@@ -152,6 +163,16 @@ def add_sessions(photos: pd.DataFrame) -> pd.DataFrame:
     return p.sort_values(["mjd", "detector"]).reset_index(drop=True)
 
 
+def from_s3index(store: Store, zone: C.Zone) -> tuple[pd.DataFrame, dict]:
+    """The zone's photos from photolists/s3index/ (s3index.py): same rows and columns as clean() makes from TAP."""
+    from . import s3index
+
+    photos, stats = s3index.zone_photos(store, zone)
+    if not stats["index_complete"]:
+        L.warning("photo list of %s from an index without _complete.json (every period shard is there)", zone.name)
+    return photos, stats
+
+
 def describe(photos: pd.DataFrame) -> dict:
     if len(photos) == 0:
         return {"photos": 0}
@@ -178,10 +199,24 @@ def run(store: Store, zone: C.Zone, force: bool = False) -> dict:
         L.info("photolist for %s exists, skipping", zone.name)
         return {"skipped": True, **describe(store.read_parquet(rel))}
     t0 = time.time()
-    raw, how = tap_query(zone)
-    photos, stats = clean(raw)
-    if how == "box":
-        photos = photos[touches_zone(photos, zone)].reset_index(drop=True)
+    if os.environ.get("SKYSHIFT_PHOTOLIST_SOURCE", "tap").lower() == "s3index":
+        L.info("SKYSHIFT_PHOTOLIST_SOURCE=s3index: photo list from the S3 index, no TAP")
+        photos, stats, how = *from_s3index(store, zone), "s3index"
+    else:
+        try:
+            raw, how = tap_query(zone)
+        except Exception as e:  # noqa: BLE001  IRSA down: the S3 index, if it has every period
+            L.warning("TAP failed after its retries (%s): trying the S3 index", str(e)[:200])
+            try:
+                photos, stats = from_s3index(store, zone)
+            except Exception as e2:  # noqa: BLE001
+                L.error("no photo list from the S3 index either: %s", e2)
+                raise e from e2
+            how, stats["tap_error"] = "s3index", str(e)[:200]
+        else:
+            photos, stats = clean(raw)
+            if how == "box":
+                photos = photos[touches_zone(photos, zone)].reset_index(drop=True)
     photos = add_sessions(photos)
     store.write_parquet(rel, photos)
     out = {"query": how, **stats, **describe(photos), "seconds": round(time.time() - t0, 1)}

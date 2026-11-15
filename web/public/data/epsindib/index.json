@@ -15,7 +15,7 @@
     5
    ],
    "epochs": 62,
-   "bytes": 4813678
+   "bytes": 7979935
   },
   {
    "file": "frames_hours_60.json",
@@ -25,7 +25,7 @@
     2
    ],
    "epochs": 32,
-   "bytes": 5843012
+   "bytes": 8158228
   },
   {
    "file": "frames_months_15.json",
@@ -36,7 +36,7 @@
     5
    ],
    "epochs": 8,
-   "bytes": 1421742
+   "bytes": 1967283
   },
   {
    "file": "frames_months_5.json",
@@ -51,7 +51,7 @@
     6
    ],
    "epochs": 22,
-   "bytes": 950537
+   "bytes": 1974503
   }
  ],
  "own": "frames_months_5.json"

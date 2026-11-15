@@ -133,6 +133,26 @@ def test_candidates_complete(kind):
     assert n_hits >= 25
 
 
+def test_known_near_equal_times_reach_every_epoch(monkeypatch):
+    """D2 and D5 are exposed at the same moment: both epochs get the objects of that time (kete faked)."""
+    idx = _synthetic_index(50)
+    seen = {}
+
+    def fake_exact(kete, index, rows, ra, dec, radius_deg, mjds, observers=None):
+        seen["mjds"] = list(mjds)
+        return [{"k": k, "row": 3, "ra": ra, "dec": dec + 0.001 * (k + 1), "v": 15.0} for k in range(len(mjds))] + \
+               [{"k": 0, "row": 4, "ra": ra, "dec": dec, "v": 16.0}]
+
+    monkeypatch.setattr(K, "_kete", lambda: object())
+    monkeypatch.setattr(K, "exact", fake_exact)
+    out = K.known_near(10.0, 0.0, 0.1, [61001.0, 61000.0, 61000.0, 61001.0], index=idx,
+                       epoch_ids=["d2-b", "d2-a", "d5-a", "d5-b"])
+    assert seen["mjds"] == [61001.0, 61000.0]  # each time once
+    assert [(o["epoch_id"], o["name"]) for o in out] == [
+        ("d2-a", "obj3"), ("d5-a", "obj3"),  # by time, then epoch, then nearest first
+        ("d2-b", "obj4"), ("d2-b", "obj3"), ("d5-b", "obj4"), ("d5-b", "obj3")]
+
+
 # ---------------------------------------------------------------- with kete
 
 def test_build_and_known_near_match_kete():

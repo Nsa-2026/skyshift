@@ -62,27 +62,34 @@ export class FieldReader {
     private infos: Map<number, Promise<TileInfo>>,
   ) {}
 
-  private info(t: number, signal?: AbortSignal): Promise<TileInfo> {
+  // Tile headers and the field's plan are shared by every picture of the field, so they are read
+  // without the caller's abort signal: switching filters mid-read used to cancel the shared read
+  // and fail the next picture with "aborted". They are small, and each request has a timeout.
+  private info(t: number): Promise<TileInfo> {
     let p = this.infos.get(t);
     if (!p) {
-      p = readTileInfo(t, this.fetcher, signal);
+      p = readTileInfo(t, this.fetcher);
       p.catch(() => this.infos.delete(t));
       this.infos.set(t, p);
     }
     return p;
   }
 
-  private getPlan(signal?: AbortSignal): Promise<FieldPlan> {
+  private getPlan(): Promise<FieldPlan> {
     if (!this.plan) {
-      this.plan = planField(this.fovArcmin, this.toSky, (t) => this.info(t, signal), true);
-      this.plan.catch(() => (this.plan = null));
+      const plan = planField(this.fovArcmin, this.toSky, (t) => this.info(t), true);
+      plan.catch(() => {
+        if (this.plan === plan) this.plan = null;
+      });
+      this.plan = plan;
     }
     return this.plan;
   }
 
   /** Read every frame (and optionally its exposure counts) not read yet. */
   private async read(frames: number[], withHits: boolean, signal: AbortSignal, progress: (done: number, total: number) => void) {
-    const plan = await this.getPlan(signal);
+    const plan = await this.getPlan();
+    if (signal.aborted) throw signal.reason ?? new DOMException("The read was cancelled", "AbortError");
     const jobs: (() => Promise<void>)[] = [];
     for (const f of frames) {
       if (!this.images.has(f)) {

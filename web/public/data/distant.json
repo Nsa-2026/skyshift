@@ -1,0 +1,225 @@
+{
+  "generated": "2026-11-15T01:48:32Z",
+  "data_release": "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)",
+  "zone": "hunt",
+  "zone_box": {
+    "ra": [
+      120.5,
+      130.5
+    ],
+    "dec": [
+      14.4,
+      24.4
+    ]
+  },
+  "run_created": "2026-11-15T01:16:28Z",
+  "searched": {
+    "distance_au": [
+      70.0,
+      1000.0
+    ],
+    "sep_arcsec": [
+      300.0,
+      7200.0
+    ],
+    "rate_arcsec_h": [
+      0.0,
+      1.0
+    ],
+    "pair_min_p": 0.01
+  },
+  "counts": {
+    "single_visit_sources": 6339,
+    "uncatalogued": 1288,
+    "covered": 1288,
+    "orphans": 480,
+    "dropped": {
+      "bright_fragment": 778,
+      "zone_edge": 39,
+      "saturated": 20,
+      "blend": 16
+    },
+    "drift_ok": 404,
+    "pairs_tested": 709,
+    "pairs": 1,
+    "known_orphans": 0,
+    "open_orphans": 90
+  },
+  "pairs": [
+    {
+      "source_id_a": 64904007030800,
+      "source_id_b": 64940007013300,
+      "visit_a": 1,
+      "visit_b": 2,
+      "ra_a": 123.334145,
+      "dec_a": 18.174917,
+      "mjd_a": 60975.2943,
+      "ra_b": 123.069556,
+      "dec_b": 18.234311,
+      "mjd_b": 61144.9956,
+      "sep_arcsec": 929.8,
+      "dlon_arcsec": -929.7,
+      "dlat_arcsec": 11.4,
+      "distance_au": 404.1,
+      "distance_lo_au": 404.1,
+      "distance_hi_au": 445.9,
+      "flux_ratio": 0.948,
+      "n_common_det": 1,
+      "n_dots_a": 3,
+      "n_dots_b": 3,
+      "snr_a": 6.55,
+      "snr_b": 15.29,
+      "p": 0.6969,
+      "known_a": null,
+      "known_b": null
+    }
+  ],
+  "control": {
+    "n": 50,
+    "passing_per_control": [
+      0,
+      5,
+      1,
+      0,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      2,
+      1,
+      3,
+      0,
+      1,
+      2,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      2,
+      2,
+      1,
+      3,
+      1,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      1,
+      2,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      1
+    ],
+    "expected_pairs": 0.92,
+    "spread_pairs": 1.007,
+    "poisson_p": 0.6094,
+    "beyond_chance": false,
+    "method": "later visits' orphans shifted cyclically by 25–75% of the box in RA and Dec"
+  },
+  "injection": {
+    "method": "table-level: synthetic planets at the zone's real cadence, the drift fit's error model as noise, added to the zone's real drift-fitted orphans and paired by the orphans step's own code; recovered = its two halves form a passing pair. Detection, linking and the catalogue cuts are not tested.",
+    "distances": [
+      {
+        "distance_au": 70.0,
+        "injected": 63,
+        "recovered": 61,
+        "recovered_frac": 0.968,
+        "distance_fit_median_au": 70.4
+      },
+      {
+        "distance_au": 100.0,
+        "injected": 51,
+        "recovered": 50,
+        "recovered_frac": 0.98,
+        "distance_fit_median_au": 99.4
+      },
+      {
+        "distance_au": 150.0,
+        "injected": 63,
+        "recovered": 57,
+        "recovered_frac": 0.905,
+        "distance_fit_median_au": 147.4
+      },
+      {
+        "distance_au": 200.0,
+        "injected": 66,
+        "recovered": 61,
+        "recovered_frac": 0.924,
+        "distance_fit_median_au": 198.0
+      },
+      {
+        "distance_au": 300.0,
+        "injected": 67,
+        "recovered": 65,
+        "recovered_frac": 0.97,
+        "distance_fit_median_au": 300.8
+      },
+      {
+        "distance_au": 500.0,
+        "injected": 73,
+        "recovered": 72,
+        "recovered_frac": 0.986,
+        "distance_fit_median_au": 498.1
+      },
+      {
+        "distance_au": 700.0,
+        "injected": 73,
+        "recovered": 72,
+        "recovered_frac": 0.986,
+        "distance_fit_median_au": 703.0
+      },
+      {
+        "distance_au": 1000.0,
+        "injected": 66,
+        "recovered": 66,
+        "recovered_frac": 1.0,
+        "distance_fit_median_au": 1004.2
+      }
+    ],
+    "recovered_frac": 0.966,
+    "min_cell_recovered_frac": 0.826,
+    "distance_err_median_frac": 0.016
+  },
+  "limits": {
+    "depth_ab_snr5": {
+      "D1": 17.26,
+      "D2": 17.36,
+      "D3": 17.51,
+      "D4": 17.71,
+      "D6": 16.22
+    },
+    "reach_au": {
+      "neptune_p0.1": 200.0,
+      "neptune_p0.4": 283.0,
+      "super_earth_2re_p0.1": 144.0,
+      "super_earth_2re_p0.4": 203.0,
+      "earth_p0.1": 102.0,
+      "earth_p0.4": 144.0
+    },
+    "notes": [
+      "within-visit drift up to 1 arcsec/h: faster objects are movers (score/suspects); below ~0.3 arcsec/h a planet chains into one fixed source per visit, at 0.3-1 arcsec/h into fragments that need >= 3 sessions each",
+      "the object must be detected (S/N >= 5) in >= 3 sessions of each visit: single-exposure depth, no stacking",
+      "the partner of an orphan near the zone edge may lie in the next zone (see `open`); no cross-zone pass yet",
+      "a catalogue entry within crossid's radius hides the object (CatWISE ~35k/deg2: ~8% of the sky near the ecliptic)",
+      "positions are raw dots (no calib); errors scaled and floored (ORPHANS_POS_ERR_SCALE, ORPHANS_POS_FLOOR_ARCSEC)"
+    ]
+  }
+}

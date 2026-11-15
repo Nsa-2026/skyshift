@@ -58,6 +58,7 @@ def _err(r, status, code):
 @pytest.fixture
 def no_engine(monkeypatch):
     """Engine absent: blink raises NotImplementedError, gaia/known modules don't exist."""
+    monkeypatch.setenv("SKYSHIFT_ALLOW_SYNTHETIC", "1")
     def not_ready(*a, **k):  # the real engine exists now and would go to the network
         raise NotImplementedError
 
@@ -103,7 +104,10 @@ def test_object_fixture_fallback(client, no_engine):
     assert body["synthetic"] is True
     assert {"name", "gaia", "known_ucd", "spectrum", "measure"} <= set(body)
     assert set(body["measure"]) == {"shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr",
-                                    "sigma_arcsec", "n_ref_stars", "predicted_arcsec"}
+                                    "sigma_arcsec", "n_ref_stars", "predicted_arcsec", "source"}
+    src = body["measure"]["source"]  # contracts/api.md v3.9
+    assert set(src) == {"det", "visits", "mjd", "n_exposures", "fov", "pixel_arcsec", "core_filled"}
+    assert body["measure"]["dt_yr"] == pytest.approx((src["mjd"][1] - src["mjd"][0]) / 365.25, abs=1e-4)
 
 
 def test_gaia_and_known_fixture_fallback(client, no_engine):
@@ -201,13 +205,29 @@ def test_gaia_and_known_real(client, monkeypatch):
         {"id": 4472832130942575872, "ra": ra, "dec": dec, "pmra": 1.0, "pmdec": 2.0,
          "parallax": None, "g": np.float32(12.5)}])
     _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None, **kw: [
-        {"name": "(1) Ceres", "epoch_id": "x", "ra": ra, "dec": dec, "v": None, "source": "skybot"}])
+        {"name": "Ceres", "epoch_id": "x", "ra": ra, "dec": dec, "v": None, "source": "mpc"}])
     g = client.get("/api/gaia", params={"ra": 1, "dec": 2, "r": 5}).json()
     assert g == {"gaia": [{"id": "4472832130942575872", "ra": 1.0, "dec": 2.0, "pmra": 1.0,
                            "pmdec": 2.0, "parallax": None, "g": 12.5}]}
     k = client.get("/api/known", params={"ra": 1, "dec": 2, "r": 5, "mjd": 61000.5}).json()
-    assert k == {"mjd": 61000.5, "known": [{"name": "(1) Ceres", "epoch_id": None, "ra": 1.0,
-                                            "dec": 2.0, "v": None, "source": "skybot"}]}
+    assert k == {"mjd": 61000.5, "known": [{"name": "Ceres", "epoch_id": None, "ra": 1.0,
+                                            "dec": 2.0, "v": None, "source": "mpc"}]}
+
+
+def test_known_and_frames_cache_keys_follow_the_known_index(client, monkeypatch):
+    """Entries cached with an older known-object source or index are never served again."""
+    n, f = [], []
+    _fake_module(monkeypatch, "known", cone=lambda ra, dec, r, mjd, cache=None: n.append(mjd) or [])
+    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: f.append(a) or _frames_result())
+    params = {"ra": 1, "dec": 2, "r": 5, "mjd": 61000.5}
+    for _ in range(2):
+        client.get("/api/known", params=params)
+        client.get("/api/frames", params={"ra": 1, "dec": 2})
+    assert len(n) == 1 and len(f) == 1
+    monkeypatch.setattr(app_mod.known_mod, "INDEX_KEY", "mpc/known_index/known_index_2027-01-01.npz")
+    client.get("/api/known", params=params)
+    client.get("/api/frames", params={"ra": 1, "dec": 2})
+    assert len(n) == 2 and len(f) == 2
 
 
 def test_upstream_and_not_found_errors(client, monkeypatch):

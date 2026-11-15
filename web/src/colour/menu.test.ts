@@ -62,14 +62,14 @@ describe("filter menu and the blink", () => {
     expect(contrast.disabled).toBe(false);
 
     // Difference in the menu puts the blink in its Difference view; no picture covers the plate.
-    el.querySelector<HTMLButtonElement>('[data-filter="diff"]')!.click();
+    el.querySelector<HTMLButtonElement>('[data-flt-mode="diff"]')!.click();
     expect(root.dataset.mode).toBe("difference");
     expect(el.querySelector<HTMLElement>(".flt-layer")!.hidden).toBe(true);
-    expect(el.querySelector(".flt-active-name")!.textContent).toBe("Filter: difference");
+    expect(el.querySelector(".flt-active-name")!.textContent).toBe("Filter: Difference");
     expect(shown(".bk-contrast")).toBe(true);
 
     // A colour filter returns the blink to Blink, and never sends its own name to the blink.
-    el.querySelector<HTMLButtonElement>('[data-filter="cold"]')!.click();
+    el.querySelector<HTMLButtonElement>('[data-flt-mode="cold"]')!.click();
     expect(root.dataset.mode).toBe("blink");
     expect(modes).toEqual(["difference", "blink"]);
     expect(shown(".bk-contrast")).toBe(false);
@@ -78,10 +78,10 @@ describe("filter menu and the blink", () => {
     expect(tools.querySelector<HTMLElement>(".flt-still")!.hidden).toBe(true);
 
     // Stack pressed on the blink while Difference is the filter: the menu follows.
-    el.querySelector<HTMLButtonElement>('[data-filter="diff"]')!.click();
+    el.querySelector<HTMLButtonElement>('[data-flt-mode="diff"]')!.click();
     root.querySelector<HTMLButtonElement>('.bk-modes [data-mode="stack"]')!.click();
     await flush();
-    expect(el.querySelector('[data-filter="none"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(el.querySelector('[data-flt-mode="none"]')!.getAttribute("aria-pressed")).toBe("true");
     expect(root.dataset.mode).toBe("stack");
 
     // Destroy puts the blink back as it was.

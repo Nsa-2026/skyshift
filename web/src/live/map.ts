@@ -1,8 +1,9 @@
 // The all-sky map of tonight's zones: an SVG Mollweide (RA increasing to the left), each zone a box
 // filled by state with colour AND pattern, the ecliptic, the hunt zone outlined. Zones are buttons with a
 // roving tabindex; arrow keys move between them in sky order (see neighbour()).
+import { gradeOf } from "../api/grades";
 import { esc, fmtCount, fmtDec, fmtRa } from "./format";
-import type { SkyZone } from "./model";
+import { isProvisional, workerOf, type SkyZone } from "./model";
 import {
   DEFAULT_FRAME,
   eclipticPath,
@@ -164,14 +165,19 @@ export function zoneTitle(z: Pick<SkyZone, "name">): string {
 /** What a screen reader hears on a zone. */
 export function zoneLabel(z: SkyZone): string {
   let s = `${zoneTitle(z)}: ${STATE_WORDS[z.state]}`;
-  if ((z.state === "extracting" || z.state === "combining") && z.machine) s += ` on ${z.machine}`;
-  if (z.state === "combined" && z.suspects !== null) s += `, ${fmtCount(z.suspects)} ${z.suspects === 1 ? "suspect" : "suspects"}`;
+  if (z.deferred && z.state === "queued") s += " last, a Galactic bulge zone";
+  const who = workerOf(z);
+  if ((z.state === "extracting" || z.state === "combining") && who) s += ` on ${who}`;
+  if (z.state === "combined" && z.suspects !== null) {
+    s += `, ${fmtCount(z.suspects)} ${isProvisional(z) ? "provisional " : ""}${z.suspects === 1 ? "suspect" : "suspects"}`;
+  }
   return `${s}. RA ${fmtRa(z.ra[0])} to ${fmtRa(z.ra[1])}, Dec ${fmtDec(z.dec[0])} to ${fmtDec(z.dec[1])}.`;
 }
 
 /** Text drawn inside a box: the machine at work, or a combined zone's suspects. */
 function boxText(z: SkyZone): string | null {
-  if ((z.state === "extracting" || z.state === "combining") && z.machine) return z.machine;
+  const who = workerOf(z);
+  if ((z.state === "extracting" || z.state === "combining") && who) return who;
   if (z.state === "combined" && z.suspects !== null && z.suspects > 0) return fmtCount(z.suspects);
   return null;
 }
@@ -195,6 +201,7 @@ function zoneAttrs(z: SkyZone): Record<string, string> {
   return {
     "data-state": z.state,
     "data-level": z.state === "combined" ? suspectLevel(z.suspects) : "",
+    "data-deferred": z.deferred ? "1" : "",
     "aria-label": zoneLabel(z),
   };
 }
@@ -209,6 +216,9 @@ export const PATTERNS = `
   </pattern>
   <pattern id="lv-p-extracted" patternUnits="userSpaceOnUse" width="3.6" height="3.6">
     <rect class="lv-pat-dotbg" width="3.6" height="3.6"/><circle class="lv-pat-dot" cx="1.8" cy="1.8" r="0.75"/>
+  </pattern>
+  <pattern id="lv-p-deferred" patternUnits="userSpaceOnUse" width="2.2" height="2.2">
+    <rect class="lv-pat-bg" width="2.2" height="2.2"/><circle class="lv-pat-stipple" cx="0.55" cy="0.55" r="0.42"/><circle class="lv-pat-stipple" cx="1.65" cy="1.65" r="0.42"/>
   </pattern>`;
 
 export interface MapOptions {
@@ -247,6 +257,7 @@ export function mapSvg(zones: SkyZone[], geom: MapGeometry, opts: MapOptions = {
   ${huntTop ? `<path class="lv-hunt-lead" d="M${huntTop[0].toFixed(1)} ${huntTop[1].toFixed(1)}V${(huntBoxTop - 1).toFixed(1)}"/>` : ""}
   <path class="lv-sky-rim" d="${outlinePath(f)}"/>
   <g class="lv-changed"></g>
+  <g class="lv-sus-marks"></g>
   <path class="lv-sel-halo" d=""/>
   <path class="lv-sel" d=""/>
   <path class="lv-focus-halo" d=""/>
@@ -296,6 +307,29 @@ export function markChanged(svg: SVGSVGElement, names: Iterable<string>, geom: M
     .map((n) => geom.zones.get(n))
     .filter((g): g is ZoneGeom => !!g)
     .map((g) => `<path d="${g.d}"/>`)
+    .join("");
+}
+
+/**
+ * Small red marks at the suspects of the selected zone (empty list clears them): solid once the WISE check
+ * has run, hollow and dimmer while provisional (Gaia check only).
+ */
+export function markSuspects(
+  svg: SVGSVGElement,
+  points: Array<{ ra: number; dec: number; grade?: unknown }>,
+  geom: MapGeometry,
+  provisional = false,
+): void {
+  const layer = svg.querySelector(".lv-sus-marks");
+  if (!layer) return;
+  layer.setAttribute("data-provisional", provisional && points.length ? "1" : "");
+  // Grade C (failed a vetting check) in grey, drawn first so the others sit on top.
+  const order = [...points].sort((a, b) => Number(gradeOf(b) === "C") - Number(gradeOf(a) === "C"));
+  layer.innerHTML = order
+    .map((p) => {
+      const [x, y] = skyToXY(p.ra, p.dec, geom.frame);
+      return `<circle${gradeOf(p) === "C" ? ' class="is-gradec"' : ""} cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.7"/>`;
+    })
     .join("");
 }
 

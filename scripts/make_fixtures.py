@@ -120,10 +120,13 @@ def write_json(name, obj):
 
 
 # ---------------------------------------------------------------- Months clock: Barnard's Star
+BARNARD_VISITS = [(60929.41, 60947.83, 19), (61111.18, 61129.62, 18), (61293.96, 61311.47, 20)]  # start, end, n
+
+
 def months_barnard():
     rng = random.Random(20261114)
     det, pix = 2, 2.05                        # months 5' field: 3x oversampled, 2.05"/px
-    visits = [(60929.41, 60947.83, 19), (61111.18, 61129.62, 18), (61293.96, 61311.47, 20)]
+    visits = BARNARD_VISITS
     mids = [(a + b) / 2 for a, b, _ in visits]
     grid = Grid(*move(BARNARD, mids[1]), pix)
     stars, field = field_stars(grid, rng, 7, sigma=1.56)
@@ -191,9 +194,29 @@ def object_barnard(mids):
         "name": "Barnard's Star", "gaia": BARNARD, "known_ucd": None, "spectrum": spectrum,
         "measure": {"shift_arcsec": r(shift, 3), "pa_deg": 356.1, "dt_yr": r(dt_yr, 4),
                     "rate_arcsec_yr": r(shift / dt_yr, 3), "sigma_arcsec": 0.9, "n_ref_stars": 12,
-                    "predicted_arcsec": r(pm_total * dt_yr, 3)},
+                    "predicted_arcsec": r(pm_total * dt_yr, 3),
+                    # v3.9: what the shift was measured on (D2 stacks of visits 1 and 3, cores filled)
+                    "source": {"det": 2, "visits": [1, 3], "mjd": [r(mids[0], 5), r(mids[-1], 5)],
+                               "n_exposures": [BARNARD_VISITS[0][2], BARNARD_VISITS[-1][2]],
+                               "fov": 15, "pixel_arcsec": NATIVE_PIX, "core_filled": [True, True]}},
+        "measure_reason": None, "measure_hint": None,
     }
     write_json("object_barnard.json", obj)
+
+
+def object_moved_away(mids):
+    """GET /api/object at Barnard's Star's Gaia (2016.0) position: by SPHEREx's visits the star is
+    ~100" north, nothing is measured there, and measure_hint says where it went."""
+    mid = (mids[0] + mids[-1]) / 2
+    ra, dec = move(BARNARD, mid)
+    obj = {
+        "synthetic": True, "note": NOTE + " The position asked: Barnard's Star's Gaia DR3 position "
+                                          "(269.4485, 4.7394, epoch 2016.0).",
+        "name": None, "gaia": None, "known_ucd": None, "spectrum": [], "spectrum_reason": "no_data",
+        "measure": None, "measure_reason": "moved_away",
+        "measure_hint": {"name": "Barnard's Star", "ra": r(ra, 6), "dec": r(dec, 6), "mjd": r(mid, 2)},
+    }
+    write_json("object_moved_away.json", obj)
 
 
 # ---------------------------------------------------------------- Hours clock: comet-like mover
@@ -300,19 +323,73 @@ def suspects():
                     "mjd": r(rng.uniform(60968.1, 60968.3), 6), "clock": "hours", "det": rng.choice([1, 2, 3]),
                     "evidence": ["two_exposures", "two_detectors"][i % 2], "n_dots": 2,
                     "snr": r(rng.uniform(6, 15), 1), "flux_ujy": r(rng.uniform(40, 300), 1), "cell": cell,
-                    "nearest_known_arcsec": None if i == 0 else r(rng.uniform(40, 200), 1)})
+                    "nearest_known_arcsec": None if i == 0 else r(rng.uniform(40, 200), 1),
+                    # vetting (14 Nov): one A (passes every gate and is on a track), two C with their reasons;
+                    # near_source_arcsec a warning only
+                    "grade": "A" if i == 0 else "C", "reasons": [[], ["hot_pixel", "edge"], ["2mass"]][i],
+                    "near_source_arcsec": [8.4, None, 4.1][i],
+                    # the track (v3.4, optional): set on a suspect on a track, null off one
+                    "n_sessions": [4, None, None][i], "rate_arcsec_h": [31.25, None, None][i],
+                    "pa_deg": [252.4, None, None][i], "rate_sigma": [0.82, None, None][i]})
     write_json("suspects.json", {"synthetic": True, "note": NOTE, "generated": "2026-11-14T09:30:00Z",
-                                 "data_release": RELEASE, "zone": "hunt zone (synthetic)", "suspects": out})
+                                 "data_release": RELEASE, "zone": "hunt zone (synthetic)",
+                                 "vetoes": ["mpc", "gaia", "catwise"], "provisional": False,
+                                 "grades": {"A": 1, "B": 0, "C": 2},
+                                 "gates": {"not_vetted": 0, "hot_pixel": 1, "bad_column": 0, "edge": 1, "masked_peak": 0,
+                                           "sharp_outlier": 0, "very_sharp": 0, "flux_ratio": 0, "red_photo": 0, "2mass": 1,
+                                           "allwise": 0},
+                                 "suspects": out})
+
+
+def distant():
+    """/data/distant.json (v3.6): the distant-planet search. Made-up counts in the hunt zone's proportions: one
+    passing pair at chance level, the injection by distance, the depth and reach."""
+    rng = random.Random(13)
+    controls = [rng.choice([0, 0, 1, 1, 1, 2, 2, 3]) for _ in range(20)]
+    mean = sum(controls) / len(controls)
+    sd = math.sqrt(sum((c - mean) ** 2 for c in controls) / (len(controls) - 1))
+    lam = (sum(controls) + 1) / len(controls)
+    poisson_p = 1.0 - math.exp(-lam)  # P(>= 1 passing pair)
+    inj = []
+    for d, n, k in ((70.0, 60, 58), (150.0, 60, 54), (300.0, 60, 58), (1000.0, 60, 60)):
+        inj.append({"distance_au": d, "injected": n, "recovered": k, "recovered_frac": r(k / n, 3),
+                    "distance_fit_median_au": r(d * rng.uniform(0.98, 1.02), 1)})
+    write_json("distant.json", {
+        "synthetic": True, "note": NOTE, "generated": "2026-11-14T09:30:00Z", "data_release": RELEASE,
+        "zone": "hunt", "zone_box": {"ra": [120.5, 130.5], "dec": [14.4, 24.4]}, "run_created": "2026-11-14T09:00:00Z",
+        "searched": {"distance_au": [70.0, 1000.0], "sep_arcsec": [300.0, 7200.0], "rate_arcsec_h": [0.0, 1.0],
+                     "pair_min_p": 0.01},
+        "counts": {"single_visit_sources": 5000, "uncatalogued": 800, "covered": 790, "orphans": 450,
+                   "dropped": {"bright_fragment": 310, "zone_edge": 30, "saturated": 5, "blend": 12}, "drift_ok": 440,
+                   "pairs_tested": 900, "pairs": 1, "known_orphans": 0, "open_orphans": 100},
+        "pairs": [{"source_id_a": 64900007030800, "source_id_b": 64940007013300, "visit_a": 1, "visit_b": 2,
+                   "ra_a": 123.33, "dec_a": 18.17, "mjd_a": 60975.29, "ra_b": 123.07, "dec_b": 18.23, "mjd_b": 61145.0,
+                   "sep_arcsec": 930.0, "dlon_arcsec": -929.9, "dlat_arcsec": 11.0, "distance_au": 400.0,
+                   "distance_lo_au": 390.0, "distance_hi_au": 450.0, "flux_ratio": 0.8, "n_common_det": 1,
+                   "n_dots_a": 3, "n_dots_b": 3, "snr_a": 6.5, "snr_b": 15.0, "p": 0.66, "known_a": None, "known_b": None}],
+        "control": {"n": len(controls), "passing_per_control": controls, "expected_pairs": r(mean, 3),
+                    "spread_pairs": r(sd, 3), "poisson_p": r(poisson_p, 4), "beyond_chance": poisson_p < 0.01,
+                    "method": "later visit's orphans shifted cyclically by 25-75% of the box in RA and Dec"},
+        "injection": {"method": "table-level: synthetic planets at the zone's cadence, paired with the real orphans",
+                      "distances": inj, "recovered_frac": 0.958, "min_cell_recovered_frac": 0.85,
+                      "distance_err_median_frac": 0.01},
+        "limits": {"depth_ab_snr5": {"D1": 17.3, "D2": 17.4, "D3": 17.5, "D4": 17.7},
+                   "reach_au": {"neptune_p0.1": 200.0, "neptune_p0.4": 280.0, "super_earth_2re_p0.1": 140.0,
+                                "super_earth_2re_p0.4": 200.0, "earth_p0.1": 100.0, "earth_p0.4": 140.0},
+                   "notes": ["the object must be detected (S/N >= 5) in >= 3 sessions of each visit"]},
+    })
 
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     mids, _ = months_barnard()
     object_barnard(mids)
+    object_moved_away(mids)
     hours_comet()
     resolve()
     validation()
     suspects()
+    distant()
     for p in sorted(OUT.rglob("*")):
         if p.is_file():
             print(p.relative_to(ROOT), p.stat().st_size)

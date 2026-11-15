@@ -4,6 +4,30 @@
   "generated": "2026-11-14T09:30:00Z",
   "data_release": "DR1+QR3",
   "zone": "hunt zone (synthetic)",
+  "vetoes": [
+    "mpc",
+    "gaia",
+    "catwise"
+  ],
+  "provisional": false,
+  "grades": {
+    "A": 1,
+    "B": 0,
+    "C": 2
+  },
+  "gates": {
+    "not_vetted": 0,
+    "hot_pixel": 1,
+    "bad_column": 0,
+    "edge": 1,
+    "masked_peak": 0,
+    "sharp_outlier": 0,
+    "very_sharp": 0,
+    "flux_ratio": 0,
+    "red_photo": 0,
+    "2mass": 1,
+    "allwise": 0
+  },
   "suspects": [
     {
       "id": "SYNTH-S1",
@@ -17,7 +41,14 @@
       "snr": 10.1,
       "flux_ujy": 262.3,
       "cell": 573350074917,
-      "nearest_known_arcsec": null
+      "nearest_known_arcsec": null,
+      "grade": "A",
+      "reasons": [],
+      "near_source_arcsec": 8.4,
+      "n_sessions": 4,
+      "rate_arcsec_h": 31.25,
+      "pa_deg": 252.4,
+      "rate_sigma": 0.82
     },
     {
       "id": "SYNTH-S2",
@@ -31,7 +62,17 @@
       "snr": 13.1,
       "flux_ujy": 64.5,
       "cell": 574820074728,
-      "nearest_known_arcsec": 88.5
+      "nearest_known_arcsec": 88.5,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel",
+        "edge"
+      ],
+      "near_source_arcsec": null,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null
     },
     {
       "id": "SYNTH-S3",
@@ -45,7 +86,16 @@
       "snr": 11.4,
       "flux_ujy": 143.0,
       "cell": 574850074668,
-      "nearest_known_arcsec": 112.5
+      "nearest_known_arcsec": 112.5,
+      "grade": "C",
+      "reasons": [
+        "2mass"
+      ],
+      "near_source_arcsec": 4.1,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null
     }
   ]
 }

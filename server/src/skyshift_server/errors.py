@@ -3,7 +3,7 @@ HTTP 4xx/5xx with {"error": {"code": "bad_request" | "not_found" | "upstream" | 
 
 The engine (search, cutouts, gaia, known, ...) may raise these:
 - NotFoundError: nothing to show (e.g. no SPHEREx coverage at a position)  -> 404 not_found
-- UpstreamError: IRSA, Gaia, SkyBoT or S3 failed or timed out              -> 502 upstream
+- UpstreamError: IRSA, Gaia, S3 or the known-object index failed            -> 502 upstream
 Network exceptions from httpx, requests, pyvo and astroquery are also mapped to upstream by the app.
 """
 

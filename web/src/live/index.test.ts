@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import real from "./fixtures/skyrun-real-1410Z.json";
+import real2 from "./fixtures/skyrun-real-1440Z.json";
+import real3 from "./fixtures/skyrun-real-1505Z.json";
 import sample from "./fixtures/skyrun-sample.json";
-import { FeedError, httpSource, loadSkyrun, SKYRUN_URL } from "./load";
+import huntSuspects from "./fixtures/suspects-hunt-top30.json";
+import type { Suspect } from "../api/types";
+import { FeedError, httpSource, loadSkyrun, loadZoneSuspects, SKYRUN_URL, toZoneSuspects } from "./load";
 import { parseSkyrun, type SkyRun } from "./model";
 import { createLivePage, mountLive, zonesToPolygons } from "./index";
+import { suspectsHtml } from "./render";
 import type { PageContext } from "../app/modules";
 
 const T = (iso: string) => Date.parse(iso);
@@ -33,14 +38,41 @@ describe("Live search page", () => {
     await flush();
     expect(load).toHaveBeenCalledTimes(1);
     const text = el.textContent!.replace(/\s+/g, " ");
-    expect(text).toContain("Three cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.");
+    // counted from the data: four machines in the sample
+    expect(text).toContain("Four cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.");
     const combined = sample.zones.filter((z) => z.state === "combined").length;
     expect(el.querySelector(".lv-big")!.textContent!.replace(/\s+/g, " ")).toContain(`${combined} of 333 zones combined`);
     expect(text).toContain("Updated 2 min ago");
-    expect(text).toContain("498,935");
-    expect(text).toMatch(/until the run ends at .*\(06:00 UTC\)/);
+    expect(text).toContain(sample.totals.photos.toLocaleString("en-US"));
+    expect(text).toMatch(/until the run ends at .*\(05:00 UTC\)/);
     expect(text).toMatch(/until the deadline at .*\(09:00 UTC\)/);
-    expect(text).toContain("216 CPUs in all");
+    expect(text).toMatch(/Final pass \(zone edges joined, WISE check\) planned from .*\(05:00 UTC\); until then results are provisional\./);
+    expect(text).toContain("224 CPUs in all");
+    // the stacked bar, its key in %, the projection marker and the time bar, with honest copy
+    const seg = (c: string) => Number(el.querySelector<HTMLElement>(`.lv-pbar .${c}`)!.style.width.replace("%", ""));
+    expect(seg("lv-seg-comb")).toBeCloseTo(sample.progress.combined_pct);
+    expect(seg("lv-seg-ext")).toBeCloseTo(sample.progress.extracted_pct - sample.progress.combined_pct);
+    const pg = sample.progress;
+    const [pc, pe, pq] = [pg.combined_pct, pg.extracted_pct - pg.combined_pct, 100 - pg.extracted_pct].map((p) =>
+      (Math.floor(p * 10) / 10).toFixed(1).replace(".", "\\."),
+    );
+    expect(el.querySelector(".lv-pkey")!.textContent).toMatch(
+      new RegExp(`\\d+ zones? \\(${pc}%\\) combined.*\\(${pe}%\\) extracted, not yet combined.*\\(${pq}%\\) not yet extracted`),
+    );
+    expect(el.querySelector<HTMLElement>(".lv-proj")!.style.left).toBe(`${Number(sample.progress.projected_extracted_pct.toFixed(2))}%`);
+    expect(el.querySelector(".lv-proj-label")!.textContent).toMatch(/expected by .*\(05:00 UTC\)/);
+    expect(el.querySelector(".lv-tbar")!.textContent).toMatch(/28\.1% of the time to the deadline at .*\(09:00 UTC\) has gone/);
+    expect(el.querySelector(".lv-honest")!.textContent).toMatch(/^333 zones is the plan for the whole ecliptic band; tonight's run reaches only part of it\./);
+    // the 25 Galactic bulge zones: the run's note as written, and that tonight likely won't reach them
+    expect(el.querySelector(".lv-deferred")!.textContent).toBe(`${sample.notes.deferred} The 25 likely won't be reached tonight.`);
+    expect(el.querySelectorAll('g.z[data-deferred="1"]')).toHaveLength(25);
+    expect(el.querySelector('g.z[data-zone="ecl26"]')!.getAttribute("aria-label")).toMatch(/^Zone ecl26: queued last, a Galactic bulge zone\./);
+    expect(el.querySelector(".lv-legend")!.textContent!.replace(/\s+/g, " ")).toContain(
+      "147 queued, empty; and 25 Galactic bulge zones, fine grey stipple, queued last and likely not reached tonight.",
+    );
+    expect(el.querySelector(".lv-counts + .lv-note")!.textContent).toMatch(
+      /Suspects in 137 of the 138 combined zones are provisional: checked against Gaia only, before the WISE check\./,
+    );
     expect(el.querySelectorAll("svg.lv-svg g.z")).toHaveLength(333);
     expect(el.querySelector('g.z[data-zone="hunt"]')!.getAttribute("data-state")).toBe("combined");
     expect(el.querySelector(".lv-hunt")).not.toBeNull();
@@ -84,14 +116,164 @@ describe("Live search page", () => {
     handle.destroy();
   });
 
-  it("the hunt zone is final: no provisional note", async () => {
-    const { el, handle } = page(async () => parseSkyrun(sample));
+  it("the hunt zone is final: no provisional note; its suspects load on demand, listed and marked on the map", async () => {
+    const loadSuspects = vi.fn(async () => [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr) as Suspect[]);
+    const el = document.createElement("main");
+    document.body.append(el);
+    const ctx: PageContext = { navigate: vi.fn(), explore: vi.fn() };
+    const handle = createLivePage(el, ctx, { load: async () => parseSkyrun(real2), now: () => T("2026-11-14T14:41:00Z"), loadSuspects });
     handle.show("hunt");
     await flush();
     const panel = el.querySelector<HTMLElement>(".lv-panel")!;
     expect(panel.hidden).toBe(false);
     expect(panel.textContent).toContain("Hunt zone");
     expect(panel.textContent).not.toContain("Provisional");
+    expect(loadSuspects).toHaveBeenCalledWith("https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/hunt.json", expect.any(AbortSignal));
+    await flush();
+    const rows = panel.querySelectorAll(".lv-sus-row");
+    expect(rows).toHaveLength(8);
+    // highest S/N first, with position, detector, S/N and flux in µJy
+    expect(rows[0].textContent!.replace(/\s+/g, " ")).toMatch(/RA 125\.6665°, Dec \+14\.9737° D1, S\/N 290, 2,960 µJy Blink/);
+    expect(panel.textContent).toMatch(/The 8 with the highest S\/N of 30, marked on the map in solid red\. All 30 as JSON/);
+    expect(panel.querySelector(".lv-sus h3")!.textContent).toBe("Top suspects");
+    expect(el.querySelector(".lv-sus-marks")!.getAttribute("data-provisional")).toBe("");
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    rows[0].querySelector<HTMLButtonElement>(".lv-sus-blink")!.click();
+    expect(ctx.explore).toHaveBeenCalledWith({ ra: 125.666546, dec: 14.973674, clock: "hours", det: 1 });
+    // cached: opening it again doesn't fetch again; closing clears the marks
+    panel.querySelector<HTMLButtonElement>("[data-close]")!.click();
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(0);
+    el.querySelector<SVGGElement>('g.z[data-zone="hunt"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(loadSuspects).toHaveBeenCalledTimes(1);
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    handle.destroy();
+  });
+
+  it("with vetting grades: 0 A said as expected, ranked by grade then S/N, grade C greyed with reasons, a near source as a warning", async () => {
+    // The 30 hunt suspects graded: the 3 brightest fail a check (C), the next 2 are B, the rest C.
+    const bySnr = [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr);
+    const graded = bySnr.map((s, i) =>
+      i === 3 || i === 4
+        ? { ...s, grade: "B", reasons: [], near_source_arcsec: i === 4 ? 4.1 : null }
+        : { ...s, grade: "C", reasons: i < 3 ? ["hot_pixel", "edge"] : ["2mass"], near_source_arcsec: null },
+    );
+    const file = {
+      ...huntSuspects,
+      vetoes: ["mpc", "gaia", "catwise", "allwise"],
+      provisional: false,
+      grades: { A: 0, B: 2, C: 28 },
+      gates: { hot_pixel: 3, edge: 3, "2mass": 25, bad_column: 0 },
+      suspects: [...graded].reverse(),
+    };
+    const loadSuspects = vi.fn(async () => toZoneSuspects(file));
+    const el = document.createElement("main");
+    document.body.append(el);
+    const ctx: PageContext = { navigate: vi.fn(), explore: vi.fn() };
+    const handle = createLivePage(el, ctx, { load: async () => parseSkyrun(real2), now: () => T("2026-11-14T14:41:00Z"), loadSuspects });
+    handle.show("hunt");
+    await flush();
+    await flush();
+    const panel = el.querySelector<HTMLElement>(".lv-panel")!;
+    const txt = (n: Element | null) => (n?.textContent ?? "").replace(/\s+/g, " ").trim();
+    expect(txt(panel.querySelector(".lv-grades-a"))).toBe(
+      "0 candidate movers (grade A). Expected: proving motion needs a track over several sessions.",
+    );
+    expect(txt(panel.querySelector(".lv-grades"))).toContain("2 unexplained single-session sources (grade B) and 28 that fail a check (grade C).");
+    expect(txt(panel.querySelector(".lv-grades"))).toContain(
+      "Every suspect here was checked against known asteroids and comets (MPC), Gaia, CatWISE and AllWISE.",
+    );
+    expect(txt(panel.querySelector(".lv-gates summary"))).toBe("Why 28 are grade C");
+    expect([...panel.querySelectorAll(".lv-gates li span:first-child")].map(txt)).toEqual([
+      "A 2MASS source sits here",
+      "At the detector edge",
+      "On a hot pixel",
+    ]);
+    const rows = [...panel.querySelectorAll(".lv-sus-row")];
+    expect(rows).toHaveLength(8);
+    // B first (S/N order), then C by S/N: the brightest C is third, not first.
+    expect(txt(rows[0].querySelector(".lv-sus-grade"))).toBe("Grade B: unexplained single-session source");
+    expect(rows[0].querySelector(".lv-sus-near")).toBeNull();
+    expect(txt(rows[1].querySelector(".lv-sus-near"))).toBe("A catalogued source sits 4.1″ away.");
+    expect(rows[2].classList.contains("is-gradec")).toBe(true);
+    expect(txt(rows[2])).toContain("S/N 290");
+    expect(txt(rows[2].querySelector(".lv-sus-grade"))).toBe("Grade C: on a hot pixel and at the detector edge.");
+    expect(txt(rows[5].querySelector(".lv-sus-grade"))).toBe("Grade C: a 2MASS source sits here.");
+    expect(panel.textContent).toMatch(/The first 8 of 30 by vetting grade, then S\/N, marked on the map in solid red \(grade C in grey\)\./);
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(30);
+    expect(el.querySelectorAll(".lv-sus-marks circle.is-gradec")).toHaveLength(28);
+    // Grade C can still be blinked.
+    rows[2].querySelector<HTMLButtonElement>(".lv-sus-blink")!.click();
+    expect(ctx.explore).toHaveBeenCalledWith({ ra: 125.666546, dec: 14.973674, clock: "hours", det: 1 });
+    handle.destroy();
+  });
+
+  it("labels suspects without the WISE check as provisional, in the panel and on the map; names the checks done", async () => {
+    const loadSuspects = vi.fn(async () => [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr) as Suspect[]);
+    const el = document.createElement("main");
+    document.body.append(el);
+    const handle = createLivePage(el, { navigate: vi.fn(), explore: vi.fn() }, { load: async () => parseSkyrun(real3), now: () => T("2026-11-14T15:07:00Z"), loadSuspects });
+    handle.show("hunt");
+    await flush();
+    await flush();
+    const panel = el.querySelector<HTMLElement>(".lv-panel")!;
+    const dl = () => [...panel.querySelectorAll(".lv-pdl > div")].map((d) => `${d.querySelector("dt")!.textContent}: ${d.querySelector("dd")!.textContent}`);
+    // the real file at 15:05Z: hunt had Gaia and the WISE check
+    expect(dl()).toContain("Checked against: Gaia and WISE (CatWISE)");
+    expect(dl()).toContain("Suspects: 228 suspects");
+    expect(panel.querySelector(".lv-sus h3")!.textContent).toBe("Top suspects");
+    expect(panel.querySelector(".lv-prov-note")).toBeNull();
+    expect(el.querySelector(".lv-sus-marks")!.getAttribute("data-provisional")).toBe("");
+    expect(el.querySelector(".lv-deferred")!.textContent).toBe(`${real3.notes.deferred} The 25 likely won't be reached tonight.`);
+    // a deferred zone says it comes last, with the run's note
+    el.querySelector<SVGGElement>('g.z[data-zone="ecl26"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(panel.querySelector(".lv-pstate")!.textContent).toContain("Queued last: a Galactic bulge zone, likely not reached tonight.");
+    expect(panel.textContent).toContain(real3.notes.deferred);
+    handle.destroy();
+
+    // a sample zone with the Gaia check only: provisional title, the run's note above the list, hollow marks
+    const el2 = document.createElement("main");
+    document.body.append(el2);
+    const h2 = createLivePage(el2, { navigate: vi.fn(), explore: vi.fn() }, { load: async () => parseSkyrun(sample), now: () => T("2026-11-14T19:14:40Z"), loadSuspects });
+    const z = sample.zones.find((q) => q.state === "combined" && q.name !== "hunt" && q.suspects)!;
+    h2.show(z.name);
+    await flush();
+    await flush();
+    const p2 = el2.querySelector<HTMLElement>(".lv-panel")!;
+    const dl2 = [...p2.querySelectorAll(".lv-pdl > div")].map((d) => `${d.querySelector("dt")!.textContent}: ${d.querySelector("dd")!.textContent}`);
+    expect(dl2).toContain("Checked against: Gaia");
+    expect(dl2.some((r) => r.startsWith("Suspects, provisional: "))).toBe(true);
+    expect(p2.querySelector(".lv-sus h3")!.textContent).toBe("Provisional suspects, before the WISE check");
+    expect(p2.querySelector(".lv-prov-note")!.textContent).toBe(sample.notes.provisional);
+    // the note comes before the list
+    expect(p2.querySelector(".lv-prov-note")!.compareDocumentPosition(p2.querySelector(".lv-sus-list")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(p2.textContent).toMatch(/marked on the map as hollow red rings/);
+    expect(p2.querySelector(".lv-sus-blink")!.getAttribute("aria-label")).toBe("Blink provisional suspect 1 on the Hours clock");
+    expect(el2.querySelector(".lv-sus-marks")!.getAttribute("data-provisional")).toBe("1");
+    expect(el2.querySelector(`g.z[data-zone="${z.name}"]`)!.getAttribute("aria-label")).toMatch(/provisional suspects?\./);
+    h2.destroy();
+  });
+
+  it("shows the combiner of a combining zone and says when suspects can't load", async () => {
+    const el = document.createElement("main");
+    document.body.append(el);
+    const loadSuspects = vi.fn(async () => {
+      throw new FeedError("404", "not_connected", 404);
+    });
+    const handle = createLivePage(el, { navigate: vi.fn(), explore: vi.fn() }, { load: async () => parseSkyrun(sample), now: () => T("2026-11-14T19:14:40Z"), loadSuspects });
+    const z = sample.zones.find((q) => q.state === "combining")!;
+    handle.show(z.name);
+    await flush();
+    const panel = el.querySelector<HTMLElement>(".lv-panel")!;
+    const dl = [...panel.querySelectorAll(".lv-pdl > div")].map((d) => `${d.querySelector("dt")!.textContent}: ${d.querySelector("dd")!.textContent}`);
+    expect(dl).toContain(`Extracted by: ${z.machine}`);
+    expect(dl).toContain(`Combining on: ${z.combiner}`);
+    expect(panel.querySelector(".lv-pstate")!.textContent).toContain(`Combining on ${z.combiner}:`);
+    expect(el.querySelector(`g.z[data-zone="${z.name}"]`)!.getAttribute("aria-label")).toContain(`combining on ${z.combiner}`);
+    const done = sample.zones.find((q) => q.state === "combined" && q.name !== "hunt")!;
+    el.querySelector<SVGGElement>(`g.z[data-zone="${done.name}"]`)!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(panel.textContent).toContain("This zone's suspects couldn't be loaded.");
+    expect(el.querySelectorAll(".lv-sus-marks circle")).toHaveLength(0);
     handle.destroy();
   });
 
@@ -211,7 +393,38 @@ describe("the feed", () => {
     expect(await kinds(async () => Promise.reject(abort))).toBe("AbortError");
   });
 
+  it("reads a zone's suspects, brightest S/N first, dropping rows without a position", async () => {
+    const body = { ...huntSuspects, suspects: [{ ...huntSuspects.suspects[3], ra: null }, ...[...huntSuspects.suspects].reverse()] };
+    const fetchFn = vi.fn(async () => ok(body));
+    const rows = await loadZoneSuspects("https://example.test/hunt.json", undefined, fetchFn as never);
+    expect(rows).toHaveLength(30);
+    expect(rows[0].snr).toBe(289.7);
+    expect(rows.every((r, i) => i === 0 || rows[i - 1].snr >= r.snr)).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith("https://example.test/hunt.json", expect.objectContaining({ cache: "no-store" }));
+  });
+
   it("refuses a file that isn't schema 1 shaped", async () => {
     await expect(loadSkyrun(undefined, async () => ({ hello: 1 }))).rejects.toThrow(/schema/);
+  });
+});
+
+describe("a grade A suspect in the zone panel", () => {
+  it("leads the list and says its track in words", () => {
+    const hunt = parseSkyrun(real2).zones.find((z) => z.name === "hunt")!;
+    const [s1, s2] = [...huntSuspects.suspects].sort((a, b) => b.snr - a.snr);
+    const file = toZoneSuspects({
+      grades: { A: 1, B: 1, C: 0 },
+      suspects: [
+        { ...s1, grade: "B", reasons: [], near_source_arcsec: null },
+        { ...s2, grade: "A", reasons: [], near_source_arcsec: null, n_sessions: 3, rate_arcsec_h: 42.04, pa_deg: 118.6, rate_sigma: 2.1 },
+      ],
+    });
+    const el = document.createElement("div");
+    el.innerHTML = suspectsHtml(hunt, { status: "ok", rows: file.rows, file });
+    const rows = [...el.querySelectorAll(".lv-sus-row")];
+    expect(rows[0].querySelector(".lv-sus-grade")?.textContent).toBe("Grade A: candidate mover");
+    expect(rows[0].querySelector(".lv-sus-track")?.textContent).toBe("On a track over 3 sessions, moving 42.0″ an hour (20σ) toward 119°.");
+    expect(rows[1].querySelector(".lv-sus-track")).toBeNull();
+    expect(el.querySelector(".lv-grades-a")?.textContent).toBe("1 candidate mover (grade A).");
   });
 });

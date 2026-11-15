@@ -122,8 +122,33 @@ def test_ice_label_guards():
     ])
     sat = np.zeros(len(df), bool)
     sat[8] = True
-    lab = CL.band_labels(df, sat)["label_h2o_ice"]
+    n = len(df)
+    reddened = {"jh": np.full(n, 1.6), "hk": np.full(n, 0.9), "w1w2": np.full(n, 0.1)}  # A_V ~ 14 behind a cloud
+    lab = CL.band_labels(df, sat, colours=reddened)["label_h2o_ice"]
     assert lab.tolist() == [True, False, False, False, False, False, False, True, False]
+    assert not CL.band_labels(df, sat)["label_h2o_ice"].any()  # colours unknown: no ice
+
+
+def test_ice_needs_a_reddened_stars_colours_and_two_visits():
+    ice = {"h2o_ice_305_depth": 0.3, "h2o_ice_305_sig": 8.0}
+    df = labels_frame([ice] * 6)
+    col = {"jh": np.array([1.6, 0.8, 1.2, 1.6, 1.6, 1.6]),   # 1 J − H too blue (galaxy-like)
+           "hk": np.array([0.9, 0.9, 0.9, 0.5, 0.9, 0.9]),   # 2 below the reddening line (infrared excess), 3 H − K small
+           "w1w2": np.array([0.1, 0.1, 0.1, 0.1, 0.9, np.nan])}  # 4 quasar-red W1 − W2; 5 no W1 − W2: passes
+    lab = CL.band_labels(df, np.zeros(6, bool), colours=col)["label_h2o_ice"]
+    assert lab.tolist() == [True, False, False, False, False, True]
+    vis = {name: np.array([2, 1, 2, 2, 2, 2]) for name in C.INDEX_WINDOWS}  # 1: the band seen in one visit only
+    lab = CL.band_labels(df, np.zeros(6, bool), vis, col)["label_h2o_ice"]
+    assert lab.tolist() == [True, False, False, False, False, True]
+
+
+def test_vega_colours_prefer_the_catalogues():
+    out = pd.DataFrame({"mag_ab_j": [15.0, 15.0], "mag_ab_h": [14.0, 14.0], "mag_ab_k": [13.0, 13.0],
+                        "mag_ab_m34": [12.0, 12.0], "mag_ab_m46": [12.0, 12.0]})
+    phot = pd.DataFrame({"j": [12.0, np.nan], "h": [11.0, np.nan], "k": [10.5, np.nan], "w1": [9.0, np.nan], "w2": [8.9, np.nan]})
+    c = CL.vega_colours(out, phot)
+    assert np.allclose(c["jh"], [1.0, 1.0 - 0.91 + 1.39]) and np.allclose(c["hk"], [0.5, 1.0 - 1.39 + 1.85])
+    assert np.allclose(c["w1w2"], [0.1, 0.64])
 
 
 def test_methane_label_needs_no_gaia_red_and_a_second_band():
@@ -149,25 +174,26 @@ def test_vapour_co_and_pah_labels():
         {"co_23_depth": 0.1, "co_23_sig": 7.0, "class": "star"},
         {"pah_33_excess": 0.3, "pah_33_sig": 6.0, "class": "star", "gaia_g": 12.0},
         {"pah_33_excess": 0.3, "pah_33_sig": 6.0, "class": "galaxy"},
+        {"pah_33_excess": 0.3, "pah_33_sig": 6.0, "class": "unsure", "h2o_ice_305_sig": 4.0},  # ice dip, not PAH
     ])
     lab = CL.band_labels(df, np.zeros(len(df), bool))
-    assert lab["label_h2o_vapour"].tolist() == [True, False, False, False, False]
-    assert lab["label_co_23"].tolist() == [False, False, True, False, False]
-    assert lab["label_pah_33"].tolist() == [False, False, False, False, True]
+    assert lab["label_h2o_vapour"].tolist() == [True, False, False, False, False, False]
+    assert lab["label_co_23"].tolist() == [False, False, True, False, False, False]
+    assert lab["label_pah_33"].tolist() == [False, False, False, False, True, False]
     assert not lab["label_h2o_ice"].any() and not lab["label_ch4"].any()
 
 
 # --- 3. fast movers: vetting ------------------------------------------------------------------
 def fit_rows(**over):
     base = dict(source_id=3, ra=STAR[0], dec=STAR[1], epoch_mjd=61091.0, pmra=6000.0, pmdec=0.0, pm=6000.0,
-                pm_snr=6.0, pmra_err=1000.0, pmdec_err=1000.0, n_visits=2, span_yr=0.5, chi2_nu=1.2, n_dots=200)
+                pm_snr=12.0, pmra_err=500.0, pmdec_err=500.0, n_visits=2, span_yr=0.5, chi2_nu=1.2, n_dots=200)
     return {**base, **over}
 
 
 def test_fit_candidates_are_vetted_not_deleted():
     src = hp_sources()
     ast = pd.DataFrame([
-        fit_rows(source_id=1),                                     # clean, no counterpart: vetted new
+        fit_rows(source_id=1),                                     # clean, no counterpart, 12σ: vetted new
         fit_rows(source_id=2, n_dots=8),                           # barely detected
         fit_rows(source_id=3, chi2_nu=40.0),                       # bad fit
         fit_rows(source_id=4, pm=11_000.0, pmra=11_000.0),         # faster than any star
@@ -175,6 +201,7 @@ def test_fit_candidates_are_vetted_not_deleted():
         fit_rows(source_id=6, pm=600.0, pmra=600.0, pmra_err=80.0, pmdec_err=80.0, pm_snr=7.5),  # Gaia says 10 mas/yr
         fit_rows(source_id=7, pm=550.0, pmra=0.0, pmdec=-550.0, pmra_err=95.0, pmdec_err=95.0, pm_snr=5.8),  # Gaia agrees
         fit_rows(source_id=8, span_yr=0.05, n_visits=1),           # one visit
+        fit_rows(source_id=9, pm_snr=6.0),                         # no counterpart to check a 6σ motion
     ])
     xid = pd.DataFrame({"source_id": [5, 6, 7], "gaia_ref_id": ["", "gaia:6", "gaia:7"], "gaia_id": [-1, 6, 7],
                         "gaia_pmra": [np.nan, 8.0, 10.0], "gaia_pmdec": [np.nan, 5.0, -500.0],
@@ -182,12 +209,13 @@ def test_fit_candidates_are_vetted_not_deleted():
                         "catwise_pmdec": [-10.0, np.nan, np.nan]})
     out = HP.compute(src, None, xid, ast)
     out = out[out["method"] == "fit"].set_index("source_id")
-    assert len(out) == 8  # nothing deleted
+    assert len(out) == 9  # nothing deleted
     reason = out["reason"].to_dict()
     assert reason[1] == "" and out.loc[1, "vetted"] and out.loc[1, "status"] == "new"
     assert reason[2] == "few_dots" and reason[3] == "bad_fit" and reason[4] == "over_pm_cap"
     assert reason[5] == "catwise_pm_disagrees" and reason[6] == "gaia_pm_disagrees" and reason[8] == "short_span"
     assert reason[7] == "" and out.loc[7, "status"] == "gaia"
+    assert reason[9] == "unchecked"
     # vetted first
     assert out["vetted"].tolist()[:2] == [True, True]
 

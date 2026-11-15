@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { Measure, SpectrumPoint } from "../api/types";
+import type { Measure, MeasureSource, ObjectResponse, SpectrumPoint } from "../api/types";
 import {
   aboutSentence,
   agreement,
   compactUjy,
   framesFollow,
   measureSentence,
+  measureSource,
+  measuredIn,
   proseLy,
   detectionLimit,
   distancePc,
@@ -14,6 +16,8 @@ import {
   linearTicks,
   listDets,
   logTicks,
+  MEASURE_REASON_TEXT,
+  measureReasonOf,
   noMeasureReason,
   paVector,
   paWord,
@@ -169,6 +173,33 @@ describe("sentences", () => {
     );
     expect(aboutSentence({ slug: null, kind: null, object: null, where: "00h40m00.0s +10°00′00″" })).toBe("The sky at 00h40m00.0s +10°00′00″.");
   });
+  it("reads measure.source only when it hangs together, never from elsewhere", () => {
+    // Barnard's Star, as precompute writes it (contracts/api.md v3.9)
+    const src: MeasureSource = {
+      det: 2, visits: [1, 3], mjd: [60913.498113, 61273.649984], n_exposures: [18, 25],
+      fov: 15, pixel_arcsec: 6.15, core_filled: [true, true],
+    };
+    expect(measureSource({ ...barnard, source: src })).toEqual(src);
+    expect(measureSource(barnard)).toBeNull(); // files from before v3.9
+    expect(measureSource({ ...barnard, source: null })).toBeNull();
+    const broken = [
+      { visits: [3, 1] }, { visits: [1] }, { det: 9 }, { det: 0 }, { n_exposures: [0, 25] },
+      { mjd: [61273.649984, 60913.498113] }, { mjd: [60913.5, 61400] }, { mjd: null },
+    ];
+    for (const bad of broken) {
+      expect(measureSource({ ...barnard, source: { ...src, ...bad } as unknown as MeasureSource })).toBeNull();
+    }
+  });
+  it("says what the shift was measured on, and the player's detector when it differs", () => {
+    const src: MeasureSource = {
+      det: 5, visits: [2, 4], mjd: [61000, 61360], n_exposures: [8, 15], fov: 15, pixel_arcsec: 6.15, core_filled: [false, false],
+    };
+    expect(measuredIn(src, 5)).toBe("D5, visits 2 and 4 (8 and 15 exposures)");
+    expect(measuredIn(src, 6)).toBe("D5, visits 2 and 4 (8 and 15 exposures), not the D6 the player shows");
+    // a measured pair need not start at visit 1: a visit with under 3 exposures in that detector is skipped
+    const said = measureSentence({ ...barnard, predicted_arcsec: null }, { visits: [2, 4], who: "Gaia" });
+    expect(said.startsWith("moved between visits 2 and 4 (0.99 years).")).toBe(true);
+  });
   it("words the measurement against the prediction", () => {
     expect(measureSentence(barnard, { visits: 3, who: "Gaia" })).toBe(
       "moved between visits 1 and 3 (0.99 years). Gaia predicts 10.27″: they agree within 1.6σ.",
@@ -196,6 +227,61 @@ describe("why there is no measure", () => {
     expect(noMeasureReason({ object: null, kind: null, visits: 1 })).toMatch(/one visit/);
     expect(noMeasureReason({ object: null, kind: null, visits: null })).toMatch(/Nothing has been measured/);
   });
+  it("says why a spot seen in two visits has no shift (the server's detection guard)", () => {
+    const empty = { name: null, gaia: null, known_ucd: null, spectrum: [], measure: null } as never;
+    expect(noMeasureReason({ object: empty, kind: null, visits: 2 })).toMatch(
+      /^No shift measured here: .*single source stands out clearly .* both the first and last visits/,
+    );
+    expect(noMeasureReason({ object: empty, kind: null, visits: 1 })).toMatch(/one visit/);
+  });
+  // contracts/api.md v3.2: the server says why (measure_reason); static files and older answers don't.
+  const why = (measure_reason: unknown, extra: Partial<ObjectResponse> = {}) =>
+    ({ name: null, gaia: null, known_ucd: null, spectrum: [], measure: null, measure_reason, ...extra }) as ObjectResponse;
+  const barnard2016 = { ra: 269.4485, dec: 4.7394 }; // Barnard's Star's Gaia DR3 position (epoch 2016.0)
+  const hint = { name: "Barnard's Star", ra: 269.446376, dec: 4.768684, mjd: 61104.25 }; // the server's answer there
+
+  it("gives one plain sentence per server reason", () => {
+    expect(noMeasureReason({ object: why("not_detected"), kind: null, visits: 3 })).toMatch(
+      /^Nothing stands out clearly at this spot in the first or the last visit/,
+    );
+    expect(noMeasureReason({ object: why("edge"), kind: null, visits: 3 })).toMatch(/at the edge of SPHEREx's photos/);
+    expect(noMeasureReason({ object: why("different_sources"), kind: null, visits: 3 })).toMatch(/too far apart to be one moving star/);
+    expect(noMeasureReason({ object: why("no_time"), kind: null, visits: 3 })).toMatch(/ran out of time.*Try again in a minute/);
+    expect(noMeasureReason({ object: why("few_visits"), kind: null, visits: 2 })).toMatch(/two visits about six months apart/);
+    for (const text of Object.values(MEASURE_REASON_TEXT)) {
+      expect(text.length).toBeLessThan(170); // short and plain
+      expect(text).not.toMatch(/S\/N|σ|PSF|centroid|stack|guard/);
+    }
+  });
+
+  it("falls back to the general sentence without a reason or with an unknown one", () => {
+    const general = /^No shift measured here: .*single source stands out clearly/;
+    expect(noMeasureReason({ object: why(undefined), kind: null, visits: 2 })).toMatch(general);
+    expect(noMeasureReason({ object: why(null), kind: null, visits: 2 })).toMatch(general);
+    expect(noMeasureReason({ object: why("solar_flare"), kind: null, visits: 2 })).toMatch(general);
+    expect(measureReasonOf(why("solar_flare"))).toBeNull();
+    expect(measureReasonOf(null)).toBeNull();
+  });
+
+  it("keeps the frames' visit count and the mover wording ahead of the server's reason", () => {
+    expect(noMeasureReason({ object: why("few_visits"), kind: null, visits: 1 })).toMatch(/one visit so far/);
+    expect(noMeasureReason({ object: why("not_detected"), kind: "asteroid", visits: null })).toMatch(/hours, not months/);
+  });
+
+  it("says where a fast star went when its old catalogue position is pasted", () => {
+    const moved = why("moved_away", { measure_hint: hint });
+    expect(noMeasureReason({ object: moved, kind: null, visits: 3, at: barnard2016 })).toBe(
+      "This is a catalogue position of Barnard's Star, but it moves fast: during SPHEREx's visits it was 106″ away, so there is nothing here to measure.",
+    );
+    expect(noMeasureReason({ object: moved, kind: null, visits: 1, at: barnard2016 })).toMatch(/^This is a catalogue position of Barnard's Star/);
+    expect(noMeasureReason({ object: why("moved_away", { measure_hint: { ...hint, name: null } }), kind: null, visits: 3 })).toMatch(
+      /^This is a catalogue position of a fast-moving star, .* it was somewhere else/,
+    );
+    expect(noMeasureReason({ object: why("moved_away"), kind: null, visits: 3 })).toBe(
+      "No source at this position in either visit. Fast stars move: try their current position or their name.",
+    );
+  });
+
   it("counts visits per detector in frames near the view", () => {
     const frames = {
       clock: "months",

@@ -69,25 +69,31 @@ export function mjdToDate(mjd: number): Date {
   return new Date((mjd - 40587) * 86400000);
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "13 Sep 2025", or "13 Sep 2025, 04:27 UTC". Fixed month names: current en-GB locale data says
+ * "Sept", which disagreed with the plate label and the time strip ("Sep"). */
 export function formatMjd(mjd: number, withTime = false): string {
   const d = mjdToDate(mjd);
-  const opts: Intl.DateTimeFormatOptions = withTime
-    ? { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }
-    : { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" };
-  return d.toLocaleString("en-GB", opts) + (withTime ? " UTC" : "");
+  const day = `${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  if (!withTime) return day;
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${day}, ${hh}:${mm} UTC`;
 }
 
 /** Sexagesimal for display: 08h55m10.8s −07°14′42″. */
 export function formatRaDec(pos: SkyPos): string {
-  const ra = (((pos.ra % 360) + 360) % 360) / 15;
-  const h = Math.floor(ra);
-  const m = Math.floor((ra - h) * 60);
-  const s = ((ra - h) * 60 - m) * 60;
+  // Round before splitting, so 59.99s carries into the next minute/hour.
+  const raTenths = Math.round(((((pos.ra % 360) + 360) % 360) / 15) * 36000) % 864000;
+  const h = Math.floor(raTenths / 36000);
+  const m = Math.floor((raTenths % 36000) / 600);
+  const s = (raTenths % 600) / 10;
   const sign = pos.dec < 0 ? "−" : "+";
-  const ad = Math.abs(pos.dec);
-  const d = Math.floor(ad);
-  const am = Math.floor((ad - d) * 60);
-  const as = ((ad - d) * 60 - am) * 60;
+  const decSeconds = Math.round(Math.abs(pos.dec) * 3600);
+  const d = Math.floor(decSeconds / 3600);
+  const am = Math.floor((decSeconds % 3600) / 60);
+  const as = decSeconds % 60;
   const p2 = (n: number) => String(n).padStart(2, "0");
   return `${p2(h)}h${p2(m)}m${s.toFixed(1).padStart(4, "0")}s ${sign}${p2(d)}°${p2(am)}′${as.toFixed(0).padStart(2, "0")}″`;
 }

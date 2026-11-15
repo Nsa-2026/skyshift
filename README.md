@@ -2,6 +2,8 @@
 
 **Blink NASA's SPHEREx infrared sky, measure what moved, and check it against Gaia.**
 
+**Workspace:** [Sky map entry, the three areas (Explore, Analyze, Research), guided practice and release status](README-WORKSPACE.md).
+
 SkyShift is a web tool built for the NASA Space Apps Challenge 2026, challenge "Planet X and SPHEREx".
 You paste sky coordinates and it plays that patch of the SPHEREx sky as a short movie, so anything
 that moved jumps between frames. Under the movie it measures how far the object moved and compares
@@ -16,6 +18,11 @@ lets anyone flag a dot and vote on what it is. Everything shown is real SPHEREx 
 ![Barnard's Star on the Months clock, with the measured shift against Gaia](pitch/screens/barnard-months.png)
 
 ## How to use it
+
+In this integration branch, start with the large interactive sky map: drag, zoom or
+pick a point, then enter Explore, Analyze or Research with that sky selection. The
+overview labels its 2MASS imagery and SPHEREx signals; observation tools use SPHEREx.
+The following controls are available inside the observation workspace.
 
 1. **Paste coordinates** in the box at the top and press **Blink**. It accepts the challenge's own
    format (`08h55m10.831s -7d14m42.53s`) and decimal degrees (`133.7597 -7.2422`). Or click one of
@@ -107,7 +114,20 @@ The server caches in `~/.cache/skyshift` unless `SKYSHIFT_CACHE` is set. Without
 settings (`VITE_FIREBASE_*` in `web/.env`) the vote panel runs in local mode: flags and votes stay
 in your browser.
 
-Tests: `uv run pytest` in `core/`, `pipeline/`, `server/` and `scripts/validate/`; `npm test` in `web/`.
+### Use SkyShift from an AI assistant (MCP)
+
+`mcp/` is an MCP server that lets Claude, Cursor or any MCP client browse the candidates, look at
+blink frames (as images), measure motion and check known asteroids. It reads the public site, so
+it needs no key and runs on your machine:
+
+```sh
+claude mcp add skyshift -- uv run --project mcp skyshift-mcp
+```
+
+Then ask, for example, "Show me SkyShift's best fast mover that no known asteroid explains."
+Tools and setup for Claude Desktop: [mcp/README.md](mcp/README.md).
+
+Tests: `uv run pytest` in `core/`, `pipeline/`, `server/`, `mcp/` and `scripts/validate/`; `npm test` in `web/`.
 Deploys also need the Google Cloud CLI and the Firebase CLI (`infra/`).
 
 ## Repository layout
@@ -117,6 +137,7 @@ Deploys also need the Google Cloud CLI and the Firebase CLI (`infra/`).
 | `core/` | Shared science code: visit rule, flag masks, detection, centroids, shifts, photometry |
 | `pipeline/` | The pilot run and the asteroid hunt zone on cloud machines |
 | `server/` | FastAPI app on Cloud Run; builds blink frames for any coordinates |
+| `mcp/` | MCP server: SkyShift's candidates, blink frames and measurements as tools for AI assistants |
 | `web/` | Vite + TypeScript app: sky view, blink player, cards, votes, scoreboard |
 | `scripts/` | Validation (`validate/`), static export of the featured targets (`precompute/`), science checks (`science/`) |
 | `contracts/` | The interfaces every part agrees on: `api.md`, `flags.md`, `dots.md` |

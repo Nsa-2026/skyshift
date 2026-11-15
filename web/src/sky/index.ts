@@ -274,7 +274,7 @@ export const mountSky: MountSky = (el, opts) => {
     shownBudget = currentBudget();
     const dots = brightest(all, shownBudget);
     if (dots.length < all.length) {
-      gaiaText = `the brightest ${dots.length} of ${all.length} Gaia DR3 stars${date}`;
+      gaiaText = `the brightest ${dots.length.toLocaleString("en-GB")} of ${all.length.toLocaleString("en-GB")} Gaia DR3 stars${date}`;
       renderKey();
     }
     gaiaCat.addSources(dots.map((s) => Al.source(s.ra, s.dec, { id: s.id, G: s.g })));
@@ -359,9 +359,10 @@ export const mountSky: MountSky = (el, opts) => {
 
   let raf = 0;
   function onMove() {
-    if (raf) return;
+    if (raf || destroyed) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
+      if (destroyed) return;
       placePin();
       updateCentreBtn();
       maybeRedrawGaia();
@@ -370,7 +371,7 @@ export const mountSky: MountSky = (el, opts) => {
 
   // ---- start Aladin ------------------------------------------------------------------------
   async function start() {
-    if (state !== "idle" || destroyed) return;
+    if (state !== "idle" || destroyed || body.hidden) return;
     state = "loading";
     showNote("Loading the sky map…");
     try {
@@ -380,6 +381,12 @@ export const mountSky: MountSky = (el, opts) => {
       return;
     }
     if (destroyed) return;
+    // The CDN may finish after the disclosure closes. Keep the download cached, but
+    // wait until it is opened again before allocating a hidden WebGL map.
+    if (body.hidden) {
+      state = "idle";
+      return;
+    }
     // Grease pencil, read from the tokens at run time so the marks follow tokens.css.
     const red = token("--pencil-red", "#cf2338");
     const blue = token("--pencil-blue", "#2556c8");
@@ -421,7 +428,7 @@ export const mountSky: MountSky = (el, opts) => {
       al.addCatalog(gaiaCat);
       al.addCatalog(targetCat);
       al.on("click", (e: AladinClick) => {
-        if (!e || e.isDragging || !Number.isFinite(e.ra) || !Number.isFinite(e.dec)) return;
+        if (destroyed || !e || e.isDragging || !Number.isFinite(e.ra) || !Number.isFinite(e.dec)) return;
         showPin({ ra: e.ra, dec: e.dec });
       });
       al.on("positionChanged", onMove);
@@ -443,7 +450,7 @@ export const mountSky: MountSky = (el, opts) => {
   // Lazy: Aladin loads only once the person opens the map and it is on screen.
   let io: IntersectionObserver | null = null;
   function startWhenVisible() {
-    if (state !== "idle" || io) return;
+    if (state !== "idle" || io || destroyed || body.hidden) return;
     if (typeof IntersectionObserver !== "function") {
       void start();
       return;
@@ -468,7 +475,11 @@ export const mountSky: MountSky = (el, opts) => {
     body.hidden = !open;
     el.classList.toggle("sky-closed", !open);
     if (open) startWhenVisible();
-    else hidePin();
+    else {
+      io?.disconnect();
+      io = null;
+      hidePin();
+    }
   }
   toggle.addEventListener("click", () => setOpen(toggle.getAttribute("aria-expanded") !== "true"));
   adjust.addEventListener("click", () => {

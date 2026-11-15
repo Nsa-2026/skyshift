@@ -1,7 +1,9 @@
+import { candidateFramesUrl } from "../api/client";
 // Data for the review pages: the candidate list, each candidate's frames (static frames_url
 // first, then the live API) with a small preload cache, and the vote store.
-import { ApiFailure, epochsFor, loadCandidates, loadFrames } from "../api/client";
-import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames } from "../api/types";
+import { ApiFailure, epochsFor, loadCandidates, loadFrames, loadSuspects } from "../api/client";
+import { gradeOf } from "../api/grades";
+import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames, Suspect } from "../api/types";
 import type { View } from "../app/modules";
 import { safeStorage, type KV } from "../vote/model";
 import { getVoteStore, type VoteApi } from "../vote/store";
@@ -15,7 +17,7 @@ export interface CandidateSet {
   sample: boolean;
 }
 
-const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral"];
+const KINDS: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 const finite = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 const numOrNull = (x: unknown): number | null => (finite(x) ? x : null);
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
@@ -53,6 +55,8 @@ export function toCandidate(x: unknown): Candidate | null {
     why: typeof o.why === "string" ? o.why : "",
     flags: strings(o.flags),
     frames_url: typeof o.frames_url === "string" && o.frames_url ? o.frames_url : null,
+    // The vetting grade, only when the file has one (older exports: not vetted yet, never B).
+    ...(gradeOf(o) ? { grade: gradeOf(o) } : {}),
   };
 }
 
@@ -92,6 +96,21 @@ export function candidateSet(): Promise<CandidateSet | null> {
   return p;
 }
 
+// ---- the suspect behind a fast mover -------------------------------------------------------------
+
+let suspectsPromise: Promise<Map<string, Suspect>> | null = null;
+
+/**
+ * The suspects.json row of a fast mover (suspects and mover candidates share the id), for what the
+ * candidate list doesn't carry: near_source_arcsec. Read once; null when it isn't there.
+ */
+export function suspectFor(id: string): Promise<Suspect | null> {
+  suspectsPromise ??= loadSuspects()
+    .then((r) => new Map((Array.isArray(r?.suspects) ? r!.suspects : []).filter((s) => s && typeof s.id === "string").map((s) => [s.id, s])))
+    .catch(() => new Map<string, Suspect>());
+  return suspectsPromise.then((m) => m.get(id) ?? null);
+}
+
 // ---- frames ------------------------------------------------------------------------------------
 
 /** The view the plate opens on: the candidate's position, clock and detector. */
@@ -122,6 +141,28 @@ export function focusFrames(frames: FramesResponse, c: Pick<Candidate, "mjd" | "
   };
 }
 
+/** Over this gap (days) between the find and the nearest frame, the find's own exposures aren't shown. */
+export const OWN_GAP_DAYS = 1 / 24;
+
+/**
+ * Hours candidates: days from the find's mjd to the nearest frame of `det`. Live hours frames show
+ * the visit with the most exposures (the API has no time parameter), which may not be the find's
+ * session. null for months, an unknown mjd or no frames of `det`.
+ */
+export function findGap(frames: FramesResponse, c: Pick<Candidate, "mjd" | "clock">, det: Det): number | null {
+  if (frames.clock !== "hours" || c.clock !== "hours" || !(c.mjd > 0)) return null;
+  const eps = epochsFor(frames, det);
+  return eps.length ? Math.min(...eps.map((e) => Math.abs(e.mjd_mid - c.mjd))) : null;
+}
+
+/** A time gap in plain words: "40 minutes", "9.8 hours", "3.2 days". */
+export function gapText(days: number): string {
+  const h = Math.abs(days) * 24;
+  const n = (v: number) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+  if (h < 1) return `${Math.round(h * 60)} minutes`;
+  return h < 48 ? `${n(h)} hours` : `${n(h / 24)} days`;
+}
+
 async function getFrames(url: string, signal?: AbortSignal): Promise<FramesResponse> {
   const res = await fetch(url, { signal });
   if (!res.ok) throw new ApiFailure(`${res.status} for ${url}`, res.status, res.status === 404 ? "not_found" : "internal");
@@ -139,7 +180,7 @@ export function isLive(c: Candidate, view: View): boolean {
  */
 export async function candidateFrames(c: Candidate, view: View, signal?: AbortSignal): Promise<LoadedFrames> {
   if (c.frames_url && view.clock === c.clock) {
-    const jsonUrl = new URL(c.frames_url, location.href).href;
+    const jsonUrl = candidateFramesUrl(c.frames_url);
     try {
       const frames = await getFrames(jsonUrl, signal);
       if (frames.clock === view.clock && frames.epochs.some((e) => e.det === view.det)) return { frames, jsonUrl, origin: "static" };

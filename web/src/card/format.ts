@@ -1,6 +1,6 @@
 // Pure helpers for the object card: numbers, wording and axis maths. No DOM here, so tests are cheap.
-import type { Det, FramesResponse, GaiaStar, Measure, ObjectResponse, SpectrumPoint } from "../api/types";
-import { sepArcsec } from "../app/astro";
+import type { Det, FramesResponse, GaiaStar, Measure, MeasureReason, MeasureSource, ObjectResponse, SkyPos, SpectrumPoint } from "../api/types";
+import { formatMjd, sepArcsec } from "../app/astro";
 
 export const LY_PER_PC = 3.26156;
 /** Largest parallax shift between two visits six months apart for our targets (Barnard's Star). */
@@ -111,6 +111,54 @@ export function visitsOf(spectrum: SpectrumPoint[]): number[] {
   return [...new Set(spectrum.map((p) => p.visit))].sort((a, b) => a - b);
 }
 
+export interface MissingVisit {
+  visit: number;
+  /** The visit's middle (median of its stacks' mjd_mid over the detectors given). */
+  mjd: number;
+}
+
+/**
+ * Visits the months blink shows that have no spectrum point: every exposure there was left out of
+ * the photometry (a Gaia star too close to measure apart, a masked core). WISE 0855−0714 was the
+ * case (4″ from a G = 16.3 star in visit 3) until the server fitted both there; live answers at
+ * other coordinates can still lack a visit.
+ * Both number visits by the same rule over the same search, so the numbers compare directly
+ * (contracts/api.md: months epoch ids are `d<det>-v<visit>`). det: only that detector's stacks and
+ * points (the light curve). [] without months frames near the view (hours clock, stale frames).
+ */
+export function visitsMissingFromSpectrum(
+  frames: FramesResponse | null,
+  near: { ra: number; dec: number },
+  fovArcmin: number,
+  spectrum: SpectrumPoint[],
+  det?: Det,
+): MissingVisit[] {
+  if (!frames || frames.clock !== "months" || !spectrum.length) return [];
+  if (sepArcsec(frames.center, near) > fovArcmin * 60) return [];
+  const have = new Set(spectrum.filter((p) => det == null || p.det === det).map((p) => p.visit));
+  const times = new Map<number, number[]>();
+  for (const e of frames.epochs) {
+    const v = e.kind === "visit" ? /-v(\d+)$/.exec(e.id) : null;
+    if (!v || (det != null && e.det !== det) || have.has(Number(v[1]))) continue;
+    times.set(Number(v[1]), [...(times.get(Number(v[1])) ?? []), e.mjd_mid]);
+  }
+  return [...times].map(([visit, t]) => ({ visit, mjd: median(t) })).sort((a, b) => a.visit - b.visit);
+}
+
+/** "Visit 3, May 2026, is in the blink but not here: none of its exposures could be measured cleanly." */
+export function missingVisitsSentence(missing: MissingVisit[], det?: Det): string {
+  if (!missing.length) return "";
+  const month = (mjd: number) => formatMjd(mjd).split(" ").slice(1).join(" ");
+  const when = (m: MissingVisit) => `${m.visit}, ${month(m.mjd)}`;
+  const list =
+    missing.length === 1
+      ? `Visit ${when(missing[0])}, is`
+      : `Visits ${missing.slice(0, -1).map(when).join("; ")} and ${when(missing[missing.length - 1])} are`;
+  const one = missing.length === 1;
+  const what = det != null ? `${one ? "its" : "their"} D${det} exposures` : `${one ? "its" : "their"} exposures`;
+  return `${list} in the blink but not here: none of ${what} could be measured cleanly.`;
+}
+
 /** Median of a list (NaN for an empty list). */
 export function median(xs: number[]): number {
   if (!xs.length) return NaN;
@@ -207,14 +255,43 @@ export function framesFollow(frames: FramesResponse | null): boolean | null {
   return frames.epochs.some((e) => e.center != null);
 }
 
+const BLINK_HINT = "Blink the visits and flag anything that steps.";
+
+/** One plain sentence per server reason (contracts/api.md v3.2 `measure_reason`); moved_away is worded apart. */
+export const MEASURE_REASON_TEXT: Record<Exclude<MeasureReason, "moved_away">, string> = {
+  few_visits: "SPHEREx hasn't seen this spot often enough yet. A shift needs two visits about six months apart, each with a few photos.",
+  not_detected: `Nothing stands out clearly at this spot in the first or the last visit, so there is no shift to measure. ${BLINK_HINT}`,
+  edge: `This spot is at the edge of SPHEREx's photos in the first or the last visit, so its position can't be measured cleanly. ${BLINK_HINT}`,
+  different_sources: "Different sources stand out here in the first and the last visit, too far apart to be one moving star. Blink the visits to compare them.",
+  no_time: "SkyShift ran out of time before measuring the shift. Try again in a minute: it is faster the second time.",
+};
+
+/** The server's reason, or null when the answer has none (static files, older answers, unknown codes). */
+export function measureReasonOf(object: ObjectResponse | null): MeasureReason | null {
+  const r = object?.measure_reason ?? null;
+  return r === "moved_away" || (r != null && Object.prototype.hasOwnProperty.call(MEASURE_REASON_TEXT, r)) ? r : null;
+}
+
+/** A fast star catalogued at the position asked has moved away: say so, and how far it went. */
+export function movedAwaySentence(object: ObjectResponse | null, at: SkyPos | null): string {
+  const hint = object?.measure_hint ?? null;
+  if (!hint) return "No source at this position in either visit. Fast stars move: try their current position or their name.";
+  const who = hint.name ?? "a fast-moving star";
+  const sep = at ? sepArcsec(at, hint) : null;
+  const far = sep != null && Number.isFinite(sep) ? `${Math.round(sep)}″ away` : "somewhere else";
+  return `This is a catalogue position of ${who}, but it moves fast: during SPHEREx's visits it was ${far}, so there is nothing here to measure.`;
+}
+
 export function noMeasureReason(opts: {
   object: ObjectResponse | null;
   kind: string | null;
   visits: number | null;
   /** framesFollow(frames): true, false, or null when unknown. */
   follows?: boolean | null;
+  /** The position asked, to say how far a moved-away star went. */
+  at?: SkyPos | null;
 }): string {
-  const { object, kind, visits, follows = null } = opts;
+  const { object, kind, visits, follows = null, at = null } = opts;
   if (kind && /asteroid|comet/i.test(kind)) {
     if (follows === true) {
       return "It moves in hours, not months, so there is no shift between visits to measure. The frames follow it across the sky.";
@@ -224,10 +301,18 @@ export function noMeasureReason(opts: {
     }
     return "It moves in hours, not months, so there is no shift between visits to measure.";
   }
+  const reason = measureReasonOf(object);
+  if (reason === "moved_away") return movedAwaySentence(object, at);
   const spectrumVisits = object ? visitsOf(object.spectrum).length : 0;
   const n = visits ?? (spectrumVisits || null);
   if (n != null && n < 2) {
     return `SPHEREx has seen this spot in ${n === 0 ? "no visits" : "one visit"} so far. A shift needs two visits, about six months apart.`;
+  }
+  if (reason) return MEASURE_REASON_TEXT[reason];
+  // The server measured nothing although there are two visits, and didn't say why (static files and
+  // answers from before contracts v3.2): its detection guard, or the live answer ran out of time.
+  if (object) {
+    return "No shift measured here: SkyShift shows one only when a single source stands out clearly at this spot in both the first and last visits. Blink the visits and flag anything that steps.";
   }
   return "Nothing has been measured at this spot yet. Blink the visits and flag anything that steps.";
 }
@@ -306,8 +391,25 @@ export function visitTimesFromSpectrum(spectrum: SpectrumPoint[]): Map<number, n
 }
 
 /**
- * How many visits the measured detector has, so the card can say "between visits 1 and N".
- * The measure doesn't name its detector: take the detectors whose first-to-last span matches dt_yr
+ * What the shift was measured on (contracts/api.md v3.9), when the answer says so and it hangs
+ * together (dt_yr is the gap between its two median times). Null otherwise: older files and cached
+ * answers have none, and the card never takes it from the player's frames instead.
+ */
+export function measureSource(m: Measure): MeasureSource | null {
+  const s = m.source;
+  if (!s) return null;
+  const pair = (a: unknown, ok: (x: number) => boolean): boolean =>
+    Array.isArray(a) && a.length === 2 && a.every((x) => typeof x === "number" && ok(x));
+  const count = (x: number) => Number.isInteger(x) && x >= 1;
+  if (!count(s.det) || s.det > 6) return null;
+  if (!pair(s.visits, count) || s.visits[1] <= s.visits[0] || !pair(s.n_exposures, count)) return null;
+  if (!pair(s.mjd, Number.isFinite) || s.mjd[1] <= s.mjd[0]) return null;
+  return Math.abs((s.mjd[1] - s.mjd[0]) / 365.25 - m.dt_yr) <= 0.001 ? s : null;
+}
+
+/**
+ * How many visits the measured detector has, so the card can say "between visits 1 and N", for a
+ * measure without `source` (above). Take the detectors whose first-to-last span matches dt_yr
  * (within 0.1 yr: the server times stacks by their median exposure, not mjd_mid) and answer only
  * when they agree. Null when unsure: the card then says "the first and last visits".
  */
@@ -322,9 +424,17 @@ export function measuredVisitCount(m: Measure, times: Map<number, number[]> | nu
   return counts.size === 1 ? [...counts][0] : null;
 }
 
-/** "visits 1 and 3" from the visit count, or "the first and last visits" without one. */
-export function visitPair(n: number | null): string {
+/** "visits 2 and 4" from the measured pair, "visits 1 and 3" from a visit count, or "the first and last visits". */
+export function visitPair(n: number | [number, number] | null): string {
+  if (Array.isArray(n)) return `visits ${n[0]} and ${n[1]}`;
   return n != null && n >= 2 ? `visits 1 and ${n}` : "the first and last visits";
+}
+
+/** The card's "Measured in" line: detector, visit pair and exposures, and the player's detector when it differs. */
+export function measuredIn(src: MeasureSource, playerDet: Det): string {
+  const n = src.n_exposures;
+  const other = playerDet !== src.det ? `, not the D${playerDet} the player shows` : "";
+  return `D${src.det}, ${visitPair(src.visits)} (${n[0]} and ${n[1]} exposures)${other}`;
 }
 
 /** Years for prose: "0.99 years", "1 year", "1.42 years". */
@@ -334,7 +444,7 @@ export function proseYears(yr: number): string {
 }
 
 /** The sentence after the measured number: when, then how it compares with the prediction. */
-export function measureSentence(m: Measure, opts: { visits: number | null; who: string }): string {
+export function measureSentence(m: Measure, opts: { visits: number | [number, number] | null; who: string }): string {
   const when = `between ${visitPair(opts.visits)} (${proseYears(m.dt_yr)})`;
   const seen = isDetectedMotion(m);
   const first = seen

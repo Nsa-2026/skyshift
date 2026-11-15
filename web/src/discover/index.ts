@@ -1,14 +1,22 @@
-// Candidates (#/candidates, was "Discover"): what the pipeline found, filtered and sorted by anyone,
+// To check (#/candidates, was "Discover"): what the pipeline found, filtered and sorted by anyone,
 // on a list and a small sky map that share one filtered set. Every filter lives in the URL
 // (#/candidates/kind=…&sort=…); the filter model itself is pure, in ./filters.ts.
+// "One at a time" (one=1, e.g. #/candidates/kind=mover&one=1) puts the review queue (src/review)
+// in the list's place, on the same filtered set. Downloads: this list, and the list for
+// astronomers (src/community, the Community page's own list and rule).
 // DESIGN.md: "Product", "Pages", "Candidates", "Smart filters", "Votes and consensus".
 import "./discover.css";
 import { loadCandidates } from "../api/client";
+import { GRADE_TEXT, countGrades, failedGates, gatesPhrase, gradeALine, gradeBCLine, gradeLabel, gradeOf, isGate } from "../api/grades";
 import type { Candidate, CandidatesResponse } from "../api/types";
 import { DETECTORS, formatMjd, formatRaDec } from "../app/astro";
 import type { MountPage } from "../app/modules";
+import { mountQueue, type QueueHandle } from "../review";
+import {rememberDiscover,trackDiscover} from '../review/nav';
 import { isEmbed } from "../app/state";
-import { ANSWER_TEXT, type Answer, type Counts } from "../vote/model";
+import { astronomersFor, loadSnapshot } from "../community/source";
+import { CONSENSUS_PCT, astroFile } from "../community/stats";
+import { ANSWER_TEXT, CONSENSUS, safeStorage, type Answer, type Counts } from "../vote/model";
 import { download, toCsv, toJson } from "./export";
 import { arcsecPerHour, arcsecPerYr, flux, fromSlider, num, plural, rangeText, rangeValue, roundNice, SLIDER_MAX, toSlider } from "./format";
 import {
@@ -18,6 +26,7 @@ import {
   SORTS,
   activeCount,
   activePreset,
+  anyGraded,
   bestRelaxation,
   countBy,
   defaultState,
@@ -25,6 +34,7 @@ import {
   filterRows,
   FACET_VALUES,
   candidatesHash,
+  isOneAtATime,
   leading,
   routeQuery,
   isActiveRange,
@@ -50,7 +60,7 @@ import {
   type Tri,
 } from "./filters";
 import { glyphSvg, mountSkyMap } from "./skymap";
-import { KIND_TEXT, KINDS, REVIEW_TEXT, flagText, labelText, reasonText, zonesPhrase, type ReviewState } from "./text";
+import { GRADE_VALUES, KIND_TEXT, KINDS, REVIEW_TEXT, flagText, gradeFacetText, labelText, reasonText, zonesPhrase, type ReviewState } from "./text";
 import { thumbLoader } from "./thumb";
 import { onVoted, openVoteReader, type VoteReader } from "./votes";
 
@@ -69,16 +79,18 @@ const TONE_MARK = {
 type VoteStatus = "idle" | "loading" | "ok" | "local" | "error";
 
 export const mountDiscover: MountPage = (el, ctx) => {
+  trackDiscover();
   const embed = isEmbed();
   el.innerHTML = html`
     <div class="dv">
       <section class="dv-intro" aria-labelledby="dv-title" ${embed ? "hidden" : ""}>
-        <h1 id="dv-title" class="dv-title">The pipeline found these in NASA's SPHEREx sky.</h1>
-        <p class="dv-sub">Each needs human eyes: blink it, say what you see, and the best go to astronomers.</p>
-        <p class="dv-counts" aria-live="polite">Loading candidates…</p>
+        <h1 id="dv-title" class="dv-title">Objects to check in NASA's SPHEREx sky.</h1>
+        <p class="dv-sub">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them: blink each one, say what you see, and the best go to astronomers.</p>
+        <p class="dv-counts" aria-live="polite">Loading the list…</p>
+        <p class="dv-grades" data-grades hidden></p>
         <p class="dv-note" data-note hidden></p>
         <div class="dv-actions">
-          <a class="btn btn-primary" href="#/review">Start reviewing</a>
+          <button type="button" class="btn btn-primary" data-one-on>Check them one at a time</button>
           <a class="btn btn-ghost" href="#/about">How it works</a>
         </div>
       </section>
@@ -103,32 +115,34 @@ export const mountDiscover: MountPage = (el, ctx) => {
           <button type="button" class="btn btn-sm fx-close" data-close-sheet>Done</button>
         </div>
         <div class="fx-body"></div>
-        <div class="fx-sheet-foot"><button type="button" class="btn btn-primary" data-close-sheet data-show-n>Show candidates</button></div>
+        <div class="fx-sheet-foot"><button type="button" class="btn btn-primary" data-close-sheet data-show-n>Show the list</button></div>
       </section>
 
       <section class="dv-results" aria-labelledby="dv-count">
         <div class="dv-toolbar" hidden>
           <h2 id="dv-count" class="dv-count" aria-live="polite"></h2>
+          <button type="button" class="dv-one" role="switch" aria-checked="false" data-one
+            title="Check the objects in this list one at a time, the ones that need votes first: a big blink, then your vote (keys 1 to 4)"><span class="dv-one-track" aria-hidden="true"><span class="dv-one-thumb"></span></span><span class="dv-one-label">One at a time</span></button>
           <button type="button" class="btn btn-sm dv-filters-btn" aria-haspopup="dialog">Filters</button>
           <label class="dv-sort"><span>Sort by</span>
-            <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}">${s.label}</option>`).join("")}</select>
+            <select class="dv-select">${SORTS.map((s) => html`<option value="${s.key}"${s.hint ? ` title="${esc(s.hint)}"` : ""}>${s.label}</option>`).join("")}</select>
           </label>
-          <div class="dv-export dv-export-top" role="group" aria-label="Download the filtered list">
-            <span class="dv-export-label">Download</span>
-            <button type="button" class="btn btn-ghost btn-sm" data-export="csv">CSV</button>
-            <button type="button" class="btn btn-ghost btn-sm" data-export="json">JSON</button>
-          </div>
+          <details class="dv-dl dv-export-top">
+            <summary class="btn btn-sm">Download</summary>
+            <div class="dv-dl-panel">${exportHtml("top")}</div>
+          </details>
         </div>
+        <p class="dv-real" hidden>These are the objects the community agreed move or change: at least ${CONSENSUS.minVotes} votes with ${CONSENSUS_PCT}% agreeing.
+          They go to astronomers as leads to check, not discoveries.
+          <button type="button" class="btn-link" data-astro="csv">Download the list for astronomers (CSV)</button>
+          <span class="dv-dl-status" data-dl-status role="status" aria-live="polite"></span></p>
         <ul class="dv-active" aria-label="Filters in use" hidden></ul>
-        <div class="dv-cols" aria-hidden="true" hidden><span>Candidate</span><span>Measured</span><span>Score</span><span>Votes</span></div>
+        <div class="dv-queue" hidden></div>
+        <div class="dv-cols" aria-hidden="true" hidden><span>Object</span><span>Measured</span><span>Votes</span></div>
         <ol class="dv-list" aria-labelledby="dv-count"></ol>
         <div class="dv-more" hidden><p class="dv-more-n"></p><button type="button" class="btn" data-more>Show more</button></div>
-        <div class="dv-export dv-export-foot" role="group" aria-label="Download the filtered list" hidden>
-          <span class="dv-export-label">Download this list as</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-export="csv">CSV</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-export="json">JSON</button>
-        </div>
-        <div class="dv-state" role="status"><p class="dv-state-title">Loading candidates…</p></div>
+        <div class="dv-dl-foot dv-export-foot" hidden>${exportHtml("foot")}</div>
+        <div class="dv-state" role="status"><p class="dv-state-title">Loading the list…</p></div>
       </section>
     </div>
   `;
@@ -136,6 +150,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const countsEl = $<HTMLParagraphElement>(".dv-counts");
   const noteEl = $<HTMLParagraphElement>("[data-note]");
+  const gradesEl = $<HTMLParagraphElement>("[data-grades]");
   const presetsEl = $<HTMLDivElement>(".dv-presets");
   const mapAside = $<HTMLElement>(".dv-map");
   const filtersEl = $<HTMLElement>(".dv-filters");
@@ -149,6 +164,11 @@ export const mountDiscover: MountPage = (el, ctx) => {
   const list = $<HTMLOListElement>(".dv-list");
   const moreEl = $<HTMLDivElement>(".dv-more");
   const stateEl = $<HTMLDivElement>(".dv-state");
+  const rootEl = $<HTMLDivElement>(".dv");
+  const oneBtn = $<HTMLButtonElement>("[data-one]");
+  const queueEl = $<HTMLDivElement>(".dv-queue");
+  const realEl = $<HTMLParagraphElement>(".dv-real");
+  const dlEl = $<HTMLDetailsElement>(".dv-dl");
 
   let data: CandidatesResponse | null = null;
   let sample = false;
@@ -162,6 +182,11 @@ export const mountDiscover: MountPage = (el, ctx) => {
   let f: Filtered = filterRows([], defaultState());
   let sorted: Row[] = [];
   let state: FilterState = queryToState(routeQuery(location.hash));
+  /** "One at a time": the review queue in place of the list, on the same filter (one=1 in the URL). */
+  let one = isOneAtATime(location.hash);
+  let queue: QueueHandle | null = null;
+  /** The page is on screen (between the shell's show and hide). */
+  let onScreen = false;
   let shown = PAGE;
   const updates: (() => void)[] = [];
   const open = (id: string) => ctx.navigate(`#/c/${encodeURIComponent(id)}`);
@@ -198,6 +223,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     data = resp && Array.isArray(resp.candidates) ? resp : null;
     if (!data) {
       renderNoData();
+      renderOne();
       return;
     }
     byId = new Map(data.candidates.map((c) => [c.id, c]));
@@ -206,6 +232,9 @@ export const mountDiscover: MountPage = (el, ctx) => {
     map.setData(data.candidates);
     buildFilters();
     apply();
+    renderOne();
+    // Opened on "One at a time" (a shared link, or the old #/review): the queue, not the intro.
+    if (one && onScreen) revealQueue();
     loadVotes();
   }
 
@@ -229,9 +258,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
   /** Keep the address in step without a hashchange (which would re-route and scroll to the top). */
   function writeUrl() {
-    if (!/^#\/?(candidates|discover)\b/.test(location.hash)) return;
-    const hash = candidatesHash(state);
+    if (!/^#\/?(?:(?:analyze\/)?candidates|discover)\b/.test(location.hash)) return;
+    const hash = candidatesHash(state, { one });
     if (location.hash !== hash) history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
+    rememberDiscover();
   }
 
   function setState(next: FilterState, opts: { keepPage?: boolean } = {}) {
@@ -250,25 +280,83 @@ export const mountDiscover: MountPage = (el, ctx) => {
     renderPresets();
     renderToolbar();
     renderActive();
+    renderReal();
     renderList();
     map.setFiltered(sorted.map((r) => r.c.id));
+    syncQueue();
+  }
+
+  // ---- one at a time ----------------------------------------------------------------------------
+  // The review queue (src/review, mountQueue) in place of the list, limited to the filtered set.
+  // A switch on this page, not a page of its own: "one=1" joins the filter in the URL.
+
+  function setOne(on: boolean) {
+    if (on === one) return;
+    one = on;
+    writeUrl();
+    renderOne();
+    if (on) revealQueue();
+    // Back to the list after voting: its vote counts catch up.
+    else if (data && voteStatus !== "loading" && Date.now() - votesAt > 20_000) loadVotes();
+  }
+
+  /** Bring the switch and the plate under it to the top of the window: after the shell's own
+   *  scroll to the top when the URL turned it on, at once when the switch did. */
+  function revealQueue() {
+    if (toolbar.hidden) return;
+    const later = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb: () => void) => setTimeout(cb, 0);
+    later(() => toolbar.scrollIntoView?.({ block: "start" }));
+  }
+
+  function renderOne() {
+    rootEl.dataset.view = one ? "one" : "list";
+    oneBtn.setAttribute("aria-checked", String(one));
+    queueEl.hidden = !one;
+    syncQueue();
+  }
+
+  /** Mount the queue on first use; hand it the filtered set; show or hide it with the page. */
+  function syncQueue() {
+    if (!one || loading) {
+      queue?.hide?.();
+      return;
+    }
+    queue ??= mountQueue(queueEl, {
+      embedded: {
+        listHref: () => candidatesHash(state),
+        realHref: () => candidatesHash(presetState(PRESETS.find((p) => p.id === "community-real")!)),
+      },
+    });
+    // The queue keeps its own order inside the set (what needs votes first). No list: every object.
+    queue.scope(data ? f.rows.map((r) => r.c.id) : null);
+    if (onScreen) queue.show(null);
+  }
+
+  oneBtn.addEventListener("click", () => setOne(!one));
+  $<HTMLButtonElement>("[data-one-on]").addEventListener("click", () => setOne(true));
+
+  // ---- the community's list ---------------------------------------------------------------------
+
+  /** "Community says real" on: say what the list is and offer the list for astronomers. */
+  function renderReal() {
+    realEl.hidden = activePreset(state)?.id !== "community-real" || sorted.length === 0;
   }
 
   // ---- intro ------------------------------------------------------------------------------------
 
   function renderIntro() {
     if (loading) {
-      countsEl.textContent = "Loading candidates…";
+      countsEl.textContent = "Loading the list…";
       return;
     }
     if (!data) {
-      countsEl.textContent = "No candidates are published yet.";
+      countsEl.textContent = "No objects to check are published yet.";
       return;
     }
     const n = data.candidates.length;
     const reviewed = rows.filter((r) => r.total > 0).length;
     const votes = rows.reduce((a, r) => a + r.total, 0);
-    const lead = html`<strong>${n.toLocaleString("en-GB")}</strong> ${n === 1 ? "candidate" : "candidates"} from ${esc(zonesPhrase(data.zones))}.`;
+    const lead = html`<strong>${n.toLocaleString("en-GB")}</strong> ${n === 1 ? "object to check" : "objects to check"} from ${esc(zonesPhrase(data.zones))}.`;
     let tail = "";
     if (voteStatus === "loading" || voteStatus === "idle") tail = " Counting votes…";
     else if (voteStatus === "error") tail = " Vote counts can't be reached right now; everything else works.";
@@ -276,12 +364,27 @@ export const mountDiscover: MountPage = (el, ctx) => {
     else
       tail = html` <strong>${reviewed.toLocaleString("en-GB")}</strong> reviewed so far, with <strong>${votes.toLocaleString("en-GB")}</strong> ${votes === 1 ? "vote" : "votes"} cast.`;
     countsEl.innerHTML = lead + tail;
+    renderGrades();
     const notes: string[] = [];
     if (sample) notes.push("Sample data from the pilot zone, until the full list is published.");
     if (reader?.notice) notes.push(reader.notice);
     else if (voteStatus === "local") notes.push("Votes stay on this device for now.");
     noteEl.hidden = !notes.length;
     noteEl.textContent = notes.join(" ");
+  }
+
+  /** The fast movers' vetting grades, counted from the list (only when it carries grades). */
+  function renderGrades() {
+    const movers = data ? data.candidates.filter((c) => c.kind === "mover") : [];
+    const n = countGrades(movers);
+    gradesEl.hidden = !n;
+    if (!n) {
+      gradesEl.textContent = "";
+      return;
+    }
+    const ungraded = movers.filter((c) => gradeOf(c) === null).length;
+    const rest = ungraded ? ` ${plural(ungraded, "fast mover isn't", "fast movers aren't")} vetted yet.` : "";
+    gradesEl.innerHTML = html`<span class="dv-grades-a">${esc(gradeALine(n.A))}</span> ${esc(gradeBCLine(n).replace(/\.$/, ""))}, shown greyed and not put to a vote.${esc(rest)}`;
   }
 
   // ---- presets ----------------------------------------------------------------------------------
@@ -325,7 +428,15 @@ export const mountDiscover: MountPage = (el, ctx) => {
     );
     toggle(g2, "hideMine", "mine", "Hide ones I voted on", (r) => r.mine, "From this browser's memory; nothing leaves your device.");
 
-    const g3 = group("Evidence", ["reason", "doubts", "cautions", "gaia", "catwise", "known"]);
+    const g3 = group("Evidence", ["grade", "reason", "doubts", "cautions", "gaia", "catwise", "known"]);
+    const graded = anyGraded(cands);
+    checkList(
+      g3,
+      "grade",
+      "Vetting grade",
+      () => (graded ? [...GRADE_VALUES] : state.grade).map((v) => ({ v, ...gradeFacetText(v) })),
+      { emptyText: "No grades in this list yet: the pipeline's vetting grades show here once the list is exported with them.", hideWhenEmpty: true },
+    );
     chipList(
       g3,
       "reason",
@@ -395,6 +506,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
   function checkList(parent: HTMLElement, key: ListKey, title: string, options: () => Opt[], o: { emptyText?: string; hideWhenEmpty?: boolean } = {}) {
     const fs = document.createElement("fieldset");
     fs.className = "fx";
+    fs.dataset.facet = key;
     parent.append(fs);
     let sig = "";
     fs.addEventListener("change", () => {
@@ -639,7 +751,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
       const vals = base.map((x) => spec.value(x.c)).filter((v): v is number => v != null && Number.isFinite(v));
       const measured = rows.filter((x) => spec.value(x.c) != null).length;
       cover.textContent = measured === rows.length ? "" : `${measured.toLocaleString("en-GB")} of ${rows.length.toLocaleString("en-GB")} measured`;
-      cover.title = spec.missing === "far" ? "No known object nearby counts as far away." : "Narrowing this hides candidates without a value.";
+      cover.title = spec.missing === "far" ? "No known object nearby counts as far away." : "Narrowing this hides objects without a value.";
       hist.innerHTML = histogram(vals, dom, spec.log, r);
     });
   }
@@ -684,21 +796,66 @@ export const mountDiscover: MountPage = (el, ctx) => {
     }),
   );
 
+  // The list for astronomers: the Community page's list (src/community), read when asked for.
+  let astroBusy = false;
+  const sayAstro = (text: string) => el.querySelectorAll<HTMLElement>("[data-dl-status]").forEach((s) => (s.textContent = text));
+  async function exportAstro(format: "csv" | "json") {
+    if (astroBusy) return;
+    astroBusy = true;
+    sayAstro("Reading everyone's votes…");
+    try {
+      const snap = await loadSnapshot({ kv: safeStorage() });
+      const rows = await astronomersFor(snap);
+      if (!rows.length) {
+        sayAstro(
+          snap.note && !snap.votes.length
+            ? snap.note
+            : `Nothing has reached consensus as a mover or changing source yet, so the list is empty. An object joins it with ${CONSENSUS.minVotes} votes and ${CONSENSUS_PCT}% agreeing.`,
+        );
+        return;
+      }
+      const file = astroFile(format, rows, { generated: new Date().toISOString(), votes_from: snap.mode, data_release: snap.dataRelease }, location.href);
+      download(file.name, file.text, file.type);
+      sayAstro(`Saved ${file.name}: ${plural(rows.length, "object", "objects")}${snap.mode === "local" ? ", from this browser's votes only" : ""}.`);
+    } catch {
+      sayAstro("The list for astronomers couldn't be made just now. Try again in a minute.");
+    } finally {
+      astroBusy = false;
+    }
+  }
+  el.querySelectorAll<HTMLButtonElement>("[data-astro]").forEach((b) =>
+    b.addEventListener("click", () => void exportAstro(b.dataset.astro === "json" ? "json" : "csv")),
+  );
+
+  // The Download menu closes on a click outside it and on Escape (back to its button).
+  const onDocClick = (ev: MouseEvent) => {
+    if (dlEl.open && !dlEl.contains(ev.target as Node)) dlEl.open = false;
+  };
+  document.addEventListener("click", onDocClick);
+  dlEl.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape" || !dlEl.open) return;
+    dlEl.open = false;
+    dlEl.querySelector<HTMLElement>("summary")?.focus();
+  });
+
   function renderToolbar() {
     const n = sorted.length;
     const all = rows.length;
-    countEl.textContent = n === all ? plural(all, "candidate", "candidates") : `${n.toLocaleString("en-GB")} of ${plural(all, "candidate", "candidates")}`;
+    countEl.textContent = n === all ? plural(all, "object", "objects") : `${n.toLocaleString("en-GB")} of ${plural(all, "object", "objects")}`;
     const on = activeCount(state);
     filtersBtn.textContent = on ? `Filters (${on})` : "Filters";
     sortSel.value = state.sort;
     const clear = $<HTMLButtonElement>("[data-clear]");
     clear.disabled = on === 0;
     const showN = $<HTMLButtonElement>("[data-show-n]");
-    showN.textContent = n ? `Show ${plural(n, "candidate", "candidates")}` : "No matches: change a filter";
+    showN.textContent = n ? `Show ${plural(n, "object", "objects")}` : "No matches: change a filter";
     el.querySelectorAll<HTMLButtonElement>("[data-export]").forEach((b) => {
       b.disabled = n === 0;
-      b.title = `Download these ${n} as ${b.dataset.export?.toUpperCase()}`;
-      b.setAttribute("aria-label", `Download ${n} as ${b.dataset.export?.toUpperCase()}`);
+      b.title = `Download these ${n.toLocaleString("en-GB")} as ${b.dataset.export?.toUpperCase()}`;
+      b.setAttribute("aria-label", `Download ${n.toLocaleString("en-GB")} as ${b.dataset.export?.toUpperCase()}`);
+    });
+    el.querySelectorAll<HTMLElement>("[data-dl-n]").forEach((p) => {
+      p.textContent = n ? `The ${plural(n, "object", "objects")} shown, with their measurements and votes.` : "Nothing matches these filters.";
     });
   }
 
@@ -727,6 +884,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     for (const v of s.reason) out.push({ label: reasonText(v).label, remove: drop("reason", v) });
     for (const v of s.det) out.push({ label: `D${v}`, remove: drop("det", v) });
     for (const v of s.zone) out.push({ label: `${v} zone`, remove: drop("zone", v) });
+    for (const v of s.grade) out.push({ label: gradeFacetText(v).label, remove: drop("grade", v) });
     if (s.gaia !== "any") out.push({ label: s.gaia === "yes" ? "In Gaia" : "Not in Gaia", remove: () => ({ ...s, gaia: "any" }) });
     if (s.catwise !== "any") out.push({ label: s.catwise === "yes" ? "In CatWISE" : "Not in CatWISE", remove: () => ({ ...s, catwise: "any" }) });
     if (s.hideDoubts) out.push({ label: "No pipeline doubts", remove: () => ({ ...s, hideDoubts: false }) });
@@ -771,7 +929,8 @@ export const mountDiscover: MountPage = (el, ctx) => {
       if (byId.get(b.dataset.thumb ?? "")?.frames_url) thumbs.observe(b);
     });
     colsEl.hidden = items.length === 0;
-    $<HTMLDivElement>(".dv-export-foot").hidden = items.length === 0;
+    // Phones: the downloads sit under the list (the list for astronomers even when it's empty).
+    $<HTMLDivElement>(".dv-export-foot").hidden = false;
     const rest = sorted.length - items.length;
     moreEl.hidden = rest <= 0;
     if (rest > 0) {
@@ -789,16 +948,28 @@ export const mountDiscover: MountPage = (el, ctx) => {
     if (activePreset(state)?.id === "check-first") {
       stateEl.innerHTML = html`
         <p class="dv-state-title">Nothing to check first.</p>
-        <p class="dv-state-text">No unsettled candidate here has an artefact caution: no outlier pixels, ghosts or halos near it, and no spot seen again days apart.</p>
-        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Show all candidates</button></div>`;
+        <p class="dv-state-text">Nothing unsettled here has an artefact caution: no outlier pixels, ghosts or halos near it, and no spot seen again days apart.</p>
+        <div class="dv-state-actions"><button type="button" class="btn" data-clear-all>Show the whole list</button></div>`;
+      stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
+      return;
+    }
+    if (activePreset(state)?.id === "community-real") {
+      stateEl.innerHTML = html`
+        <p class="dv-state-title">Nothing the community agreed on yet.</p>
+        <p class="dv-state-text">An object joins this list when ${CONSENSUS.minVotes} people have voted and ${CONSENSUS_PCT}% of them say it moves or changes. Those go to astronomers. Your votes get it there.</p>
+        <div class="dv-state-actions"><button type="button" class="btn btn-primary" data-vote-now>Check the ones that need votes</button><button type="button" class="btn btn-ghost" data-clear-all>Show the whole list</button></div>`;
+      stateEl.querySelector("[data-vote-now]")?.addEventListener("click", () => {
+        setState(presetState(PRESETS.find((p) => p.id === "needs-vote")!));
+        setOne(true);
+      });
       stateEl.querySelector("[data-clear-all]")?.addEventListener("click", () => setState(defaultState()));
       return;
     }
     stateEl.innerHTML = html`
-      <p class="dv-state-title">No candidates match these filters.</p>
+      <p class="dv-state-title">Nothing matches these filters.</p>
       <p class="dv-state-text">${
         hint && chip
-          ? `Removing “${esc(chip.label)}” would bring back ${plural(hint.n, "candidate", "candidates")}.`
+          ? `Removing “${esc(chip.label)}” would bring back ${plural(hint.n, "object", "objects")}.`
           : "Loosen a range or switch off a filter on the left."
       }</p>
       <div class="dv-state-actions">
@@ -813,10 +984,10 @@ export const mountDiscover: MountPage = (el, ctx) => {
     renderIntro();
     stateEl.hidden = false;
     stateEl.innerHTML = html`
-      <p class="dv-state-title">The candidate list isn't published yet.</p>
+      <p class="dv-state-title">The list of objects to check isn't published yet.</p>
       <p class="dv-state-text">The pipeline's list appears here as soon as it's exported. Meanwhile, blink any spot of the SPHEREx sky yourself: paste coordinates above, or start from a featured target.</p>
       <div class="dv-state-actions"><a class="btn btn-primary" href="#/explore">Open Explore</a><a class="btn btn-ghost" href="#/results">See what the pipeline checked</a></div>`;
-    el.querySelector<HTMLAnchorElement>('.dv-actions a[href="#/review"]')?.classList.replace("btn-primary", "btn-ghost");
+    el.querySelector<HTMLButtonElement>("[data-one-on]")?.classList.replace("btn-primary", "btn-ghost");
   }
 
   // ---- one row ----------------------------------------------------------------------------------
@@ -827,8 +998,16 @@ export const mountDiscover: MountPage = (el, ctx) => {
     const pos = formatRaDec(c);
     const href = `#/c/${encodeURIComponent(c.id)}`;
     const chips: string[] = [];
+    // The vetting grade leads (movers only; an ungraded row shows none, as before the vetting).
+    const grade = gradeOf(c);
+    const gates = grade === "C" ? failedGates(c) : [];
+    if (grade)
+      chips.push(
+        html`<li class="tag tag-grade is-${grade}" title="${esc(`${GRADE_TEXT[grade].short}: ${GRADE_TEXT[grade].plain}`)}">${esc(grade === "C" ? GRADE_TEXT.C.short : gradeLabel(grade))}</li>`,
+      );
     for (const l of c.labels) chips.push(html`<li class="tag tag-label" title="${esc(l)}">${esc(labelText(l))}</li>`);
-    const doubts = c.reasons.filter(isDoubtCode);
+    // A grade C row says its failed checks in its own line: keep them out of the doubts chip.
+    const doubts = c.reasons.filter((x) => isDoubtCode(x) && !(grade === "C" && isGate(x)));
     for (const code of c.reasons.filter((x) => reasonText(x).tone === "support")) {
       const t = reasonText(code);
       chips.push(html`<li class="tag tag-support" title="${esc(code)}: ${esc(t.detail)}">${esc(t.label)}</li>`);
@@ -848,38 +1027,47 @@ export const mountDiscover: MountPage = (el, ctx) => {
     // Cautions: artefact flags and caution reasons (outlier pixels, the same spot days apart), once each.
     const cautions = new Map<string, string>();
     for (const fl of c.flags) cautions.set(flagText(fl), fl);
-    for (const code of c.reasons.filter(isCautionCode)) {
+    // A grade C row names its failed checks in its own line: no caution chip for those.
+    for (const code of c.reasons.filter((x) => isCautionCode(x) && !(grade === "C" && isGate(x)))) {
       const t = reasonText(code);
       cautions.set(t.label, cautions.has(t.label) ? `${cautions.get(t.label)}, ${code}` : `${code}: ${t.detail}`);
     }
     for (const [label, title] of cautions)
       chips.push(html`<li class="tag tag-caution" title="${esc(title)}"><span class="caution-mark" aria-hidden="true"></span>${esc(label)}<span class="visually-hidden"> (caution)</span></li>`);
     const det = DETECTORS[c.det];
-    return html`<li class="dv-row" data-id="${esc(c.id)}">
+    const failed =
+      grade === "C"
+        ? html`<p class="dv-gradec">${esc(gates.length ? `Fails a check: ${gatesPhrase(gates)}.` : "Fails a pipeline check.")} Open it to blink; it isn't put to a vote.</p>`
+        : "";
+    return html`<li class="dv-row${grade === "C" ? " is-gradec" : ""}" data-id="${esc(c.id)}">
       <div class="dv-thumb" data-thumb="${esc(c.id)}" aria-hidden="true">${emptyPlate()}</div>
       <div class="dv-main">
         <h3 class="dv-name"><a class="dv-link" href="${href}" title="${esc(c.id)}">${glyphSvg(c.kind, 12)}<span class="dv-kind">${esc(kind.name)}</span><span class="dv-pos">${esc(pos)}</span></a></h3>
         <p class="dv-why">${esc(c.why)}</p>
+        ${failed}
         ${chips.length ? html`<ul class="dv-tags" aria-label="Labels and reasons">${chips.join("")}</ul>` : ""}
       </div>
-      <div class="dv-meas">${measured(c)}<p class="m3 det-${c.det}" title="Detector ${c.det}, ${det?.min}–${det?.max} µm. Seen best on ${esc(formatMjd(c.mjd))}."><span class="det-dot" aria-hidden="true"></span>D${c.det} <span class="m-um">${det?.min}–${det?.max} µm</span></p></div>
-      <div class="dv-score">${scoreHtml(c.score)}</div>
+      <div class="dv-meas">${measured(c)}<p class="m3 det-${c.det}" title="Detector ${c.det}, ${det?.min}–${det?.max} µm. Seen best on ${esc(formatMjd(c.mjd))}."><span class="det-dot" aria-hidden="true"></span>D${c.det} <span class="m-um">${det?.min}–${det?.max} µm</span></p>${scoreHtml(c.score)}</div>
       <div class="dv-votes">${votesHtml(r)}</div>
     </li>`;
   }
 
+  /** What was measured, in units. Pipeline numbers (S/N, σ, the score) are for Advanced: pro-only. */
   function measured(c: Candidate): string {
     const lines: string[] = [];
     if (c.kind === "high_pm" && c.pm_mas_yr != null) {
       const sig = significance(c);
       lines.push(html`<p class="m1"><span class="visually-hidden">Motion </span>${arcsecPerYr(c.pm_mas_yr)}</p>`);
       if (c.pm_err_mas_yr != null)
-        lines.push(html`<p class="m2">± ${num(c.pm_err_mas_yr / 1000, c.pm_err_mas_yr >= 10000 ? 1 : 2)}″/yr${sig != null ? html`, <span title="Motion over its error">${num(sig, 1)}σ</span>` : ""}</p>`);
+        lines.push(
+          html`<p class="m2">± ${num(c.pm_err_mas_yr / 1000, c.pm_err_mas_yr >= 10000 ? 1 : 2)}″/yr${sig != null ? html`<span class="pro-only">, <span title="Motion over its error">${num(sig, 1)}σ</span></span>` : ""}</p>`,
+        );
     } else if (c.rate_arcsec_h != null) {
       lines.push(html`<p class="m1"><span class="visually-hidden">Motion </span>${arcsecPerHour(c.rate_arcsec_h)}</p>`);
-      if (c.snr != null) lines.push(html`<p class="m2">S/N ${num(c.snr, 1)}${c.flux_ujy != null ? `, ${flux(c.flux_ujy)}` : ""}</p>`);
+      const snr = c.snr != null ? html`<span class="pro-only">S/N ${num(c.snr, 1)}${c.flux_ujy != null ? ", " : ""}</span>` : "";
+      if (c.snr != null || c.flux_ujy != null) lines.push(html`<p class="m2">${snr}${c.flux_ujy != null ? flux(c.flux_ujy) : ""}</p>`);
     } else {
-      if (c.snr != null) lines.push(html`<p class="m1"><abbr title="Signal to noise">S/N</abbr> ${num(c.snr, 1)}</p>`);
+      if (c.snr != null) lines.push(html`<p class="m1 pro-only"><abbr title="Signal to noise">S/N</abbr> ${num(c.snr, 1)}</p>`);
       if (c.flux_ujy != null) lines.push(html`<p class="m2">${flux(c.flux_ujy)}</p>`);
     }
     if (c.kind === "mover" && c.nearest_known_arcsec != null)
@@ -888,15 +1076,17 @@ export const mountDiscover: MountPage = (el, ctx) => {
     return lines.join("");
   }
 
+  /** The pipeline's score, 0 to 1, for Advanced only (pro-only); the list's order already uses it. */
   function scoreHtml(score: number | null): string {
-    if (score == null) return html`<span class="dv-none" title="The pipeline gives this kind no score yet">No score</span>`;
+    if (score == null) return html`<p class="m2 dv-score pro-only" title="The pipeline gives this kind no score yet">No score</p>`;
     const pct = Math.round(Math.min(1, Math.max(0, score)) * 100);
-    return html`<span class="dv-score-n"><span class="visually-hidden">Score </span>${num(score, 2)}</span><span class="dv-bar" aria-hidden="true"><span style="width:${pct}%"></span></span>`;
+    return html`<p class="m2 dv-score pro-only" title="Pipeline score, 0 to 1: how promising the pipeline thinks it is">Score <span class="dv-score-n">${num(score, 2)}</span><span class="dv-bar" aria-hidden="true"><span style="width:${pct}%"></span></span></p>`;
   }
 
   function votesHtml(r: Row): string {
     const mine = r.mine ? html`<span class="dv-mine">You voted</span>` : "";
     if (voteStatus === "error") return html`<span class="dv-none">Votes unavailable</span>${mine}`;
+    if (r.total === 0 && gradeOf(r.c) === "C") return html`<span class="dv-none" title="Grade C objects failed a pipeline check: they aren't put to a vote">Not put to a vote</span>${mine}`;
     if (r.total === 0) return html`<span class="dv-none">No votes yet</span>${mine}`;
     const segs = ANSWERS.filter((a) => r.votes[a] > 0)
       .map((a) => html`<span class="vseg vseg-${a}" style="flex:${r.votes[a]}" title="${ANSWER_TEXT[a].label}: ${r.votes[a]}"></span>`)
@@ -918,28 +1108,58 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
   return {
     show(param) {
-      const fromUrl = queryToState(routeQuery(param));
+      onScreen = true;
+      const q = routeQuery(param);
+      const fromUrl = queryToState(q);
+      // #/candidates/one=1 (and the old #/review, mapped to it): the same filter, one at a time.
+      const wasOne = one;
+      one = isOneAtATime(q);
       if (!sameState(fromUrl, state)) {
         state = fromUrl;
         shown = PAGE;
         apply();
       }
+      renderOne();
+      if (one && !wasOne && data) revealQueue();
       // Votes may have changed on the Review page: refresh at most every 20 s.
       if (data && voteStatus !== "loading" && Date.now() - votesAt > 20_000) loadVotes();
     },
     hide() {
+      onScreen = false;
       map.highlight(null);
       openSheet(false);
+      queue?.hide?.();
     },
     destroy() {
       offVoted();
       thumbs.destroy();
       map.destroy();
+      queue?.destroy();
+      document.removeEventListener("click", onDocClick);
       document.body.classList.remove("dv-sheet-open");
       el.innerHTML = "";
     },
   };
 };
+
+/** The downloads: this filtered list, and the list for astronomers (the Community page's list:
+ *  consensus movers and changing sources). Top: a menu in the toolbar; foot: under the list on phones. */
+function exportHtml(where: "top" | "foot"): string {
+  const id = (s: string) => `dv-dl-${s}-${where}`;
+  const btn = (attr: string, v: string) => html`<button type="button" class="btn btn-ghost btn-sm" ${attr}="${v}">${v.toUpperCase()}</button>`;
+  return html`
+    <div class="dv-dl-group" role="group" aria-labelledby="${id("list")}">
+      <p class="dv-dl-title" id="${id("list")}">This list</p>
+      <p class="dv-dl-text" data-dl-n></p>
+      <div class="dv-dl-btns">${btn("data-export", "csv")}${btn("data-export", "json")}</div>
+    </div>
+    <div class="dv-dl-group" role="group" aria-labelledby="${id("astro")}">
+      <p class="dv-dl-title" id="${id("astro")}">List for astronomers</p>
+      <p class="dv-dl-text">What the community agreed moves or changes: at least ${CONSENSUS.minVotes} votes with ${CONSENSUS_PCT}% agreeing. Leads to check, not discoveries.</p>
+      <div class="dv-dl-btns">${btn("data-astro", "csv")}${btn("data-astro", "json")}</div>
+      <p class="dv-dl-status" data-dl-status role="status" aria-live="polite"></p>
+    </div>`;
+}
 
 // ---- helpers ------------------------------------------------------------------------------------
 

@@ -10,26 +10,40 @@ exposure's time (proper motion + parallax when we have them, else the position a
 Each point: wavelength of that pixel from WCS-WAVE, flux and error in uJy, detector, MJD-AVG,
 visit, saturated (OVERFLOW or NONLINEAR in the core). Three ways to measure, per point
 (docs/research/2026-11-14-target-data-check.md has the numbers):
-- the r = 2 px aperture of core.aperture_photometry, when its core is clean (most points);
+- the r = 2 px aperture of core.aperture_photometry, when its core is clean (most points), with
+  a clipped-median sky 4-7 px out (local_sky; not the annulus mean, which a bright neighbour's
+  halo pulls up: Barnard's Star's old position read 5-12 sigma below zero);
 - a saturated core: the flux from the PSF wings (wing_photometry), with a 50%
   systematic error. The aperture there leaves the core out and read 4-10x low (Barnard's Star);
   R Draconis's aperture is masked in every exposure, so it had no spectrum at all;
 - a Gaia star 5-15" away at that time: a joint fit of both at their known positions
   (blended_photometry). WISE 0855-0714 passes a G = 16.3 star (11" -> 4" over the visits),
-  which put ~1 mJy into D1-D3, where a 250 K brown dwarf is dark.
+  which put ~1 mJy into D1-D3, where a 250 K brown dwarf is dark. For a built-in target Gaia
+  doesn't see, with its own proper motion and parallax, the fit goes down to 3.5" (blend_min_arcsec):
+  that brings back WISE 0855's visit 3, when the star is 3.9-4.3" away.
 A point that can't be measured honestly (a masked but unsaturated core, a neighbour closer than
-5" to a source Gaia doesn't see) is left out rather than shown wrong.
+5" to a source Gaia doesn't see, 3.5" for such a built-in target) is left out rather than shown wrong.
 
 Measure: core.measure_shift between the first and last visit stacks of one detector, on a
-native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. The detector is the
-one with the best signal that is not saturated; if every detector saturates, the least saturated
+native-scale (6.15"/px) 15' grid, with quiet Gaia stars as the error floor. Its detection guard
+gives a shift only for one source clearly seen in both stacks (PSF-matched S/N >= 5 in each, no
+missing sky within 4 px, the two centroids within max(FWHM, 12"/yr x dt) + 3 sigma of each other,
+or of the predicted motion); otherwise `measure` is null and `measure_reason` says why
+(contracts/api.md v3.2: few_visits, not_detected, edge, different_sources, no_time, moved_away).
+moved_away: someone pasted an old catalogue position of a fast star (Barnard's Star at its Gaia
+2016.0 position is 100-111" from where SPHEREx sees it, so nothing is there); `measure_hint` then
+gives the star's name and its position in the middle of SPHEREx's visits, from the Gaia cone and
+the built-in targets already at hand (no extra request). Before the guard, a random spot with
+nothing on it "moved" 30" (RA 125.5, Dec 19.4: two noise peaks). The detector is the one with the
+best signal that is not saturated; if every detector saturates, the least saturated
 (a built-in target seen only in some detectors is measured in those: its `dets` in targets.json,
 else MEASURE_DETECTORS).
 The two times are the MEDIAN exposure times of the two stacks: a per-pixel median of a slowly
 moving star sits where the star was at the median time, not at mjd_mid (the middle of the first
 and last exposure). Barnard's Star, visit 3: 24 exposures in 9 days and one 35 days in, so
 mjd_mid is 14.6 days (0.41") after the median. dt_yr is therefore the difference of the median
-times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax.
+times (contracts/api.md, accepted by P1). predicted_arcsec includes parallax; it is null without a
+Gaia star (contracts/api.md), also for a built-in target with published astrometry (WISE 0855).
 
 spectrum_reason: why the spectrum is empty, or null. "saturated" when exposures were left out for
 a saturated core (OVERFLOW or NONLINEAR) and none remain, e.g. a star so bright that even its
@@ -73,10 +87,12 @@ from skyshift_core import (
     tangent_offset_arcsec,
     ujy_per_mjysr,
 )
+from skyshift_core.astrometry import PSF_FWHM_ARCSEC
 from skyshift_core.flags import SUR_ERROR, TRANSIENT
+from skyshift_core.detect import APERTURE_R_PX
 from skyshift_core.photometry import APERTURE_CORRECTION
 
-from . import blink, cutouts, gaia, resolve, search, stack
+from . import blink, coverage, cutouts, gaia, resolve, search, stack
 from .budget import Budget, BudgetError
 from .cache import Cache
 from .errors import ApiError, NotFoundError
@@ -86,6 +102,10 @@ log = logging.getLogger(__name__)
 MATCH_ARCSEC = 6.0
 GAIA_CONE_ARCMIN = 3.5  # reaches a 19"/yr star 11 years from its 2016.0 position
 EDGE_PX = 8  # the aperture's sky annulus reaches 7 px
+# Sky for the r = 2 px aperture (local_sky): clipped median of the good pixels 4-7 px out
+SKY_ANNULUS_PX = (4.0, 7.0)
+SKY_CLIP_SIGMA = 3.0
+SKY_MIN_PIXELS = 10
 MEASURE_FOV = 15
 MEASURE_PIXEL = stack.NATIVE_ARCSEC
 MIN_VISIT_EXPOSURES = 3
@@ -99,6 +119,13 @@ SPECTRUM_LIVE_PER_DET = 12  # live: spectrum points asked per detector (precompu
 OBJECT_MEASURE_S = 16.0  # live: seconds of the budget kept for the measurement after the spectrum
 OBJECT_RESERVE_S = 3.0  # live: seconds kept after the measurement's downloads
 MAX_REF_LIVE = 150  # live: reference stars fitted, the nearest to the position (precompute: all)
+# contracts/api.md `measure_reason` for core's ShiftError codes ("not_found": no centroid at all)
+SHIFT_REASONS = {"not_found": "not_detected", "not_detected": "not_detected", "edge": "edge",
+                 "different_sources": "different_sources"}
+# `moved_away` looks for catalogue positions back to J1990.0: Hipparcos (1991.25), 2MASS (1997-2001),
+# SIMBAD's J2000.0 positions, Gaia DR2 (2015.5) and DR3 (2016.0)
+OLDEST_CATALOGUE_MJD = 47892.0
+MOVED_ARCSEC = PSF_FWHM_ARCSEC  # `moved_away`: the star stays further than this through the visits
 _measure_pool = ThreadPoolExecutor(8, thread_name_prefix="measure")
 
 
@@ -157,6 +184,10 @@ WING_SYSTEMATIC = 0.5
 # --- Photometry next to a Gaia star: a joint fit --------------------------------------------------
 BLEND_ARCSEC = 15.0  # a Gaia star closer than this puts light into the r = 2 px (12.3") aperture
 BLEND_MIN_ARCSEC = 5.0  # closer than this, two sources can't be told apart at 6.15" pixels
+# ... unless both positions are known to well under a pixel: a built-in target Gaia doesn't see,
+# with its own proper motion and parallax (blend_min_arcsec). WISE 0855 in visit 3, its Gaia
+# neighbour 3.9-4.3" away: the fit agrees with visits 1-2, errors grow 1.3-1.4x against 8" (#143).
+BLEND_MIN_ARCSEC_BUILTIN = 3.5
 BLEND_IGNORE_DMAG = 4.0  # a neighbour this much fainter in G than a Gaia target is ignored
 BLEND_FIT_R_PX = 3.5
 # Pixel-integrated Gaussian per detector (sigma px, aperture flux / Gaussian amplitude), fitted to
@@ -232,6 +263,42 @@ def identify(ra: float, dec: float, mjd_a: float, mjd_b: float, stars: list[dict
         entry = from_gaia or {k: m.get(k) for k in ("id", "ra", "dec", "pmra", "pmdec", "parallax", "g")}
     name = m.get("name") or f"Gaia DR3 {m['id']}"
     return name, entry, m
+
+
+def moved_away(ra: float, dec: float, mjd_a: float, mjd_b: float, stars: list[dict[str, Any]],
+               builtins: list[dict[str, Any]], skip: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """contracts/api.md `measure_hint`: the fast star catalogued at (ra, dec) that SPHEREx sees
+    elsewhere, as {name, ra, dec, mjd} at the middle of mjd_a..mjd_b, or None.
+
+    A star qualifies when its track from J1990.0 to its catalogue epoch (Gaia: 2016.0) passes within
+    MATCH_ARCSEC of the position, and its track from mjd_a to mjd_b stays more than MOVED_ARCSEC from
+    it. Slow stars never do. The nearest catalogue track wins; a built-in over the same Gaia star.
+    skip: the star identify() follows at this position (its measure is about it already)."""
+    cosd = np.cos(np.radians(dec))
+    best: tuple[float, dict[str, Any]] | None = None
+    for m in [*builtins, *stars]:
+        if m.get("pmra") is None or m.get("pmdec") is None:
+            continue
+        if skip is not None and (m is skip or (skip.get("id") and m.get("id") == skip.get("id"))):
+            continue
+        epoch = float(m.get("epoch_mjd", GAIA_EPOCH_MJD))
+        # cheap cut first: the catalogue position can be no further than 6" + the motion since J1990
+        sep = 3600.0 * float(np.hypot(((m["ra"] - ra + 180.0) % 360.0 - 180.0) * cosd, m["dec"] - dec))
+        span_yr = max(epoch - OLDEST_CATALOGUE_MJD, 0.0) / 365.25
+        if sep > MATCH_ARCSEC + 1.0 + float(np.hypot(m["pmra"], m["pmdec"])) / 1000.0 * span_yr:
+            continue
+        d = track_distance_arcsec(m, ra, dec, min(OLDEST_CATALOGUE_MJD, epoch), epoch)
+        if d > MATCH_ARCSEC or track_distance_arcsec(m, ra, dec, mjd_a, mjd_b) <= MOVED_ARCSEC:
+            continue
+        if best is None or d < best[0] - 0.01:
+            best = (d, m)
+    if best is None:
+        return None
+    m = best[1]
+    name = m.get("name") or (f"Gaia DR3 {m['id']}" if m.get("id") else None)
+    mid = (mjd_a + mjd_b) / 2.0
+    r, d = position_at(m, mid)
+    return {"name": name, "ra": round(r, 6), "dec": round(d, 6), "mjd": round(mid, 2)}
 
 
 def wing_photometry(data: np.ndarray, flags: np.ndarray, x: float, y: float, det: int,
@@ -342,10 +409,60 @@ def blend_candidates(stars: list[dict[str, Any]], model: dict[str, Any] | None, 
     return out
 
 
+def blend_min_arcsec(model: dict[str, Any] | None) -> float:
+    """Closest Gaia neighbour the joint fit is trusted at, for this target.
+
+    BLEND_MIN_ARCSEC_BUILTIN for a built-in target (a `slug` from targets.json) that Gaia doesn't
+    see (no Gaia id) and has its own proper motion and parallax: its position at each exposure
+    comes from its own astrometry (WISE 0855: 8.1"/yr, parallax 449 mas, from the literature), as
+    the neighbour's comes from Gaia, so a fit with both positions fixed can split them at 0.6 px.
+    BLEND_MIN_ARCSEC for everything else: a typed position
+    or a Gaia-less source found by chance can be off by an arcsec, and with a fixed position that
+    far off the fit moves flux between the two sources. (A Gaia target keeps its closer companions
+    inside its own aperture, as one blend, whatever this says: point_photometry.)"""
+    m = model or {}
+    if (m.get("slug") and not m.get("id")
+            and all(m.get(k) is not None for k in ("pmra", "pmdec", "parallax"))):
+        return BLEND_MIN_ARCSEC_BUILTIN
+    return BLEND_MIN_ARCSEC
+
+
+def local_sky(data: np.ndarray, flags: np.ndarray, x: float, y: float) -> tuple[float, float] | None:
+    """(sky, its 1 sigma error) in MJy/sr for the r = 2 px aperture at (x, y): the median of the good
+    pixels SKY_ANNULUS_PX out, after SKY_CLIP_SIGMA clipping around the median (scale from the MAD),
+    and 1.2533 x scatter / sqrt(n) for the error. None with fewer than SKY_MIN_PIXELS good pixels.
+
+    Not the annulus mean (sep's bkgann, core.aperture_photometry's default): a bright star's halo
+    or a neighbour in part of the annulus pulls the mean up and the aperture then reads below zero.
+    Barnard's Star's 2016.0 position (`moved_away`): the star is 16-18 px away and 58 of 61 live
+    points were 5-12 sigma negative (-200 to -1000 uJy); with this sky the median point is +47 uJy
+    (+0.3 sigma). On blank spots of three target fields (12" from any Gaia star) the mean put the
+    median point at -1.2 to -11.5 sigma; this sky at -0.1 to +0.03 sigma (14 Nov)."""
+    ny, nx = data.shape
+    yy, xx = np.ogrid[:ny, :nx]
+    r2 = (xx - x) ** 2 + (yy - y) ** 2
+    ann = (r2 >= SKY_ANNULUS_PX[0] ** 2) & (r2 <= SKY_ANNULUS_PX[1] ** 2) & np.isfinite(data) & ~bad_pixel_mask(flags)
+    v = data[ann].astype(np.float64)
+    if v.size < SKY_MIN_PIXELS:
+        return None
+    keep = v
+    for _ in range(10):
+        med = float(np.median(keep))
+        mad = 1.4826 * float(np.median(np.abs(keep - med)))
+        new = v[np.abs(v - med) <= SKY_CLIP_SIGMA * mad] if mad > 0 else keep
+        if new.size == keep.size or new.size < SKY_MIN_PIXELS:
+            break
+        keep = new
+    med = float(np.median(keep))
+    scatter = 1.4826 * float(np.median(np.abs(keep - med)))
+    return med, 1.2533 * scatter / np.sqrt(keep.size)
+
+
 def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, float, float]],
-                     target_in_gaia: bool) -> tuple[float, float] | None:
+                     target_in_gaia: bool, min_sep: float = BLEND_MIN_ARCSEC) -> tuple[float, float] | None:
     """(flux, error) in uJy for one spectrum point, or None when it can't be measured honestly.
-    See the module docstring for the three ways."""
+    See the module docstring for the three ways. min_sep: neighbours at least this far are fitted
+    jointly (blend_min_arcsec); a closer one next to a target Gaia doesn't see drops the point."""
     conv = ujy_per_mjysr(l2.wcs, x, y)
     det = int(l2.detector)
     ny, nx = l2.data.shape
@@ -360,18 +477,20 @@ def point_photometry(l2: Any, x: float, y: float, neighbours: list[tuple[float, 
         # A masked core that isn't saturated (a cosmic ray, a bad pixel): the aperture would read
         # low, and a wing estimate's 50% error would draw a detected source as an upper limit.
         return None
-    close = [n for n in neighbours if n[0] < BLEND_MIN_ARCSEC]
+    close = [n for n in neighbours if n[0] < min_sep]
     if close and not target_in_gaia:
-        return None  # e.g. WISE 0855 4" from a G = 16 star: the blend is mostly the star
-    fit = [n for n in neighbours if n[0] >= BLEND_MIN_ARCSEC]
+        return None  # e.g. a typed position 4" from a G = 16 star: the blend is mostly the star
+    fit = [n for n in neighbours if n[0] >= min_sep]
     if fit:  # (a Gaia target's companion closer than 5" stays in, as one blend: RW Aur A+B)
         others = [tuple(float(v) for v in sky_to_pixel(l2.wcs, n[1], n[2])) for n in fit]
         return blended_photometry(l2.data, l2.flags, l2.variance, x, y, others, det, conv)
-    try:
-        ph = aperture_photometry(l2.data, x, y, l2.wcs, flags=l2.flags, variance=l2.variance)
-    except ValueError:  # sep: the sky annulus is fully masked
+    sky = local_sky(l2.data, l2.flags, x, y)
+    if sky is None:  # the sky annulus is (almost) fully masked
         return None
-    return float(ph.flux_ujy[0]), float(ph.err_ujy[0])
+    ph = aperture_photometry(l2.data - np.float32(sky[0]), x, y, l2.wcs, flags=l2.flags, variance=l2.variance,
+                             bkg_annulus=None)
+    sky_err = np.pi * APERTURE_R_PX**2 * sky[1] * conv * APERTURE_CORRECTION  # the sky's error over the aperture
+    return float(ph.flux_ujy[0]), float(np.hypot(ph.err_ujy[0], sky_err))
 
 
 def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any] | None,
@@ -384,7 +503,8 @@ def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any]
     gave no point, as "saturated" (OVERFLOW or NONLINEAR in the core) or "other"."""
     out = []
     target_in_gaia = bool(model and model.get("g") is not None)
-    mjds = [l2.mjd_avg for l2 in l2s if l2 is not None]
+    min_sep = blend_min_arcsec(model)
+    mjds =[l2.mjd_avg for l2 in l2s if l2 is not None]
     near = blend_candidates(stars or [], model, min(mjds), max(mjds)) if mjds and positions is None else []
     for i, (im, l2) in enumerate(zip(images, l2s)):
         if l2 is None:
@@ -405,7 +525,7 @@ def spectrum_points(images: list[search.Image], l2s: list, model: dict[str, Any]
             continue
         nb = neighbours_at(near, model, l2.mjd_avg, r, d) if near else []
         try:
-            got = point_photometry(l2, x, y, nb, target_in_gaia)
+            got = point_photometry(l2, x, y, nb, target_in_gaia, min_sep)
         except Exception as e:  # noqa: BLE001 - one bad cutout must not lose the spectrum
             log.warning("photometry failed on %s: %s", im.key, e)
             if dropped is not None:
@@ -509,12 +629,14 @@ def fill_saturated_core(image: np.ndarray, x: float, y: float, *, radius: float 
 def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[search.Image],
             det: int, v1: int, v2: int, cache: Cache, *, budget: Budget | None = None,
             per_visit: int | None = None, ref_stars: Future | None = None,
-            max_ref: int | None = None) -> dict[str, Any] | None:
+            max_ref: int | None = None, reasons: list[str] | None = None) -> dict[str, Any] | None:
     """per_visit: at most this many exposures of each visit (blink.pick_months_images; None: all).
     ref_stars: the 15' Gaia cone, already asked (else asked here).
-    max_ref: at most this many reference stars, the nearest to the position (None: all)."""
+    max_ref: at most this many reference stars, the nearest to the position (None: all).
+    reasons: receives the guard's code (core ShiftError.reason) when the shift is refused."""
     grid = stack.Grid(ra, dec, MEASURE_PIXEL, int(round(MEASURE_FOV * 60 / MEASURE_PIXEL)) | 1)
-    mine = blink.pick_months_images([im for im in images if im.det == det and im.visit in (v1, v2)], per_visit)
+    mine = [im for im in images if im.det == det and im.visit in (v1, v2)]
+    mine = blink.pick_months_images(mine, per_visit, coverage.of_images(mine, ra, dec, MEASURE_FOV / 60.0))
     stacks = blink.visit_stacks(mine, grid, cutouts.tier_for_field(MEASURE_FOV), cache,
                                 visits_wanted={v1, v2}, budget=budget, reserve=OBJECT_RESERVE_S)
     if len(stacks) < 2:
@@ -563,22 +685,37 @@ def measure(ra: float, dec: float, model: dict[str, Any] | None, images: list[se
             ref_ra=col("ra")[ref] if stars else (), ref_dec=col("dec")[ref] if stars else (),
             ref_pmra=col("pmra")[ref] if stars else None, ref_pmdec=col("pmdec")[ref] if stars else None,
             search_r=search_r, method="fit", **kw)
-    except ShiftError as e:
-        log.info("no measurement: %s", e)
+    except ShiftError as e:  # the detection guard (core.measure_shift): no honest shift here
+        log.info("no measurement (%s): %s", e.reason, e)
+        if reasons is not None:
+            reasons.append(e.reason)
         return None
     out = res.to_measure()
+    if not (model and model.get("id")):
+        # contracts/api.md: Gaia's predicted shift, or null without Gaia. A built-in target Gaia
+        # doesn't see (WISE 0855: published astrometry) still guides the search and the guard above,
+        # but that prediction is not Gaia's.
+        out["predicted_arcsec"] = None
     for k in ("shift_arcsec", "pa_deg", "dt_yr", "rate_arcsec_yr", "sigma_arcsec", "predicted_arcsec"):
         if out.get(k) is not None:
             out[k] = round(out[k], 4)
+    # contracts/api.md v3.9: what the shift was measured on (the player may show another detector)
+    out["source"] = {"det": det, "visits": [s1.visit, s2.visit],
+                     "mjd": [round(s1.mjd_median, 6), round(s2.mjd_median, 6)],
+                     "n_exposures": [s1.n_exposures, s2.n_exposures],
+                     "fov": MEASURE_FOV, "pixel_arcsec": MEASURE_PIXEL, "core_filled": filled}
     return out, {"det": det, "visits": [v1, v2], "d_east_arcsec": res.d_east_arcsec, "d_north_arcsec": res.d_north_arcsec,
                  "frame_offset_arcsec": res.frame_offset_arcsec, "n_exposures": [s1.n_exposures, s2.n_exposures],
-                 "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled}
+                 "mjd": [s1.mjd_median, s2.mjd_median], "core_filled": filled,
+                 "target_snr": [round(float(v), 1) for v in res.target_snr],
+                 "match_r_arcsec": round(float(res.match_r_arcsec), 2)}
 
 
 def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: dict | None = None,
                  budget: Budget | None = None) -> dict[str, Any]:
     """GET /api/object. `details` (optional dict) receives what the contract has no field for:
-    the detector and visits measured, the shift's east/north parts (used by scripts/precompute).
+    the detector and visits measured, the shift's east/north parts (used by scripts/precompute),
+    and with no measure, core's own reason code (details["shift_error"]).
     budget: a live request's time budget (None: every exposure, no limit). BudgetError (503) if
     neither a spectrum point nor a measurement arrived in time."""
     cache = cache or Cache()
@@ -600,16 +737,19 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
     l2s = cutouts.fetch_many(spec_images, ra, dec, cutouts.tier_for_field(5), cache, variance=True,
                              budget=budget, reserve=OBJECT_MEASURE_S)
     stars = _result(near_f, budget, OBJECT_MEASURE_S, "Gaia")
-    name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, _builtin_targets())
+    builtins = _builtin_targets()
+    name, entry, model = identify(ra, dec, mjd_a, mjd_b, stars, builtins)
     dropped: Counter = Counter()
     spectrum = spectrum_points(spec_images, l2s, model, ra, dec, stars=stars, dropped=dropped)
 
     result: dict[str, Any] | None = None
+    reason: str | None = None  # contracts/api.md `measure_reason`
     pick = pick_detector(spectrum, images, measure_detectors(model))
     if pick is not None and not (budget is not None and budget.expired(OBJECT_RESERVE_S)):
         t = time.monotonic()
+        reasons: list[str] = []
         kw = dict(budget=budget, per_visit=blink.LIVE_PER_VISIT if live else None, ref_stars=ref_f,
-                  max_ref=MAX_REF_LIVE if live else None)
+                  max_ref=MAX_REF_LIVE if live else None, reasons=reasons)
         if live:  # the fits are CPU work the budget cannot stop half-way: wait only until the deadline
             fut = _measure_pool.submit(measure, ra, dec, model, images, *pick, cache, **kw)
             try:
@@ -625,10 +765,31 @@ def build_object(ra: float, dec: float, *, cache: Cache | None = None, details: 
             result, extra = got
             if details is not None:
                 details.update(extra)
+        elif reasons:  # the detection guard refused the shift
+            reason = SHIFT_REASONS.get(reasons[0], "not_detected")
+            if details is not None:
+                details["shift_error"] = reasons[0]
+        elif budget is not None and budget.partial:
+            reason = "no_time"
+        else:  # fewer than two visit stacks could be made from the cutouts
+            reason = "few_visits"
     elif pick is not None and budget is not None:
         budget.cut("no time left for the measurement")
+        reason = "no_time"
+    else:
+        reason = "few_visits"
+    hint = None
+    if result is None:
+        hint = moved_away(ra, dec, mjd_a, mjd_b, stars, builtins, skip=model)
+        if hint is not None:
+            reason = "moved_away"
+    if details is not None and reason is not None:
+        details["measure_reason"] = reason
     if budget is not None and budget.partial and not spectrum and result is None:
         raise BudgetError("the SPHEREx archive did not deliver in time "
                           f"({budget.elapsed():.0f} s); try again in a minute: what arrived is kept")
+    if found.note and budget is not None:  # photos not from IRSA (search_fallback.py): never cached
+        budget.cut(found.note)
     return {"name": name, "gaia": entry, "known_ucd": None, "spectrum": spectrum,
-            "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result}
+            "spectrum_reason": spectrum_reason(spectrum, dropped), "measure": result,
+            "measure_reason": reason, "measure_hint": hint}

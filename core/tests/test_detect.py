@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from skyshift_core import centroid, detect, open_level2
+from skyshift_core.detect import detection_snr, no_data_near
 from skyshift_core.flags import OVERFLOW, SOURCE
 
 from conftest import gaussian_image
@@ -25,6 +26,31 @@ def test_detect_finds_fixture_stars(cutout_path, cutout_stars):
         offsets.append(d[i])
     # cutout and full-frame centroids agree well (different backgrounds only)
     assert np.median(offsets) < 0.1
+
+
+def test_detect_clean_param_default_and_passed_to_sep(cutout_path, monkeypatch):
+    """clean_param 1.0 is sep's default (the sky run is unchanged); a larger value keeps every dot of the default
+    and may add faint ones that sep's cleaning had merged into a brighter source's wings."""
+    l2 = open_level2(cutout_path, variance=True)
+    a = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0)
+    b = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, clean_param=1.0)
+    assert np.array_equal(a, b)
+    c = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, clean_param=3.0)
+    assert len(c) >= len(a)
+    for x, y in zip(a["x"], a["y"]):
+        assert np.hypot(c["x"] - x, c["y"] - y).min() < 0.5
+    import sep
+
+    seen = []
+    real = sep.extract
+
+    def spy(*args, **kw):
+        seen.append(kw.get("clean_param"))
+        return real(*args, **kw)
+
+    monkeypatch.setattr(sep, "extract", spy)
+    detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, clean_param=3.0)
+    assert seen == [3.0]
 
 
 def test_detect_masks_bad_pixels():
@@ -64,3 +90,32 @@ def test_centroid_on_wings_when_core_saturated():
     c = centroid(img, 30, 30, flags=flags)
     assert c is not None
     assert np.hypot(c[0] - x0, c[1] - y0) < 0.25
+
+
+def test_detection_snr_star_versus_noise():
+    rng = np.random.default_rng(3)
+    img = gaussian_image((81, 81), [40.0, 20.0], [40.0, 60.0], [1.0, 0.3], PSF_SIGMA) + rng.normal(0, 0.02, (81, 81))
+    assert detection_snr(img, 40.0, 40.0) > 15
+    assert 5 < detection_snr(img, 20.0, 60.0) < 15
+    noise = [detection_snr(img, x, 15.0) for x in range(10, 75, 8)]  # empty sky
+    assert max(noise) < 4.0
+
+
+def test_detection_snr_reads_a_saturated_core_on_its_wings():
+    rng = np.random.default_rng(4)
+    img = gaussian_image((81, 81), [40.0], [40.0], [50.0], 1.5) + rng.normal(0, 0.02, (81, 81))
+    img[38:43, 38:43] = np.nan  # the core masked in every exposure
+    assert detection_snr(img, 40.0, 40.0) > 20
+
+
+def test_no_data_near_edge_but_not_a_saturated_hole():
+    img = np.ones((81, 81))
+    img[:, 60:] = np.nan  # past the detector's edge
+    img[39:42, 19:22] = np.nan  # a saturated core
+    assert no_data_near(img, 57.0, 40.0, 4.0)
+    assert not no_data_near(img, 50.0, 40.0, 4.0)
+    assert not no_data_near(img, 20.0, 40.0, 4.0)
+    assert no_data_near(img, 100.0, 40.0, 4.0)  # off the frame
+    big = np.ones((81, 81))
+    big[20:40, 20:40] = np.nan  # 400 px masked inside the frame: missing sky too
+    assert no_data_near(big, 42.0, 30.0, 4.0)

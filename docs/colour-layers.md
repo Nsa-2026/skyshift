@@ -3,20 +3,40 @@
 Owner: Alexandra. Code: `web/src/colour/`. Written 14 Nov 2026.
 
 **Where they are on the site.** An "Add filters" button sits just above the main image (the blink
-plate). Its menu offers No filter, Temperature, Star colours and Single colour
-(with a slider over all 102 wavelengths) and Molecules (A3, the composition filter),
-plus "Mark stars too bright to measure" and Brightness.
+plate). Its menu offers No filter, Difference, Temperature, Star colours, Single colour (with a
+slider over all 102 wavelengths) and Molecules (A3, the composition filter), plus "Mark stars too
+bright to measure" and Brightness. The menu opens beside the plate when there is room (like the
+blink's Adjust), otherwise over it. Single colour puts its slider in a row just above the plate, so
+the picture stays in view while it slides.
 The chosen filter replaces the picture on the plate, centred on the same spot and oriented the same
 way (north up, east left), and a key under the plate says what each colour means. All visitor-facing
 text is in plain words; the technical terms stay in this document.
 
-The filter picture covers three times the blink's field, at least 15′ and at most 60′, with the
+The filter picture covers three times the blink's field, at least 15′ and at most 30′, with the
 blink's field drawn as a dashed square (`filterField`). Showing only the blink's 5′ field made the
-map's 12.9″ pixels 23 across the plate, which looked like a huge zoom. While a filter is on, the blink's date, caption and
-time strip are dimmed: the filtered picture merges all dates. "Remove filter" brings the blink
-back. Nothing is downloaded until a filter is chosen. The module adds its button, layer and key
-around the blink's plate from outside (`mountFilters` in `web/src/colour/index.ts`, mounted in
-`web/src/app/app.ts`); it doesn't edit `web/src/blink/`.
+map's 12.9″ pixels 23 across the plate, which looked like a huge zoom. The cap is 30′ because the
+read grows with the area: the asteroid and comet plates (20′) asked for 60′ and took 64 s in
+Chromium on 14 Nov; 30′ took 24 s. A 60′ plate (Hours, wide) shows its middle 30′, and the key says
+so instead of drawing the square. While a filter is on, the blink's date, caption and time strip are
+dimmed (the filtered picture merges all dates), the blink is paused with its own Play button and
+played again when the filter goes, and the key says SkyShift's marks are hidden. "Remove filter"
+brings the blink back. Nothing is downloaded until a filter is chosen. The module adds its button,
+layer and key around the blink's plate from outside (`mountFilters` in `web/src/colour/index.ts`,
+mounted in `web/src/app/app.ts`); it doesn't edit `web/src/blink/`. Its buttons use `data-flt-*`
+attributes and keep their clicks: the blink acts on any `button[data-mode]` or `[data-retry]` inside
+its root, and the first version's menu switched the blink into mode "cold".
+
+**When NASA's archive fails.** The pictures come live from IRSA, which returned 502s and stalled on
+14 Nov. Every request has a 30 s timeout (`REQUEST_TIMEOUT_MS`, not retried); 5xx, 429, short reads
+and dropped connections are retried 3 times with backoff. While reading, the plate says so, with a
+"Back to the blink" button; after 12 s without progress it adds that the archive is slow. A failure
+clears the picture and the key and says in plain words what happened (`failure.ts`: error N, no
+answer, too slow), that the normal view still works, with "Try again" and "Back to the blink". The
+read stops at the first failure instead of asking IRSA for the rest. When the blink moves to another
+spot, the filter clears its picture until the new field is known; it never shows one spot under
+another's name. Tile headers and the field's plan are shared by every picture of a field and are
+read without the caller's abort signal: switching filters mid-read used to cancel them and fail the
+next picture.
 
 The rule for every layer: it adds colour or marks to the picture and never removes a pixel. "Can't
 tell" (no data, too faint, saturated) is shown as its own state, never as "nothing there". Every
@@ -42,7 +62,8 @@ IRSA's HiPS cube `spherex_allsky_cube` (release 1 Nov 2026), FITS cube tiles at 
   needs, many ranges per request, which IRSA answers as `multipart/byteranges` (CORS preflight
   allowed, cached a day). A 15′ field reads about 1.7 MB in 5–10 s. A server that ignored the range
   would send 320 MB, so a 200 answer is cancelled unread. If multi-range is refused, the reader
-  falls back to whole rows. Dropped connections are retried 3 times.
+  falls back to whole rows. Dropped connections are retried 3 times. A 30′ field (the cap) reads
+  about four times as much as a 15′ one.
 - Position → tile → pixel: HEALPix `ang2pix` (nested, order 5), then the HPX projection
   (Calabretta & Roukema 2007, H = 4, K = 3) with each tile's own header. Checked against astropy
   and astropy_healpix on 35 positions from real tile headers, including both poles, the RA 0/360
@@ -52,8 +73,10 @@ IRSA's HiPS cube `spherex_allsky_cube` (release 1 Nov 2026), FITS cube tiles at 
 
 The plate's field at one of the 102 wavelengths, white on black.
 
-- A slider over all 102 frames. The label gives wavelength, detector and channel, and the feature
-  that falls there if any (e.g. "3.29 µm · D4 channel 12 · methane / PAH").
+- A slider over all 102 frames, read once it rests for 200 ms (not at every step of a drag). The
+  label gives the wavelength and, in plain words, the feature that falls there if any (e.g. "3.29
+  micrometres: methane gas, and sooty dust. The coldest brown dwarfs go dark; …"); frame 62 is
+  D4 channel 12.
 - Frames 50 and 51 are skipped in the direction of travel, so the picture never shows a blank
   frame as black sky. A hatched tick marks the gap.
 - Red ticks mark the feature wavelengths, the same windows as the pipeline's `INDEX_WINDOWS`:
@@ -74,7 +97,7 @@ The plate's spot as a picture from three wavelength windows. The windows are the
 | Set | Red | Green | Blue |
 |---|---|---|---|
 | Temperature (first named "Find cold objects") | 4.40–4.80 µm (12 frames) | K 2.00–2.30 (6) | J 1.15–1.33 (6) |
-| Compare with 2MASS | K 2.00–2.30 | H 1.50–1.78 | J 1.15–1.33 |
+| Star colours (first named "Compare with 2MASS") | K 2.00–2.30 | H 1.50–1.78 | J 1.15–1.33 |
 
 Steps (`web/src/colour/rgb.ts`):
 
@@ -92,7 +115,7 @@ Steps (`web/src/colour/rgb.ts`):
 5. **Lupton et al. (2004) stretch.** One asinh on I = (R + G + B)/3, the same factor on all three
    windows, so bright sources keep their hue instead of going white; a window over 1 scales all
    three down together. Full brightness at the 99.5th percentile of I (at least 5σ_I). The
-   Stretch slider moves the asinh knee from 0.1 to 20 × σ_I.
+   Brightness slider moves the asinh knee from 0.1 to 20 × σ_I (10^−1 to 10^1.3).
 6. **Colour only when it is measured.** A pixel's colour weight goes from 0 (grey, its brightness
    only) when its brightest window is below 3σ *in that window*, to 1 at 5σ. The first version
    tested I instead, and one noisy window painted single pixels pure red.
@@ -109,8 +132,10 @@ algorithm from what that kind of object looks like in the three windows: publish
 (A0, Sun-like, M4, L5 and T6 dwarfs) converted to brightness per unit frequency, plus Epsilon Indi
 B as measured here. So the key can't drift from the picture. A named example must look like its
 swatch on its own plate: Barnard's Star (saturated) and WISE 0855 (blended) don't, so they aren't
-named. In Star colours (first named "Compare with 2MASS"), methane T dwarfs come out blue like hot stars, and the key says to use
-Temperature to tell them apart.
+named. In Star colours (first named "Compare with 2MASS"), methane T dwarfs come out blue like hot
+stars, and the key says to use Temperature to tell them apart. Temperature is a way to look, not a
+detector: its menu entry and its key say that dust and distant galaxies look red too, so a red dot
+is something to check, not a discovery.
 
 **Why a colour isn't reliable** (`web/src/colour/why.ts`). When the target itself is affected, a
 box under the picture says why, in plain words and with the numbers measured for that star:
@@ -170,6 +195,10 @@ bands (methane T dwarfs come out green in Star colours, pink in Temperature).
 - **Falls back to the still picture** (and says why) on the Hours view, where the detectors were not
   exposed together, or when a view lacks one of the three detectors.
 - "Single colour" stays a still picture: the blink's snapshots each mix many wavelengths.
+- **The blink plays on** under a per-date picture, and its date strip stays live. A still picture
+  (Single colour, Molecules, or a colour filter that fell back) pauses the blink with its own Play
+  button and plays it again when the filter is removed (merged 15 Nov with main's rule, which paused
+  it under every filter).
 
 ## Checks on real data (14 Nov 2026, 15′ fields)
 
@@ -185,6 +214,8 @@ bands (methane T dwarfs come out green in Star colours, pink in Temperature).
 | Noise test: pixels ≤ −5σ (noise is symmetric, sources are positive) | Mean of frames: 9–24 per field at 4.6 µm. Median of frames: 0 in every window of all three fields, against 270–1,200 at +5σ |
 | An early "pure red WISE 0855, 58″ west" | Withdrawn: one frame at +236σ. The median removes it |
 | Load time in Chromium (WISE 0855, 15′) | 42 s reading whole rows; 8 s reading only the needed pieces; 3–5 s for the plate's 5′ field |
+| Load time, 14 Nov evening (IRSA under load) | WISE 0855 15′: 17 s. Elpis 60′: 64 s with HTTP/2 resets; Elpis 30′ (the new cap): 24 s |
+| IRSA failing (502, no answer, network error), mocked in Chromium and in `filters.test.ts` | Plain message with Try again and Back to the blink within 3 s (502) or 30 s (no answer); no request after the failure; the blink plays again on Back |
 
 ## A3. Molecules (composition; first named "What things are made of")
 

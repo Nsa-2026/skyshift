@@ -6,8 +6,8 @@ import "./tools.css";
 import "../prefs/details";
 import { ApiFailure, loadCandidates, loadFrames, loadSuspects, loadValidation } from "../api/client";
 import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationResponse } from "../api/types";
-import { mjdToDate } from "../app/astro";
-import type { MountPage, PageContext } from "../app/modules";
+import { formatMjd } from "../app/astro";
+import type { MountPage, PageContext, PageHandle } from "../app/modules";
 import { TARGETS, featuredNear } from "../app/state";
 import { BATCH_LIMIT, type BatchResult, type BatchRow, batchCSV, blinkHref, decimalText, parseBatch, rowStatus, sexagesimal, skyHref } from "./batch";
 import {
@@ -43,7 +43,7 @@ import {
 } from "./export";
 
 export const SECTIONS = [
-  { id: "downloads", title: "Download candidates" },
+  { id: "downloads", title: "Download the list" },
   { id: "batch", title: "Batch coordinates" },
   { id: "api", title: "API" },
   { id: "cite", title: "Cite and acknowledge" },
@@ -77,8 +77,7 @@ export function formatWhen(iso: string | null | undefined): string {
   }) + (dateOnly ? "" : " UTC");
 }
 
-const fmtDay = (mjd: number) =>
-  mjdToDate(mjd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const fmtDay = (mjd: number) => formatMjd(mjd);
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
 
@@ -176,21 +175,31 @@ RW Aur 05 07 49.46 +30 24 04
 133.7951292 -7.2451472
 Nowhere, 400, 95`;
 
-function pageHtml(base: string, lang: Lang): string {
+/** Every heading one level down (h2 → h3, h3 → h4, h4 → h5), for the page shown as a section. */
+export function demoteHeadings(markup: string): string {
+  return markup.replace(/<(\/?)h([2-5])\b/g, (_, slash: string, n: string) => `<${slash}h${Number(n) + 1}`);
+}
+
+function pageHtml(base: string, lang: Lang, opts: ToolsOptions = {}): string {
   const api = new URL("api/", base).href;
-  return `<div class="tl">
-  <header class="tl-head">
+  const hashBase = opts.hashBase ?? "#/tools";
+  const markup = `<div class="tl${opts.embedded ? " tl-embedded" : ""}">
+  ${
+    opts.embedded
+      ? ""
+      : `<header class="tl-head">
     <h1 class="tl-title">Tools and data</h1>
-    <p class="tl-lede">For astronomers, teachers and developers: download the candidates, look up a list of positions, call the API, and cite the data.</p>
-  </header>
-  <nav class="tl-toc" aria-label="On this page">
-    <ul>${SECTIONS.map((s) => `<li><a href="#/tools/${s.id}" data-jump="${s.id}">${esc(s.title)}</a></li>`).join("")}</ul>
+    <p class="tl-lede">For astronomers, teachers and developers: download the objects to check, look up a list of positions, call the API, and cite the data.</p>
+  </header>`
+  }
+  <nav class="tl-toc" aria-label="${opts.embedded ? "In Tools" : "On this page"}">
+    <ul>${SECTIONS.map((s) => `<li><a href="${hashBase}/${s.id}" data-jump="${s.id}">${esc(s.title)}</a></li>`).join("")}</ul>
   </nav>
   <div class="tl-main">
 
   <section class="tl-sec" id="tl-downloads" aria-labelledby="tl-downloads-h">
-    <h2 id="tl-downloads-h" tabindex="-1">Download candidates</h2>
-    <p>Every candidate the pipeline put up for review. Positions in ICRS degrees, times in MJD (UTC), brightness in µJy, motions in ″/h (fast movers) or mas/yr (moving stars).</p>
+    <h2 id="tl-downloads-h" class="tl-h2" tabindex="-1">Download the list</h2>
+    <p>Every object the pipeline put up to check: things it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them. Positions in ICRS degrees, times in MJD (UTC), brightness in µJy, motions in ″/h (fast movers) or mas/yr (moving stars).</p>
     <div class="tl-dl" aria-live="polite"><p class="muted">Loading the list…</p></div>
     <details class="tl-more">
       <summary>Columns and units</summary>
@@ -202,7 +211,7 @@ function pageHtml(base: string, lang: Lang): string {
   </section>
 
   <section class="tl-sec" id="tl-batch" aria-labelledby="tl-batch-h">
-    <h2 id="tl-batch-h" tabindex="-1">Batch coordinates</h2>
+    <h2 id="tl-batch-h" class="tl-h2" tabindex="-1">Batch coordinates</h2>
     <p>Paste up to ${BATCH_LIMIT} positions, one per line, or drop a CSV file on the box. They are read here in your browser; nothing is sent anywhere until you press Check on a row.</p>
     <details class="tl-more">
       <summary>Formats it reads</summary>
@@ -232,7 +241,7 @@ function pageHtml(base: string, lang: Lang): string {
   </section>
 
   <section class="tl-sec" id="tl-api" aria-labelledby="tl-api-h">
-    <h2 id="tl-api-h" tabindex="-1">API</h2>
+    <h2 id="tl-api-h" class="tl-h2" tabindex="-1">API</h2>
     <p>The same data the site uses, as JSON. No key and no sign-up. Static first: the featured targets and the lists are plain files on the site's CDN, so read those before you call the live API.</p>
 
     <h3 class="tl-h3">Static files</h3>
@@ -261,10 +270,15 @@ function pageHtml(base: string, lang: Lang): string {
     <h3 class="tl-h3">Embed a blink</h3>
     <p>Any blink can sit in another page. embed=1 hides the header and footer. Use ra and dec (degrees), clock (months or hours), fov (arcmin) and det (1 to 6), or t=&lt;slug&gt; for a featured target.</p>
     ${code(embedSnippet(base), "HTML to embed a blink")}
+
+    <h3 class="tl-h3">AI assistants (MCP)</h3>
+    <p>An MCP server lets an AI assistant (Claude Code, Claude Desktop, Cursor or any MCP client) use SkyShift: browse the objects to check, look at blink frames, measure motion and check known objects. It only reads this public site, the static files first and then the API, so it needs no account or key. From a clone of the repository:</p>
+    ${code("claude mcp add skyshift -- uv run --project mcp skyshift-mcp", "Command to add the SkyShift MCP server to Claude Code")}
+    <p class="tl-note">Its tools include top_candidates, candidates_near, blink, spectrum, measure, known_objects, gaia_stars, batch_check and validation. Setup for Claude Desktop, streamable HTTP and the full list: <a href="${REPO_URL}/blob/main/mcp/README.md" target="_blank" rel="noopener">mcp/README.md</a>.</p>
   </section>
 
   <section class="tl-sec" id="tl-cite" aria-labelledby="tl-cite-h">
-    <h2 id="tl-cite-h" tabindex="-1">Cite and acknowledge</h2>
+    <h2 id="tl-cite-h" class="tl-h2" tabindex="-1">Cite and acknowledge</h2>
     <p>If SkyShift helped your work, cite it and the data underneath it.</p>
     <h3 class="tl-h3">SkyShift</h3>
     ${code(skyshiftBibtex(), "BibTeX for SkyShift")}
@@ -287,7 +301,7 @@ function pageHtml(base: string, lang: Lang): string {
   </section>
 
   <section class="tl-sec" id="tl-data" aria-labelledby="tl-data-h">
-    <h2 id="tl-data-h" tabindex="-1">Data and versions</h2>
+    <h2 id="tl-data-h" class="tl-h2" tabindex="-1">Data and versions</h2>
     <p>What this site is built from, and when.</p>
     <dl class="tl-fields tl-versions" aria-live="polite"><div><dt>Files</dt><dd class="muted">Loading…</dd></div></dl>
     <h3 class="tl-h3">Reproduce it</h3>
@@ -315,6 +329,7 @@ npm test          # in web/`,
   </div>
   <p class="visually-hidden" role="status" aria-live="polite" data-announce></p>
 </div>`;
+  return opts.embedded ? demoteHeadings(markup) : markup;
 }
 
 // ---- dynamic parts ---------------------------------------------------------------------------
@@ -328,7 +343,7 @@ export function zoneText(zones: string[] | null | undefined): string {
 
 function downloadsHtml(data: CandidatesResponse | null, kind: CandidateKind | "all", suspects: SuspectsResponse | null): string {
   if (!data) {
-    return `<p class="tl-empty">The candidate list isn't published yet. The pipeline writes it to /data/candidates.json; the downloads appear here once it does.${
+    return `<p class="tl-empty">The list of objects to check isn't published yet. The pipeline writes it to /data/candidates.json; the downloads appear here once it does.${
       suspects
         ? ` Until then, the pilot's ${plural(suspects.suspects.length, "unknown mover is", "unknown movers are")} in <a href="/data/suspects.json" download>suspects.json</a>.`
         : ""
@@ -338,14 +353,14 @@ function downloadsHtml(data: CandidatesResponse | null, kind: CandidateKind | "a
   const n = candidateSubset(data, "all").counts;
   const kinds = (Object.keys(KIND_NAMES) as CandidateKind[]).map((k) => {
     const c = n[k] ?? 0;
-    return `<button type="button" data-kind="${k}" aria-pressed="${kind === k}" ${c === 0 ? "disabled" : ""}>${esc(KIND_NAMES[k].many[0].toUpperCase() + KIND_NAMES[k].many.slice(1))} <span class="tl-count">${c}</span></button>`;
+    return `<button type="button" data-kind="${k}" aria-pressed="${kind === k}" ${c === 0 ? "disabled" : ""}>${esc(KIND_NAMES[k].many[0].toUpperCase() + KIND_NAMES[k].many.slice(1))} <span class="tl-count">${c.toLocaleString("en-GB")}</span></button>`;
   });
-  return `<p class="tl-sum">${plural(total, "candidate", "candidates")} from the ${esc(zoneText(data.zones))}: ${(Object.keys(KIND_NAMES) as CandidateKind[])
+  return `<p class="tl-sum">${plural(total, "object", "objects")} to check from the ${esc(zoneText(data.zones))}: ${(Object.keys(KIND_NAMES) as CandidateKind[])
     .map((k) => plural(n[k] ?? 0, KIND_NAMES[k].one, KIND_NAMES[k].many))
     .join(", ")}. Generated ${esc(formatWhen(data.generated))} from SPHEREx ${esc(data.data_release)}.</p>
     <div class="tl-choose">
-      <div class="seg tl-kinds" role="group" aria-label="Which candidates">
-        <button type="button" data-kind="all" aria-pressed="${kind === "all"}">All <span class="tl-count">${total}</span></button>
+      <div class="seg tl-kinds" role="group" aria-label="Which objects">
+        <button type="button" data-kind="all" aria-pressed="${kind === "all"}">All <span class="tl-count">${total.toLocaleString("en-GB")}</span></button>
         ${kinds.join("")}
       </div>
     </div>
@@ -361,7 +376,7 @@ function versionsHtml(c: CandidatesResponse | null, v: ValidationResponse | null
   const rows: string[] = [];
   rows.push(
     c
-      ? `<div><dt><a href="/data/candidates.json" download>candidates.json</a></dt><dd>${plural(c.candidates.length, "candidate", "candidates")} from the ${esc(zoneText(c.zones))}. SPHEREx ${esc(c.data_release)}. Generated ${esc(formatWhen(c.generated))}.${raw(c.generated)}</dd></div>`
+      ? `<div><dt><a href="/data/candidates.json" download>candidates.json</a></dt><dd>${plural(c.candidates.length, "object", "objects")} to check from the ${esc(zoneText(c.zones))}. SPHEREx ${esc(c.data_release)}. Generated ${esc(formatWhen(c.generated))}.${raw(c.generated)}</dd></div>`
       : `<div><dt>candidates.json</dt><dd>Not published yet.</dd></div>`,
   );
   if (v) {
@@ -445,10 +460,20 @@ function batchTable(res: BatchResult, cov: Map<string, Coverage>, busy: boolean)
 
 // ---- the page --------------------------------------------------------------------------------
 
-export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
+export interface ToolsOptions {
+  /** A section of another page (Results → Tools): no page title, headings one level down. */
+  embedded?: boolean;
+  /** The route the in-page links point at, as <hashBase>/<section>. Default "#/tools". */
+  hashBase?: string;
+}
+
+export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => createToolsPage(el, ctx);
+
+export function createToolsPage(el: HTMLElement, ctx: PageContext, opts: ToolsOptions = {}): PageHandle {
   const base = siteBase();
+  const hashBase = opts.hashBase ?? "#/tools";
   let lang = readLang();
-  el.innerHTML = pageHtml(base, lang);
+  el.innerHTML = pageHtml(base, lang, opts);
 
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const announceEl = $<HTMLElement>("[data-announce]");
@@ -497,7 +522,7 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (d.dataset.dl === "csv") saveFile(`${stem}.csv`, candidatesCSV(sub, base), "text/csv;charset=utf-8");
     if (d.dataset.dl === "json") saveFile(`${stem}.json`, candidatesJSON(sub), "application/json");
     if (d.dataset.dl === "vot") saveFile(`${stem}.vot`, candidatesVOTable(sub, base), "application/x-votable+xml");
-    announce(`Downloading ${plural(sub.candidates.length, "candidate", "candidates")}.`);
+    announce(`Downloading ${plural(sub.candidates.length, "object", "objects")}.`);
   });
 
   // ---- batch ----
@@ -700,7 +725,7 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
       return;
     }
     const jump = t.closest<HTMLAnchorElement>("a[data-jump]");
-    if (jump && location.hash === `#/tools/${jump.dataset.jump}`) {
+    if (jump && location.hash === `${hashBase}/${jump.dataset.jump}`) {
       ev.preventDefault();
       jumpTo(jump.dataset.jump!);
     }
@@ -727,4 +752,4 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
       el.innerHTML = "";
     },
   };
-};
+}

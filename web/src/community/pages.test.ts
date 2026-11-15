@@ -5,7 +5,7 @@ import { KEYS, type Answer, type KV } from "../vote/model";
 import { LocalStore, voteApi } from "../vote/store";
 import { mountAboutWith } from "./about";
 import { NICKNAME_KEY, mountCommunityWith } from "./community";
-import { loadSnapshot, type Snapshot } from "./source";
+import { astronomersFor, loadSnapshot, type Snapshot } from "./source";
 
 function memKV(): KV {
   const m = new Map<string, string>();
@@ -99,6 +99,24 @@ describe("loadSnapshot", () => {
     expect(b.get("sus-1")).toMatchObject({ kind: "mover" });
   });
 
+  it("astronomersFor: the Community page's list for astronomers, flagged dots placed by lookup", async () => {
+    const kv = memKV();
+    await seed(kv, [
+      ["pilot-m1", ["mover", "mover", "mover", "mover", "mover"]],
+      ["pilot-p1", ["junk", "junk", "junk", "junk", "junk"]],
+      ["pilot-m2", ["mover", "mover", "mover"]],
+    ]);
+    const flagged = await new LocalStore(kv).flag({ ra: 10, dec: 20, mjd: 60800, clock: "hours", source: "user" });
+    await seed(kv, [[flagged.id, ["changing", "changing", "changing", "changing", "changing", "unsure"]]]);
+    const s = await loadSnapshot({ kv, api: localApi(kv), catalogue: async () => catalogue });
+    const rows = await astronomersFor(s);
+    expect(rows.map((r) => [r.id, r.answer, r.kind])).toEqual([
+      ["pilot-m1", "mover", "mover"],
+      [flagged.id, "changing", "flag"],
+    ]);
+    expect(rows[1]).toMatchObject({ ra: 10, dec: 20, next: "mpc" });
+  });
+
   it("turns a failed read into a note, never an error", async () => {
     const s = await loadSnapshot({
       kv: memKV(),
@@ -138,7 +156,7 @@ describe("Community page", () => {
       ["pilot-p1", ["mover", "junk", "unsure"]],
     ]);
     const lead = el.querySelector(".cm-lead")!.textContent!.replace(/\s+/g, " ");
-    expect(lead).toContain("cast 8 votes on 2 of the 3 candidates the pipeline listed");
+    expect(lead).toContain("cast 8 votes on 2 of the 3 objects the pipeline listed to check");
     expect(lead).toContain("1 reached consensus, and 1 of them is on the list for astronomers");
     expect(el.querySelector(".cm-source")!.textContent).toMatch(/Local mode/);
   });
@@ -173,7 +191,7 @@ describe("Community page", () => {
       { "pilot-m1": "mover", "pilot-m2": "mover", "pilot-p1": "unsure" },
     );
     const you = el.querySelector(".cm-you-body")!.textContent!.replace(/\s+/g, " ");
-    expect(you).toContain("You've voted on 3 candidates");
+    expect(you).toContain("You've voted on 3 objects");
     expect(you).toContain("2 of them have reached consensus, and your answer matched it on 1 (50%)");
   });
 
@@ -221,7 +239,7 @@ describe("Community page", () => {
     const page = mountCommunityWith(el, ctx(), { kv: memKV(), load: async () => empty });
     page.show(null);
     await page.ready();
-    expect(el.querySelector(".cm-lead")!.textContent).toMatch(/No votes yet\. The pipeline has listed 194 candidates/);
+    expect(el.querySelector(".cm-lead")!.textContent).toMatch(/No votes yet\. The pipeline has listed 194 objects to check/);
     expect(el.querySelector(".cm-source")!.textContent).toMatch(/Everyone's votes/);
   });
 });

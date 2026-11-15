@@ -2,11 +2,12 @@
 
 Each source has a mean epoch: the mean MJD of the photos its dots come from (members + photo list,
 no dot files read). Catalogue positions are moved to that epoch with their proper motion (Gaia: and
-parallax; 2MASS has no motion) before matching, so Barnard's Star at 10″/yr matches as well as a
-still star. Per catalogue: candidates within CROSSID_ARCSEC + CROSSID_SLACK_ARCSEC of the positions
-moved to the zone's median epoch, then each pair is redone at the source's own epoch and the nearest
-within CROSSID_ARCSEC[cat] wins; `<cat>_n` counts the catalogue entries within that radius
-(> 1 = crowded, the match may be the wrong one).
+parallax) before matching, so Barnard's Star at 10″/yr matches as well as a still star. Per catalogue:
+candidates within CROSSID_ARCSEC + CROSSID_SLACK_ARCSEC of the positions moved to the zone's median epoch,
+then each pair is redone at the source's own epoch and the nearest within CROSSID_ARCSEC[cat] wins;
+`<cat>_n` counts the catalogue entries within that radius (> 1 = crowded, the match may be the wrong one).
+2MASS has no motion of its own (epoch ~1999): the source is moved back to each 2MASS entry's epoch with the
+proper motion of its Gaia match (else its CatWISE match), so a star at 0.5″/yr still finds its 2MASS entry 13″ away.
 
 Writes results/<zone>/crossids.parquet, one row per source (contracts/dots.md, Derived tables).
 """
@@ -61,24 +62,35 @@ def ref_offset_at(ra0, dec0, ref: pd.DataFrame, mjd, parallax: bool) -> tuple[np
 
 
 def crossmatch(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, ref: pd.DataFrame, radius_arcsec: float,
-               parallax: bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+               parallax: bool = False, src_pm: tuple[np.ndarray, np.ndarray] | None = None
+               ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Nearest catalogue entry of each position at its own epoch: (row in ref or -1, separation arcsec
-    or NaN, number within radius)."""
+    or NaN, number within radius). src_pm: the sources' own (pmra, pmdec) in mas/yr (NaN = none) for a
+    catalogue without motion (2MASS): each pair is compared at the catalogue entry's epoch instead."""
     n = len(ra)
     idx = np.full(n, -1, np.int64)
     sep = np.full(n, np.nan)
     cnt = np.zeros(n, np.int32)
     if n == 0 or len(ref) == 0:
         return idx, sep, cnt
+    from skyshift_core import tangent_deproject
     t_med = float(np.nanmedian(mjd))
     e, nn = ref_offset_at(ref["ra"].to_numpy(), ref["dec"].to_numpy(), ref, t_med, parallax=False)
-    from skyshift_core import tangent_deproject
     rra, rdec = tangent_deproject(ref["ra"].to_numpy(), ref["dec"].to_numpy(), e, nn)
     # the slack covers the motion between the median epoch and each source's epoch
     span_yr = float(np.nanmax(np.abs(mjd - t_med))) / DAYS_PER_JYEAR if n else 0.0
     pm_max = float(np.nanmax(np.hypot(np.nan_to_num(ref["pmra"].to_numpy()), np.nan_to_num(ref["pmdec"].to_numpy())))) / 1000.0
     rq = radius_arcsec + C.CROSSID_SLACK_ARCSEC + pm_max * span_yr + (1.0 if parallax else 0.0)
-    lists = SkyTree(rra, rdec).query_radius(ra, dec, rq)
+    qra, qdec = ra, dec
+    if src_pm is not None:  # query from the source's position at the catalogue's median epoch
+        spra, spdec = np.nan_to_num(np.asarray(src_pm[0], np.float64)), np.nan_to_num(np.asarray(src_pm[1], np.float64))
+        rep = ref["epoch_mjd"].to_numpy(np.float64)
+        t_ref = float(np.nanmedian(rep)) if np.isfinite(rep).any() else t_med
+        dt0 = (mjd - t_ref) / DAYS_PER_JYEAR
+        qra, qdec = tangent_deproject(ra, dec, -spra * dt0 / 1000.0, -spdec * dt0 / 1000.0)
+        spread = float(np.nanmax(np.abs(rep - t_ref))) / DAYS_PER_JYEAR if np.isfinite(rep).any() else 0.0
+        rq += float(np.max(np.hypot(spra, spdec))) / 1000.0 * (spread + span_yr) if n else 0.0
+    lists = SkyTree(rra, rdec).query_radius(qra, qdec, rq)
     lens = np.fromiter((len(x) for x in lists), np.int64, n)
     if lens.sum() == 0:
         return idx, sep, cnt
@@ -86,6 +98,9 @@ def crossmatch(ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray, ref: pd.DataFra
     ri = np.fromiter((j for x in lists for j in x), np.int64, int(lens.sum()))
     sub = ref.iloc[ri].reset_index(drop=True)
     pe, pn = ref_offset_at(ra[si], dec[si], sub, mjd[si], parallax=parallax)
+    if src_pm is not None:  # the source at the entry's epoch: offset + its own pm × (source epoch − entry epoch)
+        dts = np.nan_to_num((mjd[si] - sub["epoch_mjd"].to_numpy(np.float64)) / DAYS_PER_JYEAR)
+        pe, pn = pe + spra[si] * dts / 1000.0, pn + spdec[si] * dts / 1000.0
     d = np.hypot(pe, pn)
     ok = d <= radius_arcsec
     si, ri, d = si[ok], ri[ok], d[ok]
@@ -138,7 +153,10 @@ def compute(src: pd.DataFrame, epochs: np.ndarray, refcat: pd.DataFrame) -> pd.D
         out[name] = take(w, i, c).astype(np.float32)
 
     t = refcat[cats == "tmass"].reset_index(drop=True)
-    i, s, k = crossmatch(ra, dec, epochs, t, C.CROSSID_ARCSEC["tmass"])
+    has_g = out["gaia_ref_id"].to_numpy() != ""
+    spm = tuple(np.where(has_g, out[f"gaia_{c}"].to_numpy(np.float64), out[f"catwise_{c}"].to_numpy(np.float64))
+                for c in ("pmra", "pmdec"))
+    i, s, k = crossmatch(ra, dec, epochs, t, C.CROSSID_ARCSEC["tmass"], src_pm=spm)
     out["tmass_ref_id"] = take(t, i, "ref_id", str, "").astype(str)
     nm = take(t, i, "name", str, "").astype(str)
     out["tmass_name"] = np.where((nm == "") | (nm == "nan"), out["tmass_ref_id"], nm)

@@ -10,7 +10,12 @@ giving a falsely sharp one.
   chi2      χ²_min (best z and template); chi2_nu = chi2 / (n_channels − 2)
   odds      p(|z − z_best| < PHOTOZ_ODDS_DZ × (1 + z_best))
   good      odds >= PHOTOZ_GOOD_ODDS and chi2_nu <= PHOTOZ_GOOD_CHI2_NU and n_channels >= PHOTOZ_GOOD_MIN_CHANNELS
-Also pah_33_excess_z / pah_33_sig_z: the PAH 3.3 µm index (config.INDEX_WINDOWS) moved to z_best.
+            and z_best > PHOTOZ_GOOD_MIN_Z (z ≈ 0 is where stars and failed fits land)
+Also pah_33_excess_z / pah_33_sig_z: the PAH 3.3 µm index (config.INDEX_WINDOWS) moved to z_best, and
+label_pah_33_z: PAH emission at the galaxy's redshift, the label candidates.py lists (good; sig_z >= INDEX_SIG;
+excess_z >= LABEL_MIN_DEPTH; the moved band window measured in >= LABEL_MIN_VISITS visits when sources.parquet has
+visit_bits; while the moved blue continuum window still overlaps the water-ice band (z ≲ 0.05), no ice dip at
+z = 0, sig < LABEL_SUPPORT_SIG, as classify's label_pah_33).
 
 Validation: SDSS DR17 spectroscopic galaxies in the zone (SkyServer SQL via astroquery.sdss, cached in
 cache/sdss/<zone>.parquet), matched within PHOTOZ_SDSS_MATCH_ARCSEC → photoz_report.json with σ_NMAD of
@@ -121,7 +126,7 @@ def fit(flux: np.ndarray, err: np.ndarray, M: np.ndarray, z: np.ndarray, chunk: 
     for c in ("z_best", "z_lo", "z_hi", "chi2", "chi2_nu", "odds"):
         out[c] = out[c].astype(np.float32)
     out["good"] = ((out["odds"] >= C.PHOTOZ_GOOD_ODDS) & (out["chi2_nu"] <= C.PHOTOZ_GOOD_CHI2_NU)
-                   & (out["n_channels"] >= C.PHOTOZ_GOOD_MIN_CHANNELS))
+                   & (out["n_channels"] >= C.PHOTOZ_GOOD_MIN_CHANNELS) & (out["z_best"] > C.PHOTOZ_GOOD_MIN_Z))
     return out.drop(columns="amp")
 
 
@@ -138,6 +143,15 @@ def photoz_frame(src: pd.DataFrame) -> pd.DataFrame:
     v, s = IX.index(flux, err, kind, band, cont, scale=1 + np.where(np.isfinite(zb), zb, 0.0))
     out["pah_33_excess_z"] = np.where(np.isfinite(zb), v, np.nan).astype(np.float32)
     out["pah_33_sig_z"] = np.where(np.isfinite(zb), s, np.nan).astype(np.float32)
+    seen = True
+    if "visit_bits" in src and len(src):
+        vb = np.stack([np.asarray(x, np.int64) for x in src["visit_bits"]])
+        seen = IX.window_visits(vb, *band, scale=1 + np.where(np.isfinite(zb), zb, 0.0)) >= C.LABEL_MIN_VISITS
+    _, ice_sig = IX.index(flux, err, *C.INDEX_WINDOWS["h2o_ice_305"])
+    with np.errstate(invalid="ignore"):
+        ice_overlap = cont[0][0] * (1 + zb) < C.INDEX_WINDOWS["h2o_ice_305"][1][1]  # moved continuum inside the ice band
+        out["label_pah_33_z"] = (out["good"].to_numpy(bool) & (s >= C.INDEX_SIG) & (v >= C.LABEL_MIN_DEPTH["pah_33"])
+                                 & seen & ~(ice_overlap & (ice_sig >= C.LABEL_SUPPORT_SIG)))
     out["mag_ab_k"] = IX.magnitudes(flux, err)["mag_ab_k"]
     return out
 
@@ -213,6 +227,22 @@ def validate(pz: pd.DataFrame, src: pd.DataFrame, spec: pd.DataFrame) -> dict:
     return rep
 
 
+def report(store: Store, zone: C.Zone, pz: pd.DataFrame, src: pd.DataFrame, n_input: int, chosen: str,
+           validate_sdss: bool = True) -> dict:
+    """photoz_report.json: counts and, against SDSS DR17, the zone's photo-z quality (tiles.py: on the merged tables)."""
+    rep = {"zone": zone.name, "fitted": int(np.isfinite(pz["z_best"]).sum()), "input": int(n_input), "selection": chosen,
+           "good": int(pz["good"].sum()),
+           "label_pah_33_z": int(pz["label_pah_33_z"].sum()) if "label_pah_33_z" in pz else 0, "templates": C.PHOTOZ_TEMPLATES,
+           "z_grid": [C.PHOTOZ_Z_MIN, C.PHOTOZ_Z_MAX, C.PHOTOZ_Z_STEP]}
+    if validate_sdss:
+        try:
+            rep["sdss_dr17"] = validate(pz, src, sdss_specz(store, zone))
+        except Exception as e:  # noqa: BLE001  (network; the photo-z table is written anyway)
+            L.warning("photoz %s: SDSS validation failed: %s", zone.name, e)
+            rep["sdss_dr17"] = {"error": str(e)[:300]}
+    return rep
+
+
 def run(store: Store, zone: C.Zone, validate_sdss: bool = True) -> dict:
     t0 = time.time()
     src = store.read_parquet(results_rel(zone.name, "sources.parquet"))
@@ -230,15 +260,7 @@ def run(store: Store, zone: C.Zone, validate_sdss: bool = True) -> dict:
     pz = photoz_frame(sub)
     t1 = time.time()
     nbytes = store.write_parquet(results_rel(zone.name, "photoz.parquet"), pz)
-    rep = {"zone": zone.name, "fitted": int(np.isfinite(pz["z_best"]).sum()), "input": int(len(sub)), "selection": chosen,
-           "good": int(pz["good"].sum()), "templates": C.PHOTOZ_TEMPLATES,
-           "z_grid": [C.PHOTOZ_Z_MIN, C.PHOTOZ_Z_MAX, C.PHOTOZ_Z_STEP]}
-    if validate_sdss:
-        try:
-            rep["sdss_dr17"] = validate(pz, src, sdss_specz(store, zone))
-        except Exception as e:  # noqa: BLE001  (network; the photo-z table is written anyway)
-            L.warning("photoz %s: SDSS validation failed: %s", zone.name, e)
-            rep["sdss_dr17"] = {"error": str(e)[:300]}
+    rep = report(store, zone, pz, src, len(sub), chosen, validate_sdss)
     store.write_json(results_rel(zone.name, "photoz_report.json"), rep)
     st = {**{k: v for k, v in rep.items() if k != "sdss_dr17"},
           "sdss_all": rep.get("sdss_dr17", {}).get("all"), "photoz_bytes": int(nbytes),

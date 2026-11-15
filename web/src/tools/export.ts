@@ -117,6 +117,7 @@ export const KIND_NAMES: Record<CandidateKind, { one: string; many: string }> = 
   mover: { one: "fast mover", many: "fast movers" },
   high_pm: { one: "moving star", many: "moving stars" },
   spectral: { one: "odd spectrum", many: "odd spectra" },
+  shape: { one: "one-or-two shape", many: "one-or-two shapes" },
 };
 
 /** Every candidate field, in the JSON's order, plus page_url (the candidate's SkyShift page). */
@@ -124,7 +125,7 @@ export function candidateColumns(siteBase: string): Column<Candidate>[] {
   const page = (c: Candidate) => new URL(`#/c/${encodeURIComponent(c.id)}`, siteBase).href;
   return [
     { name: "id", datatype: "char", get: (c) => c.id, ucd: "meta.id;meta.main", description: "Candidate id (opaque)" },
-    { name: "kind", datatype: "char", get: (c) => c.kind, ucd: "meta.code.class", description: "mover: moves within hours; high_pm: moves between visits; spectral: odd spectrum" },
+    { name: "kind", datatype: "char", get: (c) => c.kind, ucd: "meta.code.class", description: "mover: moves within hours; high_pm: moves between visits; spectral: odd spectrum; shape: one object or two" },
     { name: "ra", datatype: "double", get: (c) => c.ra, unit: "deg", ucd: "pos.eq.ra;meta.main", icrs: true, description: "Right ascension, ICRS" },
     { name: "dec", datatype: "double", get: (c) => c.dec, unit: "deg", ucd: "pos.eq.dec;meta.main", icrs: true, description: "Declination, ICRS" },
     { name: "mjd", datatype: "double", get: (c) => c.mjd, unit: "d", ucd: "time.epoch", description: "MJD (UTC) of the frame that shows it best" },
@@ -154,7 +155,7 @@ export function candidateColumns(siteBase: string): Column<Candidate>[] {
 /** The list limited to one kind (or all), with counts that match what is in it. */
 export function candidateSubset(data: CandidatesResponse, kind: CandidateKind | "all"): CandidatesResponse {
   const candidates = kind === "all" ? data.candidates : data.candidates.filter((c) => c.kind === kind);
-  const counts = { mover: 0, high_pm: 0, spectral: 0 } as Record<CandidateKind, number>;
+  const counts = { mover: 0, high_pm: 0, spectral: 0, shape: 0 } as Record<CandidateKind, number>;
   for (const c of candidates) if (c.kind in counts) counts[c.kind] += 1;
   return { ...data, counts, candidates };
 }

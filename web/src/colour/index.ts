@@ -4,7 +4,14 @@
 // filter is chosen. Algorithms and their checks: rgb.ts, engine.ts, docs/colour-layers.md.
 //
 // The blink's own DOM (P4) is not edited: this module adds its button, layer and key around the
-// plate from outside, and the plate shows through again when the filter is removed.
+// plate from outside, and the plate shows through again when the filter is removed. The colour
+// filters on the Months clock follow the blink's dates (one picture per visit), so the blink keeps
+// playing under them; a picture that doesn't change with the date pauses the blink with its own
+// Play button, and plays it again when the filter is removed.
+//
+// The pictures come live from IRSA, which fails and stalls under load: every read has a timeout
+// (cube.ts), the plate always says what is happening, and a failure says so in plain words with
+// "Try again" and "Back to the blink" (failure.ts). Never a blank plate or an endless wait.
 import "./filters.css";
 import type { FramesResponse, SkyPos } from "../api/types";
 import { formatMjd, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
@@ -35,6 +42,7 @@ import {
   type Window as PixelWindow,
 } from "./compview";
 import { FieldReader, type ColourPicture, type CompositionPicture, type WavelengthPicture } from "./engine";
+import { describeFailure } from "./failure";
 import { KEYS, KEY_SETS, keySet, swatchColour } from "./legend";
 import { loadVisits, visitOf, type VisitSet } from "./visit";
 import { compose, greyImage, type Channel } from "./rgb";
@@ -52,11 +60,21 @@ const THIN_SWATCH = swatch(`<circle cx="7" cy="7" r="4.2" fill="none" stroke="#c
 const CROSS_SWATCH = swatch(`<path d="M4.5,4.5l5,5M9.5,4.5l-5,5" fill="none" stroke="#cfd6e0" stroke-width="1.3" />`);
 /** Default wavelength: the 3.3 µm methane band, where the coldest brown dwarfs go dark. */
 const DEFAULT_FRAME = 62;
+/** Without progress for this long, the loading note says IRSA is slow (the read goes on). */
+const SLOW_MS = 12_000;
+/** The wavelength slider reads its frame once it rests this long, not at every step of a drag. */
+const SLIDE_MS = 200;
+let mounts = 0;
 
 export interface FiltersHandle {
+  /** The blink's field is ready (frames), or failed to load (null): draw the filter there. */
   goto(view: View, frames: FramesResponse | null): void;
   /** The blink moved to another epoch: colour pictures follow it (one per visit). */
   epoch(e: { id: string; mjd_mid: number }): void;
+  /** The blink is loading `view`. A filter on another spot is cleared, never shown as this one. */
+  loading(view: View): void;
+  /** Filters are available only over original observations, outside guided practice. */
+  active(enabled: boolean): void;
   destroy(): void;
 }
 
@@ -147,10 +165,13 @@ export function blendPeaks(short: Channel, long: Channel, n: number, mid: number
 /**
  * Field of a filter picture, arcmin. The map's pixels are 12.9″, so the blink's 5′ field would be
  * only 23 pixels across and look like a huge zoom. Show three times the blink's field, at least 15′
- * (70 pixels, stars as dots) and at most 60′; the blink's own field is drawn as a dashed square.
+ * (70 pixels, stars as dots) and at most 30′; the blink's own field is drawn as a dashed square.
+ * At most 30′ because the read grows with the area: a 60′ field (the 20′ asteroid and comet plates)
+ * took 64 s in Chromium on 14 Nov; a 60′ plate shows its middle 30′.
  */
+export const MAX_FILTER_ARCMIN = 30;
 export function filterField(plateArcmin: number): number {
-  return Math.min(60, Math.max(15, 3 * plateArcmin));
+  return Math.min(MAX_FILTER_ARCMIN, Math.max(15, 3 * plateArcmin));
 }
 
 /**
@@ -175,73 +196,84 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   const mat = blinkEl.querySelector<HTMLElement>(".bk-mat");
   const plate = blinkEl.querySelector<HTMLElement>(".bk-plate");
   const root = blinkEl.querySelector<HTMLElement>(".bk");
-  if (!col || !mat || !plate || !root) return { goto() {}, epoch() {}, destroy() {} };
+  if (!col || !mat || !plate || !root) return { goto() {}, epoch() {}, loading() {}, active() {}, destroy() {} };
+  const uid = `flt${++mounts}`;
 
   // ---- the button and menu, just above the plate ------------------------------------------
   const bar = document.createElement("div");
   bar.className = "flt-bar";
   bar.innerHTML = html`
-    <button class="btn flt-add" type="button" aria-expanded="false" aria-controls="flt-menu">
+    <button class="btn flt-add" type="button" aria-expanded="false" aria-controls="${uid}-menu">
       <span class="flt-add-icon" aria-hidden="true">＋</span><span class="flt-add-text">Add filters</span>
     </button>
     <span class="flt-active" hidden>
       <span class="flt-active-name" data-active></span>
       <button class="flt-off" type="button">Remove filter</button>
     </span>
-    <div class="flt-menu" id="flt-menu" role="group" aria-label="Filters" hidden>
+    <div class="flt-menu" id="${uid}-menu" role="group" aria-label="Filters" hidden>
       <p class="flt-h">Show the picture as</p>
       <div class="flt-opts">
-        <button type="button" data-filter="none" aria-pressed="true"><b>No filter</b>
+        <button type="button" data-flt-mode="none" aria-pressed="true"><b>No filter</b>
           <span>The normal view, where you watch things move.</span></button>
-        <button type="button" data-filter="diff" aria-pressed="false"><b>Difference</b>
+        <button type="button" data-flt-mode="diff" aria-pressed="false"><b>Difference</b>
           <span>Each date minus the first one (or the one picked under Adjust). Stars that stay put vanish; red is light that arrived, blue is
             light that left, so something that moved shows as a blue and red pair. Changes too small to tell
             from noise stay blank.</span></button>
-        <button type="button" data-filter="cold" aria-pressed="false"><b>Temperature</b>
-          <span>Colours show how hot or cold things are. Ordinary stars look blue; very cold objects, like
-            brown dwarfs, look pink or red. Changes with the date, like the normal view.</span></button>
-        <button type="button" data-filter="nir" aria-pressed="false"><b>Star colours</b>
+        <button type="button" data-flt-mode="cold" aria-pressed="false"><b>Temperature</b>
+          <span>Colours show how warm or cold things are. Ordinary stars look blue; cold objects such as brown
+            dwarfs look pink or red. Dust and distant galaxies can look red too, so a red dot is something to
+            check, not a discovery. Changes with the date, like the normal view.</span></button>
+        <button type="button" data-flt-mode="nir" aria-pressed="false"><b>Star colours</b>
           <span>Tells kinds of stars apart, from hot blue stars to cool orange ones, and shows stars
             reddened by dust. Changes with the date, like the normal view.</span></button>
-        <button type="button" data-filter="wave" aria-pressed="false"><b>Single colour</b>
+        <button type="button" data-flt-mode="wave" aria-pressed="false"><b>Single colour</b>
           <span>See the sky in just one of SPHEREx's 102 colours of infrared light. Slide to find where gases
             like water or methane block the light.</span></button>
-        <button type="button" data-filter="comp" aria-pressed="false"><b>Molecules</b>
+        <button type="button" data-flt-mode="comp" aria-pressed="false"><b>Molecules</b>
           <span>A ring marks each star whose light shows methane, ices, water vapour or carbon monoxide. A
             green shade marks sky where dust glows. Takes about half a minute.</span></button>
       </div>
-      <div class="flt-wave" hidden>
-        <input class="flt-frame" type="range" min="0" max="${CUBE_UM.length - 1}" step="1" value="${DEFAULT_FRAME}"
-          aria-label="Colour of light: slide through SPHEREx's 102 colours" />
-        <div class="flt-ticks" aria-hidden="true">
-          ${FEATURES.map(
-            (f) => html`<span class="flt-tick" style="left:${(100 * nearestFrame(f.um)) / (CUBE_UM.length - 1)}%"
-              title="${f.um} micrometres, ${f.name}: ${f.what}"></span>`,
-          ).join("")}
-          <span class="flt-tick flt-tick-gap" style="left:${(100 * 50.5) / (CUBE_UM.length - 1)}%"
-            title="2.40–2.45 micrometres: no data"></span>
-        </div>
-        <p class="flt-wave-text" aria-live="polite"></p>
-      </div>
       <div class="flt-row">
-        <button class="flt-switch" type="button" data-sat aria-pressed="true">Mark stars too bright to measure</button>
+        <button class="flt-switch" type="button" data-flt-sat aria-pressed="true">Mark stars too bright to measure</button>
       </div>
-      <p class="flt-src">These pictures come from NASA's SPHEREx map of the whole sky. It is blurrier than
-        the normal view and combines about a year of photos into one, so it shows a wider area around the
-        target: the dashed square is the normal view's area.</p>
+      <p class="flt-src">Single colour and Molecules come live from NASA's SPHEREx map of the whole sky, so
+        they need NASA's archive to answer. That map is blurrier than the normal view and combines about a
+        year of photos into one, so it shows a wider area around the target: the dashed square is the
+        normal view's area. Temperature and Star colours use the normal view's own photos, one picture per
+        date.</p>
+    </div>
+    <!-- The wavelength slider sits above the plate, not in the menu: the picture must stay in view
+         while it slides. -->
+    <div class="flt-wave" hidden>
+      <input class="flt-frame" type="range" min="0" max="${CUBE_UM.length - 1}" step="1" value="${DEFAULT_FRAME}"
+        aria-label="Colour of light: slide through SPHEREx's 102 colours" />
+      <div class="flt-ticks" aria-hidden="true">
+        ${FEATURES.map(
+          (f) => html`<span class="flt-tick" style="left:${(100 * nearestFrame(f.um)) / (CUBE_UM.length - 1)}%"
+            title="${f.um} micrometres, ${f.name}: ${f.what}"></span>`,
+        ).join("")}
+        <span class="flt-tick flt-tick-gap" style="left:${(100 * 50.5) / (CUBE_UM.length - 1)}%"
+          title="2.40–2.45 micrometres: no data"></span>
+      </div>
+      <p class="flt-wave-text"></p>
     </div>
   `;
   col.insertBefore(bar, mat);
+  col.classList.add("has-flt");
 
   // ---- the picture, on the plate ----------------------------------------------------------
   const layer = document.createElement("div");
   layer.className = "flt-layer";
   layer.hidden = true;
   layer.innerHTML = html`
-    <canvas class="flt-canvas" aria-label="Filtered picture of the plate's field"></canvas>
+    <canvas class="flt-canvas" role="img" aria-label="Filtered picture of the plate's field"></canvas>
     <svg class="flt-overlay" aria-hidden="true"></svg>
     <span class="flt-compass" aria-hidden="true">N ↑ E ←</span>
-    <div class="flt-note" role="status" hidden></div>
+    <div class="flt-note" role="status" hidden>
+      <p class="flt-note-title"></p>
+      <p class="flt-note-text"></p>
+      <div class="flt-note-actions"></div>
+    </div>
   `;
   plate.appendChild(layer);
 
@@ -295,14 +327,19 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   const frameIn = q<HTMLInputElement>(bar, ".flt-frame");
   const waveText = q<HTMLParagraphElement>(bar, ".flt-wave-text");
   const kneeIn = q<HTMLInputElement>(tools, "[data-knee]");
-  const satBtn = q<HTMLButtonElement>(bar, "[data-sat]");
+  const satBtn = q<HTMLButtonElement>(bar, "[data-flt-sat]");
   const canvas = q<HTMLCanvasElement>(layer, ".flt-canvas");
   const overlay = q<SVGSVGElement>(layer, ".flt-overlay");
   const note = q<HTMLDivElement>(layer, ".flt-note");
+  const noteTitle = q<HTMLParagraphElement>(note, ".flt-note-title");
+  const noteText = q<HTMLParagraphElement>(note, ".flt-note-text");
+  const noteActions = q<HTMLDivElement>(note, ".flt-note-actions");
+  const playBtn = root.querySelector<HTMLButtonElement>(".bk-play");
 
   let view: View | null = null;
   let frames: FramesResponse | null = null;
   let mode: Mode = "none";
+  let enabled = true;
   let frame = DEFAULT_FRAME;
   let showSat = true;
   let reader: FieldReader | null = null;
@@ -326,21 +363,127 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   let satReader: FieldReader | null = null;
   let ctl: AbortController | null = null;
   let readout = POINT_HINT;
-  const infos = new Map<number, Promise<TileInfo>>();
+  let infos = new Map<number, Promise<TileInfo>>();
+  // Header reads survive an ordinary filter switch, but must stop when filters are disabled.
+  const pendingReads = new Set<AbortController>();
+  /**
+   * Bumped when filters are disabled or destroyed. A read belongs to the generation its reader was
+   * made in and can't ask IRSA again once that generation ends. Aborting the requests in flight is
+   * not enough: a tile-header read is shared, so it has no abort signal, and after a 5xx it waits
+   * and retries (cube.ts). That retry used to ask IRSA again after the blink was closed, or after
+   * filters were turned off and on again.
+   */
+  let generation = 0;
+  const live = (gen: number) => enabled && gen === generation;
+  const unavailable = () => new DOMException("Filters are unavailable", "AbortError");
+  const scopedFetch = (gen: number): Fetcher => async (url, init) => {
+    if (!live(gen)) throw unavailable();
+    const request = new AbortController();
+    const abort = () => request.abort(init.signal?.reason);
+    if (init.signal?.aborted) abort();
+    else init.signal?.addEventListener("abort", abort, { once: true });
+    pendingReads.add(request);
+    try {
+      const response = await fetcher(url, { ...init, signal: request.signal });
+      // An answer that arrives after the filters ended is dropped, never handed on.
+      if (!live(gen)) {
+        void response.body?.cancel().catch(() => undefined);
+        throw unavailable();
+      }
+      // Keep cancellation connected through the range body, not just its headers. A 200 is
+      // returned immediately so cube.ts can cancel an ignored range without reading a whole tile.
+      if (response.status !== 206) return response;
+      const bytes = await response.arrayBuffer();
+      if (!live(gen)) throw unavailable();
+      return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+    } finally {
+      pendingReads.delete(request);
+      init.signal?.removeEventListener("abort", abort);
+    }
+  };
+  /** The blink was playing when a still filter went on: play it again when it goes off. */
+  let pausedBlink = false;
+  let slowTimer: ReturnType<typeof setTimeout> | undefined;
+  let slideTimer: ReturnType<typeof setTimeout> | undefined;
 
   const centre = (): SkyPos => frames?.center ?? (view ? { ra: view.ra, dec: view.dec } : { ra: 0, dec: 0 });
   const plateField = (): number => (view ? blinkFieldArcmin(view, frames) : 5);
   const field = (): number => filterField(plateField());
 
-  function say(text: string | null, kind: "info" | "fail" = "info") {
-    note.hidden = text == null;
-    note.dataset.kind = kind;
-    note.textContent = text ?? "";
+  /**
+   * The note over the plate: a read in progress (with a way back to the blink), a date without a
+   * picture, or a failure in plain words with Try again and Back to the blink. null hides it.
+   */
+  type Note = { kind: "info"; text: string; slow?: boolean } | { kind: "fail"; title: string; text: string };
+  function say(n: Note | string | null, restoreFocus = true) {
+    if (typeof n === "string") n = { kind: "info", text: n };
+    // Focus never falls to the page when the note's buttons go away.
+    const focused = note.contains(document.activeElement);
+    note.hidden = n == null;
+    if (!n) {
+      if (focused && restoreFocus) addBtn.focus();
+      return;
+    }
+    note.dataset.kind = n.kind;
+    noteTitle.textContent = n.kind === "fail" ? n.title : "";
+    noteTitle.hidden = n.kind !== "fail";
+    noteText.textContent =
+      n.kind === "fail" ? n.text : n.slow ? `${n.text} NASA's archive is slow right now; still trying.` : n.text;
+    const actions = n.kind === "fail"
+      ? html`<button class="btn btn-primary" type="button" data-flt-retry>Try again</button>
+          <button class="btn" type="button" data-flt-back>Back to the blink</button>`
+      : html`<button class="btn btn-ghost" type="button" data-flt-back>Back to the blink</button>`;
+    if (noteActions.dataset.kind !== n.kind) {
+      noteActions.innerHTML = actions;
+      noteActions.dataset.kind = n.kind;
+      if (focused) noteActions.querySelector<HTMLButtonElement>("button")?.focus();
+    }
   }
 
-  function openMenu(open: boolean) {
+  function reading(text: string) {
+    say({ kind: "info", text });
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(() => say({ kind: "info", text, slow: true }), SLOW_MS);
+  }
+
+  function openMenu(open: boolean, focusButton = false) {
     menu.hidden = !open;
     addBtn.setAttribute("aria-expanded", String(open));
+    if (open) placeMenu();
+    if (!open && focusButton) addBtn.focus();
+  }
+
+  /** Beside the plate when there is room (like the blink's Adjust), else dropped over the plate. */
+  function placeMenu() {
+    if (menu.hidden) return;
+    const room = document.documentElement.clientWidth - col!.getBoundingClientRect().right - 16;
+    menu.classList.toggle("is-right", root!.clientWidth >= 600 && room >= 436);
+  }
+
+  /** Pause the blink under a still picture, with its own Play button; play it again afterwards. */
+  function holdBlink(on: boolean) {
+    if (!playBtn) return;
+    const playing = playBtn.getAttribute("aria-pressed") === "true";
+    if (on && playing) {
+      playBtn.click();
+      pausedBlink = true;
+    } else if (!on && pausedBlink) {
+      if (!playing) playBtn.click();
+      pausedBlink = false;
+    }
+  }
+
+  /** Clear the picture, so a stale one is never shown under a new label or after a failure. */
+  function clearPicture() {
+    picture = null;
+    canvas.width = 0;
+    canvas.height = 0;
+    overlay.innerHTML = "";
+  }
+
+  /** A colour filter on the Months clock: one picture per date, so the blink plays on. */
+  function followsDates(): boolean {
+    return (mode === "cold" || mode === "nir") && view?.clock === "months" && stillReason == null;
   }
 
   /** A filter picture covers the plate (every filter but Difference, which is the blink's own). */
@@ -349,14 +492,14 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   }
 
   function modeName(): string {
-    if (mode === "diff") return "difference";
-    if (mode === "wave") return `one colour of light, ${CUBE_UM[frame].toFixed(2)} micrometres`;
-    if (mode === "comp") return "what things are made of";
+    if (mode === "diff") return "Difference";
+    if (mode === "wave") return `Single colour, ${CUBE_UM[frame].toFixed(2)} micrometres`;
+    if (mode === "comp") return "Molecules";
     return PRESETS.find((p) => p.id === mode)?.label ?? "";
   }
 
   function press() {
-    bar.querySelectorAll<HTMLButtonElement>("[data-filter]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.filter === mode)));
+    bar.querySelectorAll<HTMLButtonElement>("[data-flt-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.fltMode === mode)));
     waveBox.hidden = mode !== "wave";
     satBtn.hidden = mode === "wave" || mode === "comp" || mode === "diff";
     const on = mode !== "none";
@@ -370,6 +513,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     addIcon.textContent = on ? "✎" : "＋";
     addText.textContent = on ? "Change filter" : "Add filters";
     activeName.textContent = on ? `Filter: ${modeName()}` : "";
+    canvas.setAttribute("aria-label", pic ? `The target's field with the filter ${modeName()}, from NASA's SPHEREx data` : "Filtered picture");
     frameIn.value = String(frame);
     waveText.textContent = frameText(frame);
     frameIn.setAttribute("aria-valuetext", frameText(frame));
@@ -380,8 +524,9 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
    * the picture, so Play never looks broken. It never changes the blink's view for the user.
    */
   function updateStill() {
-    const moving = picture?.kind === "visits";
+    const moving = picture?.kind === "visits" || (picture == null && followsDates());
     root!.classList.toggle("flt-on", colourOn() && !moving);
+    holdBlink(colourOn() && !moving);
     const still = colourOn() && picture != null && !moving;
     stillEl.hidden = !still;
     if (!still) return;
@@ -397,7 +542,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     const c = centre();
     const fov = field();
     if (!reader || reader.center.ra !== c.ra || reader.center.dec !== c.dec || reader.fovArcmin !== fov) {
-      reader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), fetcher, infos);
+      reader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), scopedFetch(generation), infos);
       picture = null;
     }
     return reader;
@@ -408,7 +553,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     const c = centre();
     const fov = COMPOSITION_FIELD;
     if (!compReader || compReader.center.ra !== c.ra || compReader.center.dec !== c.dec || compReader.fovArcmin !== fov) {
-      compReader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), fetcher, infos);
+      compReader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), scopedFetch(generation), infos);
     }
     return compReader;
   }
@@ -462,16 +607,19 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
 
   async function render() {
     ctl?.abort();
-    if (!colourOn() || !view) return;
+    clearTimeout(slideTimer);
+    if (!enabled || !colourOn() || !view) return;
     ctl = new AbortController();
     const signal = ctl.signal;
     const progress = (done: number, total: number) => {
-      if (!signal.aborted && total) say(`Reading from NASA's SPHEREx map: ${done} of ${total}…`);
+      if (!signal.aborted && total) reading(`Reading from NASA's SPHEREx map: ${done} of ${total}…`);
     };
-    say("Reading from NASA's SPHEREx map…");
+    reading("Reading from NASA's SPHEREx map…");
+    key.hidden = false;
     try {
       if (mode === "comp") {
         const pic = await ensureCompReader().composition(signal, progress, async () => {
+          clearTimeout(slowTimer);
           say("Measuring every star in the picture…");
           await new Promise((done) => setTimeout(done, 30)); // let the note paint before the page is busy
         });
@@ -501,14 +649,19 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
           : null;
         picture = { kind: "colour", preset, pic, check: check(n, pic.saturated, pic.byWindow, pic.dates, { blend }) };
       }
+      clearTimeout(slowTimer);
       say(null);
       draw();
     } catch (e) {
       if (signal.aborted) return;
-      picture = null;
-      const why = e instanceof Error ? e.message : String(e);
-      say(`NASA IRSA's SPHEREx map didn't answer (${why}). Remove the filter to see the blink.`, "fail");
-      renderKey();
+      // Stop the rest of this read: IRSA is struggling, don't keep asking.
+      ctl?.abort();
+      clearTimeout(slowTimer);
+      clearPicture();
+      updateStill();
+      // The key describes a picture; with none, the note on the plate says it all.
+      key.hidden = true;
+      say({ kind: "fail", ...describeFailure(e) });
     }
   }
 
@@ -521,9 +674,9 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     const preset = PRESETS.find((p) => p.id === mode)!;
     stillReason = null;
     try {
-      say("Reading the snapshots for every date…");
+      reading("Reading the SPHEREx snapshots for every date…");
       const set = await loadVisits(view!, preset.id, signal, (done, total) => {
-        if (!signal.aborted && total) say(`Reading the snapshots for every date: ${done} of ${total}…`);
+        if (!signal.aborted && total) reading(`Reading the SPHEREx snapshots for every date: ${done} of ${total}…`);
       });
       if (signal.aborted) return true;
       let sat: { mask: Uint8Array; n: number } | null = null;
@@ -532,9 +685,9 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
         const c = centre();
         const fov = plateField();
         if (!satReader || satReader.center.ra !== c.ra || satReader.center.dec !== c.dec || satReader.fovArcmin !== fov) {
-          satReader = new FieldReader(c, fov, (x, y, n, s2) => pixelToSky({ x, y }, { pixel_arcsec: s2, size: [n, n] }, c), fetcher, infos);
+          satReader = new FieldReader(c, fov, (x, y, n, s2) => pixelToSky({ x, y }, { pixel_arcsec: s2, size: [n, n] }, c), scopedFetch(generation), infos);
         }
-        say("Checking for stars too bright to measure…");
+        reading("Checking NASA's SPHEREx map for stars too bright to measure…");
         const cube = await satReader.colour(PRESETS[0], signal, () => {});
         if (signal.aborted) return true;
         sat = { mask: cube.saturated, n: cube.plan.n };
@@ -549,6 +702,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     } catch (e) {
       if (signal.aborted) return true;
       stillReason = e instanceof Error ? e.message : String(e);
+      updateStill(); // a still picture now: pause the blink under it
       return false;
     }
   }
@@ -644,13 +798,28 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     overlay.innerHTML = parts.join("");
   }
 
+  const coldLead = html`<p class="flt-key-lead">Pink or red only says the light gets stronger towards 4.6 micrometres.
+    Cold brown dwarfs do that, but so do dust and distant galaxies: a red dot is something to check, not a
+    discovery.</p>`;
+
   function renderKey() {
     const p = picture;
     const reasons = p ? whyUnreliable(p.check) : [];
     const who = esc(p?.check.name ?? "the object at the centre");
-    const date = (d: string | null) => (d ? d.slice(0, 10) : "?");
+    const beg = p && "pic" in p ? p.pic.dates.beg?.slice(0, 10) : undefined;
+    const end = p && "pic" in p ? p.pic.dates.end?.slice(0, 10) : undefined;
+    const when = beg && end ? `between ${beg} and ${end}` : "over about a year";
+    // The dashed square is drawn only when the normal view fits inside the picture (drawOverlay).
+    const box =
+      plateField() < field() * 0.98
+        ? html`<li><i class="sw sw-box"></i><b>Dashed square</b><span>the area of the normal view</span></li>`
+        : html`<li><i class="sw sw-wide"></i><b>Middle part</b><span>the normal view is wider: this picture
+            shows its middle ${field()} arcminutes</span></li>`;
+    const marksNote = html`<p class="flt-key-note">SkyShift's marks (what it measured, Gaia stars, known asteroids)
+      belong to the normal view, so they are hidden while a filter is on.</p>`;
     let title = "";
     let entries = "";
+    let lead = "";
     if (mode === "comp") {
       key.innerHTML = compKey();
       return;
@@ -661,7 +830,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
         light. If a star fades as you move the slider, it really is fainter there: a star that goes dark near
         3.3 micrometres may contain methane gas.</span></li>
         <li><i class="sw sw-none"></i><b>Striped</b><span>no data here</span></li>
-        <li><i class="sw sw-box"></i><b>Dashed square</b><span>the area of the normal view</span></li>`;
+        ${box}`;
     } else if (p?.kind === "visits") {
       const v = currentVisit != null ? p.set.visits.get(currentVisit) : undefined;
       const when = v ? formatMjd(currentMjd ?? v.mjd) : "";
@@ -685,8 +854,10 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
           : `<p class="flt-date-note">On this date SPHEREx saw red light at ${um(v.ranges[0])}, green at ${um(v.ranges[1])} and
               blue at ${um(v.ranges[2])} micrometres. These change a little from date to date, so a small change in colour
               between dates can come from that. A change in position is real.</p>`;
+      if (p.preset.id === "cold") lead = coldLead;
       key.innerHTML = html`
         <p class="flt-key-title">${title}</p>
+        ${lead}
         <ul class="flt-key-list">${entries}</ul>
         ${dateNote}
         <p class="flt-readout" aria-live="polite">${esc(readout)}</p>
@@ -708,6 +879,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
             it is clearly brighter than the background; otherwise it stays grey. Stars marked as too bright come from
             NASA's map of the whole sky. The method and the tests behind it are in docs/colour-layers.md.</p>
         </details>
+        ${marksNote}
       `;
       return;
     } else if (colourOn()) {
@@ -723,10 +895,12 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
           return `<li>${sw}<b>${esc(e.label)}</b><span>${esc(e.examples)}</span></li>`;
         })
         .join("");
-      entries += `<li><i class="sw sw-box"></i><b>Dashed square</b><span>the area of the normal view</span></li>`;
+      entries += box;
+      if (mode === "cold") lead = coldLead;
     }
     key.innerHTML = html`
       <p class="flt-key-title">${title}</p>
+      ${lead}
       <ul class="flt-key-list">${entries}</ul>
       <p class="flt-readout" aria-live="polite">${esc(readout)}</p>
       ${reasons.length
@@ -740,11 +914,11 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
         <p>It comes from NASA's SPHEREx map of the whole sky, downloaded live from NASA's archive. SPHEREx
           photographs the sky in 102 colours of infrared light, which our eyes can't see. This map is blurrier
           than the normal view, so objects close together can merge. Its colours were taken on different days
-          between ${date(p && "pic" in p ? p.pic.dates.beg : null)} and ${date(p && "pic" in p ? p.pic.dates.end : null)}, so the colours of
-          things that move or change brightness can be wrong. A spot only gets a colour when it is clearly
-          brighter than the background; otherwise it stays grey. The method and the tests behind it are in
-          docs/colour-layers.md.</p>
+          ${when}, so the colours of things that move or change brightness can be wrong. A spot only gets a
+          colour when it is clearly brighter than the background; otherwise it stays grey. The method and the
+          tests behind it are in docs/colour-layers.md.</p>
       </details>
+      ${marksNote}
     `;
   }
 
@@ -963,7 +1137,11 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   }
 
   // ---- events ------------------------------------------------------------------------------
-  addBtn.addEventListener("click", () => openMenu(menu.hidden));
+  // The blink handles clicks on any button inside its root by data attribute (data-mode, data-retry,
+  // …). The filters' clicks are their own: attributes are prefixed data-flt-, and the clicks on the
+  // bar and the note stay here. (Difference presses the blink's own button on purpose, syncBlink.)
+  for (const part of [bar, noteActions, tools, key]) part.addEventListener("click", (ev) => ev.stopPropagation());
+  addBtn.addEventListener("click", () => { if (enabled) openMenu(menu.hidden); });
   /** Difference is the blink's own view: entering it presses the blink's (hidden) button, leaving it presses Blink. */
   function syncBlink() {
     const inDiff = diffBtn?.getAttribute("aria-pressed") === "true";
@@ -971,22 +1149,49 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     else if (mode !== "diff" && inDiff) blinkMode("blink")?.click();
   }
   function setFilter(next: Mode) {
-    if (next === mode) return;
+    if (!enabled || next === mode) return;
     mode = next;
-    picture = null;
+    // A picture of another filter is never shown under this one's name, even while loading.
+    clearPicture();
     picked = -1;
+    stillReason = null;
     readout = mode === "comp" ? COMP_HINT : POINT_HINT;
+    clearTimeout(slowTimer);
+    clearTimeout(slideTimer);
+    if (!colourOn()) {
+      ctl?.abort();
+      say(null);
+    }
     press();
     syncBlink();
-    if (!colourOn()) ctl?.abort();
-    else void render();
+    if (colourOn()) {
+      renderKey();
+      void render();
+    }
   }
-  q<HTMLButtonElement>(bar, ".flt-off").addEventListener("click", () => setFilter("none"));
-  stillGo.addEventListener("click", () => setFilter("none"));
-  bar.querySelectorAll<HTMLButtonElement>("[data-filter]").forEach((b) =>
+  /** Back to the blink: the filter off, the read stopped, focus on the button. */
+  function removeFilter() {
+    setFilter("none");
+    openMenu(false);
+    addBtn.focus();
+  }
+  q<HTMLButtonElement>(bar, ".flt-off").addEventListener("click", removeFilter);
+  stillGo.addEventListener("click", removeFilter);
+  noteActions.addEventListener("click", (ev) => {
+    if (!enabled) return;
+    const b = (ev.target as Element).closest("button");
+    if (b?.hasAttribute("data-flt-retry")) void render();
+    else if (b?.hasAttribute("data-flt-back")) removeFilter();
+  });
+  bar.querySelectorAll<HTMLButtonElement>("[data-flt-mode]").forEach((b) =>
     b.addEventListener("click", () => {
-      setFilter(b.dataset.filter as Mode);
-      if (mode !== "wave") openMenu(false);
+      if (!enabled) return;
+      const next = b.dataset.fltMode as Mode;
+      if (next === "none") return removeFilter();
+      setFilter(next);
+      // The menu closes; Single colour hands the keyboard to its slider above the plate.
+      openMenu(false, mode !== "wave");
+      if (mode === "wave") frameIn.focus();
     }),
   );
   // The other way round: Blink or Stack pressed on the blink while Difference is the filter.
@@ -998,12 +1203,15 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     : null;
   if (diffBtn) diffWatch!.observe(diffBtn, { attributes: true, attributeFilter: ["aria-pressed"] });
   frameIn.addEventListener("input", () => {
+    if (!enabled) return;
     frame = skipBlank(Number(frameIn.value), frame);
     press();
-    void render();
+    // Read once the slider rests, not at every step of a drag (each step was a cancelled read).
+    clearTimeout(slideTimer);
+    slideTimer = setTimeout(() => void render(), SLIDE_MS);
   });
   kneeIn.addEventListener("input", () => draw());
-  q<HTMLButtonElement>(bar, "[data-sat]").addEventListener("click", (ev) => {
+  q<HTMLButtonElement>(bar, "[data-flt-sat]").addEventListener("click", (ev) => {
     showSat = !showSat;
     (ev.currentTarget as HTMLButtonElement).setAttribute("aria-pressed", String(showSat));
     drawOverlay();
@@ -1021,15 +1229,20 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     if (!menu.hidden && !bar.contains(ev.target as Node)) openMenu(false);
   };
   const onKey = (ev: KeyboardEvent) => {
-    if (ev.key === "Escape" && !menu.hidden) {
-      openMenu(false);
-      addBtn.focus();
-    }
+    if (ev.key === "Escape" && !menu.hidden) openMenu(false, true);
   };
   document.addEventListener("click", onDoc);
   document.addEventListener("keydown", onKey);
-  layer.addEventListener("pointermove", onPoint);
-  layer.addEventListener("pointerdown", onPoint);
+  window.addEventListener("resize", placeMenu);
+  // The blink starts playing by itself when it first loads: keep it paused under a still picture.
+  const playWatch = playBtn
+    ? new MutationObserver(() => {
+        if (colourOn() && !(picture?.kind === "visits" || (picture == null && followsDates()))) holdBlink(true);
+      })
+    : null;
+  if (playBtn) playWatch?.observe(playBtn, { attributes: true, attributeFilter: ["aria-pressed"] });
+  canvas.addEventListener("pointermove", onPoint);
+  canvas.addEventListener("pointerdown", onPoint);
 
   press();
 
@@ -1039,6 +1252,48 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       frames = f;
       if (colourOn()) void render();
     },
+    loading(v) {
+      const moved = !view || v.ra !== view.ra || v.dec !== view.dec;
+      view = v;
+      if (!moved) return;
+      frames = null;
+      ctl?.abort();
+      clearTimeout(slowTimer);
+      clearTimeout(slideTimer);
+      clearPicture();
+      if (colourOn()) {
+        say({ kind: "info", text: "Waiting for the new spot to load…" });
+        renderKey();
+      }
+    },
+    active(value) {
+      enabled = value;
+      bar.hidden = !value;
+      bar.style.display = value ? "" : "none";
+      col.classList.toggle("has-flt", value);
+      if (value) return;
+      generation++;
+      if (mode === "diff") blinkMode("blink")?.click();
+      mode = "none";
+      ctl?.abort();
+      for (const request of pendingReads) request.abort();
+      pendingReads.clear();
+      clearTimeout(slowTimer);
+      clearTimeout(slideTimer);
+      reader = null;
+      compReader = null;
+      satReader = null;
+      infos = new Map();
+      clearPicture();
+      say(null, false);
+      key.replaceChildren();
+      noteTitle.textContent = "";
+      noteText.textContent = "";
+      noteActions.replaceChildren();
+      delete noteActions.dataset.kind;
+      press();
+      openMenu(false);
+    },
     epoch(e) {
       const v = visitOf(e.id);
       currentMjd = e.mjd_mid;
@@ -1047,9 +1302,19 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       if (picture?.kind === "visits") drawVisit();
     },
     destroy() {
+      // Nothing of this instance reads again: not a retry, not a late goto().
+      enabled = false;
+      generation++;
       ctl?.abort();
+      for (const request of pendingReads) request.abort();
+      pendingReads.clear();
+      clearTimeout(slowTimer);
+      clearTimeout(slideTimer);
+      playWatch?.disconnect();
+      holdBlink(false);
       document.removeEventListener("click", onDoc);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", placeMenu);
       diffWatch?.disconnect();
       if (diffBtn) diffBtn.hidden = false;
       if (contrastIn && contrastHome) {
@@ -1062,6 +1327,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       tools.remove();
       key.remove();
       root.classList.remove("flt-on");
+      col.classList.remove("has-flt");
     },
   };
 }

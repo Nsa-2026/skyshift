@@ -80,6 +80,29 @@ describe("every real object.json", () => {
     expect(el.querySelector(".cd-dl")?.textContent).toMatch(/1\.83 pc/);
   });
 
+  it("names what Barnard's shift was measured on, whatever detector the player shows", () => {
+    const row = (el: HTMLElement) =>
+      [...el.querySelectorAll(".cd-dl > div")].find((d) => d.querySelector("dt")?.textContent === "Measured in")?.querySelector("dd")?.textContent;
+    const obj = load("barnard");
+    expect(obj.measure?.source?.det).toBe(2); // precompute wrote it (contracts/api.md v3.9)
+    const el = document.createElement("section");
+    const card = mountCard(el);
+    card.show({ ...viewFor("barnard"), det: 2 }, obj, null);
+    expect(row(el)).toBe("D2, visits 1 and 3 (18 and 25 exposures)");
+    card.show({ ...viewFor("barnard"), det: 6, clock: "hours", fov: 20 }, obj, null);
+    expect(row(el)).toBe("D2, visits 1 and 3 (18 and 25 exposures), not the D6 the player shows");
+    expect(el.querySelector(".cd-n")?.textContent).toBe("10.83″"); // the player doesn't change the measurement
+    // Without a source (older files, cached answers): no row, and nothing taken from the player.
+    const old = { ...obj, measure: { ...obj.measure!, source: undefined } };
+    card.show({ ...viewFor("barnard"), det: 6 }, old, null);
+    expect(row(el)).toBeUndefined();
+    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 1 and 3 \(0\.99 years\)/);
+    // The measured pair wins over the count guessed from the visits on screen.
+    const later = { ...obj, measure: { ...obj.measure!, source: { ...obj.measure!.source!, visits: [2, 3] as [number, number] } } };
+    card.show(viewFor("barnard"), later, null);
+    expect(el.querySelector(".cd-says")?.textContent).toMatch(/^moved between visits 2 and 3 \(0\.99 years\)/);
+  });
+
   it("puts Barnard's saturation on the number as note 1 and the parallax on the distance as note 2", () => {
     const el = cardFor("barnard");
     const heroRef = el.querySelector(".cd-hero .cd-ref a");
@@ -219,6 +242,46 @@ describe("states", () => {
     card.show(viewFor("rdra"), load("rdra"), null);
     expect(el.querySelector(".cd-name")?.textContent).toBe("R Draconis");
     expect(el.getAttribute("aria-busy")).toBe("false");
+  });
+
+  describe("why there is no shift (measure_reason, contracts v3.2)", () => {
+    const barnard2016: View = { ...spot, ra: 269.4485, dec: 4.7394 };
+    const moved = {
+      name: null, gaia: null, known_ucd: null, spectrum: [], measure: null, measure_reason: "moved_away",
+      measure_hint: { name: "Barnard's Star", ra: 269.446376, dec: 4.768684, mjd: 61104.25 },
+    } as ObjectResponse;
+
+    it("offers to open a fast star where it is now", () => {
+      const el = document.createElement("section");
+      const opened: { ra: number; dec: number }[] = [];
+      mountCard(el, { onExplore: (at) => opened.push(at) }).show(barnard2016, moved, null);
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/^This is a catalogue position of Barnard's Star, .* 106″ away/);
+      const a = el.querySelector<HTMLAnchorElement>("a.cd-open");
+      expect(a?.textContent).toBe("Open it where it is now");
+      expect(a?.getAttribute("href")).toBe("?ra=269.44638&dec=4.76868&clock=months&fov=5&det=2#/explore");
+      a!.click();
+      expect(opened).toEqual([{ ra: 269.446376, dec: 4.768684 }]);
+    });
+
+    it("keeps a plain link without the app, and no link for other reasons", () => {
+      const el = document.createElement("section");
+      mountCard(el).show(barnard2016, moved, null);
+      expect(el.querySelector("a.cd-open")?.getAttribute("href")).toMatch(/^\?ra=269\.44638&dec=4\.76868/);
+      mountCard(el).show(spot, { ...moved, measure_reason: "not_detected", measure_hint: null }, null);
+      expect(el.querySelector("a.cd-open")).toBeNull();
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/^Nothing stands out clearly at this spot/);
+      mountCard(el).show(spot, { ...moved, measure_hint: null }, null);
+      expect(el.querySelector("a.cd-open")).toBeNull();
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/Fast stars move/);
+    });
+
+    it("escapes a hint's name", () => {
+      const el = document.createElement("section");
+      const evil = { ...moved, measure_hint: { ...moved.measure_hint!, name: "<img src=x>" } };
+      mountCard(el, { onExplore: () => {} }).show(barnard2016, evil, null);
+      expect(el.querySelector("img")).toBeNull();
+      expect(el.querySelector(".cd-why")?.textContent).toMatch(/<img src=x>/);
+    });
   });
 
   it("escapes names", () => {

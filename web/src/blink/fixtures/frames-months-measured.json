@@ -1,0 +1,58 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC test fixture in the shape of contracts/api.md v3.3 (measured layer, months clock). Made-up numbers, not SPHEREx data. Three D2 visits and one D5 visit; Barnard's Star-like source 101.",
+  "clock": "months",
+  "center": { "ra": 269.4462, "dec": 4.76883 },
+  "pixel_arcsec": 6.15,
+  "size": [8, 8],
+  "epochs": [
+    { "id": "d2-v1", "kind": "visit", "mjd_mid": 60938.62, "mjd_start": 60929.41, "mjd_end": 60947.83, "det": 2, "um_min": 1.1, "um_max": 1.6, "n_exposures": 19, "flag_frac": 0.011, "sat_frac": 0.007, "data_url": "frames/v1-d2.bin", "scale": 0.001, "zero": 0 },
+    { "id": "d5-v1", "kind": "visit", "mjd_mid": 60938.62, "mjd_start": 60929.41, "mjd_end": 60947.83, "det": 5, "um_min": 3.8, "um_max": 4.4, "n_exposures": 19, "flag_frac": 0.011, "sat_frac": 0.007, "data_url": "frames/v1-d5.bin", "scale": 0.001, "zero": 0 },
+    { "id": "d2-v2", "kind": "visit", "mjd_mid": 61120.4, "mjd_start": 61111.18, "mjd_end": 61129.62, "det": 2, "um_min": 1.1, "um_max": 1.6, "n_exposures": 18, "flag_frac": 0.012, "sat_frac": 0.007, "data_url": "frames/v2-d2.bin", "scale": 0.001, "zero": 0 },
+    { "id": "d2-v3", "kind": "visit", "mjd_mid": 61302.715, "mjd_start": 61293.96, "mjd_end": 61311.47, "det": 2, "um_min": 1.1, "um_max": 1.6, "n_exposures": 20, "flag_frac": 0.012, "sat_frac": 0.007, "data_url": "frames/v3-d2.bin", "scale": 0.001, "zero": 0 }
+  ],
+  "gaia": [
+    { "id": "4472832130942575872", "ra": 269.44850252543836, "dec": 4.739420051112412, "pmra": -801.551, "pmdec": 10362.394, "parallax": 546.976, "g": 8.19 }
+  ],
+  "known": [],
+  "data_release": "DR1+QR3",
+  "archive_checked": "2026-11-14",
+  "measured": {
+    "zone": "t_barnard",
+    "stage": "provisional",
+    "zone_box": { "ra": [269.3, 269.6], "dec": [4.6, 4.9] },
+    "clock": "months",
+    "photos": 48,
+    "photos_missing": 2,
+    "truncated": true,
+    "counts": { "star": 6, "known": 0, "mover": 0, "suspect": 2, "artifact": 1, "other": 3 },
+    "detections": [
+      { "epoch_id": "d2-v1", "ra": 269.44623, "dec": 4.76603, "snr": 410.0, "flux_ujy": 8.1e5, "n_dots": 19, "class": "star", "source_id": 101, "gaia_id": "4472832130942575872", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v1", "ra": 269.4400, "dec": 4.7750, "snr": 55.0, "flux_ujy": 4100.0, "n_dots": 19, "class": "star", "source_id": 102, "gaia_id": "4472832130942575111", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v1", "ra": 269.4520, "dec": 4.7600, "snr": 14.0, "flux_ujy": 610.0, "n_dots": 18, "class": "other", "source_id": 103, "gaia_id": null, "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v1", "ra": 269.4430, "dec": 4.7620, "snr": 8.1, "flux_ujy": 330.0, "n_dots": 6, "class": "suspect", "source_id": 105, "gaia_id": null, "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d5-v1", "ra": 269.44624, "dec": 4.76604, "snr": 380.0, "flux_ujy": 5.2e5, "n_dots": 19, "class": "star", "source_id": 101, "gaia_id": "4472832130942575872", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v2", "ra": 269.44621, "dec": 4.76747, "snr": 405.0, "flux_ujy": 8.0e5, "n_dots": 18, "class": "star", "source_id": 101, "gaia_id": "4472832130942575872", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v2", "ra": 269.4400, "dec": 4.7750, "snr": 54.0, "flux_ujy": 4090.0, "n_dots": 18, "class": "star", "source_id": 102, "gaia_id": "4472832130942575111", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v2", "ra": 269.4500, "dec": 4.7710, "snr": 9.4, "flux_ujy": 380.0, "n_dots": 3, "class": "artifact", "source_id": 104, "gaia_id": null, "known_name": null, "track_id": null, "grade": null, "reasons": ["few_dots", "bad_fit"] },
+      { "epoch_id": "d2-v2", "ra": 269.4520, "dec": 4.7600, "snr": 13.6, "flux_ujy": 600.0, "n_dots": 18, "class": "other", "source_id": 103, "gaia_id": null, "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v3", "ra": 269.44619, "dec": 4.76889, "snr": 400.0, "flux_ujy": 7.9e5, "n_dots": 20, "class": "star", "source_id": 101, "gaia_id": "4472832130942575872", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v3", "ra": 269.4400, "dec": 4.7750, "snr": 56.0, "flux_ujy": 4120.0, "n_dots": 20, "class": "star", "source_id": 102, "gaia_id": "4472832130942575111", "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v3", "ra": 269.4520, "dec": 4.7600, "snr": 14.2, "flux_ujy": 615.0, "n_dots": 20, "class": "other", "source_id": 103, "gaia_id": null, "known_name": null, "track_id": null, "grade": null, "reasons": [] },
+      { "epoch_id": "d2-v3", "ra": 269.43022, "dec": 4.76205, "snr": 8.4, "flux_ujy": 340.0, "n_dots": 7, "class": "suspect", "source_id": 105, "gaia_id": null, "known_name": null, "track_id": null, "grade": null, "reasons": [] }
+    ],
+    "tracks": [],
+    "shifts": [
+      { "source_id": 101, "gaia_id": "4472832130942575872", "class": "star", "ra": 269.44623, "dec": 4.76603, "mjd_from": 60938.62, "mjd_to": 61302.715, "dt_yr": 0.997,
+        "dra_arcsec": -0.80, "ddec_arcsec": 10.33, "shift_arcsec": 10.36, "err_arcsec": 0.09, "pa_deg": 355.6,
+        "pmra": -802.0, "pmdec": 10360.0, "pm_err": 90.0, "pm_snr": 115.4 },
+      { "source_id": 105, "gaia_id": null, "class": "suspect", "ra": 269.4430, "dec": 4.7620, "mjd_from": 60938.62, "mjd_to": 61302.715, "dt_yr": 0.997,
+        "dra_arcsec": 0.62, "ddec_arcsec": 0.18, "shift_arcsec": 0.65, "err_arcsec": 0.2, "pa_deg": 73.8,
+        "pmra": 622.0, "pmdec": 181.0, "pm_err": 200.0, "pm_snr": 3.2 },
+      { "source_id": 103, "gaia_id": null, "class": "other", "ra": 269.4520, "dec": 4.7600, "mjd_from": 60938.62, "mjd_to": 61302.715, "dt_yr": 0.997,
+        "dra_arcsec": 0.30, "ddec_arcsec": -0.25, "shift_arcsec": 0.39, "err_arcsec": 0.11, "pa_deg": 129.8,
+        "pmra": 301.0, "pmdec": -251.0, "pm_err": 110.0, "pm_snr": 3.6 }
+    ]
+  },
+  "measured_reason": null
+}

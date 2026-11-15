@@ -381,7 +381,7 @@ const votes: Builder = async (el, host) => {
   const rows: string[] = [];
   const v4 = val?.checks.find((c) => c.id === "V4");
   const v5 = val?.checks.find((c) => c.id === "V5");
-  if (sus) rows.push(`<div><dt>Proposed</dt><dd>${sus.suspects.length} suspects from the ${esc(sus.zone)} zone (${esc(sus.data_release)}).</dd></div>`);
+  if (sus) rows.push(`<div><dt>Proposed</dt><dd>${sus.suspects.length.toLocaleString("en-GB")} suspects from the ${esc(sus.zone)} zone (${esc(sus.data_release)}).</dd></div>`);
   if (v4) rows.push(`<div><dt>Known asteroids, targeted</dt><dd>${esc(v4.headline)}.</dd></div>`);
   if (v5) rows.push(`<div><dt>Known asteroids, blind</dt><dd>${esc(v5.headline.replace(/^pilot:\s*/i, ""))}.</dd></div>`);
   if (rows.length)
@@ -440,7 +440,7 @@ export const FIGURES: Record<FigureId, { builder: Builder; slug: string | null; 
 
 function failure(slug: string | null): string {
   return `<p class="ln-fail" role="status">This example didn't load. ${
-    slug ? `<a href="${exploreHref(slug)}">Open it on the Blink page</a> instead.` : "Reload the page to try again."
+    slug ? `<a href="${exploreHref(slug)}">Open it in the Viewer</a> instead.` : "Reload the page to try again."
   }</p>`;
 }
 

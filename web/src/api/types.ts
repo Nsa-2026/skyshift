@@ -64,6 +64,113 @@ export interface FramesResponse {
   known: KnownObject[];
   data_release: string;
   archive_checked: string;
+  /** v3.3, optional: what SkyShift's own pipeline detected in these photos. null: nothing measured
+   *  here (measured_reason says why). Absent (older files and answers): not computed. */
+  measured?: Measured | null;
+  /** v3.3, optional: why `measured` is null; null when it is set. */
+  measured_reason?: MeasuredReason | null;
+}
+
+// ---- The measured layer (contracts/api.md v3.3, "measured: what SkyShift measured") ------------
+
+/** First rule that applies, per clock (contracts/api.md). `known` and `mover` occur on the hours clock only. */
+/** `stack` (v3.13, months): seen only on the per-visit stacks. Unknown classes are read as `other`. */
+export type MeasuredClass = "star" | "known" | "mover" | "suspect" | "artifact" | "other" | "stack";
+export type MeasuredReason = "not_processed" | "processing" | "no_dots" | "unavailable";
+
+/** Hours: one per dot of a photo. Months: one per linked source and visit (that visit's dots). */
+export interface MeasuredDetection {
+  /** The epochs[].id it was measured in. */
+  epoch_id: string;
+  /** deg, ICRS, raw. */
+  ra: number;
+  dec: number;
+  snr: number;
+  /** µJy, r = 2 px aperture, raw (× 1.033 for the total). */
+  flux_ujy: number;
+  n_dots: number;
+  class: MeasuredClass;
+  /** The pipeline's linked source, an integer below 2^53. Months: always set. */
+  source_id: number | null;
+  /** Gaia DR3 source_id as a string, like gaia[].id. */
+  gaia_id: string | null;
+  /** known[].name it matched (class known). */
+  known_name: string | null;
+  /** tracks[].id of the mover it belongs to. */
+  track_id: string | null;
+  /** Suspects only, when graded by the vetting. */
+  grade: "A" | "B" | "C" | null;
+  /** Codes, shown as given: artefact reasons, a suspect's failed gates, `near_gaia` for a mover. */
+  reasons: string[];
+}
+
+export interface MeasuredTrackDot {
+  ra: number;
+  dec: number;
+  /** The photo's MJD-AVG. */
+  mjd: number;
+  epoch_id: string;
+}
+
+/** Hours clock: one pipeline mover, its dots in this response in time order. */
+export interface MeasuredTrack {
+  id: string;
+  class: "suspect" | "known" | "artifact" | "mover";
+  suspect_id: string | null;
+  known_name: string | null;
+  evidence: "two_exposures" | "two_detectors";
+  dots: MeasuredTrackDot[];
+}
+
+/** Months clock: a fitted motion with pm_snr ≥ 3. The arrow starts at (ra, dec) at mjd_from and
+ *  ends at (ra, dec) + (dra_arcsec, ddec_arcsec). */
+export interface MeasuredShift {
+  source_id: number;
+  gaia_id: string | null;
+  class: MeasuredClass;
+  /** deg: the fit's position at mjd_from. */
+  ra: number;
+  dec: number;
+  mjd_from: number;
+  mjd_to: number;
+  dt_yr: number;
+  /** arcsec: east (already × cos dec) and north, over dt_yr. */
+  dra_arcsec: number;
+  ddec_arcsec: number;
+  shift_arcsec: number;
+  /** 1σ per axis, arcsec. */
+  err_arcsec: number;
+  /** East of north, 0–360. */
+  pa_deg: number;
+  /** mas/yr (pmra × cos dec), 1σ per axis, and pm / error. */
+  pmra: number;
+  pmdec: number;
+  pm_err: number;
+  pm_snr: number;
+}
+
+export interface Measured {
+  /** Pipeline zone: "hunt", "ecl13", "t_barnard", … */
+  zone: string;
+  /** "extracted" (coming): every extracted photo's detections classed against Gaia only, before the
+   *  zone is combined. Other strings may appear later: show them, never break on them. */
+  stage: "provisional" | "final" | "extracted" | (string & {});
+  /** deg. Outside it nothing is linked: dots there are `other`. */
+  zone_box: { ra: [number, number]; dec: [number, number] };
+  clock: Clock;
+  /** Photos of this response whose dot file was read / had none. */
+  photos: number;
+  photos_missing: number;
+  /** true when detections was capped (250 per epoch, non-star classes first). */
+  truncated: boolean;
+  /** Detections per class, before the cap. `stack` (v3.13) only where the zone has stack sources. */
+  counts: Record<Exclude<MeasuredClass, "stack">, number> & { stack?: number };
+  /** Sorted by epoch_id, then snr descending. */
+  detections: MeasuredDetection[];
+  /** Hours: movers with a dot in this response. Months: []. */
+  tracks: MeasuredTrack[];
+  /** Months: fitted motions, highest pm_snr first. Hours: []. */
+  shifts: MeasuredShift[];
 }
 
 export interface SpectrumPoint {
@@ -84,6 +191,21 @@ export interface Measure {
   sigma_arcsec: number;
   n_ref_stars: number;
   predicted_arcsec: number | null;
+  /** v3.9, optional: what the shift was measured on. Absent or null: unknown (older files and answers). */
+  source?: MeasureSource | null;
+}
+
+/** contracts/api.md v3.9 `measure.source`: the two visit stacks the server measured, [first, last]. */
+export interface MeasureSource {
+  det: Det;
+  visits: [number, number];
+  /** Median MJD-AVG of each stack's exposures: the times dt_yr comes from. */
+  mjd: [number, number];
+  n_exposures: [number, number];
+  /** The measurement's own grid (arcmin, arcsec per pixel), not the player's field. */
+  fov: number;
+  pixel_arcsec: number;
+  core_filled: [boolean, boolean];
 }
 
 export interface KnownUcd {
@@ -92,12 +214,27 @@ export interface KnownUcd {
   ref: string;
 }
 
+/** Why `measure` is null (contracts/api.md v3.2). */
+export type MeasureReason = "few_visits" | "not_detected" | "edge" | "different_sources" | "no_time" | "moved_away";
+
+/** With `moved_away`: the fast star catalogued at this position, and where it is at `mjd` (the middle of SPHEREx's visits). */
+export interface MeasureHint {
+  name: string | null;
+  ra: number;
+  dec: number;
+  mjd: number;
+}
+
 export interface ObjectResponse {
   name: string | null;
   gaia: GaiaStar | null;
   known_ucd: KnownUcd | null;
   spectrum: SpectrumPoint[];
   measure: Measure | null;
+  /** Optional (v3.2): why `measure` is null. Static files and older answers leave it out: read as null. */
+  measure_reason?: MeasureReason | null;
+  /** Optional (v3.2): set with `measure_reason` "moved_away" only. */
+  measure_hint?: MeasureHint | null;
 }
 
 export interface ResolveResponse {
@@ -129,6 +266,9 @@ export interface ValidationResponse {
   checks: ValidationCheck[];
 }
 
+/** The pipeline's vetting grade (contracts/api.md, added 14 Nov). Words and ranking: ./grades.ts. */
+export type Grade = "A" | "B" | "C";
+
 export interface Suspect {
   id: string;
   ra: number;
@@ -143,6 +283,20 @@ export interface Suspect {
   /** 6″ sky-cell id (contracts/dots.md), an integer below 2^53. */
   cell: number;
   nearest_known_arcsec: number | null;
+  /** Vetting (added 14 Nov). Absent in older files: then the suspect is not vetted yet, never B. */
+  grade?: Grade;
+  /** The gates it fails, in contract order (empty for A and B). */
+  reasons?: string[];
+  /** Nearest catalogue or fixed source within 10″, arcsec: a warning, not a gate. */
+  near_source_arcsec?: number | null;
+  /** The track it is on (api v3.4, pipeline tracklets): sessions with a mover on it; null off a track, absent without tracks. */
+  n_sessions?: number | null;
+  /** The track's rate at this suspect's time, ″/h. */
+  rate_arcsec_h?: number | null;
+  /** The track's direction, degrees east of north. */
+  pa_deg?: number | null;
+  /** 1σ error of rate_arcsec_h, ″/h. */
+  rate_sigma?: number | null;
 }
 
 export interface SuspectsResponse {
@@ -150,6 +304,11 @@ export interface SuspectsResponse {
   data_release: string;
   zone: string;
   suspects: Suspect[];
+  /** Vetting (added 14 Nov), per zone. Absent in older files. */
+  vetoes?: string[];
+  provisional?: boolean;
+  grades?: Record<Grade, number>;
+  gates?: Record<string, number>;
 }
 
 /** /data/<slug>/index.json: written by scripts/precompute (P2), lists the frame sets of a featured target. */
@@ -158,7 +317,8 @@ export interface TargetIndex {
   name: string;
   center: SkyPos;
   own: string;
-  follows_object?: string;
+  /** True when the frames follow a moving object (3I/ATLAS), each epoch with its own `center`. */
+  follows_object?: boolean;
   frames: { file: string; clock: Clock; fov: number; dets: Det[]; epochs: number; bytes: number }[];
 }
 
@@ -178,8 +338,9 @@ export interface LoadedFrames {
 // ---- Community discovery: candidates for people to review (contracts/api.md, candidates.json, proposal v2.2)
 
 /** mover: moves within hours (possible new asteroid or comet); high_pm: moves between visits
- *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look. */
-export type CandidateKind = "mover" | "high_pm" | "spectral";
+ *  (possible nearby star or brown dwarf); spectral: molecule bands or colours worth a look;
+ *  shape: wider or longer than a single star where the catalogues list one object (one or two?). */
+export type CandidateKind = "mover" | "high_pm" | "spectral" | "shape";
 
 export interface Candidate {
   id: string;
@@ -219,12 +380,105 @@ export interface Candidate {
   flags: string[];
   /** Static blink frames for this candidate (frames.json shape), or null: then the live API is used. */
   frames_url: string | null;
+  /** Movers: the vetting grade (added 14 Nov). null or absent: not graded (other kinds, older exports). */
+  grade?: Grade | null;
 }
 
 export interface CandidatesResponse {
   generated: string;
   data_release: string;
   zones: string[];
-  counts: Record<CandidateKind, number>;
+  /** Files written before the shape kind (api v3.7) have no `shape` key: read it as 0. */
+  counts: Record<Exclude<CandidateKind, "shape">, number> & { shape?: number };
   candidates: Candidate[];
+}
+
+// ---- The distant-planet search (contracts/api.md v3.6, /data/distant.json; pipeline step `orphans`)
+
+/** One passing pair: an orphan of the earlier visit (_a) and one of the later visit (_b). Degrees, MJD, arcsec, AU. */
+export interface DistantPair {
+  source_id_a: number;
+  source_id_b: number;
+  visit_a: number;
+  visit_b: number;
+  ra_a: number;
+  dec_a: number;
+  mjd_a: number;
+  ra_b: number;
+  dec_b: number;
+  mjd_b: number;
+  sep_arcsec: number;
+  dlon_arcsec: number;
+  dlat_arcsec: number;
+  distance_au: number;
+  distance_lo_au: number | null;
+  distance_hi_au: number | null;
+  /** Flux B / A, geometric mean over the detectors measured in both. */
+  flux_ratio: number | null;
+  n_common_det: number;
+  n_dots_a: number;
+  n_dots_b: number;
+  snr_a: number | null;
+  snr_b: number | null;
+  p: number;
+  known_a: string | null;
+  known_b: string | null;
+}
+
+export interface DistantInjectionRow {
+  distance_au: number;
+  injected: number;
+  recovered: number;
+  recovered_frac: number | null;
+  distance_fit_median_au: number | null;
+}
+
+export interface DistantResponse {
+  generated: string;
+  data_release: string;
+  zone: string;
+  zone_box: { ra: [number, number]; dec: [number, number] } | null;
+  run_created: string;
+  searched: {
+    distance_au: [number, number];
+    sep_arcsec: [number, number];
+    rate_arcsec_h: [number, number];
+    pair_min_p: number;
+  };
+  counts: {
+    single_visit_sources: number;
+    uncatalogued: number;
+    covered: number;
+    orphans: number;
+    dropped: Record<string, number>;
+    drift_ok: number;
+    pairs_tested: number;
+    pairs: number;
+    known_orphans: number;
+    open_orphans: number;
+  };
+  pairs: DistantPair[];
+  control: {
+    n: number;
+    passing_per_control: number[];
+    expected_pairs: number | null;
+    spread_pairs: number | null;
+    poisson_p: number | null;
+    beyond_chance: boolean;
+    method: string;
+  };
+  injection: {
+    method: string;
+    distances: DistantInjectionRow[];
+    recovered_frac: number | null;
+    min_cell_recovered_frac: number | null;
+    distance_err_median_frac: number | null;
+  } | null;
+  limits: {
+    /** Single-exposure depth (AB mag) per detector, keys "D1".."D6". */
+    depth_ab_snr5: Record<string, number>;
+    /** Farthest distance (AU) at which a planet is as bright as the D2 depth, keys "<planet>_p<albedo>". */
+    reach_au: Record<string, number>;
+    notes: string[];
+  };
 }

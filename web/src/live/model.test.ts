@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import real from "./fixtures/skyrun-real-1410Z.json";
+import real2 from "./fixtures/skyrun-real-1440Z.json";
+import real3 from "./fixtures/skyrun-real-1505Z.json";
 import sample from "./fixtures/skyrun-sample.json";
 import { fmtAbout, fmtAgo, fmtCount, fmtDec, fmtDuration, fmtTimePair } from "./format";
 import {
   DEFAULT_DEADLINE,
+  isProvisional,
   SkyrunInvalid,
   changedZones,
   normaliseState,
   parseSkyrun,
   parseTime,
   summarize,
+  workerOf,
   zoneArea,
   zoneCentre,
   zoneContains,
@@ -115,25 +119,95 @@ describe("summarize", () => {
   it("derives rates and an ETA from the zones done since the start", () => {
     const hours = (T(sample.updated) - T(sample.started)) / 3600e3;
     expect(s.hoursRunning).toBeCloseTo(hours);
-    expect(s.photosPerHour).toBeCloseTo(sample.totals.photos / hours);
+    // the run's own pace wins over our average
+    expect(s.photosPerHour).toBe(sample.pace_photos_per_hour);
+    expect(s.paceFrom).toBe("run");
+    const noPace = summarize(parseSkyrun({ ...sample, pace_photos_per_hour: null }), now);
+    expect(noPace.photosPerHour).toBeCloseTo(sample.totals.photos / hours);
+    expect(noPace.paceFrom).toBe("average");
+    // photos by the run's end = photos now + pace × hours left (from the update)
+    expect(s.photosByEnds).toBeCloseTo(
+      sample.totals.photos + (sample.pace_photos_per_hour * (T(sample.ends) - T(sample.updated))) / 3600e3,
+    );
     // the hunt zone (combined before the start) doesn't count towards the pace
     expect(s.zonesCombinedPerHour).toBeCloseTo((s.counts.combined - 1) / hours);
     expect(s.etaExtracted).toBeGreaterThan(T(sample.updated));
     expect(s.etaCombined).toBeGreaterThanOrEqual(s.etaExtracted!);
-    expect(s.endsIn).toBe(T("2026-11-15T06:00:00Z") - now);
+    expect(s.endsIn).toBe(T("2026-11-15T05:00:00Z") - now);
     expect(s.deadlineIn).toBe(T("2026-11-15T09:00:00Z") - now);
   });
 
   it("summarises machines with their current zone and work", () => {
-    expect(s.cpus).toBe(216);
+    expect(s.cpus).toBe(224);
+    expect(s.machines.map((m) => m.label)).toEqual(["worker", "od", "od2", "test"]);
     const worker = s.machines.find((m) => m.label === "worker")!;
     expect(worker.running).toBe(true);
     expect(worker.statusText).toBe("running");
     expect(worker.current?.state).toBe("extracting");
     expect(worker.extracted).toBeGreaterThan(0);
+    // combining is credited to the combiner, not the extractor
+    for (const m of s.machines) for (const z of m.combining) expect(z.combiner).toBe(m.label);
+    const combining = run.zones.filter((z) => z.state === "combining");
+    expect(s.machines.reduce((n, m) => n + m.combining.length, 0)).toBe(combining.length);
     expect(s.active.every((z) => z.state === "extracting" || z.state === "combining")).toBe(true);
     expect(s.recent.length).toBeLessThanOrEqual(5);
     expect(s.recent[0].combined_at).toBeGreaterThanOrEqual(s.recent[1].combined_at!);
+  });
+
+  it("takes the bar from the run's progress block, else works it out", () => {
+    expect(s.bar).toMatchObject({
+      from: "run",
+      combinedPct: sample.progress.combined_pct,
+      extractedPct: sample.progress.extracted_pct,
+      timePct: sample.progress.time_pct,
+      projectedPct: sample.progress.projected_extracted_pct,
+      projectedZones: sample.progress.projected_extracted_by_ends,
+    });
+    const own = summarize(parseSkyrun({ ...sample, progress: undefined }), now);
+    expect(own.bar.from).toBe("page");
+    expect(own.bar.combinedPct).toBeCloseTo((100 * s.counts.combined) / 333);
+    expect(own.bar.extractedPct).toBeCloseTo((100 * s.pastExtraction) / 333);
+    expect(own.bar.timePct).toBeCloseTo(sample.progress.time_pct, 0);
+    expect(own.bar.projectedPct).toBeGreaterThanOrEqual(own.bar.extractedPct);
+    // a restarted writer: no pace yet, so no projection
+    const restarted = summarize(parseSkyrun({ ...sample, progress: { ...sample.progress, zones_per_hour: null, projected_extracted_pct: null, projected_extracted_by_ends: null } }), now);
+    expect(restarted.bar.projectedPct).toBeNull();
+    expect(restarted.bar.from).toBe("run");
+  });
+
+  it("reads the newer fields of the real file: labels, combiner, final pass", () => {
+    const r = parseSkyrun(real2);
+    expect(r.machines.map((m) => m.label)).toEqual(["worker", "od", "od2"]);
+    expect(r.final_pass_starts).toBe(T("2026-11-15T05:00:00Z"));
+    expect(r.pace_photos_per_hour).toBeNull();
+    const ecl13 = r.zones.find((z) => z.name === "ecl13")!;
+    expect(ecl13).toMatchObject({ state: "combining", machine: "worker", combiner: "od" });
+    expect(workerOf(ecl13)).toBe("od");
+    expect(r.zones.find((z) => z.name === "hunt")!.suspects_url).toBe("https://storage.googleapis.com/nasa-glazing-live/skyrun/suspects/hunt.json");
+    const od = summarize(r, T("2026-11-14T14:41:00Z")).machines.find((m) => m.label === "od")!;
+    expect(od.combining.map((z) => z.name)).toEqual(["ecl13"]);
+  });
+
+  it("reads deferred zones, checks and notes (real file, 15:05 UTC); provisional = no WISE check", () => {
+    const r = parseSkyrun(real3);
+    expect(r.totals.deferred).toBe(25);
+    expect(r.zones.filter((z) => z.deferred)).toHaveLength(25);
+    expect(r.notes.deferred).toMatch(/^Galactic bulge zones: very crowded/);
+    expect(r.notes.provisional).toMatch(/^Provisional results \(overnight\): checked against Gaia only\./);
+    const hunt = r.zones.find((z) => z.name === "hunt")!;
+    expect(hunt.checks).toBe("gaia+catwise");
+    expect(isProvisional(hunt)).toBe(false);
+    expect(isProvisional(r.zones.find((z) => z.name === "ecl13")!)).toBe(true);
+    const sum = summarize(r, T("2026-11-14T15:07:00Z"));
+    expect(sum.deferred).toEqual({ total: 25, queued: 25 });
+    expect(sum.provisionalCombined).toBe(0);
+    // older files: no checks, so provisional until final; no notes; deferred from totals when no zones are listed
+    expect(isProvisional({ checks: null, final: false })).toBe(true);
+    expect(isProvisional({ checks: null, final: true })).toBe(false);
+    expect(isProvisional({ checks: "Gaia + CatWISE", final: false })).toBe(false);
+    expect(parseSkyrun(real2).notes).toEqual({ deferred: null, provisional: null });
+    const bare = summarize(parseSkyrun({ schema: 1, totals: { zones: 333, deferred: 25 } }), T("2026-11-14T15:07:00Z"));
+    expect(bare.deferred).toEqual({ total: 25, queued: 25 });
   });
 
   it("is stale after 10 minutes without an update", () => {

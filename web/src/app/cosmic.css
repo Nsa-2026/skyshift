@@ -1,0 +1,119 @@
+/* One real SPHEREx backdrop connects the opening to every full-page workspace.
+   Lightbox tokens stay unchanged: plates, marks and scientific charts retain their colours. */
+#app.cosmic-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  --cosmic-surface: rgba(248, 250, 249, .96);
+  --cosmic-text: #f5f7f9;
+  --cosmic-muted: #d1dce6;
+  --cosmic-line: rgba(219, 232, 244, .25);
+  --cosmic-gutter: var(--s5);
+}
+.site-sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: #05090f;
+  overflow: hidden;
+}
+.site-sky::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('/opening/spherex-sky.webp') center / cover no-repeat;
+  transform: scale(1.24) rotate(.7deg);
+  transform-origin: center;
+}
+.site-sky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #050b1533, #050b1570 70%, #050b1599);
+}
+#app.cosmic-shell .top {
+  background: var(--cosmic-surface);
+  margin-inline: calc(-1 * var(--cosmic-gutter));
+  padding-inline: var(--cosmic-gutter);
+}
+#app.cosmic-shell .top { border-bottom: 1px solid var(--hair); }
+#app.cosmic-shell .featured {
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--s3) var(--s4);
+  margin: var(--s3) 0 var(--s5);
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  background: var(--cosmic-surface);
+}
+#app.cosmic-shell .find-msg { color: var(--cosmic-muted); }
+#app.cosmic-shell .find-msg[data-kind='error'] { color: #ffb9bd; }
+#app.cosmic-shell .workspace-head {
+  color: var(--cosmic-text);
+  border-top-color: var(--cosmic-line);
+}
+#app.cosmic-shell .workspace-eyebrow,
+#app.cosmic-shell .workspace-description { color: var(--cosmic-muted); }
+#app.cosmic-shell .workspace-head .btn-primary { background: var(--sheet); color: var(--ink); }
+#app.cosmic-shell .page-blink > .stage,
+#app.cosmic-shell #science-workbench,
+#app.cosmic-shell .practice-task,
+#app.cosmic-shell .practice-panel,
+#app.cosmic-shell .workspace-selection,
+#app.cosmic-shell .page-blink > .below > *,
+#app.cosmic-shell .page:not(.page-atlas):not(.page-blink),
+#app.cosmic-shell .atl-below {
+  min-width: 0;
+  padding: clamp(16px, 2vw, 24px);
+  background: var(--cosmic-surface);
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px #0003;
+}
+#app.cosmic-shell .page:not(.page-atlas):not(.page-blink) { margin-top: var(--s5); }
+#app.cosmic-shell .page-blink > .stage { padding: var(--s3); }
+#app.cosmic-shell .below { border-top-color: var(--cosmic-line); }
+#app.cosmic-shell .foot,
+#app.cosmic-shell .foot a,
+#app.cosmic-shell .foot-replay { color: var(--cosmic-muted); border-color: var(--cosmic-line); }
+
+/* The atlas is a map floating in the same sky, with clearly bounded light controls. */
+#app.cosmic-shell .atl-stage { background: transparent; border-color: var(--cosmic-line); }
+#app.cosmic-shell .atl-limb-mat { fill: transparent; }
+#app.cosmic-shell .atl-limb-edge { stroke: #d2e2f16b; }
+#app.cosmic-shell .sky-paths-head,
+#app.cosmic-shell .sky-paths-head p,
+#app.cosmic-shell .sky-paths-note { color: var(--cosmic-muted); }
+#app.cosmic-shell .sky-paths h2 { color: var(--cosmic-text); }
+#app.cosmic-shell .sky-paths-grid a { border-radius: 14px; background: var(--cosmic-surface); }
+#app.cosmic-shell .atl-intro,
+#app.cosmic-shell .atl-controls,
+#app.cosmic-shell .atl-more,
+#app.cosmic-shell .atl-drawer,
+#app.cosmic-shell .atl-pin { background: var(--cosmic-surface); border-radius: 14px; }
+#app.cosmic-shell .atl-status,
+#app.cosmic-shell .atl-zoom,
+#app.cosmic-shell .atl-continue { background: var(--cosmic-surface); }
+
+#app.cosmic-shell .atl-msg { color: var(--cosmic-muted); }
+#app.cosmic-shell .atl-msg[data-kind='error'] { color: #ffb9bd; }
+#app.cosmic-shell .atl-note p {
+  padding: var(--s4);
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  background: var(--cosmic-surface);
+  color: var(--ink);
+}
+
+@media(max-width:720px) {
+  #app.cosmic-shell { --cosmic-gutter: var(--s4); }
+}
+
+@media(max-width:600px) {
+  #app.cosmic-shell #science-workbench,
+  #app.cosmic-shell .practice-task,
+  #app.cosmic-shell .practice-panel,
+  #app.cosmic-shell .page:not(.page-atlas):not(.page-blink) { padding: var(--s4); }
+}

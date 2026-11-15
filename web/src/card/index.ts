@@ -19,9 +19,13 @@ import {
   isDetectedMotion,
   isUpperLimit,
   listDets,
+  measureReasonOf,
   measureSentence,
+  measureSource,
+  measuredIn,
   measuredVisitCount,
   median,
+  missingVisitsSentence,
   noMeasureReason,
   paVector,
   paWord,
@@ -31,6 +35,7 @@ import {
   visitCountFromFrames,
   visitTimesFromFrames,
   visitTimesFromSpectrum,
+  visitsMissingFromSpectrum,
   visitsOf,
 } from "./format";
 import { describeVisit, lightCurveDets, renderLightCurve } from "./lightcurve";
@@ -61,8 +66,11 @@ interface Note {
   html: string;
 }
 
-export const mountCard: MountCard = (el) => {
+export const mountCard: MountCard = (el, options = {}) => {
+  let reference: {um: number; flux_ujy: number}[] = [];
+  let section: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' | ('motion' | 'spectrum')[] = 'all';
   const id = `cd${++uid}`;
+  let noteId = id;
   el.classList.add("cd");
   let shown: Shown | null = null;
   let mode: SpectrumMode = "det";
@@ -70,12 +78,15 @@ export const mountCard: MountCard = (el) => {
   let loading = false;
   let staleObject: ObjectResponse | null = null;
   let width = 0;
+  let resizeObserver: ResizeObserver | undefined;
   const readables: Readable[] = [];
 
   function measureWidth(): number {
-    const w = el.clientWidth;
+    const panel = el.querySelector<HTMLElement>('[data-card-dashboard="spectrum"]') ?? el.querySelector<HTMLElement>('[data-card-dashboard]');
+    const measured = panel ?? el;
+    const w = measured.clientWidth;
     if (!w) return 352;
-    const cs = typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
+    const cs = typeof getComputedStyle === "function" ? getComputedStyle(measured) : null;
     const padX = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
     return Math.max(280, w - padX);
   }
@@ -91,19 +102,41 @@ export const mountCard: MountCard = (el) => {
     const { view, object, pending } = shown;
     el.dataset.state = "ready";
     el.setAttribute("aria-busy", String(pending));
+    if (Array.isArray(section)) {
+      el.innerHTML = section.map(key => {
+        noteId = `${id}-${key}`;
+        const notes = notesFor(object);
+        const content = pending ? skeletonHtml(false) : headHtml(view, object, false) + (key === 'motion'
+          ? measureHtml(shown!, notes)
+          : (options.plots === false ? '' : spectrumHtml(object, notes)) + notesHtml(notes));
+        return dashboardHtml(key, content);
+      }).join('');
+      noteId = id;
+      wire();
+      return;
+    }
     if (pending) {
       el.innerHTML = headHtml(view, null, true) + skeletonHtml(false) + lookForHtml(view);
       return;
     }
-    const notes = notesFor(object);
+    const notes = section === 'summary'
+      ? notesFor(object).filter(n=>n.key==='sat').map(n=>({...n,html:object&&satQualifiesShift(object)
+        ? 'The target core is saturated. Its motion is measured on the wings, outside the saturated core.'
+        : 'Some spectral measurements are saturated. Brightness estimates in those bands are approximate.'}))
+      : notesFor(object);
     el.innerHTML = [
       headHtml(view, object, false),
-      measureHtml(shown, notes),
-      spectrumHtml(object, notes),
-      lightCurveHtml(object),
-      lookForHtml(view),
+      ['all','summary','motion'].includes(section) ? measureHtml(shown, notes) : '',
+      options.plots === false || !['all','spectrum'].includes(section) ? "" : spectrumHtml(object, notes),
+      options.plots === false || !['all','lightcurve'].includes(section) ? "" : lightCurveHtml(object),
+      ['all','summary'].includes(section) ? lookForHtml(view) : '',
     ].join("");
     wire();
+  }
+
+  function dashboardHtml(key:'motion'|'spectrum',content:string):string {
+    const label=key==='motion'?'Motion':'Spectrum';
+    return `<section class="wb-dashboard" data-card-dashboard="${key}" aria-label="${label} dashboard"><header class="wb-dashboard-head"><h2>${label}</h2><button class="wb-dashboard-close" type="button" data-close-dashboard="${key}" aria-label="Close ${label} dashboard">×</button></header><div class="wb-dashboard-body">${content}</div></section>`;
   }
 
   // ---- name and what it is -------------------------------------------------------------------
@@ -162,13 +195,13 @@ export const mountCard: MountCard = (el) => {
   function ref(notes: Note[], key: Note["key"]): string {
     const i = notes.findIndex((n) => n.key === key);
     if (i < 0) return "";
-    return `<sup class="cd-ref"><a href="#${id}-fn-${key}" data-note="${key}" aria-label="Note ${i + 1}">${i + 1}</a></sup>`;
+    return `<sup class="cd-ref"><a href="#${noteId}-fn-${key}" data-note="${key}" aria-label="Note ${i + 1}">${i + 1}</a></sup>`;
   }
 
   function notesHtml(notes: Note[]): string {
     if (!notes.length) return "";
     return html`<ol class="cd-notes" aria-label="Notes">
-      ${notes.map((n, i) => `<li id="${id}-fn-${n.key}" tabindex="-1"><span class="cd-note-n" aria-hidden="true">${i + 1}</span><p>${n.html}</p></li>`).join("")}
+      ${notes.map((n, i) => `<li id="${noteId}-fn-${n.key}" tabindex="-1"><span class="cd-note-n" aria-hidden="true">${i + 1}</span><p>${n.html}</p></li>`).join("")}
     </ol>`;
   }
 
@@ -176,6 +209,7 @@ export const mountCard: MountCard = (el) => {
   function measureHtml(s: Shown, notes: Note[]): string {
     const object = s.object;
     const m = object?.measure ?? null;
+    const src = m ? measureSource(m) : null; // v3.9; absent in older files: then we don't name it
     const g = object?.gaia ?? null;
     const pc = distancePc(g?.parallax);
     const items: [string, string][] = [];
@@ -191,6 +225,7 @@ export const mountCard: MountCard = (el) => {
       ]);
       items.push(["Reference stars", `${m.n_ref_stars} Gaia stars`]);
       items.push(["Slowest visible", `${arcsec(detectionLimit(m))} <span class="cd-dim">(3σ)</span>`]);
+      if (src) items.push(["Measured in", measuredIn(src, s.view.det)]);
     }
     if (m || g) {
       const value = pc != null ? `${formatDistance(pc)} pc <span class="cd-dim">(${formatDistance(pcToLy(pc))} ly)</span>` : g ? "no parallax" : "not in Gaia";
@@ -198,17 +233,18 @@ export const mountCard: MountCard = (el) => {
     }
     const u = object?.known_ucd;
     if (u) items.push(["Spectral type", `${esc(u.spt)} <span class="cd-dim">(${esc(u.ref)})</span>`]);
-    const dl = items.length
+    const dl = items.length && section !== 'summary'
       ? `<dl class="cd-dl">${items.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`
       : "";
 
     if (!m) {
       const kind = kindOf(s.view, object);
       const visits = visitCountFromFrames(s.frames, s.view, s.view.fov);
-      const why = noMeasureReason({ object, kind, visits, follows: framesFollow(s.frames) });
+      const why = noMeasureReason({ object, kind, visits, follows: framesFollow(s.frames), at: s.view });
       return html`<section class="cd-measure" aria-labelledby="${id}-m">
         <h3 class="visually-hidden" id="${id}-m">Shift between visits</h3>
-        <p class="cd-why">${why}</p>
+        <p class="cd-why">${esc(why)}</p>
+        ${movedAwayLink(s)}
         ${dl}${notesHtml(notes)}
       </section>`;
     }
@@ -216,7 +252,7 @@ export const mountCard: MountCard = (el) => {
     const seen = isDetectedMotion(m);
     const who = g ? "Gaia" : "The published proper motion";
     const times = visitTimesFromFrames(s.frames, s.view, s.view.fov) ?? visitTimesFromSpectrum(object?.spectrum ?? []);
-    const said = measureSentence(m, { visits: measuredVisitCount(m, times), who });
+    const said = measureSentence(m, { visits: src?.visits ?? measuredVisitCount(m, times), who });
     const spoken = `${m.shift_arcsec.toFixed(2)} arcseconds, plus or minus ${m.sigma_arcsec.toFixed(2)}.`;
     return html`<section class="cd-measure" aria-labelledby="${id}-m">
       <h3 class="visually-hidden" id="${id}-m">Shift between visits</h3>
@@ -229,6 +265,16 @@ export const mountCard: MountCard = (el) => {
       <p class="cd-says">${said}</p>
       ${dl}${notesHtml(notes)}
     </section>`;
+  }
+
+  /** "Open it where it is now": a star catalogued here that had moved away by SPHEREx's visits. */
+  function movedAwayLink(s: Shown): string {
+    const hint = s.object?.measure_hint ?? null;
+    if (measureReasonOf(s.object) !== "moved_away" || !hint || !Number.isFinite(hint.ra) || !Number.isFinite(hint.dec)) return "";
+    const v = s.view;
+    const q = new URLSearchParams({ ra: hint.ra.toFixed(5), dec: hint.dec.toFixed(5), clock: v.clock, fov: String(v.fov), det: String(v.det) });
+    // The sentence just above names the star; a button with a long Gaia id wouldn't fit a phone.
+    return html`<p><a class="btn btn-ghost cd-open" href="?${esc(q.toString())}#/explore" data-ra="${hint.ra}" data-dec="${hint.dec}">Open it where it is now</a></p>`;
   }
 
   /** A pencil arrow in the plate's orientation (north up, east left). */
@@ -267,12 +313,13 @@ export const mountCard: MountCard = (el) => {
     }
     const visits = visitsOf(sp);
     if (visits.length < 2) mode = "det";
-    const chart = renderSpectrum(sp, { width, mode, id: `${id}-sp` });
+    const chart = renderSpectrum(sp, { width, mode, reference, id: `${id}-sp` });
     spPoints = chart.points;
     const um0 = Math.min(...sp.map((p) => p.um));
     const um1 = Math.max(...sp.map((p) => p.um));
     const vText = visits.length === 1 ? "one visit" : `${visits.length} visits`;
     const satRef = object.measure && satQualifiesShift(object) ? "" : ref(notes, "sat");
+    const missing = missingHtml(sp);
     const toggle =
       visits.length > 1
         ? html`<div class="seg cd-seg" role="group" aria-label="Colour the spectrum by">
@@ -285,12 +332,20 @@ export const mountCard: MountCard = (el) => {
         <h3 class="cd-h" id="${id}-s">Spectrum</h3>
         ${toggle}
       </div>
-      <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}</p>
+      <p class="cd-cap">${sp.length} points from ${um0.toFixed(2)} to ${um1.toFixed(2)} µm over ${vText}. Flux in µJy, log scale.${satRef}${missing}</p>
       <div class="cd-plot" data-chart="spectrum">${chart.svg}</div>
       ${keysHtml(sp, visits)}
+      ${reference.length ? '<p class="cd-cap">Outlined points: DR1 reference on the same flux scale.</p>' : ""}
       <p class="cd-readout" id="${id}-ro" aria-live="polite">Point at a dot, or focus the chart and use the arrow keys.</p>
       ${tableHtml(sp, visits)}
     </section>`;
+  }
+
+  /** " Visit 3, May 2026, is in the blink but not here: …", when the months blink has visits the spectrum (or one detector of it) lacks. */
+  function missingHtml(sp: SpectrumPoint[], det?: Det): string {
+    if (!shown) return "";
+    const said = missingVisitsSentence(visitsMissingFromSpectrum(shown.frames, shown.view, shown.view.fov, sp, det), det);
+    return said ? ` <span class="cd-missing">${esc(said)}</span>` : "";
   }
 
   /** Why the spectrum is empty, from the optional spectrum_reason (contracts/api.md v3; absent reads as null). */
@@ -361,7 +416,7 @@ export const mountCard: MountCard = (el) => {
             .join("")}
         </div>
       </div>
-      <p class="cd-cap">Median flux of each visit in D${lcDet}, ${r.min}–${r.max} µm, ±1σ. Faint dots are single exposures at different wavelengths: their spread is colour, not time.</p>
+      <p class="cd-cap">Median flux of each visit in D${lcDet}, ${r.min}–${r.max} µm, ±1σ. Faint dots are single exposures at different wavelengths: their spread is colour, not time.${missingHtml(object.spectrum, lcDet)}</p>
       <div class="cd-plot" data-chart="lightcurve">${chart.svg}</div>
       <p class="cd-readout" id="${id}-lro" aria-live="polite">Point at a visit to read its brightness.</p>
     </section>`;
@@ -405,20 +460,28 @@ export const mountCard: MountCard = (el) => {
   function showLoading() {
     el.dataset.state = "loading";
     el.setAttribute("aria-busy", "true");
-    el.innerHTML = skeletonHtml(true);
+    el.innerHTML = Array.isArray(section) ? section.map(key=>dashboardHtml(key,skeletonHtml(true))).join('') : skeletonHtml(true);
   }
 
   function showError(message?: string) {
     el.dataset.state = "error";
     el.setAttribute("aria-busy", "false");
     const text = message ?? "The object details can't be reached right now: pick a featured target above, or try this spot again in a minute.";
-    el.innerHTML = html`${shown ? headHtml(shown.view, null, false) : ""}
+    const content = html`${shown ? headHtml(shown.view, null, false) : ""}
       <p class="cd-error" role="alert">${esc(text)}</p>
       ${shown ? lookForHtml(shown.view) : ""}`;
+    el.innerHTML = Array.isArray(section) ? section.map(key=>dashboardHtml(key,content)).join('') : content;
   }
 
   // ---- interaction ---------------------------------------------------------------------------
   function wire() {
+    el.querySelector<HTMLAnchorElement>(".cd-open")?.addEventListener("click", (ev) => {
+      // no app around it, or a new tab asked for: the link loads the page at the star
+      if (!options.onExplore || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      const a = ev.currentTarget as HTMLAnchorElement;
+      options.onExplore({ ra: Number(a.dataset.ra), dec: Number(a.dataset.dec) });
+    });
     el.querySelectorAll<HTMLButtonElement>(".cd-spec .cd-seg button").forEach((b) =>
       b.addEventListener("click", () => {
         const next = b.dataset.mode as SpectrumMode;
@@ -439,7 +502,7 @@ export const mountCard: MountCard = (el) => {
     el.querySelectorAll<HTMLAnchorElement>(".cd-ref a").forEach((a) =>
       a.addEventListener("click", (ev) => {
         ev.preventDefault();
-        const note = el.querySelector<HTMLElement>(`#${id}-fn-${a.dataset.note}`);
+        const note = el.querySelector<HTMLElement>(a.getAttribute('href')!);
         if (!note) return;
         note.scrollIntoView?.({ block: "nearest" });
         note.focus({ preventScroll: true });
@@ -514,15 +577,24 @@ export const mountCard: MountCard = (el) => {
   }
 
   if (typeof ResizeObserver !== "undefined") {
-    const ro = new ResizeObserver(() => {
+    resizeObserver = new ResizeObserver(() => {
       if (!shown || el.dataset.state !== "ready") return;
       const w = measureWidth();
       if (Math.abs(w - width) > 12) render();
     });
-    ro.observe(el);
+    resizeObserver.observe(el);
   }
 
   const handle: CardHandle = {
+    section(value) {
+      if(JSON.stringify(section) === JSON.stringify(value)) return;
+      section = value;
+      if(Array.isArray(value))el.dataset.dashboardCount=String(value.length);else delete el.dataset.dashboardCount;
+      resizeObserver?.observe(el.closest('.wb-dashboards') ?? el);
+      el.classList.toggle('cd-summary',value === 'summary');
+      if(shown) render();
+    },
+    reference(points) { reference = points; if (shown) render(); },
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;

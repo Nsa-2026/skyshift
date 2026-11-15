@@ -1,12 +1,14 @@
 // The plate on the review pages: one blink player (src/blink, public mountBlink only) showing a
 // candidate at its position, clock and detector, or a featured target for practice. The blink
-// marks the frame centre with the red target reticle, which is the candidate's position.
+// marks the frame centre with the red target reticle, which is the candidate's position, and red
+// circles where the candidate should be in each frame (track.ts).
 import { ApiFailure, loadFrames } from "../api/client";
 import type { Candidate, LoadedFrames } from "../api/types";
 import type { BlinkHandle, View } from "../app/modules";
 import { targetBySlug, viewForTarget } from "../app/state";
 import { mountBlink } from "../blink";
-import { candidateView, focusFrames, framesFor, hasFrames, isLive } from "./data";
+import { OWN_GAP_DAYS, candidateView, findGap, focusFrames, framesFor, gapText, hasFrames, isLive } from "./data";
+import { buildTrackMarks } from "./track";
 
 const html = String.raw;
 
@@ -141,22 +143,33 @@ export class Plate {
     clearInterval(this.timer);
     this.waitEl.hidden = true;
     let frames = loaded.frames;
+    // Hours: are the find's own exposures among the frames? (Live frames may show another session.)
+    const gap = c ? findGap(loaded.frames, c, cur.view.det) : null;
+    const missing =
+      gap !== null && gap > OWN_GAP_DAYS ? html`The find's own exposures are not in these frames (nearest is ${gapText(gap)} away).` : "";
     if (c && !cur.all) {
       const f = focusFrames(loaded.frames, c, cur.view.det);
       frames = f.frames;
-      if (f.focused) {
+      const more = f.focused ? html` <button class="rv-link" type="button" data-all="1">Show all ${f.all}</button>` : "";
+      if (missing || f.focused) {
         this.noteEl.hidden = false;
-        this.noteEl.innerHTML = html`Showing the ${f.shown} exposures within a day of the find.
-          <button class="rv-link" type="button" data-all="1">Show all ${f.all}</button>`;
+        this.noteEl.innerHTML = (missing || html`Showing the ${f.shown} exposures within a day of the find.`) + more;
       }
     } else if (c && cur.all && cur.view.clock === "hours") {
-      if (focusFrames(loaded.frames, c, cur.view.det).focused) {
+      const focusable = focusFrames(loaded.frames, c, cur.view.det).focused;
+      if (missing || focusable) {
         this.noteEl.hidden = false;
-        this.noteEl.innerHTML = html`Showing every exposure.
-          <button class="rv-link" type="button" data-all="0">Only those near the find</button>`;
+        this.noteEl.innerHTML = [
+          missing,
+          focusable ? html`Showing every exposure. <button class="rv-link" type="button" data-all="0">Only those near the find</button>` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
       }
     }
     blink.status("idle");
+    // Red circles where the candidate should be in every frame (solid measured, dashed predicted).
+    blink.track?.(c ? buildTrackMarks(c, frames) : null);
     await blink.show(cur.view, frames, loaded.jsonUrl);
     if (gen !== this.gen) return false;
     this.events.onReady?.(true);

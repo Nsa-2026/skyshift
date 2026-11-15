@@ -1,0 +1,1241 @@
+{
+ "synthetic": false,
+ "note": "A real sample of web/public/data/candidates.json (pipeline/src/skyshift_pipeline/candidates.py, --fixture): the 8 best and the last candidate of each kind per zone. counts are the full file's. frames_url resolves only next to the real file (web/public/data/cand/<id>/).",
+ "generated": "2026-11-14T14:38:27Z",
+ "data_release": "DR1",
+ "zones": [
+  "hunt",
+  "pilot"
+ ],
+ "counts": {
+  "mover": 228,
+  "high_pm": 1008,
+  "spectral": 97,
+  "shape": 0
+ },
+ "candidates": [
+  {
+   "id": "hunt-664250069368-87801613",
+   "kind": "mover",
+   "ra": 123.599449,
+   "dec": 20.709591,
+   "mjd": 60973.34207,
+   "clock": "hours",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.939,
+   "snr": 42.0,
+   "flux_ujy": 2569.3,
+   "rate_arcsec_h": 37.9,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 103.1,
+   "nearest_known_arcsec": 532.8,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 27.133,
+   "labels": [],
+   "reasons": [
+    "two_exposures"
+   ],
+   "why": "Seen at different places in 3 exposures over 4.3 minutes, moving about 38″ an hour; the nearest known asteroid or comet was predicted 8.9′ away.",
+   "flags": [],
+   "frames_url": "cand/hunt-664250069368-87801613/frames.json"
+  },
+  {
+   "id": "hunt-648380072434-87805628",
+   "kind": "mover",
+   "ra": 126.98312,
+   "dec": 18.063893,
+   "mjd": 60976.130249,
+   "clock": "hours",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.875,
+   "snr": 31.1,
+   "flux_ujy": 2400.3,
+   "rate_arcsec_h": 25.5,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 290.0,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 29.157,
+   "labels": [],
+   "reasons": [
+    "two_exposures"
+   ],
+   "why": "Seen at different places in 4 exposures over 6.4 minutes, moving about 25″ an hour; no known asteroid or comet was predicted within 10′.",
+   "flags": [],
+   "frames_url": "cand/hunt-648380072434-87805628/frames.json"
+  },
+  {
+   "id": "hunt-632310075448-87806305",
+   "kind": "mover",
+   "ra": 130.422507,
+   "dec": 15.386539,
+   "mjd": 60976.600729,
+   "clock": "hours",
+   "det": 1,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.802,
+   "snr": 43.1,
+   "flux_ujy": 2859.8,
+   "rate_arcsec_h": 55.1,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 346.9,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 31.201,
+   "labels": [],
+   "reasons": [
+    "two_exposures"
+   ],
+   "why": "Seen at different places in 2 exposures 4.3 minutes apart, moving about 55″ an hour; no known asteroid or comet was predicted within 10′.",
+   "flags": [],
+   "frames_url": "cand/hunt-632310075448-87806305/frames.json"
+  },
+  {
+   "id": "hunt-644850074338-88059089",
+   "kind": "mover",
+   "ra": 129.893353,
+   "dec": 17.476167,
+   "mjd": 61152.145364,
+   "clock": "hours",
+   "det": 1,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.782,
+   "snr": 37.9,
+   "flux_ujy": 2378.3,
+   "rate_arcsec_h": 54.2,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 76.5,
+   "nearest_known_arcsec": 425.9,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 31.519,
+   "labels": [],
+   "reasons": [
+    "two_exposures"
+   ],
+   "why": "Seen at different places in 2 exposures 4.3 minutes apart, moving about 54″ an hour; the nearest known asteroid or comet was predicted 7.1′ away.",
+   "flags": [],
+   "frames_url": "cand/hunt-644850074338-88059089/frames.json"
+  },
+  {
+   "id": "hunt-674420071085-87804455",
+   "kind": "mover",
+   "ra": 128.149062,
+   "dec": 22.404407,
+   "mjd": 60975.315879,
+   "clock": "hours",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.764,
+   "snr": 21.7,
+   "flux_ujy": 1489.0,
+   "rate_arcsec_h": 31.9,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 110.1,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 31.688,
+   "labels": [],
+   "reasons": [
+    "two_exposures"
+   ],
+   "why": "Seen at different places in 3 exposures over 6.4 minutes, moving about 32″ an hour; no known asteroid or comet was predicted within 10′.",
+   "flags": [],
+   "frames_url": "cand/hunt-674420071085-87804455/frames.json"
+  },
+  {
+   "id": "hunt-675900068285-87797510",
+   "kind": "mover",
+   "ra": 123.320313,
+   "dec": 22.650085,
+   "mjd": 60970.493036,
+   "clock": "hours",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.744,
+   "snr": 40.0,
+   "flux_ujy": 3452.9,
+   "rate_arcsec_h": 45.7,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 288.3,
+   "nearest_known_arcsec": 364.7,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 27.563,
+   "labels": [],
+   "reasons": [
+    "two_exposures",
+    "bad_pixels_near"
+   ],
+   "why": "Seen at different places in 3 exposures over 4.3 minutes, moving about 46″ an hour; the nearest known asteroid or comet was predicted 6.1′ away.",
+   "flags": [],
+   "frames_url": "cand/hunt-675900068285-87797510/frames.json"
+  },
+  {
+   "id": "hunt-675030066933-87791057",
+   "kind": "mover",
+   "ra": 120.75251,
+   "dec": 22.505962,
+   "mjd": 60966.01151,
+   "clock": "hours",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.723,
+   "snr": 28.5,
+   "flux_ujy": 1352.1,
+   "rate_arcsec_h": 84.2,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 257.3,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 25.287,
+   "labels": [],
+   "reasons": [
+    "two_exposures"
+   ],
+   "why": "Seen at different places in 2 exposures 6.4 minutes apart, moving about 84″ an hour; no known asteroid or comet was predicted within 10′.",
+   "flags": [],
+   "frames_url": "cand/hunt-675030066933-87791057/frames.json"
+  },
+  {
+   "id": "hunt-664270069363-87801710",
+   "kind": "mover",
+   "ra": 123.594891,
+   "dec": 20.712803,
+   "mjd": 60973.409452,
+   "clock": "hours",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.717,
+   "snr": 33.9,
+   "flux_ujy": 1653.1,
+   "rate_arcsec_h": 60.9,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 313.7,
+   "nearest_known_arcsec": 476.2,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 27.13,
+   "labels": [],
+   "reasons": [
+    "two_exposures",
+    "bad_pixels_near"
+   ],
+   "why": "Seen at different places in 4 exposures over 6.4 minutes, moving about 61″ an hour; the nearest known asteroid or comet was predicted 7.9′ away.",
+   "flags": [],
+   "frames_url": "cand/hunt-664270069363-87801710/frames.json"
+  },
+  {
+   "id": "hunt-670750070215-88039440",
+   "kind": "mover",
+   "ra": 126.032455,
+   "dec": 21.792506,
+   "mjd": 61138.499816,
+   "clock": "hours",
+   "det": 6,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.066,
+   "snr": 6.4,
+   "flux_ujy": 1577.8,
+   "rate_arcsec_h": 29.1,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": 74.0,
+   "nearest_known_arcsec": 250.2,
+   "gaia_match": false,
+   "catwise_match": false,
+   "galactic_b": 29.635,
+   "labels": [],
+   "reasons": [
+    "two_exposures",
+    "motion_not_significant",
+    "bad_pixels_near",
+    "outlier_flag",
+    "detector_excess"
+   ],
+   "why": "Seen at different places in 2 exposures 6.4 minutes apart (about 29″ an hour, not clearly more than its position errors); the nearest known asteroid or comet was predicted 4.2′ away.",
+   "flags": [
+    "outlier"
+   ],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-pm-65039007407900",
+   "kind": "high_pm",
+   "ra": 130.117492,
+   "dec": 18.399174,
+   "mjd": 61058.352201,
+   "clock": "months",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.519,
+   "snr": 828.6,
+   "flux_ujy": 54824.3,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 1097.2,
+   "pm_err_mas_yr": 31.8,
+   "pa_deg": 250.9,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 32.053,
+   "labels": [
+    "co_23"
+   ],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 1.10″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-65039007407900/frames.json"
+  },
+  {
+   "id": "hunt-pm-65114007302200",
+   "kind": "high_pm",
+   "ra": 128.354246,
+   "dec": 18.524558,
+   "mjd": 61062.900314,
+   "clock": "months",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.473,
+   "snr": 1088.5,
+   "flux_ujy": 112081.2,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 731.9,
+   "pm_err_mas_yr": 34.7,
+   "pa_deg": 199.6,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 30.537,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.73″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-65114007302200/frames.json"
+  },
+  {
+   "id": "hunt-pm-66080007157100",
+   "kind": "high_pm",
+   "ra": 127.050755,
+   "dec": 20.13474,
+   "mjd": 61055.65101,
+   "clock": "months",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.468,
+   "snr": 852.5,
+   "flux_ujy": 118813.5,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 834.9,
+   "pm_err_mas_yr": 41.4,
+   "pa_deg": 214.3,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 29.959,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.83″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-66080007157100/frames.json"
+  },
+  {
+   "id": "hunt-pm-64958007100000",
+   "kind": "high_pm",
+   "ra": 124.611116,
+   "dec": 18.263521,
+   "mjd": 61059.136477,
+   "clock": "months",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.406,
+   "snr": 831.1,
+   "flux_ujy": 71624.9,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 453.3,
+   "pm_err_mas_yr": 35.5,
+   "pa_deg": 227.9,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 27.136,
+   "labels": [
+    "h2o_vapour",
+    "co_23"
+   ],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.45″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-64958007100000/frames.json"
+  },
+  {
+   "id": "hunt-pm-67941007112300",
+   "kind": "high_pm",
+   "ra": 129.0027,
+   "dec": 23.236147,
+   "mjd": 61048.471108,
+   "clock": "months",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.378,
+   "snr": 538.1,
+   "flux_ujy": 21473.7,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 436.7,
+   "pm_err_mas_yr": 40.4,
+   "pa_deg": 193.3,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 32.699,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.44″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-67941007112300/frames.json"
+  },
+  {
+   "id": "hunt-pm-67220007156600",
+   "kind": "high_pm",
+   "ra": 128.675486,
+   "dec": 22.033732,
+   "mjd": 61049.272658,
+   "clock": "months",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.375,
+   "snr": 555.5,
+   "flux_ujy": 14824.1,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 393.1,
+   "pm_err_mas_yr": 37.0,
+   "pa_deg": 224.0,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 32.028,
+   "labels": [
+    "h2o_vapour",
+    "co_23"
+   ],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.39″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-67220007156600/frames.json"
+  },
+  {
+   "id": "hunt-pm-66392006898100",
+   "kind": "high_pm",
+   "ra": 122.866515,
+   "dec": 20.653957,
+   "mjd": 61059.511157,
+   "clock": "months",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.374,
+   "snr": 437.7,
+   "flux_ujy": 14576.0,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 464.6,
+   "pm_err_mas_yr": 43.9,
+   "pa_deg": 173.0,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 26.472,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.46″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-66392006898100/frames.json"
+  },
+  {
+   "id": "hunt-pm-62707007566400",
+   "kind": "high_pm",
+   "ra": 130.264483,
+   "dec": 14.511724,
+   "mjd": 61057.968825,
+   "clock": "months",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.369,
+   "snr": 459.5,
+   "flux_ujy": 9646.2,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 352.3,
+   "pm_err_mas_yr": 34.2,
+   "pa_deg": 261.1,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 30.719,
+   "labels": [
+    "h2o_vapour"
+   ],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.35″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": "cand/hunt-pm-62707007566400/frames.json"
+  },
+  {
+   "id": "hunt-pm-67594007095100-67598007093500",
+   "kind": "high_pm",
+   "ra": 128.141257,
+   "dec": 22.658348,
+   "mjd": 60976.016529,
+   "clock": "months",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.0,
+   "snr": 8.0,
+   "flux_ujy": 357.6,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 175616.6,
+   "pm_err_mas_yr": 1815.1,
+   "pa_deg": 287.1,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 31.763,
+   "labels": [],
+   "reasons": [
+    "pm_pair",
+    "gaia_pm_disagrees",
+    "catwise_pm_disagrees",
+    "at_control_level",
+    "implausible_pm"
+   ],
+   "why": "Seen 78.2″ apart in two visits (176″ a year), with matching brightness, but no star moves that fast (Barnard's Star, the fastest known, does 10.4″ a year): almost certainly two different sources.",
+   "flags": [
+    "halo"
+   ],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-66757007063700",
+   "kind": "spectral",
+   "ra": 126.327807,
+   "dec": 21.262129,
+   "mjd": 61058.474101,
+   "clock": "months",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.898,
+   "snr": 247.7,
+   "flux_ujy": 3602.7,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 29.713,
+   "labels": [
+    "red",
+    "brown_dwarf_like",
+    "h2o_vapour",
+    "co_23"
+   ],
+   "reasons": [
+    "no_gaia",
+    "class_unsure"
+   ],
+   "why": "Water vapour at 1.4/1.9 µm and CO at 2.3 µm (23σ) in a point source with no Gaia star, and red: what a brown dwarf would look like, a lead to check.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-62962007378500",
+   "kind": "spectral",
+   "ra": 127.277228,
+   "dec": 14.937711,
+   "mjd": 61066.928816,
+   "clock": "months",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.837,
+   "snr": 179.9,
+   "flux_ujy": 2938.4,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 28.23,
+   "labels": [
+    "red",
+    "brown_dwarf_like",
+    "h2o_vapour",
+    "co_23"
+   ],
+   "reasons": [
+    "gaia_nearby",
+    "class_star"
+   ],
+   "why": "Water vapour at 1.4/1.9 µm and CO at 2.3 µm (18σ) in a point source that Gaia puts 27 pc away, red, with little light in Gaia's band: what a brown dwarf would look like, a lead to check.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-63797007140100",
+   "kind": "spectral",
+   "ra": 124.004321,
+   "dec": 16.329882,
+   "mjd": 61060.545798,
+   "clock": "months",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt",
+    "pilot"
+   ],
+   "score": 0.711,
+   "snr": 261.2,
+   "flux_ujy": 3696.9,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 25.868,
+   "labels": [
+    "red",
+    "h2o_ice"
+   ],
+   "reasons": [
+    "no_gaia",
+    "class_unsure"
+   ],
+   "why": "Water ice at 3.05 µm (22σ) in a point source with no Gaia star, with red colours.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-65183006966100",
+   "kind": "spectral",
+   "ra": 122.529205,
+   "dec": 18.638407,
+   "mjd": 61057.634965,
+   "clock": "months",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.604,
+   "snr": 373.2,
+   "flux_ujy": 8966.2,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 25.441,
+   "labels": [
+    "red",
+    "h2o_ice",
+    "pah_33"
+   ],
+   "reasons": [
+    "no_gaia",
+    "class_unsure"
+   ],
+   "why": "Water ice at 3.05 µm and PAH emission at 3.3 µm (14σ) in a point source with no Gaia star, with red colours.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-64534007263400",
+   "kind": "spectral",
+   "ra": 126.972862,
+   "dec": 17.557206,
+   "mjd": 61061.888365,
+   "clock": "months",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.521,
+   "snr": 549.5,
+   "flux_ujy": 15124.6,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 28.961,
+   "labels": [
+    "h2o_vapour"
+   ],
+   "reasons": [
+    "gaia_nearby",
+    "class_star"
+   ],
+   "why": "Water vapour at 1.4/1.9 µm (20σ) in a point source that Gaia puts 43 pc away.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-65354006969300",
+   "kind": "spectral",
+   "ra": 122.792537,
+   "dec": 18.924374,
+   "mjd": 61060.146681,
+   "clock": "months",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.507,
+   "snr": 174.0,
+   "flux_ujy": 3420.0,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 25.779,
+   "labels": [
+    "h2o_vapour"
+   ],
+   "reasons": [
+    "gaia_nearby",
+    "class_star"
+   ],
+   "why": "Water vapour at 1.4/1.9 µm (19σ) in a point source that Gaia puts 30 pc away.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-67959006958400",
+   "kind": "spectral",
+   "ra": 126.239461,
+   "dec": 23.265751,
+   "mjd": 61058.837454,
+   "clock": "months",
+   "det": 2,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.493,
+   "snr": 510.9,
+   "flux_ujy": 14735.6,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 30.302,
+   "labels": [
+    "h2o_vapour",
+    "co_23"
+   ],
+   "reasons": [
+    "gaia_nearby",
+    "class_star"
+   ],
+   "why": "Water vapour at 1.4/1.9 µm and CO at 2.3 µm (17σ) in a point source that Gaia puts 33 pc away.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-64689007167900",
+   "kind": "spectral",
+   "ra": 125.483281,
+   "dec": 17.816628,
+   "mjd": 61059.573673,
+   "clock": "months",
+   "det": 4,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.485,
+   "snr": 778.7,
+   "flux_ujy": 37982.5,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 27.74,
+   "labels": [
+    "h2o_vapour",
+    "co_23"
+   ],
+   "reasons": [
+    "gaia_nearby",
+    "class_star"
+   ],
+   "why": "Water vapour at 1.4/1.9 µm and CO at 2.3 µm (17σ) in a point source that Gaia puts 18 pc away.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "hunt-sp-68205007081700",
+   "kind": "spectral",
+   "ra": 128.875791,
+   "dec": 23.676116,
+   "mjd": 61061.702082,
+   "clock": "months",
+   "det": 3,
+   "zone": "hunt",
+   "zones": [
+    "hunt"
+   ],
+   "score": 0.118,
+   "snr": 455.7,
+   "flux_ujy": 11733.4,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": null,
+   "pm_err_mas_yr": null,
+   "pa_deg": null,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 32.726,
+   "labels": [
+    "pah_33"
+   ],
+   "reasons": [
+    "no_gaia",
+    "class_galaxy"
+   ],
+   "why": "PAH emission at 3.3 µm (5σ) in an extended source (likely a galaxy) with no Gaia star.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63042007169100",
+   "kind": "high_pm",
+   "ra": 123.741075,
+   "dec": 15.071192,
+   "mjd": 61059.932311,
+   "clock": "months",
+   "det": 1,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.266,
+   "snr": 928.6,
+   "flux_ujy": 64970.8,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 180.7,
+   "pm_err_mas_yr": 29.4,
+   "pa_deg": 268.4,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 25.143,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "vetted",
+    "catwise_pm_agrees"
+   ],
+   "why": "Moves 0.18″ a year between visits; Gaia lists this star with the same motion, a known nearby star that shows the method works.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63238007075700",
+   "kind": "high_pm",
+   "ra": 122.318937,
+   "dec": 15.398161,
+   "mjd": 61031.097263,
+   "clock": "months",
+   "det": 6,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.186,
+   "snr": 51.0,
+   "flux_ujy": 19563.1,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 3443.4,
+   "pm_err_mas_yr": 527.7,
+   "pa_deg": 152.1,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 24.012,
+   "labels": [
+    "red"
+   ],
+   "reasons": [
+    "pm_fit",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 3.44″ a year between visits, but CatWISE lists a different motion for the source here — likely a mismatch, worth a look.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63638006953100",
+   "kind": "high_pm",
+   "ra": 120.594506,
+   "dec": 16.064739,
+   "mjd": 61029.703314,
+   "clock": "months",
+   "det": 4,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.149,
+   "snr": 28.3,
+   "flux_ujy": 488.0,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 5187.6,
+   "pm_err_mas_yr": 1027.9,
+   "pa_deg": 271.5,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 22.749,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 5.19″ a year between visits, but CatWISE lists a different motion for the source here — likely a mismatch, worth a look.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63707007124400",
+   "kind": "high_pm",
+   "ra": 123.63863,
+   "dec": 16.180227,
+   "mjd": 61046.967066,
+   "clock": "months",
+   "det": 4,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.076,
+   "snr": 27.0,
+   "flux_ujy": 350.2,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 8852.7,
+   "pm_err_mas_yr": 1707.0,
+   "pa_deg": 54.3,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 25.486,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "bad_fit",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 8.85″ a year between visits, but CatWISE lists a different motion for the source here — likely a mismatch, worth a look.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63375007081400",
+   "kind": "high_pm",
+   "ra": 122.555236,
+   "dec": 15.625706,
+   "mjd": 61117.42611,
+   "clock": "months",
+   "det": 5,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.076,
+   "snr": 60.9,
+   "flux_ujy": 15745.1,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 8739.7,
+   "pm_err_mas_yr": 1695.7,
+   "pa_deg": 127.9,
+   "nearest_known_arcsec": null,
+   "gaia_match": false,
+   "catwise_match": true,
+   "galactic_b": 24.311,
+   "labels": [
+    "red"
+   ],
+   "reasons": [
+    "pm_fit",
+    "bad_fit",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 8.74″ a year between visits, but CatWISE lists a different motion for the source here — likely a mismatch, worth a look.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-64495007084800",
+   "kind": "high_pm",
+   "ra": 123.806559,
+   "dec": 17.493043,
+   "mjd": 61055.763687,
+   "clock": "months",
+   "det": 4,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.039,
+   "snr": 849.8,
+   "flux_ujy": 114260.4,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 193.5,
+   "pm_err_mas_yr": 34.5,
+   "pa_deg": 279.3,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 26.137,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "gaia_pm_disagrees",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 0.19″ a year between visits, but Gaia lists a different motion for the star here — likely a mismatch, worth a look.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63255007156000",
+   "kind": "high_pm",
+   "ra": 123.725221,
+   "dec": 15.425269,
+   "mjd": 61057.071161,
+   "clock": "months",
+   "det": 5,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.037,
+   "snr": 755.1,
+   "flux_ujy": 234878.1,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 262.1,
+   "pm_err_mas_yr": 49.6,
+   "pa_deg": 286.7,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 25.268,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "gaia_pm_disagrees",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 0.26″ a year between visits, but Gaia lists a different motion for the star here — likely a mismatch, worth a look.",
+   "flags": [
+    "bloom"
+   ],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63780007128500",
+   "kind": "high_pm",
+   "ra": 123.785128,
+   "dec": 16.301132,
+   "mjd": 61107.398421,
+   "clock": "months",
+   "det": 3,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.036,
+   "snr": 107.0,
+   "flux_ujy": 1850.0,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 2252.0,
+   "pm_err_mas_yr": 441.2,
+   "pa_deg": 266.4,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 25.663,
+   "labels": [],
+   "reasons": [
+    "pm_fit",
+    "gaia_pm_disagrees",
+    "catwise_pm_disagrees"
+   ],
+   "why": "Moves 2.25″ a year between visits, but Gaia lists a different motion for the star here — likely a mismatch, worth a look.",
+   "flags": [],
+   "frames_url": null
+  },
+  {
+   "id": "pilot-pm-63479007001900",
+   "kind": "high_pm",
+   "ra": 121.28066,
+   "dec": 15.798793,
+   "mjd": 61130.401871,
+   "clock": "months",
+   "det": 3,
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "score": 0.0,
+   "snr": 85.3,
+   "flux_ujy": 2808.4,
+   "rate_arcsec_h": null,
+   "pm_mas_yr": 13371.7,
+   "pm_err_mas_yr": 2649.0,
+   "pa_deg": 216.0,
+   "nearest_known_arcsec": null,
+   "gaia_match": true,
+   "catwise_match": true,
+   "galactic_b": 23.251,
+   "labels": [
+    "red"
+   ],
+   "reasons": [
+    "pm_fit",
+    "few_dots",
+    "bad_fit",
+    "over_pm_cap",
+    "gaia_pm_disagrees",
+    "catwise_pm_disagrees",
+    "implausible_pm"
+   ],
+   "why": "Moves 13.4″ a year between visits, but no star moves that fast (Barnard's Star, the fastest known, does 10.4″ a year): almost certainly two different sources.",
+   "flags": [],
+   "frames_url": null
+  }
+ ]
+}

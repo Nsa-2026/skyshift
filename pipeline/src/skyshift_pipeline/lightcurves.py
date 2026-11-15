@@ -23,7 +23,8 @@ lightcurves_report.json and the step summary.
 Bad photos: a photo (origin, detector, mjd) whose Gaia-matched points sit off as a group (|median of
 (flux − model) / σ_cal| > LC_PHOTO_MAX_MEDIAN_CHI over >= LC_PHOTO_MIN_REF points) gets `photo_ok` false;
 its points stay in the table but are left out of chi2_nu, chi2_nu_raw and scatter_rel. (Pilot: one forced D4
-photo, 7,698 stars at a median −2.8σ, made 1,172 of the 1,714 forced-D4 "variables".)
+photo, 7,698 stars at a median −2.8σ, made 1,172 of the 1,714 forced-D4 "variables".) Photos the `qa` step graded
+red (results/<zone>/qa_photos.parquet, when it exists) get photo_ok false the same way (config QA_LIGHTCURVES).
 One point is not a variable: `variable` tests chi2_nu_robust, chi2_nu without the light curve's single worst
 point (an unflagged cosmic-ray hit or a bad pixel), against LC_VARIABLE_CHI2_NU.
 
@@ -126,7 +127,10 @@ def poly_model(gl: np.ndarray, G: int, x: np.ndarray, y: np.ndarray, w: np.ndarr
             A[:, a, b] = A[:, b, a] = np.bincount(gl, w * xc ** (a + b), G)
     rhs = np.stack([np.bincount(gl, w * y * xc ** a, G) for a in range(k)], axis=1)
     n = np.bincount(gl, minlength=G)
-    few = n < LC_POLY_MIN_POINTS
+    # Repeated wavelengths can give a numerically nonzero determinant while the
+    # normal matrix is rank deficient. Use the weighted mean for those groups,
+    # as for sparse groups, so one unfit spectrum cannot crash an entire tile.
+    few = (n < LC_POLY_MIN_POINTS) | (np.linalg.matrix_rank(A, hermitian=True) < k)
     A[few, 1:, :] = 0.0
     A[few, :, 1:] = 0.0
     A[few, 1:, 1:] = np.eye(k - 1)
@@ -276,13 +280,29 @@ def fit_error_model(p: pd.DataFrame, ref: np.ndarray) -> tuple[np.ndarray, dict]
             if np.isfinite(c2) and c2 > 0:
                 k, fl = k * np.sqrt(c2), fl * np.sqrt(c2)
             k_pt[sel], fl_pt[sel] = k, fl
-            out[key] = {"basis": basis, "groups": int(groups.size), "points": int(use.sum()), "k": round(k, 4),
-                        "floor": round(fl, 4), "median_chi2_nu_before": round(float(np.median(before)), 3),
+            out[key] = {"basis": basis, "groups": int(groups.size), "points": int(use.sum()), "k": k,
+                        "floor": fl, "median_chi2_nu_before": round(float(np.median(before)), 3),
                         "snr_bins": [round(float(x), 1) for x in sb],
                         "robust_sd_bins": [round(float(np.sqrt(x)), 3) for x in vb]}
+    return _calibrated(e, m, k_pt, fl_pt), out
+
+
+def _calibrated(e: np.ndarray, m: np.ndarray, k: np.ndarray, fl: np.ndarray) -> np.ndarray:
     with np.errstate(invalid="ignore"):
-        cal = np.sqrt((k_pt * e) ** 2 + (fl_pt * np.where(np.isfinite(m), m, 0.0)) ** 2)
-    return cal, out
+        return np.sqrt((k * e) ** 2 + (fl * np.where(np.isfinite(m), m, 0.0)) ** 2)
+
+
+def apply_error_model(p: pd.DataFrame, model: dict) -> np.ndarray:
+    """flux_err_cal per point from a fitted model ({"<origin>_D<det>": {"k", "floor"}}, as fit_error_model returns it):
+    tiles.py fits the model once on the whole zone and every tile applies it; k = 1, floor = 0 where it has no entry."""
+    origin = p["origin"].astype(str).to_numpy()
+    det = p["detector"].to_numpy(np.int64)
+    k_pt, fl_pt = np.ones(len(p)), np.zeros(len(p))
+    for key, v in model.items():
+        o, d = key.rsplit("_D", 1)
+        sel = (origin == o) & (det == int(d))
+        k_pt[sel], fl_pt[sel] = v["k"], v["floor"]
+    return _calibrated(p["flux_err_ujy"].to_numpy(np.float64), p["model_ujy"].to_numpy(np.float64), k_pt, fl_pt)
 
 
 def photo_check(p: pd.DataFrame, ref: np.ndarray, cal: np.ndarray) -> tuple[np.ndarray, list[dict]]:
@@ -298,7 +318,19 @@ def photo_check(p: pd.DataFrame, ref: np.ndarray, cal: np.ndarray) -> tuple[np.n
     bad = (nref >= C.LC_PHOTO_MIN_REF) & (np.abs(med) > C.LC_PHOTO_MAX_MEDIAN_CHI)
     rows = [{"origin": o, "detector": int(d), "mjd": round(float(t), 6), "ref_points": int(nref[i]),
              "median_chi": round(float(med[i]), 2)} for i, (o, d, t) in enumerate(uniq) if bad[i]]
-    return ~bad[code], rows
+    return ~bad[code], sorted(rows, key=lambda r: (r["origin"], r["detector"], r["mjd"]))
+
+
+def qa_red_mask(p: pd.DataFrame, red: pd.DataFrame | None) -> np.ndarray:
+    """True for the points from photos `qa` graded red (qa.red_photos), dots and forced alike: matched by detector and
+    exposure time (both tables carry the photo's MJD-AVG; to the second, exposures are ≥ 2 min apart)."""
+    if red is None or not len(red) or not len(p):
+        return np.zeros(len(p), bool)
+
+    def key(det, mjd):
+        return np.asarray(det, np.int64) * 10**12 + np.round(np.asarray(mjd, np.float64) * 86400.0).astype(np.int64)
+
+    return np.isin(key(p["detector"].to_numpy(), p["mjd"].to_numpy()), key(red["detector"].to_numpy(), red["mjd"].to_numpy()))
 
 
 def summarise(p: pd.DataFrame) -> pd.DataFrame:
@@ -319,9 +351,10 @@ def summarise(p: pd.DataFrame) -> pd.DataFrame:
     chi2_nu = group_chi2_nu(g[pok], G, f[pok], m[pok], e[pok])
     chi2_nu_raw = group_chi2_nu(g[pok], G, f[pok], m[pok], e_raw[pok])
     chi2_nu_robust = robust_chi2_nu(g[pok], G, f[pok], m[pok], e[pok])
-    q = pd.Series(rel[fin]).groupby(g[fin]).quantile([0.05, 0.95]).unstack()
     amp = np.full(G, np.nan)
-    amp[q.index.to_numpy()] = (q[0.95] - q[0.05]).to_numpy()
+    if fin.any():  # (no finite rel_flux at all: an empty quantile table)
+        q = pd.Series(rel[fin]).groupby(g[fin]).quantile([0.05, 0.95]).unstack()
+        amp[q.index.to_numpy()] = (q[0.95] - q[0.05]).to_numpy()
     vm = pd.DataFrame({"g": g[fin], "v": p["visit"].to_numpy(np.int64)[fin], "r": rel[fin]}).groupby(["g", "v"], sort=True)["r"].median().reset_index()
     vl = vm.groupby("g").agg(visits=("v", list), visit_median_rel=("r", list))
     visits = pd.Series([[]] * G, dtype=object)
@@ -356,27 +389,45 @@ def compute(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd
 
 
 def compute_with_report(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd.DataFrame | None,
-                        sources: pd.DataFrame | None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+                        sources: pd.DataFrame | None, qa_red: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    p = points(dots, forced, crossids, sources)
+    if p is None:
+        empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in POINT_COLUMNS})
+        return empty, pd.DataFrame({c: pd.Series(dtype="float64") for c in SUMMARY_COLUMNS}), {}
+    ref = reference_points(p, crossids)
+    cal, model = fit_error_model(p, ref)
+    photo_ok, bad = photo_check(p, ref, cal)
+    red = qa_red_mask(p, qa_red)
+    p, s = finish(p, cal, photo_ok & ~red)
+    rep = error_report(p, s, ref, model)
+    rep["bad_photos"] = bad
+    if qa_red is not None:
+        rep["qa_red_photos"] = int(len(qa_red))
+    return p[POINT_COLUMNS], s, rep
+
+
+def points(dots: pd.DataFrame | None, forced: pd.DataFrame | None, crossids: pd.DataFrame | None,
+           sources: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Every point (dots and forced photometry) with its model_ujy and rel_flux, sorted; None when there are none."""
     parts = []
     if dots is not None and len(dots):
         parts.append(points_from_dots(dots))
     if forced is not None and len(forced):
         parts.append(points_from_forced(forced, crossids))
     if not parts:
-        empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in POINT_COLUMNS})
-        return empty, pd.DataFrame({c: pd.Series(dtype="float64") for c in SUMMARY_COLUMNS}), {}
+        return None
     p = pd.concat(parts, ignore_index=True)
     p = add_model(p, sources)
-    p = p.sort_values(["source_id", "ref_id", "detector", "mjd"], kind="stable").reset_index(drop=True)
-    ref = reference_points(p, crossids)
-    cal, model = fit_error_model(p, ref)
+    return p.sort_values(["source_id", "ref_id", "detector", "mjd"], kind="stable").reset_index(drop=True)
+
+
+def finish(p: pd.DataFrame, cal: np.ndarray, photo_ok: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """points + the calibrated errors and photo_ok → (points with origin as category, summary)."""
     p["flux_err_cal_ujy"] = cal.astype(np.float32)
-    p["photo_ok"], bad = photo_check(p, ref, cal)
+    p["photo_ok"] = photo_ok
     s = summarise(p)
-    rep = error_report(p, s, ref, model)
-    rep["bad_photos"] = bad
     p["origin"] = p["origin"].astype("category")
-    return p[POINT_COLUMNS], s, rep
+    return p, s
 
 
 def error_report(p: pd.DataFrame, s: pd.DataFrame, ref: np.ndarray, model: dict) -> dict:
@@ -395,6 +446,7 @@ def error_report(p: pd.DataFrame, s: pd.DataFrame, ref: np.ndarray, model: dict)
         m = x["origin"] == o
         return round(float(col[m].mean()), 4) if m.any() else None
 
+    model = {key: {**v, "k": round(float(v["k"]), 4), "floor": round(float(v["floor"]), 4)} for key, v in model.items()}
     rep = {"model": model, "rule": "sigma_cal^2 = (k sigma)^2 + (floor model)^2 per (origin, detector)"}
     for o in ("dot", "forced"):
         so, sr = s[s["origin"] == o], s_ref[s_ref["origin"] == o]
@@ -418,7 +470,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     sources = store.read_parquet(src_rel, columns=["source_id", "flux_ujy"]) if store.exists(src_rel) else None
     if not len(forced):
         L.warning("lightcurves %s: no forced photometry yet (forced/): dots only", zone.name)
-    pts, summ, rep = compute_with_report(d, forced, crossids, sources)
+    from .qa import red_photos
+    pts, summ, rep = compute_with_report(d, forced, crossids, sources, red_photos(store, zone))
     store.write_parquet(results_rel(zone.name, "lightcurves.parquet"), pts)
     store.write_parquet(results_rel(zone.name, "lightcurves_summary.parquet"), summ)
     store.write_json(results_rel(zone.name, "lightcurves_report.json"), {"zone": zone.name, **rep})
@@ -426,7 +479,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
           "error_model": {k: {"k": v["k"], "floor": v["floor"], "basis": v["basis"]} for k, v in rep.get("model", {}).items()},
           "variable_share": {o: rep[o]["variable_share"] for o in ("dot", "forced") if o in rep},
           "variable_share_raw": {o: rep[o]["variable_share_raw"] for o in ("dot", "forced") if o in rep},
-          "bad_photos": len(rep.get("bad_photos", [])),
+          "bad_photos": len(rep.get("bad_photos", [])), "qa_red_photos": rep.get("qa_red_photos"),
           "summary_rows": int(len(summ)), "variable_rows": int(summ["variable"].sum()) if len(summ) else 0,
           "variable_sources": int(summ.loc[summ["variable"], "source_id"].nunique()) if len(summ) else 0,
           "wall_s": round(time.time() - t0, 1)}

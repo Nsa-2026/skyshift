@@ -13,7 +13,7 @@ from skyshift_server import stack
 
 DATA = Path(__file__).resolve().parents[2] / "web" / "public" / "data"
 SLUGS = sorted(p.name for p in DATA.iterdir() if p.is_dir() and (p / "index.json").exists()) if DATA.exists() else []
-MAX_FOLDER_MB = 16.0
+MAX_FOLDER_MB = 24.0   # raw bytes in the repo; the `measured` layer adds 2-5 MB per star (gzipped ~7x smaller on the site)
 TOP = {"clock", "center", "pixel_arcsec", "size", "epochs", "gaia", "known", "data_release", "archive_checked"}
 EPOCH = {"id", "kind", "mjd_mid", "mjd_start", "mjd_end", "det", "um_min", "um_max", "n_exposures",
          "flag_frac", "sat_frac", "data_url", "scale", "zero"}
@@ -62,7 +62,7 @@ def test_frames_files_keep_the_contract(slug):
             assert math.isfinite(e["scale"]) and e["scale"] > 0 and math.isfinite(e["zero"])
         epoch_ids = set(ids)
         for k in m["known"]:
-            assert k["epoch_id"] in epoch_ids and k["source"] in ("skybot", "most", "irsa-3i")
+            assert k["epoch_id"] in epoch_ids and k["source"] in ("mpc", "most", "irsa-3i")
         for g in m["gaia"]:
             assert isinstance(g["id"], str)
 
@@ -87,3 +87,9 @@ def test_object_json_shape(slug):
     assert um == sorted(um)
     for p in o["spectrum"]:
         assert set(p) == {"um", "flux_ujy", "err_ujy", "det", "mjd", "visit", "saturated"}
+    src = (o["measure"] or {}).get("source")  # v3.9, optional: files from before it have none
+    if src is not None:
+        assert set(src) == {"det", "visits", "mjd", "n_exposures", "fov", "pixel_arcsec", "core_filled"}
+        assert 1 <= src["det"] <= 6 and src["visits"][0] < src["visits"][1]
+        assert o["measure"]["dt_yr"] == pytest.approx((src["mjd"][1] - src["mjd"][0]) / 365.25, abs=1e-4)
+        assert {p["visit"] for p in o["spectrum"] if p["det"] == src["det"]} >= set(src["visits"])

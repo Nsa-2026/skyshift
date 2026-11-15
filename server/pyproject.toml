@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "SkyShift API (Cloud Run) and blink engine: frames, object, gaia, known, resolve (contracts/api.md)."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "skyshift-core",
+    "skyshift-core[known]",  # kete: known asteroids and comets from MPC orbits (known.py)
     "astropy>=6.1",
+    "astropy-healpix>=1.0",
+    "pillow>=10",
     "astroquery>=0.4.10",
     "fastapi>=0.115",
     "google-cloud-storage>=2.18",
@@ -16,6 +18,7 @@ dependencies = [
     "requests>=2.32",
     "scipy>=1.11",
     "uvicorn[standard]>=0.30",
+    "pyarrow>=16",
 ]
 
 [tool.uv.sources]

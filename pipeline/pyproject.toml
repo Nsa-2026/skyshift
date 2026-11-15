@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 skyshift-pipeline = "skyshift_pipeline.cli:main"
+skyshift-candidates = "skyshift_pipeline.candidates:main"
 
 
 [build-system]

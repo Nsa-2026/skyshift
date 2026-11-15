@@ -1,6 +1,7 @@
 // Review and Candidate pages: the pure parts. Consensus (DESIGN.md "Votes and consensus"), the
 // review queue's order, the Discover filter read from its URL, keyboard mapping and URL parsing.
 // No DOM, no Firebase, so tests are cheap.
+import { gradeOf, gradeRank, leadRank, votable } from "../api/grades";
 import type { Candidate } from "../api/types";
 import { ANSWERS, CONSENSUS, consensus as agreed, emptyCounts, total, type Answer, type Counts } from "../vote/model";
 
@@ -80,26 +81,32 @@ export function scoreOrder(cands: Candidate[]): Candidate[] {
 
 /**
  * The review queue: what needs votes first, then the pipeline's score.
- * Candidates this browser already voted on are left out; candidates at consensus go last;
- * the rest by fewest votes, then score (no score last), then S/N.
+ * Grade C (failed a vetting check) is never put to a vote, so it is left out, as are candidates
+ * this browser already voted on; candidates at consensus go last; grade A leads the rest; then
+ * fewest votes, score (no score last) and S/N. Ungraded candidates queue as they always did.
  */
 export function queueOrder(
   cands: Candidate[],
   counts: Map<string, Counts>,
   votedFor: (id: string) => Answer | null = () => null,
 ): Candidate[] {
-  const info = new Map<string, { done: number; n: number }>();
+  const info = new Map<string, { done: number; n: number; lead: number }>();
   for (const c of cands) {
     const k = counts.get(c.id) ?? emptyCounts();
-    info.set(c.id, { done: consensus(k).state === "reached" ? 1 : 0, n: total(k) });
+    info.set(c.id, { done: consensus(k).state === "reached" ? 1 : 0, n: total(k), lead: leadRank(gradeOf(c)) });
   }
   return cands
-    .filter((c) => votedFor(c.id) == null)
+    .filter((c) => votable(c) && votedFor(c.id) == null)
     .sort((a, b) => {
       const A = info.get(a.id)!;
       const B = info.get(b.id)!;
-      return A.done - B.done || A.n - B.n || byPromise(a, b);
+      return A.done - B.done || A.lead - B.lead || A.n - B.n || byPromise(a, b);
     });
+}
+
+/** How many candidates the queue leaves out for being grade C. */
+export function gradeCCount(cands: readonly Candidate[]): number {
+  return cands.filter((c) => !votable(c)).length;
 }
 
 // ---- the Candidates page's filter, read from its URL ------------------------------------------
@@ -108,8 +115,8 @@ export function queueOrder(
 // keys); ranges are "min-max" with either side open; gaia/catwise are yes/no; doubts, cautions and
 // mine take "hide". Tolerant: unknown keys and bad values are ignored.
 
-export type Sort = "promising" | "fewest" | "most" | "brightest" | "fastest" | "newest";
-const SORTS: Sort[] = ["promising", "fewest", "most", "brightest", "fastest", "newest"];
+export type Sort = "promising" | "grade" | "fewest" | "most" | "brightest" | "fastest" | "newest";
+const SORTS: Sort[] = ["promising", "grade", "fewest", "most", "brightest", "fastest", "newest"];
 
 export interface Range {
   min: number | null;
@@ -117,7 +124,7 @@ export interface Range {
 }
 const RANGE_KEYS = ["score", "sig", "pm", "rate", "snr", "flux", "known", "b"] as const;
 type RangeKey = (typeof RANGE_KEYS)[number];
-const LIST_KEYS = ["kind", "review", "verdict", "label", "reason", "det", "zone"] as const;
+const LIST_KEYS = ["kind", "review", "verdict", "label", "reason", "det", "zone", "grade"] as const;
 type ListKey = (typeof LIST_KEYS)[number];
 type Tri = "any" | "yes" | "no";
 
@@ -204,9 +211,16 @@ export function reviewState(k: Counts): "none" | "some" | "consensus" {
   return total(k) > 0 ? "some" : "none";
 }
 
-/** Pipeline promise: score high to low, then motion significance, then S/N, then id (nulls last). */
+/** Pipeline promise: grade A first and grade C last, then score high to low, motion significance,
+ *  S/N, then id (nulls last). */
 export function byPromiseList(a: Candidate, b: Candidate): number {
-  return desc(a.score, b.score) || desc(significance(a), significance(b)) || desc(a.snr, b.snr) || a.id.localeCompare(b.id);
+  return (
+    leadRank(gradeOf(a)) - leadRank(gradeOf(b)) ||
+    desc(a.score, b.score) ||
+    desc(significance(a), significance(b)) ||
+    desc(a.snr, b.snr) ||
+    a.id.localeCompare(b.id)
+  );
 }
 
 /** The candidates the Candidates page shows for this filter, in its order. */
@@ -222,6 +236,7 @@ export function applyFilter(
   const out = cands.filter((c) => {
     const L = f.lists;
     if (!has(L.kind, c.kind) || !has(L.det, String(c.det)) || !has(L.zone, c.zone)) return false;
+    if (!has(L.grade, gradeOf(c) ?? "none")) return false;
     if (L.review.length && !L.review.includes(reviewState(k(c)))) return false;
     if (L.verdict.length) {
       const v = agreed(k(c))?.answer;
@@ -245,6 +260,7 @@ export function applyFilter(
   const n = (c: Candidate) => total(k(c));
   const by: Record<Sort, (a: Candidate, b: Candidate) => number> = {
     promising: byPromiseList,
+    grade: (a, b) => gradeRank(gradeOf(a)) - gradeRank(gradeOf(b)) || desc(a.snr, b.snr) || byPromiseList(a, b),
     fewest: (a, b) => n(a) - n(b) || byPromiseList(a, b),
     most: (a, b) => n(b) - n(a) || byPromiseList(a, b),
     brightest: (a, b) => desc(a.flux_ujy, b.flux_ujy) || byPromiseList(a, b),
@@ -284,8 +300,7 @@ export const LIST_HASH = "#/candidates";
 
 /** Is this URL the candidate list? Mirrors src/app/app.ts parseRoute: "#/candidates…", "#/discover…". */
 export function isDiscoverUrl(hash: string): boolean {
-  const head = hash.replace(/^#\/?/, "").split(/[/?]/)[0];
-  return head === "candidates" || head === "discover";
+  return /^#\/?(?:(?:analyze\/)?candidates|discover)(?:[/?]|$)/.test(hash);
 }
 
 /**
@@ -294,11 +309,24 @@ export function isDiscoverUrl(hash: string): boolean {
  * else the page query minus the Explore view keys.
  */
 export function discoverQuery(hash: string, search: string): string {
-  const rest = hash.replace(/^#\/?(candidates|discover)/, "").replace(/^[/?]+/, "");
-  if (rest) return rest;
+  const rest = hash.replace(/^#\/?(?:(?:analyze\/)?candidates|discover)/, "").replace(/^[/?]+/, "");
+  if (rest) return withoutOne(rest);
   const s = new URLSearchParams(search);
   for (const k of VIEW_KEYS) s.delete(k);
   return s.toString();
+}
+
+/** The list's "One at a time" switch ("one=1") is a view, not a filter: drop it, keep the rest as written. */
+function withoutOne(query: string): string {
+  return query
+    .split("&")
+    .filter((p) => p && !/^one(=|$)/.test(p))
+    .join("&");
+}
+
+/** The queue's candidates: all of them, or only those in scope (the To check page's filtered list). */
+export function inScope<T extends { id: string }>(cands: readonly T[], scope: ReadonlySet<string> | null): T[] {
+  return scope ? cands.filter((c) => scope.has(c.id)) : [...cands];
 }
 
 // ---- keyboard ------------------------------------------------------------------------------

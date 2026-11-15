@@ -7,6 +7,8 @@ import {
   consensus,
   discoverQuery,
   forAstronomers,
+  gradeCCount,
+  inScope,
   isDiscoverUrl,
   keyAction,
   needsCounts,
@@ -87,6 +89,29 @@ describe("queueOrder", () => {
     expect(ids(queueOrder([a, b, c, d, e], k, mine))).toEqual(["a", "d", "c", "e"]);
   });
 
+  it("skips grade C, leads with grade A, and queues B and ungraded as before", () => {
+    const gA = cand("gA", { kind: "mover", grade: "A", score: null, snr: 6 });
+    const gB = cand("gB", { kind: "mover", grade: "B", score: null, snr: 30 });
+    const gC = cand("gC", { kind: "mover", grade: "C", score: null, snr: 99, reasons: ["hot_pixel"] });
+    const old = cand("old", { kind: "mover", score: null, snr: 20 });
+    expect(ids(queueOrder([gC, old, gB, gA, a], new Map()))).toEqual(["gA", "a", "gB", "old"]);
+    expect(gradeCCount([gC, old, gB, gA])).toBe(1);
+    // Grade A leads until it reaches consensus, even with a vote already.
+    const k = new Map([["gA", counts({ mover: 1 })]]);
+    expect(ids(queueOrder([gB, gA], k))).toEqual(["gA", "gB"]);
+    expect(ids(queueOrder([gA, gB], new Map([["gA", counts({ mover: 5 })]])))).toEqual(["gB", "gA"]);
+  });
+
+  it("runs inside To check's filtered list (scope), in its own order there", () => {
+    const all = [a, b, c, d, e];
+    expect(ids(inScope(all, null))).toEqual(["a", "b", "c", "d", "e"]);
+    expect(ids(inScope(all, new Set(["e", "b", "nowhere"])))).toEqual(["b", "e"]);
+    expect(ids(inScope(all, new Set()))).toEqual([]);
+    // Fewest votes first inside the scope, whatever order the list was sorted in.
+    const k = new Map([["e", counts({ mover: 1 })]]);
+    expect(ids(queueOrder(inScope(all, new Set(["e", "b", "c"])), k))).toEqual(["b", "c", "e"]);
+  });
+
   it("score order breaks ties by S/N, then id", () => {
     const x = cand("x", { score: 0.5, snr: 10 });
     const y = cand("y", { score: 0.5, snr: 20 });
@@ -140,6 +165,20 @@ describe("the Candidates filter from its URL", () => {
     expect(ids(applyFilter(all, parseFilter("mine=hide"), k, mine))).toEqual(["q", "m"]);
   });
 
+  it("reads the grade filter and both grade orders like the Candidates page", () => {
+    const b = cand("b", { kind: "mover", grade: "B", snr: 8 });
+    const c = cand("c", { kind: "mover", grade: "C", snr: 50, score: 0.99 });
+    const n = cand("n", { kind: "mover", snr: 40 });
+    const p = cand("p", { score: 0.5, snr: 9 });
+    const all = [c, n, b, p];
+    expect(parseFilter("grade=C,none").lists.grade).toEqual(["C", "none"]);
+    expect(ids(applyFilter(all, parseFilter("grade=C,none")))).toEqual(["p", "n", "c"]);
+    // Pipeline score: C last, even with the highest score.
+    expect(ids(applyFilter(all, parseFilter("")))).toEqual(["p", "n", "b", "c"]);
+    // Vetting grade: A, B, C, then no grade; S/N within each.
+    expect(ids(applyFilter(all, parseFilter("sort=grade")))).toEqual(["b", "c", "n", "p"]);
+  });
+
   it("finds the neighbours in a list", () => {
     const list = [cand("a"), cand("b"), cand("c")];
     expect(neighbours(list, "b")).toMatchObject({ prev: { id: "a" }, next: { id: "c" }, index: 1 });
@@ -172,6 +211,13 @@ describe("URLs", () => {
     expect(discoverQuery("#/candidates?sort=fewest", "")).toBe("sort=fewest");
     expect(discoverQuery("#/candidates", "?ra=1&dec=2&kind=mover")).toBe("kind=mover");
     expect(discoverQuery("#/candidates", "")).toBe("");
+  });
+
+  it("leaves out 'One at a time' (one=1): a view of the list, not part of its filter", () => {
+    expect(discoverQuery("#/candidates/kind=mover&one=1", "")).toBe("kind=mover");
+    expect(discoverQuery("#/candidates/one=1&sort=fewest", "")).toBe("sort=fewest");
+    expect(discoverQuery("#/candidates/one=1", "")).toBe("");
+    expect(isDiscoverUrl("#/candidates/one=1")).toBe(true);
   });
 });
 

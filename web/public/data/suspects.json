@@ -1,115 +1,185 @@
 {
-  "generated": "2026-11-14T13:39:56Z",
+  "generated": "2026-11-15T01:07:14Z",
   "data_release": "DR1",
   "zone": "hunt",
+  "vetoes": [
+    "mpc",
+    "gaia",
+    "catwise"
+  ],
+  "provisional": false,
+  "grades": {
+    "A": 0,
+    "B": 6,
+    "C": 17
+  },
+  "gates": {
+    "not_vetted": 0,
+    "hot_pixel": 7,
+    "bad_column": 2,
+    "edge": 0,
+    "masked_peak": 8,
+    "sharp_outlier": 0,
+    "very_sharp": 0,
+    "flux_ratio": 0,
+    "red_photo": 0,
+    "2mass": 0,
+    "allwise": 4
+  },
   "zones": [
     "hunt",
     "pilot"
   ],
+  "vetting": {
+    "hunt": {
+      "vetoes": [
+        "mpc",
+        "gaia",
+        "catwise"
+      ],
+      "provisional": false,
+      "grades": {
+        "A": 0,
+        "B": 6,
+        "C": 17
+      },
+      "gates": {
+        "not_vetted": 0,
+        "hot_pixel": 7,
+        "bad_column": 2,
+        "edge": 0,
+        "masked_peak": 8,
+        "sharp_outlier": 0,
+        "very_sharp": 0,
+        "flux_ratio": 0,
+        "red_photo": 0,
+        "2mass": 0,
+        "allwise": 4
+      }
+    },
+    "pilot": {
+      "vetoes": [
+        "mpc",
+        "gaia",
+        "catwise"
+      ],
+      "provisional": false,
+      "grades": {
+        "A": 0,
+        "B": 1,
+        "C": 4
+      },
+      "gates": {
+        "not_vetted": 0,
+        "hot_pixel": 2,
+        "bad_column": 1,
+        "edge": 0,
+        "masked_peak": 2,
+        "sharp_outlier": 0,
+        "very_sharp": 0,
+        "flux_ratio": 0,
+        "red_photo": 0,
+        "2mass": 0,
+        "allwise": 1
+      }
+    }
+  },
   "suspects": [
     {
-      "id": "hunt-629840072839-88052246",
-      "ra": 125.666546,
-      "dec": 14.973674,
-      "mjd": 61147.393013,
+      "id": "hunt-675100072098-87810126",
+      "ra": 130.081225,
+      "dec": 22.517708,
+      "mjd": 60979.25442,
       "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 289.7,
-      "flux_ujy": 2959.5,
-      "cell": 629840072839,
-      "nearest_known_arcsec": 127.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-666370069938-88051464",
-      "ra": 124.9095,
-      "dec": 21.063194,
-      "mjd": 61146.850206,
-      "clock": "hours",
-      "det": 4,
+      "det": 3,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 92.0,
-      "flux_ujy": 5397.6,
-      "cell": 666370069938,
-      "nearest_known_arcsec": 299.2,
+      "snr": 29.1,
+      "flux_ujy": 2249.6,
+      "cell": 675100072098,
+      "nearest_known_arcsec": 100.0,
+      "grade": "B",
+      "reasons": [],
+      "near_source_arcsec": 6.5,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
       ]
     },
     {
-      "id": "hunt-658800071013-88052440",
-      "ra": 125.793347,
-      "dec": 19.801277,
-      "mjd": 61147.527902,
+      "id": "hunt-665380068525-88045793",
+      "ra": 122.250475,
+      "dec": 20.897236,
+      "mjd": 61142.911622,
       "clock": "hours",
-      "det": 4,
+      "det": 2,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 85.9,
-      "flux_ujy": 4204.1,
-      "cell": 658800071013,
-      "nearest_known_arcsec": 344.1,
+      "snr": 15.7,
+      "flux_ujy": 1063.4,
+      "cell": 665380068525,
+      "nearest_known_arcsec": null,
+      "grade": "B",
+      "reasons": [],
+      "near_source_arcsec": 7.1,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
       ]
     },
     {
-      "id": "hunt-660180071712-88039440",
-      "ra": 127.215516,
-      "dec": 20.031107,
-      "mjd": 61138.499816,
+      "id": "hunt-669350069105-87803475",
+      "ra": 123.840437,
+      "dec": 21.559627,
+      "mjd": 60974.635251,
       "clock": "hours",
       "det": 6,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 84.8,
-      "flux_ujy": 17877.9,
-      "cell": 660180071712,
-      "nearest_known_arcsec": 130.1,
+      "snr": 9.8,
+      "flux_ujy": 2184.7,
+      "cell": 669350069105,
+      "nearest_known_arcsec": 257.7,
+      "grade": "B",
+      "reasons": [],
+      "near_source_arcsec": 1.5,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
       ]
     },
     {
-      "id": "hunt-684330068897-88046477",
-      "ra": 125.750605,
-      "dec": 24.056147,
-      "mjd": 61143.38663,
+      "id": "hunt-642590070200-87799955",
+      "ra": 122.412202,
+      "dec": 17.099507,
+      "mjd": 60972.191168,
       "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 69.4,
-      "flux_ujy": 3078.4,
-      "cell": 684330068897,
-      "nearest_known_arcsec": 354.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642020070317-87802695",
-      "ra": 122.554154,
-      "dec": 17.00357,
-      "mjd": 60974.093563,
-      "clock": "hours",
-      "det": 3,
+      "det": 6,
       "evidence": "two_exposures",
       "n_dots": 3,
-      "snr": 56.9,
-      "flux_ujy": 2320.2,
-      "cell": 642020070317,
-      "nearest_known_arcsec": 338.3,
+      "snr": 8.9,
+      "flux_ujy": 1483.9,
+      "cell": 642590070200,
+      "nearest_known_arcsec": 198.0,
+      "grade": "B",
+      "reasons": [],
+      "near_source_arcsec": null,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt",
@@ -117,54 +187,50 @@
       ]
     },
     {
-      "id": "hunt-638250073745-88055669",
-      "ra": 128.105625,
-      "dec": 16.375843,
-      "mjd": 61149.770299,
+      "id": "hunt-665180071278-87799171",
+      "ra": 127.133793,
+      "dec": 20.864598,
+      "mjd": 60971.646731,
       "clock": "hours",
       "det": 4,
       "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 48.9,
-      "flux_ujy": 2731.3,
-      "cell": 638250073745,
-      "nearest_known_arcsec": 542.3,
+      "n_dots": 4,
+      "snr": 8.0,
+      "flux_ujy": 382.6,
+      "cell": 665180071278,
+      "nearest_known_arcsec": 181.3,
+      "grade": "B",
+      "reasons": [],
+      "near_source_arcsec": null,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
       ]
     },
     {
-      "id": "hunt-667400070324-88053613",
-      "ra": 125.743739,
-      "dec": 21.234272,
-      "mjd": 61148.342158,
+      "id": "hunt-664370069751-88048142",
+      "ra": 124.299757,
+      "dec": 20.729356,
+      "mjd": 61144.542736,
       "clock": "hours",
       "det": 4,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 47.9,
-      "flux_ujy": 2296.9,
-      "cell": 667400070324,
-      "nearest_known_arcsec": 213.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-640450073170-88046677",
-      "ra": 127.348643,
-      "dec": 16.742753,
-      "mjd": 61143.525765,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 47.9,
-      "flux_ujy": 7583.4,
-      "cell": 640450073170,
-      "nearest_known_arcsec": null,
+      "snr": 7.3,
+      "flux_ujy": 385.0,
+      "cell": 664370069751,
+      "nearest_known_arcsec": 264.5,
+      "grade": "B",
+      "reasons": [],
+      "near_source_arcsec": 6.4,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -183,260 +249,15 @@
       "flux_ujy": 2834.2,
       "cell": 681160071553,
       "nearest_known_arcsec": 353.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-671540067549-88035332",
-      "ra": 121.359663,
-      "dec": 21.923695,
-      "mjd": 61135.647461,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 47.2,
-      "flux_ujy": 7513.6,
-      "cell": 671540067549,
-      "nearest_known_arcsec": 263.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-652990072627-88039440",
-      "ra": 127.892518,
-      "dec": 18.832167,
-      "mjd": 61138.499816,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 47.1,
-      "flux_ujy": 7445.6,
-      "cell": 652990072627,
-      "nearest_known_arcsec": 374.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-667190069844-88039145",
-      "ra": 124.856966,
-      "dec": 21.199615,
-      "mjd": 61138.295253,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 46.8,
-      "flux_ujy": 7601.9,
-      "cell": 667190069844,
-      "nearest_known_arcsec": 200.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-686090069175-88053906",
-      "ra": 126.548755,
-      "dec": 24.349846,
-      "mjd": 61148.546117,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 46.6,
-      "flux_ujy": 2338.2,
-      "cell": 686090069175,
-      "nearest_known_arcsec": 230.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642410073605-88057036",
-      "ra": 128.32784,
-      "dec": 17.069291,
-      "mjd": 61150.719408,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 45.8,
-      "flux_ujy": 2004.3,
-      "cell": 642410073605,
-      "nearest_known_arcsec": 559.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-681060067458-88044228",
-      "ra": 122.608822,
-      "dec": 23.510744,
-      "mjd": 61141.825216,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 44.1,
-      "flux_ujy": 2226.4,
-      "cell": 681060067458,
-      "nearest_known_arcsec": 486.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-673960072001-88051659",
-      "ra": 129.729392,
-      "dec": 22.327921,
-      "mjd": 61146.985095,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 43.4,
-      "flux_ujy": 2096.3,
-      "cell": 673960072001,
-      "nearest_known_arcsec": 437.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-647310069271-88043351",
-      "ra": 121.315465,
-      "dec": 17.8854,
-      "mjd": 61141.215666,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 43.2,
-      "flux_ujy": 2131.6,
-      "cell": 647310069271,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-632310075448-87806305",
-      "ra": 130.422507,
-      "dec": 15.386539,
-      "mjd": 60976.600729,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 43.1,
-      "flux_ujy": 2859.8,
-      "cell": 632310075448,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-653080073119-88052148",
-      "ra": 128.770292,
-      "dec": 18.846937,
-      "mjd": 61147.325062,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 42.8,
-      "flux_ujy": 2175.8,
-      "cell": 653080073119,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683690068882-88048527",
-      "ra": 125.619304,
-      "dec": 23.949662,
-      "mjd": 61144.810391,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 42.3,
-      "flux_ujy": 10406.3,
-      "cell": 683690068882,
-      "nearest_known_arcsec": 444.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-638100069647-88049219",
-      "ra": 120.972113,
-      "dec": 16.350266,
-      "mjd": 61145.290658,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 42.3,
-      "flux_ujy": 2126.3,
-      "cell": 638100069647,
-      "nearest_known_arcsec": 272.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-664250069368-87801613",
-      "ra": 123.599449,
-      "dec": 20.709591,
-      "mjd": 60973.34207,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 42.0,
-      "flux_ujy": 2569.3,
-      "cell": 664250069368,
-      "nearest_known_arcsec": 532.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-657670068787-88048824",
-      "ra": 121.70742,
-      "dec": 19.612202,
-      "mjd": 61145.016349,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 41.3,
-      "flux_ujy": 2050.9,
-      "cell": 657670068787,
-      "nearest_known_arcsec": 298.1,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel"
+      ],
+      "near_source_arcsec": null,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -455,244 +276,18 @@
       "flux_ujy": 3452.9,
       "cell": 675900068285,
       "nearest_known_arcsec": 364.7,
+      "grade": "C",
+      "reasons": [
+        "masked_peak"
+      ],
+      "near_source_arcsec": 6.4,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
-      ]
-    },
-    {
-      "id": "hunt-685770066405-88048530",
-      "ra": 121.430058,
-      "dec": 24.29591,
-      "mjd": 61144.81263,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 38.2,
-      "flux_ujy": 1771.5,
-      "cell": 685770066405,
-      "nearest_known_arcsec": 290.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-644850074338-88059089",
-      "ra": 129.893353,
-      "dec": 17.476167,
-      "mjd": 61152.145364,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 37.9,
-      "flux_ujy": 2378.3,
-      "cell": 644850074338,
-      "nearest_known_arcsec": 425.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-640660072365-88046675",
-      "ra": 125.971331,
-      "dec": 16.778181,
-      "mjd": 61143.524272,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 36.4,
-      "flux_ujy": 4763.3,
-      "cell": 640660072365,
-      "nearest_known_arcsec": 45.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-638370072455-88046679",
-      "ra": 125.877576,
-      "dec": 16.396222,
-      "mjd": 61143.527257,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 36.0,
-      "flux_ujy": 4692.1,
-      "cell": 638370072455,
-      "nearest_known_arcsec": 362.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683650070118-88040417",
-      "ra": 127.866729,
-      "dec": 23.941814,
-      "mjd": 61139.178454,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 35.5,
-      "flux_ujy": 4579.4,
-      "cell": 683650070118,
-      "nearest_known_arcsec": 471.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-634990074437-88047747",
-      "ra": 128.954386,
-      "dec": 15.832922,
-      "mjd": 61144.268872,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 35.3,
-      "flux_ujy": 3577.9,
-      "cell": 634990074437,
-      "nearest_known_arcsec": 242.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-676520070173-88046478",
-      "ra": 126.82681,
-      "dec": 22.753809,
-      "mjd": 61143.387376,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 34.9,
-      "flux_ujy": 1413.6,
-      "cell": 676520070173,
-      "nearest_known_arcsec": 300.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-670750070903-88018908",
-      "ra": 127.267068,
-      "dec": 21.792509,
-      "mjd": 61124.24136,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 34.5,
-      "flux_ujy": 4179.9,
-      "cell": 670750070903,
-      "nearest_known_arcsec": 475.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-664270069363-87801710",
-      "ra": 123.594891,
-      "dec": 20.712803,
-      "mjd": 60973.409452,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 4,
-      "snr": 33.9,
-      "flux_ujy": 1653.1,
-      "cell": 664270069363,
-      "nearest_known_arcsec": 476.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-627790075519-88066424",
-      "ra": 130.084385,
-      "dec": 14.632615,
-      "mjd": 61157.238588,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 33.7,
-      "flux_ujy": 1388.7,
-      "cell": 627790075519,
-      "nearest_known_arcsec": 526.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-658080069889-88046677",
-      "ra": 123.709746,
-      "dec": 19.681079,
-      "mjd": 61143.525765,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 32.6,
-      "flux_ujy": 3838.0,
-      "cell": 658080069889,
-      "nearest_known_arcsec": 285.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-648380072434-87805628",
-      "ra": 126.98312,
-      "dec": 18.063893,
-      "mjd": 60976.130249,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 5,
-      "snr": 31.1,
-      "flux_ujy": 2400.3,
-      "cell": 648380072434,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-630460070947-87790664",
-      "ra": 122.461206,
-      "dec": 15.077544,
-      "mjd": 60965.738711,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 30.8,
-      "flux_ujy": 1607.8,
-      "cell": 630460070947,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
       ]
     },
     {
@@ -708,6 +303,16 @@
       "flux_ujy": 1879.2,
       "cell": 646380070830,
       "nearest_known_arcsec": 357.2,
+      "grade": "C",
+      "reasons": [
+        "masked_peak",
+        "allwise"
+      ],
+      "near_source_arcsec": 3.4,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt",
@@ -715,236 +320,54 @@
       ]
     },
     {
-      "id": "hunt-684080068397-88018905",
-      "ra": 124.797505,
-      "dec": 24.014436,
-      "mjd": 61124.239868,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 29.8,
-      "flux_ujy": 2426.0,
-      "cell": 684080068397,
-      "nearest_known_arcsec": 254.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-628480072849-87808457",
-      "ra": 125.552344,
-      "dec": 14.74669,
-      "mjd": 60978.095329,
+      "id": "hunt-642170071241-88041494",
+      "ra": 124.179555,
+      "dec": 17.029526,
+      "mjd": 61139.926429,
       "clock": "hours",
       "det": 3,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 29.7,
-      "flux_ujy": 1761.8,
-      "cell": 628480072849,
-      "nearest_known_arcsec": null,
+      "snr": 28.9,
+      "flux_ujy": 1769.3,
+      "cell": 642170071241,
+      "nearest_known_arcsec": 112.6,
+      "grade": "C",
+      "reasons": [
+        "masked_peak"
+      ],
+      "near_source_arcsec": 7.2,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
       ]
     },
     {
-      "id": "hunt-665330070626-88043839",
-      "ra": 125.991714,
-      "dec": 20.889083,
-      "mjd": 61141.555181,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 29.0,
-      "flux_ujy": 2875.7,
-      "cell": 665330070626,
-      "nearest_known_arcsec": 386.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-675030066933-87791057",
-      "ra": 120.75251,
-      "dec": 22.505962,
-      "mjd": 60966.01151,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 28.5,
-      "flux_ujy": 1352.1,
-      "cell": 675030066933,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-658630069698-88055178",
-      "ra": 123.441171,
-      "dec": 19.772965,
-      "mjd": 61149.429496,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 27.9,
-      "flux_ujy": 1142.9,
-      "cell": 658630069698,
-      "nearest_known_arcsec": 326.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-646910073133-87810023",
-      "ra": 128.031094,
-      "dec": 17.818773,
-      "mjd": 60979.182579,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 27.7,
-      "flux_ujy": 1715.1,
-      "cell": 646910073133,
-      "nearest_known_arcsec": 476.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-643890071612-88055178",
-      "ra": 125.020284,
-      "dec": 17.31516,
-      "mjd": 61149.429496,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 27.5,
-      "flux_ujy": 1060.4,
-      "cell": 643890071612,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-631710074640-88051563",
-      "ra": 128.963074,
-      "dec": 15.285317,
-      "mjd": 61146.918601,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 27.4,
-      "flux_ujy": 4847.3,
-      "cell": 631710074640,
-      "nearest_known_arcsec": 253.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-654200071854-88066129",
-      "ra": 126.683707,
-      "dec": 19.034964,
-      "mjd": 61157.034327,
+      "id": "hunt-656420068345-87795454",
+      "ra": 120.768959,
+      "dec": 19.403424,
+      "mjd": 60969.065427,
       "clock": "hours",
       "det": 1,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 27.2,
-      "flux_ujy": 1970.4,
-      "cell": 654200071854,
-      "nearest_known_arcsec": 320.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-645590069534-88041494",
-      "ra": 121.58158,
-      "dec": 17.599035,
-      "mjd": 61139.926429,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 26.4,
-      "flux_ujy": 2728.3,
-      "cell": 645590069534,
+      "snr": 24.3,
+      "flux_ujy": 2013.3,
+      "cell": 656420068345,
       "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-630930071066-87800147",
-      "ra": 122.713073,
-      "dec": 15.155634,
-      "mjd": 60972.324032,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 26.2,
-      "flux_ujy": 1424.9,
-      "cell": 630930071066,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-660740070869-88046381",
-      "ra": 125.796383,
-      "dec": 20.123826,
-      "mjd": 61143.319949,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 25.7,
-      "flux_ujy": 2509.8,
-      "cell": 660740070869,
-      "nearest_known_arcsec": 401.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-655900073173-88051464",
-      "ra": 129.231214,
-      "dec": 19.317318,
-      "mjd": 61146.850206,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 24.8,
-      "flux_ujy": 2629.1,
-      "cell": 655900073173,
-      "nearest_known_arcsec": 462.5,
+      "grade": "C",
+      "reasons": [
+        "masked_peak"
+      ],
+      "near_source_arcsec": 6.6,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -963,6 +386,16 @@
       "flux_ujy": 1213.1,
       "cell": 635660070879,
       "nearest_known_arcsec": 508.5,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel",
+        "bad_column"
+      ],
+      "near_source_arcsec": null,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt",
@@ -982,6 +415,15 @@
       "flux_ujy": 1139.2,
       "cell": 636850070702,
       "nearest_known_arcsec": null,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel"
+      ],
+      "near_source_arcsec": 7.4,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt",
@@ -989,489 +431,27 @@
       ]
     },
     {
-      "id": "hunt-670170071364-88049803",
-      "ra": 128.008295,
-      "dec": 21.69534,
-      "mjd": 61145.696391,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 22.6,
-      "flux_ujy": 1254.2,
-      "cell": 670170071364,
-      "nearest_known_arcsec": 147.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-639550071379-87799076",
-      "ra": 124.134616,
-      "dec": 16.592094,
-      "mjd": 60971.580889,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 22.6,
-      "flux_ujy": 1181.2,
-      "cell": 639550071379,
-      "nearest_known_arcsec": 73.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-685410066046-87800243",
-      "ra": 120.717285,
-      "dec": 24.235875,
-      "mjd": 60972.390686,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 22.0,
-      "flux_ujy": 1552.9,
-      "cell": 685410066046,
-      "nearest_known_arcsec": 468.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-685400066046-87795357",
-      "ra": 120.716002,
-      "dec": 24.234019,
-      "mjd": 60968.99761,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 22.0,
-      "flux_ujy": 1385.0,
-      "cell": 685400066046,
-      "nearest_known_arcsec": 330.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-674420071085-87804455",
-      "ra": 128.149062,
-      "dec": 22.404407,
-      "mjd": 60975.315879,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 21.7,
-      "flux_ujy": 1489.0,
-      "cell": 674420071085,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-674950071502-87796533",
-      "ra": 128.983094,
-      "dec": 22.491711,
-      "mjd": 60969.814806,
+      "id": "hunt-645370071977-87796239",
+      "ra": 125.828335,
+      "dec": 17.563306,
+      "mjd": 60969.610527,
       "clock": "hours",
       "det": 1,
       "evidence": "two_exposures",
       "n_dots": 2,
-      "snr": 21.1,
-      "flux_ujy": 1394.3,
-      "cell": 674950071502,
-      "nearest_known_arcsec": 524.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-629280072929-87805919",
-      "ra": 125.767368,
-      "dec": 14.880052,
-      "mjd": 60976.332984,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 20.6,
-      "flux_ujy": 1371.8,
-      "cell": 629280072929,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642040070313-87806306",
-      "ra": 122.549013,
-      "dec": 17.006696,
-      "mjd": 60976.601226,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 20.4,
-      "flux_ujy": 4397.1,
-      "cell": 642040070313,
-      "nearest_known_arcsec": 523.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-631270072911-88055865",
-      "ra": 125.93111,
-      "dec": 15.213061,
-      "mjd": 61149.906165,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 19.9,
-      "flux_ujy": 901.6,
-      "cell": 631270072911,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-684400070297-88057915",
-      "ra": 128.318159,
-      "dec": 24.068299,
-      "mjd": 61151.329793,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 19.8,
-      "flux_ujy": 931.5,
-      "cell": 684400070297,
-      "nearest_known_arcsec": 362.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-649730072932-88057037",
-      "ra": 128.020802,
-      "dec": 18.289829,
-      "mjd": 61150.720154,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 19.6,
-      "flux_ujy": 939.2,
-      "cell": 649730072932,
-      "nearest_known_arcsec": 259.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-655590069812-87800052",
-      "ra": 123.256208,
-      "dec": 19.265981,
-      "mjd": 60972.258468,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 3,
       "snr": 19.0,
-      "flux_ujy": 1348.8,
-      "cell": 655590069812,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-652050072584-87801707",
-      "ra": 127.698158,
-      "dec": 18.676351,
-      "mjd": 60973.40796,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.8,
-      "flux_ujy": 1161.2,
-      "cell": 652050072584,
-      "nearest_known_arcsec": 431.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-647980070483-87792819",
-      "ra": 123.515604,
-      "dec": 17.997563,
-      "mjd": 60967.235106,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.5,
-      "flux_ujy": 1429.8,
-      "cell": 647980070483,
-      "nearest_known_arcsec": 343.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-630210073982-87801514",
-      "ra": 127.674774,
-      "dec": 15.03547,
-      "mjd": 60973.273533,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.4,
-      "flux_ujy": 1151.3,
-      "cell": 630210073982,
-      "nearest_known_arcsec": 162.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-640550071150-87793593",
-      "ra": 123.844041,
-      "dec": 16.759301,
-      "mjd": 60967.773028,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.4,
-      "flux_ujy": 763.2,
-      "cell": 640550071150,
-      "nearest_known_arcsec": 159.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-680950070482-88046477",
-      "ra": 128.088056,
-      "dec": 23.493004,
-      "mjd": 61143.38663,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.4,
-      "flux_ujy": 829.9,
-      "cell": 680950070482,
-      "nearest_known_arcsec": 517.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-677730069375-88051366",
-      "ra": 125.571035,
-      "dec": 22.956067,
-      "mjd": 61146.782059,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.3,
-      "flux_ujy": 948.8,
-      "cell": 677730069375,
-      "nearest_known_arcsec": 507.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-677200070760-88051659",
-      "ra": 127.994483,
-      "dec": 22.867393,
-      "mjd": 61146.985095,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.3,
-      "flux_ujy": 798.8,
-      "cell": 677200070760,
-      "nearest_known_arcsec": 254.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-629930070771-88052638",
-      "ra": 122.106403,
-      "dec": 14.988412,
-      "mjd": 61147.665012,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 18.3,
-      "flux_ujy": 981.9,
-      "cell": 629930070771,
-      "nearest_known_arcsec": 346.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-632360072911-88052247",
-      "ra": 126.041262,
-      "dec": 15.393569,
-      "mjd": 61147.393759,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.9,
-      "flux_ujy": 799.7,
-      "cell": 632360072911,
-      "nearest_known_arcsec": 417.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-663020069642-88039442",
-      "ra": 123.921335,
-      "dec": 20.504702,
-      "mjd": 61138.501308,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.9,
-      "flux_ujy": 1652.1,
-      "cell": 663020069642,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683310066975-88048530",
-      "ra": 122.081494,
-      "dec": 23.885925,
-      "mjd": 61144.812799,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.8,
-      "flux_ujy": 884.2,
-      "cell": 683310066975,
-      "nearest_known_arcsec": 297.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-648720070919-88047750",
-      "ra": 124.367102,
-      "dec": 18.120953,
-      "mjd": 61144.27111,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.8,
-      "flux_ujy": 904.6,
-      "cell": 648720070919,
-      "nearest_known_arcsec": 356.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683460069009-88049801",
-      "ra": 125.813642,
-      "dec": 23.911111,
-      "mjd": 61145.694899,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.8,
-      "flux_ujy": 954.8,
-      "cell": 683460069009,
-      "nearest_known_arcsec": 507.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683160070855-87800839",
-      "ra": 129.129744,
-      "dec": 23.86163,
-      "mjd": 60972.805071,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.7,
-      "flux_ujy": 801.0,
-      "cell": 683160070855,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-670630071857-88056547",
-      "ra": 128.962878,
-      "dec": 21.772683,
-      "mjd": 61150.379574,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.6,
-      "flux_ujy": 859.7,
-      "cell": 670630071857,
-      "nearest_known_arcsec": 413.0,
+      "flux_ujy": 1715.3,
+      "cell": 645370071977,
+      "nearest_known_arcsec": 475.2,
+      "grade": "C",
+      "reasons": [
+        "masked_peak"
+      ],
+      "near_source_arcsec": 6.6,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -1490,388 +470,19 @@
       "flux_ujy": 912.1,
       "cell": 632820071306,
       "nearest_known_arcsec": 395.6,
+      "grade": "C",
+      "reasons": [
+        "masked_peak"
+      ],
+      "near_source_arcsec": 6.5,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt",
         "pilot"
-      ]
-    },
-    {
-      "id": "hunt-668080071302-88056546",
-      "ra": 127.590894,
-      "dec": 21.346718,
-      "mjd": 61150.378828,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.6,
-      "flux_ujy": 782.5,
-      "cell": 668080071302,
-      "nearest_known_arcsec": 80.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-655140070079-87801518",
-      "ra": 123.671657,
-      "dec": 19.19153,
-      "mjd": 60973.27666,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.5,
-      "flux_ujy": 1205.5,
-      "cell": 655140070079,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-662940067958-87793893",
-      "ra": 120.913928,
-      "dec": 20.490281,
-      "mjd": 60967.981553,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.4,
-      "flux_ujy": 807.2,
-      "cell": 662940067958,
-      "nearest_known_arcsec": 498.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-676330071516-88054394",
-      "ra": 129.223599,
-      "dec": 22.722777,
-      "mjd": 61148.885054,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.4,
-      "flux_ujy": 838.7,
-      "cell": 676330071516,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-655810070070-87801711",
-      "ra": 123.740701,
-      "dec": 19.302415,
-      "mjd": 60973.410199,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.4,
-      "flux_ujy": 3020.0,
-      "cell": 655810070070,
-      "nearest_known_arcsec": 379.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-672640071037-88054396",
-      "ra": 127.791903,
-      "dec": 22.107085,
-      "mjd": 61148.8858,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.4,
-      "flux_ujy": 759.9,
-      "cell": 672640071037,
-      "nearest_known_arcsec": 329.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-674550069338-87797513",
-      "ra": 125.018207,
-      "dec": 22.425478,
-      "mjd": 60970.495274,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.2,
-      "flux_ujy": 855.4,
-      "cell": 674550069338,
-      "nearest_known_arcsec": 186.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-656310071922-88052148",
-      "ra": 127.07462,
-      "dec": 19.385025,
-      "mjd": 61147.325062,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.2,
-      "flux_ujy": 733.7,
-      "cell": 656310071922,
-      "nearest_known_arcsec": 484.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683900066241-88044228",
-      "ra": 120.836098,
-      "dec": 23.983814,
-      "mjd": 61141.825216,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.2,
-      "flux_ujy": 829.6,
-      "cell": 683900066241,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-645790072521-88052053",
-      "ra": 126.827884,
-      "dec": 17.632865,
-      "mjd": 61147.258835,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 17.0,
-      "flux_ujy": 1524.3,
-      "cell": 645790072521,
-      "nearest_known_arcsec": 254.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-675020068843-88051365",
-      "ra": 124.19671,
-      "dec": 22.504875,
-      "mjd": 61146.781313,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.9,
-      "flux_ujy": 810.9,
-      "cell": 675020068843,
-      "nearest_known_arcsec": 343.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-626950074428-88052246",
-      "ra": 128.123911,
-      "dec": 14.492795,
-      "mjd": 61147.393013,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.8,
-      "flux_ujy": 860.6,
-      "cell": 626950074428,
-      "nearest_known_arcsec": 598.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-650180072164-88055176",
-      "ra": 126.728248,
-      "dec": 18.364583,
-      "mjd": 61149.428004,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.8,
-      "flux_ujy": 675.7,
-      "cell": 650180072164,
-      "nearest_known_arcsec": 408.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-640070072754-88043351",
-      "ra": 126.582904,
-      "dec": 16.678882,
-      "mjd": 61141.215657,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.7,
-      "flux_ujy": 1460.8,
-      "cell": 640070072754,
-      "nearest_known_arcsec": 151.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-629750073126-88049221",
-      "ra": 126.151964,
-      "dec": 14.95904,
-      "mjd": 61145.29215,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.7,
-      "flux_ujy": 1545.1,
-      "cell": 629750073126,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-669350069874-88048139",
-      "ra": 125.21757,
-      "dec": 21.558607,
-      "mjd": 61144.541244,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.6,
-      "flux_ujy": 837.7,
-      "cell": 669350069874,
-      "nearest_known_arcsec": 245.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-664690071431-88053612",
-      "ra": 127.33858,
-      "dec": 20.782658,
-      "mjd": 61148.341412,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.5,
-      "flux_ujy": 792.0,
-      "cell": 664690071431,
-      "nearest_known_arcsec": 313.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-657880073720-87813941",
-      "ra": 130.463366,
-      "dec": 19.647615,
-      "mjd": 60981.903546,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.5,
-      "flux_ujy": 1597.1,
-      "cell": 657880073720,
-      "nearest_known_arcsec": 549.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-678020066737-88039145",
-      "ra": 120.838327,
-      "dec": 23.004894,
-      "mjd": 61138.295253,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.5,
-      "flux_ujy": 1628.9,
-      "cell": 678020066737,
-      "nearest_known_arcsec": 378.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-668410067955-87793502",
-      "ra": 121.647357,
-      "dec": 21.403035,
-      "mjd": 60967.709731,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.5,
-      "flux_ujy": 842.9,
-      "cell": 668410067955,
-      "nearest_known_arcsec": 324.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-672250067082-88041591",
-      "ra": 120.621553,
-      "dec": 22.042939,
-      "mjd": 61139.993794,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.4,
-      "flux_ujy": 1485.4,
-      "cell": 672250067082,
-      "nearest_known_arcsec": 571.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
       ]
     },
     {
@@ -1887,529 +498,15 @@
       "flux_ujy": 1107.9,
       "cell": 679970070862,
       "nearest_known_arcsec": 273.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-679610068559-88049802",
-      "ra": 124.383019,
-      "dec": 23.269016,
-      "mjd": 61145.695645,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.4,
-      "flux_ujy": 717.0,
-      "cell": 679610068559,
-      "nearest_known_arcsec": 594.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-682320069083-88049803",
-      "ra": 125.764978,
-      "dec": 23.720202,
-      "mjd": 61145.696391,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.4,
-      "flux_ujy": 779.3,
-      "cell": 682320069083,
-      "nearest_known_arcsec": 429.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-658860072496-88052149",
-      "ra": 128.429019,
-      "dec": 19.811223,
-      "mjd": 61147.325808,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.4,
-      "flux_ujy": 801.4,
-      "cell": 658860072496,
-      "nearest_known_arcsec": 431.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-656290069826-88052051",
-      "ra": 123.36952,
-      "dec": 19.382639,
-      "mjd": 61147.257342,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.3,
-      "flux_ujy": 895.7,
-      "cell": 656290069826,
-      "nearest_known_arcsec": 281.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-673630071103-88044228",
-      "ra": 128.059951,
-      "dec": 22.271711,
-      "mjd": 61141.825216,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.2,
-      "flux_ujy": 1537.5,
-      "cell": 673630071103,
-      "nearest_known_arcsec": 406.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-641430070526-88050783",
-      "ra": 122.854215,
-      "dec": 16.905833,
-      "mjd": 61146.37685,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.2,
-      "flux_ujy": 739.9,
-      "cell": 641430070526,
-      "nearest_known_arcsec": 282.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-653140074051-87810026",
-      "ra": 130.418682,
-      "dec": 18.857944,
-      "mjd": 60979.184829,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 16.1,
-      "flux_ujy": 949.3,
-      "cell": 653140074051,
-      "nearest_known_arcsec": 163.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-654810070402-87797415",
-      "ra": 124.199813,
-      "dec": 19.136598,
-      "mjd": 60970.426826,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.1,
-      "flux_ujy": 756.6,
-      "cell": 654810070402,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-635750072156-87800638",
-      "ra": 125.082329,
-      "dec": 15.958753,
-      "mjd": 60972.665244,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.0,
-      "flux_ujy": 1645.7,
-      "cell": 635750072156,
-      "nearest_known_arcsec": 546.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-680890071228-88051657",
-      "ra": 129.434168,
-      "dec": 23.482614,
-      "mjd": 61146.984349,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 16.0,
-      "flux_ujy": 784.6,
-      "cell": 680890071228,
-      "nearest_known_arcsec": 445.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642240074613-88068669",
-      "ra": 130.06556,
-      "dec": 17.041088,
-      "mjd": 61158.797657,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.9,
-      "flux_ujy": 716.9,
-      "cell": 642240074613,
-      "nearest_known_arcsec": 329.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-651320074223-88059088",
-      "ra": 130.4883,
-      "dec": 18.554534,
-      "mjd": 61152.144609,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.8,
-      "flux_ujy": 740.2,
-      "cell": 651320074223,
-      "nearest_known_arcsec": 361.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-646780074425-88066812",
-      "ra": 130.277063,
-      "dec": 17.79797,
-      "mjd": 61157.508615,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.7,
-      "flux_ujy": 723.5,
-      "cell": 646780074425,
-      "nearest_known_arcsec": 463.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-649320072386-87806598",
-      "ra": 127.012793,
-      "dec": 18.22057,
-      "mjd": 60976.804421,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 15.7,
-      "flux_ujy": 880.5,
-      "cell": 649320072386,
-      "nearest_known_arcsec": 571.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-634340072968-88046190",
-      "ra": 126.342538,
-      "dec": 15.723376,
-      "mjd": 61143.187822,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.6,
-      "flux_ujy": 1348.1,
-      "cell": 634340072968,
-      "nearest_known_arcsec": 363.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-671770071791-88056544",
-      "ra": 129.0148,
-      "dec": 21.963039,
-      "mjd": 61150.378073,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.5,
-      "flux_ujy": 765.8,
-      "cell": 671770071791,
-      "nearest_known_arcsec": 165.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-661430069508-87801903",
-      "ra": 123.470338,
-      "dec": 20.239454,
-      "mjd": 60973.543844,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.4,
-      "flux_ujy": 639.0,
-      "cell": 661430069508,
-      "nearest_known_arcsec": 150.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-672290069466-87797513",
-      "ra": 124.913115,
-      "dec": 22.049767,
-      "mjd": 60970.495274,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.4,
-      "flux_ujy": 824.9,
-      "cell": 672290069466,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-661330069764-87801029",
-      "ra": 123.912762,
-      "dec": 20.222455,
-      "mjd": 60972.936816,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.4,
-      "flux_ujy": 1039.8,
-      "cell": 661330069764,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-678880069303-88051364",
-      "ra": 125.618627,
-      "dec": 23.147095,
-      "mjd": 61146.780567,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.3,
-      "flux_ujy": 833.6,
-      "cell": 678880069303,
-      "nearest_known_arcsec": 396.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-628640073611-87794183",
-      "ra": 126.879927,
-      "dec": 14.773724,
-      "mjd": 60968.182812,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 15.1,
-      "flux_ujy": 894.4,
-      "cell": 628640073611,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-671690069185-87800934",
-      "ra": 124.320468,
-      "dec": 21.948801,
-      "mjd": 60972.871175,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 4,
-      "snr": 14.8,
-      "flux_ujy": 973.6,
-      "cell": 671690069185,
-      "nearest_known_arcsec": 438.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-635480072927-88046188",
-      "ra": 126.390412,
-      "dec": 15.9148,
-      "mjd": 61143.18633,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 14.3,
-      "flux_ujy": 1332.9,
-      "cell": 635480072927,
-      "nearest_known_arcsec": 549.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-679300066691-88038268",
-      "ra": 120.947221,
-      "dec": 23.217135,
-      "mjd": 61137.685809,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 14.1,
-      "flux_ujy": 1598.8,
-      "cell": 679300066691,
-      "nearest_known_arcsec": 423.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-629440075193-88050785",
-      "ra": 129.686772,
-      "dec": 14.907252,
-      "mjd": 61146.378342,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 14.0,
-      "flux_ujy": 1272.0,
-      "cell": 629440075193,
-      "nearest_known_arcsec": 596.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-635640072706-87804062",
-      "ra": 126.023174,
-      "dec": 15.941118,
-      "mjd": 60975.042868,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 13.8,
-      "flux_ujy": 802.6,
-      "cell": 635640072706,
-      "nearest_known_arcsec": 315.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-663330071682-88050585",
-      "ra": 127.594797,
-      "dec": 20.556346,
-      "mjd": 61146.239536,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 13.8,
-      "flux_ujy": 1317.1,
-      "cell": 663330071682,
-      "nearest_known_arcsec": 534.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-681980070589-88049118",
-      "ra": 128.449461,
-      "dec": 23.664662,
-      "mjd": 61145.220557,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 13.8,
-      "flux_ujy": 1275.3,
-      "cell": 681980070589,
-      "nearest_known_arcsec": 215.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-684230068851-87795847",
-      "ra": 125.651057,
-      "dec": 24.039411,
-      "mjd": 60969.338448,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 13.2,
-      "flux_ujy": 679.4,
-      "cell": 684230068851,
-      "nearest_known_arcsec": null,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel"
+      ],
+      "near_source_arcsec": 7.4,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -2428,384 +525,16 @@
       "flux_ujy": 520.2,
       "cell": 684910071362,
       "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-683110067383-88042959",
-      "ra": 122.793241,
-      "dec": 23.852193,
-      "mjd": 61140.943489,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 13.1,
-      "flux_ujy": 567.4,
-      "cell": 683110067383,
-      "nearest_known_arcsec": 145.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-651930069988-87801517",
-      "ra": 123.115807,
-      "dec": 18.655911,
-      "mjd": 60973.275913,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 13.1,
-      "flux_ujy": 778.9,
-      "cell": 651930069988,
-      "nearest_known_arcsec": 299.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-649810068699-87791643",
-      "ra": 120.599689,
-      "dec": 18.302335,
-      "mjd": 60966.418735,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 12.8,
-      "flux_ujy": 725.8,
-      "cell": 649810068699,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-629830072840-87809438",
-      "ra": 125.667118,
-      "dec": 14.972987,
-      "mjd": 60978.776312,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 12.6,
-      "flux_ujy": 1852.8,
-      "cell": 629830072840,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-656200068375-88035138",
-      "ra": 120.794511,
-      "dec": 19.368306,
-      "mjd": 61135.512776,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 12.5,
-      "flux_ujy": 2306.5,
-      "cell": 656200068375,
-      "nearest_known_arcsec": 538.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-685430068330-87800439",
-      "ra": 124.894178,
-      "dec": 24.238834,
-      "mjd": 60972.526979,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 12.5,
-      "flux_ujy": 794.5,
-      "cell": 685430068330,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-633450075077-87807093",
-      "ra": 129.900251,
-      "dec": 15.576087,
-      "mjd": 60977.147676,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 3,
-      "snr": 12.4,
-      "flux_ujy": 698.9,
-      "cell": 633450075077,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-639330073246-87797117",
-      "ra": 127.356611,
-      "dec": 16.556485,
-      "mjd": 60970.220326,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 12.2,
-      "flux_ujy": 629.9,
-      "cell": 639330073246,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-664630067841-87793499",
-      "ra": 120.930622,
-      "dec": 20.772338,
-      "mjd": 60967.707493,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 12.2,
-      "flux_ujy": 938.7,
-      "cell": 664630067841,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-635610073264-87801521",
-      "ra": 126.987835,
-      "dec": 15.935479,
-      "mjd": 60973.278152,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 12.0,
-      "flux_ujy": 598.4,
-      "cell": 635610073264,
-      "nearest_known_arcsec": 255.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-664500069355-87801614",
-      "ra": 123.610356,
-      "dec": 20.750269,
-      "mjd": 60973.342816,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.9,
-      "flux_ujy": 765.5,
-      "cell": 664500069355,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-654380071968-88052439",
-      "ra": 126.908024,
-      "dec": 19.063639,
-      "mjd": 61147.527156,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.8,
-      "flux_ujy": 500.0,
-      "cell": 654380071968,
-      "nearest_known_arcsec": 489.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-679350067488-88050584",
-      "ra": 122.399602,
-      "dec": 23.225518,
-      "mjd": 61146.23879,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.6,
-      "flux_ujy": 467.6,
-      "cell": 679350067488,
-      "nearest_known_arcsec": 125.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-664190069616-87801030",
-      "ra": 124.033723,
-      "dec": 20.698843,
-      "mjd": 60972.937562,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.6,
-      "flux_ujy": 733.9,
-      "cell": 664190069616,
-      "nearest_known_arcsec": 79.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-677020069905-87804455",
-      "ra": 126.419923,
-      "dec": 22.838286,
-      "mjd": 60975.316128,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.6,
-      "flux_ujy": 832.1,
-      "cell": 677020069905,
-      "nearest_known_arcsec": 388.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-640850072482-88052247",
-      "ra": 126.196126,
-      "dec": 16.809554,
-      "mjd": 61147.393759,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.6,
-      "flux_ujy": 661.4,
-      "cell": 640850072482,
-      "nearest_known_arcsec": 319.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-637180074717-87809440",
-      "ra": 129.676611,
-      "dec": 16.19745,
-      "mjd": 60978.777804,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.6,
-      "flux_ujy": 588.0,
-      "cell": 637180074717,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-680510071648-88057913",
-      "ra": 130.134684,
-      "dec": 23.419482,
-      "mjd": 61151.328301,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.5,
-      "flux_ujy": 631.7,
-      "cell": 680510071648,
-      "nearest_known_arcsec": 309.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-674020069176-88041395",
-      "ra": 124.646721,
-      "dec": 22.337451,
-      "mjd": 61139.857412,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.4,
-      "flux_ujy": 758.0,
-      "cell": 674020069176,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-650730071226-88052441",
-      "ra": 125.147435,
-      "dec": 18.455822,
-      "mjd": 61147.528648,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.2,
-      "flux_ujy": 516.7,
-      "cell": 650730071226,
-      "nearest_known_arcsec": 216.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-667390072391-88050582",
-      "ra": 129.438923,
-      "dec": 21.23298,
-      "mjd": 61146.237298,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.1,
-      "flux_ujy": 3394.5,
-      "cell": 667390072391,
-      "nearest_known_arcsec": 293.8,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel",
+        "bad_column"
+      ],
+      "near_source_arcsec": 9.9,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -2824,61 +553,15 @@
       "flux_ujy": 826.1,
       "cell": 643930071836,
       "nearest_known_arcsec": 164.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-679510071226-87797511",
-      "ra": 129.20569,
-      "dec": 23.253047,
-      "mjd": 60970.493782,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 11.0,
-      "flux_ujy": 816.1,
-      "cell": 679510071226,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-636760071174-87797118",
-      "ra": 123.483036,
-      "dec": 16.126948,
-      "mjd": 60970.221072,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 10.8,
-      "flux_ujy": 568.6,
-      "cell": 636760071174,
-      "nearest_known_arcsec": 557.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-678320070565-88054398",
-      "ra": 127.817084,
-      "dec": 23.053515,
-      "mjd": 61148.887293,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 10.8,
-      "flux_ujy": 573.7,
-      "cell": 678320070565,
-      "nearest_known_arcsec": 279.2,
+      "grade": "C",
+      "reasons": [
+        "allwise"
+      ],
+      "near_source_arcsec": 1.2,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -2897,116 +580,15 @@
       "flux_ujy": 642.1,
       "cell": 650490069097,
       "nearest_known_arcsec": 478.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-649250072209-88055181",
-      "ra": 126.694239,
-      "dec": 18.208901,
-      "mjd": 61149.430988,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 10.5,
-      "flux_ujy": 456.0,
-      "cell": 649250072209,
-      "nearest_known_arcsec": 285.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-684630070460-87797213",
-      "ra": 128.654011,
-      "dec": 24.105701,
-      "mjd": 60970.286838,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 10.4,
-      "flux_ujy": 759.7,
-      "cell": 684630070460,
-      "nearest_known_arcsec": 190.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-659150069634-87801030",
-      "ra": 123.396409,
-      "dec": 19.858431,
-      "mjd": 60972.937562,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 10.4,
-      "flux_ujy": 639.4,
-      "cell": 659150069634,
-      "nearest_known_arcsec": 184.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-633440070968-87800637",
-      "ra": 122.789026,
-      "dec": 15.574433,
-      "mjd": 60972.664497,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 10.0,
-      "flux_ujy": 532.7,
-      "cell": 633440070968,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-632230069953-88037881",
-      "ra": 120.91458,
-      "dec": 15.37215,
-      "mjd": 61137.41763,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.9,
-      "flux_ujy": 2009.4,
-      "cell": 632230069953,
-      "nearest_known_arcsec": 99.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-633310072965-87794185",
-      "ra": 126.231081,
-      "dec": 15.552695,
-      "mjd": 60968.184304,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.9,
-      "flux_ujy": 493.4,
-      "cell": 633310072965,
-      "nearest_known_arcsec": 256.1,
+      "grade": "C",
+      "reasons": [
+        "masked_peak"
+      ],
+      "near_source_arcsec": 6.3,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -3025,642 +607,42 @@
       "flux_ujy": 605.7,
       "cell": 677580066896,
       "nearest_known_arcsec": null,
+      "grade": "C",
+      "reasons": [
+        "allwise"
+      ],
+      "near_source_arcsec": 7.3,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
       ]
     },
     {
-      "id": "hunt-628950070895-87799850",
-      "ra": 122.228146,
-      "dec": 14.825515,
-      "mjd": 60972.118297,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.6,
-      "flux_ujy": 640.2,
-      "cell": 628950070895,
-      "nearest_known_arcsec": 200.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-644320074669-87810317",
-      "ra": 130.408362,
-      "dec": 17.38765,
-      "mjd": 60979.386716,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.5,
-      "flux_ujy": 682.5,
-      "cell": 644320074669,
-      "nearest_known_arcsec": 431.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-652890072041-88052443",
-      "ra": 126.847427,
-      "dec": 18.815567,
-      "mjd": 61147.530141,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.5,
-      "flux_ujy": 433.3,
-      "cell": 652890072041,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-645330072713-88055668",
-      "ra": 127.108795,
-      "dec": 17.555606,
-      "mjd": 61149.769553,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.4,
-      "flux_ujy": 483.7,
-      "cell": 645330072713,
-      "nearest_known_arcsec": 350.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-638660071687-88047750",
-      "ra": 124.574549,
-      "dec": 16.443564,
-      "mjd": 61144.27111,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.4,
-      "flux_ujy": 503.4,
-      "cell": 638660071687,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-640650072522-87804062",
-      "ra": 126.243178,
-      "dec": 16.775608,
-      "mjd": 60975.042868,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.3,
-      "flux_ujy": 546.7,
-      "cell": 640650072522,
-      "nearest_known_arcsec": 274.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-655660068964-88035139",
-      "ra": 121.769045,
-      "dec": 19.277207,
-      "mjd": 61135.513522,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.3,
-      "flux_ujy": 2264.9,
-      "cell": 655660068964,
-      "nearest_known_arcsec": 496.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-632680070763-87797607",
-      "ra": 122.359541,
-      "dec": 15.447126,
-      "mjd": 60970.56056,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.3,
-      "flux_ujy": 594.7,
-      "cell": 632680070763,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-642040070315-87804063",
-      "ra": 122.551979,
-      "dec": 17.007965,
-      "mjd": 60975.043614,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.3,
-      "flux_ujy": 1750.3,
-      "cell": 642040070315,
-      "nearest_known_arcsec": 103.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-678460066742-87800044",
-      "ra": 120.913725,
-      "dec": 23.07727,
-      "mjd": 60972.252902,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.2,
-      "flux_ujy": 655.1,
-      "cell": 678460066742,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-633090073361-87800636",
-      "ra": 126.893844,
-      "dec": 15.515894,
-      "mjd": 60972.663751,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.2,
-      "flux_ujy": 460.1,
-      "cell": 633090073361,
-      "nearest_known_arcsec": 292.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-658550073487-88066129",
-      "ra": 130.14238,
-      "dec": 19.759608,
-      "mjd": 61157.034327,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.2,
-      "flux_ujy": 482.7,
-      "cell": 658550073487,
-      "nearest_known_arcsec": 600.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-645530072873-87801032",
-      "ra": 127.412209,
-      "dec": 17.588946,
-      "mjd": 60972.939055,
+      "id": "hunt-670140067914-88048533",
+      "ra": 121.817103,
+      "dec": 21.690637,
+      "mjd": 61144.814291,
       "clock": "hours",
       "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.0,
-      "flux_ujy": 506.0,
-      "cell": 645530072873,
-      "nearest_known_arcsec": 135.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-669730068000-87796143",
-      "ra": 121.913802,
-      "dec": 21.622092,
-      "mjd": 60969.543713,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 9.0,
-      "flux_ujy": 583.4,
-      "cell": 669730068000,
-      "nearest_known_arcsec": 215.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642590070200-87799955",
-      "ra": 122.412202,
-      "dec": 17.099507,
-      "mjd": 60972.191168,
-      "clock": "hours",
-      "det": 6,
       "evidence": "two_exposures",
       "n_dots": 3,
-      "snr": 8.9,
-      "flux_ujy": 1483.9,
-      "cell": 642590070200,
-      "nearest_known_arcsec": 198.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-672590068897-87800342",
-      "ra": 123.934977,
-      "dec": 22.099975,
-      "mjd": 60972.460023,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.9,
-      "flux_ujy": 644.4,
-      "cell": 672590068897,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-675230067901-88035432",
-      "ra": 122.527959,
-      "dec": 22.53924,
-      "mjd": 61135.716513,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.9,
-      "flux_ujy": 2129.3,
-      "cell": 675230067901,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-672850070836-87811007",
-      "ra": 127.460512,
-      "dec": 22.141958,
-      "mjd": 60979.866245,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.8,
-      "flux_ujy": 533.8,
-      "cell": 672850070836,
-      "nearest_known_arcsec": 309.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-669240069061-88051464",
-      "ra": 123.746171,
-      "dec": 21.540398,
-      "mjd": 61146.850206,
-      "clock": "hours",
-      "det": 1,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.7,
-      "flux_ujy": 455.7,
-      "cell": 669240069061,
-      "nearest_known_arcsec": 260.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-679730069301-88048529",
-      "ra": 125.748666,
-      "dec": 23.288575,
-      "mjd": 61144.811884,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.5,
-      "flux_ujy": 1348.3,
-      "cell": 679730069301,
-      "nearest_known_arcsec": 380.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-651320074129-87810317",
-      "ra": 130.323108,
-      "dec": 18.554616,
-      "mjd": 60979.386716,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.5,
-      "flux_ujy": 498.2,
-      "cell": 651320074129,
-      "nearest_known_arcsec": 126.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-648690072884-88042766",
-      "ra": 127.809119,
-      "dec": 18.115498,
-      "mjd": 61140.809577,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.4,
-      "flux_ujy": 1080.1,
-      "cell": 648690072884,
-      "nearest_known_arcsec": 454.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-651630072665-87811391",
-      "ra": 127.787916,
-      "dec": 18.606637,
-      "mjd": 60980.13255,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.4,
-      "flux_ujy": 1976.4,
-      "cell": 651630072665,
-      "nearest_known_arcsec": 423.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-685900070113-87803770",
-      "ra": 128.232282,
-      "dec": 24.317831,
-      "mjd": 60974.840525,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.4,
-      "flux_ujy": 521.2,
-      "cell": 685900070113,
-      "nearest_known_arcsec": 392.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-681230070421-88054394",
-      "ra": 128.023147,
-      "dec": 23.539192,
-      "mjd": 61148.885054,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.4,
-      "flux_ujy": 419.5,
-      "cell": 681230070421,
-      "nearest_known_arcsec": 117.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-679110068744-87800932",
-      "ra": 124.640763,
-      "dec": 23.185236,
-      "mjd": 60972.869683,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.4,
-      "flux_ujy": 530.7,
-      "cell": 679110068744,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-670630068170-88037777",
-      "ra": 122.34542,
-      "dec": 21.771947,
-      "mjd": 61137.345273,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.3,
-      "flux_ujy": 1914.4,
-      "cell": 670630068170,
-      "nearest_known_arcsec": 193.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-639730070960-88055865",
-      "ra": 123.42469,
-      "dec": 16.621944,
-      "mjd": 61149.906165,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.2,
-      "flux_ujy": 467.6,
-      "cell": 639730070960,
-      "nearest_known_arcsec": 126.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-651270071221-88039246",
-      "ra": 125.205044,
-      "dec": 18.546269,
-      "mjd": 61138.365478,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 8.1,
-      "flux_ujy": 1793.3,
-      "cell": 651270071221,
-      "nearest_known_arcsec": 381.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-665180071278-87799171",
-      "ra": 127.133793,
-      "dec": 20.864598,
-      "mjd": 60971.646731,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 4,
-      "snr": 8.0,
-      "flux_ujy": 382.6,
-      "cell": 665180071278,
-      "nearest_known_arcsec": 181.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-630500073264-88057625",
-      "ra": 126.465678,
-      "dec": 15.084128,
-      "mjd": 61151.128446,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.9,
-      "flux_ujy": 394.4,
-      "cell": 630500073264,
-      "nearest_known_arcsec": 130.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-666370067487-88042768",
-      "ra": 120.531927,
-      "dec": 21.062215,
-      "mjd": 61140.81107,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.9,
-      "flux_ujy": 660.3,
-      "cell": 666370067487,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-637500071801-88046774",
-      "ra": 124.648878,
-      "dec": 16.250708,
-      "mjd": 61143.592721,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.6,
-      "flux_ujy": 1642.8,
-      "cell": 637500071801,
-      "nearest_known_arcsec": 587.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642550070201-87799954",
-      "ra": 122.408896,
-      "dec": 17.092429,
-      "mjd": 60972.190422,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.5,
-      "flux_ujy": 1501.4,
-      "cell": 642550070201,
-      "nearest_known_arcsec": 225.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-661420068674-88041785",
-      "ra": 121.987707,
-      "dec": 20.238328,
-      "mjd": 61140.128416,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.5,
-      "flux_ujy": 1721.9,
-      "cell": 661420068674,
-      "nearest_known_arcsec": 423.5,
+      "snr": 9.2,
+      "flux_ujy": 623.7,
+      "cell": 670140067914,
+      "nearest_known_arcsec": 581.8,
+      "grade": "C",
+      "reasons": [
+        "allwise"
+      ],
+      "near_source_arcsec": 7.9,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
@@ -3679,28 +661,18 @@
       "flux_ujy": 368.9,
       "cell": 685080068986,
       "nearest_known_arcsec": 451.8,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel"
+      ],
+      "near_source_arcsec": 6.2,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"
-      ]
-    },
-    {
-      "id": "hunt-646440069391-88039733",
-      "ra": 121.427573,
-      "dec": 17.740556,
-      "mjd": 61138.703775,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.4,
-      "flux_ujy": 1621.2,
-      "cell": 646440069391,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
       ]
     },
     {
@@ -3716,423 +688,16 @@
       "flux_ujy": 916.7,
       "cell": 666310067953,
       "nearest_known_arcsec": 209.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-674960072315-87802100",
-      "ra": 130.451336,
-      "dec": 22.49425,
-      "mjd": 60973.680226,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.4,
-      "flux_ujy": 450.4,
-      "cell": 674960072315,
-      "nearest_known_arcsec": 170.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-630340074567-87801516",
-      "ra": 128.698581,
-      "dec": 15.057865,
-      "mjd": 60973.275167,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.3,
-      "flux_ujy": 1451.6,
-      "cell": 630340074567,
-      "nearest_known_arcsec": 290.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-662920070362-88053612",
-      "ra": 125.189835,
-      "dec": 20.487867,
-      "mjd": 61148.341412,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.3,
-      "flux_ujy": 403.3,
-      "cell": 662920070362,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-680270069643-88043642",
-      "ra": 126.454859,
-      "dec": 23.37888,
-      "mjd": 61141.417991,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.2,
-      "flux_ujy": 1605.4,
-      "cell": 680270069643,
-      "nearest_known_arcsec": 473.4,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-682320069481-88051364",
-      "ra": 126.488989,
-      "dec": 23.72126,
-      "mjd": 61146.780567,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.1,
-      "flux_ujy": 357.6,
-      "cell": 682320069481,
-      "nearest_known_arcsec": 154.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-671920071372-88056544",
-      "ra": 128.284877,
-      "dec": 21.988269,
-      "mjd": 61150.378073,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.1,
-      "flux_ujy": 397.6,
-      "cell": 671920071372,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-643610074711-87810220",
-      "ra": 130.398067,
-      "dec": 17.269162,
-      "mjd": 60979.319191,
-      "clock": "hours",
-      "det": 2,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 7.0,
-      "flux_ujy": 489.0,
-      "cell": 643610074711,
-      "nearest_known_arcsec": 207.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-646690071426-88041494",
-      "ra": 125.017748,
-      "dec": 17.781703,
-      "mjd": 61139.926429,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.8,
-      "flux_ujy": 1525.1,
-      "cell": 646690071426,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-672660070813-87806796",
-      "ra": 127.39029,
-      "dec": 22.110079,
-      "mjd": 60976.94162,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.8,
-      "flux_ujy": 1607.2,
-      "cell": 672660070813,
-      "nearest_known_arcsec": 518.1,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-670610071318-87797512",
-      "ra": 127.992349,
-      "dec": 21.769126,
-      "mjd": 60970.494528,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.7,
-      "flux_ujy": 552.0,
-      "cell": 670610071318,
-      "nearest_known_arcsec": 439.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-685010067851-88048530",
-      "ra": 123.950772,
-      "dec": 24.169611,
-      "mjd": 61144.812799,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.7,
-      "flux_ujy": 313.2,
-      "cell": 685010067851,
-      "nearest_known_arcsec": 198.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-634200075197-88049219",
-      "ra": 130.187468,
-      "dec": 15.700756,
-      "mjd": 61145.290658,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.5,
-      "flux_ujy": 385.3,
-      "cell": 634200075197,
-      "nearest_known_arcsec": 158.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-670750070215-88039440",
-      "ra": 126.032455,
-      "dec": 21.792506,
-      "mjd": 61138.499816,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.4,
-      "flux_ujy": 1577.8,
-      "cell": 670750070215,
-      "nearest_known_arcsec": 250.2,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-663750073125-87801807",
-      "ra": 130.22356,
-      "dec": 20.62627,
-      "mjd": 60973.477297,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.3,
-      "flux_ujy": 1273.2,
-      "cell": 663750073125,
-      "nearest_known_arcsec": null,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-655750069055-87797410",
-      "ra": 121.93983,
-      "dec": 19.292192,
-      "mjd": 60970.423841,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.2,
-      "flux_ujy": 872.1,
-      "cell": 655750069055,
-      "nearest_known_arcsec": 232.9,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-630930074991-88056744",
-      "ra": 129.488866,
-      "dec": 15.155242,
-      "mjd": 61150.516461,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.1,
-      "flux_ujy": 335.3,
-      "cell": 630930074991,
-      "nearest_known_arcsec": 139.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-642960070959-88039731",
-      "ra": 123.776574,
-      "dec": 17.161397,
-      "mjd": 61138.702283,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 6.1,
-      "flux_ujy": 354.5,
-      "cell": 642960070959,
-      "nearest_known_arcsec": 139.5,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-662990071101-87796530",
-      "ra": 126.514301,
-      "dec": 20.498847,
-      "mjd": 60969.812567,
-      "clock": "hours",
-      "det": 4,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 5.8,
-      "flux_ujy": 1073.1,
-      "cell": 662990071101,
-      "nearest_known_arcsec": 439.8,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-684390070558-88018909",
-      "ra": 128.792818,
-      "dec": 24.065617,
-      "mjd": 61124.242106,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 5.8,
-      "flux_ujy": 316.9,
-      "cell": 684390070558,
-      "nearest_known_arcsec": 342.3,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-632910073133-88041494",
-      "ra": 126.480811,
-      "dec": 15.485243,
-      "mjd": 61139.926429,
-      "clock": "hours",
-      "det": 3,
-      "evidence": "two_exposures",
-      "n_dots": 2,
-      "snr": 5.6,
-      "flux_ujy": 351.0,
-      "cell": 632910073133,
-      "nearest_known_arcsec": 458.6,
-      "zone": "hunt",
-      "zones": [
-        "hunt"
-      ]
-    },
-    {
-      "id": "hunt-638650070830-87794185",
-      "ra": 123.085046,
-      "dec": 16.442001,
-      "mjd": 60968.184304,
-      "clock": "hours",
-      "det": 5,
-      "evidence": "two_detectors",
-      "n_dots": 2,
-      "snr": 7.8,
-      "flux_ujy": 861.2,
-      "cell": 638650070830,
-      "nearest_known_arcsec": 489.0,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-637030069619-87800640",
-      "ra": 120.813357,
-      "dec": 16.172905,
-      "mjd": 60972.666736,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_detectors",
-      "n_dots": 2,
-      "snr": 7.7,
-      "flux_ujy": 1321.9,
-      "cell": 637030069619,
-      "nearest_known_arcsec": 83.7,
-      "zone": "hunt",
-      "zones": [
-        "hunt",
-        "pilot"
-      ]
-    },
-    {
-      "id": "hunt-634790073842-87810222",
-      "ra": 127.903575,
-      "dec": 15.799345,
-      "mjd": 60979.320683,
-      "clock": "hours",
-      "det": 6,
-      "evidence": "two_detectors",
-      "n_dots": 2,
-      "snr": 6.5,
-      "flux_ujy": 1004.2,
-      "cell": 634790073842,
-      "nearest_known_arcsec": null,
+      "grade": "C",
+      "reasons": [
+        "hot_pixel",
+        "masked_peak"
+      ],
+      "near_source_arcsec": 6.4,
+      "n_sessions": null,
+      "rate_arcsec_h": null,
+      "pa_deg": null,
+      "rate_sigma": null,
       "zone": "hunt",
       "zones": [
         "hunt"

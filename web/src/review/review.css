@@ -161,6 +161,78 @@
   font-variation-settings: "wdth" 92;
 }
 
+/* ---- the vetting grade (src/api/grades.ts): words first, a quiet badge; C greyed ---------- */
+.rv-grade {
+  display: grid;
+  gap: var(--s1);
+  max-width: 52ch;
+}
+.rv-grade-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  font-weight: 650;
+}
+.rv-grade-badge {
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: var(--radius-ctl);
+  font-size: var(--step--1);
+  line-height: 20px;
+  font-weight: 600;
+  font-variation-settings: "wdth" 92;
+  white-space: nowrap;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1.5px var(--ink-2);
+}
+.rv-grade[data-grade="A"] .rv-grade-badge {
+  background: var(--ink);
+  color: var(--glass);
+  box-shadow: none;
+}
+.rv-grade[data-grade="C"] .rv-grade-badge,
+.rv-grade[data-grade="none"] .rv-grade-badge {
+  color: var(--ink-2);
+  background: var(--sheet-2);
+  box-shadow: none;
+}
+.rv-grade[data-grade="C"] .rv-grade-name {
+  color: var(--ink-2);
+}
+.rv-grade-text {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.45;
+}
+.rv-grade-why {
+  display: grid;
+  gap: var(--s1);
+  margin: var(--s1) 0 0;
+  padding-left: 1.2em;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  line-height: 1.45;
+}
+.rv-grade-why b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rv-grade-near {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.rv-novote {
+  padding: var(--s3) var(--s4);
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.rv-novote-text {
+  max-width: 52ch;
+  line-height: 1.45;
+}
+
 /* ---- section titles and lists ------------------------------------------------------------- */
 .rv-h {
   font-size: var(--step-1);
@@ -504,6 +576,14 @@
 .rq-main {
   --rv-plate: calc(max(300px, 100svh - 236px) + 24px);
 }
+/* Up to 1480 px the nav takes a second header row: keep the time strip on the first screen
+   (it ended 42 px below it on a candidate at 1280×720). */
+@media (max-width: 1480px) {
+  .cd-main,
+  .rq-main {
+    --rv-plate: calc(max(300px, 100svh - 290px) + 24px);
+  }
+}
 .cd-main {
   display: grid;
   grid-template-columns: minmax(0, var(--rv-plate)) minmax(340px, 560px);
@@ -768,4 +848,31 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "label" "meaning";
   }
+}
+
+/* Inside To check ("One at a time", src/discover): the switch above already names it, so the title
+   is for screen readers (except "Practice round", which says something new); the progress line and
+   the practice button make one quiet row. The plate leaves room for the page's toolbar above it. */
+.rq-embedded .rq-head {
+  align-items: center;
+  padding: var(--s3) 0 var(--s4);
+}
+.rq-embedded .rq-title {
+  font-size: var(--step-1);
+}
+.rq-embedded:not([data-mode="practice"]):not([data-mode="summary"]) .rq-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.rq-embedded .rq-main {
+  --rv-plate: calc(max(300px, 100svh - 270px) + 24px);
+  grid-template-columns: minmax(0, var(--rv-plate)) minmax(300px, 480px);
+  gap: var(--s5) var(--s6);
+}
+.rq-embedded .rq-end {
+  padding: var(--s5) 0;
 }

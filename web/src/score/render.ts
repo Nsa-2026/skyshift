@@ -1,9 +1,40 @@
-// HTML for the scoreboard (web/DESIGN.md, "Lightbox"). A page that reads top to bottom: the
-// title, what was checked, one summary sentence, then one section per check and the suspects.
+// HTML for Results (web/DESIGN.md, "Lightbox"). Two of its sections are drawn here: "What we found"
+// (the objects to check, the unknown movers and the distant-planet search) and "How sure we are"
+// (what was checked, one summary sentence, what the search can find, then one block per check).
 // Every value from the JSON goes through esc().
-import type { CheckStatus, Suspect, SuspectsResponse, ValidationCheck, ValidationResponse } from "../api/types";
+import {
+  FILE_PROVISIONAL_TEXT,
+  GRADE_TEXT,
+  NEAR_SOURCE_HINT,
+  countGrades,
+  failedGates,
+  gateText,
+  gateTotals,
+  gatesPhrase,
+  gradeALine,
+  gradeBCLine,
+  gradeCounts,
+  gradeOf,
+  nearSourceOf,
+  nearSourceText,
+  rankByGrade,
+  trackOf,
+  trackText,
+  vetoesText,
+} from "../api/grades";
+import type {
+  CandidateKind,
+  CandidatesResponse,
+  CheckStatus,
+  DistantResponse,
+  Suspect,
+  SuspectsResponse,
+  ValidationCheck,
+  ValidationResponse,
+} from "../api/types";
 import { DETECTORS } from "../app/astro";
-import { checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
+import { RECALL_SCOPE, checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
+import { renderDistant } from "./distant";
 import {
   bigValue,
   blinkHref,
@@ -53,6 +84,19 @@ function isSynthetic(x: unknown): boolean {
   return !!x && typeof x === "object" && (x as { synthetic?: unknown }).synthetic === true;
 }
 
+/** One calm sentence when any file holds made-up numbers; "" otherwise. */
+export function syntheticNote(...files: unknown[]): string {
+  return files.some(isSynthetic)
+    ? html`<p class="sc-synthetic" role="note">These are synthetic example numbers, made up to test this page.
+        They are not SPHEREx results.</p>`
+    : "";
+}
+
+/** Every heading one level down (h2 → h3 …), for a part drawn inside a Results section. */
+export function demote(markup: string): string {
+  return markup.replace(/<(\/?)h([1-5])\b/g, (_, slash: string, n: string) => `<${slash}h${Number(n) + 1}`);
+}
+
 /** The one summary sentence, each count led by its status mark (the page's legend). */
 export function renderSummary(checks: ValidationCheck[]): string {
   const clauses = summaryClauses(countStatuses(checks))
@@ -68,26 +112,105 @@ export function renderSummary(checks: ValidationCheck[]): string {
   return html`<p class="sc-summary">${clauses}</p>`;
 }
 
-function renderHead(checks: ValidationCheck[], v: ValidationResponse | null, synthetic: boolean): string {
+/** What was checked, the one summary sentence, and which release and date the checks are from. */
+function renderSureHead(checks: ValidationCheck[], v: ValidationResponse | null): string {
   const meta = v
-    ? html`<p class="sc-meta">Results from ${esc(prettyText(v.data_release))}, published
+    ? html`<p class="sc-meta">Checks on ${esc(prettyText(v.data_release))}, published
         <time datetime="${esc(v.generated)}">${esc(formatGenerated(v.generated))}</time>.</p>`
     : "";
   return html`
-    <header class="sc-head">
-      <h1 class="sc-title">How we know it works</h1>
+    <div class="sc-head">
       <p class="sc-lede">We checked SkyShift's measurements against what is already known: star motions from
         ESA's Gaia, NASA's asteroid predictions and catalogue brightness. Every result is printed as measured,
         beside the target we set before running it, including the poor ones.</p>
-      ${
-        synthetic
-          ? html`<p class="sc-synthetic" role="note">These are synthetic example numbers, made up to test this page.
-              They are not SPHEREx results.</p>`
-          : ""
-      }
       ${renderSummary(checks)}
       ${meta}
-    </header>`;
+    </div>`;
+}
+
+// ---- what the search can find (completeness) --------------------------------------------------
+
+export interface CompletenessRow {
+  /** The large figure: "93%", "60 of 60". */
+  figure: string;
+  /** What the figure counts, as the rest of a sentence. */
+  text: string;
+  /** What it does and doesn't cover. */
+  scope: string;
+  href: string;
+  link: string;
+}
+
+const pctText = (f: number): string => `${Math.round(f * 100)}%`;
+const intText = (n: number): string => Math.round(n).toLocaleString("en-GB");
+
+/**
+ * The completeness figures, each from its file: known asteroids found blind (V5) and where NASA
+ * predicted them (V4), and made-up distant planets the pairing step found (distant.json).
+ * A figure whose check hasn't run, or whose file is missing, is left out.
+ */
+export function completenessRows(v: ValidationResponse | null, dist: DistantResponse | null): CompletenessRow[] {
+  const rows: CompletenessRow[] = [];
+  const ran = (id: string) => {
+    const c = Array.isArray(v?.checks) ? v!.checks.find((x) => x.id === id) : undefined;
+    return c && normStatus(c.status) !== "pending" ? c : undefined;
+  };
+  const v5 = ran("V5");
+  if (v5 && typeof v5.value === "number" && v5.value >= 0 && v5.value <= 1) {
+    rows.push({
+      figure: pctText(v5.value),
+      text: "of known asteroids found without being told where to look, counted session by session.",
+      scope: RECALL_SCOPE,
+      href: "#/results/sure/V5",
+      link: "The check, V5",
+    });
+  }
+  const v4 = ran("V4");
+  const big4 = v4 ? bigValue(v4.value, v4.unit, typeof v4.headline === "string" ? v4.headline : "") : null;
+  if (v4 && big4) {
+    rows.push({
+      figure: big4.num,
+      text: `${big4.unit ? `${prettyText(big4.unit)} ` : ""}found where IRSA's Moving Object Search Tool predicted them.`,
+      scope: "Asteroids numbered 1 to 60, looked for at their predicted positions; the same search 3′ away gives the chance rate.",
+      href: "#/results/sure/V4",
+      link: "The check, V4",
+    });
+  }
+  const inj = dist?.injection;
+  if (inj && Array.isArray(inj.distances) && inj.distances.length) {
+    const added = inj.distances.reduce((a, r) => a + r.injected, 0);
+    const found = inj.distances.reduce((a, r) => a + r.recovered, 0);
+    const share = inj.recovered_frac ?? (added ? found / added : null);
+    if (share != null && added > 0) {
+      const lo = Math.min(...inj.distances.map((r) => r.distance_au));
+      const hi = Math.max(...inj.distances.map((r) => r.distance_au));
+      rows.push({
+        figure: pctText(share),
+        text: `of ${intText(added)} made-up distant planets, ${intText(lo)}–${intText(hi)} AU from the Sun, paired up across visits by the distant-planet search.`,
+        scope: "This tests the pairing only: it assumes SPHEREx saw the planet in both visits. How bright a planet must be for that is under What it can't see.",
+        href: "#/results/found/distant",
+        link: "The distant-planet search",
+      });
+    }
+  }
+  return rows;
+}
+
+export function renderCompleteness(v: ValidationResponse | null, dist: DistantResponse | null): string {
+  const rows = completenessRows(v, dist);
+  if (!rows.length) return "";
+  return html`<div class="rs-complete">
+    <h3 class="rs-h3">What the search can find</h3>
+    <dl class="rs-figures">${rows
+      .map(
+        (r) => html`<div class="rs-figure">
+          <dt class="rs-fig">${esc(r.figure)}</dt>
+          <dd><p class="rs-fig-text">${esc(r.text)}</p><p class="sc-sub">${esc(r.scope)}</p>
+            <a class="rs-fig-link" href="${esc(r.href)}">${esc(r.link)}</a></dd>
+        </div>`,
+      )
+      .join("")}</dl>
+  </div>`;
 }
 
 // ---- checks ------------------------------------------------------------------------------
@@ -120,7 +243,7 @@ const CHEVRON = `<svg class="sc-chev" width="12" height="12" viewBox="0 0 12 12"
 function rowsBlock(c: ValidationCheck): string {
   const rows = Array.isArray(c.rows) ? c.rows : [];
   if (!rows.length) return "";
-  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length} rows`;
+  const show = rows.length === 1 ? "Show the row" : `Show the ${rows.length.toLocaleString("en-GB")} rows`;
   const hide = rows.length === 1 ? "Hide the row" : "Hide the rows";
   return html`<details class="sc-rows">
     <summary><span class="sc-show">${show}</span><span class="sc-hide">${hide}</span>${CHEVRON}</summary>
@@ -158,6 +281,7 @@ export function renderCheck(c: ValidationCheck, lead = false): string {
         ${figure}
         ${pending && plain ? html`<p class="sc-plain">${esc(plain)}</p>` : ""}
         ${measured || target ? html`<p class="sc-vs">${measured}${target}</p>` : ""}
+        ${!pending && info?.scope ? html`<p class="sc-vs sc-scope">${esc(info.scope)}</p>` : ""}
       </div>
       ${note ? html`<p class="sc-note">${esc(prettyText(note))}</p>` : !pending && plain ? html`<p class="sc-note">${esc(plain)}</p>` : ""}
       ${rowsBlock(c)}
@@ -166,12 +290,25 @@ export function renderCheck(c: ValidationCheck, lead = false): string {
 
 // ---- suspects ----------------------------------------------------------------------------
 
-function suspectRow(s: Suspect): string {
+/** The grade cell: the grade in words, why a C failed, and the near-source warning (quiet). */
+function gradeCell(s: Suspect): string {
+  const g = gradeOf(s);
+  const near = nearSourceOf(s);
+  const t = trackOf(s);
+  const track = t ? html`<span class="sc-sub sc-track">${esc(trackText(t))}</span>` : "";
+  const warn = (near != null ? html`<span class="sc-sub sc-near" title="${esc(NEAR_SOURCE_HINT)}">${esc(nearSourceText(near))}</span>` : "") + track;
+  if (!g) return html`<td class="sc-grade"><span class="sc-sub">Not vetted yet</span>${warn}</td>`;
+  const sub = g === "C" ? gatesPhrase(failedGates(s)) || "fails a pipeline check" : GRADE_TEXT[g].name.toLowerCase();
+  return html`<td class="sc-grade" data-grade="${g}"><span class="sc-grade-name">${esc(GRADE_TEXT[g].short)}</span><span class="sc-sub">${esc(sub.charAt(0).toUpperCase() + sub.slice(1))}</span>${warn}</td>`;
+}
+
+function suspectRow(s: Suspect, graded: boolean): string {
   const det = DETECTORS[s.det as keyof typeof DETECTORS];
-  return html`<tr>
+  return html`<tr${gradeOf(s) === "C" ? ` class="is-gradec"` : ""}>
     <th scope="row" class="sc-sid"><a class="sc-sid-id" href="${esc(candidateHref(s.id))}"
-        title="Candidate page: why it's listed, cautions and votes">${esc(s.id)}</a>
+        title="Its page: why it's listed, cautions and votes">${esc(s.id)}</a>
       <a class="sc-blink" href="${esc(blinkHref(s))}" aria-label="Blink ${esc(s.id)} on the Hours clock">Blink this</a></th>
+    ${graded ? gradeCell(s) : ""}
     <td>${esc(suspectDate(s.mjd))}</td>
     <td class="sc-pos"><span>${esc(formatPos(s))}</span><span class="sc-sub">${esc(formatDecimalPos(s))}</span></td>
     <td class="det-${esc(s.det)}"><span class="sc-det"><i aria-hidden="true"></i>D${esc(s.det)}</span>${
@@ -193,9 +330,36 @@ function zoneName(zone: string): string {
   return /^[a-z]/.test(z) ? `the ${z}` : z;
 }
 
+/**
+ * The vetting's totals for the file: 0 grade A said as the expected result (not a failure), B and C,
+ * the zone-level checks, provisional, and why the C failed. Nothing for an ungraded file.
+ */
+export function vettingHtml(sr: SuspectsResponse, list: readonly Suspect[]): string {
+  const n = gradeCounts(sr.grades) ?? countGrades(list);
+  if (!n) return "";
+  const vetoes = vetoesText(sr.vetoes);
+  const gates = n.C > 0 ? gateTotals(sr.gates) : [];
+  return html`<div class="sc-vetting">
+    <p class="sc-grades-a">${esc(gradeALine(n.A))}</p>
+    <p class="sc-grades-bc">${esc(gradeBCLine(n))} Grade C rows stay in the table, greyed, with what they failed; they aren't put to a vote.</p>
+    ${vetoes ? html`<p class="sc-sub">Every suspect was checked against ${esc(vetoes)}.</p>` : ""}
+    ${sr.provisional === true ? html`<p class="sc-sub sc-provisional">${esc(FILE_PROVISIONAL_TEXT)}</p>` : ""}
+    ${
+      gates.length
+        ? html`<details class="sc-gates"><summary>Why ${n.C.toLocaleString("en-GB")} ${n.C === 1 ? "is" : "are"} grade C</summary>
+            <dl>${gates.map(([code, k]) => html`<div title="${esc(gateText(code).plain)}"><dt>${esc(gateText(code).label)}</dt><dd>${k.toLocaleString("en-GB")}</dd></div>`).join("")}</dl>
+            <p class="sc-sub">A suspect can fail several checks. Hover a line for what it means, or see the <a href="#/learn/glossary">glossary</a>.</p>
+          </details>`
+        : ""
+    }
+  </div>`;
+}
+
 export function renderSuspects(sr: SuspectsResponse | null): string {
-  const intro = html`<p class="sc-intro">A suspect is a dot that moved where no known asteroid or comet was predicted:
-    it may be a new object or an artefact, and people decide which by blinking it and voting.</p>`;
+  const intro = html`<p class="sc-intro">A suspect is a dot that seemed to move where no known asteroid or comet was
+    predicted. Most are artefacts: in the hunt zone, 211 of 228 rest on just two dots in one session, which can't show
+    motion by itself, and the 8 with the highest S/N are all artefacts. People decide which are real by blinking them
+    and voting.</p>`;
   if (!sr) {
     return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
       <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
@@ -203,25 +367,34 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
       <p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of suspects comes after the hunt-zone run.</p>
     </section>`;
   }
-  const list = Array.isArray(sr.suspects) ? sr.suspects : [];
+  const raw = Array.isArray(sr.suspects) ? sr.suspects : [];
+  // A graded file is ranked by grade (A, B, C), then S/N; an older, ungraded one stays in file order.
+  const graded = raw.some((s) => gradeOf(s) !== null);
+  const list = graded ? rankByGrade(raw) : raw;
   const n = list.length;
+  // The table sits behind a disclosure, closed, like a check's rows: Results reads top to bottom.
   const table = n
-    ? html`<div class="sc-scroll" tabindex="0" role="region" aria-label="Suspects table">
+    ? html`<details class="sc-rows sc-suspect-rows">
+      <summary><span class="sc-show">${n === 1 ? "Show the suspect" : `Show the ${n.toLocaleString("en-GB")} suspects`}</span><span class="sc-hide">${
+        n === 1 ? "Hide the suspect" : "Hide the suspects"
+      }</span>${CHEVRON}</summary>
+      <div class="sc-scroll" tabindex="0" role="region" aria-label="Suspects table">
         <table class="sc-table sc-suspect-table">
           <caption class="visually-hidden">Unknown-mover suspects in ${esc(zoneName(sr.zone))}</caption>
           <thead><tr>
-            <th scope="col">Suspect</th><th scope="col">Date (UTC)</th><th scope="col">Position (RA, Dec)</th>
+            <th scope="col">Suspect</th>${graded ? html`<th scope="col">Vetting grade</th>` : ""}<th scope="col">Date (UTC)</th><th scope="col">Position (RA, Dec)</th>
             <th scope="col">Detector</th><th scope="col">Evidence</th><th scope="col" class="num">S/N</th>
             <th scope="col" class="num">Flux (µJy)</th><th scope="col" class="num">Nearest known</th>
           </tr></thead>
-          <tbody>${list.map(suspectRow).join("")}</tbody>
-        </table></div>`
+          <tbody>${list.map((s) => suspectRow(s, graded)).join("")}</tbody>
+        </table></div></details>`
     : html`<p class="sc-wait">No suspects here: every mover matched a known object or was filtered out.</p>`;
   return html`<section class="sc-suspects" aria-labelledby="sc-suspects-h">
     <h2 class="sc-h2" id="sc-suspects-h">Unknown movers</h2>
     ${intro}
+    ${vettingHtml(sr, list)}
     <div class="sc-suspects-bar">
-      <p class="sc-zone"><b>${n}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
+      <p class="sc-zone"><b>${n.toLocaleString("en-GB")}</b> ${n === 1 ? "suspect" : "suspects"} from ${esc(zoneName(sr.zone))}, in
         ${esc(prettyText(sr.data_release))}, published ${esc(formatGenerated(sr.generated))}.</p>
       <button type="button" class="btn btn-ghost sc-csv" data-csv ${n ? "" : "disabled"}>Download CSV</button>
     </div>
@@ -229,15 +402,77 @@ export function renderSuspects(sr: SuspectsResponse | null): string {
   </section>`;
 }
 
-// ---- page --------------------------------------------------------------------------------
+// ---- the objects to check ----------------------------------------------------------------------
 
-export function renderPage(v: ValidationResponse | null, sr: SuspectsResponse | null): string {
+const KIND_WORDS: Record<CandidateKind, [string, string]> = {
+  mover: ["fast mover", "fast movers"],
+  high_pm: ["moving star", "moving stars"],
+  spectral: ["odd spectrum", "odd spectra"],
+  shape: ["that may be one object or two", "that may be one object or two"],
+};
+const KIND_ORDER: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
+
+function zonesText(zones: unknown): string {
+  const z = (Array.isArray(zones) ? zones : []).filter((x): x is string => typeof x === "string" && !!x.trim());
+  if (!z.length) return "";
+  if (z.length === 1) return ` in ${zoneName(z[0])}`;
+  return ` in the ${z.slice(0, -1).join(", ")} and ${z[z.length - 1]} zones`;
+}
+
+/**
+ * How many objects the pipeline listed to check, by kind (counted from the list itself), with the
+ * one plain line DESIGN.md asks for next to that count, and where to look at them.
+ */
+export function renderObjects(c: CandidatesResponse | null): string {
+  const list = c && Array.isArray(c.candidates) ? c.candidates : null;
+  if (!list) {
+    return html`<div class="rs-objects"><p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of objects to check is published after the pipeline's run.</p></div>`;
+  }
+  const n = new Map<CandidateKind, number>();
+  for (const x of list) n.set(x.kind, (n.get(x.kind) ?? 0) + 1);
+  const parts = KIND_ORDER.filter((k) => n.get(k)).map((k) => `${intText(n.get(k)!)} ${KIND_WORDS[k][n.get(k) === 1 ? 0 : 1]}`);
+  const kinds = parts.length > 1 ? `: ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts.length ? `: ${parts[0]}` : "";
+  return html`<div class="rs-objects">
+    <p class="rs-count">The pipeline listed <b>${esc(intText(list.length))}</b> ${list.length === 1 ? "object" : "objects"} to
+      check${esc(zonesText(c!.zones))}${esc(kinds)}.</p>
+    <p class="sc-intro">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector
+      artefacts until people check them.</p>
+    <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/candidates/one=1">Check them one at a time</a></p>
+  </div>`;
+}
+
+// ---- the two sections drawn here ---------------------------------------------------------------
+
+/** "What we found": the objects to check, the unknown movers and the distant-planet search. */
+export function renderFound(
+  sr: SuspectsResponse | null,
+  dist: DistantResponse | null,
+  cands: CandidatesResponse | null | undefined = undefined,
+): string {
+  return html`<div class="rs-found">${cands === undefined ? "" : renderObjects(cands)}${demote(renderSuspects(sr) + renderDistant(dist))}</div>`;
+}
+
+/** "How sure we are": the summary, what the search can find, and every check V1–V11. */
+export function renderSure(v: ValidationResponse | null, dist: DistantResponse | null): string {
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
-  const synthetic = isSynthetic(v) || isSynthetic(sr);
+  return html`<div class="rs-sure">
+    ${renderSureHead(checks, v)}
+    ${renderCompleteness(v, dist)}
+    <div class="sc-checks" role="group" aria-label="The checks">${demote(checks.map((c, i) => renderCheck(c, i === 0)).join(""))}</div>
+  </div>`;
+}
+
+/** Both sections in one block, for a page without the Results sections around them. */
+export function renderPage(
+  v: ValidationResponse | null,
+  sr: SuspectsResponse | null,
+  dist: DistantResponse | null = null,
+  cands: CandidatesResponse | null | undefined = undefined,
+): string {
   return html`
     <div class="sc">
-      ${renderHead(checks, v, synthetic)}
-      <section class="sc-checks" aria-label="Checks">${checks.map((c, i) => renderCheck(c, i === 0)).join("")}</section>
-      ${renderSuspects(sr)}
+      ${syntheticNote(v, sr, dist, cands)}
+      ${renderSure(v, dist)}
+      ${renderFound(sr, dist, cands)}
     </div>`;
 }

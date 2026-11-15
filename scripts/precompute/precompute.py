@@ -21,6 +21,16 @@ Files per target (shapes of contracts/api.md; data_url is relative to the JSON):
 
 The cache is the engine's (SKYSHIFT_CACHE, default ~/.cache/skyshift), so a second run only
 downloads what is missing.
+
+Known objects of the star targets come from MPC orbits (server known.py). After a new MPC index,
+`--known-only` recomputes only their known[] (frames and frame files untouched):
+    uv run python ../scripts/precompute/precompute.py --known-only [--only barnard]
+
+What our pipeline measured (`measured`, contracts/api.md v3.3) is filled from the data bucket's
+results/<zone>/ and dots/ (server measured.py; SKYSHIFT_DATA_ROOT, default gs://nasa-glazing-data):
+by default the best zone covering the target (a target zone t_<slug> first). Once the target zones'
+results exist, `--measured-only` recomputes only `measured` (frames and frame files untouched):
+    uv run python ../scripts/precompute/precompute.py --measured-only [--only barnard] [--zone t_barnard]
 """
 
 from __future__ import annotations
@@ -35,7 +45,7 @@ from collections import Counter
 from pathlib import Path
 
 from skyshift_core import GAIA_EPOCH_MJD, propagate
-from skyshift_server import blink, cutouts, gaia, obj, search
+from skyshift_server import blink, coverage, cutouts, gaia, measured, obj, search
 from skyshift_server.cache import Cache
 from skyshift_server.search import Image
 
@@ -92,19 +102,42 @@ def clean(o):
     return o
 
 
-def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | None:
-    """One frames_<clock>_<fov>.json with the epochs of every detector in `dets`."""
+def set_visit(t: dict, clock: str, dets: list[int], cache: Cache, fov: float | None = None) -> int | None:
+    """The one visit an hours file shows for all its detectors: the hours clock's choice (most
+    exposures, the latest on a tie; with fov, counting those that cover the field: blink.best_hours_visit)
+    for the file's first detector that has exposures here. D1+D4,
+    D2+D5, D3+D6 are exposed at the same moment, so they must show the same exposures; chosen per
+    detector, RW Aurigae's D2 (visit 2: 19 exposures, visit 3: 18) and D5 (19 and 19, so the later)
+    showed different visits. None for the months clock (every visit)."""
+    if clock != "hours":
+        return None
+    images = search.search(t["ra"], t["dec"], cache=cache).images
+    for det in dets:
+        mine = [im for im in images if im.det == det]
+        cover = coverage.for_frames(mine, t["ra"], t["dec"], clock, fov) if fov else None
+        v = blink.best_hours_visit(mine, cover)
+        if v is not None:
+            return v
+    return None
+
+
+def build_set(t: dict, set_name: str, dets: list[int], cache: Cache, zone: str | None = None) -> dict | None:
+    """One frames_<clock>_<fov>.json with the epochs of every detector in `dets`, and `measured` for
+    all of them (zone: measured.py's choice when None). Hours: one visit for every detector
+    (set_visit); a detector with no exposure in it is left out."""
     clock, fov_s = set_name.split(":")
     fov = float(fov_s)
     folder = OUT / t["slug"]
     merged: dict | None = None
+    epoch_keys: dict[str, list[str]] = {}
     n_bytes = 0
     built = []
+    visit = set_visit(t, clock, dets, cache, fov)
     for det in dets:
         t0 = time.time()
         try:
             fr = blink.build_frames(t["ra"], t["dec"], fov, clock, det, cache=cache, per_visit=None,
-                                    hours_frames=None)
+                                    hours_frames=None, measured=False, visit=visit)
         except Exception as e:  # noqa: BLE001 - one detector must not stop the rest
             log.warning("%s %s d%d failed: %s", t["slug"], set_name, det, e)
             continue
@@ -118,11 +151,14 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
         else:
             merged["epochs"] += fr.meta["epochs"]
             merged["known"] += fr.meta["known"]
+        epoch_keys.update(fr.epoch_keys)
         built.append(det)
         log.info("%s %s d%d: %d epochs in %.1f s", t["slug"], set_name, det, len(fr.meta["epochs"]), time.time() - t0)
     if merged is None:
         return None
     merged["epochs"].sort(key=lambda e: (e["mjd_mid"], e["det"]))
+    if measured.enabled():
+        merged["measured"], merged["measured_reason"] = measured.build(merged, epoch_keys, zone=zone)
     file = f"frames_{clock}_{int(fov)}.json"
     n_bytes += write_json(folder / file, clean(merged), compact=True)
     return {"file": file, "clock": clock, "fov": int(fov), "dets": built,
@@ -138,7 +174,7 @@ def build_set(t: dict, set_name: str, dets: list[int], cache: Cache) -> dict | N
 # An asteroid moves a few arcmin in a day, so its frames keep one fixed centre and it moves.
 
 COMET_CSV = ROOT / "scripts" / "validate" / "data" / "photolists" / "3i-atlas.csv"
-COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion), as in resolve.COMET
+COMET_MJD = (61023.0, 61024.1)  # the 14 Dec 2025 sequence (after perihelion); resolve.MOVING has its middle
 COMET_DETS = [1, 2, 3, 4, 5, 6]
 # The two of MOST's asteroids 1-60 with the most images at V 11.5-14 (bright, not saturated):
 # (59) Elpis 454 images at V 12.6-13.6, (31) Euphrosyne 436 at V 13.0-13.7 (MOST, 14 Nov 2026).
@@ -306,6 +342,78 @@ def build_asteroid(number: int, slug: str, cache: Cache, object_only: bool = Fal
                  object_only=object_only)
 
 
+def refresh_known(slug: str, cache: Cache) -> None:
+    """Only `known` again in every frames_<clock>_<fov>.json of a star target (MPC, server known.py),
+    at each epoch's mjd_mid and centre; epochs, Gaia and frame files stay as they are. index.json
+    `bytes` and frames.json (the copy of `own`) follow. A failure stops: nothing half-done is written."""
+    from skyshift_server import known
+
+    folder = OUT / slug
+    index_path = folder / "index.json"
+    index = json.loads(index_path.read_text())
+    for entry in index["frames"]:
+        path = folder / entry["file"]
+        meta = json.loads(path.read_text())
+        r = entry["fov"] / 2.0 * 2**0.5
+        by_centre: dict[tuple[float, float], list[dict]] = {}
+        for ep in meta["epochs"]:
+            c = ep.get("center") or meta["center"]
+            by_centre.setdefault((c["ra"], c["dec"]), []).append(ep)
+        found: list[dict] = []
+        for (ra, dec), eps in by_centre.items():
+            found += known.near(ra, dec, r, [e["mjd_mid"] for e in eps], epoch_ids=[e["id"] for e in eps], cache=cache)
+        before = len(meta["known"])
+        meta["known"] = found
+        old = path.stat().st_size
+        entry["bytes"] += write_json(path, clean(meta), compact=True) - old
+        log.info("%s %s: known %d -> %d", slug, entry["file"], before, len(found))
+    if index.get("own"):
+        shutil.copyfile(folder / index["own"], folder / "frames.json")
+    write_json(index_path, index)
+
+
+def months_keys(meta: dict, cache: Cache) -> dict[str, list[str]]:
+    """Photo keys (<obs_id>D<det>) of each visit epoch of a static months file: every exposure of that
+    detector and visit (the static stacks use them all), from the search at the frame centre (cached
+    per day)."""
+    c = meta["center"]
+    images = search.search(c["ra"], c["dec"], cache=cache).images
+    out: dict[str, list[str]] = {}
+    for ep in meta["epochs"]:
+        part = sorted((im for im in images if f"d{im.det}-v{im.visit}" == ep["id"]), key=lambda im: im.mjd)
+        out[ep["id"]] = [im.key for im in part]
+    return out
+
+
+def refresh_measured(slug: str, cache: Cache, zone: str | None = None) -> None:
+    """Only `measured` and `measured_reason` again in every frames_<clock>_<fov>.json of a star target
+    (server measured.py, from results/<zone>/ and dots/); epochs, Gaia, known and frame files stay as
+    they are. index.json `bytes` and frames.json (the copy of `own`) follow. Nothing is written when
+    any file's layer is "unavailable" (a read failed): run it again."""
+    folder = OUT / slug
+    index_path = folder / "index.json"
+    index = json.loads(index_path.read_text())
+    done = []
+    for entry in index["frames"]:
+        path = folder / entry["file"]
+        meta = json.loads(path.read_text())
+        keys = months_keys(meta, cache) if meta["clock"] == "months" else {}
+        m, why = measured.build(meta, keys, zone=zone)
+        if why == "unavailable":
+            raise RuntimeError(f"{slug} {entry['file']}: the measured layer could not be read; nothing written")
+        meta["measured"], meta["measured_reason"] = m, why
+        done.append((entry, path, meta))
+        log.info("%s %s: measured %s", slug, entry["file"],
+                 f"zone {m['zone']} ({m['stage']}): {m['counts']}, {len(m['tracks'])} tracks, "
+                 f"{len(m['shifts'])} shifts, {m['photos']} photos ({m['photos_missing']} missing)" if m else why)
+    for entry, path, meta in done:
+        old = path.stat().st_size
+        entry["bytes"] += write_json(path, clean(meta), compact=True) - old
+    if index.get("own"):
+        shutil.copyfile(folder / index["own"], folder / "frames.json")
+    write_json(index_path, index)
+
+
 def folder_bytes(folder: Path) -> int:
     return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
 
@@ -318,6 +426,12 @@ def main() -> int:
     ap.add_argument("--dets", help="comma-separated detectors (default: per set)")
     ap.add_argument("--own", default=OWN_SET, help="the set copied to frames.json")
     ap.add_argument("--no-object", action="store_true", help="skip object.json")
+    ap.add_argument("--known-only", action="store_true",
+                    help="star targets: recompute only known[] of the existing frames files (MPC)")
+    ap.add_argument("--measured-only", action="store_true",
+                    help="star targets: recompute only `measured` of the existing frames files (results/<zone>/, dots/)")
+    ap.add_argument("--zone", help="pipeline zone for the measured layer (default: the best one covering the target, "
+                                   "a target zone t_<slug> first)")
     ap.add_argument("--cache", help="cache folder or gs:// (default: SKYSHIFT_CACHE or ~/.cache/skyshift)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
@@ -328,6 +442,12 @@ def main() -> int:
     for t in star_targets():
         if only and t["slug"] not in only:
             continue
+        if a.known_only:
+            refresh_known(t["slug"], cache)
+            continue
+        if a.measured_only:
+            refresh_measured(t["slug"], cache, a.zone)
+            continue
         t0 = time.time()
         folder = OUT / t["slug"]
         index_path = folder / "index.json"
@@ -337,7 +457,7 @@ def main() -> int:
         for s in sets:
             dets = ([int(d) for d in a.dets.split(",")] if a.dets
                     else SET_DETS_BY_SLUG.get(t["slug"], {}).get(s, SET_DETS[s]))
-            entry = build_set(t, s, dets, cache)
+            entry = build_set(t, s, dets, cache, a.zone)
             if entry:
                 index["frames"] = [f for f in index["frames"] if f["file"] != entry["file"]] + [entry]
         own = f"frames_{a.own.replace(':', '_')}.json"
@@ -355,6 +475,8 @@ def main() -> int:
         write_json(index_path, index)
         log.info("%s done in %.0f s: %.2f MB on disk; downloads so far: %s", t["slug"], time.time() - t0,
                  folder_bytes(folder) / 1e6, cutouts.STATS)
+    if a.known_only or a.measured_only:
+        return 0  # moving targets: known[] is NASA's own position list (irsa-3i, most), not MPC; no zones
     if not only or "3i-atlas" in only:
         build_comet(cache, object_only=not sets)
     for number, slug in ASTEROIDS.items():

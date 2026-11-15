@@ -2,7 +2,7 @@
 
 Layout (docs/cloud-architecture.md):
     photolists/zones/<zone>.parquet
-    dots/<obs_id>D<det>.parquet
+    dots/<obs_id>D<det>.parquet       (dots_deblend<v>/ for zones with another deblend setting: config.zone_dots)
     cache/mpc/<zone>/run_<first obs_id>.json
     results/<zone>/...
 A file's existence means its step is done. Writes are atomic: a local file is written under a
@@ -97,8 +97,34 @@ def _json_default(o: Any) -> Any:
     raise TypeError(f"not JSON serializable: {type(o)}")
 
 
-def dots_rel(obs_id: str, det: int) -> str:
-    return f"dots/{obs_id}D{int(det)}.parquet"
+DOTS_DIR_ENV = "SKYSHIFT_DOTS_DIR"
+
+
+def dots_dir() -> str:
+    """The folder of dot files this process reads (dots_rel's default): "dots", or what use_dots_dir set for the
+    zone being run (config.zone_dots, linked_dots_dir)."""
+    return os.environ.get(DOTS_DIR_ENV) or "dots"
+
+
+def use_dots_dir(folder: str) -> None:
+    """Read dot files from this folder from now on, here and in worker processes started after this (an env var,
+    so spawned workers inherit it). Set by the CLI per step; not meant to be set by hand."""
+    os.environ[DOTS_DIR_ENV] = folder
+
+
+def linked_dots_dir(store: "Store", zone: str) -> str:
+    """The folder `link` read the zone's dot files from (results/<zone>/summary.json steps.link.dots_dir), so
+    members.dot_row points into it; "dots" for zones linked before it was recorded (15 Nov) or not linked yet."""
+    try:
+        s = store.read_json(results_rel(zone, "summary.json"))
+    except (FileNotFoundError, ValueError):
+        return "dots"
+    link = ((s or {}).get("steps") or {}).get("link") or {}
+    return str(link.get("dots_dir") or "dots")
+
+
+def dots_rel(obs_id: str, det: int, folder: str | None = None) -> str:
+    return f"{folder or dots_dir()}/{obs_id}D{int(det)}.parquet"
 
 
 
