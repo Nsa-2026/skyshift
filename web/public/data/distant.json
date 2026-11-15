@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-15T00:36:38Z",
+  "generated": "2026-11-15T01:48:32Z",
   "data_release": "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)",
   "zone": "hunt",
   "zone_box": {
@@ -12,7 +12,7 @@
       24.4
     ]
   },
-  "run_created": "2026-11-15T00:02:10Z",
+  "run_created": "2026-11-15T01:16:28Z",
   "searched": {
     "distance_au": [
       70.0,
@@ -37,7 +37,7 @@
       "bright_fragment": 778,
       "zone_edge": 39,
       "saturated": 20,
-      "blend": 13
+      "blend": 16
     },
     "drift_ok": 404,
     "pairs_tested": 709,

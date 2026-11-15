@@ -878,7 +878,7 @@
       "value": 0.95,
       "unit": "recall",
       "expected": "Recall at V < 16 >= 50% (gate G2); control near 0",
-      "note": "Unit: one known object in one session with >= 2 exposures covering it. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as seen from SPHEREx. One counts as found when a blind-search mover, or a dot recovered on a mover track's predicted path in that session, lies within 12\" of its predicted position; control: every prediction moved 2'. Gate G2 is recall >= 50% at V < 16, decided on the pilot zone before the hunt ran. Objects brighter than V 12 saturate but are still counted. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): 2,628 photos with predictions, pipeline report of 2026-11-14T23:56:28Z; V 12-16 alone: 393 of 416; movers alone: 426 of 457 (93%). Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): 629 photos with predictions, pipeline report of 2026-11-15T00:12:06Z, MPC orbit snapshot mpcorb_2026-11-14.parquet + cometels_2026-11-14.parquet; V 12-16 alone: 67 of 72; movers alone: 84 of 90 (93%). Rows: zone, v_min, v_max, n, found, recall, control_recall.",
+      "note": "Unit: one known object in one session with >= 2 exposures covering it. Known objects: Minor Planet Center orbits, propagated to each photo's MJD-AVG as seen from SPHEREx. One counts as found when a blind-search mover, or a dot recovered on a mover track's predicted path in that session, lies within 12\" of its predicted position; control: every prediction moved 2'. Gate G2 is recall >= 50% at V < 16, decided on the pilot zone before the hunt ran. Objects brighter than V 12 saturate but are still counted. Hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos): 2,628 photos with predictions, pipeline report of 2026-11-15T01:09:22Z; V 12-16 alone: 393 of 416; movers alone: 426 of 457 (93%). Pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it): 629 photos with predictions, pipeline report of 2026-11-15T01:30:39Z, MPC orbit snapshot mpcorb_2026-11-14.parquet + cometels_2026-11-14.parquet; V 12-16 alone: 67 of 72; movers alone: 84 of 90 (93%). Rows: zone, v_min, v_max, n, found, recall, control_recall.",
       "rows": [
         {
           "zone": "hunt",
@@ -1428,8 +1428,8 @@
       "id": "V9",
       "claim": "Astrometry matches Gaia",
       "status": "pass",
-      "headline": "209,534 stars vs Gaia (hunt zone): proper-motion bias -3 (RA) and -2 (Dec) mas/yr, scatter 134 and 135 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 32,090 stars, bias -2 (RA) and -3 (Dec) mas/yr, scatter 136 and 136 mas/yr, pull scatter 0.95, 0.95",
-      "value": 134.291,
+      "headline": "209,534 stars vs Gaia (hunt zone): proper-motion bias -4 (RA) and -0 (Dec) mas/yr, scatter 132 and 135 mas/yr; pull scatter 0.94, 0.94 (1 = honest error bars). Pilot zone: 32,093 stars, bias -3 (RA) and -1 (Dec) mas/yr, scatter 135 and 135 mas/yr, pull scatter 0.94, 0.94",
+      "value": 132.47,
       "unit": "mas/yr",
       "expected": "Bias near zero; pull scatter near 1",
       "note": "Proper motions fitted over all dots with SPHEREx's own position as the observer, against Gaia DR3. Zones: hunt zone (RA 120.5-130.5, Dec +14.4 to +24.4, 3,692 photos); pilot zone (RA 120.5-124.1, Dec +14.4 to +17.9, 990 photos; inside the hunt zone, so the hunt's numbers include it). Pass when both pull scatters are 0.7-1.5 in every zone. Rows: zone, axis, n, bias, scatter, pull_scatter (mas/yr).",
@@ -1438,33 +1438,33 @@
           "zone": "hunt",
           "axis": "pmra",
           "n": 209534,
-          "bias": -3.235,
-          "scatter": 134.291,
-          "pull_scatter": 0.943
+          "bias": -3.942,
+          "scatter": 132.47,
+          "pull_scatter": 0.935
         },
         {
           "zone": "hunt",
           "axis": "pmdec",
           "n": 209534,
-          "bias": -2.158,
-          "scatter": 135.233,
-          "pull_scatter": 0.941
+          "bias": -0.271,
+          "scatter": 134.637,
+          "pull_scatter": 0.938
         },
         {
           "zone": "pilot",
           "axis": "pmra",
-          "n": 32090,
-          "bias": -2.053,
-          "scatter": 136.049,
-          "pull_scatter": 0.948
+          "n": 32093,
+          "bias": -2.974,
+          "scatter": 134.643,
+          "pull_scatter": 0.943
         },
         {
           "zone": "pilot",
           "axis": "pmdec",
-          "n": 32090,
-          "bias": -3.067,
-          "scatter": 135.844,
-          "pull_scatter": 0.947
+          "n": 32093,
+          "bias": -0.954,
+          "scatter": 135.023,
+          "pull_scatter": 0.944
         }
       ]
     },
