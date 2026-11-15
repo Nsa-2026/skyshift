@@ -103,11 +103,10 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   el.innerHTML = html`
     <div class="cm${embedded ? " cm-embedded" : ""}">
       ${
-        // Inside Results the plain lines lead (Advanced off); the vote counts, the source and the
-        // fuller text are "pro-only" (src/prefs/details.ts). The Community page itself is unchanged.
+        // Inside Results the count and the rule lead (Advanced off); the vote counts, the source and
+        // the fuller text are "pro-only" (src/prefs/details.ts). The Community page itself is unchanged.
         embedded
           ? html`<div class="cm-head">
-        <p class="cm-plain plain-only">Objects that people agree move or change go on a list for astronomers: leads to check, not discoveries.</p>
         <p class="cm-lead pro-only" aria-live="polite">Counting votes…</p>
         <p class="cm-source pro-only"></p>
       </div>`
@@ -135,6 +134,12 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
       }
 
       <section class="cm-astro" ${embedded ? html`aria-label="The list for astronomers"` : html`aria-labelledby="cm-astro-h"`}>
+        ${
+          embedded
+            ? html`<p class="cm-count plain-only" aria-live="polite"></p>
+        <p class="cm-rule plain-only">An object joins at ${CONSENSUS.minVotes} votes, ${CONSENSUS_PCT}% agreeing.</p>`
+            : ""
+        }
         <div class="cm-sec-head">
           ${embedded ? "" : html`<h2 id="cm-astro-h">The list for astronomers</h2>`}
           <div class="cm-exports">
@@ -144,12 +149,6 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
         </div>
         <p class="cm-sub${embedded ? " pro-only" : ""}">Candidates with at least ${CONSENSUS.minVotes} votes where ${CONSENSUS_PCT}% or more said
           <b>mover</b> or <b>changing</b>. Each one is a lead for an astronomer to check, not a discovery.</p>
-        ${
-          embedded
-            ? html`<p class="cm-count plain-only" aria-live="polite"></p>
-        <p class="cm-rule plain-only">An object joins the list once at least ${CONSENSUS.minVotes} people have voted and ${CONSENSUS_PCT}% or more of them agree.</p>`
-            : ""
-        }
         <div class="cm-astro-body${embedded ? " pro-only" : ""}"></div>
         <p class="cm-status" role="status" aria-live="polite"></p>
 
@@ -299,10 +298,10 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
     if (!countEl) return;
     const listed = rows.some((r) => r.kind && r.kind !== "flag");
     countEl.innerHTML = rows.length
-      ? html`${n(rows.length)} ${plural(rows.length, "object is", "objects are")} on the list so far.${
+      ? html`${n(rows.length)} ${plural(rows.length, "object is", "objects are")} on the list.${
           listed ? html` <a href="#/candidates/verdict=mover,changing">See ${plural(rows.length, "it", "them")}</a>` : ""
         }`
-      : html`Nothing is on the list yet. <a href="#/candidates/one=1">Check some objects</a>: your vote may add one.`;
+      : html`Nothing on the list yet. <a href="#/candidates/one=1">Vote now</a>`;
   }
 
   function renderAstro() {

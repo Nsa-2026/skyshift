@@ -132,10 +132,8 @@ export function barHtml(sum: RunSummary, now: number, notes: SkyNotes = NO_NOTES
 export function plainProgressHtml(sum: RunSummary): string {
   const c = sum.counts;
   const busy = c.extracting + c.combining;
-  const photos = sum.photos > 0 ? `<b>${fmtCount(sum.photos)}</b> photos read so far. ` : "";
-  const map = busy
-    ? "On the map, red areas are searched and striped ones are being searched now."
-    : "On the map, red areas are searched.";
+  const photos = sum.photos > 0 ? `<b>${fmtCount(sum.photos)}</b> photos read. ` : "";
+  const map = busy ? "Map: red searched, striped in progress." : "Map: red searched.";
   return html`
     <p class="lv-big plain-only"><span class="lv-big-n">${fmtCount(c.combined)}</span> of ${fmtCount(sum.total)} areas of sky searched <span class="lv-big-pct">${pctWord(sum.combinedPct)}</span></p>
     <p class="lv-plain-note plain-only">${photos}${map}</p>`;
@@ -270,7 +268,7 @@ export function listsHtml(sum: RunSummary, now: number, plain = false): string {
     })
     .join("");
   return html`
-    <p class="lv-hint">Pick ${plain ? "an area" : "a zone"} on the map for its numbers.</p>
+    <p class="lv-hint">${plain ? "Pick an area for its numbers." : "Pick a zone on the map for its numbers."}</p>
     ${recent ? `<div${pro}><h2 class="lv-h">Just combined</h2><ul class="lv-list">${recent}</ul></div>` : ""}
     <div${pro}>
       <h2 class="lv-h">What the numbers mean</h2>

@@ -108,7 +108,7 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
           ${deps.embedded ? "" : html`<h1 class="lv-title">Live search</h1>`}
           <p class="lv-updated" data-slot="updated"></p>
         </div>
-        <p class="lv-lede" data-slot="lede">Cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.</p>
+        <p class="lv-lede${pro}" data-slot="lede">Cloud machines are reading every SPHEREx photo along the ecliptic tonight, looking for things that move.</p>
         <div class="lv-status" data-slot="status" role="status" aria-live="polite"><p class="lv-muted">Loading tonight's run…</p></div>
         <div class="lv-progress" data-slot="progress"></div>
         <div class="lv-time${pro}" data-slot="time"></div>
@@ -159,7 +159,8 @@ export function createLivePage(el: HTMLElement, ctx: PageContext, deps: LiveDeps
       );
     } else if (sum?.stale && sum.age !== null) {
       parts.push(
-        `<p class="lv-alert lv-stale">No news from the machines for ${fmtDuration(sum.age)}, so these numbers may be out of date.</p>`,
+        // plain (Results): "Updated … ago" above says it already
+        `<p class="lv-alert lv-stale${pro}">No news from the machines for ${fmtDuration(sum.age)}, so these numbers may be out of date.</p>`,
       );
     }
     fill("status", parts.join(""));
