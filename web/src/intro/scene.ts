@@ -1,6 +1,8 @@
 import { sceneAt, smooth, type SceneState } from './model';
 import { drawPortrait, portraitCamera, PORTRAIT_EYE } from './portrait';
 import { paintPlanetaryOpening } from './planets';
+import { paintStars } from './stars';
+import { paintClouds, warmClouds } from './clouds';
 
 function horizon(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) {
   if (!s.ground) return;
@@ -38,18 +40,8 @@ function girl(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) 
 }
 
 function clouds(c: CanvasRenderingContext2D, w: number, h: number, s: SceneState) {
-  if (!s.clouds) return;
-  c.save(); c.globalAlpha = s.clouds;
-  const through = smooth(s.p, .25, .43);
-  for (let i = 0; i < 9; i++) {
-    const x = w * (i / 8 + Math.sin(i * 4) * .09);
-    const y = h * (.3 + Math.sin(i * 7) * .3 + through * .8);
-    const radius = Math.max(w, h) * (.28 + through * .2);
-    const mist = c.createRadialGradient(x, y, 0, x, y, radius);
-    mist.addColorStop(0, '#aabdcbb3'); mist.addColorStop(.3, '#8193a28c'); mist.addColorStop(1, '#6a829b00');
-    c.fillStyle = mist; c.fillRect(0, 0, w, h);
-  }
-  c.restore();
+  if (s.clouds) paintClouds(c, w, h, s);
+  else if (s.p < .2) warmClouds();
 }
 
 export function paintScene(canvas: HTMLCanvasElement, progress: number): void {
@@ -62,5 +54,7 @@ export function paintScene(canvas: HTMLCanvasElement, progress: number): void {
   if (!c) return;
   c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
   const s = sceneAt(progress);
+  // Real Gaia stars first (their own canvas in the sky, under everything here), then the planets.
+  paintStars(w, h, dpr, s);
   paintPlanetaryOpening(c, w, h, s); horizon(c, w, h, s); girl(c, w, h, s); clouds(c, w, h, s);
 }

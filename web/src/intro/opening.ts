@@ -15,10 +15,12 @@ import "./opening.css";
 import { CHAPTERS, chapterAt, sceneAt, scrollProgress } from "./model";
 import { paintScene } from "./scene";
 import { preparePlanetaryOpening, type PlanetPreparation } from './planet-worker-client';
+import { loadStars, setStarLayer, STARS_URL } from './stars';
 
 export const SKY_URL = "/opening/spherex-sky.webp";
 // English wording: the author's own (1390d01 on codex/frontend-unified) wherever it exists.
 const CREDIT_SKY = "Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA).";
+const CREDIT_STARS = "Stars: Gaia DR3 (ESA/Gaia/DPAC), real positions; the flight through them is illustrative.";
 const CREDIT_ART = "Illustration: Earth, planets and Galileo drawn in code.";
 
 export type CloseReason = "skip" | "end" | "navigate";
@@ -30,6 +32,8 @@ export interface OpeningOptions {
   returnFocus?: HTMLElement | null;
   onClose?(reason: CloseReason): void;
   skyUrl?: string;
+  /** Gaia stars for the dive (stars.ts); a missing or broken file just leaves them out. */
+  starsUrl?: string;
 }
 
 export interface OpeningHandle {
@@ -74,7 +78,7 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     </div>
     <p class="op-chapter" aria-hidden="true"><span class="op-chapter-no"></span><span class="op-chapter-text"></span></p>
     <p class="visually-hidden" id="op-how">Explore the sky opens the site. Escape also closes the opening.</p>
-    <p class="op-credit"><span class="op-credit-sky">${CREDIT_SKY}</span> ${CREDIT_ART}</p>
+    <p class="op-credit"><span class="op-credit-sky">${CREDIT_SKY}</span> <span class="op-credit-stars">${CREDIT_STARS}</span> ${CREDIT_ART}</p>
     <div class="op-progress" aria-hidden="true"><span></span></div>
     <div class="op-track" aria-hidden="true"></div>
   `;
@@ -95,6 +99,9 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     // No sky, no sky credit; the scenery still works on the dark ground.
     sky.remove();
     $(".op-credit-sky")?.remove();
+    // The stars live in the sky layer, registered with it: they go too.
+    setStarLayer(null);
+    $(".op-credit-stars")?.remove();
   });
   img.src = opts.skyUrl ?? SKY_URL;
 
@@ -220,6 +227,7 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
     cancelAnimationFrame(revealFrame);
     clearTimeout(revealTimer);
     preparation?.cancel();
+    setStarLayer(null);
     el.removeEventListener("scroll", schedule);
     removeEventListener("resize", onResize);
     removeEventListener("hashchange", onHash);
@@ -243,6 +251,29 @@ export function playOpening(app: HTMLElement, opts: OpeningOptions = {}): Openin
   motion?.addEventListener?.("change", onMotion);
   document.addEventListener('visibilitychange', onVisibility);
   el.addEventListener('transitionend', onTransitionEnd);
+
+  // Gaia stars load in the background; until (or unless) they arrive, the dive runs without them.
+  // Their canvas joins the sky layer and takes the image's drift at the image's current time, so
+  // both turn as one.
+  void loadStars(opts.starsUrl ?? STARS_URL).then(catalog => {
+    if (closed) return;
+    if (!catalog || !sky.isConnected) {
+      $(".op-credit-stars")?.remove();
+      return;
+    }
+    const stars = document.createElement("canvas");
+    stars.className = "op-stars";
+    img.after(stars);
+    try {
+      const [drift] = img.getAnimations?.() ?? [], [own] = stars.getAnimations?.() ?? [];
+      if (drift && own) own.currentTime = drift.currentTime;
+    } catch {
+      /* no Web Animations: the drift starts now, a few pixels apart at most */
+    }
+    setStarLayer(stars, catalog);
+    sceneProgress = -1;
+    schedule();
+  });
 
   onVisibility();
   el.scrollTop = 0;

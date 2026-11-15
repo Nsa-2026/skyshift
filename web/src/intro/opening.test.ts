@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { paintScene } from "./scene";
 import { playOpening, type OpeningHandle } from "./opening";
 import { preparePlanetaryOpening, type PreparationResult } from './planet-worker-client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock("./scene", () => ({ paintScene: vi.fn() }));
 vi.mock('./planet-worker-client', () => ({ preparePlanetaryOpening: vi.fn(() => ({ pending: false, ready: new Promise(() => {}), cancel: vi.fn() })) }));
@@ -16,6 +18,9 @@ describe("the opening overlay", () => {
     vi.clearAllMocks();
     vi.stubGlobal("requestAnimationFrame", (fn: () => void) => setTimeout(fn, 16));
     vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
+    // No star file unless a test serves one (the overlay works without it).
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     app = document.createElement("div");
     app.id = "app";
     app.innerHTML = `<p class="foot-links"><button id="replay">Replay intro</button></p>`;
@@ -28,6 +33,7 @@ describe("the opening overlay", () => {
     document.documentElement.classList.remove("op-open");
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.mocked(console.warn).mockRestore();
   });
 
   function open(opts: Parameters<typeof playOpening>[1] = {}) {
@@ -62,12 +68,44 @@ describe("the opening overlay", () => {
     expect(el.querySelector(".op-sky")!.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("credits the SPHEREx sky and says the rest is drawn in code", () => {
+  it("credits the SPHEREx sky and the Gaia stars, says the flight is illustrative and the rest drawn in code", () => {
     const el = open();
     const credit = el.querySelector(".op-credit")!.textContent!;
     expect(credit).toContain("SPHEREx DR1");
     expect(credit).toContain("NASA/JPL-Caltech/IPAC (IRSA)");
+    expect(credit).toContain("Gaia DR3 (ESA/Gaia/DPAC)");
+    expect(credit).toMatch(/flight through them is illustrative/);
     expect(credit).toContain("drawn in code");
+  });
+
+  it("loads the Gaia stars in the background into the sky layer, then redraws the same frame", async () => {
+    const file = readFileSync(resolve(process.cwd(), "public/opening/stars-gaia.bin"));
+    vi.mocked(fetch).mockImplementationOnce(async () => new Response(file));
+    const el = open({ starsUrl: "/opening/stars-gaia.bin" });
+    expect(fetch).toHaveBeenCalledWith("/opening/stars-gaia.bin");
+    expect(el.querySelector(".op-stars")).toBeNull();
+    scroll(el, 2200);
+    const paints = vi.mocked(paintScene).mock.calls.length;
+    await vi.waitFor(() => expect(el.querySelector(".op-stars")).not.toBeNull());
+    vi.advanceTimersByTime(20);
+    const stars = el.querySelector(".op-stars")!;
+    expect(stars.parentElement).toBe(el.querySelector(".op-sky"));
+    expect(stars.previousElementSibling).toBe(el.querySelector(".op-sky img"));
+    expect(paintScene).toHaveBeenCalledTimes(paints + 1);
+    expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 0.5);
+    expect(el.querySelector(".op-credit")!.textContent).toContain("Gaia DR3");
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("without the star file: no star layer, no star credit, one warning, and the story goes on", async () => {
+    const el = open();
+    await vi.waitFor(() => expect(el.querySelector(".op-credit-stars")).toBeNull());
+    expect(el.querySelector(".op-stars")).toBeNull();
+    expect(el.querySelector(".op-credit")!.textContent).toContain("SPHEREx DR1");
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(console.warn).mock.calls[0][0])).toMatch(/Gaia star layer/);
+    scroll(el, 2200);
+    expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 0.5);
   });
 
   it("drops the sky credit when the image fails, and keeps going", () => {
@@ -75,6 +113,7 @@ describe("the opening overlay", () => {
     el.querySelector("img")!.dispatchEvent(new Event("error"));
     expect(el.querySelector(".op-sky")).toBeNull();
     expect(el.querySelector(".op-credit")!.textContent).not.toContain("SPHEREx");
+    expect(el.querySelector(".op-credit")!.textContent).not.toContain("Gaia");
     scroll(el, 2200);
     expect(paintScene).toHaveBeenLastCalledWith(expect.any(HTMLCanvasElement), 0.5);
   });

@@ -33,12 +33,39 @@ If the manifest or a file is missing or broken, the opening falls back to what s
 | `earth` | Drawn in code | 1:1, ≥ 1600 × 1600 | Earth from space, the first descent. Cut to a circle; turns slowly; grows to about three screens wide before it fades. |
 | `horizon` | Drawn in code | 3:1, ≥ 2400 × 800, transparent above the ridges | The ground the figure stands on. Its middle row is the ground line. Spans the screen's width; crops at the sides on phones. |
 
+`stars-gaia.bin` is not a slot either: it is data, the real stars of the dive (see below).
+
 The figure and its eye are not a slot: they are drawn as vectors in `web/src/intro/portrait.ts`
 because the camera zooms about 250× into the pupil, and no picture holds that.
+
+## Stars (`stars-gaia.bin`)
+
+The stars the camera flies through at the start are real Gaia DR3 stars: their positions,
+distances (1 / parallax) and colours (BP−RP). At the title they sit exactly on the stars of the
+SPHEREx backdrop, as seen from the Sun (`web/src/intro/stars.ts` draws them in a canvas inside the
+sky layer, with the same projection and transform). Then the camera flies about 46 pc toward Earth:
+near stars stream past, distant ones barely move. The flight is illustrative; the stars are not.
+Very bright stars that Gaia does not measure well (G < 3, e.g. Altair) are only in the SPHEREx image.
+
+| | |
+|---|---|
+| Source | Gaia DR3 (`gaia_dr3_source`) at IRSA. Made with `scripts/precompute/opening_stars.py`, which tries IRSA TAP first and falls back to IRSA Gator, the same table. On 15 Nov 2026 IRSA TAP answered 502, so the file came from Gator. Not CDS/VizieR. |
+| Query | `SELECT ra, dec, parallax, phot_g_mean_mag, bp_rp FROM gaia_dr3_source WHERE phot_g_mean_mag < 10.5 AND parallax > 0 AND parallax_over_error > 5 AND ra BETWEEN 245 AND 317 AND dec BETWEEN -37 AND 29` (111,872 rows), then kept: G < 10.25 and inside the backdrop's SIN frame plus a margin (±26.5° × ±17° around RA 281°, Dec −4°). |
+| Date | 15 November 2026 |
+| Count | 35,994 stars, sorted brightest first (phones draw the first part only); 323 within 50 pc, Barnard's Star the nearest (1.83 pc). |
+| Size | 288,016 bytes: 8 bytes a star, quantised (RA, Dec to 0.001°, parallax to 0.015 %, G to 0.04 mag, BP−RP to 0.03 mag). The layout is in the script's docstring. SHA-256 `cb70b7b5eb1f23833d655190e30fdd736c6e5930871634f2b8bf62b231acad6d` (the same bytes whatever order the server returns rows in). |
+| Licence | Gaia data: ESA/Gaia/DPAC, CC BY-SA 3.0 IGO. The credit line says "Stars: Gaia DR3 (ESA/Gaia/DPAC), real positions; the flight through them is illustrative." |
+
+To remake it: `python3 -I scripts/precompute/opening_stars.py` from the repository root (stdlib
+only, a few minutes), then `cd web && npm test` (checks the file decodes, its count, order and
+Barnard's Star). If the file is missing or broken, the opening runs without the star layer and the
+console says why once.
 
 ## Honesty
 
 - The sky is always real SPHEREx data. Never a generated or painted sky, never added objects.
+- The stars over it are real Gaia DR3 stars, never random points or invented stars. Only the
+  camera's flight through them is illustrative, and the credit says so.
 - Generated or drawn art is labelled "Illustration" on screen; the code adds the word, so a
   manifest can't pass art off as data.
 - The credit line stays on screen as long as the sky does: it fades only when the whole opening
@@ -50,7 +77,7 @@ because the camera zooms about 250× into the pupil, and no picture holds that.
 
 Built from the slots on screen. Today:
 
-> Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA). Illustration: Earth, hills and figure drawn in code.
+> Sky: SPHEREx DR1 at 1.35 µm, NASA/JPL-Caltech/IPAC (IRSA). Stars: Gaia DR3 (ESA/Gaia/DPAC), real positions; the flight through them is illustrative. Illustration: Earth, planets and Galileo drawn in code.
 
 With a generated Earth:
 

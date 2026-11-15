@@ -9,6 +9,9 @@ export const smooth = (p: number, from: number, to: number) => {
   return t * t * (3 - 2 * t);
 };
 
+/** The dive's master curve (stars.ts, planets.ts): 0 on the title, 1 when the clouds close. */
+export const descentAt = (p: number) => smooth(p, 0, .3);
+
 export function scrollProgress(scrollTop: number, viewport: number, totalHeight: number): number {
   return totalHeight > viewport ? clamp(scrollTop / (totalHeight - viewport)) : 0;
 }
@@ -27,11 +30,13 @@ export function sceneAt(progress: number) {
     p,
     title: 1 - smooth(p, 0.015, 0.1),
     /** The camera's flight through the star field and down to Earth. */
-    descent: smooth(p, 0, 0.3),
+    descent: descentAt(p),
     /** The star field stays until the clouds close over it. */
-    stars: 1 - smooth(p, 0.26, 0.34),
-    earth: 1 - smooth(p, 0.27, 0.37),
-    clouds: smooth(p, 0.23, 0.31) * (1 - smooth(p, 0.34, 0.45)),
+    stars: 1 - smooth(p, 0.24, 0.285),
+    /** Earth fills the screen, then goes once the clouds cover it. */
+    earth: 1 - smooth(p, 0.265, 0.295),
+    /** Night clouds rush past, close, then part onto the ground. */
+    clouds: smooth(p, 0.205, 0.255) * (1 - smooth(p, 0.33, 0.42)),
     ground: smooth(p, 0.31, 0.44) * (1 - smooth(p, 0.52, 0.62)),
     figure: smooth(p, 0.32, 0.45) * (1 - smooth(p, 0.885, 0.9)),
     /** Push in to Galileo's head and the eyepiece. */
