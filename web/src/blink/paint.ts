@@ -104,3 +104,18 @@ export function paint(
     out[o + 3] = 255;
   }
 }
+
+/**
+ * Lighten painted pixels marked in `mask` toward `toward` by `t` (0–1): the part of a photo filled
+ * from its other photos is drawn paler, so it never passes for what this photo saw.
+ */
+export function fade(out: Uint8ClampedArray, mask: Uint8Array, toward: RGB, t: number): void {
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue;
+    const o = i * 4;
+    if (!out[o + 3]) continue;
+    out[o] = Math.round(out[o] + (toward[0] - out[o]) * t);
+    out[o + 1] = Math.round(out[o + 1] + (toward[1] - out[o + 1]) * t);
+    out[o + 2] = Math.round(out[o + 2] + (toward[2] - out[o + 2]) * t);
+  }
+}
