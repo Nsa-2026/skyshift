@@ -19,6 +19,9 @@
 # Request timeout 60 s, as Firebase Hosting's: Hosting retries a rewrite that runs past ~60 s (1-3 times,
 # a minute apart), and with 300 s each copy kept building, filled every slot and turned new requests
 # into 429. The app answers by 48 s anyway (503 upstream past that); identical requests share a build.
+# SKYSHIFT_MEASURED_STACK: the measured layer's class `stack` (contracts/api.md v3.13), on since the site knows it
+# (web #268, 15 Nov), for the zones listed ("+" between names; "1" = all). Not t_rdra: its Mira's glow leaves a
+# ring of uncatalogued stack pieces 30–60″ out (measured.stack_enabled).
 # SKYSHIFT_PIXELS=s3first: cutouts from NASA's S3 copy with direct range reads (fast, never
 # busy); IRSA's cutout service only for an image S3 has no copy of.
 #
@@ -53,4 +56,4 @@ gcloud run deploy skyshift-api \
   --timeout 60 \
   --concurrency 8 \
   --allow-unauthenticated \
-  --set-env-vars SKYSHIFT_CACHE=gs://nasa-glazing-data/cache,SKYSHIFT_PIXELS=s3first
+  --set-env-vars SKYSHIFT_CACHE=gs://nasa-glazing-data/cache,SKYSHIFT_PIXELS=s3first,SKYSHIFT_MEASURED_STACK=t_barnard+t_rwaur+t_epsindib+t_wise0855
