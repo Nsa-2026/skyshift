@@ -105,8 +105,8 @@ export async function loadSnapshot(opts: LoadOptions): Promise<Snapshot> {
 }
 
 /**
- * The list for astronomers, as the Community page shows it: everyone's votes (one per browser and
- * object), consensus movers and changing sources, strongest agreement first, with positions looked
+ * The list for astronomers, as the Community page shows it: everyone's votes (each browser's latest
+ * per object), consensus movers and changing sources, strongest agreement first, with positions looked
  * up for dots that visitors flagged. To check downloads it from here.
  */
 export async function astronomersFor(s: Snapshot): Promise<AstroRow[]> {

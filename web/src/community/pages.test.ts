@@ -85,12 +85,15 @@ describe("loadSnapshot", () => {
         { candidate_id: "fs-1", answer: "mover" as const, voter: "a_voter_123", ts: 1_700_000_000_000 },
         { candidate_id: "pilot-m1", answer: "junk" as const, voter: "a_voter_123", ts: 1_700_000_100_000 },
         { candidate_id: "pilot-m1", answer: "mover" as const, voter: "a_voter_123", ts: 1_700_000_200_000 },
+        { candidate_id: "fs-1", answer: "junk" as const, voter: "b_voter_123", ts: 1_700_000_300_000 },
+        { candidate_id: "fs-1", answer: "withdrawn" as const, voter: "b_voter_123", ts: 1_700_000_400_000 },
       ],
       allCandidates,
     });
     const s = await loadSnapshot({ kv: memKV(), api, catalogue: async () => catalogue });
     expect(s.mode).toBe("firestore");
-    expect(s.votes.map((v) => [v.candidate_id, v.answer])).toEqual([["fs-1", "mover"], ["pilot-m1", "junk"]]); // one vote per voter
+    // Each voter's latest vote only (v3.16): a changed to mover on pilot-m1, b took theirs back on fs-1.
+    expect(s.votes.map((v) => [v.candidate_id, v.answer])).toEqual([["fs-1", "mover"], ["pilot-m1", "mover"]]);
     const a = await s.lookup(["fs-1", "pilot-m1"]);
     const b = await s.lookup(["sus-1"]);
     expect(allCandidates).toHaveBeenCalledTimes(1);

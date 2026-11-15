@@ -86,6 +86,13 @@ describe("page events", () => {
     expect(call().dataset.status).toBe("voted");
     expect(call().querySelector(".as-find")!.textContent).toContain("You voted junk.");
     expect(call().querySelector("[data-vote]")).toBeNull();
+    // Changed, then taken back (v3.16: answer null): step 6 asks again.
+    window.dispatchEvent(new CustomEvent(VOTED_EVENT, { detail: { candidateId: mover.id, answer: "mover", previous: "junk" } }));
+    expect(call().querySelector(".as-find")!.textContent).toContain("You voted mover.");
+    window.dispatchEvent(new CustomEvent(VOTED_EVENT, { detail: { candidateId: mover.id, answer: null, previous: "mover" } }));
+    expect(call().dataset.status).toBe("ask");
+    expect(call().querySelector("[data-vote]")).not.toBeNull();
+    window.dispatchEvent(new CustomEvent(VOTED_EVENT, { detail: { candidateId: mover.id, answer: "junk" } }));
     h.update(star);
     expect(call().dataset.status).toBe("ask");
     h.destroy();

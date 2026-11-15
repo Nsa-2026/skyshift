@@ -356,14 +356,24 @@ const isControl = (t: EventTarget | null | undefined): boolean => {
   const el = t as { closest?: (s: string) => unknown } | null | undefined;
   return !!el && typeof el.closest === "function" && !!el.closest("button, a[href], summary");
 };
+/**
+ * The colour filters on the plate (src/colour) keep their keys: in their open menu (or on the
+ * button that opened it), their slider, the note over their picture or their key, a digit or an
+ * arrow is never a vote or a move to another object.
+ */
+const FILTER_KEYS = ".flt-menu, .flt-add[aria-expanded='true'], .flt-wave, .flt-note, .flt-key, .flt-tools";
+const inFilters = (t: EventTarget | null | undefined): boolean => {
+  const el = t as { closest?: (s: string) => unknown } | null | undefined;
+  return !!el && typeof el.closest === "function" && !!el.closest(FILTER_KEYS);
+};
 
 /**
  * What a key press means on the review pages. 1–4 vote (mover, changing, junk, not sure);
  * with queue keys: S skips, ← goes back, → goes on, Enter confirms. Nothing while typing,
- * with a modifier, or on auto-repeat.
+ * with a modifier, on auto-repeat, or in the colour filters' menu and controls.
  */
 export function keyAction(ev: KeyLike, opts: { queue: boolean }): KeyAction | null {
-  if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || isTyping(ev.target)) return null;
+  if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || isTyping(ev.target) || inFilters(ev.target)) return null;
   const i = ["1", "2", "3", "4"].indexOf(ev.key);
   if (i >= 0) return { kind: "vote", answer: ANSWERS[i] };
   if (!opts.queue) return null;

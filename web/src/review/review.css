@@ -374,7 +374,8 @@
   text-align: left;
   cursor: pointer;
 }
-.rv-choice:hover:not(:disabled) {
+/* Not on the selected answer: it stays ink when hovered (it can be clicked since votes can change). */
+.rv-choice:hover:not(:disabled):not([aria-pressed="true"]) {
   border-color: var(--ink-3);
   background: #fff;
 }
@@ -398,7 +399,6 @@
   cursor: default;
 }
 .rv-ballot[data-state="waiting"] .rv-choice,
-.rv-ballot[data-state="voted"] .rv-choice[aria-pressed="false"],
 .rv-ballot[data-state="saving"] .rv-choice[aria-pressed="false"],
 .rv-ballot[data-state="practice"] .rv-choice[aria-pressed="false"] {
   opacity: 0.5;
@@ -438,6 +438,24 @@
 }
 .rv-yours {
   font-weight: 600;
+}
+/* After voting: what you said, how to change it, and Reset answer beside it (under it on a phone). */
+.rv-mine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+}
+.rv-mine .rv-yours {
+  flex: 1 1 16rem;
+}
+.rv-change {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.rv-reset {
+  flex: none;
 }
 .rv-feedback {
   padding: var(--s1) 0 var(--s1) var(--s4);

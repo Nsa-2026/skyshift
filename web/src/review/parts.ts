@@ -4,9 +4,8 @@ import { GRADE_TEXT, NEAR_SOURCE_HINT, UNGRADED_TEXT, failedGates, gateText, gra
 import type { Candidate } from "../api/types";
 import { formatRaDec } from "../app/astro";
 import type { Answer, Counts } from "../vote/model";
-import { VoteError } from "../vote/model";
+import { VoteError, emptyCounts, shiftCounts } from "../vote/model";
 import type { Votes } from "./data";
-import { withVote } from "./model";
 import { KIND_ICON, abMag, esc, kindName, motion, ujy } from "./text";
 
 const html = String.raw;
@@ -131,19 +130,25 @@ export async function copyWithFeedback(btn: HTMLButtonElement, text: string): Pr
 export const SAMPLE_NOTE =
   "Sample data: a real pilot sample from fixtures/api/candidates.json, shown in development because /data/candidates.json isn't published yet.";
 
-/** Cast a vote. Returns the new counts, or an error in plain words. */
+/**
+ * Save this browser's answer: a first vote, a change to another answer, or null to reset it (take
+ * the vote back). Returns the counts moved by this one change (old answer −1, new +1), or an error
+ * in plain words.
+ */
 export async function castVote(
   v: Votes,
   c: Candidate,
-  a: Answer,
+  a: Answer | null,
   counts: Counts | null,
-): Promise<{ ok: true; counts: Counts } | { ok: false; message: string; already: boolean }> {
+): Promise<{ ok: true; counts: Counts } | { ok: false; message: string }> {
+  const previous = v.api.myVote(c.id);
   try {
-    await v.api.castVote(c.id, a);
-    return { ok: true, counts: withVote(counts ?? undefined, a) };
+    if (a) await v.api.castVote(c.id, a);
+    else await v.api.withdrawVote(c.id);
+    return { ok: true, counts: previous === a ? (counts ?? emptyCounts()) : shiftCounts(counts, previous, a) };
   } catch (e) {
-    const err = e instanceof VoteError ? e : new VoteError("Something went wrong saving the vote. Try again.");
-    return { ok: false, message: err.message, already: err.kind === "already" };
+    const err = e instanceof VoteError ? e : new VoteError(a ? "Something went wrong saving the vote. Try again." : "Something went wrong resetting your answer. Try again.");
+    return { ok: false, message: err.message };
   }
 }
 

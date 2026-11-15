@@ -10,18 +10,24 @@
 //   const votes = await getVoteStore();      // one per page; Firestore if configured, else local mode
 //   votes.mode                               // "firestore" | "local" (local: this browser only; say so)
 //   votes.notice                             // plain sentence if Firestore failed and it fell back, else null
-//   await votes.countsFor(ids)               // Map<id, Counts>, every id present (zeros when no votes)
-//   await votes.castVote(id, "mover")        // this browser's one vote; throws VoteError (plain words,
-//                                            //   e.message is ready to show; kind "already" if voted)
-//   votes.myVote(id)                         // "mover" | … | null, sync (this browser's memory)
+//   await votes.countsFor(ids)               // Map<id, Counts>, every id present (zeros when no votes);
+//                                            //   each voter's latest vote only (model latestVotes)
+//   await votes.castVote(id, "mover")        // this browser's vote; again with another answer changes it
+//                                            //   (a new document; the same answer writes nothing). Throws
+//                                            //   VoteError (plain words, e.message is ready to show)
+//   await votes.withdrawVote(id)             // takes this browser's vote back (a "withdrawn" document)
+//   votes.myVote(id)                         // "mover" | … | null, sync (this browser's latest answer)
 //   votes.voterId()                          // this browser's random voter id (never a name or email)
-//   await votes.allVotes()                   // VoteRecord[] { candidate_id, answer, ts ms|null, voter }
+//   await votes.allVotes()                   // StoredVote[] { candidate_id, answer, ts ms|null, voter }:
+//                                            //   every document, "withdrawn" included. Count them with
+//                                            //   countVotes / latestVotes (model), never one by one
 //   await votes.allCandidates()              // Candidate[] flagged in Firestore (user and pipeline)
 //   consensus(counts)                        // { answer, share, votes } at ≥ 5 votes and ≥ 70 %, else null
 //
 // candidate_id is the candidate's id: a /data/candidates.json id for pipeline candidates, or a
-// Firestore `candidates` doc id for dots people flagged. After every successful castVote the window
-// gets a `skyshift:voted` CustomEvent, detail { candidateId, answer }, so other views can refresh.
+// Firestore `candidates` doc id for dots people flagged. After every vote saved (cast, changed or
+// taken back) the window gets a `skyshift:voted` CustomEvent, detail { candidateId, answer, previous }:
+// answer is null when the vote was taken back, previous is this browser's answer before (or null).
 // Errors never throw raw Firebase errors: always VoteError with a message for people.
 import { loadSuspects } from "../api/client";
 import type { SkyPos } from "../api/types";
@@ -30,13 +36,15 @@ import {
   BrowserMemory,
   KEYS,
   VoteError,
+  WITHDRAWN,
   candidateDoc,
   countVotes,
   emptyCounts,
+  isAnswer,
   readJson,
   safeStorage,
   toCandidate,
-  toVoteRecord,
+  toStoredVote,
   voteDoc,
   type Answer,
   type Candidate,
@@ -44,8 +52,9 @@ import {
   type CandidateFields,
   type Counts,
   type KV,
+  type StoredAnswer,
+  type StoredVote,
   type VoteDoc,
-  type VoteRecord,
 } from "./model";
 
 /** Storage behind the vote API: Firestore or this browser. Pages use VoteApi (getVoteStore) instead. */
@@ -53,14 +62,14 @@ export interface VoteStore {
   readonly mode: "firestore" | "local";
   /** Candidates within radius (arcsec) of center, any order. */
   near(center: SkyPos, radiusArcsec: number): Promise<Candidate[]>;
-  /** Vote counts per candidate id (ids without votes may be missing). */
+  /** Vote counts per candidate id, each voter's latest vote only (ids without votes may be missing). */
   counts(ids: string[]): Promise<Map<string, Counts>>;
   /** Create a `candidates` doc (the store adds `created`); returns it with its new id. */
   flag(fields: CandidateFields): Promise<Candidate>;
-  /** Create a `votes` doc. */
-  vote(candidateId: string, answer: Answer, voter: string): Promise<void>;
-  /** Every vote (capped; see the store). */
-  allVotes(): Promise<VoteRecord[]>;
+  /** Create a `votes` doc: an answer, or WITHDRAWN. Never updates or deletes one. */
+  vote(candidateId: string, answer: StoredAnswer, voter: string): Promise<void>;
+  /** Every vote document, WITHDRAWN included (capped; see the store). */
+  allVotes(): Promise<StoredVote[]>;
   /** Every flagged candidate (capped; see the store). */
   allCandidates(): Promise<Candidate[]>;
 }
@@ -71,10 +80,13 @@ export interface VoteApi {
   /** A plain sentence when Firestore was configured but failed to load (local mode instead), else null. */
   readonly notice: string | null;
   countsFor(ids: string[]): Promise<Map<string, Counts>>;
+  /** Vote, or change this browser's vote to another answer. The same answer again writes nothing. */
   castVote(candidateId: string, answer: Answer): Promise<void>;
+  /** Take this browser's vote back. Nothing to take back writes nothing. */
+  withdrawVote(candidateId: string): Promise<void>;
   myVote(candidateId: string): Answer | null;
   voterId(): string;
-  allVotes(): Promise<VoteRecord[]>;
+  allVotes(): Promise<StoredVote[]>;
   allCandidates(): Promise<Candidate[]>;
   /** For the Explore panel: flagged dots near a position, and flagging one. */
   near(center: SkyPos, radiusArcsec: number): Promise<Candidate[]>;
@@ -86,12 +98,38 @@ export interface VoteApi {
 export const VOTED_EVENT = "skyshift:voted";
 export interface VotedDetail {
   candidateId: string;
-  answer: Answer;
+  /** This browser's answer now; null when the vote was taken back. */
+  answer: Answer | null;
+  /** This browser's answer before this write; null on a first vote. */
+  previous: Answer | null;
 }
 
-/** Wrap a store with this browser's memory (its voter id, its votes, its flags). */
+/** Wrap a store with this browser's memory (its voter id, its latest answers, its flags). */
 export function voteApi(store: VoteStore, kv: KV = safeStorage(), notice: string | null = null): VoteApi {
   const memory = new BrowserMemory(kv);
+  /** Candidates with a write in flight: one at a time each, so two quick clicks can't race. */
+  const writing = new Set<string>();
+
+  async function write(candidateId: string, stored: StoredAnswer, previous: Answer | null): Promise<void> {
+    if (writing.has(candidateId)) throw new VoteError("Still saving your last answer. Try again in a moment.", "busy");
+    writing.add(candidateId);
+    try {
+      await store.vote(candidateId, stored, memory.voter);
+    } catch (e) {
+      throw toVoteError(e);
+    } finally {
+      writing.delete(candidateId);
+    }
+    const answer = isAnswer(stored) ? stored : null;
+    if (answer) memory.rememberVote(candidateId, answer);
+    else memory.forgetVote(candidateId);
+    try {
+      window.dispatchEvent(new CustomEvent<VotedDetail>(VOTED_EVENT, { detail: { candidateId, answer, previous } }));
+    } catch {
+      /* no window (tests, workers): nothing to tell */
+    }
+  }
+
   return {
     mode: store.mode,
     notice,
@@ -101,21 +139,15 @@ export function voteApi(store: VoteStore, kv: KV = safeStorage(), notice: string
       return new Map(unique.map((id) => [id, found.get(id) ?? emptyCounts()]));
     },
     async castVote(candidateId, answer) {
+      if (!isAnswer(answer)) throw new VoteError("Pick one of the four answers.", "invalid");
       const had = memory.votedFor(candidateId);
-      if (had) throw new VoteError("This browser already voted on this one. Votes can't be changed.", "already");
-      try {
-        await store.vote(candidateId, answer, memory.voter);
-      } catch (e) {
-        const err = toVoteError(e);
-        if (err.kind === "already") memory.rememberVote(candidateId, answer);
-        throw err;
-      }
-      memory.rememberVote(candidateId, answer);
-      try {
-        window.dispatchEvent(new CustomEvent<VotedDetail>(VOTED_EVENT, { detail: { candidateId, answer } }));
-      } catch {
-        /* no window (tests, workers): nothing to tell */
-      }
+      if (had === answer) return; // already this browser's answer: nothing to change
+      await write(candidateId, answer, had);
+    },
+    async withdrawVote(candidateId) {
+      const had = memory.votedFor(candidateId);
+      if (!had) return;
+      await write(candidateId, WITHDRAWN, had);
     },
     myVote: (candidateId) => memory.votedFor(candidateId),
     voterId: () => memory.voter,
@@ -218,20 +250,19 @@ export class LocalStore implements VoteStore {
     return { id, ...clean, created: clean.created.getTime() };
   }
 
-  async vote(candidateId: string, answer: Answer, voter: string): Promise<void> {
+  /** A new document every time, as in Firestore: a change or a take-back never edits an old one. */
+  async vote(candidateId: string, answer: StoredAnswer, voter: string): Promise<void> {
     const doc = voteDoc(candidateId, answer, voter, Date.now());
     const all = this.votes();
-    if (all.some((v) => v.candidate_id === candidateId && v.voter === voter))
-      throw new VoteError("This browser already voted on this dot.", "already");
     all.push(doc);
     this.kv.set(KEYS.localVotes, JSON.stringify(all));
     this.written.votes.push(doc);
   }
 
-  async allVotes(): Promise<VoteRecord[]> {
+  async allVotes(): Promise<StoredVote[]> {
     return this.votes()
-      .map(toVoteRecord)
-      .filter((v): v is VoteRecord => v !== null);
+      .map(toStoredVote)
+      .filter((v): v is StoredVote => v !== null);
   }
 
   async allCandidates(): Promise<Candidate[]> {
@@ -252,8 +283,7 @@ export function toVoteError(e: unknown): VoteError {
   const offline = typeof navigator !== "undefined" && navigator.onLine === false;
   if (offline || code === "unavailable" || code === "deadline-exceeded")
     return new VoteError("Can't reach the vote server. Check your connection, then try again.", "offline");
-  if (code === "permission-denied")
-    return new VoteError("The vote server refused this. Votes can't be changed once cast, and each one needs all its fields.", "denied");
+  if (code === "permission-denied") return new VoteError("The vote server refused this. Reload the page and try again.", "denied");
   if (code === "resource-exhausted")
     return new VoteError("The vote server is over its limit for now. Try again in a few minutes.", "busy");
   if (code === "failed-precondition" || code === "not-found" || code === "unauthenticated" || code === "invalid-argument")

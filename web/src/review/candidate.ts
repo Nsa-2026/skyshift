@@ -3,12 +3,12 @@
 import { failedGates, gatesPhrase, gradeOf, isGate, nearSourceOf, votable } from "../api/grades";
 import type { Candidate } from "../api/types";
 import type { MountPage } from "../app/modules";
-import { emptyCounts, type Answer, type Counts } from "../vote/model";
+import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
 import { AssistSlot, detailsOn, loadAssist, votesSummary } from "./assist";
 import { Ballot } from "./ballot";
 import { candidateSet, suspectFor, votes, type CandidateSet, type Votes } from "./data";
-import { LIST_HASH, keyAction, neighbours, parseCandidateParam, withVote } from "./model";
+import { LIST_HASH, keyAction, neighbours, parseCandidateParam } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, copyWithFeedback, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
@@ -161,6 +161,8 @@ export const mountCandidate: MountPage = (el, ctx) => {
   let mine: Answer | null = null;
   let justNow = false;
   let saving: Answer | null = null;
+  let resetting = false;
+  let resetNow = false;
   let error: string | null = null;
   let plateReady = false;
   let ballot: Ballot | null = null;
@@ -174,6 +176,8 @@ export const mountCandidate: MountPage = (el, ctx) => {
       justNow,
       counts,
       saving,
+      resetting,
+      reset: resetNow,
       waiting: !plateReady && !mine,
       error,
       local: v?.api.mode === "local",
@@ -207,23 +211,29 @@ export const mountCandidate: MountPage = (el, ctx) => {
     if (!nextSlot.update(sum)) mountWhatNext(cand);
   }
 
-  async function vote(a: Answer) {
-    if (!cand || !v || !ballot?.open()) return;
+  /** Vote, change the answer, or (null) reset it. One write at a time: the ballot is shut while saving. */
+  async function vote(a: Answer | null) {
+    if (!cand || !v || !ballot?.open() || a === mine) return;
     const c = cand;
     saving = a;
+    resetting = !a;
+    resetNow = false;
     error = null;
     renderBallot();
     const r = await castVote(v, c, a, counts);
     if (cand !== c) return;
     saving = null;
+    resetting = false;
     if (r.ok) {
       counts = r.counts;
       mine = a;
-      justNow = true;
+      justNow = !!a;
+      resetNow = !a;
     } else {
-      error = r.already ? "This browser already voted on this one. Votes can't be changed." : r.message;
+      error = r.message;
     }
     renderBallot();
+    if (r.ok && !a) ballot?.focusChoices();
   }
 
   function renderSide(c: Candidate) {
@@ -274,7 +284,7 @@ export const mountCandidate: MountPage = (el, ctx) => {
     nextSlot = new AssistSlot(sideEl.querySelector<HTMLElement>(".cand-next")!);
     lastSummary = "";
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
-    ballot = open ? new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, full: true, kind: c.kind }) : null;
+    ballot = open ? new Ballot(sideEl.querySelector(".cd-ballot")!, { onVote: vote, onReset: () => vote(null), full: true, kind: c.kind }) : null;
     renderBallot();
     if (c.kind === "mover")
       suspectFor(c.id).then((s) => {
@@ -389,6 +399,8 @@ export const mountCandidate: MountPage = (el, ctx) => {
     mine = v.api.myVote(c.id);
     justNow = false;
     saving = null;
+    resetting = false;
+    resetNow = false;
     error = null;
     counts = null;
     plateReady = false;
@@ -419,13 +431,15 @@ export const mountCandidate: MountPage = (el, ctx) => {
   };
   document.addEventListener("keydown", onKey);
 
-  // A vote cast elsewhere on this page's candidate (the review queue, the assistant's step 6).
+  // A vote cast, changed or taken back elsewhere on this page's candidate (the review queue, the
+  // assistant's step 6). The counts here include this browser's answer as it was: move it.
   const onVoted = (ev: Event) => {
     const d = (ev as CustomEvent<VotedDetail>).detail;
-    if (!d || !cand || d.candidateId !== cand.id || mine || saving) return;
-    mine = d.answer;
-    counts = withVote(counts ?? undefined, d.answer);
-    justNow = true;
+    if (!d || !cand || d.candidateId !== cand.id || saving || resetting || d.answer === mine) return;
+    counts = shiftCounts(counts, mine, d.answer ?? null);
+    mine = d.answer ?? null;
+    justNow = !!mine;
+    resetNow = !mine;
     renderBallot();
   };
   window.addEventListener(VOTED_EVENT, onVoted);

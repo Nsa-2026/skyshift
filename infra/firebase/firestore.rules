@@ -27,7 +27,8 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // votes: { candidate_id, answer, ts, voter }
+    // votes: { candidate_id, answer, ts, voter }. Changing a vote is a new document with the new
+    // answer; 'withdrawn' takes it back (v3.16). Readers count each voter's latest document only.
     match /votes/{id} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasOnly(['candidate_id', 'answer', 'ts', 'voter'])
@@ -35,7 +36,7 @@ service cloud.firestore {
         && request.resource.data.candidate_id is string
         && request.resource.data.candidate_id.size() > 0
         && request.resource.data.candidate_id.size() <= 128
-        && request.resource.data.answer in ['mover', 'changing', 'junk', 'unsure']
+        && request.resource.data.answer in ['mover', 'changing', 'junk', 'unsure', 'withdrawn']
         && request.resource.data.ts == request.time        // serverTimestamp()
         && request.resource.data.voter is string
         && request.resource.data.voter.matches('^[A-Za-z0-9_-]{8,64}$');

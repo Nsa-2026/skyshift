@@ -29,6 +29,13 @@ vi.mock("firebase/firestore", () => ({
         : [
             { id: "v1", data: () => ({ candidate_id: "near", answer: "mover", voter: "a", ts: 1 }) },
             { id: "v2", data: () => ({ candidate_id: "near", answer: "junk", voter: "b", ts: 1 }) },
+            // Voter c changed unsure → changing, then took it back (v3.16): counts as nothing.
+            { id: "v3", data: () => ({ candidate_id: "near", answer: "unsure", voter: "c", ts: { toMillis: () => 2 } }) },
+            { id: "v4", data: () => ({ candidate_id: "near", answer: "changing", voter: "c", ts: { toMillis: () => 3 } }) },
+            { id: "v5", data: () => ({ candidate_id: "near", answer: "withdrawn", voter: "c", ts: null }) },
+            // Voter d changed mover → junk: counts once, as junk.
+            { id: "v6", data: () => ({ candidate_id: "pipe", answer: "junk", voter: "d", ts: { toMillis: () => 9 } }) },
+            { id: "v7", data: () => ({ candidate_id: "pipe", answer: "mover", voter: "d", ts: { toMillis: () => 4 } }) },
           ];
     return { docs, forEach: (f: (d: (typeof docs)[number]) => void) => docs.forEach(f) };
   },
@@ -56,13 +63,24 @@ describe("LocalStore", () => {
     expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 0, changing: 1, junk: 0, unsure: 0 });
   });
 
-  it("refuses a second vote from the same voter", async () => {
+  it("writes a new document for a change or a take-back, and counts each voter's latest (v3.16)", async () => {
     const s = new LocalStore(memKV());
     const c = await s.flag(doc);
     await s.vote(c.id, "mover", "voter_12345");
-    await expect(s.vote(c.id, "junk", "voter_12345")).rejects.toMatchObject({ kind: "already" });
+    await s.vote(c.id, "junk", "voter_12345"); // a change
     await s.vote(c.id, "junk", "voter_67890");
-    expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 1, changing: 0, junk: 1, unsure: 0 });
+    expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 0, changing: 0, junk: 2, unsure: 0 });
+    await s.vote(c.id, "withdrawn", "voter_67890"); // a take-back
+    expect((await s.counts([c.id])).get(c.id)).toEqual({ mover: 0, changing: 0, junk: 1, unsure: 0 });
+    // Nothing was edited or deleted: four documents, the history in order.
+    expect(s.written.votes.map((v) => [v.voter, v.answer])).toEqual([
+      ["voter_12345", "mover"],
+      ["voter_12345", "junk"],
+      ["voter_67890", "junk"],
+      ["voter_67890", "withdrawn"],
+    ]);
+    expect((await s.allVotes()).map((v) => v.answer)).toEqual(["mover", "junk", "junk", "withdrawn"]);
+    await expect(s.vote(c.id, "maybe" as never, "voter_12345")).rejects.toMatchObject({ kind: "invalid" });
   });
 
   it("only lets the browser create source user", async () => {
@@ -88,9 +106,12 @@ describe("FirestoreStore", () => {
     const s = new FirestoreStore({ apiKey: "k", projectId: "nasa-glazing" });
     const c = await s.flag(doc);
     await s.vote(c.id, "unsure", "voter_12345");
+    await s.vote(c.id, "withdrawn", "voter_12345");
     expect(sent).toEqual([
       { path: "candidates", data: { ra: 10, dec: 20, mjd: 60800.5, clock: "hours", source: "user", created: SERVER_TS } },
       { path: "votes", data: { candidate_id: c.id, answer: "unsure", ts: SERVER_TS, voter: "voter_12345" } },
+      // A take-back is one more new document, never an update (the rules are create-only).
+      { path: "votes", data: { candidate_id: c.id, answer: "withdrawn", ts: SERVER_TS, voter: "voter_12345" } },
     ]);
   });
 
@@ -101,9 +122,11 @@ describe("FirestoreStore", () => {
     expect(near.map((c) => c.id)).toEqual(["near", "pipe"]);
     expect(near.map((c) => c.created)).toEqual([1700000000000, null]);
     expect((await s.allCandidates()).map((c) => c.id)).toEqual(["near", "pipe", "far-in-ra"]);
-    expect((await s.allVotes()).map((v) => v.answer)).toEqual(["mover", "junk"]);
+    // Every document, the take-back included: readers apply the latest-vote rule when they count.
+    expect((await s.allVotes()).map((v) => v.answer)).toEqual(["mover", "junk", "unsure", "changing", "withdrawn", "junk", "mover"]);
     const counts = await s.counts(["near", "pipe"]);
     expect(counts.get("near")).toEqual({ mover: 1, changing: 0, junk: 1, unsure: 0 });
+    expect(counts.get("pipe")).toEqual({ mover: 0, changing: 0, junk: 1, unsure: 0 });
   });
 });
 
@@ -119,19 +142,75 @@ describe("vote API for other pages (voteApi, getVoteStore)", () => {
 
     // Pipeline candidates from /data/candidates.json vote by their own id.
     await api.castVote("pilot-pm-0003", "mover");
-    expect(seen).toHaveBeenCalledWith({ candidateId: "pilot-pm-0003", answer: "mover" });
+    expect(seen).toHaveBeenCalledWith({ candidateId: "pilot-pm-0003", answer: "mover", previous: null });
     expect(api.myVote("pilot-pm-0003")).toBe("mover");
     expect(api.myVote("pilot-pm-0004")).toBeNull();
     expect(s.written.votes[0]).toMatchObject({ candidate_id: "pilot-pm-0003", answer: "mover", voter: api.voterId() });
 
-    await expect(api.castVote("pilot-pm-0003", "junk")).rejects.toMatchObject({ kind: "already" });
     await expect(api.castVote("pilot-pm-0005", "maybe" as never)).rejects.toMatchObject({ kind: "invalid" });
+    await expect(api.castVote("pilot-pm-0005", "withdrawn" as never)).rejects.toMatchObject({ kind: "invalid" });
 
     const counts = await api.countsFor(["pilot-pm-0003", "pilot-pm-0004", "pilot-pm-0003"]);
     expect([...counts.keys()]).toEqual(["pilot-pm-0003", "pilot-pm-0004"]);
     expect(counts.get("pilot-pm-0003")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
     expect(counts.get("pilot-pm-0004")).toEqual({ mover: 0, changing: 0, junk: 0, unsure: 0 });
     expect((await api.countsFor([])).size).toBe(0);
+  });
+
+  it("changes and takes back this browser's vote: new documents, memory follows the latest", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    const seen: unknown[] = [];
+    const h = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(VOTED_EVENT, h);
+    const id = "pilot-pm-0007";
+    await api.castVote(id, "mover");
+    await s.vote(id, "mover", "someone_else_1");
+    expect((await api.countsFor([id])).get(id)).toEqual({ mover: 2, changing: 0, junk: 0, unsure: 0 });
+
+    await api.castVote(id, "junk"); // change
+    expect(api.myVote(id)).toBe("junk");
+    expect((await api.countsFor([id])).get(id)).toEqual({ mover: 1, changing: 0, junk: 1, unsure: 0 });
+
+    await api.castVote(id, "junk"); // the same answer again: nothing written, nothing fired
+    expect(s.written.votes).toHaveLength(3);
+
+    await api.withdrawVote(id); // reset
+    expect(api.myVote(id)).toBeNull();
+    expect((await api.countsFor([id])).get(id)).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
+    await api.withdrawVote(id); // nothing left to take back: nothing written
+    expect(s.written.votes.map((v) => v.answer)).toEqual(["mover", "mover", "junk", "withdrawn"]);
+    expect(JSON.parse(kv.get(KEYS.voted)!)).toEqual({});
+
+    await api.castVote(id, "unsure"); // voting again after a reset counts again
+    expect((await api.countsFor([id])).get(id)).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 1 });
+    window.removeEventListener(VOTED_EVENT, h);
+    expect(seen).toEqual([
+      { candidateId: id, answer: "mover", previous: null },
+      { candidateId: id, answer: "junk", previous: "mover" },
+      { candidateId: id, answer: null, previous: "junk" },
+      { candidateId: id, answer: "unsure", previous: null },
+    ]);
+  });
+
+  it("allows one write at a time per candidate, and keeps the memory when a write fails", async () => {
+    const kv = memKV();
+    const s = new LocalStore(kv);
+    const api = voteApi(s, kv);
+    await api.castVote("c1", "mover");
+    let release: () => void = () => {};
+    const real = s.vote.bind(s);
+    s.vote = (id, a, voter) => new Promise<void>((r) => (release = () => r(real(id, a, voter))));
+    const first = api.castVote("c1", "junk");
+    await expect(api.castVote("c1", "changing")).rejects.toMatchObject({ kind: "busy" });
+    await expect(api.withdrawVote("c1")).rejects.toMatchObject({ kind: "busy" });
+    release();
+    await first;
+    expect(api.myVote("c1")).toBe("junk");
+    s.vote = () => Promise.reject({ code: "unavailable" });
+    await expect(api.withdrawVote("c1")).rejects.toMatchObject({ kind: "offline" });
+    expect(api.myVote("c1")).toBe("junk");
   });
 
   it("lists all votes and all flagged candidates", async () => {

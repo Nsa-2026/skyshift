@@ -187,10 +187,13 @@ export function mountChecklist(el: HTMLElement, c: AssistCandidate, opts: Checkl
   };
   window.addEventListener(DETAILS_EVENT, onDetails);
 
+  // answer null: the vote was taken back (contracts/api.md v3.16).
   const onVoted = (ev: Event) => {
-    const d = (ev as CustomEvent<{ candidateId?: string; answer?: string }>).detail;
-    if (!d || d.candidateId !== cand.id || !ANSWERS.includes(d.answer as Answer) || o.myVote === d.answer) return;
-    o = { ...o, myVote: d.answer as Answer };
+    const d = (ev as CustomEvent<{ candidateId?: string; answer?: string | null }>).detail;
+    if (!d || d.candidateId !== cand.id || (d.answer !== null && !ANSWERS.includes(d.answer as Answer))) return;
+    const next = (d.answer ?? null) as Answer | null;
+    if ((o.myVote ?? null) === next) return;
+    o = { ...o, myVote: next };
     render();
   };
   window.addEventListener(VOTED_EVENT, onVoted);

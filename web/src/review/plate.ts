@@ -2,11 +2,21 @@
 // candidate at its position, clock and detector, or a featured target for practice. The blink
 // marks the frame centre with the red target reticle, which is the candidate's position, and red
 // circles where the candidate should be in each frame (track.ts).
+//
+// The colour filters (src/colour, mountFilters) sit on this plate as on the Viewer's: "Add filters"
+// above the picture, the key under it. They are fed like app.ts feeds them: loading() when a view
+// starts loading, goto() once its frames are in (or failed), epoch() as the blink plays. So when the
+// queue moves on, a chosen filter follows the plate to the next object: the old picture is cleared
+// and its reads stopped at once, and the new object's picture is read once its frames are known.
+// Practice (featured targets) keeps them too: Difference lives in the filter menu now.
+import "./plate.css";
 import { ApiFailure, loadFrames } from "../api/client";
 import type { Candidate, LoadedFrames } from "../api/types";
 import type { BlinkHandle, View } from "../app/modules";
 import { targetBySlug, viewForTarget } from "../app/state";
 import { mountBlink } from "../blink";
+import { mountFilters, type FiltersHandle } from "../colour";
+import type { Fetcher } from "../colour/cube";
 import { OWN_GAP_DAYS, candidateView, findGap, focusFrames, framesFor, gapText, hasFrames, isLive } from "./data";
 import { buildTrackMarks } from "./track";
 
@@ -27,8 +37,14 @@ export interface PlateEvents {
   onReady?(ready: boolean): void;
 }
 
+export interface PlateOptions {
+  /** How the colour filters read NASA's map (tests pass a fake; default: fetch). */
+  fetcher?: Fetcher;
+}
+
 export class Plate {
   private blink: BlinkHandle | null = null;
+  private filters: FiltersHandle | null = null;
   private gen = 0;
   private current: { cand: Candidate | null; slug: string | null; view: View; all: boolean } | null = null;
   private timer = 0;
@@ -37,7 +53,11 @@ export class Plate {
   private noteEl: HTMLElement;
   private waitEl: HTMLElement;
 
-  constructor(host: HTMLElement, private events: PlateEvents = {}) {
+  constructor(
+    host: HTMLElement,
+    private events: PlateEvents = {},
+    private opts: PlateOptions = {},
+  ) {
     host.innerHTML = html`
       <div class="rv-plate">
         <div class="rv-blink"></div>
@@ -72,14 +92,18 @@ export class Plate {
       onPick: () => {
         /* flagging dots lives on Explore */
       },
+      onEpoch: (e) => this.filters?.epoch(e),
     });
+    this.filters = mountFilters(this.blinkEl, this.opts.fetcher);
     if (this.current) this.reload();
   }
 
-  /** Remove the player (page hidden): no timers, no key handlers. */
+  /** Remove the player (page hidden): no timers, no key handlers, no reads from NASA's map. */
   unmount(): void {
     this.gen++;
     clearInterval(this.timer);
+    this.filters?.destroy();
+    this.filters = null;
     this.blink?.destroy();
     this.blink = null;
   }
@@ -116,6 +140,8 @@ export class Plate {
     const c = cur.cand;
     const live = c ? isLive(c, cur.view) && !hasFrames(c, cur.view) : false;
     blink.status("loading", live ? "Building frames from SPHEREx…" : "Loading frames…");
+    // Another object: the filter drops the last one's picture and reads (never shown under this one).
+    this.filters?.loading(cur.view);
     this.waitEl.hidden = true;
     if (live) {
       const t0 = Date.now();
@@ -137,6 +163,7 @@ export class Plate {
       if (gen !== this.gen) return false;
       clearInterval(this.timer);
       this.waitEl.hidden = true;
+      this.filters?.goto(cur.view, null);
       blink.status("error", loadError(e));
       return false;
     }
@@ -171,6 +198,7 @@ export class Plate {
     blink.status("idle");
     // Red circles where the candidate should be in every frame (solid measured, dashed predicted).
     blink.track?.(c ? buildTrackMarks(c, frames) : null);
+    this.filters?.goto(cur.view, frames);
     await blink.show(cur.view, frames, loaded.jsonUrl);
     if (gen !== this.gen) return false;
     this.events.onReady?.(true);

@@ -1,5 +1,7 @@
 // The ballot: four large choices (keys 1–4), then where the votes stand and what happens next.
-// Votes go through src/vote's store with candidate_id = the candidate's id; they can't be changed.
+// Votes go through src/vote's store with candidate_id = the candidate's id. After voting the four
+// choices stay open: another one changes the answer, "Reset answer" takes the vote back (each is a
+// new vote document; only the latest counts, contracts/api.md v3.16).
 import type { CandidateKind } from "../api/types";
 import { ANSWERS, emptyCounts, type Answer, type Counts } from "../vote/model";
 import { consensus, forAstronomers } from "./model";
@@ -13,8 +15,12 @@ export interface BallotState {
   /** Whether mine was cast just now (not on an earlier visit). */
   justNow: boolean;
   counts: Counts | null;
-  /** An answer being saved. */
+  /** An answer being saved (a first vote or a change). */
   saving: Answer | null;
+  /** Taking the vote back is being saved. */
+  resetting?: boolean;
+  /** The vote was taken back just now (mine is null): say so until the next vote. */
+  reset?: boolean;
   /** Choices are off (frames not on screen yet). */
   waiting: boolean;
   error: string | null;
@@ -25,7 +31,10 @@ export interface BallotState {
 }
 
 export interface BallotOptions {
+  /** A choice was picked: a first vote, or a change when it isn't this browser's answer already. */
   onVote(a: Answer): void;
+  /** "Reset answer" was pressed (shown only with this, and only once this browser has voted). */
+  onReset?(): void;
   /** Short "what happens next" (review queue) or the full one (candidate page). */
   full: boolean;
   /** Extra content after the result, e.g. the queue's Next button. */
@@ -75,8 +84,22 @@ export class Ballot {
     this.choicesEl.addEventListener("click", (ev) => {
       const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-answer]");
       if (!b || b.disabled) return;
-      this.opts.onVote(b.dataset.answer as Answer);
+      const a = b.dataset.answer as Answer;
+      // This browser's answer already: nothing to change (Reset answer takes it back).
+      if (this.state && !this.state.practice && a === this.state.mine) return;
+      this.opts.onVote(a);
     });
+    this.resultEl.addEventListener("click", (ev) => {
+      const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-act='reset-vote']");
+      if (!b || b.disabled || !this.open()) return;
+      this.opts.onReset?.();
+    });
+  }
+
+  /** Focus the selected choice, else the first (after the vote is taken back, say). */
+  focusChoices(): void {
+    const b = this.choicesEl.querySelector<HTMLButtonElement>("button[aria-pressed='true']") ?? this.choicesEl.querySelector<HTMLButtonElement>("button");
+    b?.focus({ preventScroll: true });
   }
 
   /** Full "what happens next" (false when another part of the page writes it). */
@@ -86,21 +109,22 @@ export class Ballot {
     if (this.state) this.set(this.state);
   }
 
-  /** Can a vote be cast right now? */
+  /** Can a vote be cast, changed or reset right now? (Not while one is saving: one write at a time.) */
   open(): boolean {
     const s = this.state;
-    return !!s && !s.mine && !s.saving && !s.waiting && !s.practice;
+    return !!s && !s.saving && !s.resetting && !s.waiting && !s.practice;
   }
 
   set(s: BallotState): void {
     this.state = s;
     this.localEl.hidden = !s.local || !!s.practice;
-    const chosen = s.practice?.answer ?? s.mine ?? s.saving;
-    this.section.dataset.state = s.practice ? "practice" : s.mine ? "voted" : s.saving ? "saving" : s.waiting ? "waiting" : "open";
+    const busy = !!(s.saving || s.resetting);
+    const chosen = s.practice?.answer ?? s.saving ?? s.mine;
+    this.section.dataset.state = s.practice ? "practice" : busy ? "saving" : s.mine ? "voted" : s.waiting ? "waiting" : "open";
     this.choicesEl.querySelectorAll<HTMLButtonElement>("button[data-answer]").forEach((b) => {
       const a = b.dataset.answer as Answer;
       b.setAttribute("aria-pressed", String(a === chosen));
-      b.disabled = !!(s.mine || s.saving || s.practice || s.waiting);
+      b.disabled = !!(busy || s.practice || s.waiting);
       b.classList.toggle("is-right", !!s.practice && a === chosen && s.practice.correct);
       b.classList.toggle("is-wrong", !!s.practice && a === chosen && !s.practice.correct);
     });
@@ -110,7 +134,15 @@ export class Ballot {
       this.statusEl.textContent = s.error;
     } else if (s.saving) {
       this.statusEl.dataset.kind = "info";
-      this.statusEl.textContent = `Saving your ${answerLabel(s.saving, s.kind)} vote…`;
+      this.statusEl.textContent = s.mine
+        ? `Changing your answer to ${answerLabel(s.saving, s.kind)}…`
+        : `Saving your ${answerLabel(s.saving, s.kind)} vote…`;
+    } else if (s.resetting) {
+      this.statusEl.dataset.kind = "info";
+      this.statusEl.textContent = "Resetting your answer…";
+    } else if (s.reset && !s.mine && !s.practice) {
+      this.statusEl.dataset.kind = "info";
+      this.statusEl.textContent = "Answer reset. Pick an answer to vote again.";
     } else if (s.waiting && !s.mine && !s.practice) {
       this.statusEl.dataset.kind = "info";
       this.statusEl.textContent = "The choices open when the plate is ready.";
@@ -130,7 +162,12 @@ export class Ballot {
       return;
     }
     this.resultEl.hidden = false;
-    this.resultEl.innerHTML = resultHtml(s, this.opts.full) + (this.opts.after ?? "");
+    // Counts refresh while the person is here: keep focus on the button it was on (Reset, Next).
+    const focused = document.activeElement instanceof HTMLElement && this.resultEl.contains(document.activeElement)
+      ? document.activeElement.dataset.act
+      : undefined;
+    this.resultEl.innerHTML = resultHtml(s, this.opts.full, !!this.opts.onReset) + (this.opts.after ?? "");
+    if (focused) this.resultEl.querySelector<HTMLElement>(`[data-act="${focused}"]`)?.focus({ preventScroll: true });
   }
 }
 
@@ -147,14 +184,18 @@ export function countsBar(k: Counts, kind?: CandidateKind | null): string {
   `;
 }
 
-function resultHtml(s: BallotState, full: boolean): string {
+function resultHtml(s: BallotState, full: boolean, canReset: boolean): string {
   const k = s.counts ?? emptyCounts();
   const c = consensus(k);
   const yours = s.justNow
     ? `Saved: you said ${answerLabel(s.mine!, s.kind)}.`
-    : `You said ${answerLabel(s.mine!, s.kind)} on an earlier visit. Votes can't be changed.`;
+    : `You said ${answerLabel(s.mine!, s.kind)} on an earlier visit.`;
+  const change = canReset ? "Pick another answer to change it, or reset it." : "Pick another answer to change it.";
   return html`
-    <p class="rv-yours">${esc(yours)}</p>
+    <div class="rv-mine">
+      <p class="rv-yours">${esc(yours)} <span class="rv-change">${change}</span></p>
+      ${canReset ? html`<button class="btn btn-ghost rv-reset" type="button" data-act="reset-vote" ${s.resetting || s.saving ? "disabled" : ""}>Reset answer</button>` : ""}
+    </div>
     ${countsBar(k, s.kind)}
     <p class="rv-consensus" data-state="${c.state}">${esc(consensusText(c, s.kind))}</p>
     ${full ? nextStepsHtml(c, s.kind) : shortNextHtml(c)}
