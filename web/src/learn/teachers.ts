@@ -1,9 +1,10 @@
 // Teacher corner: a 45-minute class activity on Barnard's Star, printable. The answer key is
-// filled from the same static data the Blink page shows, so the numbers always match the screen.
+// filled from the same static data the Viewer shows, so the numbers always match the screen.
 import { epochsFor, loadObject } from "../api/client";
 import { formatMjd } from "../app/astro";
 import { frameSet, target } from "./data";
 import { exploreHref } from "./lessons";
+import { ONE_AT_A_TIME } from "../app/legacy-routes";
 import { term as t } from "./glossary";
 
 /** Gaia DR3 proper motion of Barnard's Star, ″/yr (targets.json "expected"). */
@@ -16,16 +17,16 @@ export function teachersHtml(): string {
   </header>
   <div class="ln-teach-intro">
     <p class="ln-lede-p">Students measure how far the fastest star in our sky moved between SPHEREx visits and check the answer against ESA's Gaia. Ages 13 and up; one computer, tablet or phone per pair. No account, nothing to install.</p>
-    <p class="ln-noprint"><button type="button" class="btn btn-primary ln-print">Print this plan</button> <a class="btn btn-ghost" href="#/tools">Tools and data</a></p>
+    <p class="ln-noprint"><button type="button" class="btn btn-primary ln-print">Print this plan</button> <a class="btn btn-ghost" href="#/results/tools">Tools and data</a></p>
   </div>
 
   <section class="ln-teach-sec" aria-labelledby="ln-t-plan">
     <h2 id="ln-t-plan">The plan</h2>
     <ol class="ln-plan">
       <li><span class="ln-time">0–5 min</span><div><strong>Hook.</strong> Tell the Pluto story (lesson 2): in 1930 Clyde Tombaugh found Pluto by ${t("blink", "blinking")} two photos taken six days apart. Ask: how could a star move?</div></li>
-      <li><span class="ln-time">5–15 min</span><div><strong>Blink.</strong> Open <a href="${exploreHref("barnard")}">Barnard's Star</a> on the Blink page (Months clock, D2). Pairs describe what moves and which way. North is up, east is left. Expected answer: one bright star creeps up, north; nothing else moves.</div></li>
+      <li><span class="ln-time">5–15 min</span><div><strong>Blink.</strong> Open <a href="${exploreHref("barnard")}">Barnard's Star</a> in the Viewer (Months clock, D2). Pairs describe what moves and which way. North is up, east is left. Expected answer: one bright star creeps up, north; nothing else moves.</div></li>
       <li><span class="ln-time">15–30 min</span><div><strong>Measure.</strong> Pause on visit 1 and on the last visit and take a screenshot or print of each. Mark the centre of the star's hatched hole on both and measure the distance with a ruler, using the plate's scale bar to turn millimetres into ${t("arcsecond", "arcseconds")}. Write down the two dates printed on the plate.</div></li>
-      <li><span class="ln-time">30–40 min</span><div><strong>Compare with Gaia.</strong> Gaia measured Barnard's Star moving ${BARNARD_PM}″ a year (its ${t("proper motion")}). Work out the years between the two dates and Gaia's prediction: ${BARNARD_PM}″ × years. How close did you get? Compare with SkyShift's own measurement on the Blink page.</div></li>
+      <li><span class="ln-time">30–40 min</span><div><strong>Compare with Gaia.</strong> Gaia measured Barnard's Star moving ${BARNARD_PM}″ a year (its ${t("proper motion")}). Work out the years between the two dates and Gaia's prediction: ${BARNARD_PM}″ × years. How close did you get? Compare with SkyShift's own measurement in the Viewer (<a href="${exploreHref("barnard", "motion")}">its motion</a>).</div></li>
       <li><span class="ln-time">40–45 min</span><div><strong>Wrap up.</strong> Why does this star move so much? (It is only 1.83 pc away, about 6 light years.) Why can't we see most stars move? Exit question: what would an asteroid do in the same blink?</div></li>
     </ol>
   </section>
@@ -44,7 +45,7 @@ export function teachersHtml(): string {
         <tr><th scope="row">Difference</th><td></td><td>″</td></tr>
       </tbody>
     </table>
-    <p class="ln-small">1′ = 60″. One SPHEREx pixel is 6.15″; the Blink page's 5′ frames are resampled to 2.05″ per pixel.</p>
+    <p class="ln-small">1′ = 60″. One SPHEREx pixel is 6.15″; the Viewer's 5′ frames are resampled to 2.05″ per pixel.</p>
   </section>
 
   <section class="ln-teach-sec" aria-labelledby="ln-t-key">
@@ -57,8 +58,10 @@ export function teachersHtml(): string {
     <ul class="ln-links">
       <li><a href="#/learn/1">The seven lessons</a>: ten minutes of reading before class.</li>
       <li><a href="#/learn/glossary">The glossary</a>: every word in one sentence.</li>
-      <li><a href="#/tools">Tools and data</a>: downloads, batch coordinates and the API for older students.</li>
-      <li><a href="#/review">The Review queue</a>: a class can vote on real objects together.</li>
+      <li><a href="#/results/tools">Tools and data</a>: downloads, batch coordinates and the API for older students.</li>
+      <li><a href="#/learn/practice">Guided practice</a>: three real fields with known answers, a good warm-up.</li>
+      <li><a href="${ONE_AT_A_TIME}">To check, one at a time</a>: a class can vote on real objects together.</li>
+      <li><a href="#/learn/stories">Stories in the sky</a>: guest stars from Chinese histories, for history or culture lessons.</li>
     </ul>
   </section>`;
 }
@@ -95,7 +98,7 @@ export async function fillAnswerKey(root: HTMLElement, signal: AbortSignal): Pro
       m ? { shift: m.shift_arcsec, sigma: m.sigma_arcsec, dtYr: m.dt_yr, gaia: m.predicted_arcsec } : null,
     );
     box.innerHTML = `
-      <p>The Blink page prints visit 1 (D2) as ${formatMjd(k.first)} and the last visit as ${formatMjd(k.last)}: ${(k.last - k.first).toFixed(0)} days,
+      <p>The Viewer prints visit 1 (D2) as ${formatMjd(k.first)} and the last visit as ${formatMjd(k.last)}: ${(k.last - k.first).toFixed(0)} days,
       or ${k.years.toFixed(2)} years. Gaia predicts ${BARNARD_PM} × ${k.years.toFixed(2)} ≈ <strong>${k.predicted.toFixed(1)}″</strong>, about
       ${(k.predicted / 6.15).toFixed(1)} SPHEREx pixels. A ruler measurement within 2–3″ of that is good work.</p>
       ${
@@ -109,6 +112,6 @@ export async function fillAnswerKey(root: HTMLElement, signal: AbortSignal): Pro
       }`;
   } catch {
     if (!signal.aborted)
-      box.innerHTML = `<p>Couldn't load the numbers. Work them out from the dates on the Blink page: years = days ÷ 365.25, prediction = ${BARNARD_PM}″ × years.</p>`;
+      box.innerHTML = `<p>Couldn't load the numbers. Work them out from the dates in the Viewer: years = days ÷ 365.25, prediction = ${BARNARD_PM}″ × years.</p>`;
   }
 }

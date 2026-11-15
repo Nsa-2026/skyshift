@@ -272,8 +272,18 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
   let infos = new Map<number, Promise<TileInfo>>();
   // Header reads survive an ordinary filter switch, but must stop when filters are disabled.
   const pendingReads = new Set<AbortController>();
-  const scopedFetch: Fetcher = async (url, init) => {
-    if (!enabled) throw new DOMException("Filters are unavailable", "AbortError");
+  /**
+   * Bumped when filters are disabled or destroyed. A read belongs to the generation its reader was
+   * made in and can't ask IRSA again once that generation ends. Aborting the requests in flight is
+   * not enough: a tile-header read is shared, so it has no abort signal, and after a 5xx it waits
+   * and retries (cube.ts). That retry used to ask IRSA again after the blink was closed, or after
+   * filters were turned off and on again.
+   */
+  let generation = 0;
+  const live = (gen: number) => enabled && gen === generation;
+  const unavailable = () => new DOMException("Filters are unavailable", "AbortError");
+  const scopedFetch = (gen: number): Fetcher => async (url, init) => {
+    if (!live(gen)) throw unavailable();
     const request = new AbortController();
     const abort = () => request.abort(init.signal?.reason);
     if (init.signal?.aborted) abort();
@@ -281,10 +291,16 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     pendingReads.add(request);
     try {
       const response = await fetcher(url, { ...init, signal: request.signal });
+      // An answer that arrives after the filters ended is dropped, never handed on.
+      if (!live(gen)) {
+        void response.body?.cancel().catch(() => undefined);
+        throw unavailable();
+      }
       // Keep cancellation connected through the range body, not just its headers. A 200 is
       // returned immediately so cube.ts can cancel an ignored range without reading a whole tile.
       if (response.status !== 206) return response;
       const bytes = await response.arrayBuffer();
+      if (!live(gen)) throw unavailable();
       return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
     } finally {
       pendingReads.delete(request);
@@ -410,7 +426,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
     const c = centre();
     const fov = field();
     if (!reader || reader.center.ra !== c.ra || reader.center.dec !== c.dec || reader.fovArcmin !== fov) {
-      reader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), scopedFetch, infos);
+      reader = new FieldReader(c, fov, (x, y, n, s) => pixelToSky({ x, y }, { pixel_arcsec: s, size: [n, n] }, c), scopedFetch(generation), infos);
       picture = null;
     }
     return reader;
@@ -707,6 +723,7 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       bar.style.display = value ? "" : "none";
       col.classList.toggle("has-flt", value);
       if (value) return;
+      generation++;
       mode = "none";
       ctl?.abort();
       for (const request of pendingReads) request.abort();
@@ -726,6 +743,9 @@ export function mountFilters(blinkEl: HTMLElement, fetcher: Fetcher = (u, i) => 
       openMenu(false);
     },
     destroy() {
+      // Nothing of this instance reads again: not a retry, not a late goto().
+      enabled = false;
+      generation++;
       ctl?.abort();
       for (const request of pendingReads) request.abort();
       pendingReads.clear();

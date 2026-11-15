@@ -1,23 +1,25 @@
-// Four screens and one switch (decided 15 Nov): Sky · Viewer · To check · Results, plus Advanced.
-// Learn and About are pages reached from the footer. Old links are rewritten first by
-// ./legacy-routes.ts; this file resolves the site's own hashes to a page and its screen.
-import {MODES, type WorkspaceState} from '../product/workspace-state';
+// Top-level screens: Sky · Viewer · To check · Community · Results · Learn, plus Advanced.
+// About is in the footer only. Old links are rewritten first by ./legacy-routes.ts; this file
+// resolves the site's own hashes to a page and its screen.
+import {MODES, analysisPanels, workspaceState, type WorkspaceState} from '../product/workspace-state';
 
-export type Screen = 'sky' | 'viewer' | 'check' | 'results';
+export type Screen = 'sky' | 'viewer' | 'check' | 'community' | 'results' | 'learn';
 export interface ScreenLink {id:Screen; label:string; href:string}
 export const SCREENS: readonly ScreenLink[] = [
   {id:'sky', label:'Sky', href:'#/sky'},
   {id:'viewer', label:'Viewer', href:'#/explore'},
   {id:'check', label:'To check', href:'#/candidates'},
+  {id:'community', label:'Community', href:'#/community'},
   {id:'results', label:'Results', href:'#/results'},
+  {id:'learn', label:'Learn', href:'#/learn'},
 ];
 
-/** Which screen each page belongs to (its nav entry); Learn and About belong to none. */
+/** Which screen each page belongs to (its nav entry); About belongs to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
   atlas:'sky', explore:'viewer', candidate:'viewer',
-  discover:'check', review:'check', community:'check',
+  discover:'check', review:'check', community:'community',
   results:'results', live:'results', tools:'results',
-  learn:null, about:null,
+  learn:'learn', about:null,
 };
 
 export interface SiteRoute {
@@ -35,6 +37,7 @@ const tabsOf = (mode: 'analyze' | 'research') => MODES[mode].tabs.map(([key]) =>
 export function viewerState(param: string | null, advanced = false): WorkspaceState {
   const section = (param ?? '').split('/')[0];
   if (section === 'play') return {mode:'explore', tab:'play'};
+  if (section === 'dashboards' || (section.includes('+') && analysisPanels(section).length)) return workspaceState(`analyze/${section}`);
   if (tabsOf('analyze').includes(section)) return {mode:'analyze', tab:section};
   if (tabsOf('research').includes(section)) return {mode:'research', tab:section};
   return advanced ? {mode:'analyze', tab:'motion'} : {mode:'explore', tab:''};
@@ -51,7 +54,8 @@ function page(name: string, param: string | null): SiteRoute {
 }
 function viewer(param: string | null, advanced: boolean): SiteRoute {
   const workspace = viewerState(param, advanced);
-  return {page:'explore', param, screen:workspace.tab === 'play' ? null : 'viewer', workspace};
+  // Guided practice plays on the Viewer's player but belongs to Learn.
+  return {page:'explore', param, screen:workspace.tab === 'play' ? 'learn' : 'viewer', workspace};
 }
 function candidateId(value: string): string { try { return decodeURIComponent(value); } catch { return value; } }
 

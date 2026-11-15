@@ -386,6 +386,15 @@ export interface AstroJsonMeta {
   data_release: string | null;
 }
 
+/** The list for astronomers as a file to save: its name (dated by meta.generated), text and type.
+ *  The Community page and To check both download it, so the two files are the same. */
+export function astroFile(format: "csv" | "json", rows: readonly AstroRow[], meta: AstroJsonMeta, base: string): { name: string; text: string; type: string } {
+  const name = `skyshift-list-for-astronomers-${meta.generated.slice(0, 10)}.${format}`;
+  return format === "csv"
+    ? { name, text: toAstroCsv(rows, base), type: "text/csv;charset=utf-8" }
+    : { name, text: toAstroJson(rows, meta, base), type: "application/json" };
+}
+
 export function toAstroJson(rows: readonly AstroRow[], meta: AstroJsonMeta, base: string): string {
   return (
     JSON.stringify(

@@ -67,6 +67,15 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   summary.json `steps.link.dots_dir`, and every later step, skyshift-candidates, shape and server measured.py read that
   folder (store.dots_dir, set per step by the CLI), so members.dot_row always points into the files it was made from.
   Each dot file's metadata says which setting made it (`detect`: thresh, min_snr, deblend_cont, dots_dir).
+  Fine detection v2 (15 Nov night, config.zone_detect → DetectSettings): the fine zones also use sep clean_param 3
+  (DOTS_FINE_CLEAN_PARAM), the saturation guard (a dot the sky setting doesn't also find within 1 px is dropped within
+  DETECT_SAT_GUARD_PX = 6 px of an OVERFLOW/NONLINEAR pixel: wing pieces of saturated stars) and the ePSF second pass
+  (psf.residual_companions: subtract the ePSF of unsaturated S/N ≥ 10 dots, sep on the residual within 6 px, mirror test,
+  guard; config PSF_PASS_*). Its dots have sep_flag 0x200 and are measured on the residual (dots._measure_dots on IMAGE
+  minus the models). Folder from every setting (config.dots_dir_for): dots_deblend1e-4_cp3_g6_psf/; the plain 1e-4
+  folder of 15 Nov stays as written. Cost: a full photo's dots ~2× the sky run's time (a second sep run for the guard,
+  the residual pass). Deblend test (43 hunt photos + R Dra): pairs 2–3 px 9% → 81%, known asteroids next to a brighter
+  star 4 → 14 of 17, R Dra D4 glow neighbours 0 → 3 of 4; ~12–50 fake dots per 21,900, mostly near G < 10 stars.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes

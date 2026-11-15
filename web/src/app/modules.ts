@@ -28,6 +28,21 @@ export interface BlinkPresentation {
   units: 'MJy/sr' | 'sky-noise';
   members: { id: string; det: Det; mjd_mid: number; data_url: string }[];
 }
+/** Where a candidate should be in one frame (degrees, ICRS). Built by src/review/track.ts. */
+export interface TrackSpot extends SkyPos {
+  /** The frame: `epochs[].id` of the response handed to show(). */
+  epoch_id: string;
+  /** The frame's time (its `mjd_mid`). */
+  mjd: number;
+  /** true: SkyShift measured it in this frame (solid circle). false: predicted only (dashed). */
+  measured: boolean;
+}
+/** The object the red circles follow: one spot per frame it should be in. */
+export interface TrackMarks {
+  /** What it is, for the caption: "the fast mover", "the moving star", … */
+  label: string;
+  spots: TrackSpot[];
+}
 export interface BlinkOptions {
   /** The blink calls this when the person picks the clock, field or detector inside the player. */
   onViewChange(change: Partial<Pick<View, "clock" | "fov" | "det">>): void;
@@ -43,6 +58,10 @@ export interface BlinkHandle {
   /** Loading or error state while app fetches frames. message null clears it. */
   status(kind: "loading" | "error" | "idle", message?: string): void;
   highlight?(pos:SkyPos|null):void;
+  /** Red circles where a candidate should be, in every frame: solid where measured, dashed where
+   *  predicted. Matched to frames by epoch id, so call it before or after show(); show() drops marks
+   *  that match none of its epochs. null clears. */
+  track?(marks: TrackMarks | null): void;
   gaia?(stars: FramesResponse['gaia']): void;
   active?(visible: boolean): void;
   /** Guided observation controls use the same player and calibrated image data. */
@@ -57,7 +76,7 @@ export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;
 
 // ---- P3: src/card/index.ts exports mountCard --------------------------------------------
 export interface CardHandle {
-  section?(value: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve'): void;
+  section?(value: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' | ('motion' | 'spectrum')[]): void;
   reference?(points: {um:number; flux_ujy:number}[]): void;
   show(view: View, object: ObjectResponse | null, frames: FramesResponse | null): void;
   status(kind: "loading" | "error" | "idle", message?: string): void;

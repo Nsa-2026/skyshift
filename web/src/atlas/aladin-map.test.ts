@@ -12,6 +12,7 @@ function setup() {
   const al = {
     getRaDec: () => [125, 19], getFov: () => [fov, fov / 2],
     gotoRaDec: vi.fn(), setFoV: (value: number) => { fov = value; },
+    animateToRaDec:vi.fn(),zoomToFoV:vi.fn<(fov:number,seconds:number)=>void>(),stopAnimation:vi.fn(),
     pix2world: vi.fn().mockReturnValue([130, 19]), world2pix: () => [380, 200],
     setBaseImageLayer: vi.fn(), setProjection: vi.fn(), setFrame: vi.fn(),
     addOverlay: vi.fn(), addCatalog: vi.fn(), on: (name: string, fn: (e: unknown) => void) => events.set(name, fn),
@@ -46,6 +47,16 @@ afterEach(() => {
 });
 
 describe("Aladin map boundaries and lifecycle", () => {
+  it('keeps manual zoom after interrupting an unfinished flight',()=>{
+    const {map,al}=setup();let flight:ReturnType<typeof setTimeout>|undefined;
+    al.zoomToFoV.mockImplementation(value=>{flight=setTimeout(()=>al.setFoV(value),1100);});
+    al.stopAnimation.mockImplementation(()=>clearTimeout(flight));
+    map.flyTo({ra:125,dec:19,fov:360},true);
+    map.zoomBy(1/1.6);
+    vi.advanceTimersByTime(1200);
+    expect(map.view().fov).toBeCloseTo(225);
+    map.destroy();
+  });
   it("clips in the narrowed map's coordinates and clears the clip after zooming in", () => {
     const { map, host, inner } = setup();
     expect(inner.style.width).toBe("760px");

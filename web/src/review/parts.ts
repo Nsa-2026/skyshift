@@ -12,7 +12,7 @@ import { KIND_ICON, abMag, esc, kindName, motion, ujy } from "./text";
 const html = String.raw;
 
 /** Kind line (icon + plain name) as the page heading, then the why sentence, large. */
-export function headHtml(c: Candidate, level: "h1" | "h2", idLine: string): string {
+export function headHtml(c: Candidate, level: "h1" | "h2" | "h3", idLine: string): string {
   return html`
     <header class="rv-head">
       <${level} class="rv-kind"><span class="rv-icon">${KIND_ICON[c.kind] ?? ""}</span>${esc(kindName(c.kind))}</${level}>
@@ -26,7 +26,8 @@ export function headHtml(c: Candidate, level: "h1" | "h2", idLine: string): stri
 export function motionHtml(c: Candidate): string {
   const m = motion(c);
   if (!m) return "";
-  const err = m.plusMinus ? html`<span class="rv-pm">± ${m.plusMinus}${m.unit}${m.sigma != null ? html`, ${sig(m.sigma)}σ` : ""}</span>` : "";
+  // σ (motion over its error) is a number for Advanced (pro-only); the ± stays for everyone.
+  const err = m.plusMinus ? html`<span class="rv-pm">± ${m.plusMinus}${m.unit}${m.sigma != null ? html`<span class="pro-only">, ${sig(m.sigma)}σ</span>` : ""}</span>` : "";
   const toward = m.toward ? html`<span class="rv-toward">toward the ${m.toward}${c.pa_deg != null ? ` (${Math.round(c.pa_deg)}°)` : ""}</span>` : "";
   return html`
     <div class="rv-motion">
@@ -77,14 +78,16 @@ export function fillNearSource(root: ParentNode, arcsec: number | null): void {
 
 /** Two or three quick facts for the queue: S/N, brightness, detector. */
 export function factsHtml(c: Candidate): string {
-  const rows: [string, string][] = [];
-  if (c.snr != null) rows.push(["Signal to noise", sig(c.snr)]);
-  if (c.flux_ujy != null && c.flux_ujy > 0) rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">AB ${abMag(c.flux_ujy).toFixed(1)}</span>`]);
+  // [term, value, Advanced only]: S/N is a pipeline number (pro-only); brightness has units.
+  const rows: [string, string, boolean][] = [];
+  if (c.snr != null) rows.push(["Signal to noise", sig(c.snr), true]);
+  if (c.flux_ujy != null && c.flux_ujy > 0) rows.push(["Brightness", `${ujy(c.flux_ujy)} µJy <span class="rv-soft">AB ${abMag(c.flux_ujy).toFixed(1)}</span>`, false]);
   // shape: the sky direction of the stretch (an axis, 0–180° east of north).
-  if (c.kind === "shape" && c.pa_deg != null) rows.push(["Stretched along", `${Math.round(c.pa_deg)}° east of north`]);
+  if (c.kind === "shape" && c.pa_deg != null) rows.push(["Stretched along", `${Math.round(c.pa_deg)}° east of north`, false]);
   // The detector is on the plate's tabs already.
   if (!rows.length) return "";
-  return html`<dl class="rv-facts">${rows.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
+  const pro = rows.every(([, , p]) => p) ? " pro-only" : "";
+  return html`<dl class="rv-facts${pro}">${rows.map(([k, v, p]) => html`<div${p ? ' class="pro-only"' : ""}><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
 }
 
 export function positionText(c: Candidate): string {

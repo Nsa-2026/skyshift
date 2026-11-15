@@ -107,22 +107,87 @@ DOTS_DIR = "dots"              # the sky run's dot files: dots/<obs_id>D<det>.pa
 DOTS_DEBLEND_CONT = 0.005
 DOTS_FINE_DEBLEND_CONT = 1e-4  # one line to change; a new value gets a new folder (files are never mixed)
 DOTS_FINE_ZONES = ("t_rdra", "t_barnard", "t_rwaur", "t_epsindib", "t_wise0855")
+# Fine detection v2 (15 Nov night; contracts/dots.md "Fine detection v2"), the DOTS_FINE_ZONES only. Test on 43 hunt photos
+# (D1–D6) + R Dra D1/D4 (deblend test, 15 Nov): clean_param 3 keeps ~7% more faint real dots (S/N 5–7, 98% catalogued) and
+# no measurable fakes; the saturation guard removes ~90% of the fakes finer deblending and the second pass make (pieces
+# of a saturated star's wings, S/N 200–550, mostly with no dot on the masked core to anchor anything on) for 0.7% of their
+# gains; the ePSF second pass finds Gaia pairs 2–3 px apart 9% → 81% and known asteroids within 6 px of a brighter star
+# 4 → 14 of 17. Each setting here is in the folder name (dots_dir_for): change one and the files go to a new folder.
+DOTS_FINE_CLEAN_PARAM = 3.0    # sep clean_param (1.0 = sep's default = the sky run): Moffat β of its cleaning model
+DETECT_SAT_GUARD_PX = 6.0      # a dot the sky run's setting doesn't also find (within 1 px) is dropped this close to an
+                               # OVERFLOW/NONLINEAR pixel; second-pass dots too
+DOTS_FINE_PSF_PASS = True      # the ePSF second pass (psf.residual_companions) for the fine zones
+# ePSF second pass: subtract the ePSF of every unsaturated dot with S/N >= PSF_PASS_PRIMARY_SNR (ePSF position, then
+# flux), run sep on the residual within PSF_PASS_R_PX of those dots (noise √(noise² + (PSF_PASS_MODEL_FRAC · model)²),
+# minarea PSF_PASS_MINAREA, deblend_cont PSF_PASS_DEBLEND_CONT), keep new dots > PSF_PASS_DEDUP_PX from every dot with
+# residual S/N >= DOT_MIN_SNR, not within PSF_PASS_SAT_R_PX of a saturated dot, passing the mirror test (residual in
+# r = 1.5 px at the point reflection through the nearest subtracted dot < PSF_PASS_MIRROR_FRAC × the dot's, and lower
+# by >= PSF_PASS_MIRROR_SIGMA σ: a companion leaves the far side empty, a ring or PSF mismatch doesn't) and the guard.
+PSF_PASS_PRIMARY_SNR = 10.0
+PSF_PASS_R_PX = 6.0
+PSF_PASS_MODEL_FRAC = 0.05
+PSF_PASS_STAMP_HALF = 3        # ePSF model stamps (2h+1)² (the ePSF is ~0 beyond ±3.2 px)
+PSF_PASS_MINAREA = 2
+PSF_PASS_DEBLEND_CONT = 1e-4
+PSF_PASS_DEDUP_PX = 1.0
+PSF_PASS_SAT_R_PX = 8.0
+PSF_PASS_MIRROR_R_PX = 1.5
+PSF_PASS_MIRROR_FRAC = 0.5
+PSF_PASS_MIRROR_SIGMA = 3.0
+SEP_FLAG_PSF_PASS = 0x200      # sep_flag bit of a dot found by the second pass (sep's own flags use bits 0x1–0x80)
 
 
-def dots_dir_for(deblend_cont: float) -> str:
-    """The folder of dot files made with this deblend_cont: DOTS_DIR for the sky run's value, else dots_deblend<v>
-    (1e-4 -> dots_deblend1e-4)."""
-    if float(deblend_cont) == float(DOTS_DEBLEND_CONT):
-        return DOTS_DIR
-    mant, exp = f"{float(deblend_cont):.6e}".split("e")
+@dataclass(frozen=True)
+class DetectSettings:
+    """How a zone's dots are detected (dots.dots_table). The default is the sky run."""
+    deblend_cont: float = 0.005
+    clean_param: float = 1.0
+    sat_guard_px: float = 0.0
+    psf_pass: bool = False
+
+    @property
+    def folder(self) -> str:
+        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass)
+
+    @property
+    def is_sky(self) -> bool:
+        return self == DetectSettings(DOTS_DEBLEND_CONT)
+
+
+def _num(v: float) -> str:
+    """1e-4 -> 1e-4, 0.001 -> 1e-3, 2.5e-4 -> 2.5e-4 (deblend_cont)."""
+    mant, exp = f"{float(v):.6e}".split("e")
     mant = mant.rstrip("0").rstrip(".")
-    return f"{DOTS_DIR}_deblend{mant}e{int(exp)}"
+    return f"{mant}e{int(exp)}"
+
+
+def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: float = 0.0, psf_pass: bool = False) -> str:
+    """The folder of dot files made with these settings: DOTS_DIR for the sky run's, else DOTS_DIR plus one part per
+    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf
+    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf)."""
+    name = DOTS_DIR
+    if float(deblend_cont) != float(DOTS_DEBLEND_CONT):
+        name += f"_deblend{_num(deblend_cont)}"
+    if float(clean_param) != 1.0:
+        name += f"_cp{float(clean_param):g}"
+    if float(sat_guard_px) > 0:
+        name += f"_g{float(sat_guard_px):g}"
+    if psf_pass:
+        name += "_psf"
+    return name
+
+
+def zone_detect(zone: str | None) -> DetectSettings:
+    """The detection settings of the `dots` step for this zone (None: the sky run's)."""
+    if zone in DOTS_FINE_ZONES:
+        return DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, DOTS_FINE_PSF_PASS)
+    return DetectSettings(DOTS_DEBLEND_CONT)
 
 
 def zone_dots(zone: str | None) -> tuple[str, float]:
-    """(folder, deblend_cont) the `dots` step uses for this zone (None: the sky run's)."""
-    d = DOTS_FINE_DEBLEND_CONT if zone in DOTS_FINE_ZONES else DOTS_DEBLEND_CONT
-    return dots_dir_for(d), d
+    """(folder, deblend_cont) the `dots` step uses for this zone (None: the sky run's); zone_detect has every setting."""
+    s = zone_detect(zone)
+    return s.folder, s.deblend_cont
 PIXEL_ARCSEC = 6.152
 NET_RETRIES = 3
 SAT_RECENTROID_HALF_PX = 12    # stamp half-size for the wings fit of saturated dots

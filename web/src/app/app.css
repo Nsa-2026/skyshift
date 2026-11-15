@@ -8,7 +8,7 @@
   padding: 0 var(--s5) var(--s7);
 }
 
-/* Four screens and the Advanced switch (15 Nov): brand, nav, switch. */
+/* Top-level navigation and the Advanced switch: brand, nav, switch. */
 .top {
   display: grid;
   grid-template-columns: minmax(0,1fr) auto auto;
@@ -175,6 +175,15 @@
 }
 
 @media (max-width: 1100px) {
+  .top {
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas: "brand switch" "nav nav";
+    gap:var(--s3);
+  }
+  .nav {
+    width:100%;
+    justify-content:space-between;
+  }
   .page-blink {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "stage" "card" "below";
@@ -200,15 +209,19 @@
   #app {
     padding: 0 var(--s4) var(--s6);
   }
-  .top {
-    grid-template-columns:minmax(0,1fr) auto;
-    grid-template-areas: "brand switch" "nav nav";
-    gap:var(--s3);
-  }
   .nav {
-    width:100%;justify-content:space-between;gap:var(--s4);
+    gap:var(--s2);
+    font-size:var(--step-0);
   }
-  .nav a {text-align:center;flex:1;}
+  .nav a {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    flex:1 1 auto;
+    min-height:44px;
+    white-space:nowrap;
+  }
   .lede {display:none;}
   .find {max-width:none;}
   .details-slot {flex:none;}
@@ -220,4 +233,11 @@
   .featured .chip {
     flex: none;
   }
+}
+/* Six nav entries on one row on phones: small type, tight gaps, no wrapping inside a name;
+   below ~360px the row scrolls sideways instead of overflowing the page. */
+@media (max-width: 480px) {
+  .nav {gap:var(--s1);font-size:.875rem;overflow-x:auto;scrollbar-width:none;}
+  .nav::-webkit-scrollbar {display:none;}
+  .nav a {flex:0 0 auto;padding-inline:2px;}
 }

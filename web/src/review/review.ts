@@ -1,13 +1,15 @@
-// Review queue (#/review): one candidate at a time, big plate, vote with 1–4, S skips, ← goes
-// back. A practice round on featured targets comes first, once per browser.
+// Review queue: one candidate at a time, big plate, vote with 1–4, S skips, ← goes back. A practice
+// round on featured targets comes first, once per browser. It runs on its own page (#/review, the
+// old link) and inside To check as "One at a time" (#/candidates/one=1), where scope() limits it
+// to the filtered list.
 import { nearSourceOf } from "../api/grades";
 import type { Candidate } from "../api/types";
-import type { MountPage } from "../app/modules";
+import type { MountPage, PageHandle } from "../app/modules";
 import { SPHEREX_V_LIMIT } from "../blink/known";
 import { emptyCounts, type Answer, type Counts } from "../vote/model";
 import { Ballot } from "./ballot";
 import { candidateSet, preload, suspectFor, votes, type CandidateSet, type Votes } from "./data";
-import { gradeCCount, keyAction, queueOrder } from "./model";
+import { gradeCCount, inScope, keyAction, queueOrder } from "./model";
 import { lastDiscoverHash, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, factsHtml, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { Plate } from "./plate";
@@ -54,14 +56,34 @@ function writeSession(reviewed: number): void {
 
 type Mode = "loading" | "practice" | "summary" | "queue" | "end" | "empty";
 
-export const mountReview: MountPage = (el) => {
+export interface QueueOptions {
+  /** Inside the To check page: an h2 heading, no page title of its own, and its end links go back
+   *  to the list (listHref) and to what the community says is real (realHref). */
+  embedded?: { listHref(): string; realHref(): string };
+}
+
+export interface QueueHandle extends PageHandle {
+  /** Only these candidates (null: every one). The queue keeps its own order inside them: what needs
+   *  votes first. Call it before show() so the first object comes from the list. */
+  scope(ids: readonly string[] | null): void;
+}
+
+/** The review queue's own page (#/review). */
+export const mountReview: MountPage = (el) => mountQueue(el);
+
+export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandle {
   trackDiscover();
+  const embedded = opts.embedded ?? null;
+  const QUEUE_TITLE = embedded ? "One at a time" : "Review";
+  const h = embedded ? "h2" : "h1";
+  /** Headings inside the queue sit one level under its title. */
+  const sub = embedded ? "h3" : "h2";
   el.innerHTML = html`
-    <div class="rv rq">
+    <div class="rv rq${embedded ? " rq-embedded" : ""}">
       <p class="rv-sample" hidden></p>
       <header class="rq-head">
         <div class="rq-titles">
-          <h1 class="rq-title">Review</h1>
+          <${h} class="rq-title">${QUEUE_TITLE}</${h}>
           <p class="rq-progress" role="status" aria-live="polite"></p>
         </div>
         <div class="rq-tools"></div>
@@ -95,6 +117,12 @@ export const mountReview: MountPage = (el) => {
   let started: Promise<void> | null = null;
   let plateReady = false;
   let ballot: Ballot | null = null;
+  /** The candidates the queue may show (null: all); see scope(). */
+  let scope: Set<string> | null = null;
+  /** Has the order been built for the current scope? (An empty order counts as built.) */
+  let built = false;
+  /** Bumped on every new scope, so a slow vote count for an old list is dropped. */
+  let scopeGen = 0;
 
   // practice
   let pi = 0;
@@ -188,7 +216,7 @@ export const mountReview: MountPage = (el) => {
     progressEl.textContent = `Plate ${pi + 1} of ${PRACTICE.length}. We know the answer to these three, so you'll see how you did.`;
     toolsEl.innerHTML = html`<button class="btn btn-ghost" type="button" data-act="skip-practice">Skip practice</button>`;
     cardEl.innerHTML = html`
-      <h2 class="rq-card-title">${esc(item.title)}</h2>
+      <${sub} class="rq-card-title">${esc(item.title)}</${sub}>
       <p class="rv-why">${esc(item.prompt)}</p>
       ${LEGEND}
     `;
@@ -229,7 +257,7 @@ export const mountReview: MountPage = (el) => {
     progressEl.textContent = "Done.";
     toolsEl.innerHTML = "";
     cardEl.innerHTML = html`
-      <h2 class="rq-card-title">You got ${s.right} of ${s.of}</h2>
+      <${sub} class="rq-card-title">You got ${s.right} of ${s.of}</${sub}>
       <p class="rv-why">${esc(s.line.replace(/^\d+ of \d+\. /, ""))}</p>
       ${recapHtml(results)}
       <p class="rq-note">Real objects have no answer key, and most turn out to be detector artefacts: the community's votes decide. When 5 people have voted and 70% agree, the object is settled. Short lessons with more examples are on <a href="#/learn">Learn</a>.</p>
@@ -249,22 +277,66 @@ export const mountReview: MountPage = (el) => {
   // ---- queue --------------------------------------------------------------------------------
   async function startQueue() {
     setMode("queue");
-    titleEl.textContent = "Review";
+    titleEl.textContent = QUEUE_TITLE;
     toolsEl.innerHTML = html`<button class="btn btn-ghost" type="button" data-act="practice">Practice again</button>`;
     if (!set || !set.candidates.length) return showEmpty();
-    if (!order.length) {
+    while (!built) {
       progressEl.textContent = "Loading votes…";
-      try {
-        countsAll = await v!.api.countsFor(set.candidates.map((c) => c.id));
-      } catch {
-        countsAll = new Map();
+      const gen = scopeGen;
+      const next = await orderFor(scope);
+      // A new scope arrived meanwhile: build again, for it.
+      if (gen === scopeGen) {
+        order = next;
+        built = true;
       }
-      order = queueOrder(set.candidates, countsAll, (id) => v!.api.myVote(id));
-      // Already-voted candidates stay reachable with ← only if seen this session.
-      byId = new Map(set.candidates.map((c) => [c.id, c]));
     }
     if (pos >= 0 && history[pos]) showItem();
     else advance();
+  }
+
+  /** The queue's order over the candidates in scope. Counts are read once per candidate. */
+  async function orderFor(within: Set<string> | null): Promise<Candidate[]> {
+    if (!set || !v) return [];
+    const api = v.api;
+    const pool = inScope(set.candidates, within);
+    const need = pool.filter((c) => !countsAll.has(c.id)).map((c) => c.id);
+    if (need.length) {
+      try {
+        for (const [id, k] of await api.countsFor(need)) countsAll.set(id, k);
+      } catch {
+        /* order without the missing counts */
+      }
+    }
+    // Already-voted candidates stay reachable with ← only if seen this session.
+    byId = new Map(set.candidates.map((c) => [c.id, c]));
+    return queueOrder(pool, countsAll, (id) => api.myVote(id));
+  }
+
+  /** A new list from To check: start over inside it, keeping the object on screen if it's still in. */
+  async function setScope(ids: readonly string[] | null) {
+    const next = ids ? new Set(ids) : null;
+    const same = next === scope || (!!next && !!scope && next.size === scope.size && [...next].every((id) => scope!.has(id)));
+    if (same) return;
+    scope = next;
+    const gen = ++scopeGen;
+    if (!built) return; // not started yet: startQueue reads the scope
+    const nextOrder = await orderFor(next);
+    if (gen !== scopeGen) return;
+    order = nextOrder;
+    history.length = 0;
+    pos = -1;
+    const keep = mode === "queue" && current && (!next || next.has(current.id)) ? current : null;
+    if (keep) {
+      // The object on screen stays: only the count, Back and the next preload change.
+      history.push(keep.id);
+      pos = 0;
+      renderProgress();
+      movesEl.querySelector<HTMLButtonElement>("[data-act='back']")?.setAttribute("disabled", "");
+      const up = upcoming();
+      if (up) preload(up);
+    } else if (mode === "queue" || mode === "end") {
+      advance();
+    }
   }
 
   function fresh(): Candidate | null {
@@ -301,12 +373,16 @@ export const mountReview: MountPage = (el) => {
 
   function renderProgress() {
     const left = remaining();
-    progressEl.textContent = `${reviewed} reviewed this session. ${left.toLocaleString("en-GB")} ${left === 1 ? "object to check needs" : "objects to check need"} votes.${skippedCText()}`;
+    const n = left.toLocaleString("en-GB");
+    const need = scope
+      ? `${n} in this list ${left === 1 ? "still needs" : "still need"} your vote`
+      : `${n} ${left === 1 ? "object to check needs" : "objects to check need"} votes`;
+    progressEl.textContent = `${reviewed} reviewed this session. ${need}.${skippedCText()}`;
   }
 
   /** Grade C never enters the queue: say so, once, in the progress line. */
   function skippedCText(): string {
-    const n = set ? gradeCCount(set.candidates) : 0;
+    const n = set ? gradeCCount(inScope(set.candidates, scope)) : 0;
     return n ? ` ${n.toLocaleString("en-GB")} grade C ${n === 1 ? "object isn't" : "objects aren't"} in the queue: ${n === 1 ? "it fails" : "they fail"} a pipeline check.` : "";
   }
 
@@ -323,8 +399,9 @@ export const mountReview: MountPage = (el) => {
     plateReady = false;
     renderProgress();
     const caution = c.kind === "mover" ? `${MOVER_CAUTION} ` : "";
-    const id = html`${caution}<a href="#/c/${encodeURIComponent(c.id)}">See every detail</a> of object <span class="rv-nowrap">${esc(c.id)}</span>.`;
-    cardEl.innerHTML = html`${headHtml(c, "h2", "")}${motionHtml(c)}${gradeHtml(c, false)}${factsHtml(c)}<p class="rv-id">${id}</p>`;
+    // The raw id is for Advanced (pro-only); everyone gets the link.
+    const id = html`${caution}<a href="#/c/${encodeURIComponent(c.id)}">See every detail</a><span class="pro-only"> of object <span class="rv-nowrap">${esc(c.id)}</span></span>.`;
+    cardEl.innerHTML = html`${headHtml(c, sub, "")}${motionHtml(c)}${gradeHtml(c, false)}${factsHtml(c)}<p class="rv-id">${id}</p>`;
     if (c.kind === "mover")
       suspectFor(c.id).then((s) => {
         if (current === c) fillNearSource(cardEl, nearSourceOf(s));
@@ -395,20 +472,35 @@ export const mountReview: MountPage = (el) => {
   function showEnd() {
     current = null;
     setMode("end");
-    titleEl.textContent = "Review";
+    titleEl.textContent = QUEUE_TITLE;
     renderProgressEnd();
     const skipped = skippedCount();
-    endEl.innerHTML = html`
+    const thanks = reviewed
+      ? `You reviewed ${reviewed} this session. Thank you: every vote moves an object closer to a decision.`
+      : "Votes you cast here count toward the list for astronomers.";
+    const revisitBtn = skipped ? html`<button class="btn btn-primary" type="button" data-act="revisit">Go back to the ${skipped} you skipped</button>` : "";
+    const lead = skipped ? "btn-ghost" : "btn-primary";
+    endEl.innerHTML = embedded
+      ? html`
+      <${sub} class="rq-end-title">${history.length ? "You've seen every object in this list." : "Nothing in this list needs your vote."}</${sub}>
+      <p class="rv-why">${
+        history.length
+          ? "Change a filter to find more, or go back to the list."
+          : "You've voted on every one of them, or the rest fail a pipeline check (grade C). Change a filter, or go back to the list."
+      }</p>
+      <p class="rq-note">${thanks}</p>
+      <div class="rv-actions">
+        ${revisitBtn}
+        <a class="btn ${lead}" href="${esc(embedded.listHref())}">Back to the list</a>
+        <a class="btn btn-ghost" href="${esc(embedded.realHref())}">What the community says is real</a>
+      </div>`
+      : html`
       <h2 class="rq-end-title">You've seen every object in this set.</h2>
       <p class="rv-why">The hunt zone adds more soon.</p>
-      <p class="rq-note">${
-        reviewed
-          ? `You reviewed ${reviewed} this session. Thank you: every vote moves an object closer to a decision.`
-          : "Votes you cast here count toward the list for astronomers."
-      }</p>
+      <p class="rq-note">${thanks}</p>
       <div class="rv-actions">
-        ${skipped ? html`<button class="btn btn-primary" type="button" data-act="revisit">Go back to the ${skipped} you skipped</button>` : ""}
-        <a class="btn ${skipped ? "btn-ghost" : "btn-primary"}" href="#/community">See what the community decided</a>
+        ${revisitBtn}
+        <a class="btn ${lead}" href="#/community">See what the community decided</a>
         <a class="btn btn-ghost" href="${lastDiscoverHash()}">Browse the whole list</a>
       </div>
     `;
@@ -431,10 +523,10 @@ export const mountReview: MountPage = (el) => {
 
   function showEmpty() {
     setMode("empty");
-    titleEl.textContent = "Review";
+    titleEl.textContent = QUEUE_TITLE;
     progressEl.textContent = "";
     endEl.innerHTML = html`
-      <h2 class="rq-end-title">No objects to check are published yet.</h2>
+      <${sub} class="rq-end-title">No objects to check are published yet.</${sub}>
       <p class="rv-why">The pipeline's first list is on its way.</p>
       <p class="rq-note">Meanwhile, warm up on three plates where the answer is known, or blink a featured target yourself.</p>
       <div class="rv-actions">
@@ -509,20 +601,30 @@ export const mountReview: MountPage = (el) => {
     else await startQueue();
   }
 
+  let shown = false;
+  let pageTitle = "";
   return {
     show() {
       plate.mount();
-      document.title = "Review: SkyShift";
+      // Embedded, the page's own title comes back when the queue hides.
+      if (!shown) pageTitle = document.title;
+      shown = true;
+      document.title = embedded ? "To check, one at a time: SkyShift" : "Review: SkyShift";
       started ??= start();
     },
     hide() {
       plate.unmount();
-      document.title = "SkyShift";
+      if (!embedded) document.title = "SkyShift";
+      else if (shown) document.title = pageTitle;
+      shown = false;
     },
     destroy() {
       window.removeEventListener("keydown", onKey, true);
       plate.unmount();
       el.innerHTML = "";
     },
+    scope(ids) {
+      void setScope(ids);
+    },
   };
-};
+}
