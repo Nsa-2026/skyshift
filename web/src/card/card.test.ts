@@ -244,6 +244,20 @@ describe("states", () => {
     expect(el.getAttribute("aria-busy")).toBe("false");
   });
 
+  it("says the spectrum is being measured when frames arrive before the object", () => {
+    const el = document.createElement("section");
+    const card = mountCard(el);
+    card.status("loading");
+    card.show(spot, null, null); // frames first, the live /api/object still measuring
+    expect(el.querySelector(".cd-spec")?.textContent).toMatch(/Measuring the spectrum/);
+    card.show(viewFor("rdra"), load("rdra"), null);
+    expect(el.querySelector(".cd-spec")?.textContent).not.toMatch(/Measuring the spectrum/);
+    card.status("loading");
+    card.status("idle"); // the object failed (404): no endless "measuring"
+    card.show(spot, null, null);
+    expect(el.textContent).not.toMatch(/Measuring the spectrum/);
+  });
+
   describe("why there is no shift (measure_reason, contracts v3.2)", () => {
     const barnard2016: View = { ...spot, ra: 269.4485, dec: 4.7394 };
     const moved = {

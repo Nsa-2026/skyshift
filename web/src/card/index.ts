@@ -51,6 +51,8 @@ interface Shown {
   frames: FramesResponse | null;
   /** Object not known yet (the page is still fetching it). */
   pending: boolean;
+  /** Frames are here but the object is still being measured (a live /api/object can take a minute). */
+  waiting?: boolean;
 }
 
 /** A hoverable chart: drawn positions plus the one line each reads as. */
@@ -115,7 +117,7 @@ export const mountCard: MountCard = (el, options = {}) => {
         const notes = notesFor(object);
         const content = key === 'motion' && lead ? LEAD : pending ? skeletonHtml(false) : headHtml(view, object, false) + (key === 'motion'
           ? measureHtml(shown!, notes)
-          : (options.plots === false ? '' : spectrumHtml(object, notes)) + notesHtml(notes));
+          : (options.plots === false ? '' : spectrumHtml(object, notes, shown!.waiting)) + notesHtml(notes));
         return dashboardHtml(key, content);
       }).join('');
       noteId = id;
@@ -136,7 +138,7 @@ export const mountCard: MountCard = (el, options = {}) => {
     el.innerHTML = [
       lead ? LEAD : headHtml(view, object, false),
       !lead && ['all','summary','motion'].includes(section) ? measureHtml(shown, notes) : '',
-      options.plots === false || !['all','spectrum'].includes(section) ? "" : spectrumHtml(object, notes),
+      options.plots === false || !['all','spectrum'].includes(section) ? "" : spectrumHtml(object, notes, shown.waiting),
       options.plots === false || !['all','lightcurve'].includes(section) ? "" : lightCurveHtml(object),
       ['all','summary'].includes(section) ? lookForHtml(view) : '',
     ].join("");
@@ -311,9 +313,14 @@ export const mountCard: MountCard = (el, options = {}) => {
   // ---- spectrum --------------------------------------------------------------------------------
   /** Positions of the spectrum as last drawn, for hover and keyboard reading. */
   let spPoints: PlotPoint[] = [];
-  function spectrumHtml(object: ObjectResponse | null, notes: Note[]): string {
+  function spectrumHtml(object: ObjectResponse | null, notes: Note[], waiting = false): string {
     spPoints = [];
-    if (!object) return "";
+    if (!object) return waiting
+      ? html`<section class="cd-sec cd-spec" aria-labelledby="${id}-s" aria-busy="true">
+        <h3 class="cd-h" id="${id}-s">Spectrum</h3>
+        <p class="cd-cap" role="status">Measuring the spectrum at this spot from every SPHEREx exposure… This can take up to a minute.</p>
+      </section>`
+      : "";
     const sp = object.spectrum;
     if (!sp.length) {
       return html`<section class="cd-sec cd-spec" aria-labelledby="${id}-s">
@@ -620,8 +627,10 @@ export const mountCard: MountCard = (el, options = {}) => {
     show(view, object, frames) {
       // While loading, the page may hand back the previous object with new frames: treat it as pending.
       const pending = loading && object != null && object === staleObject;
-      if (!pending) loading = false;
-      shown = { view, object: pending ? null : object, frames, pending };
+      // Frames first, object still on its way: keep loading so its own show() ends it.
+      const waiting = loading && object == null;
+      if (!pending && !waiting) loading = false;
+      shown = { view, object: pending ? null : object, frames, pending, waiting };
       render();
     },
     status(kind, message) {
@@ -632,9 +641,9 @@ export const mountCard: MountCard = (el, options = {}) => {
       } else if (kind === "error") {
         loading = false;
         showError(message);
-      } else if (shown) {
+      } else {
         loading = false;
-        render();
+        if (shown) render();
       }
     },
   };
