@@ -82,6 +82,17 @@ def test_needs_build(tmp_path):
     assert not F.needs_build(c, tmp_path)
 
 
+def test_needs_build_when_the_detector_changed(tmp_path):
+    """A re-export moved hunt-pm-63015007016600 from D4 to D5; its D4 frames must be rebuilt."""
+    c = cand("s", kind="high_pm", det=5)
+    d = tmp_path / "cand" / "s"
+    d.mkdir(parents=True)
+    (d / "frames.json").write_text(json.dumps({"epochs": [{"mjd_mid": 61000.0, "det": 4}, {"mjd_mid": 61180.0, "det": 4}]}))
+    assert F.needs_build(c, tmp_path)
+    (d / "frames.json").write_text(json.dumps({"epochs": [{"mjd_mid": 61000.0, "det": 5}, {"mjd_mid": 61180.0, "det": 5}]}))
+    assert not F.needs_build(c, tmp_path)
+
+
 @pytest.mark.parametrize("attempts,ok,refreshes", [
     ([(-1.07, 1.07)], True, [False]),                  # first build has its exposures
     ([(1.07,), (-1.07, 1.07)], True, [False, True]),   # partial search, then the full one
