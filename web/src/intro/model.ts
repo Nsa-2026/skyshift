@@ -39,7 +39,7 @@ export type SceneState = ReturnType<typeof sceneAt>;
 export const CHAPTERS = [
   "From the cosmos to a single gaze.",
   "Every discovery begins with a look.",
-  "Look closer. Then closer still.",
+  "Look closer.",
   "A universe of discoveries, in your eyes.",
 ] as const;
 
