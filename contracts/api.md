@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.18)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.19)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -19,7 +19,8 @@ v3.15: validation.json V6 and V7 are run (15 Nov): units `slope` and `objects`;
 v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's latest vote counts;
 v3.17: planets and their large moons (JPL Horizons) count as known bodies for movers;
 v3.18: a mover near a planet is known whatever it is (moon, glare): the suspects' veto `planets`, no such mover in
-candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`).
+candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`;
+v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -32,7 +33,7 @@ Lines marked **proposal** are not in the dev plan yet; P1 confirms or changes th
 ## Summary
 
 ```
-GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6
+GET /api/frames?ra=&dec=&fov=&clock=months|hours&det=1..6&mjd=   # mjd: v3.19, optional, hours only
 → { clock, center:{ra,dec}, pixel_arcsec, size:[nx,ny],
     epochs:[{ id, kind:"visit"|"exposure", mjd_mid, mjd_start, mjd_end, det,
               um_min, um_max, n_exposures, flag_frac, sat_frac,
@@ -130,6 +131,7 @@ Blink frames for one spot on one clock and one detector.
 | clock | `months` / `hours` | `months` | `months`: one median stack per visit. `hours`: single exposures of one visit in time order |
 | fov | arcmin | 5 (months), 20 (hours) | Allowed: months 5 or 15; hours 20 or 60. Sampling as in the summary |
 | det | 1–6 | 2 | Detector |
+| mjd | float, MJD (UTC) | none | v3.19, `clock=hours` only. A time, e.g. a mover's find (candidates.json `mjd`): the visit that holds it, with the session nearest it whole. Without it: as before. Rules below |
 | view | `raw` / `model` / `resid` / `refdiff` | `raw` | v3.8, science workspace only. Not `raw`: a derived layer (below), same response shape |
 
 **Live caps.** A cold `/api/frames` call must fit in Cloud Run's 60 s, so the live API uses fewer
@@ -138,13 +140,39 @@ exposures than the static files. The static twins (scripts/precompute) use all o
 | clock | live `/api/frames` | static `/data/<slug>/` |
 |---|---|---|
 | months | at most **6 exposures per visit** in each stack, spread evenly over the visit's exposures that cover at least 90% of the field (from the search footprints; when too few, those plus the ones that fill most of the still-empty field) | every exposure of the visit |
-| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions whose exposures cover at least 90% of the field preferred, then sessions with 2 or more exposures) | every exposure of the visit, up to 48 (whole sessions from the visit's start) |
+| hours | at most **6 exposures**: the first 2 of 3 sessions spread over the visit (its first and last session included; sessions whose exposures cover at least 90% of the field preferred, then sessions with 2 or more exposures). With `mjd` (v3.19): the session nearest `mjd` whole, the rest as before; at most 6, or that session plus 2 when it has 5 or more | every exposure of the visit, up to 48 (whole sessions from the visit's start). No `mjd` |
 
 The hours clock shows one visit: the one with the most exposures of that detector covering at least half the
 field (from the search footprints; then the most covering 90%, then the most exposures, the latest on a tie).
 An exposure covering under half the field is left out when its session has better ones. Pixels with raw 0 are
 no data (the field's edge in that photo), never sky. `n_exposures` always reports the exposures really in the frame: a capped months stack of
 a 19-exposure visit says 6; an hours frame says 1.
+
+**The hours clock at a time (`mjd`, v3.19).** Live answers only (the static twins have no `mjd`; the
+site reads them first). With `mjd` the hours clock shows the visit that holds that time instead of the one
+with the most exposures:
+
+- Visit: the visit of `det`'s exposure nearest `mjd` (search times). When `mjd` lies inside a visit,
+  that is the visit; when it lies outside every visit at this position, the nearest one is shown
+  (compare `epochs[].mjd_mid` with `mjd` to tell).
+- Session: that exposure's session, the session nearest `mjd`, is kept **whole**: every exposure of
+  `det` in it, in time order, whatever its coverage (every photo the search returns holds the centre).
+  A mover's `mjd` is the middle of the exposures it was found in, so they are in it.
+- The rest: filled from the visit's other sessions by the rule above (the first 2 of sessions spread over
+  the visit, full-field sessions preferred), at most 6 exposures in all, or the session plus 2 when it
+  has 5 or more (sessions have 1–5). The session's exposures are asked for first. All of them start
+  at once (at most 7, one wave of downloads), so a slow archive can still leave any frame out: such an
+  answer is partial and not cached, as always, and asking again finds the downloaded pieces.
+- `det`: the visit and the session are `det`'s own at this position. D1+D4, D2+D5 and D3+D6 are exposed
+  together, so a paired detector gives the same session. `fov`: changes only which of the other sessions'
+  exposures are preferred (coverage), never the session nearest `mjd`.
+- `measured` is built from the photos of this response as always, so a mover found at `mjd` has its
+  dots, and its track, in it.
+- Cache: `mjd`, rounded to 10⁻⁶ day, is part of the request's cache key. Requests without `mjd` keep
+  their key and their answer.
+- Errors (400 `bad_request`): `mjd` with `clock=months` or a `view` other than `raw`; `mjd` not a finite
+  number, or outside the SPHEREx era, MJD 60745 (launch, 11 Mar 2025) to 64328 (1 Jan 2035).
+- The response shape is unchanged.
 
 Response fields:
 
@@ -1097,3 +1125,14 @@ every check in file order needs no change. A missing input still gives `pending`
   table lists it.
 - Shapes unchanged; `known_name` gains values that are not `known[]` names, so show it as text. Readers that map
   veto codes to words get one more code (`planets`). MPC stays the only source of asteroids and comets (no SkyBoT).
+
+## Changes in v3.19 (16 Nov 2026): the hours clock at a time
+
+- `GET /api/frames` takes an optional `mjd` (MJD, UTC) with `clock=hours`: the visit that holds that time,
+  the session nearest it whole, the rest of the live cap from the visit's other sessions (section "The hours
+  clock at a time"). At most 6 exposures, or that session plus 2 when it has 5.
+- Why: without a time the live hours clock shows the visit with the most exposures and the first 2 exposures
+  of 3 sessions, so a mover candidate without static frames was mostly shown without its own exposures
+  (9 of 10 sampled grade A/B movers, 15 Nov), and its track could not appear in `measured`.
+- Additive: requests without `mjd` are unchanged, and so are their cache keys. No response field changes,
+  so fixtures/api/ is unchanged. The review pages send a mover's `mjd` (web/src/review).
