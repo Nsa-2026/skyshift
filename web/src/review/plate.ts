@@ -18,7 +18,7 @@ import { mountBlink } from "../blink";
 import { mountFilters, type FiltersHandle } from "../colour";
 import type { Fetcher } from "../colour/cube";
 import { OWN_GAP_DAYS, candidateView, findGap, focusFrames, framesFor, gapText, hasFrames, isLive } from "./data";
-import { buildTrackMarks } from "./track";
+import { candidateMarks } from "./track";
 
 const html = String.raw;
 
@@ -197,7 +197,8 @@ export class Plate {
     }
     blink.status("idle");
     // Red circles where the candidate should be in every frame (solid measured, dashed predicted).
-    blink.track?.(c ? buildTrackMarks(c, frames) : null);
+    // Always named, so the panel can say SkyShift didn't measure it here (and why) instead of "no movers".
+    blink.track?.(c ? candidateMarks(c, frames, gap !== null && gap > OWN_GAP_DAYS ? gap : null) : null);
     this.filters?.goto(cur.view, frames);
     await blink.show(cur.view, frames, loaded.jsonUrl);
     if (gen !== this.gen) return false;

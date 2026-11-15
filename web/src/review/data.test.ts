@@ -113,6 +113,19 @@ describe("the plate's view and frames", () => {
     expect(findGap(frames(many), { mjd: 60900, clock: "hours" }, 1)).toBeNull();
   });
 
+  it("counts only the find's own exposures as its own, not the session's next ones", () => {
+    // Live frames show a session's first two exposures (ecl22-447170132180-87947503 on 15 Nov); the
+    // mover was found in its 3rd and 4th, whose middle is its mjd: the nearest frame is 3.2 min off.
+    const t0 = 61074.651374;
+    const step = 0.001492;
+    const session = [epoch("e1", t0), epoch("e2", t0 + step)];
+    const gap = findGap(frames(session), { mjd: t0 + 2.5 * step, clock: "hours" }, 3)!;
+    expect(gap * 1440).toBeCloseTo(3.2, 1);
+    expect(gap > OWN_GAP_DAYS).toBe(true);
+    // Found in the 1st and 2nd: each about a minute from its mjd.
+    expect(findGap(frames(session), { mjd: t0 + 0.5 * step, clock: "hours" }, 3)! > OWN_GAP_DAYS).toBe(false);
+  });
+
   it("says a gap in plain words", () => {
     expect(gapText(0.02)).toBe("29 minutes");
     expect(gapText(-0.5)).toBe("12 hours");

@@ -16,6 +16,7 @@ import {
   offsetArcsec,
   listItems,
   measuredState,
+  moreLine,
   reasonLine,
   sourcesByClass,
   summarize,
@@ -149,7 +150,7 @@ describe("months summary", () => {
     // Barnard's Star at 115σ moved; the suspect (3.2σ) and the source without Gaia (3.6σ) are under 5σ.
     expect(strip(s.lead)).toBe("At least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
     expect(s.rest).toBe(
-      "2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion. " +
+      "2 weaker shifts are neither counted nor drawn: under 5σ, or Gaia measures a different motion. " +
         "Of the sources, at least 2 match Gaia stars, at least 1 has no Gaia match, 1 looks like an artefact and 1 is a suspect.",
     );
     expect(strip(summarize({ ...M, shifts: M.shifts.map((x) => ({ ...x, pm_snr: 6 })) }, months.gaia).lead)).toBe(
@@ -280,22 +281,126 @@ describe("the list under the summary", () => {
   it("hours on the partner detector lists only what has a dot there", () => {
     expect(listItems(H, detOf(hours), 5).map((i) => i.cls)).toEqual(["mover"]);
   });
-  it("months: every shift with an arrow and the artefact sources, then the shifts that get none, saying why", () => {
+  it("months: every shift with an arrow (what the lead counts), then the shifts that get none, saying why, then sources without a shift", () => {
     const items = listItems(M, detOf(months), 2, months.gaia);
     expect(items.map((i) => i.label)).toEqual([
-      "Artefact: too few dots, poor motion fit",
       "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
       "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
       "Source without Gaia moved 0.39″ ± 0.11″ in 1.0 yr",
+      "Artefact: too few dots, poor motion fit",
     ]);
-    expect(items.map((i) => !!i.undrawn)).toEqual([false, false, true, true]);
-    expect(items[0].numbers).toBe("In 1 visit. S/N 9.4, 380 µJy, from 3 dots");
+    expect(items.map((i) => !!i.undrawn)).toEqual([false, true, true, false]);
+    expect(items.map((i) => i.counted)).toEqual([true, false, false, false]);
+    expect(items[3].numbers).toBe("In 1 visit. S/N 9.4, 380 µJy, from 3 dots");
     // The fixture's start sits 4.9″ from where Gaia puts Barnard's Star that day: the list says so.
-    expect(items[1].numbers).toBe("10,391 ± 90 mas/yr, 115.4σ, towards 356° east of north. Measured 4.9″ from Gaia's position.");
-    expect(items[2].numbers).toBe("648 ± 200 mas/yr, 3.2σ, towards 74° east of north. Not on the plate: under 5σ.");
+    expect(items[0].numbers).toBe("10,391 ± 90 mas/yr, 115.4σ, towards 356° east of north. Measured 4.9″ from Gaia's position.");
+    expect(items[1].numbers).toBe("648 ± 200 mas/yr, 3.2σ, towards 74° east of north. Not on the plate: under 5σ.");
     // No offset note within 1.5″.
     const near = { ...M, shifts: [{ ...M.shifts[0], dec: 4.767397 }] };
     expect(listItems(near, detOf(months), 2, months.gaia)[0].numbers).not.toMatch(/Gaia's position/);
+  });
+});
+
+// The lead's count and the visible list agree: the list shows exactly what the lead counts (shifts
+// with an arrow; movers on this plate), and the rest fold under one quiet line (moreLine).
+describe("the lead and the list agree", () => {
+  /** The number the lead counts: "and 3 moved", "and 2 movers", or 0 ("none moved", "no movers", a candidate). */
+  const leadCount = (lead: string) => Number(/and (\d+) (?:moved|movers?)\b/.exec(strip(lead))?.[1] ?? 0);
+  const counted = (items: { counted: boolean }[]) => items.filter((i) => i.counted).length;
+  // Barnard-like: one shift Gaia confirms, two that Gaia says are noise (a slow star), as on the live site.
+  const slow = { id: "slow", ra: 269.45, dec: 4.76, pmra: 5, pmdec: 2, parallax: 1, g: 12 };
+  const noisy = (id: number, pmra: number): Measured["shifts"][number] => ({
+    ...M.shifts[0],
+    source_id: id,
+    gaia_id: "slow",
+    pmra,
+    pmdec: 0,
+    pm_err: 30,
+    pm_snr: pmra / 30,
+    shift_arcsec: pmra / 1000,
+    err_arcsec: 0.03,
+  });
+  const barnardLike: Measured = {
+    ...M,
+    shifts: [M.shifts[0], noisy(201, 160), noisy(202, 460)],
+    detections: M.detections.filter((d) => d.class === "star" || d.class === "other"),
+  };
+  const gaia = [...months.gaia, slow];
+
+  it.each([
+    ["the fixture", M, months.gaia],
+    ["every shift at 6σ", { ...M, shifts: M.shifts.map((x) => ({ ...x, pm_snr: 6 })) }, months.gaia],
+    ["no shift with an arrow", { ...M, shifts: M.shifts.slice(1) }, months.gaia],
+    ["Barnard-like (Gaia disagrees with two)", barnardLike, gaia],
+    ["no shifts", { ...M, shifts: [] }, months.gaia],
+  ] as const)("months, %s: as many entries shown as the lead counts, plain and Advanced", (_name, m, g) => {
+    const lead = summarize(m as Measured, [...g]).lead;
+    for (const plain of [false, true]) expect(counted(listItems(m as Measured, detOf(months), 2, [...g], plain))).toBe(leadCount(lead));
+  });
+  it("months, Barnard-like: 1 moved, 1 shown, the 2 Gaia disputes folded under one line", () => {
+    const items = listItems(barnardLike, detOf(months), 2, gaia, true);
+    expect(strip(summarize(barnardLike, gaia).lead)).toMatch(/and 1 moved between visits: 1 Gaia star\.$/);
+    expect(items.filter((i) => i.counted).map((i) => i.label)).toEqual(["Gaia star moved 10.4″ ± 0.09″ in 1.0 yr"]);
+    expect(items.filter((i) => !i.counted).map((i) => i.label)).toEqual([
+      "Gaia star moved 0.16″ ± 0.03″ in 1.0 yr",
+      "Gaia star moved 0.46″ ± 0.03″ in 1.0 yr",
+    ]);
+    expect(moreLine(items, "months")).toBe("2 more shifts we can't be sure of");
+  });
+  it("months, every uncounted shift under 5σ: \"smaller shifts, too small to be sure\"; none moved", () => {
+    const m: Measured = { ...M, shifts: M.shifts.slice(1), detections: M.detections.filter((d) => d.class !== "artifact") };
+    const items = listItems(m, detOf(months), 2, months.gaia, true);
+    expect(strip(summarize(m, months.gaia).lead)).toMatch(/none moved measurably between visits\.$/);
+    expect(counted(items)).toBe(0);
+    expect(moreLine(items, "months")).toBe("2 smaller shifts, too small to be sure");
+    expect(moreLine(items.slice(0, 1), "months")).toBe("1 smaller shift, too small to be sure");
+    // A source without a shift among them: the line stops naming shifts.
+    expect(moreLine(listItems(M, detOf(months), 2, months.gaia), "months")).toBe("3 more we can't be sure of");
+    expect(moreLine(items.filter((i) => i.counted), "months")).toBe("");
+  });
+  it("hours: the lead counts the movers on this plate's detector, as the list does; lone dots fold", () => {
+    for (const det of [2, 5]) {
+      const lead = summarize(H, undefined, { epochDet: detOf(hours), det }).lead;
+      const items = listItems(H, detOf(hours), det);
+      expect(counted(items)).toBe(leadCount(lead));
+    }
+    // D5 has only the mover seen in two detectors at once.
+    expect(strip(summarize(H, undefined, { epochDet: detOf(hours), det: 5 }).lead)).toBe("14 dots in 4 photos, and 1 mover: 1 other mover.");
+    const items = listItems(H, detOf(hours), 2);
+    expect(items.filter((i) => !i.counted).map((i) => i.label)).toEqual(["Artefact: ghost, halo, new_code"]);
+    expect(moreLine(items, "hours")).toBe("1 lone dot, not paired into a mover");
+  });
+});
+
+// A candidate on the plate (BlinkHandle.track from src/review) that SkyShift didn't measure in these
+// photos: the lead says so, and why when known, never a bare "no movers".
+describe("a candidate SkyShift didn't measure here", () => {
+  const none: Measured = { ...H, tracks: [], detections: H.detections.map((d) => ({ ...d, track_id: null })) };
+  const cand = { label: "the fast mover", measured: false, marked: false, gapDays: 355.8 };
+  it("its own exposures aren't in these frames: says so, how far the nearest is, and what marks the find", () => {
+    expect(strip(summarize(none, undefined, { candidate: cand }).lead)).toBe(
+      "14 dots in 4 photos. The fast mover isn't among them: SkyShift found it in exposures these frames leave out " +
+        "(the nearest is 355.8 days away). The crosshair marks where it was found.",
+    );
+    expect(strip(summarize(none, undefined, { candidate: { ...cand, gapDays: 3.2 / 1440, marked: true } }).lead)).toBe(
+      "14 dots in 4 photos. The fast mover isn't among them: SkyShift found it in exposures these frames leave out " +
+        "(the nearest is 3.2 min away). Dashed red circles show where it should be.",
+    );
+  });
+  it("without a known cause, and beside other movers", () => {
+    expect(strip(summarize(none, undefined, { candidate: { ...cand, gapDays: null } }).lead)).toBe(
+      "14 dots in 4 photos. The fast mover isn't among them: SkyShift didn't measure it in these photos. The crosshair marks where it was found.",
+    );
+    expect(strip(summarize(H, undefined, { candidate: cand }).lead)).toMatch(
+      /^14 dots in 4 photos, and 3 movers: .*\. The fast mover isn't one of them: SkyShift found it/,
+    );
+  });
+  it("measured here, or not an hours plate: the lead is as usual", () => {
+    expect(strip(summarize(H, undefined, { candidate: { ...cand, measured: true } }).lead)).toBe(
+      "14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
+    );
+    expect(strip(summarize(M, months.gaia, { candidate: cand }).lead)).toBe("At least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(strip(summarize({ ...none, stage: "extracted" }, undefined, { candidate: cand }).lead)).toMatch(/movers aren't linked yet\.$/);
   });
 });
 
