@@ -1,0 +1,1893 @@
+{
+ "generated": "2026-11-15T11:41:00Z",
+ "check": "V6",
+ "list_source": "GAVO DC TAP gcns.main (Gaia EDR3 within 100 pc), pmra^2 + pmdec^2 > 1e6",
+ "list_cut": "G > 12.0, the 40 fastest",
+ "per_visit": 10,
+ "spectrum_per_det": 3,
+ "pixels": "s3first",
+ "gaia_cones": "https://gaia.ari.uni-heidelberg.de/tap/sync",
+ "minutes": 8.6,
+ "rows": [
+  {
+   "source_id": "35227046884571776",
+   "name": "Gaia DR3 35227046884571776 (2MASS J02530084+1652532)",
+   "g": 12.263103,
+   "abs_g": 14.35,
+   "ruwe": 1.3042897,
+   "pm_mas_yr": 5122.57,
+   "measured": true,
+   "reason": null,
+   "ra": 43.279606,
+   "dec": 16.853791,
+   "search": "photo_lists",
+   "n_photos": 332,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 31.9,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 4.978,
+   "sigma_arcsec": 0.544,
+   "n_ref_stars": 27,
+   "dt_yr": 1.004,
+   "pa_deg": 133.6,
+   "d_east_arcsec": 3.604,
+   "d_north_arcsec": -3.434,
+   "pred_east_arcsec": 3.444,
+   "pred_north_arcsec": -3.822,
+   "predicted_arcsec": 5.145,
+   "predicted_pa_deg": 138.0,
+   "angle_deg": 4.4,
+   "dev_sigma": 0.77,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    7673.2,
+    8657.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6412596012146801152",
+   "name": "Gaia DR3 6412596012146801152 (2MASS J22041052-5646577)",
+   "g": 18.056162,
+   "abs_g": 20.22,
+   "ruwe": 4.2955413,
+   "pm_mas_yr": 4684.16,
+   "measured": true,
+   "reason": null,
+   "ra": 331.096676,
+   "dec": -56.80067,
+   "search": "irsa",
+   "n_photos": 458,
+   "det": 4,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 2.2,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 3.912,
+   "sigma_arcsec": 0.91,
+   "n_ref_stars": 57,
+   "dt_yr": 0.985,
+   "pa_deg": 128.4,
+   "d_east_arcsec": 3.068,
+   "d_north_arcsec": -2.428,
+   "pred_east_arcsec": 3.912,
+   "pred_north_arcsec": -2.416,
+   "predicted_arcsec": 4.597,
+   "predicted_pa_deg": 121.7,
+   "angle_deg": 6.7,
+   "dev_sigma": 0.93,
+   "n_exposures": [
+    4,
+    10
+   ],
+   "target_snr": [
+    552.5,
+    343.4
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "778947608243864320",
+   "name": "Gaia DR3 778947608243864320 (2MASS J11053133+4331170)",
+   "g": 12.257253,
+   "abs_g": 13.8,
+   "ruwe": 1.0334092,
+   "pm_mas_yr": 4444.91,
+   "measured": true,
+   "reason": null,
+   "ra": 166.335444,
+   "dec": 43.528578,
+   "search": "photo_lists",
+   "n_photos": 295,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 31.5,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 4.667,
+   "sigma_arcsec": 0.62,
+   "n_ref_stars": 20,
+   "dt_yr": 0.984,
+   "pa_deg": 280.5,
+   "d_east_arcsec": -4.589,
+   "d_north_arcsec": 0.854,
+   "pred_east_arcsec": -4.259,
+   "pred_north_arcsec": 0.95,
+   "predicted_arcsec": 4.364,
+   "predicted_pa_deg": 282.6,
+   "angle_deg": 2.0,
+   "dev_sigma": 0.55,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    6033.5,
+    7395.1
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "3713594960831605760",
+   "name": "Gaia DR3 3713594960831605760 (2MASS J13363181+0340458)",
+   "g": 14.37472,
+   "abs_g": 14.77,
+   "ruwe": 1.0317168,
+   "pm_mas_yr": 3898.28,
+   "measured": true,
+   "reason": null,
+   "ra": 204.105669,
+   "dec": 3.671383,
+   "search": "photo_lists",
+   "n_photos": 389,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 31.8,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 4.191,
+   "sigma_arcsec": 0.435,
+   "n_ref_stars": 17,
+   "dt_yr": 0.999,
+   "pa_deg": 253.9,
+   "d_east_arcsec": -4.026,
+   "d_north_arcsec": -1.163,
+   "pred_east_arcsec": -3.731,
+   "pred_north_arcsec": -1.112,
+   "predicted_arcsec": 3.893,
+   "predicted_pa_deg": 253.4,
+   "angle_deg": 0.5,
+   "dev_sigma": 0.69,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    384.7,
+    462.3
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "1711005951573009792",
+   "name": "Gaia DR3 1711005951573009792 (2MASS J17495059+8246242)",
+   "g": 14.21691,
+   "abs_g": 13.15,
+   "ruwe": 0.94133276,
+   "pm_mas_yr": 3612.51,
+   "measured": true,
+   "reason": null,
+   "ra": 267.376305,
+   "dec": 82.797855,
+   "search": "s3_index",
+   "n_photos": 521,
+   "det": 1,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 160.6,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 3.274,
+   "sigma_arcsec": 0.405,
+   "n_ref_stars": 53,
+   "dt_yr": 0.984,
+   "pa_deg": 335.7,
+   "d_east_arcsec": -1.346,
+   "d_north_arcsec": 2.985,
+   "pred_east_arcsec": -1.413,
+   "pred_north_arcsec": 3.265,
+   "predicted_arcsec": 3.558,
+   "predicted_pa_deg": 336.6,
+   "angle_deg": 0.9,
+   "dev_sigma": 0.71,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    269.3,
+    298.9
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6281432246412503424",
+   "name": "Gaia DR3 6281432246412503424 (2MASS J14442067-2019222)",
+   "g": 16.6528,
+   "abs_g": 15.48,
+   "ruwe": 0.962613,
+   "pm_mas_yr": 3507.9,
+   "measured": true,
+   "reason": null,
+   "ra": 221.062329,
+   "dec": -20.337914,
+   "search": "photo_lists",
+   "n_photos": 345,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 32.7,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 3.383,
+   "sigma_arcsec": 0.415,
+   "n_ref_stars": 57,
+   "dt_yr": 0.987,
+   "pa_deg": 238.8,
+   "d_east_arcsec": -2.893,
+   "d_north_arcsec": -1.754,
+   "pred_east_arcsec": -2.87,
+   "pred_north_arcsec": -1.937,
+   "predicted_arcsec": 3.462,
+   "predicted_pa_deg": 236.0,
+   "angle_deg": 2.8,
+   "dev_sigma": 0.44,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    415.2,
+    456.4
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5115463180914712448",
+   "name": "Gaia DR3 5115463180914712448 (2MASS J03381558-1129102)",
+   "g": 12.066338,
+   "abs_g": 11.02,
+   "ruwe": 1.4495507,
+   "pm_mas_yr": 3065.57,
+   "measured": true,
+   "reason": null,
+   "ra": 54.57616,
+   "dec": -11.506568,
+   "search": "photo_lists",
+   "n_photos": 415,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 30.0,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.903,
+   "sigma_arcsec": 0.694,
+   "n_ref_stars": 16,
+   "dt_yr": 0.993,
+   "pa_deg": 144.3,
+   "d_east_arcsec": 1.694,
+   "d_north_arcsec": -2.357,
+   "pred_east_arcsec": 1.448,
+   "pred_north_arcsec": -2.677,
+   "predicted_arcsec": 3.044,
+   "predicted_pa_deg": 151.6,
+   "angle_deg": 7.3,
+   "dev_sigma": 0.58,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    2745.9,
+    2197.3
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2552928187080872832",
+   "name": "Gaia DR3 2552928187080872832 (2MASS J00490996+0523173)",
+   "g": 12.299163,
+   "abs_g": 14.12,
+   "ruwe": 1.2103684,
+   "pm_mas_yr": 2978.36,
+   "measured": true,
+   "reason": null,
+   "ra": 12.30018,
+   "dec": 5.369015,
+   "search": "photo_lists",
+   "n_photos": 328,
+   "det": 1,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 13.1,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.707,
+   "sigma_arcsec": 0.444,
+   "n_ref_stars": 19,
+   "dt_yr": 0.993,
+   "pa_deg": 155.9,
+   "d_east_arcsec": 1.104,
+   "d_north_arcsec": -2.471,
+   "pred_east_arcsec": 1.223,
+   "pred_north_arcsec": -2.694,
+   "predicted_arcsec": 2.958,
+   "predicted_pa_deg": 155.6,
+   "angle_deg": 0.3,
+   "dev_sigma": 0.57,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    1956.4,
+    1541.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6439125097427143808",
+   "name": "Gaia DR3 6439125097427143808 (2MASS J18450541-6357475)",
+   "g": 14.02148,
+   "abs_g": 16.01,
+   "ruwe": 1.2620903,
+   "pm_mas_yr": 2649.38,
+   "measured": true,
+   "reason": null,
+   "ra": 281.314406,
+   "dec": -63.95893,
+   "search": "photo_lists",
+   "n_photos": 417,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 28.1,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.631,
+   "sigma_arcsec": 0.647,
+   "n_ref_stars": 197,
+   "dt_yr": 1.009,
+   "pa_deg": 71.1,
+   "d_east_arcsec": 2.489,
+   "d_north_arcsec": 0.854,
+   "pred_east_arcsec": 2.6,
+   "pred_north_arcsec": 0.602,
+   "predicted_arcsec": 2.668,
+   "predicted_pa_deg": 77.0,
+   "angle_deg": 5.9,
+   "dev_sigma": 0.42,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    3093.7,
+    3411.0
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2611561706216413696",
+   "name": "Gaia DR3 2611561706216413696 (2MASS J22535314-0646536)",
+   "g": 15.421229,
+   "abs_g": 15.76,
+   "ruwe": 0.9293217,
+   "pm_mas_yr": 2577.46,
+   "measured": true,
+   "reason": null,
+   "ra": 343.490525,
+   "dec": -6.786725,
+   "search": "photo_lists",
+   "n_photos": 410,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 20.9,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.242,
+   "sigma_arcsec": 0.431,
+   "n_ref_stars": 33,
+   "dt_yr": 1.0,
+   "pa_deg": 100.6,
+   "d_east_arcsec": 2.203,
+   "d_north_arcsec": -0.414,
+   "pred_east_arcsec": 2.487,
+   "pred_north_arcsec": -0.682,
+   "predicted_arcsec": 2.579,
+   "predicted_pa_deg": 105.3,
+   "angle_deg": 4.7,
+   "dev_sigma": 0.91,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    185.1,
+    176.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6165095738576250624",
+   "name": "Gaia DR3 6165095738576250624 (2MASS J13420283-3415190)",
+   "g": 16.238365,
+   "abs_g": 14.65,
+   "ruwe": 0.9918731,
+   "pm_mas_yr": 2571.24,
+   "measured": true,
+   "reason": null,
+   "ra": 205.491869,
+   "dec": -34.247114,
+   "search": "photo_lists",
+   "n_photos": 340,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 23.5,
+   "blend_arcsec": 7.32,
+   "blend_g": 13.989,
+   "shift_arcsec": 0.138,
+   "sigma_arcsec": 0.356,
+   "n_ref_stars": 99,
+   "dt_yr": 0.982,
+   "pa_deg": 297.4,
+   "d_east_arcsec": -0.122,
+   "d_north_arcsec": 0.063,
+   "pred_east_arcsec": -2.258,
+   "pred_north_arcsec": 1.123,
+   "predicted_arcsec": 2.522,
+   "predicted_pa_deg": 296.5,
+   "angle_deg": 0.9,
+   "dev_sigma": 6.69,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    224.5,
+    255.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2338943673624461440",
+   "name": "Gaia DR3 2338943673624461440 (2MASS J23431663-2411138)",
+   "g": 12.141123,
+   "abs_g": 9.83,
+   "ruwe": 1.2333615,
+   "pm_mas_yr": 2564.02,
+   "measured": true,
+   "reason": null,
+   "ra": 355.830056,
+   "dec": -24.203844,
+   "search": "photo_lists",
+   "n_photos": 338,
+   "det": 3,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 19.2,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.897,
+   "sigma_arcsec": 0.483,
+   "n_ref_stars": 26,
+   "dt_yr": 1.01,
+   "pa_deg": 119.6,
+   "d_east_arcsec": 1.65,
+   "d_north_arcsec": -0.936,
+   "pred_east_arcsec": 1.316,
+   "pred_north_arcsec": -2.232,
+   "predicted_arcsec": 2.592,
+   "predicted_pa_deg": 149.5,
+   "angle_deg": 29.9,
+   "dev_sigma": 2.77,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    5130.9,
+    4607.4
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5184938400096586112",
+   "name": "Gaia DR3 5184938400096586112 (2MASS J02461477-0459182)",
+   "g": 14.305549,
+   "abs_g": 13.19,
+   "ruwe": 1.1944062,
+   "pm_mas_yr": 2529.5,
+   "measured": true,
+   "reason": null,
+   "ra": 41.574414,
+   "dec": -5.002635,
+   "search": "photo_lists",
+   "n_photos": 346,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 12.8,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.698,
+   "sigma_arcsec": 0.339,
+   "n_ref_stars": 26,
+   "dt_yr": 0.999,
+   "pa_deg": 135.5,
+   "d_east_arcsec": 1.891,
+   "d_north_arcsec": -1.925,
+   "pred_east_arcsec": 1.69,
+   "pred_north_arcsec": -1.88,
+   "predicted_arcsec": 2.528,
+   "predicted_pa_deg": 138.0,
+   "angle_deg": 2.5,
+   "dev_sigma": 0.61,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    2451.5,
+    2868.5
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "4736655036868019072",
+   "name": "Gaia DR3 4736655036868019072 (2MASS J03341218-4953322)",
+   "g": 15.837138,
+   "abs_g": 16.1,
+   "ruwe": 1.004608,
+   "pm_mas_yr": 2409.52,
+   "measured": true,
+   "reason": null,
+   "ra": 53.577385,
+   "dec": -49.88874,
+   "search": "s3_index",
+   "n_photos": 364,
+   "det": 3,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 164.9,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.099,
+   "sigma_arcsec": 0.463,
+   "n_ref_stars": 29,
+   "dt_yr": 1.004,
+   "pa_deg": 69.1,
+   "d_east_arcsec": 1.96,
+   "d_north_arcsec": 0.75,
+   "pred_east_arcsec": 2.371,
+   "pred_north_arcsec": 0.483,
+   "predicted_arcsec": 2.42,
+   "predicted_pa_deg": 78.5,
+   "angle_deg": 9.4,
+   "dev_sigma": 1.06,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    2406.5,
+    2190.7
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "4588438567346043776",
+   "name": "Gaia DR3 4588438567346043776 (2MASS J18261131+3014201)",
+   "g": 15.94701,
+   "abs_g": 15.72,
+   "ruwe": 1.2332307,
+   "pm_mas_yr": 2390.48,
+   "measured": true,
+   "reason": null,
+   "ra": 276.526689,
+   "dec": 30.23364,
+   "search": "s3_index",
+   "n_photos": 419,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 163.2,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.398,
+   "sigma_arcsec": 0.627,
+   "n_ref_stars": 192,
+   "dt_yr": 1.004,
+   "pa_deg": 255.0,
+   "d_east_arcsec": -2.316,
+   "d_north_arcsec": -0.621,
+   "pred_east_arcsec": -2.302,
+   "pred_north_arcsec": -0.688,
+   "predicted_arcsec": 2.402,
+   "predicted_pa_deg": 253.4,
+   "angle_deg": 1.6,
+   "dev_sigma": 0.11,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    415.3,
+    422.1
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "3022956969731332096",
+   "name": "Gaia DR3 3022956969731332096 (2MASS J05550948-0410042)",
+   "g": 14.236672,
+   "abs_g": 15.19,
+   "ruwe": 1.0328441,
+   "pm_mas_yr": 2378.03,
+   "measured": true,
+   "reason": null,
+   "ra": 88.793588,
+   "dec": -4.18537,
+   "search": "photo_lists",
+   "n_photos": 387,
+   "det": 1,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 26.5,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.795,
+   "sigma_arcsec": 0.529,
+   "n_ref_stars": 131,
+   "dt_yr": 0.998,
+   "pa_deg": 164.7,
+   "d_east_arcsec": 0.74,
+   "d_north_arcsec": -2.696,
+   "pred_east_arcsec": 0.534,
+   "pred_north_arcsec": -2.311,
+   "predicted_arcsec": 2.372,
+   "predicted_pa_deg": 167.0,
+   "angle_deg": 2.3,
+   "dev_sigma": 0.82,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    185.6,
+    140.6
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "470826482637310848",
+   "name": "Gaia DR3 470826482637310848",
+   "g": 12.33619,
+   "abs_g": 13.63,
+   "ruwe": 0.92638206,
+   "pm_mas_yr": 2361.13,
+   "measured": true,
+   "reason": null,
+   "ra": 67.821091,
+   "dec": 58.964065,
+   "search": "photo_lists",
+   "n_photos": 357,
+   "det": 6,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 39.2,
+   "blend_arcsec": 11.23,
+   "blend_g": 9.703,
+   "shift_arcsec": 2.536,
+   "sigma_arcsec": 0.806,
+   "n_ref_stars": 198,
+   "dt_yr": 1.0,
+   "pa_deg": 135.4,
+   "d_east_arcsec": 1.781,
+   "d_north_arcsec": -1.805,
+   "pred_east_arcsec": 1.335,
+   "pred_north_arcsec": -1.947,
+   "predicted_arcsec": 2.361,
+   "predicted_pa_deg": 145.6,
+   "angle_deg": 10.2,
+   "dev_sigma": 0.58,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    7474.4,
+    7616.9
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5006232026455470848",
+   "name": "Gaia DR3 5006232026455470848",
+   "g": 18.60774,
+   "abs_g": 16.03,
+   "ruwe": 1.0659508,
+   "pm_mas_yr": 2353.91,
+   "measured": true,
+   "reason": null,
+   "ra": 11.347479,
+   "dec": -33.502123,
+   "search": "photo_lists",
+   "n_photos": 450,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 18.0,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.154,
+   "sigma_arcsec": 0.205,
+   "n_ref_stars": 9,
+   "dt_yr": 0.993,
+   "pa_deg": 127.0,
+   "d_east_arcsec": 1.721,
+   "d_north_arcsec": -1.296,
+   "pred_east_arcsec": 1.813,
+   "pred_north_arcsec": -1.473,
+   "predicted_arcsec": 2.336,
+   "predicted_pa_deg": 129.1,
+   "angle_deg": 2.1,
+   "dev_sigma": 0.97,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    12.8,
+    12.7
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2271357312343219456",
+   "name": "Gaia DR3 2271357312343219456 (2MASS J20402401+6959057)",
+   "g": 17.55497,
+   "abs_g": 14.97,
+   "ruwe": 1.0619081,
+   "pm_mas_yr": 2304.37,
+   "measured": true,
+   "reason": null,
+   "ra": 310.133345,
+   "dec": 69.997314,
+   "search": "s3_index",
+   "n_photos": 500,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 179.1,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.448,
+   "sigma_arcsec": 0.42,
+   "n_ref_stars": 145,
+   "dt_yr": 1.007,
+   "pa_deg": 36.5,
+   "d_east_arcsec": 1.457,
+   "d_north_arcsec": 1.967,
+   "pred_east_arcsec": 1.568,
+   "pred_north_arcsec": 1.71,
+   "predicted_arcsec": 2.32,
+   "predicted_pa_deg": 42.5,
+   "angle_deg": 6.0,
+   "dev_sigma": 0.67,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    78.4,
+    78.1
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "4937000898856154624",
+   "name": "Gaia DR3 4937000898856154624",
+   "g": 13.0888405,
+   "abs_g": 12.92,
+   "ruwe": 4.4071383,
+   "pm_mas_yr": 2282.4,
+   "measured": true,
+   "reason": null,
+   "ra": 32.633616,
+   "dec": -50.818846,
+   "search": "s3_index",
+   "n_photos": 397,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 185.2,
+   "blend_arcsec": 3.21,
+   "blend_g": 5.894,
+   "shift_arcsec": 3.268,
+   "sigma_arcsec": 0.375,
+   "n_ref_stars": 26,
+   "dt_yr": 0.989,
+   "pa_deg": 76.1,
+   "d_east_arcsec": 3.171,
+   "d_north_arcsec": 0.787,
+   "pred_east_arcsec": 2.14,
+   "pred_north_arcsec": 0.707,
+   "predicted_arcsec": 2.254,
+   "predicted_pa_deg": 71.7,
+   "angle_deg": 4.3,
+   "dev_sigma": 2.76,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    2662.6,
+    478462.6
+   ],
+   "core_filled": [
+    true,
+    true
+   ]
+  },
+  {
+   "source_id": "6085402414245451520",
+   "name": "Gaia DR3 6085402414245451520 (2MASS J13125624-4728082)",
+   "g": 16.69044,
+   "abs_g": 15.57,
+   "ruwe": 1.0545412,
+   "pm_mas_yr": 2166.47,
+   "measured": true,
+   "reason": null,
+   "ra": 198.212154,
+   "dec": -47.469305,
+   "search": "photo_lists",
+   "n_photos": 385,
+   "det": 1,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 14.1,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.466,
+   "sigma_arcsec": 0.546,
+   "n_ref_stars": 265,
+   "dt_yr": 1.003,
+   "pa_deg": 258.0,
+   "d_east_arcsec": -2.412,
+   "d_north_arcsec": -0.512,
+   "pred_east_arcsec": -2.173,
+   "pred_north_arcsec": -0.06,
+   "predicted_arcsec": 2.173,
+   "predicted_pa_deg": 268.4,
+   "angle_deg": 10.4,
+   "dev_sigma": 0.94,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    11.9,
+    12.9
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5185493447310441728",
+   "name": "Gaia DR3 5185493447310441728 (2MASS J02511490-0352459)",
+   "g": 18.002083,
+   "abs_g": 17.68,
+   "ruwe": 1.1777321,
+   "pm_mas_yr": 2162.13,
+   "measured": true,
+   "reason": null,
+   "ra": 42.820553,
+   "dec": -3.893415,
+   "search": "photo_lists",
+   "n_photos": 357,
+   "det": 4,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 27.2,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.333,
+   "sigma_arcsec": 0.554,
+   "n_ref_stars": 21,
+   "dt_yr": 0.996,
+   "pa_deg": 150.3,
+   "d_east_arcsec": 1.156,
+   "d_north_arcsec": -2.026,
+   "pred_east_arcsec": 1.108,
+   "pred_north_arcsec": -1.846,
+   "predicted_arcsec": 2.153,
+   "predicted_pa_deg": 149.0,
+   "angle_deg": 1.3,
+   "dev_sigma": 0.34,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    506.9,
+    396.7
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5224460173763882496",
+   "name": "Gaia DR3 5224460173763882496 (2MASS J11381671-7721484)",
+   "g": 12.816201,
+   "abs_g": 13.2,
+   "ruwe": 1.2848089,
+   "pm_mas_yr": 2153.97,
+   "measured": true,
+   "reason": null,
+   "ra": 174.50174,
+   "dec": -77.359043,
+   "search": "s3_index",
+   "n_photos": 572,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 204.2,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.632,
+   "sigma_arcsec": 0.628,
+   "n_ref_stars": 237,
+   "dt_yr": 0.996,
+   "pa_deg": 287.6,
+   "d_east_arcsec": -2.509,
+   "d_north_arcsec": 0.798,
+   "pred_east_arcsec": -2.058,
+   "pred_north_arcsec": 0.614,
+   "predicted_arcsec": 2.147,
+   "predicted_pa_deg": 286.6,
+   "angle_deg": 1.0,
+   "dev_sigma": 0.78,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    1739.0,
+    1774.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "547381594623756416",
+   "name": "Gaia DR3 547381594623756416 (2MASS J03105861+7346189)",
+   "g": 13.015211,
+   "abs_g": 12.6,
+   "ruwe": 1.2238071,
+   "pm_mas_yr": 2118.6,
+   "measured": true,
+   "reason": null,
+   "ra": 47.790118,
+   "dec": 73.76437,
+   "search": "s3_index",
+   "n_photos": 359,
+   "det": 4,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 170.7,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.886,
+   "sigma_arcsec": 0.453,
+   "n_ref_stars": 98,
+   "dt_yr": 1.0,
+   "pa_deg": 130.0,
+   "d_east_arcsec": 1.444,
+   "d_north_arcsec": -1.213,
+   "pred_east_arcsec": 1.826,
+   "pred_north_arcsec": -1.076,
+   "predicted_arcsec": 2.119,
+   "predicted_pa_deg": 120.5,
+   "angle_deg": 9.5,
+   "dev_sigma": 0.9,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    1459.1,
+    1523.1
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6743125631414820224",
+   "name": "Gaia DR3 6743125631414820224 (2MASS J19123922-3614555)",
+   "g": 12.492158,
+   "abs_g": 12.19,
+   "ruwe": 1.2618225,
+   "pm_mas_yr": 2103.1,
+   "measured": true,
+   "reason": null,
+   "ra": 288.170487,
+   "dec": -36.263177,
+   "search": "photo_lists",
+   "n_photos": 405,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 10.0,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.738,
+   "sigma_arcsec": 0.703,
+   "n_ref_stars": 286,
+   "dt_yr": 0.994,
+   "pa_deg": 163.8,
+   "d_east_arcsec": 0.485,
+   "d_north_arcsec": -1.669,
+   "pred_east_arcsec": 0.77,
+   "pred_north_arcsec": -1.945,
+   "predicted_arcsec": 2.092,
+   "predicted_pa_deg": 158.4,
+   "angle_deg": 5.4,
+   "dev_sigma": 0.56,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    1389.1,
+    1691.5
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2192213022271586560",
+   "name": "Gaia DR3 2192213022271586560 (2MASS J21075543+5943198)",
+   "g": 12.418454,
+   "abs_g": 10.5,
+   "ruwe": 1.1650163,
+   "pm_mas_yr": 2100.4,
+   "measured": true,
+   "reason": null,
+   "ra": 316.96603,
+   "dec": 59.708822,
+   "search": "s3_index",
+   "n_photos": 451,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 190.9,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.959,
+   "sigma_arcsec": 0.642,
+   "n_ref_stars": 200,
+   "dt_yr": 1.001,
+   "pa_deg": 221.1,
+   "d_east_arcsec": -1.286,
+   "d_north_arcsec": -1.477,
+   "pred_east_arcsec": -1.034,
+   "pred_north_arcsec": -1.831,
+   "predicted_arcsec": 2.103,
+   "predicted_pa_deg": 209.5,
+   "angle_deg": 11.6,
+   "dev_sigma": 0.68,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    538.5,
+    549.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5273943488410008832",
+   "name": "Gaia DR3 5273943488410008832 (2MASS J07530814-6747314)",
+   "g": 13.777515,
+   "abs_g": 14.22,
+   "ruwe": 1.0526336,
+   "pm_mas_yr": 2090.87,
+   "measured": true,
+   "reason": null,
+   "ra": 118.311983,
+   "dec": -67.802815,
+   "search": "s3_index",
+   "n_photos": 639,
+   "det": 1,
+   "visits": [
+    1,
+    8
+   ],
+   "seconds": 221.6,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.319,
+   "sigma_arcsec": 0.638,
+   "n_ref_stars": 156,
+   "dt_yr": 1.087,
+   "pa_deg": 140.2,
+   "d_east_arcsec": 1.485,
+   "d_north_arcsec": -1.781,
+   "pred_east_arcsec": 1.66,
+   "pred_north_arcsec": -1.628,
+   "predicted_arcsec": 2.325,
+   "predicted_pa_deg": 134.4,
+   "angle_deg": 5.7,
+   "dev_sigma": 0.36,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    298.3,
+    382.4
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "266846631637525120",
+   "name": "Gaia DR3 266846631637525120",
+   "g": 15.707108,
+   "abs_g": 15.0,
+   "ruwe": 1.2557602,
+   "pm_mas_yr": 2030.03,
+   "measured": true,
+   "reason": null,
+   "ra": 75.862634,
+   "dec": 53.117497,
+   "search": "photo_lists",
+   "n_photos": 354,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 13.2,
+   "blend_arcsec": 5.64,
+   "blend_g": 9.219,
+   "shift_arcsec": 1.636,
+   "sigma_arcsec": 0.449,
+   "n_ref_stars": 268,
+   "dt_yr": 1.002,
+   "pa_deg": 117.7,
+   "d_east_arcsec": 1.448,
+   "d_north_arcsec": -0.761,
+   "pred_east_arcsec": 1.289,
+   "pred_north_arcsec": -1.573,
+   "predicted_arcsec": 2.034,
+   "predicted_pa_deg": 140.7,
+   "angle_deg": 23.0,
+   "dev_sigma": 1.84,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    530.1,
+    186.2
+   ],
+   "core_filled": [
+    true,
+    true
+   ]
+  },
+  {
+   "source_id": "3762231926405726720",
+   "name": "Gaia DR3 3762231926405726720 (2MASS J10430293-0912410)",
+   "g": 13.204992,
+   "abs_g": 12.77,
+   "ruwe": 12.9937935,
+   "pm_mas_yr": 2009.04,
+   "measured": true,
+   "reason": null,
+   "ra": 160.747434,
+   "dec": -9.208704,
+   "search": "photo_lists",
+   "n_photos": 296,
+   "det": 4,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 11.6,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.058,
+   "sigma_arcsec": 0.454,
+   "n_ref_stars": 30,
+   "dt_yr": 1.014,
+   "pa_deg": 275.1,
+   "d_east_arcsec": -2.049,
+   "d_north_arcsec": 0.184,
+   "pred_east_arcsec": -2.004,
+   "pred_north_arcsec": 0.374,
+   "predicted_arcsec": 2.039,
+   "predicted_pa_deg": 280.6,
+   "angle_deg": 5.4,
+   "dev_sigma": 0.43,
+   "n_exposures": [
+    10,
+    5
+   ],
+   "target_snr": [
+    4105.8,
+    5034.7
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "5985290231327158144",
+   "name": "Gaia DR3 5985290231327158144 (2MASS J15404341-5101357)",
+   "g": 12.7359295,
+   "abs_g": 14.1,
+   "ruwe": 1.0455922,
+   "pm_mas_yr": 1976.33,
+   "measured": true,
+   "reason": null,
+   "ra": 235.203797,
+   "dec": -51.029004,
+   "search": "photo_lists",
+   "n_photos": 384,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 25.5,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.946,
+   "sigma_arcsec": 0.399,
+   "n_ref_stars": 952,
+   "dt_yr": 0.999,
+   "pa_deg": 98.2,
+   "d_east_arcsec": 1.926,
+   "d_north_arcsec": -0.278,
+   "pred_east_arcsec": 1.947,
+   "pred_north_arcsec": -0.325,
+   "predicted_arcsec": 1.974,
+   "predicted_pa_deg": 99.5,
+   "angle_deg": 1.3,
+   "dev_sigma": 0.13,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    317.6,
+    279.6
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "3554395813252626048",
+   "name": "Gaia DR3 3554395813252626048",
+   "g": 15.440838,
+   "abs_g": 14.07,
+   "ruwe": 1.0258031,
+   "pm_mas_yr": 1962.56,
+   "measured": true,
+   "reason": null,
+   "ra": 161.3984,
+   "dec": -19.116872,
+   "search": "photo_lists",
+   "n_photos": 357,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 7.4,
+   "blend_arcsec": 6.62,
+   "blend_g": 10.291,
+   "shift_arcsec": 1.944,
+   "sigma_arcsec": 0.65,
+   "n_ref_stars": 33,
+   "dt_yr": 1.089,
+   "pa_deg": 259.0,
+   "d_east_arcsec": -1.908,
+   "d_north_arcsec": -0.372,
+   "pred_east_arcsec": -2.039,
+   "pred_north_arcsec": -0.643,
+   "predicted_arcsec": 2.138,
+   "predicted_pa_deg": 252.5,
+   "angle_deg": 6.5,
+   "dev_sigma": 0.46,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    9345.1,
+    8566.3
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6114232433761438208",
+   "name": "Gaia DR3 6114232433761438208 (2MASS J13580529-3937545)",
+   "g": 12.618702,
+   "abs_g": 12.3,
+   "ruwe": 1.2287332,
+   "pm_mas_yr": 1949.84,
+   "measured": true,
+   "reason": null,
+   "ra": 209.538809,
+   "dec": -39.638399,
+   "search": "photo_lists",
+   "n_photos": 435,
+   "det": 1,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 38.6,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.821,
+   "sigma_arcsec": 0.519,
+   "n_ref_stars": 170,
+   "dt_yr": 0.994,
+   "pa_deg": 110.2,
+   "d_east_arcsec": 1.708,
+   "d_north_arcsec": -0.629,
+   "pred_east_arcsec": 1.726,
+   "pred_north_arcsec": -0.884,
+   "predicted_arcsec": 1.939,
+   "predicted_pa_deg": 117.1,
+   "angle_deg": 6.9,
+   "dev_sigma": 0.49,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    1411.6,
+    2288.3
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "1334160263982413696",
+   "name": "Gaia DR3 1334160263982413696 (2MASS J17210390+3344160)",
+   "g": 18.55008,
+   "abs_g": 17.5,
+   "ruwe": 1.0250372,
+   "pm_mas_yr": 1947.39,
+   "measured": true,
+   "reason": null,
+   "ra": 260.249016,
+   "dec": 33.742307,
+   "search": "s3_index",
+   "n_photos": 380,
+   "det": 3,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 193.5,
+   "blend_arcsec": 6.75,
+   "blend_g": 18.405,
+   "shift_arcsec": 1.819,
+   "sigma_arcsec": 0.466,
+   "n_ref_stars": 89,
+   "dt_yr": 1.004,
+   "pa_deg": 286.8,
+   "d_east_arcsec": -1.742,
+   "d_north_arcsec": 0.525,
+   "pred_east_arcsec": -1.865,
+   "pred_north_arcsec": 0.593,
+   "predicted_arcsec": 1.957,
+   "predicted_pa_deg": 287.6,
+   "angle_deg": 0.9,
+   "dev_sigma": 0.3,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    182.1,
+    211.6
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "308256610357824640",
+   "name": "Gaia DR3 308256610357824640 (2MASS J01053732+2829339)",
+   "g": 12.949484,
+   "abs_g": 12.46,
+   "ruwe": 7.5190654,
+   "pm_mas_yr": 1926.77,
+   "measured": true,
+   "reason": null,
+   "ra": 16.422609,
+   "dec": 28.491306,
+   "search": "photo_lists",
+   "n_photos": 400,
+   "det": 5,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 27.9,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.111,
+   "sigma_arcsec": 0.625,
+   "n_ref_stars": 47,
+   "dt_yr": 1.008,
+   "pa_deg": 95.2,
+   "d_east_arcsec": 2.102,
+   "d_north_arcsec": -0.191,
+   "pred_east_arcsec": 1.933,
+   "pred_north_arcsec": -0.188,
+   "predicted_arcsec": 1.942,
+   "predicted_pa_deg": 95.5,
+   "angle_deg": 0.3,
+   "dev_sigma": 0.27,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    3563.2,
+    3423.0
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2183807118443409536",
+   "name": "Gaia DR3 2183807118443409536 (2MASS J20431920+5520521)",
+   "g": 12.920318,
+   "abs_g": 11.85,
+   "ruwe": 7.7298694,
+   "pm_mas_yr": 1919.02,
+   "measured": true,
+   "reason": null,
+   "ra": 310.841285,
+   "dec": 55.360451,
+   "search": "s3_index",
+   "n_photos": 468,
+   "det": 6,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 164.4,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.016,
+   "sigma_arcsec": 0.656,
+   "n_ref_stars": 334,
+   "dt_yr": 1.0,
+   "pa_deg": 31.6,
+   "d_east_arcsec": 1.056,
+   "d_north_arcsec": 1.718,
+   "pred_east_arcsec": 0.867,
+   "pred_north_arcsec": 1.711,
+   "predicted_arcsec": 1.918,
+   "predicted_pa_deg": 26.9,
+   "angle_deg": 4.7,
+   "dev_sigma": 0.29,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    602.7,
+    640.8
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "1076941716370493696",
+   "name": "Gaia DR3 1076941716370493696 (2MASS J10370282+7110592)",
+   "g": 16.611965,
+   "abs_g": 15.38,
+   "ruwe": 1.0175227,
+   "pm_mas_yr": 1914.31,
+   "measured": true,
+   "reason": null,
+   "ra": 159.218712,
+   "dec": 71.179626,
+   "search": "s3_index",
+   "n_photos": 271,
+   "det": 1,
+   "visits": [
+    1,
+    2
+   ],
+   "seconds": 158.4,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 0.807,
+   "sigma_arcsec": 0.526,
+   "n_ref_stars": 39,
+   "dt_yr": 0.511,
+   "pa_deg": 239.5,
+   "d_east_arcsec": -0.696,
+   "d_north_arcsec": -0.41,
+   "pred_east_arcsec": -1.021,
+   "pred_north_arcsec": -0.15,
+   "predicted_arcsec": 1.032,
+   "predicted_pa_deg": 261.6,
+   "angle_deg": 22.1,
+   "dev_sigma": 0.79,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    70.7,
+    87.9
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "2860957125517813248",
+   "name": "Gaia DR3 2860957125517813248 (2MASS J00072645+2914352)",
+   "g": 12.94541,
+   "abs_g": 11.32,
+   "ruwe": 1.1367979,
+   "pm_mas_yr": 1894.86,
+   "measured": true,
+   "reason": null,
+   "ra": 1.873834,
+   "dec": 29.234216,
+   "search": "photo_lists",
+   "n_photos": 348,
+   "det": 3,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 17.1,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.119,
+   "sigma_arcsec": 0.507,
+   "n_ref_stars": 50,
+   "dt_yr": 1.0,
+   "pa_deg": 133.6,
+   "d_east_arcsec": 0.81,
+   "d_north_arcsec": -0.771,
+   "pred_east_arcsec": 1.515,
+   "pred_north_arcsec": -1.137,
+   "predicted_arcsec": 1.894,
+   "predicted_pa_deg": 126.9,
+   "angle_deg": 6.7,
+   "dev_sigma": 1.56,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    3435.7,
+    3691.4
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6357629089412187648",
+   "name": "Gaia DR3 6357629089412187648 (2MASS J22303363-7515256)",
+   "g": 16.443058,
+   "abs_g": 15.56,
+   "ruwe": 0.95733833,
+   "pm_mas_yr": 1873.19,
+   "measured": true,
+   "reason": null,
+   "ra": 337.651355,
+   "dec": -75.269958,
+   "search": "s3_index",
+   "n_photos": 551,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 145.0,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.305,
+   "sigma_arcsec": 0.508,
+   "n_ref_stars": 65,
+   "dt_yr": 0.988,
+   "pa_deg": 178.4,
+   "d_east_arcsec": 0.066,
+   "d_north_arcsec": -2.304,
+   "pred_east_arcsec": 0.409,
+   "pred_north_arcsec": -1.807,
+   "predicted_arcsec": 1.853,
+   "predicted_pa_deg": 167.3,
+   "angle_deg": 11.1,
+   "dev_sigma": 1.19,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    73.4,
+    58.0
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "6357630601240673792",
+   "name": "Gaia DR3 6357630601240673792 (2MASS J22304008-7513567)",
+   "g": 16.185328,
+   "abs_g": 15.3,
+   "ruwe": 0.93442327,
+   "pm_mas_yr": 1871.52,
+   "measured": true,
+   "reason": null,
+   "ra": 337.678242,
+   "dec": -75.245202,
+   "search": "s3_index",
+   "n_photos": 547,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 102.4,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 2.454,
+   "sigma_arcsec": 0.487,
+   "n_ref_stars": 63,
+   "dt_yr": 0.989,
+   "pa_deg": 164.6,
+   "d_east_arcsec": 0.651,
+   "d_north_arcsec": -2.366,
+   "pred_east_arcsec": 0.41,
+   "pred_north_arcsec": -1.806,
+   "predicted_arcsec": 1.852,
+   "predicted_pa_deg": 167.2,
+   "angle_deg": 2.6,
+   "dev_sigma": 1.25,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    73.1,
+    60.5
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  },
+  {
+   "source_id": "294014808041906688",
+   "name": "Gaia DR3 294014808041906688 (2MASS J01162893+2419282)",
+   "g": 13.6215315,
+   "abs_g": 11.96,
+   "ruwe": 1.3748362,
+   "pm_mas_yr": 1811.48,
+   "measured": true,
+   "reason": null,
+   "ra": 19.134977,
+   "dec": 24.319193,
+   "search": "photo_lists",
+   "n_photos": 334,
+   "det": 2,
+   "visits": [
+    1,
+    3
+   ],
+   "seconds": 16.3,
+   "blend_arcsec": null,
+   "blend_g": null,
+   "shift_arcsec": 1.87,
+   "sigma_arcsec": 0.39,
+   "n_ref_stars": 36,
+   "dt_yr": 1.009,
+   "pa_deg": 109.9,
+   "d_east_arcsec": 1.758,
+   "d_north_arcsec": -0.638,
+   "pred_east_arcsec": 1.694,
+   "pred_north_arcsec": -0.685,
+   "predicted_arcsec": 1.827,
+   "predicted_pa_deg": 112.0,
+   "angle_deg": 2.1,
+   "dev_sigma": 0.2,
+   "n_exposures": [
+    10,
+    10
+   ],
+   "target_snr": [
+    3126.0,
+    2904.1
+   ],
+   "core_filled": [
+    false,
+    false
+   ]
+  }
+ ]
+}

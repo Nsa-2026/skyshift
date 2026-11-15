@@ -156,6 +156,17 @@ const LINES: Record<string, Writer> = {
     typeof c.value === "number" && c.value >= 0 && c.value <= 1
       ? `Found ${pct(c.value)} of bright known asteroids without being told where to look.`
       : null,
+  V6: (_c, h) => {
+    const m = /^(\d+) of (\d+) fastest Gaia stars measured: slope (\d+(?:\.\d+)?)/.exec(h.trim());
+    if (!m) return null;
+    const who = m[1] === m[2] ? `All ${m[2]}` : `${m[1]} of ${m[2]}`;
+    return `${who} of the fastest Gaia stars moved as predicted, within ${offBy(Number(m[3]))}.`;
+  },
+  V7: (_c, h) => {
+    const m = /^(\d+) of (\d+) brown dwarfs/.exec(h.trim());
+    if (!m) return null;
+    return `${m[1]} of ${m[2]} brown dwarfs with a visible yearly shift moved the predicted way.`;
+  },
   V8: (c, h) => {
     const ratios = [...h.matchAll(/\b(?:Ks|W1) (\d+\.\d+)\b/g)].map((m) => Number(m[1]));
     if (!ratios.length && c.unit === "ratio" && typeof c.value === "number") ratios.push(c.value);

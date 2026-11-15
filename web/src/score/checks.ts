@@ -12,10 +12,8 @@ export interface CheckInfo {
   plain: string;
   /** The target set before the run. */
   expected: string;
-  /** Unit of `value` once published (contracts/api.md), null when the check is cut. */
+  /** Unit of `value` once published (contracts/api.md). */
   unit: string | null;
-  /** Cut from the one-day build (S2, S3): stays pending. */
-  cut?: boolean;
   /** What the published number does and doesn't cover, shown under it once it's run. */
   scope?: string;
 }
@@ -72,16 +70,15 @@ export const CHECKS: CheckInfo[] = [
     plain:
       "The 40 fastest Gaia stars fainter than G 12: measured motion against Gaia's, which should line up with a slope near 1.",
     expected: "Slope near 1",
-    unit: null,
-    cut: true,
+    unit: "slope",
   },
   {
     id: "V7",
     claim: "Brown dwarfs (S3)",
-    plain: "Known brown dwarfs moving faster than 1″ a year: how many shift in the direction they should.",
+    plain:
+      "Brown dwarfs moving faster than 1″ a year (Gaia's ultracool dwarfs and WISE 0855): how many shift in the direction they should.",
     expected: "A count",
-    unit: null,
-    cut: true,
+    unit: "objects",
   },
   {
     id: "V8",
@@ -131,7 +128,7 @@ function pendingCheck(c: CheckInfo): ValidationCheck {
     id: c.id,
     claim: c.claim,
     status: "pending",
-    headline: c.cut ? "Cut from the one-day build" : "Not run yet",
+    headline: "Not run yet",
     value: null,
     unit: null,
     expected: c.expected,

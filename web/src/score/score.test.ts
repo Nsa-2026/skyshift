@@ -261,7 +261,7 @@ describe("pending state", () => {
     expect(d.querySelector(".sc-num")).toBeNull();
     expect(text(d.querySelector(".sc-summary"))).toMatch(/^None of the eleven checks has run yet\./);
     expect(d.querySelector(".sc-meta")).toBeNull();
-    expect(text(d.querySelector("#sc-V6 .sc-measured"))).toBe("Cut from the one-day build.");
+    expect(text(d.querySelector("#sc-V6 .sc-measured"))).toBe("Not run yet.");
     expect(d.querySelector(".sc-suspect-table")).toBeNull();
     expect(text(d.querySelector(".sc-suspects"))).toContain("The list of suspects comes after the hunt-zone run.");
     expect(d.querySelector(".sc-synthetic")).toBeNull();

@@ -194,10 +194,13 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
     return `<g class="atl-svg-mark${selected ? " is-selected" : ""}${muted ? " is-gradec" : ""}"><path class="atl-svg-halo" d="${d}"/><path d="${d}" stroke="${color}"/>${reticle}</g>`;
   }
 
-  /** An object in the middle range: a small dot in its kind's pencil. */
+  /** Hollow rings and diamonds match the survey annotations without covering the source. */
   function dotSvg(c: Candidate, at: Vec): string {
     const kind = isGradeC(c) ? " is-gradec" : c.kind === "spectral" ? " is-spectral" : "";
-    return `<circle class="atl-svg-dot${kind}" cx="${f1(at.x)}" cy="${f1(at.y)}" r="2.6"/>`;
+    const geometry = c.kind === "spectral"
+      ? `path d="M${diamond(at.x, at.y, 3.5).map((p) => `${f1(p.x)} ${f1(p.y)}`).join("L")}Z"`
+      : `circle cx="${f1(at.x)}" cy="${f1(at.y)}" r="3"`;
+    return `<${geometry} class="atl-svg-dot-halo"/><${geometry} class="atl-svg-dot${kind}"/>`;
   }
 
   function render() {

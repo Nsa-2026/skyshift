@@ -13,7 +13,8 @@ this folder (`pyproject.toml` + `uv.lock`). Archive state: 14 Nov 2026 (SPHEREx 
 | `v1_targets.py` | V1: per target, visit and detector, a median stack of up to 5 photos (41 px boxes; every photo for WISE 0855) and a 5σ source within 2 px of the predicted position. | `data/v1_targets.json` |
 | `v4_asteroids.py` | V4: asteroids 1–60 at MOST's predicted position in up to 5 photos each (81 px boxes, D2–D3), absent from a reference stack of the same sky 0.25–12 days away; control 3′ away. | `data/v4_asteroids.json`, `data/v4_photos.csv` |
 | `v8_spectra.py` | V8 spectra half, per pipeline zone (default hunt and pilot): every star's 102-channel spectrum (pipeline `sources.parquet`) averaged over 2MASS Ks and WISE W1, against the catalogue magnitudes in `crossids.parquet`. | `data/v8_spectra_<zone>.json` |
-| `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V8 from `v8_spectra_<zone>.json` + `data/demo_check.json` (`demo_check.py --json`; `--demo-check PATH` overrides), V11 from `scripts/science`. Missing inputs → `pending`. Status rules are small pure functions (`v1_status` … `v10_status`, tested in `tests/test_build_validation.py`); every note ends with the row keys. Zones: see "Two zones" below. Also writes the zones' merged `suspects.json`. | `web/public/data/validation.json`, `web/public/data/suspects.json` |
+| `v6_v7_motion.py` | V6 and V7, run from `server/` (it imports skyshift_server, like scripts/precompute): V2's measurement (`obj.measure`, the code behind /api/object) on the 40 fastest Gaia stars with G > 12 (V6) and on Gaia's ultracool dwarfs faster than 1″/yr plus WISE 0855 (V7). `--select GCNS_CSV` writes the two lists; `_motion.py` holds the cuts, the predicted shift (proper motion + parallax between the two stacks' median times), the slope fit and the direction test. | `data/v6_stars.json`, `data/v7_dwarfs.json` (lists); `data/v6_fast_stars.json`, `data/v7_brown_dwarfs.json` |
+| `build_validation.py` | Collects V1–V11 into the contract's `validation.json`: V1/V4 from here, V2/V3 from each target's `object.json`, V5/V9/V10 from the pipeline's reports, V6/V7 from `v6_v7_motion.py`'s files, V8 from `v8_spectra_<zone>.json` + `data/demo_check.json` (`demo_check.py --json`; `--demo-check PATH` overrides), V11 from `scripts/science`. Missing inputs → `pending`. Status rules are small pure functions (`v1_status` … `v10_status`, tested in `tests/test_build_validation.py`; `_motion.py` in `tests/test_motion.py`); every note ends with the row keys. Zones: see "Two zones" below. Also writes the zones' merged `suspects.json`. | `web/public/data/validation.json`, `web/public/data/suspects.json` |
 | `distant.py` | The distant-planet search for the results page (contracts/api.md v3.6): the pipeline step `orphans`' `distant.json` (`<results>/<zone>/distant.json` once `--fetch-results` finds it in the bucket, else the committed `data/distant_<zone>.json`) plus the injection below, mapped onto the contract. `build_validation.py` calls it too. Tested in `tests/test_distant.py`. | `web/public/data/distant.json` |
 | `distant_injection.py` | How sensitive the distant search is: 522 made-up planets at 70–1000 AU at the zone's real cadence, added to the real orphans and paired by the step's own code (table-level: detection and linking are not tested). Runs with the **pipeline's** environment on a local root holding the zone's photo list, `orphans.parquet` and `sources.parquet`; no other reads. | `data/distant_injection_<zone>.json` |
 | `_boxes.py` | Box reads from S3 (cached in `.cache/boxes/`), reference stacks resampled through the WCS, `source_near` (with the saturated-core fit). | |
@@ -31,6 +32,8 @@ uv run python build_validation.py --site-data ../../web/public/data --fetch-resu
                                          # both zones' reports (hunt headline, pilot kept); --zones pilot for one;
                                          # V8 speed from data/demo_check.json (--demo-check PATH overrides)
 uv run python distant.py                 # web/public/data/distant.json only (no other file touched)
+(cd ../../server && uv run python ../scripts/validate/v6_v7_motion.py)
+                                         # V6 + V7, ~10 min with 6 workers (64 objects, S3 range reads); --only v7, --limit N
 uv run pytest                            # offline
 ```
 
@@ -240,9 +243,34 @@ suspects inside the pilot box are exactly the pilot's 27, so `suspects.json` hol
   (17″/h) seen in two sessions.
 The previous site file (12:13Z, 26 pilot suspects) predates the MPC rerun; the 13:12Z pilot run gives 27.
 
-**High proper motion (no check of its own, V6 is cut).** Hunt: 997 candidates, 64 vetted, 0 new; the
+**High proper motion in the zones (the pipeline's search; V6 below checks the measurement on known fast stars).** Hunt: 997 candidates, 64 vetted, 0 new; the
 pair method doesn't beat its control in any separation bin. 55 of the 104 Gaia stars faster than 200 mas/yr
 that were detected are recovered (pilot 7 of 13).
+
+**V6 and V7 (15 Nov): V2's measurement on 40 fast stars and 25 brown dwarfs. Both pass.** `v6_v7_motion.py`
+runs `obj.measure` (first and last visit stacks of the best unsaturated detector, quiet Gaia stars as the
+frame) on each object and compares the shift with Gaia's proper motion and parallax over the same dates.
+- **V6: slope 0.943 ± 0.029, RMS 0.6″, 40 of 40 measured, 39 of 40 within 3σ.** Predicted shifts 1.0–5.1″.
+  6 stars have a Gaia star no more than 1 mag fainter within the 12.3″ centroid search radius (flagged from Gaia
+  before the measurement). Without them the slope is 0.972 ± 0.019. The worst is the white dwarf
+  6165095738576250624: 0.14″ for 2.52″, with a G 14.0 star 7.3″ away. The status uses all 40.
+- **V7: 8 of 10, value 8.** 24 of 25 measured (2MASS J18560903−0822382 not detected). 23 of 24 agree with
+  the prediction within 3σ. Only 10 are predicted to move at least 3σ between visits. The other 14 move
+  0.5–1.6″ against errors of 0.4–0.9″. "The predicted way" means at least 3σ and within 30°. Of the 10,
+  8 pass. 4996141155411984128 (4.91″ for 1.64″) locks onto a bright source (detection S/N 4,600–8,000).
+  6060561079334177664 is faint (S/N 24). **The counting rule was set after the first run.** That run
+  counted every measured dwarf and got 9 of 24. Most dwarfs can't show a 3σ shift in one year, so the rule
+  now counts only the dwarfs whose predicted shift is ≥ 3σ, decided from Gaia and the error bar, never
+  from the measurement. The note on the site prints both counts.
+- **The lists.** V6: the 40 fastest stars with G > 12. V7: Gaia's ultracool dwarfs faster than 1″/yr
+  (absolute G > 16.5, G − RP > 1.5, parallax at 10σ) plus WISE 0855−0714. Both come from GCNS (Gaia EDR3
+  within 100 pc, GAVO DC `gcns.main`; EDR3 astrometry is DR3's). The ESA Gaia archive timed out on 15 Nov,
+  and Gagné's list needs CDS, which is down. Saved as `data/v6_stars.json` and `data/v7_dwarfs.json`.
+- **Outages on 15 Nov, and what replaced them.** IRSA's image search (502): the whole-sky photo lists, and
+  where none reaches, the pipeline's index of every file on S3 (`photolists/s3index/`, copied to `.cache/`).
+  Gaia cones: the ARI Heidelberg mirror of `gaiadr3.gaia_source`. Pixels: `SKYSHIFT_PIXELS=s3first`. Plain
+  `s3` hung in fsspec, which has no timeouts.
+- `build_validation.py --only V6,V7` recomputes just these two checks and keeps the others as published.
 
 What we learned:
 - **Saturated cores bias sep's centroid by 1–2 px.** Barnard's Star in D6: sep put it 1.75 px

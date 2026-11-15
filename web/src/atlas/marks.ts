@@ -119,6 +119,50 @@ export interface MarkStyle {
   muted?: boolean;
 }
 
+/** Cool, readable annotation colours over real survey imagery; the plate negative keeps its ink. */
+export function signalInk(ink: Ink, negative: boolean): Ink {
+  return negative ? ink : { ...ink, red: "#8bc8db", violet: "#baa9e6", ink2: "#8898a8", glass: "#07121e", ink: "#e5f3fc" };
+}
+
+function focusCorners(ctx: CanvasRenderingContext2D, ink: Ink, x: number, y: number, r: number) {
+  for (const [color, width] of [[ink.glass, 3.5], [ink.ink, 1.25]] as const) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
+      ctx.moveTo(x + dx * (r - 4), y + dy * r);
+      ctx.lineTo(x + dx * r, y + dy * r);
+      ctx.lineTo(x + dx * r, y + dy * (r - 4));
+    }
+    ctx.stroke();
+  }
+}
+
+/** Compact, hollow overview marks leave the observed source visible at their centre. */
+export function drawSignalDot(ctx: CanvasRenderingContext2D, ink: Ink, kind: CandidateKind, x: number, y: number, style: MarkStyle = {}): void {
+  ctx.save();
+  ctx.lineJoin = "round";
+  const active = style.hovered || style.selected;
+  const r = active ? 4.5 : 3;
+  const color = style.muted ? ink.ink2 : kind === "spectral" ? ink.violet : ink.red;
+  for (const [stroke, width, alpha] of [[ink.glass, 3.75, 1], [color, active ? 1.65 : 1.25, active ? 1 : style.muted ? 0.65 : 0.88]] as const) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    if (kind === "spectral") {
+      const points = diamond(x, y, r + 0.5);
+      ctx.moveTo(points[0].x, points[0].y);
+      for (const p of points.slice(1)) ctx.lineTo(p.x, p.y);
+      ctx.closePath();
+    } else ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (active) focusCorners(ctx, ink, x, y, style.selected ? 12 : 10);
+  ctx.restore();
+}
+
 function line(ctx: CanvasRenderingContext2D, a: Vec, b: Vec) {
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
@@ -140,10 +184,10 @@ export function drawSignal(
   ctx.lineJoin = "round";
   const color = style.muted ? ink.ink2 : kind === "spectral" ? ink.violet : ink.red;
   const alpha = style.hovered || style.selected ? 1 : style.muted ? 0.6 : 0.85;
-  // A glass halo under the stroke keeps the mark legible on busy sky.
+  // A narrow contrasting under-stroke separates the annotation from the survey, without bloom.
   const passes: [string, number, number][] = [
-    [ink.glass, style.selected ? 6 : 4, style.muted ? 0.5 : 0.75],
-    [color, style.selected ? 2.5 : 1.5, alpha],
+    [ink.glass, style.selected ? 4.5 : 3.75, 1],
+    [color, style.selected || style.hovered ? 1.9 : 1.4, alpha],
   ];
   for (const [stroke, width, alpha] of passes) {
     ctx.strokeStyle = stroke;
@@ -170,25 +214,7 @@ export function drawSignal(
     }
     ctx.stroke();
   }
-  if (style.selected) {
-    // An open reticle round the chosen one: four ticks with a gap, as on the plate.
-    ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = ink.ink;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    const r0 = 13;
-    const r1 = 19;
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]) {
-      ctx.moveTo(x + dx * r0, y + dy * r0);
-      ctx.lineTo(x + dx * r1, y + dy * r1);
-    }
-    ctx.stroke();
-  }
+  if (style.selected || style.hovered) focusCorners(ctx, ink, x, y, style.selected ? 18 : 14);
   ctx.restore();
 }
 
