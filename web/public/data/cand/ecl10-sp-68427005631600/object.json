@@ -1,0 +1,1 @@
+{"name":null,"gaia":null,"known_ucd":null,"spectrum":[{"um":2.1476,"flux_ujy":1320.9,"err_ujy":75.4,"det":3,"mjd":60953.648693,"visit":1,"saturated":false},{"um":2.8739,"flux_ujy":927.4,"err_ujy":62.9,"det":4,"mjd":61128.720913,"visit":2,"saturated":false}],"spectrum_reason":null,"measure":null,"measure_reason":"no_time","measure_hint":null}
