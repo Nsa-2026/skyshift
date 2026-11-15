@@ -162,6 +162,55 @@
     top: 0;
     z-index: 3;
   }
+  /* The divider beside the plate (product/panels.ts): drag it to size the plate's column. */
+  .page-blink:not([data-practice="true"]) .vw-side {
+    position: relative;
+  }
+  .page-blink:not([data-practice="true"]) .vw-split {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(-1 * var(--s7) / 2 - 8px);
+    width: 16px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 4;
+  }
+  #app .page-blink[data-plate-col] {
+    grid-template-columns: minmax(0, min(var(--vw-plate-col), 100svh - 72px, 100% - 380px)) minmax(340px, 1fr);
+  }
+  /* A wider column makes a larger plate, as long as the plate and its two edges fit the window. */
+  #app .page-blink[data-plate-col] .bk-col {
+    width: min(100%, calc(100svh - 96px));
+  }
+}
+.vw-split {
+  display: none;
+}
+.vw-split-knob {
+  position: sticky;
+  top: 50vh;
+  display: block;
+  width: 4px;
+  height: 56px;
+  margin: 0 auto;
+  border-radius: 2px;
+  background: rgba(219, 232, 244, 0.35);
+  transition: background 0.15s;
+}
+.vw-split:hover .vw-split-knob,
+.vw-split:focus-visible .vw-split-knob,
+html.vw-splitting .vw-split-knob {
+  background: var(--pencil-blue);
+}
+.vw-split:focus-visible {
+  outline: none;
+}
+html.vw-splitting,
+html.vw-splitting * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 .page-blink[hidden],
 .page-score[hidden] {
