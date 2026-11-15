@@ -111,3 +111,11 @@ def test_build_mover_checked_retries_once(monkeypatch, attempts, ok, refreshes):
     monkeypatch.setattr(F, "build_mover", fake)
     assert (F.build_mover_checked(c, cache=None) is not None) == ok
     assert calls == refreshes
+
+
+def test_mpc_index_ok_false_without_the_index(tmp_path, monkeypatch):
+    """An empty cache: the static build must stop rather than write frames without known objects."""
+    from skyshift_server import known
+    from skyshift_server.cache import Cache
+    monkeypatch.setattr(known, "_index", None)
+    assert not F.mpc_index_ok(Cache(str(tmp_path)))
