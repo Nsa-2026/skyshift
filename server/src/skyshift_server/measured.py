@@ -49,7 +49,7 @@ from skyshift_core.planets import near_planets, planet_label
 
 log = logging.getLogger(__name__)
 
-VERSION = "1"  # part of the frames cache key (app.py)
+VERSION = "2"  # part of the frames cache key (app.py); 2: planets known (v3.18), every photo of a visit
 DATA_ROOT = os.environ.get("SKYSHIFT_DATA_ROOT") or "gs://nasa-glazing-data"
 
 SOURCE_MATCH_ARCSEC = 4.0    # a dot belongs to a linked source within this (link's FoF radius)

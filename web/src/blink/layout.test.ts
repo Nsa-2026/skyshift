@@ -118,9 +118,9 @@ describe("circle and ring sizes", () => {
     expect(lone.r).toBe(circleRadius(6, 5) + ringGap(circleRadius(6, 5)));
   });
 
-  it("a circle never swallows a neighbouring detection", () => {
+  it("a circle never swallows a neighbouring detection: neighbours' circles meet", () => {
     const p = planMarks([], [det(0, 100, 100, 30), det(1, 120, 100, 0)], O);
-    expect(p.circles[0].r).toBe(15); // 0.75 × 20 px, not 32
+    expect(p.circles[0].r).toBe(10); // half of 20 px, not 32
   });
 });
 
@@ -208,6 +208,41 @@ describe("blends", () => {
     expect(two.rings).toHaveLength(2);
     const faint = planMarks([star("a", 100, 100, 6, { g: 12 }), star("b", 100 + near, 100, 2, { g: 16.5 })], [det(0, 100, 100, 6, { gaiaId: "a" })], O);
     expect(faint.circles[0].blend).toBeUndefined();
+    // The far fainter partner is lost in a's light: one ring, not a second one over the first.
+    expect(faint.rings.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("one ring per blob with the measured layer off too: a close pair nobody detected apart is one ring with two dots", () => {
+    const off = { ...O, measured: false };
+    const p = planMarks([star("a", 100, 100, 6, { g: 13 }), star("b", 100 + near, 100, 5, { g: 14.5 })], [], off);
+    expect(p.rings).toHaveLength(1);
+    expect(p.rings[0].blend!.map((b) => b.id)).toEqual(["a", "b"]);
+    expect(p.rings[0].r).toBeGreaterThan(near);
+    // Detected apart (each matched in some photo): two rings, each no wider than half the way to the other plus the gap.
+    const two = planMarks(
+      [star("a", 100, 100, 12, { g: 13, detected: true }), star("b", 124, 100, 12, { g: 14.5, detected: true })],
+      [],
+      off,
+    );
+    expect(two.rings).toHaveLength(2);
+    for (const r of two.rings) expect(r.r).toBeLessThanOrEqual(12 + ringGap(O.floor) + 1e-9);
+  });
+
+  it("a faint star inside a bright star's blob gets no ring of its own", () => {
+    // Barnard's months plate: faint Gaia stars in a bright star's halo got rings over its blob.
+    const p = planMarks([star("big", 100, 100, 18, { g: 11 }), star("f1", 112, 96, 4, { g: 16.2 }), star("f2", 90, 110, 4, { g: 13 })], [], {
+      ...O,
+      measured: false,
+    });
+    expect(p.rings).toHaveLength(1);
+    expect(p.rings[0].id).toBe("big");
+    expect(p.rings[0].blend!.map((b) => b.id)).toEqual(["big", "f2"]); // within 3 mag: a dot in its ring; f1: lost
+  });
+
+  it("hides a stack-only dot in a bright star's glow, as a piece of it", () => {
+    const p = planMarks([star("big", 100, 100, 30, { g: 10 })], [det(0, 115, 100, 2, { cls: "stack" }), det(1, 200, 200, 2, { cls: "stack" })], O);
+    expect(p.hidden.get(0)).toBe("big");
+    expect(p.circles.map((c) => c.i)).toEqual([1]);
   });
 
   it("reads the server's blend_gaia_ids when present", () => {

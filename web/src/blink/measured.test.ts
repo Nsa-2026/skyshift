@@ -527,10 +527,15 @@ describe("the Viewer's plain version", () => {
     expect(plainVerdict({ draw: true, why: "ok" } as never)).toBe("");
   });
 
-  it("circles only what a visitor can act on", () => {
-    expect(["suspect", "known", "mover", "star"].every((c) => viewerShows(c as never))).toBe(true);
-    expect(["artifact", "other", "stack"].some((c) => viewerShows(c as never))).toBe(false);
-    expect(viewerShows("suspect", "C")).toBe(false);
+  it("circles every real source the plate shows, and no camera glitch or grade C suspect", () => {
+    expect(["suspect", "known", "mover", "star", "other"].every((c) => viewerShows(c as never))).toBe(true);
+    // Stack-only sources: Advanced only (plain, they read as circles on blank sky).
+    expect(viewerShows("stack")).toBe(false);
+    expect(viewerShows("stack", null, true)).toBe(true);
+    for (const advanced of [false, true]) {
+      expect(viewerShows("artifact", null, advanced)).toBe(false);
+      expect(viewerShows("suspect", "C", advanced)).toBe(false);
+    }
   });
 });
 

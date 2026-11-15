@@ -12,8 +12,11 @@ import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } f
 import type { BlinkHandle, BlinkOptions, MountBlink, TrackMarks, TrackSpot, View } from "../app/modules";
 import { nearestIndex, type Axis } from "./axis";
 import { SPHEREX_V_LIMIT, seenBySpherex } from "./known";
+import { besideArrow, LabelSpace, type Disc } from "./labels";
 import { planMarks, type Plan, type PlanDet, type PlanStar } from "./layout";
-import { arrowPath, bigStar, compass, diamond, factorSpot, flagMark, hatchPattern, label, measuredMark, pencil, reticle, ring, scaleBar } from "./marks";
+import { arrowBarbs, arrowPath, bigStar, compass, diamond, flagMark, hatchPattern, label, measuredMark, pencil, reticle, ring, scaleBar } from "./marks";
+import { engineNow, loadEngine, nearEcliptic, planetsWithin, type PlanetSpot } from "./planets";
+import { getsRing, ringLimitG, standsOutAt, type SeenStar } from "./rings";
 import {
   burntCores,
   fillHoles,
@@ -44,7 +47,6 @@ import {
   plainBlendWords,
   plainShiftWords,
   viewerShows,
-  VIEWER_HIDDEN,
   withoutArtefacts,
   stageLabel,
   CLASS_ORDER,
@@ -76,6 +78,7 @@ import {
 import { driftPx, findMover, followShifts, type Mover } from "./motion";
 import { buildLut, diffIndex, fade, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
 import { drawStrip, plateDate, updateStrip } from "./strip";
+import { getDetails, onDetails } from "../prefs/details";
 
 type Mode = "blink" | "difference" | "stack";
 const DETS: Det[] = [1, 2, 3, 4, 5, 6];
@@ -84,6 +87,8 @@ const PSF_FWHM_ARCSEC = 7.53;
 const FAST_STAR_MAS_YR = 300;
 /** At most this many Gaia rings on a 680 px plate (fewer on a smaller one): the brightest win. */
 const MAX_RINGS = 80;
+/** The ring limit is measured on at most this many of a plate's photos (rings.ts). */
+const CAL_FRAMES = 12;
 /** Gaia stars brighter than this saturate SPHEREx (CLAUDE.md: J_AB 10.5 to W2_AB 9.0 at 50%). */
 const SATURATED_G = 9;
 /** A source "shows" on the plate down to this grey (0–1 of the stretch), or 2σ over the sky if higher. */
@@ -172,12 +177,17 @@ const icon = {
 /** The measured marks as small SVGs for the legend and the list: the same shapes as on the plate (marks.ts). */
 const GLYPH_PATH: Record<MeasuredClass, string> = {
   star: `<circle cx="9" cy="9" r="5"/>`,
-  other: `<circle cx="9" cy="9" r="5" stroke-dasharray="0.01 3" stroke-width="1.8"/>`,
+  other: `<circle cx="9" cy="9" r="5" stroke-width="1.3"/>`,
   known: `<circle cx="9" cy="9" r="3.6"/><circle cx="9" cy="9" r="6.6"/>`,
   mover: `<circle cx="9" cy="9" r="4.2"/><path d="M1 9h2.6M14.4 9H17"/>`,
   suspect: `<circle cx="9" cy="9" r="5" stroke-width="2.4"/>`,
   artifact: `<circle cx="9" cy="9" r="5"/><path d="M5.5 12.5l7-7"/>`,
-  stack: `<circle cx="9" cy="9" r="5" stroke-dasharray="2.2 2.2" stroke-width="1.3"/>`,
+  stack: `<circle cx="9" cy="9" r="5" stroke-dasharray="3 2.2" stroke-width="1.3"/>`,
+};
+/** The Viewer's legend in plain words, where they differ from the To check plate's (CLASS_INFO). */
+const VIEWER_NAME: Partial<Record<MeasuredClass, string>> = {
+  other: "Source Gaia doesn't list",
+  stack: "Seen only when photos are added up",
 };
 const glyph = (c: MeasuredClass, grade?: string | null) =>
   `<svg class="bk-mg" data-cls="${c}"${grade ? ` data-grade="${grade}"` : ""} viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${GLYPH_PATH[c] ?? GLYPH_PATH.other}</svg>`;
@@ -192,6 +202,25 @@ const TRACK_DASH = [4, 3.5];
 const TRACK_GLYPH = (dashed: boolean) =>
   `<svg class="bk-mg" data-cls="track" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="6"${dashed ? ` stroke-dasharray="3 2.6"` : ""}/></svg>`;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/** A word waiting for its spot on the plate (labels.ts): beside the mark `at`, lowest `prio` placed first. */
+interface Word {
+  text: string;
+  at: Disc;
+  color: string;
+  font: string;
+  prio: number;
+  /** Directions to try (radians, screen y down); default lower right first, then round the mark. */
+  angles?: number[];
+  /** Space between the mark and the word, px. */
+  gap?: number;
+  /** A suspect's grade whose circle the candidate's red circle replaced: it moves beside that circle. */
+  onTrack?: boolean;
+}
+/** Names read best to the right of their mark, as before; then round it. */
+const RIGHT_FIRST = [0, 45, -45, 180, 135, -135, 90, -90].map((d) => (d * Math.PI) / 180);
+/** A suspect's grade: upper right of its circle, as before; then round it. */
+const GRADE_FIRST = [-45, 45, -135, 135, 0, 180, -90, 90].map((d) => (d * Math.PI) / 180);
 
 export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): BlinkHandle => {
   const uid = `bk${++mounts}`;
@@ -476,6 +505,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let measMore = false;
   /** How far sources reach on the shown plate (image pixels), by position: reset when the plate or its stretch changes. */
   let reachCache: { vals: Float32Array | null; floor: number; m: Map<string, number> } = { vals: null, floor: NaN, m: new Map() };
+  /** The plate's ring limit and the Gaia stars its detections matched (rings.ts), for these frames and this measured layer. */
+  let ringCal: { frames: Frame[]; meas: Measured | null; limit: number | null; matched: Set<string> } | null = null;
+  /** Planets near the field, by time and centre (planets.ts); filled once the ephemeris has loaded. */
+  const planetCache = new Map<string, PlanetSpot[]>();
+  let planetWait = false;
   /** The arrows of the last draw, by shift index: the list's focus ring follows them. */
   let shiftArrows = new Map<number, Arrow>();
   /** Suspect grades by track and by source (tracks and shifts carry none themselves). */
@@ -872,6 +906,81 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     return { x, y, w };
   }
 
+  /**
+   * How deep this plate goes (rings.ts `ringLimitG`), from its own pixels: for each Gaia star, the
+   * photos with data at its place and the photos that show a dot there (6σ over its local sky). Over
+   * the photos blinked here (up to CAL_FRAMES of them, spread out), so the rings hold still from
+   * photo to photo. Also the Gaia stars a detection matched in any of them: SkyShift sees those on
+   * their own (layout.ts plans one ring per blob with it).
+   */
+  function ringCalibration(): { limit: number | null; matched: Set<string> } {
+    if (ringCal && ringCal.frames === frames && ringCal.meas === meas) return ringCal;
+    const matched = new Set<string>();
+    const here = new Set(frames.map((f) => f.epoch.id));
+    for (const d of meas?.detections ?? []) if (d.gaia_id && here.has(d.epoch_id)) matched.add(d.gaia_id);
+    let limit: number | null = null;
+    if (F && frames.length) {
+      const f0 = F;
+      const [nx, ny] = size();
+      const annulus = Math.max(3, Math.round(1.6 * (PSF_FWHM_ARCSEC / f0.pixel_arcsec)));
+      const step = Math.max(1, Math.ceil(frames.length / CAL_FRAMES));
+      const use = frames.map((f, i) => ({ f, i })).filter(({ i }) => i % step === 0);
+      const seen: SeenStar[] = [];
+      for (const s of f0.gaia) {
+        if (s.g == null) continue;
+        let covered = 0;
+        let hits = 0;
+        for (const { f, i } of use) {
+          if (f.vals.length !== nx * ny) continue;
+          const px = skyToPixel(gaiaAt(s, f.epoch.mjd_mid), f0, centreOf(f.epoch));
+          if (px.x < 0 || px.y < 0 || px.x > nx - 1 || px.y > ny - 1) continue;
+          const b = burntOf(i);
+          if (noDataAt(f.vals, b, nx, ny, px.x, px.y)) continue;
+          covered++;
+          if (standsOutAt(f.vals, b, nx, ny, px.x, px.y, annulus, f.sigma)) hits++;
+        }
+        if (covered) seen.push({ g: s.g, frames: covered, hits });
+      }
+      limit = ringLimitG(seen);
+    }
+    ringCal = { frames, meas, limit, matched };
+    return ringCal;
+  }
+
+  /**
+   * Planets in or near the field at this time (planets.ts). The ephemeris loads only for a plate
+   * near the ecliptic, the first time one draws; the plate draws again once it has.
+   */
+  function planetsAt(mjd: number, c: SkyPos): PlanetSpot[] {
+    if (!F) return [];
+    const [nx, ny] = size();
+    // Half the plate's diagonal, plus a margin for a big disc just past the edge.
+    const radius = (Math.hypot(nx, ny) / 2) * (F.pixel_arcsec / 3600) + 0.05;
+    if (!nearEcliptic(c, radius)) return [];
+    const A = engineNow();
+    if (!A) {
+      if (!planetWait) {
+        planetWait = true;
+        loadEngine().then(
+          () => {
+            planetWait = false;
+            if (!destroyed) draw();
+          },
+          () => {}, // no ephemeris (offline): no planet names, and no retry on every draw
+        );
+      }
+      return [];
+    }
+    const k = `${mjd.toFixed(4)}|${c.ra.toFixed(5)}|${c.dec.toFixed(5)}|${radius.toFixed(3)}`;
+    let list = planetCache.get(k);
+    if (!list) {
+      list = planetsWithin(A, c, radius, mjd);
+      planetCache.set(k, list);
+      if (planetCache.size > 400) planetCache.delete(planetCache.keys().next().value as string);
+    }
+    return list;
+  }
+
   function drawMarks(vp: VP) {
     if (!ctx || !F || !view) return;
     const e = allAtOnce() ? null : shownEpoch();
@@ -892,34 +1001,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const [nx, ny] = size();
     const fwhmPx = PSF_FWHM_ARCSEC / F.pixel_arcsec;
     const annulus = Math.max(3, Math.round(1.6 * fwhmPx));
-    /** Does the plate show a dot here: peak (3 × 3) above the local sky around it by 6σ? */
-    const standsOut = (x: number, y: number): boolean => {
-      const ix = Math.round(x);
-      const iy = Math.round(y);
-      let peak = -Infinity;
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
-          const xx = ix + dx;
-          const yy = iy + dy;
-          if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
-          const k = yy * nx + xx;
-          const v = pv.vals[k];
-          if (Number.isNaN(v)) {
-            if (pv.burnt[k]) return true;
-          } else if (v > peak) peak = v;
-        }
-      const bg: number[] = [];
-      for (let a = 0; a < 16; a++) {
-        const xx = Math.round(ix + annulus * Math.cos((a * Math.PI) / 8));
-        const yy = Math.round(iy + annulus * Math.sin((a * Math.PI) / 8));
-        if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
-        const v = pv.vals[yy * nx + xx];
-        if (!Number.isNaN(v)) bg.push(v);
-      }
-      if (bg.length < 6) return false;
-      bg.sort((p, q) => p - q);
-      return peak - bg[bg.length >> 1] > 6 * pv.sigma;
-    };
+    /** Does the plate show a dot here: peak (3 × 3) above the local sky around it by 6σ? (rings.ts) */
+    const standsOut = (x: number, y: number): boolean => standsOutAt(pv.vals, pv.burnt, nx, ny, x, y, annulus, pv.sigma);
     /** Radius (image pixels) of the dark blob at a pixel: how far the plate stays past mid-grey. */
     const blobRadius = (x: number, y: number): number => {
       const dark = (xx: number, yy: number) => {
@@ -978,11 +1061,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       return false;
     };
 
-    // Single exposures reach about G 15.5, visit stacks a little deeper: those always get a ring.
-    // Fainter Gaia stars get a quiet one only where the plate shows a dot (6σ over its local sky),
-    // so rings never circle empty sky and no visible star goes unmarked. Not the target: the reticle
-    // marks it, and Gaia's own ring would crowd it.
+    // Which Gaia stars get a ring: every star a detection on this plate matched, and the others only
+    // when brighter than this plate's own limit (rings.ts: the G at which about half the Gaia stars
+    // here were detected), so faint Gaia stars SPHEREx can't see get no ring on blank sky. With too
+    // few matches to measure that limit (or no measured layer), the old rule: single exposures reach
+    // about G 15.5, visit stacks a little deeper. Either way a Gaia star where the plate shows a dot
+    // (6σ over its local sky) keeps its ring, so no visible star goes unmarked. Not the target: the
+    // reticle marks it, and Gaia's own ring would crowd it.
     const faintG = view.clock === "hours" ? 15.5 : 16.5;
+    const cal = ringCalibration();
     const gaiaIn = F.gaia
       .filter((s) => s.g != null && s.g <= 20.5)
       .map((s) => {
@@ -990,25 +1077,41 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         return { s, px, p: toScreen(px, vp) };
       })
       .filter((o) => inView(o.p) && !hatched(o.px));
-    const ringed = new Set(
-      gaiaIn
-        .filter((o) => !overlays.target || Math.hypot(o.p.X - tp.X, o.p.Y - tp.Y) > gap)
-        .filter((o) => (o.s.g ?? 99) <= faintG || standsOut(o.px.x, o.px.y))
+    const measuredOn = !!meas && overlays.measured;
+    // The Viewer circles every real source the plate shows; not camera glitches or grade C suspects,
+    // and stack-only sources only with Advanced on (viewerShows).
+    const ds = (measuredOn && e ? (measAt.get(e.id) ?? []) : []).filter((d) => !opts.viewer || viewerShows(d.class, d.grade, getDetails()));
+    const foundHere = new Set(ds.map((d) => d.gaia_id).filter((id): id is string => !!id));
+    const ringable = gaiaIn
+      .filter((o) => !overlays.target || Math.hypot(o.p.X - tp.X, o.p.Y - tp.Y) > gap)
+      .filter((o) => getsRing(o.s.g ?? 99, foundHere.has(o.s.id), cal.limit, faintG, () => standsOut(o.px.x, o.px.y)));
+    // Stars found in this photo always keep their ring; the others, the brightest first, up to the
+    // cap. (Found stars sharing the cap pushed the brightest unmatched one out: Barnard's Star itself.)
+    const ringed = new Set([
+      ...ringable.filter((o) => foundHere.has(o.s.id)).map((o) => o.s.id),
+      ...ringable
+        .filter((o) => !foundHere.has(o.s.id))
         .sort((a, b) => (a.s.g ?? 99) - (b.s.g ?? 99))
         .slice(0, Math.max(16, Math.round(MAX_RINGS * Math.min(1, (vp.vw * vp.s) ** 2 / 680 ** 2))))
         .map((o) => o.s.id),
-    );
+    ]);
     const planStars: PlanStar[] = [];
     for (const o of gaiaIn) {
       const g = o.s.g ?? 99;
       const saturated = g < SATURATED_G || burntNear(o.px);
       // Stars with no ring matter only when bright: their glow can hold fragments.
       if (!ringed.has(o.s.id) && !saturated && g > 12) continue;
-      planStars.push({ id: o.s.id, X: o.p.X, Y: o.p.Y, g: o.s.g, extent: reach(o.px), saturated, ringed: ringed.has(o.s.id) });
+      planStars.push({
+        id: o.s.id,
+        X: o.p.X,
+        Y: o.p.Y,
+        g: o.s.g,
+        extent: reach(o.px),
+        saturated,
+        ringed: ringed.has(o.s.id),
+        detected: cal.matched.has(o.s.id),
+      });
     }
-    const measuredOn = !!meas && overlays.measured;
-    // The Viewer circles only what a visitor can act on: no grey circles (VIEWER_HIDDEN, grade C).
-    const ds = (measuredOn && e ? (measAt.get(e.id) ?? []) : []).filter((d) => !opts.viewer || viewerShows(d.class, d.grade));
     const planDets: PlanDet[] = [];
     ds.forEach((d, i) => {
       const px = skyToPixel(d, F!, c);
@@ -1030,12 +1133,29 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const floor = Math.max(3.5, psf / 2);
     const plan = planMarks(planStars, planDets, { pxPerArcsec: vp.s / F.pixel_arcsec, floor, brightExtent: Math.max(10, 2 * psf), measured: measuredOn });
     const gaiaOf = new Map(gaiaIn.map((o) => [o.s.id, o.s]));
+    // The plate's small words go last, each where it covers no other word or arrow (labels.ts):
+    // marks register here as they are drawn, words wait in `words` until then.
+    const space = new LabelSpace({ x: vp.ox, y: vp.oy, w: vp.vw * vp.s, h: vp.vh * vp.s });
+    const words: Word[] = [];
+    {
+      // The scale bar and the compass (drawGuides) keep their corners.
+      const W = cssSize;
+      const pad = Math.max(10, Math.round(W * 0.022));
+      if (overlays.guides) {
+        space.addBox({ x: pad - 4, y: W - pad - 20, w: W * 0.18 + 30, h: 26 });
+        space.addBox({ x: W - pad - 34, y: W - pad - 36, w: 38, h: 42 });
+      }
+    }
+    for (const cc of plan.circles) space.addDisc(cc);
+    for (const b of plan.big) space.addDisc(b);
+    if (overlays.gaia) for (const rg of plan.rings) space.addDisc(rg);
 
     if (overlays.gaia) {
       const blue = pen("--pencil-blue");
+      const ringFaint = Math.max(10, cal.limit ?? faintG);
       for (const rg of plan.rings) {
         const s = gaiaOf.get(rg.id);
-        const t = Math.min(1, Math.max(0, ((s?.g ?? faintG) - 9) / (faintG - 9)));
+        const t = Math.min(1, Math.max(0, ((s?.g ?? ringFaint) - 9) / (ringFaint - 9)));
         ring(ctx, rg.X, rg.Y, rg.r);
         pencil(ctx, blue, 1.4 - 0.4 * t, 0.85 - 0.45 * t);
         // A blend: one ring, and a small dot where Gaia puts each of its stars.
@@ -1101,11 +1221,42 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           pencil(ctx, violet, 1.4, 0.7);
           ctx.restore();
         } else pencil(ctx, violet);
-        if (named) label(ctx, faint && k.v != null ? `${k.name} V ${k.v.toFixed(1)}` : k.name, p.X + r + 5, p.Y + 4, violet, halo);
+        space.addDisc({ X: p.X, Y: p.Y, r });
+        if (named)
+          words.push({
+            text: faint && k.v != null ? `${k.name} V ${k.v.toFixed(1)}` : k.name,
+            at: { X: p.X, Y: p.Y, r },
+            color: violet,
+            font: `600 11px ${fontFamily}`,
+            angles: RIGHT_FIRST,
+            gap: 5,
+            prio: 4,
+          });
       }
     }
 
-    drawMeasured(vp, e, c, inView, floor, halo, plan, ds, gaiaOf);
+    // A planet in the field (planets.ts): its name beside its disc, quiet, and a note on hover.
+    for (const pl of planetsAt(mjd, c)) {
+      const px = skyToPixel(pl, F, c);
+      const p = toScreen(px, vp);
+      if (!inView(p, 0)) continue;
+      const r = Math.max(floor, reach(px));
+      words.push({ text: pl.name, at: { X: p.X, Y: p.Y, r }, color: pen("--ink-2"), font: `600 11px ${fontFamily}`, gap: 5, prio: 2 });
+      hits.push({
+        X: p.X,
+        Y: p.Y,
+        r: r + 4,
+        pri: 1,
+        html: `<span class="bk-mtag" data-cls="planet">${pl.name}</span> <span class="bk-val">A planet: its moons show up as movers.</span>`,
+      });
+    }
+
+    // The candidate's red circle this frame, if any: a suspect circle on the same spot is not drawn
+    // again (two red rings read as one thick smudge); its grade goes beside the red circle.
+    const trackNow = overlays.target && trackM && e ? spotFor(e) : null;
+    const trackNowAt = trackNow && e ? toScreen(skyToPixel(trackNow, F, centreOf(e)), vp) : null;
+
+    drawMeasured(vp, e, c, inView, floor, halo, plan, ds, gaiaOf, space, words, trackNowAt);
 
     // The candidate in every frame: a red circle, solid where measured, dashed where predicted.
     // Wider than its source and its measured circle, so it never hides the dot. Stack: every
@@ -1148,20 +1299,54 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         pencil(ctx, halo, 3.5, e ? 0.45 : 0.25);
         pencil(ctx, red, 1.5, e ? 0.95 : 0.5);
         ctx.restore();
-        if (e) hits.push({ X: p.X, Y: p.Y, r: r + 4, html: trackWords(s) });
+        space.addDisc({ X: p.X, Y: p.Y, r });
+        if (e) {
+          hits.push({ X: p.X, Y: p.Y, r: r + 4, html: trackWords(s) });
+          // A grade whose circle this red one replaced goes beside the red one.
+          for (const w of words) if (w.onTrack) w.at = { X: p.X, Y: p.Y, r: Math.max(w.at.r, r) };
+        }
       }
     }
 
     rgapMemo = { key: gapKey, gap: rgap };
     if (overlays.target) {
-      reticle(ctx, tp.X, tp.Y, rgap, Math.max(7, rgap * 0.6));
+      const len = Math.max(7, rgap * 0.6);
+      reticle(ctx, tp.X, tp.Y, rgap, len);
       pencil(ctx, pen("--pencil-red"), 1.75);
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ])
+        space.addPath([
+          { X: tp.X + dx * rgap, Y: tp.Y + dy * rgap },
+          { X: tp.X + dx * (rgap + len), Y: tp.Y + dy * (rgap + len) },
+        ]);
     }
+    placeWords(space, words, halo);
 
     if (pick) {
       const p = toScreen(skyToPixel(pick, F, c), vp);
       flagMark(ctx, p.X, p.Y, Math.max(7, Math.min(14, psf * 0.8)));
       pencil(ctx, pen("--pencil-red"), 1.75);
+    }
+    ctx.restore();
+  }
+
+  /** Draw the plate's words, most important first, each at the first free spot beside its mark (labels.ts). */
+  function placeWords(space: LabelSpace, words: Word[], halo: string) {
+    if (!ctx) return;
+    ctx.save();
+    ctx.textAlign = "start";
+    for (const w of [...words].sort((a, b) => a.prio - b.prio)) {
+      ctx.font = w.font;
+      const m = ctx.measureText(w.text);
+      // The box holds the text and its 1.5 px halo; ascent and descent as measured where the canvas can.
+      const asc = m.actualBoundingBoxAscent || 8;
+      const desc = m.actualBoundingBoxDescent || 2;
+      const b = space.place(w.at, m.width + 3, asc + desc + 3, w.gap ?? 3, w.angles);
+      if (b) label(ctx, w.text, b.x + 1.5, b.y + 1.5 + asc, w.color, halo);
     }
     ctx.restore();
   }
@@ -1182,6 +1367,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     plan: Plan,
     ds: MeasuredDetection[],
     gaiaOf: Map<string, GaiaStar>,
+    space: LabelSpace,
+    words: Word[],
+    trackAt: { X: number; Y: number } | null,
   ) {
     const m = meas;
     shiftArrows = new Map();
@@ -1192,21 +1380,33 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       pencil(ctx, halo, w + 2, 0.5);
       pencil(ctx, col, w, a);
     };
-    /** A stretched arrow carries its factor ("×20") and a small open dot where the motion really ends. */
+    /** An arrow drawn: words keep off its shaft and its head. */
+    const keepOff = (a: Arrow, head: number) => {
+      space.addPath(a.pts);
+      for (const [tip, barb] of arrowBarbs(a.pts, head) ?? []) space.addPath([tip, barb]);
+    };
+    /** A stretched arrow carries its factor ("×20"), beside its middle and clear of other words, and a small open dot where the motion really ends. */
     const stretched = (a: Arrow, col: string) => {
       if (a.factor <= 1) return;
-      const at = factorSpot(a.pts[0], a.pts[a.pts.length - 1]);
-      ctx.font = `600 10.5px ${fontFamily}`;
-      ctx.textAlign = "center";
-      label(ctx, `×${a.factor}`, at.X, at.Y + 4, col, halo);
-      ctx.textAlign = "start";
+      const p0 = a.pts[0];
+      const p1 = a.pts[a.pts.length - 1];
+      words.push({
+        text: `×${a.factor}`,
+        at: { X: (p0.X + p1.X) / 2, Y: (p0.Y + p1.Y) / 2, r: 0 },
+        angles: besideArrow(p0, p1),
+        gap: 4,
+        color: col,
+        font: `600 10.5px ${fontFamily}`,
+        prio: 1,
+      });
       ctx.beginPath();
       ctx.arc(a.end.X, a.end.Y, 2.2, 0, Math.PI * 2);
       stroke(col, 1.2);
+      space.addDisc({ X: a.end.X, Y: a.end.Y, r: 2.2 });
     };
     const longer = (a: Arrow) => (a.factor > 1 ? ` The arrow is drawn ${a.factor} times longer than the motion.` : "");
 
-    drawZoneEdge(m, vp, c, halo);
+    drawZoneEdge(m, vp, c, halo, space);
 
     if (m.clock === "hours") {
       for (const t of m.tracks) {
@@ -1217,6 +1417,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         if (!a || !a.pts.some((q) => inView(q))) continue;
         const col = pen(greyed(t.class, trackGrade.get(t.id)) ? "--m-artifact" : classInfo(t.class).token);
         if (arrowPath(ctx, a.pts, 7)) stroke(col, 1.6);
+        keepOff(a, 7);
         stretched(a, col);
         // A bead at each dot; this exposure's is larger, so blinking walks it along the arrow.
         dots.forEach((d, i) => {
@@ -1257,9 +1458,10 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           const grade = sourceGrade.get(s.source_id);
           const col = pen(greyed(s.class, grade) ? "--m-artifact" : classInfo(s.class).token);
           if (arrowPath(ctx, a.pts, 6)) stroke(col, 1.6);
+          keepOff(a, 6);
           stretched(a, col);
-          const words = opts.viewer ? plainShiftWords(s) : shiftNumbers(s) + ".";
-          const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(words + longer(a))}</span>`;
+          const said = opts.viewer ? plainShiftWords(s) : shiftNumbers(s) + ".";
+          const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(said + longer(a))}</span>`;
           hits.push({ X: a.pts[0].X, Y: a.pts[0].Y, r: 8, html });
           hits.push({ X: a.pts[a.pts.length - 1].X, Y: a.pts[a.pts.length - 1].Y, r: 8, html });
         });
@@ -1267,13 +1469,22 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
     // This epoch's circles, as big as their sources look; pieces of a bright star stay off the plate.
     if (e) {
-      ctx.font = `700 11px ${fontFamily}`;
+      const pxPerArcsec = vp.s / f.pixel_arcsec;
       const order = [...plan.circles].sort((a, b) => DRAW_ORDER.indexOf(ds[a.i].class) - DRAW_ORDER.indexOf(ds[b.i].class));
       for (const cc of order) {
-        const d = ds[cc.i];
+        // A bright star's own measurement (layout.ts: the nearest dot within 6″ of where Gaia puts it)
+        // is that Gaia star, whatever the server's match: Barnard's Star moves too fast for it, and
+        // read "Source Gaia doesn't list" now that the Viewer circles those.
+        const d0 = ds[cc.i];
+        const d = cc.bright && (d0.class === "other" || d0.class === "stack") ? { ...d0, class: "star" as const } : d0;
         const col = pen(greyed(d.class, d.grade) ? "--m-artifact" : classInfo(d.class).token);
-        measuredMark(ctx, d.class, cc.X, cc.Y, cc.r, col, halo);
-        if (d.class === "suspect" && d.grade) label(ctx, d.grade, cc.X + cc.r * 0.75 + 3, cc.Y - cc.r * 0.75 - 2, col, halo);
+        // The candidate's own red circle already marks this suspect: one red ring, not two.
+        const onTrack =
+          d.class === "suspect" && !!trackAt && Math.hypot(cc.X - trackAt.X, cc.Y - trackAt.Y) <= Math.max(cc.r, 6 * pxPerArcsec);
+        if (!onTrack) measuredMark(ctx, d.class, cc.X, cc.Y, cc.r, col, halo);
+        // Its grade, upper right first as before, clear of the arrow and the arrow's "×20".
+        if (d.class === "suspect" && d.grade)
+          words.push({ text: d.grade, at: { X: cc.X, Y: cc.Y, r: cc.r }, color: col, font: `700 11px ${fontFamily}`, gap: 2, angles: GRADE_FIRST, prio: 0, onTrack });
         const blendTag = cc.blend && d.class === "star";
         const notes: string[] = [];
         if (cc.blend && !blendTag) notes.push(opts.viewer ? plainBlendWords(cc.blend.length) : blendWords(cc.blend.length));
@@ -1300,14 +1511,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     // whole blob, never nothing and never its fragments.
     if (plan.big.length) {
       const col = pen("--m-star");
-      ctx.font = `600 11px ${fontFamily}`;
       const named = plan.big.length <= 4;
       for (const b of plan.big) {
         bigStar(ctx, b.X, b.Y, b.r, col, halo);
         const wings = [...shiftArrows.keys()].some((i) => m.shifts[i].gaia_id === b.id);
         const s = gaiaOf.get(b.id);
         const text = b.saturated ? (wings ? "saturated: measured on the wings" : "saturated") : "";
-        if (named && text) label(ctx, text, b.X + b.r * 0.71 + 4, b.Y + b.r * 0.71 + 12, col, halo);
+        // Lower right of its ring as before, else the first spot clear of other words and arrows.
+        if (named && text) words.push({ text, at: { X: b.X, Y: b.Y, r: b.r }, color: col, font: `600 11px ${fontFamily}`, gap: 3, prio: 3 });
         const what = b.saturated
           ? `Its core is burnt, so it has no single detection here${wings ? "; its motion is measured on its wings" : ""}.`
           : "Its glow is split into several detections.";
@@ -1342,7 +1553,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
 
   /** The zone's box, dashed, when the field reaches past it: outside it nothing is linked. */
-  function drawZoneEdge(m: Measured, vp: VP, c: SkyPos, halo: string) {
+  function drawZoneEdge(m: Measured, vp: VP, c: SkyPos, halo: string, space: LabelSpace) {
     if (!ctx || !F || !m.zone_box?.ra || !m.zone_box?.dec) return;
     const f = F;
     const [ra0, ra1raw] = m.zone_box.ra;
@@ -1393,7 +1604,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const b = best as { X: number; Y: number } | null;
     if (b) {
       ctx.font = `600 11px ${fontFamily}`;
-      label(ctx, `${m.zone} zone edge`, b.X + 6, b.Y - 6, pen("--ink-2"), halo);
+      const text = `${m.zone} zone edge`;
+      label(ctx, text, b.X + 6, b.Y - 6, pen("--ink-2"), halo);
+      space.addBox({ x: b.X + 4, y: b.Y - 16, w: ctx.measureText(text).width + 4, h: 14 });
     }
   }
 
@@ -1825,10 +2038,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     mp.stage.textContent = opts.viewer ? "" : stageLabel(m.stage);
     mp.stage.dataset.stage = String(m.stage ?? "");
     mp.stage.hidden = !mp.stage.textContent;
-    mp.key.innerHTML = classesPresent(m)
-      .filter((c) => !opts.viewer || !VIEWER_HIDDEN.has(c))
+    // The Viewer's legend names only what its plate draws.
+    const present = classesPresent(m).filter((c) => !opts.viewer || viewerShows(c, null, getDetails()));
+    mp.key.innerHTML = present
       .flatMap((c) => {
-        const li = `<li title="${esc(CLASS_INFO[c].about)}">${glyph(c)}<span>${CLASS_INFO[c].name}</span></li>`;
+        const name = (opts.viewer ? VIEWER_NAME[c] : undefined) ?? CLASS_INFO[c].name;
+        const li = `<li title="${esc(CLASS_INFO[c].about)}">${glyph(c)}<span>${esc(name)}</span></li>`;
         // Grade C suspects fail a check: greyed on the plate, so the legend says so.
         const hasC = c === "suspect" && m.detections.some((d) => d.class === "suspect" && d.grade === "C");
         return hasC && !opts.viewer
@@ -1848,11 +2063,15 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       "Violet diamonds are where the Minor Planet Center predicts asteroids." +
       (saturatedHere() ? " A dashed ring is a saturated star: its burnt core gives no single detection, so its pieces aren't drawn." : "") +
       (arrows ? ` ${arrowNote(m.clock)}` : "");
-    // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced.
+    // Plain view: one line for the marks; the full explanation, breakdown and notes are Advanced. (This
+    // line is plain-only, where stack-only sources aren't drawn: no dashed circles to explain.)
     mp.short.textContent = opts.viewer
       ? "Blue circles: stars Gaia already knows, where Gaia says they are on this date. A circle inside one is where " +
-        "SkyShift found that star in this photo. Violet diamonds: known asteroids." +
-        (arrows ? " Arrows: how far something moved between visits." : "")
+        "SkyShift found that star in this photo." +
+        (present.includes("other") ? " Grey circles: sources Gaia doesn't list." : "") +
+        " Violet diamonds: known asteroids." +
+        (arrows ? (m.clock === "hours" ? " Arrows: how something moved between photos." : " Arrows: how far something moved between visits.") : "") +
+        " Camera glitches are hidden."
       : "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids." + (arrows ? " Arrows: motion." : "");
     mp.notes.textContent = s.notes.join(" ");
     const c: Partial<Record<MeasuredClass, number>> = m.counts ?? {};
@@ -2653,6 +2872,13 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   window.addEventListener("blur", onBlur);
   const onVisibility = () => setPlaying(playing || resumeOnVisible);
   document.addEventListener("visibilitychange", onVisibility);
+  // The Viewer draws stack-only sources (and names them in its legend) only with Advanced on.
+  const offDetails = opts.viewer
+    ? onDetails(() => {
+        renderMeasured();
+        draw();
+      })
+    : () => {};
 
   // Size the canvas to the plate, at device resolution; redraw the strip at its new width.
   let stripWidth = 0;
@@ -2759,6 +2985,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       document.removeEventListener("pointerdown", onDocDown);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("blur", onBlur);
+      offDetails();
       el.innerHTML = "";
     },
   };
