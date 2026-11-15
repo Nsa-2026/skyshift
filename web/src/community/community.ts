@@ -29,6 +29,9 @@ export const MPCHECKER_URL = "https://minorplanetcenter.net/cgi-bin/checkmp.cgi"
 export const NICKNAME_KEY = "skyshift.nickname";
 /** Re-read the votes when the page is shown again after this long. */
 const STALE_MS = 60_000;
+/** Most debated: how many stay open. The rest sit behind a disclosure so the column keeps pace
+    with the activity chart beside it. */
+const DEBATED_OPEN = 2;
 
 const html = String.raw;
 const nf = new Intl.NumberFormat("en-GB");
@@ -348,16 +351,28 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
       debateEl.innerHTML = html`<li class="cm-empty">No split votes right now. Objects show here once they have three or more votes that disagree.</li>`;
       return;
     }
-    debateEl.innerHTML = list
-      .map((d) => {
-        const i = info.get(d.id);
-        return html`<li class="cm-debate">
-          <div class="cm-debate-row"><span>${candidateLinkHtml(d.id, i)} <span class="cm-debate-id">${esc(d.id)}</span></span><span class="cm-debate-n">${votesWord(d.verdict.votes)}</span></div>
-          ${splitBar(d.counts)}
-          <p class="cm-debate-words">${esc(countsText(d.counts))}${i?.why ? html`. <span class="muted">${esc(i.why)}</span>` : ""}</p>
-        </li>`;
-      })
-      .join("");
+    const entry = (d: (typeof list)[number]) => {
+      const i = info.get(d.id);
+      return html`<li class="cm-debate">
+        <div class="cm-debate-row"><span>${candidateLinkHtml(d.id, i)} <span class="cm-debate-id">${esc(d.id)}</span></span><span class="cm-debate-n">${votesWord(d.verdict.votes)}</span></div>
+        ${splitBar(d.counts)}
+        <p class="cm-debate-words">${esc(countsText(d.counts))}${i?.why ? html`. <span class="muted">${esc(i.why)}</span>` : ""}</p>
+      </li>`;
+    };
+    // Two open, the rest behind a disclosure: each entry runs four or five lines, so six of them
+    // stood two screens taller than the chart beside them and left that column empty for all of it.
+    // The two most evenly split are the ones a vote can still settle; the rest are one click away.
+    const rest = list.slice(DEBATED_OPEN);
+    debateEl.innerHTML =
+      list.slice(0, DEBATED_OPEN).map(entry).join("") +
+      (rest.length
+        ? html`<li class="cm-debate-rest">
+            <details>
+              <summary>${nf.format(rest.length)} more with split votes</summary>
+              <ol class="cm-debate-list">${rest.map(entry).join("")}</ol>
+            </details>
+          </li>`
+        : "");
   }
 
   function renderYou(s: Snapshot) {

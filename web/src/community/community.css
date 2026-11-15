@@ -350,7 +350,7 @@
 }
 .cm-plot {
   position: relative;
-  min-height: 176px;
+  min-height: 360px;
   border-radius: var(--radius-panel);
   outline: none;
 }
@@ -448,6 +448,22 @@
 .cm-debate {
   display: grid;
   gap: 6px;
+}
+/* the rest of Most debated, folded away */
+.cm-debate-rest > details > summary {
+  color: var(--ink-2);
+  cursor: pointer;
+  width: fit-content;
+  font-size: var(--step--1);
+}
+.cm-debate-rest > details > summary:hover {
+  color: var(--ink);
+}
+.cm-debate-rest > details[open] > summary {
+  margin-bottom: var(--s4);
+}
+.cm-debate-rest .cm-debate-list {
+  margin-top: 0;
 }
 .cm-debate-row {
   display: flex;
