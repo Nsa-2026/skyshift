@@ -155,3 +155,44 @@ html.sky-dark .atl .atl-below {
   -webkit-backdrop-filter: none;
   border-top: 1px solid var(--hair);
 }
+
+
+/* ---- the controls sit at the foot of the map ----
+   The search panel used to hang under the header, across the part of the sky the eye lands on
+   first. At the foot it joins the status line and the zoom into one band of instruments and
+   leaves the whole upper sky clear, which is what the page is for. Adjust grows upward from
+   it and still clears the header.
+
+   The tour's card has to move with it. Both are translucent, and left where it was the card
+   sat underneath the panel: two panes of dark glass stacked, with the text of each showing
+   through the other. It goes to the other side, clear of the zoom cluster.
+
+   Only from 1024px. The two sit side by side along the foot, and the panel is up to 440px
+   with the card up to about 400px: narrower than that they overlap each other, so below it
+   the panel stays under the header and the card keeps the near corner. Phones keep their own
+   arrangement (the rule below 720px): there the map is tall and narrow, the panel spans the
+   full width, and the foot already holds the status and the reveal button. */
+@media (min-width: 1024px) {
+  .atl .atl-top {
+    top: auto;
+    bottom: calc(var(--s4) + 52px);
+    align-content: end;
+    max-height: calc(100% - var(--atl-header-height, 0px) - 2 * var(--s4) - 108px);
+  }
+  .atl-tour {
+    left: auto;
+    right: clamp(16px, 4vw, 48px);
+    bottom: calc(clamp(56px, 9vh, 104px) + 64px);
+  }
+}
+
+/* On a phone the card shares the foot with the status line, which spans the full width there,
+   so it sits above it rather than on it, and takes the same gutters. */
+@media (max-width: 720px) {
+  .atl-tour {
+    left: var(--s3);
+    right: var(--s3);
+    bottom: calc(var(--s3) + 104px);
+    max-width: none;
+  }
+}
