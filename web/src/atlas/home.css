@@ -1,21 +1,23 @@
 /* The common entry is a real, interactive sky. Area-specific tools come afterwards. */
 .atl {position:relative;}
 .atl [hidden] {display:none!important;}
-.atl .atl-stage {height:max(360px,calc(100dvh - var(--atl-top,80px) - 8px));max-height:none;}
-.atl .atl-intro {position:absolute;z-index:3;left:var(--s4);top:var(--s4);max-width:400px;padding:var(--s4);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);}
+.atl .atl-stage {height:max(360px,100dvh);max-height:none;border-block:0;}
+/* Draw the sky behind navigation from the start, so fading it never leaves a gap. */
+#app.cosmic-shell.sky-focus-active > .top {position:absolute;top:0;left:0;right:0;margin-inline:0;width:auto;z-index:8;}
+.atl .atl-intro {position:absolute;z-index:3;left:var(--s4);top:calc(var(--atl-header-height,0px) + var(--s4));max-width:400px;padding:var(--s4);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);}
 .atl .atl-lede {font-size:var(--step-2);font-weight:650;}
 .atl .atl-lede-2 {margin-top:var(--s2);font-size:var(--step--1);font-weight:400;}
 .sky-survey {margin-top:var(--s2);font-size:var(--step--2);color:var(--ink-2);}
 .atl:has(.is-fallback) .sky-survey {display:none;}
-.atl .atl-controls {position:absolute;z-index:4;top:var(--s4);right:var(--s4);padding:var(--s3);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);}
+.atl .atl-controls {position:absolute;z-index:4;top:calc(var(--atl-header-height,0px) + var(--s4));right:var(--s4);padding:var(--s3);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 4px 20px -10px var(--ink-3);}
 .atl .atl-controls-side {flex-wrap:nowrap;gap:var(--s3);}
 .atl .atl-find {min-width:0;}
 .atl .atl-find-input {width:clamp(160px,20vw,280px);}
-.atl .atl-more {position:absolute;z-index:6;right:var(--s4);top:80px;display:grid;gap:var(--s5);width:min(460px,calc(100% - 32px));max-height:calc(100dvh - 210px);overflow:auto;padding:var(--s5);border:1px solid var(--hair);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 8px 28px -16px var(--ink-2);}
+.atl .atl-more {position:absolute;z-index:6;right:var(--s4);top:calc(var(--atl-header-height,0px) + 80px);display:grid;gap:var(--s5);width:min(460px,calc(100% - 32px));max-height:calc(100dvh - var(--atl-header-height,0px) - 96px);overflow:auto;padding:var(--s5);border:1px solid var(--hair);border-radius:var(--radius-panel);background:var(--sheet);box-shadow:0 8px 28px -16px var(--ink-2);}
 .atl .atl-controls-main {display:flex;flex-direction:column;align-items:flex-start;gap:var(--s4);overflow:visible;}
 .atl .atl-kinds {flex-wrap:wrap;}
 .atl .atl-more-row {align-items:flex-start;}
-.atl .atl-msg {position:absolute;left:var(--s4);top:140px;z-index:4;max-width:min(460px,calc(100% - 32px));padding:var(--s3);border-radius:var(--radius-panel);background:var(--sheet);}
+.atl .atl-msg {position:absolute;left:var(--s4);top:calc(var(--atl-header-height,0px) + 140px);z-index:4;max-width:min(460px,calc(100% - 32px));padding:var(--s3);border-radius:var(--radius-panel);background:var(--sheet);}
 .atl .atl-status {bottom:74px;max-width:calc(100% - 260px);}
 .atl .atl-zoom {bottom:74px;}
 .atl .atl-continue {position:absolute;z-index:3;bottom:var(--s4);left:50%;transform:translateX(-50%);background:var(--sheet);color:var(--ink);box-shadow:0 4px 20px -10px var(--ink-3);white-space:nowrap;}
@@ -33,26 +35,69 @@
 .sky-paths-note {margin-top:var(--s5);}
 .atl .atl-below {border-top:1px solid var(--hair);padding-top:var(--s4);}
 .atl-count-box {margin-bottom:var(--s4);}
+.atl .atl-pin {z-index:9;}
+@media(min-width:721px) {
+  .atl .atl-drawer {top:calc(var(--atl-header-height,0px) + var(--s4));}
+}
+
+/* Zoom changes only opacity, keeping the sky's size and pointer coordinates stable. */
+.atl [data-map-chrome],
+#app.sky-focus-active > .top {
+  opacity:var(--sky-chrome-opacity,1);
+  visibility:visible;
+  transition:opacity 180ms ease,visibility 0s;
+}
+.atl [data-map-chrome][inert],
+#app.sky-focus-active > .top[inert] {
+  pointer-events:none;
+  visibility:hidden;
+  transition:opacity 180ms ease,visibility 0s linear 180ms;
+}
+.atl .atl-reveal {
+  position:absolute;
+  z-index:7;
+  bottom:var(--s3);
+  right:var(--s3);
+  width:40px;
+  min-height:40px;
+  padding:0;
+  border:1px solid #cbd8e44d;
+  border-radius:999px;
+  background:#08121ddd;
+  color:#f5f7f9;
+  box-shadow:0 3px 16px #0003;
+  font-size:0;
+  cursor:pointer;
+}
+.atl .atl-reveal::before {content:'☰';font-size:18px;line-height:1;}
+.atl .atl-reveal:hover {background:#172b3bf2;}
+.atl .atl-reveal:focus-visible {outline:2px solid #bfdcff;outline-offset:3px;}
+.atl .has-drawer .atl-reveal {display:none;}
+@media(prefers-reduced-motion:reduce) {
+  .atl [data-map-chrome],.atl [data-map-chrome][inert],
+  #app.sky-focus-active > .top,#app.sky-focus-active > .top[inert] {transition:none;}
+}
 
 @media(max-width:1000px) {
   .atl .atl-intro {max-width:360px;}
-  .atl .atl-controls {top:126px;left:var(--s4);right:auto;}
-  .atl .atl-more {top:190px;left:var(--s4);right:auto;}
-  .atl .atl-msg {top:190px;}
+  .atl .atl-controls {top:calc(var(--atl-intro-bottom,114px) + 12px);left:var(--s4);right:auto;}
+  .atl .atl-more {top:calc(var(--atl-controls-bottom,182px) + 8px);left:var(--s4);right:auto;max-height:max(140px,calc(100dvh - var(--atl-top,80px) - var(--atl-controls-bottom,182px) - 20px));}
+  .atl .atl-msg {top:calc(var(--atl-controls-bottom,182px) + 8px);}
 }
 @media(max-width:720px) {
   .atl .atl-intro {max-width:calc(100% - 32px);padding:var(--s3);}
   .atl .atl-lede {font-size:var(--step-1);}
-  .atl .atl-controls {top:138px;left:var(--s4);right:var(--s4);}
+  .atl .atl-controls {top:calc(var(--atl-intro-bottom,126px) + 12px);left:var(--s4);right:var(--s4);}
   .atl .atl-controls-side {width:100%;gap:var(--s2);}
   .atl .atl-find {flex:1;}
   .atl .atl-find-input {width:100%;min-width:0;flex:1;}
   .atl .atl-adjust {flex:none;}
-  .atl .atl-more {top:204px;max-height:calc(100dvh - 346px);}
-  .atl .atl-msg {top:204px;}
+  .atl .atl-more {top:calc(var(--atl-controls-bottom,196px) + 8px);}
+  .atl .atl-msg {top:calc(var(--atl-controls-bottom,196px) + 8px);}
   .atl .atl-status {left:var(--s3);bottom:112px;max-width:calc(100% - 24px);}
   .atl .atl-zoom {bottom:64px;right:var(--s3);}
-  .atl .atl-stage.is-fallback.is-whole {height:max(360px,calc(100dvh - var(--atl-top,110px) - 8px));}
+  .atl:has(.atl-reveal:not([hidden])) .atl-continue {left:var(--s3);transform:none;max-width:calc(100% - 80px);}
+  .atl .atl-stage.is-fallback.is-whole {height:max(360px,100dvh);}
   .sky-paths {padding-top:var(--s6);}
   .sky-paths-grid {grid-template-columns:minmax(0,1fr);gap:var(--s3);}
   .sky-paths-grid a {gap:var(--s2);padding:var(--s4);}
