@@ -203,6 +203,8 @@ export function mountActivityChart(host: HTMLElement): ChartHandle {
           ? `Votes per ${a.unit}, ${a.bins.length} ${a.unit}s: ${votesWord(sum)} in all, most in ${binLabel(peak, a.unit)} (${nf.format(peak.count)}). Arrow keys read each ${a.unit}.`
           : "No votes yet.",
       );
+      // Nothing to draw yet: say so on the host, so the section takes no room until votes arrive.
+      host.dataset.empty = sum === 0 ? "true" : "false";
       draw();
       renderTable(a);
     },
