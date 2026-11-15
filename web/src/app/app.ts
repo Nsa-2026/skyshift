@@ -22,7 +22,7 @@ import {mountGuidedPractice} from '../product/practice';
 import {SCREENS,siteRoute,viewerState} from './navigation';
 import {legacyHash} from './legacy-routes';
 import {getDetails,onDetails,setDetails} from '../prefs/details';
-import {mountPlateDivider} from '../product/panels';
+import {mountPlateDivider,mountPlateFit} from '../product/panels';
 import {observationForSky,type SkySelection} from './sky-entry';
 import { loadFrames as loadScienceFrames } from "../api/science-client";
 import { mountOpening } from "../intro";
@@ -131,6 +131,19 @@ export function startApp(root: HTMLElement): void {
   const msg = $<HTMLParagraphElement>(".find-msg");
   mountDetailsSwitch($<HTMLElement>(".details-slot"));
   mountPlateDivider($<HTMLElement>(".page-blink"), $<HTMLElement>(".vw-side"));
+  mountPlateFit($<HTMLElement>(".page-blink"), $<HTMLElement>(".page-blink .stage"));
+  // Two columns: the sky around the spot goes to the bottom of the right column, so the plate's
+  // pinned column holds just the plate and its controls. One column: back under the plate.
+  {
+    const wide = typeof matchMedia === "function" ? matchMedia("(min-width: 1101px)") : null;
+    const placeSky = () => {
+      const skyEl = $<HTMLElement>("#sky");
+      if (wide?.matches) $<HTMLElement>(".vw-side").append(skyEl);
+      else $<HTMLElement>(".vw-main").append(skyEl);
+    };
+    wide?.addEventListener?.("change", placeSky);
+    placeSky();
+  }
   const input = $<HTMLInputElement>("#q");
 
   let view: View | null = null;

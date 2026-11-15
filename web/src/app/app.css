@@ -144,9 +144,11 @@
   gap: var(--s5);
   align-content: start;
 }
-/* Two columns: the plate stays on screen while the page scrolls. The left column is pinned and
-   scrolls by itself when it is taller than the window; the plate's mat stays at its top, so the
-   controls and the sky below it pass under the plate. Padding keeps the panels' shadows. */
+/* Two columns: the plate and its controls stay on screen while the page scrolls. The left column
+   is pinned, and the plate is as large as the window leaves room for beside the controls under it
+   (--vw-chrome, measured by product/panels.ts; the sky panel moves to the right column), never
+   under 340px. When the window is too short for both, or the divider made the plate larger, the
+   column scrolls by itself; nothing slides under the plate. Padding keeps the panels' shadows. */
 @media (min-width: 1101px) {
   .page-blink:not([data-practice="true"]) .vw-main {
     position: sticky;
@@ -157,10 +159,12 @@
     padding: 0 var(--s4) var(--s5);
     margin: 0 calc(-1 * var(--s4));
   }
-  .page-blink:not([data-practice="true"]) .vw-main .bk-mat {
-    position: sticky;
-    top: 0;
-    z-index: 3;
+  #app .page-blink:not([data-practice="true"]) {
+    --vw-plate: max(340px, 100svh - var(--vw-chrome, 420px));
+    grid-template-columns: minmax(0, calc(var(--vw-plate) + 48px)) minmax(340px, 1fr);
+  }
+  #app .page-blink:not([data-practice="true"]) .bk-col {
+    width: min(100%, calc(var(--vw-plate) + 2 * var(--mat)));
   }
   /* The divider beside the plate (product/panels.ts): drag it to size the plate's column. */
   .page-blink:not([data-practice="true"]) .vw-side {
@@ -177,11 +181,11 @@
     touch-action: none;
     z-index: 4;
   }
-  #app .page-blink[data-plate-col] {
+  #app .page-blink[data-plate-col]:not([data-practice="true"]) {
     grid-template-columns: minmax(0, min(var(--vw-plate-col), 100svh - 72px, 100% - 380px)) minmax(340px, 1fr);
   }
   /* A wider column makes a larger plate, as long as the plate and its two edges fit the window. */
-  #app .page-blink[data-plate-col] .bk-col {
+  #app .page-blink[data-plate-col]:not([data-practice="true"]) .bk-col {
     width: min(100%, calc(100svh - 96px));
   }
 }
