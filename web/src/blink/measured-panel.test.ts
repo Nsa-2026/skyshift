@@ -108,14 +108,21 @@ describe("what SkyShift measured", () => {
     expect(how).toMatch(/a little bigger, so a match reads as a circle inside a ring/);
     expect(how).toMatch(/Arrows join each mover's dots in time order, to scale\. One too short to see is drawn longer, with its factor \(×10\)/);
     expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("Movers and artefacts on all detectors");
+    // The list shows what the lead counts (3 movers); the lone artefact dot folds under a quiet line.
     const items = [...el.querySelectorAll<HTMLButtonElement>(".bk-mi")];
     expect(items.map((b) => b.querySelector(".bk-mi-t")!.textContent)).toEqual([
       "Suspect, grade B",
       "Known: (433) Eros",
       "Other mover: near a Gaia star",
-      "Artefact: ghost, halo, new_code",
     ]);
     expect(items.every((b) => b.getAttribute("aria-pressed") === "false")).toBe(true);
+    const more = el.querySelector<HTMLButtonElement>(".bk-meas-more")!;
+    expect(more.hidden).toBe(false);
+    expect(more.textContent).toBe("1 lone dot, not paired into a mover");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    more.click();
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect([...el.querySelectorAll(".bk-meas-extra .bk-mi-t")].map((x) => x.textContent)).toEqual(["Artefact: ghost, halo, new_code"]);
     expect(el.querySelector(".bk-meas-notes")!.textContent).toBe("Final results from the hunt zone.");
   });
 
@@ -134,6 +141,8 @@ describe("what SkyShift measured", () => {
   it("a list entry names itself under the plate on focus, and a click pins it and shows a photo it is in", async () => {
     await h.show(hoursView, hours(), URL);
     const say = () => el.querySelector(".bk-say")!.textContent;
+    // The lone artefact dot is folded under the quiet line: unfold it first.
+    el.querySelector<HTMLButtonElement>(".bk-meas-more")!.click();
     const art = [...el.querySelectorAll<HTMLButtonElement>(".bk-mi")][3];
     art.focus();
     expect(say()).toBe("Artefact: ghost, halo, new_code S/N 11, 480 µJy");
@@ -151,7 +160,7 @@ describe("what SkyShift measured", () => {
   it("months: shifts, distinct sources, provisional, missing photos and the cap", async () => {
     await h.show(monthsView, months(), URL);
     expect(lead().textContent).toBe("At least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
-    expect(el.querySelector(".bk-meas-rest")!.textContent).toMatch(/^2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion\./);
+    expect(el.querySelector(".bk-meas-rest")!.textContent).toMatch(/^2 weaker shifts are neither counted nor drawn: under 5σ, or Gaia measures a different motion\./);
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Provisional");
     const how = el.querySelector(".bk-meas-how")!.textContent!;
     expect(how).toMatch(/Arrows run from where we measured a source in the first visit to where we measured it in the last, to scale\./);
@@ -160,13 +169,18 @@ describe("what SkyShift measured", () => {
     expect(how).toMatch(/A dashed ring is a saturated star/);
     expect(how).not.toMatch(/shortened|1σ/);
     expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("What moved between visits");
+    // The lead counts 1: the list shows 1; the rest fold under one quiet line.
+    expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual(["Gaia star moved 10.4″ ± 0.09″ in 1.0 yr"]);
+    const more = el.querySelector<HTMLButtonElement>(".bk-meas-more")!;
+    expect(more.textContent).toBe("3 more we can't be sure of");
+    more.click();
     expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual([
-      "Artefact: too few dots, poor motion fit",
       "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
       "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",
       "Source without Gaia moved 0.39″ ± 0.11″ in 1.0 yr",
+      "Artefact: too few dots, poor motion fit",
     ]);
-    expect(el.querySelectorAll(".bk-mi-n")[2].textContent).toMatch(/Not on the plate: under 5σ\.$/);
+    expect(el.querySelectorAll(".bk-mi-n")[1].textContent).toMatch(/Not on the plate: under 5σ\.$/);
     const notes = el.querySelector(".bk-meas-notes")!.textContent!;
     expect(notes).toContain("2 of these 50 photos have no dots yet");
     expect(notes).toContain("A busy field: each visit shows at most 250 marks");
@@ -277,6 +291,58 @@ describe("what SkyShift measured, on the Viewer", () => {
     expect(text(".bk-key")).toMatch(/^Blue circles: stars Gaia already knows ?Click a dot to flag it/); // the "·" between them is CSS
   });
 
+  it("months: the count, the lead and the list agree; the uncertain shifts fold under a plain line, not Advanced only", async () => {
+    await h.show(monthsView, months(), URL);
+    const text = (sel: string) => el.querySelector(sel)!.textContent!.replace(/\s+/g, " ").trim();
+    expect(text(".bk-meas-lead")).toBe("At least 4 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(text(".bk-meas-count")).toBe("(1)");
+    expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual(["Gaia star moved 10.4″ ± 0.09″ in 1.0 yr"]);
+    const more = el.querySelector<HTMLButtonElement>(".bk-meas-more")!;
+    expect(more.hidden).toBe(false);
+    expect(more.classList.contains("pro-only")).toBe(false);
+    expect(more.textContent).toBe("2 smaller shifts, too small to be sure");
+    more.click();
+    expect([...el.querySelectorAll(".bk-meas-extra .bk-mi-n")].map((x) => x.textContent)).toEqual([
+      "Towards the east-northeast. No arrow on the plate: too small to be sure.",
+      "Towards the southeast. No arrow on the plate: too small to be sure.",
+    ]);
+    more.click();
+    expect(el.querySelector<HTMLElement>(".bk-meas-extra")!.hidden).toBe(true);
+  });
+
+  it("months, nothing with an arrow: no heading or count, only the folded line under \"none moved\"", async () => {
+    const f = months();
+    f.measured!.shifts = f.measured!.shifts.slice(1);
+    await h.show(monthsView, f, URL);
+    expect(el.querySelector(".bk-meas-lead")!.textContent).toMatch(/none moved measurably between visits\.$/);
+    expect(el.querySelector(".bk-meas-count")!.textContent).toBe("");
+    expect(el.querySelector<HTMLElement>(".bk-meas-lh")!.hidden).toBe(true);
+    expect(el.querySelectorAll(".bk-meas-list:not(.bk-meas-extra) .bk-mi")).toHaveLength(0);
+    expect(el.querySelector(".bk-meas-more")!.textContent).toBe("2 smaller shifts, too small to be sure");
+  });
+
+  it("a candidate SkyShift didn't measure in these photos: the lead says so instead of \"no movers\"", async () => {
+    const f = hours();
+    f.measured!.tracks = [];
+    for (const d of f.measured!.detections) d.track_id = null;
+    // src/review's candidateMarks: no spot in these frames, its own exposures 356 days from the nearest.
+    h.track?.({ label: "the fast mover", spots: [], find_gap_days: 355.8 } as Parameters<NonNullable<BlinkHandle["track"]>>[0]);
+    await h.show(hoursView, f, URL);
+    expect(el.querySelector(".bk-meas-lead")!.textContent).toBe(
+      "13 dots in 4 photos. The fast mover isn't among them: SkyShift found it in exposures these frames leave out " +
+        "(the nearest is 355.8 days away). The crosshair marks where it was found.",
+    );
+    // Dashed red circles where it should be.
+    const spot = { epoch_id: "d2-2025W42_2A_0213_1", mjd: 60965.46572, ra: 123.94, dec: 17.41, measured: false };
+    h.track?.({ label: "the fast mover", spots: [spot], find_gap_days: 3.2 / 1440 } as Parameters<NonNullable<BlinkHandle["track"]>>[0]);
+    await h.show(hoursView, f, URL);
+    expect(el.querySelector(".bk-meas-lead")!.textContent).toMatch(/\(the nearest is 3\.2 min away\)\. Dashed red circles show where it should be\.$/);
+    // Measured in a frame (a solid circle): the usual lead.
+    h.track?.({ label: "the fast mover", spots: [{ ...spot, measured: true }] });
+    await h.show(hoursView, hours(), URL);
+    expect(el.querySelector(".bk-meas-lead")!.textContent).toMatch(/^13 dots in 4 photos, and 3 movers/);
+  });
+
   it("names the fields Close-up and Wide, with their size against the Moon", async () => {
     await h.show(monthsView, months(), URL);
     const fov = [...el.querySelectorAll<HTMLButtonElement>(".bk-fov button")];
@@ -339,6 +405,10 @@ describe("what SkyShift measured, on the To check plates", () => {
 
   it("months: the artefact source is left out of the list", async () => {
     await h.show(monthsView, months(), URL);
+    expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual(["Gaia star moved 10.4″ ± 0.09″ in 1.0 yr"]);
+    const more = el.querySelector<HTMLButtonElement>(".bk-meas-more")!;
+    expect(more.textContent).toBe("2 smaller shifts, too small to be sure");
+    more.click();
     expect([...el.querySelectorAll(".bk-mi-t")].map((x) => x.textContent)).toEqual([
       "Gaia star moved 10.4″ ± 0.09″ in 1.0 yr",
       "Suspect moved 0.65″ ± 0.20″ in 1.0 yr",

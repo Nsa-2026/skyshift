@@ -229,6 +229,41 @@ export interface Summary {
   notes: string[];
 }
 
+/**
+ * The candidate the plate is on (BlinkHandle.track, from src/review), as the panel needs it: what
+ * to call it, whether SkyShift measured it in any of these frames, whether a red circle marks it.
+ */
+export interface PanelCandidate {
+  /** "the fast mover", "the moving star", … (TrackMarks.label). */
+  label: string;
+  /** A solid red circle somewhere: its own dots are among these photos' measurements. */
+  measured: boolean;
+  /** A red circle (solid or dashed) in at least one frame. */
+  marked: boolean;
+  /** Days from the find to the nearest frame when the find's own exposures aren't in these frames; null or absent: unknown or they are. */
+  gapDays?: number | null;
+}
+
+/**
+ * Proposed TrackMarks field (src/app/modules.ts), not in the interface yet: set by src/review when
+ * the find's own exposures aren't among the frames. Read when present, like `extras` for detections.
+ */
+export interface TrackExtras {
+  /** Days from the find to the nearest frame of the plate's detector; null or absent: the find's own exposures are there, or unknown. */
+  find_gap_days?: number | null;
+}
+
+/** Summarize options. */
+export interface SummarizeOptions {
+  /** false: artefacts are left out (the cap note doesn't name them). */
+  artefacts?: boolean;
+  /** Hours: count only the movers with a dot on this detector's plate, as the list does (listItems). */
+  epochDet?: Map<string, number>;
+  det?: number;
+  /** The candidate on the plate: when SkyShift didn't measure it here, the lead says so instead of "no movers". */
+  candidate?: PanelCandidate | null;
+}
+
 /** The stage as a short tag: Final, Provisional, Extracted, or a new stage as given. */
 export function stageLabel(stage: string | null | undefined): string {
   const s = String(stage ?? "").replace(/_/g, " ").trim();
@@ -250,8 +285,22 @@ export function stageNote(m: Pick<Measured, "zone" | "stage">): string {
   }
 }
 
+/**
+ * The candidate SkyShift didn't measure in these photos, in plain words: that it isn't among them,
+ * why when known (its own exposures aren't in these frames), and what marks where it should be.
+ */
+export function candidateWords(c: PanelCandidate, others: boolean): string {
+  const who = c.label ? `${c.label[0].toUpperCase()}${c.label.slice(1)}` : "The find";
+  const why =
+    c.gapDays != null && c.gapDays > 0
+      ? `SkyShift found it in exposures these frames leave out (the nearest is ${span(c.gapDays)} away)`
+      : "SkyShift didn't measure it in these photos";
+  const mark = c.marked ? "Dashed red circles show where it should be." : "The crosshair marks where it was found.";
+  return `${who} isn't ${others ? "one of them" : "among them"}: ${why}. ${mark}`;
+}
+
 /** "N dots in P photos, and M movers: K known asteroids, J suspects (grades), L artefacts." */
-export function summarize(m: Measured, gaia?: GaiaStar[], opts: { artefacts?: boolean } = {}): Summary {
+export function summarize(m: Measured, gaia?: GaiaStar[], opts: SummarizeOptions = {}): Summary {
   const photos = plural(m.photos ?? 0, "photo");
   const counts = Object.fromEntries(CLASS_ORDER.map((k) => [k, m.counts?.[k] ?? 0])) as Record<MeasuredClass, number>;
   m = { ...m, counts, tracks: m.tracks ?? [], shifts: m.shifts ?? [], detections: m.detections ?? [] };
@@ -274,7 +323,10 @@ export function summarize(m: Measured, gaia?: GaiaStar[], opts: { artefacts?: bo
     if (r.length) rest = `${listJoin(r)}.`;
   } else if (m.clock === "hours") {
     const dots = total(m.counts);
-    const by = (c: MeasuredTrack["class"]) => m.tracks.filter((t) => t.class === c);
+    // The movers on this plate, as the list counts them: those with a dot on its detector.
+    const { epochDet, det } = opts;
+    const tracks = epochDet && det != null ? m.tracks.filter((t) => trackDotsFor(t, epochDet, det).length) : m.tracks;
+    const by = (c: MeasuredTrack["class"]) => tracks.filter((t) => t.class === c);
     const grades = trackGrades(m);
     const parts: string[] = [];
     // The pipeline pairs a mover per session: one known asteroid crossing the field in six sessions
@@ -297,10 +349,15 @@ export function summarize(m: Measured, gaia?: GaiaStar[], opts: { artefacts?: bo
     const mov = by("mover");
     if (mov.length) parts.push(plural(mov.length, "other mover"));
     lead = `<b>${dots.toLocaleString("en-GB")}</b> ${dots === 1 ? "dot" : "dots"} in ${photos}`;
-    const movers = m.tracks.length - known.length + knownObjects;
+    const movers = tracks.length - known.length + knownObjects;
+    // A candidate on the plate that SkyShift didn't measure here: say so, never a bare "no movers".
+    const cand = opts.candidate && !opts.candidate.measured ? opts.candidate : null;
     lead += movers
       ? `, and <b>${movers}</b> ${movers === 1 ? "mover" : "movers"}: ${listJoin(parts)}.`
-      : ", and no movers.";
+      : cand
+        ? "."
+        : ", and no movers.";
+    if (cand) lead += ` ${candidateWords(cand, movers > 0)}`;
     const r: string[] = [];
     if (m.counts.star) r.push(`${plural(m.counts.star, "dot")} ${m.counts.star === 1 ? "matches a Gaia star" : "match Gaia stars"}`);
     // A lone dot where a known asteroid should be (no mover paired it): known dots always survive the cap.
@@ -343,7 +400,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[], opts: { artefacts?: bo
     if (src.suspect && !by("suspect")) r.push(`${src.suspect} ${src.suspect === 1 ? "is a suspect" : "are suspects"}`);
     if (src.stack) r.push(`${src.stack.toLocaleString("en-GB")} ${src.stack === 1 ? "shows" : "show"} only in the visit stacks, fainter than one photo`);
     const weakNote = weak
-      ? `${weak.toLocaleString("en-GB")} weaker ${weak === 1 ? "shift is" : "shifts are"} listed but not drawn: under ${SHIFT_MIN_SNR}σ, or Gaia measures a different motion.`
+      ? `${weak.toLocaleString("en-GB")} weaker ${weak === 1 ? "shift is" : "shifts are"} neither counted nor drawn: under ${SHIFT_MIN_SNR}σ, or Gaia measures a different motion.`
       : "";
     rest = [weakNote, r.length ? `Of the sources, ${listJoin(r)}.` : ""].filter(Boolean).join(" ");
   }
@@ -607,6 +664,14 @@ export interface MeasuredItem {
   grade?: MeasuredDetection["grade"];
   /** A shift without an arrow on the plate (under 5σ, or Gaia disagrees). */
   undrawn?: boolean;
+  /** Why a shift has (or lacks) its arrow. */
+  why?: ShiftWhy;
+  /**
+   * The summary's lead counts it: a mover (hours) or a shift with an arrow (months). The rest
+   * (lone dots, shifts too uncertain for an arrow, sources without a shift) fold under one quiet
+   * line (`moreLine`), so the visible list holds exactly what the lead counts.
+   */
+  counted: boolean;
 }
 
 /** Grade C suspects fail a check: drawn greyed like artefacts, still labelled "Suspect, grade C". */
@@ -712,6 +777,7 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         pos: { ra: dots[0].ra, dec: dots[0].dec },
         epochs: dots.map((x) => x.epoch_id),
         track: ts[0].id,
+        counted: true,
       });
     }
     for (const t of m.tracks) {
@@ -740,6 +806,7 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         epochs: dots.map((x) => x.epoch_id),
         track: t.id,
         grade: t.class === "suspect" ? (ds.find((x) => x.grade)?.grade ?? null) : undefined,
+        counted: true,
       });
     }
     // Lone dots: known ones grouped by name; the rest grouped when the same class sits within 4″
@@ -768,6 +835,8 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         pos: { ra: d.ra, dec: d.dec },
         epochs: ds.map((x) => x.epoch_id),
         grade: d.grade,
+        // A lone dot isn't a mover: the lead doesn't count it.
+        counted: false,
       });
     }
   } else {
@@ -801,6 +870,9 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         epochs: [],
         shift: i,
         undrawn: !v.draw || undefined,
+        why: v.why,
+        // The lead counts the shifts with an arrow (summarize: shiftVerdict(s).draw), and only those.
+        counted: v.draw,
       });
     });
     const src = new Map<number, MeasuredDetection[]>();
@@ -821,16 +893,36 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         pos: { ra: d.ra, dec: d.dec },
         epochs: mine.map((x) => x.epoch_id),
         grade: d.grade,
+        // No fitted shift: it didn't measurably move, and the lead doesn't count it.
+        counted: false,
       });
     }
   }
-  // Shifts with an arrow first, then class, then as listed (tracks in the server's order, shifts by pm_snr).
-  // The Viewer leaves artefacts out (it doesn't draw them either).
+  // What the lead counts first (shifts with an arrow, movers), then shifts before sources without
+  // one, then class, then as listed (tracks in the server's order, shifts by pm_snr). The Viewer
+  // leaves artefacts out (it doesn't draw them either).
+  const noShift = (it: MeasuredItem) => Number(m.clock !== "hours" && it.shift == null);
   return items
     .filter((it) => !plain || it.cls !== "artifact")
     .map((it, i) => ({ it, i }))
-    .sort((a, b) => Number(!!a.it.undrawn) - Number(!!b.it.undrawn) || byClass(a.it, b.it) || a.i - b.i)
+    .sort((a, b) => Number(!a.it.counted) - Number(!b.it.counted) || noShift(a.it) - noShift(b.it) || byClass(a.it, b.it) || a.i - b.i)
     .map((x) => x.it);
+}
+
+/**
+ * The quiet line the uncounted entries fold under ("" when there are none): "2 smaller shifts, too
+ * small to be sure" when every one is a shift under 5σ; "2 more shifts we can't be sure of" when
+ * Gaia disagrees with some; on the hours clock, the lone dots that didn't pair into a mover.
+ */
+export function moreLine(items: MeasuredItem[], clock: Measured["clock"]): string {
+  const more = items.filter((it) => !it.counted);
+  const n = more.length;
+  if (!n) return "";
+  if (clock === "hours") return `${plural(n, "lone dot")}, not paired into a mover`;
+  if (more.every((it) => it.shift != null && it.why === "weak"))
+    return `${plural(n, "smaller shift")}, too small to be sure`;
+  if (more.every((it) => it.shift != null)) return `${n.toLocaleString("en-GB")} more ${n === 1 ? "shift" : "shifts"} we can't be sure of`;
+  return `${n.toLocaleString("en-GB")} more we can't be sure of`;
 }
 
 /**

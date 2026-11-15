@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { Candidate, Epoch, FramesResponse, Measured, MeasuredDetection } from "../api/types";
 import { sepArcsec } from "../app/astro";
-import { MATCH_ARCSEC, MOVER_DAYS, STILL_DAYS, buildTrackMarks } from "./track";
+import { MATCH_ARCSEC, MOVER_DAYS, STILL_DAYS, buildTrackMarks, candidateMarks } from "./track";
 
 const H = 1 / 24;
 const epoch = (id: string, mjd: number, kind: Epoch["kind"] = "exposure"): Epoch => ({
@@ -231,6 +231,16 @@ describe("red circles for a mover", () => {
   it("draws nothing on the months clock (a visit is weeks: the mover is long gone)", () => {
     const t = buildTrackMarks(PILOT, response([epoch("d5-v1", 61000, "visit"), epoch("d5-v2", 61180, "visit")], measured({ clock: "months" }), "months"));
     expect(t).toBeNull();
+  });
+
+  it("still names the candidate for the panel with no spot in these frames, and carries how far its own exposures are", () => {
+    // Live frames of another visit, a year from the find: no red circle, but the panel must know.
+    const far = response([epoch("d5-a", PILOT.mjd - 356), epoch("d5-b", PILOT.mjd - 355.9)]);
+    expect(buildTrackMarks(PILOT, far)).toBeNull();
+    expect(candidateMarks(PILOT, far, 355.9)).toEqual({ label: "the fast mover", spots: [], find_gap_days: 355.9 });
+    const t = candidateMarks(PILOT, pilotFrames(), null);
+    expect(t.spots.length).toBeGreaterThan(0);
+    expect(t.find_gap_days).toBeNull();
   });
 });
 

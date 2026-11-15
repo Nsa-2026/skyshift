@@ -60,6 +60,7 @@ import {
   listItems,
   listJoin,
   measuredState,
+  moreLine,
   motionArrow,
   offsetWords,
   reasonLine,
@@ -70,6 +71,7 @@ import {
   trackDotsFor,
   type Arrow,
   type MeasuredItem,
+  type TrackExtras,
 } from "./measured";
 import { driftPx, findMover, followShifts, type Mover } from "./motion";
 import { buildLut, diffIndex, fade, lerp, paint, parseHex, plainIndex, readPalette, type Palette } from "./paint";
@@ -352,6 +354,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
             <p class="bk-meas-lh" id="${uid}-ml"></p>
             <ul class="bk-meas-list" aria-labelledby="${uid}-ml"></ul>
             <button class="btn btn-ghost bk-meas-all" type="button" aria-expanded="false" hidden></button>
+            <button class="bk-meas-more" type="button" aria-expanded="false" aria-controls="${uid}-mx" hidden></button>
+            <ul class="bk-meas-list bk-meas-extra" id="${uid}-mx" hidden></ul>
           </div>
           <p class="bk-meas-notes pro-only"></p>
           <p class="bk-meas-pro pro-only"></p>
@@ -397,6 +401,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     lh: $<HTMLParagraphElement>(".bk-meas-lh"),
     list: $<HTMLUListElement>(".bk-meas-list"),
     all: $<HTMLButtonElement>(".bk-meas-all"),
+    /** The quiet line the entries the lead doesn't count fold under, and their list. */
+    more: $<HTMLButtonElement>(".bk-meas-more"),
+    extra: $<HTMLUListElement>(".bk-meas-extra"),
     notes: $<HTMLParagraphElement>(".bk-meas-notes"),
     pro: $<HTMLParagraphElement>(".bk-meas-pro"),
     short: $<HTMLParagraphElement>(".bk-meas-short"),
@@ -453,6 +460,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   };
   /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
   let trackM: TrackMarks | null = null;
+  /** The candidate on the plate even when no frame has a spot for it: the panel names it (summarize `candidate`). */
+  let trackFor: (TrackMarks & TrackExtras) | null = null;
   let trackBy = new Map<string, TrackSpot>();
   let trackGen = 0;
   /** The crosshair's widest opening around the red circles, for this plate and view. */
@@ -463,6 +472,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   let epochDet = new Map<string, number>();
   let measItems: MeasuredItem[] = [];
   let measAll = false;
+  /** The entries the lead doesn't count, unfolded. */
+  let measMore = false;
   /** How far sources reach on the shown plate (image pixels), by position: reset when the plate or its stretch changes. */
   let reachCache: { vals: Float32Array | null; floor: number; m: Map<string, number> } = { vals: null, floor: NaN, m: new Map() };
   /** The arrows of the last draw, by shift index: the list's focus ring follows them. */
@@ -1794,7 +1805,19 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     const m = st.m;
     mp.panel.dataset.state = "measured";
-    const s = summarize(m, F?.gaia, { artefacts: !noArtefacts });
+    // The lead counts what the list shows: movers on this detector, and the candidate when it isn't among them.
+    const spots = trackFor?.spots ?? [];
+    const s = summarize(m, F?.gaia, {
+      artefacts: !noArtefacts,
+      epochDet,
+      det: view?.det,
+      candidate: trackFor && {
+        label: trackFor.label,
+        measured: spots.some((x) => x.measured),
+        marked: spots.length > 0,
+        gapDays: trackFor.find_gap_days,
+      },
+    });
     mp.lead.innerHTML = s.lead;
     mp.rest.textContent = s.rest;
     mp.rest.hidden = !s.rest;
@@ -1816,7 +1839,9 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       (saturatedHere()
         ? `<li title="A star too bright for SPHEREx: its burnt core gives no single detection.">${SATURATED_GLYPH}<span>Saturated star</span></li>`
         : "");
-    const arrows = m.clock === "hours" ? m.tracks.length > 0 : m.shifts.length > 0;
+    // Months: only a shift with an arrow (what the lead counts) puts arrows on the plate.
+    const G = gaiaById(F?.gaia);
+    const arrows = m.clock === "hours" ? m.tracks.length > 0 : m.shifts.some((x) => shiftVerdict(x, G).draw);
     mp.how.textContent =
       "Circles are what SkyShift measured in each photo, each as big as its source looks on the plate. " +
       "Blue rings are where Gaia predicts stars, a little bigger, so a match reads as a circle inside a ring; one ring with two dots is two Gaia stars SPHEREx sees as one. " +
@@ -1853,23 +1878,32 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const hours = m.clock === "hours";
     mp.items.hidden = !measItems.length;
     if (!measItems.length) return;
-    if (mp.count) mp.count.textContent = `(${measItems.length})`;
+    // The list shows what the lead counts; the rest fold under one quiet line.
+    const counted = measItems.filter((it) => it.counted);
+    const extra = measItems.filter((it) => !it.counted);
+    if (mp.count) mp.count.textContent = counted.length ? `(${counted.length})` : "";
+    mp.lh.hidden = !counted.length;
     mp.lh.textContent = opts.viewer
       ? hours ? "What moved between photos" : "What moved between visits"
       : hours
         ? `Movers${noArtefacts ? "" : " and artefacts"} on ${waveGroups.size ? "all detectors" : `D${view.det}`}`
         : "What moved between visits";
-    const shown = measAll ? measItems : measItems.slice(0, LIST_SHOWN);
-    mp.list.innerHTML = shown
-      .map(
-        (it) => html`<li><button class="bk-mi" type="button" data-item="${esc(it.key)}" aria-pressed="${it.key === pinned}"
-          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n pro-only">${esc(it.numbers)}</span></button></li>`,
-      )
-      .join("");
-    const more = measItems.length - LIST_SHOWN;
+    const row = (it: MeasuredItem) => html`<li><button class="bk-mi" type="button" data-item="${esc(it.key)}" aria-pressed="${it.key === pinned}"
+          >${glyph(it.cls, it.grade)}<span class="bk-mi-t">${esc(it.label)}</span><span class="bk-mi-n pro-only">${esc(it.numbers)}</span></button></li>`;
+    const shown = measAll ? counted : counted.slice(0, LIST_SHOWN);
+    mp.list.hidden = !counted.length;
+    mp.list.innerHTML = shown.map(row).join("");
+    const more = counted.length - LIST_SHOWN;
     mp.all.hidden = more <= 0;
     mp.all.setAttribute("aria-expanded", String(measAll));
-    mp.all.textContent = measAll ? "Show fewer" : `Show all ${measItems.length}`;
+    mp.all.textContent = measAll ? "Show fewer" : `Show all ${counted.length}`;
+    // A pinned entry among the folded ones keeps them open.
+    const open = measMore || extra.some((it) => it.key === pinned);
+    mp.more.hidden = !extra.length;
+    mp.more.setAttribute("aria-expanded", String(open));
+    mp.more.textContent = moreLine(measItems, m.clock);
+    mp.extra.hidden = !open || !extra.length;
+    mp.extra.innerHTML = open ? extra.map(row).join("") : "";
   }
 
   /** A list entry was clicked: pin its ring, and on the hours clock show a photo it is in. */
@@ -1877,7 +1911,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     const it = measItems.find((x) => x.key === key);
     if (!it) return;
     pinned = pinned === key ? null : key;
-    mp.list.querySelectorAll<HTMLButtonElement>(".bk-mi").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.item === pinned)));
+    mp.items.querySelectorAll<HTMLButtonElement>(".bk-mi").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.item === pinned)));
     if (pinned && !overlays.measured) {
       overlays.measured = true;
       renderControls();
@@ -1948,6 +1982,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   }
   function setTrack(marks: TrackMarks | null) {
     trackGen++;
+    trackFor = marks;
     trackM = marks?.spots.length ? marks : null;
     trackBy = new Map((trackM?.spots ?? []).map((s) => [s.epoch_id, s]));
   }
@@ -2152,6 +2187,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     if (moved || prev?.clock !== next.clock || prev?.det !== next.det) {
       pinned = null;
       measAll = false;
+      measMore = false;
     }
     focusItem = null;
     prepareMeasured();
@@ -2390,6 +2426,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     else if (b === mp.all) {
       measAll = !measAll;
       renderMeasuredList();
+    } else if (b === mp.more) {
+      measMore = mp.more.getAttribute("aria-expanded") !== "true";
+      if (!measMore && pinned && measItems.some((it) => it.key === pinned && !it.counted)) pinned = null;
+      renderMeasuredList();
+      draw();
     } else if (d.measRetry !== undefined) opts.onViewChange({});
     else if (b === playBtn) setPlaying(!playing);
     else if (b === adjBtn) setAdjust(adj.hidden);
@@ -2413,10 +2454,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       draw();
     });
   }
-  mp.list.addEventListener("pointerover", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
-  mp.list.addEventListener("pointerleave", () => focusOn(document.activeElement && itemOf(document.activeElement) ? itemOf(document.activeElement)!.dataset.item ?? null : null));
-  mp.list.addEventListener("focusin", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
-  mp.list.addEventListener("focusout", (ev) => {
+  // On the container, so the folded entries (mp.extra) behave like the rest.
+  mp.items.addEventListener("pointerover", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
+  mp.items.addEventListener("pointerleave", () => focusOn(document.activeElement && itemOf(document.activeElement) ? itemOf(document.activeElement)!.dataset.item ?? null : null));
+  mp.items.addEventListener("focusin", (ev) => focusOn(itemOf(ev.target)?.dataset.item ?? null));
+  mp.items.addEventListener("focusout", (ev) => {
     if (!itemOf(ev.relatedTarget)) focusOn(null);
   });
 

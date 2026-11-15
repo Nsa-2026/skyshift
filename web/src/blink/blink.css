@@ -986,6 +986,42 @@ details.bk-meas > :not(summary) + :not(summary) {
   padding: 0 var(--s3);
   font-size: var(--step--1);
 }
+/* What the lead doesn't count (shifts too uncertain for an arrow, lone dots): one quiet line that unfolds. */
+.bk-meas-more {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 var(--s2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--step--1);
+  text-align: left;
+  cursor: pointer;
+}
+.bk-meas-more::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform 0.15s;
+}
+.bk-meas-more[aria-expanded="true"]::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+.bk-meas-more:hover {
+  background: var(--sheet-2);
+  color: var(--ink);
+}
+.bk-meas-extra .bk-mi-t {
+  font-weight: 500;
+}
 
 /* ---- phone: plate full width, the controls in two lines, Adjust inline ---------------- */
 @container (max-width: 600px) {

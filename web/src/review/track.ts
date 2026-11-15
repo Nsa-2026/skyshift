@@ -4,6 +4,7 @@
 import type { Candidate, FramesResponse, SkyPos } from "../api/types";
 import type { TrackMarks, TrackSpot } from "../app/modules";
 import { pixelToSky, sepArcsec, skyToPixel } from "../app/astro";
+import type { TrackExtras } from "../blink/measured";
 
 /** Movers: predict no further than this from the nearest measured moment (days); the plate's focus window is a day too. */
 export const MOVER_DAYS = 1;
@@ -48,6 +49,16 @@ const along = (rate: number, paDeg: number): Plane => ({ e: rate * Math.sin(paDe
 export function buildTrackMarks(c: Cand, frames: FramesResponse): TrackMarks | null {
   const spots = c.kind === "mover" ? moverSpots(c, frames) : sourceSpots(c, frames);
   return spots.length ? { label: LABEL[c.kind] ?? "the find", spots } : null;
+}
+
+/**
+ * What the player gets for a candidate (BlinkHandle.track): its red circles, and always its name,
+ * even with no spot in these frames, so "What SkyShift measured" can say SkyShift didn't measure
+ * it here instead of "no movers". `gapDays`: days from the find to the nearest frame when the
+ * find's own exposures aren't among the frames (findGap over OWN_GAP_DAYS), else null.
+ */
+export function candidateMarks(c: Cand, frames: FramesResponse, gapDays: number | null): TrackMarks & TrackExtras {
+  return { ...(buildTrackMarks(c, frames) ?? { label: LABEL[c.kind] ?? "the find", spots: [] }), find_gap_days: gapDays };
 }
 
 function moverSpots(c: Cand, f: FramesResponse): TrackSpot[] {

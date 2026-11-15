@@ -141,8 +141,12 @@ export function focusFrames(frames: FramesResponse, c: Pick<Candidate, "mjd" | "
   };
 }
 
-/** Over this gap (days) between the find and the nearest frame, the find's own exposures aren't shown. */
-export const OWN_GAP_DAYS = 1 / 24;
+/**
+ * Over this gap (days) between the find and the nearest frame, the find's own exposures aren't
+ * shown. A mover's `mjd` is the middle of the exposures it was found in, 2.1 minutes apart, so its
+ * own sit about a minute from it; the session's next exposure is 3 minutes away, and isn't the find's.
+ */
+export const OWN_GAP_DAYS = 2 / 1440;
 
 /**
  * Hours candidates: days from the find's mjd to the nearest frame of `det`. Live hours frames show

@@ -15,7 +15,7 @@ import { LIST_HASH, keyAction, neighbours, parseCandidateParam } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
-import { buildTrackMarks } from "./track";
+import { candidateMarks } from "./track";
 import { KIND_TEXT, SITE, esc, kindName } from "./text";
 
 const html = String.raw;
@@ -79,11 +79,13 @@ export async function suspectFrames(
   const loaded = await framesFor(c, view);
   const f = focusFrames(loaded.frames, c, view.det);
   const gap = findGap(loaded.frames, c, view.det);
+  const missingGap = gap !== null && gap > OWN_GAP_DAYS ? gap : null;
   const frames = all ? loaded.frames : f.frames;
   return {
     frames,
     jsonUrl: loaded.jsonUrl,
-    marks: buildTrackMarks(c, frames),
+    // Always named, so the panel can say SkyShift didn't measure it here (and why) instead of "no movers".
+    marks: candidateMarks(c, frames, missingGap),
     // A few exposures of one session share one edge: the visit's others fill it (never blinked).
     fill: !all && f.focused ? epochsFor(loaded.frames, view.det) : [],
     note: {
@@ -91,7 +93,7 @@ export async function suspectFrames(
       shown: f.shown,
       all: f.all,
       allShown: all && f.focused,
-      missingGap: gap !== null && gap > OWN_GAP_DAYS ? gap : null,
+      missingGap,
     },
   };
 }
