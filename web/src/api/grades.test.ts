@@ -142,6 +142,7 @@ describe("totals", () => {
   it("lists the zone's checks and the gates that failed anything, most first", () => {
     expect(vetoesText(sus.vetoes)).toBe("known asteroids and comets (MPC), Gaia and CatWISE");
     expect(vetoesText(undefined)).toBeNull();
+    expect(vetoesText(["mpc", "planets"])).toBe("known asteroids and comets (MPC) and planets and their moons");
     expect(gateTotals(sus.gates)).toEqual([
       ["2mass", 1],
       ["edge", 1],

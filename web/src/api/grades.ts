@@ -314,6 +314,7 @@ const VETO_TEXT: Record<string, string> = {
   gaia: "Gaia",
   catwise: "CatWISE",
   allwise: "AllWISE",
+  planets: "planets and their moons",
 };
 
 /** "known asteroids and comets (MPC), Gaia and CatWISE", or null without vetoes. */
