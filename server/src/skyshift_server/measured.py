@@ -34,6 +34,7 @@ import json
 import logging
 import math
 import os
+import re
 import threading
 import time
 from collections import OrderedDict, defaultdict
@@ -100,10 +101,19 @@ def dots_only_enabled() -> bool:
     return os.environ.get("SKYSHIFT_MEASURED_DOTS_ONLY", "1") != "0"
 
 
-def stack_enabled() -> bool:
-    """v3.13 class `stack`: off until SKYSHIFT_MEASURED_STACK=1, because the site reads CLASS_INFO[class] and an
-    unknown class would break its measured layer (web/src/blink/measured.ts); turn on once the site knows it."""
-    return os.environ.get("SKYSHIFT_MEASURED_STACK", "0") == "1"
+def stack_enabled(zone: str | None = None) -> bool:
+    """v3.13 class `stack`: off until SKYSHIFT_MEASURED_STACK is set, because the site reads CLASS_INFO[class] and an
+    unknown class would break its measured layer (web/src/blink/measured.ts); turn on once the site knows it.
+    "1": every zone with a stack table; otherwise a list of zones ("+", "," or spaces between names): only those.
+    15 Nov: t_rdra is left out, its Mira's glow gives a ring of uncatalogued stack pieces 30–60″ out, beyond the
+    stack step's artifact zones (8″, 20–30″)."""
+    v = os.environ.get("SKYSHIFT_MEASURED_STACK", "0").strip()
+    if v in ("", "0"):
+        return False
+    if v == "1":
+        return True
+    names = {x for x in re.split(r"[+,\s]+", v) if x}
+    return zone is None or zone in names
 
 
 # --- storage ----------------------------------------------------------------------------------
@@ -443,7 +453,7 @@ def _load_tables(st: Store, zone: Zone) -> Tables:
                     np.asarray(src["dec"], float)[order], gaia, mv, suspects, ast, highpm,
                     _load_fragments(st, base), _load_companions(st, base),
                     stack=_load_stack(st, base, np.asarray(src["ra"], float), np.asarray(src["dec"], float))
-                    if stack_enabled() else None)
+                    if stack_enabled(zone.name) else None)
     log.info("measured: zone %s tables loaded in %.1f s (%d sources, %d movers, %d suspects, %d shifts, %.1f MB)",
              zone.name, time.perf_counter() - t0, len(order), len(mv.get("ra", ())), len(suspects),
              len(ast.get("source_id", ())), tables.nbytes() / 1e6)
@@ -1407,7 +1417,7 @@ def stale(cached: dict, *, root: str | None = None) -> bool:
     if (z.name, z.stage) != (m.get("zone"), m.get("stage")):
         return True
     # v3.13: a months answer built before the zone's stack table existed
-    return (stack_enabled() and cached.get("clock") == "months" and STACK_CLASS not in (m.get("counts") or {})
+    return (stack_enabled(z.name) and cached.get("clock") == "months" and STACK_CLASS not in (m.get("counts") or {})
             and stack_exists(z.name, root))
 
 
