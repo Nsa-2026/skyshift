@@ -11,8 +11,8 @@ its moons, or its glare.
 Positions: astropy's built-in ephemeris (ERFA epv00 for the Earth, plan94 for the planets: no network, no kernel
 download), geocentric astrometric (light time, no aberration), as the Gaia-calibrated WCS measures them. Against
 JPL Horizons' geocentric astrometric RA/Dec on 9 dates from 2025-04-15 to 2026-10-27 (tests/test_planets.py): Jupiter
-and Saturn ≤ 20″, Mars and Uranus ≤ 7″, Neptune ≤ 4″. SPHEREx's low orbit moves a planet by ≤ 2″ beyond Jupiter
-and ≤ 19″ for Mars at 0.52 AU: ignored, like the ephemeris error, against radii of arcminutes. Times are MJD (UTC,
+and Saturn ≤ 20″, Mars and Uranus ≤ 7″, Neptune ≤ 4″. SPHEREx's low orbit moves a planet by ≤ 2.3″ at Jupiter
+(less beyond) and ≤ 19″ for Mars at 0.52 AU: ignored, like the ephemeris error, against radii of arcminutes. Times are MJD (UTC,
 MJD-AVG), taken as TT − 69.184 s, so no leap-second table is read either.
 
 Radii (RADIUS_ARCSEC): the farthest moon SPHEREx sees (V ≲ 17; single exposures reach AB ~17.5) at its apocentre,
