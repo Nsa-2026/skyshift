@@ -169,7 +169,7 @@ export function earthCover(w: number, h: number, s: SceneState): [number, number
 /** Illustrative flight length, parsecs. */
 export const FLIGHT_PC = 46;
 /** Streaks show the path over this much progress (a camera shutter in scroll units). */
-export const SHUTTER = .008;
+export const SHUTTER = .02;
 /** Parsecs flown at progress p: eases in, then accelerates; the clouds hide the end. */
 export function flightAt(p: number): number {
   const g = descentAt(p), k = 2.6;
@@ -290,14 +290,14 @@ export function drawStarField(c: CanvasRenderingContext2D, cat: StarCatalog, w: 
         const PX = cx + scale * rx * rinv, PY = cy - scale * ry * rinv;
         const len = Math.hypot(X - PX, Y - PY);
         if (len > STREAK_MIN) {
-          // The same light spread along the path: fainter for longer trails, fading to the tail.
-          const head = alpha * Math.min(.85, 2.4 / Math.sqrt(len));
+          // Light spread along the path, fading to the tail; kept bright so the motion reads.
+          const head = Math.min(1, alpha * 1.25) * Math.min(1, 5 / Math.sqrt(len));
           let wc = 0;
           while (wc < WIDTHS.length - 1 && dot > WIDTHS[wc]) wc++;
           const base = (1 + wc) * perKind + t * LEVELS;
           const MX = (X + PX) / 2, MY = (Y + PY) / 2;
           tx0[trails] = MX; ty0[trails] = MY; tx1[trails] = X; ty1[trails] = Y; tBucket[trails++] = base + levelOf(head);
-          tx0[trails] = PX; ty0[trails] = PY; tx1[trails] = MX; ty1[trails] = MY; tBucket[trails++] = base + levelOf(head * .4);
+          tx0[trails] = PX; ty0[trails] = PY; tx1[trails] = MX; ty1[trails] = MY; tBucket[trails++] = base + levelOf(head * .55);
         }
       }
     }

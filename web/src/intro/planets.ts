@@ -74,6 +74,52 @@ export function earthAtStart(w: number, h: number) {
 const TARGET = { x: .6, y: .48 };
 /** Toward the Sun on screen: the sprite's light direction, turned with the sprite. */
 const SUN = [-.873, -.487];
+/** Night opacity across the dusk ramp, t = 0 (day side) to 1 (full night): 0 → .55 → .96. */
+export const duskOpacity = (t: number) => t <= 0 ? 0 : t >= 1 ? .96 : t < .5 ? t * 1.1 : .55 + (t - .5) * .82;
+/** Columns of the dusk strip across the disc, x = −DUSK_REACH r … +DUSK_REACH r. */
+export const DUSK_COLUMNS = 512;
+const DUSK_REACH = 1.02;
+/**
+ * The night's opacity (0–255) in each column of a strip laid across the disc, +x away from the
+ * Sun: the ramp runs from x = r(edge − .45) to r(edge + .22). Computed pixel by pixel instead
+ * of with a CanvasGradient: on one browser that gradient's dark end came out white (15 Nov).
+ */
+export function duskRow(edge: number, strength: number, columns = DUSK_COLUMNS): Uint8ClampedArray {
+  const row = new Uint8ClampedArray(columns * 4), k = Math.max(0, Math.min(1, strength));
+  for (let i = 0; i < columns; i++) {
+    const x = -DUSK_REACH + 2 * DUSK_REACH * (i + .5) / columns;
+    row[i * 4] = 3; row[i * 4 + 1] = 7; row[i * 4 + 2] = 16;
+    row[i * 4 + 3] = Math.round(255 * k * duskOpacity((x - (edge - .45)) / .67));
+  }
+  return row;
+}
+let duskStrip: { canvas: HTMLCanvasElement; c: CanvasRenderingContext2D; pixels: ImageData } | null = null;
+/**
+ * Fill Earth's disc (centre x, y, radius r) with the dusk: the strip as a pattern, turned so its
+ * +x points away from the Sun. A pattern fill, like the old gradient fill: no clip, which cost
+ * frames on the GPU.
+ */
+export function drawDusk(c: CanvasRenderingContext2D, x: number, y: number, r: number, edge: number, strength: number): void {
+  if (!(strength > 0) || !Number.isFinite(r) || r <= 0 || typeof DOMMatrix !== 'function') return;
+  if (!duskStrip) {
+    const canvas = document.createElement('canvas'); canvas.width = DUSK_COLUMNS; canvas.height = 1;
+    const sc = canvas.getContext('2d');
+    if (!sc) return;
+    duskStrip = { canvas, c: sc, pixels: sc.createImageData(DUSK_COLUMNS, 1) };
+  }
+  duskStrip.pixels.data.set(duskRow(edge, strength));
+  duskStrip.c.putImageData(duskStrip.pixels, 0, 0);
+  const pattern = c.createPattern(duskStrip.canvas, 'no-repeat');
+  if (!pattern) return;
+  const side = 2 * DUSK_REACH * r;
+  pattern.setTransform(new DOMMatrix()
+    .translateSelf(x, y).rotateSelf(Math.atan2(-SUN[1], -SUN[0]) * 180 / Math.PI)
+    .translateSelf(-DUSK_REACH * r, -DUSK_REACH * r).scaleSelf(side / DUSK_COLUMNS, side));
+  c.save();
+  c.imageSmoothingEnabled = true;
+  c.fillStyle = pattern; c.beginPath(); c.arc(x, y, r * 1.001, 0, TAU); c.fill();
+  c.restore();
+}
 export function diveTarget(w: number, h: number): [number, number] {
   const e = earthAtStart(w, h);
   return [e.x + TARGET.x * e.r, e.y + TARGET.y * e.r];
@@ -162,12 +208,7 @@ export function paintPlanetaryOpening(c: CanvasRenderingContext2D, w: number, h:
   // night (an illustration; it keeps the low-resolution day side from filling the screen).
   const dusk = smooth(s.p, .15, .235);
   if (dusk > 0) {
-    const edge = .594 - dusk * 1.75, vx = -SUN[0], vy = -SUN[1];
-    const shade = c.createLinearGradient(x + vx * r * (edge - .45), y + vy * r * (edge - .45), x + vx * r * (edge + .22), y + vy * r * (edge + .22));
-    shade.addColorStop(0, 'rgba(3,7,16,0)'); shade.addColorStop(.5, 'rgba(3,7,16,.55)'); shade.addColorStop(1, 'rgba(3,7,16,.96)');
-    c.save(); c.globalAlpha = alpha * Math.min(1, dusk * 1.6);
-    c.fillStyle = shade; c.beginPath(); c.arc(x, y, r * 1.001, 0, TAU); c.fill();
-    c.restore();
+    drawDusk(c, x, y, r, .594 - dusk * 1.75, alpha * Math.min(1, dusk * 1.6));
   }
   // Inside the atmosphere: night air closes in before the clouds.
   const haze = smooth(tau, .8, .975);
