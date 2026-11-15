@@ -454,7 +454,24 @@ export function startApp(root: HTMLElement): void {
     // Pages with their own title (Review, a candidate) set it in show(), after this.
     const name = page === "explore" && blinkName ? blinkName : PAGE_TITLES[page];
     document.title = name ? `${name}: SkyShift` : "SkyShift";
-    root.querySelectorAll<HTMLElement>(".page").forEach((p) => (p.hidden = p.dataset.page !== page));
+    // Fade the arriving page in rather than cutting to it. Only the incoming page is animated:
+    // holding the outgoing one on screen to fade it out would put every route change behind an
+    // animation, and a hash change has to be able to land immediately.
+    let entering: HTMLElement | null = null;
+    root.querySelectorAll<HTMLElement>(".page").forEach((p) => {
+      const show = p.dataset.page === page;
+      // Cleared everywhere first: left on, it stays on the page that arrived earlier and the
+      // next one never animates at all.
+      p.classList.remove("is-entering");
+      if (show && p.hidden) entering = p;
+      p.hidden = !show;
+    });
+    if (entering) {
+      // Reading the layout between the remove and the add is what lets the animation run again
+      // when the same page is returned to; within one frame the browser sees no change.
+      void (entering as HTMLElement).offsetWidth;
+      (entering as HTMLElement).classList.add("is-entering");
+    }
     root.querySelectorAll<HTMLElement>("[data-only]").forEach((p) => (p.hidden = embed || p.dataset.only !== page || practicing));
     if (page === "explore" && !exploreStarted) {
       exploreStarted = true;

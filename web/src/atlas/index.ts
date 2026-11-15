@@ -12,6 +12,7 @@ import { formatRaDec } from "../app/astro";
 import { parseCoords } from "../app/coords";
 import type { MountPage, PageContext } from "../app/modules";
 import { TARGETS, featuredNear, targetBySlug, type Target } from "../app/state";
+import { createTour, type TourHandle } from "./tour";
 import { browserHasWebGL2, loadAladinOnce, SkyUnavailable } from "../sky/loader";
 import { ALLWISE, SPHEREX, TWO_MASS } from "../sky/layers";
 import { createAladinMap } from "./aladin-map";
@@ -69,6 +70,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       <div class="atl-map" data-map tabindex="0" role="region" aria-roledescription="sky map"
         aria-label="Sky map" aria-describedby="atl-keys"></div>
       <p class="visually-hidden" id="atl-keys">Arrow keys move the map, plus and minus zoom. Enter opens the zone nearest the centre on the whole sky, and the object to check nearest the centre closer in. The list below the map holds what is in view.</p>
+      <div class="atl-tour" data-tour aria-live="polite" hidden></div>
       <div class="atl-note" data-note role="status"><p>Loading the sky…</p></div>
       <div class="atl-tip" data-tip role="tooltip" hidden></div>
 
@@ -208,6 +210,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
   }
 
+  let tour: TourHandle | null = null;
   const reduced = prefersReducedMotion();
 
   // ---- state ---------------------------------------------------------------------------------
@@ -686,8 +689,36 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
   }
 
+  /**
+   * The tour is what the whole sky does when nobody has asked for anything in particular. It
+   * must never run when the page was opened at a position — a pasted coordinate, a link to a
+   * zone, a candidate's own view — because flying that person somewhere else throws away the
+   * very thing they came to look at.
+   */
+  function tourShouldRun(): boolean {
+    if (parseState(requestedParam)) return false;
+    return visible && !reduced && !document.hidden;
+  }
+
+  function syncTour() {
+    if (!tour) return;
+    if (tourShouldRun()) tour.start();
+    else tour.stop();
+  }
+
+  function startTour() {
+    tour?.destroy();
+    tour = createTour(TARGETS, {
+      flyTo: (to, animate, seconds) => map?.flyTo(to, animate, seconds),
+      card: q<HTMLDivElement>("[data-tour]"),
+      reducedMotion: reduced,
+    });
+    syncTour();
+  }
+
   function afterMapReady() {
     if (!map) return;
+    startTour();
     const v = map.view();
     state = { ...state, ra: v.ra, dec: v.dec, fov: v.fov };
     publishSky();
@@ -943,6 +974,17 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   });
 
   // Keyboard on the map: arrows pan, + and − zoom, Enter opens the zone or object nearest the centre.
+  /**
+   * Anybody touching this page takes the view off the tour at once, and the tour comes back only
+   * after things have been left alone for a while. The listener is on the whole page rather than
+   * the map, so the zoom buttons, the search box and the layer switches all count as taking
+   * over, not only a drag on the sky. It goes by what the person did, never by the view having
+   * changed, which would mean telling the tour's own flight apart from theirs.
+   */
+  for (const kind of ["pointerdown", "wheel", "keydown"] as const) {
+    el.addEventListener(kind, () => tour?.interrupted(), { passive: true });
+  }
+
   mapEl.addEventListener("keydown", (ev) => {
     if (!map) return;
     const k = ev.key;
@@ -1010,6 +1052,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     hide() {
       visible = false;
+      tour?.stop();
       zoomFocus.hide();
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
@@ -1021,6 +1064,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     },
     destroy() {
       destroyed = true;
+      tour?.destroy();
       zoomFocus.destroy();
       chromeObs?.disconnect();
       if (viewRaf) clearTimeout(viewRaf);
