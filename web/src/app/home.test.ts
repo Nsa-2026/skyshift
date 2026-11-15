@@ -36,7 +36,7 @@ afterEach(() => {
   opening.mount.mockClear();
 });
 
-it("opens on the Sky with the four screens one click away, and loads no frames", () => {
+it("opens on the Sky with the four screens and Learn one click away, and loads no frames", () => {
   history.replaceState(null, "", "/");
   const root = document.createElement("div");
   document.body.append(root);
@@ -49,6 +49,7 @@ it("opens on the Sky with the four screens one click away, and loads no frames",
     "#/explore",
     "#/candidates",
     "#/results",
+    "#/learn",
   ]);
   expect(root.querySelector(".top .details-switch")!.textContent).toBe("Advanced");
   expect([...root.querySelectorAll<HTMLAnchorElement>(".foot-links a")].map((a) => a.textContent)).toEqual(["Learn", "About"]);

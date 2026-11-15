@@ -1,23 +1,25 @@
 // Four screens and one switch (decided 15 Nov): Sky · Viewer · To check · Results, plus Advanced.
-// Learn and About are pages reached from the footer. Old links are rewritten first by
-// ./legacy-routes.ts; this file resolves the site's own hashes to a page and its screen.
+// Learn follows them in the header (and stays in the footer); About is in the footer only.
+// Old links are rewritten first by ./legacy-routes.ts; this file resolves the site's own hashes
+// to a page and its screen.
 import {MODES, type WorkspaceState} from '../product/workspace-state';
 
-export type Screen = 'sky' | 'viewer' | 'check' | 'results';
+export type Screen = 'sky' | 'viewer' | 'check' | 'results' | 'learn';
 export interface ScreenLink {id:Screen; label:string; href:string}
 export const SCREENS: readonly ScreenLink[] = [
   {id:'sky', label:'Sky', href:'#/sky'},
   {id:'viewer', label:'Viewer', href:'#/explore'},
   {id:'check', label:'To check', href:'#/candidates'},
   {id:'results', label:'Results', href:'#/results'},
+  {id:'learn', label:'Learn', href:'#/learn'},
 ];
 
-/** Which screen each page belongs to (its nav entry); Learn and About belong to none. */
+/** Which screen each page belongs to (its nav entry); About belongs to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
   atlas:'sky', explore:'viewer', candidate:'viewer',
   discover:'check', review:'check', community:'check',
   results:'results', live:'results', tools:'results',
-  learn:null, about:null,
+  learn:'learn', about:null,
 };
 
 export interface SiteRoute {
@@ -51,7 +53,8 @@ function page(name: string, param: string | null): SiteRoute {
 }
 function viewer(param: string | null, advanced: boolean): SiteRoute {
   const workspace = viewerState(param, advanced);
-  return {page:'explore', param, screen:workspace.tab === 'play' ? null : 'viewer', workspace};
+  // Guided practice plays on the Viewer's player but belongs to Learn.
+  return {page:'explore', param, screen:workspace.tab === 'play' ? 'learn' : 'viewer', workspace};
 }
 function candidateId(value: string): string { try { return decodeURIComponent(value); } catch { return value; } }
 

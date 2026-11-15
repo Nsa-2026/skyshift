@@ -9,6 +9,9 @@ import { PROGRESS_KEY, markDone, markOpened, nextLesson, readProgress, resetProg
 import { BARNARD_PM, keyNumbers } from "./teachers";
 import { verdict } from "./votes";
 import targets from "../data/targets.json";
+import { legacyHash } from "../app/legacy-routes";
+import { siteRoute } from "../app/navigation";
+import { MODES } from "../product/workspace-state";
 
 const memKV = (init: Record<string, string> = {}): KV & { data: Map<string, string> } => {
   const data = new Map(Object.entries(init));
@@ -44,15 +47,27 @@ describe("the course", () => {
   it("has seven numbered lessons, each ending in an action that goes somewhere real", () => {
     expect(LESSONS.map((l) => l.n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     const slugs = new Set(targets.targets.map((t) => t.slug));
-    const routes = ["#/", "#/review", "#/community", "#/candidates", "#/tools", "#/results"];
+    const sections = [...MODES.analyze.tabs, ...MODES.research.tabs].map(([k]) => k as string);
     for (const l of LESSONS) {
       expect(l.tryIt.length).toBeGreaterThan(0);
       for (const a of l.tryIt) {
-        const m = /^\?t=([a-z0-9-]+)#\/explore$/.exec(a.href);
-        if (m) expect(slugs.has(m[1]), a.href).toBe(true);
-        else expect(routes, a.href).toContain(a.href);
+        // Every action is one of today's routes: none that only an old-link rewrite saves.
+        expect(legacyHash(a.href.replace(/^\?[^#]*/, "")), a.href).toBeNull();
+        const m = /^\?t=([a-z0-9-]+)#\/explore(?:\/([a-z]+))?$/.exec(a.href);
+        if (m) {
+          expect(slugs.has(m[1]), a.href).toBe(true);
+          if (m[2]) expect(sections, a.href).toContain(m[2]);
+          expect(siteRoute(`#/explore${m[2] ? `/${m[2]}` : ""}`).screen).toBe("viewer");
+        } else {
+          expect(["sky", "check", "results", "learn"], a.href).toContain(siteRoute(a.href).screen);
+        }
       }
     }
+    // Lessons that open the Viewer say so.
+    expect(LESSONS.filter((l) => l.tryIt[0].href.includes("#/explore")).every((l) => l.tryTitle === "Try it in the Viewer")).toBe(true);
+    expect(LESSONS[1].tryIt.map((a) => a.href)).toEqual(["?t=barnard#/explore", "?t=barnard#/explore/motion"]);
+    expect(LESSONS[3].tryIt[0].href).toBe("#/learn/practice");
+    expect(LESSONS[6].tryIt[0].href).toBe("?t=wise0855#/explore/sensitivity");
   });
   it("states the facts with their units", () => {
     const text = LESSONS.map((l) => l.lede() + l.body()).join(" ");
@@ -211,25 +226,47 @@ describe("the Learn page", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the course with every lesson and a start button", () => {
+  it("shows the course as a path, a start button and a card for everything else", () => {
     const page = mountLearn(el, ctx);
     page.show(null);
     expect(el.querySelector("h1")!.textContent).toBe("Learn to read the SPHEREx sky");
+    expect(document.title).toBe("Learn: SkyShift");
     expect(el.querySelectorAll(".ln-course li")).toHaveLength(LESSON_COUNT);
     expect(el.querySelector(".ln-home-cta .btn-primary")!.getAttribute("href")).toBe("#/learn/1");
+    expect(el.querySelector(".ln-course li.is-next a")!.getAttribute("href")).toBe("#/learn/1");
+    expect(el.querySelector(".ln-course .ln-tag")!.textContent).toBe("Start here");
+    const cards = [...el.querySelectorAll<HTMLAnchorElement>(".ln-card a")];
+    expect(cards.map((a) => a.getAttribute("href"))).toEqual(["#/learn/practice", "#/learn/stories", "#/learn/glossary", "#/learn/teachers"]);
+    expect(cards.map((a) => a.querySelector(".ln-card-title")!.textContent)).toEqual(["Guided practice", "Stories in the sky", "Glossary", "For teachers"]);
+    // Each card shows something real: SPHEREx pictures, a glossary entry, the worksheet.
+    expect(el.querySelector<HTMLImageElement>(".ln-card-stories img")!.getAttribute("src")).toBe("/guxing/data/nasa/spherex_remnants/SN1054.png");
+    expect(el.querySelector(".ln-card-glossary .ln-card-def")!.textContent).toMatch(/arcseconds per year/);
+    expect(el.querySelector(".ln-card-practice .ln-card-meta")!.textContent).toBe("3 real examples");
+    page.destroy();
+  });
+
+  it("shows guided practice progress on its card", () => {
+    store.set("skyshift.explore.practice.v1", JSON.stringify([{ slug: "elpis", answer: "mover" }]));
+    const page = mountLearn(el, ctx);
+    page.show(null);
+    expect(el.querySelector(".ln-card-practice .ln-card-meta")!.textContent).toBe("1 of 3 done");
     page.destroy();
   });
 
   it("shows one lesson with the course nav, glossary words and a pager", async () => {
     const page = mountLearn(el, ctx);
     page.show("2");
-    expect(el.querySelector("h1")!.textContent).toContain("Blinking: how Pluto was found");
+    expect(el.querySelector("h1")!.textContent).toBe("Blinking: how Pluto was found");
+    expect(el.querySelector(".ln-head .ln-eyebrow")!.textContent).toBe("Lesson 2 of 7");
+    expect(document.title).toBe("Blinking: how Pluto was found: SkyShift");
+    expect(el.querySelector(".ln-try h2")!.textContent).toBe("Try it in the Viewer");
     expect(el.querySelector('.ln-toc a[aria-current="page"]')!.getAttribute("href")).toBe("#/learn/2");
     expect(el.querySelectorAll(".ln-body .gl-term").length).toBeGreaterThan(2);
     expect(el.querySelector(".ln-next")!.getAttribute("href")).toBe("#/learn/3");
     expect(el.querySelector(".ln-try a")!.getAttribute("href")).toBe("?t=barnard#/explore");
     await vi.waitFor(() => expect(el.querySelector(".ln-fail")).not.toBeNull());
     expect(el.querySelector(".ln-fail a")!.getAttribute("href")).toBe("?t=barnard#/explore");
+    expect(el.querySelector(".ln-fail")!.textContent).toContain("Open it in the Viewer");
     page.destroy();
   });
 
@@ -242,6 +279,9 @@ describe("the Learn page", () => {
     page.show("");
     expect(el.querySelector(".ln-home-cta .btn-primary")!.getAttribute("href")).toBe("#/learn/4");
     expect(el.querySelector(".ln-course li:nth-child(3)")!.classList.contains("is-done")).toBe(true);
+    expect(el.querySelector(".ln-course li.is-next a")!.getAttribute("href")).toBe("#/learn/4");
+    expect(el.querySelector(".ln-course .ln-tag")!.textContent).toBe("Up next");
+    expect(el.querySelector(".ln-home-progress")!.textContent).toContain("1 of 7 lessons done.");
     el.querySelector<HTMLButtonElement>(".ln-reset")!.click();
     expect(JSON.parse(store.get(PROGRESS_KEY)!)).toEqual({ done: [], last: null });
     page.destroy();
@@ -252,6 +292,14 @@ describe("the Learn page", () => {
     page.show("glossary/parallax");
     expect(el.querySelectorAll(".ln-gloss-item").length).toBeGreaterThanOrEqual(25);
     expect(el.querySelector("#g-parallax dt a")!.getAttribute("href")).toBe("#/learn/glossary/parallax");
+    // One button per first letter, each jumping to the first word with it.
+    const letters = [...el.querySelectorAll<HTMLButtonElement>(".ln-az button")].map((b) => b.textContent);
+    expect(letters).toContain("P");
+    expect(el.querySelectorAll(".ln-gloss-item[data-first]")).toHaveLength(letters.length);
+    const scroll = vi.fn();
+    el.querySelector<HTMLElement>('[data-first="P"]')!.scrollIntoView = scroll;
+    el.querySelector<HTMLButtonElement>('.ln-az button[data-letter="P"]')!.click();
+    expect(scroll).toHaveBeenCalled();
     page.destroy();
   });
 
@@ -262,6 +310,7 @@ describe("the Learn page", () => {
     expect(el.querySelectorAll(".ln-sheet tbody tr").length).toBeGreaterThanOrEqual(5);
     expect(el.querySelector(".ln-print")).not.toBeNull();
     expect(el.querySelector('a[href="#/tools"]')).not.toBeNull();
+    expect(el.textContent).not.toMatch(/Blink page|Review queue/);
     page.destroy();
   });
 
