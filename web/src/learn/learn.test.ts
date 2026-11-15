@@ -59,7 +59,7 @@ describe("the course", () => {
           if (m[2]) expect(sections, a.href).toContain(m[2]);
           expect(siteRoute(`#/explore${m[2] ? `/${m[2]}` : ""}`).screen).toBe("viewer");
         } else {
-          expect(["sky", "check", "results", "learn"], a.href).toContain(siteRoute(a.href).screen);
+          expect(["sky", "check", "community", "results", "learn"], a.href).toContain(siteRoute(a.href).screen);
         }
       }
     }

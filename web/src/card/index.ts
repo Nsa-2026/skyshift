@@ -68,8 +68,9 @@ interface Note {
 
 export const mountCard: MountCard = (el, options = {}) => {
   let reference: {um: number; flux_ujy: number}[] = [];
-  let section: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' = 'all';
+  let section: 'all' | 'summary' | 'motion' | 'spectrum' | 'lightcurve' | ('motion' | 'spectrum')[] = 'all';
   const id = `cd${++uid}`;
+  let noteId = id;
   el.classList.add("cd");
   let shown: Shown | null = null;
   let mode: SpectrumMode = "det";
@@ -77,12 +78,15 @@ export const mountCard: MountCard = (el, options = {}) => {
   let loading = false;
   let staleObject: ObjectResponse | null = null;
   let width = 0;
+  let resizeObserver: ResizeObserver | undefined;
   const readables: Readable[] = [];
 
   function measureWidth(): number {
-    const w = el.clientWidth;
+    const panel = el.querySelector<HTMLElement>('[data-card-dashboard="spectrum"]') ?? el.querySelector<HTMLElement>('[data-card-dashboard]');
+    const measured = panel ?? el;
+    const w = measured.clientWidth;
     if (!w) return 352;
-    const cs = typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
+    const cs = typeof getComputedStyle === "function" ? getComputedStyle(measured) : null;
     const padX = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
     return Math.max(280, w - padX);
   }
@@ -98,6 +102,19 @@ export const mountCard: MountCard = (el, options = {}) => {
     const { view, object, pending } = shown;
     el.dataset.state = "ready";
     el.setAttribute("aria-busy", String(pending));
+    if (Array.isArray(section)) {
+      el.innerHTML = section.map(key => {
+        noteId = `${id}-${key}`;
+        const notes = notesFor(object);
+        const content = pending ? skeletonHtml(false) : headHtml(view, object, false) + (key === 'motion'
+          ? measureHtml(shown!, notes)
+          : (options.plots === false ? '' : spectrumHtml(object, notes)) + notesHtml(notes));
+        return dashboardHtml(key, content);
+      }).join('');
+      noteId = id;
+      wire();
+      return;
+    }
     if (pending) {
       el.innerHTML = headHtml(view, null, true) + skeletonHtml(false) + lookForHtml(view);
       return;
@@ -115,6 +132,11 @@ export const mountCard: MountCard = (el, options = {}) => {
       ['all','summary'].includes(section) ? lookForHtml(view) : '',
     ].join("");
     wire();
+  }
+
+  function dashboardHtml(key:'motion'|'spectrum',content:string):string {
+    const label=key==='motion'?'Motion':'Spectrum';
+    return `<section class="wb-dashboard" data-card-dashboard="${key}" aria-label="${label} dashboard"><header class="wb-dashboard-head"><h2>${label}</h2><button class="wb-dashboard-close" type="button" data-close-dashboard="${key}" aria-label="Close ${label} dashboard">×</button></header><div class="wb-dashboard-body">${content}</div></section>`;
   }
 
   // ---- name and what it is -------------------------------------------------------------------
@@ -173,13 +195,13 @@ export const mountCard: MountCard = (el, options = {}) => {
   function ref(notes: Note[], key: Note["key"]): string {
     const i = notes.findIndex((n) => n.key === key);
     if (i < 0) return "";
-    return `<sup class="cd-ref"><a href="#${id}-fn-${key}" data-note="${key}" aria-label="Note ${i + 1}">${i + 1}</a></sup>`;
+    return `<sup class="cd-ref"><a href="#${noteId}-fn-${key}" data-note="${key}" aria-label="Note ${i + 1}">${i + 1}</a></sup>`;
   }
 
   function notesHtml(notes: Note[]): string {
     if (!notes.length) return "";
     return html`<ol class="cd-notes" aria-label="Notes">
-      ${notes.map((n, i) => `<li id="${id}-fn-${n.key}" tabindex="-1"><span class="cd-note-n" aria-hidden="true">${i + 1}</span><p>${n.html}</p></li>`).join("")}
+      ${notes.map((n, i) => `<li id="${noteId}-fn-${n.key}" tabindex="-1"><span class="cd-note-n" aria-hidden="true">${i + 1}</span><p>${n.html}</p></li>`).join("")}
     </ol>`;
   }
 
@@ -438,16 +460,17 @@ export const mountCard: MountCard = (el, options = {}) => {
   function showLoading() {
     el.dataset.state = "loading";
     el.setAttribute("aria-busy", "true");
-    el.innerHTML = skeletonHtml(true);
+    el.innerHTML = Array.isArray(section) ? section.map(key=>dashboardHtml(key,skeletonHtml(true))).join('') : skeletonHtml(true);
   }
 
   function showError(message?: string) {
     el.dataset.state = "error";
     el.setAttribute("aria-busy", "false");
     const text = message ?? "The object details can't be reached right now: pick a featured target above, or try this spot again in a minute.";
-    el.innerHTML = html`${shown ? headHtml(shown.view, null, false) : ""}
+    const content = html`${shown ? headHtml(shown.view, null, false) : ""}
       <p class="cd-error" role="alert">${esc(text)}</p>
       ${shown ? lookForHtml(shown.view) : ""}`;
+    el.innerHTML = Array.isArray(section) ? section.map(key=>dashboardHtml(key,content)).join('') : content;
   }
 
   // ---- interaction ---------------------------------------------------------------------------
@@ -479,7 +502,7 @@ export const mountCard: MountCard = (el, options = {}) => {
     el.querySelectorAll<HTMLAnchorElement>(".cd-ref a").forEach((a) =>
       a.addEventListener("click", (ev) => {
         ev.preventDefault();
-        const note = el.querySelector<HTMLElement>(`#${id}-fn-${a.dataset.note}`);
+        const note = el.querySelector<HTMLElement>(a.getAttribute('href')!);
         if (!note) return;
         note.scrollIntoView?.({ block: "nearest" });
         note.focus({ preventScroll: true });
@@ -554,18 +577,20 @@ export const mountCard: MountCard = (el, options = {}) => {
   }
 
   if (typeof ResizeObserver !== "undefined") {
-    const ro = new ResizeObserver(() => {
+    resizeObserver = new ResizeObserver(() => {
       if (!shown || el.dataset.state !== "ready") return;
       const w = measureWidth();
       if (Math.abs(w - width) > 12) render();
     });
-    ro.observe(el);
+    resizeObserver.observe(el);
   }
 
   const handle: CardHandle = {
     section(value) {
-      if(section === value) return;
+      if(JSON.stringify(section) === JSON.stringify(value)) return;
       section = value;
+      if(Array.isArray(value))el.dataset.dashboardCount=String(value.length);else delete el.dataset.dashboardCount;
+      resizeObserver?.observe(el.closest('.wb-dashboards') ?? el);
       el.classList.toggle('cd-summary',value === 'summary');
       if(shown) render();
     },

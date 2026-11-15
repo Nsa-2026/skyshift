@@ -1,15 +1,15 @@
-// Four screens and one switch (decided 15 Nov): Sky · Viewer · To check · Results, plus Advanced.
-// Learn follows them in the header (and stays in the footer); About is in the footer only.
-// Old links are rewritten first by ./legacy-routes.ts; this file resolves the site's own hashes
-// to a page and its screen.
-import {MODES, type WorkspaceState} from '../product/workspace-state';
+// Top-level screens: Sky · Viewer · To check · Community · Results · Learn, plus Advanced.
+// About is in the footer only. Old links are rewritten first by ./legacy-routes.ts; this file
+// resolves the site's own hashes to a page and its screen.
+import {MODES, analysisPanels, workspaceState, type WorkspaceState} from '../product/workspace-state';
 
-export type Screen = 'sky' | 'viewer' | 'check' | 'results' | 'learn';
+export type Screen = 'sky' | 'viewer' | 'check' | 'community' | 'results' | 'learn';
 export interface ScreenLink {id:Screen; label:string; href:string}
 export const SCREENS: readonly ScreenLink[] = [
   {id:'sky', label:'Sky', href:'#/sky'},
   {id:'viewer', label:'Viewer', href:'#/explore'},
   {id:'check', label:'To check', href:'#/candidates'},
+  {id:'community', label:'Community', href:'#/community'},
   {id:'results', label:'Results', href:'#/results'},
   {id:'learn', label:'Learn', href:'#/learn'},
 ];
@@ -17,7 +17,7 @@ export const SCREENS: readonly ScreenLink[] = [
 /** Which screen each page belongs to (its nav entry); About belongs to none. */
 const PAGE_SCREEN: Record<string, Screen | null> = {
   atlas:'sky', explore:'viewer', candidate:'viewer',
-  discover:'check', review:'check', community:'check',
+  discover:'check', review:'check', community:'community',
   results:'results', live:'results', tools:'results',
   learn:'learn', about:null,
 };
@@ -37,6 +37,7 @@ const tabsOf = (mode: 'analyze' | 'research') => MODES[mode].tabs.map(([key]) =>
 export function viewerState(param: string | null, advanced = false): WorkspaceState {
   const section = (param ?? '').split('/')[0];
   if (section === 'play') return {mode:'explore', tab:'play'};
+  if (section === 'dashboards' || (section.includes('+') && analysisPanels(section).length)) return workspaceState(`analyze/${section}`);
   if (tabsOf('analyze').includes(section)) return {mode:'analyze', tab:section};
   if (tabsOf('research').includes(section)) return {mode:'research', tab:section};
   return advanced ? {mode:'analyze', tab:'motion'} : {mode:'explore', tab:''};
