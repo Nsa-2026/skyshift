@@ -952,3 +952,21 @@ a.btn {
     grid-template-columns: 7.5rem minmax(0, 1fr);
   }
 }
+
+/* Plain view (Results, option plain, Advanced off): the map without its box labels (suspect counts,
+   machine names) and the hunt zone's leader line; the other technical parts are "pro-only". */
+html:not([data-details="on"]) .lv-plain .z-text,
+html:not([data-details="on"]) .lv-plain .lv-hunt-lead {
+  display: none;
+}
+html:not([data-details="on"]) .lv-plain .lv-pbar[data-proj] {
+  padding-bottom: 0;
+}
+.lv-plain-note {
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+.lv-plain-note b {
+  color: var(--ink);
+  font-weight: 650;
+}

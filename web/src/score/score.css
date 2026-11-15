@@ -591,6 +591,86 @@
   font-weight: 550;
 }
 
+/* ---- the plain view (Advanced off): one key number or list per section, a few short lines ---- */
+.rs-big {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--s3);
+  max-width: none;
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+.rs-big-n {
+  font-size: clamp(2.5rem, 2rem + 1.6vw, 3.25rem);
+  font-weight: 650;
+  font-variation-settings: "wdth" 85;
+  line-height: 1;
+  letter-spacing: -0.015em;
+}
+.rs-objects .sc-intro {
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+.rs-best {
+  max-width: 78ch;
+}
+.rs-best b {
+  font-weight: 700;
+}
+.rs-best a {
+  margin-left: var(--s1);
+  font-weight: 550;
+}
+.rs-planet {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s6);
+  padding-top: var(--s5);
+  border-top: 1px solid var(--hair);
+}
+.rs-planet p {
+  max-width: 62ch;
+}
+.rs-planet a {
+  font-weight: 550;
+}
+.rs-plain {
+  display: grid;
+  gap: var(--s4);
+  justify-items: start;
+}
+.rs-say {
+  max-width: 60ch;
+  font-size: var(--step-1);
+  line-height: 1.45;
+}
+.rs-tests {
+  display: grid;
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rs-tests li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 62ch);
+  column-gap: var(--s3);
+  align-items: start;
+  font-size: 1.125rem;
+  line-height: 1.4;
+}
+.rs-tests .sc-mark {
+  margin-top: 0.1em;
+}
+.rs-tally {
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+html:not([data-details="on"]) .rs .cm-embedded {
+  gap: var(--s4);
+}
+
 /* what the search can find: figure on the left, what it counts on the right */
 .rs-complete {
   display: grid;

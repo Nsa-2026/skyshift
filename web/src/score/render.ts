@@ -1,7 +1,8 @@
 // HTML for Results (web/DESIGN.md, "Lightbox"). Two of its sections are drawn here: "What we found"
 // (the objects to check, the unknown movers and the distant-planet search) and "How sure we are"
 // (what was checked, one summary sentence, what the search can find, then one block per check).
-// Every value from the JSON goes through esc().
+// Each section leads with a short plain view (plain.ts); the codes, tables and caveats sit in a
+// "pro-only" block that only Advanced shows. Every value from the JSON goes through esc().
 import {
   FILE_PROVISIONAL_TEXT,
   GRADE_TEXT,
@@ -35,6 +36,7 @@ import type {
 import { DETECTORS } from "../app/astro";
 import { RECALL_SCOPE, checkInfo, countStatuses, normStatus, pendingChecks, summaryClauses, withAllChecks } from "./checks";
 import { renderDistant } from "./distant";
+import { distantPlain, plainResults, plainTally, strongestMovers } from "./plain";
 import {
   bigValue,
   blinkHref,
@@ -412,53 +414,103 @@ const KIND_WORDS: Record<CandidateKind, [string, string]> = {
 };
 const KIND_ORDER: CandidateKind[] = ["mover", "high_pm", "spectral", "shape"];
 
+function zoneList(zones: unknown): string[] {
+  return (Array.isArray(zones) ? zones : []).filter((x): x is string => typeof x === "string" && !!x.trim());
+}
+
 function zonesText(zones: unknown): string {
-  const z = (Array.isArray(zones) ? zones : []).filter((x): x is string => typeof x === "string" && !!x.trim());
+  const z = zoneList(zones);
   if (!z.length) return "";
   if (z.length === 1) return ` in ${zoneName(z[0])}`;
   return ` in the ${z.slice(0, -1).join(", ")} and ${z[z.length - 1]} zones`;
 }
 
 /**
- * How many objects the pipeline listed to check, by kind (counted from the list itself), with the
- * one plain line DESIGN.md asks for next to that count, and where to look at them.
+ * How many objects were put up to check, by kind (counted from the list itself), what they are in one
+ * plain line, the strongest leads, and where to look at them. The zone ids are for Advanced only.
  */
 export function renderObjects(c: CandidatesResponse | null): string {
   const list = c && Array.isArray(c.candidates) ? c.candidates : null;
   if (!list) {
-    return html`<div class="rs-objects"><p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of objects to check is published after the pipeline's run.</p></div>`;
+    return html`<div class="rs-objects"><p class="sc-wait"><span class="sc-pending">${statusMark("pending")}</span>The list of objects to check is published once the search has run.</p></div>`;
   }
   const n = new Map<CandidateKind, number>();
   for (const x of list) n.set(x.kind, (n.get(x.kind) ?? 0) + 1);
   const parts = KIND_ORDER.filter((k) => n.get(k)).map((k) => `${intText(n.get(k)!)} ${KIND_WORDS[k][n.get(k) === 1 ? 0 : 1]}`);
-  const kinds = parts.length > 1 ? `: ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts.length ? `: ${parts[0]}` : "";
+  const kinds = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] ?? "";
+  const areas = zoneList(c!.zones).length;
+  const where = areas > 1 ? `, from ${intText(areas)} areas of sky` : "";
+  const best = strongestMovers(c);
   return html`<div class="rs-objects">
-    <p class="rs-count">The pipeline listed <b>${esc(intText(list.length))}</b> ${list.length === 1 ? "object" : "objects"} to
-      check${esc(zonesText(c!.zones))}${esc(kinds)}.</p>
-    <p class="sc-intro">Things our pipeline couldn't explain with Gaia, WISE or a known asteroid. Most are detector
-      artefacts until people check them.</p>
+    <p class="rs-big"><span class="rs-big-n">${esc(intText(list.length))}</span> ${list.length === 1 ? "object" : "objects"} to check</p>
+    ${kinds ? html`<p class="rs-count">${esc(`${kinds}${where}.`)}</p>` : ""}
+    <p class="sc-sub pro-only">Listed${esc(zonesText(c!.zones))}.</p>
+    <p class="sc-intro">Things we couldn't explain with Gaia, WISE or a known asteroid. Most turn out to be detector
+      glitches once people look.</p>
+    ${
+      best
+        ? html`<p class="rs-best">Strongest leads: <b>${esc(intText(best))}</b> fast ${best === 1 ? "mover" : "movers"} seen on the same
+            steady path at different times. <a href="#/candidates/kind=mover&amp;grade=A">See ${best === 1 ? "it" : "them"}</a></p>`
+        : ""
+    }
     <p class="rs-links"><a href="#/candidates">See the list</a> <a href="#/candidates/one=1">Check them one at a time</a></p>
+  </div>`;
+}
+
+/** The distant-planet search in a line or two, with the way into the full account (Advanced). */
+export function renderDistantPlain(d: DistantResponse | null): string {
+  const text = distantPlain(d);
+  if (!text) return "";
+  return html`<div class="rs-planet plain-only">
+    <h3 class="rs-h3">A distant planet?</h3>
+    <p>${esc(text)} <a href="#/results/found/distant">How we looked</a></p>
   </div>`;
 }
 
 // ---- the two sections drawn here ---------------------------------------------------------------
 
-/** "What we found": the objects to check, the unknown movers and the distant-planet search. */
+/**
+ * "What we found": the objects to check and the distant-planet search in plain words; with Advanced
+ * on, the unknown movers of the first zones and the distant-planet search in full.
+ */
 export function renderFound(
   sr: SuspectsResponse | null,
   dist: DistantResponse | null,
   cands: CandidatesResponse | null | undefined = undefined,
 ): string {
-  return html`<div class="rs-found">${cands === undefined ? "" : renderObjects(cands)}${demote(renderSuspects(sr) + renderDistant(dist))}</div>`;
+  return html`<div class="rs-found">${cands === undefined ? "" : renderObjects(cands)}${renderDistantPlain(dist)}
+    <div class="rs-pro pro-only">${demote(renderSuspects(sr) + renderDistant(dist))}</div></div>`;
 }
 
-/** "How sure we are": the summary, what the search can find, and every check V1–V11. */
+/** The plain view of "How sure we are": what we tested, a few results with their marks, the tally. */
+export function renderSurePlain(v: ValidationResponse | null): string {
+  const results = plainResults(v);
+  const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
+  const tally = plainTally(checks);
+  const list = results.length
+    ? html`<ul class="rs-tests">${results
+        .map(
+          (r) => html`<li class="sc-${r.status}">${statusMark(r.status)}<span><span class="visually-hidden">${STATUS_WORD[r.status]}: </span>${esc(r.text)}</span></li>`,
+        )
+        .join("")}</ul>`
+    : "";
+  return html`<div class="rs-plain plain-only">
+    <p class="rs-say">We first tested the search on things already known${results.length ? ":" : "."}</p>
+    ${list}
+    <p class="rs-tally">${esc(tally)} <button type="button" class="rs-more-btn" data-advanced-on>See every check and its numbers</button></p>
+  </div>`;
+}
+
+/** "How sure we are": in plain words; with Advanced on, the summary, what the search can find, and every check V1–V11. */
 export function renderSure(v: ValidationResponse | null, dist: DistantResponse | null): string {
   const checks = v ? withAllChecks(Array.isArray(v.checks) ? v.checks : []) : pendingChecks();
   return html`<div class="rs-sure">
-    ${renderSureHead(checks, v)}
-    ${renderCompleteness(v, dist)}
-    <div class="sc-checks" role="group" aria-label="The checks">${demote(checks.map((c, i) => renderCheck(c, i === 0)).join(""))}</div>
+    ${renderSurePlain(v)}
+    <div class="rs-pro pro-only">
+      ${renderSureHead(checks, v)}
+      ${renderCompleteness(v, dist)}
+      <div class="sc-checks" role="group" aria-label="The checks">${demote(checks.map((c, i) => renderCheck(c, i === 0)).join(""))}</div>
+    </div>
   </div>`;
 }
 
