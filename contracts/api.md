@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.14)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.15)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -14,7 +14,8 @@ v3.11: bright-star fragments and blends: candidates' `blend` reason, distant.jso
 layer's `bright_fragment` and `blend` reasons with `parent_gaia_id` and `blend_gaia_ids`;
 v3.12: shape candidates' two-source fit: the measured layer's `split_by_fit` companion, `why` names it;
 v3.13: measured class `stack`, sources seen only on the visit stacks;
-v3.14: optional API keys, `POST /api/keys`, `GET`/`DELETE /api/keys/me`, error codes `unauthorized` and `rate_limited`).
+v3.14: optional API keys, `POST /api/keys`, `GET`/`DELETE /api/keys/me`, error codes `unauthorized` and `rate_limited`;
+v3.15: validation.json V6 and V7 are run (15 Nov): units `slope` and `objects`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -450,8 +451,9 @@ else any detector. The server reads the targets from `scripts/validate/data/targ
 `headline` is the text the scoreboard prints (a poor number is still printed). `rows` holds one
 flat object per item (a target, an asteroid, a star); P1 lists its keys per check in the note.
 Written by scripts/validate/build_validation.py. Eleven checks, as in the plans
-(docs/skyshift-hackathon-plan.html, "How we know it works"). V6 and V7 belonged to cut work
-(S2, S3) and stay `pending`; V9–V11 were added on 14 Nov. The file lists them in this order:
+(docs/skyshift-hackathon-plan.html, "How we know it works"). V6 and V7 belonged to work cut on 14 Nov
+(S2, S3) and were run on 15 Nov with V2's measurement (scripts/validate/v6_v7_motion.py, v3.15); V9–V11 were
+added on 14 Nov. The file lists them in this order:
 
 | id | claim | unit of `value` | expected |
 |---|---|---|---|
@@ -460,8 +462,8 @@ Written by scripts/validate/build_validation.py. Eleven checks, as in the plans
 | V3 | Position error floor | arcsec | ~0.25″, 10 or more reference stars |
 | V4 | Asteroids re-found, targeted | asteroids | N of 60; median offset under 1 px; control under 5% |
 | V5 | Asteroids re-found, blind (S1) | recall | Recall at V < 16 ≥ 50% (gate G2); control near 0 |
-| V6 | Fast stars (S2) | null | Cut: `pending` |
-| V7 | Brown dwarfs (S3) | null | Cut: `pending` |
+| V6 | Fast stars (S2) | slope | Measured against Gaia's predicted shift for the 40 fastest Gaia stars with G > 12: slope near 1 |
+| V7 | Brown dwarfs (S3) | objects | A count: brown dwarfs faster than 1″/yr shifting the predicted way (≥ 3σ, within 30°) |
 | V8 | Spectra and speed | ratio | Spectra within 20% of 2MASS Ks / WISE W1; first frame under 15 s |
 | V9 | Astrometry matches Gaia | mas/yr | Proper-motion bias near 0; pull scatter near 1 |
 | V10 | Galaxy distances match SDSS | dz/(1+z) | σ_NMAD ~0.02 for bright galaxies (AB < 17) |
@@ -1032,3 +1034,12 @@ Additive. `POST /api/keys`, `GET /api/keys/me` and `DELETE /api/keys/me` (sectio
 header `X-API-Key` (or `Authorization: Bearer`), and two error codes: `unauthorized` (401, a key that is
 unknown or revoked) and `rate_limited` (429). Requests without a key are unchanged; readers that never send
 a key need no change.
+
+## Changes in v3.15 (15 Nov 2026): V6 and V7 are run
+
+validation.json's V6 (fast stars) and V7 (brown dwarfs), cut on 14 Nov, now carry results, with the plan's tests
+(scripts/validate/v6_v7_motion.py: V2's measurement on each object). V6: `value` is the slope of measured against
+Gaia's predicted shift (unit `slope`), over the 40 fastest Gaia stars with G > 12. V7: `value` is the number of
+brown dwarfs faster than 1″/yr that shift the predicted way (unit `objects`): measured shift ≥ 3σ and within 30°
+of the prediction. Rows: one per object (keys listed in the note). The shape is unchanged; a reader that shows
+every check in file order needs no change. A missing input still gives `pending`.
