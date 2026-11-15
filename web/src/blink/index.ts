@@ -40,6 +40,7 @@ import {
   greyed,
   stageLabel,
   CLASS_ORDER,
+  classInfo,
   arrowNote,
   blendWords,
   classesPresent,
@@ -149,9 +150,10 @@ const GLYPH_PATH: Record<MeasuredClass, string> = {
   mover: `<circle cx="9" cy="9" r="4.2"/><path d="M1 9h2.6M14.4 9H17"/>`,
   suspect: `<circle cx="9" cy="9" r="5" stroke-width="2.4"/>`,
   artifact: `<circle cx="9" cy="9" r="5"/><path d="M5.5 12.5l7-7"/>`,
+  stack: `<circle cx="9" cy="9" r="5" stroke-dasharray="2.2 2.2" stroke-width="1.3"/>`,
 };
 const glyph = (c: MeasuredClass, grade?: string | null) =>
-  `<svg class="bk-mg" data-cls="${c}"${grade ? ` data-grade="${grade}"` : ""} viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${GLYPH_PATH[c]}</svg>`;
+  `<svg class="bk-mg" data-cls="${c}"${grade ? ` data-grade="${grade}"` : ""} viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${GLYPH_PATH[c] ?? GLYPH_PATH.other}</svg>`;
 /** A saturated star with no detection of its own: the plate's long-dashed ring (marks.ts `bigStar`). */
 const SATURATED_GLYPH = `<svg class="bk-mg" data-cls="star" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="7" stroke-dasharray="4 2.4"/><circle cx="9" cy="9" r="3.2" fill="currentColor" stroke="none" opacity="0.85"/></svg>`;
 /** Draw order on the plate: the plainest first, so suspects end on top. */
@@ -1011,7 +1013,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         if (dots.length < 2) continue;
         const a = motionArrow(dots.map(toS));
         if (!a || !a.pts.some((q) => inView(q))) continue;
-        const col = pen(greyed(t.class, trackGrade.get(t.id)) ? "--m-artifact" : CLASS_INFO[t.class].token);
+        const col = pen(greyed(t.class, trackGrade.get(t.id)) ? "--m-artifact" : classInfo(t.class).token);
         if (arrowPath(ctx, a.pts, 7)) stroke(col, 1.6);
         stretched(a, col);
         // A bead at each dot; this exposure's is larger, so blinking walks it along the arrow.
@@ -1027,7 +1029,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         });
         if (a.factor > 1) {
           const it = measItems.find((x) => x.track === t.id);
-          const html = `<span class="bk-mtag" data-cls="${t.class}">${esc(it?.label ?? CLASS_INFO[t.class].name)}</span> <span class="bk-val">${esc(longer(a).trim())}</span>`;
+          const html = `<span class="bk-mtag" data-cls="${t.class}">${esc(it?.label ?? classInfo(t.class).name)}</span> <span class="bk-val">${esc(longer(a).trim())}</span>`;
           hits.push({ X: a.pts[a.pts.length - 1].X, Y: a.pts[a.pts.length - 1].Y, r: 8, html });
         }
       }
@@ -1050,7 +1052,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           if (!a || (!inView(a.pts[0]) && !inView(a.pts[a.pts.length - 1]))) return;
           shiftArrows.set(i, a);
           const grade = sourceGrade.get(s.source_id);
-          const col = pen(greyed(s.class, grade) ? "--m-artifact" : CLASS_INFO[s.class].token);
+          const col = pen(greyed(s.class, grade) ? "--m-artifact" : classInfo(s.class).token);
           if (arrowPath(ctx, a.pts, 6)) stroke(col, 1.6);
           stretched(a, col);
           const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(shiftNumbers(s) + "." + longer(a))}</span>`;
@@ -1065,7 +1067,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       const order = [...plan.circles].sort((a, b) => DRAW_ORDER.indexOf(ds[a.i].class) - DRAW_ORDER.indexOf(ds[b.i].class));
       for (const cc of order) {
         const d = ds[cc.i];
-        const col = pen(greyed(d.class, d.grade) ? "--m-artifact" : CLASS_INFO[d.class].token);
+        const col = pen(greyed(d.class, d.grade) ? "--m-artifact" : classInfo(d.class).token);
         measuredMark(ctx, d.class, cc.X, cc.Y, cc.r, col, halo);
         if (d.class === "suspect" && d.grade) label(ctx, d.grade, cc.X + cc.r * 0.75 + 3, cc.Y - cc.r * 0.75 - 2, col, halo);
         const blendTag = cc.blend && d.class === "star";

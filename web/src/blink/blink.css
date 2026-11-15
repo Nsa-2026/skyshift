@@ -865,6 +865,10 @@
 .bk-mtag[data-cls="other"] {
   color: var(--m-other);
 }
+.bk-mg[data-cls="stack"],
+.bk-mtag[data-cls="stack"] {
+  color: var(--m-stack);
+}
 .bk-mtag {
   font-weight: 650;
   margin-right: 4px;
