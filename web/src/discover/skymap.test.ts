@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Candidate } from "../api/types";
-import { aitoff, eqToGal, galToEq, glyphPath, gratStep, latLabel, meanLon, mountSkyMap, raLabel, wrap180 } from "./skymap";
+import { aitoff, eqToGal, galToEq, glyphPath, gratStep, inverseAitoff, latLabel, meanLon, mountSkyMap, raLabel, wrap180 } from "./skymap";
 
 describe("projection maths", () => {
   it("wraps angles to [−180, 180)", () => {
@@ -29,6 +29,15 @@ describe("projection maths", () => {
   it("recentres on a longitude", () => {
     expect(aitoff(122.5, 16, 122.5).x).toBeCloseTo(0, 12);
     expect(aitoff(123.5, 16, 122.5).x).toBeLessThan(0);
+  });
+
+  it("recovers the centre of a panned view, including near the poles and the sky seam", () => {
+    for (const centre of [0, 122]) for (const lon of [-175, -90, 0, 90, 175]) for (const lat of [-85, -40, 0, 40, 85]) {
+      const p = aitoff(centre + lon, lat, centre);
+      const r = inverseAitoff(p.x, p.y, centre);
+      expect(wrap180(r.lon - centre)).toBeCloseTo(lon, 4);
+      expect(r.lat).toBeCloseTo(lat, 4);
+    }
   });
 
   it("stays inside the ellipse (x/π)² + (2y/π)² ≤ 1", () => {
@@ -134,6 +143,7 @@ describe("the map", () => {
     select.value = "hunt";
     select.dispatchEvent(new Event("change"));
     el.querySelector<HTMLButtonElement>('[data-frame="gal"]')!.click();
+    el.querySelector<HTMLButtonElement>('[data-map-action="in"]')!.click();
     const button = el.querySelector<HTMLButtonElement>("[data-fullscreen]")!;
     expect(document.querySelector(".skymap-dialog")).toBeNull();
 
@@ -156,6 +166,7 @@ describe("the map", () => {
       expect(button.textContent).toBe("Full screen");
       expect(document.body.classList.contains("skymap-fullscreen-open")).toBe(false);
       expect(select.value).toBe("hunt");
+      expect(el.querySelector(".skymap-scale")?.textContent).toBe("150%");
       expect(el.querySelector('[data-frame="gal"]')?.getAttribute("aria-pressed")).toBe("true");
       const plot = el.querySelector<HTMLElement>(".skymap-plot")!;
       plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
@@ -185,5 +196,130 @@ describe("the map", () => {
       if (close) Object.defineProperty(proto, "close", close);
       else Reflect.deleteProperty(proto, "close");
     }
+  });
+});
+
+describe("moving around the sky map", () => {
+  const setup = (data = [cand("a", 122, 16)]) => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const opened = vi.fn();
+    const map = mountSkyMap(el, { onOpen: opened });
+    map.setData(data);
+    map.setFiltered(data.map((c) => c.id));
+    const plot = el.querySelector<HTMLElement>(".skymap-plot")!;
+    const button = (action: string) => el.querySelector<HTMLButtonElement>(`[data-map-action="${action}"]`)!;
+    const marks = () => [...el.querySelectorAll(".sm-pts .sm-pt")].map((p) => p.getAttribute("d")!);
+    const point = (d: string) => {
+      const m = /^M([\d.-]+),([\d.-]+)/.exec(d)!;
+      return { x: Number(m[1]) + 3.4, y: Number(m[2]) };
+    };
+    const pointer = (type: string, id: number, x: number, y: number) => {
+      const ev = new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true });
+      Object.defineProperty(ev, "pointerId", { value: id });
+      plot.dispatchEvent(ev);
+    };
+    const clean = () => { map.destroy(); el.remove(); vi.useRealTimers(); };
+    return { el, map, plot, opened, button, marks, point, pointer, clean };
+  };
+
+  it("drags the sky and suppresses the click after dragging, while a normal click still opens a point", () => {
+    const h = setup();
+    try {
+      const before = h.point(h.marks()[0]);
+      h.pointer("pointerdown", 1, before.x, before.y);
+      h.pointer("pointermove", 1, before.x + 40, before.y + 30);
+      h.pointer("pointerup", 1, before.x + 40, before.y + 30);
+      const after = h.point(h.marks()[0]);
+      expect(after.x - before.x).toBeCloseTo(40, 0);
+      expect(after.y - before.y).toBeCloseTo(30, 0);
+      h.plot.dispatchEvent(new MouseEvent("click", { clientX: after.x, clientY: after.y }));
+      expect(h.opened).not.toHaveBeenCalled();
+      const tappedMark = h.el.querySelector(".sm-pts .sm-pt")!;
+      h.pointer("pointerdown", 2, after.x, after.y);
+      h.pointer("pointerup", 2, after.x, after.y);
+      expect(tappedMark.isConnected).toBe(true); // don't replace a browser's tap target before click
+      h.plot.dispatchEvent(new MouseEvent("click", { clientX: after.x, clientY: after.y }));
+      expect(h.opened).toHaveBeenCalledTimes(1);
+      expect(h.opened).toHaveBeenCalledWith("a");
+      expect(h.button("reset").disabled).toBe(false);
+    } finally { h.clean(); }
+  });
+
+  it("zooms around the pointer, then resets both scale and position", () => {
+    vi.useFakeTimers();
+    const h = setup([cand("a", 122, 16), cand("b", 123, 16)]);
+    try {
+      const before = h.marks();
+      const anchor = h.point(before[0]);
+      const other = h.point(before[1]);
+      const ev = new WheelEvent("wheel", { clientX: anchor.x, clientY: anchor.y, deltaY: -Math.log(1.5) / 0.002, cancelable: true });
+      h.plot.dispatchEvent(ev);
+      vi.advanceTimersByTime(150);
+      expect(ev.defaultPrevented).toBe(true);
+      const after = h.marks().map(h.point);
+      expect(after[0].x).toBeCloseTo(anchor.x, 0);
+      expect(after[0].y).toBeCloseTo(anchor.y, 0);
+      expect(after[1].x - anchor.x).toBeCloseTo((other.x - anchor.x) * 1.5, 0);
+      expect(h.el.querySelector(".skymap-scale")?.textContent).toBe("150%");
+      h.button("reset").click();
+      expect(h.marks()).toEqual(before);
+      expect(h.button("reset").disabled).toBe(true);
+    } finally { h.clean(); }
+  });
+
+  it("pinches with two pointers and continues dragging with the remaining finger", () => {
+    const h = setup();
+    try {
+      h.pointer("pointerdown", 1, 140, 118);
+      h.pointer("pointerdown", 2, 240, 118);
+      h.pointer("pointermove", 1, 90, 118);
+      h.pointer("pointermove", 2, 290, 118);
+      h.pointer("pointerup", 1, 90, 118);
+      expect(h.el.querySelector(".skymap-scale")?.textContent).toBe("200%");
+      const before = h.point(h.marks()[0]);
+      h.pointer("pointermove", 2, 310, 138);
+      h.pointer("pointercancel", 2, 310, 138);
+      const after = h.point(h.marks()[0]);
+      expect(after.x - before.x).toBeCloseTo(20, 0);
+      expect(after.y - before.y).toBeCloseTo(20, 0);
+      expect(h.plot.classList.contains("is-dragging")).toBe(false);
+      h.plot.dispatchEvent(new MouseEvent("click", { clientX: after.x, clientY: after.y }));
+      expect(h.opened).not.toHaveBeenCalled();
+    } finally { h.clean(); }
+  });
+
+  it("offers keyboard pan/zoom, preserves the view on filter updates and resets for another map extent", () => {
+    const h = setup();
+    try {
+      const before = h.marks();
+      h.plot.dispatchEvent(new KeyboardEvent("keydown", { key: "+" }));
+      h.plot.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true }));
+      expect(h.point(h.marks()[0]).x - h.point(before[0]).x).toBeCloseTo(-40, 0);
+      h.map.setFiltered(["a"]);
+      expect(h.el.querySelector(".skymap-scale")?.textContent).toBe("150%");
+      h.plot.dispatchEvent(new KeyboardEvent("keydown", { key: "Home" }));
+      expect(h.marks()).toEqual(before);
+      h.button("in").click();
+      h.el.querySelector<HTMLButtonElement>('[data-zoom="sky"]')!.click();
+      expect(h.el.querySelector(".skymap-scale")?.textContent).toBe("100%");
+      expect(h.button("out").disabled).toBe(true);
+    } finally { h.clean(); }
+  });
+
+  it("bounds zoom and cancels pending wheel work when destroyed", () => {
+    vi.useFakeTimers();
+    const h = setup();
+    try {
+      for (let i = 0; i < 20; i++) h.plot.dispatchEvent(new WheelEvent("wheel", { deltaY: -1000 }));
+      vi.advanceTimersByTime(150);
+      expect(h.el.querySelector(".skymap-scale")?.textContent).toBe("6400%");
+      expect(h.button("in").disabled).toBe(true);
+      h.plot.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 }));
+      h.map.destroy();
+      vi.advanceTimersByTime(500);
+      expect(h.el.innerHTML).toBe("");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { h.clean(); }
   });
 });
