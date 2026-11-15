@@ -34,6 +34,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.mocked(loadFrames).mockClear();
   opening.mount.mockClear();
+  vi.restoreAllMocks();
 });
 
 it("opens on the Sky with every top-level screen one click away, and loads no frames", () => {
@@ -77,6 +78,21 @@ it("opens the Viewer for a target deep link when the opening is off", () => {
   expect(root.querySelector(".nav [aria-current]")!.textContent).toBe("Viewer");
   expect(loadFrames).toHaveBeenCalledTimes(1);
   expect(vi.mocked(loadFrames).mock.calls[0][0]).toMatchObject({ slug: "wise0855" });
+});
+
+it("keeps the Viewer target and open dashboards when refreshing a visited tab", () => {
+  history.replaceState(null, "", "/?t=wise0855&clock=months&fov=5&det=3#/explore/motion+spectrum");
+  vi.spyOn(window, "sessionStorage", "get").mockReturnValue({
+    length: 1, getItem: () => "1", key: () => null,
+    clear: vi.fn(), removeItem: vi.fn(), setItem: vi.fn(),
+  });
+  const root = document.createElement("div");
+  document.body.append(root);
+  startApp(root);
+  expect(visible(root)).toEqual(["explore"]);
+  expect(location.hash).toBe("#/explore/motion+spectrum");
+  expect(vi.mocked(loadFrames).mock.calls[0][0]).toMatchObject({ slug: "wise0855", det: 3, fov: 5 });
+  expect(opening.mount).toHaveBeenCalledWith(root, expect.objectContaining({ visitedInTab: true }));
 });
 
 it('keeps the original home entry when the atlas rewrites the URL during startup',()=>{

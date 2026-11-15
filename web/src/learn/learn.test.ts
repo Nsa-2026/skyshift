@@ -236,8 +236,8 @@ describe("the Learn page", () => {
     expect(el.querySelector(".ln-course li.is-next a")!.getAttribute("href")).toBe("#/learn/1");
     expect(el.querySelector(".ln-course .ln-tag")!.textContent).toBe("Start here");
     const cards = [...el.querySelectorAll<HTMLAnchorElement>(".ln-card a")];
-    expect(cards.map((a) => a.getAttribute("href"))).toEqual(["#/learn/practice", "#/learn/stories", "#/learn/glossary", "#/learn/teachers"]);
-    expect(cards.map((a) => a.querySelector(".ln-card-title")!.textContent)).toEqual(["Guided practice", "Stories in the sky", "Glossary", "For teachers"]);
+    expect(cards.map((a) => a.getAttribute("href"))).toEqual(["#/learn/hunt", "#/learn/practice", "#/learn/stories", "#/learn/glossary", "#/learn/teachers"]);
+    expect(cards.map((a) => a.querySelector(".ln-card-title")!.textContent)).toEqual(["Sky hunt", "Guided practice", "Stories in the sky", "Glossary", "For teachers"]);
     // Each card shows something real: SPHEREx pictures, a glossary entry, the worksheet.
     expect(el.querySelector<HTMLImageElement>(".ln-card-stories img")!.getAttribute("src")).toBe("/guxing/data/nasa/spherex_remnants/SN1054.png");
     expect(el.querySelector(".ln-card-glossary .ln-card-def")!.textContent).toMatch(/arcseconds per year/);

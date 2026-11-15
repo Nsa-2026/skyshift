@@ -50,6 +50,12 @@ export interface BlinkOptions {
   onPick(pick: DotPick): void;
   /** Current epoch changed (for the sky view and the card). */
   onEpoch?(epoch: { id: string; mjd_mid: number; det: Det; presentation?: BlinkPresentation }): void;
+  /**
+   * The Viewer tab's plate (Alexandra's layout): SkyShift's measured circles start off and their
+   * list is folded to one line that turns them on; Close-up/Wide field buttons; double-click zooms.
+   * Other plates (To check, Learn) leave it out and keep the usual behaviour.
+   */
+  viewer?: boolean;
 }
 
 export interface BlinkHandle {
@@ -100,7 +106,8 @@ export type MountSky = (el: HTMLElement, opts: { onClick?(pos: SkyPos): void }) 
 // ---- P4: src/vote/index.ts exports mountVote --------------------------------------------
 export interface VoteHandle {
   /** A dot was flagged in the blink. */
-  pick(p: DotPick): void;
+  /** focus false: pick without moving keyboard focus to Flag it (a click on the plate). */
+  pick(p: DotPick, focus?: boolean): void;
   /** The view changed: show candidates near it. */
   view(v: View): void;
 }

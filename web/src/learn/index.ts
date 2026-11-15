@@ -23,6 +23,7 @@ import { fillAnswerKey, teachersHtml } from "./teachers";
 
 export type LearnRoute =
   | { view: "home" }
+  | { view: "hunt" }
   | { view: "lesson"; n: number }
   | { view: "glossary"; slug: string | null }
   | { view: "teachers" }
@@ -34,6 +35,7 @@ export function parseLearnRoute(param: string | null | undefined): LearnRoute {
   const p = (param ?? "").replace(/^\/+|\/+$/g, "");
   const [head, ...rest] = p.split("/");
   if (!head) return { view: "home" };
+  if (head === "hunt" || head === "play") return { view: "hunt" };
   if (/^\d+$/.test(head)) {
     const n = Number(head);
     return n >= 1 && n <= LESSON_COUNT ? { view: "lesson", n } : { view: "home" };
@@ -51,6 +53,8 @@ export function parseLearnRoute(param: string | null | undefined): LearnRoute {
 export const learnHref = (r: LearnRoute): string =>
   r.view === "home"
     ? "#/learn"
+    : r.view === "hunt"
+      ? "#/learn/hunt"
     : r.view === "lesson"
       ? `#/learn/${r.n}`
       : r.view === "glossary"
@@ -62,7 +66,9 @@ export const learnHref = (r: LearnRoute): string =>
 /** The browser tab's name for a route (the shell names the page "Learn" before show()). */
 export function learnTitle(r: LearnRoute): string {
   const name =
-    r.view === "lesson"
+    r.view === "hunt"
+      ? "Sky hunt"
+    : r.view === "lesson"
       ? `${LESSONS[r.n - 1].title}`
       : r.view === "glossary"
         ? "Glossary"
@@ -104,6 +110,7 @@ function sideNav(r: LearnRoute, p: Progress): string {
       ${meter(p)}
       <p class="ln-side-progress">${progressLine(p)}</p>
       <ul class="ln-side-more">
+        <li><a href="#/learn/hunt" ${here("hunt")}>Sky hunt</a></li>
         <li><a href="#/learn/practice">Guided practice</a></li>
         <li><a href="#/learn/stories" ${here("stories")}>Stories in the sky</a></li>
         <li><a href="#/learn/glossary" ${here("glossary")}>Glossary</a></li>
@@ -136,6 +143,16 @@ function cardsHtml(practice: PracticeState): string {
   const practiceMeta =
     practice.done === 0 ? `${practice.of} real examples` : practice.done >= practice.of ? `Done ${check}` : `${practice.done} of ${practice.of} done`;
   const cards = [
+    {
+      cls: "hunt",
+      href: "#/learn/hunt",
+      kicker: "Explore by playing",
+      title: "Sky hunt",
+      text: "Find the same star in three real observations. Explore five fields, switch on infrared vision and build your own collection. Activities in Chinese.",
+      meta: "Five fields to explore",
+      pic: `<span class="ln-card-pic ln-card-sky" role="img" aria-label="Real SPHEREx infrared sky"></span>`,
+    },
+
     {
       cls: "practice",
       href: "#/learn/practice",
@@ -210,6 +227,7 @@ function homeHtml(p: Progress, practice: PracticeState): string {
         <p class="ln-home-cta">
           <a class="btn btn-primary" href="#/learn/${all ? 1 : next}">${cta} ${arrowR}</a>
           <a class="btn btn-ghost" href="#/learn/practice">Guided practice</a>
+          <a class="btn btn-ghost ln-hunt-entry" href="#/learn/hunt">Sky hunt ↗</a>
         </p>
         <div class="ln-home-progress">
           ${meter(p, "ln-meter ln-home-meter")}
@@ -328,10 +346,14 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
   let ctl: AbortController | null = null;
   let host: FigureHost | null = null;
   let lastRoute: LearnRoute | null = null;
+  let hunt: PageHandle | null = null;
+  let visible = false;
   el.classList.add("ln-page");
 
   function teardown() {
     ctl?.abort();
+    hunt?.destroy?.();
+    hunt = null;
     host?.plates.forEach((p) => p.destroy());
     host?.cleanups.forEach((f) => f());
     host = null;
@@ -347,6 +369,8 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
 
     if (r.view === "home") {
       el.innerHTML = `<div class="ln ln-is-home">${homeHtml(p, practiceState(kv))}</div>`;
+    } else if (r.view === "hunt") {
+      el.innerHTML = `<div class="ln ln-is-home ln-is-hunt"><div class="ln-hunt-host"><p role="status">Loading Sky hunt…</p></div></div>`;
     } else {
       const main =
         r.view === "lesson"
@@ -388,11 +412,27 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
       el.querySelector(".ln-print")?.addEventListener("click", () => window.print());
     }
     if (r.view === "stories") void openStories(r, host.signal);
+    if (r.view === "hunt") void openHunt(host.signal);
     el.querySelector(".ln-reset")?.addEventListener("click", () => {
       resetProgress(kv);
       render({ view: "home" });
       el.querySelector<HTMLElement>("#ln-h")?.focus({ preventScroll: true });
     });
+  }
+
+  async function openHunt(signal: AbortSignal) {
+    const body = el.querySelector<HTMLElement>(".ln-hunt-host");
+    if (!body) return;
+    try {
+      const m = await import("../play/page");
+      if (signal.aborted || !visible) return;
+      hunt = m.mountPlay(body, ctx);
+      hunt.show(null);
+    } catch (e) {
+      if (signal.aborted || !visible) return;
+      console.warn("Learn: Sky hunt didn't load", e);
+      body.innerHTML = `<p class="ln-fail" role="alert">Couldn't load Sky hunt. Reload the page to try again.</p>`;
+    }
   }
 
   /** The Stories page's code, CSS and scripts load here, the first time it opens. */
@@ -438,6 +478,7 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
 
   return {
     show(param) {
+      visible = true;
       const r = parseLearnRoute(param);
       const moved = lastRoute != null;
       lastRoute = r;
@@ -446,6 +487,8 @@ export const mountLearn: MountPage = (el, ctx: PageContext): PageHandle => {
       focusTarget(r, moved);
     },
     hide() {
+      visible = false;
+      hunt?.hide?.();
       host?.plates.forEach((p) => p.suspend());
       closeTermPopover();
       lastRoute = null;

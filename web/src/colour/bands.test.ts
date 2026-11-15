@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { frameText } from "./bands";
 import { skipBlank } from "./index";
 import { neighbourFrames } from "./engine";
-import { KEYS, swatchColour } from "./legend";
+import { KEY_SETS, swatchColour } from "./legend";
 
 describe("single-wavelength filter (layer A1)", () => {
   it("names wavelength, detector, channel and any feature", () => {
@@ -23,20 +23,28 @@ describe("single-wavelength filter (layer A1)", () => {
 });
 
 describe("colour key", () => {
-  const rgbOf = (s: string) => s.match(/\d+/g)!.map(Number);
-  it("draws ordinary stars blue and Y dwarfs red in Cold bodies, with the picture's own algorithm", () => {
-    const [blue, , , , red] = KEYS.cold;
-    const b = rgbOf(swatchColour(blue.rgb!));
-    const r = rgbOf(swatchColour(red.rgb!));
-    expect(b[2]).toBeGreaterThan(b[0]);
-    expect(r[0]).toBeGreaterThan(200);
-    expect(r[2]).toBeLessThan(20);
-  });
-  it("draws L dwarfs orange in 2MASS-like", () => {
-    const [r, g, b] = rgbOf(swatchColour(KEYS.nir[3].rgb!));
-    expect(r).toBeGreaterThan(g);
-    expect(g).toBeGreaterThan(b);
-  });
+  const rgbOf = (x: string) => x.match(/\d+/g)!.map(Number);
+  // Each entry's colour name must describe the swatch the picture's algorithm really draws.
+  const hue: Record<string, (c: number[]) => boolean> = {
+    Blue: ([r, , b]) => b === 255 && r < 120,
+    "Light blue": ([r, g, b]) => b === 255 && g > 200 && r < 120,
+    "Pale blue": ([r, g, b]) => b === 255 && r > 120 && g > 160,
+    Green: ([r, g, b]) => g === 255 && r < 220 && b < 240,
+    White: ([r, g, b]) => Math.min(r, g, b) > 180,
+    Cream: ([r, g, b]) => Math.min(r, g) > 230 && b > 150,
+    Pink: ([r, g, b]) => r === 255 && b > g,
+    Red: ([r, g, b]) => r === 255 && g < 30 && b < 30,
+    Orange: ([r, g, b]) => r === 255 && g > 120 && g < 230 && b < 140,
+  };
+  for (const [set, list] of Object.entries(KEY_SETS)) {
+    for (const e of list.filter((x) => x.rgb)) {
+      it(`${set}: "${e.label}" looks ${e.label.toLowerCase()}`, () => {
+        const c = rgbOf(swatchColour(e.rgb!));
+        expect(hue[e.label], e.label).toBeDefined();
+        expect(hue[e.label](c), `${e.label} ${c}`).toBe(true);
+      });
+    }
+  }
 });
 
 import { blendPeaks, coreHoles } from "./index";

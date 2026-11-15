@@ -92,7 +92,7 @@ describe("what SkyShift measured", () => {
     await h.show(hoursView, hours(), URL);
     expect(panel().hidden).toBe(false);
     expect(lead().textContent).toBe(
-      "Here SkyShift found 14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
+      "14 dots in 4 photos, and 3 movers: 1 known asteroid, 1 suspect (grade B) and 1 other mover.",
     );
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Final");
     const legend = [...el.querySelectorAll(".bk-meas-key li")].map((li) => li.textContent);
@@ -100,6 +100,11 @@ describe("what SkyShift measured", () => {
     expect(legend).toEqual(["Suspect", "Known asteroid or comet", "Other mover", "Artefact", "Gaia star", "Other source", "Saturated star"]);
     const how = el.querySelector(".bk-meas-how")!.textContent!;
     expect(how).toMatch(/each as big as its source looks on the plate/);
+    // Plain view: one short line; the long explanation, breakdown and notes are Advanced only.
+    expect(el.querySelector(".bk-meas-short")!.textContent).toBe(
+      "Circles: what we measured. Blue rings: Gaia stars. Violet diamonds: known asteroids. Arrows: motion.",
+    );
+    for (const c of [".bk-meas-how", ".bk-meas-rest", ".bk-meas-notes"]) expect(el.querySelector(c)!.classList.contains("pro-only")).toBe(true);
     expect(how).toMatch(/a little bigger, so a match reads as a circle inside a ring/);
     expect(how).toMatch(/Arrows join each mover's dots in time order, to scale\. One too short to see is drawn longer, with its factor \(×10\)/);
     expect(el.querySelector(".bk-meas-lh")!.textContent).toBe("Movers and artefacts on all detectors");
@@ -145,7 +150,7 @@ describe("what SkyShift measured", () => {
 
   it("months: shifts, distinct sources, provisional, missing photos and the cap", async () => {
     await h.show(monthsView, months(), URL);
-    expect(lead().textContent).toBe("Here SkyShift found at least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
+    expect(lead().textContent).toBe("At least 5 sources in 48 photos, and 1 moved between visits: 1 Gaia star.");
     expect(el.querySelector(".bk-meas-rest")!.textContent).toMatch(/^2 weaker shifts are listed but not drawn: under 5σ, or Gaia measures a different motion\./);
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Provisional");
     const how = el.querySelector(".bk-meas-how")!.textContent!;
@@ -173,7 +178,7 @@ describe("what SkyShift measured", () => {
     f.measured!.tracks = [];
     await h.show(hoursView, f, URL);
     expect(el.querySelector(".bk-meas-stage")!.textContent).toBe("Extracted");
-    expect(lead().textContent).toBe("Here SkyShift found 14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
+    expect(lead().textContent).toBe("14 dots in 4 photos, classed against Gaia only: movers aren't linked yet.");
     const g = hours();
     g.measured!.stage = "something_new";
     await h.show({ ...hoursView, ra: 123.95 }, g, URL);
@@ -203,5 +208,63 @@ describe("what SkyShift measured", () => {
     await h.show(hoursView, hours(), URL);
     h.status("error", "The live service failed.");
     expect(panel().hidden).toBe(true);
+  });
+});
+
+// The Viewer tab's plate (BlinkOptions.viewer): the circles start off and the panel is one folded
+// line with its count; opening it draws the circles. Field buttons read Close-up/Wide, and a
+// double-click zooms. Other plates keep the panel above.
+describe("what SkyShift measured, on the Viewer", () => {
+  let el: HTMLDivElement;
+  let h: BlinkHandle;
+  const toggles = () => [...el.querySelectorAll<HTMLButtonElement>("button[data-ov='measured']")];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint16Array(N * N).fill(1000).buffer)),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    el = document.createElement("div");
+    document.body.append(el);
+    vi.spyOn(el, "getClientRects").mockReturnValue({ length: 1 } as unknown as DOMRectList);
+    h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn(), viewer: true });
+  });
+  afterEach(() => {
+    h.destroy();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    el.remove();
+  });
+
+  it("is folded to one line with its count; opening it draws the circles, folding it clears them", async () => {
+    await h.show(hoursView, hours(), URL);
+    const panel = el.querySelector<HTMLDetailsElement>(".bk-meas")!;
+    expect(panel.tagName).toBe("DETAILS");
+    expect(panel.open).toBe(false);
+    expect(el.querySelector(".bk-meas-sum")!.textContent!.replace(/\s+/g, " ").trim()).toBe("What SkyShift measured (4)");
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+    el.querySelector<HTMLButtonElement>(".bk-meas-toggle")!.click(); // the switch still works while open
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+    panel.open = false;
+    panel.dispatchEvent(new Event("toggle"));
+    expect(toggles().map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+  });
+
+  it("names the fields Close-up and Wide, with their size against the Moon", async () => {
+    await h.show(monthsView, months(), URL);
+    const fov = [...el.querySelectorAll<HTMLButtonElement>(".bk-fov button")];
+    expect(fov.map((b) => b.textContent)).toEqual(["Close-up", "Wide"]);
+    expect(fov[0].title).toMatch(/^Close-up: 5 arcminutes, about a sixth of the full Moon's width$/);
   });
 });

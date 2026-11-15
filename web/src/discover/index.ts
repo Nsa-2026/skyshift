@@ -103,7 +103,6 @@ export const mountDiscover: MountPage = (el, ctx) => {
 
       <aside class="dv-map" aria-labelledby="dv-map-title" hidden>
         <div class="dv-map-inner">
-          <h2 id="dv-map-title" class="dv-h2">On the sky</h2>
           <div data-skymap></div>
         </div>
       </aside>
@@ -1126,6 +1125,7 @@ export const mountDiscover: MountPage = (el, ctx) => {
     },
     hide() {
       onScreen = false;
+      map.closeFullscreen();
       map.highlight(null);
       openSheet(false);
       queue?.hide?.();
