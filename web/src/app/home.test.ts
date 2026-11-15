@@ -1,4 +1,4 @@
-// The home page is the Sky (#119); the Viewer opens on shared target links. Four screens (15 Nov).
+// The home page is the Sky (#119); the Viewer opens on shared target links.
 import { afterEach, expect, it, vi } from "vitest";
 
 const atlas = vi.hoisted(() => ({ show: vi.fn(), ctx: null as null | import("./modules").PageContext }));
@@ -36,7 +36,7 @@ afterEach(() => {
   opening.mount.mockClear();
 });
 
-it("opens on the Sky with the four screens one click away, and loads no frames", () => {
+it("opens on the Sky with every top-level screen one click away, and loads no frames", () => {
   history.replaceState(null, "", "/");
   const root = document.createElement("div");
   document.body.append(root);
@@ -48,7 +48,9 @@ it("opens on the Sky with the four screens one click away, and loads no frames",
     "#/sky",
     "#/explore",
     "#/candidates",
+    "#/community",
     "#/results",
+    "#/learn",
   ]);
   expect(root.querySelector(".top .details-switch")!.textContent).toBe("Advanced");
   expect([...root.querySelectorAll<HTMLAnchorElement>(".foot-links a")].map((a) => a.textContent)).toEqual(["Community", "Learn", "About"]);

@@ -440,7 +440,7 @@ export const FIGURES: Record<FigureId, { builder: Builder; slug: string | null; 
 
 function failure(slug: string | null): string {
   return `<p class="ln-fail" role="status">This example didn't load. ${
-    slug ? `<a href="${exploreHref(slug)}">Open it on the Blink page</a> instead.` : "Reload the page to try again."
+    slug ? `<a href="${exploreHref(slug)}">Open it in the Viewer</a> instead.` : "Reload the page to try again."
   }</p>`;
 }
 
