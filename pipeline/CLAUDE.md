@@ -26,6 +26,15 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   (duplicate drawn as its star's bright_fragment). Rerun after it: highpm, orphans, shape, candidates. Hunt (15 Nov,
   14 Nov tables): 3,537 bright_fragment / 223 duplicate / 363 saturated_star / 13,224 blend of 314,467 sources; Gaia
   stars with two kept sources within 3″ 200 → 7; ~50 s locally (the star matching adds ~5 s).
+- stack (stack.py, 15 Nov; not in `all`; zones of config STACK_ZONES, the five featured targets): `uv run
+  skyshift-pipeline stack --zone t_barnard --root gs://nasa-glazing-data --workers 8 --cache /tmp/stack-t_barnard`.
+  Reads each photo's IMAGE/FLAGS/VARIANCE block over the zone once (S3 section reads, cached as npz in --cache),
+  stacks each visit × detector on a 2″ grid, detects on matched-filter S/N maps, fits every photo at all sources at once
+  (ePSF at pixel centres, Gaia positions moved to the photo time), detects again on the residual stacks, fits again →
+  results/<zone>/stack_sources.parquet, stack_forced.parquet, stack.json (contracts/dots.md). Reads no dot files:
+  `new` compares with results/<zone>/sources.parquet, so run it after the zone's link/crossid on its dots folder. Two hunt
+  boxes (0.24 deg²): CatWISE W1 16–17 found 45 → 1,387 of 1,613, Gaia pairs 6–15″ split 4 → 34 of 38; 14–16% of the
+  sources have no catalogue entry, a quarter of those in `artifact_zone`. Every threshold is a STACK_* in config.py.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
