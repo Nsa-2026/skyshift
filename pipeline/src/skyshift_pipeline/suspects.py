@@ -1,7 +1,8 @@
 """Step 6, `suspects`: movers nobody has catalogued.
 
 A mover becomes a suspect when:
-- no known object (MPC, any brightness) lies within KNOWN_ARCSEC of it in the same session;
+- no known object (MPC asteroids and comets, JPL Horizons planets and moons; any brightness) lies within
+  KNOWN_ARCSEC of it in the same session;
 - it has none of the GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM bits;
 - no bright fixed source (snr >= BRIGHT_FIXED_SNR) lies within BRIGHT_FIXED_ARCSEC;
 - the SOURCE bit is not set at the peak pixel of every one of its dots (SOURCE marks catalogue

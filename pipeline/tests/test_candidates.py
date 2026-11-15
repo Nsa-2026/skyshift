@@ -262,7 +262,7 @@ def test_build_end_to_end(tmp_path):
     assert m["zones"] == ["hunt", "pilot"] and m["reasons"] == ["two_exposures", "outlier_flag"]
     assert m["flags"] == ["outlier"] and m["frames_url"] == "cand/hunt-1-2/frames.json"
     assert m["why"] == ("Seen at different places in 2 exposures 2.1 minutes apart, moving about 36″ an hour; "
-                        "no known asteroid or comet was predicted within 10′.")
+                        "no known asteroid, comet, planet or moon was predicted within 10′.")
     two = cs[1]
     assert two["rate_arcsec_h"] is None and two["reasons"] == ["two_detectors", "known_object_near", "outlier_flag"]
     assert two["frames_url"] is None and two["zones"] == ["hunt"]

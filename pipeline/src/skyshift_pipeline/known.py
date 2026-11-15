@@ -1,14 +1,15 @@
-"""Step 3, `known`: the known asteroids and comets the zone's photos saw, from MPC orbits moved with
-kete (known_mpc.py computes them). This module holds the cache paths and the reader that score and
-suspects use.
+"""Step 3, `known`: the known bodies the zone's photos saw, from two sources: asteroids and comets from MPC
+orbits moved with kete (known_mpc.py), and the planets with their large moons from JPL Horizons
+(known_planets.py). This module holds the cache paths and the reader that score and suspects use.
 
-Cached per session (a run of exposures under 10 minutes apart) in cache/mpc/<zone>/run_<first obs_id>.json;
-an existing file is never computed again.
+Cached per session (a run of exposures under 10 minutes apart) in cache/mpc/<zone>/run_<first obs_id>.json
+and cache/planets/<zone>/run_<first obs_id>.json; an existing file is never computed again.
 
 Cache file: {zone, session, obs_ids, mjd, jd, query, n, fetched,
              objects: {name, number, ra, dec, v, dra_arcsec_h, ddec_arcsec_h, class} (columns),
              per_photo: {obs_id, detector, name, ra, dec} (columns), observers}
 dRA is the on-sky rate (dRA·cos dec), arcsec per hour. per_photo holds each object at each photo's own time.
+Planet files: class "planet" or "moon", number null, observers {}.
 """
 
 from __future__ import annotations
@@ -22,20 +23,28 @@ from .store import Store
 
 MJD_TO_JD = 2400000.5
 OBJ_KEYS = ("name", "number", "ra", "dec", "v", "dra_arcsec_h", "ddec_arcsec_h", "class")
+SOURCES = ("mpc", "planets")  # cache/<source>/<zone>/
+PLANET_CLASSES = ("planet", "moon")  # known_planets' classes; score leaves them out
 
 
-def cache_dir(zone: C.Zone) -> str:
-    """cache/mpc/<zone>"""
-    return f"cache/mpc/{zone.name}"
+def cache_dir(zone: C.Zone, source: str = "mpc") -> str:
+    """cache/mpc/<zone> or cache/planets/<zone>"""
+    return f"cache/{source}/{zone.name}"
 
 
-def run_rel(zone: C.Zone, g: pd.DataFrame) -> str:
-    return f"{cache_dir(zone)}/run_{g['obs_id'].iloc[0]}.json"
+def run_rel(zone: C.Zone, g: pd.DataFrame, source: str = "mpc") -> str:
+    return f"{cache_dir(zone, source)}/run_{g['obs_id'].iloc[0]}.json"
 
 
 def run(store: Store, zone: C.Zone, limit: int | None = None) -> dict:
-    from . import known_mpc  # known_mpc imports this module
-    return known_mpc.run(store, zone, limit=limit)
+    """MPC first, then the planets. A failed planet query is logged and leaves no file: run `known` again."""
+    from . import known_mpc, known_planets  # both import this module
+    out = known_mpc.run(store, zone, limit=limit)
+    try:
+        out["planets"] = known_planets.run(store, zone, limit=limit)
+    except Exception as e:  # noqa: BLE001
+        out["planets"] = {"source": "jpl-horizons", "error": str(e)[:300]}
+    return out
 
 
 def per_photo_positions(d: dict):
@@ -57,13 +66,14 @@ def per_photo_positions(d: dict):
     return at
 
 
-def load_predictions(store: Store, photos: pd.DataFrame, zone: C.Zone) -> pd.DataFrame:
+def load_predictions(store: Store, photos: pd.DataFrame, zone: C.Zone, sources: tuple[str, ...] = SOURCES) -> pd.DataFrame:
     """Every cached object at each photo's mid-time (its per_photo position), kept where it falls inside
-    that photo, with its distance to the edge (px), the photo's obs_id, detector, mjd and session."""
+    that photo, with its distance to the edge (px), the photo's obs_id, detector, mjd and session.
+    sources: which cache folders (default both; a missing file is skipped)."""
     parts = []
-    for _, g in photos.groupby("session", sort=True):
+    for (_, g), source in ((x, s) for x in photos.groupby("session", sort=True) for s in sources):
         try:
-            d = store.read_json(run_rel(zone, g))
+            d = store.read_json(run_rel(zone, g, source))
         except FileNotFoundError:
             continue
         o = d["objects"]

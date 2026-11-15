@@ -212,6 +212,22 @@ MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
 MPC_HEADER_WORKERS = 32              # parallel IMAGE header reads (one per exposure; ~1 s each, I/O bound)
 MPC_HEADER_BLOCK = 262_144           # bytes per HTTPS read: the primary and IMAGE headers fit in the first block
 MPC_FOV_PAD_DEG = 0.05               # kete fields are the s_region corners pushed out 3′; load_predictions cuts exactly
+# known_planets (JPL Horizons): planets and their large moons, which the MPC orbits don't hold. radius_deg: how far
+# the system reaches from the planet (Himalia ~1° at Jupiter, Phoebe ~0.6° at Saturn, Nereid ~0.15° at Neptune).
+PLANET_SYSTEMS = {
+    "Mars": {"naif": 499, "radius_deg": 0.05, "moons": [(401, "Phobos"), (402, "Deimos")]},
+    "Jupiter": {"naif": 599, "radius_deg": 1.1, "moons": [(501, "Io"), (502, "Europa"), (503, "Ganymede"), (504, "Callisto"),
+                                                          (505, "Amalthea"), (506, "Himalia"), (507, "Elara")]},
+    "Saturn": {"naif": 699, "radius_deg": 0.65, "moons": [(601, "Mimas"), (602, "Enceladus"), (603, "Tethys"), (604, "Dione"),
+                                                          (605, "Rhea"), (606, "Titan"), (607, "Hyperion"), (608, "Iapetus"),
+                                                          (609, "Phoebe"), (610, "Janus"), (611, "Epimetheus")]},
+    "Uranus": {"naif": 799, "radius_deg": 0.05, "moons": [(701, "Ariel"), (702, "Umbriel"), (703, "Titania"), (704, "Oberon"),
+                                                         (705, "Miranda")]},
+    "Neptune": {"naif": 899, "radius_deg": 0.15, "moons": [(801, "Triton"), (802, "Nereid")]},
+}
+PLANETS_COARSE_STEP_H = 6    # the planets' coarse table over the zone's time range, to find the visits they come near
+PLANETS_MARGIN_DEG = 4.0     # near = within this + radius_deg of the zone box (a photo reaches ~2.5° past its centre)
+PLANETS_STEP_MIN = 10        # each body's table during a visit, interpolated to the photos' times (Io: ~3″ per step)
 
 # --- link ----------------------------------------------------------------------------------
 FIXED_LINK_ARCSEC = 4.0       # friends-of-friends radius for fixed sources
