@@ -25,6 +25,12 @@ import {
   greyed,
   stageLabel,
   classesPresent,
+  CLASS_INFO,
+  CLASS_ORDER,
+  classInfo,
+  knownClass,
+  normalizeMeasured,
+  reasonWords,
 } from "./measured";
 
 const hours = hoursJson as unknown as FramesResponse;
@@ -350,5 +356,43 @@ describe("plain words for one detection", () => {
       "Suspect, grade C: hot pixel, at the detector's edge",
     );
     expect(describeShift(M.shifts[0])).toBe("Gaia star moved 10.4″ ± 0.09″ in 1.0 yr");
+  });
+});
+
+describe("classes added on the server (v3.12, v3.13)", () => {
+  it("names the stack class, with its own colour token, last in the legend order", () => {
+    expect(CLASS_INFO.stack.name).toBe("Seen in the stack only");
+    expect(CLASS_INFO.stack.token).toBe("--m-stack");
+    expect(CLASS_ORDER[CLASS_ORDER.length - 1]).toBe("stack");
+    expect(describeDetection({ ...M.detections[0], class: "stack", reasons: [] })).toBe("Seen in the stack only");
+  });
+  it("words split_by_fit and stack_near_bright", () => {
+    expect(reasonWords(["split_by_fit"])).toEqual(["a second object a two-object fit split off this source"]);
+    expect(describeDetection({ ...M.detections[0], class: "other", reasons: ["split_by_fit"] })).toBe(
+      "Other source: a second object a two-object fit split off this source",
+    );
+    expect(describeDetection({ ...M.detections[0], class: "artifact", reasons: ["stack_near_bright"] })).toContain("much brighter source");
+  });
+  it("reads a class it doesn't know as other, everywhere the plate looks it up", () => {
+    expect(knownClass("galaxy_cluster")).toBe("other");
+    expect(knownClass("stack")).toBe("stack");
+    expect(classInfo("galaxy_cluster")).toBe(CLASS_INFO.other);
+    const odd = { ...M, detections: M.detections.map((d, i) => (i === 0 ? { ...d, class: "brand_new" as never } : d)) };
+    const st = measuredState({ measured: odd, measured_reason: null } as never);
+    expect(st.kind).toBe("measured");
+    if (st.kind !== "measured") return;
+    expect(st.m.detections[0].class).toBe("other");
+    expect(st.m.detections.slice(1)).toEqual(M.detections.slice(1));
+    expect(normalizeMeasured(M)).toBe(M);
+  });
+  it("counts stack sources apart in the months summary and the legend", () => {
+    const withStack: Measured = {
+      ...M,
+      counts: { ...M.counts, stack: 1 },
+      detections: [...M.detections, { ...M.detections[0], class: "stack", source_id: null, gaia_id: null, reasons: [] }],
+    };
+    expect(sourcesByClass(withStack).stack).toBe(1);
+    expect(classesPresent(withStack)).toContain("stack");
+    expect(strip(summarize(withStack).rest ?? "")).toContain("1 shows only in the visit stacks");
   });
 });
