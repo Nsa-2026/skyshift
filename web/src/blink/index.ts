@@ -9,7 +9,7 @@ import { ALLOWED_FOV, DEFAULT_FOV, detectorsIn, epochsFor, loadFrameData, loadFr
 import { combineFrames, detectorsNote, groupEpochs, mergeMeasured, remapMeasured, type WaveGroup, type WavePart } from "./allwave";
 import type { Clock, Det, Epoch, FramesResponse, GaiaStar, Measured, MeasuredClass, MeasuredDetection, SkyPos, TargetIndex } from "../api/types";
 import { DETECTORS, SAME_MOMENT, formatRaDec, gaiaAt, pixelToSky, skyToPixel } from "../app/astro";
-import type { BlinkHandle, BlinkOptions, MountBlink, View } from "../app/modules";
+import type { BlinkHandle, BlinkOptions, MountBlink, TrackMarks, TrackSpot, View } from "../app/modules";
 import { nearestIndex, type Axis } from "./axis";
 import { SPHEREX_V_LIMIT, seenBySpherex } from "./known";
 import { planMarks, type Plan, type PlanDet, type PlanStar } from "./layout";
@@ -158,6 +158,10 @@ const SATURATED_GLYPH = `<svg class="bk-mg" data-cls="star" viewBox="0 0 18 18" 
 const DRAW_ORDER: MeasuredClass[] = [...CLASS_ORDER].reverse();
 /** Rows shown before "Show all". */
 const LIST_SHOWN = 6;
+/** The red circle where a candidate is only predicted (BlinkHandle.track): dashed. */
+const TRACK_DASH = [4, 3.5];
+const TRACK_GLYPH = (dashed: boolean) =>
+  `<svg class="bk-mg" data-cls="track" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="6"${dashed ? ` stroke-dasharray="3 2.6"` : ""}/></svg>`;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): BlinkHandle => {
@@ -276,7 +280,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
                 title="Known asteroids and comets bright enough for SPHEREx (V ${SPHEREX_V_LIMIT} or brighter), where their orbits put them"><i class="sw sw-known"></i>Known</button>
               <button class="bk-mk" type="button" data-ov="faint" aria-pressed="false"
                 title="Also known asteroids fainter than V ${SPHEREX_V_LIMIT}, dashed: usually too faint for SPHEREx to show"><i class="sw sw-known sw-faint"></i>Faint</button>
-              <button class="bk-mk" type="button" data-ov="target" aria-pressed="true"><i class="sw sw-target"></i>Target</button>
+              <button class="bk-mk" type="button" data-ov="target" aria-pressed="true"
+                title="Red ticks: the field centre. Red circles: where the candidate should be in each frame"><i class="sw sw-target"></i>Target</button>
               <button class="bk-mk" type="button" data-ov="guides" aria-pressed="true"><i class="sw sw-guide"></i>Compass</button>
             </div>
           </div>
@@ -399,6 +404,12 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     pending: false,
   };
   const overlays = { measured: true, gaia: true, known: true, faint: false, target: true, guides: true };
+  /** The candidate the red circles follow (BlinkHandle.track), its spots by frame id. */
+  let trackM: TrackMarks | null = null;
+  let trackBy = new Map<string, TrackSpot>();
+  let trackGen = 0;
+  /** The crosshair's widest opening around the red circles, for this plate and view. */
+  let rgapMemo = { key: "", gap: 0 };
   // What SkyShift measured (contracts/api.md v3.3), prepared once per response and detector.
   let meas: Measured | null = null;
   let measAt = new Map<string, MeasuredDetection[]>();
@@ -893,8 +904,54 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
     drawMeasured(vp, e, c, inView, floor, halo, plan, ds, gaiaOf);
 
+    // The candidate in every frame: a red circle, solid where measured, dashed where predicted.
+    // Wider than its source and its measured circle, so it never hides the dot. Stack: every
+    // frame's spot, faint (moved with the mover when following it). Not over the no-data hatch.
+    // The crosshair opens past every frame's circle near the centre, and holds still while blinking:
+    // it keeps the widest opening it needed on this plate and view (no pulse that reads as motion).
+    const gapKey = `${trackGen}|${loadCtl}|${frames.length}|${mode}|${vp.s.toFixed(3)}|${vp.u0.toFixed(2)}|${vp.v0.toFixed(2)}`;
+    let rgap = Math.max(gap, rgapMemo.key === gapKey ? rgapMemo.gap : 0);
+    if (overlays.target && trackM) {
+      const red = pen("--pencil-red");
+      const len = Math.max(7, gap * 0.6);
+      const circleAt = (s: TrackSpot, ep: Epoch, i: number) => {
+        let px = skyToPixel(s, F!, centreOf(ep));
+        if (i >= 0 && following()) px = { x: px.x - shifts![i].dx, y: px.y - shifts![i].dy };
+        const p = toScreen(px, vp);
+        return { px, p, r: Math.min(56, Math.max(8, psf * 1.3, Math.min(48, reach(px) + 3))) };
+      };
+      const clear = (p: { X: number; Y: number }, r: number) => {
+        const d = Math.hypot(p.X - tp.X, p.Y - tp.Y);
+        if (d - r < gap + len) rgap = Math.max(rgap, Math.min(64, d + r + 3));
+      };
+      frames.forEach((f, i) => {
+        const s = spotFor(f.epoch);
+        if (s) {
+          const t = circleAt(s, f.epoch, i);
+          if (inView(t.p, 0)) clear(t.p, t.r);
+        }
+      });
+      const list = e ? [{ s: spotFor(e), i: -1, ep: e }] : frames.map((f, i) => ({ s: spotFor(f.epoch), i, ep: f.epoch }));
+      for (const { s, i, ep } of list) {
+        if (!s) continue;
+        const { px, p, r: r0 } = circleAt(s, ep, i);
+        if (!inView(p, 0) || hatched(px)) continue;
+        let r = r0;
+        for (const cc of plan.circles) if (Math.hypot(cc.X - p.X, cc.Y - p.Y) <= cc.r) r = Math.min(56, Math.max(r, cc.r + 5));
+        clear(p, r);
+        ring(ctx, p.X, p.Y, r);
+        ctx.save();
+        if (!s.measured) ctx.setLineDash(TRACK_DASH);
+        pencil(ctx, halo, 3.5, e ? 0.45 : 0.25);
+        pencil(ctx, red, 1.5, e ? 0.95 : 0.5);
+        ctx.restore();
+        if (e) hits.push({ X: p.X, Y: p.Y, r: r + 4, html: trackWords(s) });
+      }
+    }
+
+    rgapMemo = { key: gapKey, gap: rgap };
     if (overlays.target) {
-      reticle(ctx, tp.X, tp.Y, gap, Math.max(7, gap * 0.6));
+      reticle(ctx, tp.X, tp.Y, rgap, Math.max(7, rgap * 0.6));
       pencil(ctx, pen("--pencil-red"), 1.75);
     }
 
@@ -1296,6 +1353,14 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     } else if (mode === "blink" && !comparing) {
       key.innerHTML = `<span class="bk-hint">Click a dot to flag it</span>`;
     }
+    // The red circles' key, when the candidate has a spot in these frames.
+    if (overlays.target && trackM && frames.some((f) => spotFor(f.epoch))) {
+      const k = document.createElement("span");
+      k.className = "bk-trk";
+      k.title = `Red circles: where ${trackM.label} should be in each ${unit()}. Solid: SkyShift measured it there. Dashed: predicted from its position and motion; look for a dot inside.`;
+      k.innerHTML = `${TRACK_GLYPH(false)}<span>measured</span>${TRACK_GLYPH(true)}<span>predicted</span>`;
+      key.append(k);
+    }
   }
 
   /** Featured targets are centred, so the mover found at the centre is the target itself. */
@@ -1628,6 +1693,27 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         members: members.map(m => ({id:m.epoch.id,det:m.epoch.det,mjd_mid:m.epoch.mjd_mid,data_url:new URL(m.epoch.data_url,m.url).href})),
       },
     });
+  }
+  /** The red circle's spot in a frame: its own, or (all wavelengths) a member detector's, measured first. */
+  function spotFor(e: Epoch): TrackSpot | null {
+    const own = trackBy.get(e.id);
+    if (own) return own;
+    const found = (waveGroups.get(e.id)?.members ?? []).flatMap((m) => trackBy.get(m.id) ?? []);
+    return found.find((s) => s.measured) ?? found[0] ?? null;
+  }
+  /** The caption for a red circle under the pointer. */
+  function trackWords(s: TrackSpot): string {
+    const what = trackM?.label ?? "the find";
+    const U = unit();
+    const text = s.measured
+      ? `${what[0].toUpperCase()}${what.slice(1)}, measured in this ${U}.`
+      : `Where ${what} should be in this ${U}: predicted, nothing measured here.`;
+    return `<span class="bk-mtag" data-cls="track">${s.measured ? "Red circle" : "Dashed red circle"}</span> <span class="bk-val">${esc(text)}</span>`;
+  }
+  function setTrack(marks: TrackMarks | null) {
+    trackGen++;
+    trackM = marks?.spots.length ? marks : null;
+    trackBy = new Map((trackM?.spots ?? []).map((s) => [s.epoch_id, s]));
   }
   /** The real epoch behind a combined one: the chosen detector's, else the first. */
   function memberEpoch(e: Epoch): Epoch {
@@ -2026,6 +2112,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       overlays[k] = !overlays[k];
       renderControls();
       draw();
+      if (k === "target") renderCaption();
     } else if (d.zoom) setZoom(Number(d.zoom));
     else if (d.fps) {
       fps = Number(d.fps);
@@ -2259,6 +2346,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
   return {
     async show(next, resp, url, options) {
+      // Red circles stay with the frames they were made for: none of these epochs, no circles.
+      if (trackM && !resp.epochs.some((e) => trackBy.has(e.id))) setTrack(null);
       setSingleDetector(options?.singleDetector ?? false);
       await load(next, resp, url);
     },
@@ -2285,6 +2374,11 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       renderMsg();
     },
     highlight(pos) { pick=pos; draw(); },
+    track(marks) {
+      setTrack(marks);
+      draw();
+      renderCaption();
+    },
     gaia(stars) { if (F) { F.gaia = stars; draw(); } },
     active(value) { pageActive = value; if (!value) setPlaying(false); },
     display(value) { setMode(value); },

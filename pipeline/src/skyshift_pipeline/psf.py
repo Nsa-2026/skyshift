@@ -272,3 +272,102 @@ def dot_positions(data: np.ndarray, x: np.ndarray, y: np.ndarray, epsf, *, noise
     err = np.sqrt(0.5 * (p.x_err ** 2 + p.y_err ** 2)) * pixel_arcsec
     err = np.sqrt(err ** 2 + C.PSF_POS_ERR_FLOOR_ARCSEC ** 2)
     return (np.where(ok, p.x, x), np.where(ok, p.y, y), np.where(ok, err, pos_err), ok)
+
+
+# --- ePSF second pass (fine detection v2, contracts/dots.md) ---------------------------------------
+@dataclass
+class Companions:
+    dots: np.ndarray          # new dots, core.detect.DETECTION_DTYPE, measured on the residual, brightest first
+    model: np.ndarray         # the subtracted ePSF models (MJy/sr), same shape as the image
+    info: dict
+
+
+def _discs(shape: tuple[int, int], x: np.ndarray, y: np.ndarray, r: float) -> np.ndarray:
+    """Boolean map: pixels within r of any (x, y) (rounded centres)."""
+    out = np.zeros(shape, bool)
+    if x.size == 0 or r <= 0:
+        return out
+    ny, nx = shape
+    h = int(np.ceil(r))
+    k = np.arange(-h, h + 1)
+    disc = (k[:, None] ** 2 + k[None, :] ** 2) <= r * r
+    yy = np.rint(y).astype(np.int64)[:, None, None] + k[None, :, None]
+    xx = np.rint(x).astype(np.int64)[:, None, None] + k[None, None, :]
+    yy, xx = np.broadcast_arrays(yy, xx)
+    ins = (xx >= 0) & (xx < nx) & (yy >= 0) & (yy < ny) & disc[None]
+    out[yy[ins], xx[ins]] = True
+    return out
+
+
+def residual_companions(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, x: np.ndarray, y: np.ndarray,
+                        snr: np.ndarray, saturated: np.ndarray, epsf, *, thresh: float = C.DETECT_THRESH,
+                        min_snr: float = C.DOT_MIN_SNR, primary_snr: float = C.PSF_PASS_PRIMARY_SNR,
+                        r_px: float = C.PSF_PASS_R_PX, model_frac: float = C.PSF_PASS_MODEL_FRAC,
+                        half: int = C.PSF_PASS_STAMP_HALF, minarea: int = C.PSF_PASS_MINAREA,
+                        deblend_cont: float = C.PSF_PASS_DEBLEND_CONT, dedup_px: float = C.PSF_PASS_DEDUP_PX,
+                        sat_r_px: float = C.PSF_PASS_SAT_R_PX, mirror_r_px: float = C.PSF_PASS_MIRROR_R_PX,
+                        mirror_frac: float = C.PSF_PASS_MIRROR_FRAC,
+                        mirror_sigma: float = C.PSF_PASS_MIRROR_SIGMA) -> Companions:
+    """The ePSF second pass: faint sources sitting 1.5–6 px from a brighter dot, which sep merges into it (the PSF is
+    undersampled, FWHM 1.22 px, and sep's deblending needs a saddle the pair often lacks).
+
+    sub: the image core.detect measures on (IMAGE minus its background map, bad pixels 0); noise: per-pixel 1σ
+    (max(√VARIANCE, background rms)); bad: the bad-pixel mask; (x, y, snr, saturated): the first pass's dots (S/N >=
+    min_snr; saturated = OVERFLOW/NONLINEAR in the 3×3). The ePSF of every unsaturated dot with S/N >= primary_snr is
+    fitted (position, then flux) and subtracted; sep runs on the residual inside discs of r_px around those dots, minus
+    discs of sat_r_px around saturated dots; noise √(noise² + (model_frac · model)²). Kept: new dots with residual
+    aperture S/N >= min_snr, > dedup_px from every first-pass dot, passing the mirror test (config PSF_PASS_*).
+    The caller applies the saturation guard and sets the sep_flag bit."""
+    import sep
+    from scipy.spatial import cKDTree
+    from skyshift_core.detect import DETECTION_DTYPE, measure_objects
+
+    sub = np.ascontiguousarray(sub, dtype=np.float64)
+    noise = np.ascontiguousarray(np.where(np.isfinite(noise), noise, 0.0), dtype=np.float64)
+    bad = np.ascontiguousarray(bad, dtype=bool)
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    snr, saturated = np.asarray(snr, np.float64), np.asarray(saturated, bool)
+    shape = sub.shape
+    empty = Companions(np.zeros(0, dtype=DETECTION_DTYPE), np.zeros(shape), {"n_primary": 0, "n_raw": 0, "n_kept": 0})
+    use = (snr >= primary_snr) & ~saturated
+    if not use.any():
+        return empty
+    xp, yp = x[use], y[use]
+    p = psf_position(sub, xp, yp, epsf, noise=noise, bad=bad)
+    xs, ys = np.where(p.ok, p.x, xp), np.where(p.ok, p.y, yp)
+    ph = psf_photometry(sub, xs, ys, epsf, noise=noise, bad=bad)
+    F = np.where(np.isfinite(ph.flux) & (ph.flux > 0), ph.flux, 0.0)
+    P, ix, iy = epsf.stamps(xs, ys, half)
+    ny, nx = shape
+    k = np.arange(-half, half + 1)
+    YY, XX = np.broadcast_arrays(iy[:, None, None] + k[None, :, None], ix[:, None, None] + k[None, None, :])
+    inside = (XX >= 0) & (XX < nx) & (YY >= 0) & (YY < ny)
+    model = np.zeros(shape)
+    np.add.at(model, (YY[inside], XX[inside]), (F[:, None, None] * P)[inside])
+    resid = np.ascontiguousarray(sub - model)
+    resid[bad] = 0.0
+    noise2 = np.ascontiguousarray(np.sqrt(noise ** 2 + (model_frac * model) ** 2))
+    region = _discs(shape, xs, ys, r_px) & ~_discs(shape, x[saturated], y[saturated], sat_r_px)
+    m2 = np.ascontiguousarray(bad | ~region)
+    info = {"n_primary": int(use.sum()), "n_psf_ok": int(p.ok.sum())}
+    if not region.any():
+        return Companions(empty.dots, model, {**info, "n_raw": 0, "n_kept": 0})
+    objs = sep.extract(resid, thresh, err=noise2, mask=m2, minarea=minarea, deblend_cont=deblend_cont,
+                       filter_type="conv")
+    new = measure_objects(resid, noise2, m2, objs)
+    new = new[new["snr"] >= min_snr]
+    if len(new) and x.size:
+        d, _ = cKDTree(np.c_[x, y]).query(np.c_[new["x"], new["y"]], k=1)
+        new = new[d > dedup_px]
+    info["n_raw"] = int(len(new))
+    if len(new):
+        _, j = cKDTree(np.c_[xs, ys]).query(np.c_[new["x"], new["y"]], k=1)
+        mx, my = 2 * xs[j] - new["x"], 2 * ys[j] - new["y"]
+        nxs, nys = new["x"].astype(np.float64), new["y"].astype(np.float64)
+        fn, en, _ = sep.sum_circle(resid, nxs, nys, mirror_r_px, err=noise2, mask=bad, subpix=5)
+        fm, em, _ = sep.sum_circle(resid, mx.astype(np.float64), my.astype(np.float64), mirror_r_px, err=noise2,
+                                   mask=bad, subpix=5)
+        keep = (fm < mirror_frac * fn) & ((fn - fm) >= mirror_sigma * np.sqrt(en ** 2 + em ** 2))
+        new = new[keep]
+    info["n_kept"] = int(len(new))
+    return Companions(new, model, info)

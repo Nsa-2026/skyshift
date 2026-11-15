@@ -1,12 +1,14 @@
 // The plate on the review pages: one blink player (src/blink, public mountBlink only) showing a
 // candidate at its position, clock and detector, or a featured target for practice. The blink
-// marks the frame centre with the red target reticle, which is the candidate's position.
+// marks the frame centre with the red target reticle, which is the candidate's position, and red
+// circles where the candidate should be in each frame (track.ts).
 import { ApiFailure, loadFrames } from "../api/client";
 import type { Candidate, LoadedFrames } from "../api/types";
 import type { BlinkHandle, View } from "../app/modules";
 import { targetBySlug, viewForTarget } from "../app/state";
 import { mountBlink } from "../blink";
 import { OWN_GAP_DAYS, candidateView, findGap, focusFrames, framesFor, gapText, hasFrames, isLive } from "./data";
+import { buildTrackMarks } from "./track";
 
 const html = String.raw;
 
@@ -166,6 +168,8 @@ export class Plate {
       }
     }
     blink.status("idle");
+    // Red circles where the candidate should be in every frame (solid measured, dashed predicted).
+    blink.track?.(c ? buildTrackMarks(c, frames) : null);
     await blink.show(cur.view, frames, loaded.jsonUrl);
     if (gen !== this.gen) return false;
     this.events.onReady?.(true);
