@@ -171,15 +171,18 @@
 /* Wide enough for two columns, the masthead takes them: the welcome note on the left, the count
    and the two ways in on the right. One column left the top two thirds of the panel empty while
    the note and the lede queued down its left edge. */
-/* 1280, not 1024: two full measures plus the gap need about 1150px of panel, and below that the
-   columns squeezed so the note ended 130px short of the body text under it -- a new ragged edge in
-   place of the one this was meant to remove. */
+/* From 1024, not 1280: on a 1084px laptop the panel is about 1000px wide and the masthead used
+   only the left 544 of it, so the note and the lede still queued down one edge with the other half
+   empty -- the fault this split exists to fix, at a width it did not reach. Two measures that both
+   shrink would have moved the note's right edge off the body text below it; instead the note's
+   column is rigid at the measure and the lede's takes what is left, so the one reading edge holds
+   and the lede is what gives way as the window narrows. */
 /* The standalone masthead only: Results' .cm-embedded head holds the plain line, the lede and the
    source and none of the areas below, so two columns there would leave the whole "note" column
    empty and push its text 34rem in from the left edge. */
-@media (min-width: 1280px) {
+@media (min-width: 1024px) {
   .cm:not(.cm-embedded) > .cm-head {
-    grid-template-columns: repeat(2, minmax(0, var(--cm-measure)));
+    grid-template-columns: var(--cm-measure) minmax(0, var(--cm-measure));
     grid-template-areas:
       "title title"
       "note  lead"
@@ -187,7 +190,7 @@
       "note  cta";
     grid-template-rows: auto auto auto 1fr;
     justify-items: stretch;
-    column-gap: var(--s8);
+    column-gap: var(--s7);
     padding-bottom: var(--s6);
     border-bottom: 1px solid var(--hair);
   }
