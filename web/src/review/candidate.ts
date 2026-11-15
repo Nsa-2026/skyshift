@@ -1,27 +1,21 @@
 // A candidate in the Viewer (#/c/<id>): the Viewer's own plate opens on the candidate's spot, clock
-// and detector, with red circles where it should be in each frame, and this panel sits at the top
-// of the Viewer's side column: the list around it, the vote (change it or reset it), what happens
-// next, and the details behind it.
+// and detector, with red circles where it should be in each frame, and the side column is the
+// Viewer's usual one. This panel takes the card's place for the name and the measurement (in the
+// Motion dashboard when Advanced is on): the list around the candidate (back, previous, next),
+// what it is and how fast it moves, its grade, and its vote (change it or reset it).
 import { failedGates, gatesPhrase, nearSourceOf, votable } from "../api/grades";
 import type { Candidate, FramesResponse } from "../api/types";
 import type { TrackMarks, View } from "../app/modules";
 import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
-import { AssistSlot, detailsOn, loadAssist } from "./assist";
 import { Ballot } from "./ballot";
 import { OWN_GAP_DAYS, candidateSet, findGap, focusFrames, framesFor, gapText, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { LIST_HASH, keyAction, neighbours, parseCandidateParam } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
-import { SAMPLE_NOTE, castVote, copyWithFeedback, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
+import { SAMPLE_NOTE, castVote, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { buildTrackMarks } from "./track";
-import {
-  KIND_TEXT,
-  SITE,
-  esc,
-  kindName,
-} from "./text";
-import { formatRaDec } from "../app/astro";
+import { KIND_TEXT, SITE, esc, kindName } from "./text";
 
 const html = String.raw;
 
@@ -149,7 +143,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
   const countEl = $<HTMLElement>(".cd-count");
   const prevEl = $<HTMLAnchorElement>(".cd-prev");
   const nextEl = $<HTMLAnchorElement>(".cd-next");
-  let checkSlot: AssistSlot | null = null;
 
   let set: CandidateSet | null = null;
   let v: Votes | null = null;
@@ -182,13 +175,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     });
   }
 
-  // ---- the check assistant's slots (src/assist, optional) -------------------------------------
-  async function mountAssist(c: Candidate) {
-    const mod = await loadAssist();
-    if (!mod || cand !== c || !checkSlot) return;
-    checkSlot.mount(mod.mountChecklist && ((slot) => mod.mountChecklist!(slot, c, { details: detailsOn() })));
-  }
-
   /** Vote, change the answer, or (null) reset it. One write at a time: the ballot is shut while saving. */
   async function vote(a: Answer | null) {
     if (!cand || !v || !ballot?.open() || a === mine) return;
@@ -214,6 +200,7 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     if (r.ok && !a) ballot?.focusChoices();
   }
 
+  /** What it is, how fast it moves, its grade and its vote. */
   function renderBody(c: Candidate) {
     const id = html`Object <span class="rv-nowrap">${esc(c.id)}</span>${c.zone ? ` from the ${esc(c.zone)} zone` : ""}. ${esc(KIND_TEXT[c.kind]?.could ?? "")}`;
     const open = votable(c);
@@ -222,29 +209,7 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       ${motionHtml(c)}
       ${gradeHtml(c, true)}
       <div class="cd-ballot">${open ? "" : noVoteHtml(c)}</div>
-      <details class="sp-more">
-        <summary>More about this object</summary>
-        <!-- Slot: src/assist mountChecklist (the guided check), mounted only if src/assist exists. -->
-        <section class="cand-check" aria-label="Check this object" hidden></section>
-        <section class="rv-sec" aria-labelledby="sp-p-h">
-          <h3 class="rv-h" id="sp-p-h">Position</h3>
-          <p class="cd-pos"><span class="cd-radec">${formatRaDec(c)}</span>
-            <span class="rv-soft">${c.ra.toFixed(5)}°, ${c.dec >= 0 ? "+" : "−"}${Math.abs(c.dec).toFixed(5)}°</span></p>
-          <div class="rv-actions">
-            <button class="btn" type="button" data-act="copy-pos">Copy coordinates</button>
-            <button class="btn btn-ghost" type="button" data-act="copy-link">Copy link</button>
-            <button class="btn btn-ghost" type="button" data-act="copy-embed">Copy embed code</button>
-          </div>
-          <details class="cd-embed">
-            <summary>Show the embed code</summary>
-            <label class="visually-hidden" for="sp-embed-code">Embed code</label>
-            <textarea id="sp-embed-code" class="cd-code" readonly rows="4">${esc(embedCode(c))}</textarea>
-          </details>
-        </section>
-      </details>
     `;
-    checkSlot?.clear();
-    checkSlot = new AssistSlot(bodyEl.querySelector<HTMLElement>(".cand-check")!);
     // Grade C is never put to a vote: no ballot, so keys 1–4 do nothing here either.
     ballot = open ? new Ballot(bodyEl.querySelector(".cd-ballot")!, { onVote: vote, onReset: () => vote(null), full: true, kind: c.kind }) : null;
     renderBallot();
@@ -253,15 +218,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
         if (cand === c) fillNearSource(bodyEl, nearSourceOf(s));
       });
   }
-
-  bodyEl.addEventListener("click", (ev) => {
-    const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-act]");
-    if (!b || !cand) return;
-    const c = cand;
-    if (b.dataset.act === "copy-pos") copyWithFeedback(b, `${c.ra.toFixed(6)} ${c.dec.toFixed(6)}`);
-    else if (b.dataset.act === "copy-link") copyWithFeedback(b, shareUrl(c));
-    else if (b.dataset.act === "copy-embed") copyWithFeedback(b, embedCode(c));
-  });
 
   noteEl.addEventListener("click", (ev) => {
     const b = (ev.target as Element).closest<HTMLButtonElement>("button[data-all]");
@@ -314,7 +270,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       a.tabIndex = -1;
     }
     emptyEl.innerHTML = html`<h2 class="rv-empty-title">${title}</h2>${body}`;
-    checkSlot?.clear();
   }
 
   async function show(param: string) {
@@ -368,7 +323,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     renderNav(c, query);
     opts.open(c);
     document.title = `${kindName(c.kind)} ${c.id}: SkyShift`;
-    mountAssist(c);
     try {
       const all = await v.api.countsFor([c.id]);
       if (cand !== c) return;
@@ -444,7 +398,6 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       token++;
       document.removeEventListener("keydown", onKey);
       window.removeEventListener(VOTED_EVENT, onVoted);
-      checkSlot?.clear();
       el.innerHTML = "";
     },
   };

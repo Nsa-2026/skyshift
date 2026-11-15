@@ -71,6 +71,28 @@ export function mountWorkbench(host:HTMLElement, opts:{
     header.innerHTML=`<h2>${label}</h2><button class="wb-dashboard-close" type="button" data-close-dashboard="${key}" aria-label="Close ${label} dashboard">×</button>`;
     panel.prepend(header);
   }
+  // Masonry: in the dashboard grid each item spans as many 4px rows as its height needs, so a short
+  // dashboard leaves no blank space under it: the next one moves up (workbench.css, auto rows 4px).
+  const grid=$('.wb-dashboards');
+  const gridItems=(el:Element):HTMLElement[]=>[...el.children].flatMap(child=>{
+    const display=getComputedStyle(child).display;
+    return display==='contents'?gridItems(child):display==='none'?[]:[child as HTMLElement];
+  });
+  const sizes=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>pack()):null;
+  const watched=new WeakSet<Element>();
+  let packing=0;
+  function pack(){
+    cancelAnimationFrame(packing);
+    packing=requestAnimationFrame(()=>{
+      const on=grid.classList.contains('wb-dashboard-grid');
+      const gap=on?parseFloat(getComputedStyle(grid).columnGap)||0:0;
+      for(const item of gridItems(grid)){
+        if(!watched.has(item)){watched.add(item);sizes?.observe(item);}
+        item.style.gridRowEnd=on?`span ${Math.max(1,Math.ceil((item.getBoundingClientRect().height+gap)/4))}`:'';
+      }
+    });
+  }
+  if(typeof MutationObserver!=='undefined')new MutationObserver(pack).observe(grid,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class']});
   let state:WorkspaceState={mode:'explore',tab:''}, view:View|undefined;
   let object:ObjectResponse|null=null, epoch:Epoch|undefined;
   let presentation:BlinkPresentation|undefined;
@@ -80,7 +102,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
   const panels=()=>state.mode==='explore'?['explore']:state.mode==='analyze'?(state.panels??[state.tab]):[state.tab];
   function choosePanels(keys:string[]){
     show(workspaceState(`analyze/${keys.join('+')||'dashboards'}`));
-    location.hash=workspaceHref('analyze',keys.join('+')||'dashboards');
+    // On a candidate (#/c/<id>) the address stays the candidate's: the dashboards change in place.
+    if(!/^#\/c\//.test(location.hash))location.hash=workspaceHref('analyze',keys.join('+')||'dashboards');
   }
   host.addEventListener('click',event=>{
     const button=(event.target as Element).closest<HTMLButtonElement>('[data-toggle-dashboard],[data-close-dashboard],[data-open-all],[data-close-all]');
@@ -179,7 +202,7 @@ export function mountWorkbench(host:HTMLElement, opts:{
     host.querySelectorAll<HTMLElement>('[data-wb]').forEach(el=>{el.hidden=!open.includes(el.dataset.wb!)});
     science.panel(open);
     $<HTMLDetailsElement>('.wb-comparison').open=open.includes('compare')&&visible;
-    science.pause(); metadata(); load();
+    science.pause(); metadata(); load(); pack();
   }
   layer.onchange=()=>opts.layer(layer.value as Layer);
   build.onclick=async()=>{

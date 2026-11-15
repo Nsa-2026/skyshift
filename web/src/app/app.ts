@@ -104,12 +104,13 @@ export function startApp(root: HTMLElement): void {
         <section id="sky" class="sky vw-panel" aria-label="Sky around this spot"></section>
       </div>
       <div class="vw-side">
-        <!-- #/c/<id>: the object to check on this plate, its vote and the list around it. -->
-        <section id="suspect" class="side-suspect vw-panel" aria-label="Object to check" hidden></section>
         <!-- Here, not above the plate: a bar appearing above it moved the plate under the pointer. -->
         <div class="workspace-selection" hidden><span>Position selected on the image.</span><button class="btn btn-ghost" type="button" data-clear-selection>Clear</button><button class="btn" type="button" data-flag-selection>Flag this position</button></div>
         <section id="card" class="side-card" aria-label="Object"></section>
         <section id="science-workbench" aria-label="Workspace evidence"></section>
+        <!-- #/c/<id>: the object to check, its list and its vote. The card shows it in place of the
+             name and the measurement (in the Motion dashboard when Advanced is on). -->
+        <section id="suspect" class="side-suspect" aria-label="Object to check" hidden></section>
         <section id="vote" class="side-vote vw-panel" aria-label="Flag and vote"></section>
       </div>
     </main>
@@ -186,7 +187,9 @@ export function startApp(root: HTMLElement): void {
   });
   // Filters (colour layers A1, A2) sit on the blink's plate: button above, key below.
   const filters = mountFilters($("#blink"));
-  const suspect = mountSuspect($("#suspect"), {
+  // Kept as a variable: while it shows, the card holds it (CardHandle.lead), outside the side column.
+  const suspectEl = $<HTMLElement>("#suspect");
+  const suspect = mountSuspect(suspectEl, {
     open(c) {
       suspectCand = c;
       suspectAll = false;
@@ -510,14 +513,15 @@ export function startApp(root: HTMLElement): void {
         writeView(first, true);
       }
     }
-    // #/c/<id>: the object to check, its ballot at the top of the side column.
-    const suspectEl = $<HTMLElement>('#suspect');
+    // #/c/<id>: the object to check and its ballot, in the card's place for the name and measurement.
     if (page === 'explore' && candidate && !practicing) {
       suspectEl.hidden = false;
+      card.lead?.(suspectEl);
       if (!suspectCand) blink.status('loading', 'Loading the object to check…');
       suspect.show(candidate);
     } else if (!suspectEl.hidden || suspectCand) {
       suspectEl.hidden = true;
+      card.lead?.(null);
       suspect.hide();
       if (page === 'explore') {
         suspectCand = null;
@@ -579,7 +583,7 @@ export function startApp(root: HTMLElement): void {
   addEventListener("popstate", () => {
     // Back to an object to check after leaving it: entries made with pushState may not fire
     // hashchange, so bring the suspect panel back here.
-    if (parseRoute().candidate && $<HTMLElement>('#suspect').hidden) { route(); return; }
+    if (parseRoute().candidate && suspectEl.hidden) { route(); return; }
     const v = readView();
     // Coordinates in the shared URL use five decimals; a hash-only navigation must
     // retain the higher-precision map selection and the current image frame.

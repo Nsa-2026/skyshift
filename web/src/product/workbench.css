@@ -161,7 +161,8 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
 .wb-dashboard-controls p {flex:1 1 200px;color:var(--ink-2);font-size:var(--step--1);margin:0;}
 .wb-dashboard-controls .btn {font-size:var(--step--1);min-height:36px;padding:var(--s1) var(--s2);}
 .wb-empty {color:var(--ink-2);padding:var(--s6) 0;}
-.wb-dashboard-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:var(--s4);align-items:start;}
+/* Masonry (workbench.ts pack): 4px rows, each item spans its own height plus the gap; no blank space under a short dashboard. */
+.wb-dashboard-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));grid-auto-rows:4px;gap:0 var(--s4);align-items:start;grid-auto-flow:row dense;}
 .wb-dashboard-grid .wb-card-slot,.wb-dashboard-grid .wb-science,.wb-dashboard-grid .science-panels,.wb-dashboard-grid .science-sections {display:contents;}
 .wb-dashboard-grid .cd[data-dashboard-count] {display:contents;container-type:normal;}
 #science-workbench .wb-dashboard {min-width:0;margin:0;padding:var(--s4);border:1px solid var(--hair-strong);border-radius:12px;background:var(--sheet);overflow-wrap:anywhere;container-type:inline-size;}
@@ -179,7 +180,4 @@ html:not([data-details="on"]) .page-blink[data-workspace-mode="research"] #scien
 .wb-dashboard-grid [data-wb="compare"] {order:3;}
 .wb-dashboard-grid [data-science="crossmatch"] {order:4;}
 .wb-dashboard-grid [data-wb="signals"] {order:5;}
-#science-workbench[data-mode="analyze"]:not([data-open-dashboards="1"]) .wb-dashboard-body {max-height:560px;overflow:auto;scrollbar-gutter:stable;}
-@media(max-width:600px) {
-  #science-workbench[data-mode="analyze"] .wb-dashboard-body {max-height:none;overflow:visible;}
-}
+/* Each dashboard at its full height (no inner scroll): the masonry grid packs them without gaps. */
