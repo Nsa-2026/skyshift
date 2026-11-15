@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import validationJson from "../../public/data/validation.json";
 import distantJson from "../../public/data/distant.json";
 import type { DistantResponse, ValidationCheck, ValidationResponse } from "../api/types";
-import { distantPlain, distantVerdict, foundLine, plainResults, plainTally, strongestMovers, sureFigure, sureLine } from "./plain";
+import { distantPlain, distantVerdict, foundLine, knownMovingStars, plainResults, plainTally, strongestMovers, sureFigure, sureLine } from "./plain";
 
 const validation = validationJson as unknown as ValidationResponse;
 const distant = distantJson as unknown as DistantResponse;
@@ -84,6 +84,20 @@ describe("what we found", () => {
     expect(strongestMovers(null)).toBe(0);
     const c = { candidates: [{ kind: "mover", grade: "A" }, { kind: "mover", grade: "B" }, { kind: "high_pm", grade: "A" }, { kind: "mover", grade: "a" }] };
     expect(strongestMovers(c as never)).toBe(2);
+  });
+
+  it("counts the moving stars Gaia already lists, from candidates.json's own fields", () => {
+    expect(knownMovingStars(null)).toBe(0);
+    const c = {
+      candidates: [
+        { kind: "high_pm", gaia_match: true },
+        { kind: "high_pm", gaia_match: true },
+        { kind: "high_pm", gaia_match: false },
+        { kind: "mover", gaia_match: true },
+        { kind: "spectral", gaia_match: true },
+      ],
+    };
+    expect(knownMovingStars(c as never)).toBe(2);
   });
 
   it("says the distant-planet search in a line, with how much it finds", () => {
