@@ -1,7 +1,7 @@
 // A candidate in the Viewer (#/c/<id>): the Viewer's own plate opens on the candidate's spot, clock
 // and detector, with red circles where it should be in each frame, and this panel sits at the top
-// of the Viewer's side column: the list around it, the vote (change it or take it back), what
-// happens next, and the details behind it.
+// of the Viewer's side column: the list around it, the vote (change it or reset it), what happens
+// next, and the details behind it.
 import { failedGates, gatesPhrase, nearSourceOf, votable } from "../api/grades";
 import type { Candidate, FramesResponse } from "../api/types";
 import type { TrackMarks, View } from "../app/modules";
@@ -117,6 +117,8 @@ export interface SuspectHandle {
   note(n: SuspectFramesNote | null): void;
   /** The Viewer left the candidate. */
   hide(): void;
+  /** Remove the panel and its key and vote listeners. */
+  destroy(): void;
 }
 
 /** The panel at the top of the Viewer's side column while it shows a candidate. */
@@ -205,7 +207,9 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       mine = a;
       justNow = !!a;
       resetNow = !a;
-    } else error = r.message;
+    } else {
+      error = r.message;
+    }
     renderBallot();
     if (r.ok && !a) ballot?.focusChoices();
   }
@@ -379,14 +383,15 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
   const onKey = (ev: KeyboardEvent) => {
     if (!active || !visible(el) || !cand) return;
     const a = keyAction(ev, { queue: false });
-    if (a?.kind === "vote" && ballot?.open() && a.answer !== mine) {
+    if (a?.kind === "vote" && ballot?.open()) {
       ev.preventDefault();
       vote(a.answer);
     }
   };
   document.addEventListener("keydown", onKey);
 
-  // A vote cast or taken back elsewhere on this candidate (the review queue, the assistant).
+  // A vote cast, changed or taken back elsewhere on this candidate (the review queue, the
+  // assistant's step 6). The counts here include this browser's answer as it was: move it.
   const onVoted = (ev: Event) => {
     const d = (ev as CustomEvent<VotedDetail>).detail;
     if (!d || !cand || d.candidateId !== cand.id || saving || resetting || d.answer === mine) return;
@@ -433,6 +438,14 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
       active = false;
       token++;
       noteEl.hidden = true;
+    },
+    destroy() {
+      active = false;
+      token++;
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener(VOTED_EVENT, onVoted);
+      checkSlot?.clear();
+      el.innerHTML = "";
     },
   };
 }

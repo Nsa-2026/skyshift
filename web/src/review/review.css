@@ -670,10 +670,6 @@
   display: grid;
   gap: var(--s5);
 }
-.rv-change {
-  margin-top: var(--s2);
-}
-
 /* ---- Review queue ---------------------------------------------------------------------------- */
 .rq-head {
   display: flex;

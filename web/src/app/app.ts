@@ -577,6 +577,9 @@ export function startApp(root: HTMLElement): void {
   });
 
   addEventListener("popstate", () => {
+    // Back to an object to check after leaving it: entries made with pushState may not fire
+    // hashchange, so bring the suspect panel back here.
+    if (parseRoute().candidate && $<HTMLElement>('#suspect').hidden) { route(); return; }
     const v = readView();
     // Coordinates in the shared URL use five decimals; a hash-only navigation must
     // retain the higher-precision map selection and the current image frame.

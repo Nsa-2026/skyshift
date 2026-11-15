@@ -254,8 +254,8 @@ describe("review queue: vote, go back, change, reset", () => {
   });
 });
 
-// ---- a candidate in the Viewer (#/c/<id>) ---------------------------------------------------------
-describe("the Viewer's object panel: change or reset an earlier vote", () => {
+// ---- the candidate in the Viewer (#/c/<id>) -----------------------------------------------------
+describe("candidate in the Viewer: change or reset an earlier vote", () => {
   afterEach(() => (document.body.innerHTML = ""));
 
   it("opens with the earlier answer selected, changes it, and resets it", async () => {
@@ -271,8 +271,8 @@ describe("the Viewer's object panel: change or reset an earlier vote", () => {
     const page = mountSuspect(el, { open: vi.fn(), showing: () => true, showAll: vi.fn() });
     page.show("c1");
     await settle(10);
-    page.ready(true); // the plate shows its frames
-    await settle();
+    // The Viewer says so once the candidate's frames are on the plate.
+    page.ready(true);
     const pressed = () => [...el.querySelectorAll<HTMLButtonElement>(".cd-ballot button[aria-pressed='true']")].map((b) => b.dataset.answer);
     expect(pressed()).toEqual(["unsure"]);
     expect(el.querySelector(".rv-yours")!.textContent).toBe("You said Not sure on an earlier visit. Pick another answer to change it, or reset it.");
@@ -291,6 +291,6 @@ describe("the Viewer's object panel: change or reset an earlier vote", () => {
     expect((await api.countsFor(["c1"])).get("c1")).toEqual({ mover: 1, changing: 0, junk: 0, unsure: 0 });
     // Focus goes back to the choices, so the keyboard can pick again.
     expect(document.activeElement?.classList.contains("rv-choice")).toBe(true);
-    page.hide();
+    page.destroy();
   });
 });
