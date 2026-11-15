@@ -143,3 +143,5 @@ export function estimateSize(text: string, fontPx: number, padX = 0, h = Math.ro
 export const BADGE = { h: 22, font: 12.5, padX: 8, weight: 650 } as const;
 /** Featured-target names. */
 export const NAME = { h: 16, font: 12.5, weight: 650 } as const;
+/** Bright named stars: smaller and lighter than the targets' names. */
+export const STAR = { h: 14, font: 11, weight: 500 } as const;

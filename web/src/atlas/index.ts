@@ -433,7 +433,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function renderKey() {
     const positive = !layers.negative && !stage.classList.contains("is-fallback");
     keyEl.classList.toggle("is-positive", positive);
-    const zonesKey = layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far, each with how many objects it has to check. ` : "";
+    const zonesKey = layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far. Dots: the brightest named stars. ` : "";
     const heat = (() => {
       if (!layers.heat || !showsHeat(level)) return "";
       const order = heatOrder(state.fov, stage.clientWidth || 800);

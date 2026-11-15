@@ -11,13 +11,14 @@ import { ALLWISE, SPHEREX, TWO_MASS, cubeFrameForDet, type SkyLayer } from "../s
 import { ang2pixNest } from "./healpix";
 import { cellOutline, rampAlpha, rampIndex, rampSteps, type Cell } from "./heat";
 import { countText, isGradeC, oneLine } from "./kinds";
-import { BADGE, NAME, aroundBox, aroundPoint, boundsOf, boxHolds, estimateSize, placeLabels, type Box, type LabelSpec, type Placed, type Size } from "./labels";
+import { NAME, STAR, aroundPoint, boundsOf, boxHolds, estimateSize, placeLabels, type Box, type LabelSpec, type Placed, type Size } from "./labels";
 import type { BackgroundId, Layers, MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, drawLabel, drawSignal, drawSignalDot, drawTarget, nearestHit, paToScreen, signalInk, type Ink, type Vec } from "./marks";
 import { paintSearch, type SearchInk } from "./searchdraw";
 import { offsetPa, sepDeg } from "./sphere";
 import { LABEL_MIN_PX, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, type Level } from "./zoom";
-import { areaAt, badgeTexts, densifyRing, type ZoneArea } from "./zones";
+import { areaAt, densifyRing, type ZoneArea } from "./zones";
+import { BRIGHT_STARS } from "./stars";
 import { zoneEdges, zoneFills } from './zone-paths';
 
 /** The parts of the 3.8.2 API this page uses beyond src/sky/aladin.d.ts. */
@@ -220,7 +221,9 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     fov: wantsWhole(init.view.fov) ? fitNow() : init.view.fov,
     cooFrame: init.gal ? "galactic" : "ICRS",
     projection: init.mol ? "MOL" : "SIN",
-    backgroundColor: ink.sheet,
+    // The night sky's own dark (the site backdrop, cosmic.css): a frame of Aladin's background
+    // drawn before the clip catches up must not flash a pale rim around the sky.
+    backgroundColor: "#05090f",
     showSimbadPointerControl: false,
     showLayersControl: false,
     showFullscreenControl: false,
@@ -554,34 +557,6 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     return boundsOf(pts);
   }
 
-  function badge(ctx: CanvasRenderingContext2D, b: Box, t: string) {
-    const r = (b.y1 - b.y0) / 2;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(b.x0 + r, b.y0);
-    ctx.lineTo(b.x1 - r, b.y0);
-    ctx.arc(b.x1 - r, b.y0 + r, r, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(b.x0 + r, b.y1);
-    ctx.arc(b.x0 + r, b.y0 + r, r, Math.PI / 2, (3 * Math.PI) / 2);
-    ctx.closePath();
-    ctx.fillStyle = rgba(ink.sheet, 0.94);
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = rgba(ink.ink, 0.16);
-    ctx.stroke();
-    ctx.font = font(BADGE.weight, BADGE.font);
-    try {
-      (ctx as CanvasRenderingContext2D & { fontStretch?: string }).fontStretch = "semi-condensed";
-    } catch {
-      /* normal width */
-    }
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = ink.ink;
-    ctx.fillText(t, b.x0 + BADGE.padX, b.y0 + r + 0.5);
-    ctx.restore();
-  }
-
   function drawLabels() {
     const ctx = prepare(labelCanvas);
     placed = [];
@@ -594,17 +569,14 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     const obstacles: Box[] = [...reserved];
     // Under a panel: no name or badge (it would be drawn over the panel's edge).
     const covered = (p: { x: number; y: number }) => reserved.some((r) => boxHolds(r, p));
-    const specs: (LabelSpec & ({ kind: "zone"; area: ZoneArea } | { kind: "target"; target: Target }))[] = [];
-    const badges = level === "whole" || level === "mid";
+    // A star's dot and name stay well clear of a panel's edge (and its shadow).
+    const nearPanel = (q: { x: number; y: number }) => reserved.some((r) => boxHolds({ x0: r.x0 - 14, y0: r.y0 - 14, x1: r.x1 + 14, y1: r.y1 + 14 }, q));
+    const specs: (LabelSpec & ({ kind: "target"; target: Target } | { kind: "star" }))[] = [];
+    // Zones carry no count badge: the outline is the zone, and a click on it opens it.
     if (model.layers.zones) {
       for (const a of model.areas) {
         const b = areaBox(a);
-        if (!b) continue;
-        obstacles.push(b);
-        if (!badges) continue;
-        const anchor = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
-        if (covered(anchor)) continue;
-        specs.push({ kind: "zone", area: a, id: `zone:${a.id}`, texts: badgeTexts(a), anchor, places: (s) => aroundBox(b, s, bounds) });
+        if (b) obstacles.push(b);
       }
     }
     const marks: { t: Target; p: { x: number; y: number } }[] = [];
@@ -619,18 +591,39 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       obstacles.push({ x0: p.x - 9, y0: p.y - 9, x1: p.x + 9, y1: p.y + 9 });
     }
     for (const { t, p } of marks) specs.push({ kind: "target", target: t, id: `target:${t.slug}`, texts: [t.short], anchor: p, places: (s) => aroundPoint(p.x, p.y, s) });
-    const measureBadge = measurer(ctx, BADGE.weight, BADGE.font, BADGE.padX, BADGE.h);
+    // The bright named stars: a dot each, and a name where one fits after the targets'.
+    const stars: { x: number; y: number }[] = [];
+    for (const st of BRIGHT_STARS) {
+      const p = rawScreen(st);
+      if (!p || p.x < 0 || p.y < 0 || p.x > W || p.y > H) continue;
+      if (!mol && sepDeg(st, v) > 90) continue;
+      if (nearPanel(p)) continue;
+      stars.push(p);
+      obstacles.push({ x0: p.x - 4, y0: p.y - 4, x1: p.x + 4, y1: p.y + 4 });
+      specs.push({ kind: "star", id: `star:${st.name}`, texts: [st.name], anchor: p, places: (s) => aroundPoint(p.x, p.y, s, 6) });
+    }
+    const measureStar = measurer(ctx, STAR.weight, STAR.font, 0, STAR.h);
     const measureName = measurer(ctx, NAME.weight, NAME.font, 0, NAME.h);
-    const got = placeLabels(specs, (t, s) => (s.kind === "zone" ? measureBadge(t) : measureName(t)), obstacles, bounds);
+    const got = placeLabels(specs, (t, s) => (s.kind === "star" ? measureStar(t) : measureName(t)), obstacles, bounds);
+    const starNames: Placed[] = [];
     for (const p of got) {
       const s = specs.find((x) => x.id === p.id)!;
-      placed.push(s.kind === "zone" ? { ...p, kind: "zone", area: s.area } : { ...p, kind: "target", target: s.target });
+      if (s.kind === "target") placed.push({ ...p, kind: "target", target: s.target });
+      else starNames.push(p);
     }
     if (!ctx) return;
-    for (const p of placed) {
-      if (p.kind === "zone") badge(ctx, p.box, p.text);
-      else drawLabel(ctx, ink, p.box.x0, (p.box.y0 + p.box.y1) / 2, p.text, { ...soft(), align: "left", weight: NAME.weight, size: NAME.font });
+    for (const p of placed) drawLabel(ctx, ink, p.box.x0, (p.box.y0 + p.box.y1) / 2, p.text, { ...soft(), align: "left", weight: NAME.weight, size: NAME.font });
+    ctx.save();
+    ctx.fillStyle = layers.negative ? ink.ink : "#fff6d8";
+    ctx.shadowColor = layers.negative ? rgba(ink.glass, 0.95) : "rgba(255, 236, 170, 0.9)";
+    ctx.shadowBlur = 5;
+    for (const p of stars) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.2, 0, 2 * Math.PI);
+      ctx.fill();
     }
+    ctx.restore();
+    for (const p of starNames) drawLabel(ctx, ink, p.box.x0, (p.box.y0 + p.box.y1) / 2, p.text, { ...soft(), align: "left", weight: STAR.weight, size: STAR.font });
   }
 
   // ---- the whole sky as large as the map holds it; the area outside the projection stays open --
@@ -746,6 +739,16 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
   // Past 360° (or 180°) Aladin reports no zoom change at all: the wheel and touches start the watch too.
   const onInput = () => onMove();
   for (const t of ["wheel", "pointerup", "touchend"]) mapEl.addEventListener(t, onInput, { passive: true, capture: true });
+  /** At the whole sky, zooming further out is refused before Aladin sees it (else it shrinks the
+   *  sky for a moment and the refit snaps it back, showing its background around the sky). */
+  const atWhole = () => scaleFov() >= lastFit * 0.99;
+  const onWheelOut = (e: WheelEvent) => {
+    if (e.deltaY > 0 && atWhole()) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  host.addEventListener("wheel", onWheelOut, { passive: false, capture: true });
   clip(scaleFov());
   let ro: ResizeObserver | null = null;
   if (typeof ResizeObserver === "function") {
@@ -926,6 +929,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
     zoomBy(f) {
       stopFlight();
       try {
+        if (f > 1 && atWhole()) return;
         if (f > 1 && al.decreaseZoom) al.decreaseZoom();
         else if (f < 1 && al.increaseZoom) al.increaseZoom();
         else al.setFoV(curFov() * f);
@@ -956,6 +960,7 @@ export function createAladinMap(host: HTMLElement, A: AladinStatic, init: Aladin
       mapEl.removeEventListener("mousemove", onMouseMove);
       mapEl.removeEventListener("mouseleave", onMouseLeave);
       for (const t of ["wheel", "pointerup", "touchend"]) mapEl.removeEventListener(t, onInput, { capture: true });
+      host.removeEventListener("wheel", onWheelOut, { capture: true });
       ro?.disconnect();
       searchCanvas.remove();
       zoneCanvas.remove();

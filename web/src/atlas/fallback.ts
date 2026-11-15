@@ -8,17 +8,18 @@ import type { Target } from "../app/state";
 import { ang2pixNest } from "./healpix";
 import { cellOutline, rampAlpha, rampIndex, rampSteps, type Cell } from "./heat";
 import { countText, isGradeC } from "./kinds";
-import { BADGE, NAME, aroundBox, aroundPoint, boundsOf, boxHolds, boxesHit, estimateSize, placeLabels, type Box, type LabelSpec, type Placed } from "./labels";
+import { NAME, STAR, aroundPoint, boundsOf, boxHolds, boxesHit, estimateSize, placeLabels, type Box, type LabelSpec, type Placed } from "./labels";
 import type { MapCallbacks, MapHandle, MapModel, MapView } from "./map";
 import { arrowLengthPx, diamond, moverTick, nearestHit, paToScreen, starArrow, MARK_R, type Vec } from "./marks";
 import { suspectAlpha } from "./search";
 import { zoneLook } from "./searchdraw";
 import { aitoff, aitoffInverse, fromGalactic, gnomonic, gnomonicInverse, lonLat, offsetPa, wrap360 } from "./sphere";
 import { LABEL_MIN_PX, LEVEL_FOV, WHOLE_FOV, cellPx, heatOrder, levelFor, showsDots, showsHeat, showsSignals } from "./zoom";
-import { areaAt, badgeTexts, densifyRing, type ZoneArea } from "./zones";
+import { areaAt, densifyRing, type ZoneArea } from "./zones";
+import { BRIGHT_STARS } from "./stars";
 
 type Kinded = { kind: "zone"; area: ZoneArea } | { kind: "target"; target: Target };
-type FallbackSpec = LabelSpec & Kinded;
+type FallbackSpec = LabelSpec & (Kinded | { kind: "star" });
 type FallbackLabel = Placed & Kinded;
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -314,6 +315,8 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       const obstacles: Box[] = [...reserved];
       // Under a panel: no name or badge (it would be drawn over the panel's edge).
       const covered = (q: Vec) => reserved.some((r) => boxHolds(r, q));
+      // A star's dot and name stay well clear of a panel's edge (and its shadow).
+      const nearPanel = (q: { x: number; y: number }) => reserved.some((r) => boxHolds({ x0: r.x0 - 14, y0: r.y0 - 14, x1: r.x1 + 14, y1: r.y1 + 14 }, q));
       const specs: FallbackSpec[] = [];
       const bounds: Box = { x0: 4, y0: 4, x1: w - 4, y1: h - 4 };
       if (model.layers.zones) {
@@ -333,11 +336,8 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
           const b = boundsOf(pts);
           if (!d || !b) continue;
           parts.push(`<path class="atl-svg-zone is-${level}" fill-rule="evenodd" d="${d}"/>`);
+          // No count badge: the outline is the zone, and a click on it opens it.
           obstacles.push(b);
-          const anchor = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
-          if ((level === "whole" || level === "mid") && !covered(anchor)) {
-            specs.push({ kind: "zone", area: a, id: `zone:${a.id}`, texts: badgeTexts(a), anchor, places: (s) => aroundBox(b, s, bounds) });
-          }
         }
       }
       for (const t of model.targets) {
@@ -349,6 +349,14 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         obstacles.push({ x0: q.x - 9, y0: q.y - 9, x1: q.x + 9, y1: q.y + 9 });
         specs.push({ kind: "target", target: t, id: `target:${t.slug}`, texts: [t.short], anchor: q, places: (s) => aroundPoint(q.x, q.y, s) });
       }
+      // The bright named stars: a dot each, and a name where one fits after the targets'.
+      for (const st of BRIGHT_STARS) {
+        const q = p.project(st);
+        if (!q || q.x < 0 || q.y < 0 || q.x > w || q.y > h || nearPanel(q)) continue;
+        parts.push(`<circle class="atl-svg-star" cx="${f1(q.x)}" cy="${f1(q.y)}" r="2.2"/>`);
+        obstacles.push({ x0: q.x - 4, y0: q.y - 4, x1: q.x + 4, y1: q.y + 4 });
+        specs.push({ kind: "star", id: `star:${st.name}`, texts: [st.name], anchor: q, places: (s) => aroundPoint(q.x, q.y, s, 6) });
+      }
       if (showsDots(level) && model.layers.signals) {
         for (const c of model.candidates) {
           const q = p.project(c);
@@ -357,18 +365,16 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
         }
       }
       // Names and badges go on last, placed clear of the zones, the marks and each other.
-      placed = placeLabels(specs, (t, s) => (s.kind === "zone" ? measure(t, BADGE.font, BADGE.padX, BADGE.h) : measure(t, NAME.font, 0, NAME.h)), obstacles, bounds).map((pl) => {
+      const got = placeLabels(specs, (t, s) => (s.kind === "star" ? measure(t, STAR.font, 0, STAR.h) : measure(t, NAME.font, 0, NAME.h)), obstacles, bounds);
+      for (const pl of got) {
         const s = specs.find((x) => x.id === pl.id)!;
-        return s.kind === "zone" ? { ...pl, kind: "zone" as const, area: s.area } : { ...pl, kind: "target" as const, target: s.target };
-      });
-      for (const pl of placed) {
-        const { x0, y0, x1, y1 } = pl.box;
-        const cy = (y0 + y1) / 2;
-        labels.push(
-          pl.kind === "zone"
-            ? `<g class="atl-svg-badge"><rect x="${f1(x0)}" y="${f1(y0)}" width="${f1(x1 - x0)}" height="${f1(y1 - y0)}" rx="${f1((y1 - y0) / 2)}"/><text x="${f1((x0 + x1) / 2)}" y="${f1(cy)}" text-anchor="middle">${esc(pl.text)}</text></g>`
-            : `<text class="atl-svg-name" x="${f1(x0)}" y="${f1(cy)}">${esc(pl.text)}</text>`,
-        );
+        const cy = (pl.box.y0 + pl.box.y1) / 2;
+        if (s.kind === "star") {
+          labels.push(`<text class="atl-svg-starname" x="${f1(pl.box.x0)}" y="${f1(cy)}">${esc(pl.text)}</text>`);
+          continue;
+        }
+        placed.push(s.kind === "zone" ? { ...pl, kind: "zone", area: s.area } : { ...pl, kind: "target", target: s.target });
+        labels.push(`<text class="atl-svg-name" x="${f1(pl.box.x0)}" y="${f1(cy)}">${esc(pl.text)}</text>`);
       }
       // Provisional suspects: hollow dashed rings, never a pencil mark (they are not candidates).
       if (showsSignals(level) && model.layers.provisional && model.provisional) {
@@ -400,20 +406,6 @@ export function createFallbackMap(host: HTMLElement, init: FallbackInit, cb: Map
       parts.push(`<g class="atl-svg-scale"><path d="M16 ${f1(y)}h${f1(len)}"/><text x="${f1(16 + len + 6)}" y="${f1(y)}">${label}</text></g>`);
     }
     wrap.innerHTML = `<svg class="atl-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Map of the sky with the objects to check${p.whole ? ": the whole sky, east to the left" : ", north up and east to the left"}">${parts.join("")}</svg>`;
-    // Each badge's pill fits its text as the browser set it (centred on the place it was given).
-    for (const g of wrap.querySelectorAll<SVGGElement>(".atl-svg-badge")) {
-      const t = g.querySelector<SVGTextElement>("text");
-      const r = g.querySelector<SVGRectElement>("rect");
-      try {
-        const len = t?.getComputedTextLength?.() ?? 0;
-        if (!t || !r || !(len > 0)) continue;
-        const bw = len + 2 * BADGE.padX;
-        r.setAttribute("x", f1(Number(t.getAttribute("x")) - bw / 2));
-        r.setAttribute("width", f1(bw));
-      } catch {
-        /* the measured pill stays */
-      }
-    }
   }
 
   // ---- interaction ---------------------------------------------------------------------------

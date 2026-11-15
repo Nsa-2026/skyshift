@@ -564,7 +564,15 @@ export function startApp(root: HTMLElement): void {
   }
   addEventListener("hashchange", route);
   // Advanced on the Viewer opens the measurements; off returns to the summary.
-  onDetails(() => { if (current === "explore") route(); });
+  onDetails((on) => {
+    if (current !== "explore") return;
+    // A measurement section (#/explore/spectrum, …) would keep the Viewer in Advanced: drop it.
+    const {workspace, candidate} = parseRoute();
+    if (!on && !candidate && workspace && workspace.mode !== "explore") {
+      history.replaceState(history.state, "", `${location.pathname}${location.search}#/explore`);
+    }
+    route();
+  });
 
   addEventListener('skyshift:gaia', (event) => {
     const data = (event as CustomEvent<{ra: number; dec: number; stars: FramesResponse['gaia']}>).detail;
