@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-14T22:38:16Z",
+  "generated": "2026-11-15T00:36:38Z",
   "data_release": "SPHEREx DR1 + QR3 (IRSA, as of 14 Nov 2026)",
   "zone": "hunt",
   "zone_box": {
@@ -12,7 +12,7 @@
       24.4
     ]
   },
-  "run_created": "2026-11-14T21:34:50Z",
+  "run_created": "2026-11-15T00:02:10Z",
   "searched": {
     "distance_au": [
       70.0,
@@ -29,21 +29,21 @@
     "pair_min_p": 0.01
   },
   "counts": {
-    "single_visit_sources": 6968,
-    "uncatalogued": 1831,
-    "covered": 1831,
-    "orphans": 602,
+    "single_visit_sources": 6339,
+    "uncatalogued": 1288,
+    "covered": 1288,
+    "orphans": 480,
     "dropped": {
-      "bright_fragment": 1193,
-      "zone_edge": 52,
-      "saturated": 27,
-      "blend": 21
+      "bright_fragment": 778,
+      "zone_edge": 39,
+      "saturated": 20,
+      "blend": 13
     },
-    "drift_ok": 511,
-    "pairs_tested": 1240,
-    "pairs": 2,
+    "drift_ok": 404,
+    "pairs_tested": 709,
+    "pairs": 1,
     "known_orphans": 0,
-    "open_orphans": 118
+    "open_orphans": 90
   },
   "pairs": [
     {
@@ -72,33 +72,6 @@
       "p": 0.6969,
       "known_a": null,
       "known_b": null
-    },
-    {
-      "source_id_a": 67549006825800,
-      "source_id_b": 67589006801100,
-      "visit_a": 1,
-      "visit_b": 2,
-      "ra_a": 123.210762,
-      "dec_a": 22.581913,
-      "mjd_a": 60973.0548,
-      "ra_b": 122.824888,
-      "dec_b": 22.649332,
-      "mjd_b": 61143.2603,
-      "sep_arcsec": 1305.1,
-      "dlon_arcsec": -1304.5,
-      "dlat_arcsec": -41.1,
-      "distance_au": 279.4,
-      "distance_lo_au": 279.4,
-      "distance_hi_au": 286.3,
-      "flux_ratio": 0.891,
-      "n_common_det": 1,
-      "n_dots_a": 3,
-      "n_dots_b": 3,
-      "snr_a": 17.06,
-      "snr_b": 7.65,
-      "p": 0.055,
-      "known_a": null,
-      "known_b": null
     }
   ],
   "control": {
@@ -110,31 +83,31 @@
       0,
       1,
       0,
-      2,
+      1,
+      1,
+      1,
+      1,
       1,
       2,
-      1,
-      1,
-      4,
-      1,
-      5,
-      0,
       1,
       3,
+      0,
+      1,
       2,
+      1,
       0,
       0,
       0,
       1,
-      1,
+      0,
       1,
       1,
       0,
-      4,
+      2,
+      2,
+      1,
       3,
       1,
-      4,
-      2,
       1,
       0,
       1,
@@ -149,15 +122,15 @@
       2,
       0,
       0,
-      1,
+      0,
       0,
       0,
       2,
-      2
+      1
     ],
-    "expected_pairs": 1.24,
-    "spread_pairs": 1.349,
-    "poisson_p": 0.3589,
+    "expected_pairs": 0.92,
+    "spread_pairs": 1.007,
+    "poisson_p": 0.6094,
     "beyond_chance": false,
     "method": "later visits' orphans shifted cyclically by 25–75% of the box in RA and Dec"
   },
@@ -227,12 +200,11 @@
   },
   "limits": {
     "depth_ab_snr5": {
-      "D1": 17.27,
+      "D1": 17.26,
       "D2": 17.36,
       "D3": 17.51,
-      "D4": 17.7,
-      "D5": 16.68,
-      "D6": 16.29
+      "D4": 17.71,
+      "D6": 16.22
     },
     "reach_au": {
       "neptune_p0.1": 200.0,
