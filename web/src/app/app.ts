@@ -534,6 +534,6 @@ export function startApp(root: HTMLElement): void {
   });
 
   route();
-  // The opening (src/intro): every page load (not in-app navigation), loaded on demand.
+  // The opening (src/intro): once per tab; refreshes keep the current route and view.
   if (!embed) mountOpening(root, openingEnv);
 }
