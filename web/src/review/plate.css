@@ -1,0 +1,10 @@
+/* The colour filters (src/colour) on the review plates (To check, one at a time, and #/c/<id>).
+   The card and the ballot sit beside the plate here, so the filter menu never opens beside the plate
+   as it does on the Viewer (placeMenu's "is-right"): it drops over the plate, no wider than it, and
+   leaves the vote buttons in view. */
+.rv-plate .flt-menu,
+.rv-plate .flt-menu.is-right {
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(420px, 100%);
+}

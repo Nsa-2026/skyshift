@@ -265,8 +265,8 @@ export function aboutHtml(): string {
             for astronomers, which anyone can download from <a href="#/community">Community</a>.</p>
           <h3>Is my data stored?</h3>
           <p>Each vote stores four things: the object's id, your answer, the server's time and your browser's random id.
-            No name, email or account. A nickname, if you set one, stays in your browser. Votes can't be edited or
-            deleted once cast: the database only accepts new ones.</p>
+            No name, email or account. A nickname, if you set one, stays in your browser. Nothing is edited or
+            deleted: changing or resetting your answer adds a new vote, and only your latest one counts.</p>
         </div>
       </section>
 

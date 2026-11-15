@@ -96,7 +96,7 @@ export function mountCommunityWith(el: HTMLElement, ctx: PageContext, opts: Comm
   const now = opts.now ?? (() => Date.now());
   const embedded = opts.variant === "astronomers";
   const toolsLink = embedded ? html`<a href="#/results/tools/downloads">Tools</a>` : html`<a href="#/tools">Tools and data</a>`;
-  const consensusRule = html`<p>Each object to check collects votes (mover, changing, junk or not sure), one per browser, and a vote can't be changed.</p>
+  const consensusRule = html`<p>Each object to check collects votes (mover, changing, junk or not sure), one per browser. You can change or reset yours; only your latest answer counts.</p>
           <p>It reaches consensus once it has at least ${CONSENSUS.minVotes} votes and ${CONSENSUS_PCT}% or more agree on one answer.</p>
           <p>Consensus movers and changing sources join the list for astronomers; junk and not-sure verdicts are set aside, and split votes stay open.</p>`;
 

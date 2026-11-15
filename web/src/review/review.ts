@@ -1,4 +1,5 @@
-// Review queue: one candidate at a time, big plate, vote with 1–4, S skips, ← goes back. A practice
+// Review queue: one candidate at a time, big plate, vote with 1–4, S skips, ← goes back (and an
+// answer can be changed or reset there, or on the candidate's page). A practice
 // round on featured targets comes first, once per browser. It runs on its own page (#/review, the
 // old link) and inside To check as "One at a time" (#/candidates/one=1), where scope() limits it
 // to the filtered list.
@@ -143,6 +144,9 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
   let mine: Answer | null = null;
   let justNow = false;
   let saving: Answer | null = null;
+  /** Taking the vote back is being saved; resetNow: it was, just now. */
+  let resetting = false;
+  let resetNow = false;
   let error: string | null = null;
 
   const plate = new Plate($(".rq-plate"), {
@@ -192,6 +196,8 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
         justNow,
         counts,
         saving,
+        resetting,
+        reset: resetNow,
         waiting: !plateReady && !mine,
         error,
         local: v?.api.mode === "local",
@@ -394,6 +400,8 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
     mine = v.api.myVote(c.id);
     justNow = votedNow.has(c.id);
     saving = null;
+    resetting = false;
+    resetNow = false;
     error = null;
     counts = countsAll.get(c.id) ?? emptyCounts();
     plateReady = false;
@@ -408,6 +416,7 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
       });
     ballot = new Ballot(ballotEl, {
       onVote: voteQueue,
+      onReset: () => voteQueue(null),
       kind: c.kind,
       full: false,
       after: html`<div class="rq-after"><button class="btn btn-primary" type="button" data-act="next">Next object</button><span class="rv-soft">or press Enter</span></div>`,
@@ -428,7 +437,7 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
     v.api
       .countsFor([c.id])
       .then((m) => {
-        if (current !== c || saving || justNow) return;
+        if (current !== c || saving || resetting || justNow || resetNow) return;
         counts = m.get(c.id) ?? emptyCounts();
         countsAll.set(c.id, counts);
         renderBallot();
@@ -438,31 +447,41 @@ export function mountQueue(el: HTMLElement, opts: QueueOptions = {}): QueueHandl
       });
   }
 
-  async function voteQueue(a: Answer) {
+  /** Vote, change the answer, or (null) reset it. One write at a time: the ballot is shut while saving. */
+  async function voteQueue(a: Answer | null) {
     const c = current;
-    if (!c || !v || !ballot?.open() || mode !== "queue") return;
+    if (!c || !v || !ballot?.open() || mode !== "queue" || a === mine) return;
+    const first = !mine;
     saving = a;
+    resetting = !a;
+    resetNow = false;
     error = null;
     renderBallot();
     const r = await castVote(v, c, a, counts);
     if (current !== c) return;
     saving = null;
+    resetting = false;
     if (r.ok) {
       counts = r.counts;
       countsAll.set(c.id, r.counts);
       mine = a;
-      justNow = true;
-      votedNow.add(c.id);
-      reviewed++;
-      writeSession(reviewed);
+      justNow = !!a;
+      resetNow = !a;
+      // Reviewed counts objects, not answers: a change or a second vote after a reset adds nothing.
+      if (a && first && !votedNow.has(c.id)) {
+        reviewed++;
+        writeSession(reviewed);
+      }
+      if (a) votedNow.add(c.id);
       renderProgress();
       const skip = movesEl.querySelector<HTMLButtonElement>("[data-act='skip']");
-      if (skip) skip.innerHTML = "<kbd>S</kbd>Next";
+      if (skip) skip.innerHTML = `<kbd>S</kbd>${mine ? "Next" : "Skip"}`;
     } else {
-      error = r.already ? "This browser already voted on this one. Votes can't be changed." : r.message;
+      error = r.message;
     }
     renderBallot();
-    if (r.ok) ballotEl.querySelector<HTMLButtonElement>("[data-act='next']")?.focus({ preventScroll: true });
+    if (r.ok && a && first) ballotEl.querySelector<HTMLButtonElement>("[data-act='next']")?.focus({ preventScroll: true });
+    else if (r.ok && !a) ballot?.focusChoices();
   }
 
   function skippedCount(): number {

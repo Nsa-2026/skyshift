@@ -91,7 +91,7 @@ describe("verdict: consensus is ≥ 5 votes and ≥ 70% on one answer", () => {
 });
 
 describe("cleanVotes", () => {
-  it("drops malformed rows and keeps one vote per voter and candidate (the earliest)", () => {
+  it("drops malformed rows and keeps one vote per voter and candidate (the latest, v3.16)", () => {
     const rows = cleanVotes([
       { candidate_id: "a", answer: "junk", voter: "x_voter_1", ts: 2000 },
       { candidate_id: "a", answer: "mover", voter: "x_voter_1", ts: 1000 },
@@ -104,10 +104,40 @@ describe("cleanVotes", () => {
       "nope",
     ]);
     expect(rows).toEqual([
-      { candidate_id: "a", answer: "mover", voter: "x_voter_1", ts: 1000 },
+      { candidate_id: "a", answer: "junk", voter: "x_voter_1", ts: 2000 },
       { candidate_id: "c", answer: "mover", voter: "z_voter_1", ts: 3000 },
       { candidate_id: "b", answer: "unsure", voter: "y_voter_1", ts: null },
     ]);
+  });
+
+  it("counts a changed vote once with its new answer, and a vote taken back as none", () => {
+    const rows = cleanVotes([
+      { candidate_id: "a", answer: "mover", voter: "x_voter_1", ts: 1000 },
+      { candidate_id: "a", answer: "changing", voter: "x_voter_1", ts: 2000 }, // x changes mover → changing
+      { candidate_id: "a", answer: "junk", voter: "y_voter_1", ts: 1500 },
+      { candidate_id: "a", answer: "withdrawn", voter: "y_voter_1", ts: 2500 }, // y takes it back
+      { candidate_id: "a", answer: "mover", voter: "z_voter_1", ts: 1800 },
+      { candidate_id: "a", answer: "withdrawn", voter: "z_voter_1", ts: null }, // z's take-back still pending: the latest
+      { candidate_id: "a", answer: "unsure", voter: "w_voter_1", ts: { toMillis: () => 900 } },
+    ]);
+    expect(rows.map((r) => [r.voter, r.answer])).toEqual([
+      ["w_voter_1", "unsure"],
+      ["x_voter_1", "changing"],
+    ]);
+    expect(tally(rows).get("a")).toEqual(c(0, 1, 0, 1));
+    const s = summarize(rows);
+    expect(s.votes).toBe(2);
+    expect(s.people).toBe(2);
+    // withdrawn never reaches a row as an answer.
+    expect(rows.some((r) => (r.answer as string) === "withdrawn")).toBe(false);
+  });
+
+  it("five voters who all change to junk reach a junk consensus, not a mover one", () => {
+    const raw = [0, 1, 2, 3, 4].flatMap((i) => [
+      { candidate_id: "m", answer: "mover", voter: `voter_${i}xxxx`, ts: 1000 + i },
+      { candidate_id: "m", answer: "junk", voter: `voter_${i}xxxx`, ts: 2000 + i },
+    ]);
+    expect(verdict(tally(cleanVotes(raw)).get("m"))).toMatchObject({ state: "consensus", answer: "junk", votes: 5 });
   });
 });
 

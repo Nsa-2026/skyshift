@@ -62,7 +62,8 @@ describe("vote panel (local store)", () => {
     expect(el.querySelector(".vt-result .vt-bar")?.getAttribute("aria-label")).toBe("1 vote: 1 mover");
     expect(el.querySelector<HTMLAnchorElement>(".vt-after a")?.href).toContain("backyard-worlds-planet-9/talk");
     expect(el.querySelector(".vt-mine")?.textContent).toContain("mover");
-    expect(el.querySelector("[data-act=vote]")).toBeNull();
+    // The row offers to change it now, not to vote again.
+    expect(el.querySelector(".vt-item [data-act=vote]")?.textContent).toBe("Change");
 
     // A fresh mount in the same browser remembers the vote.
     const el2 = document.createElement("section");
@@ -70,7 +71,51 @@ describe("vote panel (local store)", () => {
     v2.view(view);
     await v2.settle();
     expect(el2.querySelector(".vt-mine")?.textContent).toContain("mover");
-    expect(el2.querySelector("[data-act=vote]")).toBeNull();
+    expect(el2.querySelector(".vt-item [data-act=vote]")?.textContent).toBe("Change");
+  });
+
+  it("changes the answer and resets it: new documents, counts move by one, memory follows", async () => {
+    const c = await store.flag(fields);
+    await store.vote(c.id, "mover", "someone_else_1");
+    const v = mountVoteWith(el, { store, kv });
+    v.view(view);
+    await v.settle();
+    click(`.vt-item[data-id="${c.id}"] [data-act=vote]`);
+    click(".vt-answer[data-answer=mover]");
+    await vi.waitFor(() => expect(el.querySelector(".vt-result .vt-say")?.textContent).toBe("You said mover."));
+    expect(el.querySelector(".vt-legend .a-mover dd")?.textContent).toBe("2");
+
+    // Change answer: the ballot comes back with this browser's answer pressed.
+    click(".vt-result [data-act=vote]");
+    expect(el.querySelector(".vt-ballot .vt-say")?.textContent).toBe("Change your answer?");
+    expect(el.querySelector(".vt-answer[data-answer=mover]")?.getAttribute("aria-pressed")).toBe("true");
+    expect(el.querySelector(".vt-answer[data-answer=junk]")?.getAttribute("aria-pressed")).toBe("false");
+    click(".vt-answer[data-answer=junk]");
+    await vi.waitFor(() => expect(el.querySelector(".vt-result .vt-say")?.textContent).toBe("You said junk."));
+    expect(el.querySelector(".vt-result .vt-bar")?.getAttribute("aria-label")).toBe("2 votes: 1 mover, 1 junk");
+
+    // Reset answer: the vote no longer counts and the ballot is offered again.
+    click(".vt-result [data-act=reset]");
+    await vi.waitFor(() => expect(el.querySelector(".vt-ballot .vt-say")?.textContent).toBe("What is this dot?"));
+    expect(el.querySelector(".vt-status")?.textContent).toBe("Answer reset. Your vote no longer counts.");
+    expect(el.querySelector(".vt-ballot [data-act=reset]")).toBeNull();
+    expect(el.querySelector(".vt-item-n")?.textContent).toBe("1 mover");
+    expect(el.querySelector(".vt-item [data-act=vote]")?.textContent).toBe("Vote");
+    expect(store.written.votes.map((x) => x.answer)).toEqual(["mover", "mover", "junk", "withdrawn"]);
+    expect(voteApi(store, kv).myVote(c.id)).toBeNull();
+  });
+
+  it("moves its counts when a vote is changed on another page", async () => {
+    const c = await store.flag(fields);
+    const api = voteApi(store, kv);
+    await api.castVote(c.id, "mover");
+    const v = mountVoteWith(el, { store, kv });
+    v.view(view);
+    await v.settle();
+    expect(el.querySelector(".vt-item-n")?.textContent).toContain("1 mover");
+    await api.withdrawVote(c.id); // fires skyshift:voted with answer null
+    await vi.waitFor(() => expect(el.querySelector(".vt-item-n")?.textContent).toBe("No votes yet"));
+    expect(el.querySelector(".vt-mine")).toBeNull();
   });
 
   it("drops a picked dot when the page moves to another spot, as the blink does (#57)", async () => {

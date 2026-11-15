@@ -1,5 +1,6 @@
 // Flag what moved (P4). The blink hands a clicked dot to pick(); "Flag it" creates a `candidates`
-// doc. Everyone can vote mover / changing / junk / not sure on candidates near the current view.
+// doc. Everyone can vote mover / changing / junk / not sure on candidates near the current view,
+// and change or reset their answer later (a new vote document each time; only the latest counts).
 // Firestore when the Firebase config is present, else a labelled local mode.
 // Nothing here throws into the page: every failure becomes a plain-words status line.
 //
@@ -18,6 +19,7 @@ import {
   fieldRadiusArcsec,
   nearby,
   safeStorage,
+  shiftCounts,
   toCsv,
   total,
   type Answer,
@@ -94,6 +96,8 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
   let open: string | null = null; // candidate whose ballot is on the desk
   let justVoted: string | null = null; // candidate whose result is on the desk
   let busy = false;
+  /** Ids whose counts this panel already moved for its own write (the skyshift:voted handler skips them). */
+  const ownWrite = new Set<string>();
   let loadToken = 0;
   let loadTimer: ReturnType<typeof setTimeout> | null = null;
   let loading = false;
@@ -162,16 +166,17 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
   }
 
   function deskBallot(c: Candidate): string {
+    const mine = memory.votedFor(c.id);
     return html`<fieldset class="vt-step vt-ballot" ${busy ? "disabled" : ""}>
       <legend class="visually-hidden">What is the dot at ${esc(formatRaDec(c))}?</legend>
       ${MARK}
       <div class="vt-step-body">
-        <p class="vt-say" aria-hidden="true">What is this dot?</p>
+        <p class="vt-say" aria-hidden="true">${mine ? "Change your answer?" : "What is this dot?"}</p>
         <p class="vt-where"><span class="vt-pos">${esc(formatRaDec(c))}</span>, ${esc(frameWhen(c))}</p>
       </div>
       <div class="vt-answers">
         ${ANSWERS.map(
-          (a) => html`<button class="btn vt-answer a-${a}" type="button" data-act="answer" data-answer="${a}" data-id="${esc(c.id)}">
+          (a) => html`<button class="btn vt-answer a-${a}" type="button" data-act="answer" data-answer="${a}" data-id="${esc(c.id)}" aria-pressed="${a === mine}">
             <span class="vt-answer-label"><i aria-hidden="true"></i>${ANSWER_TEXT[a].label}</span>
             <span class="vt-answer-means">${ANSWER_TEXT[a].meaning}</span>
           </button>`,
@@ -179,6 +184,7 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
       </div>
       <div class="vt-acts">
         <button class="vt-text" type="button" data-act="close">${busy ? "Saving your vote…" : "Not now"}</button>
+        ${mine && !busy ? html`<button class="vt-text" type="button" data-act="reset" data-id="${esc(c.id)}">Reset answer</button>` : ""}
       </div>
     </fieldset>`;
   }
@@ -199,6 +205,12 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
           ${ANSWERS.map((a) => html`<div class="a-${a}"><dt><i aria-hidden="true"></i>${ANSWER_TEXT[a].label}</dt><dd>${n[a]}</dd></div>`).join("")}
         </dl>
       </div>
+      ${mine
+        ? html`<div class="vt-acts vt-change">
+            <button class="vt-text" type="button" data-act="vote" data-id="${esc(c.id)}">Change answer</button>
+            <button class="vt-text" type="button" data-act="reset" data-id="${esc(c.id)}" ${busy ? "disabled" : ""}>Reset answer</button>
+          </div>`
+        : ""}
       <p class="vt-after">Want astronomers to look at it? Post its position on the
         <a href="${FORUM_URL}" target="_blank" rel="noopener">Backyard Worlds forum</a>.</p>
     </div>`;
@@ -212,7 +224,7 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
     if (pending) {
       body = deskPick(pending);
       mode = "pick";
-    } else if (ballotFor && !memory.votedFor(ballotFor.id)) {
+    } else if (ballotFor) {
       body = deskBallot(ballotFor);
       mode = "ballot";
     } else if (resultFor) {
@@ -243,7 +255,7 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
           : ""}</span></p>
       </div>
       <div class="vt-item-acts">
-        ${mine ? "" : html`<button class="vt-text" type="button" data-act="vote" aria-controls="vt-desk">Vote</button>`}
+        <button class="vt-text" type="button" data-act="vote" aria-controls="vt-desk">${mine ? "Change" : "Vote"}</button>
         <button class="btn vt-show" type="button" data-act="show">Show</button>
       </div>
     </li>`;
@@ -320,41 +332,50 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
     }
   }
 
-  async function vote(id: string, answer: Answer) {
+  /**
+   * Save this browser's answer: a first vote, a change (answer differs from the one it gave), or
+   * null to reset it. The counts move at once (old answer −1, new +1) and come back if it fails.
+   */
+  async function vote(id: string, answer: Answer | null) {
     if (busy) return;
     const had = memory.votedFor(id);
-    if (had) {
-      say(`You already said ${ANSWER_TEXT[had].label.toLowerCase()} for this dot. Votes can't be changed.`, "error");
+    if (answer === had) {
+      // Nothing to change: show where the votes stand.
+      open = null;
+      justVoted = had ? id : null;
+      render();
       return;
     }
     busy = true;
     renderDesk();
     let saved = false;
+    const before = counts.get(id);
     try {
       const a = await ready;
-      // castVote remembers the vote and fires skyshift:voted, which refreshes the counts (below).
-      const c = { ...(counts.get(id) ?? emptyCounts()) };
-      c[answer] += 1;
-      counts.set(id, c);
-      await a.castVote(id, answer).catch((e) => {
-        c[answer] -= 1;
-        throw e;
-      });
+      // castVote / withdrawVote remember the answer and fire skyshift:voted, which refreshes the counts (below).
+      counts.set(id, shiftCounts(before, had, answer));
+      ownWrite.add(id);
+      await (answer ? a.castVote(id, answer) : a.withdrawVote(id));
       saved = true;
-      open = null;
-      justVoted = id;
-      say(`Vote saved: ${ANSWER_TEXT[answer].label}.`, "ok");
-    } catch (e) {
-      const err = toVoteError(e);
-      if (err.kind === "already") {
+      if (answer) {
         open = null;
         justVoted = id;
+        say(had ? `Answer changed: ${ANSWER_TEXT[answer].label}.` : `Vote saved: ${ANSWER_TEXT[answer].label}.`, "ok");
+      } else {
+        // Taken back: the ballot comes back, so another answer is one click away.
+        open = id;
+        justVoted = null;
+        say("Answer reset. Your vote no longer counts.", "info");
       }
-      say(err.message, "error");
+    } catch (e) {
+      if (before) counts.set(id, before);
+      else counts.delete(id);
+      say(toVoteError(e).message, "error");
     } finally {
+      ownWrite.delete(id);
       busy = false;
       render();
-      if (saved) deskEl.querySelector<HTMLElement>(".vt-result .vt-say")?.focus({ preventScroll: true });
+      if (saved && answer) deskEl.querySelector<HTMLElement>(".vt-result .vt-say")?.focus({ preventScroll: true });
       else focusDesk(".vt-answer");
     }
   }
@@ -419,6 +440,9 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
         case "answer":
           void vote(id, btn.dataset.answer as Answer);
           break;
+        case "reset":
+          void vote(id, null);
+          break;
         case "show":
           show(id);
           break;
@@ -431,11 +455,17 @@ export const mountVoteWith = (el: HTMLElement, opts: VoteOptions = {}) => {
     }
   });
 
-  // A vote cast here or on another page (Review, Candidate): fetch fresh counts for that dot, so
-  // other people's votes show too. The optimistic count stays if the read fails.
+  // A vote cast, changed or taken back here or on another page (Review, Candidate): move the count
+  // at once (unless this panel already did), then fetch fresh counts for that dot, so other people's
+  // votes show too. The optimistic count stays if the read fails.
   addEventListener(VOTED_EVENT, (ev) => {
-    const id = (ev as CustomEvent<VotedDetail>).detail?.candidateId;
+    const d = (ev as CustomEvent<VotedDetail>).detail;
+    const id = d?.candidateId;
     if (!id || !list.some((c) => c.id === id)) return;
+    if (!ownWrite.has(id) && "previous" in d) {
+      counts.set(id, shiftCounts(counts.get(id), d.previous ?? null, d.answer ?? null));
+      render();
+    }
     ready
       .then((a) => a.countsFor([id]))
       .then((fresh) => {

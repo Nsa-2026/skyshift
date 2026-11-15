@@ -130,6 +130,10 @@ Answers: mover / changing / junk / unsure. A candidate reaches **consensus** wit
 ≥ 70 % agreeing on one answer. Consensus movers and changing sources form the **list for
 astronomers** (Community page, CSV and JSON export, with the Backyard Worlds forum and the MPC as
 next steps). No accounts: a random voter id in the browser; never names or emails.
+After voting, the four choices stay open: picking another changes the answer, and **Reset answer**
+takes the vote back (shown only once this browser has voted). Each is a new `votes` document (the
+rules stay create-only; `withdrawn` takes a vote back), and only each voter's latest one counts,
+everywhere votes are counted (contracts/api.md v3.16).
 Pages import vote logic from `src/vote` (store, model) and never edit it.
 
 ## Sky: the home page (added 14 Nov, 16:00)

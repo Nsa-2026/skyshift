@@ -3,7 +3,7 @@
 // the list for astronomers with its CSV and JSON exports. Pure: no DOM, no Firebase.
 import type { CandidateKind, Clock, Det } from "../api/types";
 import { formatMjd } from "../app/astro";
-import { ANSWERS, CONSENSUS, consensus, countVotes, csvCell, emptyCounts, toVoteRecord, total, type Answer, type Counts, type VoteRecord } from "../vote/model";
+import { ANSWERS, CONSENSUS, consensus, countVotes, csvCell, emptyCounts, latestVotes, toStoredVote, total, type Answer, type Counts, type StoredVote, type VoteRecord } from "../vote/model";
 
 /** The rule lives in src/vote (CONSENSUS, consensus()): at least 5 votes and at least 70% on one answer. */
 export { CONSENSUS };
@@ -20,19 +20,14 @@ export type VoteRow = VoteRecord;
 const isAnswer = (a: unknown): a is Answer => (ANSWERS as readonly unknown[]).includes(a);
 
 /**
- * Keep well-formed votes with a voter id only, and one per voter and candidate (the earliest):
- * the rules can't stop a second vote from the same browser, so it isn't counted twice here.
+ * Keep well-formed votes with a voter id only, and per voter and candidate only the latest
+ * (contracts/api.md v3.16: a changed vote counts once, with its new answer; a vote taken back
+ * counts as none). Oldest first, pending votes last.
  */
 export function cleanVotes(raw: readonly unknown[]): VoteRow[] {
-  const rows = raw.map(toVoteRecord).filter((v): v is VoteRecord => v !== null && v.voter !== "");
+  const rows = raw.map(toStoredVote).filter((v): v is StoredVote => v !== null && v.voter !== "");
   rows.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
-  const seen = new Set<string>();
-  return rows.filter((v) => {
-    const key = `${v.voter}\u0000${v.candidate_id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return latestVotes(rows);
 }
 
 /** Vote counts per candidate id. */
