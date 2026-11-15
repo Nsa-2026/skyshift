@@ -8,6 +8,9 @@ A zone is finished when results/<zone>/suspects.parquet exists (`suspects` is th
 Four kinds:
 - mover     results/<zone>/suspects.parquet (movers no catalogue explains), clock hours. The rate and
             direction come from the mover's own dots, re-read from dots/ for the exposures it was seen in.
+            A mover near a planet at its time (skyshift_core.planets: the planet, its moons, its glare) is a known
+            body and is not listed: the suspects' `planets` veto, applied here too for tables written before it.
+            `--drop-planets <candidates.json>` applies only that to an existing export (drop_planet_movers).
 - high_pm   results/<zone>/highpm_candidates.parquet, the `vetted` rows (highpm_leads), clock months: known
             Gaia stars whose motion we confirm, and new ones that passed the catalogue checks. Unvetted rows
             (Gaia / CatWISE motion not ours, chance-level pairs, ...) are fakes and are not listed.
@@ -51,6 +54,7 @@ import numpy as np
 import pandas as pd
 from skyshift_core import tangent_offset_arcsec
 from skyshift_core.flags import BIT_NAMES, MASK_BITS, OUTLIER, RECORD_BITS
+from skyshift_core.planets import near_planets
 
 from . import config as C
 from . import log
@@ -577,6 +581,35 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
     return out
 
 
+def drop_planet_movers(cands: list[dict]) -> tuple[list[dict], dict[str, int]]:
+    """Movers near a planet at their time are known bodies, not candidates: the planet itself, one of its moons or its
+    glare (skyshift_core.planets; MPC orbits hold none of them). The suspects' `planets` veto, applied again for
+    suspects tables written before it. Returns the other candidates, in order, and {planet: movers dropped}."""
+    idx = [i for i, c in enumerate(cands) if c["kind"] == "mover"]
+    if not idx:
+        return cands, {}
+
+    def val(c, k):
+        return np.nan if c.get(k) is None else float(c[k])
+
+    names, _ = near_planets([val(cands[i], "ra") for i in idx], [val(cands[i], "dec") for i in idx],
+                            [val(cands[i], "mjd") for i in idx])
+    drop = {i for i, n in zip(idx, names) if n}
+    by: dict[str, int] = {}
+    for n in names:
+        if n:
+            by[n] = by.get(n, 0) + 1
+    return [c for i, c in enumerate(cands) if i not in drop], dict(sorted(by.items()))
+
+
+def drop_planets_doc(doc: dict) -> tuple[dict, dict[str, int]]:
+    """An existing candidates.json without its movers near a planet (drop_planet_movers), counts updated; every other
+    field and candidate as it was."""
+    kept, by = drop_planet_movers(doc["candidates"])
+    counts = {k: sum(c["kind"] == k for c in kept) for k in doc.get("counts") or KINDS}
+    return {**doc, "counts": counts, "candidates": kept}, by
+
+
 # --- high proper motion ----------------------------------------------------------------------------
 def highpm_leads(h: pd.DataFrame) -> pd.DataFrame:
     """The highpm rows worth a person's time: `vetted` only. The others are proven or likely fakes: a Gaia star
@@ -1023,6 +1056,10 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         b = zone_base(store, z, spectral_cap)
         collections.update(b["collections"])
         cands = movers(b["suspects"], z, None, b["cells"], b["repeats"]) + high_pms(b["highpm"], z, b["class_labels"]) + spectrals(b["spectral"], z)
+        cands, planets = drop_planet_movers(cands)
+        if planets:
+            L.info("candidates %s: %d movers near a planet (the planet, its moons, its glare) not listed: %s", z,
+                   sum(planets.values()), planets)
         cands += shape_candidates(store, z)
         from . import fragments  # results/<zone>/fragments.parquet: bright_fragment, duplicate never listed; blend: a reason
         cands, fst = fragments.apply_candidates(cands, fragments.load(store, z))
@@ -1131,8 +1168,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--spectral-cap", type=int, default=SPECTRAL_CAP)
     ap.add_argument("--workers", type=int, default=32)
     ap.add_argument("--cache", help="folder that keeps the column reads (dot files, sources) between runs")
+    ap.add_argument("--drop-planets", metavar="JSON",
+                    help="only remove the movers near a planet from this existing candidates.json, in place (counts "
+                         "updated, nothing else changed); reads no zone")
     a = ap.parse_args(argv)
     log.setup()
+    if a.drop_planets:
+        path = Path(a.drop_planets)
+        doc, by = drop_planets_doc(json.loads(path.read_text()))
+        path.write_text(dumps(doc))
+        L.info("dropped %d movers near a planet from %s: %s; counts now %s", sum(by.values()), path, by, doc["counts"])
+        return 0
     global CACHE_DIR
     CACHE_DIR = Path(a.cache) if a.cache else None
     store = Store(a.root)

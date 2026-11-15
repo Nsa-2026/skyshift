@@ -31,11 +31,25 @@ def test_select_and_rank():
     pred = pd.DataFrame([dict(name="X", ra=ra, dec=dec, mjd=61000.3, dra_arcsec_h=0.0, ddec_arcsec_h=0.0, v=18.0, session=3)])
     fixed = pd.DataFrame([dict(ra=m.loc[2, "ra"], dec=m.loc[2, "dec"] + 10 / 3600, snr=500.0)])
     s, st = S.select(m, fixed, pred)
-    assert st == {"movers": 5, "cut_known": 1, "cut_flags": 1, "cut_bright_fixed": 1, "cut_source_bit": 0}
+    assert st == {"movers": 5, "cut_known": 1, "cut_planet": 0, "cut_flags": 1, "cut_bright_fixed": 1,
+                  "cut_source_bit": 0}
     assert sorted(s["cell"]) == [0, 1]
     r = S.rank(s)
     assert list(r["evidence"]) == ["two_exposures", "two_detectors"]
     assert np.isnan(r["nearest_known_arcsec"]).all()
+
+
+def test_planet_and_moon_movers_are_known():
+    """Movers of the 15 Nov sky run that MPC orbits don't explain: Iapetus 4.6′ from Saturn (ecl35, grade A), Uranus
+    itself (ecl05), Himalia 31′ from Jupiter (ecl11); and a hunt mover far from every planet."""
+    rows = [(356.404831, -4.126031, 61022.064174), (58.933291, 20.15587, 60910.449783),
+            (115.551213, 20.945184, 60967.981055), (122.250475, 20.897236, 61142.911622)]
+    m = pd.DataFrame([dict(ra=ra, dec=dec, mjd=mjd, det=2, evidence="two_exposures", n_dots=2, snr=50.0, flux_ujy=900.0,
+                           flags=0, flags_peak_all=0, cell=k, session=k, visit=1) for k, (ra, dec, mjd) in enumerate(rows)])
+    assert list(S.near_planet_names(m)) == ["Saturn", "Uranus", "Jupiter", ""]
+    s, st = S.select(m, pd.DataFrame(columns=["ra", "dec", "snr"]), pd.DataFrame(columns=["ra", "dec", "mjd", "session"]))
+    assert st["cut_planet"] == 3 and st["cut_known"] == 0
+    assert list(s["cell"]) == [3]
 
 
 def test_json_shape():

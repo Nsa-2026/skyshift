@@ -280,6 +280,67 @@ def test_build_end_to_end(tmp_path):
     assert small["synthetic"] is False and small["counts"] == doc["counts"] and len(small["candidates"]) <= len(cs)
 
 
+# Movers listed until 15 Nov that are a planet or a moon (JPL Horizons within 2″): Iapetus 4.6′ from Saturn (grade A),
+# Uranus itself, Himalia 31′ from Jupiter
+IAPETUS = {"ra": 356.404831, "dec": -4.126031, "mjd": 61022.064174}
+URANUS = {"ra": 58.933291, "dec": 20.15587, "mjd": 60910.449783}
+HIMALIA = {"ra": 115.551213, "dec": 20.945184, "mjd": 60967.981055}
+
+
+def test_build_drops_movers_near_a_planet(tmp_path):
+    """A suspects table written before the `planets` veto: the export leaves its planet and moon movers out."""
+    store = Store(str(tmp_path / "bucket"))
+    _zone_files(store, "hunt", 125.0, 20.0, with_extra_mover=False)
+    s = store.read_parquet(results_rel("hunt", "suspects.parquet"))
+    extra = [{**s.iloc[0].to_dict(), **pos, "id": f"hunt-{k}-{k}", "obs_ids": ""}
+             for k, pos in enumerate((IAPETUS, URANUS, HIMALIA), start=7)]
+    _write(store, results_rel("hunt", "suspects.parquet"), pd.concat([s, pd.DataFrame(extra)], ignore_index=True))
+    doc = K.build(store, ["hunt"])
+    assert [c["id"] for c in doc["candidates"] if c["kind"] == "mover"] == ["hunt-1-2"]
+    assert doc["counts"]["mover"] == 1
+
+
+def test_drop_planets_doc_changes_nothing_else():
+    """--drop-planets on an existing export: only the movers near a planet go; counts follow; every other line of the
+    file is byte for byte the same."""
+    def cand(cid, kind, pos, **kw):
+        c = {k: None for k in K.FIELDS}
+        c.update({"id": cid, "kind": kind, **pos, "clock": "hours" if kind == "mover" else "months", "det": 2,
+                  "zone": "ecl35", "zones": ["ecl35"], "score": 0.5, "gaia_match": False, "catwise_match": False,
+                  "galactic_b": -60.123, "labels": [], "reasons": [], "why": "Seen …; ok.", "flags": [], **kw})
+        return c
+    far = {"ra": 122.250475, "dec": 20.897236, "mjd": 61142.911622}
+    doc = {"generated": "2026-11-15T06:48:11Z", "data_release": "DR1+QR3", "zones": ["ecl35", "ecl05", "ecl11"],
+           "counts": {"mover": 4, "high_pm": 1, "spectral": 0, "shape": 0},
+           "candidates": [cand("ecl35-1-1", "mover", IAPETUS, grade="A", frames_url="cand/ecl35-1-1/frames.json"),
+                          cand("ecl35-2-2", "mover", far, grade="B", snr=12.3, rate_arcsec_h=20.5),
+                          cand("ecl05-3-3", "mover", URANUS, grade="C"),
+                          cand("ecl11-4-4", "mover", HIMALIA, grade="A"),
+                          cand("ecl05-pm-5", "high_pm", URANUS, pm_mas_yr=900.1)]}  # not a mover: kept
+    before = K.dumps(doc)
+    new, by = K.drop_planets_doc(json.loads(before))
+    assert by == {"Jupiter": 1, "Saturn": 1, "Uranus": 1}
+    assert [c["id"] for c in new["candidates"]] == ["ecl35-2-2", "ecl05-pm-5"]
+    assert new["counts"] == {"mover": 1, "high_pm": 1, "spectral": 0, "shape": 0}
+    after = K.dumps(new)
+    old_lines, new_lines = before.splitlines(), after.splitlines()
+    gone = {i for i, line in enumerate(old_lines) if '"ecl35-1-1"' in line or '"ecl05-3-3"' in line or '"ecl11-4-4"' in line}
+    kept = [line.rstrip(",") for i, line in enumerate(old_lines) if i not in gone]
+    assert [line.rstrip(",") for line in new_lines] == [
+        kept[0].replace('"mover":4', '"mover":1'), *kept[1:]]
+    assert K.drop_planets_doc(new)[1] == {}                          # idempotent
+
+
+def test_drop_planets_cli(tmp_path):
+    path = tmp_path / "candidates.json"
+    doc = {"generated": "g", "data_release": "DR1", "zones": ["ecl05"], "counts": {"mover": 1, "high_pm": 0, "spectral": 0,
+                                                                                  "shape": 0},
+           "candidates": [{**{k: None for k in K.FIELDS}, "id": "ecl05-3-3", "kind": "mover", **URANUS}]}
+    path.write_text(K.dumps(doc))
+    assert K.main(["--drop-planets", str(path)]) == 0
+    assert json.loads(path.read_text())["candidates"] == [] and json.loads(path.read_text())["counts"]["mover"] == 0
+
+
 def test_source_without_a_usable_spectrum(tmp_path):
     """No channel with positive, finite S/N in any detector: det, snr and flux_ujy are None in source_stats (not D1,
     S/N 0 from the argmax of six zeros); the export writes snr and flux_ujy null and the default detector."""

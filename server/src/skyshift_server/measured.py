@@ -45,6 +45,7 @@ from typing import Any
 
 import numpy as np
 from skyshift_core import MASK_BITS, SAT_BITS
+from skyshift_core.planets import near_planets, planet_label
 
 log = logging.getLogger(__name__)
 
@@ -1131,6 +1132,20 @@ def _epoch_square(ep: dict, meta: dict) -> tuple[float, float, float]:
     return float(c["ra"]), float(c["dec"]), meta["size"][0] * float(meta["pixel_arcsec"]) / 2.0 / 3600.0
 
 
+def _near_planet_labels(mv: dict, movers: list[int]) -> dict[int, str]:
+    """{mover: "Saturn" | "a moon of Saturn" | …} for the movers near a planet at their time (skyshift_core.planets);
+    one vectorised ephemeris call. A failure names none (the classes stay as before)."""
+    if not movers:
+        return {}
+    try:
+        names, sep = near_planets(np.asarray(mv["ra"], float)[movers], np.asarray(mv["dec"], float)[movers],
+                                  np.asarray(mv["mjd"], float)[movers])
+    except Exception:  # noqa: BLE001
+        log.exception("measured: planet check failed")
+        return {}
+    return {m: planet_label(str(n), float(s)) for m, n, s in zip(movers, names, sep) if n}
+
+
 def _hours(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, list[str]], F: _Field,
            T: Tables, Z: Zone) -> tuple[list[dict], list[dict]]:
     known_by_epoch: dict[str, list[dict]] = defaultdict(list)
@@ -1187,10 +1202,13 @@ def _hours(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, lis
     # 2. classify each mover with dots here
     track_info: dict[int, dict] = {}
     gaia = meta.get("gaia") or []
+    planets = _near_planet_labels(mv, list(track_dots))
     for m, members in track_dots.items():
         members.sort(key=lambda t: per_ep[t[0]][2].mjd)
         cell, mjd = int(mv["cell"][m]), float(mv["mjd"][m])
-        sus = T.suspects.get(_mkey(cell, mjd))
+        # v3.18: a planet or one of its moons is known (MPC orbits hold none), even in a suspects table written before
+        # the pipeline's `planets` veto
+        sus = T.suspects.get(_mkey(cell, mjd)) if m not in planets else None
         known_name, best = None, KNOWN_TRACK_ARCSEC
         for pi, j in members:
             ep, key, d, sel, src, trk = per_ep[pi]
@@ -1206,6 +1224,7 @@ def _hours(loaded: Loaded, meta: dict, epochs: list[dict], photos: dict[str, lis
             cls, tid, grade, reasons = "suspect", sus[0], sus[1], list(sus[2])
         else:
             tid = f"{Z.name}-m{cell}-{int(round(mjd * 1440.0))}"
+            known_name = known_name if known_name is not None else planets.get(m)  # an MPC match names it better
             if known_name is not None:
                 cls = "known"
             elif flags & ART_MASK:

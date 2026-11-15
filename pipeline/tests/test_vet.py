@@ -134,7 +134,7 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     st = S.run(store, z, pred=NO_PRED)
     assert st["suspects"] == 4 and st["vetting"]["grades"] == {"A": 0, "B": 2, "C": 2}
     j = store.read_json(results_rel(z.name, "suspects.json"))
-    assert j["vetoes"] == ["mpc", "gaia", "catwise"] and j["provisional"] is False
+    assert j["vetoes"] == ["mpc", "planets", "gaia", "catwise"] and j["provisional"] is False
     assert [x["grade"] for x in j["suspects"]] == ["B", "B", "C", "C"]
     assert [x["snr"] for x in j["suspects"]] == [20.0, 9.0, 50.0, 30.0]  # by grade, then S/N
     assert [x["reasons"] for x in j["suspects"]] == [[], [], ["edge"], ["2mass"]]
