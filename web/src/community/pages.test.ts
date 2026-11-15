@@ -5,7 +5,7 @@ import { KEYS, type Answer, type KV } from "../vote/model";
 import { LocalStore, voteApi } from "../vote/store";
 import { mountAboutWith } from "./about";
 import { NICKNAME_KEY, mountCommunityWith } from "./community";
-import { loadSnapshot, type Snapshot } from "./source";
+import { astronomersFor, loadSnapshot, type Snapshot } from "./source";
 
 function memKV(): KV {
   const m = new Map<string, string>();
@@ -97,6 +97,24 @@ describe("loadSnapshot", () => {
     expect(a.get("fs-1")).toMatchObject({ kind: "flag", ra: 5, clock: "months" });
     expect(a.has("pilot-m1")).toBe(false); // already known from candidates.json
     expect(b.get("sus-1")).toMatchObject({ kind: "mover" });
+  });
+
+  it("astronomersFor: the Community page's list for astronomers, flagged dots placed by lookup", async () => {
+    const kv = memKV();
+    await seed(kv, [
+      ["pilot-m1", ["mover", "mover", "mover", "mover", "mover"]],
+      ["pilot-p1", ["junk", "junk", "junk", "junk", "junk"]],
+      ["pilot-m2", ["mover", "mover", "mover"]],
+    ]);
+    const flagged = await new LocalStore(kv).flag({ ra: 10, dec: 20, mjd: 60800, clock: "hours", source: "user" });
+    await seed(kv, [[flagged.id, ["changing", "changing", "changing", "changing", "changing", "unsure"]]]);
+    const s = await loadSnapshot({ kv, api: localApi(kv), catalogue: async () => catalogue });
+    const rows = await astronomersFor(s);
+    expect(rows.map((r) => [r.id, r.answer, r.kind])).toEqual([
+      ["pilot-m1", "mover", "mover"],
+      [flagged.id, "changing", "flag"],
+    ]);
+    expect(rows[1]).toMatchObject({ ra: 10, dec: 20, next: "mpc" });
   });
 
   it("turns a failed read into a note, never an error", async () => {

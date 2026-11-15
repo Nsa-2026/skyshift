@@ -7,7 +7,7 @@ import "../prefs/details";
 import { ApiFailure, loadCandidates, loadFrames, loadSuspects, loadValidation } from "../api/client";
 import type { CandidateKind, CandidatesResponse, SuspectsResponse, ValidationResponse } from "../api/types";
 import { formatMjd } from "../app/astro";
-import type { MountPage, PageContext } from "../app/modules";
+import type { MountPage, PageContext, PageHandle } from "../app/modules";
 import { TARGETS, featuredNear } from "../app/state";
 import { BATCH_LIMIT, type BatchResult, type BatchRow, batchCSV, blinkHref, decimalText, parseBatch, rowStatus, sexagesimal, skyHref } from "./batch";
 import {
@@ -175,20 +175,30 @@ RW Aur 05 07 49.46 +30 24 04
 133.7951292 -7.2451472
 Nowhere, 400, 95`;
 
-function pageHtml(base: string, lang: Lang): string {
+/** Every heading one level down (h2 → h3, h3 → h4, h4 → h5), for the page shown as a section. */
+export function demoteHeadings(markup: string): string {
+  return markup.replace(/<(\/?)h([2-5])\b/g, (_, slash: string, n: string) => `<${slash}h${Number(n) + 1}`);
+}
+
+function pageHtml(base: string, lang: Lang, opts: ToolsOptions = {}): string {
   const api = new URL("api/", base).href;
-  return `<div class="tl">
-  <header class="tl-head">
+  const hashBase = opts.hashBase ?? "#/tools";
+  const markup = `<div class="tl${opts.embedded ? " tl-embedded" : ""}">
+  ${
+    opts.embedded
+      ? ""
+      : `<header class="tl-head">
     <h1 class="tl-title">Tools and data</h1>
     <p class="tl-lede">For astronomers, teachers and developers: download the objects to check, look up a list of positions, call the API, and cite the data.</p>
-  </header>
-  <nav class="tl-toc" aria-label="On this page">
-    <ul>${SECTIONS.map((s) => `<li><a href="#/tools/${s.id}" data-jump="${s.id}">${esc(s.title)}</a></li>`).join("")}</ul>
+  </header>`
+  }
+  <nav class="tl-toc" aria-label="${opts.embedded ? "In Tools" : "On this page"}">
+    <ul>${SECTIONS.map((s) => `<li><a href="${hashBase}/${s.id}" data-jump="${s.id}">${esc(s.title)}</a></li>`).join("")}</ul>
   </nav>
   <div class="tl-main">
 
   <section class="tl-sec" id="tl-downloads" aria-labelledby="tl-downloads-h">
-    <h2 id="tl-downloads-h" tabindex="-1">Download the list</h2>
+    <h2 id="tl-downloads-h" class="tl-h2" tabindex="-1">Download the list</h2>
     <p>Every object the pipeline put up to check: things it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts until people check them. Positions in ICRS degrees, times in MJD (UTC), brightness in µJy, motions in ″/h (fast movers) or mas/yr (moving stars).</p>
     <div class="tl-dl" aria-live="polite"><p class="muted">Loading the list…</p></div>
     <details class="tl-more">
@@ -201,7 +211,7 @@ function pageHtml(base: string, lang: Lang): string {
   </section>
 
   <section class="tl-sec" id="tl-batch" aria-labelledby="tl-batch-h">
-    <h2 id="tl-batch-h" tabindex="-1">Batch coordinates</h2>
+    <h2 id="tl-batch-h" class="tl-h2" tabindex="-1">Batch coordinates</h2>
     <p>Paste up to ${BATCH_LIMIT} positions, one per line, or drop a CSV file on the box. They are read here in your browser; nothing is sent anywhere until you press Check on a row.</p>
     <details class="tl-more">
       <summary>Formats it reads</summary>
@@ -231,7 +241,7 @@ function pageHtml(base: string, lang: Lang): string {
   </section>
 
   <section class="tl-sec" id="tl-api" aria-labelledby="tl-api-h">
-    <h2 id="tl-api-h" tabindex="-1">API</h2>
+    <h2 id="tl-api-h" class="tl-h2" tabindex="-1">API</h2>
     <p>The same data the site uses, as JSON. No key and no sign-up. Static first: the featured targets and the lists are plain files on the site's CDN, so read those before you call the live API.</p>
 
     <h3 class="tl-h3">Static files</h3>
@@ -260,10 +270,15 @@ function pageHtml(base: string, lang: Lang): string {
     <h3 class="tl-h3">Embed a blink</h3>
     <p>Any blink can sit in another page. embed=1 hides the header and footer. Use ra and dec (degrees), clock (months or hours), fov (arcmin) and det (1 to 6), or t=&lt;slug&gt; for a featured target.</p>
     ${code(embedSnippet(base), "HTML to embed a blink")}
+
+    <h3 class="tl-h3">AI assistants (MCP)</h3>
+    <p>An MCP server lets an AI assistant (Claude Code, Claude Desktop, Cursor or any MCP client) use SkyShift: browse the objects to check, look at blink frames, measure motion and check known objects. It only reads this public site, the static files first and then the API, so it needs no account or key. From a clone of the repository:</p>
+    ${code("claude mcp add skyshift -- uv run --project mcp skyshift-mcp", "Command to add the SkyShift MCP server to Claude Code")}
+    <p class="tl-note">Its tools include top_candidates, candidates_near, blink, spectrum, measure, known_objects, gaia_stars, batch_check and validation. Setup for Claude Desktop, streamable HTTP and the full list: <a href="${REPO_URL}/blob/main/mcp/README.md" target="_blank" rel="noopener">mcp/README.md</a>.</p>
   </section>
 
   <section class="tl-sec" id="tl-cite" aria-labelledby="tl-cite-h">
-    <h2 id="tl-cite-h" tabindex="-1">Cite and acknowledge</h2>
+    <h2 id="tl-cite-h" class="tl-h2" tabindex="-1">Cite and acknowledge</h2>
     <p>If SkyShift helped your work, cite it and the data underneath it.</p>
     <h3 class="tl-h3">SkyShift</h3>
     ${code(skyshiftBibtex(), "BibTeX for SkyShift")}
@@ -286,7 +301,7 @@ function pageHtml(base: string, lang: Lang): string {
   </section>
 
   <section class="tl-sec" id="tl-data" aria-labelledby="tl-data-h">
-    <h2 id="tl-data-h" tabindex="-1">Data and versions</h2>
+    <h2 id="tl-data-h" class="tl-h2" tabindex="-1">Data and versions</h2>
     <p>What this site is built from, and when.</p>
     <dl class="tl-fields tl-versions" aria-live="polite"><div><dt>Files</dt><dd class="muted">Loading…</dd></div></dl>
     <h3 class="tl-h3">Reproduce it</h3>
@@ -314,6 +329,7 @@ npm test          # in web/`,
   </div>
   <p class="visually-hidden" role="status" aria-live="polite" data-announce></p>
 </div>`;
+  return opts.embedded ? demoteHeadings(markup) : markup;
 }
 
 // ---- dynamic parts ---------------------------------------------------------------------------
@@ -444,10 +460,20 @@ function batchTable(res: BatchResult, cov: Map<string, Coverage>, busy: boolean)
 
 // ---- the page --------------------------------------------------------------------------------
 
-export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
+export interface ToolsOptions {
+  /** A section of another page (Results → Tools): no page title, headings one level down. */
+  embedded?: boolean;
+  /** The route the in-page links point at, as <hashBase>/<section>. Default "#/tools". */
+  hashBase?: string;
+}
+
+export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => createToolsPage(el, ctx);
+
+export function createToolsPage(el: HTMLElement, ctx: PageContext, opts: ToolsOptions = {}): PageHandle {
   const base = siteBase();
+  const hashBase = opts.hashBase ?? "#/tools";
   let lang = readLang();
-  el.innerHTML = pageHtml(base, lang);
+  el.innerHTML = pageHtml(base, lang, opts);
 
   const $ = <T extends Element>(sel: string) => el.querySelector(sel) as T;
   const announceEl = $<HTMLElement>("[data-announce]");
@@ -699,7 +725,7 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
       return;
     }
     const jump = t.closest<HTMLAnchorElement>("a[data-jump]");
-    if (jump && location.hash === `#/tools/${jump.dataset.jump}`) {
+    if (jump && location.hash === `${hashBase}/${jump.dataset.jump}`) {
       ev.preventDefault();
       jumpTo(jump.dataset.jump!);
     }
@@ -726,4 +752,4 @@ export const mountTools: MountPage = (el: HTMLElement, ctx: PageContext) => {
       el.innerHTML = "";
     },
   };
-};
+}
