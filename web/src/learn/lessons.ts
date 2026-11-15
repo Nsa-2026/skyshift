@@ -1,6 +1,7 @@
 // The course: seven short lessons, each one screen of plain words around one real example.
 // Facts follow CLAUDE.md "Domain facts", web/DESIGN.md and the validation results; numbers
 // that come from the data (dates, rates, measured shifts) are filled in by figures.ts.
+import { ONE_AT_A_TIME, communityHash } from "../app/legacy-routes";
 import { term as t } from "./glossary";
 
 export type FigureId = "six" | "barnard" | "clocks" | "fakes" | "colours" | "votes" | "planetx";
@@ -18,13 +19,18 @@ export interface Lesson {
   lede(): string;
   body(): string;
   figure: FigureId;
+  /** The heading of the actions at the end: "Try it in the Viewer" when they open the Viewer. */
+  tryTitle: string;
   /** Words before the actions at the end. */
   tryText: string;
   tryIt: TryAction[];
 }
 
-/** Open a featured target on the Blink page from its static frames. */
-export const exploreHref = (slug: string): string => `?t=${encodeURIComponent(slug)}#/explore`;
+/** Open a featured target in the Viewer from its static frames, at one of its sections
+ *  ("motion", "spectrum", "compare", "sensitivity": app/navigation.ts viewerHref). */
+export const exploreHref = (slug: string, section = ""): string => `?t=${encodeURIComponent(slug)}#/explore${section ? `/${section}` : ""}`;
+
+const VIEWER = "Try it in the Viewer";
 
 export const LESSONS: Lesson[] = [
   {
@@ -47,8 +53,12 @@ export const LESSONS: Lesson[] = [
       <p>Each detector splits its range into 17 narrow ${t("channel", "channels")}: 6 × 17 = 102 colours. As SPHEREx steps across the sky, every star lands on many channels, so within six months it has been measured in all of them. That list of brightness against colour is the star's ${t("spectrum")}.</p>
       <p>A ${t("pixel")} covers 6.15″ of sky (an ${t("arcsecond")} is 1/3600 of a degree), and a photo is 2040 × 2040 pixels: about 3.5° across, the width of seven full Moons.</p>`,
     figure: "six",
-    tryText: "Open Barnard's Star on the Blink page and switch between D1 and D6.",
-    tryIt: [{ label: "Open Barnard's Star", href: exploreHref("barnard") }],
+    tryTitle: VIEWER,
+    tryText: "Open Barnard's Star in the Viewer and switch between D1 and D6, or put a short and a long wavelength side by side.",
+    tryIt: [
+      { label: "Open Barnard's Star", href: exploreHref("barnard") },
+      { label: "Compare D3 with D6", href: exploreHref("barnard", "compare") },
+    ],
   },
   {
     n: 2,
@@ -62,8 +72,12 @@ export const LESSONS: Lesson[] = [
       <p>Barnard's Star crosses our sky faster than any other star: ${t("Gaia")} measures 10.39″ a year, because it is only 1.83 ${t("parsec", "pc")} away. Between visits it steps north about 5″, less than one SPHEREx pixel. Watch it move up past the red marks.</p>
       <p>The hatched hole in the middle is honest: the star is so bright that its centre overflows the pixels, called ${t("saturation")}; NASA ${t("flag", "flags")} them and we leave them blank. SkyShift measures the position on the star's wings.</p>`,
     figure: "barnard",
-    tryText: "Blink Barnard's Star yourself, then press Difference: one visit minus another shows where light left and arrived.",
-    tryIt: [{ label: "Blink Barnard's Star", href: exploreHref("barnard") }],
+    tryTitle: VIEWER,
+    tryText: "Blink Barnard's Star yourself, then open its motion: SkyShift's measured shift next to Gaia's prediction.",
+    tryIt: [
+      { label: "Blink Barnard's Star", href: exploreHref("barnard") },
+      { label: "Measure its motion", href: exploreHref("barnard", "motion") },
+    ],
   },
   {
     n: 3,
@@ -79,6 +93,7 @@ export const LESSONS: Lesson[] = [
       <p>A visit lasts 2 to 4 weeks: about 21 ${t("session", "sessions")} and 55 to 60 photos. A session is 1 to 5 photos taken 2.1 minutes apart. On the Hours clock you step through them in time order.</p>
       <p>Each clock hides the other's movers. By the next visit an asteroid is long gone, and within a day Barnard's Star doesn't seem to move at all.</p>`,
     figure: "clocks",
+    tryTitle: VIEWER,
     tryText: "Watch an asteroid or the interstellar comet on the Hours clock.",
     tryIt: [
       { label: "Watch (59) Elpis", href: exploreHref("elpis") },
@@ -102,8 +117,12 @@ export const LESSONS: Lesson[] = [
         <div><dt>Colour, not motion</dt><dd>D1 and D4, D2 and D5, D3 and D6 photograph the same sky at the same moment. A dot that is in D4 but not in D1 is a red object, not something that moved. Compare brightness only within one detector.</dd></div>
       </dl>`,
     figure: "fakes",
-    tryText: "Practise on real objects: the Review queue starts with a short practice round.",
-    tryIt: [{ label: "Go to the Review queue", href: "#/review" }],
+    tryTitle: "Try it with known answers",
+    tryText: "Guided practice blinks three real fields whose answers are known, then tells you what to look for. After that, check real objects one at a time.",
+    tryIt: [
+      { label: "Start guided practice", href: "#/learn/practice" },
+      { label: "Check objects one at a time", href: ONE_AT_A_TIME },
+    ],
   },
   {
     n: 5,
@@ -116,10 +135,12 @@ export const LESSONS: Lesson[] = [
       <p>Molecules leave fingerprints. Water and ${t("methane")} in a brown dwarf's air swallow certain colours and carve dips into its ${t("spectrum")}. SPHEREx's 102 colours are fine enough to see them.</p>
       <p>A dip is a hint, not proof: cool stars can mimic some bands. The pipeline marks them and people check.</p>`,
     figure: "colours",
-    tryText: "Open WISE 0855 and switch from D2 to D5: the brown dwarf appears.",
+    tryTitle: VIEWER,
+    tryText: "Open WISE 0855 and switch from D2 to D5: the brown dwarf appears. Then look at its spectrum.",
     tryIt: [
       { label: "Open WISE 0855", href: exploreHref("wise0855") },
-      { label: "Open Epsilon Indi B", href: exploreHref("epsindib") },
+      { label: "Its spectrum", href: exploreHref("wise0855", "spectrum") },
+      { label: "Epsilon Indi B", href: exploreHref("epsindib") },
     ],
   },
   {
@@ -130,14 +151,15 @@ export const LESSONS: Lesson[] = [
       `<p>One person's eyes can be fooled. Many people looking at the same dot rarely are.</p>`,
     body: () => `
       <p>The pipeline lists objects to check: fast movers, moving stars and odd spectra it couldn't explain with Gaia, WISE or a known asteroid. Most are detector artefacts, so Junk is often the right answer. You blink each one and answer Mover, Changing, Junk or Not sure.</p>
-      <p>An object reaches ${t("consensus")} with at least 5 votes and at least 70% on one answer. Consensus movers and changing sources go on the list for astronomers on the Community page, with CSV and JSON downloads.</p>
+      <p>An object reaches ${t("consensus")} with at least 5 votes and at least 70% on one answer. Consensus movers and changing sources go on the list for astronomers on the Community page, under To check, with CSV and JSON downloads.</p>
       <p>Then astronomers take over. A new asteroid or comet needs its positions reported to the ${t("MPC", "Minor Planet Center")}. A new nearby star or brown dwarf goes to the Backyard Worlds: Planet 9 forum, where volunteers who hunt brown dwarfs in NASA's WISE images check it against other surveys. SkyShift drafts the report; it never sends anything for you.</p>
       <p>No account needed: your votes carry a random id kept in your browser, never your name or email.</p>`,
     figure: "votes",
-    tryText: "Your first few reviews are a practice round with known answers.",
+    tryTitle: "Try it yourself",
+    tryText: "Check real objects one at a time, then see what the community agreed on.",
     tryIt: [
-      { label: "Start reviewing", href: "#/review" },
-      { label: "See the community's list", href: "#/community" },
+      { label: "Check objects one at a time", href: ONE_AT_A_TIME },
+      { label: "What the community agreed on", href: communityHash() },
     ],
   },
   {
@@ -156,10 +178,12 @@ export const LESSONS: Lesson[] = [
         <div><dt>Too close together</dt><dd>Two objects under one pixel apart blend into one dot, like the Epsilon Indi B pair, less than 1″ apart.</dd></div>
       </dl>`,
     figure: "planetx",
-    tryText: "Go hunting: zoom into the Sky map, or review what the pipeline found.",
+    tryTitle: VIEWER,
+    tryText: "See how faint SPHEREx reaches around WISE 0855 and which Planet Nine models it could see, then go hunting on the Sky map.",
     tryIt: [
-      { label: "Explore the Sky", href: "#/" },
-      { label: "Review objects to check", href: "#/review" },
+      { label: "How faint can it see?", href: exploreHref("wise0855", "sensitivity") },
+      { label: "Explore the Sky", href: "#/sky" },
+      { label: "Objects to check", href: "#/candidates" },
     ],
   },
 ];

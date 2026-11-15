@@ -50,6 +50,7 @@ it("opens on the Sky with every top-level screen one click away, and loads no fr
     "#/candidates",
     "#/community",
     "#/results",
+    "#/learn",
   ]);
   expect(root.querySelector(".top .details-switch")!.textContent).toBe("Advanced");
   expect([...root.querySelectorAll<HTMLAnchorElement>(".foot-links a")].map((a) => a.textContent)).toEqual(["Community", "Learn", "About"]);
