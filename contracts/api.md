@@ -223,16 +223,16 @@ measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | nu
 |---|---|---|
 | suspect | In a pipeline mover listed in `results/<zone>/suspects.parquet` | A `highpm_candidates` fit, `vetted`, status `new` (moves between visits, no Gaia star) |
 | known | In a mover with a `known[]` prediction of the same epoch within 30″ (the suspects rule); or the nearest dot within 10″ of a `known[]` prediction of its epoch, not within 4″ of a linked source | Not used |
-| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` |
+| artifact | In a mover with GHOST, GHOST_FPA, GHOST_EXT, CROSSTALK, HALO or BLOOM in its dots' 3×3 flags; or a lone dot (no source, no mover) with a mask bit at its peak (OVERFLOW/NONLINEAR aside), one of those record-only bits, or `elong` > 3; or (v3.11) within 4″ of a linked source tagged `bright_fragment` | A `highpm_candidates` row that is not `vetted`, unless the source is a Gaia star; or (v3.11) a source tagged `bright_fragment` ; or (v3.12) a stack source with `artifact_zone` (reason `stack_near_bright`) |
 | mover | In any other pipeline mover (paired inside one session or by two detectors at one moment, but vetted out of the suspects, e.g. near a catalogued star) | Not used |
 | star | Within 4″ of a linked source with a Gaia DR3 match | A linked source with a Gaia DR3 match |
 | other | Everything else: a linked source without Gaia (galaxy, faint or red star), or a lone dot | Everything else |
-| stack | Not used | (v3.12) A source the pipeline's `stack` step found on the visit stacks (`results/<zone>/stack_sources.parquet`, contracts/dots.md) with no single-photo linked source within 3″ (`source_id` −1) and not `transient`: fainter than the single-photo limit, the second star of a close pair, or a star in a bright star's glow. One detection per visit epoch in which its forced S/N over that visit's photos (all detectors) is ≥ 5: `ra`, `dec` its free-fit position in that visit (else the stack position), `snr` that S/N, `flux_ujy` that visit's inverse-variance mean flux (all detectors, so mixed wavelengths), `n_dots` the photos measured, `source_id` null, `gaia_id` its Gaia DR3 match within 2″ (else null), `reasons` `[]`. Drawn as "seen in the stack only": not a single-photo detection |
+| stack | Not used | (v3.12) A source the pipeline's `stack` step found on the visit stacks (`results/<zone>/stack_sources.parquet`, contracts/dots.md) with no single-photo linked source within 3″ (`source_id` −1), not `transient` and not `artifact_zone` (those are class `artifact`, reason `stack_near_bright`): fainter than the single-photo limit, the second star of a close pair, or a star in a bright star's glow. One detection per visit epoch in which its forced S/N over that visit's photos (all detectors) is ≥ 5: `ra`, `dec` its free-fit position in that visit (else the stack position), `snr` that S/N, `flux_ujy` that visit's inverse-variance mean flux (all detectors, so mixed wavelengths), `n_dots` the photos measured, `source_id` null, `gaia_id` its Gaia DR3 match within 2″ (else null), `reasons` `[]`. Drawn as "seen in the stack only": not a single-photo detection |
 
 **artifact reasons**: `ghost`, `ghost_fpa`, `ghost_ext`, `crosstalk`, `halo`, `bloom` (that bit in the
 3×3), `masked_peak` (a mask bit at the peak), `elongated` (`elong` > 3), and on the months clock the `highpm_candidates` `reason` codes (`short_span`, `few_dots`,
 `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`, `at_control_level`, and from 14 Nov
-evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`), and (v3.11, both clocks) `bright_fragment`: a piece
+evening `few_sessions`, `unchecked`, `gaia_slow`; v3.11 `fragment`; v3.12 `stack_near_bright`: a stack source with no catalogue entry within 8″ of a much brighter source or 20–30″ from it, where the ePSF fit leaves pieces), and (v3.11, both clocks) `bright_fragment`: a piece
 of a saturated star's ring (the pipeline's `fragments` step, `results/<zone>/fragments.parquet`: BLOOM on most of its
 dots and no Gaia DR3 or 2MASS entry within 3″), with `parent_gaia_id`.
 Deliberately **not** artefact rules: SOURCE (bit 21, never masked: set on ~99% of pixels in crowded fields and ~50%
@@ -962,7 +962,9 @@ The pipeline's new `stack` step (contracts/dots.md, `stack_sources`, `stack_forc
 of a zone's photos (2″ grid, matched filter, a second pass on the residual) and fits every photo at all those
 positions at once. Additive:
 - measured layer (`/api/frames`, frames files), months clock only: class `stack` for stack sources with no
-  single-photo linked source within 3″ (rules above), and the `counts` key `stack` where the zone has a
+  single-photo linked source within 3″ (rules above); uncatalogued ones in a much brighter source's misfit core
+  (< 8″) or at the ePSF's edge (20–30″) are class `artifact` with the new reason `stack_near_bright`; and the
+  `counts` key `stack` where the zone has a
   `stack_sources` table. Zones without it, the hours clock and older responses: no such class or key (read a
   missing key as 0). Readers that don't know the class may draw it as `other`.
 
