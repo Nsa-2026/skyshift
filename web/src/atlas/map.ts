@@ -2,8 +2,10 @@
 // Aitoff SVG (no WebGL2, or Aladin failed). index.ts talks only to this interface.
 import type { Candidate, SkyPos } from "../api/types";
 import type { Target } from "../app/state";
-import type { Cell, ZoneBox } from "./heat";
+import type { Cell } from "./heat";
+import type { Box } from "./labels";
 import type { ProvisionalSet, SearchLayer } from "./search";
+import type { ZoneArea } from "./zones";
 
 export interface MapView extends SkyPos {
   /** Field of view across the map's long side, degrees. */
@@ -30,7 +32,8 @@ export interface MapModel {
   candidates: readonly Candidate[];
   /** Heat cells of the shown kinds at a HEALPix order (memoised by the caller). */
   cellsAt(order: number): readonly Cell[];
-  zones: readonly ZoneBox[];
+  /** The searched zones, overlapping ones joined: one outline, one fill and one badge each. */
+  areas: readonly ZoneArea[];
   targets: readonly Target[];
   selectedId: string | null;
   layers: Layers;
@@ -47,10 +50,14 @@ export interface MapCallbacks {
   onTarget(t: Target): void;
   /** A heat cell was clicked: open it. */
   onCell(cell: Cell): void;
+  /** A zone (on the whole sky) or its badge was clicked: fly in to it. */
+  onZone(area: ZoneArea): void;
   /** Empty sky was clicked, at screen point (x, y) inside the map. */
   onEmpty(pos: SkyPos, x: number, y: number): void;
   /** Hovering a signal (null when leaving it), at screen point (x, y) inside the map. */
   onHover(c: Candidate | null, x: number, y: number): void;
+  /** Boxes on the map covered by the page's own controls: labels keep off them. */
+  reserved?(): Box[];
 }
 
 export interface MapHandle {

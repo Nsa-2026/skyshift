@@ -1,21 +1,24 @@
-// Sky, the home page (web/DESIGN.md "Sky: the home page"). The whole SPHEREx sky as a globe you
-// can zoom into: candidates as a heat map that resolves into single pencil marks, a preview drawer
-// with a live mini blink, and the view in the URL (#/sky/<ra>,<dec>,<fov>[,gal][,mol][,kinds]).
+// Sky, the home page (web/DESIGN.md "Sky: the home page"). The whole SPHEREx sky filling the page
+// under the header: each searched zone one outline with its count, objects to check as dots when
+// zoomed in, featured targets by name. One click opens the Viewer: a dot opens that object, a
+// featured target its prepared frames, any other spot the Viewer there. The search box does the
+// same for coordinates or a name. The view lives in the URL (#/sky/<ra>,<dec>,<fov>[,gal][,mol][,kinds]).
 // Aladin Lite draws the globe; without WebGL2 a static Aitoff SVG of the same marks stands in.
 import "./atlas.css";
-import './home.css';
+import "./home.css";
+import { ApiFailure, resolve } from "../api/client";
 import type { Candidate, CandidateKind, SkyPos } from "../api/types";
 import { formatRaDec } from "../app/astro";
 import { parseCoords } from "../app/coords";
 import type { MountPage, PageContext } from "../app/modules";
-import { TARGETS, featuredNear, type Target } from "../app/state";
+import { TARGETS, featuredNear, targetBySlug, type Target } from "../app/state";
 import { browserHasWebGL2, loadAladinOnce, SkyUnavailable } from "../sky/loader";
 import { ALLWISE, SPHEREX, TWO_MASS } from "../sky/layers";
-import { createAladinMap, readInk } from "./aladin-map";
+import { createAladinMap } from "./aladin-map";
 import { loadAtlasData, type AtlasData } from "./data";
-import { kindIcon, renderCandidate, renderTarget, type DrawerHandle } from "./drawer";
+import { kindIcon } from "./drawer";
 import { createFallbackMap } from "./fallback";
-import { parseState, preparedBlinkHash, sameState, stateHash, type AtlasState } from "./hash";
+import { parseState, sameState, stateHash, type AtlasState } from "./hash";
 import { binCandidates, rampLabels, rampSteps, zoneBoxes, type Cell, type ZoneBox } from "./heat";
 import {
   KINDS,
@@ -32,11 +35,13 @@ import {
   shownSentence,
   zoneName,
 } from "./kinds";
+import type { Box } from "./labels";
 import { inView, type BackgroundId, type Layers, type MapHandle, type MapModel, type MapView } from "./map";
 import { meanPosition, sepDeg, wrap360 } from "./sphere";
-import { LEVEL_FOV, SIGNAL_FOV, SPOT_FOV, WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsSignals, wholeFov, type Level } from "./zoom";
+import { WHOLE_FOV, defaultMol, fovToOpen, heatOrder, levelFor, showsDots, showsHeat, showsSignals, wholeFov, type Level } from "./zoom";
 import { cellSideDeg } from "./healpix";
 import { liveLine, loadSearch, loadZoneSuspects, provisionalZone, type ProvisionalSet, type SearchLayer } from "./search";
+import { areaFov, areaName, badgeTexts, zoneAreas, type ZoneArea } from "./zones";
 
 const html = String.raw;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -59,110 +64,88 @@ const BACKGROUNDS: { id: BackgroundId; label: string; about: string }[] = [
 export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   el.classList.add("atl");
   el.innerHTML = html`
-    <div class="atl-intro">
-      <h1 class="atl-lede" id="atl-title">
-        Start with the sky.
-        <span class="atl-lede-2">Drag, zoom, or pick a point.</span>
-      </h1>
-      <p class="sky-survey" data-survey>Sky: 2MASS · Signals: SPHEREx</p>
-    </div>
-
-    <div class="atl-controls">
-      <div class="atl-controls-main">
-        <div class="seg" role="group" aria-label="Map shape">
-          <button type="button" data-proj="globe" aria-pressed="true" title="A globe: the sky as a sphere, half at a time">Globe</button>
-          <button type="button" data-proj="mol" aria-pressed="false" title="The whole sky at once (Mollweide projection)">Whole sky</button>
-        </div>
-        <div class="seg" role="group" aria-label="Coordinate grid">
-          <button type="button" data-frame="eq" aria-pressed="true" title="Right ascension and declination">Equatorial</button>
-          <button type="button" data-frame="gal" aria-pressed="false" title="Galactic longitude and latitude: the Milky Way runs along the equator">Galactic</button>
-        </div>
-        <div class="atl-kinds" role="group" aria-label="Kinds of object shown">
-          ${KINDS.map(
-            (k) => html`<button class="atl-kind" type="button" data-kind="${k}" aria-pressed="true" title="${KIND_TEXT[k].meaning}">
-              ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="atl-kind-n" data-kind-n="${k}"></span><span class="visually-hidden" data-kind-hidden="${k}"></span>
-            </button>`,
-          ).join("")}
-        </div>
-      </div>
-      <div class="atl-controls-side">
-        <form class="atl-find" role="search">
-          <label class="visually-hidden" for="atl-q">Fly to coordinates or a featured name</label>
-          <input id="atl-q" class="input atl-find-input" name="q" autocomplete="off" spellcheck="false" placeholder="Fly to coordinates or a name" />
-          <button class="btn atl-find-go" type="submit">Fly</button>
-        </form>
-        <button class="atl-adjust" type="button" aria-expanded="false" aria-controls="atl-more">Adjust</button>
-      </div>
-    </div>
-    <div class="atl-more" id="atl-more" hidden>
-      <div class="atl-more-row">
-        <span class="atl-more-label" id="atl-bg-label">Background</span>
-        <div class="seg" role="group" aria-labelledby="atl-bg-label">
-          ${BACKGROUNDS.map((b) => html`<button type="button" data-bg="${b.id}" aria-pressed="${b.id === "2mass"}" title="${b.about}">${b.label}</button>`).join("")}
-        </div>
-      </div>
-      <div class="atl-more-row">
-        <span class="atl-more-label" id="atl-plate-label">Plate</span>
-        <div class="seg" role="group" aria-labelledby="atl-plate-label">
-          <button type="button" data-neg="1" aria-pressed="true" title="Dark stars on light glass, as astronomers blink plates">Negative</button>
-          <button type="button" data-neg="0" aria-pressed="false" title="The survey's own colours, bright stars on dark sky">Positive</button>
-        </div>
-      </div>
-      <div class="atl-more-row">
-        <button class="atl-switch" type="button" data-layer="heat" aria-pressed="true">Heat map</button>
-        <button class="atl-switch" type="button" data-layer="zones" aria-pressed="true">Zones</button>
-        <button class="atl-switch" type="button" data-layer="signals" aria-pressed="true">Signals</button>
-        <button class="atl-switch" type="button" data-mismatch aria-pressed="false"
-          title="Moving stars faster than any star can move: almost certainly two different sources paired by mistake">Likely mismatches</button>
-      </div>
-      <div class="atl-more-row">
-        <button class="atl-switch" type="button" data-layer="search" aria-pressed="false"
-          title="The whole-sky run's zones along the ecliptic, shaded by how far tonight's search has got">Tonight's search</button>
-        <button class="atl-switch" type="button" data-layer="provisional" aria-pressed="true"
-          title="Zoomed into a searched zone: its suspects so far, as dashed rings. Not on the list to check yet: the WISE check still has to remove most of them">Provisional suspects</button>
-      </div>
-    </div>
-    <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
-
     <div class="atl-stage" data-stage>
       <div class="atl-map" data-map tabindex="0" role="region" aria-roledescription="sky map"
         aria-label="Sky map" aria-describedby="atl-keys"></div>
-      <p class="visually-hidden" id="atl-keys">Arrow keys move the map, plus and minus zoom, Enter opens the signal nearest the centre. The list below the map holds every signal in view.</p>
+      <p class="visually-hidden" id="atl-keys">Arrow keys move the map, plus and minus zoom. Enter opens the zone nearest the centre on the whole sky, and the object to check nearest the centre closer in. The list below the map holds what is in view.</p>
       <div class="atl-note" data-note role="status"><p>Loading the sky…</p></div>
       <div class="atl-tip" data-tip role="tooltip" hidden></div>
-      <div class="atl-pin" data-pin hidden>
-        <p class="atl-pin-coords" data-pin-coords></p>
-        <div class="atl-pin-actions">
-          <button class="btn btn-primary" type="button" data-pin-blink>Blink here</button>
-          <button class="btn btn-ghost" type="button" data-pin-copy>Copy</button>
-          <button class="atl-pin-x" type="button" data-pin-x aria-label="Close">×</button>
+
+      <div class="atl-top" data-top>
+        <div class="atl-intro">
+          <h1 class="atl-lede" id="atl-title">Blink any spot of NASA's SPHEREx sky and see what moved.</h1>
+          <div class="atl-controls-side">
+            <form class="atl-find" role="search">
+              <label class="visually-hidden" for="atl-q">Coordinates or a name to blink</label>
+              <input id="atl-q" class="input atl-find-input" name="q" autocomplete="off" spellcheck="false" placeholder="Coordinates or a name" />
+              <button class="btn btn-primary atl-find-go" type="submit">Blink</button>
+            </form>
+            <button class="atl-adjust" type="button" aria-expanded="false" aria-controls="atl-more">Adjust</button>
+          </div>
+          <p class="atl-msg" data-msg role="status" aria-live="polite"></p>
+        </div>
+        <div class="atl-more" id="atl-more" hidden>
+          <div class="atl-more-row">
+            <div class="seg" role="group" aria-label="Map shape">
+              <button type="button" data-proj="globe" aria-pressed="true" title="A globe: the sky as a sphere, half at a time">Globe</button>
+              <button type="button" data-proj="mol" aria-pressed="false" title="The whole sky at once (Mollweide projection)">Whole sky</button>
+            </div>
+            <div class="seg" role="group" aria-label="Coordinate grid">
+              <button type="button" data-frame="eq" aria-pressed="true" title="Right ascension and declination">Equatorial</button>
+              <button type="button" data-frame="gal" aria-pressed="false" title="Galactic longitude and latitude: the Milky Way runs along the equator">Galactic</button>
+            </div>
+          </div>
+          <div class="atl-more-row atl-kinds" role="group" aria-label="Kinds of object shown">
+            ${KINDS.map(
+              (k) => html`<button class="atl-kind" type="button" data-kind="${k}" aria-pressed="true" title="${KIND_TEXT[k].meaning}">
+                ${kindIcon(k, 18)}<span>${KIND_TEXT[k].plural}</span><span class="atl-kind-n" data-kind-n="${k}"></span><span class="visually-hidden" data-kind-hidden="${k}"></span>
+              </button>`,
+            ).join("")}
+          </div>
+          <div class="atl-more-row">
+            <span class="atl-more-label" id="atl-bg-label">Background</span>
+            <div class="seg" role="group" aria-labelledby="atl-bg-label">
+              ${BACKGROUNDS.map((b) => html`<button type="button" data-bg="${b.id}" aria-pressed="${b.id === "2mass"}" title="${b.about}">${b.label}</button>`).join("")}
+            </div>
+          </div>
+          <div class="atl-more-row">
+            <span class="atl-more-label" id="atl-plate-label">Plate</span>
+            <div class="seg" role="group" aria-labelledby="atl-plate-label">
+              <button type="button" data-neg="1" aria-pressed="false" title="Dark stars on light glass, as astronomers blink plates">Negative</button>
+              <button type="button" data-neg="0" aria-pressed="true" title="The survey's own colours, bright stars on dark sky">Positive</button>
+            </div>
+          </div>
+          <div class="atl-more-row">
+            <button class="atl-switch" type="button" data-layer="zones" aria-pressed="true">Zones</button>
+            <button class="atl-switch" type="button" data-layer="signals" aria-pressed="true">Objects to check</button>
+            <button class="atl-switch" type="button" data-layer="heat" aria-pressed="false"
+              title="Objects to check counted per sky cell, a darker red for more">Heat map</button>
+            <button class="atl-switch" type="button" data-mismatch aria-pressed="false"
+              title="Moving stars faster than any star can move: almost certainly two different sources paired by mistake">Likely mismatches</button>
+          </div>
+          <div class="atl-more-row">
+            <button class="atl-switch" type="button" data-layer="search" aria-pressed="false"
+              title="The whole-sky run's zones along the ecliptic, shaded by how far tonight's search has got">Tonight's search</button>
+            <button class="atl-switch" type="button" data-layer="provisional" aria-pressed="true"
+              title="Zoomed into a searched zone: its suspects so far, as dashed rings. Not on the list to check yet: the WISE check still has to remove most of them">Provisional suspects</button>
+          </div>
+          <p class="atl-more-note" data-survey>Sky: 2MASS. Objects to check: SPHEREx.</p>
         </div>
       </div>
+
       <p class="atl-status" data-status aria-live="polite"></p>
       <div class="atl-zoom" role="group" aria-label="Zoom">
         <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
         <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" data-zoom="all" title="Back to the whole sky">Whole sky</button>
       </div>
-      <button class="btn atl-continue" type="button" data-show-paths>Choose your next step ↓</button>
-      <aside class="atl-drawer" data-drawer aria-labelledby="atl-dr-title" hidden></aside>
     </div>
 
-    <section class="sky-paths" data-paths aria-labelledby="sky-paths-title">
-      <div class="sky-paths-head"><h2 id="sky-paths-title">Continue with this sky</h2><p data-current-sky>Pick a point, or use the centre of the map.</p></div>
-      <div class="sky-paths-grid">
-        <a href="#/explore" data-enter-area="explore"><strong>Explore <span aria-hidden="true">↗</span></strong><span>Watch the sky change. Try a guided observation.</span></a>
-        <a href="#/analyze" data-enter-area="analyze"><strong>Analyze <span aria-hidden="true">↗</span></strong><span>Measure a change and check the evidence.</span></a>
-        <a href="#/research" data-enter-area="research"><strong>Research <span aria-hidden="true">↗</span></strong><span>Trace the data, methods and uncertainties.</span></a>
-      </div>
-      <p class="sky-paths-note">Choose any path, switch whenever you like, and return to this sky.</p>
-    </section>
-
     <div class="atl-below">
-      <div class="atl-count-box"><p class="atl-count" data-count aria-live="polite">Loading the list…</p><p class="atl-count-note">${LIST_NOTE}</p><a class="atl-live" href="#/research/live" data-live hidden></a></div>
+      <div class="atl-count-box"><p class="atl-count" data-count aria-live="polite">Loading the list…</p><p class="atl-count-note">${LIST_NOTE}</p><a class="atl-live" href="#/live" data-live hidden></a></div>
       <p class="atl-key" data-key></p>
       <div class="atl-listbox">
-        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle disabled>Signals in view</button>
+        <button class="atl-list-toggle" type="button" aria-expanded="false" aria-controls="atl-list" data-list-toggle disabled>In view</button>
         <ol class="atl-list" id="atl-list" data-list hidden></ol>
       </div>
       <p class="atl-source" data-source></p>
@@ -178,8 +161,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const statusEl = q<HTMLParagraphElement>("[data-status]");
   const msgEl = q<HTMLParagraphElement>("[data-msg]");
   const tip = q<HTMLDivElement>("[data-tip]");
-  const pin = q<HTMLDivElement>("[data-pin]");
-  const drawerEl = q<HTMLElement>("[data-drawer]");
   const keyEl = q<HTMLParagraphElement>("[data-key]");
   const listEl = q<HTMLOListElement>("[data-list]");
   const listToggle = q<HTMLButtonElement>("[data-list-toggle]");
@@ -187,12 +168,18 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   const input = q<HTMLInputElement>("#atl-q");
   const adjust = q<HTMLButtonElement>(".atl-adjust");
   const more = q<HTMLDivElement>("#atl-more");
-  more.prepend(q<HTMLElement>('.atl-controls-main'));
 
-  /** The stage bleeds to the window's edges and ends at the bottom of the first screen. */
+  /**
+   * The stage bleeds to the window's edges, whatever the page's own gutters, and ends at the
+   * bottom of the first screen: its offset and width come from where the page actually sits.
+   */
   function measure() {
     try {
-      el.style.setProperty("--atl-vw", `${document.documentElement.clientWidth}px`);
+      const vw = document.documentElement.clientWidth;
+      const cs = getComputedStyle(el);
+      const left = el.getBoundingClientRect().left + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.borderLeftWidth) || 0);
+      el.style.setProperty("--atl-vw", `${vw}px`);
+      el.style.setProperty("--atl-left", `${-Math.round(left)}px`);
       const top = stage.getBoundingClientRect().top + scrollY;
       if (top > 0) el.style.setProperty("--atl-top", `${Math.round(top)}px`);
     } catch {
@@ -201,13 +188,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   const reduced = prefersReducedMotion();
-  const ink = readInk();
 
   // ---- state ---------------------------------------------------------------------------------
   let state: AtlasState = { ra: 0, dec: 0, fov: WHOLE_FOV, gal: false, mol: false, kinds: [...KINDS] };
-  let layers: Layers = { heat: true, zones: true, signals: true, search: false, provisional: true, background: "2mass", negative: false };
-  stage.classList.add('is-positive');
-  el.querySelectorAll<HTMLButtonElement>('[data-neg]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.neg==='0')));
+  // No heat map by default: each zone is one outline with its count, and objects show as dots closer in.
+  let layers: Layers = { heat: false, zones: true, signals: true, search: false, provisional: true, background: "2mass", negative: false };
+  stage.classList.add("is-positive");
   /** Tonight's search (the sky run's progress file), refreshed every minute while the page shows. */
   let search: SearchLayer | null = null;
   /** The provisional suspects of the combined zone in view, when zoomed in on one. */
@@ -215,10 +201,9 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let data: AtlasData | null = null;
   let shown: Candidate[] = [];
   let zones: ZoneBox[] = [];
+  let areas: ZoneArea[] = [];
   const cellCache = new Map<number, Cell[]>();
-  let selected: Candidate | null = null;
-  let focusSky:Parameters<NonNullable<PageContext['skySelection']>>[0]|null=null;
-  let drawer: DrawerHandle | null = null;
+  let focusSky: Parameters<NonNullable<PageContext["skySelection"]>>[0] | null = null;
   let map: MapHandle | null = null;
   let mapStarting = false;
   let visible = false;
@@ -226,12 +211,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   let destroyed = false;
   // Route changes can arrive while the candidates/CDN are still loading.
   let requestedParam: string | null = null;
-  let pinPos: SkyPos | null = null;
-  let pinAt: { x: number; y: number } | null = null;
   let level: Level = "whole";
-  /** "Next nearby" walks outward without revisiting: ids seen in this chain. */
-  let chain = new Set<string>();
-  let lastFocus: HTMLElement | null = null;
 
   const cellsAt = (order: number): Cell[] => {
     let c = cellCache.get(order);
@@ -243,7 +223,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   };
 
   function model(): MapModel {
-    return { candidates: shown, cellsAt, zones, targets: TARGETS, selectedId: selected?.id ?? null, layers, search, provisional };
+    return { candidates: shown, cellsAt, areas, targets: TARGETS, selectedId: null, layers, search, provisional };
   }
 
   /** Likely mismatches (implausible_pm) stay off the map unless Adjust turns them on. */
@@ -254,7 +234,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     const all = data?.candidates ?? [];
     shown = all.filter(onMap);
     cellCache.clear();
-    if (selected && !onMap(selected)) closeDrawer();
   }
 
   // ---- tonight's search --------------------------------------------------------------------
@@ -333,7 +312,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     provisional = next;
     map?.update(model());
     renderKey();
-    if (map) renderStatus(map.view());
+    if (map) renderStatus();
   }
 
   /** Zoomed in (< 8°) on a combined zone of tonight's run: load and show its provisional suspects. */
@@ -427,8 +406,9 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   }
 
   function renderKey() {
-    const sig = showsSignals(level);
-    if (!sig) {
+    const zonesKey = layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones searched so far, each with how many objects it has to check. ` : "";
+    const heat = (() => {
+      if (!layers.heat || !showsHeat(level)) return "";
       const order = heatOrder(state.fov, stage.clientWidth || 800);
       const cells = cellsAt(order);
       const steps = rampSteps(cells.reduce((m, c) => Math.max(m, c.count), 0));
@@ -440,9 +420,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
           return `<span class="atl-swatch" style="--a:${a.toFixed(3)}" aria-hidden="true"></span>${esc(labels[i])}`;
         })
         .join(" ");
-      keyEl.innerHTML = `Red cells: objects to check per ${side >= 3 ? Math.round(side) : side.toFixed(1)}° cell, ${sw}. ${
-        layers.zones ? `<span class="atl-key-zone" aria-hidden="true"></span>Outlined: the zones with objects to check. ` : ""
-      }${kindIcon("target", 16)} Featured targets.${searchKey()}`;
+      return `Red cells: objects to check per ${side >= 3 ? Math.round(side) : side.toFixed(1)}° cell, ${sw}. `;
+    })();
+    if (level === "whole") {
+      keyEl.innerHTML = `${zonesKey}${heat}${kindIcon("target", 16)} Featured targets. Click a zone to zoom in, a target or any other spot to blink it.${searchKey()}`;
+    } else if (level === "mid") {
+      keyEl.innerHTML = `${zonesKey}${heat}Dots: objects to check, red for movers and moving stars, violet for odd spectra. Zoom in to see what kind each is. ${kindIcon("target", 16)} Featured targets.${searchKey()}`;
     } else {
       const gradeC = shown.some(isGradeC)
         ? ` <span class="atl-key-group is-gradec">${kindIcon("mover", 16)} Grey: grade C, fails a pipeline check (not put to a vote).</span>`
@@ -469,44 +452,39 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }. Not on the list to check yet. ${esc(note)}</span>`;
   }
 
-  function renderStatus(v: MapView) {
+  const inViewNow = () => (map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }) : []);
+
+  function renderStatus() {
     if (!data) return;
-    const all = data.candidates.length;
-    if (!all) {
-      statusEl.textContent = "Nothing to show yet.";
+    if (!data.candidates.length) {
+      statusEl.textContent = "Click any spot to blink it.";
       return;
     }
     if (level === "whole") {
-      // Say why the map holds fewer than the intro's total when likely mismatches are hidden.
+      // Say why the map holds fewer than the total when likely mismatches are hidden.
       const hidden = mismatches ? 0 : data.candidates.filter((c) => state.kinds.includes(c.kind) && isLikelyMismatch(c)).length;
-      statusEl.textContent = `${shownSentence(shown.length, hidden, zones.length)} Zoom into a red patch.`;
-    } else if (level === "mid") {
-      const n = map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }).length : 0;
-      statusEl.textContent = n ? `${plural(n, "object", "objects")} to check in view. Zoom in to see each one.` : "Nothing to check here. Zoom out to find a red patch.";
-    } else {
-      const n = map ? inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }).length : 0;
-      const prov = provisionalSentence();
-      statusEl.textContent = n
-        ? `${plural(n, "signal", "signals")} in view. Click one to preview its blink.${prov}`
-        : prov
-          ? `Nothing to check here.${prov}`
-          : "No signals here. Zoom out to find a red patch.";
+      statusEl.textContent = `${shownSentence(shown.length, hidden, zones.length)} Click a zone to zoom in, or any spot to blink it.`;
+      return;
     }
-    void v;
+    const n = layers.signals ? inViewNow().length : 0;
+    const prov = provisionalSentence();
+    statusEl.textContent = n
+      ? `${plural(n, "object", "objects")} to check in view. Click ${level === "mid" ? "a dot" : "one"} to open it, or any other spot to blink it.${prov}`
+      : `Nothing to check here. Click any spot to blink it.${prov}`;
   }
 
-  /** The keyboard path: signals in view at close range, the busiest places otherwise. */
+  /** The keyboard path: the zones on the whole sky, the objects in view closer in. */
   function renderList() {
     if (!map || !data) {
-      listToggle.textContent = "Signals in view";
+      listToggle.textContent = "In view";
       listToggle.disabled = true;
       return;
     }
     listToggle.disabled = false;
-    if (showsSignals(level)) {
+    if (showsDots(level) && layers.signals) {
       // Nearest the centre first, grade C after the rest (C never leads a list).
-      const items = gradeCLast(inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight }));
-      listToggle.textContent = `Signals in view (${countText(items.length)})`;
+      const items = gradeCLast(inViewNow());
+      listToggle.textContent = `Objects to check in view (${countText(items.length)})`;
       listEl.innerHTML = items.length
         ? items
             .slice(0, LIST_MAX)
@@ -514,18 +492,16 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
               (c) => html`<li><button type="button" class="atl-list-item${isGradeC(c) ? " is-gradec" : ""}" data-id="${esc(c.id)}">${kindIcon(c.kind, 16)}<span>${esc(oneLine(c))}</span><span class="atl-list-pos">${esc(formatRaDec(c))}</span></button></li>`,
             )
             .join("") + (items.length > LIST_MAX ? `<li class="atl-list-more">${countText(items.length - LIST_MAX)} more: zoom in to narrow the list.</li>` : "")
-        : `<li class="atl-list-more">No signals in view.</li>`;
+        : `<li class="atl-list-more">Nothing to check in view.</li>`;
     } else {
-      const order = heatOrder(state.fov, stage.clientWidth || 800);
-      const cells = cellsAt(order).slice(0, 12);
-      listToggle.textContent = `Busiest places (${cells.length})`;
-      listEl.innerHTML = cells.length
-        ? cells
+      listToggle.textContent = `Searched zones (${areas.length})`;
+      listEl.innerHTML = areas.length
+        ? areas
             .map(
-              (c) => html`<li><button type="button" class="atl-list-item" data-cell="${c.pix}" data-order="${order}"><span class="atl-swatch" style="--a:0.6" aria-hidden="true"></span><span>${esc(plural(c.count, "object", "objects"))}</span><span class="atl-list-pos">near ${esc(formatRaDec(c.center))}</span></button></li>`,
+              (a) => html`<li><button type="button" class="atl-list-item" data-area="${esc(a.id)}"><span class="atl-key-zone" aria-hidden="true"></span><span>${esc(badgeTexts(a)[0])}</span><span class="atl-list-pos">near ${esc(formatRaDec(a.center))}</span></button></li>`,
             )
             .join("")
-        : `<li class="atl-list-more">Nothing of these kinds.</li>`;
+        : `<li class="atl-list-more">No zones searched yet.</li>`;
     }
   }
 
@@ -540,7 +516,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     publishSky();
     writeHash();
     hideTip();
-    placePin();
     if (changed) renderKey();
     // The list and the status are cheap but not free: once the view settles.
     if (viewRaf) clearTimeout(viewRaf);
@@ -548,111 +523,24 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       viewRaf = null;
       if (!visible || destroyed) return;
       updateProvisional(v);
-      renderStatus(v);
+      renderStatus();
       renderList();
     }, 120);
   }
 
-  // ---- drawer ------------------------------------------------------------------------------
-  function openDrawer(fill: (el: HTMLElement) => DrawerHandle) {
-    drawer?.destroy();
-    if (!drawerEl.contains(document.activeElement)) lastFocus = document.activeElement as HTMLElement | null;
-    drawerEl.hidden = false;
-    stage.classList.add("has-drawer");
-    drawer = fill(drawerEl);
-    drawerEl.scrollTop = 0;
-    q<HTMLElement>("#atl-dr-title")?.focus({ preventScroll: true });
-    // On a phone the drawer is a sheet over the lower half: bring the map to the top so the
-    // chosen mark, at the map's centre, stays in sight above it.
-    if (phone()) {
-      const top = stage.getBoundingClientRect().top;
-      if (Math.abs(top) > 4) window.scrollBy({ top, behavior: reduced ? "auto" : "smooth" });
-    }
-  }
-
-  function phone(): boolean {
-    try {
-      return matchMedia("(max-width: 720px)").matches;
-    } catch {
-      return false;
-    }
-  }
-
-  function closeDrawer() {
-    drawer?.destroy();
-    drawer = null;
-    drawerEl.hidden = true;
-    stage.classList.remove("has-drawer");
-    const had = selected;
-    selected = null;
-    focusSky=null;publishSky();
-    chain = new Set();
-    if (had) map?.update(model());
-    // The list re-renders when the map flies to a signal, so the button that opened the drawer may
-    // be gone: fall back to its new copy, then the map, never to the page's top.
-    const back =
-      lastFocus && document.contains(lastFocus)
-        ? lastFocus
-        : ([...listEl.querySelectorAll<HTMLElement>("button[data-id]")].find((b) => had && b.dataset.id === had.id) ?? mapEl);
-    back.focus({ preventScroll: true });
-    lastFocus = null;
-  }
-
-  function nextNearby(from: Candidate): Candidate | null {
-    let best: Candidate | null = null;
-    let bestD = Infinity;
-    for (const c of shown) {
-      if (c.id === from.id || chain.has(c.id)) continue;
-      const d = sepDeg(c, from);
-      if (d < bestD) {
-        bestD = d;
-        best = c;
-      }
-    }
-    return best;
-  }
-
-  function selectCandidate(c: Candidate, opts: { fly?: boolean; keepChain?: boolean } = {}) {
-    hidePin();
-    hideTip();
-    if (!opts.keepChain) chain = new Set();
-    chain.add(c.id);
-    selected = c;
-    focusSky={ra:c.ra,dec:c.dec,clock:c.clock,det:c.det};publishSky();
-    map?.update(model());
-    if (opts.fly && map) {
-      const v = map.view();
-      const fov = showsSignals(levelFor(v.fov)) ? v.fov : SIGNAL_FOV;
-      map.flyTo({ ra: c.ra, dec: c.dec, fov }, !reduced);
-    }
-    openDrawer((d) =>
-      renderCandidate(d, c, {
-        reducedMotion: reduced,
-        red: ink.red,
-        hasNext: shown.length > chain.size,
-        handlers: {
-          review: (k) => ctx.navigate(`#/c/${encodeURIComponent(k.id)}`),
-          blink: (k) => {
-            // Static first: prepared frames open on the object's own page; the live API only without them.
-            const prepared = preparedBlinkHash(k);
-            if (prepared) ctx.navigate(prepared);
-            else ctx.explore({ ra: k.ra, dec: k.dec, clock: k.clock, det: k.det });
-          },
-          next: (k) => {
-            const n = nextNearby(k);
-            if (n) selectCandidate(n, { fly: true, keepChain: true });
-          },
-          close: closeDrawer,
-        },
-      }),
-    );
+  // ---- one click to the Viewer -----------------------------------------------------------------
+  /** An object to check opens on its own page, its spot in the Viewer. */
+  function openCandidate(c: Candidate) {
+    ctx.navigate(`#/c/${encodeURIComponent(c.id)}`);
   }
 
   /** Featured targets open their prepared frames (static first). */
   function openTarget(t: Target) {
-    if(ctx.skySelection){
-      focusSky={ra:t.ra,dec:t.dec,clock:t.clock,det:t.det,slug:t.slug};publishSky();
-      ctx.navigate('#/explore');return;
+    if (ctx.skySelection) {
+      focusSky = { ra: t.ra, dec: t.dec, clock: t.clock, det: t.det, slug: t.slug };
+      publishSky();
+      ctx.navigate("#/explore");
+      return;
     }
     // The shell's explore() finds a months target at its own spot.
     if (featuredNear(t)?.slug === t.slug) return ctx.explore({ ra: t.ra, dec: t.dec });
@@ -662,48 +550,23 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     ctx.navigate("#/explore");
   }
 
-  function selectTarget(t: Target) {
-    hidePin();
-    selected = null;
-    focusSky={ra:t.ra,dec:t.dec,clock:t.clock,det:t.det,slug:t.slug};publishSky();
-    map?.update(model());
-    openDrawer((d) => renderTarget(d, t, { open: openTarget, close: closeDrawer }));
+  /** Any other spot: the Viewer there (a featured target's prepared frames when it is in one's field). */
+  function openSpot(pos: SkyPos) {
+    const p = { ra: wrap360(pos.ra), dec: pos.dec };
+    const near = featuredNear(p);
+    if (near) return openTarget(near);
+    ctx.explore(p);
   }
 
-  // ---- pin, tooltip --------------------------------------------------------------------------
-  function placePin() {
-    if (!pinPos || !map) return;
-    const p = map.screenOf(pinPos);
-    if (!p || p.x < 0 || p.y < 0 || p.x > stage.clientWidth || p.y > stage.clientHeight) {
-      pin.style.visibility = "hidden";
-      return;
-    }
-    pin.style.visibility = "";
-    pinAt = p;
-    const w = pin.offsetWidth || 240;
-    const x = Math.max(8, Math.min(stage.clientWidth - w - 8, p.x - w / 2));
-    const y = p.y + 14 + (pin.offsetHeight || 80) > stage.clientHeight - 8 ? p.y - (pin.offsetHeight || 80) - 14 : p.y + 14;
-    pin.style.transform = `translate(${Math.round(x)}px, ${Math.round(Math.max(8, y))}px)`;
+  /** A zone: fly in until its objects show as dots. */
+  function openArea(a: ZoneArea) {
+    hideTip();
+    const w = stage.clientWidth;
+    const h = stage.clientHeight;
+    map?.flyTo({ ...a.center, fov: areaFov(a, w > 0 && h > 0 ? w / h : 1) }, !reduced);
   }
 
-  function showPin(pos: SkyPos) {
-    if(!drawerEl.hidden)closeDrawer();
-    pinPos = { ra: wrap360(pos.ra), dec: pos.dec };
-    focusSky=pinPos;publishSky();
-    const near = featuredNear(pinPos);
-    q<HTMLParagraphElement>("[data-pin-coords]").textContent = near ? `${formatRaDec(pinPos)}, by ${near.name}` : formatRaDec(pinPos);
-    pin.hidden = false;
-    placePin();
-  }
-
-  function hidePin() {
-    if(pinPos){focusSky=null;publishSky();}
-    pinPos = null;
-    pinAt = null;
-    pin.hidden = true;
-  }
-  void pinAt;
-
+  // ---- tooltip -------------------------------------------------------------------------------
   function hideTip() {
     tip.hidden = true;
   }
@@ -718,23 +581,36 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
   }
 
+  /** The controls floating over the map, in the map's coordinates: names and badges keep off them. */
+  function reserved(): Box[] {
+    const s = stage.getBoundingClientRect();
+    const out: Box[] = [];
+    for (const n of stage.querySelectorAll<HTMLElement>(".atl-intro, .atl-more, .atl-status, .atl-zoom")) {
+      if (n.hidden || !n.offsetParent) continue;
+      const r = n.getBoundingClientRect();
+      if (!(r.width > 0) || !(r.height > 0)) continue;
+      out.push({ x0: r.left - s.left, y0: r.top - s.top, x1: r.right - s.left, y1: r.bottom - s.top });
+    }
+    return out;
+  }
+
   // ---- the map -------------------------------------------------------------------------------
   const callbacks = {
     onView,
-    onSignal: (c: Candidate) => selectCandidate(c),
-    onTarget: (t: Target) => selectTarget(t),
+    onSignal: (c: Candidate) => openCandidate(c),
+    onTarget: (t: Target) => openTarget(t),
     onCell: (cell: Cell) => {
-      hidePin();
       if (!map) return;
       const lvl = levelFor(map.view().fov);
       map.flyTo({ ...cell.center, fov: fovToOpen(cellSideDeg(cell.order), lvl) }, !reduced);
     },
+    onZone: (a: ZoneArea) => openArea(a),
     onEmpty: (pos: SkyPos) => {
       hideTip();
-      if (pinPos && sepDeg(pinPos, pos) < 1e-6) return;
-      showPin(pos);
+      openSpot(pos);
     },
     onHover: (c: Candidate | null, x: number, y: number) => showTip(c, x, y),
+    reserved,
   };
 
   function showNote(text: string | null) {
@@ -750,11 +626,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     map = createFallbackMap(mapEl, { view: { ra: state.ra, dec: state.dec, fov: state.fov }, gal: state.gal }, callbacks);
     map.update(model());
     showNote(null);
-    msg(
-      reason
-        ? `The globe can't open here (${reason}), so this is a flat map of the same objects. Click a red cell to look closer.`
-        : null,
-    );
+    msg(reason ? `The globe can't open here (${reason}), so this is a flat map of the same objects. Click a zone to look closer.` : null);
     el.querySelectorAll<HTMLButtonElement>("[data-proj], [data-bg], [data-neg]").forEach((b) => (b.disabled = true));
     afterMapReady();
   }
@@ -780,7 +652,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       if (import.meta.env.DEV) console.error("Sky: the globe failed, using the flat map.", e);
       // Clear whatever Aladin left behind before the flat map takes the stage.
       map?.destroy();
-      mapEl.querySelectorAll(".atl-aladin").forEach((n) => n.remove());
+      mapEl.querySelectorAll(".atl-aladin, .atl-labelcanvas").forEach((n) => n.remove());
       map = null;
       startFallback(e instanceof SkyUnavailable ? e.reason : "the sky viewer couldn't start");
     } finally {
@@ -791,10 +663,12 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function afterMapReady() {
     if (!map) return;
     const v = map.view();
-    state={...state,ra:v.ra,dec:v.dec,fov:v.fov};publishSky();
+    state = { ...state, ra: v.ra, dec: v.dec, fov: v.fov };
+    publishSky();
     level = levelFor(v.fov);
+    stage.classList.toggle("is-whole", level === "whole");
     renderKey();
-    renderStatus(v);
+    renderStatus();
     renderList();
     writeHash(true);
   }
@@ -802,25 +676,23 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
   function publishSky() {
     // The whole-sky view's centre is not a choice: carry nothing, and the areas open on a
     // featured target (prepared frames) instead of building a live field at an arbitrary spot.
-    const at=focusSky??(levelFor(state.fov)==='whole'?null:{ra:state.ra,dec:state.dec});
-    q<HTMLElement>('[data-current-sky]').textContent=at?`Your sky: ${formatRaDec(at)}`:
-      'Pick a point or zoom in to take this sky with you. From the whole sky, the areas open on a featured target.';
-    ctx.skySelection?.(at,stateHash(state));
+    const at = focusSky ?? (levelFor(state.fov) === "whole" ? null : { ra: state.ra, dec: state.dec });
+    ctx.skySelection?.(at, stateHash(state));
   }
 
   function msg(text: string | null, kind: "info" | "error" = "info") {
     msgEl.textContent = text ?? "";
     msgEl.dataset.kind = kind;
-    measure();
+    // The message moves the controls' edge: names on the map keep off it.
+    map?.update(model());
   }
 
-  /** Default view: the globe turned to face the most candidates. */
   /**
-   * Default view: the whole sky turned to face the most candidates. A wide map opens on the
-   * whole-sky ellipse (all of it fits); a tall one (a phone) on the globe, which fills it.
+   * Default view: the whole sky turned to face the busiest zone. A wide map opens on the
+   * whole-sky ellipse; a tall one (a phone) on the globe, which fills it.
    */
   function defaultState(): AtlasState {
-    const c = zones[0]?.center ?? meanPosition(data?.candidates ?? []) ?? { ra: 0, dec: 0 };
+    const c = areas[0]?.center ?? meanPosition(data?.candidates ?? []) ?? { ra: 0, dec: 0 };
     const mol = defaultMol(stage.clientWidth, stage.clientHeight);
     return { ra: c.ra, dec: c.dec, fov: wholeFov(mol), gal: false, mol, kinds: [...KINDS] };
   }
@@ -856,6 +728,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     }
     if (destroyed) return;
     zones = zoneBoxes(data.candidates);
+    areas = zoneAreas(zones);
     const fromUrl = parseState(requestedParam);
     state = fromUrl ?? defaultState();
     refilter();
@@ -910,24 +783,23 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       map?.update(model());
       renderKey();
       if (map) {
-        renderStatus(map.view());
+        renderStatus();
         renderList();
       }
       writeHash();
     }),
   );
-  adjust.addEventListener("click", () => {
-    const open = adjust.getAttribute("aria-expanded") !== "true";
+  function setAdjust(open: boolean) {
     adjust.setAttribute("aria-expanded", String(open));
     more.hidden = !open;
-    measure();
-  });
-  q<HTMLButtonElement>('[data-show-paths]').addEventListener('click',()=>q<HTMLElement>('[data-paths]').scrollIntoView({block:'start',behavior:reduced?'auto':'smooth'}));
+    map?.update(model());
+  }
+  adjust.addEventListener("click", () => setAdjust(adjust.getAttribute("aria-expanded") !== "true"));
   el.querySelectorAll<HTMLButtonElement>("[data-bg]").forEach((b) =>
     b.addEventListener("click", () => {
       layers = { ...layers, background: b.dataset.bg as BackgroundId };
       syncSeg("[data-bg]", layers.background, "bg");
-      q<HTMLElement>('[data-survey]').textContent=`Sky: ${BACKGROUNDS.find(b=>b.id===layers.background)!.label} · Signals: SPHEREx`;
+      q<HTMLElement>("[data-survey]").textContent = `Sky: ${BACKGROUNDS.find((x) => x.id === layers.background)!.label}. Objects to check: SPHEREx.`;
       map?.update(model());
     }),
   );
@@ -947,7 +819,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     map?.update(model());
     renderKey();
     if (map) {
-      renderStatus(map.view());
+      renderStatus();
       renderList();
     }
   });
@@ -958,79 +830,61 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       b.setAttribute("aria-pressed", String(layers[key]));
       map?.update(model());
       renderKey();
-      if (map && key === "provisional") {
-        updateProvisional(map.view());
-        renderStatus(map.view());
+      if (map) {
+        if (key === "provisional") updateProvisional(map.view());
+        renderStatus();
+        renderList();
       }
     }),
   );
 
-  q<HTMLFormElement>(".atl-find").addEventListener("submit", (ev) => {
+  // The search box opens the Viewer: coordinates or a featured name at once, an object to check
+  // by its id, a zone by its name on the map, anything else through the name list (/api/resolve).
+  let resolveCtl: AbortController | null = null;
+  q<HTMLFormElement>(".atl-find").addEventListener("submit", async (ev) => {
     ev.preventDefault();
+    resolveCtl?.abort();
+    resolveCtl = null;
     const text = input.value.trim();
     if (!text) return;
     msg(null);
     const pos = parseCoords(text);
+    if (pos) return openSpot(pos);
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (pos) {
-      map?.flyTo({ ...pos, fov: SPOT_FOV }, !reduced);
-      showPin(pos);
-      return;
-    }
     const t = TARGETS.find((x) => [x.name, x.short, x.slug].some((n) => norm(n) === norm(text) || (norm(text).length >= 4 && norm(n).includes(norm(text)))));
-    if (t) {
-      map?.flyTo({ ra: t.ra, dec: t.dec, fov: SPOT_FOV }, !reduced);
-      selectTarget(t);
-      return;
-    }
+    if (t) return openTarget(t);
     const c = data?.candidates.find((x) => x.id === text);
-    if (c) {
-      if (!onMap(c)) {
-        state = { ...state, kinds: KINDS.filter((k) => k === c.kind || state.kinds.includes(k)) };
-        if (isLikelyMismatch(c)) {
-          mismatches = true;
-          q<HTMLButtonElement>("[data-mismatch]").setAttribute("aria-pressed", "true");
-          renderCounts();
-        }
-        refilter();
-        syncKindButtons();
-      }
-      selectCandidate(c, { fly: true });
-      return;
-    }
-    const z = zones.find((x) => norm(zoneName(x.zone)).startsWith(norm(text)) || norm(x.zone) === norm(text));
-    if (z) {
-      map?.flyTo({ ...z.center, fov: Math.max(2, Math.min(LEVEL_FOV.whole * 0.75, (z.dec1 - z.dec0) * 2.2)) }, !reduced);
-      return;
-    }
-    msg(`“${text}” isn't coordinates or a featured name. Try 122.55 17.00, 08h10m12s +17d00m13s or Barnard's Star.`, "error");
-  });
-
-  q<HTMLButtonElement>("[data-pin-blink]").addEventListener("click", () => {
-    if (!pinPos) return;
-    const p = pinPos;
-    hidePin();
-    const near = featuredNear(p);
-    if (near) openTarget(near);
-    else ctx.explore({ ra: p.ra, dec: p.dec });
-  });
-  q<HTMLButtonElement>("[data-pin-copy]").addEventListener("click", (ev) => {
-    if (!pinPos) return;
-    const btn = ev.currentTarget as HTMLButtonElement;
-    const text = `${pinPos.ra.toFixed(6)} ${pinPos.dec.toFixed(6)}`;
+    if (c) return openCandidate(c);
+    const a = areas.find((x) => x.zones.some((z) => norm(zoneName(z)).startsWith(norm(text)) || norm(z) === norm(text)) || norm(areaName(x)) === norm(text));
+    if (a) return openArea(a);
+    const ctl = new AbortController();
+    resolveCtl = ctl;
+    msg("Looking up the name…");
     try {
-      navigator.clipboard.writeText(text).then(
-        () => {
-          btn.textContent = "Copied";
-          setTimeout(() => (btn.textContent = "Copy"), 1400);
-        },
-        () => (btn.textContent = "Copy failed"),
+      const r = await resolve(text, ctl.signal);
+      if (ctl.signal.aborted || destroyed) return;
+      msg(null);
+      const known = targetBySlug(r.slug);
+      if (known) openTarget(known);
+      else openSpot({ ra: r.ra, dec: r.dec });
+    } catch (e) {
+      if (ctl.signal.aborted || destroyed) return;
+      msg(
+        e instanceof ApiFailure && e.status === 404
+          ? `“${text}” isn't a name we know. Paste coordinates instead, like 122.55 17.00 or 08h10m12s +17d00m13s.`
+          : `Couldn't look up “${text}”. Paste coordinates like 122.55 17.00 or 08h10m12s +17d00m13s, or try Barnard's Star.`,
+        "error",
       );
-    } catch {
-      btn.textContent = "Copy failed";
+    } finally {
+      if (resolveCtl === ctl) resolveCtl = null;
     }
   });
-  q<HTMLButtonElement>("[data-pin-x]").addEventListener("click", hidePin);
+  input.addEventListener("input", () => {
+    if (!resolveCtl && msgEl.dataset.kind !== "error") return;
+    resolveCtl?.abort();
+    resolveCtl = null;
+    msg(null);
+  });
 
   el.querySelectorAll<HTMLButtonElement>("[data-zoom]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -1052,15 +906,14 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
     if (!b || !map) return;
     if (b.dataset.id) {
       const c = shown.find((x) => x.id === b.dataset.id);
-      if (c) selectCandidate(c, { fly: true });
-    } else if (b.dataset.cell) {
-      const order = Number(b.dataset.order);
-      const cell = cellsAt(order).find((c) => c.pix === Number(b.dataset.cell));
-      if (cell) map.flyTo({ ...cell.center, fov: fovToOpen(cellSideDeg(order), levelFor(map.view().fov)) }, !reduced);
+      if (c) openCandidate(c);
+    } else if (b.dataset.area) {
+      const a = areas.find((x) => x.id === b.dataset.area);
+      if (a) openArea(a);
     }
   });
 
-  // Keyboard on the map: arrows pan, + and − zoom, Enter opens the signal nearest the centre.
+  // Keyboard on the map: arrows pan, + and − zoom, Enter opens the zone or object nearest the centre.
   mapEl.addEventListener("keydown", (ev) => {
     if (!map) return;
     const k = ev.key;
@@ -1076,39 +929,32 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       map.zoomBy(1.6);
     } else if (k === "Enter") {
       ev.preventDefault();
-      if (showsSignals(level)) {
-        const first = inView(shown, map, { w: stage.clientWidth, h: stage.clientHeight })[0];
-        if (first) selectCandidate(first);
-      } else {
-        const order = heatOrder(state.fov, stage.clientWidth || 800);
-        const v = map.view();
-        const cell = [...cellsAt(order)].sort((a, b) => sepDeg(a.center, v) - sepDeg(b.center, v))[0];
-        if (cell) callbacks.onCell(cell);
-      }
+      const first = showsDots(level) && layers.signals ? inViewNow()[0] : null;
+      if (first) return openCandidate(first);
+      const v = map.view();
+      const a = [...areas].sort((x, y) => sepDeg(x.center, v) - sepDeg(y.center, v))[0];
+      if (a && level === "whole") openArea(a);
     }
   });
 
   const onKey = (ev: KeyboardEvent) => {
-    if (ev.key !== "Escape" || !visible) return;
-    if (!pin.hidden) hidePin();
-    else if (!drawerEl.hidden) closeDrawer();
+    if (ev.key !== "Escape" || !visible || more.hidden) return;
+    setAdjust(false);
+    adjust.focus({ preventScroll: true });
   };
   document.addEventListener("keydown", onKey);
 
   // The fallback map redraws on resize itself; Aladin resizes its canvas, the status follows.
   const onResize = () => {
     measure();
-    if (map) {
-      placePin();
-      renderStatus(map.view());
-    }
+    if (map) renderStatus();
   };
   addEventListener("resize", onResize);
-  // Whatever sits above the map (the header, the lede, a message, Adjust) moves its top edge.
+  // Whatever sits above the map (the header) moves its top edge.
   let ro: ResizeObserver | null = null;
   if (typeof ResizeObserver === "function") {
     ro = new ResizeObserver(() => measure());
-    for (const n of [document.querySelector("header.top"), q(".atl-intro"), q(".atl-controls"), more, msgEl]) if (n) ro.observe(n);
+    for (const n of [document.querySelector("header.top"), document.querySelector(".top")]) if (n) ro.observe(n);
   }
 
   return {
@@ -1127,8 +973,6 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
         if (!sameState(next, state)) applyState(next, wasVisible);
       } else if (wasVisible && data) {
         // The Sky link while already here: back to the whole sky.
-        closeDrawer();
-        hidePin();
         applyState({ ...defaultState(), gal: state.gal, mol: state.mol, kinds: state.kinds, fov: wholeFov(state.mol) }, true);
       }
       if (data && !map) void startMap();
@@ -1138,9 +982,10 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       visible = false;
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
-      drawer?.pause();
       hideTip();
       stopSearch();
+      resolveCtl?.abort();
+      resolveCtl = null;
       if (hashTimer) clearTimeout(hashTimer);
     },
     destroy() {
@@ -1148,7 +993,7 @@ export const mountAtlas: MountPage = (el: HTMLElement, ctx: PageContext) => {
       if (viewRaf) clearTimeout(viewRaf);
       viewRaf = null;
       stopSearch();
-      drawer?.destroy();
+      resolveCtl?.abort();
       map?.destroy();
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("visibilitychange", onVisibility);
