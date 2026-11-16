@@ -1110,10 +1110,19 @@ VET_SAME_PIXEL_PX = 1.0
 VET_WHOLE_PX = 0.02
 VET_WHOLE_GATE_DOTS = 2
 LINK_WHOLE_PIXEL_SIGMA_PX = 0.3
-# wide: dot √(a·b) / the detector's stellar size at its S/N (VET_STAR_SIZE_ARCSEC), unsaturated dots only (OVERFLOW or
-# NONLINEAR at the peak: a saturated asteroid is wide too). Reason: every such dot (>= 2) >= VET_WIDE_RATIO (real 0.9% /
-# rest 20.1%: real ones are V 5–7 saturated or trailed); warning: their median >= it (2.5 / 29.5).
+# wide: dot √(a·b) / (the detector's stellar size at its S/N (VET_STAR_SIZE_ARCSEC) × the trail's growth at the mover's
+# own in-session rate: vet.trail_factor = (1 + L²/12σ²)^¼, L = rate × VET_EXPOSURE_S, σ = PSF_SIGMA_ARCSEC; √(a·b) of a
+# trailed Gaussian grows with the 4th root, its long axis (elong) with the square root), unsaturated dots only (OVERFLOW
+# or NONLINEAR at the peak: a saturated asteroid is wide too). A broad moving dot is a comet's haze or two faint things
+# blended, and its size can't tell which. 16 Nov, hunt, ecl04, ecl05, ecl08, ecl10, ecl11, ecl17 as if unknown (real =
+# MPC within 5″, rest = none within 60″): every unsaturated dot >= 1.3× hits 49 of 62 comet movers (306P, 88P, 240P,
+# 24P, 29P, C/2022 N2, 3I/ATLAS), 0.4% of real asteroids, 20.6% of the rest; as a reason (main) it graded 15 comet
+# movers C (all 5 of 3I/ATLAS), and was the ONLY reason of 8 comet, 9 asteroid and 34 rest movers. So it is a warning
+# (every dot, or the median, >= VET_WIDE_RATIO), and a reason only together with an independent sign of a blend
+# (VET_WIDE_WITH: `blend`, two Gaia stars either side of the mover): real 0, comets 0, rest 8 of those 34.
 VET_WIDE_RATIO = 1.3
+VET_WIDE_WITH = ("blend",)
+VET_EXPOSURE_S = 113.0
 VET_SAT_BITS = (1 << 1) | (1 << 15)  # OVERFLOW, NONLINEAR (contracts/flags.md)
 # glow: a broad glow of one detector near a very bright star: one detector, no simultaneous partner, median size ratio >=
 # VET_WIDE_RATIO and a Gaia star of G < VET_GLOW_G_MAG within VET_GLOW_ARCSEC (real 1 of 6,125 / rest 2.0%; round 1:

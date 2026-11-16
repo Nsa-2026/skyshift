@@ -14,7 +14,9 @@ movers.parquet) or at zone-level maps:
 - same_pixel    dots of two exposures within 1 px of one detector pixel: only a session without the telescope's step
                 gives it (ecl17 session 201), and there a hot pixel stays on one sky spot.
 - whole_pixel   >= 2 dots on a whole pixel (x and y within 0.02 px): a centroid fallback, not a measurement.
-- wide          every unsaturated dot (>= 2) >= 1.3× the detector's stellar size at its S/N.
+- wide          every unsaturated dot (>= 2) >= 1.3× the detector's stellar size at its S/N, times the trail's growth at
+                its own in-session rate (trail_factor). A warning: a comet's haze or two faint things blended; a reason
+                only with a blend (suspects.mover_flaws, config VET_WIDE_WITH), never alone.
 - cross_detector >= 2 exposures and no detector holds dots of two of them (D1 then D4: colour read as motion).
 - fixed_source, glow, unseen   decided in suspects.mover_flaws (a fixed source or Gaia star at a mover that may not
                 move, a broad glow near a G < 7 star, exposures that hold the track but not the mover) and passed in.
@@ -214,14 +216,24 @@ def dot_sigma(snr, whole=None) -> np.ndarray:
 
 
 FLAW_COLUMNS = ("hot_exposures_max", "hot_exposures_min", "whole_dots", "wide_ratio_med", "wide_ratio_min", "wide_dots",
-                "same_pixel_px", "cross_detector", "motion_sigma")
+                "wide_trail", "same_pixel_px", "cross_detector", "motion_sigma")
+
+
+def trail_factor(rate_arcsec_h) -> np.ndarray:
+    """How much a dot's √(a·b) grows when the source trails rate × VET_EXPOSURE_S during one exposure: a Gaussian PSF
+    (σ = PSF_SIGMA_ARCSEC) smeared over L has variance σ² + L²/12 along the motion, σ² across, so √(a·b) grows by
+    (1 + L²/12σ²)^¼ (elong a/b by its square root). 1 where the rate is unknown. 150″/h: 1.04; 400″/h: 1.23; 900″/h: 1.65."""
+    r = np.nan_to_num(np.asarray(rate_arcsec_h, np.float64), nan=0.0)
+    L = np.abs(r) * C.VET_EXPOSURE_S / 3600.0
+    return (1.0 + L * L / (12.0 * C.PSF_SIGMA_ARCSEC ** 2)) ** 0.25
 
 
 def flaw_numbers(s: pd.DataFrame, free: pd.DataFrame | None) -> pd.DataFrame:
     """Per suspect (row of s, from its dot lists): the numbers of the mover-flaw separators (config, mover flaws).
     hot_exposures_max / _min: over its dots, the free dots' exposures on the dot's pixel at other sky places
     (away_exposures; NaN without free dots with ra/dec); whole_dots: dots on a whole pixel; wide_ratio_med / _min: the
-    median and smallest size / stellar size of its unsaturated dots, wide_dots how many those are; same_pixel_px: the
+    median and smallest size / (stellar size × wide_trail) of its unsaturated dots, wide_dots how many those are,
+    wide_trail the trail's growth at its in-session rate (session_rate_arcsec_h, else rate_arcsec_h); same_pixel_px: the
     smallest pixel distance (max of |Δx|, |Δy|) between dots of two exposures on one detector (NaN: none);
     cross_detector: >= 2 exposures and no detector with dots of two of them; motion_sigma: link's rate (rate_arcsec_h)
     over its 1σ from the dots' times and S/N (weighted line fit; whole-pixel dots as in dot_sigma), NaN with one
@@ -230,7 +242,7 @@ def flaw_numbers(s: pd.DataFrame, free: pd.DataFrame | None) -> pd.DataFrame:
     out = pd.DataFrame({"hot_exposures_max": np.full(n, np.nan), "hot_exposures_min": np.full(n, np.nan),
                         "whole_dots": np.zeros(n, np.int64), "wide_ratio_med": np.full(n, np.nan),
                         "wide_ratio_min": np.full(n, np.nan), "wide_dots": np.zeros(n, np.int64),
-                        "same_pixel_px": np.full(n, np.nan), "cross_detector": np.zeros(n, bool),
+                        "wide_trail": np.ones(n), "same_pixel_px": np.full(n, np.nan), "cross_detector": np.zeros(n, bool),
                         "motion_sigma": np.full(n, np.nan)})
     if n == 0 or not has_dot_lists(s):
         return out
@@ -247,7 +259,10 @@ def flaw_numbers(s: pd.DataFrame, free: pd.DataFrame | None) -> pd.DataFrame:
         out["hot_exposures_min"] = a.min().reindex(idx).to_numpy(np.float64)
     whole = whole_pixel(d["x"], d["y"])
     out["whole_dots"] = pd.Series(whole).groupby(i).sum().reindex(idx).fillna(0).astype(np.int64).to_numpy()
-    ratio = d["size"].to_numpy(np.float64) / star_size(d["det"].to_numpy(), d["snr"].to_numpy())
+    rc = "session_rate_arcsec_h" if "session_rate_arcsec_h" in s else "rate_arcsec_h"
+    trail = trail_factor(pd.to_numeric(s[rc], errors="coerce").to_numpy(np.float64)) if rc in s else np.ones(n)
+    out["wide_trail"] = trail
+    ratio = d["size"].to_numpy(np.float64) / (star_size(d["det"].to_numpy(), d["snr"].to_numpy()) * trail[i])
     unsat = (d["fpk"].to_numpy(np.int64) & C.VET_SAT_BITS) == 0
     r = pd.Series(np.where(unsat & np.isfinite(ratio), ratio, np.nan)).groupby(i)
     out["wide_ratio_med"] = r.median().reindex(idx).to_numpy(np.float64)
@@ -389,15 +404,23 @@ def flux_ratio_fail(d: pd.DataFrame) -> pd.Series:
 def flaw_gates(f: pd.DataFrame, n_dots: np.ndarray) -> dict[str, np.ndarray]:
     """The reasons flaw_numbers decides (config, mover flaws): hot_pixel (a dot's pixel lit at other sky places in >=
     VET_HOT_GATE_EXP exposures, or every dot's in >= VET_HOT_PROVEN_EXP: hot_pixel_proven), same_pixel, whole_pixel,
-    wide (every unsaturated dot, >= 2), cross_detector."""
+    cross_detector. Not wide: a broad dot alone is a comet as often as junk (wide_every; suspects.mover_flaws makes it a
+    reason only with a blend)."""
     hmax = f["hot_exposures_max"].to_numpy(np.float64)
     nd = np.asarray(n_dots, np.int64)
     return {"hot_pixel": (np.nan_to_num(hmax) >= C.VET_HOT_GATE_EXP) | hot_proven(f, nd),
             "same_pixel": np.nan_to_num(f["same_pixel_px"].to_numpy(np.float64), nan=np.inf) <= C.VET_SAME_PIXEL_PX,
             "whole_pixel": f["whole_dots"].to_numpy(np.int64) >= C.VET_WHOLE_GATE_DOTS,
-            "wide": (f["wide_dots"].to_numpy(np.int64) >= 2)
-            & (np.nan_to_num(f["wide_ratio_min"].to_numpy(np.float64)) >= C.VET_WIDE_RATIO),
             "cross_detector": f["cross_detector"].to_numpy(bool)}
+
+
+def wide_every(f: pd.DataFrame) -> np.ndarray:
+    """Every unsaturated dot (>= 2) at least VET_WIDE_RATIO × a star of its S/N (trail included): flaw_numbers' columns;
+    False where they are missing."""
+    if "wide_dots" not in f or "wide_ratio_min" not in f:
+        return np.zeros(len(f), bool)
+    return (f["wide_dots"].to_numpy(np.int64) >= 2) & (np.nan_to_num(f["wide_ratio_min"].to_numpy(np.float64))
+                                                      >= C.VET_WIDE_RATIO)
 
 
 def hot_proven(f: pd.DataFrame, n_dots: np.ndarray) -> np.ndarray:
@@ -412,7 +435,7 @@ def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: s
     computed for s), and stats: per gate the suspects failing it, the suspects whose first reason it is, and the grade
     counts. catalogued: the reasons decided outside, per suspect: the catalogues (VET_CATALOGS: a source within 6″ at
     most 2 mag fainter; a catalogue left out was not checked), the strong warnings (bloom, halo, bright_star) and the
-    suspects' mover flaws (fixed_source, glow, unseen). hot_pixel: flaw_gates where the free dots have sky places, else
+    suspects' mover flaws (fixed_source, glow, unseen, wide: only with a blend). hot_pixel: flaw_gates where the free dots have sky places, else
     the old map (movers' dots in >= 3 exposures, free dots in >= 5, the same sky place included)."""
     s = s.copy().reset_index(drop=True)
     n = len(s)

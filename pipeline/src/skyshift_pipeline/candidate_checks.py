@@ -800,6 +800,17 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
                  "can focus light from the sky (a cosmic ray?)."),
                 (f"Zoom in on D{main} on the hours clock: a cosmic ray is a tight speck, a real object is as soft as "
                  "the stars."))
+    if code == "wide" and (f.get("ratio_med") is not None or f.get("ratio_min") is not None):
+        lo, med = f.get("ratio_min"), f.get("ratio_med")
+        nums = (f"{lo:.2f}–{med:.2f}×" if lo is not None and med is not None and med > lo + 0.005
+                else f"{(med if med is not None else lo):.2f}×")
+        trail = f" (its own trail allowed for: × {f['trail']:.2f})" if f.get("trail") else ""
+        blend = (" Two Gaia stars sit either side of it, so a blend is the likelier answer here."
+                 if f.get("with_blend") else "")
+        return ((f"Its dots are {nums} wider than a star of its brightness{trail}: a comet's haze, or two faint things"
+                 f" blended.{blend}"),
+                (f"Look at the plate in D{main} on the hours clock: a comet shows a fuzzy head, sometimes a tail; a"
+                 " blend splits into two points in other exposures."))
     if code == "flux_jump" and f.get("ratio") is not None:
         return ((f"Its brightness changes {f['ratio']:.1f}× between exposures in one detector; known asteroids "
                  f"change less than {FLUX_JUMP}×."),
