@@ -1,7 +1,8 @@
 # Watch known stars: what changed between SPHEREx visits
 
 Prototype and measurements, 16 Nov 2026 (agent "watch", branch p1/watch-changes). Code:
-`pipeline/src/skyshift_pipeline/changes.py`, tests `pipeline/tests/test_changes.py`. Not in `all` yet.
+`pipeline/src/skyshift_pipeline/changes.py`, tests `pipeline/tests/test_changes.py`. The step and the site file came
+after (section "Built", agent "watch2"); the step is not in `all`.
 
 The project lead's idea: track even known stars and say when something about one changes. SPHEREx sees each spot
 every six months (more often near the ecliptic poles: R Dra's zone has 7 visits), in six detectors, so every
@@ -240,6 +241,29 @@ reruns often enough to matter.
 4. Accounts and e-mail (C/D/E) or none (A/B)?
 5. List forced-only stars outside the zone box (most of the featured zones' stars: 52 of the 72 listed) or only
    stars with their own source (20)?
+
+## Built (16 Nov, agent "watch2", branch p1/watch-export)
+
+The lead decided: `changed` gets its own file and list (`/data/changes.json`, not candidates.json); every star is
+watched by the pipeline (following is only about being told); forced-only stars are listed; stars Gaia already lists
+as variable are listed, marked "Gaia already lists it as variable" and ranked below the unexpected changes; following
+is a watch list kept in the browser plus a public Atom feed (A + B above: no accounts, no personal data, $0).
+
+- `python -m skyshift_pipeline.changes_step --zones a,b --root gs://nasa-glazing-data --cache DIR` reads a finished
+  zone (lightcurves, crossids, sources, fragments, refcat, orphans, photolist) and writes
+  results/<zone>/changes.parquet and changes_report.json: brightness and colour (the listing rule above, with the
+  session drop), vanished/appeared from orphans, each with `text`, `look` and `checks`. It reads one detector at a
+  time (peak 1.4–1.9 GB on the featured zones). Gaia variability and bright neighbours outside refcat's box come from
+  ESA's Gaia archive by source_id only (cached; when it is down the row says variability is unknown).
+- `python -m skyshift_pipeline.changes_export --root gs://nasa-glazing-data --out ../web/public/data/changes.json`
+  merges every zone's changes.parquet into web/public/data/changes.json and the feed changes.atom.
+- Site: `#/changes` (web/src/changes/): each row says what changed in a sentence and numbers, carries the Gaia mark,
+  opens the Viewer on the star (months clock, its detector) and has a ☆ Follow button (localStorage); "Following (N)"
+  and the feed link sit above the list.
+- Sample (pilot, t_rdra, t_rwaur): 69 changes (66 brightness, 2 colour, 1 vanished), 40 of them Gaia variables;
+  182,580 stars watched; false alarms from the halves null 0.12–0.33 per 1,000 stars. Brightness: the prototype listed
+  72 (pilot 18, t_rwaur 37, t_rdra 17), the step 66 (18, 35, 13): bright neighbours are now also checked outside
+  refcat's box, through Gaia (t_rdra: 6 alerts dropped for a neighbour, 4 for one session).
 
 ## What goes into the combined rerun
 
