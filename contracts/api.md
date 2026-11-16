@@ -26,8 +26,8 @@ v3.21: months `shifts[]` say whether the motion is steady: `visits`, `chi2_nu`, 
 v3.22: high_pm reasons `parallax_fit` and `unsteady`, from the pipeline's motion model;
 v3.23: candidates' `status`, `known_name` and `checks` (what can't be ruled out, and what to look at); `/api/frames` hours `page`;
 v3.24: the 16 Nov fix round: checks set the score (× 0.3 strong, × 0.95 warn) in place of the old mover factors, every
-check code's levels and `values`, check producers' side files, the certain-known rule and every MPC comet, the science
-workspace's analysis grid; suspects removed only when certain, the rest kept with `warn_codes` and `warn_values`; grade C
+check code's levels and `values`, check producers' side files, the certain-known rule and every MPC comet (`known_body`),
+the science workspace's analysis grid and its signals checked before publishing; suspects removed only when certain, the rest kept with `warn_codes` and `warn_values`; grade C
 movers in `/data/candidates-more/<zone>.json`, listed in candidates.json `more`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
@@ -693,7 +693,8 @@ The suspects' `warn_codes` (v3.24, suspects.json) become `warn` checks of the sa
 | code | kind | by | levels: rule | values |
 |---|---|---|---|---|
 | known_nearby | mover | exporter | `warn`: a known body (V < 21 or no V) predicted within 2′ | `sep_arcsec` (and the suspects' `known_rate_arcsec_h`, `known_pa_deg`, `known_v_mag`, `rate_arcsec_h`, `pa_deg`) |
-| known_nearby | mover | known | `strong` with `status` known and `known_name`: certain by the `status` rule, any brightness, seen from SPHEREx at each dot's time (MPC asteroids at any V, every MPC comet, Horizons planets and moons). `strong`, status open: a body within 2″ at every one of ≥ 2 dot times whose motion misses the rule (two dots 2 minutes apart measure a motion only to about ±30″/h). `warn`: the nearest body within 2′, not certain. `ok`: none within 2′ | `name`, `body` (`asteroid`, `comet`, `planet`, `moon`), `v`, `sep_arcsec` (nearest at any dot time), `sep_max_arcsec` (farthest), `rate_arcsec_h`, `pa_deg` (the body's), `rate_ratio`, `dpa_deg`, `our_rate_arcsec_h`, `our_pa_deg`, `times`, `from_dots` |
+| known_body | mover | known | `strong` with `status` known and `known_name`: certain by the `status` rule, any brightness, seen from SPHEREx at each dot's time (MPC asteroids at any V, every MPC comet, Horizons planets and moons). v3.24: the one name for a certain known body, here and in the analysis files; files written before it say `known_nearby` `strong` with `status` known: read that as `known_body` | as `known_nearby` (known) |
+| known_nearby | mover | known | Not certain. `strong`, status open: a body within 2″ at every one of ≥ 2 dot times whose motion misses the rule (two dots 2 minutes apart measure a motion only to about ±30″/h). `warn`: the nearest body within 2′. `ok`: none within 2′ | `name`, `body` (`asteroid`, `comet`, `planet`, `moon`), `v`, `sep_arcsec` (nearest at any dot time), `sep_max_arcsec` (farthest), `rate_arcsec_h`, `pa_deg` (the body's), `rate_ratio`, `dpa_deg`, `our_rate_arcsec_h`, `our_pa_deg`, `times`, `from_dots` |
 | known_nearby | high_pm | known | `warn`: a slow distant body (perihelion > 8 AU, < 1″/h) within 10″ at `mjd`. Never `known`: a fixed source is not a moving body | as above |
 | flag_outlier | mover | exporter | `ok`: OUTLIER at the peak of a dot (68% of known asteroids, 28% of the list): a sign it moved, never a doubt | `dots_peak`, `dots`, `known_share` |
 | flag_crosstalk, flag_ghost, flag_bloom, flag_halo | mover | exporter | `warn`: the bit (GHOST: any of GHOST, GHOST_FPA, GHOST_EXT) in a dot's 3×3 or at a peak. `strong`: at every dot's peak (the suspects' reasons `bloom`, `halo`) | `dots_flagged`, `dots_peak`, `dots`, `known_share` (the suspects' `dots_at_peak`, `n_dots`) |
@@ -749,8 +750,8 @@ ours in the suspects' (the body's there: `known_rate_arcsec_h`, `known_pa_deg`).
 known_name|null } } }`, only the ids it measured, `status` only when certain by the `status` rule. The exporter merges
 every `*.json` in the folder: `skyshift-candidates --checks-dir DIR` during the export, or `--merge-only IN.json
 --checks-dir DIR --out OUT.json` into an existing file (reads no zone). Per candidate: a producer's check replaces the
-exporter's of the same code (between producers the stronger level wins, then the first source by name); status known >
-flaw > open, and a `strong` check whose code ends in `_proven` makes it `flaw` unless a producer says `known`; a known
+exporter's of the same code (v3.24: a producer's `known_body` also replaces the exporter's `known_nearby`; between
+producers the stronger level wins, then the first source by name); status known > flaw > open, and a `strong` check whose code ends in `_proven` makes it `flaw` unless a producer says `known`; a known
 vs flaw disagreement, or two names, adds `status_conflict` (`warn`); then the score is re-weighed by the checks' factor
 and the list re-sorted. Ids change when the list changes: the producers run again on the final export. A side file of
 ids not in the file is skipped (counted). v3.24: a side file may name ids of candidates.json or of its `more` files;
@@ -837,7 +838,7 @@ shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (e
 
 **The checks' factor** (v3.24, every kind): × 0.3 per `strong` check, × 0.95 per `warn`, × 1 per `ok`, so checks rank and
 never hide (two strong clues, × 0.09, rank a mover with grade C's × 0.1). A check the kind's own formula already counts
-adds nothing: mover `known_nearby` (the known term) and, on a grade C mover, the checks of its own failed gates
+adds nothing: mover `known_nearby` and `known_body` (the known term) and, on a grade C mover, the checks of its own failed gates
 (`hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp` for `sharp_outlier`/`very_sharp`, `flux_jump` for
 `flux_ratio`, `red_photo`, `not_vetted`, `catalogue_star` for `gaia`/`catwise`/`2mass`/`allwise`, `flag_bloom`,
 `flag_halo`, `bright_star` for `bloom`, `halo`, `bright_star`); high_pm `impossible_motion` with `implausible_pm`,
@@ -1057,6 +1058,32 @@ px/day (`speed_arcsec_day` = √(vx² + vy²) × 6.15), `detections[{x, y, t, sn
 candidates: `x`, `y` and `detections[{x, y, t, visit, snr_long, snr_short, flags}]`. `t` (and `partner_t`) index
 `science.json` `frames[]`: the detection's time is `frames[t].mjd`. The Signals list (web/src/product/vetting.ts)
 reads these to match each signal against Gaia, CatWISE and MPC orbits at its own times.
+
+**Checked before publishing** (v3.24; scripts/precompute/signal_checks.py, #375). A published field's file
+(`/science-data/<slug>/analysis*.json`) gains `catalogue_checks: { made, sources:{ gaia, catwise, mpc } }` (`made`: ISO
+8601 UTC; each source one sentence: what was asked and how, for the page to show), and every candidate
+(`slow_movers`, `fast_movers`, `cold_candidates`) gains:
+- `check_status`: `open` or `known`. The candidates.json `status` (v3.23); named so because an analysis candidate
+  already has its own `status`.
+- `known_name`: string or null. With `known`: the MPC or JPL Horizons name of a known body, or `Gaia DR3 <source_id>` /
+  `CatWISE2020 <name>` for a slow mover that is that star's own catalogued motion.
+- `checks`: as candidates.json's (`code`, `level`, `text`, `look`, `values`; sorted `strong`, `warn`, `ok`). Rules
+  (vetting.ts, ported line by line): `known_body` `strong`, `check_status` known: a known body within 10″ at every
+  sighting, rate within 20% and direction within 15° when both move (`sep_arcsec` the farthest, `sightings`,
+  `rate_arcsec_h`, `pa_deg` the body's); `known_star` `strong`, known: a slow mover on the same Gaia or CatWISE star
+  at every visit, moving the same way (`sep_arcsec`, `rate_arcsec_yr`, `pa_deg` the star's); `known_nearby` `warn`: a
+  known body within 30″ at a sighting, not certain, at most two (`sep_arcsec` the nearest, `sightings` within 30″,
+  `rate_arcsec_h`, `pa_deg`); `catalogue_star` `warn`: a Gaia DR3 or CatWISE2020 source within 6″ (`sep_arcsec`,
+  `sightings`, `sources`, `catalogue` `gaia` or `catwise`); `catalogue_empty` `warn`: that catalogue lists nothing in
+  the field; `catalogue_unchecked` `warn`: a service did not answer, the times did not load, or the known-object index
+  misses some sightings (`sightings`); `catalogues_checked` `ok`: nothing near it in those it names.
+
+GET /api/analysis serves these files as written. Catalogues: Gaia DR3 (IRSA, within 3′ of the field, G ≤ 19.5 or a motion over 100 mas/yr, moved from 2016.0),
+CatWISE2020 (IRSA, the server's radius, moved from 2015.4 and also at its catalogue place), every MPC asteroid at any
+brightness and every MPC comet (cometels + allcometels) moved with kete to each sighting's time and seen from SPHEREx,
+planets and moons from JPL Horizons. A field's file is rewritten only when its checks change; if any catalogue fails,
+nothing is written. Live answers (any other position) and older files lack these fields: the site checks in the
+browser, as before (the server's limits: V ≤ 21, geocentric).
 
 ### GET /api/science/capabilities
 
@@ -1387,7 +1414,7 @@ codes need no change.
 
 ## Changes in v3.24 (16 Nov 2026): the 16 Nov fix round
 
-What the fix round's PRs proposed (#366–#372 and #374; the exporter, #369, was still open when this was written), and
+What the fix round's PRs proposed (#366–#372, #374 and #375; the exporter, #369, was still open when this was written), and
 one design decision (the Less likely files), in one place. No field is removed or renamed, and every addition reads
 safely when absent.
 
@@ -1400,7 +1427,7 @@ safely when absent.
   unchanged. Older files: scores as written.
 - checks (#369, #372, #368, #371): every code's levels, rule and `values` keys (table "Codes and levels"). New codes:
   `hot_pixel_proven`, `persistence_proven` (both `strong`, status `flaw`), `hot_pixel` (also a pixel measurement),
-  `wide`, `one_photo`, `status_conflict`, the vetting gates as codes (`bad_column`, `masked_peak`, `red_photo`,
+  `known_body`, `wide`, `one_photo`, `status_conflict`, the vetting gates as codes (`bad_column`, `masked_peak`, `red_photo`,
   `not_vetted`), high_pm `catalogues_checked` and `known_nearby`. `flag_outlier` is `ok`. `catalogue_star` values gain
   `chance` and `chance_6arcsec`. Readers already show unknown codes' `text` and `look` as given (v3.23): no change needed.
 - Side files (#369): check producers' `<dir>/<source>.json`, merged by the exporter (`--checks-dir`, `--merge-only`);
@@ -1413,8 +1440,14 @@ safely when absent.
 - Catalogues (#368): every zone's refcat holds Gaia DR3, CatWISE2020 and 2MASS, and its marker records the service per
   catalogue (contracts/dots.md refcat). The 64 zones combined against Gaia alone before 16 Nov say so in their marker
   until rebuilt.
-- Science workspace (#366): GET /api/analysis's grid orientation, pixel fields and `t` (an index into
-  `science.json` `frames`) written down, no change. Proposals for P2, not sent yet: CatWISE `epoch_mjd` (absent: read
+- Science workspace (#366, #375): GET /api/analysis's grid orientation, pixel fields and `t` (an index into
+  `science.json` `frames`) written down, no change. The five featured fields' analysis files are checked before
+  publishing: per file `catalogue_checks`, per candidate `check_status` (`open`, `known`), `known_name`, `checks`
+  (section Checked before publishing).
+- One code for a certain known body: `known_body` (`strong`, status known), in candidates.json and the analysis files
+  (the web and #375 already use it). `known_nearby` stays the not-certain one (`warn`, or `strong` within 2″ at every
+  dot time with the motion off, or `ok` none). The `known` producer and the exporter's score exemption take the new
+  name; older `known_nearby` `strong` with status known reads as `known_body`. Proposals for P2, not sent yet: CatWISE `epoch_mjd` (absent: read
   as 57170.0) and planets and moons in `kind=asteroids` (absent: not checked).
 - contracts/dots.md (16 Nov, same PR): the movers' fast pairing rule and link's shuffled control (#367), `in_fixed`
   rows in nonfixed_dots and tracklet_dots, fast tracks, tracklets' control counts; the refcat marker's `services`
