@@ -667,3 +667,82 @@ def test_grade_c_movers_from_the_table_alone(tmp_path, monkeypatch):
     main = json.loads(out.read_text())
     assert {c["id"] for c in main["candidates"] if c["kind"] == "mover"} == {"hunt-1-2", "hunt-5-6"}
     assert main["more"] == [] and not (out.parent / "candidates-more" / "hunt.json").exists()
+
+
+# --- 16 Nov: the suspects' mover flaws (#385) ------------------------------------------------------------------------
+FLAWS = {
+    "hot_pixel": {"exposures_max": 4, "exposures_min": 1, "n_dots": 3, "away_arcsec": 30.0},
+    "hot_pixel_proven": {"exposures_min": 3, "n_dots": 3, "away_arcsec": 30.0},
+    "same_pixel": {"px": 0.4, "limit_px": 1.0},
+    "whole_pixel": {"dots": 2, "n_dots": 3, "sigma_px": 0.3},
+    "wide": {"ratio_med": 1.62, "ratio_min": 1.41, "dots": 3, "limit": 1.3},
+    "cross_detector": {"exposures": 2, "n_dots": 2},
+    "fixed_source": {"sep_arcsec": 4.2, "flux_ratio": 1.3, "fixed_snr": 55, "gaia_sep_arcsec": None, "gaia_g_mag": None,
+                     "motion_sigma": 1.1},
+    "glow": {"star_g_mag": 5.2, "star_sep_arcsec": 312, "ratio_med": 1.7},
+    "unseen": {"exposures": 2, "cover": 4},
+    "may_not_move": {"sigma": 1.8, "rate_arcsec_h": 20.0, "rate_err_arcsec_h": 11.1},
+    "blend": {"sep1_arcsec": 6.0, "sep2_arcsec": 7.1, "apart_arcsec": 12.8, "g1_mag": 17.2, "g2_mag": 18.0},
+}
+
+
+def test_mover_flaw_words_and_levels():
+    """Every new suspects code has its own words (never the generic fallback), the level comes from warn_levels, and
+    unseen's keys get names of their own (`exposures` means the mover's own exposures elsewhere)."""
+    strong = {k: "strong" for k in ("hot_pixel_proven", "same_pixel", "whole_pixel", "wide", "cross_detector",
+                                    "fixed_source", "glow", "unseen")}
+    ch = CK.mover_checks(_mover(warn=FLAWS, warn_levels=strong))
+    c = {x["code"]: x for x in ch}
+    assert codes(ch) == {**{k: "warn" for k in FLAWS}, **strong}
+    assert not any(x["text"].startswith("Kept with a warning from the suspects step") for x in ch)
+    assert CK.status_of(ch) == "flaw"                                  # the suspects' hot_pixel_proven, strong
+    assert c["hot_pixel_proven"]["text"].startswith("Every one of its 3 dots sits on a detector pixel that also holds "
+                                                    "dots at other places on the sky in 3 or more exposures")
+    assert c["hot_pixel"]["text"].startswith("One of its dots sits on a detector pixel that also holds dots at other "
+                                             "places on the sky (more than 30″ away) in 4 exposures: perhaps a hot pixel")
+    assert "(0.40 px apart)" in c["same_pixel"]["text"]
+    assert c["whole_pixel"]["text"].startswith("2 of its 3 dots sit exactly on a whole pixel")
+    assert c["wide"]["text"].startswith("Its dots are 1.62× as wide as a star at their S/N (median; the narrowest 1.41×)")
+    assert c["cross_detector"]["text"].startswith("Its 2 exposures never put two dots in the same detector")
+    assert c["fixed_source"]["text"].startswith("A fixed source (S/N 55) lies 4.2″ away, 1.3× as bright as this dot, and "
+                                                "its own motion is only 1.1σ")
+    assert "5.2′ from a G 5.2 star" in c["glow"]["text"]
+    assert c["unseen"]["text"].startswith("2 of the 4 exposures of its session that photographed its path do not show it")
+    assert c["unseen"]["values"] == {"unseen_exposures": 2, "cover_exposures": 4}
+    assert c["may_not_move"]["text"].startswith("Its motion within the session, 20 ± 11″ an hour, is only 1.8σ")
+    assert c["blend"]["text"].startswith("It sits between two Gaia stars (G 17.2 and 18.0) 12.8″ apart")
+    # the same codes from a table without warn_levels: warnings, status open
+    old = CK.mover_checks(_mover(warn=FLAWS))
+    assert all(x["level"] == "warn" for x in old) and CK.status_of(old) == "open"
+
+
+def test_mover_flaws_are_gate_codes():
+    """The new reasons are vetting gates: on a grade C the C factor stands for their strong checks (and for
+    hot_pixel_proven under hot_pixel); a B pays them."""
+    gates = ["hot_pixel", "same_pixel", "whole_pixel", "wide", "cross_detector", "fixed_source", "glow", "unseen"]
+    strong = {k: "strong" for k in gates + ["hot_pixel_proven"]}
+    w = {k: FLAWS[k] for k in gates + ["hot_pixel_proven"]}
+    ch = CK.mover_checks(_mover(grade="C", gates=gates, warn=w, warn_levels=strong))
+    assert all(x["level"] == "strong" for x in ch) and len(ch) == len(strong)
+    cand = {"kind": "mover", "grade": "C", "reasons": gates, "checks": ch}
+    assert CK.factor(cand) == 1.0 and CK.gate_codes(cand) == set(gates)
+    assert CK.factor({**cand, "grade": "B"}) == pytest.approx(CK.STRONG_FACTOR ** len(strong))
+
+
+def test_hot_pixel_gate_words_follow_the_rule():
+    """The gate's words: the 16 Nov rule (other sky places, its exposure count) when the suspects' values say so; the old
+    map's words for older tables; a stronger suspects level lifts an exporter warning."""
+    new = CK.mover_checks(_mover(grade="C", gates=["hot_pixel"], warn={"hot_pixel": {**FLAWS["hot_pixel"], "exposures_max": 7}},
+                                 warn_levels={"hot_pixel": "strong"}))
+    (h,) = [x for x in new if x["code"] == "hot_pixel"]
+    assert h["level"] == "strong" and "(more than 30″ away) in 7 exposures: a hot pixel NASA's map misses" in h["text"]
+    assert h["values"]["exposures_max"] == 7
+    old = CK.mover_checks(_mover(grade="C", gates=["hot_pixel"]))
+    assert old[0]["text"].startswith("One of its dots sits on a detector pixel where the zone's other photos also have dots")
+    # may_not_move: the exporter's own fit stays in the values (its text quotes it); a strong suspects level would lift it
+    mm = CK.mover_checks(_mover(no_motion=True, rate=10.0, rate_err=8.0, warn={"may_not_move": FLAWS["may_not_move"]}))
+    (c,) = [x for x in mm if x["code"] == "may_not_move"]
+    assert c["values"]["rate_arcsec_h"] == 10.0 and c["values"]["sigma"] == pytest.approx(1.25)
+    lifted = CK.mover_checks(_mover(no_motion=True, rate=10.0, rate_err=8.0, warn={"may_not_move": FLAWS["may_not_move"]},
+                                    warn_levels={"may_not_move": "strong"}))
+    assert [x["level"] for x in lifted if x["code"] == "may_not_move"] == ["strong"]

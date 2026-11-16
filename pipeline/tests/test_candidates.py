@@ -550,3 +550,127 @@ def test_highpm_parallax_fit_and_unsteady_reasons():
     u = K.high_pms(_hp(vetted=False, reason="unsteady", fit_mode="pm+plx"), "hunt", {})[0]
     assert u["reasons"] == ["pm_fit", "parallax_fit", "unsteady"] and "out and back" in u["why"]
     assert u["score"] == pytest.approx(np.exp(-(1 / 29.3) / 0.2) * 0.3)
+
+
+# --- 16 Nov: the mover flaws (#385) and the engine's catalogue fixes (#388) in the export ----------------------------
+def _cp(counterpart, cid, sep, epoch, **kw):
+    return _hp(counterpart=counterpart, counterpart_id=cid, counterpart_sep_arcsec=sep, counterpart_epoch_mjd=epoch, **kw)
+
+
+def test_highpm_why_follows_the_counterpart():
+    """highpm's counterpart (#388), not its status, decides the catalogue clause, with the entry's id and its distance
+    from our track at the entry's epoch; gaia_match only for gaia_pm / gaia_position; status allwise is a known star."""
+    base = np.exp(-(1 / 29.3) / 0.2)
+    pos = K.high_pms(_cp("gaia_position", "gaia:659464504288593536", 0.31, 57388.0, status="gaia"), "hunt", {})[0]
+    assert pos["why"] == ("Moves 8.78″ a year between visits; Gaia DR3 659464504288593536 lists it without a motion, 0.3″ "
+                          "from where this motion puts it in 2016: a known source whose motion Gaia doesn't give.")
+    assert pos["gaia_match"] and pos["score"] == pytest.approx(base * 0.6)
+    pm = K.high_pms(_cp("gaia_pm", "gaia:1", 0.12, 61050.0, status="gaia"), "hunt", {})[0]
+    assert "Gaia DR3 1 (0.1″ away) lists this star with the same motion" in pm["why"] and pm["gaia_match"]
+    cx = K.high_pms(_cp("gaia_crossid", "gaia:2", 0.7, 61050.0, status="gaia"), "hunt", {})[0]
+    assert "Gaia DR3 2 (0.7″ away) lists a source here without a motion, not this motion" in cx["why"]
+    assert not cx["gaia_match"]                                   # Gaia's entry is not this moving object
+    tm = K.high_pms(_cp("tmass_position", "2mass:08251958+2115521", 1.2, 51544.5, status="2mass"), "hunt", {})[0]
+    assert "2MASS J08251958+2115521 saw a star 1.2″ from where this motion puts it in 2000" in tm["why"]
+    assert not tm["gaia_match"] and tm["score"] == pytest.approx(base * 0.6)
+    aw = K.high_pms(_cp("allwise_position", "allwise:J082519.58+211552.1", 0.9, 55400.0, status="allwise"), "hunt", {})[0]
+    assert "AllWISE J082519.58+211552.1 saw it 0.9″ from where this motion puts it in 2010" in aw["why"]
+    assert "no catalogue lists" not in aw["why"] and aw["score"] == pytest.approx(base * 0.6)  # allwise: a known star
+    cw = K.high_pms(_cp("catwise_pm", "catwise:J0820", 0.4, 61050.0, catwise_name="J0820", catwise_pm_agree=True),
+                    "hunt", {})[0]
+    assert "CatWISE2020 J0820 (0.4″ away) lists the same motion" in cw["why"] and cw["catwise_match"]
+    none = K.high_pms(_cp("", "", np.nan, np.nan), "hunt", {})[0]
+    assert none["why"] == "Moves 8.78″ a year between visits; no catalogue lists this motion." and not none["gaia_match"]
+    still = K.high_pms(_cp("gaia_still", "gaia:3", 0.7, 57388.0, status="gaia", vetted=False, reason="gaia_still"),
+                       "hunt", {})[0]
+    assert "gaia_still" in still["reasons"] and set(still["reasons"]) <= set(K.REASONS["high_pm"])
+    assert "probably a still star, not a mover" in still["why"] and not still["gaia_match"]
+    aws = K.high_pms(_cp("allwise_still", "allwise:J1", 0.5, 55400.0, vetted=False, reason="allwise_still"), "hunt", {})[0]
+    assert set(aws["reasons"]) <= set(K.REASONS["high_pm"]) and "probably a still source" in aws["why"]
+    old = K.high_pms(_hp(status="gaia"), "hunt", {})[0]          # a table before #388: the status as before
+    assert old["gaia_match"] and "Gaia lists this star with the same motion" in old["why"]
+    assert K.counterpart_name("2mass:aw123") == "2MASS" and K.counterpart_name("x") == "x"
+
+
+def test_highpm_blend_on_a_gaia_position_star():
+    c = K.high_pms(_cp("gaia_position", "gaia:1", 0.3, 57388.0, status="gaia"), "hunt", {})[0]
+    chk = CK.highpm_checks({"reasons": c["reasons"], "pm": c["pm_mas_yr"], "method": "fit", "blend": (3.0, 0.5, 2),
+                            "gaia_match": c["gaia_match"], "counterpart": c["_counterpart"]})
+    assert chk[0]["code"] == "blend" and chk[0]["level"] == "warn" and "without a motion to compare" in chk[0]["text"]
+
+
+def test_spectral_why_says_the_brown_dwarf_veto():
+    c = _classes()
+    c["bd_veto"] = ["agn_colours", "", "", "", ""]
+    c["allwise_w2_w3"] = [3.94, np.nan, np.nan, np.nan, np.nan]
+    c.loc[0, "brown_dwarf_like"] = False                       # classify's AGN veto took the label off
+    rows = K.spectrals(K.select_spectral(c), "hunt")
+    assert rows[0]["labels"] == ["red", "ch4"]
+    assert rows[0]["why"].endswith(", but its AllWISE colours are an active galaxy's (W2 − W3 = 3.9), so not a brown "
+                                   "dwarf.")
+    c["bd_veto"] = ["no_water", "", "", "", ""]
+    assert K.spectrals(K.select_spectral(c), "hunt")[0]["why"].endswith(
+        ", but no water shows where its spectrum could show it, so not a brown dwarf.")
+    assert {"bd_veto", "allwise_w2_w3"} <= set(K.CLASS_COLUMNS)
+
+
+def test_shape_keeps_catalogue_neighbour_and_the_blocked_fit(tmp_path):
+    store = Store(str(tmp_path / "bucket"))
+    why = ("The image is stretched along PA 37° (8.0σ over 40 detections); but the catalogues list a second object here: "
+           "AllWISE W1 14.7 10.2″ south, which may be all it is. Fit: the catalogues list two objects here (Gaia G 18.9 + "
+           "G 20.3, 2.6″ apart), closer together than the fit can separate (4.5″), so it claims no companion.")
+    store.write_parquet(results_rel("hunt", K.SHAPE_FILE), pd.DataFrame({
+        "source_id": [42], "ra": [125.5], "dec": [20.1], "mjd": [60800.5], "det": [3], "snr": [85.2], "flux_ujy": [310.0],
+        "score": [0.12], "pa_deg": [37.2], "gaia_match": [True], "catwise_match": [False],
+        "reasons": ["elongated,catalogue_neighbour"], "why": [why], "flags": [""], "companion_split": [False],
+        "companion_catalog": [""], "companion_blocked": ["Gaia G 18.9 + G 20.3, 2.6″ apart"]}))
+    (c,) = K.shape_candidates(store, "hunt")
+    assert c["reasons"] == ["elongated", "catalogue_neighbour"] and c["why"] == why and c["score"] == 0.12
+    assert c["_companion"] == ""
+
+
+def test_movers_take_the_suspects_levels_and_name_an_overruled_track():
+    """warn_levels (#385): the suspects' strong codes are strong checks (hot_pixel_proven makes the status flaw); a
+    grade-A track that overruled reasons says so in `why`; the new reasons are gate codes (no second factor on a C)."""
+    row = {"ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1}
+    proven = {"hot_pixel_proven": {"exposures_min": 4, "n_dots": 3, "away_arcsec": 30.0},
+              "hot_pixel": {"exposures_max": 6, "exposures_min": 4, "n_dots": 3, "away_arcsec": 30.0}}
+    s = _suspects([
+        {**row, "id": "p", "grade": "C", "reasons": np.array(["hot_pixel"], dtype=object),
+         "warn_codes": np.array(list(proven), dtype=object), "warn_values": json.dumps(proven),
+         "warn_levels": json.dumps({"hot_pixel_proven": "strong", "hot_pixel": "strong"})},
+        {**row, "id": "w", "ra": 125.1, "grade": "C", "reasons": np.array(["wide", "unseen"], dtype=object),
+         "warn_codes": np.array(["wide", "unseen"], dtype=object),
+         "warn_values": json.dumps({"wide": {"ratio_med": 1.6, "ratio_min": 1.4, "dots": 3, "limit": 1.3},
+                                    "unseen": {"exposures": 2, "cover": 3}}),
+         "warn_levels": json.dumps({"wide": "strong", "unseen": "strong"})},
+        {**row, "id": "a", "ra": 125.2, "grade": "A", "reasons": np.array([], dtype=object), "track_overruled": True,
+         "gate_fixed_source": True, "gate_unseen": True, "gate_wide": False,
+         "warn_codes": np.array(["fixed_source", "unseen"], dtype=object),
+         "warn_values": json.dumps({"fixed_source": {"sep_arcsec": 4.2, "flux_ratio": 1.3, "motion_sigma": 1.1},
+                                    "unseen": {"exposures": 2, "cover": 4}}),
+         "warn_levels": json.dumps({})},                                  # suspects popped the overruled levels
+        {**row, "id": "o", "ra": 125.3, "grade": "B", "reasons": np.array([], dtype=object),
+         "warn_codes": np.array(["fixed_source"], dtype=object),
+         "warn_values": json.dumps({"fixed_source": {"sep_arcsec": 4.2}})}])   # a table without warn_levels
+    for c in ("track_overruled", "gate_fixed_source", "gate_unseen", "gate_wide"):
+        s[c] = s[c].fillna(False).astype(bool)
+    s["n_sessions"] = pd.array([None, None, 3, None], dtype="Int16")
+    s["rate_arcsec_h"], s["pa_deg"], s["rate_sigma"] = [np.nan, np.nan, 25.0, np.nan], [np.nan] * 2 + [80.0, np.nan], \
+        [np.nan, np.nan, 0.5, np.nan]
+    s["tracklet_id"] = [-1, -1, 7, -1]
+    p, w, a, o = K.movers(s, "hunt", None)
+    by = lambda m: {c["code"]: c for c in m["checks"]}  # noqa: E731
+    assert by(p)["hot_pixel_proven"]["level"] == "strong" and p["status"] == "flaw"
+    assert "in 6 exposures" in by(p)["hot_pixel"]["text"] and "more than 30″ away" in by(p)["hot_pixel"]["text"]
+    base = K.mover_score([20.0], ["two_exposures"], [np.nan], ["C"])[0]
+    assert p["score"] == pytest.approx(base) and w["score"] == pytest.approx(base)  # the C factor stands for them
+    assert by(w)["wide"]["level"] == "strong" and by(w)["unseen"]["level"] == "strong" and w["status"] == "open"
+    assert by(w)["unseen"]["values"] == {"unseen_exposures": 2, "cover_exposures": 3}
+    assert w["why"].startswith("Failed the vetting, most likely an artefact or a catalogued source: every dot is wider "
+                               "than a star; exposures that photographed its path don't show it. Seen")
+    assert a["grade"] == "A" and by(a)["fixed_source"]["level"] == "warn" and by(a)["unseen"]["level"] == "warn"
+    assert ("a track that outweighs what alone would fail the vetting (a fixed source or Gaia star is at its place; "
+            "exposures that photographed its path don't show it; see the warnings)") in a["why"]
+    assert by(o)["fixed_source"]["level"] == "warn"                       # no warn_levels: every code a warning
+    assert set(w["reasons"]) <= set(K.REASONS["mover"])

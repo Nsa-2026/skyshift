@@ -32,9 +32,9 @@ export reads only what is new. Run from server/ (its environment has skyshift_co
     uv run python ../scripts/candidates/pixel_check.py --candidates ../web/public/data/candidates.json
     uv run python ../scripts/candidates/pixel_check.py --validate      # hit rates on known asteroids and junk
 
-Selection (default `tocheck`): movers with status open (or none) that the site lists under "To check"
-(web/src/discover/filters.ts setAsideOf: not grade C, and not motion_not_significant unless grade A). `open`: every
-open mover. Results tables come from <root>/results/<zone>/suspects.parquet and photo lists from
+Selection (default `ab`): the open (or status-less) movers of grade A or B in the candidates.json given (since v3.24
+the grade C movers live in candidates-more/<zone>.json; `tocheck` is the old name of `ab`). `open`: every open mover
+of the file, any grade (e.g. a candidates-more file). Results tables come from <root>/results/<zone>/suspects.parquet and photo lists from
 <root>/photolists/zones/<zone>.parquet (bucket layout; `--fetch` copies missing ones with gsutil -n, logged).
 """
 
@@ -200,14 +200,14 @@ def motion_fit(t_h: np.ndarray, e: np.ndarray, n: np.ndarray, sig: np.ndarray):
 # inputs
 
 def select_movers(doc: dict, select: str) -> list[dict]:
+    """The open movers (status open or none) of a candidates file: `ab` (`tocheck`, its old name) grade A or B only,
+    `open` any grade."""
     out = []
     for c in doc["candidates"]:
         if c.get("kind") != "mover" or (c.get("status") or "open") != "open":
             continue
-        if select == "tocheck":
-            g = c.get("grade")
-            if g == "C" or (g != "A" and "motion_not_significant" in (c.get("reasons") or [])):
-                continue
+        if select in ("ab", "tocheck") and c.get("grade") not in ("A", "B"):
+            continue
         out.append(c)
     return out
 
@@ -1227,7 +1227,8 @@ def main(argv=None) -> int:
     ap.add_argument("--candidates", default=str(ROOT / "web" / "public" / "data" / "candidates.json"))
     ap.add_argument("--root", default=str(DATA_ROOT), help="local mirror of the bucket layout (results/, photolists/)")
     ap.add_argument("--out", default=None, help="default <root>/checks/pixel.json")
-    ap.add_argument("--select", choices=("tocheck", "open"), default="tocheck")
+    ap.add_argument("--select", choices=("ab", "open", "tocheck"), default="ab",
+                    help="ab: open grade A/B movers (tocheck: the old name); open: every open mover")
     ap.add_argument("--id", action="append", help="only these candidate ids")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=48, help="download threads (one process)")
