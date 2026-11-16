@@ -87,8 +87,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   fit gave ecl10-692050057552-87780103 28.8″/h on the site vs 11.1″/h in movers.parquet). On a track: `seen_again`
   (ok; tracklet_id, sessions, recovered sessions, track vs session motion, the zone's tracklets/link controls);
   `fast_held` (warn): a B track > 400″/h held from A. 16 Nov tables, 4 zones: candidates.json 290 A/B movers 0.62 MB,
-  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~20 GB, of which sources' spectra
-  (8.2 GB) and members (7.8 GB) for high_pm/spectral, refcat 1.7, classes 0.9; A/B movers' flags ~0.1 GB.
+  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~16 GB (was ~20 GB of columns,
+  ~50 GB at a 16 KiB block, several hundred GB at gcsfs' default), of which sources' spectra 8.2 GB (flux_ujy/err_ujy
+  whole: the candidates' rows touch ~80% of their pages), members ~2.3, dot flags ~2.4, refcat 1.7, classes 0.9.
 - Changes in known stars (16 Nov; changes.py, changes_step.py, changes_export.py; not a CLI step, not in `all`;
   docs/watch-changes.md): `uv run python -m skyshift_pipeline.changes_step --zones a,b|all [--skip-done] [--drop-points]
   --root gs://nasa-glazing-data [--out-root <dir>] --cache <dir>` reads a finished zone's lightcurves (11 of its columns,
@@ -101,9 +102,6 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   archive by source_id only (cached in --cache; down → variability unknown, `neighbours_unchecked`). Then
   `uv run python -m skyshift_pipeline.changes_export --root gs://nasa-glazing-data --out ../web/public/data/changes.json`
   merges every zone that has one into changes.json and the Atom feed changes.atom (next to it).
-  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~16 GB (was ~20 GB of columns,
-  ~50 GB at a 16 KiB block, several hundred GB at gcsfs' default), of which sources' spectra 8.2 GB (flux_ujy/err_ujy
-  whole: the candidates' rows touch ~80% of their pages), members ~2.3, dot flags ~2.4, refcat 1.7, classes 0.9.
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,
