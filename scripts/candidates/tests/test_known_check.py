@@ -80,8 +80,9 @@ def test_306P_is_predicted_on_every_ecl04_dot_and_both_movers_are_known(idx):
         e = KC.mover_check(m, it, bs, 1, 1)
         assert e["status"] == "known" and e["known_name"] == "306P/LINEAR"
         ch = e["checks"][0]
-        assert ch["code"] == "known_nearby" and ch["level"] == "strong" and "comet 306P/LINEAR" in ch["text"]
-        assert ch["values"]["sep_max_arcsec"] < 2.0 and ch["values"]["body"] == "comet"
+        assert ch["code"] == "known_body" and ch["level"] == "strong" and "comet 306P/LINEAR" in ch["text"]
+        assert ch["values"]["max_sep_arcsec"] < 2.0 and ch["values"]["body"] == "comet"
+        assert 95 < ch["values"]["body_rate_arcsec_h"] < 106 and ch["values"]["rate_arcsec_h"] == m["rate_arcsec_h"]
 
 
 def test_geocentre_alone_still_finds_306P_but_further_off(idx):
@@ -109,6 +110,8 @@ def test_mover_check_levels_and_texts():
     assert "D2" in warn["look"] and warn["values"]["name"] == "2019 XY1" and warn["values"]["sep_arcsec"] == 30.0
     sure = KC.mover_check(c, it, [_body(seps=(1.0, 2.0), rate=32.0, pa=82.0, certain=True, ratio=1.03, dpa=2.0)], 1, 1)
     assert sure["status"] == "known" and sure["known_name"] == "2019 XY1" and sure["checks"][0]["level"] == "strong"
+    assert sure["checks"][0]["code"] == "known_body" and warn["values"]["body_rate_arcsec_h"] == 40.0
+    assert (warn["values"]["rate_arcsec_h"], warn["values"]["pa_deg"], warn["values"]["max_sep_arcsec"]) == (31.0, 80.0, 32.0)
     on = KC.mover_check(c, it, [_body(), _body(name="2024 YE7", seps=(0.5, 1.3), rate=45.0, pa=110.0, ratio=1.45, dpa=30.0)],
                         1, 1)
     assert on["status"] is None and on["checks"][0]["level"] == "strong" and on["checks"][0]["values"]["name"] == "2024 YE7"

@@ -29,9 +29,15 @@ bright_fragment (a piece of a saturated star's ring) or `duplicate` (a second so
 Zones are listed in the order given (hunt first). An object already listed from an earlier zone is not
 listed again (the pilot lies inside the hunt zone and was redone with the same photos); the earlier entry's
 `zones` gets the later zone (as suspects.json).
-Movers carry three zone-level "check first" codes: outlier_flag, detector_excess, repeat_position.
 Movers also carry the suspects' vetting (vet.py): `grade` (A/B/C; null for other kinds and ungraded zones) and the failed
 gates as reason codes; grade C scores × MOVER_GRADE_C and the list puts movers in grade order, so C never leads.
+Every candidate has `status` (open, or flaw when a strong `*_proven` check holds; known only from a side file),
+`known_name` and `checks` (contracts/api.md v3.23; rules, texts and measured reference rates in candidate_checks.py,
+built from the tables already read: the dots' flags, detectors, motion against the visit's known asteroids, flux,
+place, vet gates; for the fixed kinds highpm/fragments/classes columns). Checks rank, they never hide: the kind's base
+score × CK.STRONG_FACTOR per strong check × CK.WARN_FACTOR per warn (checks already counted by grade C, the known term
+or a high_pm reason excepted). `--checks-dir DIR` merges the producers' side files (DIR/*.json) during the export,
+`--merge-only IN.json --checks-dir DIR --out OUT.json` into an existing file (candidate_checks.merge_side_files).
 Grade A (suspects.py: on a tracklets track over >= 2 sessions at >= 5σ) leads; its `why` names the track and it never
 gets motion_not_significant (its own one-session dots may not show the motion; the track does).
 `score` (0-1, higher = more promising) is defined per kind in mover_score, highpm_score and
@@ -57,6 +63,7 @@ from skyshift_core.flags import BIT_NAMES, MASK_BITS, OUTLIER, RECORD_BITS
 from skyshift_core.motion import PARALLAX_MODES
 from skyshift_core.planets import near_planets
 
+from . import candidate_checks as CK
 from . import config as C
 from . import log
 from .sky import SkyTree, angsep
@@ -94,16 +101,13 @@ DEFAULT_DET = 2                # high_pm, spectral without a usable spectrum: co
 # --- scores -------------------------------------------------------------------------------------
 MOVER_SNR_SCALE = 15.0
 MOVER_EVIDENCE = {"two_exposures": 1.0, "two_detectors": 0.6}
-MOVER_TWO_DOTS = 0.85
 MOVER_KNOWN_RANGE = (C.KNOWN_ARCSEC, 300.0)  # nearest known object: x0.5 at 30″ rising to x1 at 300″
-MOVER_RECORD_FLAG = 0.7        # a record-only flag other than OUTLIER (ghost, halo, …)
-MOVER_OUTLIER = 0.6            # outlier_flag
-MOVER_EXCESS = 0.6             # detector_excess
-MOVER_REPEAT = 0.3             # repeat_position
-MOVER_BAD_PIXELS = 0.8
-MOVER_NO_MOTION = 0.85
 MOVER_GRADE_C = 0.1            # the suspects' vetting graded it C (a failed gate or a catalogue source within 6″)
-MOVER_EDGE = 0.5               # a dot within VET_EDGE_PX of the detector edge (edge_dot), graded or not
+# From 16 Nov the other caution factors are the checks' (candidate_checks: strong x0.3, warn x0.95). Gone: OUTLIER x0.6
+# (OUTLIER marks 68% of known asteroids, 28% of the list: a sign for), detector_excess x0.6 (a zone statistic; it hit
+# 306P, the list's only real object), a masked pixel in a 3x3 x0.8 (known asteroids 23-29%, the list 16-35%: no sign
+# either way), two dots x0.85, motion under 3σ x0.85, another record flag x0.7, edge x0.5 (now two_photos,
+# may_not_move, flag_*, edge checks)
 GRADE_RANK = {"A": 0, "B": 1, "C": 2}  # list order inside each zone and kind; null (other kinds, ungraded) sorts with B
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "unsteady": 0.3, "over_pm_cap": 0.3,
@@ -144,7 +148,7 @@ REASONS = {
 }
 FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
-          "galactic_b", "labels", "reasons", "why", "flags", "frames_url")
+          "galactic_b", "labels", "reasons", "why", "flags", "frames_url", "status", "known_name", "checks")  # v3.23
 
 
 # --- small helpers ------------------------------------------------------------------------------
@@ -234,11 +238,14 @@ def _pool_map(fn, items, workers: int):
         return list(ex.map(fn, items))
 
 
-def mover_dots(store: Store, susp: pd.DataFrame, workers: int = 32) -> pd.DataFrame:
+def mover_dots(store: Store, susp: pd.DataFrame, workers: int = 32, only: np.ndarray | None = None) -> pd.DataFrame:
     """Dots within MOVER_MATCH_RADIUS_ARCSEC of each suspect, from the photos it was seen in
-    (its obs_ids x detectors). Columns: sid (suspect row), obs_id, detector, ra, dec, mjd, snr, pos_err_arcsec."""
+    (its obs_ids x detectors). Columns: sid (suspect row), obs_id, detector, ra, dec, mjd, snr, pos_err_arcsec.
+    only: the rows to read for (bool per row; sid stays the row in susp)."""
     want: dict[tuple[str, int], list[int]] = {}
     for i, r in enumerate(susp.itertuples()):
+        if only is not None and not only[i]:
+            continue
         for o in str(r.obs_ids).split(","):
             for d in str(r.detectors).split(","):
                 if o and d:
@@ -265,6 +272,33 @@ def mover_dots(store: Store, susp: pd.DataFrame, workers: int = 32) -> pd.DataFr
     return pd.concat(parts, ignore_index=True)[cols]
 
 
+def mover_dot_flags(store: Store, susp: pd.DataFrame, workers: int = 32) -> list[np.ndarray | None]:
+    """Per suspect, its dots' 3×3 `flags` (the dot files' column at the dot lists' dot_row), in dot-list order; None
+    where the lists or a dot file are missing. A column read of its own: the shared cache of the other reads stays."""
+    if not len(susp) or not all(c in susp for c in ("dot_obs", "dot_det", "dot_row")):
+        return [None] * len(susp)
+    files = sorted({(str(o), int(d)) for os_, ds in zip(susp["dot_obs"], susp["dot_det"]) for o, d in zip(os_, ds)})
+
+    def one(f):
+        try:
+            return f, read_columns(store, dots_rel(*f), ["flags"])["flags"].to_numpy(np.int64) & 0xFFFFFFFF
+        except FileNotFoundError:
+            return f, None
+
+    col = dict(_pool_map(one, files, workers))
+    out: list[np.ndarray | None] = []
+    for os_, ds, rows in zip(susp["dot_obs"], susp["dot_det"], susp["dot_row"]):
+        v = []
+        for o, d, k in zip(os_, ds, rows):
+            fl = col.get((str(o), int(d)))
+            if fl is None or k is None or not 0 <= int(k) < len(fl):
+                v = None
+                break
+            v.append(int(fl[int(k)]))
+        out.append(np.asarray(v, np.int64) if v is not None else None)
+    return out
+
+
 def match_mover(ra: float, dec: float, mjd: float, n_dots: int, near: pd.DataFrame, per_photo: int = 3) -> pd.DataFrame | None:
     """The mover's own dots: the choice of n_dots dots, at most one per photo, whose mean position and
     time equal the suspect's (link takes the plain mean). None if no choice matches."""
@@ -288,21 +322,29 @@ def match_mover(ra: float, dec: float, mjd: float, n_dots: int, near: pd.DataFra
 
 
 def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
-    """(rate ″/h, its 1σ error, position angle east of north) from a weighted straight-line fit of
-    position against time; None with fewer than two distinct times. Position errors are the dots' pos_err_arcsec ×
-    POS_ERR_SCALE (raw pos_err is 1.4–1.8× too small against Gaia), 0.3″ × that where missing."""
-    t = dots["mjd"].to_numpy(np.float64) * 24.0
-    if len(np.unique(np.round(t, 6))) < 2:
+    """(rate ″/h, its 1σ error, position angle east of north) of the dots, by link's own rule (link.track_fit): one
+    position per exposure (the mean of its dots), an unweighted least-squares line in time; None with fewer than two
+    exposures. So the rate shown is the movers table's for the same dots (until 16 Nov a fit weighted by pos_err gave
+    other numbers on noisy dots: ecl10-692050057552-87780103 28.8″/h on the site, 11.1″/h in movers.parquet). Times
+    within 5 s are one exposure (D1-D6 of one exposure share MJD-AVG to milliseconds; until 16 Nov a D1+D4 pair's
+    millisecond gap gave 0.4-10 million ″/h). The error propagates the dots' pos_err_arcsec × POS_ERR_SCALE (raw
+    pos_err is 1.4–1.8× too small against Gaia; 0.3″ × that where missing) through that line."""
+    exp = CK.exposures_of(dots["mjd"].to_numpy(np.float64))
+    ue, inv = np.unique(exp, return_inverse=True)
+    if ue.size < 2:
         return None
     e, n = tangent_offset_arcsec(dots["ra"].mean(), dots["dec"].mean(), dots["ra"].to_numpy(), dots["dec"].to_numpy())
     err = dots["pos_err_arcsec"].to_numpy(np.float64) if "pos_err_arcsec" in dots else np.full(len(dots), 0.3)
     err = np.where(np.isfinite(err) & (err > 0), err, 0.3) * C.POS_ERR_SCALE
-    w = 1.0 / err**2
-    tm = np.sum(w * t) / np.sum(w)
-    stt = np.sum(w * (t - tm) ** 2)
-    ve = np.sum(w * (t - tm) * (e - np.sum(w * e) / np.sum(w))) / stt
-    vn = np.sum(w * (t - tm) * (n - np.sum(w * n) / np.sum(w))) / stt
-    sig = 1.0 / math.sqrt(stt)
+    cnt = np.bincount(inv).astype(np.float64)
+    te, ee, ne = (np.bincount(inv, v) / cnt for v in (dots["mjd"].to_numpy(np.float64) * 24.0, e, n))
+    se = np.sqrt(np.bincount(inv, err**2)) / cnt   # σ of each exposure's mean position, per axis
+    dt = te - te.mean()
+    stt = float(np.sum(dt**2))
+    if stt <= 0:
+        return None
+    ve, vn = float(np.sum(dt * (ee - ee.mean())) / stt), float(np.sum(dt * (ne - ne.mean())) / stt)
+    sig = float(math.sqrt(np.sum(dt**2 * se**2)) / stt)
     return float(math.hypot(ve, vn)), sig, float(pa_deg(ve, vn))
 
 
@@ -314,9 +356,10 @@ def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
     src = read_columns(store, results_rel(zone, "sources.parquet"),
                        ["source_id", "flux_ujy", "err_ujy", "saturated", "variable"], ids)
     if not len(src):
-        return pd.DataFrame(columns=["source_id", "det", "snr", "flux_ujy", "saturated", "variable"])
+        return pd.DataFrame(columns=["source_id", "det", "snr", "flux_ujy", "saturated", "variable", "n_channels"])
     f = np.stack(src["flux_ujy"].to_numpy()).astype(np.float64).reshape(len(src), NDET, NCH_DET)
     e = np.stack(src["err_ujy"].to_numpy()).astype(np.float64).reshape(len(src), NDET, NCH_DET)
+    measured = (np.isfinite(f) & np.isfinite(e) & (e > 0)).reshape(len(src), -1).sum(axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         s = np.where(np.isfinite(f) & np.isfinite(e) & (e > 0), f / e, 0.0)
         snr = np.sqrt(np.sum(np.where(s > 0, s, 0.0) ** 2, axis=2))
@@ -332,7 +375,8 @@ def source_stats(store: Store, zone: str, ids: np.ndarray) -> pd.DataFrame:
     return pd.DataFrame({"source_id": src["source_id"].to_numpy(np.int64), "det": det,
                          "snr": np.where(ok, snr[k, best], np.nan), "flux_ujy": np.where(ok, flux[k, best], np.nan),
                          "saturated": src["saturated"].to_numpy(bool),
-                         "variable": src["variable"].to_numpy(bool) if "variable" in src else False})
+                         "variable": src["variable"].to_numpy(bool) if "variable" in src else False,
+                         "n_channels": measured.astype(np.int64)})
 
 
 def _opt(x, kind=float):
@@ -378,28 +422,18 @@ def fixed_flag_names(info_row: pd.Series | dict) -> list[str]:
 
 
 # --- movers ----------------------------------------------------------------------------------------
-def mover_score(snr, n_dots, evidence, nearest_known, flags, no_motion, excess=None, repeat=None, edge=None) -> np.ndarray:
-    """score = S/N term x evidence x known-object term x caution terms (contracts/api.md):
-    (1 - exp(-snr / 15)) x {two_exposures 1, two_detectors 0.6} x (0.85 with only two dots)
-    x (1 if no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″)
-    x 0.6 if OUTLIER x 0.7 if another record-only flag (ghost, halo, …) x 0.8 if a masked pixel touches a dot
-    x 0.85 if the motion is not significant x 0.6 if detector_excess x 0.3 if repeat_position
-    x 0.5 if a dot is within VET_EDGE_PX of the detector edge (edge_dot)."""
+def mover_score(snr, evidence, nearest_known, grade=None) -> np.ndarray:
+    """The mover's base score (contracts/api.md; the checks' factors come on top, candidate_checks.factor):
+    (1 - exp(-snr / 15)) x {two_exposures 1, two_detectors 0.6}
+    x (1 if no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) x 0.1 for grade C."""
     snr = np.asarray(snr, np.float64)
     s = 1.0 - np.exp(-np.maximum(snr, 0.0) / MOVER_SNR_SCALE)
     s = s * np.array([MOVER_EVIDENCE.get(e, 0.5) for e in evidence])
-    s = s * np.where(np.asarray(n_dots) <= 2, MOVER_TWO_DOTS, 1.0)
     d = np.asarray(nearest_known, np.float64)
     lo, hi = MOVER_KNOWN_RANGE
-    k = np.where(np.isfinite(d), 0.5 + 0.5 * np.clip((d - lo) / (hi - lo), 0.0, 1.0), 1.0)
-    f = np.asarray(flags, np.int64) & 0xFFFFFFFF
-    s = s * k * np.where((f & OUTLIER) != 0, MOVER_OUTLIER, 1.0)
-    s = s * np.where((f & RECORD_BITS & ~OUTLIER) != 0, MOVER_RECORD_FLAG, 1.0) * np.where((f & MASK_BITS) != 0, MOVER_BAD_PIXELS, 1.0)
-    s = s * np.where(np.asarray(no_motion, bool), MOVER_NO_MOTION, 1.0)
-    n = len(s)
-    s = s * np.where(np.asarray(excess if excess is not None else [False] * n, bool), MOVER_EXCESS, 1.0)
-    s = s * np.where(np.asarray(repeat if repeat is not None else [False] * n, bool), MOVER_REPEAT, 1.0)
-    s = s * np.where(np.asarray(edge if edge is not None else [False] * n, bool), MOVER_EDGE, 1.0)
+    s = s * np.where(np.isfinite(d), 0.5 + 0.5 * np.clip((d - lo) / (hi - lo), 0.0, 1.0), 1.0)
+    if grade is not None:
+        s = s * np.where(np.asarray(grade, dtype=object) == "C", MOVER_GRADE_C, 1.0)
     return _clip01(s)
 
 
@@ -485,7 +519,11 @@ VET_TEXT = {"not_vetted": "it could not be vetted (no data on its dots)", "hot_p
             "sharp_outlier": "a dot is sharper than a star (a cosmic ray?)", "very_sharp": "a dot is sharper than any star",
             "flux_ratio": "its brightness jumps more than 4× in one detector",
             "red_photo": "a dot comes from a photo that failed our quality check",
-            "2mass": "a 2MASS source lies within 6″", "allwise": "an AllWISE source lies within 6″"}
+            "2mass": "a 2MASS source lies within 6″", "allwise": "an AllWISE source lies within 6″",
+            # the suspects' strong warnings (16 Nov), when its tables carry them
+            "gaia": "a Gaia DR3 source lies within 6″", "catwise": "a CatWISE2020 source lies within 6″",
+            "bloom": "BLOOM is set at every dot's peak", "halo": "HALO is set at every dot's peak",
+            "bright_star": "a bright fixed source lies within 15″"}
 
 
 def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
@@ -501,7 +539,7 @@ def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
               no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
               track: tuple[int, float, float] | None = None, grade: str | None = None,
-              vet_reasons: list[str] | None = None) -> str:
+              vet_reasons: list[str] | None = None, known: str | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -514,21 +552,166 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         n, trate, snr = track
         sig = f", {snr:.0f}σ" if math.isfinite(snr) else ""
         seen += f"; followed over {n} sessions of its visit at {trate:.1f}″ an hour{sig}"
+    name = f" ({known})" if known else ""
     if nearest_known is None or not math.isfinite(nearest_known):
         known = "no known asteroid, comet, planet or moon was predicted within 10′"
     else:
-        known = f"the nearest known asteroid, comet, planet or moon was predicted {_fmt_dist(nearest_known)} away"
+        known = f"the nearest known asteroid, comet, planet or moon{name} was predicted {_fmt_dist(nearest_known)} away"
     if repeat is not None:
         known += (f", but another unexplained mover was seen {_fmt_dist(repeat[0])} from here {_fmt_days(repeat[1])} "
                   "apart, so it may be a fixed source")
     return f"{vet_text(grade, list(vet_reasons or []))}{seen}; {known}."
 
 
+def _list(v) -> list:
+    """A dot-list cell as a list ([] for a missing value)."""
+    if v is None or isinstance(v, float):
+        return []
+    return list(v)
+
+
+def suspect_warnings(r) -> dict[str, dict]:
+    """The suspects' `warn_codes` (list<string>) and `warn_values` (JSON {code: {name: number}}) of one row, as
+    {code: values}; {} when the columns are absent (tables written before the suspects kept former vetoes)."""
+    codes = _list(getattr(r, "warn_codes", None))
+    if not codes:
+        return {}
+    raw = getattr(r, "warn_values", None)
+    try:
+        vals = json.loads(raw) if isinstance(raw, str) and raw else (raw if isinstance(raw, dict) else {})
+    except ValueError:
+        vals = {}
+    return {str(c): (vals.get(str(c)) if isinstance(vals.get(str(c)), dict) else {}) for c in codes}
+
+
+def on_track(r) -> tuple[int, float, float] | None:
+    """(sessions, rate ″/h, rate / σ) of the tracklets track any suspect is on (tracklet_id >= 0); None off a track."""
+    tid = getattr(r, "tracklet_id", None)
+    if tid is None or pd.isna(tid) or int(tid) < 0:
+        return None
+    n, rate, sig = getattr(r, "n_sessions", None), getattr(r, "rate_arcsec_h", None), getattr(r, "rate_sigma", None)
+    if n is None or rate is None or pd.isna(n) or pd.isna(rate):
+        return None
+    snr = float(rate) / float(sig) if sig is not None and pd.notna(sig) and float(sig) > 0 else math.inf
+    return int(n), float(rate), snr
+
+
+def _fin(x) -> float | None:
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def table_motion(r) -> tuple[float | None, float | None]:
+    """(rate ″/h, PA °) of a suspect's own session from its row: session_rate_arcsec_h / session_pa_deg (link's motion,
+    which suspects keeps there since 16 Nov because a track's chord goes in rate_arcsec_h / pa_deg); link's
+    rate_arcsec_h / pa_deg in a table without track columns; else (None, None). Never a track's chord."""
+    if hasattr(r, "session_rate_arcsec_h"):
+        return _fin(r.session_rate_arcsec_h), _fin(getattr(r, "session_pa_deg", None))
+    if not hasattr(r, "tracklet_id"):
+        return _fin(getattr(r, "rate_arcsec_h", None)), _fin(getattr(r, "pa_deg", None))
+    return None, None
+
+
+def table_rate_err(r) -> float | None:
+    """1σ error (″/h) of link's in-session rate from the row's dot lists (dot_mjd, dot_snr): each dot's position σ from
+    its S/N (link.dot_sigma_arcsec: contracts/dots.md pos_err × LINK_POS_ERR_SCALE), one mean position per exposure,
+    the unweighted line of motion() and link; None under two exposures or without the lists."""
+    from .link import dot_sigma_arcsec
+
+    t = np.asarray(_list(getattr(r, "dot_mjd", None)), np.float64)
+    snr = np.asarray(_list(getattr(r, "dot_snr", None)), np.float64)
+    if t.size < 2 or t.size != snr.size or not np.isfinite(t).all():
+        return None
+    ue, inv = np.unique(CK.exposures_of(t), return_inverse=True)
+    if ue.size < 2:
+        return None
+    cnt = np.bincount(inv).astype(np.float64)
+    te = np.bincount(inv, t * 24.0) / cnt
+    se = np.sqrt(np.bincount(inv, dot_sigma_arcsec(snr) ** 2)) / cnt
+    dt = te - te.mean()
+    stt = float(np.sum(dt**2))
+    return float(math.sqrt(np.sum(dt**2 * se**2)) / stt) if stt > 0 else None
+
+
+def needs_positions(susp: pd.DataFrame) -> np.ndarray:
+    """Rows whose motion must come from their dots' positions (dot files' ra, dec, ...): those without link's
+    in-session motion in the table (table_motion; tables written before 16 Nov's session_* columns)."""
+    return np.array([table_motion(r)[0] is None for r in susp.itertuples()], bool)
+
+
+def fast_held(r) -> tuple[int, float] | None:
+    """(sessions, track rate ″/h) of a grade B suspect that suspects.track_grades held back from A (stats `fast_held`):
+    on a track of >= VET_A_MIN_SESSIONS sessions at >= VET_MOTION_SIGMA, faster than VET_A_FAST_ARCSEC_H, with no
+    recovered dot and no detector partner on the track (the only way such a B misses A); None otherwise."""
+    if getattr(r, "grade", None) != "B":
+        return None
+    tr = on_track(r)
+    if tr is None:
+        return None
+    n, rate, snr = tr
+    rs = _fin(getattr(r, "rate_snr", None))
+    snr = rs if rs is not None else snr
+    if n >= C.VET_A_MIN_SESSIONS and snr >= C.VET_MOTION_SIGMA and rate > C.VET_A_FAST_ARCSEC_H:
+        return n, rate
+    return None
+
+
+def known_name(r) -> str | None:
+    """The suspects' nearest_known_name (the body nearest_known_arcsec measures to); None without one."""
+    v = getattr(r, "nearest_known_name", None)
+    return str(v) if isinstance(v, str) and v.strip() else None
+
+
+def mover_facts(r, dots: pd.DataFrame | None, mo, no_motion: bool, track, ctx: dict, flags3,
+                gates: list[str], repeat, excess) -> dict:
+    """The inputs of candidate_checks.mover_checks for one suspect row."""
+    from .vet import star_size
+
+    lists = {k: _list(getattr(r, f"dot_{k}", None)) for k in ("det", "x", "y", "mjd", "flux", "snr", "size", "fpk", "obs")}
+    n = len(lists["det"])
+    dl = {k: v for k, v in lists.items() if len(v) == n} if n else {}
+    if n:
+        dl["flags3"] = flags3
+    elif dots is not None and len(dots) and {"detector", "mjd"} <= set(dots.columns):  # no dot lists (old tables):
+        dl = {"det": dots["detector"].astype(int).tolist(), "mjd": dots["mjd"].tolist()}  # the re-read dots' times
+    rate, err, pa = mo if mo else (None, None, None)
+    tr = on_track(r)
+    visit = int(getattr(r, "visit", 0) or 0)
+    nk = getattr(r, "nearest_known_arcsec", None)
+    ns = getattr(r, "near_source_arcsec", None)
+    bright = None
+    bt = ctx.get("bright")
+    if bt is not None:
+        tree, g = bt
+        sep, j = tree.nearest(float(r.ra), float(r.dec))
+        if j[0] >= 0 and sep[0] <= CK.BRIGHT_STAR_ARCSEC:
+            bright = (float(g[j[0]]), float(sep[0]))
+    s_rate, s_pa = table_motion(r)
+    return {
+        "dots": dl, "flags": int(r.flags), "evidence": r.evidence, "n_exposures": int(r.n_exposures), "det": int(r.det),
+        "grade": getattr(r, "grade", None), "gates": gates, "rate": rate, "rate_err": err, "pa": pa,
+        "session_rate": s_rate, "session_pa": s_pa, "fast_held": fast_held(r), "track_info": track_info(r, ctx),
+        "no_motion": no_motion, "track": tr, "on_track": tr is not None, "visit": visit,
+        "nearest_known": float(nk) if nk is not None and pd.notna(nk) else None, "known_name": known_name(r),
+        "near_source": float(ns) if ns is not None and pd.notna(ns) else None,
+        "repeat": repeat, "excess": excess, "ref": ctx.get("motion_ref"), "control_tracks": ctx.get("control_tracks"),
+        "partner_photos": ctx.get("photos"), "bright": bright,
+        "star_size": star_size(np.asarray(dl["det"], np.int64), np.asarray(dl["snr"], np.float64))
+        if "snr" in dl and "det" in dl and n else None,
+        "warn": suspect_warnings(r),
+    }
+
+
 def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
-           cells: dict[tuple[int, int], float] | None = None, repeats: dict[str, tuple[float, float]] | None = None) -> list[dict]:
+           cells: dict[tuple[int, int], float] | None = None, repeats: dict[str, tuple[float, float]] | None = None,
+           ctx: dict | None = None, flags3: list | None = None) -> list[dict]:
     """Mover candidates from suspects. `cells` (excess_cells) and `repeats` (repeat_positions) come from the
-    whole zone, so they stay right when `susp` is a subset."""
-    cells, repeats = cells or {}, repeats or {}
+    whole zone, so they stay right when `susp` is a subset. ctx: the zone's facts for the checks (zone_base: motion_ref,
+    control_tracks, photos, bright); flags3: mover_dot_flags of susp (None: not read)."""
+    cells, repeats, ctx = cells or {}, repeats or {}, ctx or {}
     out = []
     for i, r in enumerate(susp.itertuples()):
         dets = sorted(int(x) for x in str(r.detectors).split(",") if x)
@@ -537,9 +720,16 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             dots = match_mover(r.ra, r.dec, r.mjd, int(r.n_dots), near[near["sid"] == i])
         mo = motion(dots) if dots is not None else None
         rate, rate_err, pa = mo if mo else (None, None, None)
+        if mo is None:  # no dots read (the row has link's in-session motion, or grade C) or none matched
+            rate, pa = table_motion(r)
+            rate_err = table_rate_err(r) if rate is not None else None
         track = mover_track(r)  # grade A: its motion is shown over sessions, whatever its own dots say
-        no_motion = bool(track is None and mo is not None and rate < RATE_SIGMA_MIN * rate_err)
-        span_min = float((dots["mjd"].max() - dots["mjd"].min()) * 1440.0) if dots is not None else None
+        no_motion = bool(track is None and rate is not None and rate_err and rate < RATE_SIGMA_MIN * rate_err)
+        if dots is not None:
+            span_min = float((dots["mjd"].max() - dots["mjd"].min()) * 1440.0)
+        else:
+            tl = np.asarray(_list(getattr(r, "dot_mjd", None)), np.float64)
+            span_min = float(np.ptp(tl) * 1440.0) if tl.size >= 2 and np.isfinite(tl).all() else None
         nk = float(r.nearest_known_arcsec) if pd.notna(r.nearest_known_arcsec) else None
         f = int(r.flags) & 0xFFFFFFFF
         reasons = [r.evidence]
@@ -551,7 +741,8 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             reasons.append("bad_pixels_near")
         if f & OUTLIER:
             reasons.append("outlier_flag")
-        excess = is_excess(dets, int(getattr(r, "visit", 0) or 0), cells)
+        visit = int(getattr(r, "visit", 0) or 0)
+        excess = is_excess(dets, visit, cells)
         if excess:
             reasons.append("detector_excess")
         rep_ = repeats.get(str(r.id))
@@ -569,18 +760,36 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         if edge and "edge" not in vet_reasons:
             vet_reasons.append("edge")
         reasons += vet_reasons
-        score = float(mover_score([r.snr], [r.n_dots], [r.evidence], [nk if nk is not None else np.nan], [f], [no_motion],
-                                  [excess], [rep_ is not None], [edge])[0]) * (MOVER_GRADE_C if grade == "C" else 1.0)
-        out.append({
+        base = float(mover_score([r.snr], [r.evidence], [nk if nk is not None else np.nan], [grade])[0])
+        cell = None
+        if excess:
+            d0 = int(r.det) if (int(r.det), visit) in cells else dets[0]
+            cell = (d0, visit, cells.get((d0, visit), 0.0))
+        facts = mover_facts(r, dots, (rate, rate_err, pa) if rate is not None else None, no_motion, track, ctx,
+                            flags3[i] if flags3 is not None else None, vet_reasons, rep_, cell)
+        c = {
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
-            "zone": zone, "zones": [zone], "score": score, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
+            "zone": zone, "zones": [zone], "score": base, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
-            "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
+            # a catalogue source within 6″ and at most 2 mag fainter (the suspects' reasons gaia, catwise): its own light
+            "gaia_match": "gaia" in vet_reasons, "catwise_match": "catwise" in vet_reasons, "labels": [], "reasons": reasons,
             "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track, grade,
-                             vet_reasons),
-            "flags": record_flag_names(f), "_dets": dets,
-        })
+                             vet_reasons, known_name(r)),
+            "flags": record_flag_names(f), "_dets": dets, "_base": base,
+            "checks": CK.mover_checks(facts),
+        }
+        set_status(c)
+        out.append(c)
     return out
+
+
+def set_status(c: dict) -> dict:
+    """status from the exporter's own checks (flaw for a strong `_proven` one, else open), known_name null, and the score
+    = the kind's base score × the checks' factors."""
+    c["status"] = CK.status_of(c.get("checks") or [])
+    c["known_name"] = None
+    c["score"] = float(_clip01(c["_base"] * CK.factor(c)))
+    return c
 
 
 def drop_planet_movers(cands: list[dict]) -> tuple[list[dict], dict[str, int]]:
@@ -706,6 +915,9 @@ def high_pms(h: pd.DataFrame, zone: str, cls_labels: dict[int, list[str]]) -> li
             "nearest_known_arcsec": None, "gaia_match": r.status == "gaia", "catwise_match": bool(str(r.catwise_name or "")),
             "labels": sorted(labels, key=LABELS.index), "reasons": rs, "why": highpm_why(r, rs), "flags": [],
             "_sources": [sid] + ([int(r.source_id_b)] if r.method == "pair" and r.source_id_b >= 0 else []),
+            "_method": r.method, "_fit_mode": str(getattr(r, "fit_mode", "") or ""),
+            "_n_common_det": (int(r.n_common_det) if r.method == "pair" and pd.notna(getattr(r, "n_common_det", None))
+                              else None),
         })
     return out
 
@@ -798,18 +1010,53 @@ def clean_labels(c: pd.DataFrame, pz: pd.DataFrame | None) -> pd.DataFrame:
     return c
 
 
+REFCAT_COLUMNS = ["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "g", "g_mag", "phot_g_mean_mag"]
+_REFCAT: dict[tuple[str, str], pd.DataFrame | None] = {}
+CATALOG_NAMES = {"gaia": "Gaia DR3", "catwise": "CatWISE2020", "tmass": "2MASS", "2mass": "2MASS"}
+
+
+def refcat_rows(store: Store, zone: str) -> pd.DataFrame | None:
+    """refcat/<zone>.parquet (else the forced list) columns REFCAT_COLUMNS, read once per zone and run; None without
+    one."""
+    key = (str(store.root), zone)
+    if key not in _REFCAT:
+        rel = next((r.format(zone=zone) for r in (C.REFCAT_REL, C.REFCAT_FALLBACK_REL) if store.exists(r.format(zone=zone))), None)
+        _REFCAT[key] = read_columns(store, rel, REFCAT_COLUMNS) if rel is not None else None
+    return _REFCAT[key]
+
+
+def ref_g(ref: pd.DataFrame) -> np.ndarray:
+    return next((pd.to_numeric(ref[k], errors="coerce").to_numpy(np.float64) for k in ("g", "g_mag", "phot_g_mean_mag")
+                 if k in ref), np.full(len(ref), np.nan))
+
+
+def zone_catalogs(store: Store, zone: str) -> list[str]:
+    """The catalogues the zone's reference catalogue really holds, by name (Gaia DR3, CatWISE2020, 2MASS): the marker
+    refcat/<zone>_catalogs.json when written, else the refcat's `cat` values (all 60 ecliptic zones: Gaia only; 16 Nov
+    audit). [] when unknown."""
+    names: list[str] = []
+    try:
+        m = store.read_json(f"refcat/{zone}_catalogs.json")
+        names = [CATALOG_NAMES.get(str(x).lower(), str(x)) for x in (m.get("catalogs") or [])]
+    except (FileNotFoundError, ValueError, OSError, AttributeError):
+        ref = refcat_rows(store, zone)
+        if ref is not None and "cat" in ref:
+            cats = {str(x).lower() for x in pd.unique(ref["cat"].astype(str))}
+            names = [v for k, v in CATALOG_NAMES.items() if any(c.startswith(k) for c in cats)]
+    order = ["Gaia DR3", "CatWISE2020", "2MASS"]
+    return sorted(set(names), key=lambda x: order.index(x) if x in order else len(order))
+
+
 def gaia_blends(store: Store, zone: str, ids: np.ndarray) -> np.ndarray:
     """The source_ids (of `ids`) with a Gaia DR3 star brighter than BLEND_MAX_G within BLEND_ARCSEC at the source's
     epoch (crossids epoch_mjd, else the photo list's median): refcat/<zone>.parquet moved with its proper motion."""
     from .crossid import ref_offset_at
 
     ids = np.unique(np.asarray(ids, np.int64))
-    rel = next((r.format(zone=zone) for r in (C.REFCAT_REL, C.REFCAT_FALLBACK_REL) if store.exists(r.format(zone=zone))), None)
-    if not ids.size or rel is None:
+    ref = refcat_rows(store, zone) if ids.size else None
+    if ref is None:
         return np.zeros(0, np.int64)
-    ref = read_columns(store, rel, ["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "g", "g_mag", "phot_g_mean_mag"])
-    g = next((pd.to_numeric(ref[k], errors="coerce").to_numpy(np.float64) for k in ("g", "g_mag", "phot_g_mean_mag")
-              if k in ref), np.full(len(ref), np.nan))
+    g = ref_g(ref)
     cat = ref["cat"].astype(str).str.lower() if "cat" in ref else pd.Series("", index=ref.index)
     with np.errstate(invalid="ignore"):
         ref = ref[cat.str.contains("gaia").to_numpy() & (g < C.BLEND_MAX_G)].reset_index(drop=True)
@@ -910,7 +1157,7 @@ def spectrals(s: pd.DataFrame, zone: str) -> list[dict]:
             "rate_arcsec_h": None, "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": None,
             "nearest_known_arcsec": None, "gaia_match": bool(has_gaia[i]), "catwise_match": False,
             "labels": labs, "reasons": reasons, "why": spectral_why(row, labs), "flags": [],
-            "_sources": [int(row["source_id"])],
+            "_sources": [int(row["source_id"])], "_pah_sig": _opt(row.get("pah_33_sig")),
         })
     return out
 
@@ -937,6 +1184,7 @@ def shape_candidates(store: Store, zone: str) -> list[dict]:
             "nearest_known_arcsec": None, "gaia_match": bool(r.get("gaia_match")), "catwise_match": bool(r.get("catwise_match")),
             "labels": [], "reasons": [x for x in split(r.get("reasons")) if x in REASONS["shape"]], "why": str(r["why"]),
             "flags": split(r.get("flags")), "_sources": [int(r["source_id"])],
+            "_companion": str(r.get("companion_catalog") or "") if _opt(r.get("companion_split"), bool) else "",
         })
     return out
 
@@ -980,8 +1228,98 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
     if cells or reps:
         L.info("candidates %s: excess cells %s; %d suspects at a repeated position", zone,
                {f"D{d} visit {v}": round(x, 2) for (d, v), x in sorted(cells.items())}, len(reps))
+    galaxies = (set(cls.loc[cls["class"].astype(str) == "galaxy", "source_id"].astype(np.int64))
+                if len(cls) and "class" in cls else set())
     return {"suspects": susp, "highpm": h, "spectral": spec, "class_labels": cl, "collections": coll,
-            "cells": cells, "repeats": reps}
+            "cells": cells, "repeats": reps, "galaxies": galaxies}
+
+
+TRACK_INFO_COLUMNS = ["mover_id", "tracklet_id", "n_sessions", "n_movers", "n_recovered_sessions", "span_h"]
+
+
+def zone_controls(steps: dict) -> dict | None:
+    """The zone's chance yardsticks for a track (summary.json steps): its real tracks, recovered dots and movers
+    (zone_*), tracklets' shuffled control (control_*: tracks, fast_tracks, movers_on_tracks; recovered_dots when every
+    track was also moved 2′, #367) and link's shuffled-exposure control (link_control_*: movers, two_exposures, fast;
+    #367). Keys present only when measured."""
+    tr, lk = steps.get("tracklets") or {}, steps.get("link") or {}
+    out: dict = {}
+    for k, v in (("zone_tracks", tr.get("tracks")), ("zone_recovered_dots", tr.get("recovered_dots")),
+                 ("zone_movers", lk.get("movers"))):
+        if isinstance(v, (int, float)):
+            out[k] = v
+    ctl = tr.get("control")
+    if isinstance(ctl, dict):
+        for k in ("tracks", "fast_tracks", "movers_on_tracks", "recovered_dots"):
+            if isinstance(ctl.get(k), (int, float)):
+                out[f"control_{k}"] = ctl[k]
+    lc = lk.get("control")
+    if isinstance(lc, dict) and "error" not in lc:
+        for k in ("movers", "two_exposures", "fast"):
+            if isinstance(lc.get(k), (int, float)):
+                out[f"link_control_{k}"] = lc[k]
+    return out or None
+
+
+def track_info(r, ctx: dict) -> dict | None:
+    """A suspect's tracklets track (tracklet_id >= 0) for the `seen_again` check: tracklet_id, n_sessions, n_movers,
+    n_recovered_sessions, span_h (tracklets.parquet via ctx tracks), the track's rate_arcsec_h / pa_deg / rate_snr,
+    link's in-session motion (session_rate_arcsec_h / session_pa_deg) and the zone's controls (zone_controls);
+    None off a track."""
+    tr = on_track(r)
+    if tr is None:
+        return None
+    s_rate, s_pa = table_motion(r)
+    out = {"tracklet_id": int(r.tracklet_id), "n_sessions": tr[0], "rate_arcsec_h": tr[1],
+           "pa_deg": _fin(getattr(r, "pa_deg", None)), "rate_snr": _fin(getattr(r, "rate_snr", None)),
+           "session_rate_arcsec_h": s_rate, "session_pa_deg": s_pa}
+    tt = ctx.get("tracks")
+    if tt is not None and str(r.id) in tt.index:
+        row = tt.loc[str(r.id)]
+        for k in ("n_movers", "n_recovered_sessions"):
+            v = _fin(row.get(k))
+            out[k] = int(v) if v is not None else None
+        out["span_h"] = _fin(row.get("span_h"))
+    return {**out, **(ctx.get("controls") or {})}
+
+
+def mover_context(store: Store, zone: str) -> dict:
+    """The zone's facts the mover checks need (candidate_checks.mover_checks): motion_ref (its known asteroids' rates
+    and directions per visit, tracklets.parquet rows on a track), control_tracks (summary.json's shuffled control),
+    photos ((obs_id, detector) of the photo list: was the partner detector's photo taken), bright (Gaia stars brighter
+    than BRIGHT_STAR_G from the refcat). Each is None when its file is missing."""
+    ctx: dict = {"motion_ref": None, "control_tracks": None, "photos": None, "bright": None, "tracks": None,
+                 "controls": None}
+    trel = results_rel(zone, "tracklets.parquet")
+    try:
+        if store.exists(trel):
+            t = read_columns(store, trel, ["visit", "tracklet_id", "rate_arcsec_h", "pa_deg"])
+            if len(t):
+                ctx["motion_ref"] = CK.zone_motion_ref(t["visit"].to_numpy(), t["tracklet_id"].to_numpy() >= 0,
+                                                       t["rate_arcsec_h"].to_numpy(), t["pa_deg"].to_numpy())
+            tt = read_columns(store, trel, TRACK_INFO_COLUMNS)
+            tt = tt[tt["tracklet_id"].to_numpy() >= 0]
+            ctx["tracks"] = tt.drop_duplicates("mover_id").set_index("mover_id") if len(tt) else None
+    except Exception as e:  # noqa: BLE001  (a malformed table only drops these checks)
+        L.warning("candidates %s: tracklets unreadable (%s): no fast / odd_direction / seen_again values", zone, e)
+    try:
+        steps = store.read_json(results_rel(zone, "summary.json")).get("steps", {})
+        ctx["controls"] = zone_controls(steps)
+        ctl = (steps.get("tracklets") or {}).get("control")
+        ctx["control_tracks"] = int(ctl["tracks"]) if isinstance(ctl, dict) and "tracks" in ctl else None
+    except (FileNotFoundError, ValueError, OSError, AttributeError, TypeError):
+        pass
+    if store.exists(photolist_rel(zone)):
+        p = read_columns(store, photolist_rel(zone), ["obs_id", "detector", "mjd"])
+        ctx["photos"] = set(zip(p["obs_id"].astype(str), p["detector"].astype(np.int64)))
+    ref = refcat_rows(store, zone)
+    if ref is not None and len(ref):
+        g = ref_g(ref)
+        cat = ref["cat"].astype(str).str.lower() if "cat" in ref else pd.Series("gaia", index=ref.index)
+        with np.errstate(invalid="ignore"):
+            keep = cat.str.contains("gaia").to_numpy() & (g < CK.BRIGHT_STAR_G)
+        ctx["bright"] = (SkyTree(ref["ra"].to_numpy(np.float64)[keep], ref["dec"].to_numpy(np.float64)[keep]), g[keep])
+    return ctx
 
 
 def dedupe(earlier: list[dict], later: list[dict]) -> list[dict]:
@@ -1035,6 +1373,10 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
             c["det"], c["snr"], c["flux_ujy"] = _opt(r["det"], int), _opt(r["snr"]), _opt(r["flux_ujy"])
             if c["kind"] == "spectral" and bool(r["variable"]):
                 c["reasons"].append("variable")
+            c["_saturated"] = any(bool(st.loc[s, "saturated"]) for s in c["_sources"] if s in st.index)
+            c["_n_channels"] = _opt(r.get("n_channels"), int)
+        if sid in info.index:
+            c["_n_dots"] = int(sum(int(info.loc[s, "n_dots"]) for s in c["_sources"] if s in info.index))
         names: list[str] = []
         for s in c["_sources"]:
             if s in info.index:
@@ -1050,9 +1392,79 @@ def fill_sources(store: Store, zone: str, cands: list[dict], workers: int) -> No
             c["det"] = DEFAULT_DET  # null, so the site's default detector; snr and flux_ujy stay null
 
 
+FRAGMENT_EXTRA = ["source_id", "tag", "n_gaia_8", "blend_sep_arcsec", "blend_dg", "bright_dist_arcsec", "bright_mag",
+                  "bright_band"]
+
+
+def fixed_facts(store: Store, zone: str, cands: list[dict], galaxies: set) -> None:
+    """high_pm, spectral and shape: the zone-level facts their checks need, kept on each candidate (`_blend`, `_bright`,
+    `_catalogs`, `_galaxy`): fragments.parquet's blend and bright-star columns, the zone's catalogues, classify's class.
+    The checks themselves come after every zone (fixed_checks), when the ice groups across zones are known."""
+    fixed = [c for c in cands if c["kind"] in ("high_pm", "spectral", "shape")]
+    if not fixed:
+        return
+    rel = results_rel(zone, "fragments.parquet")
+    fr = None
+    if store.exists(rel):
+        try:
+            fr = read_columns(store, rel, FRAGMENT_EXTRA).drop_duplicates("source_id").set_index("source_id")
+        except Exception as e:  # noqa: BLE001  (an old fragments file without these columns: no blend/bright checks)
+            L.warning("candidates %s: fragments columns unreadable (%s)", zone, e)
+    cats = zone_catalogs(store, zone)
+    for c in fixed:
+        c["_catalogs"] = cats
+        c["_galaxy"] = any(s in galaxies for s in c["_sources"]) or "class_galaxy" in c["reasons"]
+        if fr is None:
+            continue
+        for s in c["_sources"]:
+            if s not in fr.index:
+                continue
+            r = fr.loc[s]
+            if str(r.get("tag") or "") == "blend" and "_blend" not in c:
+                c["_blend"] = (_opt(r.get("blend_sep_arcsec")), _opt(r.get("blend_dg")), _opt(r.get("n_gaia_8"), int))
+            dist_ = _opt(r.get("bright_dist_arcsec"))
+            if dist_ is not None and str(r.get("bright_band") or "") and ("_bright" not in c or dist_ < c["_bright"][2]):
+                c["_bright"] = (str(r["bright_band"]), float(r["bright_mag"]), dist_)
+
+
+def ice_neighbours(cands: list[dict]) -> None:
+    """Spectral candidates with an ice label: how many other ice-labelled ones lie within CK.ICE_GROUP_DEG (`_ice_n`)."""
+    ice = [c for c in cands if c["kind"] == "spectral" and any(x.endswith("_ice") for x in c["labels"])]
+    if not ice:
+        return
+    tree = SkyTree(np.array([c["ra"] for c in ice]), np.array([c["dec"] for c in ice]))
+    for c, hits in zip(ice, tree.query_radius(np.array([c["ra"] for c in ice]), np.array([c["dec"] for c in ice]),
+                                              CK.ICE_GROUP_DEG * 3600.0)):
+        c["_ice_n"] = len(hits) - 1
+
+
+def fixed_checks(c: dict) -> list[dict]:
+    """The exporter's checks of a high_pm, spectral or shape candidate (candidate_checks), from its kept facts."""
+    if c["kind"] == "high_pm":
+        return CK.highpm_checks({"reasons": c["reasons"], "pm": c.get("pm_mas_yr"), "method": c.get("_method"),
+                                 "fit_mode": c.get("_fit_mode"), "saturated": c.get("_saturated"),
+                                 "n_dots": c.get("_n_dots"), "blend": c.get("_blend"), "det": c.get("det"),
+                                 "gaia_match": c.get("gaia_match"), "n_common_det": c.get("_n_common_det")})
+    if c["kind"] == "spectral":
+        return CK.spectral_checks({"labels": c["labels"], "pah_sig": c.get("_pah_sig"), "ice_neighbours": c.get("_ice_n"),
+                                   "n_channels": c.get("_n_channels"), "bright": c.get("_bright"),
+                                   "blend": c.get("_blend"), "catalogs": c.get("_catalogs"),
+                                   "catwise_match": c.get("catwise_match"), "det": c.get("det")})
+    if c["kind"] == "shape":
+        return CK.shape_checks({"reasons": c["reasons"], "galaxy": c.get("_galaxy"), "bright": c.get("_bright"),
+                                "blend": c.get("_blend"), "companion_catalog": c.get("_companion"), "det": c.get("det")})
+    return c.get("checks") or []
+
+
+def sort_key(order: dict[str, int]):
+    return lambda c: (order.get(c["zone"], len(order)), KINDS.index(c["kind"]), GRADE_RANK.get(c.get("grade"), 1),
+                      -(c["score"] or 0.0), c["id"])
+
+
 def build(store: Store, zones: list[str], frames_root: Path | None = None, workers: int = 32,
-          spectral_cap: int = SPECTRAL_CAP) -> dict:
-    """The candidates.json document for these zones, in this order."""
+          spectral_cap: int = SPECTRAL_CAP, checks_dir: Path | None = None) -> dict:
+    """The candidates.json document for these zones, in this order. checks_dir: the check producers' side files
+    (candidate_checks.merge_side_files), merged before the final sort."""
     kept: list[dict] = []
     collections: set[str] = set()
     used_zones = []
@@ -1091,19 +1503,37 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         if ms:
             keep_ids = {c["id"] for c in ms}
             susp = b["suspects"][b["suspects"]["id"].isin(keep_ids)].reset_index(drop=True)
+            more = more_rows(susp)  # grade C: the suspects row alone, never their dot files
+            sd, sm = susp[~more].reset_index(drop=True), susp[more].reset_index(drop=True)
+            need = needs_positions(sd)  # A/B: positions only where the table lacks link's in-session motion
             t1 = time.time()
-            near = mover_dots(store, susp, workers)
-            L.info("candidates %s: dots of %d movers in %.0f s", z, len(susp), time.time() - t1)
-            full = {c["id"]: c for c in movers(susp, z, near, b["cells"], b["repeats"])}
+            near = mover_dots(store, sd, workers, need) if need.any() else None
+            flags3 = mover_dot_flags(store, sd, workers) if len(sd) else None  # the dots' 3×3 flags (a small column)
+            ctx = mover_context(store, z)
+            L.info("candidates %s: %d grade A/B movers (dot flags; positions for %d without an in-session motion) in "
+                   "%.0f s; %d grade C from the table alone", z, len(sd), int(need.sum()), time.time() - t1, len(sm))
+            full = {c["id"]: c for c in movers(sd, z, near, b["cells"], b["repeats"], ctx, flags3)
+                    + movers(sm, z, None, b["cells"], b["repeats"], ctx, None)}
             cands = [full.get(c["id"], c) if c["kind"] == "mover" else c for c in cands]
         fill_sources(store, z, cands, workers)
+        fixed_facts(store, z, cands, b.get("galaxies") or set())
+        _REFCAT.pop((str(store.root), z), None)
         kept += cands
         L.info("candidates %s: %d kept in %.0f s", z, len(cands), time.time() - t0)
     gb = galactic_b([c["ra"] for c in kept], [c["dec"] for c in kept])
     for c, b_ in zip(kept, gb):
         c["galactic_b"] = float(b_)
+    ice_neighbours(kept)
+    for c in kept:
+        if c["kind"] != "mover":
+            c["_base"] = c["score"]
+            c["checks"] = fixed_checks(c)
+            set_status(c)
+    if checks_dir is not None:
+        L.info("candidates: side files merged from %s: %s", checks_dir,
+               CK.merge_side_files(kept, CK.load_side_files(checks_dir)))
     order = {z: i for i, z in enumerate(used_zones)}
-    kept.sort(key=lambda c: (order[c["zone"]], KINDS.index(c["kind"]), GRADE_RANK.get(c.get("grade"), 1), -c["score"], c["id"]))
+    kept.sort(key=sort_key(order))
     ids = [c["id"] for c in kept]
     if len(set(ids)) != len(ids):
         raise ValueError("candidate ids are not unique")
@@ -1118,6 +1548,80 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         "counts": {k: sum(c["kind"] == k for c in kept) for k in KINDS},
         "candidates": [finish(c) for c in kept],
     }
+
+
+MORE_DIR = "candidates-more"   # next to candidates.json: <out dir>/candidates-more/<zone>.json
+MORE_GRADES = ("C",)           # movers of these grades go to the more files (unless status known or flaw)
+
+
+def more_rows(susp: pd.DataFrame) -> np.ndarray:
+    """Suspects rows whose movers go to the more files (grade C): built from the row alone, no dot file read."""
+    if "grade" not in susp or not len(susp):
+        return np.zeros(len(susp), bool)
+    return susp["grade"].astype(str).isin(MORE_GRADES).to_numpy()
+
+
+def in_more(c: dict) -> bool:
+    """A listed candidate that goes to its zone's more file: a grade C mover still open (a known or flaw one stays in
+    candidates.json, where the site shows what was resolved)."""
+    return c["kind"] == "mover" and c.get("grade") in MORE_GRADES and c.get("status", "open") == "open"
+
+
+def split_more(doc: dict) -> tuple[dict, dict[str, dict]]:
+    """candidates.json and its more files from one full document (contracts/api.md v3.24 "Less likely movers"): grade C
+    open movers go to {zone: more doc} (the same candidate objects in list order, i.e. by score; frames_url null); the
+    main file keeps the rest (known and flaw ones of any grade too), its `counts` count what it lists and `more`
+    indexes the files ({zone, kind, grade, count, url}, url relative to candidates.json; zones in `zones` order; a zone
+    with none has neither). The zones' dedup ran before (build), so an id is in exactly one file."""
+    head = {k: v for k, v in doc.items() if k not in ("candidates", "more", "counts")}
+    main, more = [], {}
+    for c in doc["candidates"]:
+        if in_more(c):
+            more.setdefault(c["zone"], []).append({**c, "frames_url": None})  # static frames: candidates.json's best
+        else:
+            main.append(c)
+    order = list(doc.get("zones") or [])
+    zones = [z for z in order if z in more] + sorted(z for z in more if z not in order)
+    index = [{"zone": z, "kind": "mover", "grade": "C", "count": len(more[z]), "url": f"{MORE_DIR}/{z}.json"}
+             for z in zones]
+    out = {**head, "counts": {k: sum(c["kind"] == k for c in main) for k in KINDS}, "more": index, "candidates": main}
+    files = {z: {"generated": doc.get("generated"), "data_release": doc.get("data_release"), "zone": z, "kind": "mover",
+                 "grade": "C", "count": len(more[z]), "candidates": more[z]} for z in zones}
+    return out, files
+
+
+def load_more(doc: dict, folder: Path) -> list[dict]:
+    """The candidates of an export's more files (doc['more'] urls, relative to folder: candidates.json's own); a
+    missing file is skipped with a warning (its candidates are then gone from a rewrite)."""
+    out = []
+    for e in doc.get("more") or []:
+        p = folder / str(e.get("url") or f"{MORE_DIR}/{e.get('zone')}.json")
+        if not p.exists():
+            L.warning("candidates: more file %s missing: its %s candidates are not merged", p, e.get("count"))
+            continue
+        out += json.loads(p.read_text())["candidates"]
+    return out
+
+
+def write_export(doc: dict, out: Path) -> dict[str, float]:
+    """Writes the full document as out (candidates.json) and out.parent/candidates-more/<zone>.json (split_more); a
+    more file of one of the doc's zones that no longer has any is removed. Returns {file name: MB}."""
+    main, files = split_more(doc)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(dumps(main))
+    sizes = {out.name: out.stat().st_size / 1e6}
+    folder = out.parent / MORE_DIR
+    if files:
+        folder.mkdir(parents=True, exist_ok=True)
+    for z, d in files.items():
+        p = folder / f"{z}.json"
+        p.write_text(dumps(d))
+        sizes[f"{MORE_DIR}/{p.name}"] = p.stat().st_size / 1e6
+    for z in doc.get("zones") or []:
+        p = folder / f"{z}.json"
+        if z not in files and p.exists():
+            p.unlink()
+    return sizes
 
 
 def finish(c: dict) -> dict:
@@ -1135,8 +1639,30 @@ def finish(c: dict) -> dict:
             v = bool(v)
         elif k == "zones":
             v = list(v or [c["zone"]])
+        elif k == "status":
+            v = v if v in CK.STATUSES else "open"
+        elif k == "checks":
+            v = [CK.clean_check(x) for x in CK.sort_checks(list(v or []))]
         out[k] = v
     return out
+
+
+def merge_only_doc(doc: dict, checks_dir: Path, more: list[dict] | None = None) -> tuple[dict, dict]:
+    """An existing candidates.json (plus `more`: its more files' candidates, load_more) with the side files of
+    checks_dir merged (candidate_checks.merge_side_files): older files gain status open, known_name null and checks [];
+    scores re-weighed by the change in their checks' factors; re-sorted (contract order); every other field as it was.
+    Returns the full document (write_export splits it again: a grade C mover made known or flaw moves to the main file)."""
+    cands = [dict(c) for c in list(doc["candidates"]) + list(more or [])]
+    for c in cands:
+        c.setdefault("status", "open")
+        c.setdefault("known_name", None)
+        c["checks"] = [dict(x) for x in (c.get("checks") or [])]
+    st = CK.merge_side_files(cands, CK.load_side_files(checks_dir))
+    order = {z: i for i, z in enumerate(doc.get("zones") or [])}
+    cands.sort(key=sort_key(order))
+    head = {k: v for k, v in doc.items() if k != "more"}
+    return {**head, "counts": {k: sum(c["kind"] == k for c in cands) for k in KINDS},
+            "candidates": [finish(c) for c in cands]}, st
 
 
 def dumps(doc: dict) -> str:
@@ -1177,8 +1703,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--drop-planets", metavar="JSON",
                     help="only remove the movers near a planet from this existing candidates.json, in place (counts "
                          "updated, nothing else changed); reads no zone")
+    ap.add_argument("--checks-dir", help="the check producers' side files (<dir>/*.json, contracts/api.md v3.23 checks): "
+                                         "merged into the export (a producer's check replaces the exporter's of the same code)")
+    ap.add_argument("--merge-only", metavar="JSON",
+                    help="re-apply --checks-dir to this existing candidates.json without reading any zone; writes --out")
     a = ap.parse_args(argv)
     log.setup()
+    if a.merge_only:
+        if not a.checks_dir:
+            ap.error("--merge-only needs --checks-dir")
+        src = Path(a.merge_only)
+        doc = json.loads(src.read_text())
+        doc, st = merge_only_doc(doc, Path(a.checks_dir), load_more(doc, src.parent))
+        out = Path(a.out)
+        sizes = write_export(doc, out)
+        L.info("merged %s into %s (and its more files) -> %s: %s; status %s; files %s", a.checks_dir, src, out, st,
+               {s: sum(c["status"] == s for c in doc["candidates"]) for s in CK.STATUSES},
+               {k: round(v, 2) for k, v in sizes.items()})
+        return 0
     if a.drop_planets:
         path = Path(a.drop_planets)
         doc, by = drop_planets_doc(json.loads(path.read_text()))
@@ -1193,12 +1735,13 @@ def main(argv: list[str] | None = None) -> int:
         L.error("no finished zone under %s", store.root)
         return 1
     out = Path(a.out)
-    doc = build(store, zones, out.parent, a.workers, a.spectral_cap)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(dumps(doc))
-    L.info("wrote %s: %s, zones %s, %.2f MB", out, doc["counts"], doc["zones"], out.stat().st_size / 1e6)
+    doc = build(store, zones, out.parent, a.workers, a.spectral_cap, Path(a.checks_dir) if a.checks_dir else None)
+    sizes = write_export(doc, out)
+    L.info("wrote %s: %s, zones %s, %.2f MB; more files (grade C movers) %d, %.2f MB", out, doc["counts"], doc["zones"],
+           sizes[out.name], len(sizes) - 1, sum(v for k, v in sizes.items() if k != out.name))
     if a.fixture:
-        Path(a.fixture).write_text(json.dumps(sample(doc), ensure_ascii=False, indent=1, allow_nan=False) + "\n")
+        Path(a.fixture).write_text(json.dumps(sample(split_more(doc)[0]), ensure_ascii=False, indent=1,
+                                              allow_nan=False) + "\n")
     return 0
 
 

@@ -20,7 +20,9 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    known_check.py (run from pipeline/; check producer `known`, contracts v3.23): every mover of any
                    candidates.json against MPC asteroids (all V) and comets (cometels + allcometels) at its dots'
                    times from SPHEREx (kete via skyshift_core.known_index), Horizons planets/moons near a planet
-                   → <root>/checks/known.json (`known_nearby`, status known when certain); `--mpchecker N` cross-checks
+                   → <root>/checks/known.json (`known_body` + status known when certain, else `known_nearby`; values
+                   rate_arcsec_h/pa_deg ours, body_rate_arcsec_h/body_pa_deg the body's, sep_arcsec nearest,
+                   max_sep_arcsec farthest: contracts v3.24 + PR #369's follow-up); `--mpchecker N` cross-checks
                    the top N open movers with MPC's MPChecker. Cache: <root>/cache/known_check. The all-V index is
                    built once; it reuses the server's index in <root>/cache/mpc/known_index/ when present.
                    Tests: cd pipeline && uv run pytest ../scripts/candidates/tests/test_known_check.py

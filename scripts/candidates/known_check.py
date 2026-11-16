@@ -21,9 +21,11 @@ HTTPS from the photo list's url and cached; the Earth's centre when a header can
 The mover's place at a dot's time is its straight line (candidates.json ra, dec at mjd, rate_arcsec_h along pa_deg): the
 dots' own mean and fitted motion, so a dot is at most its position error off it.
 
-Each mover gets one `known_nearby` check:
-- status `known` + known_name when a body is CERTAIN by the contract's rule (known.judge: within 10″ at every dot's time,
-  rate within 20% and direction within 15° when both move), level `strong`;
+Each mover gets one check, `known_body` when certain (contracts v3.24: the one code for a certain known body), else
+`known_nearby`; values: name, body, v, sep_arcsec (nearest), max_sep_arcsec (farthest), body_rate_arcsec_h and
+body_pa_deg (the body's), rate_arcsec_h and pa_deg (ours), rate_ratio, dpa_deg, times, from_dots:
+- `known_body`, status `known` + known_name when a body is CERTAIN by the contract's rule (known.judge: within 10″ at
+  every dot's time, rate within 20% and direction within 15° when both move), level `strong`;
 - level `strong`, status open, when a body is within ON_DOTS_ARCSEC (2″) at every one of >= 2 dot times but its
   motion misses the rule (a 2-dot mover's rate from dots 2 minutes apart is good to only ~±30″/h);
 - level `warn` when the nearest body within 2′ (config KNOWN_NEARBY_ARCSEC) is not certain;
@@ -601,7 +603,7 @@ def mover_check(c: dict, it: dict, bs: list[dict], n_ast: int, n_com: int) -> di
     det = c.get("det")
     ours = (f"ours moves {c['rate_arcsec_h']:.0f}″ an hour toward PA {c['pa_deg']:.0f}°"
             if c.get("rate_arcsec_h") is not None and c.get("pa_deg") is not None else "ours has no measured motion")
-    base = {"our_rate_arcsec_h": c.get("rate_arcsec_h"), "our_pa_deg": c.get("pa_deg"), "times": nt,
+    base = {"rate_arcsec_h": c.get("rate_arcsec_h"), "pa_deg": c.get("pa_deg"), "times": nt,   # ours (v3.24 follow-up)
             "from_dots": it["from_dots"]}
     if not bs or not np.isfinite(bs[0]["sep_min"]):
         return {"checks": [{
@@ -615,15 +617,15 @@ def mover_check(c: dict, it: dict, bs: list[dict], n_ast: int, n_com: int) -> di
     if on_dots:
         b = min(close, key=lambda x: x["sep_max"])
     vals = {**base, "name": b["name"], "body": b["kind"], "v": _r(b["v"], 1),
-            "sep_arcsec": _r(b["sep_min"]), "sep_max_arcsec": _r(b["sep_max"]) if np.isfinite(b["sep_max"]) else None,
-            "rate_arcsec_h": _r(b["rate"]), "pa_deg": _r(b["pa"], 0),
+            "sep_arcsec": _r(b["sep_min"]), "max_sep_arcsec": _r(b["sep_max"]) if np.isfinite(b["sep_max"]) else None,
+            "body_rate_arcsec_h": _r(b["rate"]), "body_pa_deg": _r(b["pa"], 0),
             "rate_ratio": _r(b["rate_ratio"], 2), "dpa_deg": _r(b["dpa"], 0)}
     theirs = f"moving {b['rate']:.0f}″ an hour toward PA {b['pa']:.0f}°"
     if b["certain"]:
         rng = (f"{np.nanmin(b['seps']):.1f}–{b['sep_max']:.1f}″ from each of its {nt} dot times" if nt > 1
                else f"{b['sep_max']:.1f}″ from it")
         return {"checks": [{
-            "code": "known_nearby", "level": "strong",
+            "code": "known_body", "level": "strong",   # v3.24: the one code for a certain known body
             "text": f"The known {_what(b)} was predicted {rng}, {theirs}; {ours}: it is that {b['kind']}.",
             "look": (f"Nothing new here: on the hours clock in D{det} it moves exactly like {b['name']}, so it is that "
                      f"known {b['kind']}."),
@@ -718,8 +720,8 @@ def highpm_check(c: dict, bs: list[dict]) -> dict | None:
         "text": (f"The known slow {_what(b)} was predicted {b['sep_min']:.1f}″ from it on MJD {c['mjd']:.1f}, moving only "
                  f"{b['rate']:.2f}″ an hour: one visit's position may be that body."),
         "look": f"On the months clock in D{c.get('det')}, compare the visits: a dot that is there in one visit only is the body.",
-        "values": {"name": b["name"], "body": b["kind"], "sep_arcsec": _r(b["sep_min"]), "rate_arcsec_h": _r(b["rate"], 2),
-                   "v": _r(b["v"], 1)}}], "status": None, "known_name": None}
+        "values": {"name": b["name"], "body": b["kind"], "sep_arcsec": _r(b["sep_min"]),
+                   "body_rate_arcsec_h": _r(b["rate"], 2), "v": _r(b["v"], 1)}}], "status": None, "known_name": None}
 
 
 # ---------------------------------------------------------------- MPChecker cross-check
