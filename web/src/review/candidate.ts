@@ -75,7 +75,7 @@ export async function suspectFrames(
   c: Candidate,
   view: View,
   all: boolean,
-): Promise<{ frames: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote; fill: Epoch[] }> {
+): Promise<{ frames: FramesResponse; jsonUrl: string; marks: TrackMarks | null; note: SuspectFramesNote; fill: FillSource[] }> {
   const loaded = await framesFor(c, view);
   const f = focusFrames(loaded.frames, c, view.det);
   const gap = findGap(loaded.frames, c, view.det);
@@ -86,8 +86,12 @@ export async function suspectFrames(
     jsonUrl: loaded.jsonUrl,
     // Always named, so the panel can say SkyShift didn't measure it here (and why) instead of "no movers".
     marks: candidateMarks(c, frames, missingGap),
-    // A few exposures of one session share one edge: the visit's others fill it (never blinked).
-    fill: !all && f.focused ? epochsFor(loaded.frames, view.det) : [],
+    // A few exposures of one session share one edge: the visit's others fill it (never blinked),
+    // and so does the candidate's saved fill.json (contracts/api.md v3.20).
+    fill: [
+      ...(!all && f.focused ? epochsFor(loaded.frames, view.det).map((epoch) => ({ epoch, url: loaded.jsonUrl })) : []),
+      ...(await fillFor(loaded.jsonUrl, view)),
+    ],
     note: {
       focused: !all && f.focused,
       shown: f.shown,
@@ -96,6 +100,27 @@ export async function suspectFrames(
       missingGap,
     },
   };
+}
+
+/** An exposure that only fills the plate's empty edge, with the JSON its data_url resolves against. */
+export interface FillSource {
+  epoch: Epoch;
+  url: string;
+}
+
+/** The saved fill exposures next to a candidate's static frames.json (optional: most have none). */
+async function fillFor(jsonUrl: string, view: View): Promise<FillSource[]> {
+  if (view.clock !== "hours" || !/\/frames\.json$/.test(new URL(jsonUrl).pathname)) return [];
+  const url = new URL("fill.json", jsonUrl).href;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const doc = (await res.json()) as FramesResponse;
+    if (doc.clock !== "hours") return [];
+    return epochsFor(doc, view.det).map((epoch) => ({ epoch, url }));
+  } catch {
+    return [];
+  }
 }
 
 export interface SuspectOptions {

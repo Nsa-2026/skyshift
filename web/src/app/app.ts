@@ -368,7 +368,7 @@ export function startApp(root: HTMLElement): void {
       if (fsig.aborted) return;
       blink.status('idle');
       if (cand) suspect.ready(true);
-      if (forCand && next.clock === 'hours' && blink.needsFill?.()) void fillSuspectEdge(next, forCand.fill, loaded.jsonUrl, fsig);
+      if (cand && forCand && next.clock === 'hours' && blink.needsFill?.()) void fillSuspectEdge(next, cand, forCand.fill, fsig);
       practice.ready(blink.canCompare?.() ?? false);
       highlightSelected();
     } catch (e) {
@@ -387,17 +387,19 @@ export function startApp(root: HTMLElement): void {
   }
 
   /** An object to check shows a few exposures of one session, which share one edge. Fill it from
-   *  the visit's other exposures: the saved ones at once, the live ones (about a minute, so only
-   *  once the person stays on the object) when they arrive. */
-  async function fillSuspectEdge(v: View, saved: Epoch[], savedUrl: string, signal: AbortSignal) {
-    const own = saved.map((epoch) => ({ epoch, url: savedUrl }));
-    if (own.length) blink.fill?.(own);
-    await new Promise((r) => setTimeout(r, 2500));
-    if (signal.aborted) return;
+   *  the visit's other exposures: the saved ones at once (its other loaded exposures and its
+   *  fill.json), then, only if an edge is still empty and the person stays on the object, the live
+   *  ones of its own visit (`mjd`, about a minute) when they arrive. */
+  async function fillSuspectEdge(v: View, c: Candidate, saved: { epoch: Epoch; url: string }[], signal: AbortSignal) {
+    const wait = new Promise((r) => setTimeout(r, 2500));
+    if (saved.length) await blink.fill?.(saved);
+    await wait;
+    if (signal.aborted || !blink.needsFill?.()) return;
     try {
-      const live = await loadFrames({ ra: v.ra, dec: v.dec, clock: v.clock, fov: v.fov, det: v.det, slug: null }, signal);
+      const mjd = c.clock === 'hours' && c.mjd > 0 ? c.mjd : undefined;
+      const live = await loadFrames({ ra: v.ra, dec: v.dec, clock: v.clock, fov: v.fov, det: v.det, slug: null, mjd }, signal);
       if (signal.aborted) return;
-      blink.fill?.([...own, ...epochsFor(live.frames, v.det).map((epoch) => ({ epoch, url: live.jsonUrl }))]);
+      await blink.fill?.([...saved, ...epochsFor(live.frames, v.det).map((epoch) => ({ epoch, url: live.jsonUrl }))]);
     } catch {
       /* the edge stays hatched */
     }

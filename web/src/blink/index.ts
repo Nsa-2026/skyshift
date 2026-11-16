@@ -2932,19 +2932,22 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
       await load(next, resp, url);
     },
     needsFill() {
-      // A no-data part (past the detector's edge, not a burnt core) on more than 0.5% of the photo.
+      // A no-data part (past the detector's edge, not a burnt core) on more than 0.5% of the photo,
+      // after what its other photos and the fill exposures already fill.
       const f = frames[idx];
-      if (!f || view?.clock !== "hours" || fillOnly.length) return false;
-      const b = burntOf(idx);
+      if (!f || view?.clock !== "hours") return false;
+      const fl = fillsHoles() ? filledOf(idx) : null;
+      const vals = fl?.vals ?? f.vals;
+      const b = fl?.burnt ?? burntOf(idx);
       let n = 0;
-      for (let i = 0; i < f.vals.length; i++) if (Number.isNaN(f.vals[i]) && !b[i]) n++;
-      return n > f.vals.length * 0.005;
+      for (let i = 0; i < vals.length; i++) if (Number.isNaN(vals[i]) && !b[i]) n++;
+      return n > vals.length * 0.005;
     },
-    fill(sources) {
+    async fill(sources) {
       fillSrc = sources;
       if (!view || !rawF || view.clock !== "hours" || !frames.length) return;
       const [nx, ny] = rawF.size;
-      void loadFill(loadCtl, nx, ny);
+      await loadFill(loadCtl, nx, ny);
     },
     singleDetector(locked) {
       if (setSingleDetector(locked) && view && rawF) void load(view, rawF, rawUrl);
