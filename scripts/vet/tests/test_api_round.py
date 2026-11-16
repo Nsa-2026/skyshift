@@ -89,3 +89,17 @@ def test_tool_cache_key_ignores_the_output_folder_and_follows_the_blind_switch(t
     assert A._cache_path(["packet", "x", "--out=/a/b"]) != a
     monkeypatch.setattr(A, "CACHE_DIR", None)
     assert A._cache_path(["packet", "x"]) is None
+
+
+def test_route_tiers():
+    import route
+    hot = ["HOT PIXEL: detection #1 sits on ...", "NOT STAR-LIKE: ..."]
+    assert route.tier(0.01, hot, 2, [4], "two_exposures", 40.0) == "easy junk"
+    assert route.tier(0.01, [], 2, [4], "two_exposures", 40.0) == "hard"                 # low score, nothing explains it
+    assert route.tier(0.99, [], 4, [1, 4], "two_exposures", 30.0) == "easy real"
+    assert route.tier(0.99, ["FIXED SOURCE 8.8 arcsec away ..."], 4, [1, 4], "two_exposures", 30.0) == "hard"   # a mover beside a star
+    assert route.tier(0.99, [], 4, [5], "two_exposures", 30.0) == "hard"                 # one long-wave detector
+    assert route.tier(0.99, [], 4, [1, 4], "two_exposures", 3.0) == "hard"               # slow body
+    assert route.tier(0.99, [], 1, [3, 6], "two_detectors", float("nan")) == "hard"
+    assert route.tier(None, [], 4, [1, 4], "two_exposures", 30.0) == "hard" and route.tier(float("nan"), hot, 4, [1], "x", 30.0) == "hard"
+    assert route.tier(0.5, hot, 4, [1, 4], "two_exposures", 30.0) == "hard"              # score and warnings disagree
