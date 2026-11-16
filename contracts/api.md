@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.21)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.22)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -22,7 +22,8 @@ v3.18: a mover near a planet is known whatever it is (moon, glare): the suspects
 candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`;
 v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find;
 v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge;
-v3.21: months `shifts[]` say whether the motion is steady: `visits`, `chi2_nu`, `wobble_arcsec`, `steady`).
+v3.21: months `shifts[]` say whether the motion is steady: `visits`, `chi2_nu`, `wobble_arcsec`, `steady`;
+v3.22: high_pm reasons `parallax_fit` and `unsteady`, from the pipeline's motion model).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -658,7 +659,7 @@ candidate is a lead for a human, not a detection. From v3.12 the pipeline fits e
 Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
 `outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` and the vetting gates (mover);
-`short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
+`short_span`, `few_dots`, `bad_fit`, `unsteady`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
 `at_control_level`, `implausible_pm` (high_pm); `one_visit`, `class_galaxy` (shape); `blend` (high_pm, spectral,
 shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (either side of a pair) the pipeline's
 `fragments` step tagged `bright_fragment` is not listed at all: it is a piece of a saturated star's ring.
@@ -668,7 +669,7 @@ shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (e
 | kind | score |
 |---|---|
 | mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.5 with a dot within 6 px of the detector edge (reason `edge`, added by the exporter too when the vetting didn't run) × 0.1 with `grade` C. "Motion not significant" uses the dots' pos_err × 1.6 |
-| high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
+| high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level`, `unsteady` (v3.22) 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
 | shape | (1 − e^(−s/15)) × 0.8 with `one_visit`; s = significance of the stretch (\|mean excess ellipticity\| / its error; Rayleigh, P(> s) = e^(−s²/2) for noise) |
 
@@ -705,9 +706,11 @@ candidate they are those of its (first) source.
 | pm_pair | high_pm | Two sources each seen in one visit only, paired across visits (too fast to stay linked) |
 | vetted | high_pm | Passed every pipeline check |
 | catwise_pm_agrees | high_pm | CatWISE lists the same motion |
+| parallax_fit | high_pm | v3.22. The motion was fitted with the star's parallax taken out: Gaia's parallax (its `gaia_match`), or our own from visits in both seasons. Without it, two visits half a year apart can show a nearby star's parallax as extra motion |
 | short_span | high_pm | Its visits are too close in time for a motion |
 | few_dots | high_pm | Few detections (fewer than 20 dots) |
 | bad_fit | high_pm | The positions don't fit a straight line (blend or bad fit) |
+| unsteady | high_pm | v3.22. Its visits go out and back instead of along a line (needs three or more visits): a measurement problem (blend, detector position, saturation), not a motion. Such rows are never `vetted`, so in practice not exported |
 | over_pm_cap | high_pm | Faster than any known star (> 10.5″/yr) |
 | gaia_pm_disagrees | high_pm | Gaia lists a different motion for the star here: likely a mismatch |
 | catwise_pm_disagrees | high_pm | CatWISE lists a different motion for the source here: likely a mismatch |
@@ -1174,3 +1177,13 @@ last step between two visits as the motion.
   null) read as before.
 - server measured.py `VERSION` 3 (cache key). The static twins get the fields from the files' own detections
   (scripts/precompute `--steady-only`, no data bucket needed). fixtures/api/ has no shifts, so it is unchanged.
+
+## Changes in v3.22 (16 Nov 2026): the motion model's high_pm reasons
+
+Additive. The pipeline's astrometry now fits position(t) = p0 + μ·(t − t0) + ϖ·P(t) (contracts/dots.md `astrometry`:
+Gaia's parallax as a prior, our own with visits in both seasons, else none and the leak k recorded) and calls a source
+`unsteady` when its visits go out and back instead of along a line. candidates.json high_pm `reasons` gain
+`parallax_fit` (the motion has the parallax taken out; informational, weight 1) and `unsteady` (a "check first" code,
+weight 0.3; never on an exported row today, since unsteady rows are not vetted). `pm_mas_yr` of a high_pm fit is now
+free of the six-month parallax leak wherever Gaia has a parallax. No field changes; readers that ignore unknown reason
+codes need no change.
