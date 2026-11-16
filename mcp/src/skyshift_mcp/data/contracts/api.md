@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.25)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.26)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -31,7 +31,64 @@ the science workspace's analysis grid and its signals checked before publishing;
 movers in `/data/candidates-more/<zone>.json`, listed in candidates.json `more`;
 v3.25: the exporter's follow-up: a mover's `rate_arcsec_h` and `pa_deg` are its in-session motion; check `values` keys
 mean one thing (`body_rate_arcsec_h`, `max_sep_arcsec`, `ks_mag`); checks `seen_again` and `fast_held`; a failed gate's
-check outranks a weaker producer check).
+check outranks a weaker producer check;
+v3.26: the 16 Nov evening round, written from the code on main (below, "Changes in v3.26"): the mover flaws
+(suspects' reasons `same_pixel`, `whole_pixel`, `wide` with a blend, `cross_detector`, `fixed_source`, `glow`,
+`unseen`, the new `hot_pixel` rule, `warn_levels`), `track_rate_arcsec_h`, high_pm counterparts, the AI checker's
+`ai_review` and `ai_fake_proven`, distant.json's per-position window, `/data/changes.json` and `/data/changes.atom`).
+
+## Changes in v3.26 (16 Nov 2026): the evening round
+
+From the merged PRs #382, #383, #385, #386, #388, #391, #392, #393, #394, #397 and #398, checked against the code on
+main (bf3f6b8). Where a PR's proposed text and the code disagreed, this contract says what the code does (the PR
+description lists each case). No field is removed or renamed; every addition reads safely when absent. Older entries
+(v3.2–v3.25) are at the end of this file.
+
+- **Mover flaws** (#385, #391, #394, #398; suspects.json, candidates.json). New grade C reasons `same_pixel`,
+  `whole_pixel`, `wide` (only together with a `blend`), `cross_detector`, `fixed_source`, `glow`, `unseen`; `hot_pixel`
+  counts free dots at other sky places (> 30″), so a source repeating at one place no longer looks like a hot pixel. A
+  track that makes A overrules `fixed_source`, `unseen`, `wide`, `whole_pixel`, `cross_detector`, `glow` (they stay
+  warnings). suspects.json gains `warn_levels` ({code: "strong"}); the exporter takes each check's level from it (the
+  stronger wins where it makes the code too), so the suspects' `hot_pixel_proven` makes a `flaw`. New warning codes
+  and checks `hot_pixel` (≥ 3 exposures), `hot_pixel_proven`, `same_pixel`, `whole_pixel`, `wide`, `cross_detector`,
+  `fixed_source`, `glow`, `unseen` (values `unseen_exposures`, `cover_exposures`), `blend` (mover), `may_not_move` (also
+  from the suspects); `edge` also warns on D2's background-ramp rows (`ramp_*` values). Real asteroids A or B 89.0 →
+  88.3%, the rest 3.0 → 0.8%; comet movers A or B 75.8 → 88.7% (`wide` a warning).
+- **Track rate** (#391): `chance_tracks` and `fast_held` write the track's rate as `track_rate_arcsec_h`, as
+  `seen_again`; `rate_arcsec_h` in a check is never a track's.
+- **Pixel producer** (#385, #394): the same-pixel flaw is `hot_pixel_proven` (`hot_pixel` from pixel is `warn` only);
+  `one_photo` is `ok` when the mover is ≥ 1.5 × the light at its place in the other photos (`brighter_places`) and every
+  one_photo check carries `flux_now_ujy`, `flux_other_ujy`, `flux_other_err_ujy`, `ratio`, `diff_snr`; `wide` is always
+  `warn`, leaves saturated dots out and allows for the trail (`trail_factor`, `saturated_dots`); `faint_on_path` warn
+  also writes `path_err_ujy`.
+- **high_pm, spectral, shape** (#388, #391, #398): highpm's `counterpart` (what lists the object), status `allwise`,
+  reasons `gaia_still` and `allwise_still` (never vetted, so not exported); `over_pm_cap` applies to pairs (vetted
+  pairs 7 → 0); `gaia_match` follows `counterpart` (`gaia_pm`, `gaia_position`); status `allwise` takes the known-star
+  × 0.6; `why` names the counterpart. The `catalogue` producer's high_pm `catalogues_checked` follows `counterpart` when
+  the table has it (values `counterpart`, `counterpart_id`, `epoch_year`; `catwise_pm_mas_yr`, `catwise_pa_deg` when
+  CatWISE moves too). Shape: reason `catalogue_neighbour` (score × 0.3) in place of `one_catalogue_source` when AllWISE or
+  Gaia at any G lists a second object within 15″. Spectral: `brown_dwarf_like` needs water where testable and AllWISE
+  vetoes AGN colours (`why` says so). contracts/dots.md: `highpm_visits`, `astrometry_visits`, `bd_veto`,
+  `allwise_w2_w3`, shape's `catalogue_*` and `companion_blocked`.
+- **AI checker** (#397): producer `ai` (scripts/vet/publish_checks.py), codes `ai_review` and `ai_fake_proven` (strong,
+  so status `flaw`).
+- **Analysis files** (#382): the science workspace's `known_body`, `known_nearby` and `known_star` follow the values
+  keys (`sep_arcsec` nearest, `max_sep_arcsec` farthest, the body's `body_*`, the star's `star_*`, ours plain).
+- **distant.json** (#383, #393): pairs need ≥ 20 days and a separation within Earth's parallax window for 40–1000 AU;
+  each orphan's drift limit is per position (2.5″/h, up to ~4.6″/h near the ecliptic poles): `searched.sep_arcsec` and
+  `searched.rate_arcsec_h` come from the step and change per zone. orphans.parquet gains `rate_max`.
+- **Changes in known stars** (#386): `/data/changes.json`, `/data/changes.atom` (section below) and
+  `results/<zone>/changes.parquet` (contracts/dots.md).
+- **contracts/dots.md**: `sep_flag` 0x800 (centroid fallback, every folder); extraction v2's second pass (dark holes,
+  per-detector matched-filter threshold scaled per block, footer keys); the red forced layer; session stacks
+  (`session_stacks/`, `stack_members`, `stack_key`/`stack_row` in nonfixed_dots and tracklet_dots, pseudo-dots in
+  movers; all behind `SKYSHIFT_SESSION_STACK=1`); the suspects' flaw columns. contracts/flags.md: dark holes.
+- **Key clashes still in the code** (section Values keys, "Clashes"): listed with the code to change; this contract
+  describes them as they are.
+- Older files read as: no `warn_levels`: every suspects warning `warn`; `chance_tracks`/`fast_held` with `rate_arcsec_h`
+  = the track's; no `counterpart`: `gaia_match` from status `gaia`; analysis files before #382: the v3.25 note below.
+- fixtures/api/ is unchanged: no fixture holds candidate checks, suspects' warnings, counterparts or changes
+  (web/src/changes/fixtures/ holds the web's own changes sample).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -87,6 +144,7 @@ DELETE /api/keys/me      X-API-Key   → { id, revoked:true }
 /data/candidates.json      /data/cand/<id>/frames.json   # candidates to review
 /data/candidates-more/<zone>.json                        # v3.24: a zone's grade C movers ("Less likely")
 /data/distant.json                                       # v3.6: the distant-planet search
+/data/changes.json  /data/changes.atom                   # v3.26: known stars that changed, and its feed
 /science-data/<slug>/…                                   # v3.8: science products, five featured fields
 
 # frames are data, not pictures
@@ -473,6 +531,7 @@ revoked without blocking anyone else.
 | `/data/cand/<id>/frames.json` + frame files | scripts/candidates/frames.py (P1, with the P2 engine) | `GET /api/frames` for one candidate (its clock, field and detectors); frame files `frames/<c><fov>_d<det>_…bin` as above. Only for candidates whose `frames_url` is set |
 | `/data/cand/<id>/fill.json` + frame files | scripts/candidates/fill.py (P1, with the P2 engine) | **Optional** (v3.20). Same shape as that candidate's `frames.json` (hours clock, same field and grid), holding only exposures that fill its empty edge: never blinked, never measured. Frame files `frames/f<fov>_d<det>_…bin`. Missing (404) for most candidates |
 | `/data/distant.json` | scripts/validate (P1), from the pipeline's `orphans` step | below (v3.6) |
+| `/data/changes.json`, `/data/changes.atom` | pipeline `changes_export` (P1), from each zone's `changes` step | v3.26: known stars and sources whose brightness or colour changed between visits, or that appeared or vanished, and the same list as an Atom feed (below) |
 
 In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data/`.
 
@@ -537,7 +596,8 @@ A reader shows every check the file holds, in file order; an id missing from the
               n_dots, snr, flux_ujy, cell, nearest_known_arcsec|null,
               grade:"A"|"B"|"C", reasons:[<gate>…], near_source_arcsec|null,      # added 14 Nov
               n_sessions?|null, rate_arcsec_h?|null, pa_deg?|null, rate_sigma?|null,   # optional, 14 Nov (tracks)
-              warn_codes?:[<code>…], warn_values?:{<code>:{<name>:number}} }] }        # optional, v3.24
+              warn_codes?:[<code>…], warn_values?:{<code>:{<name>:number}},        # optional, v3.24
+              warn_levels?:{<code>:"strong"} }] }                                  # optional, v3.26
 ```
 
 Movers that are not certainly something known (contracts/dots.md `suspects`). v3.24 (16 Nov): only the certain are
@@ -570,14 +630,15 @@ ungraded: show its suspects as unvetted, not as B.
 | cell | integer, no unit | The 6″ sky cell of (`ra`, `dec`), exactly contracts/dots.md's `cell` (`band × 10 000 000 + col`). An id for grouping, not a quantity: neighbouring cells are not neighbouring numbers. At most ~1.08 × 10¹², so a JSON number is exact in JavaScript (below 2⁵³); never a string |
 | nearest_known_arcsec | float, arcsec, or null | Distance to the nearest known object predicted in the same session, moved to `mjd`; null if none within 600″. v3.24: of the known objects brighter than V 21 or without V (the pipeline's cache keeps them to V 23, `MPC_V_STORE`, for the certain rule only). Suspects have none within 5″; one 5–30″ away that does not move like it gives `known_nearby` in `warn_codes` (its name: suspects.parquet `nearest_known_name`). Older files: none within 30″ |
 | grade | string | `C`: fails a gate or is catalogued (v3.24: a catalogue source within 6″ at most 2 mag fainter than it; `reasons` says which); kept in the file, shown greyed with its reasons. `B`: passes every gate; its motion is not shown (most suspects are 2 dots of one session, and at S/N 7–9 the position error exceeds the motion between exposures): an "unexplained one-session source". `A`: candidate mover: on a track over ≥ 2 sessions with motion ≥ 5σ, no catalogue reason and no known body certainly it. That is a B whose mover the pipeline's `tracklets` step linked into a track (movers of ≥ 3 sessions of one visit, or from 16 Nov a fast track of 2 sessions, contracts/dots.md `tracklets`) with movers in ≥ 2 sessions and rate / rate σ ≥ 5; `n_sessions`, `rate_arcsec_h`, `pa_deg`, `rate_sigma` below give the track. v3.24: a track faster than 400″/h makes A only with a recovered dot of the track (tracklet_dots.parquet) that is not `in_fixed`, or a suspect of the track with a detector partner (D1+D4, D2+D5, D3+D6 in one exposure); else it stays B (summary.json `steps.suspects.vetting.tracklets.fast_held`: hunt's one fast track was a D6-only artefact). Show A first, as the most promising. A file written without tracks has no A. 16 Nov (hunt, ecl04, ecl08, ecl11): real asteroids taken as unknown are 88–91% A or B, the rest (no known body within 60″, mostly junk) 2.0–5.7% |
-| reasons | string[] | The gates it fails, in this order (empty for A and B): `not_vetted` (no dot data to vet: an old movers table, or a dot without a pixel position), `hot_pixel` (a dot on a detector pixel, ±1 px, where the zone's movers have dots in ≥ 3 exposures or its free dots in ≥ 5: hot pixels NASA's HOT bit misses), `bad_column` (≥ 3 free dots of that exposure and detector within ±0.5 px in x; v3.24: and more than chance gives at that photo's free-dot density, Poisson tail ≤ 0.1%), `edge` (a dot within 6 px of the detector edge), `masked_peak` (a mask bit of contracts/flags.md at a dot's peak, OVERFLOW/NONLINEAR aside), `sharp_outlier` (a dot sharper than a star: √(a·b) < 0.6 × (D1–D3) or 0.7 × (D4–D6) the detector's stellar value at its S/N, with OUTLIER at the peak; OUTLIER alone never counts), `very_sharp` (√(a·b) < 0.4 × the stellar value at S/N ≥ 15, OUTLIER or not), `flux_ratio` (brightest dot > 4× the faintest within one detector), `red_photo` (every dot from a photo graded red by the photo QA, qa_photos.parquet; amber never counts), v3.24: `bloom` (BLOOM at every dot's peak; in a 3×3 only, the warning `flag_bloom`), `halo` (HALO at every dot's peak; in a 3×3 only, `flag_halo`), `bright_star` (a fixed source with S/N ≥ 100 within 15″; to 30″, the warning), `gaia` (a Gaia DR3 star, G < 20, within 6″ at most 2 mag fainter than the suspect), `catwise` (CatWISE2020, the same test in W1/W2), `2mass` (a 2MASS PSC source within 6″; v3.24 at most 2 mag fainter, J/Ks), `allwise` (an AllWISE source within 6″, v3.24 at most 2 mag fainter: the WISE catalogue of a Gaia-only refcat and a second one where CatWISE2020 is; a failed read only skips it). "At most 2 mag fainter": the catalogue's brightest band in AB (Vega + 0 G, 2.699 W1, 3.339 W2, 0.91 J, 1.85 Ks) minus the suspect's AB magnitude from `flux_ujy`; a source without a magnitude counts. A fainter one is a chance neighbour (real asteroids' median 2.5–4.1 mag fainter, junk on a star 1.1–1.6): the warning `catalogue_star` only. Thresholds: pipeline config `VET_*`, `SUSPECT_*`. On 150 MPC-matched hunt movers (real asteroids) 141 pass every gate (edge 4, masked_peak 6); 16 Nov, four zones: `edge` and `masked_peak` still grade 1.4–2.4% and 3.5–4.3% of real asteroids C |
+| reasons | string[] | The gates it fails, in this order (empty for A and B): `not_vetted` (no dot data to vet: an old movers table, or a dot without a pixel position), `hot_pixel` (hot pixels NASA's HOT bit misses; v3.26: per dot, the exposures of free dots on the same detector pixel, ±1 px, at sky places more than 30″ from the mover: ≥ 5 for some dot, or ≥ 3 for every dot of a mover with ≥ 2 dots (that is also the warning `hot_pixel_proven`); a source repeating at one sky place, a star or a moon, no longer counts. Tables whose freedots lack ra/dec, and files before v3.26: a dot on a pixel where the zone's movers have dots in ≥ 3 exposures or its free dots in ≥ 5), `bad_column` (≥ 3 free dots of that exposure and detector within ±0.5 px in x; v3.24: and more than chance gives at that photo's free-dot density, Poisson tail ≤ 0.1%), `edge` (a dot within 6 px of the detector edge), `masked_peak` (a mask bit of contracts/flags.md at a dot's peak, OVERFLOW/NONLINEAR aside), `sharp_outlier` (a dot sharper than a star: √(a·b) < 0.6 × (D1–D3) or 0.7 × (D4–D6) the detector's stellar value at its S/N, with OUTLIER at the peak; OUTLIER alone never counts), `very_sharp` (√(a·b) < 0.4 × the stellar value at S/N ≥ 15, OUTLIER or not), `flux_ratio` (brightest dot > 4× the faintest within one detector), `red_photo` (every dot from a photo graded red by the photo QA, qa_photos.parquet; amber never counts), v3.24: `bloom` (BLOOM at every dot's peak; in a 3×3 only, the warning `flag_bloom`), `halo` (HALO at every dot's peak; in a 3×3 only, `flag_halo`), `bright_star` (a fixed source with S/N ≥ 100 within 15″; to 30″, the warning), `gaia` (a Gaia DR3 star, G < 20, within 6″ at most 2 mag fainter than the suspect), `catwise` (CatWISE2020, the same test in W1/W2), `2mass` (a 2MASS PSC source within 6″; v3.24 at most 2 mag fainter, J/Ks), `allwise` (an AllWISE source within 6″, v3.24 at most 2 mag fainter: the WISE catalogue of a Gaia-only refcat and a second one where CatWISE2020 is; a failed read only skips it). **v3.26** (mover flaws, #385, #394; the order of `reasons` is config `VET_GATES`: `not_vetted`, `hot_pixel`, `same_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp_outlier`, `very_sharp`, `flux_ratio`, `red_photo`, `whole_pixel`, `wide`, `glow`, `cross_detector`, `unseen`, `fixed_source`, `bloom`, `halo`, `bright_star`, `gaia`, `catwise`, `2mass`, `allwise`): `same_pixel` (dots of two exposures within 1 px of one detector pixel in x and y: a session where the telescope did not step), `whole_pixel` (≥ 2 dots with x and y within 0.02 px of a whole pixel: detection's peak-pixel fallback), `wide` (only together with a blend: every unsaturated dot, ≥ 2, at least 1.3 × a star's size at its S/N in its detector × the trail's growth at its in-session rate, and two Gaia stars either side of it, the warning `blend`; a wide mover alone is the warning `wide`: comet movers are wide), `glow` (one detector, no partner exposure, its median dot ≥ 1.3 × a star's size, a Gaia G < 7 star within 10′), `cross_detector` (≥ 2 exposures and no detector holds dots of two of them: D1 then D4 is colour, not motion), `unseen` (≥ 2 exposures of its session cover its place on its in-session line, counted without link's star and blend exclusions, and hold none of its dots), `fixed_source` (link's fixed source within 9.5″ at least as bright as it, or the mover under 1.5 × the source's flux while its motion is under 2σ; or a Gaia star within 2″ while its motion is under 3σ). A suspect whose every reason is one of `fixed_source`, `unseen`, `wide`, `whole_pixel`, `cross_detector`, `glow` and whose track makes A (≥ 2 sessions, rate ≥ 5σ, not held as fast) is A: `reasons` emptied, the warnings stay at level `warn` (suspects.parquet `track_overruled`). "At most 2 mag fainter": the catalogue's brightest band in AB (Vega + 0 G, 2.699 W1, 3.339 W2, 0.91 J, 1.85 Ks) minus the suspect's AB magnitude from `flux_ujy`; a source without a magnitude counts. A fainter one is a chance neighbour (real asteroids' median 2.5–4.1 mag fainter, junk on a star 1.1–1.6): the warning `catalogue_star` only. Thresholds: pipeline config `VET_*`, `SUSPECT_*`. On 150 MPC-matched hunt movers (real asteroids) 141 pass every gate (edge 4, masked_peak 6); 16 Nov, four zones: `edge` and `masked_peak` still grade 1.4–2.4% and 3.5–4.3% of real asteroids C |
 | near_source_arcsec | float, arcsec, or null | Nearest catalogue (Gaia, CatWISE, 2MASS) or fixed source within 10″: a possible blend or PSF wing. A warning, not a gate; null if none within 10″ |
 | n_sessions | int or null, **optional** | The track this suspect is on (pipeline `tracklets`, joined on `id`): sessions of its visit with a mover on the track (≥ 3 on any track). null when the suspect is on no track. The four track fields are absent from a file written without tracks: read absent as null. Present on any suspect on a track, whatever its grade; A also needs rate / rate_sigma ≥ 5 and no failed gate. Added 14 Nov |
 | rate_arcsec_h | float, ″/h, or null, **optional** | The track's apparent rate at this suspect's time (local fit over the track's movers); null off a track |
 | pa_deg | float, degrees, or null, **optional** | The track's direction of motion, east of north, 0–360; null off a track |
 | rate_sigma | float, ″/h, or null, **optional** | 1σ error of `rate_arcsec_h` (scaled up by √χ²_ν of the fit when > 1); null off a track |
-| warn_codes | string[], **optional** | v3.24. What can't be ruled out, as candidates.json check codes, in this order when present: `known_nearby` (a known body, V < 21 or no V, within 30″ that is not certainly it), `flag_bloom`, `flag_halo`, `flag_ghost` (GHOST, GHOST_FPA or GHOST_EXT), `flag_crosstalk` (the bit in any dot's 3×3), `bright_star` (a fixed source with S/N ≥ 100 within 30″), `catalogue_star` (a catalogue source within 6″ of any brightness, or NASA's SOURCE bit at every dot's peak), `edge` (gate `edge`), `persistence` (PERSIST at a dot's peak), `sharp` (gate `sharp_outlier` or `very_sharp`), `flux_jump` (gate `flux_ratio`). [] when none. The exporter makes each a check (candidates.json). Absent: read as [] |
-| warn_values | {code: {name: number}}, **optional** | v3.24. The numbers of each code in `warn_codes` (a name is left out when unknown; a JSON string in suspects.parquet). `known_nearby`: `sep_arcsec`, `known_rate_arcsec_h`, `known_pa_deg`, `known_v_mag` (the body's), `rate_arcsec_h`, `pa_deg` (ours, in session, when measured). `flag_*`: `dots_at_peak` (dots with the bit at their peak), `n_dots`. `bright_star`: `sep_arcsec`, `star_snr`, `star_ab_mag`, `star_flux_ratio` (the star's flux ÷ the suspect's). `catalogue_star`: `sep_arcsec` (the nearest), `source_mask_all_dots` (1: SOURCE at every dot's peak), per catalogue `gaia_sep_arcsec`, `gaia_g_mag`, `catwise_sep_arcsec`, `catwise_w1_mag`, `catwise_w2_mag`, `allwise_sep_arcsec`, `allwise_w1_mag`, `allwise_w2_mag`, `tmass_sep_arcsec`, `tmass_j_mag`, `tmass_k_mag` (Vega, as catalogued), `mover_ab_mag`, `fainter_mag` (AB: the brightest catalogued band minus the suspect; > 2: a chance neighbour, not a reason). `edge`: `edge_px`. `persistence`: `dots_at_peak`, `n_dots`. `sharp`: `size_ratio` (the sharpest dot ÷ a star's size at its S/N), `outlier_at_peak` (1: gate `sharp_outlier`). `flux_jump`: `ratio`. Absent: read as {} |
+| warn_codes | string[], **optional** | v3.24. What can't be ruled out, as candidates.json check codes, in this order when present: `known_nearby` (a known body, V < 21 or no V, within 30″ that is not certainly it), `flag_bloom`, `flag_halo`, `flag_ghost` (GHOST, GHOST_FPA or GHOST_EXT), `flag_crosstalk` (the bit in any dot's 3×3), `bright_star` (a fixed source with S/N ≥ 100 within 30″), `catalogue_star` (a catalogue source within 6″ of any brightness, or NASA's SOURCE bit at every dot's peak), v3.26 `fixed_source` (the reason, or a fixed source within 9.5″ or a Gaia star within 2″ while it moves under 3σ), `glow`, `unseen` (≥ 1 covering exposure missing it), `blend` (two Gaia stars ≥ 10″ apart, both within 12″, their midpoint within 2″ of it), then `edge` (gate `edge`; v3.26 also a mover whose motion rests on a D2 dot at y ≥ 1975, D2's background-ramp rows: its other dots span fewer than 2 exposures and fewer than 2 detectors; never a reason), `persistence` (PERSIST at a dot's peak), `sharp` (gate `sharp_outlier` or `very_sharp`), `flux_jump` (gate `flux_ratio`), v3.26 `hot_pixel` (some dot's pixel holds free dots at other sky places in ≥ 3 exposures), `hot_pixel_proven` (every dot's, ≥ 3, with ≥ 2 dots), `same_pixel`, `whole_pixel` (≥ 1 dot), `wide` (every unsaturated dot, ≥ 2, or the median dot ≥ 1.3 × a star's size × the trail factor), `cross_detector`, `may_not_move` (in-session motion under 3σ). [] when none. The exporter makes each a check (candidates.json) at the level `warn_levels` gives. Absent: read as [] |
+| warn_values | {code: {name: number}}, **optional** | v3.24. The numbers of each code in `warn_codes` (a name is left out when unknown; a JSON string in suspects.parquet). `known_nearby`: `sep_arcsec`, `known_rate_arcsec_h`, `known_pa_deg`, `known_v_mag` (the body's), `rate_arcsec_h`, `pa_deg` (ours, in session, when measured). `flag_*`: `dots_at_peak` (dots with the bit at their peak), `n_dots`. `bright_star`: `sep_arcsec`, `star_snr`, `star_ab_mag`, `star_flux_ratio` (the star's flux ÷ the suspect's). `catalogue_star`: `sep_arcsec` (the nearest), `source_mask_all_dots` (1: SOURCE at every dot's peak), per catalogue `gaia_sep_arcsec`, `gaia_g_mag`, `catwise_sep_arcsec`, `catwise_w1_mag`, `catwise_w2_mag`, `allwise_sep_arcsec`, `allwise_w1_mag`, `allwise_w2_mag`, `tmass_sep_arcsec`, `tmass_j_mag`, `tmass_k_mag` (Vega, as catalogued), `mover_ab_mag`, `fainter_mag` (AB: the brightest catalogued band minus the suspect; > 2: a chance neighbour, not a reason). `edge`: `edge_px`. `persistence`: `dots_at_peak`, `n_dots`. `sharp`: `size_ratio` (the sharpest dot ÷ a star's size at its S/N), `outlier_at_peak` (1: gate `sharp_outlier`). `flux_jump`: `ratio`. v3.26: `edge` also `ramp_dots` (its D2 dots at y ≥ 1975), `ramp_y` (px, the lowest such y), `ramp_from_y` (1975), `ramp_detector` (2); `fixed_source`: `sep_arcsec`, `flux_ratio` (the fixed source's flux ÷ the mover's), `fixed_snr` (with a fixed source within 9.5″), `gaia_sep_arcsec`, `gaia_g_mag` (a Gaia star within 2″), `motion_sigma`; `glow`: `star_g_mag`, `star_sep_arcsec`, `ratio_med`; `unseen`: `exposures` (covering exposures that miss it), `cover` (covering exposures; candidates.json writes these two `unseen_exposures`, `cover_exposures`); `blend`: `sep1_arcsec`, `sep2_arcsec` (each star from the mover), `apart_arcsec` (the stars from each other), `g1_mag`, `g2_mag`; `hot_pixel`: `exposures_max`, `exposures_min` (free-dot exposures on its dots' pixels, the most and the fewest over its dots; not the mover's own exposures), `n_dots`, `away_arcsec` (30); `hot_pixel_proven`: `exposures_min`, `n_dots`, `away_arcsec`; `same_pixel`: `px`, `limit_px` (1); `whole_pixel`: `dots` (its whole-pixel dots), `n_dots`, `sigma_px` (0.3: the extra position error such a dot gets); `wide`: `ratio_med`, `ratio_min` (unsaturated dots' size ÷ a star's × the trail factor), `dots` (those dots), `limit` (1.3, a ratio), `trail` (the trail factor, only when > 1.005), `with_blend` (1, only when it is a reason); `cross_detector`: `exposures`, `n_dots`; `may_not_move`: `sigma`, `rate_arcsec_h` (in session), `rate_err_arcsec_h`. Absent: read as {} |
+| warn_levels | {code: "strong"}, **optional** | v3.26. The `warn_codes` whose check is `strong`, and only those (a JSON string in suspects.parquet). Can be strong: `hot_pixel` (when it is a reason), `hot_pixel_proven` (always), `same_pixel`, `whole_pixel` (≥ 2 dots), `wide` (with a blend), `cross_detector`, `fixed_source` (the reason's rule), `glow`, `unseen` (≥ 2); every other code is always `warn`. A track that overrules a reason removes its level. {} or absent: every warning `warn` |
 
 **Planets (v3.18).** Besides the 30″ match to Horizons' planets and named moons (v3.17, part of `mpc`'s known
 check), a mover is known (veto `planets`) when it lies within a planet's radius at its time: Mars 60′, Jupiter 80′,
@@ -601,6 +662,16 @@ suspects.parquet (contracts/dots.md) also keeps `nearest_known_name` and link's 
 107″/h at 54° over its track, 98–105″/h at 76–86° within one session), so match a known body on the in-session pair.
 Files written before v3.24 have no `catalogues`, `warnings`, `warn_codes` or `warn_values`: their vetoes removed the
 rest.
+
+**Mover flaws (v3.26, 16 Nov evening; #385, #394, #398).** The vetting round's mistakes, fixed by the same rule:
+remove nothing that isn't certain; grade C with a measured reason, or a warning with its numbers. On every mover of
+hunt, ecl04, ecl08 and ecl11 as if no body were known (real: an MPC prediction within 5″, 6,125 movers; rest: no
+known body within 60″, 9,465): real kept 98.7 → 98.7%, real A or B 89.0 → 88.3% (none of the 50 lost was A), rest
+A or B 3.0 → 0.8%; `hot_pixel_proven` on 337 of the rest, 0 real. `wide` alone is a warning (#394): every-dot-wide
+hits 49 of 62 comet movers; with a blend it hits none of 41 wide real asteroids and none of 49 wide comet movers
+(comet movers A or B 75.8 → 88.7%). D2's background ramp (#398: rows y ≥ 1975 hold 2.3 free dots per photo against
+1.0 elsewhere) is the warning `edge`, never a reason: a mover whose motion rests on such a dot is 0.39% of real
+asteroids and 0.32% of the rest. Files written before v3.26 lack `warn_levels` and these codes.
 
 ### candidates.json
 
@@ -649,13 +720,13 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | pm_mas_yr, pm_err_mas_yr | float mas/yr or null | high_pm only: total proper motion and its 1σ error (the pipeline's `pm`, `pm_err`) |
 | pa_deg | float deg or null | Direction of motion, east of north, 0–360: high_pm from (pmra, pmdec); mover (v3.25) from link's in-session motion (`session_pa_deg`), as `rate_arcsec_h` (null without a rate). null for spectral. shape: not a motion but the axis of the stretch on the sky, east of north, **0–180** (where the second object would sit, on either side) |
 | nearest_known_arcsec | float ″ or null | mover only: as suspects.json, the nearest known body predicted in the same session, moved to `mjd`: an asteroid or comet (MPC orbits) or, from v3.17, a planet or large moon (JPL Horizons); **null = none within 600″**; v3.24: of the bodies brighter than V 21 or without V, as suspects.json (fainter ones: the `known` check producer's `known_nearby`). Always null for high_pm and spectral (not checked) |
-| gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: v3.24 true when the suspects' reason `gaia` is set (a Gaia DR3 star within 6″ at most 2 mag fainter); a fainter one is the check `catalogue_star`; before v3.24 false (suspects had no Gaia star within 6″; see `gaia_unchecked`). high_pm: the pipeline's `status` is `gaia` (either side matched). spectral: classify's Gaia match. shape: a Gaia DR3 star within 6″ is the one listed object |
+| gaia_match | bool | A Gaia DR3 source sits here (its motion may still disagree: see `reasons`). mover: v3.24 true when the suspects' reason `gaia` is set (a Gaia DR3 star within 6″ at most 2 mag fainter); a fainter one is the check `catalogue_star`; before v3.24 false (suspects had no Gaia star within 6″; see `gaia_unchecked`). high_pm: v3.26 the pipeline's `counterpart` is `gaia_pm` or `gaia_position` (Gaia lists the star, with or without a motion); tables without `counterpart`: `status` `gaia` (either side matched). spectral: classify's Gaia match. shape: a Gaia DR3 star within 6″ is the one listed object |
 | catwise_match | bool | A CatWISE2020 source sits here. mover: v3.24 true when the suspects' reason `catwise` is set (as `gaia_match`); before v3.24 false (none within 6″). high_pm: a CatWISE counterpart on either side. spectral: crossids has one. shape: a CatWISE2020 source within 6″ (the listed object, or its infrared entry) |
 | galactic_b | float deg | Galactic latitude (astropy, ICRS to Galactic). \|b\| < 10 is the crowded Milky Way plane |
 | labels | [string] | Filter labels, vocabulary below; order as listed there. [] for movers and shape |
 | grade | string or null | Movers: the suspects' vetting grade, `A`, `B` or `C` (suspects.json `grade`; A = a candidate mover on a track over ≥ 2 sessions at ≥ 5σ, its `why` names the track and it never gets `motion_not_significant`; C = a failed gate or (v3.24) a catalogue source within 6″ at most 2 mag fainter, its gates are in `reasons`). null for high_pm, spectral and shape, and for zones run before the vetting. Grade C movers come after the zone's other movers and score × 0.1; v3.24: those with `status` `open` are in the zone's `more` file, not here. Added 14 Nov |
 | reasons | [string] | Codes, vocabulary below: why it was listed and what to be careful about |
-| why | string | One plain English sentence: why it is on the list (examples below) |
+| why | string | One plain English sentence: why it is on the list (examples below) v3.26: a high_pm's names its `counterpart` (which catalogue lists it, the entry, how far from our track and its year), a spectral lead's a brown-dwarf veto (`bd_veto`: AllWISE's active-galaxy colours, or no water where water could be seen), a shape's a catalogue neighbour or a blocked two-object fit. |
 | flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair); shape: [] (dots with these flags are not used, and a source with them on ≥ 25% of its dots is not listed) |
 | frames_url | string or null | Static blink frames, resolved against the URL of candidates.json like `data_url` (`new URL(frames_url, jsonUrl)`): `cand/<id>/frames.json`, a `GET /api/frames` response whose `data_url`s resolve against that file. null: call `/api/frames?ra=&dec=&clock=&fov=&det=` live |
 | status | string | v3.23. `open`: to check. `known`: certainly a known body: an MPC asteroid or comet, or a JPL Horizons planet or moon, predicted within 10″ of every dot's time and place (movers) with its rate within 20% and direction within 15° when both have one; its name in `known_name`. `flaw`: certainly the instrument: every dot of a mover on the same detector pixel (±1 px) although the sky moved under it (a hot pixel), or another flaw named in `checks` with level `strong` and code ending `_proven`. Nothing is deleted for a status: the site lists `known` and `flaw` apart from `open`. Older files lack it: read as `open`. v3.24: a check producer's side file can set `known` (with `known_name`) or `flaw`; precedence known > flaw > open (section Side files) |
@@ -689,26 +760,29 @@ reads, or by a check producer (`known`, `pixel`, `catalogue`: scripts/candidates
 files, below). Where both make a code, the producer's check replaces the exporter's. `values` keys carry their unit
 (`_arcsec`, `_ujy`, `_arcsec_h`, `_deg`, `_mag` Vega as catalogued, `_px`); a key a reader doesn't know: ignore it.
 Reference shares below are known asteroids (4,646 track movers, hunt + ecl04 + ecl08 + ecl11) against the list.
-The suspects' `warn_codes` (v3.24, suspects.json) become `warn` checks of the same code with their `warn_values` as
-`values`; where the exporter makes that code too, its level stays and the suspects' numbers join its `values` (for
-`catalogue_star`, `bright_star` and `known_nearby` their words replace a `warn`'s text).
+The suspects' `warn_codes` (v3.24, suspects.json) become checks of the same code with their `warn_values` as
+`values`, at level `strong` where `warn_levels` (v3.26) says so, else `warn`; where the exporter makes that code too,
+the stronger level wins and the suspects' numbers join its `values`, the suspects' key winning on a clash (except
+`may_not_move`, where the exporter's own fit, quoted in its text, wins); for `catalogue_star`, `bright_star` and
+`known_nearby` their words replace the text of an exporter check that is not `strong`. The exporter renames
+`tmass_k_mag` → `tmass_ks_mag` and, in `unseen`, `exposures` → `unseen_exposures`, `cover` → `cover_exposures`.
 
 | code | kind | by | levels: rule | values |
 |---|---|---|---|---|
 | known_nearby | mover | exporter | `warn`: a known body (V < 21 or no V) predicted within 2′ | `name`, `v`, `sep_arcsec`, `body_rate_arcsec_h`, `body_pa_deg` (the body's), `rate_arcsec_h`, `pa_deg` (ours, in session), `rate_ratio` (ours ÷ the body's), `dpa_deg`; all but `sep_arcsec` and `name` only when the suspects carried `known_nearby` |
 | known_body | mover | known | `strong` with `status` known and `known_name`: certain by the `status` rule, any brightness, seen from SPHEREx at each dot's time (MPC asteroids at any V, every MPC comet, Horizons planets and moons). v3.24: the one name for a certain known body, here and in the analysis files; files written before it say `known_nearby` `strong` with `status` known: read that as `known_body` | as `known_nearby` (known) |
-| known_nearby | mover | known | Not certain. `strong`, status open: a body within 2″ at every one of ≥ 2 dot times whose motion misses the rule (two dots 2 minutes apart measure a motion only to about ±30″/h). `warn`: the nearest body within 2′. `ok`: none within 2′ | `name`, `body` (`asteroid`, `comet`, `planet`, `moon`), `v`, `sep_arcsec` (nearest at any dot time), `max_sep_arcsec` (farthest), `body_rate_arcsec_h`, `body_pa_deg` (the body's), `rate_arcsec_h`, `pa_deg` (ours), `rate_ratio`, `dpa_deg`, `times`, `from_dots` |
+| known_nearby | mover | known | Not certain. `strong`, status open: a body within 2″ at every one of ≥ 2 dot times whose motion misses the rule (two dots 2 minutes apart measure a motion only to about ±30″/h). `warn`: the nearest body within 2′. `ok`: none within 2′ | `name`, `body` (`asteroid`, `comet`, `planet`, `moon`), `v`, `sep_arcsec` (nearest at any dot time), `max_sep_arcsec` (farthest), `body_rate_arcsec_h`, `body_pa_deg` (the body's), `rate_arcsec_h`, `pa_deg` (ours), `rate_ratio` (here the body's ÷ ours: a clash, Values keys), `dpa_deg`, `times`, `from_dots`; `ok`: `rate_arcsec_h`, `pa_deg`, `times`, `from_dots`, `sep_arcsec` null |
 | known_nearby | high_pm | known | `warn`: a slow distant body (perihelion > 8 AU, < 1″/h) within 10″ at `mjd`. Never `known`: a fixed source is not a moving body | `name`, `body`, `v`, `sep_arcsec`, `body_rate_arcsec_h` |
 | flag_outlier | mover | exporter | `ok`: OUTLIER at the peak of a dot (68% of known asteroids, 28% of the list): a sign it moved, never a doubt | `dots_peak`, `dots`, `known_share` |
 | flag_crosstalk, flag_ghost, flag_bloom, flag_halo | mover | exporter | `warn`: the bit (GHOST: any of GHOST, GHOST_FPA, GHOST_EXT) in a dot's 3×3 or at a peak. `strong`: at every dot's peak (the suspects' reasons `bloom`, `halo`) | `dots_flagged`, `dots_peak`, `dots`, `known_share` (the suspects' `dots_at_peak`, `n_dots`) |
 | one_detector | mover | exporter | Seen in one detector, never with its simultaneous partner. D4 alone `strong` (known 0.3%, the list 35%), `warn` when no D1 photo of that moment covers the spot; D3, D5 or D6 alone `warn`; D1 or D2 alone no check (12% of known asteroids are D2-only) | `detector`, `partner`, `exposures`, `partner_photos`, `known_share`, `list_share` |
 | one_detector | mover | pixel | Forced photometry at its place in the partner's photo of the same moment finds under 3σ: `strong` when seen in D4 alone, else `warn` (`beyond_known`: the 3σ bound puts its colour outside every known asteroid's). Also `warn` when the partner's light there is a fixed source (as much on other days) | `partner_flux_ujy`, `partner_err_ujy`, `flux_ujy`, `bound`, `bound_kind` (`lower`, `upper`), `beyond_known`, `photos`, `known_lo`, `known_hi`; or `fixed_flux_ujy` |
-| partner_seen | mover | exporter, pixel | `ok`. exporter: both detectors of a pair have a dot at the same moment. pixel: both dots, or the partner's forced flux ≥ 3σ at its place, with the colour against the known-asteroid range (never a cut: 306P is D6-only and very red) | exporter `exposures_both`, `exposures`; pixel `ratio`, `photos`, `known_lo`, `known_hi`, `partner_flux_ujy`, `partner_err_ujy`, `flux_ujy` |
+| partner_seen | mover | exporter, pixel | `ok`. exporter: both detectors of a pair have a dot at the same moment. pixel: both dots, or the partner's forced flux ≥ 3σ at its place, with the colour against the known-asteroid range (never a cut: 306P is D6-only and very red) | exporter `exposures_both`, `exposures`; pixel `ratio` (MWIR ÷ SWIR flux), `photos` (exposures with both dots, or the partner photos measured), `known_lo`, `known_hi`, and with a forced flux `partner_flux_ujy`, `partner_err_ujy`, `flux_ujy` |
 | two_photos | mover | exporter | `warn`: seen in 2 exposures and on no track, or `two_detectors` in one exposure (no straight-line check) | `exposures`, `minutes` |
-| may_not_move | mover | exporter | `warn`: its own motion under 3σ | `rate_arcsec_h`, `rate_err_arcsec_h`, `sigma` |
-| chance_tracks | mover | exporter | On a track: `ok` when the zone's shuffled control made no track (summary.json `steps.tracklets.control`), else `warn` | `sessions`, `rate_arcsec_h` (the track's), `control_tracks` |
+| may_not_move | mover | exporter, suspects | `warn`, never a reason (real asteroids 22.6%, the rest 26.8%). exporter: on no grade A track and its own motion under 3σ (link's rule, unweighted per-exposure line). suspects (v3.26): `motion_sigma` under 3 (weighted line, a whole-pixel dot + 0.3 px error); where both, the exporter's numbers stay | `rate_arcsec_h` (in session), `rate_err_arcsec_h`, `sigma` (rate ÷ its error) |
+| chance_tracks | mover | exporter | On a track: `ok` when the zone's shuffled control made no track (summary.json `steps.tracklets.control`), else `warn` | `sessions`, `track_rate_arcsec_h` (v3.26; before: `rate_arcsec_h`, the track's), `control_tracks` |
 | seen_again | mover | exporter | v3.25. `ok`: on a track (contracts/dots.md `tracklets`): found again in other sessions of its visit, the strongest sign for a real mover; the text compares the zone's controls | `tracklet_id`, `sessions`, `n_movers`, `n_recovered_sessions`, `span_h`, `track_rate_arcsec_h`, `track_pa_deg`, `rate_snr`, `session_rate_arcsec_h`, `session_pa_deg`, `control_tracks`; when summary.json has them `zone_tracks`, `zone_recovered_dots`, `zone_movers`, `control_fast_tracks`, `control_movers_on_tracks`, `control_recovered_dots`, `link_control_movers`, `link_control_two_exposures`, `link_control_fast` |
-| fast_held | mover | exporter | v3.25. `warn`: grade B held from A: on a track of ≥ 2 sessions at ≥ 5σ, faster than 400″/h, with no recovered dot and no detector partner (suspects.json `grade`'s rule; summary.json `steps.suspects.vetting.tracklets.fast_held` counts them) | `sessions`, `rate_arcsec_h` (the track's), `limit_arcsec_h` |
+| fast_held | mover | exporter | v3.25. `warn`: grade B held from A: on a track of ≥ 2 sessions at ≥ 5σ, faster than 400″/h, with no recovered dot and no detector partner (suspects.json `grade`'s rule; summary.json `steps.suspects.vetting.tracklets.fast_held` counts them) | `sessions`, `track_rate_arcsec_h` (v3.26; before: `rate_arcsec_h`, the track's), `limit_arcsec_h` |
 | fast | mover | exporter | `warn`: faster than 99% of the visit's known asteroids on tracks (≥ 30 of them, else the zone's) | `rate_arcsec_h`, `rate_err_arcsec_h`, `known_quantile_arcsec_h`, `known_n`, `known_faster` |
 | odd_direction | mover | exporter | Over 45° from the visit's median known-asteroid direction: `strong` when also `fast`, no known asteroid moves like it and it is on no track; else `warn` | `pa_deg`, `dpa_deg`, `visit_pa_deg`, `known_n`, `known_like_it` |
 | flux_jump | mover | exporter | Brightest / faintest dot in one detector > 2.2 (98.4% of known asteroids below): `warn`; > 4 or the gate `flux_ratio`: `strong` | `ratio`, `detector`, `known_max_ratio` |
@@ -718,43 +792,94 @@ The suspects' `warn_codes` (v3.24, suspects.json) become `warn` checks of the sa
 | catalogue_star | mover | catalogue | `warn`: the nearest catalogue source within 6″ (Gaia DR3 at any G, CatWISE2020, AllWISE, 2MASS PSC and XSC, moved to the candidate's time), with the chance that a random spot of the zone has one that close (from the zone's density in the 6–10″ ring around its candidates; near the ecliptic CatWISE alone gives 39% within 6″) | `catalogue`, `sep_arcsec`, the catalogue's own magnitudes (`g_mag`, `bp_rp`; `w1_mag`, `w2_mag`, `w3_mag`; `j_mag`, `h_mag`, `ks_mag`; XSC `ks_mag`, `r_arcsec`), `n_catalogues`, `chance` (0–1, this close), `chance_6arcsec` (0–1, within 6″) |
 | catalogue_star | shape | exporter | `strong`: the two-source fit's companion is catalogued | `catalogue` |
 | bright_star | mover | exporter | `strong`: the vetting reason `bright_star` (a fixed source of S/N ≥ 100 within 15″). `warn`: a Gaia G < 10 star within 120″ | `g_mag`, `sep_arcsec` (or the suspects' `star_snr`, `star_ab_mag`, `star_flux_ratio`) |
-| hot_pixel | mover | exporter | `strong`: the vetting gate (suspects.json `hot_pixel`) | |
-| hot_pixel | mover | pixel | `strong` with status `flaw`: every dot (≥ 2) within ±1 px of one detector pixel while the sky moved ≥ 6″ (the `status` rule). `warn`: the pixel under some, not all, dots glows as for `hot_pixel_proven` | `det`, `dx_px`, `dy_px`, `sky_arcsec`, `dots`; or as `hot_pixel_proven` |
-| hot_pixel_proven | mover | exporter, pixel | `strong`, status `flaw`. exporter: every dot on one detector within 1 px of their median in x and y, over ≥ 2 exposures. pixel: the detector pixel under every dot (≥ 2) glows at ≥ 3σ and 0.5–2.5 × the dot's flux in every neighbouring exposure of that detector where the sky under it moved ≥ 4 px (at least 2: one before, one after) | exporter `detector`, `exposures`; pixel `dots`, `photos`, `flux_ujy`, `pixel_flux_ujy` |
+| hot_pixel | mover | exporter, suspects | `strong`: the vetting gate (suspects.json `hot_pixel`; v3.26: free dots at other sky places > 30″ on its dots' pixels in ≥ 5 exposures, or ≥ 3 for every dot). suspects (v3.26): `warn` when some dot's pixel has them in 3–4 exposures and it is no reason | `exposures_max`, `exposures_min` (free-dot exposures, not the mover's), `n_dots`, `away_arcsec` (from v3.26 tables; none before) |
+| hot_pixel | mover | pixel | v3.26: `warn` only: the pixel under some, not all, dots glows as for `hot_pixel_proven`'s history rule, or the mover has one dot that does (before v3.26 the same-pixel rule was `hot_pixel` `strong` with status `flaw`: now `hot_pixel_proven`) | `dots` (hot dots), `photos`, `flux_ujy`, `pixel_flux_ujy` |
+| hot_pixel_proven | mover | exporter, suspects, pixel | `strong`, status `flaw`. exporter: every dot on one detector within 1 px of their median in x and y, over ≥ 2 exposures (the sky's motion not tested). suspects (v3.26): every dot's pixel holds free dots at other sky places > 30″ in ≥ 3 exposures, ≥ 2 dots (`warn_levels` strong; no reason of its own: the mover's reason is `hot_pixel`). pixel: (a, v3.26) same pixel: on every detector with ≥ 2 dots they lie within ±1 px of its first dot while the sky under them moved ≥ 6″ (a detector with one dot is not tested); or (b) history: the detector pixel under every dot (≥ 2) glows at ≥ 3σ and 0.5–2.5 × the dot's flux in every neighbouring exposure of that detector where the sky under it moved ≥ 4 px (at least 2: one before, one after) | exporter `detector`, `exposures`; suspects `exposures_min`, `n_dots`, `away_arcsec`; pixel (a) `det`, `dx_px`, `dy_px`, `sky_arcsec`, `dots` (that detector's), (b) `dots`, `photos`, `flux_ujy`, `pixel_flux_ujy` |
+| same_pixel | mover | suspects | v3.26. `strong` (the reason): dots of two exposures within 1 px of one detector pixel (a session where the telescope did not step) | `px` (the closest pair's larger offset), `limit_px` |
+| whole_pixel | mover | suspects | v3.26. A dot with x and y within 0.02 px of a whole pixel (detection's peak-pixel fallback): `warn` with 1, `strong` (the reason) with ≥ 2. Real asteroids 0.2% strong / 3.6% warn, the rest 14.2% / 24.8% | `dots` (whole-pixel dots), `n_dots`, `sigma_px` |
+| cross_detector | mover | suspects | v3.26. `strong` (the reason): ≥ 2 exposures and no detector sees two of them (D1 then D4 is colour, not motion). Real 0.5%, the rest 8.3% | `exposures`, `n_dots` |
+| fixed_source | mover | suspects | v3.26. `strong` (the reason): link's fixed source within 9.5″ at least as bright, or the mover under 1.5 × its flux and moving under 2σ; or a Gaia star within 2″ and motion under 3σ. `warn`: a fixed source within 9.5″ or such a Gaia star otherwise | `sep_arcsec` (to the fixed source), `flux_ratio` (the source's flux ÷ the mover's), `fixed_snr`, `gaia_sep_arcsec`, `gaia_g_mag`, `motion_sigma` |
+| glow | mover | suspects | v3.26. `strong` (the reason): one detector, no partner exposure, median dot ≥ 1.3 × a star's size, a Gaia G < 7 star within 10′ (its glow). Real 1 of 6,125, the rest 2.0% | `star_g_mag`, `star_sep_arcsec`, `ratio_med` |
+| unseen | mover | suspects | v3.26. Exposures of its session that cover its place on its in-session line (counted without link's star and blend exclusions) and hold none of its dots: `warn` with 1, `strong` (the reason) with ≥ 2. Real 0.7% strong / 8.5% warn, the rest 21.2% / 32.3% | `unseen_exposures` (exposures that miss it), `cover_exposures` (exposures covering it) |
+| blend | mover | suspects | v3.26. `warn`, never a reason alone: it sits between two Gaia stars ≥ 10″ apart, both within 12″, their midpoint within 2″ of it (their merged light). With `wide` it makes `wide` a reason | `sep1_arcsec`, `sep2_arcsec`, `apart_arcsec`, `g1_mag`, `g2_mag` |
 | persistence | mover | exporter, pixel | `warn`. exporter: the suspects' warning, PERSIST at a dot's peak. pixel: some dots sit where a star saturated the same pixels (OVERFLOW/NONLINEAR within 1.5 px) in an exposure of that detector up to 30 min earlier | exporter `dots_at_peak`, `n_dots`; pixel `dots`, `flux_ujy`, `prev_flux_ujy`, `minutes`, `saturated` |
 | persistence_proven | mover | pixel | `strong`, status `flaw`: every dot does | as `persistence` |
 | sharp | mover | exporter | `strong`: the gate `sharp_outlier` or `very_sharp` | `size_arcsec`, `star_size_arcsec`, `ratio` |
 | sharp | mover | pixel | Dots narrower than 0.7 × the stars of similar S/N (within ×/÷ 2) in the same photo: `strong` when every dot (≥ 2) is under 0.55 ×, else `warn`; `ok` when every dot is 0.8–1.3 × | `size_ratio_min`, `size_ratio_max`, `dots`, `sharp_dots`, `size_arcsec` |
-| wide | mover | pixel | Dots ≥ 1.3 × as wide (√(a·b), the pipeline's dot size) as the stars of similar S/N (within ×/÷ 2) in the same photo (known asteroids: 0.8–1.3 ×): `strong` when every dot (≥ 2) is, else `warn` when the median dot is | `size_ratio_min`, `size_ratio_max`, `dots`, `wide_dots`, `size_arcsec` |
-| one_photo | mover | pixel | Forced flux at each dot's sky place in up to 6 other exposures of its detector in the visit, from sessions ≥ 1 h away where the mover has moved ≥ 15″. `strong`: every place holds a fixed source (together ≥ 3σ and ≥ 0.3 × the dot, light centred < 0.8 px away: a star just under the cut, not a mover). `warn`: some places do, or a neighbour's light spills in (centroid ≥ 0.8 px away). `ok`: nothing there, to a 3σ limit below 0.5 × the dot | `places`, `steady_places` or `neighbour_places`, `photos`, `fixed_flux_ujy`, `fixed_err_ujy`, `ratio`, `offset_arcsec`, `limit_ratio` |
-| faint_on_path | mover | pixel | Forced photometry where its straight line predicts it in other exposures of its detector (1σ under 3 px): `ok` when found (≥ 3σ, 0.25–4 × its flux) in ≥ 2; `warn` when absent where it should read ≥ 5σ | `photos`, `found`, `best_snr`, `flux_ujy`, `path_flux_ujy` |
-| trail | mover | pixel | Only where a 113 s exposure stretches a point ≥ 1.25 × (≳ 270″/h): `ok` when the dots' median elong ≥ the expected stretch − 0.15, else `warn` | `rate_arcsec_h`, `expected_elong`, `elong_min`, `elong_max` |
-| edge, bad_column, masked_peak, red_photo | mover | exporter | `strong`: the vetting gate (`edge` also when the exporter finds a dot within 6 px of the edge itself) | `edge`: `edge_px`, `dots`; `masked_peak`: `bits` |
+| wide | mover | suspects, pixel | v3.26: a warning that says what to look at: a broad moving dot is a comet's haze or two faint things blended. suspects: unsaturated dots (no OVERFLOW/NONLINEAR at the peak) ≥ 1.3 × a star's size at their S/N in their detector × the trail factor (1 + L²/12σ²)^¼ (L = in-session rate × 113 s, σ = 3.2″): `warn` when every dot (≥ 2) or the median dot is; `strong` only as the reason, together with a `blend` (its text then starts "Graded C for its width together with a blend"). pixel: always `warn`, the same test on dots ≥ 1.3 × the stars of similar S/N (within ×/÷ 2) in the same photo, saturated dots (OVERFLOW/NONLINEAR within 1.5 px) left out, each ÷ the trail factor; none when every dot is saturated | suspects `ratio_med`, `ratio_min`, `dots`, `limit`, `trail`, `with_blend`; pixel `size_ratio_min`, `size_ratio_max` (trail-corrected), `dots` (unsaturated dots measured), `wide_dots`, `size_arcsec` (the widest, raw), `trail_factor`, `saturated_dots` |
+| one_photo | mover | pixel | Forced flux at each dot's sky place in up to 6 other exposures of its detector in the visit, from sessions ≥ 1 h away where the mover has moved ≥ 15″, each place judged by itself. `strong`: every place holds a fixed source (together ≥ 3σ and ≥ 0.3 × the dot, light centred < 0.8 px away: a star just under the cut, not a mover). `warn`: some places do, or (no such place) a neighbour's light spills in (centroid ≥ 0.8 px away). `ok` (v3.26): no steady or neighbour place, and at some place the dot is ≥ 1.5 × the light there (≥ 3σ) and ≥ 5σ more (an asteroid passing a fainter star). `ok`: nothing there, to a 3σ limit below 0.5 × the dot. Only unclear places: no check | `places`, `steady_places`, `neighbour_places` or `brighter_places` (v3.26), `photos`, `fixed_flux_ujy`, `fixed_err_ujy`, `offset_arcsec` (neighbour), `limit_ratio` (nothing there); v3.26 on every one_photo check `flux_now_ujy`, `flux_other_ujy`, `flux_other_err_ujy`, `ratio` (other ÷ now), `diff_snr`, from the place with the most light, which may not be the place `fixed_*` describe. pixel.json's per-candidate `one_photo` object (the same numbers and a `verdict`) is not merged into candidates.json |
+| faint_on_path | mover | pixel | Forced photometry where its straight line predicts it in other exposures of its detector (1σ under 3 px): `ok` when found (≥ 3σ, 0.25–4 × its flux) in ≥ 2; `warn` when absent where it should read ≥ 5σ (≥ 2 such exposures, their combined 3σ limit under 0.5 × its flux) | `ok`: `photos` (exposures measured), `found`, `best_snr`, `flux_ujy`; `warn`: `photos` (exposures where it should show), `found` 0, `flux_ujy`, `path_flux_ujy`, `path_err_ujy` |
+| trail | mover | pixel | Only where a 113 s exposure stretches a point ≥ 1.25 × (≳ 270″/h): `ok` when the dots' median elong ≥ the expected stretch − 0.15, else `warn` | `rate_arcsec_h` (suspects.parquet's `rate_arcsec_h`: on a track the track's, a clash: Values keys), `expected_elong`, `elong_min`, `elong_max` |
+| edge, bad_column, masked_peak, red_photo | mover | exporter | `strong`: the vetting gate (`edge` also when the exporter finds a dot within 6 px of the edge itself) | `edge`: `edge_px`, `dots` (dots within 6 px); `masked_peak`: `bits` |
+| edge | mover | suspects | v3.26. `warn`, never a reason: its motion rests on a D2 dot at y ≥ 1975 (D2's background ramp: its other dots span fewer than 2 exposures and fewer than 2 detectors). The text says to open D2 at that exposure: a ramp fake is a faint bump on a band of brighter sky, real light a round blur that D5 shows at the same moment. With the exporter's `strong` edge its words stay and these values join | `ramp_dots`, `ramp_y` (px), `ramp_from_y` (px), `ramp_detector` |
 | not_vetted | mover | exporter | `warn`: the vetting could not run (no dot positions) | |
 | impossible_motion, gaia_disagrees | high_pm | exporter | `strong` (with `implausible_pm`, `gaia_pm_disagrees`) | `pm_arcsec_yr`, `fastest_star_arcsec_yr` |
 | parallax_leak, few_dots, saturated | high_pm | exporter | `warn`. `parallax_leak`: a fit without parallax (`fit_mode` `pm` or `pm_leak`) | |
 | one_detector_shift | high_pm | exporter | `warn`: a pair whose two sources share ≤ 1 detector, so their brightness match rests on one detector or none | |
-| blend | high_pm, spectral, shape | exporter | Two or more Gaia stars within 8″ (`fragments`). high_pm: `strong` for a new motion, `warn` on a Gaia star whose motion we confirm; spectral `warn`; shape `strong` | |
-| catalogues_checked | high_pm | catalogue | No Gaia match only. `strong`: a catalogue entry where its motion puts it at that catalogue's epoch (a catalogued star, not new), or one at today's place when the motion should have moved it ≥ 4″ (a still star: the motion is likely fake). `warn`: neither | `pm_mas_yr`; with an entry its `catalogue`, `sep_arcsec`, magnitudes (as `catalogue_star`) and `epoch_year` or `expected_shift_arcsec` |
-| catalogues_checked | spectral | exporter, catalogue | exporter: `ok` when the zone's refcat holds Gaia, CatWISE2020 and 2MASS (the marker, contracts/dots.md refcat), else `warn` naming the missing ones. catalogue (IRSA, within 3″; XSC wider): `strong` when an ordinary catalogued galaxy or star explains the label (2MASS XSC, AllWISE extended, a Gaia galaxy candidate, galaxy or quasar WISE colours, a Gaia parallax star beyond 50 pc or too luminous for its parallax, catalogue colours failing our ice rule's reddening test); `ok` when the colours agree (L/T colours, an ultracool absolute G, a star reddened behind a cloud); `warn` otherwise (also nothing catalogued, or several sources blended in one SPHEREx pixel) | exporter `catalogs`, `missing`; catalogue `<cat>_<key>` for its entry (`gaia_`, `catwise_`, `allwise_`, `tmass_` + `sep_arcsec`, `g_mag`, `bp_rp`, `w1_mag`, `w2_mag`, `w3_mag`, `j_mag`, `h_mag`, `ks_mag`), `xsc_sep_arcsec`, colours `w1_w2`, `w2_w3`, `j_ks`, `j_h`, `h_ks`, `label_group`, with a parallax `gaia_parallax_mas`, `gaia_parallax_error_mas`, `distance_pc`, `abs_g`; a blend `blend_n`, `blend_catalogue`; nothing catalogued `ab_det` |
-| no_j | spectral | catalogue | `brown_dwarf_like` / `ch4`: 2MASS J (or its limit) against our 4.6 µm magnitude: bluer than an ordinary star's J − [4.6] `strong`, between that and an L0's `warn`, else `ok`; no 2MASS source: `ok` when 2MASS would have seen an L dwarf, `warn` when too shallow | `j_mag`, `j_minus_m46`, `sep_arcsec` |
+| blend | high_pm, spectral, shape | exporter | Two or more Gaia stars within 8″ (`fragments`). high_pm: `strong` for a new motion, `warn` on a Gaia star whose motion we confirm (v3.26: or one Gaia lists without a motion, `counterpart` `gaia_position`); spectral `warn`; shape `strong` | `sep_arcsec` (the two stars from each other: a clash, Values keys), `dg_mag`, `gaia_stars` |
+| catalogues_checked | high_pm | catalogue | No Gaia match only (`gaia_match` false). v3.26, a table with highpm's `counterpart` decides first: `gaia_pm`, `gaia_position`, `catwise_pm`, `tmass_position`, `allwise_position`: `strong`, a catalogued star (named); `gaia_still`, `allwise_still`: `strong`, a source without motion at today's place (the motion is likely fake). Otherwise ("", `gaia_crossid`, or no column): `strong` when a catalogue entry lies within 3″ of where its motion puts it at that catalogue's epoch, or (no column or `gaia_crossid` only) a non-moving entry at today's place when the motion should have moved it ≥ 4″; `warn` when a CatWISE source whose own ≥ 3σ motion brings it to today's place (two motions to compare, never a still star), or nothing | `pm_mas_yr`; counterpart: `counterpart`, `counterpart_id` (may be null), `sep_arcsec` (highpm's `counterpart_sep_arcsec`), `epoch_year`, and for still kinds `expected_shift_arcsec`; an entry of its own: `catalogue`, `sep_arcsec`, magnitudes (as `catalogue_star`), `epoch_year`, `gaia_source_id`, `gaia_without_motion` (on the track) or `expected_shift_arcsec` (still); CatWISE moving: also `catwise_pm_mas_yr`, `catwise_pa_deg` |
+| catalogues_checked | spectral | exporter, catalogue | exporter: `ok` when the zone's refcat holds Gaia, CatWISE2020 and 2MASS (the marker, contracts/dots.md refcat), else `warn` naming the missing ones. catalogue (IRSA, within 3″; XSC wider): `strong` when an ordinary catalogued galaxy or star explains the label (2MASS XSC, AllWISE extended, a Gaia galaxy candidate, galaxy or quasar WISE colours, a Gaia parallax star beyond 50 pc or too luminous for its parallax, catalogue colours failing our ice rule's reddening test); `ok` when the colours agree (L/T colours, an ultracool absolute G, a star reddened behind a cloud); `warn` otherwise (also nothing catalogued, or several sources blended in one SPHEREx pixel) | exporter `catalogs`, `missing`; catalogue `<cat>_<key>` for its entry (`gaia_`, `catwise_`, `allwise_`, `tmass_` + `sep_arcsec`, `g_mag`, `bp_rp`, `w1_mag`, `w2_mag`, `w3_mag`, `j_mag`, `h_mag`, `ks_mag`), `xsc_sep_arcsec`, colours `w1_w2`, `w2_w3`, `j_ks`, `j_h`, `h_ks`, `label_group`, with a parallax `gaia_parallax_mas`, `gaia_parallax_error_mas`, `distance_pc`, `abs_g`; a blend `blend_n`, `blend_catalogue`; nothing catalogued `ab_det`; ice labels `rule_j_h`, `rule_h_ks`, `rule_w1_w2`, `colour_source` |
+| no_j | spectral | catalogue | `brown_dwarf_like` / `ch4`: 2MASS J (or its limit) against our 4.6 µm magnitude: bluer than an ordinary star's J − [4.6] `strong`, between that and an L0's `warn`, else `ok`; no 2MASS source: `ok` when 2MASS would have seen an L dwarf, `warn` when too shallow | `m46_vega`, `m46_source`, `our_j_vega`, then `j_mag`, `j_minus_m46`, `sep_arcsec`, or (no 2MASS source) `j_limit`, `j_minus_m46_min` |
 | pah_only, behind_cloud, few_channels | spectral | exporter | `warn`. `few_channels`: under 51 of the 102 channels measured | `sigma`; `ice_neighbours`; `channels`, `of` |
-| bright_neighbour | spectral, shape | exporter, catalogue | `warn`: a bright star near it (exporter: `fragments`' bright star within 120″; catalogue: a star 3 mag brighter within 30″, or a saturating star, G < 10 or Ks < 8, within 90″) | `band`, `mag`, `sep_arcsec`; catalogue: the star's `catalogue`, `sep_arcsec`, magnitudes, `neighbour_mag`, `neighbour_band` |
-| galaxy | shape | exporter, catalogue | exporter `warn`: our classifier calls it extended. catalogue: 2MASS XSC within 10″ `strong`, WISE extended or a Gaia galaxy candidate `warn`, else `ok` | |
+| bright_neighbour | spectral, shape | exporter, catalogue | `warn`: a bright star near it (exporter: `fragments`' bright star within 120″; catalogue: a star 3 mag brighter within 30″, or a saturating star, G < 10 or Ks < 8, within 90″) | `band`, `mag`, `sep_arcsec`; catalogue: the star's `catalogue`, `sep_arcsec`, magnitudes, `neighbour_mag`, `neighbour_band`, `dmag`, `our_ab` |
+| galaxy | shape | exporter, catalogue | exporter `warn`: our classifier calls it extended. catalogue: 2MASS XSC within 10″ `strong`, AllWISE extended (`ext_flg` not 0) or a Gaia galaxy candidate `warn`, else `ok` (only when XSC was asked) | catalogue: the entry's values, or `xsc_arcsec` (10) for `ok` |
 | status_conflict | any | merge | `warn`: two producers disagree (known vs flaw, or two names) | `names`; or `known_name`, `flaw` |
+| ai_review | any | ai | v3.26 (#397; producer `ai`, scripts/vet/publish_checks.py, from the AI checker's rounds; controls left out). `ok`: its latest verdict keeps it (real) and no record drops it. `strong` (× 0.3, no status): every record drops it (static source, artefact, no source; for spectral and shape also "the engine's claim is wrong") without the proof `ai_fake_proven` needs. `warn`: otherwise. Where the `catalogue` producer has a `strong` `catalogues_checked` for it, an `ok` says it is already catalogued (level stays `ok`) | `verdict`, `confidence` (the latest), `agree` (records agreeing with it), `looks`, `interest`, `worth_a_look` |
+| ai_fake_proven | any | ai | v3.26. `strong`, so status `flaw` (the `_proven` rule; listed apart, never deleted): no record keeps it, ≥ 2 records drop it at confidence ≥ 0.8, the latest among them; for a mover the latest also names a measured proof | as `ai_review` |
 
 **Values keys** (v3.25): one meaning in every candidates.json check. `rate_arcsec_h` and `pa_deg` are ours (in session;
-in `chance_tracks` and `fast_held` the track's, as their rows say); a known body's are `body_rate_arcsec_h` and
+v3.26: a track's are `track_rate_arcsec_h`, `track_pa_deg` in `seen_again`, `chance_tracks` and `fast_held`); a known body's are `body_rate_arcsec_h` and
 `body_pa_deg`; `sep_arcsec` is the nearest, `max_sep_arcsec` the farthest; 2MASS Ks is `ks_mag` (`tmass_ks_mag` with a
 catalogue prefix). suspects.json `warn_values` keep their names; candidates.json writes `known_rate_arcsec_h`,
 `known_pa_deg`, `known_v_mag`, `tmass_k_mag` as `body_rate_arcsec_h`, `body_pa_deg`, `v`, `tmass_ks_mag`. `hot_pixel`
 means the vetting gate (exporter) or a pixel measurement. A producer's check replaces the exporter's of the same code,
 but the check of one of a mover's own failed vetting gates (its `reasons` as codes: `hot_pixel`, `sharp`, `edge`,
 `catalogue_star`, `bright_star`, `flag_bloom`, …) stays when the producer's is weaker, so a failed gate stays `strong`.
-Same-pixel hot pixels are `hot_pixel_proven` from the exporter and `hot_pixel` `strong` with status `flaw` from the pixel
-producer: either way the candidate is a `flaw`. The analysis files (Science workspace, #375) do not follow these keys
-yet: there `known_body` `sep_arcsec` is the farthest and `known_body`, `known_nearby` `rate_arcsec_h`, `pa_deg` are the
-body's (**proposal** for P2 and P3: the keys above).
+Same-pixel hot pixels are `hot_pixel_proven` from the exporter and (v3.26) from the pixel producer too (before: `hot_pixel`
+`strong` with status `flaw`): either way the candidate is a `flaw`. v3.26 (#382): the analysis files (Science workspace) follow these keys too, and a star's motion is `star_rate_arcsec_yr`,
+`star_pa_deg`; #375's files written before carry the old meanings (`known_body` `sep_arcsec` the farthest, `known_body`
+and `known_nearby` `rate_arcsec_h`, `pa_deg` the body's, `known_star` `rate_arcsec_yr`, `pa_deg` the star's); readers
+use no number from them.
+
+**Clashes** (v3.26, found in the code on main; this contract describes the code as it is, and each line names the
+fix, a **proposal** for the owner; until then read the key per check row):
+- `rate_ratio`: the exporter's `known_nearby` writes ours ÷ the body's, the `known` producer the body's ÷ ours
+  (pipeline known.py `judge`, used by scripts/candidates/known_check.py). Fix: invert it in known_check.py's values.
+- `rate_arcsec_h` in pixel `trail` (and the rate behind pixel `wide`'s `trail_factor`) is suspects.parquet's
+  `rate_arcsec_h`, the track's on a track. Fix: pixel_check.py reads `session_rate_arcsec_h` first.
+- `bright_star` (mover): the exporter's `warn` writes a Gaia G < 10 star's `g_mag` and `sep_arcsec` (120″); the
+  suspects' `sep_arcsec` (a fixed source of S/N ≥ 100 within 30″) overwrites it in the merge, so one check holds two
+  objects' numbers. Fix: candidate_checks.py `_suspects_warnings` replaces the values where it replaces the text, or
+  the exporter writes `gaia_g_mag`, `gaia_sep_arcsec`.
+- `catalogue_star` (mover): the exporter's `warn` `sep_arcsec` is `near_source_arcsec` (refcat or fixed source,
+  10″), the suspects' is the nearest catalogue source within 6″. Fix: the exporter writes `near_source_arcsec`.
+- `sep_arcsec` in `blend` (high_pm, spectral, shape) is the two stars' separation from each other; everywhere else it
+  is from the candidate (the mover's `blend` calls it `apart_arcsec`). Fix: candidate_checks.py `_blend` writes
+  `apart_arcsec`.
+- `ratio`: `flux_jump` brightest ÷ faintest flux, exporter `sharp` size ÷ a star's (the suspects' `size_ratio` is
+  the same number in the same check), `detector_excess` a zone share ratio, pixel `partner_seen` MWIR ÷ SWIR,
+  pixel `one_photo` other ÷ now. Fix: name each (`flux_ratio_max`; drop the exporter's `sharp` `ratio`;
+  `excess_ratio`; `colour_ratio`; `other_ratio`).
+- `hot_pixel_proven`: the exporter writes `detector`, the pixel producer `det`. Fix: pixel_check.py writes `detector`.
+- `dots`: all of a mover's dots in `flag_*` (whose suspects numbers add `n_dots`, and `dots_at_peak` beside the
+  exporter's `dots_peak`), the matching dots in `edge`, `whole_pixel`, pixel `hot_pixel`, `persistence`, the measured
+  dots in `sharp`, `wide`. Fix: `flag_*` write `n_dots`; matching counts get a prefix (`edge_dots`, `hot_dots`).
+- `photos`: in pixel `faint_on_path` the exposures measured (`ok`) or those where it should show (`warn`). Fix: two keys.
+- `sep_arcsec` in high_pm `catalogues_checked` (counterpart path) is highpm's `counterpart_sep_arcsec`, which is the
+  distance from our track at the entry's epoch for `gaia_position`, `tmass_position`, `allwise_position` and both still
+  kinds, but the separation at our epoch for `gaia_pm`, `catwise_pm` (crossids' for the compute stage). For the still
+  kinds it is ≥ 4.5″ (the track), not the ≤ 1.5″ offset from today's place, yet the exporter's `why` and the
+  producer's text call it the distance from where it is now. `counterpart_epoch_mjd` (so `epoch_year`) is our own
+  epoch for `gaia_pm` and crossids' counterparts. Fix: highpm writes the still offset (`offset_now_arcsec`, in its
+  report today) to its own column, and the texts read it.
+- `wide`: the suspects write `trail`, `ratio_med`, `ratio_min`, `limit`; the pixel producer `trail_factor`,
+  `size_ratio_min`, `size_ratio_max`; `limit` has no unit. Fix: one set of names (`trail_factor`, `size_ratio_*`,
+  `limit_ratio`).
+- suspects.json `warn_values.unseen.exposures` means the exposures that missed it (candidates.json renames it
+  `unseen_exposures`). Fix: suspects.py writes `unseen_exposures`, `cover_exposures`; the exporter's rename goes.
+- The flux scales: pixel `flux_ujy` is the dot's catalogue flux (r = 2 px, no × 1.033), the pixel forced fluxes
+  (`fixed_flux_ujy`, `flux_now_ujy`, `partner_flux_ujy`) are ePSF fluxes (× 1.033), so their ratios mix the two
+  by about 3%.
 
 **Side files** (v3.24). A check producer writes `<dir>/<source>.json`:
 `{ source, made (ISO 8601 UTC), candidates_file, candidates:{ <id>:{ checks:[…], status:"known"|"flaw"|null,
@@ -851,9 +976,11 @@ shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (e
 **The checks' factor** (v3.24, every kind): × 0.3 per `strong` check, × 0.95 per `warn`, × 1 per `ok`, so checks rank and
 never hide (two strong clues, × 0.09, rank a mover with grade C's × 0.1). A check the kind's own formula already counts
 adds nothing: mover `known_nearby` and `known_body` (the known term) and, on a grade C mover, the checks of its own failed gates
-(`hot_pixel`, `bad_column`, `edge`, `masked_peak`, `sharp` for `sharp_outlier`/`very_sharp`, `flux_jump` for
-`flux_ratio`, `red_photo`, `not_vetted`, `catalogue_star` for `gaia`/`catwise`/`2mass`/`allwise`, `flag_bloom`,
-`flag_halo`, `bright_star` for `bloom`, `halo`, `bright_star`); high_pm `impossible_motion` with `implausible_pm`,
+(`hot_pixel` and v3.26 `hot_pixel_proven`, `bad_column`, `edge`, `masked_peak`, `sharp` for `sharp_outlier`/`very_sharp`,
+`flux_jump` for `flux_ratio`, `red_photo`, `not_vetted`, `catalogue_star` for `gaia`/`catwise`/`2mass`/`allwise`,
+`flag_bloom`, `flag_halo`, `bright_star` for `bloom`, `halo`, `bright_star`; v3.26 `same_pixel`, `whole_pixel`, `wide`,
+`cross_detector`, `fixed_source`, `glow`, `unseen` each for itself: a warning of another of these codes, and `blend`
+on a wide-with-blend mover, still count; a track-overruled A mover pays × 0.95 for each warning); high_pm `impossible_motion` with `implausible_pm`,
 `few_dots` with `few_dots`, `gaia_disagrees` with `gaia_pm_disagrees`. Why the old mover factors went (16 Nov, hunt +
 ecl04 + ecl08 + ecl11: 4,646 movers on tracks, nearly all known asteroids, against the 480 listed suspects): OUTLIER
 marks a dot's peak on 68% of known asteroids and 28% of the list (a sign it moved, not a doubt); a masked pixel in a
@@ -890,7 +1017,7 @@ candidate they are those of its (first) source.
 | detector_excess | mover | Seen only in detectors where, in that visit, the zone has at least 1.5× its usual share of unexplained movers per mover (≥ 5 suspects in the cell): likely artefacts. Hunt: D4, D5, D6 in visit 2 (D4 is 41% of the suspects but 28% of the movers); 108 suspects. A D1+D4 pair seen by D1 too doesn't count. v3.24: no score factor (check `detector_excess`, `warn`) |
 | repeat_position | mover | Another unexplained mover of the zone was seen within 30″ in another session, at under 2″ an hour apart: probably a fixed or very slow source, not a fast mover. Hunt: 7 suspects at 3 places, 1 to 169 days apart (one is the brightest suspect, S/N 290 in D1). v3.24: its × 0.3 comes from the check `repeat_position` (`strong`) |
 | gaia_unchecked, catwise_unchecked | mover | Gaia / CatWISE could not be checked when the pipeline ran |
-| not_vetted, hot_pixel, bad_column, edge, masked_peak, sharp_outlier, very_sharp, flux_ratio, red_photo, 2mass, allwise | mover | The suspects' failed vetting gates (suspects.json `reasons`, meanings there): the mover is grade C, most likely an artefact or a catalogued source |
+| not_vetted, hot_pixel, same_pixel, bad_column, edge, masked_peak, sharp_outlier, very_sharp, flux_ratio, red_photo, whole_pixel, wide, glow, cross_detector, unseen, fixed_source, bloom, halo, bright_star, gaia, catwise, 2mass, allwise | mover | The suspects' failed vetting gates (suspects.json `reasons`, meanings there): the mover is grade C, most likely an artefact or a catalogued source |
 | pm_fit | high_pm | Motion fitted over all its detections in every visit |
 | pm_pair | high_pm | Two sources each seen in one visit only, paired across visits (too fast to stay linked) |
 | vetted | high_pm | Passed every pipeline check |
@@ -908,6 +1035,8 @@ candidate they are those of its (first) source.
 | unchecked | high_pm | No Gaia or CatWISE motion to check it against, and under 10σ or saturated (pipeline row only: not exported) |
 | gaia_slow | high_pm | Gaia agrees, but predicts under 150 mas/yr: a known slow star (pipeline row only: not exported) |
 | implausible_pm | high_pm | Faster than 12″/yr between visits: no star moves that fast (Barnard's Star, the fastest known, does 10.4″/yr), so it is almost certainly two different sources. In practice every pair (3–120″ apart about half a year apart; hunt 32–269″/yr) and the fits above 12″/yr; none is `vetted`. Hunt: 82 of 997 (55 pairs, 27 fits); pilot: 15 of 167 (12 pairs, 3 fits) |
+| gaia_still | high_pm | v3.26. Gaia lists a source without a motion where this one is now, and our motion says it was elsewhere in 2016: probably a still star, not a mover (pipeline row only: never vetted, so not exported) |
+| allwise_still | high_pm | v3.26. The same with AllWISE (2010) (pipeline row only: never vetted, so not exported) |
 | no_gaia | spectral | No Gaia DR3 source here (from v3.10: none with G < 20 within 6″) |
 | gaia_nearby | spectral | Gaia has it, with a parallax of 20 mas or more: closer than 50 pc |
 | class_star, class_galaxy, class_unsure | spectral | classify's `class` (unsure: point-like without a Gaia star) |
@@ -915,7 +1044,8 @@ candidate they are those of its (first) source.
 | elongated | shape | Its image is more stretched than single Gaia stars of the same S/N in the same photo and region of the detector (always set) |
 | steady_pa | shape | The short-wavelength (D1–D3) and long-wavelength (D4–D6) detectors each show the stretch along the same axis on the sky (within 30°): two arrays with their own optics agree, which a PSF or detector effect would not (v3.10; before: two visits agreed) |
 | one_visit | shape | Only one visit shows the stretch; the others don't: something may have passed by, or that visit is noisier |
-| one_catalogue_source | shape | Gaia DR3 and CatWISE2020 list a single object within 15″ (always set): a second object would be new |
+| one_catalogue_source | shape | The catalogues list a single object within 15″: v3.26 Gaia DR3 (any G), CatWISE2020, 2MASS and AllWISE when IRSA answered (`catalogue_checked`), else the refcat's Gaia (G < 20), CatWISE2020 and 2MASS: a second object would be new |
+| catalogue_neighbour | shape | v3.26. AllWISE or Gaia (any brightness) lists a second object within 15″ (named in `why`): the stretch may be that neighbour. In place of `one_catalogue_source`; score × 0.3; still listed |
 | class_galaxy | shape | (also spectral) classify calls it a galaxy; galaxies are extended by nature. Not listed by the current rule; kept in the vocabulary |
 | blend | high_pm, spectral, shape | v3.11. Two or more Gaia DR3 stars (G < 18) within 8″ of its source (the pipeline's `fragments` step): the detection may be two stars merged by the 7.5″ PSF, so a shift, colour or stretch may come from the pair. A high_pm row with a blend on either side also counts as a Gaia star (`status` gaia) |
 
@@ -966,9 +1096,9 @@ the page leaves the section out or says it is pending.
 | zone | string | Pipeline zone searched (`hunt`) |
 | zone_box | object, deg, or null | The zone's box (pipeline config), as `measured.zone_box`; null when unknown |
 | run_created | string | Time the `orphans` step ran (its `created`), ISO 8601 UTC |
-| searched.distance_au | [float, float], AU | Distances the search is built for: 70–1000 |
-| searched.sep_arcsec | [float, float], arcsec | Separations between the two visits' sources that were paired: 300–7,200 (a retrograde orbit at 70 AU lands 6,900″ away) |
-| searched.rate_arcsec_h | [float, float], ″/h | Drift inside one visit accepted for an orphan: 0–1 (faster movers are the suspects' route) |
+| searched.distance_au | [float, float], AU | Distances the search is built for: the site file writes [70, 1000] (scripts/validate/distant.py, fixed); the step's pair window uses 40–1000 (v3.26: a disagreement, proposal: pass the step's `searched.pair_window.au`) |
+| searched.sep_arcsec | [float, float] or [null, null], arcsec | Separations between the two visits' sources that were paired. v3.26 (#383): the step's parallax window at the zone box's centre for every two visits ≥ 20 days apart (Earth's parallax between their times for 40–1000 AU ± a bound orbit's own motion ± 30″), [min, max] in whole arcsec; hunt about [350, 13,800]; [null, null] when no two visits qualify. Before: a fixed 300–7,200 |
+| searched.rate_arcsec_h | [float, float], ″/h | Drift inside one visit accepted for an orphan: [0, the zone's largest per-orphan limit]. v3.26 (#393): each orphan's limit (orphans.parquet `rate_max`, ″/h) is 2.5 or, where more, what a bound body at 40 AU can drift at that spot and time (~4.6 near the ecliptic poles); a drift passes when rate − 3σ ≤ it. Before: 0–1 (faster movers are the suspects' route) |
 | searched.pair_min_p | float | A pair passes when the χ² of its drifts and fluxes has p ≥ this (0.01) |
 | counts.single_visit_sources | int | Linked sources seen in one visit only |
 | counts.uncatalogued | int | Of those, with no Gaia DR3, CatWISE2020 or 2MASS entry within the cross-match radius |
@@ -976,7 +1106,7 @@ the page leaves the section out or says it is pending.
 | counts.orphans | int | Of those, kept after the drops below |
 | counts.dropped | {reason: int} | Covered sources dropped, per reason: `bright_fragment` (a source with S/N ≥ 100 within 15″, or (v3.11) tagged `bright_fragment` by the pipeline's `fragments` step: a piece of a bright star), `zone_edge` (within 3′ of the zone's edge), `saturated`, `blend` (v3.11, `fragments` step: two or more Gaia stars within 8″; older files lack it: read as 0). A source can have several reasons, so these may add up to more than `covered − orphans` |
 | counts.drift_ok | int | Orphans whose drift inside their visit was measured (≥ 3 dots over ≥ 6 h, rate error ≤ 0.1″/h) and fits `searched.rate_arcsec_h`: the ones paired |
-| counts.pairs_tested | int | Pairs of `drift_ok` orphans of two visits ≥ 60 days apart, `searched.sep_arcsec` apart, mostly along the ecliptic |
+| counts.pairs_tested | int | Pairs of `drift_ok` orphans of two visits. v3.26: ≥ 20 days apart, their separation inside the parallax window for their two times, forward along the 40 AU parallax direction and across it at most 0.4 × the separation; 0 when pairing is skipped (more than 5,000 `drift_ok`). Before: ≥ 60 days, 300–7,200″, mostly along the ecliptic. v3.26 (#393): the pair model's drift error per component adds 0.2 × the measured rate in quadrature (a visit-long line misses Earth's turning reflex) |
 | counts.pairs | int | Pairs that passed: one distance and a bound orbit explain both positions and both drifts, and the brightness agrees in a shared detector. Listed in `pairs` (at most 300) |
 | counts.known_orphans | int | Orphans matched to a known slow body (MPC orbits): a recovered distant object, not dropped |
 | counts.open_orphans | int | `drift_ok` orphans whose partner could lie outside the zone (part of their 70–1000 AU track leaves the zone): not fully searched; no cross-zone pass yet |
@@ -1014,6 +1144,112 @@ the page leaves the section out or says it is pending.
 The page shows what was searched, the result against chance (`counts.pairs` vs `control.expected_pairs` ±
 `spread_pairs`, `poisson_p`), the injection by distance and the limits. A passing pair at chance level is not a
 candidate: say so (`beyond_chance` false).
+
+### changes.json and changes.atom (v3.26)
+
+Known stars and sources whose brightness or colour changed between SPHEREx visits, and sources that appeared or
+vanished, for the Changes page (`#/changes`, web/src/changes/). The pipeline watches every star it measured; following
+is the reader's watch list in the browser plus this public Atom feed (no accounts). Written by `python -m
+skyshift_pipeline.changes_export` from every zone's `results/<zone>/changes.parquet` (contracts/dots.md, `changes`),
+largest zone box first; static only (no API). A missing file: the page says nothing is published yet.
+
+```
+{ generated, data_release, zones:[zone…],
+  watched:[{ zone, stars|null, visits:[int…], listed, false_alarms_per_1000|null, skipped|null }],
+  counts:{ brightness, colour, appeared, vanished }, gaia_variable, feed:"changes.atom",
+  changes:[{ id, kind:"brightness"|"colour"|"appeared"|"vanished", zone, zones, name,
+             gaia_id|null, ref_id|null, source_id|null, ra, dec, g_mag|null,
+             det, clock:"months", measured:"own"|"forced",
+             visits_before:[int…], visit_after, mjd_before, mjd_after, date_before, date_after,
+             rel_before|null, rel_after|null, change_frac|null, sigma|null,
+             other_detectors:[{ det, change_frac, sigma }],
+             colour_change|null, colour_sigma|null, snr|null, n_dots|null, n_sessions|null, detectors:[int…],
+             gaia_variable:true|false|null, gaia_class|null,
+             headline, text, look, checks:[{ code, level, text, look, values }], score }] }
+```
+
+| field | type | meaning |
+|---|---|---|
+| generated | string | ISO 8601 UTC |
+| data_release | string | The zones' photo-list collections, e.g. `"DR1+QR3"` (that when none are found) |
+| zones | [string] | Zones read, largest box first |
+| watched[] | object | Per zone: `stars` (stars measured in both the before and the after visits, every population; null when skipped), `visits`, `listed` (that zone's rows before the dedupe), `false_alarms_per_1000` (the same rules on two halves of one visit, per 1,000 stars; null when not run), `skipped` (`no lightcurves.parquet`, `one visit`, `no usable points`, or null) |
+| counts | {kind: int} | Entries per kind after the dedupe |
+| gaia_variable | int | Entries with `gaia_variable` true |
+| feed | string | `changes.atom`, next to this file |
+| changes[] | object | One per change, in display order: `gaia_variable` not true first, then `score` descending, then `id` |
+| id | string | `<zone>-ch-<ref>`: `gaia<N>`, else the catalogue name with characters outside `[A-Za-z0-9._+-]` removed (`catwiseJ081628.26+142456.2`, `2mass…`, `allwise…`), else `src<source_id>`. Unique in the file; stable while the zone and the match stay; the kind is not in it |
+| kind | string | `brightness`, `colour`, `appeared` (seen in the zone's last visit only), `vanished` (seen in another visit only) |
+| zone, zones | string, [string] | The zone it is listed from; every zone that measured it (same kind and star), `zone` first |
+| name | string | `Gaia DR3 <N>`, `CatWISE …`, `2MASS …`, `AllWISE …` or `SPHEREx source <N>` |
+| gaia_id | **number** or null | Gaia DR3 source_id. A JSON number above 2⁵³: JavaScript rounds it (11 of the 66 in the 16 Nov sample). **Proposal**: a string, as elsewhere in this contract (changes_export.py; web/src/changes model `starKey` uses it) |
+| ref_id, source_id | string / int or null | The catalogue ref (`gaia:<N>`, `catwise:J…`), our linked source |
+| ra, dec | float, deg | Its own SPHEREx source's position when it has one; else the catalogue's (Gaia at 2016.0; a CatWISE position from its designation, to the designation's precision) |
+| g_mag | float or null | Gaia G (null for appeared and vanished) |
+| det | int 1–6 | The detector to open: brightness and colour, the one with the largest \|brightness σ\|; appeared and vanished, the lowest detector seen (2 when none) |
+| clock | string | `months` |
+| measured | string | `own`: the star has its own SPHEREx source; `forced`: forced photometry at the catalogue place only. Not which light curve the numbers come from (changes.parquet `origin`) |
+| visits_before, visit_after | [int], int | Brightness and colour: every earlier visit, and the zone's last visit. Appeared and vanished: [the earlier] and the later of the visit seen and the other visit |
+| mjd_before, mjd_after | float, MJD | Brightness and colour: the middle of that light curve's first and last point in the latest earlier visit and in the after visit (so rows of one visit differ). Appeared and vanished: the mean times of its dots and of the other visit's covering photos |
+| date_before, date_after | string | Those times as YYYY-MM-DD, UTC |
+| rel_before, rel_after | float or null | Brightness in `det` as a fraction of its usual, zero point applied (earlier visits combined); brightness and colour rows |
+| change_frac | float or null | rel_after ÷ rel_before − 1 |
+| sigma | float or null | The change in σ, signed (− fainter) |
+| other_detectors | [object] | Every other detector with \|σ\| ≥ 2, either sign, by det: `{det, change_frac, sigma}`; [] for appeared and vanished |
+| colour_change, colour_sigma | float or null | The after ÷ before ratio's change from D1 to D6 (fraction) and its σ (+ redder); colour rows and brightness rows whose colour changed too |
+| snr, n_dots | float, int or null | Appeared and vanished: the source's highest S/N and its dots |
+| n_sessions | int or null | Appeared and vanished: its sessions; brightness and colour: the after visit's sessions in that light curve |
+| detectors | [int] | Appeared and vanished: the detectors that saw it; others: `det` then `other_detectors`' |
+| gaia_variable | bool or null | true: Gaia DR3 flags it VARIABLE or classifies it; false: not, or it has no Gaia id (appeared and vanished: false); null: a Gaia star whose variability could not be asked |
+| gaia_class | string or null | Gaia DR3 `best_class_name` |
+| headline | string | A few words: "27% fainter in D5 (3.8–4.4 µm)", "faded below detection in D…", "became redder: +N% from D1 to D6", "appeared in visit N", "gone in visit N" |
+| text, look | string | One plain sentence with the numbers; what to blink |
+| checks | [object] | As candidates.json's (`code`, `level`, `text`, `look` ("" none), `values` or null), sorted strong, warn, ok. Its own vocabulary (below): `bright_neighbour`, `blend` and `saturated` here are not candidates.json's checks of those names |
+| score | float 0–1 | Brightness 1 − e^(−\|σ\|/10); colour 0.8 × (1 − e^(−\|colour σ\|/10)); appeared and vanished 1 − e^(−snr/40); then × 0.3 per strong check, × 0.95 per warn; 3 decimals |
+
+Listed: brightness, \|σ\| ≥ 5 and ≥ 5% with another detector the same way at ≥ 2σ, still ≥ 5σ without each visit's
+most deviant session, no Gaia star 2.5 mag brighter within 20″; colour, ≥ 4 detectors and \|colour σ\| ≥ 5 with a
+change of ≥ 10% from D1 to D6 (not already a brightness row); appeared and vanished, an orphan (contracts/dots.md) with
+no catalogue entry or known body, not moving, S/N ≥ 20, ≥ 8 dots in ≥ 3 sessions and ≥ 2 detectors, its spot covered by
+≥ 6 photos of the other visit. The before visit is visit 1 with two visits, else every earlier visit together. A star
+listed by two zones keeps the first zone's entry (same kind; `zones` names both).
+
+| code | level | rule | values |
+|---|---|---|---|
+| one_session | strong | The change does not survive dropping one session (such rows are not listed today) | null |
+| detectors_disagree | warn | Other detectors change the opposite way at \|σ\| ≥ 2 | `disagreeing_detectors` |
+| origin_disagrees | warn | The same detector's other light curve (dots vs forced) changes the opposite way at \|σ\| ≥ 2 | `other_sigma` |
+| bright_neighbour | warn | A Gaia star brighter than it within 20″ (the one with the most negative G difference; no G counts as 18) | `sep_arcsec` (that star's, not the nearest's), `dmag` (its G − ours, negative) |
+| neighbours_unchecked | warn | Neighbours could not be checked (outside the refcat and ESA's archive did not answer) | null |
+| blend | warn | Own source: crossids' Gaia entries ≥ 2 within its radius, or the `fragments` step's `blend` | null |
+| saturated | warn | Own source: saturated, or `fragments`' `saturated_star` | null |
+| gaia_near | warn | Appeared or vanished: a Gaia star within 6″ (catalogue position) | `sep_arcsec` (nearest), `g_mag` |
+| ghost_possible | warn | Appeared or vanished: a Gaia G < 11 star within 360″ (a ghost?) | `sep_arcsec` (the brightest such star's), `g_mag` |
+| other_detectors_agree | ok | Other detectors change the same way at \|σ\| ≥ 2 (every listed brightness row) | `agreeing_detectors` |
+| colour_changed | ok | A brightness row whose colour changed too | `visit_a` (int, or a list of earlier visits), `visit_b`, `d1_d6_change`, `sigma` (the colour's), `detectors` (a count) |
+| known_variable | ok | Gaia flags it variable or classifies it | `gaia_class` |
+
+Brightness rows get the brightness checks, `bright_neighbour`, `neighbours_unchecked`, `blend`, `saturated`,
+`known_variable` and `colour_changed`; colour rows the shared five; appeared and vanished `gaia_near` and
+`ghost_possible` only. Key clashes (v3.26, **proposal** for changes.py): `sep_arcsec` in `bright_neighbour` and
+`ghost_possible` is not the nearest star's; in `colour_changed` `sigma` is the colour's σ (the row's `sigma` is the
+brightness one) and `detectors` a count (the row's is a list); `visit_a`/`visit_b` repeat `visits_before`/`visit_after`
+under other names. Fix: `neighbour_sep_arcsec`, `colour_sigma`, `n_detectors`, drop `visit_a`/`visit_b`.
+Known code issue (**proposal**, changes.py / orphans.py): orphans' `other_visit` is the covering visit seen most, which
+can be earlier than the visit seen, so a source seen only in a middle visit becomes `vanished` "gone in visit N" with N
+the visit it was seen in; the split ignores the direction (not in the 16 Nov sample).
+
+**changes.atom** (Atom 1.0, the same run, next to changes.json). Feed: `title` "SkyShift: what changed in known stars",
+a `subtitle`, `id` `<site>/data/changes.atom`, `link rel="self"` (that URL), `link rel="alternate"` `<site>/#/changes`,
+`updated` = `generated`, `author` SkyShift, `generator` `skyshift_pipeline.changes_export` (`<site>`:
+`https://skyshift.web.app` unless `--site`). One `entry` per change, every one (no cap), newest `mjd_after` first:
+- `id`: `tag:skyshift.web.app,2026-11-16:changes/<change id>` (fixed, whatever `--site`);
+- `title`: "<name>: <headline>"; `updated`: `mjd_after` as ISO 8601 UTC (else `generated`); no `published`;
+- `link rel="alternate"` `<site>/#/changes/<id>`; `link rel="related"` the Viewer,
+  `<site>/?ra=<ra>&dec=<dec>&clock=months&fov=5&det=<det>#/explore`;
+- `category term` = the kind, plus `gaia-variable` when `gaia_variable` is true;
+- `summary` (text): text, "Gaia already lists it as variable." when it does, "Look: " look;
+- `content` (html): the same, the checks' levels, texts and looks, and the Viewer link (codes and values are not shown).
 
 ## Science workspace (v3.8, supplemental)
 
@@ -1081,11 +1317,14 @@ reads these to match each signal against Gaia, CatWISE and MPC orbits at its own
   `CatWISE2020 <name>` for a slow mover that is that star's own catalogued motion.
 - `checks`: as candidates.json's (`code`, `level`, `text`, `look`, `values`; sorted `strong`, `warn`, `ok`). Rules
   (vetting.ts, ported line by line): `known_body` `strong`, `check_status` known: a known body within 10″ at every
-  sighting, rate within 20% and direction within 15° when both move (`sep_arcsec` the farthest, `sightings`,
-  `rate_arcsec_h`, `pa_deg` the body's); `known_star` `strong`, known: a slow mover on the same Gaia or CatWISE star
-  at every visit, moving the same way (`sep_arcsec`, `rate_arcsec_yr`, `pa_deg` the star's); `known_nearby` `warn`: a
+  sighting, rate within 20% and direction within 15° when both move (v3.26, #382: `sep_arcsec` the nearest,
+  `max_sep_arcsec` the farthest, `sightings`, `body_rate_arcsec_h`, `body_pa_deg` the body's, and ours when the signal
+  moves: `rate_arcsec_h` (a slow mover: `rate_arcsec_yr`) and `pa_deg`); `known_star` `strong`, known: a slow mover on
+  the same Gaia or CatWISE star at every visit, moving the same way (`sep_arcsec` the nearest, `max_sep_arcsec` the
+  farthest, `star_rate_arcsec_yr`, `star_pa_deg` the star's, `rate_arcsec_yr`, `pa_deg` ours); `known_nearby` `warn`: a
   known body within 30″ at a sighting, not certain, at most two (`sep_arcsec` the nearest, `sightings` within 30″,
-  `rate_arcsec_h`, `pa_deg`); `catalogue_star` `warn`: a Gaia DR3 or CatWISE2020 source within 6″ (`sep_arcsec`,
+  `body_rate_arcsec_h`, `body_pa_deg` the body's, ours as `known_body`); files written by #375 before v3.26: the old
+  meanings (Values keys); `catalogue_star` `warn`: a Gaia DR3 or CatWISE2020 source within 6″ (`sep_arcsec`,
   `sightings`, `sources`, `catalogue` `gaia` or `catwise`); `catalogue_empty` `warn`: that catalogue lists nothing in
   the field; `catalogue_unchecked` `warn`: a service did not answer, the times did not load, or the known-object index
   misses some sightings (`sightings`); `catalogues_checked` `ok`: nothing near it in those it names.
