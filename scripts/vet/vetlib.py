@@ -436,7 +436,7 @@ def context_lines(ra, dec, mjd, session, ctx) -> list[str]:
         L.append(f"Engine grade: {ctx['grade']}. Engine notes: {ctx.get('why', '')}")
     ref = ctx.get("refcat")
     if ref is not None:
-        g = ref[ref.cat == "gaia"]
+        g = ref[ref["cat"] == "gaia"]
         gra, gdec = move_to_epoch(g, mjd)
         sep = angsep(ra, dec, np.asarray(gra), np.asarray(gdec)) * 3600
         k = [i for i in np.argsort(sep)[:5] if sep[i] <= 30]

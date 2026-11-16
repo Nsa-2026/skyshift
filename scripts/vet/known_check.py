@@ -3,7 +3,8 @@
 Run from pipeline/:  uv run python ../scripts/vet/known_check.py <zone> [<zone> ...] --out DIR
 
 The list: one row per known body (MPC asteroids and comets, JPL Horizons planets and moons) and session in which
-at least one photo held its predicted position. For each row:
+at least one photo held its predicted position, inside the zone box (the engine keeps detections inside the box only;
+round 1 showed that counting whole photos calls bodies outside the box "missed"). For each row:
   expected   exposures holding it, how far inside the photo, predicted V, rate and direction, distance to our nearest
              fixed source (the engine drops detections within 6" of one)
   seen       a mover of ours in that session within 5" of the prediction (movers.parquet, before the cuts)
@@ -24,7 +25,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import vetlib as V  # noqa: E402
+from skyshift_pipeline import config as C  # noqa: E402
 from skyshift_pipeline.sky import SkyTree, angsep, offset_radec  # noqa: E402
+
+ZONE_MARGIN_ARCSEC = 60.0  # a body must be this far inside the zone box to count (the engine clips detections at the box)
 
 
 def build(zone: str) -> pd.DataFrame:
@@ -37,6 +41,13 @@ def build(zone: str) -> pd.DataFrame:
               vx=("dra_arcsec_h", "mean"), vy=("ddec_arcsec_h", "mean"), n_photos=("obs_id", "size"),
               n_exposures=("exp", "nunique"), n_detectors=("detector", "nunique"), edge_px=("edge_px", "min"),
               detectors=("detector", lambda s: "".join(str(d) for d in sorted(set(s))))).reset_index()
+    # only bodies inside the zone box: photos reach beyond it, but the engine keeps detections inside the box only
+    z = C.ZONES[zone]
+    m = ZONE_MARGIN_ARCSEC / 3600.0
+    dra = ((k.ra - z.ra_min) % 360.0, (z.ra_max - k.ra) % 360.0)
+    cosd = np.cos(np.radians(k.dec))
+    inside = (dra[0] * cosd > m) & (dra[1] * cosd > m) & (dra[0] < 180) & (dra[1] < 180) & (k.dec > z.dec_min + m) & (k.dec < z.dec_max - m)
+    k = k[inside].reset_index(drop=True)
     k["rate"] = np.hypot(k.vx, k.vy)
     k["pa"] = np.degrees(np.arctan2(k.vx, k.vy)) % 360.0
     k["fixed_sep"] = SkyTree(fx.ra.to_numpy(float), fx.dec.to_numpy(float)).nearest(k.ra.to_numpy(float), k.dec.to_numpy(float))[0]

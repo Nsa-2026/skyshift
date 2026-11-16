@@ -265,6 +265,10 @@ def cmd_catalog(a):
     near = ref[(np.abs(ref.dec - a.dec) < (a.radius + 60) / 3600.0)]
     sep0 = angsep(a.ra, a.dec, near.ra.to_numpy(float), near.dec.to_numpy(float)) * 3600
     near = near[sep0 < a.radius + 40].copy()
+    have = sorted(ref["cat"].unique())
+    lack = [c for c in ("gaia", "2mass", "catwise") if c not in have]
+    print(f"Catalogues in this zone's local reference file: {', '.join(have)}." +
+          (f" NOT available here: {', '.join(lack)} (no row from them below means NOT CHECKED, not absent; record it under could_not_check)." if lack else ""))
     print(f"Catalogue sources within {a.radius:.0f}\" of RA {a.ra:.6f} Dec {a.dec:+.6f}" + (f", positions also moved to MJD {mjd:.1f}" if mjd else "") + ":")
     print(" cat      sep\"  offset E\",N\" at catalogue epoch   epoch    pm RA,Dec mas/yr   parallax mas   sep\" at MJD   mags")
     rows = []
@@ -282,7 +286,7 @@ def cmd_catalog(a):
                          if k in r.index and pd.notna(r[k]))
         pm = f"{r.pmra:+8.1f},{r.pmdec:+8.1f}" if pd.notna(r.pmra) else "       -,       -"
         plx = f"{r.parallax:6.2f}" if "parallax" in r.index and pd.notna(r.parallax) else "     -"
-        rows.append((sep, f" {r.cat:7s} {sep:5.1f}  {float(e):+7.1f},{float(n):+7.1f}                  {yr:7.1f}  {pm}     {plx}        "
+        rows.append((sep, f" {r['cat']:7s} {sep:5.1f}  {float(e):+7.1f},{float(n):+7.1f}                  {yr:7.1f}  {pm}     {plx}        "
                           f"{'' if sep_m is None else format(sep_m, '5.1f'):>5s}        {mags}"))
     for _, line in sorted(rows):
         print(line)
@@ -300,7 +304,7 @@ def cmd_catalog(a):
             print(f"  {sep[i]:5.1f}\"  E{float(e):+6.1f}\" N{float(n):+6.1f}\"  S/N {fx.snr.iloc[i]:.0f}  flux {fx.flux_ujy.iloc[i]:.0f} µJy  sessions {int(fx.n_sessions.iloc[i])}  id {int(fx.source_id.iloc[i])}")
         if not k:
             print("  (none)")
-    g = ref[(ref.cat == "gaia") & (ref.g_mag < 11)]
+    g = ref[(ref["cat"] == "gaia") & (ref.g_mag < 11)]
     sep = angsep(a.ra, a.dec, g.ra.to_numpy(float), g.dec.to_numpy(float)) * 3600
     k = [i for i in np.argsort(sep)[:6] if sep[i] <= 600]
     print("Bright stars within 10' (Gaia G < 11; halos, spikes, ghosts and persistence come from these): " +
