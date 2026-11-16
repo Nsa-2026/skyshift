@@ -30,6 +30,15 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
    in the stats (vetoed_<rule>).
 5. nonfixed_dots.parquet: every dot in no fixed group with elong <= MOVER_MAX_ELONG (near_fixed: within
    FIXED_VETO_ARCSEC of one), where `tracklets` looks for a track's missed sightings.
+6. Session stacks (config SESSION_STACK, env SKYSHIFT_SESSION_STACK=1, and the `sessionstack` step's files; off: nothing
+   here changes): coadd.load_stack_rows gives one row per stacked source of a session (the session-mean mjd, n_exp)
+   that has no real dot of its session and detector within SESSION_STACK_DEDUP_ARCSEC (no glitches, nothing near a
+   saturated pixel). They join step 1's friends-of-friends as one dot per session, so a source too faint for one photo
+   becomes a fixed source after >= FIXED_MIN_SESSIONS sessions (and a slow body a single-visit source for orphans).
+   They never pair inside a session (no exposure) and are not in members.parquet (no dot file row):
+   stack_members.parquet lists them (source_id, key, stack_row, session, detector, mjd, ra, dec, flux_ujy, snr, n_exp,
+   pos_err_arcsec). A stacked source that moves inside its session (coadd.moving_rows) and is in no fixed group gives
+   its per-photo positions as dots (dot_row −1): steps 2–4 and the shuffled control treat them as any dot.
 Sessions are the zone's time runs (photolist); visit labels only choose the reference sessions of the release.
 """
 
@@ -1099,6 +1108,37 @@ def load_refcat(store: Store, zone: C.Zone) -> pd.DataFrame | None:
         return None
 
 
+STACK_MEMBER_COLUMNS = ["source_id", "key", "stack_row", "session", "visit", "detector", "mjd", "ra", "dec", "flux_ujy",
+                        "snr", "n_exp", "pos_err_arcsec"]
+STACK_MEMBERS_NAME = "stack_members.parquet"
+
+
+def with_stack_rows(store: Store, photos: pd.DataFrame, zone: C.Zone, dots: pd.DataFrame) -> tuple[dict | None, dict]:
+    """Session-stack rows for this photo list (module doc, 6) or None (SESSION_STACK off, no stacks, or an error:
+    link then runs on the dots alone). Returns ({"rows", "pseudo"}, stats)."""
+    if not C.SESSION_STACK:
+        return None, {}
+    from . import coadd
+    try:
+        rows, pseudo, st = coadd.load_stack_rows(store, photos, zone, dots)
+    except Exception as e:  # noqa: BLE001  link never fails over the stacks
+        L.exception("link %s: session-stack rows not loaded", zone.name)
+        return None, {"error": repr(e)[:300]}
+    if not len(rows):
+        return None, st
+    return {"rows": rows, "pseudo": pseudo}, st
+
+
+def stack_members_table(rows: pd.DataFrame, sid: np.ndarray) -> pd.DataFrame:
+    """stack_members.parquet: the stack rows of fixed groups (sid >= 0), sorted by source_id, key, stack_row."""
+    m = sid >= 0
+    out = rows.loc[m, [c for c in STACK_MEMBER_COLUMNS if c != "source_id"]].copy()
+    out.insert(0, "source_id", sid[m].astype(np.int64))
+    out = out.astype({"key": str, "stack_row": np.int32, "session": np.int32, "visit": np.int16, "detector": np.int8,
+                      "n_exp": np.int8, "flux_ujy": np.float32, "snr": np.float32, "pos_err_arcsec": np.float32})
+    return out.sort_values(["source_id", "key", "stack_row"]).reset_index(drop=True)[STACK_MEMBER_COLUMNS]
+
+
 def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None) -> dict:
     """keep: a dict that receives the zone's dots and their per-dot source_id (-1 = no fixed group); tiles.py
     checks with them that its border was wide enough."""
@@ -1110,15 +1150,52 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     if missing:
         L.warning("link %s: %d photos are missing dot files; run `dots` first for a complete result", zone.name, missing)
     t1 = time.time()
+    stk, sst = with_stack_rows(store, photos, zone, dots)
     rst: dict = {}
-    fixed_result = fixed_groups(dots, load_refcat(store, zone), rst)
+    n_dots = len(dots)
+    if stk is None:
+        fixed_result = fixed_groups(dots, load_refcat(store, zone), rst)
+        dots_cls, sid_cls = dots, fixed_result[1]
+    else:  # stack rows join the friends-of-friends; classify sees the real dots + moving stack sources' photo positions
+        cols = list(dots.columns)
+        rows = stk["rows"]
+        both = pd.concat([dots, rows[[c for c in cols if c in rows]]], ignore_index=True)
+        fx, sid_all = fixed_groups(both, load_refcat(store, zone), rst)
+        fixed_result = (fx, sid_all[:n_dots])
+        stack_sid = sid_all[n_dots:]
+        ps = stk["pseudo"]
+        if ps is not None and len(ps):
+            free_rows = set(zip(rows["key"].to_numpy()[stack_sid < 0], rows["stack_row"].to_numpy()[stack_sid < 0]))
+            use = np.array([(k, r) in free_rows for k, r in zip(ps["key"], ps["stack_row"])], bool)
+            sst["stack_moving_in_fixed"] = int(len({(k, r) for k, r in zip(ps["key"], ps["stack_row"])} - free_rows))
+            ps = ps[use]
+        else:
+            sst["stack_moving_in_fixed"] = 0
+        sst["stack_pseudo_dots_used"] = 0 if ps is None else int(len(ps))
+        if ps is not None and len(ps):
+            dots_cls = pd.concat([dots, ps[[c for c in cols if c in ps]]], ignore_index=True)
+            sid_cls = np.r_[fixed_result[1], np.full(len(ps), -1, np.int64)]
+        else:
+            dots_cls, sid_cls = dots, fixed_result[1]
+        smem = stack_members_table(rows, stack_sid)
+        own = set(fixed_result[1][fixed_result[1] >= 0].tolist())
+        sst.update({"stack_rows_in_fixed": int(len(smem)),
+                    "fixed_with_stack_rows": int(smem["source_id"].nunique()),
+                    "fixed_stack_only": int(len(set(smem["source_id"].tolist()) - own))})
     free_out: dict = {}
-    fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result,
-                                    free_out=free_out, zone=zone)
+    fixed, movers, stats = classify(dots_cls, photos, exposure_names=sorted(photos["obs_id"].unique()),
+                                    fixed_result=(fixed_result[0], sid_cls), free_out=free_out, zone=zone)
     stats.update(rst)
+    if stk is not None or sst:
+        if stk is not None and len(movers) and "dot_row" in movers:
+            sst["movers_with_stack_dots"] = int(sum(bool(np.any(np.asarray(r) < 0)) for r in movers["dot_row"]))
+        stats["session_stack"] = sst
     try:  # the chance level of the movers; never worth failing link for
-        cm, _ = control_movers(free_out.get("free", dots.iloc[:0]), dots, photos, None, None, zone)
+        cm, _ = control_movers(free_out.get("free", dots_cls.iloc[:0]), dots_cls, photos, None, None, zone)
         stats["control"] = control_counts(cm)
+        if stk is not None:  # control movers that use a session-stack pseudo-dot (dot_row -1)
+            stats["control"]["with_stack_dots"] = (int(sum(bool(np.any(np.asarray(r) < 0)) for r in cm["dot_row"]))
+                                                   if len(cm) and "dot_row" in cm else 0)
     except Exception as e:  # noqa: BLE001
         L.exception("link %s: shuffled-exposure control failed", zone.name)
         stats["control"] = {"error": repr(e)[:300]}
@@ -1142,5 +1219,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     store.write_parquet(results_rel(zone.name, FREEDOTS_NAME), freedots)
     if free is not None:
         store.write_parquet(results_rel(zone.name, NONFIXED_DOTS_NAME), free)
+    if stk is not None:
+        store.write_parquet(results_rel(zone.name, STACK_MEMBERS_NAME), smem)
     # the folder members.dot_row points into: later steps, candidates and the server read the dots from it
     return {**stats, "photos_missing_dots": int(missing), "dots_dir": dots_dir(), "wall_s": round(time.time() - t0, 1)}

@@ -201,3 +201,96 @@ def test_chi2_significance_is_finite_and_monotone_far_out():
     assert np.all(np.isfinite(z)) and np.all(np.diff(z) > 0)
     assert z[0] == pytest.approx(CO.z_of_p(CO.positive_chi2_sf(x[:1], 2))[0], abs=1e-6)
     assert z[-1] == pytest.approx(1000.0, rel=0.01)  # ~√x far out
+
+
+# --- the session-stack step ------------------------------------------------------------------------------------------
+
+STEP_MIN = 2.1 / 1440.0  # days between a session's exposures
+
+
+def session_cuts(rng, stars_at, n=4, noise=1.0):
+    """n exposures of one session, the pointing stepped ~2.7 px in y and 0.3 px in x (sub-pixel phases differ);
+    stars_at(k) -> [(ra, dec, flux)] for exposure k."""
+    return [photo(rng, 0.31 * k, 2.73 * k, stars_at(k), noise=noise, mjd=61000.0 + k * STEP_MIN) for k in range(n)]
+
+
+def task_of(cuts, session=7, visit=1):
+    ids = [c.meta["obs_id"] for c in cuts]
+    return {"key": CO.session_key(ids, 1), "session": session, "visit": visit, "detector": 1, "obs_ids": ids,
+            "urls": ids, "mjd": [c.meta["mjd"] for c in cuts]}
+
+
+def nearest_row(src, ra, dec):
+    d = np.hypot((src["ra"].to_numpy() - ra) * math.cos(math.radians(dec)), src["dec"].to_numpy() - dec) * 3600.0
+    i = int(np.argmin(d))
+    return src.iloc[i], float(d[i])
+
+
+def test_session_stack_finds_a_star_too_faint_for_one_photo_and_measures_it_in_each():
+    rng = np.random.default_rng(21)
+    faint, bright = at(-40.0, 30.0), at(50.0, -60.0)
+    # S/N ≈ 0.51 × flux for this ePSF and unit noise: 8 → ~4 in one photo, ~8 in four
+    cuts = session_cuts(rng, lambda k: [(*faint, 8.0), (*bright, 200.0)])
+    src, ph, meta, mp = CO.stack_session(cuts, task_of(cuts), maps=True)
+    row, d = nearest_row(src, *faint)
+    assert d < 3.0 and row["snr_mf"] > 6.0 and row["n_exp"] == 4 and not row["glitch"]
+    dpf = np.hypot((row["ra_psf"] - faint[0]) * math.cos(math.radians(DEC0)), row["dec_psf"] - faint[1]) * 3600.0
+    assert dpf < 2.0  # S/N ~4 per photo: the fits' mean is ~1″ good
+    assert row["mjd"] == pytest.approx(61000.0 + 1.5 * STEP_MIN, abs=1e-6)
+    b, db = nearest_row(src, *bright)
+    assert db < 1.0 and b["snr"] > 60 and b["n_pos"] == 4  # forced S/N: PSF_MODEL_FRAC caps bright stars
+    assert b["flux_ujy"] == pytest.approx(200.0 * 889.0, rel=0.05)
+    # the photos' ePSF fits put the bright star within 0.3″ (the map peak is a parabola on native pixels)
+    dp = np.hypot((b["ra_psf"] - bright[0]) * math.cos(math.radians(DEC0)), b["dec_psf"] - bright[1]) * 3600.0
+    assert dp < 0.3 and 0 < b["pos_err_arcsec"] < 0.3
+    assert set(ph["stack_row"]) == set(src["stack_row"]) and (ph.groupby("stack_row").size() <= 4).all()
+    assert meta["sigma_norm"] == pytest.approx(1.0, abs=0.2) and meta["n_sources"] == len(src)
+    assert mp["flux"].dtype == np.float16 and mp["err"].dtype == np.float16 and mp["ncov"].max() == 4
+    assert list(src.columns) == list(CO.SOURCE_COLUMNS) and list(ph.columns) == list(CO.PHOTO_COLUMNS)
+
+
+def test_a_one_photo_glitch_is_flagged_not_hidden():
+    rng = np.random.default_rng(22)
+    hit = at(10.0, -20.0)
+    cuts = session_cuts(rng, lambda k: [(*hit, 40.0)] if k == 2 else [])
+    src, ph, _, _ = CO.stack_session(cuts, task_of(cuts))
+    row, d = nearest_row(src, *hit)
+    assert d < 3.0 and row["glitch"] and row["glitch_share"] > 0.8 and row["snr_rest"] < 2.0
+
+
+def test_a_moving_source_keeps_its_motion_and_gives_link_its_photo_positions():
+    rng = np.random.default_rng(23)
+    rate = 150.0  # ″/h east: 15.8″ over the session, about 2.6 px
+    step = rate * 2.1 / 60.0
+    cuts = session_cuts(rng, lambda k: [(*at(-30.0 + step * k, 10.0), 80.0)])
+    src, ph, _, _ = CO.stack_session(cuts, task_of(cuts))
+    row, d = nearest_row(src, *at(-30.0 + 1.5 * step, 10.0))
+    assert d < 3.0 and row["n_pos"] >= 3
+    assert row["rate_arcsec_h"] == pytest.approx(rate, rel=0.15) and row["motion_snr"] > 5
+    assert abs(((row["pa_deg"] - 90.0) + 180) % 360 - 180) < 10
+    mv = CO.moving_rows(src, ph)
+    assert set(mv["stack_row"]) == {int(row["stack_row"])} and len(mv) >= 3
+    ra_k = np.array([at(-30.0 + step * k, 10.0)[0] for k in range(4)])
+    got = mv.sort_values("mjd")
+    k = np.rint((got["mjd"].to_numpy() - 61000.0) / STEP_MIN).astype(int)
+    assert np.abs((got["ra"].to_numpy() - ra_k[k]) * 3600 * math.cos(math.radians(DEC0))).max() < 1.0
+
+
+def test_session_stack_is_off_by_default_and_tasks_need_two_photos():
+    import os
+    assert C.SESSION_STACK is (os.environ.get("SKYSHIFT_SESSION_STACK", "0") == "1")
+    p = pd.DataFrame({"obs_id": ["a", "b", "c", "a", "d"], "detector": [1, 1, 1, 2, 1], "session": [1, 1, 1, 1, 2],
+                      "visit": 1, "mjd": [1.0, 1.0015, 1.003, 1.0, 9.0], "url": ["ua", "ub", "uc", "ua2", "ud"]})
+    tasks = CO.session_tasks(p)
+    assert [(t["session"], t["detector"], t["obs_ids"]) for t in tasks] == [(1, 1, ["a", "b", "c"])]
+    assert tasks[0]["key"] == CO.session_key(["c", "b", "a"], 1) and tasks[0]["key"].endswith("D1")
+    assert CO.session_key(["a", "b"], 1) != CO.session_key(["a", "b", "c"], 1)
+
+
+def test_stack_keys_take_each_photo_once_the_largest_stack_first():
+    idx = pd.DataFrame({"key": ["k3", "k3", "k3", "k2", "k2", "kx"], "session": 1, "visit": 1, "detector": [1, 1, 1, 1, 1, 2],
+                        "obs_id": ["a", "b", "c", "b", "c", "a"], "n_exp_session": [3, 3, 3, 2, 2, 2]})
+    photos = pd.DataFrame({"obs_id": ["a", "b", "c"], "detector": [1, 1, 1]})
+    assert CO.stack_keys(idx, photos) == ["k3"]
+    assert CO.stack_keys(idx, photos.iloc[1:]) == ["k3"]  # a tile holding 2 of the session's photos
+    assert CO.stack_keys(idx.iloc[:0], photos) == []

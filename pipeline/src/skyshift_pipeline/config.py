@@ -1153,6 +1153,42 @@ FRAGMENTS_BLEND_MIN_GAIA = 2
 FRAGMENTS_PARENT_G = 12.0          # a bright_fragment's parent: the brightest Gaia star brighter than this (nearer on a tie) ...
 FRAGMENTS_PARENT_ARCSEC = 60.0     # ... this close (hunt: 2,226 of 2,234 have one; the ring sits ~10″ out at G 8–11, ~30″ at G < 6)
 
+# --- session stacks (coadd.py, step `sessionstack`, 16 Nov evening; docs/session-stacks.md) -------------------------
+# A session's 1–5 exposures (2.1 min apart) of one detector added on one grid and searched with the ePSF-matched
+# filter, every stacked source then measured in each photo. Off until the combined rerun: env SKYSHIFT_SESSION_STACK=1
+# turns on the step in `all` (after dots) and link's use of its rows; off, no step reads or writes its files.
+SESSION_STACK = os.environ.get("SKYSHIFT_SESSION_STACK", "0") == "1"
+SESSION_STACK_DIR = "session_stacks"        # <key>.parquet (sources) and <key>_photos.parquet (per-photo measurements)
+SESSION_STACK_MAP_DIR = "session_stacks_maps"  # <key>.npz: matched-filter flux and err maps (float16) + coverage (int8), for shift-and-stack later
+SESSION_STACK_MAP_ZONES = ("hunt",)          # zones whose session maps are written (~20 MB per session and detector)
+SESSION_STACK_MIN_EXP = 2                   # sessions with fewer photos in a detector are not stacked (the dots are it)
+SESSION_STACK_MIN_COVER = 2                 # grid pixels seen by fewer photos are not searched
+SESSION_STACK_TILE_PX = 64                  # grid tiles in which a photo is a pure shift (integer step + kernel phase) ...
+SESSION_STACK_TILE_MIN_PX = 8               # ... split down to this size ...
+SESSION_STACK_TILE_MAX_DEV_PX = 0.1         # ... until the shift varies by less than this over the tile (hunt: 64 px
+                                            # tiles 0.05 px within one pointing; 32 px 0.14 px across pointings)
+SESSION_STACK_MAX_EXTEND_PX = 1500          # the grid reaches at most this far beyond the reference photo
+SESSION_STACK_GLOW = True                   # bright stars' glow out of each photo first (core.glow, as v2 and stack)
+SESSION_STACK_HOLES = True                  # mask dark holes (MWIR: 70–330 per photo deeper than −20σ, unflagged) ...
+SESSION_STACK_HOLE_SIGMA = 10.0             # ... pixels below −this × noise ...
+SESSION_STACK_HOLE_MIN_PX = 3               # ... in clumps of at least this many (8-connected) ...
+SESSION_STACK_HOLE_GROW_PX = 2              # ... grown by this many pixels
+SESSION_STACK_SNR = MF_PASS_SNR             # detection threshold at least this (the v2 matched-filter pass's) ...
+SESSION_STACK_FA_PER_DEG2 = 10.0            # ... raised where the negative map has more peaks than this per deg² above it
+SESSION_STACK_SNR_MAX = 8.0                 # ... but never above this
+SESSION_STACK_EDGE_PX = 4                   # peaks this close to the grid's edge are skipped
+SESSION_STACK_POS_MIN_SNR = 3.0             # per-photo ePSF position fit where that photo's forced S/N reaches this
+SESSION_STACK_GLITCH_REST_SNR = 2.0         # S/N without the strongest photo below this: a one-photo glitch (`glitch`)
+SESSION_STACK_MOVE_FLOOR_ARCSEC = 0.13      # per-photo position error floor in the motion fit (PSF_POS_ERR_FLOOR_ARCSEC)
+SESSION_STACK_WORKERS_MAX = 4               # processes at most (a session holds its photos: ~0.4 GB per worker)
+# link's use of the rows (SESSION_STACK on and the files there; link.load_stack_rows)
+SESSION_STACK_DEDUP_ARCSEC = 3.0            # a stacked source this close to a real dot of its session and detector adds
+                                            # nothing (the dot is there): only the others join link, as one dot per session
+SESSION_STACK_MOVER_SIGMA = 5.0             # a stacked source moving at >= this many σ inside its session (and not in a
+                                            # fixed group) gives link its per-photo positions as dots: pairing, coverage,
+                                            # vetting and the shuffled control then treat them as any dot
+SESSION_STACK_MOVER_MIN_RATE = 1.0          # ″/h: and at least this fast (slower is noise at 6.4 min)
+
 # --- orphans: the distant-planet route (orphans.py) ---------------------------------------------------------------
 # A planet at 70–1000 AU drifts 0.5–0.03″/h inside a visit (Earth's reflex), so link's 4″ FoF chains it into a fixed
 # source seen in ONE visit; six months later it sits 4,800–390″ away along ecliptic longitude (Earth's 2 AU parallax
@@ -1172,14 +1208,22 @@ ORPHANS_RATE_MIN = 0.0             # ″/h. Not 0.02: at SPHEREx's ~90° elongat
                                    # so a 700–1000 AU planet can drift only 0.002–0.03″/h in a visit; with 0.02 the table-level
                                    # injection (hunt cadence, 20 dots per visit) kept 17% / 5% of them. The pair model tests the
                                    # drift against the distance instead.
-ORPHANS_RATE_MAX = 1.0             # ″/h: ~50 AU (faster movers don't chain into a fixed source)
+ORPHANS_RATE_MAX = 2.5             # ″/h: 40 AU TNOs drift 0.003–2.3″/h in a hunt visit (docs/session-stacks.md §3); was
+                                   # 1.0, which left 1–2.2″/h to link's mover rule alone. Faster junk must pass the pair model
 ORPHANS_DRIFT_NSIGMA = 3.0         # drift_ok: the rate is within this many sigma of [RATE_MIN, RATE_MAX] ...
 ORPHANS_DRIFT_MAX_ERR = 0.1        # ... and measured to better than this (″/h; otherwise anything is "consistent")
 ORPHANS_DRIFT_FLOOR = 0.005        # ″/h added in quadrature to drift errors in the pair model (straight-line motion, r grid)
-ORPHANS_SEP_MIN_ARCSEC = 300.0     # pair separation between visits: 1000 AU ≈ 390″ ...
-ORPHANS_SEP_MAX_ARCSEC = 7200.0    # ... 70 AU ≈ 4,800″ prograde, 6,900″ retrograde (six months apart; the partner may be in
-                                   # the next zone)
-ORPHANS_MIN_DT_DAYS = 60.0         # pairs only across visits (the visit rule's gap)
+ORPHANS_WINDOW_AU = (40.0, 1000.0) # pair separation window (orphans.pair_window): what a body between these distances can
+                                   # move between the two times (Earth's parallax ± its own bound motion). Was a fixed
+                                   # 300–7,200″, which lost 1000 AU near the ecliptic poles (visits ~30 days apart: 86–200″).
+                                   # 40, not 70: RATE_MAX 2.5″/h lets 40 AU TNOs through drift_ok, 10,000″ apart in the hunt
+ORPHANS_WINDOW_TOL_ARCSEC = 30.0   # ... widened by this on both sides (positions, the straight drift over a visit)
+ORPHANS_WINDOW_PERP_FRAC = 0.4     # the A→B offset's part across Earth's parallax direction <= this × separation (a bound
+                                   # orbit's own motion: <= 0.25 of the parallax at 40 AU in the hunt). Was the ecliptic-
+                                   # latitude offset <= 0.4 × separation, which near the ecliptic poles (parallax pointing any
+                                   # way in ecliptic coordinates) dropped 87% of injected 1000 AU pairs
+ORPHANS_MIN_DT_DAYS = 20.0         # pairs at least this far apart in time (was 60: pole visits are cut into ~30-day parts)
+ORPHANS_STACK_POS_ERR_SCALE = 1.0  # session-stack rows' position error (photos' ePSF fits) × this in the drift fit
 ORPHANS_R_GRID_AU = (40.0, 2000.0, 160)  # heliocentric distance grid of the pair model: min, max, points (log)
 ORPHANS_VMAX_FACTOR = 1.4142       # bound orbit: heliocentric speed <= this × circular speed 2π/√r AU/yr (escape)
 ORPHANS_FLUX_LN_FLOOR = 0.35       # ln-flux error floor per detector (each visit samples other channels of the detector)
