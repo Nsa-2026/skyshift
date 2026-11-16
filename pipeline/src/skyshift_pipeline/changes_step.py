@@ -93,8 +93,9 @@ class Reader:
     """Some columns of a file in the store (range reads), kept in `cache` between runs under the exporter's key
     (candidates.read_columns: sha1 of root|rel|columns). None when the file doesn't exist."""
 
-    def __init__(self, store: Store, cache: Path | None = None):
+    def __init__(self, store: Store, cache: Path | None = None, keep_points: bool = True):
         self.store, self.cache = store, cache
+        self.keep_points = keep_points      # False: local() copies go to a temporary folder that cleanup() removes
         self.bytes_read = 0
 
     def key(self, rel: str, columns: list[str]) -> Path | None:
@@ -162,8 +163,10 @@ class Reader:
             return Path(self.store.path(rel))
         if not self.store.exists(rel):
             return None
-        if key is None:
-            self._tmp = getattr(self, "_tmp", None) or tempfile.mkdtemp(prefix="skyshift-changes-")
+        if key is None or not self.keep_points:
+            if self.cache is not None:
+                self.cache.mkdir(parents=True, exist_ok=True)
+            self._tmp = getattr(self, "_tmp", None) or tempfile.mkdtemp(prefix="skyshift-changes-", dir=self.cache)
             key = Path(self._tmp) / f"{rel.replace('/', '__')}.parquet"
         key.parent.mkdir(parents=True, exist_ok=True)
         tmp = key.with_suffix(".part")
@@ -795,11 +798,12 @@ def new_source_changes(zone: str, orph: pd.DataFrame | None, src: pd.DataFrame |
 
 # --- the step --------------------------------------------------------------------------------------------------------
 def run(store: Store, zone: str, *, cache: Path | None = None, out: Store | None = None, gaia: GaiaLookup | None = None,
-        with_null: bool = True) -> dict:
+        with_null: bool = True, keep_points: bool = True) -> dict:
     """results/<zone>/changes.parquet (CHANGE_COLUMNS) and changes_report.json, written to `out` (default the store).
-    A zone without lightcurves.parquet gets appeared / vanished only (the report says so)."""
+    A zone without lightcurves.parquet gets appeared / vanished only (the report says so). keep_points False: the
+    light-curve copy is deleted after the zone (the small reads and Gaia's answers stay in `cache`)."""
     t0 = time.time()
-    rd = Reader(store, cache)
+    rd = Reader(store, cache, keep_points)
     gaia = gaia or GaiaLookup(cache / "gaia" if cache else None)
     rep: dict = {"zone": zone, "made": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                  "thresholds": {k: v for k, v in vars(CH).items() if k.startswith("CHANGES_")} |
@@ -863,6 +867,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-done", action="store_true", help="skip zones that already have changes.parquet")
     ap.add_argument("--root", default="gs://nasa-glazing-data")
     ap.add_argument("--cache", help="folder that keeps the column reads and Gaia answers between runs")
+    ap.add_argument("--drop-points", action="store_true",
+                    help="delete each zone's light-curve copy when it is done (~0.6 GB per ecliptic zone otherwise kept)")
     ap.add_argument("--out-root", help="write results/<zone>/changes.* under this root instead of --root")
     ap.add_argument("--no-gaia", action="store_true", help="never ask ESA's archive (variability unknown)")
     ap.add_argument("--no-null", action="store_true", help="skip the halves null (the report's false-alarm rate)")
@@ -879,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             run(store, z, cache=cache, out=out, gaia=GaiaLookup(cache / "gaia" if cache else None, enabled=not a.no_gaia),
-                with_null=not a.no_null)
+                with_null=not a.no_null, keep_points=not a.drop_points)
         except Exception:  # noqa: BLE001  one zone's failure doesn't stop the others
             L.exception("changes %s failed", z)
             bad += 1

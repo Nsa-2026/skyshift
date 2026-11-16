@@ -131,6 +131,18 @@ def test_cli_all_zones_and_skip_done(tmp_path):
     assert out.stat().st_mtime_ns == first                  # done zones are not redone
 
 
+def test_drop_points_keeps_small_reads_only(tmp_path):
+    st = _zone(tmp_path / "root")
+    st.local = False                    # read it like the bucket: column reads and a streamed copy of the points
+    for keep, cache in ((True, tmp_path / "keep"), (False, tmp_path / "drop")):
+        ST.run(st, "pilot", cache=cache, gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False, keep_points=keep)
+        names = [p.name for p in cache.rglob("*.parquet")]
+        assert any(n.startswith("results__pilot__crossids") for n in names)     # the small reads stay either way
+        assert any("lightcurves" in n for n in names) == keep
+        assert not [p for p in cache.iterdir() if p.is_dir() and p.name.startswith("skyshift-changes-")]
+    assert st.read_parquet("results/pilot/changes.parquet")["id"].str.startswith("pilot-ch-").all()
+
+
 def test_catwise_position_and_slugs():
     ra, dec = ST.catwise_position("catwise:J081628.26+142456.2")
     assert ra == pytest.approx(124.11775, abs=1e-5) and dec == pytest.approx(14.41561, abs=1e-5)
