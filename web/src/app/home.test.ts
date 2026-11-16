@@ -49,7 +49,6 @@ it("opens on the Sky with every top-level screen one click away, and loads no fr
     "#/sky",
     "#/explore",
     "#/candidates",
-    "#/changes",
     "#/community",
     "#/results",
     "#/learn",

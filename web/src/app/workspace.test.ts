@@ -41,7 +41,7 @@ it('keeps the observation, selected signal and player instance through screen an
   expect(engine.show).toHaveBeenCalledTimes(1);
   expect(engine.show.mock.lastCall?.[3]).toEqual({singleDetector:false,pages:true,visitMjd:null,filter:null});
   expect(fetcher).not.toHaveBeenCalled();
-  expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Sky','Viewer','To check','Changes','Community','Results','Learn']);
+  expect([...root.querySelectorAll('.nav a')].map(a=>a.textContent)).toEqual(['Sky','Viewer','To check','Community','Results','Learn']);
   expect(root.querySelector('.nav [aria-current]')!.textContent).toBe('Viewer');
   expect(root.querySelector('.feature-nav')).toBeNull();
   const epoch=frames.epochs[1];engine.options!.onEpoch?.(epoch);

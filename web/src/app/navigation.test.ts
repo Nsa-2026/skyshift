@@ -9,8 +9,8 @@ const resolve=(hash:string,search='',advanced=false)=>{
 };
 
 describe('top-level screens',()=>{
-  it('has Sky, Viewer, To check, Changes, Community, Results and Learn, each resolving to its own screen',()=>{
-    expect(SCREENS.map(s=>s.label)).toEqual(['Sky','Viewer','To check','Changes','Community','Results','Learn']);
+  it('has Sky, Viewer, To check, Community, Results and Learn, each resolving to its own screen',()=>{
+    expect(SCREENS.map(s=>s.label)).toEqual(['Sky','Viewer','To check','Community','Results','Learn']);
     for(const s of SCREENS)expect(siteRoute(s.href).screen).toBe(s.id);
   });
   it('opens the Sky at home, and the Viewer for shared observations and the embed',()=>{
@@ -26,8 +26,8 @@ describe('top-level screens',()=>{
     expect(siteRoute('#/c/shape%2Fexample')).toMatchObject({page:'explore',candidate:'shape/example',screen:'viewer'});
     expect(siteRoute('#/candidates/kind=mover')).toMatchObject({page:'discover',param:'kind=mover',screen:'check'});
     expect(siteRoute('#/review')).toMatchObject({page:'review',screen:'check'});
-    expect(siteRoute('#/changes')).toMatchObject({page:'changes',param:null,screen:'changes'});
-    expect(siteRoute('#/changes/pilot-ch-src63782006953200')).toMatchObject({page:'changes',param:'pilot-ch-src63782006953200',screen:'changes'});
+    expect(siteRoute('#/changes')).toMatchObject({page:'changes',param:null,screen:'check'});
+    expect(siteRoute('#/changes/pilot-ch-src63782006953200')).toMatchObject({page:'changes',param:'pilot-ch-src63782006953200',screen:'check'});
     expect(siteRoute('#/community')).toMatchObject({page:'community',screen:'community'});
     expect(siteRoute('#/results')).toMatchObject({page:'results',screen:'results'});
     expect(siteRoute('#/live')).toMatchObject({page:'live',screen:'results'});
