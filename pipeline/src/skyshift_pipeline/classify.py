@@ -23,6 +23,11 @@ M dwarfs and galaxies, "methane" on Gaia stars), so the web shows these booleans
 has the guards, config LABEL_* the thresholds. Every label (and brown_dwarf_like's evidence) also needs its band
 window measured in >= LABEL_MIN_VISITS visits (sources.parquet `visit_bits`; skipped for older tables without it):
 one visit's glitch can't make a band.
+
+brown_dwarf_like (16 Nov): water (h2o_14 or h2o_19) where an H2O index is measured well enough to show an L/T dwarf's
+(water_testable), methane alone only where it isn't (a Y dwarf, faint at 1.4–1.9 µm); red, faint or absent in Gaia,
+not a galaxy, not saturated; and not AGN-coloured in AllWISE (agn_veto, IRSA, the flagged rows only). `bd_veto` says
+why a would-be brown dwarf isn't one (`no_water`, `agn_colours`), `allwise_w2_w3` the colour looked up.
 """
 
 from __future__ import annotations
@@ -402,12 +407,19 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame,
         "h2o_14": det("h2o_14", C.BD_H2O_MIN_DEPTH),
         "h2o_19": det("h2o_19", C.BD_H2O_MIN_DEPTH),
     }
-    methane_or_water = ev["ch4_33"] | ev["ch4_16"] | ev["h2o_14"] | ev["h2o_19"]
+    water = ev["h2o_14"] | ev["h2o_19"]
+    methane = ev["ch4_33"] | ev["ch4_16"]
+    testable = water_testable(out)
     with np.errstate(invalid="ignore"):
         red = out["j_m46_ab"].to_numpy(np.float64) > C.BD_MIN_J_M46_AB
         faint_gaia = ~has_gaia | (gmag > C.BD_GAIA_FAINT_G) | (gmag - out["mag_ab_j"].to_numpy(np.float64) > C.BD_MIN_G_J_AB)
     sat = src["saturated"].to_numpy(bool) if "saturated" in src else np.zeros(len(out), bool)
-    out["brown_dwarf_like"] = methane_or_water & red & faint_gaia & (cls != "galaxy") & ~sat
+    rest = red & faint_gaia & (cls != "galaxy") & ~sat
+    # water where it can be seen (BD_WATER_TESTABLE_ERR); methane alone only where it can't (16 Nov: 136 methane-only
+    # labels, all galaxies or AGN; every ultracool dwarf with a Gaia parallax showed both water bands)
+    out["brown_dwarf_like"] = (water | (methane & ~testable)) & rest
+    out["bd_veto"] = np.where(methane & ~water & testable & rest, "no_water", "")
+    out["allwise_w2_w3"] = np.full(len(out), np.nan, np.float32)  # agn_veto fills it for the brown_dwarf_like rows
     names = np.array(list(ev))
     bits = np.stack([ev[k] for k in names], 1)
     out["bd_evidence"] = [",".join(names[b]) for b in bits]
@@ -421,6 +433,68 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame,
 
 
 LABELS = ("h2o_ice", "co2_ice", "co_ice", "ch4", "h2o_vapour", "co_23", "pah_33")
+
+
+def water_testable(out: pd.DataFrame) -> np.ndarray:
+    """An H2O index (h2o_14 or h2o_19) is measured well enough to see an L/T dwarf's water: its depth error
+    (|depth / sig|) <= BD_WATER_TESTABLE_ERR. h2o_14: band 1.34–1.45 µm = D2 channels 26–29, continuum 21–24 (D2) and
+    32–35 (the D2/D3 join at 1.6 µm); h2o_19: band 1.84–1.95 µm = D3 channels 40–42, continuum 32–35 and 44–46."""
+    errs = []
+    for b in ("h2o_14", "h2o_19"):
+        d = out[f"{b}_depth"].to_numpy(np.float64)
+        s = out[f"{b}_sig"].to_numpy(np.float64)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            errs.append(np.where(np.abs(s) > 0, np.abs(d / s), np.nan))
+    with np.errstate(invalid="ignore"):
+        return np.fmin(*errs) <= C.BD_WATER_TESTABLE_ERR
+
+
+def allwise_tap(adql: str, uploads: dict):
+    """IRSA (crossid.irsa_tap); tests replace it (conftest: offline)."""
+    from .crossid import irsa_tap
+    return irsa_tap(adql, uploads, C.HIGHPM_DEEP_TIMEOUT_S)
+
+
+def agn_veto(out: pd.DataFrame, src: pd.DataFrame, tap=None) -> tuple[pd.DataFrame, dict]:
+    """brown_dwarf_like rows whose nearest AllWISE entry (within BD_ALLWISE_ARCSEC; IRSA, one query) has an AGN's or a
+    dusty galaxy's colours: W2 − W3 >= BD_AGN_W2_W3 with W3 S/N >= BD_AGN_W3_SNR and W1 − W2 < BD_AGN_MAX_W1_W2 (late T and
+    Y dwarfs are W1 − W2 > 2) → not brown_dwarf_like, bd_veto `agn_colours`. allwise_w2_w3 is set for every looked-up row.
+    A failed query vetoes nothing (stats checked false)."""
+    st = {"checked": True, "rows": 0, "vetoed": 0}
+    if not C.BD_AGN_VETO:
+        return out, {**st, "checked": False}
+    k = np.flatnonzero(out["brown_dwarf_like"].to_numpy(bool))
+    st["rows"] = int(k.size)
+    if not k.size:
+        return out, st
+    from .crossid import allwise_near
+    pos = src.set_index("source_id").reindex(out["source_id"].to_numpy(np.int64)[k])
+    try:
+        aw = allwise_near(pos["ra"].to_numpy(np.float64), pos["dec"].to_numpy(np.float64), C.BD_ALLWISE_ARCSEC,
+                          tap or allwise_tap)
+    except Exception as e:  # noqa: BLE001 - the network: no veto, say so
+        L.warning("classify: AllWISE colours for %d brown_dwarf_like rows failed (%r): no AGN veto", k.size, e)
+        return out, {**st, "checked": False, "error": repr(e)[:200]}
+    if not len(aw):
+        return out, st
+    aw = aw.sort_values("sep_arcsec").drop_duplicates("i")
+    num = lambda c: pd.to_numeric(aw[c], errors="coerce").to_numpy(np.float64)  # noqa: E731
+    w12, w23, snr3 = num("w1mpro") - num("w2mpro"), num("w2mpro") - num("w3mpro"), num("w3snr")
+    with np.errstate(invalid="ignore"):
+        veto = (w23 >= C.BD_AGN_W2_W3) & (snr3 >= C.BD_AGN_W3_SNR) & ~(w12 >= C.BD_AGN_MAX_W1_W2)
+    rows = k[aw["i"].to_numpy(np.int64)]
+    out = out.copy()
+    v = out["allwise_w2_w3"].to_numpy(np.float32).copy()
+    v[rows] = w23
+    out["allwise_w2_w3"] = v
+    bd = out["brown_dwarf_like"].to_numpy(bool).copy()
+    bd[rows[veto]] = False
+    out["brown_dwarf_like"] = bd
+    bv = out["bd_veto"].to_numpy(object).copy()
+    bv[rows[veto]] = "agn_colours"
+    out["bd_veto"] = bv.astype(str)
+    st["vetoed"] = int(veto.sum())
+    return out, st
 
 
 def band_labels(out: pd.DataFrame, saturated: np.ndarray, visits: dict[str, np.ndarray] | None = None,
@@ -504,6 +578,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None
     t2 = time.time()
     shape = shape_features(dots, sids, gaia_stars, locus)
     out = classify_frame(src, shape, gaia, phot)
+    out, veto_st = agn_veto(out, src)
     t3 = time.time()
     nbytes = store.write_parquet(results_rel(zone.name, "classes.parquet"), out)
     vc = out["class"].value_counts()
@@ -511,6 +586,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None
         "sources": int(len(out)),
         "star": int(vc.get("star", 0)), "galaxy": int(vc.get("galaxy", 0)), "unsure": int(vc.get("unsure", 0)),
         "brown_dwarf_like": int(out["brown_dwarf_like"].sum()),
+        "bd_no_water": int((out["bd_veto"] == "no_water").sum()), "bd_agn_veto": veto_st,
         "gaia_from": origin, "gaia_matched": int(np.isfinite(out["gaia_g"]).sum()),
         "shape_inputs": shape_cols, "shape_dots": 0 if dots is None else int(len(dots)),
         **{f"n_{k[:-4]}": int((out[k] >= C.INDEX_SIG).sum()) for k in out.columns if k.endswith("_sig")},
