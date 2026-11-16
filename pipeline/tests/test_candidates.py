@@ -506,3 +506,12 @@ def test_edge_dot_lowers_the_score():
     assert x0["reasons"].count("edge") == 1  # the vetting's own edge gate: not listed twice
     assert x0["score"] == pytest.approx(a["score"] * K.MOVER_EDGE * K.MOVER_GRADE_C)
     assert K.edge_dot(next(s.drop(columns=["dot_x", "dot_y"]).itertuples())) is False  # no dot lists: no penalty
+
+
+def test_highpm_parallax_fit_and_unsteady_reasons():
+    c = K.high_pms(_hp(fit_mode="pm+gaia_plx"), "hunt", {})[0]
+    assert c["reasons"] == ["pm_fit", "vetted", "parallax_fit"] and set(c["reasons"]) <= set(K.REASONS["high_pm"])
+    assert K.high_pms(_hp(fit_mode="pm_leak"), "hunt", {})[0]["reasons"] == ["pm_fit", "vetted"]
+    u = K.high_pms(_hp(vetted=False, reason="unsteady", fit_mode="pm+plx"), "hunt", {})[0]
+    assert u["reasons"] == ["pm_fit", "parallax_fit", "unsteady"] and "out and back" in u["why"]
+    assert u["score"] == pytest.approx(np.exp(-(1 / 29.3) / 0.2) * 0.3)

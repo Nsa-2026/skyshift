@@ -54,6 +54,7 @@ import numpy as np
 import pandas as pd
 from skyshift_core import tangent_offset_arcsec
 from skyshift_core.flags import BIT_NAMES, MASK_BITS, OUTLIER, RECORD_BITS
+from skyshift_core.motion import PARALLAX_MODES
 from skyshift_core.planets import near_planets
 
 from . import config as C
@@ -105,7 +106,7 @@ MOVER_GRADE_C = 0.1            # the suspects' vetting graded it C (a failed gat
 MOVER_EDGE = 0.5               # a dot within VET_EDGE_PX of the detector edge (edge_dot), graded or not
 GRADE_RANK = {"A": 0, "B": 1, "C": 2}  # list order inside each zone and kind; null (other kinds, ungraded) sorts with B
 HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipeline score is lower = better
-HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "over_pm_cap": 0.3,
+HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "unsteady": 0.3, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
                         "implausible_pm": 0.01}  # implausible_pm: to the bottom of the list
 HIGHPM_KNOWN_STAR = 0.6        # status "gaia" or "2mass" (highpm's deep check): a catalogued star
@@ -135,8 +136,9 @@ REASONS = {
     "mover": ("two_exposures", "two_detectors", "known_object_near", "motion_not_significant", "bad_pixels_near",
               "outlier_flag", "detector_excess", "repeat_position", "gaia_unchecked", "catwise_unchecked",
               *C.VET_GATES),  # the suspects' failed vetting gates (vet.py, contracts/api.md suspects.json)
-    "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "short_span", "few_dots", "bad_fit",
-                "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm", "blend"),
+    "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "parallax_fit", "short_span", "few_dots", "bad_fit",
+                "unsteady", "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm",
+                "blend"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable", "blend"),
     "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy", "blend"),
 }
@@ -627,6 +629,8 @@ def highpm_reasons(r) -> list[str]:
         out.append("vetted")
     if bool(getattr(r, "catwise_pm_agree", False)):
         out.append("catwise_pm_agrees")
+    if str(getattr(r, "fit_mode", "") or "") in PARALLAX_MODES:  # the fit took parallax out (Gaia's or its own)
+        out.append("parallax_fit")
     out += [x for x in str(r.reason or "").split(",") if x]
     if pd.notna(r.pm) and r.pm > IMPLAUSIBLE_PM_MAS_YR:
         out.append("implausible_pm")
@@ -653,6 +657,7 @@ CAUTION_TEXT = {
     "at_control_level": "as many such pairs turn up by chance",
     "over_pm_cap": "it is faster than any known star",
     "bad_fit": "the positions don't fit a straight line well",
+    "unsteady": "its visits go out and back instead of along a line",
     "few_dots": "it has few detections",
     "short_span": "its visits are too close in time",
 }
@@ -675,7 +680,8 @@ def highpm_why(r, reasons: list[str]) -> str:
         tail = "; 2MASS saw a star where this motion puts it in 2000, so it is a known star"
     else:
         tail = "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion"
-    cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "bad_fit", "few_dots", "short_span") if x in reasons]
+    cautions = [CAUTION_TEXT[x] for x in ("at_control_level", "over_pm_cap", "unsteady", "bad_fit", "few_dots", "short_span")
+                if x in reasons]
     if cautions and "gaia_pm_disagrees" not in reasons and "catwise_pm_disagrees" not in reasons:
         tail += f", but {cautions[0]}"
     return move + tail + "."

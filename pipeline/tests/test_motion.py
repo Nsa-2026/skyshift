@@ -187,7 +187,8 @@ def test_astrometry_recovers_pm_and_parallax(rng):
                    astro_dots(rng, 2, STAR[0] + 0.01, STAR[1], -300.0, 200.0, 0.0, VISITS3[:2])], ignore_index=True)
     out, st = AS.fit(d, None, frame=False)
     a, b = out.iloc[0], out.iloc[1]
-    assert a["fit"] == "pm+plx" and b["fit"] == "pm" and st["with_parallax"] == 1
+    # b: two visits six months apart, no Gaia: no parallax fitted, its pm may hold ϖ·k (here ϖ = 0)
+    assert a["fit"] == "pm+plx" and b["fit"] == "pm_leak" and st["with_parallax"] == 1
     for r, pmra, pmdec in ((a, 800, -450), (b, -300, 200)):
         assert abs(r["pmra"] - pmra) < 4 * r["pmra_err"] and abs(r["pmdec"] - pmdec) < 4 * r["pmdec_err"]
         assert r["pmra_err"] < 100 and r["pm_snr"] > 3
@@ -440,7 +441,9 @@ def test_motion_steps_end_to_end(tmp_path, rng):
     assert len(lc) == len(photos) * 3 and set(lc["origin"]) == {"dot", "forced"}
     sid_still = xid.loc[xid["gaia_id"] == 11, "source_id"].iloc[0]
     assert (lc.loc[lc["origin"] == "forced", "source_id"] == sid_still).all()
-    assert len(ast) == 3 and (ast["fit"] == "pm").all()
+    # two visits half a year apart, no Gaia parallax error in this refcat: no parallax fitted, the leak is large
+    assert len(ast) == 3 and (ast["fit"] == "pm_leak").all() and (ast["plx_leak_ra"].abs() > 1).all()
+    assert not ast["unsteady"].any() and ast["visit_chi2_nu"].isna().all()  # two visits: steadiness can't be told
     assert len(hp) == 1 and hp.iloc[0]["status"] == "new" and abs(hp.iloc[0]["sep_arcsec"] - np.hypot(20, 10)) < 1
     rep = json.loads((tmp_path / "results/pilot/highpm_report.json").read_text())
     assert rep["recall"]["gaia_fast_in_zone"] == 0
@@ -448,3 +451,45 @@ def test_motion_steps_end_to_end(tmp_path, rng):
     assert arep["vs_gaia_raw"]["matched"] == 1 and arep["spacecraft_position_dots"] == len(photos) * 2
     summary = json.loads((tmp_path / "results/pilot/summary.json").read_text())
     assert {"crossid", "colours", "lightcurves", "astrometry", "highpm"} <= set(summary["steps"])
+
+
+# --- the motion model (skyshift_core.motion, 16 Nov) -------------------------------------------------------------------
+def gaia_xid(sid, ra, dec, pmra, pmdec, plx, plx_err=0.05):
+    return dict(source_id=sid, gaia_id=sid, gaia_ref_id=str(sid), gaia_ra=ra, gaia_dec=dec, gaia_epoch_mjd=GAIA_EPOCH,
+                gaia_pmra=pmra, gaia_pmdec=pmdec, gaia_parallax=plx, gaia_parallax_error=plx_err, gaia_g=12.0, gaia_n=1)
+
+
+def test_astrometry_gaia_parallax_prior_removes_the_leak(rng):
+    """A nearby star (ϖ 300 mas, 200 mas/yr) seen in two visits six months apart: without Gaia the pm holds ϖ·k
+    (pm_leak, k written); with Gaia's parallax as a prior the pm is the star's."""
+    d = astro_dots(rng, 1, *STAR, 200.0, 0.0, 300.0, VISITS3[:2], err=0.1)
+    xid = pd.DataFrame([gaia_xid(1, *STAR, 200.0, 0.0, 300.0)])
+    free, _ = AS.fit(d, None, frame=False)
+    held, st = AS.fit(d, xid, frame=False)
+    a, b = free.iloc[0], held.iloc[0]
+    assert a["fit"] == "pm_leak" and np.hypot(a["plx_leak_ra"], a["plx_leak_dec"]) > 1
+    assert abs(a["pmra"] - (200 + 300 * a["plx_leak_ra"])) < 4 * a["pmra_err"] + 5   # μ + ϖ·k
+    assert abs(a["pmra"] - 200) > 300                                                   # a fake extra motion
+    assert b["fit"] == "pm+gaia_plx" and abs(b["pmra"] - 200) < 4 * b["pmra_err"] and abs(b["pmdec"]) < 4 * b["pmdec_err"]
+    assert abs(b["parallax"] - 300) < 1 and st["modes"]["pm+gaia_plx"] == 1
+    with pytest.MonkeyPatch.context() as mp:  # the switch
+        mp.setattr(C, "ASTRO_GAIA_PLX_PRIOR", False)
+        assert AS.fit(d, xid, frame=False)[0].iloc[0]["fit"] == "pm_leak"
+
+
+def test_astrometry_unsteady_visits(rng):
+    """Three visits, the middle one 1.2″ off and back (a blend in one visit): unsteady; a real line is not."""
+    d = astro_dots(rng, 1, *STAR, 0.0, 0.0, 0.0, VISITS3, err=0.1)
+    mid = d["visit"].to_numpy() == 2
+    d.loc[mid, "ra"], d.loc[mid, "dec"] = tangent_deproject(d["ra"].to_numpy()[mid], d["dec"].to_numpy()[mid], 1.2, 0.0)
+    line = astro_dots(rng, 2, STAR[0] + 0.01, STAR[1], 1200.0, 0.0, 0.0, VISITS3, err=0.1)
+    xid = pd.DataFrame([gaia_xid(1, *STAR, 0.0, 0.0, 0.0), gaia_xid(2, STAR[0] + 0.01, STAR[1], 1200.0, 0.0, 0.0)])
+    out, st = AS.fit(pd.concat([d, line], ignore_index=True), xid, frame=False)
+    a, b = out.set_index("source_id").loc[1], out.set_index("source_id").loc[2]
+    assert a["unsteady"] and a["visit_chi2_nu"] > 8 and st["unsteady"] == 1
+    assert not b["unsteady"] and b["visit_chi2_nu"] < 5 and abs(b["pmra"] - 1200) < 4 * b["pmra_err"]
+    assert a["wobble_arcsec"] > 0.3 and b["wobble_arcsec"] < 0.2  # the middle visit sits 1.2″ off the line
+    # two visits leave no freedom: can't tell
+    two, _ = AS.fit(d[d["visit"] < 3], xid, frame=False)
+    assert not two.iloc[0]["unsteady"] and np.isnan(two.iloc[0]["visit_chi2_nu"])
+    assert np.isnan(two.iloc[0]["wobble_arcsec"])

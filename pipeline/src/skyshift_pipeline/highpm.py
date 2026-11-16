@@ -32,13 +32,18 @@ Parallax: with two visits half a year apart a fit's pm is the true pm plus ϖ·(
 Gaia counterpart is compared as its pm + its parallax × k (gaia_check), and a CatWISE counterpart (no parallax)
 as its pm + ϖ·k for the best 0 ≤ ϖ ≤ HIGHPM_CW_PLX_PER_PM × its |pm| (catwise_check; _SAT for saturated
 sources). A nearby Planet X moves AND shows parallax: both count as signal in pm_snr.
+From 16 Nov astrometry fits the motion model of skyshift_core.motion (`fit` mode, written here as `fit_mode`): with
+Gaia's parallax as a prior (pm+gaia_plx) or its own parallax (pm+plx) the pm holds no leak, so k is 0 for those rows
+(effective_leak); pm and pm_leak rows use astrometry's own weighted leak (plx_leak_ra, plx_leak_dec). Tables written
+before keep visit_stats' k. A fit astrometry calls `unsteady` (its visits go out and back instead of along a line:
+visit-level chi2_nu > skyshift_core.motion.UNSTEADY_CHI2_NU) gets reason `unsteady`, even when Gaia agrees.
 
 Control (highpm_report.json `control_pairs`, `pair_vs_control`): the same pairing, with the same coverage
 cut, after moving every even visit's single-visit sources by each HIGHPM_CONTROL_OFFSETS: the mean is the
 number of chance pairs to expect, per separation bin (HIGHPM_PAIR_SEP_BINS).
 
 Vetting (columns `vetted`, `reason`; every candidate is kept): a candidate is vetted when `reason` is empty.
-Reasons: short_span, few_dots, few_sessions (< HIGHPM_FIT_MIN_SESSIONS sessions in a visit), bad_fit, over_pm_cap
+Reasons: short_span, few_dots, few_sessions (< HIGHPM_FIT_MIN_SESSIONS sessions in a visit), bad_fit, unsteady, over_pm_cap
 (fit: HIGHPM_FIT_*); gaia_pm_disagrees (a Gaia counterpart with its own pm, and pm + parallax leak is not ours: the
 counterpart is a slower star at that spot, HIGHPM_PM_AGREE_SIGMA); catwise_pm_disagrees (no Gaia pm to check,
 and the CatWISE counterpart's motion is not ours); unchecked (fit with neither a Gaia nor a CatWISE
@@ -77,9 +82,9 @@ L = log.get("highpm")
 
 COLUMNS = ["method", "status", "source_id", "source_id_b", "ra", "dec", "ra_b", "dec_b", "mjd", "mjd_b", "visit", "visit_b",
            "sep_arcsec", "pmra", "pmdec", "pm", "pm_err", "flux_ratio", "shape_rms", "n_common_det", "red_ratio",
-           "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason"]
+           "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason", "fit_mode"]
 REASONS = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap", "gaia_pm_disagrees",
-           "catwise_pm_disagrees", "unchecked", "at_control_level", "gaia_slow")
+           "catwise_pm_disagrees", "unchecked", "at_control_level", "gaia_slow", "unsteady")
 QUALITY = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap")  # not applied to a Gaia-confirmed motion
 
 
@@ -139,6 +144,23 @@ def visit_stats(m: pd.DataFrame, p: pd.DataFrame, pos: pd.DataFrame, ids) -> pd.
     out = pd.DataFrame({"source_id": u, "k_e": ke, "k_n": kn, "sessions_min": smin.to_numpy(np.int64)})
     return empty[["source_id"]].merge(out, on="source_id", how="left").fillna({"k_e": 0.0, "k_n": 0.0, "sessions_min": 0}).astype(
         {"sessions_min": np.int64})
+
+
+def effective_leak(vstats: pd.DataFrame | None, ast: pd.DataFrame | None) -> pd.DataFrame | None:
+    """visit_stats' rows with k_e, k_n replaced by the leak left in astrometry's pm (tables from 16 Nov, columns `fit`,
+    plx_leak_ra, plx_leak_dec): 0 where the fit took parallax out (Gaia's prior or its own), its own weighted leak
+    where it fitted none. Rows without such a fit keep visit_stats' k."""
+    if vstats is None or ast is None or not len(vstats) or not {"fit", "plx_leak_ra", "plx_leak_dec"} <= set(ast.columns):
+        return vstats
+    from skyshift_core.motion import PARALLAX_MODES
+    a = ast.drop_duplicates("source_id").set_index("source_id").reindex(vstats["source_id"].to_numpy(np.int64))
+    has = a["fit"].notna().to_numpy()
+    plx = np.isin(a["fit"].fillna("").astype(str).to_numpy(), PARALLAX_MODES)
+    out = vstats.copy()
+    for k, c in (("k_e", "plx_leak_ra"), ("k_n", "plx_leak_dec")):
+        own = np.where(plx, 0.0, np.nan_to_num(a[c].to_numpy(np.float64)))
+        out[k] = np.where(has, own, out[k].to_numpy(np.float64))
+    return out
 
 
 def gaia_check(out: pd.DataFrame, gpmra, gpmdec, gplx, k_e, k_n,
@@ -331,6 +353,8 @@ def fit_movers(ast: pd.DataFrame | None) -> pd.DataFrame:
         "pm": a["pm"].to_numpy(np.float32), "pm_err": err.to_numpy(np.float32), "flux_ratio": np.float32(1.0),
         "shape_rms": np.float32(0.0), "n_common_det": np.int8(0), "red_ratio": np.float32(np.nan),
         "score": (1.0 / a["pm_snr"]).to_numpy(np.float32),
+        "fit_mode": a["fit"].astype(str).to_numpy() if "fit" in a else "",
+        "_unsteady": a["unsteady"].fillna(False).to_numpy(bool).astype(np.float64) if "unsteady" in a else 0.0,
         **{f"_{c}": (a[c].to_numpy(np.float64) if c in a else np.full(len(a), np.nan))
            for c in ("n_visits", "span_yr", "chi2_nu", "n_dots", "n_used", "pm_snr")},
     })
@@ -369,6 +393,7 @@ def vet(out: pd.DataFrame, gaia_dis: np.ndarray, cw_dis: np.ndarray, pair_bins: 
             "unchecked": fit & ~chk & ((col("_pm_snr") < C.HIGHPM_NOCAT_MIN_SNR) | (col("_saturated") > 0)),
             "at_control_level": np.zeros(n, bool),
             "gaia_slow": np.zeros(n, bool) if gaia_slow is None else np.asarray(gaia_slow, bool),
+            "unsteady": fit & (col("_unsteady") > 0),  # out and back, not a line: never a lead, even when Gaia agrees
         }
     for k in QUALITY:
         bad[k] &= ~conf
@@ -410,7 +435,7 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     out = pd.concat([x for x in (pairs, fits) if len(x)], ignore_index=True) if (len(pairs) or len(fits)) else pd.DataFrame(columns=[*COLUMNS])
     if not len(out):
         empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in COLUMNS})
-        return empty.astype({"vetted": bool, "reason": str, "method": str, "status": str})
+        return empty.astype({"vetted": bool, "reason": str, "method": str, "status": str, "fit_mode": str})
     n = len(out)
     ke = out["_k_e"].to_numpy(np.float64) if "_k_e" in out else np.zeros(n)  # pairs: no leak (one visit each side)
     kn = out["_k_n"].to_numpy(np.float64) if "_k_n" in out else np.zeros(n)
@@ -469,6 +494,7 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     out["catwise_name"] = cw.astype(str)
     out["catwise_pm_agree"] = agree
     out["status"] = np.where(out["gaia_ref_id"] == "", "new", "gaia")
+    out["fit_mode"] = out["fit_mode"].fillna("").astype(str) if "fit_mode" in out else ""  # pairs: ""
     confirmed = g_has & ~gaia_dis
     # CatWISE judges only where Gaia has no motion to compare (Gaia: parallax known, far smaller errors)
     out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has,
@@ -790,6 +816,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16, tap=None) -> dict:
     fit_ids = fit_movers(ast)["source_id"].to_numpy(np.int64) if ast is not None and len(ast) else np.zeros(0, np.int64)
     vstats = visit_stats(members, pl[[c for c in ("obs_id", "detector", "mjd", "visit", "session") if c in pl]],
                          src[["source_id", "ra", "dec"]], fit_ids)
+    vstats = effective_leak(vstats, ast)  # the leak left in astrometry's pm (0 where it took parallax out)
     del members
     cw_err = catwise_pm_err(store, zone)
     ctrl = control_separations(src, fps)

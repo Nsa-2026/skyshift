@@ -182,3 +182,27 @@ def test_fit_from_two_used_dots_is_few_dots():
 
     assert fit(n_dots=40, n_used=2)["reason"] == "few_dots"
     assert fit(n_dots=40, n_used=40)["vetted"]
+
+
+def test_unsteady_fit_is_never_a_lead_even_when_gaia_agrees():
+    src = hp_sources()
+    ast = one_fit(pmra=0.0, pmdec=-900.0, pm=900.0, pmra_err=50.0, pmdec_err=50.0, pm_snr=18.0, unsteady=True,
+                  fit="pm+gaia_plx", plx_leak_ra=-4.0, plx_leak_dec=1.0, visit_chi2_nu=30.0)
+    xid = pd.DataFrame({"source_id": [1], "gaia_ref_id": ["gaia:1"], "gaia_id": [1], "gaia_pmra": [0.0],
+                        "gaia_pmdec": [-900.0], "gaia_parallax": [20.0], "catwise_name": [""], "catwise_pmra": [np.nan],
+                        "catwise_pmdec": [np.nan]})
+    r = HP.compute(src, None, xid, ast, vstats=HP.effective_leak(vstats([1]), ast)).query("method == 'fit'").iloc[0]
+    assert r["reason"] == "unsteady" and not r["vetted"] and r["fit_mode"] == "pm+gaia_plx"
+    ok = HP.compute(src, None, xid, ast.assign(unsteady=False), vstats=HP.effective_leak(vstats([1]), ast)).query("method == 'fit'").iloc[0]
+    assert ok["vetted"]  # Gaia's pm, no leak added: the fit took Gaia's parallax out
+
+
+def test_effective_leak_follows_the_fit_mode():
+    ast = pd.DataFrame({"source_id": [1, 2, 3], "fit": ["pm+gaia_plx", "pm_leak", "pm+plx"],
+                        "plx_leak_ra": [-4.0, -3.5, -4.0], "plx_leak_dec": [1.0, 0.8, 1.0]})
+    v = HP.effective_leak(vstats([1, 2, 3, 4]), ast).set_index("source_id")
+    assert v.loc[1, "k_e"] == 0.0 and v.loc[3, "k_n"] == 0.0           # parallax taken out
+    assert v.loc[2, "k_e"] == -3.5 and v.loc[2, "k_n"] == 0.8          # the fit's own leak
+    assert v.loc[4, "k_e"] == KE                                        # no fit row: visit_stats' k
+    old = HP.effective_leak(vstats([1]), ast.drop(columns=["fit"]))    # tables from before 16 Nov
+    assert old.loc[0, "k_e"] == KE

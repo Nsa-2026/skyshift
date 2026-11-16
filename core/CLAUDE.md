@@ -26,6 +26,11 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   stacks: S/N >= 5 in each, no missing sky within 4 px, centroids within max(FWHM 7.53", 12"/yr x dt)
   + 3 sigma of each other (or of the predicted motion). Reasons: not_found, not_detected, edge,
   different_sources.
+- motion: the months-clock motion model position(t) = p0 + μ·(t − t0) + ϖ·P(t). observer_xyz_au, parallax_factors
+  (Earth from astropy's built-in ephemeris + SPHEREx's offset; Earth alone is good to ϖ × 5e-5), gaia_prior, leak (the
+  parallax leak k and the free share), choose_mode (pm+gaia_plx, pm+plx, pm, pm_leak), visit_steadiness / unsteady
+  (POS_ERR_SCALE 1.6 on raw pos_err, VISIT_FLOOR_ARCSEC, UNSTEADY_CHI2_NU), fit_motion (one source) -> MotionFit.
+  The pipeline's astrometry step uses the same pieces in its batched fit.
 - photometry: pixel_solid_angle_sr, ujy_per_mjysr (from the WCS, ~889.7), aperture_photometry -> uJy.
 - known_index: known asteroids and comets near (ra, dec, r) at given MJDs, fast (live API). load_index(npz) is
   numpy only; candidates() = two-body coarse cut with per-object margins; known_near() = kete n-body on the
