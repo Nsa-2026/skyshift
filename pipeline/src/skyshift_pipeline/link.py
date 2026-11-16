@@ -38,7 +38,9 @@ Only dots inside the zone box are used (most of a photo's dots fall outside it).
    They never pair inside a session (no exposure) and are not in members.parquet (no dot file row):
    stack_members.parquet lists them (source_id, key, stack_row, session, detector, mjd, ra, dec, flux_ujy, snr, n_exp,
    pos_err_arcsec). A stacked source that moves inside its session (coadd.moving_rows) and is in no fixed group gives
-   its per-photo positions as dots (dot_row −1): steps 2–4 and the shuffled control treat them as any dot.
+   its per-photo positions as dots (dot_row −1): steps 2–4 and the shuffled control treat them as any dot. Every stack
+   row in no fixed group also goes to nonfixed_dots.parquet (obs_id "", dot_row −1, `stack_key`, `stack_row`; the real
+   dots get "" and −1), so tracklets can recover a faint asteroid seen only in a session's stack on its track.
 Sessions are the zone's time runs (photolist); visit labels only choose the reference sessions of the release.
 """
 
@@ -1132,6 +1134,37 @@ def with_stack_rows(store: Store, photos: pd.DataFrame, zone: C.Zone, dots: pd.D
     return {"rows": rows, "pseudo": pseudo}, st
 
 
+def nonfixed_stack_rows(rows: pd.DataFrame, sid: np.ndarray, fixed: pd.DataFrame) -> pd.DataFrame:
+    """The session-stack rows in no fixed group (sid < 0) as nonfixed_dots rows, for tracklets' recovery (module doc, 6):
+    the session-mean mjd, obs_id "", dot_row −1, flags as the row's (the photos' 3×3 OR), elong 1, `near_fixed` within
+    FIXED_VETO_ARCSEC of a fixed source, in_fixed False, plus `stack_key` and `stack_row` (the session_stacks table and
+    its row). A faint asteroid seen only in its session's stack can then join a track."""
+    r = rows[np.asarray(sid) < 0]
+    near = np.zeros(len(r), bool)
+    if len(fixed) and len(r):
+        sep, _ = SkyTree(fixed["ra"].to_numpy(), fixed["dec"].to_numpy()).nearest(r["ra"].to_numpy(), r["dec"].to_numpy())
+        near = sep <= C.FIXED_VETO_ARCSEC
+    n = len(r)
+    return pd.DataFrame({
+        "ra": r["ra"].to_numpy(np.float64), "dec": r["dec"].to_numpy(np.float64), "mjd": r["mjd"].to_numpy(np.float64),
+        "session": r["session"].to_numpy(np.int32), "visit": r["visit"].to_numpy(np.int16),
+        "obs_id": np.full(n, "", object), "detector": r["detector"].to_numpy(np.int8), "dot_row": np.full(n, -1, np.int32),
+        "snr": r["snr"].to_numpy(np.float32), "flux_ujy": r["flux_ujy"].to_numpy(np.float32),
+        "flags": (r["flags"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
+        "flags_peak": np.zeros(n, np.int32), "elong": np.ones(n, np.float32), "near_fixed": near,
+        "in_fixed": np.zeros(n, bool), "stack_key": r["key"].astype(str).to_numpy(object),
+        "stack_row": r["stack_row"].to_numpy(np.int32)})
+
+
+def with_stack_free(free: pd.DataFrame, srows: pd.DataFrame) -> pd.DataFrame:
+    """nonfixed_dots plus the free session-stack rows (nonfixed_stack_rows); the real dots get stack_key "" and
+    stack_row −1. Sorted by session, mjd, ra, dec as before."""
+    f = free.assign(obs_id=free["obs_id"].astype(str), stack_key="", stack_row=np.int32(-1))
+    out = pd.concat([f, srows], ignore_index=True) if len(srows) else f
+    out = out.astype({"stack_row": np.int32, "near_fixed": bool, "in_fixed": bool})
+    return out.sort_values(["session", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
+
+
 def stack_members_table(rows: pd.DataFrame, sid: np.ndarray) -> pd.DataFrame:
     """stack_members.parquet: the stack rows of fixed groups (sid >= 0), sorted by source_id, key, stack_row."""
     m = sid >= 0
@@ -1211,6 +1244,10 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     stats.update(mst)
     try:  # tracklets' input; never worth failing link for
         free = nonfixed_dots_table(dots, fixed_result[1], fixed, photos)
+        if stk is not None:  # the free session-stack rows join tracklets' recovery (module doc, 6)
+            srows = nonfixed_stack_rows(stk["rows"], stack_sid, fixed)
+            free = with_stack_free(free, srows)
+            sst.update(nonfixed_stack_rows=int(len(srows)), nonfixed_stack_rows_near_fixed=int(srows["near_fixed"].sum()))
         stats["nonfixed_dots_written"] = int(len(free))
     except Exception as e:  # noqa: BLE001
         L.exception("link %s: nonfixed_dots.parquet not written (tracklets will link without recovery)", zone.name)

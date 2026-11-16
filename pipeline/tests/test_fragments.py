@@ -215,6 +215,11 @@ def test_load_and_tag_of(tmp_path):
     tg = F.load(store, "hunt")
     assert tg.to_dict() == {1: "bright_fragment", 3: "blend"}
     assert F.tag_of(tg, [3, 2, 1, 7]).tolist() == ["blend", "", "bright_fragment", ""]
+    from skyshift_pipeline import candidates as K  # the exporter's two-column read gives the same tags
+
+    seen = []
+    tr = F.load(store, "hunt", read=lambda rel, columns: seen.append(columns) or K.read_columns(store, rel, columns))
+    assert seen == [["source_id", "tag"]] and tr.to_dict() == tg.to_dict()
 
 
 def test_highpm_hook():

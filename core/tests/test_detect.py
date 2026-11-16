@@ -119,3 +119,44 @@ def test_no_data_near_edge_but_not_a_saturated_hole():
     big = np.ones((81, 81))
     big[20:40, 20:40] = np.nan  # 400 px masked inside the frame: missing sky too
     assert no_data_near(big, 42.0, 30.0, 4.0)
+
+
+def test_detect_near_is_the_subset_of_the_full_call(cutout_path):
+    """near=(x, y, r) keeps the objects whose sep peak lies within r of a point: exactly those rows of the full
+    call, measured the same (the saturation guard's speed-up, 16 Nov)."""
+    l2 = open_level2(cutout_path, variance=True)
+    full = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0)
+    assert len(full) >= 20
+    px, py = full["x"][::4], full["y"][::4]
+    sub = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, near=(px, py, 2.5))
+    assert 0 < len(sub) < len(full)
+    keep = np.array([np.hypot(px - x, py - y).min() <= 2.5 + 1.0 for x, y in zip(full["x"], full["y"])])
+    for x, y in zip(px, py):  # every point's own object comes back, with the same measurement
+        i = int(np.argmin(np.hypot(full["x"] - x, full["y"] - y)))
+        j = int(np.argmin(np.hypot(sub["x"] - x, sub["y"] - y)))
+        assert sub[j] == full[i]
+    for row in sub:  # and nothing that is not in the full call
+        assert any(row == full[k] for k in np.flatnonzero(keep))
+    none = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, near=(np.array([]), np.array([]), 2.5))
+    assert len(none) == 0
+
+
+def test_measure_objects_marks_a_centroid_that_fell_back():
+    """The windowed centroid starts at sep's peak; when it would move > 1 px (here a fake peak 3 px off a star) x, y stay
+    at the start point and the dot carries SEP_FLAG_CENTROID_FALLBACK; a good centroid does not."""
+    from skyshift_core.detect import DETECTION_DTYPE, SEP_FLAG_CENTROID_FALLBACK, measure_objects
+
+    sub = np.ascontiguousarray(gaussian_image((41, 41), [20.3], [19.6], [500.0], 0.52) + 0.0)
+    err = np.full(sub.shape, 0.05)
+    mm = np.zeros(sub.shape, bool)
+    objs = np.zeros(2, dtype=[("x", "f8"), ("y", "f8"), ("xpeak", "i4"), ("ypeak", "i4"), ("peak", "f8"),
+                              ("npix", "i4"), ("flag", "i2")])
+    objs["xpeak"], objs["ypeak"] = [20, 23], [20, 20]
+    objs["x"], objs["y"] = [20.2, 23.0], [19.7, 20.0]
+    objs["flag"] = [1, 0]
+    out = measure_objects(sub, err, mm, objs)
+    assert out.dtype == DETECTION_DTYPE
+    good = out[np.argmin(np.abs(out["x"] - 20.3))]
+    bad = out[np.argmin(np.abs(out["x"] - 23.0))]
+    assert abs(good["x"] - 20.3) < 0.05 and good["sep_flag"] == 1  # sep's own flag kept, no fallback bit
+    assert bad["x"] == 23.0 and bad["y"] == 20.0 and bad["sep_flag"] == SEP_FLAG_CENTROID_FALLBACK

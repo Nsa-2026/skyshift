@@ -27,7 +27,10 @@ movers.parquet):
 2. per mover on a track: the local fit's rate (″/h), position angle (east of north), rate σ, chi2_nu, residual.
 3. recovery: at each other session of the visit within TRACK_RECOVER_EXT_H of the track, the predicted position at each
    unpaired dot's own time (link's nonfixed_dots.parquet: not in a fixed group, not within FIXED_VETO_ARCSEC of one,
-   elong <= MOVER_MAX_ELONG) within TRACK_RECOVER_R_MIN..MAX_ARCSEC: those dots are recovered detections.
+   elong <= MOVER_MAX_ELONG) within TRACK_RECOVER_R_MIN..MAX_ARCSEC: those dots are recovered detections. With session
+   stacks on (SESSION_STACK), nonfixed_dots also holds the stack rows in no fixed group (stack_row >= 0, the session's
+   mean time): they are recovered the same way where the track moves less than TRACK_RECOVER_STACK_SMEAR_ARCSEC over the
+   session, so a faint asteroid seen only in a session's stack joins its track (tracklet_dots stack_key / stack_row).
 4. control: the same linking with every session's movers shifted by its own random 0.5-1.5° offset (fixed seed), so no
    real track survives: the chance-track count at this density, in the summary.
 
@@ -59,6 +62,7 @@ TRACK_COLUMNS = ["mover_id", "session", "visit", "mjd", "ra", "dec", "cell", "tr
 DOT_COLUMNS = ["tracklet_id", "visit", "session", "obs_id", "detector", "dot_row", "ra", "dec", "mjd", "snr", "flux_ujy",
                "flags", "flags_peak", "sep_arcsec", "r_arcsec", "pred_ra", "pred_dec", "in_fixed"]
 FREE_DOTS = NONFIXED_DOTS_NAME  # link's table of the dots in no fixed group
+STACK_DOT_COLUMNS = ["stack_key", "stack_row"]  # with session stacks (link): the stack table and row ("" / −1 = a real dot)
 
 
 class Accel(NamedTuple):
@@ -542,15 +546,38 @@ def load_free_dots(store: Store, zone: C.Zone) -> pd.DataFrame | None:
         fd = fd[~fd["in_fixed"].to_numpy(bool)]
     if "elong" in fd:
         fd = fd[~(fd["elong"].to_numpy(np.float64) > C.MOVER_MAX_ELONG)]
+    if "stack_row" in fd and not C.SESSION_STACK:  # session-stack rows only with the switch on
+        fd = fd[~stack_rows(fd)].drop(columns=[c for c in STACK_DOT_COLUMNS if c in fd])
     return fd.reset_index(drop=True)
+
+
+def stack_rows(fd: pd.DataFrame) -> np.ndarray:
+    """True for session-stack rows (stack_row >= 0); all False without the column."""
+    if "stack_row" not in fd:
+        return np.zeros(len(fd), bool)
+    return pd.to_numeric(fd["stack_row"], errors="coerce").fillna(-1).to_numpy(np.float64) >= 0
+
+
+def dot_columns(fd: pd.DataFrame | None) -> list[str]:
+    """tracklet_dots' columns: DOT_COLUMNS, plus STACK_DOT_COLUMNS when the free dots carry session-stack rows."""
+    return DOT_COLUMNS + ([c for c in STACK_DOT_COLUMNS if c in fd] if fd is not None else [])
+
+
+def empty_dots(cols: list[str]) -> pd.DataFrame:
+    return pd.DataFrame({c: pd.Series(dtype="bool" if c == "in_fixed" else "object" if c == "stack_key" else "float64")
+                         for c in cols})
 
 
 def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
     """Unpaired dots at each track's predicted positions in the other sessions of its visit.
-    tracks: {id, visit, t (h), ra, dec, sig, sess, acc} per track; fd needs `_t` (h); sessions: session, visit, t, half (h)."""
-    empty = pd.DataFrame({c: pd.Series(dtype="bool" if c == "in_fixed" else "float64") for c in DOT_COLUMNS})
+    tracks: {id, visit, t (h), ra, dec, sig, sess, acc} per track; fd needs `_t` (h); sessions: session, visit, t, half (h).
+    A session-stack row (stack_row >= 0; its time is the session's mean) is used only where the track moves less than
+    TRACK_RECOVER_STACK_SMEAR_ARCSEC over that session (first to last photo): faster, the stack smears the object."""
+    cols = dot_columns(fd)
+    empty = empty_dots(cols)
     if not tracks or fd is None or not len(fd):
         return empty
+    stack = stack_rows(fd) if "stack_row" in fd else None
     t_fd = fd["_t"].to_numpy(np.float64)
     fra, fdec = fd["ra"].to_numpy(np.float64), fd["dec"].to_numpy(np.float64)
     fsnr = fd["snr"].to_numpy(np.float64)
@@ -562,7 +589,7 @@ def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     s_vis = sessions["visit"].to_numpy(np.int64)
     s_t, s_half, s_id = sessions["t"].to_numpy(np.float64), sessions["half"].to_numpy(np.float64), sessions["session"].to_numpy(np.int64)
     keep_cols = [k for k in ("session", "obs_id", "detector", "dot_row", "ra", "dec", "mjd", "snr", "flux_ujy", "flags",
-                             "flags_peak", "in_fixed") if k in fd]
+                             "flags_peak", "in_fixed", *STACK_DOT_COLUMNS) if k in fd]
     hits: list[tuple] = []
     for tr in tracks:
         t, sig, acc = tr["t"], tr["sig"], tr["acc"]
@@ -590,6 +617,8 @@ def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.
             r = match_radius(f.sigma_at(t_fd[c]), mover_sigma(fsnr[c], 1), f.allowance(t_fd[c]),
                              C.TRACK_RECOVER_R_MIN_ARCSEC, C.TRACK_RECOVER_R_MAX_ARCSEC)
             ok = sep <= r
+            if stack is not None and f.rate * 2.0 * s_half[j] > C.TRACK_RECOVER_STACK_SMEAR_ARCSEC:
+                ok &= ~stack[c]  # smeared in this session's stack: real dots only
             if ok.any():
                 pr, pd_ = tan_radec(ra0, dec0, ex[ok], ey[ok])
                 hits.append((tr["id"], tr["visit"], c[ok], sep[ok], r[ok], pr, pd_))
@@ -603,10 +632,10 @@ def recover(tracks: list[dict], fd: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     out["r_arcsec"] = np.concatenate([h[4] for h in hits]).astype(np.float32)
     out["pred_ra"] = np.concatenate([h[5] for h in hits])
     out["pred_dec"] = np.concatenate([h[6] for h in hits])
-    for c in DOT_COLUMNS:
+    for c in cols:
         if c not in out:
             out[c] = False if c == "in_fixed" else np.nan
-    return out[DOT_COLUMNS].sort_values(["tracklet_id", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
+    return out[cols].sort_values(["tracklet_id", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
 
 
 # --- the step ---------------------------------------------------------------------------------------------------
@@ -735,7 +764,7 @@ def build(movers: pd.DataFrame, photos: pd.DataFrame, zone: C.Zone, fd: pd.DataF
         out[c] = F[c].astype(np.float32)
     out["fit_degree"] = deg
     # recovery
-    rec = pd.DataFrame({c: pd.Series(dtype="bool" if c == "in_fixed" else "float64") for c in DOT_COLUMNS})
+    rec = empty_dots(dot_columns(fd))
     crec = None
     if C.TRACK_RECOVER and fd is not None and tracks:
         g = photos.groupby("session")
@@ -761,6 +790,8 @@ def build(movers: pd.DataFrame, photos: pd.DataFrame, zone: C.Zone, fd: pd.DataF
                "recovered_sessions": int(rec.groupby(["tracklet_id", "session"]).ngroups) if len(rec) else 0,
                "tracklets_with_recovery": int(rec["tracklet_id"].nunique()) if len(rec) else 0,
                "recovered_in_fixed": int(rec["in_fixed"].fillna(False).astype(bool).sum()) if len(rec) else 0})
+    if fd is not None and "stack_row" in fd:  # session stacks on: their rows among the free and the recovered dots
+        st.update(nonfixed_stack_rows=int(stack_rows(fd).sum()), recovered_stack_rows=int(stack_rows(rec).sum()))
     if control and n:
         cl, cs, _ = link_all(movers, t0, seed=C.CONTROL_SEED, accels=accels)
         ns = pd.Series(sess[cl >= 0]).groupby(cl[cl >= 0]).nunique()
@@ -770,6 +801,8 @@ def build(movers: pd.DataFrame, photos: pd.DataFrame, zone: C.Zone, fd: pd.DataF
         if crec is not None:
             st["control"].update(recovered_dots=int(len(crec)),
                                  recovered_in_fixed=int(crec["in_fixed"].fillna(False).astype(bool).sum()) if len(crec) else 0)
+            if "stack_row" in fd:
+                st["control"]["recovered_stack_rows"] = int(stack_rows(crec).sum())
     return out[TRACK_COLUMNS], rec, st
 
 

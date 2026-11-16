@@ -1,0 +1,741 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>SkyShift: what changed in known stars</title>
+  <subtitle>Stars and sources whose brightness or colour changed between NASA SPHEREx visits six months apart, measured by SkyShift. Each entry says what changed, by how much, and what to look at.</subtitle>
+  <link rel="self" type="application/atom+xml" href="https://skyshift.web.app/data/changes.atom"/>
+  <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes"/>
+  <id>https://skyshift.web.app/data/changes.atom</id>
+  <updated>2026-11-16T20:00:44Z</updated>
+  <author><name>SkyShift</name></author>
+  <generator>skyshift_pipeline.changes_export</generator>
+  <entry>
+    <title>Gaia DR3 3422097832555741568: 19% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3422097832555741568</id>
+    <updated>2026-09-15T08:48:28Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3422097832555741568"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.76358&amp;dec=28.17913&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 3422097832555741568 went from 0.93 to 1.11 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 19% brighter, 6.3σ beyond its own scatter; other detectors: D5 +11% (+2.0σ), D6 +39% (+3.5σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3422097832555741568 went from 0.93 to 1.11 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 19% brighter, 6.3σ beyond its own scatter; other detectors: D5 +11% (+2.0σ), D6 +39% (+3.5σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.76358&amp;amp;dec=28.17913&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3446874330657375488: 68% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3446874330657375488</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3446874330657375488"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=79.78690&amp;dec=30.49750&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 3446874330657375488 went from 0.64 to 1.07 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 68% brighter, 5.2σ beyond its own scatter; other detectors: D6 +397% (+2.2σ). Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3446874330657375488 went from 0.64 to 1.07 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 68% brighter, 5.2σ beyond its own scatter; other detectors: D6 +397% (+2.2σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=79.78690&amp;amp;dec=30.49750&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157525587802767360: 13% fainter in D6 (4.4–5.0 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157525587802767360</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157525587802767360"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.26072&amp;dec=31.91601&amp;clock=months&amp;fov=5&amp;det=6#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157525587802767360 went from 1.02 to 0.89 of its usual brightness in D6 (4.4–5.0 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 13% fainter, 10.8σ beyond its own scatter; other detectors: D1 -81% (-9.8σ). Gaia already lists it as variable. Look: Viewer, months clock, D6: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157525587802767360 went from 1.02 to 0.89 of its usual brightness in D6 (4.4–5.0 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 13% fainter, 10.8σ beyond its own scatter; other detectors: D1 -81% (-9.8σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D6: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class LPV: long-period variable (a pulsating giant)): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.26072&amp;amp;dec=31.91601&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=6#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D6).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157247170843175040: 11% fainter in D6 (4.4–5.0 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157247170843175040</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157247170843175040"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.94573&amp;dec=31.33838&amp;clock=months&amp;fov=5&amp;det=6#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157247170843175040 went from 1.04 to 0.92 of its usual brightness in D6 (4.4–5.0 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 11% fainter, 10.6σ beyond its own scatter; other detectors: D5 -5% (-5.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D6: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157247170843175040 went from 1.04 to 0.92 of its usual brightness in D6 (4.4–5.0 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 11% fainter, 10.6σ beyond its own scatter; other detectors: D5 -5% (-5.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D6: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class YSO: young star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.94573&amp;amp;dec=31.33838&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=6#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D6).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157616095651067008: 15% fainter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157616095651067008</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157616095651067008"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=75.71665&amp;dec=32.49716&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157616095651067008 went from 1.04 to 0.89 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 15% fainter, 6.6σ beyond its own scatter; other detectors: D6 -12% (-2.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157616095651067008 went from 1.04 to 0.89 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 15% fainter, 6.6σ beyond its own scatter; other detectors: D6 -12% (-2.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=75.71665&amp;amp;dec=32.49716&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156329976283479040: 21% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156329976283479040</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156329976283479040"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.49758&amp;dec=30.18008&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 156329976283479040 went from 0.91 to 1.10 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 21% brighter, 6.3σ beyond its own scatter; other detectors: D1 +11% (+3.1σ), D4 +7% (+2.2σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156329976283479040 went from 0.91 to 1.10 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 21% brighter, 6.3σ beyond its own scatter; other detectors: D1 +11% (+3.1σ), D4 +7% (+2.2σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.49758&amp;amp;dec=30.18008&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 180499956282172416: 22% fainter in D6 (4.4–5.0 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia180499956282172416</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia180499956282172416"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.76134&amp;dec=31.25192&amp;clock=months&amp;fov=5&amp;det=6#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 180499956282172416 went from 1.14 to 0.89 of its usual brightness in D6 (4.4–5.0 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 22% fainter, 6.0σ beyond its own scatter; other detectors: D3 -16% (-3.8σ). Gaia already lists it as variable. Look: Viewer, months clock, D6: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 180499956282172416 went from 1.14 to 0.89 of its usual brightness in D6 (4.4–5.0 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 22% fainter, 6.0σ beyond its own scatter; other detectors: D3 -16% (-3.8σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D6: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.76134&amp;amp;dec=31.25192&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=6#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D6).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 180706595748560128: 22% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia180706595748560128</id>
+    <updated>2026-09-15T02:19:40Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia180706595748560128"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=78.76671&amp;dec=32.74751&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 180706595748560128 went from 0.91 to 1.11 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 22% brighter, 5.2σ beyond its own scatter; other detectors: D2 +7% (+3.1σ), D5 +15% (+3.7σ), D6 +34% (+2.9σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 180706595748560128 went from 0.91 to 1.11 of its usual brightness in D3 (1.6–2.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-15): 22% brighter, 5.2σ beyond its own scatter; other detectors: D2 +7% (+3.1σ), D5 +15% (+3.7σ), D6 +34% (+2.9σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=78.76671&amp;amp;dec=32.74751&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3422675930857330176: 8% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3422675930857330176</id>
+    <updated>2026-09-13T14:32:38Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3422675930857330176"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=78.59346&amp;dec=29.26700&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 3422675930857330176 went from 1.04 to 0.95 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-13): 8% fainter, 5.9σ beyond its own scatter; other detectors: D5 -3% (-2.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3422675930857330176 went from 1.04 to 0.95 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-13): 8% fainter, 5.9σ beyond its own scatter; other detectors: D5 -3% (-2.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=78.59346&amp;amp;dec=29.26700&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3445626316238418048: 15% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3445626316238418048</id>
+    <updated>2026-09-13T02:21:07Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3445626316238418048"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=80.46439&amp;dec=28.64503&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 3445626316238418048 went from 1.03 to 0.88 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-13): 15% fainter, 7.6σ beyond its own scatter; other detectors: D5 -9% (-2.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3445626316238418048 went from 1.03 to 0.88 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-13): 15% fainter, 7.6σ beyond its own scatter; other detectors: D5 -9% (-2.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=80.46439&amp;amp;dec=28.64503&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 181458215025292160: 27% fainter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia181458215025292160</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia181458215025292160"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=78.61217&amp;dec=32.80089&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 181458215025292160 went from 1.14 to 0.83 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 27% fainter, 20.7σ beyond its own scatter; other detectors: D2 -18% (-10.6σ), D6 -37% (-11.3σ). Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 181458215025292160 went from 1.14 to 0.83 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 27% fainter, 20.7σ beyond its own scatter; other detectors: D2 -18% (-10.6σ), D6 -37% (-11.3σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=78.61217&amp;amp;dec=32.80089&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156111448348782976: 12% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156111448348782976</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156111448348782976"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=78.09831&amp;dec=29.88912&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 156111448348782976 went from 1.07 to 0.94 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 12% fainter, 9.4σ beyond its own scatter; other detectors: D5 -6% (-5.1σ). Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156111448348782976 went from 1.07 to 0.94 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 12% fainter, 9.4σ beyond its own scatter; other detectors: D5 -6% (-5.1σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=78.09831&amp;amp;dec=29.88912&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3446880103093387392: 12% fainter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3446880103093387392</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3446880103093387392"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=79.76907&amp;dec=30.61203&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 3446880103093387392 went from 1.06 to 0.93 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 12% fainter, 8.0σ beyond its own scatter; other detectors: D2 -3% (-2.8σ), D3 -7% (-3.6σ), D6 -22% (-6.6σ). Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3446880103093387392 went from 1.06 to 0.93 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 12% fainter, 8.0σ beyond its own scatter; other detectors: D2 -3% (-2.8σ), D3 -7% (-3.6σ), D6 -22% (-6.6σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=79.76907&amp;amp;dec=30.61203&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 180606746349299456: 10% brighter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia180606746349299456</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia180606746349299456"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=79.05270&amp;dec=31.92670&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 180606746349299456 went from 0.97 to 1.07 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 10% brighter, 7.6σ beyond its own scatter; other detectors: D3 +6% (+2.7σ), D6 +18% (+6.5σ). Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 180606746349299456 went from 0.97 to 1.07 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 10% brighter, 7.6σ beyond its own scatter; other detectors: D3 +6% (+2.7σ), D6 +18% (+6.5σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=79.05270&amp;amp;dec=31.92670&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3446761424556747264: 35% brighter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3446761424556747264</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3446761424556747264"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=79.11907&amp;dec=30.16027&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 3446761424556747264 went from 0.88 to 1.19 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 35% brighter, 7.6σ beyond its own scatter; other detectors: D2 +19% (+2.0σ). Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3446761424556747264 went from 0.88 to 1.19 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 35% brighter, 7.6σ beyond its own scatter; other detectors: D2 +19% (+2.0σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=79.11907&amp;amp;dec=30.16027&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3446821691538546560: 29% brighter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3446821691538546560</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3446821691538546560"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=80.05316&amp;dec=30.27496&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 3446821691538546560 went from 0.90 to 1.17 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 29% brighter, 5.7σ beyond its own scatter; other detectors: D2 +5% (+2.2σ). Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3446821691538546560 went from 0.90 to 1.17 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 29% brighter, 5.7σ beyond its own scatter; other detectors: D2 +5% (+2.2σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 1.2 mag brighter sits 13″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D5: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=80.05316&amp;amp;dec=30.27496&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156141684919662336: 30% brighter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156141684919662336</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156141684919662336"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=78.49843&amp;dec=30.11587&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 156141684919662336 went from 0.85 to 1.11 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 30% brighter, 17.7σ beyond its own scatter; other detectors: D6 +42% (+3.2σ). Gaia already lists it as variable. Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156141684919662336 went from 0.85 to 1.11 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 30% brighter, 17.7σ beyond its own scatter; other detectors: D6 +42% (+3.2σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class LPV: long-period variable (a pulsating giant)): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=78.49843&amp;amp;dec=30.11587&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3446722593755425024: 9% fainter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3446722593755425024</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3446722593755425024"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=79.61427&amp;dec=30.14702&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 3446722593755425024 went from 1.03 to 0.94 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 9% fainter, 9.6σ beyond its own scatter; other detectors: D3 -10% (-5.7σ), D6 -25% (-3.2σ). Gaia already lists it as variable. Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3446722593755425024 went from 1.03 to 0.94 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 9% fainter, 9.6σ beyond its own scatter; other detectors: D3 -10% (-5.7σ), D6 -25% (-3.2σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class YSO: young star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=79.61427&amp;amp;dec=30.14702&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156155738051048192: 9% brighter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156155738051048192</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156155738051048192"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.71046&amp;dec=29.91588&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 156155738051048192 went from 0.99 to 1.07 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 9% brighter, 6.1σ beyond its own scatter; other detectors: D3 +10% (+4.2σ), D5 +6% (+2.1σ), D6 +23% (+3.7σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156155738051048192 went from 0.99 to 1.07 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 9% brighter, 6.1σ beyond its own scatter; other detectors: D3 +10% (+4.2σ), D5 +6% (+2.1σ), D6 +23% (+3.7σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class DSCT|GDOR|SXPHE: delta Scuti type pulsator): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.71046&amp;amp;dec=29.91588&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3446672531616613632: 8% fainter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3446672531616613632</id>
+    <updated>2026-09-12T20:35:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3446672531616613632"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=79.73030&amp;dec=29.63911&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 3446672531616613632 went from 1.04 to 0.95 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 8% fainter, 5.7σ beyond its own scatter; other detectors: D2 -9% (-4.6σ). Gaia already lists it as variable. Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3446672531616613632 went from 1.04 to 0.95 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 8% fainter, 5.7σ beyond its own scatter; other detectors: D2 -9% (-4.6σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable: a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=79.73030&amp;amp;dec=29.63911&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 3422140881012182528: 15% brighter in D5 (3.8–4.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia3422140881012182528</id>
+    <updated>2026-09-12T10:03:21Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia3422140881012182528"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.38178&amp;dec=28.08859&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 3422140881012182528 went from 0.96 to 1.10 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 15% brighter, 8.8σ beyond its own scatter; other detectors: D1 +9% (+4.6σ). Gaia already lists it as variable. Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 3422140881012182528 went from 0.96 to 1.10 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 15% brighter, 8.8σ beyond its own scatter; other detectors: D1 +9% (+4.6σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class LPV: long-period variable (a pulsating giant)): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.38178&amp;amp;dec=28.08859&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 181848576013562880: 22% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia181848576013562880</id>
+    <updated>2026-09-11T23:26:52Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia181848576013562880"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=78.89570&amp;dec=33.19762&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 181848576013562880 went from 1.14 to 0.89 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-11): 22% fainter, 8.7σ beyond its own scatter; other detectors: D3 -10% (-2.3σ), D5 -23% (-7.8σ), D6 -11% (-2.0σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 181848576013562880 went from 1.14 to 0.89 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–2 together and visit 3 (2026-09-11): 22% fainter, 8.7σ beyond its own scatter; other detectors: D3 -10% (-2.3σ), D5 -23% (-7.8σ), D6 -11% (-2.0σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=78.89570&amp;amp;dec=33.19762&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 181504665099226368: became redder: +39% from D1 to D6</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia181504665099226368</id>
+    <updated>2026-09-11T23:24:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia181504665099226368"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.44798&amp;dec=32.82123&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="colour"/>
+    <summary type="text">Gaia DR3 181504665099226368 changed colour between its earlier visits 1–2 together and visit 3: its brightness ratio after/before rises by +39% from 0.9 µm (D1) to 4.7 µm (D6) (6.1σ, 4 detectors): it became redder. Look: Viewer, months clock: blink visit 2 against visit 3 in D1, then in D6; in visit 3 it should gain more (or fade less) in D6 than in D1, against the stars around it.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 181504665099226368 changed colour between its earlier visits 1–2 together and visit 3: its brightness ratio after/before rises by +39% from 0.9 µm (D1) to 4.7 µm (D6) (6.1σ, 4 detectors): it became redder.&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock: blink visit 2 against visit 3 in D1, then in D6; in visit 3 it should gain more (or fade less) in D6 than in D1, against the stars around it.&lt;/p&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.44798&amp;amp;dec=32.82123&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 155563170002149376: 8% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia155563170002149376</id>
+    <updated>2026-09-08T15:36:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia155563170002149376"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.25999&amp;dec=28.68120&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 155563170002149376 went from 1.01 to 0.93 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-08): 8% fainter, 5.4σ beyond its own scatter; other detectors: D2 +6% (+2.2σ), D3 -5% (-2.2σ), D5 +7% (+2.9σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 155563170002149376 went from 1.01 to 0.93 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-08): 8% fainter, 5.4σ beyond its own scatter; other detectors: D2 +6% (+2.2σ), D3 -5% (-2.2σ), D5 +7% (+2.9σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: 2 other detectors changed the opposite way (by at least 2σ). &lt;i&gt;Look: Viewer, months clock: blink the same two visits in each detector.&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RR: RR Lyrae pulsating star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.25999&amp;amp;dec=28.68120&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157466149752476928: 9% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157466149752476928</id>
+    <updated>2026-09-06T00:02:52Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157466149752476928"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=75.47679&amp;dec=31.80856&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157466149752476928 went from 1.05 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 9% fainter, 5.5σ beyond its own scatter; other detectors: D4 -4% (-3.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157466149752476928 went from 1.05 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 9% fainter, 5.5σ beyond its own scatter; other detectors: D4 -4% (-3.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 1.8 mag brighter sits 17″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D1: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class LPV: long-period variable (a pulsating giant)): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=75.47679&amp;amp;dec=31.80856&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156024518209509248: 20% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156024518209509248</id>
+    <updated>2026-09-06T00:01:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156024518209509248"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.12430&amp;dec=29.42286&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 156024518209509248 went from 1.09 to 0.87 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 20% fainter, 15.6σ beyond its own scatter; other detectors: D4 -13% (-6.8σ), D6 +11% (+2.0σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156024518209509248 went from 1.09 to 0.87 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 20% fainter, 15.6σ beyond its own scatter; other detectors: D4 -13% (-6.8σ), D6 +11% (+2.0σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: 1 other detector changed the opposite way (by at least 2σ). &lt;i&gt;Look: Viewer, months clock: blink the same two visits in each detector.&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.12430&amp;amp;dec=29.42286&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157113343958874240: 18% brighter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157113343958874240</id>
+    <updated>2026-09-06T00:01:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157113343958874240"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.35589&amp;dec=30.73249&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157113343958874240 went from 0.94 to 1.11 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 18% brighter, 7.2σ beyond its own scatter; other detectors: D1 +11% (+3.0σ). Gaia already lists it as variable. Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157113343958874240 went from 0.94 to 1.11 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 18% brighter, 7.2σ beyond its own scatter; other detectors: D1 +11% (+3.0σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 0.6 mag brighter sits 18″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D4: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.35589&amp;amp;dec=30.73249&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156061214410047744: 7% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156061214410047744</id>
+    <updated>2026-09-06T00:01:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156061214410047744"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.19554&amp;dec=29.57978&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 156061214410047744 went from 1.03 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 7% fainter, 5.8σ beyond its own scatter; other detectors: D4 -6% (-5.6σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156061214410047744 went from 1.03 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 7% fainter, 5.8σ beyond its own scatter; other detectors: D4 -6% (-5.6σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RS: RS CVn active binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.19554&amp;amp;dec=29.57978&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157107051830740736: 6% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157107051830740736</id>
+    <updated>2026-09-06T00:01:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157107051830740736"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.47626&amp;dec=30.54237&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157107051830740736 went from 1.02 to 0.96 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 6% fainter, 5.8σ beyond its own scatter; other detectors: D1 -4% (-2.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157107051830740736 went from 1.02 to 0.96 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 6% fainter, 5.8σ beyond its own scatter; other detectors: D1 -4% (-2.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RS: RS CVn active binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.47626&amp;amp;dec=30.54237&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 156483014558393216: 9% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia156483014558393216</id>
+    <updated>2026-09-06T00:01:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia156483014558393216"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=77.17118&amp;dec=30.94502&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 156483014558393216 went from 0.97 to 1.06 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 9% brighter, 6.3σ beyond its own scatter; other detectors: D3 -4% (-2.5σ), D4 +5% (+3.7σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 156483014558393216 went from 0.97 to 1.06 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 9% brighter, 6.3σ beyond its own scatter; other detectors: D3 -4% (-2.5σ), D4 +5% (+3.7σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: 1 other detector changed the opposite way (by at least 2σ). &lt;i&gt;Look: Viewer, months clock: blink the same two visits in each detector.&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: Its core saturates in some photos: the brightness comes from the wings.&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RS: RS CVn active binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=77.17118&amp;amp;dec=30.94502&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 155850211256655360: 5% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia155850211256655360</id>
+    <updated>2026-09-06T00:01:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia155850211256655360"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.14846&amp;dec=29.24177&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 155850211256655360 went from 1.02 to 0.97 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 5% fainter, 5.0σ beyond its own scatter; other detectors: D1 -3% (-2.6σ), D3 -7% (-3.6σ). Gaia already lists it as variable. Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 155850211256655360 went from 1.02 to 0.97 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 5% fainter, 5.0σ beyond its own scatter; other detectors: D1 -3% (-2.6σ), D3 -7% (-3.6σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RS: RS CVn active binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.14846&amp;amp;dec=29.24177&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 160144525717170688: 10% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia160144525717170688</id>
+    <updated>2026-09-05T13:29:16Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia160144525717170688"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=73.78686&amp;dec=31.72909&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 160144525717170688 went from 1.05 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-05): 10% fainter, 6.2σ beyond its own scatter; other detectors: D4 -9% (-6.1σ). Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 160144525717170688 went from 1.05 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-05): 10% fainter, 6.2σ beyond its own scatter; other detectors: D4 -9% (-6.1σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=73.78686&amp;amp;dec=31.72909&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 157295931608042624: 5% brighter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia157295931608042624</id>
+    <updated>2026-09-05T13:29:16Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia157295931608042624"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=76.17155&amp;dec=31.43425&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 157295931608042624 went from 0.99 to 1.04 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-05): 5% brighter, 5.3σ beyond its own scatter; other detectors: D1 +7% (+4.6σ). Gaia already lists it as variable. Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 157295931608042624 went from 0.99 to 1.04 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-05): 5% brighter, 5.3σ beyond its own scatter; other detectors: D1 +7% (+4.6σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RS: RS CVn active binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=76.17155&amp;amp;dec=31.43425&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 160747814004063488: 17% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia160747814004063488</id>
+    <updated>2026-09-02T04:03:21Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia160747814004063488"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=73.59116&amp;dec=32.53266&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 160747814004063488 went from 1.10 to 0.92 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 17% fainter, 11.6σ beyond its own scatter; other detectors: D1 -17% (-5.7σ). Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 160747814004063488 went from 1.10 to 0.92 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 17% fainter, 11.6σ beyond its own scatter; other detectors: D1 -17% (-5.7σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=73.59116&amp;amp;dec=32.53266&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 160806500436910080: 26% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia160806500436910080</id>
+    <updated>2026-09-02T04:03:21Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia160806500436910080"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=73.63711&amp;dec=32.80229&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 160806500436910080 went from 1.17 to 0.87 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 26% fainter, 8.2σ beyond its own scatter; other detectors: D1 -20% (-5.8σ). Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 160806500436910080 went from 1.17 to 0.87 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 26% fainter, 8.2σ beyond its own scatter; other detectors: D1 -20% (-5.8σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=73.63711&amp;amp;dec=32.80229&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 160628001596617216: 12% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rwaur-ch-gaia160628001596617216</id>
+    <updated>2026-09-02T04:03:21Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rwaur-ch-gaia160628001596617216"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=75.81749&amp;dec=32.76237&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 160628001596617216 went from 0.98 to 1.09 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 12% brighter, 5.8σ beyond its own scatter; other detectors: D4 +5% (+3.8σ). Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 160628001596617216 went from 0.98 to 1.09 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 12% brighter, 5.8σ beyond its own scatter; other detectors: D4 +5% (+3.8σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=75.81749&amp;amp;dec=32.76237&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1635175486463727360: 21% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1635175486463727360</id>
+    <updated>2026-07-14T03:00:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1635175486463727360"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=249.81773&amp;dec=65.06277&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 1635175486463727360 went from 0.90 to 1.09 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-14): 21% brighter, 8.5σ beyond its own scatter; other detectors: D4 +6% (+3.5σ). Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1635175486463727360 went from 0.90 to 1.09 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-14): 21% brighter, 8.5σ beyond its own scatter; other detectors: D4 +6% (+3.5σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 2.3 mag brighter sits 7″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D1: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=249.81773&amp;amp;dec=65.06277&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1635191498101782016: 8% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1635191498101782016</id>
+    <updated>2026-07-14T03:00:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1635191498101782016"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=249.68261&amp;dec=65.14574&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1635191498101782016 went from 1.03 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-14): 8% fainter, 6.0σ beyond its own scatter; other detectors: D2 -5% (-3.0σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1635191498101782016 went from 1.03 to 0.95 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-14): 8% fainter, 6.0σ beyond its own scatter; other detectors: D2 -5% (-3.0σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class SOLAR_LIKE: spotted Sun-like star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=249.68261&amp;amp;dec=65.14574&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1635300040515480448: 12% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1635300040515480448</id>
+    <updated>2026-07-14T02:58:33Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1635300040515480448"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=251.42067&amp;dec=65.41897&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1635300040515480448 went from 0.97 to 1.08 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-14): 12% brighter, 5.7σ beyond its own scatter; other detectors: D4 +4% (+2.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1635300040515480448 went from 0.97 to 1.08 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-14): 12% brighter, 5.7σ beyond its own scatter; other detectors: D4 +4% (+2.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RR: RR Lyrae pulsating star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=251.42067&amp;amp;dec=65.41897&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1648827847467407360: 7% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1648827847467407360</id>
+    <updated>2026-07-11T23:36:57Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1648827847467407360"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=248.54137&amp;dec=68.54807&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 1648827847467407360 went from 1.03 to 0.96 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-11): 7% fainter, 5.3σ beyond its own scatter; other detectors: D2 -3% (-2.4σ), D4 -2% (-2.7σ), D5 -5% (-2.6σ). Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1648827847467407360 went from 1.03 to 0.96 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-11): 7% fainter, 5.3σ beyond its own scatter; other detectors: D2 -3% (-2.4σ), D4 -2% (-2.7σ), D5 -5% (-2.6σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=248.54137&amp;amp;dec=68.54807&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1648479027403461632: 23% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1648479027403461632</id>
+    <updated>2026-07-11T23:36:57Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1648479027403461632"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=249.97641&amp;dec=67.57912&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1648479027403461632 went from 0.95 to 1.17 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-11): 23% brighter, 7.5σ beyond its own scatter; other detectors: D4 +5% (+2.2σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1648479027403461632 went from 0.95 to 1.17 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-11): 23% brighter, 7.5σ beyond its own scatter; other detectors: D4 +5% (+2.2σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RR: RR Lyrae pulsating star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=249.97641&amp;amp;dec=67.57912&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1642624604726507776: 13% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1642624604726507776</id>
+    <updated>2026-07-10T20:44:09Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1642624604726507776"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=244.50314&amp;dec=67.06561&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 1642624604726507776 went from 1.08 to 0.94 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–6 together and visit 7 (2026-07-10): 13% fainter, 9.0σ beyond its own scatter; other detectors: D1 -5% (-3.2σ), D5 -11% (-8.2σ). Look: Viewer, months clock, D4: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1642624604726507776 went from 1.08 to 0.94 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–6 together and visit 7 (2026-07-10): 13% fainter, 9.0σ beyond its own scatter; other detectors: D1 -5% (-3.2σ), D5 -11% (-8.2σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=244.50314&amp;amp;dec=67.06561&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1648635291197757568: 13% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1648635291197757568</id>
+    <updated>2026-07-10T20:44:09Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1648635291197757568"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=247.82960&amp;dec=67.63996&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 1648635291197757568 went from 1.05 to 0.91 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-10): 13% fainter, 5.6σ beyond its own scatter; other detectors: D4 -7% (-3.7σ), D5 -7% (-3.3σ). Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1648635291197757568 went from 1.05 to 0.91 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-10): 13% fainter, 5.6σ beyond its own scatter; other detectors: D4 -7% (-3.7σ), D5 -7% (-3.3σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 1.7 mag brighter sits 5″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D1: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=247.82960&amp;amp;dec=67.63996&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1642649932149386240: 8% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1642649932149386240</id>
+    <updated>2026-07-10T20:44:09Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1642649932149386240"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=244.51586&amp;dec=67.39728&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1642649932149386240 went from 1.04 to 0.95 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–6 together and visit 7 (2026-07-10): 8% fainter, 6.1σ beyond its own scatter; other detectors: D1 -4% (-2.6σ), D2 -4% (-2.5σ), D5 -4% (-2.2σ). Gaia already lists it as variable. Look: Viewer, months clock, D4: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1642649932149386240 went from 1.04 to 0.95 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–6 together and visit 7 (2026-07-10): 8% fainter, 6.1σ beyond its own scatter; other detectors: D1 -4% (-2.6σ), D2 -4% (-2.5σ), D5 -4% (-2.2σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class AGN: active galaxy nucleus): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=244.51586&amp;amp;dec=67.39728&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1649505657730694400: 22% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1649505657730694400</id>
+    <updated>2026-07-09T08:05:16Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1649505657730694400"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=247.77441&amp;dec=68.77447&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1649505657730694400 went from 0.97 to 1.19 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-09): 22% brighter, 7.7σ beyond its own scatter; other detectors: D2 +25% (+4.1σ), D4 +17% (+3.4σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1649505657730694400 went from 0.97 to 1.19 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-09): 22% brighter, 7.7σ beyond its own scatter; other detectors: D2 +25% (+4.1σ), D4 +17% (+3.4σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=247.77441&amp;amp;dec=68.77447&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1643427630467185280: 11% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1643427630467185280</id>
+    <updated>2026-07-08T22:20:38Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1643427630467185280"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=245.14932&amp;dec=67.66482&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 1643427630467185280 went from 1.05 to 0.93 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–6 together and visit 7 (2026-07-08): 11% fainter, 7.0σ beyond its own scatter; other detectors: D5 -5% (-2.7σ). Look: Viewer, months clock, D4: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1643427630467185280 went from 1.05 to 0.93 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–6 together and visit 7 (2026-07-08): 11% fainter, 7.0σ beyond its own scatter; other detectors: D5 -5% (-2.7σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 0.2 mag brighter sits 10″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D4: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=245.14932&amp;amp;dec=67.66482&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1643474772028288896: 11% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1643474772028288896</id>
+    <updated>2026-07-08T05:12:28Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1643474772028288896"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=244.33879&amp;dec=67.96710&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 1643474772028288896 went from 1.04 to 0.92 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-08): 11% fainter, 5.5σ beyond its own scatter; other detectors: D2 -4% (-2.1σ), D4 -4% (-3.0σ). Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1643474772028288896 went from 1.04 to 0.92 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–6 together and visit 7 (2026-07-08): 11% fainter, 5.5σ beyond its own scatter; other detectors: D2 -4% (-2.1σ), D4 -4% (-3.0σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 1.3 mag brighter sits 12″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D1: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=244.33879&amp;amp;dec=67.96710&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1636889826953275392: 24% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1636889826953275392</id>
+    <updated>2026-06-23T06:47:31Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1636889826953275392"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=253.98818&amp;dec=68.20008&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1636889826953275392 went from 1.12 to 0.84 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–6 together and visit 7 (2026-06-23): 24% fainter, 13.1σ beyond its own scatter; other detectors: D5 -15% (-4.9σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1636889826953275392 went from 1.12 to 0.84 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–6 together and visit 7 (2026-06-23): 24% fainter, 13.1σ beyond its own scatter; other detectors: D5 -15% (-4.9σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 6 (and earlier ones) against visit 7; it should look fainter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=253.98818&amp;amp;dec=68.20008&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 1630169891059069184: 16% brighter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/t_rdra-ch-gaia1630169891059069184</id>
+    <updated>2026-06-21T16:29:16Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/t_rdra-ch-gaia1630169891059069184"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=246.49652&amp;dec=65.23701&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 1630169891059069184 went from 0.97 to 1.13 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–6 together and visit 7 (2026-06-21): 16% brighter, 9.3σ beyond its own scatter; other detectors: D5 +8% (+2.9σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 1630169891059069184 went from 0.97 to 1.13 of its usual brightness in D2 (1.1–1.6 µm) between its earlier visits 1–6 together and visit 7 (2026-06-21): 16% brighter, 9.3σ beyond its own scatter; other detectors: D5 +8% (+2.9σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 6 (and earlier ones) against visit 7; it should look brighter in visit 7 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class RR: RR Lyrae pulsating star): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=246.49652&amp;amp;dec=65.23701&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655753721265007616: 9% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655753721265007616</id>
+    <updated>2026-04-17T21:37:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655753721265007616"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=123.89497&amp;dec=16.32023&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655753721265007616 went from 1.06 to 0.97 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-21) and visit 2 (2026-04-17): 9% fainter, 5.1σ beyond its own scatter; other detectors: D4 -7% (-3.4σ), D6 -23% (-4.1σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655753721265007616 went from 1.06 to 0.97 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-21) and visit 2 (2026-04-17): 9% fainter, 5.1σ beyond its own scatter; other detectors: D4 -7% (-3.4σ), D6 -23% (-4.1σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=123.89497&amp;amp;dec=16.32023&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 656993454986238080: 15% fainter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia656993454986238080</id>
+    <updated>2026-04-17T20:47:02Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia656993454986238080"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=123.65870&amp;dec=17.36905&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 656993454986238080 went from 1.09 to 0.93 of its usual brightness in D4 (2.4–3.8 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-17): 15% fainter, 5.9σ beyond its own scatter; other detectors: D5 -23% (-3.9σ). Look: Viewer, months clock, D4: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 656993454986238080 went from 1.09 to 0.93 of its usual brightness in D4 (2.4–3.8 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-17): 15% fainter, 5.9σ beyond its own scatter; other detectors: D5 -23% (-3.9σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 1.4 mag brighter sits 7″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D4: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=123.65870&amp;amp;dec=17.36905&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 656825156689209344: 17% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia656825156689209344</id>
+    <updated>2026-04-15T02:51:21Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia656825156689209344"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=122.39108&amp;dec=17.08742&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 656825156689209344 went from 1.10 to 0.91 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-15): 17% fainter, 8.5σ beyond its own scatter; other detectors: D2 -8% (-2.9σ), D4 -4% (-2.0σ). Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 656825156689209344 went from 1.10 to 0.91 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-15): 17% fainter, 8.5σ beyond its own scatter; other detectors: D2 -8% (-2.9σ), D4 -4% (-2.0σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A Gaia star 0.7 mag brighter sits 13″ away; its wings fall on this star differently when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D1: does the neighbour's halo change shape between the visits?&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia DR3 656825156689209344 changed colour between visit 1 and visit 2: its brightness ratio after/before rises by +21% from 0.9 µm (D1) to 4.7 µm (D6) (7.0σ, 6 detectors): it became redder. &lt;i&gt;Look: Viewer, months clock: blink visit 1 against visit 2 in D1, then in D6; in visit 2 it should gain more (or fade less) in D6 than in D1, against the stars around it.&lt;/i&gt;&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=122.39108&amp;amp;dec=17.08742&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655697577452714368: 11% fainter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655697577452714368</id>
+    <updated>2026-04-12T04:47:59Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655697577452714368"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=123.70158&amp;dec=15.82300&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 655697577452714368 went from 1.07 to 0.96 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-12): 11% fainter, 5.3σ beyond its own scatter; other detectors: D1 -5% (-3.1σ), D2 -6% (-2.6σ), D4 -5% (-2.8σ). Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655697577452714368 went from 1.07 to 0.96 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-12): 11% fainter, 5.3σ beyond its own scatter; other detectors: D1 -5% (-3.1σ), D2 -6% (-2.6σ), D4 -5% (-2.8σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: Its core saturates in some photos: the brightness comes from the wings.&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=123.70158&amp;amp;dec=15.82300&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 656753830169212288: 19% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia656753830169212288</id>
+    <updated>2026-04-12T04:47:59Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia656753830169212288"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=121.39325&amp;dec=16.74861&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 656753830169212288 went from 1.09 to 0.88 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-21) and visit 2 (2026-04-12): 19% fainter, 8.2σ beyond its own scatter; other detectors: D1 +10% (+2.7σ), D3 -12% (-4.6σ), D4 +10% (+2.9σ), D5 -24% (-5.5σ), D6 -20% (-2.7σ). Gaia already lists it as variable. Look: Viewer, months clock, D2: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 656753830169212288 went from 1.09 to 0.88 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-21) and visit 2 (2026-04-12): 19% fainter, 8.2σ beyond its own scatter; other detectors: D1 +10% (+2.7σ), D3 -12% (-4.6σ), D4 +10% (+2.9σ), D5 -24% (-5.5σ), D6 -20% (-2.7σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: 2 other detectors changed the opposite way (by at least 2σ). &lt;i&gt;Look: Viewer, months clock: blink the same two visits in each detector.&lt;/i&gt;&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=121.39325&amp;amp;dec=16.74861&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 667296531772724480: 17% fainter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia667296531772724480</id>
+    <updated>2026-04-12T04:46:33Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia667296531772724480"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.48816&amp;dec=17.03280&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 667296531772724480 went from 1.11 to 0.92 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-21) and visit 2 (2026-04-12): 17% fainter, 5.9σ beyond its own scatter; other detectors: D1 -7% (-2.3σ). Look: Viewer, months clock, D2: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 667296531772724480 went from 1.11 to 0.92 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-21) and visit 2 (2026-04-12): 17% fainter, 5.9σ beyond its own scatter; other detectors: D1 -7% (-2.3σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.48816&amp;amp;dec=17.03280&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655755473611791104: 21% fainter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655755473611791104</id>
+    <updated>2026-04-11T23:54:14Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655755473611791104"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=123.94519&amp;dec=16.36561&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655755473611791104 went from 1.14 to 0.90 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-11): 21% fainter, 7.6σ beyond its own scatter; other detectors: D4 -6% (-2.3σ), D6 -15% (-7.3σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655755473611791104 went from 1.14 to 0.90 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-11): 21% fainter, 7.6σ beyond its own scatter; other detectors: D4 -6% (-2.3σ), D6 -15% (-7.3σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=123.94519&amp;amp;dec=16.36561&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655753858703958400: 12% fainter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655753858703958400</id>
+    <updated>2026-04-11T23:54:14Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655753858703958400"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=123.90721&amp;dec=16.33727&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655753858703958400 went from 1.06 to 0.94 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-11): 12% fainter, 5.6σ beyond its own scatter; other detectors: D1 -6% (-4.6σ), D2 -5% (-2.8σ), D4 -5% (-2.8σ), D6 -6% (-2.4σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655753858703958400 went from 1.06 to 0.94 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-11): 12% fainter, 5.6σ beyond its own scatter; other detectors: D1 -6% (-4.6σ), D2 -5% (-2.8σ), D4 -5% (-2.8σ), D6 -6% (-2.4σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 4 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable: a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=123.90721&amp;amp;dec=16.33727&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>SPHEREx source 63782006953200: gone in visit 2</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-src63782006953200</id>
+    <updated>2026-04-11T04:30:43Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-src63782006953200"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.74344&amp;dec=16.30465&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="vanished"/>
+    <summary type="text">A source with no Gaia, CatWISE or 2MASS entry (RA 120.74344°, Dec +16.30464°) was there in visit 1 (2025-10-20): 27 photos over 13 sessions saw it in D1–D5 at S/N 61; it was gone in visit 2 (2026-04-11), although 112 of visit 2's photos covered the spot. Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should be there in visit 1 only, while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;A source with no Gaia, CatWISE or 2MASS entry (RA 120.74344°, Dec +16.30464°) was there in visit 1 (2025-10-20): 27 photos over 13 sessions saw it in D1–D5 at S/N 61; it was gone in visit 2 (2026-04-11), although 112 of visit 2's photos covered the spot.&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should be there in visit 1 only, while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: A bright star (G 10.1) sits 303″ away; SPHEREx ghosts of bright stars land elsewhere when the telescope turns between visits. &lt;i&gt;Look: Viewer, months clock, D1, wide field: does a ghost of that star sit on this spot in one visit only?&lt;/i&gt;&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.74344&amp;amp;dec=16.30465&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 656502557403079424: became redder: +23% from D1 to D6</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia656502557403079424</id>
+    <updated>2026-04-10T23:31:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia656502557403079424"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=121.90385&amp;dec=16.52115&amp;clock=months&amp;fov=5&amp;det=5#/explore"/>
+    <category term="colour"/>
+    <summary type="text">Gaia DR3 656502557403079424 changed colour between visit 1 and visit 2: its brightness ratio after/before rises by +23% from 0.9 µm (D1) to 4.7 µm (D6) (5.5σ, 6 detectors): it became redder. Look: Viewer, months clock: blink visit 1 against visit 2 in D1, then in D6; in visit 2 it should gain more (or fade less) in D6 than in D1, against the stars around it.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 656502557403079424 changed colour between visit 1 and visit 2: its brightness ratio after/before rises by +23% from 0.9 µm (D1) to 4.7 µm (D6) (5.5σ, 6 detectors): it became redder.&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock: blink visit 1 against visit 2 in D1, then in D6; in visit 2 it should gain more (or fade less) in D6 than in D1, against the stars around it.&lt;/p&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=121.90385&amp;amp;dec=16.52115&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=5#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D5).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>CatWISE J081628.26+142456.2: 876% brighter in D2 (1.1–1.6 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-catwiseJ081628.26+142456.2</id>
+    <updated>2026-04-10T16:55:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-catwiseJ081628.26+142456.2"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=124.11777&amp;dec=14.41563&amp;clock=months&amp;fov=5&amp;det=2#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">CatWISE J081628.26+142456.2 went from 0.18 to 1.77 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-10): 876% brighter, 9.1σ beyond its own scatter; other detectors: D1 +256% (+5.5σ). Look: Viewer, months clock, D2: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;CatWISE J081628.26+142456.2 went from 0.18 to 1.77 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-10): 876% brighter, 9.1σ beyond its own scatter; other detectors: D1 +256% (+5.5σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D2: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=124.11777&amp;amp;dec=14.41563&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=2#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D2).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>CatWISE J080550.47+161029.7: 18% brighter in D4 (2.4–3.8 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-catwiseJ080550.47+161029.7</id>
+    <updated>2026-04-10T16:55:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-catwiseJ080550.47+161029.7"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=121.46028&amp;dec=16.17491&amp;clock=months&amp;fov=5&amp;det=4#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">CatWISE J080550.47+161029.7 went from 0.90 to 1.06 of its usual brightness in D4 (2.4–3.8 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-10): 18% brighter, 5.5σ beyond its own scatter; other detectors: D5 +36% (+3.0σ), D6 +40% (+5.2σ). Look: Viewer, months clock, D4: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;CatWISE J080550.47+161029.7 went from 0.90 to 1.06 of its usual brightness in D4 (2.4–3.8 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-10): 18% brighter, 5.5σ beyond its own scatter; other detectors: D5 +36% (+3.0σ), D6 +40% (+5.2σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D4: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: CatWISE J080550.47+161029.7 changed colour between visit 1 and visit 2: its brightness ratio after/before rises by +54% from 0.9 µm (D1) to 4.7 µm (D6) (5.1σ, 6 detectors): it became redder. &lt;i&gt;Look: Viewer, months clock: blink visit 1 against visit 2 in D1, then in D6; in visit 2 it should gain more (or fade less) in D6 than in D1, against the stars around it.&lt;/i&gt;&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=121.46028&amp;amp;dec=16.17491&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=4#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D4).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 654356929180353280: 9% fainter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia654356929180353280</id>
+    <updated>2026-04-10T16:55:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia654356929180353280"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.61582&amp;dec=14.67341&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 654356929180353280 went from 1.05 to 0.96 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-10): 9% fainter, 5.1σ beyond its own scatter; other detectors: D2 -6% (-3.0σ), D3 -9% (-3.0σ), D4 -8% (-4.7σ), D5 -4% (-2.3σ). Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 654356929180353280 went from 1.05 to 0.96 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-10): 9% fainter, 5.1σ beyond its own scatter; other detectors: D2 -6% (-3.0σ), D3 -9% (-3.0σ), D4 -8% (-4.7σ), D5 -4% (-2.3σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: Its core saturates in some photos: the brightness comes from the wings.&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 4 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.61582&amp;amp;dec=14.67341&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655243994545701760: 14% brighter in D1 (0.75–1.1 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655243994545701760</id>
+    <updated>2026-04-10T16:55:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655243994545701760"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.88159&amp;dec=16.50261&amp;clock=months&amp;fov=5&amp;det=1#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655243994545701760 went from 0.94 to 1.08 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-10): 14% brighter, 5.7σ beyond its own scatter; other detectors: D3 +11% (+3.6σ), D4 +14% (+4.8σ). Gaia already lists it as variable. Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655243994545701760 went from 0.94 to 1.08 of its usual brightness in D1 (0.75–1.1 µm) between visit 1 (2025-10-19) and visit 2 (2026-04-10): 14% brighter, 5.7σ beyond its own scatter; other detectors: D3 +11% (+3.6σ), D4 +14% (+4.8σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D1: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.88159&amp;amp;dec=16.50261&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=1#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D1).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655828900372514688: 8% fainter in D6 (4.4–5.0 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655828900372514688</id>
+    <updated>2026-04-10T13:40:48Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655828900372514688"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=123.80399&amp;dec=16.74485&amp;clock=months&amp;fov=5&amp;det=6#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655828900372514688 went from 1.07 to 0.98 of its usual brightness in D6 (4.4–5.0 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-10): 8% fainter, 6.1σ beyond its own scatter; other detectors: D5 -7% (-4.1σ). Gaia already lists it as variable. Look: Viewer, months clock, D6: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655828900372514688 went from 1.07 to 0.98 of its usual brightness in D6 (4.4–5.0 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-10): 8% fainter, 6.1σ beyond its own scatter; other detectors: D5 -7% (-4.1σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D6: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: Its core saturates in some photos: the brightness comes from the wings.&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class LPV: long-period variable (a pulsating giant)): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=123.80399&amp;amp;dec=16.74485&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=6#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D6).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 654045355073785728: 11% fainter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia654045355073785728</id>
+    <updated>2026-04-09T11:38:24Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia654045355073785728"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=122.82029&amp;dec=14.93660&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 654045355073785728 went from 1.08 to 0.96 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-09): 11% fainter, 5.2σ beyond its own scatter; other detectors: D2 -5% (-2.2σ). Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 654045355073785728 went from 1.08 to 0.96 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-27) and visit 2 (2026-04-09): 11% fainter, 5.2σ beyond its own scatter; other detectors: D2 -5% (-2.2σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: Its core saturates in some photos: the brightness comes from the wings.&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=122.82029&amp;amp;dec=14.93660&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 656432218722000000: 25% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia656432218722000000</id>
+    <updated>2026-04-08T19:20:38Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia656432218722000000"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=122.28303&amp;dec=16.21328&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <summary type="text">Gaia DR3 656432218722000000 went from 0.89 to 1.12 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 25% brighter, 5.7σ beyond its own scatter; other detectors: D2 +6% (+2.2σ). Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 656432218722000000 went from 0.89 to 1.12 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 25% brighter, 5.7σ beyond its own scatter; other detectors: D2 +6% (+2.2σ).&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 1 other detector changed the same way (by at least 2σ).&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=122.28303&amp;amp;dec=16.21328&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655245025337852416: 18% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655245025337852416</id>
+    <updated>2026-04-08T19:20:38Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655245025337852416"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.84919&amp;dec=16.53618&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655245025337852416 went from 0.91 to 1.07 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 18% brighter, 5.2σ beyond its own scatter; other detectors: D2 +15% (+3.1σ), D6 +17% (+2.8σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655245025337852416 went from 0.91 to 1.07 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 18% brighter, 5.2σ beyond its own scatter; other detectors: D2 +15% (+3.1σ), D6 +17% (+2.8σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.84919&amp;amp;dec=16.53618&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 668789393684992000: 20% fainter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia668789393684992000</id>
+    <updated>2026-04-08T19:19:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia668789393684992000"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.86508&amp;dec=17.08957&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 668789393684992000 went from 1.12 to 0.90 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 20% fainter, 6.8σ beyond its own scatter; other detectors: D2 -11% (-3.6σ), D5 -9% (-3.0σ), D6 -11% (-4.0σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 668789393684992000 went from 1.12 to 0.90 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 20% fainter, 6.8σ beyond its own scatter; other detectors: D2 -11% (-3.6σ), D5 -9% (-3.0σ), D6 -11% (-4.0σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look fainter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;warn&lt;/b&gt;: Two or more Gaia stars G &amp;lt; 19 within 8″ share its light.&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 3 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.86508&amp;amp;dec=17.08957&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Gaia DR3 655264610388704256: 23% brighter in D3 (1.6–2.4 µm)</title>
+    <id>tag:skyshift.web.app,2026-11-16:changes/pilot-ch-gaia655264610388704256</id>
+    <updated>2026-04-08T19:19:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://skyshift.web.app/#/changes/pilot-ch-gaia655264610388704256"/>
+    <link rel="related" type="text/html" href="https://skyshift.web.app/?ra=120.77915&amp;dec=16.76168&amp;clock=months&amp;fov=5&amp;det=3#/explore"/>
+    <category term="brightness"/>
+    <category term="gaia-variable"/>
+    <summary type="text">Gaia DR3 655264610388704256 went from 0.88 to 1.09 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 23% brighter, 5.0σ beyond its own scatter; other detectors: D2 +10% (+2.5σ), D4 +18% (+3.7σ). Gaia already lists it as variable. Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.</summary>
+    <content type="html">&lt;p&gt;Gaia DR3 655264610388704256 went from 0.88 to 1.09 of its usual brightness in D3 (1.6–2.4 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-08): 23% brighter, 5.0σ beyond its own scatter; other detectors: D2 +10% (+2.5σ), D4 +18% (+3.7σ).&lt;/p&gt;&lt;p&gt;&lt;b&gt;Gaia already lists it as variable.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Look: Viewer, months clock, D3: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: 2 other detectors changed the same way (by at least 2σ).&lt;/li&gt;&lt;li&gt;&lt;b&gt;ok&lt;/b&gt;: Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href="https://skyshift.web.app/?ra=120.77915&amp;amp;dec=16.76168&amp;amp;clock=months&amp;amp;fov=5&amp;amp;det=3#/explore"&gt;Open the Viewer on it&lt;/a&gt; (months clock, D3).&lt;/p&gt;</content>
+  </entry>
+</feed>

@@ -637,15 +637,16 @@ def run(store: Store, zone: C.Zone, workers: int = 16, dots_store: Store | None 
 
 
 # --- for the consumers ---------------------------------------------------------------------------------------------
-def load(store: Store, zone) -> pd.Series | None:
+def load(store: Store, zone, read=None) -> pd.Series | None:
     """source_id → tag of the tagged sources, or None when results/<zone>/fragments.parquet is missing or unreadable
-    (consumers then change nothing). zone: a config Zone or its name."""
+    (consumers then change nothing). zone: a config Zone or its name. read(rel, columns) → DataFrame replaces
+    store.read_parquet (the exporter's column reads: two columns, not the whole file)."""
     name = getattr(zone, "name", zone)
     rel = results_rel(name, FILE)
     try:
         if not store.exists(rel):
             return None
-        t = store.read_parquet(rel, columns=["source_id", "tag"])
+        t = (read or store.read_parquet)(rel, columns=["source_id", "tag"])
     except Exception:  # noqa: BLE001
         L.warning("fragments %s: %s unreadable; no tags used", name, rel, exc_info=True)
         return None

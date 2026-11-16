@@ -1,0 +1,593 @@
+{
+ "generated": "2026-11-16T19:24:30Z",
+ "data_release": "DR1+QR3",
+ "zones": [
+  "pilot",
+  "t_rdra",
+  "t_rwaur"
+ ],
+ "watched": [
+  {
+   "zone": "pilot",
+   "stars": 45559,
+   "visits": [
+    1,
+    2
+   ],
+   "listed": 20,
+   "false_alarms_per_1000": 0.117,
+   "skipped": null
+  },
+  {
+   "zone": "t_rdra",
+   "stars": 38438,
+   "visits": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "listed": 13,
+   "false_alarms_per_1000": 0.167,
+   "skipped": null
+  },
+  {
+   "zone": "t_rwaur",
+   "stars": 98583,
+   "visits": [
+    1,
+    2,
+    3
+   ],
+   "listed": 36,
+   "false_alarms_per_1000": 0.325,
+   "skipped": null
+  }
+ ],
+ "counts": {
+  "brightness": 66,
+  "colour": 2,
+  "appeared": 0,
+  "vanished": 1
+ },
+ "gaia_variable": 40,
+ "feed": "changes.atom",
+ "note": "A real sample of web/public/data/changes.json (pipeline changes_export.py on pilot, t_rdra, t_rwaur, 16 Nov tables): 8 of its 69 changes, in the file's order. counts and watched are the full file's.",
+ "changes": [
+  {
+   "id": "t_rwaur-ch-gaia181458215025292160",
+   "kind": "brightness",
+   "zone": "t_rwaur",
+   "zones": [
+    "t_rwaur"
+   ],
+   "name": "Gaia DR3 181458215025292160",
+   "gaia_id": 181458215025292160,
+   "ref_id": "gaia:181458215025292160",
+   "source_id": null,
+   "ra": 78.612175,
+   "dec": 32.800894,
+   "g_mag": 12.09,
+   "det": 5,
+   "clock": "months",
+   "measured": "forced",
+   "visits_before": [
+    1,
+    2
+   ],
+   "visit_after": 3,
+   "mjd_before": 61105.37,
+   "mjd_after": 61295.858,
+   "date_before": "2026-03-06",
+   "date_after": "2026-09-12",
+   "rel_before": 1.1387,
+   "rel_after": 0.8334,
+   "change_frac": -0.2681,
+   "sigma": -20.73,
+   "other_detectors": [
+    {
+     "det": 2,
+     "change_frac": -0.178,
+     "sigma": -10.65
+    },
+    {
+     "det": 6,
+     "change_frac": -0.3673,
+     "sigma": -11.32
+    }
+   ],
+   "colour_change": null,
+   "colour_sigma": null,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 3,
+   "detectors": [
+    5,
+    2,
+    6
+   ],
+   "gaia_variable": false,
+   "gaia_class": null,
+   "headline": "27% fainter in D5 (3.8–4.4 µm)",
+   "text": "Gaia DR3 181458215025292160 went from 1.14 to 0.83 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 27% fainter, 20.7σ beyond its own scatter; other detectors: D2 -18% (-10.6σ), D6 -37% (-11.3σ).",
+   "look": "Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.",
+   "checks": [
+    {
+     "code": "other_detectors_agree",
+     "level": "ok",
+     "text": "2 other detectors changed the same way (by at least 2σ).",
+     "look": "",
+     "values": {
+      "agreeing_detectors": 2
+     }
+    }
+   ],
+   "score": 0.874
+  },
+  {
+   "id": "pilot-ch-src63782006953200",
+   "kind": "vanished",
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "name": "SPHEREx source 63782006953200",
+   "gaia_id": null,
+   "ref_id": null,
+   "source_id": 63782006953200,
+   "ra": 120.743437,
+   "dec": 16.304645,
+   "g_mag": null,
+   "det": 1,
+   "clock": "months",
+   "measured": "own",
+   "visits_before": [
+    1
+   ],
+   "visit_after": 2,
+   "mjd_before": 60968.865,
+   "mjd_after": 61141.188,
+   "date_before": "2025-10-20",
+   "date_after": "2026-04-11",
+   "rel_before": null,
+   "rel_after": null,
+   "change_frac": null,
+   "sigma": null,
+   "other_detectors": [],
+   "colour_change": null,
+   "colour_sigma": null,
+   "snr": 60.6,
+   "n_dots": 27,
+   "n_sessions": 13,
+   "detectors": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "gaia_variable": false,
+   "gaia_class": null,
+   "headline": "gone in visit 2",
+   "text": "A source with no Gaia, CatWISE or 2MASS entry (RA 120.74344°, Dec +16.30464°) was there in visit 1 (2025-10-20): 27 photos over 13 sessions saw it in D1–D5 at S/N 61; it was gone in visit 2 (2026-04-11), although 112 of visit 2's photos covered the spot.",
+   "look": "Viewer, months clock, D1: blink visit 1 against visit 2; it should be there in visit 1 only, while the stars around it stay the same.",
+   "checks": [
+    {
+     "code": "ghost_possible",
+     "level": "warn",
+     "text": "A bright star (G 10.1) sits 303″ away; SPHEREx ghosts of bright stars land elsewhere when the telescope turns between visits.",
+     "look": "Viewer, months clock, D1, wide field: does a ghost of that star sit on this spot in one visit only?",
+     "values": {
+      "sep_arcsec": 303.0,
+      "g_mag": 10.08
+     }
+    }
+   ],
+   "score": 0.741
+  },
+  {
+   "id": "t_rwaur-ch-gaia160747814004063488",
+   "kind": "brightness",
+   "zone": "t_rwaur",
+   "zones": [
+    "t_rwaur"
+   ],
+   "name": "Gaia DR3 160747814004063488",
+   "gaia_id": 160747814004063488,
+   "ref_id": "gaia:160747814004063488",
+   "source_id": null,
+   "ra": 73.591164,
+   "dec": 32.532662,
+   "g_mag": 14.35,
+   "det": 4,
+   "clock": "months",
+   "measured": "forced",
+   "visits_before": [
+    1,
+    2
+   ],
+   "visit_after": 3,
+   "mjd_before": 60920.71,
+   "mjd_after": 61285.169,
+   "date_before": "2025-09-02",
+   "date_after": "2026-09-02",
+   "rel_before": 1.105,
+   "rel_after": 0.9191,
+   "change_frac": -0.1682,
+   "sigma": -11.59,
+   "other_detectors": [
+    {
+     "det": 1,
+     "change_frac": -0.1668,
+     "sigma": -5.7
+    }
+   ],
+   "colour_change": null,
+   "colour_sigma": null,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 3,
+   "detectors": [
+    4,
+    1
+   ],
+   "gaia_variable": false,
+   "gaia_class": null,
+   "headline": "17% fainter in D4 (2.4–3.8 µm)",
+   "text": "Gaia DR3 160747814004063488 went from 1.10 to 0.92 of its usual brightness in D4 (2.4–3.8 µm) between its earlier visits 1–2 together and visit 3 (2026-09-02): 17% fainter, 11.6σ beyond its own scatter; other detectors: D1 -17% (-5.7σ).",
+   "look": "Viewer, months clock, D4: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.",
+   "checks": [
+    {
+     "code": "other_detectors_agree",
+     "level": "ok",
+     "text": "1 other detector changed the same way (by at least 2σ).",
+     "look": "",
+     "values": {
+      "agreeing_detectors": 1
+     }
+    }
+   ],
+   "score": 0.686
+  },
+  {
+   "id": "pilot-ch-catwiseJ081628.26+142456.2",
+   "kind": "brightness",
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "name": "CatWISE J081628.26+142456.2",
+   "gaia_id": null,
+   "ref_id": "catwise:J081628.26+142456.2",
+   "source_id": null,
+   "ra": 124.117768,
+   "dec": 14.415629,
+   "g_mag": null,
+   "det": 2,
+   "clock": "months",
+   "measured": "forced",
+   "visits_before": [
+    1
+   ],
+   "visit_after": 2,
+   "mjd_before": 60971.915,
+   "mjd_after": 61140.705,
+   "date_before": "2025-10-23",
+   "date_after": "2026-04-10",
+   "rel_before": 0.1818,
+   "rel_after": 1.7747,
+   "change_frac": 8.7631,
+   "sigma": 9.11,
+   "other_detectors": [
+    {
+     "det": 1,
+     "change_frac": 2.5616,
+     "sigma": 5.54
+    }
+   ],
+   "colour_change": null,
+   "colour_sigma": null,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 7,
+   "detectors": [
+    2,
+    1
+   ],
+   "gaia_variable": false,
+   "gaia_class": null,
+   "headline": "876% brighter in D2 (1.1–1.6 µm)",
+   "text": "CatWISE J081628.26+142456.2 went from 0.18 to 1.77 of its usual brightness in D2 (1.1–1.6 µm) between visit 1 (2025-10-23) and visit 2 (2026-04-10): 876% brighter, 9.1σ beyond its own scatter; other detectors: D1 +256% (+5.5σ).",
+   "look": "Viewer, months clock, D2: blink visit 1 against visit 2; it should look brighter in visit 2 while the stars around it stay the same.",
+   "checks": [
+    {
+     "code": "other_detectors_agree",
+     "level": "ok",
+     "text": "1 other detector changed the same way (by at least 2σ).",
+     "look": "",
+     "values": {
+      "agreeing_detectors": 1
+     }
+    }
+   ],
+   "score": 0.598
+  },
+  {
+   "id": "t_rwaur-ch-gaia181504665099226368",
+   "kind": "colour",
+   "zone": "t_rwaur",
+   "zones": [
+    "t_rwaur"
+   ],
+   "name": "Gaia DR3 181504665099226368",
+   "gaia_id": 181504665099226368,
+   "ref_id": "gaia:181504665099226368",
+   "source_id": null,
+   "ra": 77.447979,
+   "dec": 32.821227,
+   "g_mag": 15.88,
+   "det": 2,
+   "clock": "months",
+   "measured": "forced",
+   "visits_before": [
+    1,
+    2
+   ],
+   "visit_after": 3,
+   "mjd_before": 61105.37,
+   "mjd_after": 61294.975,
+   "date_before": "2026-03-06",
+   "date_after": "2026-09-11",
+   "rel_before": 1.0638,
+   "rel_after": 0.9309,
+   "change_frac": -0.1249,
+   "sigma": -4.73,
+   "other_detectors": [
+    {
+     "det": 5,
+     "change_frac": 0.1137,
+     "sigma": 3.57
+    }
+   ],
+   "colour_change": 0.391,
+   "colour_sigma": 6.14,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 2,
+   "detectors": [
+    2,
+    5
+   ],
+   "gaia_variable": false,
+   "gaia_class": null,
+   "headline": "became redder: +39% from D1 to D6",
+   "text": "Gaia DR3 181504665099226368 changed colour between its earlier visits 1–2 together and visit 3: its brightness ratio after/before rises by +39% from 0.9 µm (D1) to 4.7 µm (D6) (6.1σ, 4 detectors): it became redder.",
+   "look": "Viewer, months clock: blink visit 2 against visit 3 in D1, then in D6; in visit 3 it should gain more (or fade less) in D6 than in D1, against the stars around it.",
+   "checks": [],
+   "score": 0.367
+  },
+  {
+   "id": "pilot-ch-gaia656502557403079424",
+   "kind": "colour",
+   "zone": "pilot",
+   "zones": [
+    "pilot"
+   ],
+   "name": "Gaia DR3 656502557403079424",
+   "gaia_id": 656502557403079424,
+   "ref_id": "gaia:656502557403079424",
+   "source_id": 63912007012200,
+   "ra": 121.903845,
+   "dec": 16.521147,
+   "g_mag": 13.36,
+   "det": 5,
+   "clock": "months",
+   "measured": "own",
+   "visits_before": [
+    1
+   ],
+   "visit_after": 2,
+   "mjd_before": 60969.508,
+   "mjd_after": 61140.98,
+   "date_before": "2025-10-21",
+   "date_after": "2026-04-10",
+   "rel_before": 0.9162,
+   "rel_after": 1.0958,
+   "change_frac": 0.196,
+   "sigma": 5.84,
+   "other_detectors": [
+    {
+     "det": 4,
+     "change_frac": 0.0893,
+     "sigma": 3.87
+    },
+    {
+     "det": 6,
+     "change_frac": 0.166,
+     "sigma": 3.7
+    }
+   ],
+   "colour_change": 0.2279,
+   "colour_sigma": 5.5,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 5,
+   "detectors": [
+    5,
+    4,
+    6
+   ],
+   "gaia_variable": false,
+   "gaia_class": null,
+   "headline": "became redder: +23% from D1 to D6",
+   "text": "Gaia DR3 656502557403079424 changed colour between visit 1 and visit 2: its brightness ratio after/before rises by +23% from 0.9 µm (D1) to 4.7 µm (D6) (5.5σ, 6 detectors): it became redder.",
+   "look": "Viewer, months clock: blink visit 1 against visit 2 in D1, then in D6; in visit 2 it should gain more (or fade less) in D6 than in D1, against the stars around it.",
+   "checks": [],
+   "score": 0.338
+  },
+  {
+   "id": "t_rwaur-ch-gaia156141684919662336",
+   "kind": "brightness",
+   "zone": "t_rwaur",
+   "zones": [
+    "t_rwaur"
+   ],
+   "name": "Gaia DR3 156141684919662336",
+   "gaia_id": 156141684919662336,
+   "ref_id": "gaia:156141684919662336",
+   "source_id": null,
+   "ra": 78.498434,
+   "dec": 30.115867,
+   "g_mag": 13.4,
+   "det": 5,
+   "clock": "months",
+   "measured": "forced",
+   "visits_before": [
+    1,
+    2
+   ],
+   "visit_after": 3,
+   "mjd_before": 61103.264,
+   "mjd_after": 61295.858,
+   "date_before": "2026-03-04",
+   "date_after": "2026-09-12",
+   "rel_before": 0.8548,
+   "rel_after": 1.1144,
+   "change_frac": 0.3037,
+   "sigma": 17.68,
+   "other_detectors": [
+    {
+     "det": 6,
+     "change_frac": 0.423,
+     "sigma": 3.22
+    }
+   ],
+   "colour_change": null,
+   "colour_sigma": null,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 5,
+   "detectors": [
+    5,
+    6
+   ],
+   "gaia_variable": true,
+   "gaia_class": "LPV",
+   "headline": "30% brighter in D5 (3.8–4.4 µm)",
+   "text": "Gaia DR3 156141684919662336 went from 0.85 to 1.11 of its usual brightness in D5 (3.8–4.4 µm) between its earlier visits 1–2 together and visit 3 (2026-09-12): 30% brighter, 17.7σ beyond its own scatter; other detectors: D6 +42% (+3.2σ).",
+   "look": "Viewer, months clock, D5: blink visit 2 (and earlier ones) against visit 3; it should look brighter in visit 3 while the stars around it stay the same.",
+   "checks": [
+    {
+     "code": "other_detectors_agree",
+     "level": "ok",
+     "text": "1 other detector changed the same way (by at least 2σ).",
+     "look": "",
+     "values": {
+      "agreeing_detectors": 1
+     }
+    },
+    {
+     "code": "known_variable",
+     "level": "ok",
+     "text": "Gaia already lists it as variable (DR3 class LPV: long-period variable (a pulsating giant)): a known variable doing what it does.",
+     "look": "",
+     "values": {
+      "gaia_class": "LPV"
+     }
+    }
+   ],
+   "score": 0.829
+  },
+  {
+   "id": "t_rwaur-ch-gaia156024518209509248",
+   "kind": "brightness",
+   "zone": "t_rwaur",
+   "zones": [
+    "t_rwaur"
+   ],
+   "name": "Gaia DR3 156024518209509248",
+   "gaia_id": 156024518209509248,
+   "ref_id": "gaia:156024518209509248",
+   "source_id": null,
+   "ra": 77.124304,
+   "dec": 29.422859,
+   "g_mag": 15.54,
+   "det": 1,
+   "clock": "months",
+   "measured": "forced",
+   "visits_before": [
+    1,
+    2
+   ],
+   "visit_after": 3,
+   "mjd_before": 61107.167,
+   "mjd_after": 61289.001,
+   "date_before": "2026-03-08",
+   "date_after": "2026-09-06",
+   "rel_before": 1.0865,
+   "rel_after": 0.8674,
+   "change_frac": -0.2016,
+   "sigma": -15.56,
+   "other_detectors": [
+    {
+     "det": 4,
+     "change_frac": -0.1288,
+     "sigma": -6.75
+    },
+    {
+     "det": 6,
+     "change_frac": 0.1102,
+     "sigma": 2.0
+    }
+   ],
+   "colour_change": null,
+   "colour_sigma": null,
+   "snr": null,
+   "n_dots": null,
+   "n_sessions": 5,
+   "detectors": [
+    1,
+    4,
+    6
+   ],
+   "gaia_variable": true,
+   "gaia_class": "ECL",
+   "headline": "20% fainter in D1 (0.75–1.1 µm)",
+   "text": "Gaia DR3 156024518209509248 went from 1.09 to 0.87 of its usual brightness in D1 (0.75–1.1 µm) between its earlier visits 1–2 together and visit 3 (2026-09-06): 20% fainter, 15.6σ beyond its own scatter; other detectors: D4 -13% (-6.8σ), D6 +11% (+2.0σ).",
+   "look": "Viewer, months clock, D1: blink visit 2 (and earlier ones) against visit 3; it should look fainter in visit 3 while the stars around it stay the same.",
+   "checks": [
+    {
+     "code": "detectors_disagree",
+     "level": "warn",
+     "text": "1 other detector changed the opposite way (by at least 2σ).",
+     "look": "Viewer, months clock: blink the same two visits in each detector.",
+     "values": {
+      "disagreeing_detectors": 1
+     }
+    },
+    {
+     "code": "other_detectors_agree",
+     "level": "ok",
+     "text": "1 other detector changed the same way (by at least 2σ).",
+     "look": "",
+     "values": {
+      "agreeing_detectors": 1
+     }
+    },
+    {
+     "code": "known_variable",
+     "level": "ok",
+     "text": "Gaia already lists it as variable (DR3 class ECL: eclipsing binary): a known variable doing what it does.",
+     "look": "",
+     "values": {
+      "gaia_class": "ECL"
+     }
+    }
+   ],
+   "score": 0.75
+  }
+ ]
+}

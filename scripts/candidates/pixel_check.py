@@ -17,6 +17,8 @@ Checks (contract v3.23 codes; `hot_pixel`, `hot_pixel_proven`, `persistence_prov
 - persistence (warn) / persistence_proven (strong): the same detector pixel saturated or ≥ 30× brighter in the
   exposures of that detector up to 30 min before (any field: found through the S3 listing).
 - sharp: each dot's √(a·b) (the pipeline's dot size) against the stars of similar S/N in the same rows of its photo.
+- wide (warn only): its unsaturated dots ≥ 1.3× those stars × the trail's growth at its own rate: a comet's haze or a
+  blend; the size can't tell which, so it never makes a strong check.
 - one_photo: forced flux at each dot's sky place in the other exposures of its detector in the visit (other
   sessions): a steady faint source there (it may be a star just under the cut), a source the dot outshines (`brighter`:
   ≥ 1.5× its light and ≥ 5σ more, as when an asteroid passes a star: ok), or nothing (core pixelcheck.one_photo), with
@@ -32,9 +34,9 @@ export reads only what is new. Run from server/ (its environment has skyshift_co
     uv run python ../scripts/candidates/pixel_check.py --candidates ../web/public/data/candidates.json
     uv run python ../scripts/candidates/pixel_check.py --validate      # hit rates on known asteroids and junk
 
-Selection (default `tocheck`): movers with status open (or none) that the site lists under "To check"
-(web/src/discover/filters.ts setAsideOf: not grade C, and not motion_not_significant unless grade A). `open`: every
-open mover. Results tables come from <root>/results/<zone>/suspects.parquet and photo lists from
+Selection (default `ab`): the open (or status-less) movers of grade A or B in the candidates.json given (since v3.24
+the grade C movers live in candidates-more/<zone>.json; `tocheck` is the old name of `ab`). `open`: every open mover
+of the file, any grade (e.g. a candidates-more file). Results tables come from <root>/results/<zone>/suspects.parquet and photo lists from
 <root>/photolists/zones/<zone>.parquet (bucket layout; `--fetch` copies missing ones with gsutil -n, logged).
 """
 
@@ -95,7 +97,11 @@ EXPOSURE_S = 113.0
 PSF_SIGMA_ARCSEC = 3.2  # the injection model's PSF sigma (pipeline inject: elong × √(1 + L²/12σ²))
 SHARP_OK = 0.8  # every dot 0.8–1.3 × the stars: a point of light, ok
 WIDE_RATIO = 1.3  # wide: dots at least this × the stars of their S/N (known asteroids: 95% of dots below; stars copied
-#                   into the photos at S/N 6: median 1.03, q75 1.11). Every dot (≥ 2): strong; the median dot: warn
+#                   into the photos at S/N 6: median 1.03, q75 1.11), × the trail's growth at the mover's own rate
+#                   (trail_factor). Every dot (≥ 2) or the median dot: a WARNING only (16 Nov): a broad moving dot is a
+#                   comet's haze as often as a blend (blind round: C/2022 N2, 3I/ATLAS strong; 7 zones: 49 of 62 comet
+#                   movers every dot ≥ 1.3×). Saturated dots (OVERFLOW/NONLINEAR within 1.5 px) don't count: NASA's mask
+#                   takes their flat core out of the moments and the wings alone measure 1.6–1.8× (Eros, V 11.2, D2).
 FIXED_CLEAR_ARCSEC = 20.0  # faint_on_path ignores predicted places this close to a fixed source found at a dot's place
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 LEVEL_ORDER = {"strong": 0, "warn": 1, "ok": 2}
@@ -103,6 +109,16 @@ LEVEL_ORDER = {"strong": 0, "warn": 1, "ok": 2}
 
 # ---------------------------------------------------------------------------------------------------------------
 # small helpers
+
+
+def trail_factor(rate_arcsec_h: float) -> float:
+    """Growth of a dot's √(a·b) when it trails rate × EXPOSURE_S in one exposure: a Gaussian PSF (σ = PSF_SIGMA_ARCSEC)
+    smeared over L has variance σ² + L²/12 along the motion, so √(a·b) grows by (1 + L²/12σ²)^¼ (its elongation by the
+    square root: the `trail` check). 1 without a rate (pipeline vet.trail_factor)."""
+    if rate_arcsec_h is None or not np.isfinite(rate_arcsec_h):
+        return 1.0
+    L = abs(float(rate_arcsec_h)) * EXPOSURE_S / 3600.0
+    return float((1.0 + L * L / (12.0 * PSF_SIGMA_ARCSEC ** 2)) ** 0.25)
 
 def when(mjd: float) -> str:
     """'12 Dec 2025, 04:27 UTC' (the Viewer's plate date)."""
@@ -200,14 +216,14 @@ def motion_fit(t_h: np.ndarray, e: np.ndarray, n: np.ndarray, sig: np.ndarray):
 # inputs
 
 def select_movers(doc: dict, select: str) -> list[dict]:
+    """The open movers (status open or none) of a candidates file: `ab` (`tocheck`, its old name) grade A or B only,
+    `open` any grade."""
     out = []
     for c in doc["candidates"]:
         if c.get("kind") != "mover" or (c.get("status") or "open") != "open":
             continue
-        if select == "tocheck":
-            g = c.get("grade")
-            if g == "C" or (g != "A" and "motion_not_significant" in (c.get("reasons") or [])):
-                continue
+        if select in ("ab", "tocheck") and c.get("grade") not in ("A", "B"):
+            continue
         out.append(c)
     return out
 
@@ -877,20 +893,27 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f"Its {len(ratios)} dot{'s are' if len(ratios) > 1 else ' is'} as wide as the stars of similar brightness in"
                 f" the same photos ({fnum(min(ratios), 2)}–{fnum(max(ratios), 2)}×): a point of light, not a cosmic-ray hit.",
                 "", vals))
-        n_wide = sum(1 for x in ratios if x >= WIDE_RATIO)
-        if n_wide and (n_wide == len(ratios) or float(np.median(ratios)) >= WIDE_RATIO):
-            level = "strong" if n_wide == len(ratios) and len(ratios) >= 2 else "warn"
-            widest_d, widest = max(sr, key=lambda q: q[1]["size_ratio"])
+        # wide: unsaturated dots only, against stars × the trail at its own rate; never strong (a comet or a blend)
+        rate_w = m.rate if np.isfinite(m.rate) else getattr(m, "rate_fit", np.nan)
+        tf = trail_factor(rate_w)
+        wr = [(d, r["size_ratio"] / tf) for d, r in sr if not r.get("sat")]
+        wides = [x for _, x in wr]
+        n_wide = sum(1 for x in wides if x >= WIDE_RATIO)
+        metrics["wide_ratio"] = wides
+        if n_wide and (n_wide == len(wides) or float(np.median(wides)) >= WIDE_RATIO):
+            widest_d, _ = max(wr, key=lambda q: q[1])
+            trail_txt = f" (its own trail at {fnum(rate_w)}″ an hour allowed for)" if tf > 1.005 else ""
             checks.append(check(
-                "wide", level,
-                f"{_count_of(n_wide, len(ratios), 'dot')} {'is' if n_wide == 1 else 'are'}"
-                f" {fnum(min(x for x in ratios if x >= WIDE_RATIO), 2)}–{fnum(max(ratios), 2)}× as wide as the stars of the"
-                f" same brightness in the same photos, while known asteroids' dots measure 0.8–1.3×: a smudge, not a sharp"
-                f" moving point (noise or two faint things blended, unless it is a comet's haze).",
-                f"In the Viewer's hours clock on D{widest_d['det']}, exposure of {when(widest_d['mjd'])}: compare the dot with"
-                f" stars of similar brightness around it; it is softer and broader.",
-                dict(size_ratio_min=float(min(ratios)), size_ratio_max=float(max(ratios)), dots=len(ratios),
-                     wide_dots=n_wide, size_arcsec=widest["size_arcsec"])))
+                "wide", "warn",
+                f"{_count_of(n_wide, len(wides), 'dot')} {'is' if n_wide == 1 else 'are'}"
+                f" {fnum(min(x for x in wides if x >= WIDE_RATIO), 2)}–{fnum(max(wides), 2)}× as wide as the stars of the"
+                f" same brightness in the same photos{trail_txt}, while known asteroids' dots measure 0.8–1.3×: wider"
+                f" than a star of its brightness: a comet's haze, or two faint things blended.",
+                f"Look at the plate in the Viewer's hours clock on D{widest_d['det']}, exposure of {when(widest_d['mjd'])}:"
+                f" a comet shows a fuzzy head, sometimes a tail; a blend splits into two points in other exposures.",
+                dict(size_ratio_min=float(min(wides)), size_ratio_max=float(max(wides)), dots=len(wides),
+                     wide_dots=n_wide, size_arcsec=own[id(widest_d)]["size_arcsec"], trail_factor=round(tf, 3),
+                     saturated_dots=len(sr) - len(wr))))
     # trail: only where a 113 s exposure would stretch a point by >= TRAIL_MIN_STRETCH (rate >~ 270″/h); below that the
     # stretch (1.07 at 146″/h, the fastest pair link makes) is smaller than the scatter of a faint dot's elongation
     rate = m.rate if np.isfinite(m.rate) else getattr(m, "rate_fit", np.nan)
@@ -1227,7 +1250,8 @@ def main(argv=None) -> int:
     ap.add_argument("--candidates", default=str(ROOT / "web" / "public" / "data" / "candidates.json"))
     ap.add_argument("--root", default=str(DATA_ROOT), help="local mirror of the bucket layout (results/, photolists/)")
     ap.add_argument("--out", default=None, help="default <root>/checks/pixel.json")
-    ap.add_argument("--select", choices=("tocheck", "open"), default="tocheck")
+    ap.add_argument("--select", choices=("ab", "open", "tocheck"), default="ab",
+                    help="ab: open grade A/B movers (tocheck: the old name); open: every open mover")
     ap.add_argument("--id", action="append", help="only these candidate ids")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=48, help="download threads (one process)")

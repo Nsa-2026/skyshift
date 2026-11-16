@@ -149,12 +149,28 @@ DOTS_V2 = os.environ.get("SKYSHIFT_DOTS_V2", "0") == "1"   # env SKYSHIFT_DOTS_V
 # when it lies within PSF_PASS_R_PX of a subtracted dot, is a dot (sep_flag SEP_FLAG_MF_PASS), measured on the residual.
 # Its aperture snr may be < DOT_MIN_SNR (MF S/N ≈ 1.5 × aperture S/N at S/N 5–7). Every dot gets snr_mf.
 MF_PASS_SNR = 5.0
+# Per detector (16 Nov, second pass; docs/extraction-v2.md §12): the lowest threshold >= MF_PASS_SNR whose negative
+# images (36 full photos, 6 fields) give <= 2.5 matched-filter dots per deg² (~30 per photo: what v2 was tuned to on
+# its dense D2 photo). With the dark-hole mask and the block normalisation every detector meets it at 5.0 (0.3-2.3 per
+# deg²; before: D1 9.9, D2 11.7, D3 2.1, D4 42, D5 36, D6 28). Detectors not listed use MF_PASS_SNR.
+MF_PASS_SNR_DET: dict[int, float] = {1: 5.0, 2: 5.0, 3: 5.0, 4: 5.0, 5: 5.0, 6: 5.0}
+# MF_PASS_NORMALISE (16 Nov, second pass): "off"; "photo": the threshold x max(1, the S/N map's own lower-half sigma);
+# "block": x that sigma in each of MF_SIGMA_GRID^2 blocks where it exceeds MF_SIGMA_MIN_SCALE (psf.mf_noise_stats,
+# mf_sigma_map): D2's top rows (a background ramp in every D2 photo) and confusion-limited plane fields need more.
+# Elsewhere the map's sigma is 1.00-1.05 (faint sources, not noise): scaling there too (min 1.0) cut the fakes another
+# 25% but lost 10 of 267 known-asteroid sightings (V 18-20) and 0.5-2.2% of the Gaia stars; above 1.1 it loses 2 and
+# 0.0-0.5% of the Gaia stars outside the plane (plane D4: 5.7%, confusion). The grid is in the footer (mf.sigma_grid).
+MF_PASS_NORMALISE = "block"
+MF_SIGMA_GRID = 32
+MF_SIGMA_MIN_SCALE = 1.1
 MF_PASS_DEDUP_PX = 1.0
 MF_KERNEL_HALF = 3             # ePSF kernel (2h+1)² px
 MF_PHASES = 1                  # sub-pixel source positions per axis (2: 4 kernels per tile; on ecl04 D2 Gaia at aperture
                                # S/N 3–4 64 → 80% found, but 4× the noise peaks (negative image, >= 5: 30 → 131): off)
 MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 × 21 zones per photo -> 7 × 7 tiles)
 SEP_FLAG_MF_PASS = 0x400
+SEP_FLAG_CENTROID_FALLBACK = 0x800  # set by core detect (16 Nov, second pass) on every dot written from then on: the
+                                    # windowed centroid failed or moved > 1 px, x, y = its start point (0.6-2.2% of dots)
 # Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
 # (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
 MF_PEAK_SNR = 4.0
@@ -164,6 +180,25 @@ EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
 EMPIRICAL_NOISE_SEED = 0
 PARTNER_DETECTOR = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # exposed at the same moment (CLAUDE.md)
 SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps listed (largest first)
+# Dark holes (16 Nov, second pass; core skyshift_core.holes): unflagged pixels far below the sky (mostly cold pixels
+# missing from NASA's COLD mask: the same detector pixels week after week; 300-1,250 per MWIR photo, 20-120 SWIR) are
+# set to NaN (a bad pixel) before anything is measured. 7 sigma left 2/3 of the negative-image fakes (their deepest
+# pixel was at -5 to -7 sigma); 5 sigma removes 71-94% of them, no known asteroid or Gaia star lost.
+DOTS_V2_HOLES = True
+HOLE_SIGMA = 5.0               # a pixel this many sigma (max(sqrt(VARIANCE), background rms)) below the sky is low
+HOLE_MIN_PX = 1                # a hole: this many to ...
+HOLE_MAX_PX = 4                # ... this many 8-connected low pixels (larger low areas are background, left alone)
+HOLE_NEAR_BITS = 0             # 0: anywhere; else only within HOLE_NEAR_PX of a pixel with one of these bits
+HOLE_NEAR_PX = 2
+HOLE_GROW_PX = 0               # the mask = the hole grown by this many pixels
+
+
+def mf_pass_snr(detector) -> float:
+    """The matched-filter pass threshold of this detector (MF_PASS_SNR_DET, else MF_PASS_SNR)."""
+    try:
+        return float(MF_PASS_SNR_DET.get(int(detector), MF_PASS_SNR))
+    except (TypeError, ValueError):
+        return float(MF_PASS_SNR)
 
 
 @dataclass(frozen=True)
@@ -942,6 +977,12 @@ FORCED_SKY_WORKERS = 16                            # ESA TAP sync queries in fli
 FORCED_SKY_TIMEOUT_S = 300                         # per TAP request (the densest partition took 53 s uncapped, 4 s capped)
 FORCED_SKY_PAD_DEG = 0.05                          # extra radius when picking a photo's partitions
 FORCED_SKY_CACHE_PARTITIONS = 16                   # partitions kept in memory per dots worker (a photo reads ~10-14)
+# The red layer (16 Nov, second pass; forced_sky.build_red): AllWISE red sources with no Gaia target, same partitions;
+# dots reads it next to the Gaia layer once its own manifest exists (SKYSHIFT_FORCED_SKY_RED=off: never).
+FORCED_SKY_RED_MODE = os.environ.get("SKYSHIFT_FORCED_SKY_RED", "auto")
+FORCED_SKY_RED_DIR = "refcat/sky/forced_red_n32"
+FORCED_RED_W2SNR_MIN = 3.0                         # W2 S/N >= this (W1 - W2 needs a measured W2)
+FORCED_SKY_RED_MAX_PER_PARTITION = 6000            # reddest first; ~1,800/deg² (field: 200-400/deg²)
 
 # --- final pass (15 Nov): zones with a Gaia-only refcat (SKYSHIFT_REFCAT_CATALOGS=gaia) -----------
 # suspects: the WISE catalogue (16 Nov: a reason and a warning, no longer a veto). refcat/<zone>.parquet without CatWISE
@@ -1110,10 +1151,19 @@ VET_SAME_PIXEL_PX = 1.0
 VET_WHOLE_PX = 0.02
 VET_WHOLE_GATE_DOTS = 2
 LINK_WHOLE_PIXEL_SIGMA_PX = 0.3
-# wide: dot √(a·b) / the detector's stellar size at its S/N (VET_STAR_SIZE_ARCSEC), unsaturated dots only (OVERFLOW or
-# NONLINEAR at the peak: a saturated asteroid is wide too). Reason: every such dot (>= 2) >= VET_WIDE_RATIO (real 0.9% /
-# rest 20.1%: real ones are V 5–7 saturated or trailed); warning: their median >= it (2.5 / 29.5).
+# wide: dot √(a·b) / (the detector's stellar size at its S/N (VET_STAR_SIZE_ARCSEC) × the trail's growth at the mover's
+# own in-session rate: vet.trail_factor = (1 + L²/12σ²)^¼, L = rate × VET_EXPOSURE_S, σ = PSF_SIGMA_ARCSEC; √(a·b) of a
+# trailed Gaussian grows with the 4th root, its long axis (elong) with the square root), unsaturated dots only (OVERFLOW
+# or NONLINEAR at the peak: a saturated asteroid is wide too). A broad moving dot is a comet's haze or two faint things
+# blended, and its size can't tell which. 16 Nov, hunt, ecl04, ecl05, ecl08, ecl10, ecl11, ecl17 as if unknown (real =
+# MPC within 5″, rest = none within 60″): every unsaturated dot >= 1.3× hits 49 of 62 comet movers (306P, 88P, 240P,
+# 24P, 29P, C/2022 N2, 3I/ATLAS), 0.4% of real asteroids, 20.6% of the rest; as a reason (main) it graded 15 comet
+# movers C (all 5 of 3I/ATLAS), and was the ONLY reason of 8 comet, 9 asteroid and 34 rest movers. So it is a warning
+# (every dot, or the median, >= VET_WIDE_RATIO), and a reason only together with an independent sign of a blend
+# (VET_WIDE_WITH: `blend`, two Gaia stars either side of the mover): real 0, comets 0, rest 8 of those 34.
 VET_WIDE_RATIO = 1.3
+VET_WIDE_WITH = ("blend",)
+VET_EXPOSURE_S = 113.0
 VET_SAT_BITS = (1 << 1) | (1 << 15)  # OVERFLOW, NONLINEAR (contracts/flags.md)
 # glow: a broad glow of one detector near a very bright star: one detector, no simultaneous partner, median size ratio >=
 # VET_WIDE_RATIO and a Gaia star of G < VET_GLOW_G_MAG within VET_GLOW_ARCSEC (real 1 of 6,125 / rest 2.0%; round 1:
@@ -1306,6 +1356,10 @@ ORPHANS_RATE_MAX = 2.5             # ″/h: 40 AU TNOs drift 0.003–2.3″/h in
 ORPHANS_DRIFT_NSIGMA = 3.0         # drift_ok: the rate is within this many sigma of [RATE_MIN, RATE_MAX] ...
 ORPHANS_DRIFT_MAX_ERR = 0.1        # ... and measured to better than this (″/h; otherwise anything is "consistent")
 ORPHANS_DRIFT_FLOOR = 0.005        # ″/h added in quadrature to drift errors in the pair model (straight-line motion, r grid)
+ORPHANS_DRIFT_FLOOR_REL = 0.2      # ... and this × the measured rate (orphans.drift_sigma): a straight line through a 5–17
+                                   # day visit misses Earth's turning reflex (its direction turns ~1°/day) in proportion to
+                                   # the drift. Hunt injection 40 AU 61% → 89%, 70–300 AU 77–91% → 98–99%; the shifted
+                                   # control 0.98 → 1.02 pairs (0.3: 1.2). orphans.parquet `rate_max`: see orphans.rate_max_at
 ORPHANS_WINDOW_AU = (40.0, 1000.0) # pair separation window (orphans.pair_window): what a body between these distances can
                                    # move between the two times (Earth's parallax ± its own bound motion). Was a fixed
                                    # 300–7,200″, which lost 1000 AU near the ecliptic poles (visits ~30 days apart: 86–200″).
@@ -1417,6 +1471,9 @@ TRACK_RECOVER_R_MIN_ARCSEC = 3.0
 TRACK_RECOVER_R_MAX_ARCSEC = 8.0
 TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
 TRACK_RECOVER_IN_FIXED = True    # also the fixed groups' member dots that sit off their star (link off_star_members)
+TRACK_RECOVER_STACK_SMEAR_ARCSEC = 7.5  # session stacks on: a stack row (link puts the free ones in nonfixed_dots) is
+                                 # recovered only where the track moves less than this over the session's photos (one
+                                 # PSF FWHM, 7.53″; 4 photos span 6.3 min: up to ~70″/h); a stack aligns the static sky
 
 # --- stack (stack.py, 15 Nov night): detect on per-visit stacks, then a joint ePSF fit in every photo ---------------
 # Single photos (6.15″ px, FWHM 7.5″) miss sources below their limit, 8–15″ pairs and stars in a bright star's glow.

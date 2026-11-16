@@ -57,11 +57,21 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   link reads the stacks only with the switch on: stack rows join the FoF (one dot per session; fixed sources too faint
   for one photo → results/<zone>/stack_members.parquet; members.parquet keeps real dots), moving stack sources in no
   fixed group give pseudo-dots (dot_row −1) to the pairing and its shuffled control. orphans takes stack-only fixed
-  sources as candidates and stack rows in every drift fit.
+  sources as candidates and stack rows in every drift fit. Every stack row in no fixed group also goes into
+  nonfixed_dots.parquet (obs_id "", dot_row −1, session-mean mjd, `stack_key`/`stack_row`; real dots "" / −1), and
+  tracklets recovers it on a track's predicted path where the track moves < TRACK_RECOVER_STACK_SMEAR_ARCSEC (7.5″)
+  over the session (tracklet_dots then has stack_key/stack_row; stats recovered_stack_rows, control too). 8 hunt
+  sessions, SWIR stacks: known units V < 18 found 91 → 97 of 164 (V < 16 35 → 36 of 37), control 0 → 0, 7 stack rows
+  recovered on tracks vs 0 with the tracks moved 2′ (docs/session-stacks.md §7 round 2).
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
-  Reads only some columns (range reads), the dot files' `flags` and the movers' dots: ~0.4 GB from the bucket for the hunt.
+  Reads only some columns, the dot files' `flags` and the movers' dots, by exact byte ranges (parquet_rows.py,
+  16 Nov): read_table fetches the footer (its first 4 KiB when every column read is a plain number) and the column
+  chunks, never gcsfs' 5 MiB read-ahead (which took ~1.5 MB per dot file for a ~2 KB flags chunk); members.parquet
+  only the pages that hold the zone's high_pm/spectral ids (read_rows; `--full-reads` reads whole columns; the cache key
+  of a page read adds `.rows-<hash of the ids>`); fragments two columns. Hunt 5.3 → 0.32 GB (3,138 dot files 4.8 GB →
+  30 MB, ~9.6 KB and 3–4 requests each; members 112 → 35 MB), ecl04 8.3 → 0.23 GB; outputs byte-identical.
   It drops movers near a planet itself (suspects tables written before the `planets` veto); `uv run skyshift-candidates
   --drop-planets ../web/public/data/candidates.json` applies only that to an existing export (reads no zone).
   Checks (16 Nov, candidate_checks.py, contracts/api.md v3.23): every candidate gets status, known_name and checks
@@ -91,6 +101,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   archive by source_id only (cached in --cache; down → variability unknown, `neighbours_unchecked`). Then
   `uv run python -m skyshift_pipeline.changes_export --root gs://nasa-glazing-data --out ../web/public/data/changes.json`
   merges every zone that has one into changes.json and the Atom feed changes.atom (next to it).
+  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~16 GB (was ~20 GB of columns,
+  ~50 GB at a 16 KiB block, several hundred GB at gcsfs' default), of which sources' spectra 8.2 GB (flux_ujy/err_ujy
+  whole: the candidates' rows touch ~80% of their pages), members ~2.3, dot flags ~2.4, refcat 1.7, classes 0.9.
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,
@@ -197,6 +210,15 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   footer keys aperture_noise, grids_v2 (noise, 5σ depth), sat_cores, sky_jacobian_deg_px, mf. Bands of 68 photos:
   isolated Gaia at aperture S/N 5–5.5 found 33% (sky) → 85%, known asteroids V 17–18 16% → 53%, negative-image
   fakes 21 → 65 of 43k dots; ~3.7× the sky setting's detection CPU (glow a third of it), ~1.9× the bytes.
+  Second pass (16 Nov evening, docs/extraction-v2.md §12; config DOTS_V2_HOLES, HOLE_*, MF_PASS_SNR_DET,
+  MF_PASS_NORMALISE, MF_SIGMA_*): dots.mask_dark_holes sets unflagged 1–4 px groups > 5σ below the sky to NaN first
+  (core holes; MWIR 300–1,270 per photo, footer `dark_holes`); the matched-filter threshold is per detector (all 5.0)
+  × the S/N map's own σ in 32 × 32 blocks where it is > 1.1 (footer mf.sigma_grid, sigma_lo, n_neg); a photo with no
+  first-pass dot still gets the matched-filter pass; the saturation guard measures only the sky setting's objects
+  near its candidates (detect `near`, same drops); every dot whose windowed centroid fell back to its start point
+  carries sep_flag 0x800 (core, all dot files). 36 full photos: negative-image dots per photo D1–D6 171/195/27/881/
+  508/508 → 61/67/4/29/36/30; Gaia found −0.1 to −0.5% (plane D4 −5.7%), known asteroids 2 of 267 sightings fewer.
+  What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): a vet/suspects edge rule, no re-extraction.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
@@ -209,6 +231,11 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   builds the sky-wide forced list refcat/sky/forced_n32/p<pixel>.parquet (Gaia DR3 G<17.5, HEALPix nside 32 by source_id,
   ESA TAP sync, brightest 8,221 per partition) and _complete.json last; resumable. dots uses it for every photo's whole
   footprint once _complete.json exists, else refcat/<zone>_forced.parquet (SKYSHIFT_FORCED_SKY=off forces the zone list).
+  `--red` (16 Nov) builds the red layer refcat/sky/forced_red_n32/ on the same partitions from AllWISE on S3 (nasa-irsa-wise,
+  healpix_k5, anonymous): W1 ≤ 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3, no forced Gaia target within 2″, ≤ 6,000 per partition,
+  ref_id `allwise:<designation>`, epoch 2010.5; needs the Gaia layer first. dots adds it once its _complete.json exists
+  (origin `sky+red`; SKYSHIFT_FORCED_SKY_RED=off: never). 54 partitions: median 990 rows, 30 KB, 1.6 s each (3 threads);
+  forced targets per photo +7% (plane) to +58% (high latitude).
 - `known` doesn't need `dots`: run it at the same time in a second process.
 - calib (after crossid; `all` reruns spectra after it): from the raw member dots, per detector the pixel-phase centroid
   bias (Fourier in φ = x − round(x)), per photo a distortion polynomial vs Gaia (order by cross-validation), pos_err =
@@ -343,6 +370,11 @@ Table-level injection at the hunt's cadence (70–1000 AU, 3–20 dots per visit
 (70 AU) … 100% (1000 AU); 40 AU at the pole still 0 (it drifts ~3.7″/h there). Chance on the hunt's real orphans:
 709 → 839 pairs tested, 1 passing vs 0.92 → 0.98 expected. Session stacks (switch on): stack-only fixed sources are
 candidates too (catalogue test against refcat/<zone>.parquet, drift from their stack rows, fluxes from them).
+16 Nov round 2: drift_ok's limit is per orphan (`rate_max`, rate_max_at: 2.5″/h, or what a 40 AU bound body can
+drift at that spot and time, ~4.6″/h at the ecliptic poles), and the pair model's drift error adds
+ORPHANS_DRIFT_FLOOR_REL (0.2) × the rate (drift_sigma: a visit-long straight line misses Earth's turning reflex).
+Hunt cadence 40 AU 61 → 89%, 70–300 AU 77–91 → 98–99%; pole cadence 40 AU 0 → 96%, 70–1000 AU 66–97 → 97–100%;
+chance 0.98 → 1.02 expected (hunt), 0 → 0 (t_rdra). docs/session-stacks.md §7 round 2.
 The step never raises (errors go to its stats).
 
 ## Completeness (inject.py, step `completeness`): what "found nothing" means

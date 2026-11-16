@@ -14,8 +14,9 @@ fragments). Six months later Earth is on the other side of the Sun: the planet s
 2. Drift (kept orphans): a weighted straight line east/north vs time through the member dots (dot files read once,
    only the columns needed; ePSF positions where psf_pos_ok; raw, calib not applied), per-dot error
    √((ORPHANS_POS_ERR_SCALE · pos_err)² + ORPHANS_POS_FLOOR_ARCSEC²), errors × √χ²_ν when above 1, one refit without
-   dots beyond ORPHANS_CLIP_SIGMA. `drift_ok`: rate within ORPHANS_DRIFT_NSIGMA of ORPHANS_RATE_MIN..MAX ″/h and
-   rate error <= ORPHANS_DRIFT_MAX_ERR.
+   dots beyond ORPHANS_CLIP_SIGMA. `drift_ok`: rate within ORPHANS_DRIFT_NSIGMA of ORPHANS_RATE_MIN..`rate_max` ″/h
+   and rate error <= ORPHANS_DRIFT_MAX_ERR; `rate_max` (rate_max_at) = ORPHANS_RATE_MAX, or what a bound body at the
+   window's near distance can drift at that spot and time where that is more (near the ecliptic poles ~4.6″/h).
 3. Pairs (drift_ok orphans of two visits >= ORPHANS_MIN_DT_DAYS apart, separated by what a body at ORPHANS_WINDOW_AU can
    move between their times: pair_window, the parallax of Earth's motion between the two times at the far and near
    distance, less / plus the bound orbit's own motion, ± ORPHANS_WINDOW_TOL_ARCSEC; the offset forward along that
@@ -483,12 +484,41 @@ def fit_drift(d: pd.DataFrame) -> pd.DataFrame:
     return out[cols]
 
 
-def drift_ok(rate, err) -> np.ndarray:
+def rate_max_at(ra, dec, mjd) -> np.ndarray:
+    """The drift limit (″/h) of an orphan seen at (ra, dec, mjd): ORPHANS_RATE_MAX, or more where a bound body at the
+    window's near distance (ORPHANS_WINDOW_AU[0]) can drift faster there: (Earth's velocity across the line of sight +
+    the bound orbit's speed) / (r − 1 AU). Near the ecliptic poles Earth's whole velocity is across: ~4.6″/h at 40 AU
+    (a 40 AU body drifts ~3.7″/h there); on the hunt's ecliptic, at ~90° from the Sun, it is mostly along: 2.5 stays.
+    NaN positions or times get ORPHANS_RATE_MAX."""
+    ra, dec, mjd = (np.atleast_1d(np.asarray(v, np.float64)) for v in (ra, dec, mjd))
+    out = np.full(np.broadcast(ra, dec, mjd).shape, float(C.ORPHANS_RATE_MAX))
+    ok = np.isfinite(ra) & np.isfinite(dec) & np.isfinite(mjd)
+    if ok.any():
+        near = float(C.ORPHANS_WINDOW_AU[0])
+        _, VE = earth_posvel(mjd[ok])
+        u = unit(ra[ok], dec[ok])
+        perp = np.linalg.norm(VE - u * (VE * u).sum(-1, keepdims=True), axis=-1)
+        bound = (perp + vmax_au_yr(near)) / max(near - 1.0, 1e-3) * RAD_YR_TO_ARCSEC_H
+        out[ok] = np.maximum(out[ok], bound)
+    return out
+
+
+def drift_ok(rate, err, rate_max=None) -> np.ndarray:
+    """rate_max: per-orphan limits (rate_max_at); None = ORPHANS_RATE_MAX everywhere."""
     rate, err = np.asarray(rate, np.float64), np.asarray(err, np.float64)
+    hi = C.ORPHANS_RATE_MAX if rate_max is None else np.asarray(rate_max, np.float64)
     k = C.ORPHANS_DRIFT_NSIGMA
     with np.errstate(invalid="ignore"):
         return (np.isfinite(rate) & np.isfinite(err) & (err <= C.ORPHANS_DRIFT_MAX_ERR)
-                & (rate + k * err >= C.ORPHANS_RATE_MIN) & (rate - k * err <= C.ORPHANS_RATE_MAX))
+                & (rate + k * err >= C.ORPHANS_RATE_MIN) & (rate - k * err <= hi))
+
+
+def drift_sigma(err, rate) -> np.ndarray:
+    """A drift component's error in the pair model: the fit's error, ORPHANS_DRIFT_FLOOR and ORPHANS_DRIFT_FLOOR_REL ×
+    the rate in quadrature (a straight line through a visit of 5–17 days misses Earth's turning reflex in proportion
+    to the drift itself)."""
+    err, rate = np.asarray(err, np.float64), np.nan_to_num(np.asarray(rate, np.float64))
+    return np.sqrt(err ** 2 + C.ORPHANS_DRIFT_FLOOR ** 2 + (C.ORPHANS_DRIFT_FLOOR_REL * rate) ** 2)
 
 
 # --- 3, 4. pairs and controls --------------------------------------------------------------------------------------
@@ -598,8 +628,8 @@ def score_pairs(o: pd.DataFrame, i: np.ndarray, j: np.ndarray, flux: np.ndarray,
         ii, jj = i[k0:k0 + chunk], j[k0:k0 + chunk]
         side = lambda x: {"ra": cols["ra"][x], "dec": cols["dec"][x], "mjd": cols["mjd"][x], "E": E[x], "VE": VE[x],
                           "ve": cols["drift_e"][x], "vn": cols["drift_n"][x],
-                          "se": np.hypot(cols["drift_e_err"][x], C.ORPHANS_DRIFT_FLOOR),
-                          "sn": np.hypot(cols["drift_n_err"][x], C.ORPHANS_DRIFT_FLOOR)}
+                          "se": drift_sigma(cols["drift_e_err"][x], np.hypot(cols["drift_e"][x], cols["drift_n"][x])),
+                          "sn": drift_sigma(cols["drift_n_err"][x], np.hypot(cols["drift_e"][x], cols["drift_n"][x]))}
         m = pair_model(side(ii), side(jj))
         parts.append(pd.DataFrame({"i": ii, "j": jj, "chi2_drift": m["chi2"], "distance_au": m["r_best"],
                                    "distance_lo_au": m["r_lo"], "distance_hi_au": m["r_hi"], "bound": m["bound"],
@@ -776,7 +806,9 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
         dots["source_id"].to_numpy(np.int64)).to_numpy()] if len(dots) else dots)
     out = cand.merge(fit.rename(columns={"ra": "ra_fit", "dec": "dec_fit", "mjd": "mjd_fit"}), on="source_id", how="left")
     out["fit_ok"] = out["fit_ok"].fillna(False).astype(bool)
-    out["drift_ok"] = out["fit_ok"].to_numpy() & drift_ok(out["rate"], out["rate_err"]) & (out["reason"].to_numpy() == "")
+    out["rate_max"] = rate_max_at(out["ra_fit"], out["dec_fit"], out["mjd_fit"]).astype(np.float32) if len(out) else np.float32(0)
+    out["drift_ok"] = (out["fit_ok"].to_numpy() & drift_ok(out["rate"], out["rate_err"], out["rate_max"])
+                       & (out["reason"].to_numpy() == ""))
     st["drift_fitted"] = int(out["fit_ok"].sum())
     st["drift_ok"] = int(out["drift_ok"].sum())
     is_stack = dots["stack"].to_numpy(bool) if "stack" in dots else np.zeros(len(dots), bool)
@@ -813,7 +845,8 @@ def known_match(out: pd.DataFrame, pred: pd.DataFrame | None) -> tuple[np.ndarra
         return name, v, sep
     pr = pd.to_numeric(pred["dra_arcsec_h"], errors="coerce").to_numpy(np.float64)
     pd_ = pd.to_numeric(pred["ddec_arcsec_h"], errors="coerce").to_numpy(np.float64)
-    slow = np.hypot(np.nan_to_num(pr), np.nan_to_num(pd_)) <= C.ORPHANS_RATE_MAX + C.ORPHANS_KNOWN_RATE_TOL
+    rmax = float(np.nanmax(out["rate_max"])) if "rate_max" in out and np.isfinite(out["rate_max"]).any() else C.ORPHANS_RATE_MAX
+    slow = np.hypot(np.nan_to_num(pr), np.nan_to_num(pd_)) <= rmax + C.ORPHANS_KNOWN_RATE_TOL
     p = pred[slow].reset_index(drop=True)
     pr, pd_ = pr[slow], pd_[slow]
     fit = out["fit_ok"].to_numpy(bool) & np.isfinite(out["ra_fit"].to_numpy(np.float64))
@@ -823,7 +856,7 @@ def known_match(out: pd.DataFrame, pred: pd.DataFrame | None) -> tuple[np.ndarra
     pra, pdec, pmjd = (p[c].to_numpy(np.float64) for c in ("ra", "dec", "mjd"))
     tree = SkyTree(pra, pdec)
     idx = np.flatnonzero(fit)
-    reach = C.ORPHANS_KNOWN_ARCSEC + (C.ORPHANS_RATE_MAX + C.ORPHANS_KNOWN_RATE_TOL) * C.ORPHANS_KNOWN_DAYS * 24.0
+    reach = C.ORPHANS_KNOWN_ARCSEC + (rmax + C.ORPHANS_KNOWN_RATE_TOL) * C.ORPHANS_KNOWN_DAYS * 24.0
     g = {c: out[c].to_numpy(np.float64) for c in ("ra_fit", "dec_fit", "mjd_fit", "drift_e", "drift_n", "rate_err")}
     for k, js in zip(idx, tree.query_radius(g["ra_fit"][idx], g["dec_fit"][idx], reach)):
         if not js:
@@ -944,11 +977,13 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
     known = out[out["known_name"].to_numpy() != ""]
     opened = out[out["drift_ok"].to_numpy(bool) & (out["track_in_zone"].to_numpy(np.float64) < 1.0)]
     depth = st.get("depth_ab_snr5", {})
+    rm = out["rate_max"].to_numpy(np.float64) if "rate_max" in out and len(out) else np.zeros(0)
+    rate_top = round(float(np.nanmax(rm)), 2) if np.isfinite(rm).any() else C.ORPHANS_RATE_MAX  # rate_max_at's largest
     rep = {
         "zone": zone.name, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "searched": {
             "what": "single-visit sources without Gaia/CatWISE/2MASS whose spot the other visit covered, paired across visits",
-            "rate_arcsec_h": [C.ORPHANS_RATE_MIN, C.ORPHANS_RATE_MAX],
+            "rate_arcsec_h": [C.ORPHANS_RATE_MIN, rate_top],
             "sep_arcsec": searched_sep_arcsec(zone, out["mjd_mean"] if "mjd_mean" in out else [],
                                               out["visit"] if "visit" in out else []),
             "pair_window": {"au": list(C.ORPHANS_WINDOW_AU), "tol_arcsec": C.ORPHANS_WINDOW_TOL_ARCSEC,
@@ -983,7 +1018,8 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
                    "rate_arcsec_h": _r(x.rate, 4)} for x in known.head(C.ORPHANS_REPORT_MAX).itertuples()],
         "skipped": skipped,
         "limits": [
-            f"within-visit drift up to {C.ORPHANS_RATE_MAX:g} arcsec/h: faster objects are movers (score/suspects); below ~0.3 "
+            f"within-visit drift up to {rate_top:g} arcsec/h ({C.ORPHANS_RATE_MAX:g}, more where a {C.ORPHANS_WINDOW_AU[0]:g} AU "
+            "body can drift faster: near the ecliptic poles): faster objects are movers (score/suspects); below ~0.3 "
             "arcsec/h a planet chains into one fixed source per visit, faster into fragments that need >= 3 sessions each",
             "the object must be detected (S/N >= 5) in >= 3 sessions of each visit: " + (
                 "single-exposure dots or session stacks" if st.get("stack_only_sources") is not None

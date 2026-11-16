@@ -31,9 +31,9 @@ def planet_radec(r_au, lam0_deg, mjd, mjd0=T1, beta_deg=0.0, prograde=1.0):
     return O.xyz_to_radec(P - E)
 
 
-def side(r_au, lam0, t, err=0.005, prograde=1.0):
+def side(r_au, lam0, t, err=0.005, prograde=1.0, beta_deg=0.0):
     """What a visit measures of the planet at time t: position, drift (″/h) and its error, Earth's state."""
-    ra, dec = planet_radec(r_au, lam0, np.array([t - 0.5, t, t + 0.5]), prograde=prograde)
+    ra, dec = planet_radec(r_au, lam0, np.array([t - 0.5, t, t + 0.5]), prograde=prograde, beta_deg=beta_deg)
     de, dn = tangent_offset_arcsec(ra[1], dec[1], ra[[0, 2]], dec[[0, 2]])
     E, VE = O.earth_posvel(np.array([t]))
     return {"ra": ra[1:2], "dec": dec[1:2], "mjd": np.array([t]), "E": E, "VE": VE,
@@ -292,3 +292,52 @@ def test_orphans_pairs_a_planet_seen_only_in_session_stacks(tmp_path, rng, monke
     p = pairs[(301, 302)]
     assert abs(p["distance_au"] / 600 - 1) < 0.1 and p["n_common_det"] == 2 and abs(p["flux_ratio"] - 1) < 0.05
     assert rep["control"]["expected_chance_pairs"] < 0.5
+
+
+# --- the drift limit per position and the drift floor that grows with the rate ------------------------------------
+def test_rate_max_at_is_the_limit_where_a_40_au_body_drifts_fastest():
+    """ORPHANS_RATE_MAX on the ecliptic at the hunt (Earth's velocity mostly along the line of sight); ~4.6″/h at the
+    north ecliptic pole (all of it across); NaN positions or times keep ORPHANS_RATE_MAX."""
+    r = O.rate_max_at(np.array([126.0, 270.0, np.nan]), np.array([19.0, 66.56, 10.0]), np.array([T1 + 5, 61050.0, T1]))
+    assert r[0] == pytest.approx(C.ORPHANS_RATE_MAX) and 4.3 < r[1] < 5.0 and r[2] == C.ORPHANS_RATE_MAX
+
+
+def test_a_40_au_body_near_the_pole_passes_drift_ok_and_pairs():
+    """Near the ecliptic pole a 40 AU TNO drifts ~3.7″/h: beyond ORPHANS_RATE_MAX, inside its position's limit; its two
+    visits ~29 days apart pair and the pair model finds it bound at ~40 AU."""
+    t0 = 61050.0
+    a, b = side(40.0, 125.0, t0, beta_deg=85.0), side(40.0, 125.0, t0 + 29.0, beta_deg=85.0)
+    rate = np.hypot(a["ve"], a["vn"])
+    assert rate[0] > C.ORPHANS_RATE_MAX
+    assert O.drift_ok(rate, np.array([0.02]), O.rate_max_at(a["ra"], a["dec"], a["mjd"])).tolist() == [True]
+    assert O.drift_ok(rate, np.array([0.02])).tolist() == [False]  # the old single limit
+    i, j = O.candidate_pairs(np.r_[a["ra"], b["ra"]], np.r_[a["dec"], b["dec"]], np.array([1, 2]), np.r_[a["mjd"], b["mjd"]])
+    assert (i.tolist(), j.tolist()) == ([0], [1])
+    m = O.pair_model(a, b)
+    assert m["bound"][0] and m["chi2"][0] < 10 and abs(m["r_best"][0] / 40.0 - 1) < 0.1
+
+
+def pair_table(a, b, scale_a=1.0, err=0.01):
+    """score_pairs' input for two visits' sides; the earlier side's drift scaled (a straight line's bias)."""
+    o = pd.DataFrame({"ra": np.r_[a["ra"], b["ra"]], "dec": np.r_[a["dec"], b["dec"]], "mjd": np.r_[a["mjd"], b["mjd"]],
+                      "drift_e": np.r_[a["ve"] * scale_a, b["ve"]], "drift_n": np.r_[a["vn"] * scale_a, b["vn"]],
+                      "drift_e_err": err, "drift_n_err": err})
+    o["_E"], o["_VE"] = [a["E"][0], b["E"][0]], [a["VE"][0], b["VE"][0]]
+    flux, frel = np.full((2, NDET), np.nan), np.full((2, NDET), np.nan)
+    flux[:, 1], frel[:, 1] = 50.0, 0.15
+    return o, flux, frel
+
+
+def test_drift_floor_grows_with_the_rate(monkeypatch):
+    """drift_sigma: the fit's error, ORPHANS_DRIFT_FLOOR and ORPHANS_DRIFT_FLOOR_REL × the rate in quadrature. A 40 AU
+    pair whose first drift (0.85″/h) is off by 15% (a straight line through a visit misses Earth's turning reflex)
+    passes; with the fixed floor alone it did not."""
+    s = O.drift_sigma(np.array([0.01, 0.01]), np.array([0.0, 2.0]))
+    assert s[0] == pytest.approx(np.hypot(0.01, C.ORPHANS_DRIFT_FLOOR))
+    assert s[1] == pytest.approx(np.sqrt(0.01 ** 2 + C.ORPHANS_DRIFT_FLOOR ** 2 + (C.ORPHANS_DRIFT_FLOOR_REL * 2.0) ** 2))
+    o, flux, frel = pair_table(side(40.0, 125.0, T1 + 5), side(40.0, 125.0, T2 + 5), scale_a=1.15)
+    assert bool(O.score_pairs(o, np.array([0]), np.array([1]), flux, frel)["passes"].iloc[0])
+    monkeypatch.setattr(C, "ORPHANS_DRIFT_FLOOR_REL", 0.0)
+    assert not bool(O.score_pairs(o, np.array([0]), np.array([1]), flux, frel)["passes"].iloc[0])
+    o, flux, frel = pair_table(side(40.0, 125.0, T1 + 5), side(40.0, 125.0, T2 + 5))  # exact drifts pass either way
+    assert bool(O.score_pairs(o, np.array([0]), np.array([1]), flux, frel)["passes"].iloc[0])

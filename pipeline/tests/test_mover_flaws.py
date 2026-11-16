@@ -69,7 +69,8 @@ def test_same_pixel_whole_pixel_wide_and_cross_detector():
     out, st = V.vet(s, s, None, None, None)
     r = dict(zip(out["cell"], out["reasons"]))
     assert r[0] == [] and r[1] == ["whole_pixel"] and r[2] == []
-    assert r[3] == ["wide"] and r[4] == []  # 7.0″ = 1.46× a star at S/N 8; one dot saturated: one unsaturated dot left
+    assert r[3] == [] and r[4] == []  # 7.0″ = 1.46× a star at S/N 8: alone no reason (a comet or a blend); r[4]: one
+    # dot saturated, one unsaturated dot left
     assert r[5] == ["cross_detector"] and r[6] == ["same_pixel"]
     assert round(out["same_pixel_px"][6], 2) == 0.5 and out["whole_dots"].tolist()[:3] == [0, 2, 1]
     w = S.Warnings(len(out))
@@ -78,11 +79,32 @@ def test_same_pixel_whole_pixel_wide_and_cross_detector():
     codes = dict(zip(out["cell"], w.codes))
     assert codes[1] == ["whole_pixel"] and lv[1] == {"whole_pixel": "strong"}
     assert codes[2] == ["whole_pixel"] and lv[2] == {}
-    assert codes[3] == ["wide"] and lv[3] == {"wide": "strong"}
+    assert codes[3] == ["wide"] and lv[3] == {}  # every dot wide: a warning (with a blend it is strong: mover_flaws)
     assert codes[4] == ["wide"] and lv[4] == {}  # its median is wide: a warning
     assert codes[5] == ["cross_detector"] and lv[5] == {"cross_detector": "strong"}
     assert codes[6] == ["same_pixel"] and lv[6] == {"same_pixel": "strong"}
-    assert st["gates"]["whole_pixel"] == 1 and st["gates"]["wide"] == 1
+    assert st["gates"]["whole_pixel"] == 1 and st["gates"]["wide"] == 0
+
+
+def test_wide_allows_for_the_trail_and_is_a_reason_only_with_a_blend():
+    assert abs(float(V.trail_factor(150.0)) - 1.042) < 0.002 and abs(float(V.trail_factor(400.0)) - 1.229) < 0.002
+    assert float(V.trail_factor(np.nan)) == 1.0
+    s = pd.DataFrame([clean(3, size=(7.0, 7.0)), clean(4, size=(7.0, 7.0))])
+    s["rate_arcsec_h"] = [np.nan, 900.0]  # 900″/h: a 28″ trail, √(a·b) × 1.65 expected
+    f = V.flaw_numbers(s, None)
+    assert round(f["wide_ratio_min"][0], 2) == 1.46 and round(f["wide_trail"][1], 2) == 1.65
+    assert list(V.wide_every(f)) == [True, False]
+    # every dot wide, and two Gaia stars either side of it: then a reason (strong)
+    s = _flaw_rows().iloc[[7]].reset_index(drop=True)
+    b1, b2 = _east(s, 0, 6.0), _east(s, 0, -6.0)
+    ref = pd.DataFrame([dict(cat="gaia", ra=b1[0], dec=b1[1], epoch_mjd=s.loc[0, "mjd"], pmra=0.0, pmdec=0.0, g_mag=15.0),
+                        dict(cat="gaia", ra=b2[0], dec=b2[1], epoch_mjd=s.loc[0, "mjd"], pmra=0.0, pmdec=0.0, g_mag=15.5)])
+    for wide, gate in ((1.5, True), (1.0, False)):
+        flaws = pd.DataFrame({"motion_sigma": [5.0], "wide_ratio_med": [wide], "wide_ratio_min": [wide], "wide_dots": [2]})
+        w = S.Warnings(1)
+        st = S.mover_flaws(s, pd.DataFrame(columns=["ra", "dec", "snr", "flux_ujy"]), ref, None, None,
+                           C.ZONES["pilot"], flaws, w)
+        assert bool(w.gates["wide"][0]) is gate and st["wide"]["reason"] == int(gate)
 
 
 def test_motion_sigma_and_the_whole_pixel_error():
@@ -188,9 +210,10 @@ def test_run_writes_warn_levels_and_new_reasons(tmp_path, monkeypatch):
     S.run(store, z, pred=NO_PRED)
     j = store.read_json("results/pilot/suspects.json")
     by = {x["cell"]: x for x in j["suspects"]}
-    assert by[1]["grade"] == "C" and by[1]["reasons"] == ["wide"]
-    assert by[1]["warn_levels"] == {"wide": "strong"} and by[1]["warn_values"]["wide"]["ratio_min"] == 1.46
-    assert by[2]["warn_levels"] == {} and j["gates"]["wide"] == 1
+    # wide alone: kept B with a warning (a comet's haze or a blend), never a reason
+    assert by[1]["grade"] != "C" and "wide" not in by[1]["reasons"] and "wide" in by[1]["warn_codes"]
+    assert by[1]["warn_levels"] == {} and by[1]["warn_values"]["wide"]["ratio_min"] == 1.46
+    assert by[2]["warn_levels"] == {} and j["gates"]["wide"] == 0
     p = store.read_parquet("results/pilot/suspects.parquet")
     assert set(V.FLAW_COLUMNS) <= set(p.columns) and "warn_levels" in p
 
@@ -214,6 +237,6 @@ def test_a_track_overrules_the_single_session_separators(tmp_path, monkeypatch):
     by = {x["cell"]: x for x in j["suspects"]}
     assert by[1]["grade"] == "A" and by[1]["reasons"] == [] and by[1]["warn_levels"] == {}
     assert "wide" in by[1]["warn_codes"] and by[1]["warn_values"]["wide"]["ratio_min"] == 1.46
-    assert st["vetting"]["tracklets"]["track_overruled"] == 1
+    assert st["vetting"]["tracklets"]["track_overruled"] == 0  # wide alone is no reason any more: nothing to overrule
     kept_c = [x for x in j["suspects"] if x["grade"] == "C"]
     assert kept_c and all(set(x["reasons"]) - set(C.VET_TRACK_OVERRULES) for x in kept_c)

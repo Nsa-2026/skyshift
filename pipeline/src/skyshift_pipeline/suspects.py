@@ -876,7 +876,7 @@ def flaw_warnings(s: pd.DataFrame, w: Warnings) -> None:
     """Warnings with numbers for the mover flaws vet.flaw_numbers measures (its columns on s; config, mover flaws),
     level strong where the flaw is a reason (gate_<name>): hot_pixel (a dot's pixel lit at other sky places in >=
     VET_HOT_WARN_EXP exposures; strong from VET_HOT_GATE_EXP), hot_pixel_proven (every dot's: strong, a flaw),
-    same_pixel, whole_pixel (warning with 1 dot), wide (the median, or every dot: strong), cross_detector and
+    same_pixel, whole_pixel (warning with 1 dot), wide (the median or every dot; strong only with a blend), cross_detector and
     may_not_move (motion under VET_MOTION_WARN_SIGMA: a warning only)."""
     if not len(s) or "hot_exposures_max" not in s:
         return
@@ -906,10 +906,12 @@ def flaw_warnings(s: pd.DataFrame, w: Warnings) -> None:
         w.add(int(i), "whole_pixel", {"dots": int(wd[i]), "n_dots": int(nd[i]), "sigma_px": C.LINK_WHOLE_PIXEL_SIGMA_PX},
               "strong" if gate("whole_pixel")[i] else "warn")
     med, mn, k = col("wide_ratio_med"), col("wide_ratio_min"), s["wide_dots"].to_numpy(np.int64)
-    gw = gate("wide")
-    for i in np.flatnonzero(gw | (np.nan_to_num(med) >= C.VET_WIDE_RATIO)):
+    tr = col("wide_trail") if "wide_trail" in s else np.ones(len(s))
+    gw = gate("wide")  # with a blend only (mover_flaws); every dot or the median wide alone: a warning
+    for i in np.flatnonzero(gw | V.wide_every(s) | (np.nan_to_num(med) >= C.VET_WIDE_RATIO)):
         w.add(int(i), "wide", {"ratio_med": _num(med[i], 2), "ratio_min": _num(mn[i], 2), "dots": int(k[i]),
-                               "limit": C.VET_WIDE_RATIO}, "strong" if gw[i] else "warn")
+                               "limit": C.VET_WIDE_RATIO, "trail": _num(tr[i], 2) if tr[i] > 1.005 else None,
+                               "with_blend": 1 if gw[i] else None}, "strong" if gw[i] else "warn")
     nexp = s["n_exposures"].to_numpy(np.int64) if "n_exposures" in s else np.zeros(len(s), np.int64)
     for i in np.flatnonzero(gate("cross_detector")):
         w.add(int(i), "cross_detector", {"exposures": int(nexp[i]), "n_dots": int(nd[i])}, "strong")
@@ -1006,7 +1008,8 @@ def mover_flaws(s: pd.DataFrame, fixed: pd.DataFrame, ref: pd.DataFrame | None, 
     as bright as the mover, or the motion is under VET_FIXED_STILL_SIGMA while the mover is not 1.5× brighter than it;
     or a Gaia star within VET_GAIA_STILL_ARCSEC and motion under VET_GAIA_STILL_SIGMA), glow (one detector, no partner,
     median size ratio >= VET_WIDE_RATIO, a Gaia G < VET_GLOW_G_MAG star within VET_GLOW_ARCSEC), unseen (unseen_exposures:
-    strong from VET_UNSEEN_GATE), blend (blend_pairs: a warning). flaws: vet.flaw_numbers of s. Returns counts."""
+    strong from VET_UNSEEN_GATE), blend (blend_pairs: a warning), wide (every unsaturated dot wide: a reason only with a
+    blend, VET_WIDE_WITH). flaws: vet.flaw_numbers of s. Returns counts."""
     n = len(s)
     st: dict = {}
     if n == 0:
@@ -1073,6 +1076,13 @@ def mover_flaws(s: pd.DataFrame, fixed: pd.DataFrame, ref: pd.DataFrame | None, 
         if v is not None:
             w.add(i, "blend", v)
     st["blend"] = int(sum(v is not None for v in bl))
+    # wide: a reason only with an independent sign of a blend (config VET_WIDE_WITH); alone a warning (flaw_warnings)
+    with_ = np.zeros(n, bool)
+    if "blend" in C.VET_WIDE_WITH:
+        with_ |= np.array([v is not None for v in bl], bool)
+    wide = V.wide_every(flaws) & with_
+    w.gate("wide", wide)
+    st["wide"] = {"every_dot": int(V.wide_every(flaws).sum()), "reason": int(wide.sum())}
     return st
 
 
