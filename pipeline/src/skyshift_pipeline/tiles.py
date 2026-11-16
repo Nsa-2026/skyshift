@@ -1150,7 +1150,7 @@ class Run:
                     for k in ("saturated_dots", "saturated_dots_corrected", "unsaturated_dots", "pixel_dots_corrected")}
         rep = {"zone": z.name, "frame_correction": self.frame_stats if corrected else {"photos_corrected": 0},
                "fitted": sums["fitted"], "with_parallax": sums["with_parallax"],
-               "spacecraft_position_dots": sums["spacecraft_position_dots"],
+               "spacecraft_position_dots": sums["spacecraft_position_dots"], **astrometry.model_counts(cor_df),
                "saturated_offsets": astrometry.sat_report(getattr(self, "sat", None), sat_dots["saturated_dots"],
                                                           sat_dots["saturated_dots_corrected"]),
                "pixel_offsets": astrometry.pixel_report(getattr(self, "pix", None), sat_dots["unsaturated_dots"],

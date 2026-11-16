@@ -391,7 +391,19 @@ ASTRO_MIN_MOTION_DOF = 8       # ... and degrees of freedom the motion keeps aft
                                # visits (astrometry.motion_dof). Hunt, Gaia stars with a fake pm (pull > 5) per fit:
                                # 1–2.6% under 6, 0.3% at 6–10, 0.06% from 20; 8 drops 65 of 214 fakes and 2.7% of the
                                # Gaia fits, no fast (> 200 mas/yr) Gaia star (the least free one has 8; 10 would lose it)
-ASTRO_PARALLAX_MIN_VISITS = 3  # parallax is fitted only with this many visits (two are degenerate with pm)
+# The motion model's mode per source (skyshift_core.motion; 16 Nov): a Gaia DR3 parallax is a prior (pm+gaia_plx, the
+# six-month parallax leak gone); without one, parallax is fitted only with >= 3 visits spanning both seasons (pm+plx),
+# else not (pm, or pm_leak when the leak k is large: two visits in opposite seasons). Thresholds: core motion.PLX_*,
+# LEAK_SMALL, GAIA_PLX_ERR_FLOOR_MAS.
+ASTRO_GAIA_PLX_PRIOR = True
+# Steadiness over the visits (motion.visit_steadiness): each visit's mean residual, error √(scale²/Σw + floor²) with w
+# from pos_err_rel_arcsec; visit-level chi2_nu > core motion.UNSTEADY_CHI2_NU = `unsteady` (no straight-line motion;
+# highpm reason `unsteady`). Needs >= 3 visits (2 leave no freedom).
+ASTRO_UNSTEADY = True
+ASTRO_VISIT_ERR_SCALE = 1.0     # on calib's pos_err_rel_arcsec, already honest: t_wise0855 Gaia stars' visit chi2_nu median
+                                # 0.69 at 1.0 (chi2(2)/2's median 0.69; 0.28 at 1.6, 16 Nov)
+ASTRO_VISIT_ERR_SCALE_RAW = 1.6  # on the dot files' own pos_err_arcsec (no calib): core motion.POS_ERR_SCALE
+ASTRO_VISIT_FLOOR_ARCSEC = 0.02  # core motion.VISIT_FLOOR_ARCSEC
 ASTRO_CLIP_SIGMA = 5.0         # one refit without dots beyond this many sigma
 ASTRO_CHI2_INFLATE_P = 0.95    # errors × √χ²_ν only where χ²_ν beyond this quantile of χ²(ν)/ν (a real excess);
                                # √max(1, χ²_ν) for every source inflated errors 1.5× at ~7 dots (pm pulls 0.85)
