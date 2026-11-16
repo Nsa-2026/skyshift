@@ -263,3 +263,89 @@ def test_run_writes_the_producer_file_and_caches_answers(tmp_path):
     assert n == len(K.CATALOGUES) and out["candidates"] == f["candidates"]
     K.run(p, tmp_path / "again.json", tmp_path / "cache", query=query)  # every answer cached: no query
     assert len(calls) == n
+
+
+# ecl11-pm-66005006577800 (16 Nov export): our fit 694.9 ± 39.2 mas/yr towards PA 271.2°. IRSA's answers as cached: CatWISE
+# moves its W1 10.2 source 370 mas/yr towards PA 259° (to 0.17″ from today's place), Gaia DR3 lists a G 16.7 source with
+# no motion, AllWISE and 2MASS saw it where a ~370 mas/yr track puts it. highpm's deep check (#388, parallax leak allowed
+# for) found that Gaia source on our track, 0.08″ off: counterpart gaia_position.
+ECL11 = {"id": "ecl11-pm-66005006577800", "kind": "high_pm", "ra": 116.674287, "dec": 20.008505, "mjd": 61044.216523,
+         "pm_mas_yr": 694.9, "pm_err_mas_yr": 39.2, "pa_deg": 271.2, "det": 5, "zone": "ecl11", "gaia_match": False,
+         "labels": [], "flux_ujy": None}
+ECL11_ANSWERS = {
+    "gaia": [{"source_id": 672055591757474048, "ra": 116.67542931335, "dec": 20.00519896462, "pmra": -2.72, "pmdec": -3.319,
+              "parallax": 0.3489, "parallax_error": 0.3515, "phot_g_mean_mag": 19.272, "bp_rp": 1.227,
+              "in_galaxy_candidates": 0, "in_qso_candidates": 0},
+             {"source_id": 672055699133504768, "ra": 116.67536826635, "dec": 20.00865196902, "pmra": None, "pmdec": None,
+              "parallax": None, "parallax_error": None, "phot_g_mean_mag": 16.6635, "bp_rp": 4.9525,
+              "in_galaxy_candidates": 0, "in_qso_candidates": 0}],
+    "catwise": [{"source_name": "J074642.10+200031.2", "ra": 116.6754315, "dec": 20.0086681, "ra_pm": 116.6754569,
+                 "dec_pm": 20.0086724, "pmra": -0.36355, "pmdec": -0.06944, "sigpmra": 0.0039, "sigpmdec": 0.0039,
+                 "w1mpro": 10.16, "w1sigmpro": 0.013, "w2mpro": 9.888, "w2sigmpro": 0.009, "meanobsmjd": 57256.512717},
+                {"source_name": "J074640.05+200022.3", "ra": 116.6668909, "dec": 20.0062212, "ra_pm": 116.6668876,
+                 "dec_pm": 20.0062161, "pmra": 0.04013, "pmdec": 0.01446, "sigpmra": 0.0427, "sigpmdec": 0.0493,
+                 "w1mpro": 16.583, "w1sigmpro": 0.043, "w2mpro": 16.129, "w2sigmpro": 0.077, "meanobsmjd": 57242.865969}],
+    "allwise": [{"designation": "J074642.23+200031.4", "ra": 116.6759661, "dec": 20.0087459, "w1mpro": 10.137,
+                 "w2mpro": 9.870, "w3mpro": 9.402, "w3snr": 26.0, "w4mpro": 8.865, "w4snr": -0.2, "ext_flg": 0,
+                 "ph_qual": "AAAU"},
+                {"designation": "J074640.04+200021.8", "ra": 116.6668707, "dec": 20.0060725, "w1mpro": 16.64,
+                 "w2mpro": 16.034, "w3mpro": 11.734, "w3snr": 2.0, "w4mpro": 8.698, "w4snr": 0.2, "ext_flg": 0,
+                 "ph_qual": "ABUU"}],
+    "tmass": [{"designation": "07464256+2000321", "ra": 116.677342, "dec": 20.00894, "j_m": 11.759, "j_msigcom": 0.02,
+               "h_m": 11.007, "h_msigcom": 0.022, "k_m": 10.468, "k_msigcom": 0.022, "ph_qual": "AAA",
+               "jdate": 2450787.8643, "gal_contam": 0}],
+    "xsc": []}
+
+
+def _highpm_table(root: Path, rows: list[dict]) -> None:
+    import pandas as pd
+
+    d = root / "results" / "ecl11"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(d / "highpm_candidates.parquet")
+
+
+def test_ecl11_high_pm_not_a_still_star_and_highpm_counterpart_wins(tmp_path):
+    """The 16 Nov catalogue check called ecl11-pm-66005006577800 a still star: it moved CatWISE's source by CatWISE's
+    own 370 mas/yr motion to today's place and then said our motion should have moved it 7″. A CatWISE source carried
+    there by its own motion moves; it is never still. With highpm's counterpart columns (#388) the deep check decides:
+    Gaia's position-only source on the track → catalogued, strong."""
+    # an older highpm table (no counterpart columns): our own reading, no "still star"
+    (own,) = K.candidate_checks(ECL11, ECL11_ANSWERS)
+    assert own["level"] == "warn" and "still star" not in own["text"]
+    assert own["text"].startswith("CatWISE2020 lists a W1 10.2, W2 9.9 source 0.2″ from its place today once moved by "
+                                  "CatWISE's own motion (370 mas a year towards PA 259°); ours is 695 ± 39 mas a year "
+                                  "towards PA 271°: probably this star, catalogued with a different motion")
+    assert own["values"]["catwise_pm_mas_yr"] == 370.1 and own["values"]["catwise_pa_deg"] == 259.2
+    # highpm's table with its counterpart: Gaia DR3's position-only entry 0.08″ off our track in 2016
+    base = {"method": "fit", "source_id": 66005006577800, "source_id_b": -1, "status": "gaia", "vetted": True}
+    _highpm_table(tmp_path / "mirror", [{**base, "counterpart": "gaia_position", "counterpart_id": "gaia:672055699133504768",
+                                         "counterpart_sep_arcsec": 0.08, "counterpart_epoch_mjd": 57388.5},
+                                        {**base, "source_id": 1, "counterpart": "", "counterpart_id": "",
+                                         "counterpart_sep_arcsec": float("nan"), "counterpart_epoch_mjd": float("nan")}])
+    _highpm_table(tmp_path / "bucket", [{**base, "status": "new"}])     # the bucket's older table: no counterpart columns
+    hp = K.highpm_counterparts([ECL11], [str(tmp_path / "bucket"), str(tmp_path / "mirror")])
+    assert hp == {ECL11["id"]: {"counterpart": "gaia_position", "counterpart_id": "gaia:672055699133504768",
+                                "counterpart_sep_arcsec": 0.08, "counterpart_epoch_mjd": 57388.5}}
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"candidates": [ECL11]}))
+    out = K.run(p, None, None, query=lambda cat, pos: [ECL11_ANSWERS.get(cat, []) for _ in pos],
+                highpm_roots=[str(tmp_path / "mirror")], root=str(tmp_path / "bucket"))
+    (c,) = out["candidates"][ECL11["id"]]["checks"]
+    assert c["level"] == "strong" and c["text"] == (
+        "Gaia DR3 672055699133504768 lists it without a motion 0.08″ from where its motion (695 mas a year) puts it in "
+        "2016 (the pipeline's deep check, which allows for the yearly parallax wobble): a catalogued star, not a new one "
+        "(Gaia gives it no motion).")
+    assert c["values"]["counterpart"] == "gaia_position" and c["values"]["epoch_year"] == 2016.0
+    # the deep check found nothing: no still guess of our own, our track test only
+    (none,) = K.candidate_checks(ECL11, {**ECL11_ANSWERS, "catwise": []}, hp={"counterpart": ""})
+    assert none["level"] == "warn" and "nor at today's place" not in none["text"] and "found no entry either" in none["text"]
+    # ... a still source it found decides too
+    (st,) = K.candidate_checks(ECL11, ECL11_ANSWERS, hp={"counterpart": "allwise_still", "counterpart_id":
+                                                         "allwise:J074642.23+200031.4", "counterpart_sep_arcsec": 0.4,
+                                                         "counterpart_epoch_mjd": 55400.0})
+    assert st["level"] == "strong" and st["text"].startswith("AllWISE J074642.23+200031.4 saw a source 0.40″ from its "
+                                                             "place today in 2010, when its motion (695 mas a year) puts "
+                                                             "it 11″ away") and "still star" in st["text"]
+    assert K.counterpart_name("tmass_position", "2mass:07464256+2000321") == "2MASS J07464256+2000321"
+    assert K.counterpart_name("catwise_pm", "J074642.10+200031.2") == "CatWISE2020 J074642.10+200031.2"

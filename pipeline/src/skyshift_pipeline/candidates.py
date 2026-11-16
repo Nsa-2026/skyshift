@@ -545,6 +545,8 @@ VET_TEXT = {"not_vetted": "it could not be vetted (no data on its dots)", "hot_p
             "same_pixel": "dots of two exposures sit on one detector pixel",
             "whole_pixel": "its dots sit exactly on whole pixels (no measured centre)",
             "wide": "every dot is wider than a star", "cross_detector": "it changes detector between exposures",
+            # wide as a reason since #394: only together with a blend (config VET_WIDE_WITH; warn_values wide.with_blend)
+            "wide_blend": "its dots are wider than a star and two Gaia stars sit either side of it (their blend)",
             "fixed_source": "a fixed source or Gaia star is at its place", "glow": "it is glow from a very bright star",
             "unseen": "exposures that photographed its path don't show it"}
 
@@ -813,6 +815,9 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             cell = (d0, visit, cells.get((d0, visit), 0.0))
         facts = mover_facts(r, dots, (rate, rate_err, pa) if rate is not None else None, no_motion, track, ctx,
                             flags3[i] if flags3 is not None else None, vet_reasons, rep_, cell)
+        why_reasons = vet_reasons
+        if "wide" in vet_reasons and (facts["warn"].get("wide") or {}).get("with_blend"):
+            why_reasons = ["wide_blend" if x == "wide" else x for x in vet_reasons]
         c = {
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
             "zone": zone, "zones": [zone], "score": base, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
@@ -820,7 +825,7 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             # a catalogue source within 6″ and at most 2 mag fainter (the suspects' reasons gaia, catwise): its own light
             "gaia_match": "gaia" in vet_reasons, "catwise_match": "catwise" in vet_reasons, "labels": [], "reasons": reasons,
             "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track, grade,
-                             vet_reasons, known_name(r), overruled(r)),
+                             why_reasons, known_name(r), overruled(r)),
             "flags": record_flag_names(f), "_dets": dets, "_base": base,
             "checks": CK.mover_checks(facts),
         }

@@ -810,6 +810,16 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
         return (f"{name} ({what}) is set around at least one of its dots"
                 + (f", at the peak of {int(k)}" if k else "") + ".",
                 f"Blink D{main} on the hours clock and look for a bright star nearby.")
+    if code == "edge" and f.get("ramp_y") is not None and f.get("edge_px") is None:   # D2's ramp (config VET_D2_RAMP_Y)
+        k, y0 = int(f.get("ramp_dots") or 1), float(f.get("ramp_from_y") or 1975)
+        where = f"a D2 dot in row {f['ramp_y']:.0f}" if k == 1 else f"{k} D2 dots from row {f['ramp_y']:.0f} on"
+        return ((f"Its motion rests on {where}, inside D2's last {DETECTOR_PX - y0:.0f} rows (y ≥ {y0:.0f}), "
+                 "where a background ramp along the detector's edge makes fake dots (today's dot files hold 2.3 free dots "
+                 "per D2 photo in rows 1975–2033 against 1.0 in other 59-row bands; movers resting on such a dot: real "
+                 "asteroids 0.4%, the unexplained movers 0.3%)."),
+                ("On the hours clock, open D2 at the exposure where the dot sits near the photo's edge: a ramp fake is a "
+                 "faint bump on a band of brighter sky along that edge; real light is a round blur like the stars next to "
+                 "it, and D5 shows it at the same moment when it is bright enough."))
     if code == "edge" and f.get("edge_px") is not None:
         return ((f"A dot sits {f['edge_px']:.1f} px from the detector's edge, where stars cut off by the frame make "
                  "fake dots."), f"In D{main}, check whether the dot is cut by the frame's edge.")
@@ -823,6 +833,8 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
         nums = (f"{lo:.2f}–{med:.2f}×" if lo is not None and med is not None and med > lo + 0.005
                 else f"{(med if med is not None else lo):.2f}×")
         trail = f" (its own trail allowed for: × {f['trail']:.2f})" if f.get("trail") else ""
+        if "wide" in (m.get("gates") or []):   # a vetting reason: since #394 only together with a blend (VET_WIDE_WITH)
+            return _wide_graded(nums, trail, f, m, main)
         blend = (" Two Gaia stars sit either side of it, so a blend is the likelier answer here."
                  if f.get("with_blend") else "")
         return ((f"Its dots are {nums} wider than a star of its brightness{trail}: a comet's haze, or two faint things"
@@ -834,6 +846,29 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
                  f"change less than {FLUX_JUMP}×."),
                 f"Blink D{main} between its exposures: is one dot much brighter than the others?")
     return _flaw_text(code, f, main)
+
+
+def _wide_graded(nums: str, trail: str, f: dict, m: dict, main: int) -> tuple[str, str]:
+    """`wide` as a grade C reason (#394: every unsaturated dot wide AND two Gaia stars either side, config
+    VET_WIDE_WITH): the words say it was graded C for the two together; the pair's numbers come from the suspects'
+    `blend` warning. 7 zones as if unknown (fix-wide, 16 Nov): of the movers whose every dot is that wide, such a pair
+    sits around none of 41 real asteroids and none of 49 comet movers. Tables from before #394 (no `with_blend`): wide
+    alone was a reason then, and the words say so."""
+    if not f.get("with_blend"):
+        return ((f"Graded C for its width: its dots are {nums} wider than a star of its brightness{trail} (the vetting's "
+                 "rule before 16 Nov evening; now a wide dot alone is a warning, as comets are wide too)."),
+                (f"Look at the plate in D{main} on the hours clock: a comet shows a fuzzy head, sometimes a tail; a blend "
+                 "splits into two points in other exposures."))
+    b = {k: _fin(x) for k, x in (((m.get("warn") or {}).get("blend")) or {}).items()}
+    g1, g2, apart = b.get("g1_mag"), b.get("g2_mag"), b.get("apart_arcsec")
+    pair = ("two Gaia stars" + (f" (G {g1:.1f} and {g2:.1f})" if g1 is not None and g2 is not None else "")
+            + (f" {apart:.1f}″ apart" if apart is not None else ""))
+    return ((f"Graded C for its width together with a blend: its dots are {nums} wider than a star of its brightness"
+             f"{trail}, and it sits between {pair}: most likely their merged light, not a moving object (wide dots with "
+             "such a pair: none of 41 real asteroids or 49 comet movers whose dots are that wide; a wide dot alone stays "
+             "a warning, as comets are wide too)."),
+            (f"Zoom in on D{main} on the months clock: if the same blob sits between the two stars in other visits, it "
+             "is their blend; a comet's fuzzy head moves along its path on the hours clock."))
 
 
 def _flaw_text(code: str, f: dict, main: int) -> tuple[str, str] | None:

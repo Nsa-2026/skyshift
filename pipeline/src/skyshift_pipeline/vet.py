@@ -368,10 +368,13 @@ def dot_numbers(s: pd.DataFrame) -> pd.DataFrame:
     """The numbers behind some gates, per suspect (row of s, NaN without dot lists): edge_px (the smallest distance of
     a dot to the detector edge, px), persist_dots (dots with PERSIST at the peak: a bright star's leftover image),
     size_ratio (the smallest dot √(a·b) / the detector's stellar value at its S/N), flux_ratio (brightest / faintest
-    dot within one detector, the largest)."""
+    dot within one detector, the largest), ramp_dots / ramp_y / ramp_rests (its D2 dots in rows y >= VET_D2_RAMP_Y,
+    D2's background ramp: how many, the lowest such row, and whether its motion rests on them: its other dots span
+    < 2 exposures and < 2 detectors)."""
     n = len(s)
     out = pd.DataFrame({"edge_px": np.full(n, np.nan), "persist_dots": np.zeros(n, np.int64),
-                        "size_ratio": np.full(n, np.nan), "flux_ratio": np.full(n, np.nan)})
+                        "size_ratio": np.full(n, np.nan), "flux_ratio": np.full(n, np.nan),
+                        "ramp_dots": np.zeros(n, np.int64), "ramp_y": np.full(n, np.nan), "ramp_rests": np.zeros(n, bool)})
     if n == 0 or not has_dot_lists(s):
         return out
     d = explode(s.reset_index(drop=True))
@@ -389,6 +392,13 @@ def dot_numbers(s: pd.DataFrame) -> pd.DataFrame:
     f = d.groupby(["i", "det"])["flux"].agg(["max", "min"])
     fr = (f["max"] / f["min"].where(f["min"] > 0)).groupby(level="i").max()
     out["flux_ratio"] = fr.reindex(range(n)).to_numpy()
+    ramp = (d["det"].to_numpy() == C.VET_D2_RAMP_DET) & (y >= C.VET_D2_RAMP_Y)
+    if ramp.any():
+        out["ramp_dots"] = np.bincount(i, weights=ramp.astype(float), minlength=n).astype(np.int64)
+        out["ramp_y"] = pd.Series(np.where(ramp, y, np.nan)).groupby(i).min().reindex(range(n)).to_numpy()
+        rest = d[~ramp]
+        held = (rest.groupby("i")["obs"].nunique() >= 2) | (rest.groupby("i")["det"].nunique() >= 2)
+        out["ramp_rests"] = (out["ramp_dots"].to_numpy() > 0) & ~held.reindex(range(n), fill_value=False).to_numpy(bool)
     return out
 
 

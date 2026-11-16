@@ -17,6 +17,8 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    show its own exposures (a partial search is retried once, then skipped).
                    catalogue_check.py (check producer `catalogue`, run from pipeline/): IRSA catalogues at every
                    candidate → ~/skyshift-data/checks/catalogue.json; answers cached per position (--cache).
+                   A high_pm row: highpm's counterpart columns (#388; --highpm-root, then --root) win over its own
+                   still/moving guess; a CatWISE source that only reaches today's place by its own motion is no still star.
                    Tests: cd server && uv run pytest ../scripts/candidates/tests
                    known_check.py (run from pipeline/; check producer `known`, contracts v3.23): every mover of any
                    candidates.json against MPC asteroids (all V) and comets (cometels + allcometels) at its dots'

@@ -86,6 +86,9 @@ ENGINE_RATES = {("partner_seen", "ok"): (67, 5), ("one_detector", "warn"): (33, 
                 ("sharp", "warn"): (2, 45), ("sharp", "strong"): (0, 12), ("one_photo", "ok"): (97, 70),
                 ("one_photo", "warn"): (2, 20), ("one_photo", "strong"): (1, 10), ("faint_on_path", "warn"): (1, 32),
                 ("wide", "warn"): (3, 5), ("persistence", "warn"): (1, 2)}
+# What a rate alone would misread. wide (#394: a warning only, never strong): the comets carry it (pixel_check's rule on the
+# 7 zones' 62 comet movers: 58, 94%; real asteroids 2.7%, bright ones 1.7%, the unexplained movers 38%; 16 Nov).
+ENGINE_NOTES = {("wide", "warn"): "comet movers 94%: a comet's haze or a blend, so on its own it is no sign of junk"}
 # What the engine's same-place verdict means for a mover (core pixelcheck.one_photo); none of them names a body.
 ONE_PHOTO = {
     "steady": "about the same light sits at this place at other times: a fixed source. With the stamps agreeing (the source AT the mark, "
@@ -145,8 +148,10 @@ def engine_check_lines(cand_id: str) -> list[str]:
             L.append(f"     {op['verdict']} = {ONE_PHOTO.get(op['verdict'], 'no reading written for this verdict')}")
         for c in px.get("checks") or []:
             rate = ENGINE_RATES.get((c.get("code"), c.get("level")))
+            note = ENGINE_NOTES.get((c.get("code"), c.get("level")))
             L.append(f"  [{c.get('level')}] {c.get('code')}: {c.get('text')}"
-                     + (f" [fires on {rate[0]}% of real movers, {rate[1]}% of junk]" if rate else " [no measured rate]"))
+                     + (f" [fires on {rate[0]}% of real movers, {rate[1]}% of junk{'; ' + note if note else ''}]" if rate
+                        else " [no measured rate]"))
         if px.get("status") == "flaw":
             L.append("  The engine calls this a certain flaw (a code ending in _proven). Confirm it in the images, then it is proof.")
     elif _engine_dir() is not None:

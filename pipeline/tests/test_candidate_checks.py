@@ -732,6 +732,56 @@ def test_mover_flaws_are_gate_codes():
     assert CK.factor({**cand, "grade": "B"}) == pytest.approx(CK.STRONG_FACTOR ** len(strong))
 
 
+def test_d2_ramp_edge_warning_says_what_to_check():
+    """The suspects' `edge` warning with ramp values (D2's last rows): a warning (× 0.95), never a grade; a real edge
+    dot (the exporter's own strong edge) keeps its words and takes the ramp numbers."""
+    ramp = {"ramp_dots": 1, "ramp_y": 2013, "ramp_from_y": 1975.0, "ramp_detector": 2}
+    m = _mover(dots={"y": [2013.4, 1898.4, 1783.4]}, warn={"edge": ramp})
+    ch = CK.mover_checks(m)
+    assert codes(ch) == {"edge": "warn"}
+    c = ch[0]
+    assert c["text"].startswith("Its motion rests on a D2 dot in row 2013, inside D2's last 65 rows (y ≥ 1975), where a "
+                                "background ramp along the detector's edge makes fake dots")
+    assert "real asteroids 0.4%, the unexplained movers 0.3%" in c["text"]
+    assert c["look"].startswith("On the hours clock, open D2 at the exposure where the dot sits near the photo's edge")
+    assert c["values"] == ramp
+    assert CK.factor({"kind": "mover", "grade": "B", "checks": ch, "reasons": []}) == pytest.approx(0.95)
+    two = CK.mover_checks(_mover(dots={"y": [2001.4, 2034.4, 1900.4]}, warn={"edge": {**ramp, "ramp_dots": 2, "ramp_y": 2001}}))
+    (e,) = [x for x in two if x["code"] == "edge"]
+    assert e["level"] == "strong" and "px from the D2 detector's edge" in e["text"] and e["values"]["ramp_dots"] == 2
+
+
+def test_wide_reason_says_graded_c_for_wide_and_blend():
+    """#394: `wide` is a grade C reason only together with a blend (VET_WIDE_WITH). The check says it was graded C for the
+    two together, with the pair's numbers from the blend warning; the C factor stands for it (GATE_CODES). Wide with a
+    blend but no reason (a grade-A track overruled it) and wide alone keep the warning's words; a table from before #394
+    (wide alone a reason, no with_blend) says that was the old rule."""
+    wide = {**FLAWS["wide"], "with_blend": 1}
+    m = _mover(grade="C", gates=["wide"], warn={"wide": wide, "blend": FLAWS["blend"]},
+               warn_levels={"wide": "strong"})
+    ch = CK.mover_checks(m)
+    (w,) = [x for x in ch if x["code"] == "wide"]
+    assert w["level"] == "strong" and w["text"].startswith(
+        "Graded C for its width together with a blend: its dots are 1.41–1.62× wider than a star of its brightness, and "
+        "it sits between two Gaia stars (G 17.2 and 18.0) 12.8″ apart: most likely their merged light, not a moving object")
+    assert "none of 41 real asteroids or 49 comet movers" in w["text"] and "months clock" in w["look"]
+    assert w["values"]["with_blend"] == 1
+    cand = {"kind": "mover", "grade": "C", "reasons": ["wide"], "checks": ch}
+    assert CK.gate_codes(cand) == {"wide"} and CK.counted_elsewhere(cand, w)
+    # the same numbers on a grade-A track that overruled the reason: a warning in the warning's own words
+    (a,) = [x for x in CK.mover_checks(_mover(grade="A", warn={"wide": wide, "blend": FLAWS["blend"]})) if x["code"] == "wide"]
+    assert a["level"] == "warn" and a["text"].startswith("Its dots are 1.41–1.62× wider than a star of its brightness: a "
+                                                          "comet's haze") and "Two Gaia stars sit either side" in a["text"]
+    # wide alone (a comet's haze as often as a blend): the warning, no blend sentence
+    (b,) = [x for x in CK.mover_checks(_mover(warn={"wide": FLAWS["wide"]})) if x["code"] == "wide"]
+    assert b["level"] == "warn" and "Graded C" not in b["text"] and "Two Gaia stars" not in b["text"]
+    # a suspects table from before #394: wide alone was a reason
+    (o,) = [x for x in CK.mover_checks(_mover(grade="C", gates=["wide"], warn={"wide": FLAWS["wide"]},
+                                              warn_levels={"wide": "strong"})) if x["code"] == "wide"]
+    assert o["level"] == "strong" and o["text"].startswith("Graded C for its width: its dots are 1.41–1.62× wider") \
+        and "the vetting's rule before 16 Nov evening" in o["text"]
+
+
 def test_hot_pixel_gate_words_follow_the_rule():
     """The gate's words: the 16 Nov rule (other sky places, its exposure count) when the suspects' values say so; the old
     map's words for older tables; a stronger suspects level lifts an exporter warning."""
