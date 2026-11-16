@@ -147,6 +147,25 @@ export interface MeasuredShift {
   pmdec: number;
   pm_err: number;
   pm_snr: number;
+  /** v3.21, optional: the source's position in each visit here, in time order (then detector). */
+  visits?: ShiftVisit[];
+  /** v3.21: χ²_ν of the visits about the reported motion's straight line (a zero point per detector). */
+  chi2_nu?: number | null;
+  /** v3.21: RMS distance of the visits from that line, arcsec. */
+  wobble_arcsec?: number | null;
+  /** v3.21: false = the position wobbles between visits, not a motion (no arrow). null/absent: not tested. */
+  steady?: boolean | null;
+}
+
+/** contracts/api.md v3.21 `shifts[].visits[]`. */
+export interface ShiftVisit {
+  epoch_id: string;
+  det: number;
+  mjd: number;
+  ra: number;
+  dec: number;
+  /** 1σ per axis, arcsec (already × 1.6). */
+  err_arcsec: number;
 }
 
 export interface Measured {
