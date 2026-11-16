@@ -28,6 +28,10 @@ brown_dwarf_like (16 Nov): water (h2o_14 or h2o_19) where an H2O index is measur
 (water_testable), methane alone only where it isn't (a Y dwarf, faint at 1.4–1.9 µm); red, faint or absent in Gaia,
 not a galaxy, not saturated; and not AGN-coloured in AllWISE (agn_veto, IRSA, the flagged rows only). `bd_veto` says
 why a would-be brown dwarf isn't one (`no_water`, `agn_colours`), `allwise_w2_w3` the colour looked up.
+J − [4.6] (`j_m46_ab`) comes from the source's own spectrum; where that lacks J or [4.6] (a red object with no
+D1–D3 dot; a faint one without 4.4–4.8 µm coverage) the missing side comes from the forced photometry of the red forced
+layer's AllWISE target that crossid tied to it (forced_j; `j_m46_from` spectrum / forced / forced_limit / "": with J a
+limit the colour is a lower bound, so it only makes "red" tests pass, never fail).
 """
 
 from __future__ import annotations
@@ -361,9 +365,70 @@ def vega_colours(out: pd.DataFrame, phot: pd.DataFrame | None) -> dict[str, np.n
 
 
 # --- classification --------------------------------------------------------------------------
+FORCED_WINDOWS = ("j", "m46")  # the J − [4.6] windows (config MAG_WINDOWS) taken from the red layer's forced rows
+
+
+def forced_j(store: Store, zone: C.Zone, workers: int = 16) -> pd.DataFrame | None:
+    """J and [4.6] (AB) of the sources crossid tied to a red forced-layer target (crossids allwise_ref_id; forced_sky
+    --red), from that target's forced photometry in each window (config MAG_WINDOWS j: D2 photos, m46: D6; mask bits
+    out): the inverse-variance mean flux (forced_j_table). None without such links. Only those detectors' forced files
+    are read, only the linked targets' rows kept."""
+    from .motion_io import load_forced
+    rel = results_rel(zone.name, "crossids.parquet")
+    if not store.exists(rel):
+        return None
+    x = store.read_parquet(rel)
+    if "allwise_ref_id" not in x:
+        return None
+    x = x.loc[x["allwise_ref_id"].astype(str) != "", ["source_id", "allwise_ref_id"]]
+    if not len(x):
+        return None
+    dets = {d for w in FORCED_WINDOWS for d, (a, b) in C.SPECTRA_DETECTOR_UM.items()
+            if a < C.MAG_WINDOWS[w][1] and b > C.MAG_WINDOWS[w][0]}
+    f = load_forced(store, zone, workers, detectors=dets, ref_ids=set(x["allwise_ref_id"].astype(str)))
+    return forced_j_table(f, x)
+
+
+def forced_j_table(f: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
+    """forced_j's arithmetic: forced rows (load_forced) + links (source_id, allwise_ref_id) → one row per linked
+    source: per window w in FORCED_WINDOWS `<w>_ab`, `<w>_snr`, `<w>_n` (NaN / 0 without a point) and `<w>_limit`:
+    S/N >= CLASSIFY_FORCED_J_MIN_SNR gives the mean's AB magnitude (limit False); below it the AB of max(flux, 0) +
+    CLASSIFY_FORCED_J_LIMIT_SIGMA × error (limit True: the object is fainter than that)."""
+    from skyshift_core import MASK_BITS
+    cols = {"source_id": "int64"}
+    for w in FORCED_WINDOWS:
+        cols |= {f"{w}_ab": "float32", f"{w}_limit": "bool", f"{w}_snr": "float32", f"{w}_n": "int32"}
+    if not len(f):
+        return pd.DataFrame({c: pd.Series(dtype=t) for c, t in cols.items()})
+    wl = f["wavelength_um"].to_numpy(np.float64)
+    fl, e = f["flux_ujy"].to_numpy(np.float64), f["flux_err_ujy"].to_numpy(np.float64)
+    bits = f["flags"].to_numpy(np.int64) & 0xFFFFFFFF
+    good = np.isfinite(fl) & np.isfinite(e) & (e > 0) & ((bits & MASK_BITS) == 0)
+    ref = f["ref_id"].astype(str).to_numpy()
+    per_ref = pd.DataFrame(index=pd.Index(np.unique(ref[good]), name="allwise_ref_id"))
+    for w in FORCED_WINDOWS:
+        lo, hi = C.MAG_WINDOWS[w]
+        ok = good & (wl >= lo) & (wl <= hi)
+        g = pd.DataFrame({"ref": ref[ok], "w": 1.0 / e[ok] ** 2, "wf": fl[ok] / e[ok] ** 2})
+        s = g.groupby("ref").agg(w=("w", "sum"), wf=("wf", "sum"), n=("w", "size")).reindex(per_ref.index)
+        m = (s["wf"] / s["w"]).to_numpy(np.float64)
+        sig = 1.0 / np.sqrt(s["w"].to_numpy(np.float64))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            snr = m / sig
+            det = snr >= C.CLASSIFY_FORCED_J_MIN_SNR
+        flux = np.where(det, m, np.maximum(m, 0.0) + C.CLASSIFY_FORCED_J_LIMIT_SIGMA * sig)
+        per_ref[f"{w}_ab"] = IX.ab_mag(np.where(np.isfinite(m), flux, np.nan)).astype(np.float32)
+        per_ref[f"{w}_limit"] = np.isfinite(m) & ~det
+        per_ref[f"{w}_snr"] = snr.astype(np.float32)
+        per_ref[f"{w}_n"] = s["n"].fillna(0).to_numpy(np.int32)
+    out = links.astype({"allwise_ref_id": str}).merge(per_ref.reset_index(), on="allwise_ref_id", how="inner")
+    return out.drop(columns="allwise_ref_id").drop_duplicates("source_id").reset_index(drop=True)[list(cols)]
+
+
 def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame,
-                   phot: pd.DataFrame | None = None) -> pd.DataFrame:
-    """All arrays aligned on src's rows (phot: load_photometry, optional). Returns classes (one row per source)."""
+                   phot: pd.DataFrame | None = None, fj: pd.DataFrame | None = None) -> pd.DataFrame:
+    """All arrays aligned on src's rows (phot: load_photometry, optional; fj: forced_j, optional). Returns classes
+    (one row per source)."""
     flux, err = IX.stack(src["flux_ujy"]), IX.stack(src["err_ujy"])
     visits = None
     if "visit_bits" in src and len(src):
@@ -373,7 +438,25 @@ def classify_frame(src: pd.DataFrame, shape: pd.DataFrame, gaia: pd.DataFrame,
     for k, v in mags.items():
         out[k] = v
     with np.errstate(invalid="ignore"):
-        out["j_m46_ab"] = (mags["mag_ab_j"] - mags["mag_ab_m46"]).astype(np.float32)
+        jm46 = (mags["mag_ab_j"] - mags["mag_ab_m46"]).astype(np.float64)
+    frm = np.where(np.isfinite(jm46), "spectrum", "").astype(object)
+    if fj is not None and len(fj):
+        # no colour from the source's own spectrum (no D1–D3 dot, or no 4.4–4.8 µm coverage): the red forced layer's
+        # J and [4.6] at its AllWISE position (forced_j) where the spectrum lacks them. The spectrum's value wins; a
+        # J limit (fainter) keeps the colour as a lower bound; a [4.6] limit gives none (it could be either way)
+        k = fj.drop_duplicates("source_id").set_index("source_id").reindex(out["source_id"].to_numpy(np.int64))
+        js, ms = mags["mag_ab_j"].astype(np.float64), mags["mag_ab_m46"].astype(np.float64)
+        jf, mf = k["j_ab"].to_numpy(np.float64), k["m46_ab"].to_numpy(np.float64)
+        jl = k["j_limit"].fillna(False).to_numpy(bool)
+        ml = k["m46_limit"].fillna(False).to_numpy(bool)
+        j = np.where(np.isfinite(js), js, jf)
+        m = np.where(np.isfinite(ms), ms, np.where(ml, np.nan, mf))
+        j_lim = ~np.isfinite(js) & jl
+        use = ~np.isfinite(jm46) & np.isfinite(j) & np.isfinite(m)
+        jm46[use] = j[use] - m[use]
+        frm[use] = np.where(j_lim[use], "forced_limit", "forced")
+    out["j_m46_ab"] = jm46.astype(np.float32)
+    out["j_m46_from"] = frm.astype(str)
     for k, v in IX.all_indices(flux, err).items():
         out[k] = v
     for c in ("size_ratio", "psf_chi2_ratio", "cog_ratio", "n_shape_dots", "extended_score"):
@@ -577,7 +660,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None
     shape_cols = sorted(set(dot_shape_ratios(dots)) if dots is not None else [])
     t2 = time.time()
     shape = shape_features(dots, sids, gaia_stars, locus)
-    out = classify_frame(src, shape, gaia, phot)
+    fj = forced_j(store, zone, workers)
+    out = classify_frame(src, shape, gaia, phot, fj)
     out, veto_st = agn_veto(out, src)
     t3 = time.time()
     nbytes = store.write_parquet(results_rel(zone.name, "classes.parquet"), out)
@@ -586,6 +670,9 @@ def run(store: Store, zone: C.Zone, workers: int = 16, locus: dict | None = None
         "sources": int(len(out)),
         "star": int(vc.get("star", 0)), "galaxy": int(vc.get("galaxy", 0)), "unsure": int(vc.get("unsure", 0)),
         "brown_dwarf_like": int(out["brown_dwarf_like"].sum()),
+        "red_layer_linked": None if fj is None else int(len(fj)),
+        "j_m46_from": {k: int(v) for k, v in out["j_m46_from"].value_counts().items() if k},
+        "brown_dwarf_like_forced_j": int((out["brown_dwarf_like"] & out["j_m46_from"].str.startswith("forced")).sum()),
         "bd_no_water": int((out["bd_veto"] == "no_water").sum()), "bd_agn_veto": veto_st,
         "gaia_from": origin, "gaia_matched": int(np.isfinite(out["gaia_g"]).sum()),
         "shape_inputs": shape_cols, "shape_dots": 0 if dots is None else int(len(dots)),

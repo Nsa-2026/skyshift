@@ -11,6 +11,10 @@ proper motion of its Gaia match (else its CatWISE match), so a star at 0.5″/yr
 along that move the match allows CROSSID_PM_REL_TOL of it more (a borrowed pm is only so good over 25 years: CatWISE's
 fits no parallax), across it CROSSID_ARCSEC only. `sep` stays the plain distance at the entry's epoch.
 
+The red forced layer (forced_sky --red: AllWISE red sources with no Gaia target, ref_id `allwise:…`, no motion) is
+matched by position when it is built: allwise_ref_id / allwise_sep_arcsec, the target nearest each source within
+CROSSID_RED_ARCSEC (link_red). lightcurves ties those targets' forced rows to the source; classify takes J from them.
+
 Writes results/<zone>/crossids.parquet, one row per source (contracts/dots.md, Derived tables).
 """
 
@@ -227,12 +231,77 @@ def compute(src: pd.DataFrame, epochs: np.ndarray, refcat: pd.DataFrame) -> pd.D
     return out
 
 
+RED_PREFIX = "allwise:"  # ref_id of the red forced layer (forced_sky --red): AllWISE red sources with no Gaia target
+
+
+def red_layer(store: Store, ra: np.ndarray, dec: np.ndarray) -> pd.DataFrame | None:
+    """The red forced layer's targets (refcat/sky/forced_red_n32/, forced_sky.build_red) of every partition holding
+    one of these positions or a point CROSSID_RED_ARCSEC from one; None when the layer is not built (no manifest)."""
+    from . import forced_sky
+    sk = forced_sky.SkyList(store, C.FORCED_SKY_RED_DIR)
+    if not sk.available or not len(ra):
+        return None
+    r = C.CROSSID_RED_ARCSEC / 3600.0
+    cosd = np.maximum(np.cos(np.deg2rad(dec)), 1e-3)
+    pts_ra = np.concatenate([ra, ra + r / cosd, ra - r / cosd, ra, ra]) % 360.0
+    pts_dec = np.clip(np.concatenate([dec, dec, dec, dec + r, dec - r]), -90.0, 90.0)
+    pix = np.unique(forced_sky.pixel_of(pts_ra, pts_dec, sk.nside))
+    have = [int(p) for p in pix if store.exists(forced_sky.partition_rel(int(p), C.FORCED_SKY_RED_DIR))]
+    return sk.frame(have)
+
+
+def link_by_position(ra: np.ndarray, dec: np.ndarray, t_ra: np.ndarray, t_dec: np.ndarray,
+                     radius_arcsec: float) -> tuple[np.ndarray, np.ndarray]:
+    """Each target to its nearest position within radius_arcsec, then each position keeps its nearest target:
+    (target row per position or -1, separation arcsec or NaN)."""
+    n = len(ra)
+    idx = np.full(n, -1, np.int64)
+    sep = np.full(n, np.nan, np.float32)
+    if not n or not len(t_ra):
+        return idx, sep
+    lists = SkyTree(ra, dec).query_radius(t_ra, t_dec, radius_arcsec)
+    lens = np.fromiter((len(x) for x in lists), np.int64, len(t_ra))
+    if lens.sum() == 0:
+        return idx, sep
+    ti = np.repeat(np.arange(len(t_ra)), lens)
+    si = np.fromiter((j for x in lists for j in x), np.int64, int(lens.sum()))
+    e, nn = tangent_offset_arcsec(ra[si], dec[si], t_ra[ti], t_dec[ti])
+    d = np.hypot(e, nn)
+    ok = d <= radius_arcsec
+    t = pd.DataFrame({"t": ti[ok], "s": si[ok], "d": d[ok]})
+    t = t.sort_values(["t", "d"]).drop_duplicates("t").sort_values(["s", "d"]).drop_duplicates("s")
+    idx[t["s"].to_numpy()] = t["t"].to_numpy()
+    sep[t["s"].to_numpy()] = t["d"].to_numpy(np.float32)
+    return idx, sep
+
+
+def link_red(out: pd.DataFrame, red: pd.DataFrame | None) -> pd.DataFrame:
+    """allwise_ref_id / allwise_sep_arcsec: the red forced layer's target (ref_id `allwise:<designation>`, epoch 2010.5,
+    no motion: the forced rows sit at exactly this position) nearest each source within CROSSID_RED_ARCSEC (a target
+    goes to its nearest source only). lightcurves then ties that target's forced rows (source_id −1 before) to the
+    source, and classify takes J − [4.6] from them when the source's own spectrum has no J (no D1–D3 dot)."""
+    out["allwise_ref_id"] = ""
+    out["allwise_sep_arcsec"] = np.full(len(out), np.nan, np.float32)
+    if red is None or not len(red) or not len(out):
+        return out
+    red = red[red["ref_id"].astype(str).str.startswith(RED_PREFIX)].drop_duplicates("ref_id").reset_index(drop=True)
+    i, d = link_by_position(out["ra"].to_numpy(np.float64), out["dec"].to_numpy(np.float64),
+                            red["ra"].to_numpy(np.float64), red["dec"].to_numpy(np.float64), C.CROSSID_RED_ARCSEC)
+    ids = np.full(len(out), "", object)
+    ids[i >= 0] = red["ref_id"].astype(str).to_numpy()[i[i >= 0]]
+    out["allwise_ref_id"] = ids.astype(str)
+    out["allwise_sep_arcsec"] = d
+    return out
+
+
 def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     t0 = time.time()
     src = store.read_parquet(results_rel(zone.name, "sources.parquet"), columns=["source_id", "ra", "dec"])
     epochs = source_epochs(store, zone, src["source_id"].to_numpy(np.int64))
     refcat = load_refcat(store, zone)
     out = compute(src, epochs, refcat)
+    red = red_layer(store, out["ra"].to_numpy(np.float64), out["dec"].to_numpy(np.float64))
+    out = link_red(out, red)
     store.write_parquet(results_rel(zone.name, "crossids.parquet"), out)
     from .refcat import FULL, built_partial, catalogs_in
     made = catalogs_in(store, zone.name)
@@ -246,6 +315,8 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
           "matched_gaia": int((out["gaia_ref_id"] != "").sum()),
           "matched_catwise": int((out["catwise_ref_id"] != "").sum()),
           "matched_tmass": int((out["tmass_ref_id"] != "").sum()),
+          "red_layer_targets": None if red is None else int(len(red)),
+          "matched_allwise_red": int((out["allwise_ref_id"] != "").sum()),
           "gaia_crowded": int((out["gaia_n"] > 1).sum()),
           "median_gaia_sep_arcsec": float(np.nanmedian(out["gaia_sep_arcsec"])) if (out["gaia_ref_id"] != "").any() else None,
           "wall_s": round(time.time() - t0, 1)}

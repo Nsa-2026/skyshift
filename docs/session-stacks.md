@@ -620,10 +620,77 @@ that dot exists but recovery did not take it, a real-dot gap, not a stack one); 
 glitch or near saturation. A whole-zone measurement needs the combined rerun (every session stacked, link deciding
 membership).
 
+## 8. Fused into the dots worker (agent "v2-stack-fuse", 16 Nov night)
+
+### In plain words
+
+With `SKYSHIFT_DOTS_V2=1` and `SKYSHIFT_SESSION_STACK=1` the extraction-v2 dots worker now builds the session
+stacks itself, from the photos it already holds. Each photo is read once for both. The files are the same, byte for
+byte in their tables, as dots v2 followed by the separate `sessionstack` step (measured on a real hunt session below).
+With either switch off nothing changes: the worker and its order are as before.
+
+### What runs
+
+- **Tasks** (dots.run): with both switches the zone's photos go to the workers session by session (`session_groups`:
+  a task never splits a session; at least `DOTS_TASK_PHOTOS` photos). Each task gets the session stacks of its sessions
+  that are not written yet (`coadd.session_tasks`, a key's sources file missing).
+- **Order inside a task** (`_stack_order`): per session, the partner pair D1+D4 of every exposure, then D2+D5, then
+  D3+D6. Partners stay next to each other, so v2's partner columns are filled as before. Only two detectors' prepared
+  photos are held at a time.
+- **Per photo** (dots.process_photos, `coadd.Stacker`): the raw photo's detection background and dark-hole mask
+  (`dots.raw_background_holes`: core `holes.dark_holes` with the HOLE_* settings, #392/#393) are computed once and
+  handed to both the dots (`mask_dark_holes(shared=)`) and the stack (`coadd.prepare(shared=)`: same values, one
+  computation). The photo is prepared for its stack (background, holes, glow) before its dots are measured.
+- **When the last photo of a (session, detector) is in**, the stack is made and written (`coadd.write_task`, the same
+  code `run_task` uses), and its prepared photos are freed. The stacks' metadata says `fused_in_dots: true`.
+- **Photos whose dot file already exists** but whose stack is missing (a resumed run) are read for the stack only:
+  their dot files are not touched.
+- **A photo that cannot be read** drops its stack (status `failed`); a stack whose photos are not all in the task (e.g.
+  `--limit`) is `incomplete`. Neither is written: the `sessionstack` step, which `all` still runs after `dots`, makes
+  them later, reading those photos again. On a fused run that step reads nothing for the stacks already there and keeps
+  the report's per-detector figures.
+- **Outputs**: dots.run writes `session_stacks/index/<zone>.parquet` and `results/<zone>/session_stack.json`
+  (`fused_in_dots`, `prepare_cpu_s_median`) itself; its summary gets `session_stacks` with the per-photo CPU added,
+  and `dots_runs/<time>.json` lists every stack's stats. `--limit` picks whole sessions (`session_limit`).
+
+### Measured: hunt session 72, D1 + D4 (4 exposures, 8 full photos from NASA's S3)
+
+Same photos (local copies), one process each, this Mac:
+
+| | separate (dots v2, then `sessionstack`) | fused |
+|---|---|---|
+| photo reads | 16 (8 + 8 again) | 8 |
+| dot files, peaks files (16) | | identical tables and footers (timings aside) |
+| stack files (6 tables, 2 maps) | | identical tables, metadata and maps (timings aside) |
+| stacks | D1 34,138 sources at 5.36σ; D4 44,231 at 5.0σ | the same |
+| CPU, whole run | 103.2 s | 102.0 s |
+| CPU for the stacks | 38.0 s in the step (18.6 + 19.4, with a local re-read of each photo) | 36.7 s inside dots |
+| peak memory | 1.78 GB | 1.88 GB |
+
+- **Time per photo added to the dots worker: 4.6 s of CPU** (36.7 s for 8 photos): the shared background and holes
+  0.12 s, the stack preparation (background, holes, glow) ~2.3 s per photo, the stack and the per-photo measurement
+  ~9 s per (session, detector) of 4 photos. The dots themselves took 7.9 s per photo here (v2, no forced list), so on
+  this Mac fused dots cost ~1.6× dots v2 alone in CPU.
+- **What it saves**: the separate step's second read of every photo (56 MB; ~10.7 s per photo on a GCP worker, 35–50 s
+  on this Mac; the hunt's 197 GB) and its background.
+- **D4's false peaks are gone**: with core `holes.dark_holes` (#393) the D4 stack's threshold is 5.0σ, at 0.0 negative
+  peaks per deg² (the old −10σ rule: the 8σ cap and 26 per deg², §7).
+- **Memory**: the worker holds at most two detectors' prepared photos of one session (~50 MB each, 5 exposures: up
+  to ~0.5 GB), plus the stack's own ~1.2 GB while it is made. On a spot n2-highcpu-64 (64 GB, 1 GB per vCPU) that is
+  more than one worker per vCPU can have: run ~28–32 workers there, or use an n2-standard / n2-highmem machine.
+
+### Cost in the rerun
+
+Per photo +4.6 s of CPU on a Mac core, about +6–9 vCPU-s on a GCP n2 worker (dots v2 is ~62–76 vCPU-s per photo,
+docs/extraction-v2.md §12.8): +8–14%. Whole sky (~495,000 photos): ~630 Mac-core-hours, ~800–1,200 vCPU-h,
+~$8–20 of spot compute, and no extra reads. The CPU measured on more sessions (§7: 6–17 s per session × detector)
+agrees.
+
 ## What is left
 
-- **Fuse into the dots worker** (above): today the step re-reads the photos.
-- **D4 dark holes** keep 26 negatives per deg² at the 8σ cap: the hole mask needs a second look in D4.
+- **Fuse into the dots worker**: done (§8); the separate step stays for what the worker could not stack.
+- **D4 dark holes**: with core `holes.dark_holes` (#393) the D4 stack of hunt session 72 reaches 5.0σ at 0 negatives per
+  deg² (§8); one session only, check a crowded field.
 - **Stack rows in tracklets' recovery** and the **orphans limits**: done in round 2 (above); measured on 8 hunt
   sessions in SWIR only, with fixed-group membership approximated. The combined rerun measures them on whole zones.
 - **Whole-sky storage**: the per-photo rows are half the 1.2 TB; keep only moving sources' rows if that is too much.

@@ -520,6 +520,13 @@ ref_ids, so `allwise:` rows stay catalogue-only light curves (source_id −1) an
 photo's time, within 3″) or by an AllWISE crossid: proposed to the lightcurves / crossid owner. The photometry is
 in the forced files either way, so the rerun need not wait for it.
 
+**Used downstream (16 Nov night).** crossid ties each `allwise:` target to the nearest source within 3″
+(`allwise_ref_id`, `allwise_sep_arcsec`; the layer's partitions around the zone's sources), lightcurves takes those
+forced rows into the source's light curves, and classify takes J and [4.6] from them where the source's spectrum has
+none (`j_m46_from`). On the four test exposures' discs (one zone each): 1,672 of 3,866 red targets link (43%; median
+0.33–0.69″); 1,324 of those have neither J nor [4.6] in their spectrum, 55 only [4.6], 33 already both.
+`changes.name_of` still has no `allwise:` branch.
+
 ### 12.6 Gaia G < 21 in refcat (proposal: 704 of 1,161 "no Gaia" spectral candidates have Gaia G 20–21.9)
 
 Measured on four 1° tiles (hunt, ecl04, plane, bulge): rows +44–68%, ESA TAP time the same except the densest tile
@@ -540,7 +547,7 @@ would otherwise veto more by chance (suspects 6″, fragments 3″, link 2.5″,
 | streaks > 900″/h (relink) | not built: a line search over stored dots and peaks, no pixels needed (§3.3) |
 | matched filter per detector, normalised by the map's σ (stacks) | done: block σ grid + per-detector thresholds (§12.2). "Per photo from its own negative peaks" can't be done in one pass (the negative image is a second run); the block grid is its stand-in |
 | MWIR dark-hole mask (stacks) | done, a different rule: single pixels, not next to PERSIST/OUTLIER (§12.1); count in the footer, per dot in `n_masked` |
-| session coadds per detector; session matched-filter maps for the hunt (stacks) | not in this PR: they change what a worker holds (a session's 2–5 exposures of a detector, not an exposure's six photos). The step exists on main (#383, `coadd`, behind `SKYSHIFT_SESSION_STACK`); sessionstack asks to run it inside the dots worker so each photo is read once. That is a worker change for the lead and the sessionstack agent, not a dots change: v2's per-photo files don't depend on it |
+| session coadds per detector; session matched-filter maps for the hunt (stacks) | not in this PR: they change what a worker holds (a session's 2–5 exposures of a detector, not an exposure's six photos). The step exists on main (#383, `coadd`, behind `SKYSHIFT_SESSION_STACK`); sessionstack asks to run it inside the dots worker so each photo is read once. That is a worker change for the lead and the sessionstack agent, not a dots change: v2's per-photo files don't depend on it. **Done (16 Nov night)**: with both switches the v2 dots worker builds them, each photo read once, files identical to the separate step (docs/session-stacks.md §8) |
 | D4 dark holes not all caught (sessionstack: 26 negative peaks per deg² at 8σ in the session D4 map) | that is the session stack's own rule (`coadd.dark_holes`: ≥ 3 px below −10σ, the stacks agent's first guess), which misses the single −5 to −7σ pixels. The v2 rule (§12.1) takes D4's matched-filter fakes 42 → 2.3 per deg² at 5σ on full photos. Proposed to sessionstack: `coadd.prepare` calls core `skyshift_core.holes.dark_holes` with the `HOLE_*` settings (their file, not changed here) |
 | a flag when a dot's centroid fell back (moverflaws) | done: sep_flag bit **0x800** (core `SEP_FLAG_CENTROID_FALLBACK`), set by core `measure_objects` on every dot from now on (v2 and not, all passes). Real photos: 0.6–0.96% of dots (plane D1 2.2%), 1.2–5.4% at S/N 5–7. Half of the fallbacks are not on a whole pixel (sep's barycentre) and half of the whole-pixel dots are not fallbacks, so vet's guess and the bit differ |
 | freedots ra/dec; stack rows as tracklets' input (moverflaws, sessionstack) | nothing for the extraction |

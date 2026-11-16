@@ -343,23 +343,29 @@ FORCED_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def load_forced(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool = True) -> pd.DataFrame:
+def load_forced(store: Store, zone: C.Zone, workers: int = 16, calibrated: bool = True,
+                detectors: set[int] | None = None, ref_ids: set[str] | None = None) -> pd.DataFrame:
     """Every forced/<obs_id>D<det>.parquet of the zone's photos, normalised (FORCED_ALIASES keys + obs_id,
     session, visit). Empty when the step hasn't run. With calib.json (and `calibrated`) flux_ujy and flux_err_ujy go
     on the dots' corrected scale: a PSF flux × calib.forced_psf_factor (calib.json `forced`: its own level and the part
     of the dots' phase term it carries; the forced fit at the true position lacks most of the dots' phase loss), an
-    r = 2 px aperture flux × the dots' full flux_factor 'ap' at the target's pixel. `attrs['calib_applied']`."""
+    r = 2 px aperture flux × the dots' full flux_factor 'ap' at the target's pixel. `attrs['calib_applied']`.
+    detectors: only those detectors' photos; ref_ids: only those targets' rows (classify's forced J)."""
     photos = store.read_parquet(photolist_rel(zone.name)).reset_index(drop=True)
     have = set(store.listdir(C.FORCED_DIR))
     cols = [*FORCED_ALIASES, "obs_id", "session", "visit"]
-    if not len(photos):
+    if not len(photos) or (ref_ids is not None and not ref_ids):
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
-    todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" in have]
+    todo = [r for r in photos.itertuples() if f"{r.obs_id}D{int(r.detector)}.parquet" in have
+            and (detectors is None or int(r.detector) in detectors)]
     if not todo:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
 
     def one(r):
         f = store.read_parquet(f"{C.FORCED_DIR}/{r.obs_id}D{int(r.detector)}.parquet")
+        if ref_ids is not None:
+            rid = pick(f, FORCED_ALIASES["ref_id"])
+            f = f[pd.Series(rid).astype(str).isin(ref_ids).to_numpy()].reset_index(drop=True)
         out = pd.DataFrame({k: pick(f, v) for k, v in FORCED_ALIASES.items()})
         out["ref_id"] = pd.Series(out["ref_id"]).astype(str).to_numpy()
         det = pd.to_numeric(out["detector"], errors="coerce").to_numpy()
