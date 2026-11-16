@@ -31,6 +31,13 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    pixel, persistence, sharp, wide, one-photo. Writes ~/skyshift-data/checks/pixel.json; --validate
                    gives the hit rates on known asteroids, junk and faint stars (pixel_validate.py, into
                    ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.
+- rebuild/         P1. The To check rebuild on the lead's PC (docs/rebuild-on-pc.md): tocheck.sh runs mirror → suspects
+                   for every zone → one export → check producers → merge → frames → checks → PR, resumable (a stamp
+                   per step); `--dry-run` prints files, GB and $. rebuild.py (pipeline env): plan/fetch (gcloud storage,
+                   no-clobber), estimate, export (skyshift-candidates on an overlay: the local mirror first, the bucket by
+                   column with a 16 KiB read block; gcsfs' default 5 MiB block reads whole dot files: ~784 GB vs ~50 GB),
+                   combine, report, fill-todo. Never writes to the bucket except `--upload-known-index`.
+                   Tests: cd pipeline && uv run pytest ../scripts/rebuild/tests
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py), run a round through the Claude API (api_round.py, key from the environment),
                    compare runs (compare_runs.py), blind rounds (make_scenarios.py), piles (triage.py), a learned score (rb_score.py), easy/hard routing (route.py)
