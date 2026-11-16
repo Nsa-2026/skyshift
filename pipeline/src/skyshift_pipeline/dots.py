@@ -51,6 +51,7 @@ from skyshift_core import (SAT_BITS, background, build_mask, centroid, detect, o
 from skyshift_core.detect import APERTURE_R_PX as DETECT_APERTURE_R_PX
 from skyshift_core.flags import TRANSIENT
 from skyshift_core.glow import fit_glow
+from skyshift_core.holes import dark_holes
 from skyshift_core.level2 import EPSF
 
 from . import config as C
@@ -297,9 +298,10 @@ def psf_noise(l2, bkg_rms: np.ndarray) -> np.ndarray:
     return np.fmax(sd, bkg_rms)
 
 
-def photo_context(l2, timing: dict | None = None) -> PhotoContext:
+def photo_context(l2, timing: dict | None = None, pre: tuple | None = None) -> PhotoContext:
+    """The per-photo maps; `pre` = _detection_background(l2) when the caller already has it (mask_dark_holes)."""
     t0 = time.perf_counter()
-    b, bad, masked = _detection_background(l2)
+    b, bad, masked = _detection_background(l2) if pre is None else pre
     level, rms = b.level, b.rms
     sub = masked - level
     sub[bad] = 0.0
@@ -308,6 +310,32 @@ def photo_context(l2, timing: dict | None = None) -> PhotoContext:
                        timing={} if timing is None else timing, background=b)
     ctx.timing["context_s"] = time.perf_counter() - t0
     return ctx
+
+
+def mask_dark_holes(l2, timing: dict | None = None) -> tuple[object, dict, tuple | None]:
+    """Extraction v2's dark-hole mask (16 Nov, second pass; core skyshift_core.holes, config HOLE_*): unflagged
+    pixels far below the sky (mostly cold pixels NASA's COLD mask misses) set to NaN in a shallow copy of l2, so that every
+    later step treats them as bad pixels (build_mask masks non-finite values). Returns (l2 or its copy, the footer's
+    `dark_holes` counts, the detection background to reuse when nothing was masked, else None)."""
+    t0 = time.perf_counter()
+    pre = _detection_background(l2)
+    b, bad, masked = pre
+    sub = masked - b.level
+    sub[bad] = 0.0
+    m, info = dark_holes(sub, psf_noise(l2, b.rms), bad, l2.flags, sigma=C.HOLE_SIGMA, min_px=C.HOLE_MIN_PX,
+                         max_px=C.HOLE_MAX_PX, near_bits=C.HOLE_NEAR_BITS, near_px=C.HOLE_NEAR_PX,
+                         grow_px=C.HOLE_GROW_PX)
+    info["config"] = {"sigma": C.HOLE_SIGMA, "min_px": C.HOLE_MIN_PX, "max_px": C.HOLE_MAX_PX,
+                      "near_bits": int(C.HOLE_NEAR_BITS), "near_px": C.HOLE_NEAR_PX, "grow_px": C.HOLE_GROW_PX}
+    if timing is not None:
+        timing["holes_s"] = time.perf_counter() - t0
+    if not m.any():
+        return l2, info, pre
+    out = copy.copy(l2)
+    data = np.array(l2.data, copy=True)
+    data[m] = np.nan
+    out.data = data
+    return out, info, None
 
 
 def aperture_fluxes(l2, ctx: PhotoContext, x: np.ndarray, y: np.ndarray,
@@ -355,6 +383,9 @@ def _sum_circle_bkgann(d, x, y, r, err, m, annulus) -> tuple[np.ndarray, np.ndar
         fk[sel], ek[sel] = fs, es
         break
     return fk, ek
+
+
+GUARD_MATCH_PX = 1.0  # saturation guard: a fine dot with a sky-setting dot within this distance is no piece
 
 
 def sat_distance(flags) -> np.ndarray:
@@ -407,7 +438,7 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
                  clean_param=s.clean_param, bkg=None if ctx is None else ctx.background)
     det = det[det["snr"] >= min_snr]  # keeps detect's order (brightest first): members.parquet relies on it
     timing["detect_s"] = time.perf_counter() - t0
-    if len(det) == 0:
+    if len(det) == 0 and not s.v2:  # v2: the matched-filter pass still runs (a photo with no first-pass dot)
         return None, None, ctx
     if ctx is None:
         ctx = photo_context(l2, timing)
@@ -417,15 +448,19 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
         flags = np.asarray(l2.flags) if l2.flags is not None else np.zeros(np.shape(l2.data), np.int32)
         dsat = sat_distance(flags)
         if s.sat_guard_px > 0 and (s.deblend_cont != C.DOTS_DEBLEND_CONT or s.clean_param != 1.0):
-            # dots the sky run's setting doesn't also find, close to saturated pixels: pieces of a saturated star's wings
-            ref = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh, deblend_cont=C.DOTS_DEBLEND_CONT,
-                         bkg=ctx.background)
-            ref = ref[ref["snr"] >= min_snr]
+            # dots the sky run's setting doesn't also find, close to saturated pixels: pieces of a saturated star's wings.
+            # Only the candidates (within sat_guard_px) need the test, so the sky setting's objects are measured only
+            # where their peak is within GUARD_MATCH_PX + 1 px of one (detect `near`: the same rows, 16 Nov)
+            cand = _at(dsat, det["x"], det["y"]) < s.sat_guard_px
             new = np.ones(len(det), bool)
-            if len(ref):
-                d, _ = cKDTree(np.c_[ref["x"], ref["y"]]).query(np.c_[det["x"], det["y"]], k=1)
-                new = d > 1.0
-            drop = new & (_at(dsat, det["x"], det["y"]) < s.sat_guard_px)
+            if cand.any():
+                ref = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh, deblend_cont=C.DOTS_DEBLEND_CONT,
+                             bkg=ctx.background, near=(det["x"][cand], det["y"][cand], GUARD_MATCH_PX + 1.5))
+                ref = ref[ref["snr"] >= min_snr]
+                if len(ref):
+                    d, _ = cKDTree(np.c_[ref["x"], ref["y"]]).query(np.c_[det["x"], det["y"]], k=1)
+                    new = d > GUARD_MATCH_PX
+            drop = new & cand
             det = det[~drop]
             counts["n_guard_dropped"] = int(drop.sum())
         timing["guard_s"] = time.perf_counter() - t0
@@ -446,14 +481,15 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
         elif s.psf_pass:
             counts["n_psf_pass"] = 0
     if s.v2:
-        comp = _mf_pass(l2, det, comp, ctx, s, counts, extras, timing)
+        comp = _mf_pass(l2, det, comp, ctx, s, counts, extras, timing,
+                        dsat=dsat if (s.sat_guard_px > 0 or s.psf_pass) else None)
     if len(det) == 0 and not (comp is not None and len(comp[0])):
         return None, None, ctx
     return det, comp, ctx
 
 
 def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
-             extras: dict | None, timing: dict) -> tuple | None:
+             extras: dict | None, timing: dict, dsat: np.ndarray | None = None) -> tuple | None:
     """Extraction v2's matched-filter pass (psf.mf_pass) on the second pass's residual: its dots join the second
     pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual); its peaks and depth map go to `extras`."""
     t0 = time.perf_counter()
@@ -464,18 +500,25 @@ def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.De
     xs = [np.asarray(det["x"], np.float64)] + ([np.asarray(comp[0]["x"], np.float64)] if comp is not None else [])
     ys = [np.asarray(det["y"], np.float64)] + ([np.asarray(comp[0]["y"], np.float64)] if comp is not None else [])
     flags = np.asarray(l2.flags) if l2.flags is not None else np.zeros(shape, np.int32)
-    dsat = sat_distance(flags) if s.sat_guard_px > 0 else None
+    if s.sat_guard_px > 0 and dsat is None:
+        dsat = sat_distance(flags)
+    elif s.sat_guard_px <= 0:
+        dsat = None
     prim_x = prim_y = None
     if model is not None and len(det):
         ix, iy = pixel_of(det["x"].astype(np.float64), det["y"].astype(np.float64), shape)
         use = (det["snr"] >= C.PSF_PASS_PRIMARY_SNR) & ((ctx.f3[iy, ix] & SAT_BITS) == 0)
         prim_x, prim_y = det["x"][use].astype(np.float64), det["y"][use].astype(np.float64)
     mp = mf_pass(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.concatenate(xs), np.concatenate(ys),
-                 primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px)
+                 primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px,
+                 min_snr=C.mf_pass_snr(getattr(l2, "detector", None)), normalise=C.MF_PASS_NORMALISE)
     md = mp.dots.copy()
     md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
-    counts.update(mp.info)
+    info = dict(mp.info)
+    stats = info.pop("stats", None)
+    counts.update(info)
     if extras is not None:
+        extras["mf_stats"] = stats
         extras["peaks"] = mp.peaks
         extras["mf_den"] = mp.den
     if comp is None:
@@ -496,15 +539,17 @@ def _measure_all(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, obs
         if (~own).any():
             parts.append(_measure_dots(l2, det[~own], ctx, obs_id, detector, session, visit, timing, v2))
         df = pd.concat(parts, ignore_index=True)
-    else:
+    elif len(det) or comp is None or not len(comp[0]):
         df = _measure_dots(l2, det, ctx, obs_id, detector, session, visit, timing, v2)
+    else:
+        df = None  # v2: matched-filter dots only
     if comp is not None and len(comp[0]):
         # measured on the residual: IMAGE minus the subtracted ePSF models of the brighter dots
         t0 = time.perf_counter()
         l2r = copy.copy(l2)
         l2r.data = (np.asarray(l2.data, np.float64) - comp[1]).astype(np.asarray(l2.data).dtype)
         dfc = _measure_dots(l2r, comp[0], ctx, obs_id, detector, session, visit, {}, v2)
-        df = pd.concat([df, dfc], ignore_index=True)
+        df = dfc if df is None else pd.concat([df, dfc], ignore_index=True)
         timing["psf_pass_measure_s"] = time.perf_counter() - t0
     if own is not None or (comp is not None and len(comp[0])):
         df = df.iloc[np.argsort(-df["flux_ujy"].to_numpy(np.float64), kind="stable")].reset_index(drop=True)
@@ -908,7 +953,8 @@ def calibration_meta(dots: pd.DataFrame, forced: pd.DataFrame | None) -> dict:
 
 
 def detect_meta(deblend_cont: float = C.DOTS_DEBLEND_CONT, dots_dir: str = C.DOTS_DIR,
-                settings: C.DetectSettings | None = None, counts: dict | None = None) -> dict:
+                settings: C.DetectSettings | None = None, counts: dict | None = None,
+                detector: int | None = None) -> dict:
     """The detection settings a dot file was made with (photo metadata `detect`): files made with another
     setting live in another folder, and this says which setting a file has. Fine detection v2 settings (clean_param,
     saturation guard, ePSF second pass) add clean_param, sat_guard_px, psf_pass and the counts n_guard_dropped,
@@ -917,7 +963,8 @@ def detect_meta(deblend_cont: float = C.DOTS_DEBLEND_CONT, dots_dir: str = C.DOT
     out = {"thresh": C.DETECT_THRESH, "min_snr": C.DOT_MIN_SNR, "deblend_cont": float(deblend_cont), "dots_dir": dots_dir}
     if settings is not None and settings.v2:
         out["v2"] = True
-        out["mf_pass_snr"] = C.MF_PASS_SNR
+        out["mf_pass_snr"] = C.mf_pass_snr(detector)
+        out["dark_holes"] = bool(C.DOTS_V2_HOLES)
     if settings is not None and settings.glow:
         out["glow"] = True
         out["glow_config"] = {"r_max_px": C.GLOW_R_MAX_PX, "min_peak_snr": C.GLOW_MIN_PEAK_SNR,
@@ -1057,6 +1104,7 @@ def _store(root: str) -> Store:
 
 
 _SKY: dict[str, "forced_sky.SkyList"] = {}
+_SKY_RED: dict[str, "forced_sky.SkyList"] = {}
 _SKY_REF: dict[tuple, RefCat] = {}  # the last photo's partition set -> RefCat (neighbouring photos share it)
 
 
@@ -1073,14 +1121,31 @@ def sky_list(store: Store) -> "forced_sky.SkyList | None":
     return sk if sk.available else None
 
 
-def _sky_refcat(sk: "forced_sky.SkyList", l2) -> RefCat:
-    """RefCat of the partitions this photo's cone overlaps (photo_cone + FORCED_SKY_PAD_DEG)."""
+def sky_red_list(store: Store) -> "forced_sky.SkyList | None":
+    """The sky-wide red layer (forced_sky.build_red) of this store if it is complete and C.FORCED_SKY_RED_MODE isn't
+    "off"; checked once per process."""
+    if C.FORCED_SKY_RED_MODE == "off":
+        return None
+    if store.root not in _SKY_RED:
+        _SKY_RED[store.root] = forced_sky.SkyList(store, C.FORCED_SKY_RED_DIR)
+        if _SKY_RED[store.root].available:
+            L.info("dots: red forced targets from %s/%s", store.root, C.FORCED_SKY_RED_DIR)
+    sk = _SKY_RED[store.root]
+    return sk if sk.available else None
+
+
+def _sky_refcat(sk: "forced_sky.SkyList", l2, red: "forced_sky.SkyList | None" = None) -> RefCat:
+    """RefCat of the partitions this photo's cone overlaps (photo_cone + FORCED_SKY_PAD_DEG): the Gaia layer, then
+    the red layer's rows when it is given."""
     ra, dec, r = photo_cone(l2)
     pix = tuple(int(p) for p in forced_sky.partitions_for_cone(ra, dec, r, sk.nside))
-    key = (sk.store.root, pix)
+    key = (sk.store.root, pix, red is not None)
     if key not in _SKY_REF:
         _SKY_REF.clear()
-        _SKY_REF[key] = RefCat.from_frame(sk.frame(pix))
+        df = sk.frame(pix)
+        if red is not None:
+            df = pd.concat([df, red.frame(pix)], ignore_index=True)
+        _SKY_REF[key] = RefCat.from_frame(df)
     return _SKY_REF[key]
 
 
@@ -1089,7 +1154,8 @@ def forced_reference(store: Store, l2, zone: str | None) -> tuple[RefCat | None,
     complete, else refcat/<zone>_forced.parquet limited to the zone box as before. Returns (ref, zone box, origin)."""
     sk = sky_list(store)
     if sk is not None:
-        return _sky_refcat(sk, l2), None, "sky"
+        red = sky_red_list(store)
+        return _sky_refcat(sk, l2, red), None, "sky+red" if red is not None else "sky"
     if not zone:
         return None, None, ""
     return _refcat(store, zone), C.ZONES.get(zone), "zone"
@@ -1194,7 +1260,11 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
             st["finast"] = str(finast)
         else:
             timing: dict = {}
-            ctx = photo_context(l2, timing)
+            pre = None
+            if settings.v2 and C.DOTS_V2_HOLES and getattr(l2, "flags", None) is not None:
+                l2, holes, pre = mask_dark_holes(l2, timing)
+                extras["dark_holes"] = holes
+            ctx = photo_context(l2, timing, pre=pre)
             df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx, settings=settings, counts=counts,
                             extras=extras)
         st["detect_s"] = round(time.time() - t0, 2)
@@ -1213,7 +1283,8 @@ def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: 
                 ft = pa.Table.from_pandas(forced, preserve_index=False)
                 st["forced_bytes"] = _retry(lambda: _write(store, frel, ft))
         st["status"] = "done_finast" if "finast" in st else "done"
-        meta = photo_meta_dict(l2, obs_id, detector, st, ctx, df, forced, detect_meta(deblend, ddir, settings, counts))
+        meta = photo_meta_dict(l2, obs_id, detector, st, ctx, df, forced,
+                               detect_meta(deblend, ddir, settings, counts, detector))
         out = Pending(rel, df, meta, st)
         if settings.v2:
             t0 = time.time()
@@ -1411,10 +1482,19 @@ def v2_meta(l2, ctx: PhotoContext | None, extras: dict) -> dict:
     """Photo metadata of extraction v2: noise and 5σ point-source depth grids, the empirical aperture noise, the
     saturated cores, the sky orientation, the matched filter's settings."""
     out: dict = {"extraction": 2,
-                 "mf": {"min_snr": C.MF_PASS_SNR, "peak_snr": C.MF_PEAK_SNR, "dedup_px": C.MF_PASS_DEDUP_PX,
-                        "kernel_half_px": C.MF_KERNEL_HALF, "sep_flag": C.SEP_FLAG_MF_PASS}}
+                 "mf": {"min_snr": C.mf_pass_snr(getattr(l2, "detector", None)), "peak_snr": C.MF_PEAK_SNR, "dedup_px": C.MF_PASS_DEDUP_PX,
+                        "kernel_half_px": C.MF_KERNEL_HALF, "sep_flag": C.SEP_FLAG_MF_PASS,
+                        "normalise": str(C.MF_PASS_NORMALISE)}}
+    if extras.get("mf_stats"):
+        st = dict(extras["mf_stats"])
+        g = st.pop("sigma_grid", None)
+        out["mf"].update(st)
+        if g is not None:
+            out["mf"]["sigma_grid"] = [[None if not np.isfinite(v) else float(f"{v:.4g}") for v in row] for row in g]
     out["sat_cores"] = sat_cores(getattr(l2, "flags", None))
     out["sky_jacobian_deg_px"] = sky_jacobian(l2)
+    if extras.get("dark_holes") is not None:
+        out["dark_holes"] = extras["dark_holes"]
     if ctx is None:
         return out
     out["aperture_noise"] = empirical_noise(ctx)

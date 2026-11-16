@@ -19,7 +19,10 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
 - detect: detect(data, flags, variance=) -> structured array (x, y, flux MJy/sr summed, flux_err, snr, ...);
   centroid(data, x, y, flags=, method="auto"|"window"|"fit"). Noise = max(sqrt(VARIANCE), background rms).
   detection_snr(data, x, y) (PSF-matched S/N, noise measured on the frame), no_data_near(data, x, y, r)
-  (missing sky, not a saturated core's hole).
+  (missing sky, not a saturated core's hole). detect(near=(x, y, r)) measures only objects whose sep peak is within r
+  of a point: exactly the full call's rows within r - 1 px (the pipeline's saturation guard, 16 Nov).
+  measure_objects ORs SEP_FLAG_CENTROID_FALLBACK (0x800) into sep_flag when the windowed centroid failed or moved > 1 px
+  from the peak, so x, y are its start point (sep's barycentre or the peak pixel; 0.6-2.2% of dots, 16 Nov).
 - astrometry: pixel_to_sky, sky_to_pixel, propagate (Gaia J2016.0 -> MJD, optional parallax),
   select_reference_stars, measure_shift (V2 + V3) -> ShiftResult.to_measure() = api `measure`.
   measure_shift's detection guard raises ShiftError(reason) unless one source is clearly seen in both
@@ -35,6 +38,10 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   core + pad; core_pad None = r_keep for all), near/own (a star's own detection vs its pieces). Callers: pipeline
   dots.glow_dots and stack.glow_cut / local_significance. Tests: tests/test_glow.py (synthetic saturated star + lumpy
   halo + faint stars).
+- holes (16 Nov, extraction v2): dark_holes(sub, noise, bad, flags) -> (mask, counts): unflagged 8-connected groups of
+  1-4 pixels below -sigma x noise (pipeline config HOLE_*: 5 sigma). Mostly cold pixels NASA's COLD mask misses (the same
+  detector pixels week after week; 300-1,270 per MWIR photo, 2-140 SWIR); each made a negative-image matched-filter dot and pulled
+  nearby apertures down. Never a source: real light is never far below the sky.
 - motion: the months-clock motion model position(t) = p0 + μ·(t − t0) + ϖ·P(t). observer_xyz_au, parallax_factors
   (Earth from astropy's built-in ephemeris + SPHEREx's offset; Earth alone is good to ϖ × 5e-5), gaia_prior, leak (the
   parallax leak k and the free share), choose_mode (pm+gaia_plx, pm+plx, pm, pm_leak), visit_steadiness / unsteady

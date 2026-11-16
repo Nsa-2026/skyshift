@@ -543,10 +543,61 @@ PEAK_MIRROR = 2     # >= min_snr but failed the mirror test beside a subtracted 
 PEAK_EXCLUDED = 3   # >= min_snr but inside an excluded region (a glow star's own pixels)
 
 
+P_LO = 15.865525393145707  # the 1-sigma lower percentile of a normal distribution
+
+
+def _sigma_lo(v: np.ndarray) -> tuple[float, float]:
+    """(median - 15.87th percentile, median) of finite values: a noise sigma from the lower half (sources are
+    positive); (nan, nan) for fewer than 100."""
+    v = v[np.isfinite(v)]
+    if v.size < 100:
+        return float("nan"), float("nan")
+    med = float(np.median(v))
+    return med - float(np.percentile(v, P_LO)), med
+
+
+def mf_sigma_map(snr: np.ndarray, den: np.ndarray, n: int | None = None) -> np.ndarray:
+    """The S/N map's own sigma (_sigma_lo) in n x n blocks (n None: MF_SIGMA_GRID; edges round(linspace(0, size,
+    n + 1)), as the footer grids), each block's pixels with data (den > 0); a block with < 100 such pixels takes the
+    whole map's."""
+    n = int(C.MF_SIGMA_GRID if n is None else n)
+    ny, nx = snr.shape
+    ey = np.round(np.linspace(0, ny, n + 1)).astype(int)
+    ex = np.round(np.linspace(0, nx, n + 1)).astype(int)
+    ok = (den > 0) & np.isfinite(snr)
+    whole, _ = _sigma_lo(snr[ok][::7])
+    out = np.full((n, n), whole)
+    for i in range(n):
+        for j in range(n):
+            b = snr[ey[i]:ey[i + 1], ex[j]:ex[j + 1]][ok[ey[i]:ey[i + 1], ex[j]:ex[j + 1]]]
+            sg, _ = _sigma_lo(b)
+            if np.isfinite(sg):
+                out[i, j] = sg
+    return out
+
+
+def mf_noise_stats(snr: np.ndarray, den: np.ndarray, min_snr: float, step: int = 7, grid: bool = False) -> dict:
+    """The matched-filter S/N map's own noise level (mf_pass): sigma_lo = median - 15.87th percentile over every
+    step-th pixel with data (den > 0), the median, n_neg = local minima (3 x 3) <= -min_snr, and with grid=True
+    `sigma_grid` (mf_sigma_map, MF_SIGMA_GRID x MF_SIGMA_GRID)."""
+    from scipy import ndimage
+    ok = den > 0
+    sg, med = _sigma_lo(snr[ok][::step])
+    if not np.isfinite(sg):
+        return {"sigma_lo": float("nan"), "median": float("nan"), "n_neg": 0}
+    neg = np.where(ok & np.isfinite(snr), -snr, -np.inf)
+    mx = ndimage.maximum_filter(neg, size=3, mode="constant", cval=-np.inf)
+    n_neg = int(((neg >= mx) & (neg >= min_snr)).sum())
+    out = {"sigma_lo": round(sg, 4), "median": round(med, 4), "n_neg": n_neg}
+    if grid:
+        out["sigma_grid"] = mf_sigma_map(snr, den)
+    return out
+
+
 def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: np.ndarray, dot_y: np.ndarray, *,
             primary_x: np.ndarray | None = None, primary_y: np.ndarray | None = None,
             sat_dist: np.ndarray | None = None, sat_guard_px: float = 0.0, exclude: np.ndarray | None = None,
-            min_snr: float = C.MF_PASS_SNR, min_peak_snr: float = C.MF_PEAK_SNR,
+            min_snr: float = C.MF_PASS_SNR, min_peak_snr: float = C.MF_PEAK_SNR, normalise: str | bool = "off",
             dedup_px: float = C.MF_PASS_DEDUP_PX, r_px: float = C.PSF_PASS_R_PX,
             mirror_r_px: float = C.PSF_PASS_MIRROR_R_PX, mirror_frac: float = C.PSF_PASS_MIRROR_FRAC,
             mirror_sigma: float = C.PSF_PASS_MIRROR_SIGMA) -> MFPass:
@@ -557,7 +608,13 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     pixel (sat_dist), inside `exclude`, or, within r_px of a subtracted dot (primary_x, primary_y), failing the second
     pass's mirror test. They are measured like core.detect's dots on resid (windowed centroid from the peak, r = 2 px
     aperture) and kept when still > dedup_px from every dot. The other peaks >= min_peak_snr with no dot within
-    dedup_px go to `peaks` with the reason they are not dots."""
+    dedup_px go to `peaks` with the reason they are not dots.
+    The map's own scatter (16 Nov, second pass) goes to info: sigma_lo = median - 15.87th percentile of the S/N map
+    (its lower half: noise only, sources are positive; 1 for pure noise), n_neg = local minima <= -min_snr (the same
+    threshold's false alarms on the map's negative side), sigma_grid (the same per block, MF_SIGMA_GRID^2).
+    normalise "photo" multiplies min_snr by max(1, sigma_lo); "block" each peak's by its block's sigma where that is
+    > MF_SIGMA_MIN_SCALE (else 1): a structured patch (D2's top rows, a crowded field) needs more to make a dot, the
+    rest of the photo keeps min_snr (its sigma is 1.00-1.05: faint sources, not noise)."""
     import sep
     from scipy.spatial import cKDTree
     from skyshift_core.detect import DETECTION_DTYPE, measure_objects
@@ -566,6 +623,15 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     noise = np.ascontiguousarray(np.where(np.isfinite(noise), noise, 0.0), dtype=np.float64)
     bad = np.ascontiguousarray(bad, dtype=bool)
     snr, flux, den, phase = matched_filter(resid, noise, bad, epsf)
+    stats = mf_noise_stats(snr, den, min_snr, grid=True)
+    normalise = {True: "photo", False: "off"}.get(normalise, normalise)
+    scale_grid = None
+    if normalise == "photo" and np.isfinite(stats["sigma_lo"]):
+        min_snr = min_snr * max(1.0, stats["sigma_lo"])
+    elif normalise == "block":
+        g = np.nan_to_num(stats["sigma_grid"], nan=1.0)
+        scale_grid = np.where(g > C.MF_SIGMA_MIN_SCALE, g, 1.0)
+    stats["min_snr_used"] = float(min_snr)
     x, y, ix, iy, s = mf_peaks(snr, min(min_snr, min_peak_snr), phase)
     f = flux[iy, ix]
     if len(x) and np.size(dot_x):
@@ -573,7 +639,13 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
         far = d > dedup_px
         x, y, ix, iy, s, f = x[far], y[far], ix[far], iy[far], s[far], f[far]
     why = np.full(len(x), PEAK_BELOW, np.int8)
-    cand = s >= min_snr
+    if scale_grid is not None and len(x):
+        n = scale_grid.shape[0]
+        by = np.searchsorted(np.round(np.linspace(0, snr.shape[0], n + 1)).astype(int), iy, side="right") - 1
+        bx = np.searchsorted(np.round(np.linspace(0, snr.shape[1], n + 1)).astype(int), ix, side="right") - 1
+        cand = s >= min_snr * scale_grid[np.clip(by, 0, n - 1), np.clip(bx, 0, n - 1)]
+    else:
+        cand = s >= min_snr
     if sat_guard_px > 0 and sat_dist is not None and len(x):
         g = cand & (sat_dist[iy, ix] < sat_guard_px)
         why[g], cand = PEAK_GUARD, cand & ~g
@@ -592,7 +664,7 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
             ok = (fm < mirror_frac * fn) & ((fn - fm) >= mirror_sigma * np.sqrt(en ** 2 + em ** 2))
             why[k[~ok]] = PEAK_MIRROR
             cand[k[~ok]] = False
-    info = {"n_mf_raw": int((s >= min_snr).sum())}
+    info = {"n_mf_raw": int(cand.sum())}
     dots = np.zeros(0, dtype=DETECTION_DTYPE)
     dsnr = np.zeros(0)
     if cand.any():
@@ -615,6 +687,7 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     keep = ~cand
     peaks = {"x": x[keep], "y": y[keep], "ix": ix[keep], "iy": iy[keep], "snr_mf": s[keep], "flux": f[keep],
              "why": why[keep]}
+    info["stats"] = stats
     info.update({"n_mf_pass": int(len(dots)), "n_peaks": int(keep.sum()),
                  "n_peaks_guard": int((why == PEAK_GUARD).sum()), "n_peaks_mirror": int((why == PEAK_MIRROR).sum()),
                  "n_peaks_excluded": int((why == PEAK_EXCLUDED).sum())})
