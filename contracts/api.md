@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.19)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.20)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -20,7 +20,8 @@ v3.16: votes can be changed or taken back: answer `withdrawn`, each voter's late
 v3.17: planets and their large moons (JPL Horizons) count as known bodies for movers;
 v3.18: a mover near a planet is known whatever it is (moon, glare): the suspects' veto `planets`, no such mover in
 candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`;
-v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find).
+v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find;
+v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -448,6 +449,7 @@ revoked without blocking anyone else.
 | `/data/suspects.json` | pipeline export (P1) | below |
 | `/data/candidates.json` | pipeline exporter `skyshift-candidates` (P1) | below |
 | `/data/cand/<id>/frames.json` + frame files | scripts/candidates/frames.py (P1, with the P2 engine) | `GET /api/frames` for one candidate (its clock, field and detectors); frame files `frames/<c><fov>_d<det>_…bin` as above. Only for candidates whose `frames_url` is set |
+| `/data/cand/<id>/fill.json` + frame files | scripts/candidates/fill.py (P1, with the P2 engine) | **Optional** (v3.20). Same shape as that candidate's `frames.json` (hours clock, same field and grid), holding only exposures that fill its empty edge: never blinked, never measured. Frame files `frames/f<fov>_d<det>_…bin`. Missing (404) for most candidates |
 | `/data/distant.json` | scripts/validate (P1), from the pipeline's `orphans` step | below (v3.6) |
 
 In the repo these live in `web/public/data/`; Vite copies them to `web/dist/data/`.
@@ -1136,3 +1138,13 @@ every check in file order needs no change. A missing input still gives `pending`
   (9 of 10 sampled grade A/B movers, 15 Nov), and its track could not appear in `measured`.
 - Additive: requests without `mjd` are unchanged, and so are their cache keys. No response field changes,
   so fixtures/api/ is unchanged. The review pages send a mover's `mjd` (web/src/review).
+
+## Changes in v3.20 (16 Nov 2026): fill exposures for a candidate's empty edge
+
+Additive. A candidate's static hours frames are its own exposures, often of one pointing: when it sat near a
+detector's edge they share one empty corner. `/data/cand/<id>/fill.json` (optional, same shape as its
+`frames.json`: same clock, field, grid and `det`s) lists other exposures of the same visit whose footprints
+cover that corner, chosen by scripts/candidates/fill.py. The site paints them only where the candidate's own
+photo has no data, drawn as filled; they are not epochs of the blink and carry no `gaia`, `known` or
+`measured` (empty lists, `measured` absent). Readers that don't know the file need no change; without it the
+site may ask `/api/frames` (with the candidate's `mjd`) for the same purpose.
