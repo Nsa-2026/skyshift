@@ -73,14 +73,74 @@ def sky_context(ra: float, dec: float, mjd: float) -> list[str]:
             f"Main-belt asteroids near elongation 90° move mostly prograde along the ecliptic at roughly 10-40\"/h."]
 
 
+def visit_shift_lines(cand_id: str) -> list[str]:
+    """Fixed-source findings: the engine's own position in each visit, against the other stars of the same cutout
+    (from the site's frames file, web/public/data/cand/<id>/frames.json). The direct test of a proper-motion claim."""
+    p = os.path.join(os.environ.get("SKYSHIFT_SITE_DATA", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                                                       "web", "public", "data")), "cand", cand_id, "frames.json")
+    if not os.path.exists(p):
+        return ["Per-visit positions: NOT AVAILABLE (no frames file for this finding in the local copy of the site data)."]
+    sh = (json.load(open(p)).get("measured") or {}).get("shifts") or []
+    sids = set(V.source_ids(cand_id))
+    own = [x for x in sh if x.get("source_id") in sids]
+    ref = [x for x in sh if x.get("source_id") not in sids and x.get("gaia_id") and x.get("dra_arcsec") is not None]
+    if not own:
+        return ["Per-visit positions: NOT AVAILABLE (the frames file holds no per-visit positions for this source)."]
+    L = ["Per-visit positions measured by the engine (one mean position per visit; the same numbers the motion fit used):"]
+    for x in own:
+        v = x.get("visits") or []
+        for q in v:
+            e, n = V.offsets_arcsec(v[0]["ra"], v[0]["dec"], q["ra"], q["dec"])
+            L.append(f"  visit at MJD {q['mjd']:.0f} (D{q['det']}): east {float(e):+.2f}\", north {float(n):+.2f}\" from the first visit, ± {q['err_arcsec']:.2f}\"")
+        L.append(f"  first to last: {x['shift_arcsec']:.2f}\" ± {x['err_arcsec']:.2f}\" in {x['dt_yr']:.2f} yr toward PA {x['pa_deg']:.0f}° = "
+                 f"({x['pmra']:+.0f}, {x['pmdec']:+.0f}) mas/yr, {x['pm_snr']:.0f} times its error" + ("" if len(v) >= 3 else
+                 "; only two visits: parallax (up to ~0.5\" for a star within 10 pc, along the ecliptic) is mixed into this"))
+    if ref:
+        d = np.array([[x["dra_arcsec"], x["ddec_arcsec"]] for x in ref], float)
+        L.append(f"  the {len(ref)} Gaia stars in the same cutout moved by a median of east {np.median(d[:, 0]):+.2f}\", north {np.median(d[:, 1]):+.2f}\" "
+                 f"(largest {np.hypot(d[:, 0], d[:, 1]).max():.2f}\") over the same time: that is the size of the systematic error.")
+    L.append("  A shift many times its error" + (" and many times the other stars' shift" if ref else " (the listed errors are about 1.6 times too small)")
+             + " is real motion, even though the source looks fixed in the stamps: 2\"/yr is a third of a pixel per year.")
+    return L
+
+
+def companion_lines(zone: str, row) -> list[str]:
+    """Shape findings: the fitted second object against every catalogue we can read, measured from the companion's own position."""
+    cra, cdec = float(row.companion_ra), float(row.companion_dec)
+    L = [f"Fitted second object: {row.companion_sep_arcsec:.1f}\" from the star toward PA {row.companion_pa_deg:.0f}°, at RA {cra:.6f} Dec {cdec:+.6f} "
+         f"(mark it: stamps with mark \"{cra:.6f},{cdec:.6f}\"). Catalogue sources within 4\" of THAT position:"]
+    hits = []
+    ref = V.table(zone, "refcat")
+    if ref is not None:
+        n = ref[np.abs(ref.dec - cdec) < 4 / 3600.0]
+        sep = angsep(cra, cdec, n.ra.to_numpy(float), n.dec.to_numpy(float)) * 3600
+        for i in np.argsort(sep):
+            if sep[i] <= 4:
+                q = n.iloc[int(i)]
+                mag = next((f"{k[:-4].upper()}={q[k]:.1f}" for k in ("g_mag", "j_mag", "w1_mag") if pd.notna(q.get(k))), "")
+                hits.append(f"  {q['cat']} source {sep[i]:.1f}\" from the companion position ({mag})")
+    aw = V.allwise_near(cra, cdec, 4)
+    if aw is None:
+        hits.append("  AllWISE: NOT AVAILABLE (read failed)")
+    else:
+        hits += [f"  AllWISE source {r.sep:.1f}\" from the companion position (W1={r.w1mpro:.1f}, extended flag {r.ext_flg})" for r in aw.itertuples()]
+    L += hits or ["  none in Gaia, 2MASS, CatWISE (where this zone has them) or AllWISE"]
+    L.append("  The star itself is a separate catalogue row: compare separations between catalogue rows, not offsets from the star. "
+             "The engine's 'catalogues list one' check does not read AllWISE.")
+    return L
+
+
 def cmd_info(a):
     c = V.candidates().get(a.id)
     zone = V.zone_of(a.id)
-    if c:
+    blind_mover = V.HIDE_KNOWN and V.mover_row(a.id) is not None
+    if blind_mover:  # whether the site lists it, and the engine's grade and notes, would give the answer away
+        print("Blind run: the site's row, the engine's grade and every known-body line are left out.")
+    elif c:
         print("Site candidate row (candidates.json):")
         print(json.dumps(c, indent=1, ensure_ascii=False))
     else:
-        print(f"{a.id}: no row in the site's candidates.json.")
+        print(f"{a.id}: not on the site's list (normal for movers the engine matched to a known body or dropped). Vet the engine row below.")
     ra = dec = mjd = None
     mv = V.mover_row(a.id)
     if mv is not None:
@@ -89,12 +149,16 @@ def cmd_info(a):
                 "paired_exposures", "detectors", "evidence", "snr", "flux_ujy", "cover_sessions", "cover_exposures",
                 "missed_exposures", "edge_exposures", "still_free", "session", "visit", "suspect_grade", "known_sep",
                 "known_name", "known_class", "gaia_sep", "gaia_g", "fixed_sep"]
-        print("\nEngine mover row (movers.parquet; known_sep / gaia_sep / fixed_sep = distance in arcsec to the nearest known "
+        if V.HIDE_KNOWN:
+            keep = [k for k in keep if not k.startswith("known_") and k != "suspect_grade"]
+        print("\nEngine mover row (movers.parquet; gaia_sep / fixed_sep = distance in arcsec to the nearest Gaia star / fixed source):"
+              if V.HIDE_KNOWN else
+              "\nEngine mover row (movers.parquet; known_sep / gaia_sep / fixed_sep = distance in arcsec to the nearest known "
               "body / Gaia star / fixed source):")
         print(json.dumps({k: (None if isinstance(mv[k], float) and not np.isfinite(mv[k]) else (mv[k].item() if hasattr(mv[k], "item") else mv[k]))
                           for k in keep if k in mv.index}, indent=1, default=str))
         sus = V.table(zone, "suspects")
-        if sus is not None and (sus.id == a.id).any():
+        if sus is not None and (sus.id == a.id).any() and not V.HIDE_KNOWN:
             r = sus[sus.id == a.id].iloc[0]
             gates = [k[5:] for k in r.index if k.startswith("gate_") and bool(r[k])]
             print(f"Engine vetting: grade {r.grade}; gates that fired: {gates or 'none'}; reasons {list(r.reasons)}; "
@@ -118,6 +182,9 @@ def cmd_info(a):
                 print(json.dumps(d, indent=1, default=str))
                 if ra is None:
                     ra, dec, mjd = float(row.ra), float(row.dec), float(row.get("mjd", np.nan))
+                if name == "shape" and pd.notna(row.get("companion_ra")):
+                    print()
+                    print("\n".join(companion_lines(zone, row)))
                 if name == "highpm":
                     print()
                     if row.get("method") == "pair":
@@ -125,6 +192,9 @@ def cmd_info(a):
                               f"Check both ends in every visit: stamps --ra {row.ra:.6f} --dec={row.dec:.6f} --mark {row.ra_b:.6f},{row.dec_b:.6f}. "
                               f"Both ends present in every visit = two fixed sources, not motion.")
                     print(V.gaia_offset_test(zone, float(row.ra), float(row.dec), float(row.mjd), float(row.pmra), float(row.pmdec)))
+    if V.mover_row(a.id) is None and V.source_ids(a.id):
+        print()
+        print("\n".join(visit_shift_lines(a.id)))
     if ra is None and c:
         ra, dec, mjd = c["ra"], c["dec"], c["mjd"]
     if ra is not None:
@@ -137,7 +207,7 @@ def cmd_info(a):
         ph = V.table(zone, "photos")
         if ph is not None:
             vis = ph.groupby("visit").mjd.agg(["min", "max", "count"])
-            print("Visits of this zone (MJD range, photos): " + "; ".join(f"visit {v}: {r['min']:.1f}-{r['max']:.1f} ({int(r['count'])})" for v, r in vis.iterrows()))
+            print("Visits of this zone (MJD range, photos): " + "; ".join(f"visit {v}: MJD {r['min']:.1f} to {r['max']:.1f}, {int(r['count'])} photos" for v, r in vis.iterrows()))
 
 
 def cmd_packet(a):
@@ -147,7 +217,7 @@ def cmd_packet(a):
     zone = V.zone_of(a.id)
     c = V.candidates().get(a.id, {})
     ctx = {"refcat": V.table(zone, "refcat"), "fixed": V.table(zone, "fixed"), "pred": V.table(zone, "pred"),
-           "grade": c.get("grade"), "why": c.get("why", "")}
+           "freedots": V.table(zone, "freedots"), "grade": c.get("grade"), "why": c.get("why", "")}
     os.makedirs(a.out, exist_ok=True)
     png = os.path.join(a.out, f"{a.id}_packet.png")
     out = V.build_packet(mv, need(zone, "photos"), png, mode="blind" if a.blind else "full", ctx=ctx, pool=POOL)
@@ -205,7 +275,10 @@ def cmd_session(a):
 
 def cmd_stamps(a):
     ph = need(a.zone, "photos")
-    marks = [tuple(float(x) for x in m.split(",")) for m in (a.mark or [])]
+    nums = [float(x) for m in (a.mark or []) for x in str(m).replace(";", ",").split(",") if x.strip()]
+    if len(nums) % 2:
+        stop("TOOL ERROR: mark needs pairs 'RA,DEC' in degrees; an odd number of values was given.")
+    marks = list(zip(nums[0::2], nums[1::2]))
     os.makedirs(a.out, exist_ok=True)
     gra, gdec = V.grid(a.ra, a.dec)
     dets = a.det or [int(d) for d in sorted(V.covering(ph, a.ra, a.dec, whole_grid=False).detector.unique())[:1]]
@@ -242,6 +315,11 @@ def cmd_stamps(a):
     for ax in axes.ravel():
         ax.set_axis_off()
     print("Panels (aperture S/N r=1.5 px at the centre, then at each --mark):")
+    for k, (gx, gy) in enumerate(mpts):
+        dpx = math.hypot(gx - V.C0, gy - V.C0)
+        print(f"  mark {chr(97 + k)}: RA {marks[k][0]:.6f} Dec {marks[k][1]:+.6f}, {dpx * V.SCALE:.1f}\" ({dpx:.1f} px) from the centre"
+              + (": INSIDE the centre's aperture: its S/N is the centre source, not an independent measurement" if dpx < 1.5 else
+                 ": its aperture overlaps the centre source's light: judge it against the ring values, not against zero" if dpx < 3.5 else ""))
     for i, (det, panels) in enumerate(rows):
         ok = [im for _, im, dif in panels if im is not None and not dif]
         sg = float(np.nanmedian([V.sig(im) for im in ok])) if ok else 1.0
@@ -258,13 +336,22 @@ def cmd_stamps(a):
             vals = [V.ap_snr(im, s1, [(V.C0, V.C0)])] + [V.ap_snr(im, s1, [pt]) for pt in mpts]
             ax.set_title(f"{title}\ncentre {V.fs(vals[0])}", fontsize=8)
             t1 = title.replace("\n", " | ")
-            print(f"  {t1}: centre {V.fs(vals[0])}" + "".join(f", mark {chr(97 + k)} {V.fs(v)}" for k, v in enumerate(vals[1:])))
+            ring = [V.ring_snr(im, s1, (V.C0, V.C0), pt) if 0.7 <= math.hypot(pt[0] - V.C0, pt[1] - V.C0) <= 6 else [] for pt in mpts]
+            print(f"  {t1}: centre {V.fs(vals[0])}" + "".join(
+                f", mark {chr(97 + k)} {V.fs(v)}" + (f" (ring {', '.join(format(x, '+.0f') for x in ring[k])}: mark is {v - float(np.median(ring[k])):+.0f} "
+                                                    f"above the ring median)" if ring[k] and np.isfinite(v) else "")
+                for k, v in enumerate(vals[1:])))
     png = os.path.join(a.out, f"stamps_{a.zone}_{a.ra:.5f}_{a.dec:+.5f}{'_t' + format(a.mjd, '.3f') if a.mjd is not None else ''}_D{'-'.join(map(str, dets))}.png")
     fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.01, wspace=0.05, hspace=0.3)
     fig.savefig(png, dpi=100, facecolor="white"); plt.close(fig)
     print(f"IMAGE: {png}")
     print(f"Each panel: {V.N} x {V.N} px of 6.15\" ({V.N * V.SCALE / 60:.1f}' across), north up, east left. Yellow ticks = the position asked for; "
-          "cyan a, b, ... = your --mark positions. Amber = masked pixels. A motion under ~3\" between visits cannot be seen by eye here.")
+          "cyan a, b, ... = your --mark positions. Amber = masked pixels. A motion under ~3\" between visits cannot be seen by eye here: "
+          "a fast star (even 2\"/yr) looks fixed in these panels, so they never count against a proper-motion claim.")
+    if mpts:
+        print("Ring = the same aperture at 7 other spots at the mark's distance from the centre (marks within 6 px). A second source at "
+              "the mark stands above the ring median by 5 or more in every visit; a mark at the ring's level is the central star's own "
+              "light. One ring value as high as the mark is another source or a PSF spike at that angle.")
 
 
 def cmd_catalog(a):
@@ -292,6 +379,8 @@ def cmd_catalog(a):
             continue
         mags = ", ".join(f"{k[:-4].upper()}={r[k]:.2f}" for k in ("g_mag", "bp_mag", "rp_mag", "j_mag", "h_mag", "k_mag", "w1_mag", "w2_mag")
                          if k in r.index and pd.notna(r[k]))
+        if r["cat"] == "gaia":
+            mags += (f", RUWE={r.ruwe:.2f}" if pd.notna(r.get("ruwe")) else "") + (", Gaia class: galaxy or quasar" if bool(r.get("galaxy_or_qso")) else "")
         pm = f"{r.pmra:+8.1f},{r.pmdec:+8.1f}" if pd.notna(r.pmra) else ("  none in Gaia DR3 " if r["cat"] == "gaia" else "       -,       -")
         plx = f"{r.parallax:6.2f}" if "parallax" in r.index and pd.notna(r.parallax) else "     -"
         rows.append((sep, f" {r['cat']:7s} {sep:5.1f}  {float(e):+7.1f},{float(n):+7.1f}                  {yr:7.1f}  {pm}     {plx}        "
@@ -307,21 +396,26 @@ def cmd_catalog(a):
         print("AllWISE (NASA S3): NOT AVAILABLE (read failed): WISE and 2MASS counterparts NOT CHECKED.")
     else:
         print(f"AllWISE within {a.radius:.0f}\" (positions about 2010.5; Vega magnitudes; J H K = its 2MASS match within 3\", epoch 1997-2001):")
+        if len(aw) > 12:
+            print(f"  (showing the nearest 12 of {len(aw)})")
         for r in aw.head(12).itertuples():
             e, n = V.offsets_arcsec(a.ra, a.dec, r.ra, r.dec)
             col = []
             if pd.notna(r.w1mpro) and pd.notna(r.w2mpro):
                 col.append(f"W1-W2={r.w1mpro - r.w2mpro:+.2f}")
+            if pd.notna(r.w2mpro) and pd.notna(r.w3mpro):
+                col.append(f"W2-W3={r.w2mpro - r.w3mpro:+.2f}")
             if pd.notna(r.j_m_2mass) and pd.notna(r.k_m_2mass):
                 col.append(f"J-K={r.j_m_2mass - r.k_m_2mass:+.2f}")
             mags = ", ".join(f"{k}={v:.2f}" for k, v in (("W1", r.w1mpro), ("W2", r.w2mpro), ("W3", r.w3mpro), ("J", r.j_m_2mass),
                                                         ("H", r.h_m_2mass), ("K", r.k_m_2mass)) if pd.notna(v))
             tm = f", 2MASS position {r.r_2mass:.1f}\" from it at PA {r.pa_2mass:.0f}°" if pd.notna(r.r_2mass) else ", no 2MASS match"
-            print(f"  {r.sep:5.1f}\"  E{float(e):+6.1f}\" N{float(n):+6.1f}\"  {mags}  {' '.join(col)}  extended flag {r.ext_flg}, artifact flags {r.cc_flags}{tm}")
+            print(f"  sep {r.sep:5.1f}\" (east {float(e):+.1f}\", north {float(n):+.1f}\")  {mags}  {' '.join(col)}  extended flag {r.ext_flg}, artifact flags {r.cc_flags}{tm}")
         if aw.empty:
             print("  (none: for a source brighter than about 0.1 mJy at 3.4 µm this means it was not here in 2010, or it is not real)")
         print("  Colours (Vega): brown dwarfs W1-W2 > 0.4 (T dwarfs > 1) and usually J-K > 1 for L types; AGN W1-W2 > 0.8 with a smooth "
-              "red spectrum; ordinary stars W1-W2 near 0; extended flag > 0 = a galaxy.")
+              "red spectrum, and W2-W3 above about 2.5 is warm dust (AGN or star-forming galaxy), not a brown dwarf; ordinary stars "
+              "W1-W2 near 0; extended flag > 0 = a galaxy.")
     if a.pm:
         pmra, pmdec = (float(x) for x in a.pm.split(","))
         print(f"Back-track for a claimed motion of ({pmra:+.0f}, {pmdec:+.0f}) mas/yr from MJD {mjd if mjd else 61000:.0f}: where the star was, "
@@ -334,7 +428,17 @@ def cmd_catalog(a):
             ra2, dec2 = float(ra2), float(dec2)
             if cat == "allwise":
                 c = V.allwise_near(ra2, dec2, 15)
-                near = "NOT AVAILABLE" if c is None else ("none within 15\"" if c.empty else f"{c.sep.iloc[0]:.1f}\" away (W1={c.w1mpro.iloc[0]:.1f})")
+                if c is None:
+                    near = "NOT AVAILABLE"
+                elif c.empty:
+                    near = "none within 15\""
+                else:
+                    q = c.iloc[0]
+                    wide = V.allwise_near(ra2, dec2, 300)
+                    chance = (len(wide) / 300.0 ** 2 * max(q.sep, 0.5) ** 2) if wide is not None else float("nan")
+                    near = (f"{q.sep:.1f}\" away (W1={q.w1mpro:.2f}, W2={q.w2mpro:.2f}, W1-W2={q.w1mpro - q.w2mpro:+.2f}"
+                            + (f", J={q.j_m_2mass:.2f}" if pd.notna(q.j_m_2mass) else ", no 2MASS match")
+                            + f"; chance of an unrelated AllWISE source this close: {min(1.0, chance):.1%}; compare W1, W2 with the spectrum tool's synthetic ones)")
             else:
                 c = ref[(ref["cat"] == cat) & (np.abs(ref.dec - dec2) < 15 / 3600.0)]
                 if cat not in have:
@@ -345,7 +449,10 @@ def cmd_catalog(a):
                     sp = angsep(ra2, dec2, c.ra.to_numpy(float), c.dec.to_numpy(float)) * 3600
                     near = f"{sp.min():.1f}\" away" if sp.min() <= 15 else "none within 15\""
             print(f"  {lab}: {abs(yrs):.1f} yr x motion = {math.hypot(pmra, pmdec) / 1000 * abs(yrs):.1f}\" -> RA {ra2:.6f} Dec {dec2:+.6f}: nearest {cat} source {near}")
-        print("  A real fast star has a counterpart within about 1-2\" of each back-tracked spot and none at the control spot.")
+        print("  A real fast star has a counterpart within about 1-2\" of each back-tracked spot and none at the control spot. One epoch with a "
+              "chance under 1% and matching brightness is already strong; objects too red for Gaia have no Gaia epoch at all.")
+        cpm = V.common_pm(ref, a.ra, a.dec, pmra, pmdec)
+        print("  " + (cpm or "No Gaia star within 15' shares this motion (no wide companion found)."))
     fx = V.table(a.zone, "fixed")
     if fx is not None:
         sep = angsep(a.ra, a.dec, fx.ra.to_numpy(float), fx.dec.to_numpy(float)) * 3600
@@ -365,9 +472,15 @@ def cmd_catalog(a):
 
 
 def cmd_known(a):
+    if V.HIDE_KNOWN:
+        stop("NOT AVAILABLE: the list of known bodies is switched off in this run (a blind test). Judge from the images, the "
+             "numbers and the catalogues, and record this under could_not_check.")
     pred = need(a.zone, "pred")
     ph = need(a.zone, "photos")
-    s = ph.iloc[(ph.mjd - a.mjd).abs().argsort()[:1]]
+    cov = V.covering(ph, a.ra, a.dec, whole_grid=False)
+    if cov.empty:
+        cov = ph
+    s = cov.iloc[(cov.mjd - a.mjd).abs().argsort()[:1]]
     session = int(s.session.iloc[0])
     if abs(float(s.mjd.iloc[0]) - a.mjd) > 0.02:
         print(f"Note: the nearest photo is {abs(float(s.mjd.iloc[0]) - a.mjd) * 24:.1f} h from MJD {a.mjd}; predictions exist per session only.")
@@ -386,8 +499,9 @@ def cmd_known(a):
 def cmd_spectrum(a):
     zone = V.zone_of(a.id)
     src = need(zone, "sources")
-    if not V.source_ids(a.id):
-        stop(f"NOT AVAILABLE: {a.id} has no source id (spectrum works for fast stars, spectral leads and shapes, not movers).")
+    if not V.source_ids(a.id) or V.mover_row(a.id) is not None:
+        stop(f"NOT AVAILABLE: {a.id} is a mover. spectrum works for fixed sources (fast stars, spectral leads, shapes); a mover's "
+             f"brightness per detector is in packet. This is not a missing check.")
     sid = V.source_ids(a.id)[0] if a.which == 1 or len(V.source_ids(a.id)) < 2 else V.source_ids(a.id)[1]
     r = src[src.source_id == sid]
     if r.empty:
@@ -497,7 +611,12 @@ def cmd_dots(a):
         for det, pts in by.items():
             xs = np.array([p[0] for p in pts]); ys = np.array([p[1] for p in pts])
             col = int((np.abs(xs - np.median(xs)) <= 2).sum())
-            if len(pts) >= 3 and col >= 0.7 * len(pts):
+            nvis = len({v for _, _, v, r in out if int(r.detector) == det})
+            if len(pts) >= 3 and col >= 0.7 * len(pts) and nvis < 2:
+                print(f"  {col} of {len(pts)} D{det} dots share detector column x = {np.median(xs):.0f}, all within one visit: expected for one sky "
+                      f"spot (within a visit it lands on nearly the same column each session). Not a detector pattern by itself; pixel "
+                      f"--det {det} --x {np.median(xs):.0f} --y {np.median(ys):.0f} tells whether the column is busier than chance.")
+            elif len(pts) >= 3 and col >= 0.7 * len(pts):
                 print(f"  DETECTOR PATTERN: {col} of {len(pts)} D{det} dots share detector column x = {np.median(xs):.0f} ± 2 px over "
                       f"{len({p[2] for p in pts})} sessions (y from {ys.min():.0f} to {ys.max():.0f}): a glow, streak or defect fixed to the "
                       f"detector, not a sky source. Check with: pixel --zone {a.zone} --det {det} --x {np.median(xs):.0f} --y {np.median(ys):.0f}")
@@ -552,11 +671,15 @@ def cmd_track(a):
     print(f"Track of {a.id}: {rate:.0f}\"/h toward PA {pa:.0f}° from {nexp} exposures; assumed rate error ±{err:.0f}\"/h "
           f"(so the search circle grows by {err:.0f}\" per hour). Sessions within ±{a.days:g} days:")
     print("  session   dt       predicted RA, Dec        circle\"   photo holds it   our movers in circle   free dots in circle")
+    away = 0
     for r in ses.sort_values("dt_h").itertuples():
         ra2, dec2 = V.offset_radec(mv.ra, mv.dec, vx * r.dt_h, vy * r.dt_h)
         ra2, dec2 = float(ra2), float(dec2)
         rad = max(20.0, err * abs(r.dt_h))
         cov = V.covering(ph[ph.session == r.session], ra2, dec2, whole_grid=False)
+        if cov.empty:
+            away += 1
+            continue
         m = mvs[mvs.session == r.session]
         nm = int((angsep(ra2, dec2, m.ra.to_numpy(float), m.dec.to_numpy(float)) * 3600 <= rad).sum()) if len(m) else 0
         obs = set(ph[ph.session == r.session].obs_id)
@@ -564,6 +687,8 @@ def cmd_track(a):
         nf = int((angsep(ra2, dec2, f.ra.to_numpy(float), f.dec.to_numpy(float)) * 3600 <= rad).sum()) if len(f) else 0
         big = "  (circle too large to mean much)" if rad > 300 else ""
         print(f"  {int(r.session):6d}  {V.fmt_dt(r.dt_h):>8s}  {ra2:10.5f} {dec2:+9.5f}   {rad:7.0f}   {'yes D' + ''.join(str(d) for d in sorted(set(cov.detector))) if len(cov) else 'no':14s}   {nm:6d}                 {nf:6d}{big}")
+    print(f"  ({away} other session(s) in this time span pointed elsewhere: the telescope was not looking at the predicted spot. "
+          f"That is the survey pattern, not missing data.)" if away else "  (every session in this time span is listed)")
     print("How to use: for a session whose photo holds the predicted spot with a small circle, look with\n"
           "  stamps --zone Z --ra R --dec=D --mjd M --n 4   and   movers --zone Z --ra R --dec=D --mjd M --radius <circle>.\n"
           "A second session with a source on the track is what turns a tracklet into an object. With two detections a few "
@@ -584,13 +709,13 @@ def cmd_movers(a):
     for r in m.head(15).itertuples():
         e, n = V.offsets_arcsec(a.ra, a.dec, r.ra, r.dec)
         print(f"  {r.sep:6.1f}\"  E{float(e):+7.1f}\" N{float(n):+7.1f}\"  {r.id}  {int(r.n_dots)} detections in {int(r.n_exposures)} exposures, D{r.detectors}, "
-              f"S/N {r.snr:.0f}, rate {r.rate_arcsec_h:.0f}\"/h PA {r.pa_deg:.0f}°, nearest known {r.known_name} at {r.known_sep:.1f}\", "
-              f"{'on the site as a candidate' if r.is_suspect else 'not listed'}")
+              f"S/N {r.snr:.0f}, rate {r.rate_arcsec_h:.0f}\"/h PA {r.pa_deg:.0f}°"
+              + ("" if V.HIDE_KNOWN else f", nearest known {r.known_name} at {r.known_sep:.1f}\", {'on the site as a candidate' if r.is_suspect else 'not listed'}"))
     print("A mover needs detections in two exposures of one session (or in two detectors at one moment), each more than 6\" from "
           "every fixed source. Single detections that were never paired are under `dots`.")
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="tool", required=True)
     for name in ("info", "packet", "session", "spectrum", "track"):
@@ -623,22 +748,31 @@ def main():
     p = sub.add_parser("pixel")
     p.add_argument("--zone", required=True); p.add_argument("--det", type=int, required=True)
     p.add_argument("--x", type=float, required=True); p.add_argument("--y", type=float, required=True)
-    a = ap.parse_args()
-    {"info": cmd_info, "pixel": cmd_pixel, "track": cmd_track, "packet": cmd_packet, "session": cmd_session, "stamps": cmd_stamps, "catalog": cmd_catalog,
-     "known": cmd_known, "spectrum": cmd_spectrum, "dots": cmd_dots, "movers": cmd_movers}[a.tool](a)
+    return ap
 
 
-if __name__ == "__main__":
+def run(argv=None) -> int:
+    """Run one tool; everything it has to say goes to standard output. Returns the exit code (0 ok, 1 not available,
+    2 tool error or bad arguments). Used by the command line and by the worker that stays loaded (toolserver.py)."""
     import warnings
     warnings.filterwarnings("ignore")
     np.seterr(all="ignore")
     try:
-        main()
-    except SystemExit:
-        raise
+        a = build_parser().parse_args(argv)
+        {"info": cmd_info, "pixel": cmd_pixel, "track": cmd_track, "packet": cmd_packet, "session": cmd_session, "stamps": cmd_stamps,
+         "catalog": cmd_catalog, "known": cmd_known, "spectrum": cmd_spectrum, "dots": cmd_dots, "movers": cmd_movers}[a.tool](a)
+        return 0
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
     except Exception as e:  # noqa: BLE001
         import traceback
         tb = traceback.extract_tb(e.__traceback__)[-1]
         print(f"TOOL ERROR: {type(e).__name__}: {e}  (at {os.path.basename(tb.filename)}:{tb.lineno}). This is a bug in the tool, "
               f"not a result: record it under could_not_check and do not read the output above as an answer.")
-        sys.exit(2)
+        return 2
+    finally:
+        plt.close("all")
+
+
+if __name__ == "__main__":
+    sys.exit(run())

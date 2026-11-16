@@ -12,6 +12,11 @@ Run everything from `pipeline/` (its environment has all that is needed):
     python3 ../scripts/vet/round_report.py <round dir>            # collect the agents' records, score the controls
     uv run python ../scripts/vet/make_round.py <round dir>        # pick a round of findings, write agent batches
     uv run python ../scripts/vet/known_check.py <zone> --out DIR  # known bodies: seen or missed, and why
+    uv run --with anthropic python ../scripts/vet/api_round.py <round dir> --model claude-haiku-5-5 --effort high
+                                                                  # the same round through the Claude API (key in the
+                                                                  # environment): skill as system prompt, tools as tool calls
+    python3 ../scripts/vet/compare_runs.py <round dir> [--main RUN] [--doc OUT.md]   # runs against each other and the
+                                                                  # controls; --doc writes the findings file
     uv run pytest ../scripts/vet/tests
 
 - Local data: env `SKYSHIFT_VET_DATA`, default `~/.cache/skyshift-vet/data` (`<zone>/*.parquet`, `candidates.json`).

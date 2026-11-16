@@ -30,7 +30,8 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    gives the hit rates on known asteroids, junk and faint stars (pixel_validate.py, into
                    ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
-                   rounds (make_round.py) and check which known bodies we saw (known_check.py). Read only; local data
+                   rounds (make_round.py), run a round through the Claude API (api_round.py, key from the environment),
+                   compare runs (compare_runs.py) and check which known bodies we saw (known_check.py). Read only; local data
                    in ~/.cache/skyshift-vet. Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.
                    Tests: cd pipeline && uv run pytest ../scripts/vet/tests
 - make_fixtures.py P1. Writes the synthetic examples in fixtures/api/: python3 -I scripts/make_fixtures.py
