@@ -157,6 +157,10 @@ def cmd_info(a):
               "body / Gaia star / fixed source):")
         print(json.dumps({k: (None if isinstance(mv[k], float) and not np.isfinite(mv[k]) else (mv[k].item() if hasattr(mv[k], "item") else mv[k]))
                           for k in keep if k in mv.index}, indent=1, default=str))
+        for block in (V.tracklet_lines(a.id), V.engine_check_lines(a.id)):
+            if block:
+                print()
+                print("\n".join(block))
         sus = V.table(zone, "suspects")
         if sus is not None and (sus.id == a.id).any() and not V.HIDE_KNOWN:
             r = sus[sus.id == a.id].iloc[0]

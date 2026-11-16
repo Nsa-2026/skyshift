@@ -39,7 +39,8 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    rounds (make_round.py), run a round through the Claude API (api_round.py, key from the environment),
                    compare runs (compare_runs.py), blind rounds (make_scenarios.py), piles (triage.py), a learned score (rb_score.py), easy/hard routing (route.py)
                    and check which known bodies we saw (known_check.py). Read only; local data
-                   in ~/.cache/skyshift-vet. Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.
+                   in ~/.cache/skyshift-vet; `info` also reads the engine's pixel checks and tracks from ~/skyshift-data
+                   (SKYSHIFT_VET_ENGINE). Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.
                    Tests: cd pipeline && uv run pytest ../scripts/vet/tests
 - make_fixtures.py P1. Writes the synthetic examples in fixtures/api/: python3 -I scripts/make_fixtures.py
 - demo_check.py    Opens every featured target from /data plus three random coordinates

@@ -5,14 +5,25 @@ Layout (config FORCED_SKY_*):
                                                  refcat.FORCED_COLUMNS, sorted by G
     refcat/sky/forced_n32/_complete.json         written last, once every partition exists: nside, limits, counts
 
-Targets: Gaia DR3 G < FORCED_GAIA_G_MAX (the zone list's Gaia part; the CatWISE-only red objects are not in it
-yet). A Gaia source belongs to the partition of its source_id (source_id // 2^35 is its level-12 nested HEALPix
+Targets: Gaia DR3 G < FORCED_GAIA_G_MAX (the zone list's Gaia part). A Gaia source belongs to the partition of its
+source_id (source_id // 2^35 is its level-12 nested HEALPix
 pixel, so source_id // 2^49 is the nside-32 one): one ESA TAP sync query per partition on the primary key, no
 spatial index needed. With FORCED_SKY_MAX_PER_DEG2 set, a partition keeps only its brightest
 FORCED_SKY_MAX_PER_DEG2 × 3.357 deg² targets (TOP n ORDER BY G), which caps a photo near the 30,000 budget.
 
 Build (resumable: finished partitions are skipped; parallel; any machine with internet):
     uv run python -m skyshift_pipeline.forced_sky --root gs://nasa-glazing-data --workers 16
+
+Red layer (16 Nov, second pass; config FORCED_SKY_RED_*): the zone list's other part, red WISE sources with no Gaia
+target (W1 < FORCED_CATWISE_W1_MAX, W1 - W2 >= FORCED_CATWISE_W1_W2_MIN, W2 S/N >= FORCED_RED_W2SNR_MIN, no target of
+the Gaia partition within FORCED_DEDUP_ARCSEC at AllWISE's epoch: L/T/Y dwarf candidates and other cold objects, so
+that D1-D3 give them a J or a limit). From AllWISE on S3 (IRSA's HEALPix Parquet, the same nside-32 nested pixels;
+anonymous, free): CatWISE2020 is only on IRSA TAP (minutes per 1-degree tile), so positions are AllWISE's (~2010.5,
+no motion: a brown dwarf moving 1"/yr sits ~15" away by 2025 and is missed; CatWISE's motions would fix that).
+    refcat/sky/forced_red_n32/p<pixel:05d>.parquet  refcat.FORCED_COLUMNS (ref_id allwise:<designation>), reddest first
+    refcat/sky/forced_red_n32/_complete.json        written last
+    uv run python -m skyshift_pipeline.forced_sky --red --root gs://nasa-glazing-data --workers 16
+It needs the Gaia layer's partitions (dedup) and is read only when its own manifest exists.
 
 Read (dots): `partitions_for_cone` gives the partitions a photo's cone overlaps; `SkyList.frame` returns
 their rows (an LRU cache keeps recent partitions, photos come in time order so neighbours repeat).
@@ -30,7 +41,8 @@ import pandas as pd
 
 from . import config as C
 from . import log
-from .refcat import ESA_TAP, FORCED_COLUMNS, GAIA_SELECT, IRSA_TAP, parse_gaia
+from .refcat import ESA_TAP, FORCED_COLUMNS, GAIA_SELECT, IRSA_TAP, move_to_epoch, parse_gaia
+from .sky import SkyTree
 from .store import Store
 
 L = log.get("forced_sky")
@@ -198,12 +210,10 @@ def build(store: Store, workers: int = C.FORCED_SKY_WORKERS, pixels=None, g_max:
     return out
 
 
-def write_manifest(store: Store, nside: int = C.FORCED_SKY_NSIDE, g_max: float = C.FORCED_GAIA_G_MAX,
-                   max_per_deg2: float | None = C.FORCED_SKY_MAX_PER_DEG2, root_dir: str = C.FORCED_SKY_DIR) -> dict:
-    """Check every partition exists, count rows (Parquet footers only) and write the manifest."""
+def _partition_rows(store: Store, root_dir: str, nside: int) -> np.ndarray:
+    """Rows of every partition (Parquet footers only); raises if one is missing."""
     import pyarrow.parquet as pq
 
-    cap = cap_per_partition(max_per_deg2, nside)
     have = set(store.listdir(root_dir))
     missing = [p for p in range(npix(nside)) if f"p{p:05d}.parquet" not in have]
     if missing:
@@ -214,7 +224,14 @@ def write_manifest(store: Store, nside: int = C.FORCED_SKY_NSIDE, g_max: float =
             return pq.ParquetFile(fh).metadata.num_rows
 
     with ThreadPoolExecutor(32) as ex:
-        counts = np.array(list(ex.map(nrows, range(npix(nside)))), np.int64)
+        return np.array(list(ex.map(nrows, range(npix(nside)))), np.int64)
+
+
+def write_manifest(store: Store, nside: int = C.FORCED_SKY_NSIDE, g_max: float = C.FORCED_GAIA_G_MAX,
+                   max_per_deg2: float | None = C.FORCED_SKY_MAX_PER_DEG2, root_dir: str = C.FORCED_SKY_DIR) -> dict:
+    """Check every partition exists, count rows (Parquet footers only) and write the manifest."""
+    cap = cap_per_partition(max_per_deg2, nside)
+    counts = _partition_rows(store, root_dir, nside)
     man = {"nside": nside, "order": "nested", "partition": "gaia source_id >> 49 (level-12 HEALPix in source_id)",
            "gaia_g_max": g_max, "max_per_deg2": max_per_deg2, "cap_per_partition": cap,
            "catalogues": ["gaia_dr3"], "rows": int(counts.sum()),
@@ -222,6 +239,116 @@ def write_manifest(store: Store, nside: int = C.FORCED_SKY_NSIDE, g_max: float =
            "rows_per_partition": counts.tolist(), "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     store.write_json(manifest_rel(root_dir), man)
     return {k: v for k, v in man.items() if k != "rows_per_partition"}
+
+
+# --- the red layer (AllWISE red sources with no Gaia target) -------------------------------------
+RED_COLUMNS = ("designation", "ra", "dec", "w1mpro", "w2mpro", "w2snr")
+
+
+def allwise_partition(pix: int) -> pd.DataFrame:
+    """RED_COLUMNS of one AllWISE partition from IRSA's HEALPix Parquet on S3 (anonymous, us-west-2)."""
+    import pyarrow.fs as pafs
+    import pyarrow.parquet as pq
+
+    from .suspects import allwise_key
+    fs = pafs.S3FileSystem(anonymous=True, region=C.ALLWISE_S3_REGION, connect_timeout=C.ALLWISE_TIMEOUT_S,
+                           request_timeout=C.ALLWISE_TIMEOUT_S)
+    return pq.read_table(f"{C.ALLWISE_S3_BUCKET}/{allwise_key(int(pix))}", filesystem=fs,
+                         columns=list(RED_COLUMNS)).to_pandas()
+
+
+def red_targets(aw: pd.DataFrame, gaia: pd.DataFrame, w1_max: float = C.FORCED_CATWISE_W1_MAX,
+                w1_w2_min: float = C.FORCED_CATWISE_W1_W2_MIN, w2snr_min: float = C.FORCED_RED_W2SNR_MIN,
+                dedup_arcsec: float = C.FORCED_DEDUP_ARCSEC,
+                cap: int | None = C.FORCED_SKY_RED_MAX_PER_PARTITION) -> tuple[pd.DataFrame, dict]:
+    """The red layer's rows of one partition (FORCED_COLUMNS, reddest W1 - W2 first, then brightest W1) from its
+    AllWISE rows `aw` (RED_COLUMNS) and the Gaia layer's targets `gaia` (FORCED_COLUMNS) of the same partition."""
+    w1, w2 = aw["w1mpro"].to_numpy(np.float64), aw["w2mpro"].to_numpy(np.float64)
+    snr2 = aw["w2snr"].to_numpy(np.float64)
+    with np.errstate(invalid="ignore"):
+        red = (w1 < w1_max) & (w1 - w2 >= w1_w2_min) & (snr2 >= w2snr_min)
+    st = {"allwise": int(len(aw)), "red": int(red.sum())}
+    a = aw[red].reset_index(drop=True)
+    if len(a) and len(gaia):
+        gra, gdec = move_to_epoch(gaia, C.ALLWISE_EPOCH_MJD)
+        sep, _ = SkyTree(gra, gdec).nearest(a["ra"].to_numpy(np.float64), a["dec"].to_numpy(np.float64))
+        a = a[~(sep <= dedup_arcsec)].reset_index(drop=True)
+    st["no_gaia_target"] = int(len(a))
+    a = a.assign(_c=(a["w1mpro"] - a["w2mpro"]).astype(np.float64)).sort_values(
+        ["_c", "w1mpro", "designation"], ascending=[False, True, True], kind="stable")
+    if cap is not None and len(a) > cap:
+        a = a.iloc[:cap]
+    st["rows"], st["capped"] = int(len(a)), bool(cap is not None and st["no_gaia_target"] > cap)
+    n = len(a)
+    out = pd.DataFrame({"ref_id": ("allwise:" + a["designation"].astype(str).str.strip()).to_numpy(),
+                        "ra": a["ra"].to_numpy(np.float64), "dec": a["dec"].to_numpy(np.float64),
+                        "epoch_mjd": np.full(n, C.ALLWISE_EPOCH_MJD), "pmra": np.full(n, np.nan),
+                        "pmdec": np.full(n, np.nan), "parallax": np.full(n, np.nan)})
+    return out[list(FORCED_COLUMNS)].astype(FORCED_COLUMNS).reset_index(drop=True), st
+
+
+def build_red(store: Store, workers: int = C.FORCED_SKY_WORKERS, pixels=None, nside: int = C.FORCED_SKY_NSIDE,
+              root_dir: str = C.FORCED_SKY_RED_DIR, gaia_dir: str = C.FORCED_SKY_DIR, reader=allwise_partition,
+              limit: int | None = None) -> dict:
+    """The red layer: every missing partition (or only `pixels`) from AllWISE + the Gaia layer's partition, then the
+    manifest when all exist. Resumable like build()."""
+    t0 = time.time()
+    allpix = np.arange(npix(nside)) if pixels is None else np.unique(np.asarray(pixels, np.int64))
+    have = {n for n in store.listdir(root_dir) if n.startswith("p") and n.endswith(".parquet")}
+    todo = [int(p) for p in allpix if f"p{int(p):05d}.parquet" not in have]
+    if limit is not None:
+        todo = todo[:limit]
+    L.info("forced_sky red: %d partitions asked, %d to build, %d workers", len(allpix), len(todo), workers)
+
+    def job(p):
+        last = None
+        for attempt in range(1, C.NET_RETRIES + 1):
+            try:
+                aw = reader(p)
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+                L.warning("AllWISE partition %d try %d: %s", p, attempt, str(e)[:200])
+                if attempt < C.NET_RETRIES:
+                    time.sleep(5 * attempt)
+        else:
+            raise RuntimeError(f"AllWISE partition {p}: {last}")
+        gaia = store.read_parquet(partition_rel(p, gaia_dir))
+        df, st = red_targets(aw, gaia)
+        st["pix"] = int(p)
+        st["bytes"] = store.write_parquet(partition_rel(p, root_dir), df)
+        return st
+
+    failed, rows, done = [], 0, 0
+    with ThreadPoolExecutor(max(1, workers)) as ex:
+        futs = {ex.submit(job, p): p for p in todo}
+        for i, f in enumerate(as_completed(futs), 1):
+            try:
+                rows += f.result()["rows"]
+                done += 1
+            except Exception as e:  # noqa: BLE001
+                failed.append(futs[f])
+                L.error("forced_sky red partition %d failed: %s", futs[f], str(e)[:300])
+            if i % 100 == 0 or i == len(todo):
+                L.info("forced_sky red [%d/%d] %d rows, %.0f s", i, len(todo), rows, time.time() - t0)
+    out = {"built": done, "rows_built": rows, "failed": failed, "wall_s": round(time.time() - t0, 1)}
+    have = set(store.listdir(root_dir))
+    out["missing"] = sum(f"p{p:05d}.parquet" not in have for p in range(npix(nside)))
+    if pixels is None and not failed and out["missing"] == 0:
+        counts = _partition_rows(store, root_dir, nside)
+        man = {"nside": nside, "order": "nested", "partition": "AllWISE healpix_k5 (position)",
+               "catalogues": ["allwise"], "rule": {"w1_max": C.FORCED_CATWISE_W1_MAX,
+                                                   "w1_w2_min": C.FORCED_CATWISE_W1_W2_MIN,
+                                                   "w2snr_min": C.FORCED_RED_W2SNR_MIN,
+                                                   "no_gaia_target_arcsec": C.FORCED_DEDUP_ARCSEC},
+               "cap_per_partition": C.FORCED_SKY_RED_MAX_PER_PARTITION, "rows": int(counts.sum()),
+               "rows_per_partition": counts.tolist(), "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        store.write_json(manifest_rel(root_dir), man)
+        out["manifest"] = {k: v for k, v in man.items() if k != "rows_per_partition"}
+    L.info("forced_sky red: %s", {k: v for k, v in out.items() if k != "manifest"})
+    if failed:
+        raise RuntimeError(f"forced_sky red: {len(failed)} partitions failed ({failed[:5]}...); rerun to retry them")
+    return out
 
 
 # --- read ----------------------------------------------------------------------------------------
@@ -276,9 +403,14 @@ def main(argv=None) -> None:
     ap.add_argument("--pixels", default=None, help="comma list of nside-32 nested pixels (a test run; no manifest)")
     ap.add_argument("--no-cap", action="store_true", help="every G < limit target (no per-partition cap)")
     ap.add_argument("--manifest-only", action="store_true", help="only (re)write the manifest")
+    ap.add_argument("--red", action="store_true", help="build the red layer (AllWISE; needs the Gaia layer)")
     a = ap.parse_args(argv)
     log.setup()
     store = Store(a.root)
+    if a.red:
+        pixels = [int(p) for p in a.pixels.split(",")] if a.pixels else None
+        print(build_red(store, a.workers, pixels=pixels, limit=a.limit))
+        return
     cap = None if a.no_cap else C.FORCED_SKY_MAX_PER_DEG2
     if a.manifest_only:
         print(write_manifest(store, max_per_deg2=cap))

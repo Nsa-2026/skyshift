@@ -283,6 +283,16 @@ def _tools_version() -> str:
     for f in ("vet.py", "vetlib.py"):
         h.update(open(os.path.join(HERE, f), "rb").read())
     h.update(os.environ.get("SKYSHIFT_VET_DATA", "").encode() + os.environ.get("SKYSHIFT_VET_HIDE_KNOWN", "").encode())
+    eng = os.environ.get("SKYSHIFT_VET_ENGINE", "~/skyshift-data")  # the engine's check files and track tables: a new file is new data
+    if eng.strip().lower() not in ("off", ""):
+        import glob
+        root = os.path.expanduser(eng)
+        for f in sorted(glob.glob(os.path.join(root, "checks", "*.json")) + glob.glob(os.path.join(root, "vet", "*.json"))
+                        + glob.glob(os.path.join(root, "results", "*", "tracklet*.parquet"))):
+            st = os.stat(f)
+            h.update(f"{f}:{st.st_size}:{int(st.st_mtime)}".encode())
+    else:
+        h.update(b"engine-off")
     return h.hexdigest()[:12]
 
 
@@ -373,7 +383,7 @@ def _plain(messages: list) -> list:
     return out
 
 
-def contradiction(rec: dict, kind: str, tools: list[str] = ()) -> str | None:
+def contradiction(rec: dict, kind: str, tools: list[str] = (), on_track: int = 0) -> str | None:
     """A record whose verdict goes against its own checks (round 2: a 'static_source' whose text said 'motion confirmed')."""
     v, checks = rec.get("verdict"), rec.get("checks") or []
     sup = sum(str(c.get("conclusion", "")).lower().startswith("support") for c in checks)
@@ -385,6 +395,10 @@ def contradiction(rec: dict, kind: str, tools: list[str] = ()) -> str | None:
         return ("Not recorded yet: a mover is dropped only on proof (section 4 of the skill), and junk_proof says there is none. "
                 "Doubt alone (motion not significant, one detector, seen once, near a star, stationary, odd shape) is not proof: "
                 "use unsure, or name the measured proof in junk_proof, then submit again.")
+    if kind == "mover" and drop and on_track >= 2:
+        return (f"Not recorded yet: the engine has this mover on a track through {on_track} sessions (`info`), and its shuffled control makes no "
+                "such track. A fixed star or an artifact does not line up across independent sessions: look at one or two of the listed sessions "
+                "with `stamps`, then submit. If you looked and the other sessions hold nothing real, say so in `decisive` and submit unchanged.")
     if kind == "mover" and v in ("real_mover_unknown", "unsure") and not ({"session", "stamps"} <= set(tools)):
         return ("Not recorded yet: a mover gets real_mover_unknown or unsure only after you have looked at `session` (every exposure, all "
                 "detectors) and `stamps` (the same spot in the other visits), and run the check each packet warning names (section 3). "
@@ -399,6 +413,18 @@ def contradiction(rec: dict, kind: str, tools: list[str] = ()) -> str | None:
         why = f"static_source is for motion claims; a {kind} finding whose claim is false is engine_claim_wrong, and one whose claim holds is real_known or real_other"
     return None if why is None else (f"Not recorded yet: {why}. 'supports' and 'against' refer to the engine's claim. Check the verdict against "
                                      f"section 4 of the skill and submit again; if the record is what you mean, submit it unchanged.")
+
+
+def sessions_on_track(f: dict) -> int:
+    """Sessions on the engine's track that holds this mover (0: none, or no track table)."""
+    if f.get("kind") != "mover":
+        return 0
+    try:
+        import vetlib
+        tr = vetlib.tracklet_of(f["id"])
+        return int(tr["row"].n_sessions) if tr else 0
+    except Exception:  # noqa: BLE001  (the gate is an extra: a missing table must not stop a round)
+        return 0
 
 
 def vet_batch(client, findings: list[dict], a, run_dir: str, batch_no: int = 0) -> list[dict]:
@@ -470,7 +496,7 @@ def vet_batch(client, findings: list[dict], a, run_dir: str, batch_no: int = 0) 
         calls = [b for b in resp.content if b.type == "tool_use"]
         sub = next((b for b in calls if b.name == "submit_record"), None)
         if sub is not None:
-            doubt = None if asked_again else contradiction(dict(sub.input), findings[k]["kind"], tools_used)
+            doubt = None if asked_again else contradiction(dict(sub.input), findings[k]["kind"], tools_used, sessions_on_track(findings[k]))
             if doubt:  # ask once; the same record submitted again is accepted
                 asked_again = True
                 messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": c.id, "is_error": c is sub,

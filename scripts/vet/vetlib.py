@@ -74,6 +74,142 @@ def mover_row(cand_id: str):
     return None if r.empty else r.iloc[0]
 
 
+# ------------------------------------------------------------------ the engine's own checks (read only)
+
+# The engine's mirror of the bucket: checks/pixel*.json (and vet/pixel*.json for blind rounds), checks/known.json,
+# checks/catalogue.json and results/<zone>/tracklets.parquet + tracklet_dots.parquet. "off" hides all of it.
+ENGINE = os.environ.get("SKYSHIFT_VET_ENGINE", "~/skyshift-data")
+# Share of movers each engine pixel check fires on (pixel_check.py --validate, 16 Nov): 86 real (50 matched to an MPC
+# orbit, 36 on a track through several sessions) and 40 junk. A code without a row has no measured rate yet.
+ENGINE_RATES = {("partner_seen", "ok"): (67, 5), ("one_detector", "warn"): (33, 78), ("one_detector", "strong"): (0, 12),
+                ("hot_pixel", "warn"): (0, 55), ("hot_pixel_proven", "strong"): (0, 12), ("sharp", "ok"): (76, 18),
+                ("sharp", "warn"): (2, 45), ("sharp", "strong"): (0, 12), ("one_photo", "ok"): (97, 70),
+                ("one_photo", "warn"): (2, 20), ("one_photo", "strong"): (1, 10), ("faint_on_path", "warn"): (1, 32),
+                ("wide", "warn"): (3, 5), ("persistence", "warn"): (1, 2)}
+# What the engine's same-place verdict means for a mover (core pixelcheck.one_photo); none of them names a body.
+ONE_PHOTO = {
+    "steady": "about the same light sits at this place at other times: a fixed source. With the stamps agreeing (the source AT the mark, "
+              "not beside it) this is the proof same_brightness_at_same_spot_at_other_times.",
+    "neighbour": "light is there at other times, but centred 5\" or more away: a neighbour spills into the aperture. It says nothing about "
+                 "the mover itself; it is not proof.",
+    "brighter": "a fainter source is there at other times, and this photo has at least 1.5 times as much, 5 sigma or more above it: something "
+                "extra was there. That is what an asteroid passing a star looks like, so the fixed source here does NOT count against the mover; "
+                "a one-off artifact on a star reads the same, so rule artifacts out in the images.",
+    "moved": "nothing at this place at other times, and a dot nearby in the next or previous exposure: what a mover does; so does a telescope-step artifact.",
+    "flash": "nothing at this place at other times: not a fixed star. A mover seen once and a one-off artifact both read like this.",
+    "cosmic_ray": "nothing at other times and the dot is narrower than a star: a cosmic-ray hit is that sharp. Check the stamp for PSF wings.",
+    "unclear": "the other photos are too noisy to say whether a source half as bright sits there.",
+    "too_few": "fewer than two usable other photos of this place.",
+}
+
+
+def _engine_dir() -> Path | None:
+    return None if ENGINE.strip().lower() in ("off", "") else Path(ENGINE).expanduser()
+
+
+@functools.lru_cache(maxsize=8)
+def _engine_checks(name: str) -> dict:
+    """The candidates of every checks/<name>*.json of the engine (pixel.json and pixel_blind.json; later files win)."""
+    d, out = _engine_dir(), {}
+    if d is None:
+        return out
+    # vet/ holds checks made for blind rounds only: kept out of checks/ so the site's exporter never merges them
+    for p in sorted((d / "checks").glob(f"{name}*.json")) + sorted((d / "vet").glob(f"{name}*.json")):
+        if "prev" in p.name or "mpchecker" in p.name:
+            continue
+        try:
+            out.update(json.load(open(p)).get("candidates") or {})
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def _n(x, nd=0) -> str:
+    return "?" if x is None or not np.isfinite(x) else f"{x:,.{nd}f}"
+
+
+def engine_check_lines(cand_id: str) -> list[str]:
+    """The engine's own measurements in NASA's photos for one mover, each with the share of real movers and junk it fires on."""
+    px = _engine_checks("pixel").get(cand_id)
+    L = []
+    if px:
+        L.append("Engine pixel checks (forced photometry in NASA's photos, aperture r = 2 px = 12\", local background from a 4-7 px ring; "
+                 "measured numbers, weigh them like your own):")
+        op = px.get("one_photo") or {}
+        if op.get("verdict"):
+            fn, fo, fe = op.get("flux_now_ujy"), op.get("flux_other_ujy"), op.get("flux_other_err_ujy")
+            ratio = (fn / fo) if fn and fo and fo > 0 else None
+            L.append(f"  SAME PLACE, OTHER TIMES (D{op.get('det')}, {op.get('photos')} other photos, the place with the most light of {op.get('places')}): "
+                     f"now {_n(fn)} µJy, at other times {_n(fo)} ± {_n(fe)} µJy"
+                     + (f"; now is {ratio:.1f}× the other times" if ratio else "") + f", {_n(op.get('diff_snr'), 1)}σ more. Verdict: {op['verdict']}.")
+            L.append(f"     {op['verdict']} = {ONE_PHOTO.get(op['verdict'], 'no reading written for this verdict')}")
+        for c in px.get("checks") or []:
+            rate = ENGINE_RATES.get((c.get("code"), c.get("level")))
+            L.append(f"  [{c.get('level')}] {c.get('code')}: {c.get('text')}"
+                     + (f" [fires on {rate[0]}% of real movers, {rate[1]}% of junk]" if rate else " [no measured rate]"))
+        if px.get("status") == "flaw":
+            L.append("  The engine calls this a certain flaw (a code ending in _proven). Confirm it in the images, then it is proof.")
+    elif _engine_dir() is not None:
+        L.append("Engine pixel checks: NOT AVAILABLE for this finding (the engine has not measured it).")
+    if not HIDE_KNOWN:  # these two files hold only what the site lists, and name known bodies: both would give a blind answer away
+        for name, title in (("catalogue", "Engine catalogue checks"), ("known", "Engine known-body check (full MPC orbit file)")):
+            cs = (_engine_checks(name).get(cand_id) or {}).get("checks") or []
+            if cs:
+                L.append(f"{title}:")
+                L += [f"  [{c.get('level')}] {c.get('code')}: {c.get('text')}" for c in cs]
+    return L
+
+
+@functools.lru_cache(maxsize=64)
+def _tracklets(zone: str):
+    d = _engine_dir()
+    out = []
+    for name in ("tracklets", "tracklet_dots"):
+        p = None if d is None else d / "results" / zone / f"{name}.parquet"
+        out.append(pd.read_parquet(p) if p is not None and p.exists() else None)
+    return tuple(out)
+
+
+def tracklet_of(cand_id: str) -> dict | None:
+    """The engine's track through several sessions that holds this mover: None when there is no table, {} when it is on none."""
+    t, dots = _tracklets(zone_of(cand_id))
+    if t is None:
+        return None
+    r = t[t.mover_id == cand_id]
+    if r.empty:
+        return None
+    r = r.iloc[0]
+    if int(r.tracklet_id) < 0:
+        return {}
+    mates = t[t.tracklet_id == r.tracklet_id].sort_values("mjd")
+    rec = dots[dots.tracklet_id == r.tracklet_id].sort_values("mjd") if dots is not None else None
+    return {"row": r, "mates": mates, "recovered": rec}
+
+
+def tracklet_lines(cand_id: str) -> list[str]:
+    tr = tracklet_of(cand_id)
+    if tr is None:
+        return ["Engine track through other sessions: NOT AVAILABLE for this mover (no track table). Use `track`."]
+    if not tr:
+        return ["Engine track through other sessions: NONE. The engine linked no mover of another session to this one. About a third of "
+                "real known movers have no such track either (seen in one session only): this is no evidence against it."]
+    r, mates, rec = tr["row"], tr["mates"], tr["recovered"]
+    L = [f"ON A TRACK THROUGH {int(r.n_sessions)} SESSIONS: the engine linked this mover with {int(r.n_movers) - 1} mover(s) of other sessions into one "
+         f"path over {r.span_h:.0f} h: {r.rate_arcsec_h:.1f} ± {r.rate_sigma:.2f}\"/h toward PA {r.pa_deg:.0f}° (rate {r.rate_snr:.0f}σ), "
+         f"fit residual {r.resid_arcsec:.1f}\", chi2/dof {r.track_chi2_nu:.2f}."]
+    for m in mates.itertuples():
+        me = "  <- this mover" if m.mover_id == cand_id else ""
+        L.append(f"   session {int(m.session):5d}  MJD {m.mjd:.4f}  RA {m.ra:.5f} Dec {m.dec:+.5f}  {m.mover_id}{me}")
+    if rec is not None and len(rec):
+        L.append(f"   Recovered below the mover cut in {int(r.n_recovered_sessions)} further session(s), at the predicted place:")
+        for d in rec.head(12).itertuples():
+            L.append(f"   session {int(d.session):5d}  MJD {d.mjd:.4f}  D{int(d.detector)}  S/N {d.snr:.0f}  {d.sep_arcsec:.1f}\" from the prediction")
+    L.append("   Reading: independent sessions on one straight path is the strongest evidence a mover is real: the engine's shuffled control "
+             "(session times scrambled) makes no such track at 5σ. Check one or two of the listed sessions with `stamps` at their RA, Dec; "
+             "an artifact or a fixed star cannot be dropped against a track without explaining every session on it.")
+    return L
+
+
 # ------------------------------------------------------------------ geometry and stamps
 
 def grid(ra0: float, dec0: float):
