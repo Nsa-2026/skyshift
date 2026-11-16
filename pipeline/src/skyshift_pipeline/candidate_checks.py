@@ -73,7 +73,12 @@ FLAG_REF = {"flag_crosstalk": "crosstalk_any", "flag_ghost": "ghost_any", "flag_
 # the vetting's gates (vet.py) as check codes; on a grade C mover the C factor (x 0.1) stands for them
 GATE_CODES = {"not_vetted": "not_vetted", "hot_pixel": "hot_pixel", "bad_column": "bad_column", "edge": "edge",
               "masked_peak": "masked_peak", "sharp_outlier": "sharp", "very_sharp": "sharp", "flux_ratio": "flux_jump",
-              "red_photo": "red_photo", "2mass": "catalogue_star", "allwise": "catalogue_star"}
+              "red_photo": "red_photo", "2mass": "catalogue_star", "allwise": "catalogue_star",
+              # the suspects' strong warnings (16 Nov: formerly vetoes, now grade C reasons)
+              "gaia": "catalogue_star", "catwise": "catalogue_star", "bloom": "flag_bloom", "halo": "flag_halo",
+              "bright_star": "bright_star"}
+CATALOG_REASONS = {"gaia": "Gaia DR3", "catwise": "CatWISE2020", "2mass": "2MASS", "allwise": "AllWISE"}
+CATALOG_PREFIX = {"gaia": "Gaia DR3", "catwise": "CatWISE2020", "tmass": "2MASS", "allwise": "AllWISE"}  # warn_values
 # checks a kind's own score already weighs (counted_elsewhere)
 HIGHPM_COUNTED = {"impossible_motion": "implausible_pm", "few_dots": "few_dots", "gaia_disagrees": "gaia_pm_disagrees"}
 
@@ -116,7 +121,8 @@ def counted_elsewhere(cand: dict, chk: dict) -> bool:
     if kind == "mover":
         if code == "known_nearby":       # the known-object term (0.5 at 30″ rising to 1 at 300″)
             return True
-        return cand.get("grade") == "C" and code in set(GATE_CODES.values())
+        # grade C's x 0.1 stands for its failed gates (in `reasons`): their checks add nothing more
+        return cand.get("grade") == "C" and any(GATE_CODES.get(r) == code for r in cand.get("reasons") or [])
     if kind == "high_pm":
         return HIGHPM_COUNTED.get(code) in set(cand.get("reasons") or [])
     return False
@@ -219,14 +225,16 @@ def _flag_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                     "not blink on and off in one spot.",
                     {"dots_peak": peak, "dots": n, "known_share": REF["outlier_peak_any"]}))
             continue
-        if not anyf:
+        gated = code[5:] in gates      # the suspects' bloom / halo reason: the bit at every dot's peak
+        if not anyf and not gated:
             continue
         name, what = FLAG_WORDS[code]
-        every = n > 0 and peak == n
+        every = (n > 0 and peak == n) or gated
         where = (f"around {count(k3, n)}" if k3 is not None and k3 > 0 else "around at least one of its dots")
         at_peak = f", at the peak of {peak}" if peak and not every else ""
         if every:
-            where = f"at the peak of every one of its {n} dots" if n > 1 else "at the peak of its only dot"
+            where = (f"at the peak of every one of its {n} dots" if n > 1 else "at the peak of its only dot") if n \
+                else "at the peak of every one of its dots"
         ref = REF[FLAG_REF[code]]
         text = (f"{name} ({what}) is set {where}{at_peak}; known asteroids carry it {pct(ref)} of the time"
                 + (", but almost never at the peak" if code == "flag_halo" else "") + ".")
@@ -255,8 +263,9 @@ def _detector_checks(m, d, det, exp, n, main, gates) -> list[dict]:
     if pairs_seen:
         out.append(check(
             "partner_seen", "ok",
-            f"{pair_name} both saw it at the same moment in {pairs_seen} of its {n_exp} exposure"
-            f"{'s' if n_exp != 1 else ''}: real light, since a glitch hits one detector's electronics only "
+            f"{pair_name} both saw it at the same moment "
+            + (f"in {pairs_seen} of its {n_exp} exposures" if n_exp > 1 else "in its one exposure")
+            + ": real light, since a glitch hits one detector's electronics only "
             f"({pct(REF['partner_seen'])} of known asteroids show this; the list: 1%).",
             f"Switch the Viewer between {pair_name} at the same exposure: the dot should sit at the same place in "
             "both.",
@@ -412,7 +421,8 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
     if dpa <= ODD_DPA_DEG:
         return out
     rv = ref[v]
-    both = int(((rv["rates"] >= rate) & (rv["dpa"] >= dpa)).sum())
+    off = rv["dpa"] >= dpa
+    both = int((off & (rv["rates"] >= rate)).sum()) if fast else int(off.sum())
     strong = fast and both == 0 and not on_track
     out.append(check(
         "odd_direction", "strong" if strong else "warn",
@@ -483,14 +493,24 @@ def _place_checks(m, d, det, exp, n, main, gates) -> list[dict]:
             f"Look at the same exposure in D{SIMULTANEOUS.get(dd, dd)}: glitches stay in one detector.",
             {"detector": dd, "visit": v, "ratio": ratio}))
     ns = m.get("near_source")
-    if ns is not None and math.isfinite(ns) and not ({"2mass", "allwise"} & set(gates)):
+    if ns is not None and math.isfinite(ns) and not (set(CATALOG_REASONS) & set(gates)):
         out.append(check(
             "catalogue_star", "warn",
             f"A catalogued or fixed source lies {arcsec(ns)} away: the dot may be its wing or a blend with it.",
             "Blink this spot on the months clock: if a source sits there in other visits, the dot may be part of it.",
             {"sep_arcsec": ns}))
     br = m.get("bright")
-    if br is not None:
+    bw = (m.get("warn") or {}).get("bright_star") or {}
+    if "bright_star" in gates:     # the suspects' strong form: a bright fixed source within 15″
+        sep = bw.get("sep_arcsec")
+        out.append(check(
+            "bright_star", "strong",
+            f"A bright fixed source (S/N ≥ 100) lies {dist(sep) if sep is not None else 'within 15″'} away: its glow, "
+            "ghosts and spikes make dots; real asteroids have one this close 0.2–1.2% of the time, the unexplained "
+            "movers 11–34%.",
+            f"Blink D{main} on the hours clock and check whether the dot sits on the bright source's ring or spike.",
+            bw or None))
+    elif br is not None:
         g, sep = br
         out.append(check(
             "bright_star", "warn",
@@ -596,43 +616,124 @@ def _gate_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                          "Every one of its dots comes from a photo that failed our quality check (a bad pointing, the "
                          "South Atlantic radiation zone or a burst of glitches).",
                          f"Compare with the same spot in another session of D{main}.", None))
-    for cat in ("2mass", "allwise"):
-        if cat in g:
-            name = "2MASS" if cat == "2mass" else "AllWISE"
-            out.append(check(
-                "catalogue_star", "strong",
-                f"{'An' if cat == 'allwise' else 'A'} {name} source lies within 6″ of it: it may be that star, not a "
-                "mover.",
-                "Blink this spot on the months clock: a star there in other visits explains the dot.",
-                {"catalogue": name, "within_arcsec": 6.0}))
-            break
+    cats = [c for c in CATALOG_REASONS if c in g]
+    if cats:
+        cw = dict((m.get("warn") or {}).get("catalogue_star") or {})
+        names = [CATALOG_REASONS[c] for c in cats]
+        sep, fm = _fin(cw.get("sep_arcsec")), _fin(cw.get("fainter_mag"))
+        text = (f"{' and '.join(names)} list{'s' if len(names) == 1 else ''} a source "
+                + (f"{sep:.1f}″ away" if sep is not None else "within 6″ of it")
+                + (f", only {fm:.1f} mag fainter than the mover" if fm is not None else "")
+                + ": probably that star's own light, not a mover"
+                + (" (a catalogue source this close and this bright: real asteroids 0.2–2%, the unexplained movers "
+                   "14–64%)." if fm is not None else "."))
+        out.append(check("catalogue_star", "strong", text,
+                         "Blink this spot on the months clock: a star there in other visits explains the dot.",
+                         {"catalogs": names, **cw} if cw else {"catalogs": names, "within_arcsec": 6.0}))
     return out
 
 
-WARN_TEMPLATES = {  # the suspects' warn_codes (formerly vetoes) -> words; values fill the numbers when present
-    "catalogue_star": "A catalogue source lies {sep_arcsec:.1f}″ away (formerly a veto): the dot may be that star.",
-    "bright_star": "A bright source lies {sep_arcsec:.0f}″ away (formerly a veto): its glow and ghosts can make dots.",
-}
+def _fin(v) -> float | None:
+    return float(v) if isinstance(v, (int, float, np.integer, np.floating)) and math.isfinite(float(v)) else None
+
+
+SUSPECTS_TEXT_WINS = ("catalogue_star", "bright_star", "known_nearby")  # their numbers say more than the exporter's
+
+
+def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
+    """Words for one of the suspects' warn codes (suspects.py, 16 Nov) from its warn_values; None when unknown."""
+    main = int(m.get("det") or 2)
+    f = {k: _fin(x) for k, x in v.items()}
+    if code == "catalogue_star":
+        names = [n for p, n in CATALOG_PREFIX.items() if f.get(f"{p}_sep_arcsec") is not None]
+        parts = []
+        if names:
+            fm = f.get("fainter_mag")
+            sep = f.get("sep_arcsec")
+            parts.append(f"{' and '.join(names)} list{'s' if len(names) == 1 else ''} a source "
+                         + (f"{sep:.1f}″ away" if sep is not None else "within 6″")
+                         + (f", {fm:.1f} mag fainter than the mover" if fm is not None else "")
+                         + ": real asteroids pass such fainter neighbours often, but the dot may also be that source")
+        if f.get("source_mask_all_dots"):
+            parts.append("NASA's SOURCE mask covers the peak of every one of its dots (its own source list puts "
+                         "something here)")
+        if not parts:
+            return None
+        text = "; ".join(parts) + "."
+        return text[0].upper() + text[1:], ("Blink this spot on the months clock: a source that is there in other "
+                                            "visits explains the dot.")
+    if code == "bright_star":
+        sep = f.get("sep_arcsec")
+        if sep is None:
+            return None
+        mag, snr = f.get("star_ab_mag"), f.get("star_snr")
+        what = ", ".join(x for x in (f"AB {mag:.1f}" if mag is not None else "",
+                                     f"S/N {snr:,.0f}" if snr is not None else "") if x)
+        return ((f"A bright fixed source{f' ({what})' if what else ''} lies {dist(sep)} away: its glow, ghosts and "
+                 "spikes can make dots; real asteroids have one within 30″ 1–7% of the time, the unexplained movers "
+                 "18–43%."),
+                f"Blink D{main} on the hours clock and check whether the dot sits on the bright source's ring or spike.")
+    if code == "known_nearby":
+        sep = f.get("sep_arcsec")
+        if sep is None:
+            return None
+        kr, kpa, kv = f.get("known_rate_arcsec_h"), f.get("known_pa_deg"), f.get("known_v_mag")
+        rate, pa = _fin(m.get("rate")), _fin(m.get("pa"))
+        text = (f"A known body{f' (V {kv:.1f})' if kv is not None else ''} was predicted {dist(sep)} away"
+                + (f", moving {kr:.0f}″ an hour towards PA {kpa:.0f}°" if kr is not None and kpa is not None else "")
+                + (f"; this one moves {rate:.0f}″ an hour towards PA {pa:.0f}°" if rate is not None and pa is not None
+                   else "")
+                + ": if the motions agree, it is that object a little off its predicted place.")
+        return text, "Blink the hours clock and compare its steps with the known body's predicted path."
+    if code == "persistence":
+        k, n = f.get("dots_at_peak"), f.get("n_dots")
+        return ("PERSIST (an afterimage of a bright star seen earlier on the same pixels) is set at the peak of "
+                + (f"{count(int(k), int(n))}" if k is not None and n else "a dot")
+                + ": the dot may be left-over charge, not light from the sky.",
+                f"Step back one exposure in D{main}: a bright star on these pixels just before explains an afterimage.")
+    if code in FLAG_WORDS:
+        name, what = FLAG_WORDS[code]
+        k = f.get("dots_at_peak")
+        return (f"{name} ({what}) is set around at least one of its dots"
+                + (f", at the peak of {int(k)}" if k else "") + ".",
+                f"Blink D{main} on the hours clock and look for a bright star nearby.")
+    if code == "edge" and f.get("edge_px") is not None:
+        return ((f"A dot sits {f['edge_px']:.1f} px from the detector's edge, where stars cut off by the frame make "
+                 "fake dots."), f"In D{main}, check whether the dot is cut by the frame's edge.")
+    if code == "sharp" and f.get("size_ratio") is not None:
+        return ((f"Its sharpest dot is {f['size_ratio']:.2f}× a star's size at that S/N: sharper than the telescope "
+                 "can focus light from the sky (a cosmic ray?)."),
+                (f"Zoom in on D{main} on the hours clock: a cosmic ray is a tight speck, a real object is as soft as "
+                 "the stars."))
+    if code == "flux_jump" and f.get("ratio") is not None:
+        return ((f"Its brightness changes {f['ratio']:.1f}× between exposures in one detector; known asteroids "
+                 f"change less than {FLUX_JUMP}×."),
+                f"Blink D{main} between its exposures: is one dot much brighter than the others?")
+    return None
 
 
 def _suspects_warnings(m: dict, out: list[dict]) -> list[dict]:
-    """The suspects' warn_codes (formerly vetoes, now kept): a check per code, its values from warn_values; where the
-    exporter made the same code, its text stays and the suspects' numbers are added to its values."""
+    """The suspects' warn_codes (16 Nov: formerly vetoes, now kept) as warn checks, numbers from warn_values. Where the
+    exporter made the same code its level stays and the suspects' numbers join its values; for SUSPECTS_TEXT_WINS (the
+    catalogue names and magnitudes, the bright source's S/N, the known body's motion) their words replace a warn's."""
     w = m.get("warn") or {}
     have = {c["code"]: c for c in out}
     main = int(m.get("det") or 2)
     for code, vals in w.items():
-        vals = vals if isinstance(vals, dict) else {}
+        vals = {k: _clean(x) for k, x in (vals if isinstance(vals, dict) else {}).items()}
+        words = _warn_text(code, vals, m)
         if code in have:
-            have[code]["values"] = {**(have[code]["values"] or {}), **{k: _clean(v) for k, v in vals.items()}}
+            c = have[code]
+            c["values"] = {**(c["values"] or {}), **{k: x for k, x in vals.items() if x is not None}} or None
+            if words and code in SUSPECTS_TEXT_WINS and c["level"] != "strong":
+                c["text"], c["look"] = words
             continue
-        try:
-            text = WARN_TEMPLATES[code].format(**vals)
-        except (KeyError, ValueError, IndexError):
-            nums = ", ".join(f"{k.replace('_', ' ')} {v:g}" if isinstance(v, (int, float)) else f"{k.replace('_', ' ')} {v}"
-                             for k, v in vals.items())
-            text = f"Kept with a warning from the suspects step ({code.replace('_', ' ')}{': ' + nums if nums else ''})."
-        out.append(check(code, "warn", text, f"Blink D{main} on the hours clock and look at the dots by eye.", vals))
+        if words is None:
+            nums = ", ".join(f"{k.replace('_', ' ')} {x:g}" if isinstance(x, (int, float)) else f"{k.replace('_', ' ')} {x}"
+                             for k, x in vals.items() if x is not None)
+            words = (f"Kept with a warning from the suspects step ({code.replace('_', ' ')}{': ' + nums if nums else ''}).",
+                     f"Blink D{main} on the hours clock and look at the dots by eye.")
+        out.append(check(code, "warn", words[0], words[1], vals))
     return out
 
 
@@ -672,9 +773,22 @@ def highpm_checks(h: dict) -> list[dict]:
             "Saturated (2 or more dots with a burnt-out core): its place is measured on the wings, which can shift it "
             "(before the 14 Nov fix such stars showed up to 110 mas a year of fake motion).",
             "Blink the visits on the months clock in D4–D6, where bright stars saturate less.", None))
+    nc = h.get("n_common_det")
+    if h.get("method") == "pair" and nc is not None and nc <= 1:
+        out.append(check(
+            "one_detector_shift", "warn",
+            ("The two visits' sources share only one detector" if nc == 1 else "The two visits' sources share no detector")
+            + ", so the match of their brightness rests on " + ("one detector's dots" if nc == 1 else "nothing")
+            + ": two unrelated sources, or a glitch in that detector, can pass for one moving star.",
+            "Blink the visits on the months clock in every detector: a real star shows in the same detectors in both.",
+            {"common_detectors": nc}))
     b = h.get("blend")
     if b is not None:
-        out.append(_blend(b, "strong", det, "a shift between visits may be the pair, not motion"))
+        if h.get("gaia_match"):   # a Gaia star whose motion we confirm (hunt: all 16 blends): its size may be off
+            out.append(_blend(b, "warn", det, "our measured motion may be pulled by the pair (Gaia's own motion is "
+                                              "the one to trust)"))
+        else:
+            out.append(_blend(b, "strong", det, "a shift between visits may be the pair, not motion"))
     return sort_checks(out)
 
 
@@ -735,7 +849,7 @@ def spectral_checks(s: dict) -> list[dict]:
         cw = s.get("catwise_match")
         if full:
             text = ("Gaia DR3, CatWISE2020 and 2MASS were searched"
-                    + ("; CatWISE2020 lists it." if cw else "; none lists an infrared source within 3″ of it."))
+                    + ("; CatWISE2020 lists it." if cw else "; CatWISE2020 has no entry within 3″ of it."))
             out.append(check("catalogues_checked", "ok", text, "", {"catalogs": cats}))
         else:
             missing = [c for c in ("CatWISE2020", "2MASS") if c not in cats]

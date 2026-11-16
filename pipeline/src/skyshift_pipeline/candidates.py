@@ -512,7 +512,11 @@ VET_TEXT = {"not_vetted": "it could not be vetted (no data on its dots)", "hot_p
             "sharp_outlier": "a dot is sharper than a star (a cosmic ray?)", "very_sharp": "a dot is sharper than any star",
             "flux_ratio": "its brightness jumps more than 4× in one detector",
             "red_photo": "a dot comes from a photo that failed our quality check",
-            "2mass": "a 2MASS source lies within 6″", "allwise": "an AllWISE source lies within 6″"}
+            "2mass": "a 2MASS source lies within 6″", "allwise": "an AllWISE source lies within 6″",
+            # the suspects' strong warnings (16 Nov), when its tables carry them
+            "gaia": "a Gaia DR3 source lies within 6″", "catwise": "a CatWISE2020 source lies within 6″",
+            "bloom": "BLOOM is set at every dot's peak", "halo": "HALO is set at every dot's peak",
+            "bright_star": "a bright fixed source lies within 15″"}
 
 
 def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
@@ -825,6 +829,8 @@ def high_pms(h: pd.DataFrame, zone: str, cls_labels: dict[int, list[str]]) -> li
             "labels": sorted(labels, key=LABELS.index), "reasons": rs, "why": highpm_why(r, rs), "flags": [],
             "_sources": [sid] + ([int(r.source_id_b)] if r.method == "pair" and r.source_id_b >= 0 else []),
             "_method": r.method, "_fit_mode": str(getattr(r, "fit_mode", "") or ""),
+            "_n_common_det": (int(r.n_common_det) if r.method == "pair" and pd.notna(getattr(r, "n_common_det", None))
+                              else None),
         })
     return out
 
@@ -1295,7 +1301,8 @@ def fixed_checks(c: dict) -> list[dict]:
     if c["kind"] == "high_pm":
         return CK.highpm_checks({"reasons": c["reasons"], "pm": c.get("pm_mas_yr"), "method": c.get("_method"),
                                  "fit_mode": c.get("_fit_mode"), "saturated": c.get("_saturated"),
-                                 "n_dots": c.get("_n_dots"), "blend": c.get("_blend"), "det": c.get("det")})
+                                 "n_dots": c.get("_n_dots"), "blend": c.get("_blend"), "det": c.get("det"),
+                                 "gaia_match": c.get("gaia_match"), "n_common_det": c.get("_n_common_det")})
     if c["kind"] == "spectral":
         return CK.spectral_checks({"labels": c["labels"], "pah_sig": c.get("_pah_sig"), "ice_neighbours": c.get("_ice_n"),
                                    "n_channels": c.get("_n_channels"), "bright": c.get("_bright"),

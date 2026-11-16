@@ -163,6 +163,8 @@ def test_two_photos_and_may_not_move():
                  dots={"mjd": [T0, T0 + 0.001 / 86400]})
     ch = CK.mover_checks(one)
     assert codes(ch) == {"two_photos": "warn", "partner_seen": "ok"}
+    assert next(c for c in ch if c["code"] == "partner_seen")["text"].startswith(
+        "D2 and D5 both saw it at the same moment in its one exposure: real light")
     assert next(c for c in ch if c["code"] == "two_photos")["text"].startswith("Seen in one exposure only")
 
 
@@ -183,7 +185,10 @@ def test_fast_and_odd_direction():
                                  "(PA 100°, the median of 500 known ones); none of them move this fast and this far off.")
     assert od["values"]["known_like_it"] == 0
     # slow and off: warn; on a track (a chance pair can't make a track): warn
-    assert codes(CK.mover_checks(_mover(pa=220.0, ref=ref))) == {"odd_direction": "warn"}
+    slow = CK.mover_checks(_mover(pa=220.0, ref=ref))
+    assert codes(slow) == {"odd_direction": "warn"} and slow[0]["text"].endswith("; none of them move this far off.")
+    some = CK.mover_checks(_mover(pa=105.0 + 60.0, ref=_ref(spread=80.0)))
+    assert some[0]["values"]["known_like_it"] == int((_ref(spread=80.0)[1]["dpa"] >= some[0]["values"]["dpa_deg"]).sum())
     on = _mover(rate=q + 40, rate_err=5.0, pa=220.0, ref=ref, track=(3, q + 40, 20.0), on_track=True)
     assert codes(CK.mover_checks(on)) == {"odd_direction": "warn", "fast": "warn", "chance_tracks": "ok"}
     # motion not significant: no direction claim
@@ -211,7 +216,8 @@ def test_flux_jump():
     m = _mover(dots={"flux": [900.0, 150.0, 600.0]}, gates=["flux_ratio"], grade="C")
     (c,) = CK.mover_checks(m)
     assert c["level"] == "strong" and c["text"].endswith("a cosmic-ray hit paired with a fainter speck looks like this.")
-    assert CK.counted_elsewhere({"kind": "mover", "grade": "C"}, c)            # grade C's x0.1 stands for it
+    assert CK.counted_elsewhere({"kind": "mover", "grade": "C", "reasons": ["flux_ratio"]}, c)  # grade C's x0.1 ...
+    assert not CK.counted_elsewhere({"kind": "mover", "grade": "C", "reasons": ["edge"]}, c)     # ... for its own gates
     assert codes(CK.mover_checks(_mover(dots={"flux": [900.0, 500.0, 600.0]}))) == {}
 
 
@@ -251,8 +257,8 @@ def test_gate_checks():
         or t["edge"].startswith("1 of its 3 dots sits 3.0 px from the D2 detector's edge")
     assert "PERSIST (an afterimage of a bright star)" in t["masked_peak"]
     assert t["sharp"].startswith("Its sharpest dot (D2, S/N 20) is 1.2″ across, 0.32× a star's size at that S/N")
-    assert t["catalogue_star"].startswith("A 2MASS source lies within 6″ of it")
-    cand = {"kind": "mover", "grade": "C", "checks": ch}
+    assert t["catalogue_star"] == "2MASS lists a source within 6″ of it: probably that star's own light, not a mover."
+    cand = {"kind": "mover", "grade": "C", "checks": ch, "reasons": m["gates"]}
     assert CK.factor(cand) == 1.0                                            # all counted by grade C
     assert CK.factor({**cand, "grade": "B"}) == pytest.approx(0.3 ** 7)
 
@@ -264,9 +270,52 @@ def test_suspects_warnings():
     ch = CK.mover_checks(m)
     c = {x["code"]: x for x in ch}
     assert c["flag_halo"]["values"]["star_sep_arcsec"] == 22.0 and c["flag_halo"]["text"].startswith("HALO")
-    assert c["bright_star"]["text"] == "A bright source lies 25″ away (formerly a veto): its glow and ghosts can make dots."
+    assert c["bright_star"]["text"] == ("A bright fixed source lies 25″ away: its glow, ghosts and spikes can make dots; "
+                                        "real asteroids have one within 30″ 1–7% of the time, the unexplained movers "
+                                        "18–43%.")
     assert c["new_code"]["text"] == "Kept with a warning from the suspects step (new code: ratio 1.5)."
     assert all(x["level"] == "warn" for x in ch)
+
+
+def test_suspects_new_tables():
+    """The suspects' 16 Nov tables: former vetoes kept as warn_codes/warn_values, their strong forms as grade C reasons."""
+    w = {"catalogue_star": {"sep_arcsec": 5.6, "gaia_sep_arcsec": 5.6, "gaia_g_mag": 16.73, "mover_ab_mag": 14.45,
+                            "fainter_mag": 2.3},
+         "known_nearby": {"sep_arcsec": 25.1, "known_rate_arcsec_h": 41.0, "known_pa_deg": 111, "known_v_mag": 19.4},
+         "persistence": {"dots_at_peak": 1, "n_dots": 3}, "flag_bloom": {"dots_at_peak": 0, "n_dots": 3},
+         "bright_star": {"sep_arcsec": 25.1, "star_snr": 384, "star_ab_mag": 10.0, "star_flux_ratio": 1.7}}
+    m = _mover(warn=w, near_source=7.5, nearest_known=25.1)
+    ch = CK.mover_checks(m)
+    c = {x["code"]: x for x in ch}
+    assert codes(ch) == {"catalogue_star": "warn", "known_nearby": "warn", "persistence": "warn", "flag_bloom": "warn",
+                         "bright_star": "warn"}
+    assert c["catalogue_star"]["text"] == ("Gaia DR3 lists a source 5.6″ away, 2.3 mag fainter than the mover: real "
+                                           "asteroids pass such fainter neighbours often, but the dot may also be that "
+                                           "source.")
+    assert c["catalogue_star"]["values"]["sep_arcsec"] == 5.6 and c["catalogue_star"]["values"]["gaia_g_mag"] == 16.73
+    assert c["known_nearby"]["text"] == ("A known body (V 19.4) was predicted 25″ away, moving 41″ an hour towards PA "
+                                         "111°; this one moves 36″ an hour towards PA 100°: if the motions agree, it is "
+                                         "that object a little off its predicted place.")
+    assert c["persistence"]["text"].startswith("PERSIST (an afterimage of a bright star seen earlier on the same pixels) "
+                                               "is set at the peak of 1 of its 3 dots")
+    assert c["flag_bloom"]["text"] == ("BLOOM (charge spilling out of a saturated star) is set around at least one of its "
+                                       "dots.")
+    assert c["bright_star"]["text"].startswith("A bright fixed source (AB 10.0, S/N 384) lies 25″ away")
+    src = CK.mover_checks(_mover(warn={"catalogue_star": {"source_mask_all_dots": 1}}))
+    assert src[0]["text"] == ("NASA's SOURCE mask covers the peak of every one of its dots (its own source list puts "
+                              "something here).")
+    # grade C reasons from the strong forms: catalogue within 6″ and within 2 mag, bloom/halo at every peak, bright 15″
+    g = CK.mover_checks(_mover(grade="C", gates=["gaia", "halo", "bright_star"],
+                               warn={"catalogue_star": {**w["catalogue_star"], "fainter_mag": 0.8},
+                                     "bright_star": {"sep_arcsec": 11.0, "star_snr": 900}}))
+    c = {x["code"]: x for x in g}
+    assert codes(g) == {"catalogue_star": "strong", "flag_halo": "strong", "bright_star": "strong"}
+    assert c["catalogue_star"]["text"] == ("Gaia DR3 lists a source 5.6″ away, only 0.8 mag fainter than the mover: "
+                                           "probably that star's own light, not a mover (a catalogue source this close "
+                                           "and this bright: real asteroids 0.2–2%, the unexplained movers 14–64%).")
+    assert c["flag_halo"]["text"].startswith("HALO (the glow around a bright star) is set at the peak of every one of its")
+    assert c["bright_star"]["text"].startswith("A bright fixed source (S/N ≥ 100) lies 11″ away")
+    assert CK.factor({"kind": "mover", "grade": "C", "reasons": ["gaia", "halo", "bright_star"], "checks": g}) == 1.0
 
 
 def test_suspect_warning_columns():
@@ -293,6 +342,14 @@ def test_highpm_checks():
     assert b["text"] == ("Two Gaia stars lie within 8″ of it (5.2″ apart, 0.4 mag different): the 7.5″ image may merge "
                          "them, so a shift between visits may be the pair, not motion.")
     assert codes(CK.highpm_checks({**f, "fit_mode": "pm+gaia_plx", "saturated": False, "blend": None})) == {}
+    pair = CK.highpm_checks({"reasons": ["pm_pair", "vetted"], "pm": 2500.0, "method": "pair", "n_common_det": 1})
+    assert codes(pair) == {"one_detector_shift": "warn"}
+    assert pair[0]["text"].startswith("The two visits' sources share only one detector, so the match of their "
+                                      "brightness rests on one detector's dots")
+    assert codes(CK.highpm_checks({"reasons": ["pm_pair"], "pm": 2500.0, "method": "pair", "n_common_det": 3})) == {}
+    # a Gaia star whose motion we confirm: the blend may pull our value, it doesn't make the motion
+    g = CK.highpm_checks({**f, "gaia_match": True, "fit_mode": "pm+gaia_plx", "saturated": False})
+    assert codes(g) == {"blend": "warn"} and g[0]["text"].endswith("(Gaia's own motion is the one to trust).")
 
 
 def test_spectral_checks():
@@ -313,6 +370,8 @@ def test_spectral_checks():
     assert ice[0]["text"] == ("Water ice and CO₂ ice absorption: starlight passing through a cold dust cloud, not the star "
                               "itself; 41 other ice detections lie within 1°, a cloud in front of many stars.")
     assert ice[1]["text"] == "Gaia DR3, CatWISE2020 and 2MASS were searched; CatWISE2020 lists it."
+    no = CK.spectral_checks({"labels": ["h2o_vapour"], "catalogs": ["Gaia DR3", "CatWISE2020", "2MASS"]})
+    assert no[0]["text"] == "Gaia DR3, CatWISE2020 and 2MASS were searched; CatWISE2020 has no entry within 3″ of it."
 
 
 def test_shape_checks():
