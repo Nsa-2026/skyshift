@@ -261,9 +261,21 @@ def test_wide_dots_and_no_path_credit_next_to_a_fixed_source():
     m = mover_with([2, 2], [500.0, 501.0], [800.0, 685.0], [T0, T0 + 2.1 * MIN], [10.0, 10.0005], [5.0, 5.0])
     res = own_res(m, size_ratio=1.5)
     ev = PC.evaluate(m, res)
-    assert ("wide", "strong") in codes(ev) and not any(c["code"] == "sharp" for c in ev["checks"])
+    # every dot wide: a warning only (a comet's haze or a blend), never strong; the text says what to look at
+    assert ("wide", "warn") in codes(ev) and not any(c["code"] == "sharp" for c in ev["checks"])
+    wide = next(c for c in ev["checks"] if c["code"] == "wide")
+    assert "a comet's haze, or two faint things blended" in wide["text"] and "fuzzy head" in wide["look"]
+    assert not any(c["level"] == "strong" for c in ev["checks"])
     one_wide = res | {m.dots[0]["key"]: res[m.dots[0]["key"]] | {"size_ratio": 1.0}}  # median 1.25: not wide
     assert not any(c["code"] == "wide" for c in PC.evaluate(m, one_wide)["checks"])
+    # saturated dots don't count (their masked flat core leaves the wings: Eros measured 1.6–1.8×)
+    sat = {k: v | {"sat": True} for k, v in res.items()}
+    assert not any(c["code"] == "wide" for c in PC.evaluate(m, sat)["checks"])
+    # a fast mover's own trail is allowed for: 1.5× at 900″/h (trail growth 1.65) is not wide
+    m.rate = 900.0
+    assert abs(PC.trail_factor(900.0) - 1.654) < 0.01 and PC.trail_factor(float("nan")) == 1.0
+    assert not any(c["code"] == "wide" for c in PC.evaluate(m, res)["checks"])
+    m.rate = float("nan")
     # light found at two predicted places of its path, 1″ from its first place
     for j in range(2):
         k = f"p{j}"

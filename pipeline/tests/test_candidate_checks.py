@@ -705,7 +705,7 @@ def test_mover_flaw_words_and_levels():
                                              "places on the sky (more than 30″ away) in 4 exposures: perhaps a hot pixel")
     assert "(0.40 px apart)" in c["same_pixel"]["text"]
     assert c["whole_pixel"]["text"].startswith("2 of its 3 dots sit exactly on a whole pixel")
-    assert c["wide"]["text"].startswith("Its dots are 1.62× as wide as a star at their S/N (median; the narrowest 1.41×)")
+    assert c["wide"]["text"].startswith("Its dots are 1.41–1.62× wider than a star of its brightness: a comet's haze, or two faint things blended.")
     assert c["cross_detector"]["text"].startswith("Its 2 exposures never put two dots in the same detector")
     assert c["fixed_source"]["text"].startswith("A fixed source (S/N 55) lies 4.2″ away, 1.3× as bright as this dot, and "
                                                 "its own motion is only 1.1σ")
