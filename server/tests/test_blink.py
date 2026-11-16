@@ -373,6 +373,91 @@ def test_hours_live_cap_and_full_set(world, monkeypatch):
     assert {k["epoch_id"] for k in live.meta["known"]} == set(ids)  # known objects for the shown frames only
 
 
+def test_hours_pages_show_the_whole_visit_once():
+    """contracts/api.md v3.23 (`page`): page 0 is the live choice as before; the pages after it hold
+    the rest of the visit, at most 6 each, none twice: whole sessions not yet shown, spread over the
+    visit, then what is left of the sessions page 0 showed in part."""
+    sizes = [4, 1, 3, 1, 2, 5, 1, 3, 2, 1, 4, 3, 1, 2, 5, 1, 3, 2, 1, 4, 3]
+    images = search.rows_to_images(_visit_rows(sizes))
+    first = blink.pick_hours_live(images, 6, 2)
+    pages = blink.hours_pages(images, first, 6)
+    assert pages[0] is first  # page 0 unchanged
+    every = [im.obs_id for p in pages for im in p]
+    assert sorted(every) == sorted(im.obs_id for im in images) and len(every) == len(set(every)) == 52
+    assert all(1 <= len(p) <= 6 for p in pages) and len(pages) == 9
+    assert all([im.mjd for im in p] == sorted(im.mjd for im in p) for p in pages[1:])
+    # page 1: the first, the last and the middle of the 18 sessions page 0 did not touch
+    assert _sessions_of(pages[1]) == [["S01_0"], ["S09_0"], ["S19_0", "S19_1", "S19_2", "S19_3"]]
+    shown = {im.session for im in first}
+    for p in pages[1:]:  # an untouched session is shown whole, in one page
+        for s in {im.session for im in p} - shown:
+            assert [im.obs_id for im in p if im.session == s] == [im.obs_id for im in images if im.session == s]
+    # the rest of page 0's sessions come last
+    assert {im.obs_id for im in pages[-1]} >= {"S00_2", "S00_3"}
+    # a visit that fits on page 0 has one page; no cap (precompute) has one page
+    small = search.rows_to_images(_visit_rows([2, 1, 2]))
+    assert blink.hours_pages(small, blink.pick_hours_live(small, 6, 2), 6) == [blink.pick_hours_live(small, 6, 2)]
+    assert blink.hours_paged(images, hours_frames=0)[0] == [blink.pick_hours_images(images)]
+    # the visit with `mjd`: page 0 is pick_hours_at's (the find's session first), the rest as above
+    s10 = [im for im in images if im.obs_id.startswith("S10_")]
+    at, n = blink.hours_paged(images, mjd=s10[2].mjd, hours_frames=6)
+    assert at[0] == blink.pick_hours_at(images, s10[2].mjd, 6, 2) and n == 52
+    assert sorted(im.obs_id for p in at for im in p) == sorted(im.obs_id for im in images)
+
+
+def test_hours_pages_full_field_sessions_first():
+    """Whole sessions covering the field come before partial ones, whatever their time."""
+    images = search.rows_to_images(_visit_rows([2, 2, 2, 2, 2, 2]))
+    part = {"S01", "S02"}  # cover 60% of the field (usable), the others all of it
+
+    class Cover:
+        def frac(self, im):
+            return 0.6 if im.obs_id[:3] in part else 1.0
+
+    first = blink.pick_hours_live(images, 4, 2, cover=Cover())
+    assert {im.obs_id[:3] for im in first} == {"S00", "S05"}
+    pages = blink.hours_pages(images, first, 4, Cover())
+    assert [sorted({im.obs_id[:3] for im in p}) for p in pages[1:]] == [["S03", "S04"], ["S01", "S02"]]
+
+
+def test_hours_frames_pages(world, monkeypatch):
+    """build_frames(page=): page 0 as before (with `more` and `visit_exposures`), then the rest of the
+    visit on the same grid, then 404 past the last page. Precompute (no cap) has neither field."""
+    rows = _visit_rows([3, 1, 3, 3], start=MJD1, det=1)
+    monkeypatch.setattr(search, "_query_sia", lambda ra, dec, c: rows if c == "spherex_dr1" else [])
+    images = search.search(STAR_RA, STAR_DEC, cache=world["cache"], refresh=True).of_detector(1)
+    for im in images:
+        world["cache"].put(cutouts.cache_key(im, STAR_RA, STAR_DEC, cutouts.SIZE_TIERS_DEG[-1]), _cutout_at(im.mjd))
+    p0 = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=4)
+    assert [e["id"] for e in p0.meta["epochs"]] == ["d1-S00_0", "d1-S00_1", "d1-S03_0", "d1-S03_1"]
+    assert p0.meta["more"] is True and p0.meta["visit_exposures"] == 10
+    p1 = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=4, page=1)
+    assert [e["id"] for e in p1.meta["epochs"]] == ["d1-S01_0", "d1-S02_0", "d1-S02_1", "d1-S02_2"]
+    p2 = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=4, page=2)
+    assert [e["id"] for e in p2.meta["epochs"]] == ["d1-S00_2", "d1-S03_2"]
+    assert (p1.meta["more"], p2.meta["more"]) == (True, False) and p2.meta["visit_exposures"] == 10
+    for p in (p1, p2):  # the same grid as page 0
+        assert {k: p.meta[k] for k in ("center", "size", "pixel_arcsec")} == \
+               {k: p0.meta[k] for k in ("center", "size", "pixel_arcsec")}
+        assert set(p.blobs) == {e["data_url"] for e in p.meta["epochs"]}
+        assert {k["epoch_id"] for k in p.meta["known"]} == {e["id"] for e in p.meta["epochs"]}
+    with pytest.raises(NotFoundError):
+        blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=4, page=3)
+    full = blink.build_frames(STAR_RA, STAR_DEC, 20, "hours", 1, cache=world["cache"], hours_frames=None)
+    assert "more" not in full.meta and "visit_exposures" not in full.meta
+    for bad in ({"clock": "months", "fov": 5}, {"clock": "hours", "fov": 20, "hours_frames": None}):
+        with pytest.raises(ApiError) as e:
+            blink.build_frames(STAR_RA, STAR_DEC, bad["fov"], bad["clock"], 1, cache=world["cache"], page=1,
+                               **({"hours_frames": None} if "hours_frames" in bad else {}))
+        assert e.value.code == "bad_request"
+    # an answer cached before v3.23: the same numbers from the search it was built from, never a new one
+    day = p0.meta["archive_checked"]
+    assert blink.page_info(STAR_RA, STAR_DEC, 20, 1, day=day, cache=world["cache"]) == \
+        {"more": True, "visit_exposures": 10}
+    assert blink.page_info(STAR_RA, STAR_DEC, 20, 1, day="2001-01-01", cache=world["cache"]) is None
+    assert blink.page_info(STAR_RA, STAR_DEC, 20, 3, day=day, cache=world["cache"]) is None
+
+
 def test_object_spectrum_and_zero_shift(world):
     details = {}
     o = obj.build_object(STAR_RA, STAR_DEC, cache=world["cache"], details=details)

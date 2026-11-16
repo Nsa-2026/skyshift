@@ -21,6 +21,10 @@ pick_hours_live); precompute stacks all and keeps every hours frame (up to HOURS
 With a time (GET /api/frames `mjd`, a mover's find) the hours clock shows the visit that holds it and
 keeps the session nearest it whole, so the find's own exposures and its track are in the answer
 (pick_hours_at: at most LIVE_HOURS_FRAMES, or that session plus a pair when it has 5).
+The live hours clock comes in pages (GET /api/frames `page`, contracts/api.md v3.23): page 0 is the
+choice above; each further page holds up to LIVE_HOURS_FRAMES more exposures of the same visit, whole
+sessions not yet shown, full-field ones first (hours_pages). The site shows page 0 at once and loads
+the others behind it; the answer says `more` and `visit_exposures`.
 
 Coverage (coverage.py): the search returns every image whose footprint holds the centre, so a
 centre near a detector's edge gives frames that are partly empty. Before downloading, each image's
@@ -139,17 +143,7 @@ def by_usefulness(images: list[Image]) -> list[Image]:
     queues = []
     for v in sorted(per_visit):
         part = per_visit[v]
-        order = sorted({0, len(part) - 1})
-        spans = [(0, len(part) - 1)]
-        while spans:
-            nxt = []
-            for a, b in spans:
-                if b - a > 1:
-                    m = (a + b) // 2
-                    order.append(m)
-                    nxt += [(a, m), (m, b)]
-            spans = nxt
-        queues.append([part[k] for k in order])
+        queues.append([part[k] for k in _spread_order(len(part))])
     out: list[Image] = []
     for i in range(max((len(q) for q in queues), default=0)):
         out += [q[i] for q in queues if i < len(q)]
@@ -317,6 +311,104 @@ def pick_hours_at(images: list[Image], mjd: float, max_frames: int = LIVE_HOURS_
                 break
             others += run
     return own + sorted(others, key=lambda im: im.mjd)
+
+
+def _spread_order(n: int) -> list[int]:
+    """0..n-1 in the order that spreads over them soonest: the first and the last, the middle, then
+    the quarters, ... (every index once)."""
+    if n <= 0:
+        return []
+    order = sorted({0, n - 1})
+    spans = [(0, n - 1)]
+    while spans:
+        nxt = []
+        for a, b in spans:
+            if b - a > 1:
+                m = (a + b) // 2
+                order.append(m)
+                nxt += [(a, m), (m, b)]
+        spans = nxt
+    return order
+
+
+def hours_pages(images: list[Image], first: list[Image], per_page: int = LIVE_HOURS_FRAMES,
+                cover: Coverage | None = None) -> list[list[Image]]:
+    """GET /api/frames `page` (contracts/api.md v3.23): the live hours clock's visit in pages of at most
+    `per_page` exposures. Page 0 is `first` (pick_hours_live's or pick_hours_at's choice), unchanged.
+    The pages after it hold the rest of `first`'s visit in `images` (one detector), none twice:
+    whole sessions not yet shown, the ones whose best exposure covers coverage.FULL of the field first,
+    then coverage.USABLE, then the rest, each level spread over the visit (its first and last session,
+    the middle, the quarters, ...) and packed into pages in that order (a session that does not fit
+    waits for a later page); then what is left of the sessions page 0 showed in part, by time. Each
+    page in time order. Every page is computed again from the search, so page k is the same however
+    it is reached."""
+    if not first or per_page <= 0:
+        return [first]
+    visit = first[0].visit
+    shown = {im.key for im in first}
+    runs: dict[int, list[Image]] = {}
+    for im in sorted((im for im in images if im.visit == visit), key=lambda im: im.mjd):
+        if im.key not in shown:
+            runs.setdefault(im.session, []).append(im)
+    touched = {im.session for im in first}
+    fresh = [r for s, r in sorted(runs.items(), key=lambda kv: kv[1][0].mjd) if s not in touched]
+    left = [r for s, r in sorted(runs.items(), key=lambda kv: kv[1][0].mjd) if s in touched]
+
+    def level(run: list[Image]) -> int:
+        f = max(_frac(cover, im) for im in run)
+        return 0 if f >= coverage.FULL else 1 if f >= coverage.USABLE else 2
+
+    order: list[list[Image]] = []
+    for lv in (0, 1, 2):
+        at = [r for r in fresh if level(r) == lv]
+        order += [at[i] for i in _spread_order(len(at))]
+    order += left
+    pending = [r[k:k + per_page] for r in order for k in range(0, len(r), per_page)]
+    pages = [first]
+    while pending:
+        page: list[Image] = []
+        later = []
+        for r in pending:
+            if len(page) + len(r) <= per_page:
+                page += r
+            else:
+                later.append(r)
+        pages.append(sorted(page, key=lambda im: im.mjd))
+        pending = later
+    return pages
+
+
+def hours_paged(images: list[Image], *, visit: int | None = None, mjd: float | None = None,
+                hours_frames: int = LIVE_HOURS_FRAMES,
+                cover: Coverage | None = None) -> tuple[list[list[Image]], int]:
+    """The hours clock's choice as build_frames makes it, in pages: ([page 0, page 1, ...], the
+    exposures of `images`' detector in the shown visit). Page 0 is pick_hours_at's (with `mjd`) or
+    pick_hours_live's choice, in download order; without a cap (hours_frames 0, precompute) it is the
+    only page. `visit`: within that visit only."""
+    pool = [im for im in images if visit is None or im.visit == visit]
+    if mjd is not None:  # in download order: the session nearest mjd first
+        first = pick_hours_at(pool, mjd, hours_frames, cover=cover)
+    else:
+        first = pick_hours_live(images, hours_frames, visit=visit, cover=cover)
+    n_visit = sum(1 for im in pool if first and im.visit == first[0].visit)
+    if not hours_frames:
+        return [first], n_visit
+    return hours_pages(pool, first, hours_frames, cover), n_visit
+
+
+def page_info(ra: float, dec: float, fov: float, det: int, *, day: str, mjd: float | None = None,
+              cache: Cache | None = None) -> dict[str, Any] | None:
+    """`more` and `visit_exposures` (contracts/api.md v3.23) of a live hours page-0 answer cached
+    before they existed, from the search it was built from: the saved search of its archive_checked
+    `day`, never a new one (no wait for IRSA). None when that search is not saved or holds no image
+    of `det`."""
+    found = search.saved(ra, dec, day, cache or Cache())
+    images = found.of_detector(det) if found is not None else []
+    if not images:
+        return None
+    cover = coverage.for_frames(images, ra, dec, "hours", fov)
+    pages, n_visit = hours_paged(images, mjd=mjd, hours_frames=LIVE_HOURS_FRAMES, cover=cover)
+    return {"more": len(pages) > 1, "visit_exposures": n_visit}
 
 
 def _spread(part: list[Image], n: int) -> list[Image]:
@@ -513,7 +605,7 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
                  *, cache: Cache | None = None, per_visit: int | None = LIVE_PER_VISIT,
                  hours_frames: int | None = LIVE_HOURS_FRAMES, budget: Budget | None = None,
                  measured: bool = True, visit: int | None = None, view: str = "raw",
-                 mjd: float | None = None) -> Frames:
+                 mjd: float | None = None, page: int = 0) -> Frames:
     """Blink frames for one position, field (arcmin: months 5 or 15, hours 20 or 60) and detector.
     per_visit: months clock, at most this many exposures per visit stack (None: all of them).
     hours_frames: hours clock, at most this many exposures (None: every one, up to HOURS_MAX_FRAMES).
@@ -527,10 +619,19 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     moments); NotFoundError when `det` has no exposure in it.
     mjd: hours clock (GET /api/frames `mjd`, contracts/api.md v3.19), the visit that holds this time
     and the session nearest it whole, the rest from the visit's other sessions (pick_hours_at), the
-    session's cutouts asked for first. With `visit`, within that visit."""
+    session's cutouts asked for first. With `visit`, within that visit.
+    page: hours clock with the live cap (GET /api/frames `page`, contracts/api.md v3.23): 0 is the
+    choice above; k >= 1 the k-th page of hours_pages, more exposures of the same visit, on the same
+    grid. With the live cap the answer says `more` (a further page exists) and `visit_exposures`.
+    NotFoundError past the last page."""
     _check(clock, fov, det)
     if mjd is not None and clock != "hours":
         raise bad_request("mjd works with clock=hours only")
+    if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+        raise bad_request("page must be 0 or more")
+    paging = clock == "hours" and bool(hours_frames) and view == "raw"
+    if page and not paging:
+        raise bad_request("page works with clock=hours (raw view, live) only")
     # Imported analysis fields remain available offline; all other raw fields use
     # the team's canonical search/cutout/zodi/stack engine below.
     if view != 'raw':
@@ -557,11 +658,12 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     cover = coverage.for_frames(images, ra, dec, clock, fov)
     if clock == "months":
         chosen = pick_months_images(images, per_visit, cover)
-    elif mjd is not None:  # in download order: the session nearest mjd first
-        chosen = pick_hours_at([im for im in images if visit is None or im.visit == visit], mjd,
-                               hours_frames or 0, cover=cover)
     else:
-        chosen = pick_hours_live(images, hours_frames or 0, visit=visit, cover=cover)
+        pages, n_visit = hours_paged(images, visit=visit, mjd=mjd, hours_frames=hours_frames or 0, cover=cover)
+        if page >= len(pages):
+            raise NotFoundError(f"no page {page}: the hours clock's visit has {n_visit} exposures of detector "
+                                f"{det} here, in {len(pages)} pages")
+        chosen = pages[page]
     if not chosen:
         raise NotFoundError(f"no SPHEREx images of detector {det} in visit {visit} at this position")
     log_partial_cover(chosen, cover, clock, fov, det, ra, dec)
@@ -611,6 +713,9 @@ def build_frames(ra: float, dec: float, fov: float, clock: Literal["months", "ho
     if found.note and budget is not None:  # photos not from IRSA (search_fallback.py): never cached
         budget.cut(found.note)
     meta = frames_meta(clock, grid, epochs, stars, known_, found.archive_checked)
+    if paging:
+        meta["more"] = page + 1 < len(pages)
+        meta["visit_exposures"] = n_visit
     epoch_keys = {e["id"]: epoch_keys.get(e["id"], []) for e in epochs}
     if measured_f is not None:
         add_measured(meta, measured_f, epoch_keys, budget)

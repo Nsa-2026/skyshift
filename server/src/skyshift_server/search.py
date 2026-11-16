@@ -223,6 +223,15 @@ def search(ra: float, dec: float, *, cache: Cache | None = None, refresh: bool =
         return _search(ra, dec, cache, day, key, refresh)
 
 
+def saved(ra: float, dec: float, day: str, cache: Cache) -> SearchResult | None:
+    """The search saved for this position on `day` (YYYY-MM-DD), or None; never asks IRSA."""
+    raw = cache.get(f"search/{pos_key(ra, dec)}/{day}.json")
+    if raw is None:
+        return None
+    d = json.loads(raw)
+    return SearchResult(d["ra"], d["dec"], d["archive_checked"], [Image(**im) for im in d["images"]])
+
+
 def _search(ra: float, dec: float, cache: Cache, day: str, key: str, refresh: bool) -> SearchResult:
     raw = None if refresh else cache.get(key)
     legacy = None  # today's search, saved without footprints: asked again, used if IRSA fails
