@@ -20,6 +20,11 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    the top N open movers with MPC's MPChecker. Cache: <root>/cache/known_check. The all-V index is
                    built once; it reuses the server's index in <root>/cache/mpc/known_index/ when present.
                    Tests: cd pipeline && uv run pytest ../scripts/candidates/tests/test_known_check.py
+                   pixel_check.py (P1, 16 Nov): check producer for movers (contracts v3.23 `checks`), measured in
+                   NASA's photos by small S3 range reads (s3pixels.py): partner detector, faint on the path, hot
+                   pixel, persistence, sharp, wide, one-photo. Writes ~/skyshift-data/checks/pixel.json; --validate
+                   gives the hit rates on known asteroids, junk and faint stars (pixel_validate.py, into
+                   ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py) and check which known bodies we saw (known_check.py). Read only; local data
                    in ~/.cache/skyshift-vet. Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.
