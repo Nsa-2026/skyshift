@@ -84,6 +84,17 @@ export function standsOutAt(
         if (burnt?.[i]) return true;
       } else if (v > peak) peak = v;
     }
+  const bg = localSky(vals, nx, ny, ix, iy, annulus);
+  return !Number.isNaN(bg) && peak - bg > k * sigma;
+}
+
+/**
+ * The sky around image position (x, y), whatever lies under it there (a bright star's glow too):
+ * the median of a ring of 16 pixels `annulus` pixels out. NaN with too little sky around it (an edge).
+ */
+export function localSky(vals: ArrayLike<number>, nx: number, ny: number, x: number, y: number, annulus: number): number {
+  const ix = Math.round(x);
+  const iy = Math.round(y);
   const bg: number[] = [];
   for (let a = 0; a < 16; a++) {
     const xx = Math.round(ix + annulus * Math.cos((a * Math.PI) / 8));
@@ -92,17 +103,114 @@ export function standsOutAt(
     const v = vals[yy * nx + xx];
     if (!Number.isNaN(v)) bg.push(v);
   }
-  if (bg.length < 6) return false;
+  if (bg.length < 6) return NaN;
   bg.sort((p, q) => p - q);
-  return peak - bg[bg.length >> 1] > k * sigma;
+  return bg[bg.length >> 1];
 }
 
 /**
- * Does a Gaia star get a ring? A star SkyShift found in this photo, while its circles are drawn,
- * always does (a circle inside a ring is the match). Any other: brighter than the plate's limit
- * (with no limit, the old cut `fallbackG`), or where the plate shows a dot (`shows`), so no visible
- * star goes unmarked and no ring sits on blank sky.
+ * Does the plate show a dot of its own near image position (x, y): a pixel within `radius` pixels
+ * that is a local maximum (no neighbour higher) and stands out (`standsOutAt`)? Stricter than
+ * `standsOutAt` alone: on the steep wing of a bright star the 3 × 3 peak, which reaches pixels
+ * nearer the star, stands out over the ring around it with no star there. A burnt pixel counts.
  */
-export function getsRing(g: number, foundHere: boolean, limit: number | null, fallbackG: number, shows: () => boolean): boolean {
-  return foundHere || g <= (limit ?? fallbackG) || shows();
+export function peakNear(
+  vals: ArrayLike<number>,
+  burnt: ArrayLike<number> | null,
+  nx: number,
+  ny: number,
+  x: number,
+  y: number,
+  radius: number,
+  annulus: number,
+  sigma: number,
+  k = SHOWS_SIGMA,
+): boolean {
+  const R = Math.max(1, radius);
+  for (let yy = Math.max(0, Math.floor(y - R)); yy <= Math.min(ny - 1, Math.ceil(y + R)); yy++)
+    for (let xx = Math.max(0, Math.floor(x - R)); xx <= Math.min(nx - 1, Math.ceil(x + R)); xx++) {
+      if (Math.hypot(xx - x, yy - y) > R) continue;
+      const i = yy * nx + xx;
+      const v = vals[i];
+      if (Number.isNaN(v)) {
+        if (burnt?.[i]) return true;
+        continue;
+      }
+      let top = true;
+      for (let dy = -1; dy <= 1 && top; dy++)
+        for (let dx = -1; dx <= 1 && top; dx++) {
+          if (!dx && !dy) continue;
+          const xn = xx + dx;
+          const yn = yy + dy;
+          if (xn < 0 || yn < 0 || xn >= nx || yn >= ny) continue;
+          const w = vals[yn * nx + xn];
+          if (w > v || (Number.isNaN(w) && burnt?.[yn * nx + xn])) top = false;
+        }
+      if (top && standsOutAt(vals, burnt, nx, ny, xx, yy, annulus, sigma, k)) return true;
+    }
+  return false;
+}
+
+/** A bright star's glow ends where its light falls under this many times the plate's sky noise. */
+export const GLOW_SIGMA = 3;
+
+/**
+ * How far a bright star's glow reaches on this plate, in image pixels: walking out from its centre
+ * in rings one pixel wide, the last one before the first whose median is less than `k`·σ over the
+ * sky (burnt pixels count as bright, empty ones are skipped). Measured, not modelled: on
+ * Barnard's months plate (All) the glow reaches about 61″, on R Draconis' about 80″, while a G 13
+ * star's ends with its dot. 0 when even the first ring is below; `maxR` when it never falls.
+ *
+ * Inside it the plate makes sources of its own (the pipeline's stack-only and no-Gaia detections
+ * are 4–15 times denser within Barnard's glow than 2′ out, where Gaia's stars are not).
+ */
+export function glowRadius(
+  vals: ArrayLike<number>,
+  burnt: ArrayLike<number> | null,
+  nx: number,
+  ny: number,
+  x: number,
+  y: number,
+  sky: number,
+  sigma: number,
+  maxR: number,
+  k = GLOW_SIGMA,
+): number {
+  for (let r = 1; r <= maxR; r++) {
+    const ring: number[] = [];
+    for (let yy = Math.max(0, Math.floor(y - r - 1)); yy <= Math.min(ny - 1, Math.ceil(y + r + 1)); yy++)
+      for (let xx = Math.max(0, Math.floor(x - r - 1)); xx <= Math.min(nx - 1, Math.ceil(x + r + 1)); xx++) {
+        const d = Math.hypot(xx - x, yy - y);
+        if (d < r - 0.5 || d >= r + 0.5) continue;
+        const i = yy * nx + xx;
+        const v = vals[i];
+        if (Number.isNaN(v)) {
+          if (burnt?.[i]) ring.push(Infinity);
+        } else ring.push(v);
+      }
+    if (ring.length < 6) continue; // past the plate's edge, or no data there
+    ring.sort((p, q) => p - q);
+    if (ring[ring.length >> 1] - sky < k * sigma) return r - 1;
+  }
+  return maxR;
+}
+
+/**
+ * Does a Gaia star get a ring? A star SkyShift found in this photo always does (a circle inside a
+ * ring is the match), whether or not the measured layer is drawn: the same stars get rings with
+ * the layer on or off. Any other: brighter than the plate's limit (with no limit, the old cut
+ * `fallbackG`), or where the plate shows a dot (`shows`), so no visible star goes unmarked and no
+ * ring sits on blank sky. Inside a bright star's glow (`inGlow`) the plate's limit says nothing (the
+ * glow hides stars far brighter), so only a star that stands out there (`shows`, measured against
+ * its local background, glow included) or was found keeps its ring.
+ */
+export function getsRing(
+  g: number,
+  foundHere: boolean,
+  limit: number | null,
+  fallbackG: number,
+  shows: () => boolean,
+  inGlow = false,
+): boolean {
+  return foundHere || (!inGlow && g <= (limit ?? fallbackG)) || shows();
 }
