@@ -605,6 +605,15 @@ REFCAT_GAIA_G_MAX = 20.0
 # refcat/<zone>_forced.parquet is written (Gaia part), so extraction can start fast; a later normal
 # refcat run sees the full refcat missing, reuses the cached Gaia tiles and adds CatWISE + 2MASS.
 REFCAT_CATALOGS = tuple(c.strip() for c in os.environ.get("SKYSHIFT_REFCAT_CATALOGS", "gaia,catwise,2mass").split(",") if c.strip())
+# The env var limits only a standalone `refcat` run: `all` (the combine) always builds every catalogue (16 Nov: the
+# sky run's global SKYSHIFT_REFCAT_CATALOGS=gaia left 64 combined zones Gaia-only: 59 ecliptic, 5 featured targets).
+# When IRSA's TAP fails for CatWISE2020 or 2MASS, the tile comes from AllWISE on S3 (and AllWISE's 2MASS
+# associations); "0" turns that off.
+REFCAT_S3_FALLBACK = os.environ.get("SKYSHIFT_REFCAT_S3_FALLBACK", "1") != "0"
+# "1": CatWISE's and 2MASS's roles come from AllWISE on S3 first, IRSA's TAP only if S3 fails. For a many-zone rerun:
+# IRSA's CatWISE took 60–444 s per 1° tile (14 and 16 Nov), an AllWISE partition (~3.4 deg²) ~33 s from a laptop.
+# Costs: no CatWISE motions (AllWISE positions at ~2010.5), 2MASS only where AllWISE matched a source within 3″.
+REFCAT_S3_FIRST = os.environ.get("SKYSHIFT_REFCAT_S3_FIRST", "0") == "1"
 # Gaia DR3 synthetic photometry (GSPC z, y: calib's D1 anchors) joins the ESA Gaia query since 15 Nov. A full (not
 # partial) refcat run over a zone whose Gaia tiles were cached without it refetches those tiles only, best effort.
 REFCAT_GSPC_UPGRADE = os.environ.get("SKYSHIFT_REFCAT_GSPC_UPGRADE", "1") != "0"

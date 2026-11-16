@@ -10,6 +10,17 @@ as cache/refcat/<zone>/<cat>_<tile>.parquet, so a rerun only asks for the tiles 
   else ra/dec at meanobsmjd. pmra/pmdec come in arcsec/yr (pmra includes cos dec): stored in mas/yr.
 - 2MASS PSC (IRSA fp_psc): epoch from jdate; no proper motion.
 
+Gaia-only refcats (16 Nov finding): the sky run exported SKYSHIFT_REFCAT_CATALOGS=gaia for its whole life (infra/worker/
+skyrun.sh), so the combine's `all` also ran refcat partially, found both files there and skipped: 64 combined zones
+(59 ecliptic, 5 featured targets) were combined against Gaia alone (crossids catwise_n = tmass_n = 0). The env var now only limits a standalone `refcat`
+run (extraction prep); `all` always asks for every catalogue (FULL; with `--from` a later step too, cli ensure_complete),
+so a zone prepared Gaia-only gets CatWISE + 2MASS added from the cached Gaia tiles before link and crossid read it.
+When IRSA's TAP fails for CatWISE2020 (or 2MASS) after its retries, the tile comes from AllWISE on AWS S3 (IRSA's
+HEALPix Parquet, anonymous): its W1/W2 rows as the WISE catalogue (ref_id `allwise:…`, cat `catwise`, no motion) and
+its 2MASS associations (J/H/Ks and position via r_2mass/pa_2mass) as 2MASS (ref_id `2mass:aw<tmass_key>`). The marker
+records which service filled each catalogue (`services`). REFCAT_S3_FIRST (env SKYSHIFT_REFCAT_S3_FIRST=1) asks S3 first,
+for a many-zone rerun: IRSA's CatWISE took 60–444 s per 1° tile, an AllWISE partition (~3.4 deg²) ~33 s.
+
 Writes
     refcat/<zone>.parquet          every row, unified (REFCAT_COLUMNS), NaN where not applicable
     refcat/<zone>_forced.parquet   the forced-photometry target list read by `dots` (FORCED_COLUMNS):
@@ -213,9 +224,113 @@ def _tap(url: str, adql: str):
     return run(adql, maxrec=C.REFCAT_MAXREC).to_table()
 
 
-def fetch_tile(cat: str, tile: Tile, tap=_tap) -> tuple[pd.DataFrame, str]:
-    """One (catalogue, tile): each service in turn, NET_RETRIES tries each. Raises if all fail."""
+# --- when IRSA's TAP fails (or first, REFCAT_S3_FIRST): AllWISE and its 2MASS associations from AWS S3 ---
+S3_NAMES = {"catwise": "AllWISE on S3", "2mass": "2MASS via AllWISE on S3"}
+ALLWISE_TILE_COLUMNS = ("designation", "ra", "dec", "w1mpro", "w1sigmpro", "w2mpro", "w2sigmpro",
+                        "tmass_key", "r_2mass", "pa_2mass", "j_m_2mass", "j_msig_2mass", "h_m_2mass", "h_msig_2mass",
+                        "k_m_2mass", "k_msig_2mass")
+TMASS_EPOCH_MJD = 51300.0  # 2MASS survey middle (1997–2001): the epoch of positions rebuilt from AllWISE's association
+_PARTS: dict[int, pd.DataFrame] = {}  # partitions read in this process (neighbouring tiles share them)
+_PARTS_MAX = 48  # ~7 MB each at high latitude: the oldest go first
+
+
+def tile_pixels(tile: Tile, nside: int = C.ALLWISE_NSIDE, step: float = 0.02) -> np.ndarray:
+    """Nested HEALPix pixels (AllWISE's order-5 partitions, ~1.8°) under the tile: sampled on a `step` grid."""
+    import astropy.units as u
+    from astropy_healpix import HEALPix
+
+    ra = np.linspace(tile.ra0, tile.ra1, max(2, int(np.ceil((tile.ra1 - tile.ra0) / step)) + 1))
+    dec = np.linspace(tile.dec0, tile.dec1, max(2, int(np.ceil((tile.dec1 - tile.dec0) / step)) + 1))
+    lon, lat = np.meshgrid(np.mod(ra, 360.0), np.clip(dec, -90.0, 90.0))
+    h = HEALPix(nside=nside, order="nested")
+    return np.unique(np.asarray(h.lonlat_to_healpix(lon.ravel() * u.deg, lat.ravel() * u.deg), np.int64))
+
+
+def _allwise_s3_partition(pix: int) -> pd.DataFrame:
+    """One AllWISE partition (ALLWISE_TILE_COLUMNS) from IRSA's HEALPix Parquet on S3 (anonymous)."""
+    import pyarrow.fs as pafs
+    import pyarrow.parquet as pq
+
+    from .suspects import allwise_key
+    if pix not in _PARTS:
+        fs = pafs.S3FileSystem(anonymous=True, region=C.ALLWISE_S3_REGION, connect_timeout=C.ALLWISE_TIMEOUT_S,
+                               request_timeout=C.ALLWISE_TIMEOUT_S)
+        t = pq.read_table(f"{C.ALLWISE_S3_BUCKET}/{allwise_key(pix)}", filesystem=fs, columns=list(ALLWISE_TILE_COLUMNS))
+        while len(_PARTS) >= _PARTS_MAX:
+            _PARTS.pop(next(iter(_PARTS)), None)
+        _PARTS[pix] = t.to_pandas()
+    return _PARTS[pix]
+
+
+def allwise_tile(tile: Tile, reader=_allwise_s3_partition) -> pd.DataFrame:
+    """AllWISE rows inside the tile (half-open box, as the TAP `where`)."""
+    parts = [reader(int(p)) for p in tile_pixels(tile)]
+    df = _df(pd.concat(parts, ignore_index=True)) if parts else pd.DataFrame(columns=list(ALLWISE_TILE_COLUMNS))
+    ra, dec = _col(df, "ra"), _col(df, "dec")
+    return df[(ra >= tile.ra0) & (ra < tile.ra1) & (dec >= tile.dec0) & (dec < tile.dec1)].reset_index(drop=True)
+
+
+def parse_allwise(t) -> pd.DataFrame:
+    """AllWISE as the WISE catalogue (role `catwise`): ref_id allwise:<designation>, positions at ~2010.5, no motion
+    (AllWISE's own motions are not used anywhere)."""
+    df = _df(t)
+    n = len(df)
+    return _finish({
+        "ref_id": ("allwise:" + df["designation"].astype(str).str.strip()).tolist(), "cat": ["catwise"] * n,
+        "ra": _col(df, "ra"), "dec": _col(df, "dec"), "epoch_mjd": np.full(n, C.ALLWISE_EPOCH_MJD),
+        "w1_mag": _col(df, "w1mpro"), "w1_err": _col(df, "w1sigmpro"),
+        "w2_mag": _col(df, "w2mpro"), "w2_err": _col(df, "w2sigmpro"),
+    }, n)
+
+
+def parse_allwise_2mass(t) -> pd.DataFrame:
+    """The 2MASS PSC sources AllWISE associated (within 3″): J/H/Ks as given, position = the WISE position moved
+    r_2mass along pa_2mass (from the WISE source to the 2MASS one), epoch TMASS_EPOCH_MJD; ref_id 2mass:aw<tmass_key>."""
+    df = _df(t)
+    df = df[np.isfinite(_col(df, "tmass_key")) & np.isfinite(_col(df, "r_2mass"))].reset_index(drop=True)
+    n = len(df)
+    from skyshift_core import tangent_deproject
+    r, pa = _col(df, "r_2mass"), np.deg2rad(_col(df, "pa_2mass"))
+    ra, dec = tangent_deproject(_col(df, "ra"), _col(df, "dec"), r * np.sin(pa), r * np.cos(pa))
+    return _finish({
+        "ref_id": ["2mass:aw" + str(int(k)) for k in _col(df, "tmass_key")], "cat": ["2mass"] * n,
+        "ra": np.asarray(ra, np.float64), "dec": np.asarray(dec, np.float64), "epoch_mjd": np.full(n, TMASS_EPOCH_MJD),
+        "j_mag": _col(df, "j_m_2mass"), "j_err": _col(df, "j_msig_2mass"),
+        "h_mag": _col(df, "h_m_2mass"), "h_err": _col(df, "h_msig_2mass"),
+        "k_mag": _col(df, "k_m_2mass"), "k_err": _col(df, "k_msig_2mass"),
+    }, n)
+
+
+S3_PARSERS = {"catwise": parse_allwise, "2mass": parse_allwise_2mass}
+
+
+def _from_s3(cat: str, tile: Tile, s3) -> tuple[pd.DataFrame, str]:
+    """CatWISE's or 2MASS's role for one tile from AllWISE on S3, NET_RETRIES tries."""
     last = None
+    for attempt in range(1, C.NET_RETRIES + 1):
+        try:
+            return S3_PARSERS[cat](allwise_tile(tile, s3)), S3_NAMES[cat]
+        except Exception as e:  # noqa: BLE001
+            last = e
+            L.warning("%s %s try %d: %s", S3_NAMES[cat], tile.key, attempt, str(e)[:200])
+            if attempt < C.NET_RETRIES:
+                time.sleep(3 * attempt)
+    raise RuntimeError(f"{S3_NAMES[cat]} {tile.key}: {last}")
+
+
+def fetch_tile(cat: str, tile: Tile, tap=None, s3=None) -> tuple[pd.DataFrame, str]:
+    """One (catalogue, tile): each service in turn, NET_RETRIES tries each; for CatWISE and 2MASS then AllWISE on
+    S3 (config REFCAT_S3_FALLBACK), or AllWISE on S3 first (REFCAT_S3_FIRST). Raises if all fail.
+    tap/s3 None: the real services (s3: the partition reader)."""
+    tap = tap or _tap
+    s3 = s3 or _allwise_s3_partition
+    last = None
+    s3_ok = cat in S3_PARSERS and (C.REFCAT_S3_FALLBACK or C.REFCAT_S3_FIRST)
+    if s3_ok and C.REFCAT_S3_FIRST:
+        try:
+            return _from_s3(cat, tile, s3)
+        except Exception as e:  # noqa: BLE001
+            last = e
     for name, url, tmpl in SOURCES[cat]:
         adql = tmpl.format(where=tile.where(), gmax=C.REFCAT_GAIA_G_MAX)
         for attempt in range(1, C.NET_RETRIES + 1):
@@ -229,6 +344,13 @@ def fetch_tile(cat: str, tile: Tile, tap=_tap) -> tuple[pd.DataFrame, str]:
                 L.warning("%s %s try %d: %s", name, tile.key, attempt, str(e)[:200])
                 if attempt < C.NET_RETRIES:
                     time.sleep(5 * attempt)
+    if s3_ok and not C.REFCAT_S3_FIRST:
+        try:
+            df, name = _from_s3(cat, tile, s3)
+            L.warning("refcat %s %s: IRSA TAP failed, from %s", cat, tile.key, name)
+            return df, name
+        except Exception as e:  # noqa: BLE001
+            last = e
     raise RuntimeError(f"{cat} tile {tile.key}: every service failed: {last}")
 
 
@@ -273,10 +395,12 @@ def catalogs_in(store: Store, zone: str) -> list[str] | None:
     return list(store.read_json(rel).get("catalogs", [])) if store.exists(rel) else None
 
 
-def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap) -> tuple[dict[str, pd.DataFrame], dict]:
+def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=None,
+              catalogs: tuple[str, ...] | None = None, s3=None) -> tuple[dict[str, pd.DataFrame], dict]:
     box = query_box(zone)
     ts = tiles(*box)
-    cats = [c for c in SOURCES if c in C.REFCAT_CATALOGS]
+    want = C.REFCAT_CATALOGS if catalogs is None else catalogs
+    cats = [c for c in SOURCES if c in want]
     jobs = [(cat, t) for cat in cats for t in ts]
     todo = [(c, t) for c, t in jobs if not store.exists(tile_rel(zone.name, c, t))]
     # Gaia tiles cached before the GSPC join (15 Nov; z_ab, y_ab): fetched again, best effort (a failure keeps the old tile)
@@ -290,7 +414,7 @@ def fetch_all(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_
 
     def job(cat, t):
         t0 = time.time()
-        df, name = fetch_tile(cat, t, tap)
+        df, name = fetch_tile(cat, t, tap, s3)
         store.write_parquet(tile_rel(zone.name, cat, t), df)
         return cat, t, name, len(df), time.time() - t0
 
@@ -380,30 +504,48 @@ def per_photo_counts(ra: np.ndarray, dec: np.ndarray, zone: C.Zone, side: float 
 
 
 # --- step ----------------------------------------------------------------------------------------
-def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=_tap, force: bool = False) -> dict:
-    partial = bool(set(SOURCES) - set(C.REFCAT_CATALOGS))  # e.g. SKYSHIFT_REFCAT_CATALOGS=gaia
+FULL: tuple[str, ...] = tuple(SOURCES)  # what the combining steps (link, crossid, … suspects) need
+
+
+def built_partial(store: Store, zone: str) -> bool:
+    """refcat/<zone>_catalogs.json says the zone's refcat lacks a catalogue (a Gaia-only extraction prep). No marker
+    (built before partial runs existed, or no refcat at all): False."""
+    made = catalogs_in(store, zone)
+    return made is not None and not set(FULL) <= set(made)
+
+
+def run(store: Store, zone: C.Zone, workers: int = C.REFCAT_WORKERS, tap=None, force: bool = False,
+        catalogs: tuple[str, ...] | None = None, s3=None) -> dict:
+    """catalogs: None = config REFCAT_CATALOGS (env SKYSHIFT_REFCAT_CATALOGS; "gaia" for a fast extraction prep);
+    FULL for the combine (cli `all`), whatever the environment says."""
+    want = C.REFCAT_CATALOGS if catalogs is None else tuple(catalogs)
+    partial = bool(set(SOURCES) - set(want))  # e.g. SKYSHIFT_REFCAT_CATALOGS=gaia
     have = store.exists(refcat_rel(zone.name)) and store.exists(refcat_rel(zone.name, forced=True))
     made = catalogs_in(store, zone.name)  # None: written before the marker existed (all catalogues)
     gspc_ok = gspc_in(store, zone.name) or not C.REFCAT_GSPC_UPGRADE
     if not force and have and (partial or made is None or set(SOURCES) <= set(made)) and (gspc_ok or partial):
         L.info("refcat %s: both files exist (catalogues %s), skipping (delete them or pass force=True to rebuild)",
                zone.name, ",".join(made) if made else "all")
-        return {"skipped": True, "fetched": 0}
+        return {"skipped": True, "fetched": 0, "catalogs": made or list(FULL)}
+    if made is not None and not partial and not set(SOURCES) <= set(made):
+        L.info("refcat %s: built with %s only; adding %s (cached tiles reused)", zone.name, ",".join(made),
+               ",".join(c for c in SOURCES if c not in made))
     t0 = time.time()
-    cats, st = fetch_all(store, zone, workers, tap)
+    cats, st = fetch_all(store, zone, workers, tap, want, s3)
     allrows = pd.concat([cats["gaia"], cats["catwise"], cats["2mass"]], ignore_index=True).astype(REFCAT_COLUMNS)
     allrows = allrows.drop_duplicates("ref_id").reset_index(drop=True)
     size = store.write_parquet(refcat_rel(zone.name), allrows)
-    store.write_json(catalogs_rel(zone.name), {"catalogs": [c for c in SOURCES if c in C.REFCAT_CATALOGS], "gspc": st["gspc"]})
+    store.write_json(catalogs_rel(zone.name), {"catalogs": [c for c in SOURCES if c in want], "gspc": st["gspc"],
+                                               "services": st["services"]})
     if partial:
-        L.info("refcat %s: catalogues %s only (a later full run adds the rest, reusing the cached tiles)", zone.name,
-               ",".join(C.REFCAT_CATALOGS))
+        L.warning("refcat %s: catalogues %s only (extraction prep; the combine's `all` adds the rest, reusing the "
+                  "cached tiles)", zone.name, ",".join(want))
     forced = forced_list(cats["gaia"], cats["catwise"])
     fsize = store.write_parquet(refcat_rel(zone.name, forced=True), forced)
     n_cw = int(forced["ref_id"].str.startswith("catwise:").sum())
     photo = per_photo_counts(forced["ra"].to_numpy(float), forced["dec"].to_numpy(float), zone)
     st.update({
-        "rows": {c: int(len(cats[c])) for c in SOURCES}, "catalogues": list(C.REFCAT_CATALOGS),
+        "rows": {c: int(len(cats[c])) for c in SOURCES}, "catalogues": list(want), "catalogs": [c for c in SOURCES if c in want],
         "refcat_bytes": size, "forced_rows": int(len(forced)), "forced_gaia": int(len(forced) - n_cw),
         "forced_catwise_only": n_cw, "forced_bytes": fsize, "forced_per_photo": photo,
         "limits": {"gaia_g_max": C.FORCED_GAIA_G_MAX, "catwise_w1_max": C.FORCED_CATWISE_W1_MAX,

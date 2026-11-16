@@ -132,6 +132,10 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
   refcat/<zone>.parquet and the forced list refcat/<zone>_forced.parquet (contracts/dots.md). Skips if both exist.
+  SKYSHIFT_REFCAT_CATALOGS limits only a standalone `refcat` (extraction prep): `all` always builds every catalogue and
+  `all --from` completes a Gaia-only one first (16 Nov: the sky run's global `=gaia` left 64 zones Gaia-only).
+  IRSA TAP failing → CatWISE's/2MASS's roles from AllWISE on S3 (+ its 2MASS associations); SKYSHIFT_REFCAT_S3_FIRST=1
+  asks S3 first (~3–5 min per zone vs 15–110 min over IRSA): no CatWISE motions then.
 - forced_sky (not a CLI step): `uv run python -m skyshift_pipeline.forced_sky --root gs://nasa-glazing-data --workers 16`
   builds the sky-wide forced list refcat/sky/forced_n32/p<pixel>.parquet (Gaia DR3 G<17.5, HEALPix nside 32 by source_id,
   ESA TAP sync, brightest 8,221 per partition) and _complete.json last; resumable. dots uses it for every photo's whole

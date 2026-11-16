@@ -234,3 +234,132 @@ def test_gaia_tiles_cached_without_gspc_are_upgraded_best_effort(tmp_path, monke
     assert st["gspc_upgraded"] == len(ts) and st["fetched"] == 0 and st["gspc"] and len(calls) == n1 + len(ts)
     assert all("gaia" in a for a in calls[n1:]) and R.gspc_in(store, "pilot")
     assert R.run(store, z, workers=2, tap=fake_tap).get("skipped") and len(calls) == n1 + len(ts)
+
+
+# --- 16 Nov: the combine always gets every catalogue (the sky run's ecliptic zones were Gaia-only) -----------------
+def _fake_tap(calls):
+    def tap(url, adql):
+        calls.append(adql)
+        if "gaia" in adql:
+            return sample("gaia")
+        return sample("catwise") if "catwise" in adql else sample("2mass")
+    return tap
+
+
+def test_all_builds_every_catalogue_whatever_the_env_says(tmp_path, monkeypatch):
+    """skyrun.sh exported SKYSHIFT_REFCAT_CATALOGS=gaia for prep AND combine: the combine's refcat skipped and the zone
+    stayed Gaia-only. Now `all` (and `all --from link`) adds CatWISE + 2MASS to a Gaia-only prep, env or not."""
+    import argparse
+
+    from skyshift_pipeline import cli
+    calls = []
+    monkeypatch.setattr(R, "_tap", _fake_tap(calls))
+    monkeypatch.setattr(C, "REFCAT_CATALOGS", ("gaia",))  # the sky run's environment, for prep and combine alike
+    store = Store(str(tmp_path))
+    z = C.ZONES["pilot"]
+    n_tiles = len(R.tiles(*R.query_box(z)))
+    R.run(store, z, workers=2)  # extraction prep: Gaia only
+    assert R.catalogs_in(store, "pilot") == ["gaia"] and R.built_partial(store, "pilot")
+    # a standalone refcat with the same env still skips (the prep's job is done) ...
+    assert cli._run_step("refcat", store, z, argparse.Namespace(step="refcat", force=False)).get("skipped")
+    # ... but the combine's refcat step adds the rest from the cached Gaia tiles
+    st = cli._run_step("refcat", store, z, argparse.Namespace(step="all", force=False))
+    assert st["fetched"] == 2 * n_tiles and st["catalogs"] == ["gaia", "catwise", "2mass"]
+    assert set(store.read_parquet(R.refcat_rel("pilot"))["cat"]) == {"gaia", "catwise", "2mass"}
+    assert not R.built_partial(store, "pilot") and len(calls) == 3 * n_tiles
+    assert store.read_json(R.catalogs_rel("pilot"))["services"]["catwise"] == ["IRSA CatWISE2020"]
+    # `all --from link` on a Gaia-only zone: ensure_full_refcat completes it first; on a complete one it does nothing
+    store2 = Store(str(tmp_path / "b"))
+    R.run(store2, z, workers=2)
+    assert R.built_partial(store2, "pilot")
+    out = cli.ensure_full_refcat(store2, z)
+    assert out["fetched"] == 2 * n_tiles and not R.built_partial(store2, "pilot")
+    assert cli.ensure_full_refcat(store2, z) is None
+    # a root without any refcat (fixtures, local tests): no network, nothing done
+    assert cli.ensure_full_refcat(Store(str(tmp_path / "c")), z) is None
+
+
+def _allwise_partition(tile):
+    """A fake AllWISE partition: 3 rows inside the tile (one with a 2MASS association 2″ due north) and 1 outside."""
+    ra = [tile.ra0 + 0.2, tile.ra0 + 0.5, tile.ra0 + 0.7, tile.ra1 + 0.5]
+    dec = [tile.dec0 + 0.2, tile.dec0 + 0.5, tile.dec0 + 0.7, tile.dec0 + 0.5]
+    nan = np.nan
+    return pd.DataFrame({
+        "designation": [f"J{i:06d}" for i in range(4)], "ra": ra, "dec": dec,
+        "w1mpro": [14.0, 15.0, 16.0, 13.0], "w1sigmpro": 0.05, "w2mpro": [13.5, 14.8, 15.9, 12.9], "w2sigmpro": 0.07,
+        "tmass_key": [1234.0, nan, nan, 99.0], "r_2mass": [2.0, nan, nan, 1.0], "pa_2mass": [0.0, nan, nan, 0.0],
+        "j_m_2mass": [15.1, nan, nan, 14.0], "j_msig_2mass": [0.05, nan, nan, 0.03],
+        "h_m_2mass": [14.6, nan, nan, 13.5], "h_msig_2mass": [0.06, nan, nan, 0.03],
+        "k_m_2mass": [14.3, nan, nan, 13.3], "k_msig_2mass": [0.07, nan, nan, 0.03],
+    })
+
+
+def test_irsa_down_falls_back_to_allwise_on_s3(monkeypatch):
+    """CatWISE and 2MASS TAP fail: the WISE role comes from AllWISE (allwise:…, no motion) and 2MASS from AllWISE's
+    association (position moved r_2mass along pa_2mass); Gaia is unaffected; the fallback can be turned off."""
+    import pytest
+    from skyshift_core import tangent_offset_arcsec
+    monkeypatch.setattr(C, "NET_RETRIES", 1)
+    tile = R.Tile(120.5, 121.5, 14.3, 15.3)
+
+    def tap(url, adql):
+        if "catwise" in adql or "fp_psc" in adql:
+            raise OSError("IRSA TAP 502")
+        return sample("gaia")
+
+    reads = []
+
+    def s3(pix):
+        reads.append(pix)
+        return _allwise_partition(tile)
+
+    w, name = R.fetch_tile("catwise", tile, tap, s3)
+    assert name == R.S3_NAMES["catwise"] and len(w) == 3 * len(R.tile_pixels(tile))  # rows outside the tile dropped
+    assert w["ref_id"].str.startswith("allwise:J").all() and (w["cat"] == "catwise").all()
+    assert w["pmra"].isna().all() and (w["epoch_mjd"] == C.ALLWISE_EPOCH_MJD).all() and w["w1_mag"].notna().all()
+    assert list(w.columns) == list(R.REFCAT_COLUMNS) and len(reads) == len(R.tile_pixels(tile))
+    m, name = R.fetch_tile("2mass", tile, tap, s3)
+    assert name == R.S3_NAMES["2mass"] and set(m["ref_id"]) == {"2mass:aw1234"}
+    e, n = tangent_offset_arcsec(tile.ra0 + 0.2, tile.dec0 + 0.2, m["ra"].to_numpy()[:1], m["dec"].to_numpy()[:1])
+    assert abs(e[0]) < 1e-3 and abs(n[0] - 2.0) < 1e-3  # 2″ due north of the WISE source
+    assert np.isclose(m["j_mag"].iloc[0], 15.1) and (m["epoch_mjd"] == R.TMASS_EPOCH_MJD).all()
+    g, name = R.fetch_tile("gaia", tile, tap, s3)
+    assert name == "ESA Gaia" and len(g) > 0
+    monkeypatch.setattr(C, "REFCAT_S3_FALLBACK", False)
+    with pytest.raises(RuntimeError, match="every service failed"):
+        R.fetch_tile("catwise", tile, tap, s3)
+
+
+def test_s3_first_skips_irsa_tap_and_falls_back_to_it(monkeypatch):
+    """REFCAT_S3_FIRST: CatWISE's and 2MASS's roles from AllWISE on S3 without asking IRSA; S3 down: IRSA's TAP."""
+    monkeypatch.setattr(C, "NET_RETRIES", 1)
+    monkeypatch.setattr(C, "REFCAT_S3_FIRST", True)
+    tile = R.Tile(120.5, 121.5, 14.3, 15.3)
+    asked = []
+
+    def tap(url, adql):
+        asked.append(adql)
+        return sample("catwise" if "catwise" in adql else "2mass" if "fp_psc" in adql else "gaia")
+
+    w, name = R.fetch_tile("catwise", tile, tap, lambda pix: _allwise_partition(tile))
+    assert name == R.S3_NAMES["catwise"] and not asked and w["ref_id"].str.startswith("allwise:").all()
+    g, name = R.fetch_tile("gaia", tile, tap, lambda pix: _allwise_partition(tile))
+    assert name == "ESA Gaia" and len(asked) == 1  # Gaia is never from S3
+
+    def down(pix):
+        raise OSError("S3 timeout")
+
+    w, name = R.fetch_tile("catwise", tile, tap, down)
+    assert name.startswith("IRSA") and not w["ref_id"].str.startswith("allwise:").any()
+
+
+def test_tile_pixels_cover_the_tile():
+    """Every point of the tile falls in one of the partitions read (the 0.02° sampling misses no pixel)."""
+    import astropy.units as u
+    from astropy_healpix import HEALPix
+    tile = R.Tile(40.0, 41.0, 11.9, 12.9)
+    pix = set(R.tile_pixels(tile).tolist())
+    rng = np.random.default_rng(1)
+    ra, dec = rng.uniform(40.0, 41.0, 20000), rng.uniform(11.9, 12.9, 20000)
+    hp = HEALPix(nside=C.ALLWISE_NSIDE, order="nested")
+    assert set(np.asarray(hp.lonlat_to_healpix(ra * u.deg, dec * u.deg)).tolist()) <= pix
