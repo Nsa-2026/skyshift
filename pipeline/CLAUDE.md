@@ -399,7 +399,10 @@ The step never raises (errors go to its stats).
   and catalogues above (bloom, halo, bright_star, gaia, catwise, 2mass, allwise).
   C = any reason (kept in the file), B = none, A = candidate mover: on a track over ≥2 sessions with motion ≥5σ, no
   catalogue or known match (suspects.track_grades after vet: B, and its tracklets.parquet row, joined on suspect id =
-  mover_id, has tracklet_id ≥ 0, n_sessions ≥ VET_A_MIN_SESSIONS, rate_snr ≥ VET_MOTION_SIGMA). Suspects on a track
+  mover_id, has tracklet_id ≥ 0, n_sessions ≥ VET_A_MIN_SESSIONS, rate_snr ≥ VET_MOTION_SIGMA; a track faster than
+  VET_A_FAST_ARCSEC_H = 400″/h also needs a recovered dot in tracklet_dots.parquet that is not `in_fixed`, or a suspect
+  of the track with a detector partner (paired_exposures ≥ 1), else B, stats `fast_held`: fast 2-session tracks link
+  single-detector artefacts, e.g. hunt's one fast track, a D6-only artefact fading 12–22×). Suspects on a track
   carry its n_sessions, rate_arcsec_h, pa_deg, rate_sigma (suspects.json; null off a track); a missing or unreadable
   tracklets.parquet changes nothing (stats vetting.tracklets). candidates.py lists A first and names the track in `why`.
   Gates run on the suspects only, never before pairing: recall is unchanged. completeness' vs_recall compares the
@@ -412,7 +415,8 @@ The step never raises (errors go to its stats).
 - ESA Gaia TAP: async jobs stalled for minutes (14 Nov), sync answers a 1° tile in ~2 s. IRSA: ~35 s (Gaia, 2MASS) to
   ~60 s (CatWISE, ~35k rows/deg²) per 1° tile, sync or async alike.
 - Tests: `uv run pytest` (offline); `SKYSHIFT_NETWORK=1 uv run pytest` adds the live kete test (MPC orbits, rates
-  vs positions an hour apart) and the SDSS query.
+  vs positions an hour apart) and the SDSS query. conftest keeps suspects offline: AllWISE off (SUSPECTS_ALLWISE,
+  VET_ALLWISE), its S3 reader and the Gaia/CatWISE services failing at once; a test that wants them turns them on.
 
 ## Spectral science: what the outputs mean (for the web)
 - `classes.parquet` → `class`: star, galaxy or unsure. SPHEREx's 6″ pixels and 7.5″ PSF leave most galaxies

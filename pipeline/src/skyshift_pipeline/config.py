@@ -1048,6 +1048,11 @@ VET_NEAR_SOURCE_ARCSEC = 10.0  # nearest refcat (Gaia/CatWISE/2MASS) or fixed so
                                # near_source_arcsec, a blend/wing warning (not a gate)
 VET_MOTION_SIGMA = 5.0         # grade A: B and on a tracklets track with rate_snr >= this (tracklets.parquet) ...
 VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks need TRACK_MIN_SESSIONS = 3 anyway)
+# ... and a track faster than this needs more than its movers' own dots: a recovered dot (tracklet_dots.parquet, not
+# one inside a star's group: `in_fixed`) or a suspect of the track with a detector partner (paired_exposures >= 1).
+# Fast tracks (> 150″/h, 2 sessions; tracklets TRACK_FAST_*, PR #367) link single-detector artefacts too: in hunt the
+# one fast track was a D6-only artefact (exposures 1, 2, 4, one direction, brightness falling 12–22×). Else it stays B.
+VET_A_FAST_ARCSEC_H = 400.0
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
 VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",

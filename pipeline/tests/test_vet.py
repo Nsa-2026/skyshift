@@ -160,7 +160,7 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     assert list(p["grade"]) == ["B", "B", "C", "C"] and "dot_x" in p and "gate_2mass" in p
     # no tracklets.parquet: no track fields, nothing graded A
     assert "tracklet_id" not in p and all("rate_arcsec_h" not in x for x in j["suspects"])
-    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0}
+    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0, "fast_held": 0}
 
 
 def test_run_catalogue_reason_only_for_a_source_as_bright_as_the_mover(tmp_path, monkeypatch):
@@ -209,7 +209,7 @@ def test_run_grades_a_from_tracklets(tmp_path, monkeypatch):
     store.write_parquet(results_rel(z.name, "tracklets.parquet"), _tracklets(z, m))
     st = S.run(store, z, pred=NO_PRED)
     assert st["vetting"]["grades"] == {"A": 1, "B": 1, "C": 2}
-    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1}
+    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1, "fast_held": 0}
     j = store.read_json(results_rel(z.name, "suspects.json"))
     assert j["grades"] == {"A": 1, "B": 1, "C": 2}
     assert [(x["cell"], x["grade"]) for x in j["suspects"]] == [(1, "A"), (2, "B"), (0, "C"), (3, "C")]  # A leads
@@ -247,15 +247,50 @@ def test_track_grades_rule():
     tr = pd.DataFrame({"mover_id": ids[:5], "tracklet_id": [0, 1, 2, -1, 3], "n_sessions": [3, 1, 2, 1, 3],
                        "rate_arcsec_h": 10.0, "pa_deg": 0.0, "rate_sigma": 2.0, "rate_snr": [5.0, 9.0, 4.99, np.nan, 9.0]})
     out, st = S.track_grades(s, ids, tr)
-    assert list(out["grade"]) == ["A", "B", "B", "B", "C", "B"] and st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1}
+    assert list(out["grade"]) == ["A", "B", "B", "B", "C", "B"]
+    assert st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1, "fast_held": 0}
     assert list(out["tracklet_id"]) == [0, 1, 2, -1, 3, -1] and out["rate_arcsec_h"].isna().tolist() == [False] * 3 + [True, False, True]
     same, st0 = S.track_grades(s, ids, None)
     assert same is s and st0["graded_a"] == 0
 
 
+def test_fast_track_needs_a_recovered_dot_or_a_detector_partner_for_a():
+    """Above VET_A_FAST_ARCSEC_H a track's movers alone don't make A (a single-detector artefact links too): it needs a
+    recovered dot or a suspect of the track seen by both detectors of a simultaneous pair; slower tracks are unchanged."""
+    ids = [f"m{i}" for i in range(6)]
+    # tracks: 0 fast (400 < 600″/h) no evidence, 1 fast with a D2+D5 partner on its second mover, 2 fast with a
+    # recovered dot, 3 slow (exactly the limit counts as slow)
+    tr = pd.DataFrame({"mover_id": ids, "tracklet_id": [0, 0, 1, 1, 2, 3], "n_sessions": 2,
+                       "rate_arcsec_h": [600.0, 600.0, 600.0, 600.0, 600.0, C.VET_A_FAST_ARCSEC_H], "pa_deg": 0.0,
+                       "rate_sigma": 10.0, "rate_snr": 60.0})
+    s = pd.DataFrame({"grade": ["B"] * 6, "paired_exposures": [0, 0, 0, 1, 0, 0]})
+    out, st = S.track_grades(s, ids, tr, recovered={2: 1, 0: 0})
+    assert list(out["grade"]) == ["B", "B", "A", "A", "A", "A"] and st["fast_held"] == 2 and st["graded_a"] == 4
+    # without paired_exposures: the dot lists tell (D3 and D6 in one exposure)
+    s2 = pd.DataFrame({"grade": ["B"] * 6, "dot_obs": [["e1", "e2"]] * 3 + [["e1", "e1"]] + [["e1"]] * 2,
+                       "dot_det": [[6, 6]] * 3 + [[3, 6]] + [[6]] * 2})
+    for c in ("dot_x", "dot_y", "dot_mjd", "dot_flux", "dot_snr", "dot_size", "dot_chi2", "dot_fpk"):
+        s2[c] = [[0.0] * len(v) for v in s2["dot_obs"]]
+    assert list(S.detector_partner(s2)) == [False, False, False, True, False, False]
+    out2, st2 = S.track_grades(s2, ids, tr)
+    assert list(out2["grade"]) == ["B", "B", "A", "A", "B", "A"] and st2["fast_held"] == 3
+
+
+def test_load_recovered_leaves_out_dots_inside_a_star(tmp_path):
+    store = Store(str(tmp_path))
+    z = C.ZONES["pilot"]
+    assert S.load_recovered(store, z) is None
+    store.write_parquet(results_rel(z.name, "tracklet_dots.parquet"),
+                        pd.DataFrame({"tracklet_id": [0, 0, 1, 2], "in_fixed": [True, False, True, False]}))
+    assert S.load_recovered(store, z) == {0: 1, 2: 1}
+    store.write_parquet(results_rel(z.name, "tracklet_dots.parquet"), pd.DataFrame({"tracklet_id": [0, 1, 1]}))
+    assert S.load_recovered(store, z) == {0: 1, 1: 2}
+
+
 def test_allwise_reason_where_catwise_was_the_veto(tmp_path, monkeypatch):
     from skyshift_pipeline.forced_sky import pixel_of
     monkeypatch.setattr(C, "VET_ALLWISE", True)
+    monkeypatch.setattr(C, "SUSPECTS_ALLWISE", "auto")  # conftest turns both off
     monkeypatch.setattr(C, "ALLWISE_CACHE", False)
     z = C.ZONES["pilot"]
     store = Store(str(tmp_path))

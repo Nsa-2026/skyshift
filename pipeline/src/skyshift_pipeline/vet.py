@@ -26,7 +26,9 @@ movers.parquet) or at zone-level maps:
 
 Grades: C = fails a gate or is catalogued (kept, with its reasons); B = passes everything, motion not shown (most suspects
 are 2 dots of one session: at S/N 7–9 the centroid error exceeds the motion between exposures); A = B plus motion
->= 5σ over >= 2 sessions: on a `tracklets` track (suspects.track_grades, after vet; vet itself gives only B and C).
+>= 5σ over >= 2 sessions: on a `tracklets` track (suspects.track_grades, after vet; vet itself gives only B and C); a
+track faster than VET_A_FAST_ARCSEC_H (400″/h) also needs a recovered dot (not inside a star's group) or a detector
+partner (D1+D4, D2+D5, D3+D6 in one exposure), else it stays B: fast 2-session tracks link single-detector artefacts.
 `near_source_arcsec` (a refcat or fixed source 6–10″ away: a possible blend or PSF wing) is a warning, not a gate.
 """
 

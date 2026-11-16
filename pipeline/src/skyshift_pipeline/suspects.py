@@ -52,6 +52,7 @@ from .tracklets import mover_ids
 L = log.get("suspects")
 
 TRACKLETS_NAME = "tracklets.parquet"
+TRACKLET_DOTS_NAME = "tracklet_dots.parquet"  # tracklets' recovered dots (tracklet_id; in_fixed since #367)
 # tracklets.parquet columns a suspect on a track takes over (NaN / null when on no track); the JSON gets TRACK_JSON
 TRACK_COLUMNS = ("tracklet_id", "n_sessions", "rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr")
 TRACK_JSON = (("n_sessions", None), ("rate_arcsec_h", 2), ("pa_deg", 1), ("rate_sigma", 2))  # (field, decimals; None = int)
@@ -736,12 +737,46 @@ def load_tracklets(store: Store, zone: C.Zone) -> pd.DataFrame | None:
         return None
 
 
-def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
+def load_recovered(store: Store, zone: C.Zone) -> dict[int, int] | None:
+    """Recovered dots per tracklet_id from tracklet_dots.parquet, leaving out dots inside a star's group (`in_fixed`,
+    PR #367: a star crossing, not the object's own detection). None when the file is missing or unreadable."""
+    rel = results_rel(zone.name, TRACKLET_DOTS_NAME)
+    try:
+        if not store.exists(rel):
+            return None
+        d = store.read_parquet(rel)
+        if "in_fixed" in d:
+            d = d[~d["in_fixed"].fillna(False).astype(bool).to_numpy()]
+        tid = pd.to_numeric(d["tracklet_id"]).dropna().astype(np.int64)
+        return {int(k): int(v) for k, v in tid[tid >= 0].value_counts().items()}
+    except Exception as e:  # noqa: BLE001  (a malformed file must not stop the suspects: fast tracks then stay B)
+        L.warning("suspects %s: %s unreadable: %s", zone.name, rel, e)
+        return None
+
+
+def detector_partner(s: pd.DataFrame) -> np.ndarray:
+    """A suspect seen by both detectors of a simultaneous pair (D1+D4, D2+D5, D3+D6) in at least one exposure: link's
+    paired_exposures >= 1, else from its dot lists (dot_obs, dot_det)."""
+    if "paired_exposures" in s:
+        return pd.to_numeric(s["paired_exposures"]).fillna(0).to_numpy(np.float64) >= 1
+    out = np.zeros(len(s), bool)
+    d = V.explode(s)
+    if len(d):
+        for (i, _), ds in d.groupby(["i", "obs"])["det"].agg(set).items():
+            if any(a in ds and b in ds for a, b in C.SIMULTANEOUS_PAIRS):
+                out[int(i)] = True
+    return out
+
+
+def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None,
+                 recovered: dict[int, int] | None = None) -> tuple[pd.DataFrame, dict]:
     """Joins each graded suspect (ids: its suspect id, row by row) to its tracklets row (tr: load_tracklets) and sets
-    grade A where the grade is B, tracklet_id >= 0, n_sessions >= VET_A_MIN_SESSIONS and rate_snr >= VET_MOTION_SIGMA.
-    Adds TRACK_COLUMNS: tracklet_id (-1 = on no track), the others NaN / null off a track. tr None: s unchanged."""
+    grade A where the grade is B, tracklet_id >= 0, n_sessions >= VET_A_MIN_SESSIONS and rate_snr >= VET_MOTION_SIGMA;
+    a track faster than VET_A_FAST_ARCSEC_H also needs a recovered dot (recovered: load_recovered) or a suspect of the
+    track with a detector partner (else it stays B: stats `fast_held`). Adds TRACK_COLUMNS: tracklet_id (-1 = on no
+    track), the others NaN / null off a track. tr None: s unchanged."""
     if tr is None or not len(s):
-        return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0}
+        return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0, "fast_held": 0}
     j = pd.DataFrame({"mover_id": [str(x) for x in ids]}).merge(tr, on="mover_id", how="left")
     s = s.copy()
     tid = j["tracklet_id"].fillna(-1).astype(np.int64).to_numpy()
@@ -753,8 +788,14 @@ def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None) -> tuple[pd.Data
         s[c] = np.where(on, pd.to_numeric(j[c]).to_numpy(np.float64), np.nan)
     a = ((s["grade"].to_numpy() == "B") & on & (np.nan_to_num(nsess, nan=0.0) >= C.VET_A_MIN_SESSIONS)
          & (np.nan_to_num(s["rate_snr"].to_numpy(np.float64), nan=-np.inf) >= C.VET_MOTION_SIGMA))
+    fast = on & (np.nan_to_num(s["rate_arcsec_h"].to_numpy(np.float64), nan=0.0) > C.VET_A_FAST_ARCSEC_H)
+    held = np.zeros(len(s), bool)
+    if (a & fast).any():
+        backed = {int(t) for t in tid[on & detector_partner(s)]} | {int(t) for t, n in (recovered or {}).items() if n > 0}
+        held = a & fast & ~np.isin(tid, sorted(backed))
+        a &= ~held
     s.loc[a, "grade"] = "A"
-    return s, {"source": TRACKLETS_NAME, "on_track": int(on.sum()), "graded_a": int(a.sum())}
+    return s, {"source": TRACKLETS_NAME, "on_track": int(on.sum()), "graded_a": int(a.sum()), "fast_held": int(held.sum())}
 
 
 def gate_warnings(s: pd.DataFrame, w: Warnings) -> None:
@@ -803,7 +844,8 @@ def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fix
     gate_warnings(s, w)
     s["near_source_arcsec"] = near_source(seps, fixed, ra, dec)
     tr = load_tracklets(store, zone) if len(s) else None
-    s, st["tracklets"] = track_grades(s, mover_ids(zone, s) if len(s) else [], tr)
+    rec = load_recovered(store, zone) if tr is not None else None
+    s, st["tracklets"] = track_grades(s, mover_ids(zone, s) if len(s) else [], tr, rec)
     st["grades"] = {g_: int((s["grade"] == g_).sum()) if len(s) else 0 for g_ in ("A", "B", "C")}
     st["catalogs_checked"] = sorted(k for k in (cats or {}) if k in C.VET_GATES)
     st["near_source"] = int(np.isfinite(s["near_source_arcsec"].to_numpy(np.float64)).sum())
