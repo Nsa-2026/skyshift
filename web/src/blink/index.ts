@@ -375,6 +375,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
               title="Draw what SkyShift measured on the plate"><span class="bk-meas-knob" aria-hidden="true"><i></i></span>On the plate</button>
           </div>
           <p class="bk-meas-lead"></p>
+          <p class="bk-meas-stacknote" hidden>The Stack view adds every visit together, so it draws no circles: each one belongs to one visit. Switch to Blink or Difference to see them.</p>
           <p class="bk-meas-rest pro-only"></p>
           <ul class="bk-meas-key" aria-label="Marks"></ul>
           <p class="bk-meas-short plain-only"></p>
@@ -423,6 +424,8 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     count: el.querySelector<HTMLSpanElement>(".bk-meas-count"),
     stage: $<HTMLElement>(".bk-meas-stage"),
     lead: $<HTMLParagraphElement>(".bk-meas-lead"),
+    /** Stack view: why the plate has no circles (each belongs to one visit). */
+    stackNote: $<HTMLParagraphElement>(".bk-meas-stacknote"),
     rest: $<HTMLParagraphElement>(".bk-meas-rest"),
     key: $<HTMLUListElement>(".bk-meas-key"),
     how: $<HTMLParagraphElement>(".bk-meas-how"),
@@ -1856,6 +1859,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
 
   function renderControls() {
     press("[data-mode]", "data-mode", mode);
+    mp.stackNote.hidden = !(allAtOnce() && mp.panel.dataset.state === "measured");
     press("[data-stretch]", "data-stretch", stretchKind);
     press("[data-positive]", "data-positive", String(positive));
     press("[data-zoom]", "data-zoom", String(zoom));
@@ -2003,6 +2007,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
   function renderMeasured() {
     const st = measuredHere();
     mp.panel.hidden = st.kind === "absent";
+    mp.stackNote.hidden = true;
     const on = st.kind === "measured";
     for (const e of [mp.rest, mp.key, mp.how, mp.short, mp.items, mp.notes, mp.pro]) e.hidden = !on;
 
@@ -2018,6 +2023,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
     }
     const m = st.m;
     mp.panel.dataset.state = "measured";
+    mp.stackNote.hidden = !allAtOnce();
     // The lead counts what the list shows: movers on this detector, and the candidate when it isn't among them.
     const spots = trackFor?.spots ?? [];
     const s = summarize(m, F?.gaia, {
