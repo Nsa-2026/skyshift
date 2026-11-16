@@ -5,9 +5,20 @@ pixel while the sky moved), never before link's pairing, so known-asteroid recal
 it grades C (kept, ranked last, with its reasons). Each gate looks at the suspect's own dots (link's dot lists in
 movers.parquet) or at zone-level maps:
 
-- hot_pixel     a dot on a detector pixel (±1 px) where the zone's movers have dots in >= 3 exposures, or its free dots
-                (freedots.parquet: every dot movers are paired from) in >= 5. Hot pixels NASA's HOT bit misses pair up
-                with another such pixel one to three exposure steps (~115 px in y) away and make "movers".
+- hot_pixel     a dot on a detector pixel (±1 px) where free dots (freedots.parquet: every dot movers are paired from)
+                at OTHER sky places (> 30″ from the dot) lie in >= 5 exposures, or every dot (>= 2) on such a pixel
+                with >= 3 (hot_pixel_proven: 0 of 6,125 real asteroids). Repeats at one sky place are a source (a
+                star, Europa), not the detector. Without ra/dec in freedots: the old map (movers' dots in >= 3
+                exposures, free dots in >= 5). Hot pixels NASA's HOT bit misses pair up with another such pixel one to
+                three exposure steps (~115 px in y) away and make "movers".
+- same_pixel    dots of two exposures within 1 px of one detector pixel: only a session without the telescope's step
+                gives it (ecl17 session 201), and there a hot pixel stays on one sky spot.
+- whole_pixel   >= 2 dots on a whole pixel (x and y within 0.02 px): a centroid fallback, not a measurement.
+- wide          every unsaturated dot (>= 2) >= 1.3× the detector's stellar size at its S/N.
+- cross_detector >= 2 exposures and no detector holds dots of two of them (D1 then D4: colour read as motion).
+- fixed_source, glow, unseen   decided in suspects.mover_flaws (a fixed source or Gaia star at a mover that may not
+                move, a broad glow near a G < 7 star, exposures that hold the track but not the mover) and passed in.
+                Numbers for all of these: flaw_numbers (FLAW_COLUMNS); real vs rest shares: config, mover flaws.
 - bad_column    a dot on a column (±0.5 px in x) holding >= 3 free dots of the same exposure and detector, and more
                 than chance gives at that photo's free-dot density (Poisson tail <= 0.1%; ecliptic photos hold up to
                 ~800 free dots: >= 3 then caught 12% of the real asteroids, now 0.3%).
@@ -29,6 +40,8 @@ are 2 dots of one session: at S/N 7–9 the centroid error exceeds the motion be
 >= 5σ over >= 2 sessions: on a `tracklets` track (suspects.track_grades, after vet; vet itself gives only B and C); a
 track faster than VET_A_FAST_ARCSEC_H (400″/h) also needs a recovered dot (not inside a star's group) or a detector
 partner (D1+D4, D2+D5, D3+D6 in one exposure), else it stays B: fast 2-session tracks link single-detector artefacts.
+Such a track also overrules the single-session separators (VET_TRACK_OVERRULES: fixed_source, unseen, wide, whole_pixel,
+cross_detector, glow): grade A, reasons cleared, the checks stay warnings.
 `near_source_arcsec` (a refcat or fixed source 6–10″ away: a possible blend or PSF wing) is a warning, not a gate.
 """
 
@@ -136,14 +149,160 @@ def column_need(q: pd.DataFrame, free: pd.DataFrame, r_px: float = C.VET_COLUMN_
 
 
 def load_free(store: Store, zone: C.Zone) -> pd.DataFrame | None:
-    """freedots.parquet as obs, det, x, y (None if link didn't write it)."""
+    """freedots.parquet as obs, det, x, y and, where the file has them, ra, dec (None if link didn't write it)."""
     from .link import FREEDOTS_NAME
     rel = results_rel(zone.name, FREEDOTS_NAME)
     if not store.exists(rel):
         return None
-    f = store.read_parquet(rel, columns=["obs_id", "detector", "x", "y"])
-    return pd.DataFrame({"obs": f["obs_id"].astype(str).to_numpy(), "det": f["detector"].to_numpy(np.int64),
-                         "x": f["x"].to_numpy(np.float64), "y": f["y"].to_numpy(np.float64)})
+    try:
+        f = store.read_parquet(rel, columns=["obs_id", "detector", "x", "y", "ra", "dec"])
+    except Exception:  # noqa: BLE001  (an older file without ra/dec: the hot-pixel map then counts every exposure)
+        f = store.read_parquet(rel, columns=["obs_id", "detector", "x", "y"])
+    out = pd.DataFrame({"obs": f["obs_id"].astype(str).to_numpy(), "det": f["detector"].to_numpy(np.int64),
+                        "x": f["x"].to_numpy(np.float64), "y": f["y"].to_numpy(np.float64)})
+    if "ra" in f and "dec" in f:
+        out["ra"], out["dec"] = f["ra"].to_numpy(np.float64), f["dec"].to_numpy(np.float64)
+    return out
+
+
+def away_exposures(d: pd.DataFrame, free: pd.DataFrame, ra: np.ndarray, dec: np.ndarray, r_px: float = C.VET_HOT_PX,
+                   away_arcsec: float = C.VET_HOT_AWAY_ARCSEC) -> np.ndarray:
+    """For each dot of d (explode's rows; ra, dec: its mover's sky place, per dot): the distinct exposures of free dots on
+    the same detector pixel (±r_px in x and y) at sky places more than away_arcsec from it. The same pixel lit while
+    looking at other sky is the detector; repeats at the same sky place are a source (a star, Europa)."""
+    from .sky import angsep
+    out = np.zeros(len(d), np.int64)
+    if len(d) == 0 or free is None or len(free) == 0 or "ra" not in free:
+        return out
+    ok = np.isfinite(free["x"].to_numpy(np.float64)) & np.isfinite(free["y"].to_numpy(np.float64))
+    fdet = free["det"].to_numpy(np.int64)[ok]
+    fxy = np.c_[free["x"].to_numpy(np.float64)[ok], free["y"].to_numpy(np.float64)[ok]]
+    fra, fdec = free["ra"].to_numpy(np.float64)[ok], free["dec"].to_numpy(np.float64)[ok]
+    fobs = pd.factorize(free["obs"].astype(str).to_numpy()[ok])[0]
+    qd = d["det"].to_numpy(np.int64)
+    qxy = np.c_[d["x"].to_numpy(np.float64), d["y"].to_numpy(np.float64)]
+    ra, dec = np.asarray(ra, np.float64), np.asarray(dec, np.float64)
+    for det in np.unique(qd):
+        qi = np.flatnonzero((qd == det) & np.isfinite(qxy).all(axis=1))
+        ri = np.flatnonzero(fdet == det)
+        if qi.size == 0 or ri.size == 0:
+            continue
+        tree = cKDTree(fxy[ri])
+        for k, nb in zip(qi, tree.query_ball_point(qxy[qi], r_px + 1e-6, p=np.inf)):
+            if not nb:
+                continue
+            nb = ri[np.asarray(nb)]
+            far = angsep(ra[k], dec[k], fra[nb], fdec[nb]) * 3600.0 > away_arcsec
+            out[k] = np.unique(fobs[nb[far]]).size
+    return out
+
+
+def whole_pixel(x, y) -> np.ndarray:
+    """True where a dot's x and y both lie within VET_WHOLE_PX of a whole pixel: a centroid fallback, not a measurement."""
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    return (np.abs(x - np.round(x)) < C.VET_WHOLE_PX) & (np.abs(y - np.round(y)) < C.VET_WHOLE_PX)
+
+
+def dot_sigma(snr, whole=None) -> np.ndarray:
+    """A dot's 1σ position error (″): link.dot_sigma_arcsec from its S/N, with a whole-pixel dot's rounding (0.3 px,
+    LINK_WHOLE_PIXEL_SIGMA_PX) added in quadrature."""
+    from .link import dot_sigma_arcsec
+    sig = dot_sigma_arcsec(snr)
+    if whole is None:
+        return sig
+    return np.where(np.asarray(whole, bool), np.hypot(sig, C.LINK_WHOLE_PIXEL_SIGMA_PX * C.PIXEL_ARCSEC), sig)
+
+
+FLAW_COLUMNS = ("hot_exposures_max", "hot_exposures_min", "whole_dots", "wide_ratio_med", "wide_ratio_min", "wide_dots",
+                "same_pixel_px", "cross_detector", "motion_sigma")
+
+
+def flaw_numbers(s: pd.DataFrame, free: pd.DataFrame | None) -> pd.DataFrame:
+    """Per suspect (row of s, from its dot lists): the numbers of the mover-flaw separators (config, mover flaws).
+    hot_exposures_max / _min: over its dots, the free dots' exposures on the dot's pixel at other sky places
+    (away_exposures; NaN without free dots with ra/dec); whole_dots: dots on a whole pixel; wide_ratio_med / _min: the
+    median and smallest size / stellar size of its unsaturated dots, wide_dots how many those are; same_pixel_px: the
+    smallest pixel distance (max of |Δx|, |Δy|) between dots of two exposures on one detector (NaN: none);
+    cross_detector: >= 2 exposures and no detector with dots of two of them; motion_sigma: link's rate (rate_arcsec_h)
+    over its 1σ from the dots' times and S/N (weighted line fit; whole-pixel dots as in dot_sigma), NaN with one
+    exposure or no rate."""
+    n = len(s)
+    out = pd.DataFrame({"hot_exposures_max": np.full(n, np.nan), "hot_exposures_min": np.full(n, np.nan),
+                        "whole_dots": np.zeros(n, np.int64), "wide_ratio_med": np.full(n, np.nan),
+                        "wide_ratio_min": np.full(n, np.nan), "wide_dots": np.zeros(n, np.int64),
+                        "same_pixel_px": np.full(n, np.nan), "cross_detector": np.zeros(n, bool),
+                        "motion_sigma": np.full(n, np.nan)})
+    if n == 0 or not has_dot_lists(s):
+        return out
+    s = s.reset_index(drop=True)
+    d = explode(s)
+    if len(d) == 0:
+        return out
+    i = d["i"].to_numpy()
+    idx = pd.RangeIndex(n)
+    if free is not None and "ra" in free:
+        away = away_exposures(d, free, s["ra"].to_numpy(np.float64)[i], s["dec"].to_numpy(np.float64)[i])
+        a = pd.Series(away).groupby(i)
+        out["hot_exposures_max"] = a.max().reindex(idx).to_numpy(np.float64)
+        out["hot_exposures_min"] = a.min().reindex(idx).to_numpy(np.float64)
+    whole = whole_pixel(d["x"], d["y"])
+    out["whole_dots"] = pd.Series(whole).groupby(i).sum().reindex(idx).fillna(0).astype(np.int64).to_numpy()
+    ratio = d["size"].to_numpy(np.float64) / star_size(d["det"].to_numpy(), d["snr"].to_numpy())
+    unsat = (d["fpk"].to_numpy(np.int64) & C.VET_SAT_BITS) == 0
+    r = pd.Series(np.where(unsat & np.isfinite(ratio), ratio, np.nan)).groupby(i)
+    out["wide_ratio_med"] = r.median().reindex(idx).to_numpy(np.float64)
+    out["wide_ratio_min"] = r.min().reindex(idx).to_numpy(np.float64)
+    out["wide_dots"] = r.count().reindex(idx).fillna(0).astype(np.int64).to_numpy()
+    x, y, obs, det = d["x"].to_numpy(np.float64), d["y"].to_numpy(np.float64), d["obs"].to_numpy(), d["det"].to_numpy()
+    sp = np.full(n, np.nan)
+    cross = np.zeros(n, bool)
+    for k, rows in pd.Series(np.arange(len(d))).groupby(i).groups.items():
+        rows = np.asarray(rows)
+        if np.unique(obs[rows]).size < 2:
+            continue
+        per = []
+        for dd in np.unique(det[rows]):
+            rr = rows[det[rows] == dd]
+            per.append(np.unique(obs[rr]).size)
+            for a_ in range(rr.size):
+                for b_ in range(a_ + 1, rr.size):
+                    if obs[rr[a_]] == obs[rr[b_]]:
+                        continue
+                    dpx = max(abs(x[rr[a_]] - x[rr[b_]]), abs(y[rr[a_]] - y[rr[b_]]))
+                    if np.isfinite(dpx) and (np.isnan(sp[k]) or dpx < sp[k]):
+                        sp[k] = dpx
+        cross[k] = max(per) < 2
+    out["same_pixel_px"] = sp
+    out["cross_detector"] = cross
+    out["motion_sigma"] = motion_sigma(s, d, whole)
+    return out
+
+
+def motion_sigma(s: pd.DataFrame, d: pd.DataFrame | None = None, whole: np.ndarray | None = None) -> np.ndarray:
+    """Per suspect: link's rate (rate_arcsec_h) over its 1σ: one position per exposure (the mean of its dots, σ from
+    dot_sigma), a weighted straight line in time, the per-axis error of its slope. NaN with < 2 exposures or no rate."""
+    n = len(s)
+    out = np.full(n, np.nan)
+    if n == 0 or "rate_arcsec_h" not in s or not has_dot_lists(s):
+        return out
+    if d is None:
+        d = explode(s.reset_index(drop=True))
+        whole = whole_pixel(d["x"], d["y"])
+    rate = pd.to_numeric(s["rate_arcsec_h"], errors="coerce").to_numpy(np.float64)
+    sig = dot_sigma(d["snr"].to_numpy(np.float64), whole)
+    e = pd.DataFrame({"i": d["i"].to_numpy(), "t": np.round(d["mjd"].to_numpy(np.float64) * 86400.0), "h": d["mjd"].to_numpy(np.float64) * 24.0,
+                      "v": sig ** 2})
+    g = e.groupby(["i", "t"]).agg(h=("h", "mean"), v=("v", "sum"), k=("v", "size")).reset_index()
+    g["w"] = g["k"] ** 2 / g["v"]  # 1 / σ² of an exposure's mean position
+    for k, gg in g.groupby("i"):
+        if len(gg) < 2 or not np.isfinite(rate[k]):
+            continue
+        w, h = gg["w"].to_numpy(), gg["h"].to_numpy()
+        hm = np.sum(w * h) / np.sum(w)
+        sxx = np.sum(w * (h - hm) ** 2)
+        if sxx > 0:
+            out[k] = rate[k] * np.sqrt(sxx)
+    return out
 
 
 def load_red(store: Store, zone: C.Zone) -> set | None:
@@ -160,19 +319,22 @@ def load_red(store: Store, zone: C.Zone) -> set | None:
     return set(zip(r["obs_id"].astype(str), r["detector"].astype(int)))
 
 
-def dot_gates(d: pd.DataFrame, movers_dots: pd.DataFrame, free: pd.DataFrame | None, red: set | None) -> pd.DataFrame:
-    """Per-dot gate booleans for the suspects' dots d (explode's rows)."""
+def dot_gates(d: pd.DataFrame, movers_dots: pd.DataFrame, free: pd.DataFrame | None, red: set | None,
+              hot: bool = True) -> pd.DataFrame:
+    """Per-dot gate booleans for the suspects' dots d (explode's rows). hot False: no hot_pixel here (vet decides it
+    from flaw_numbers when the free dots have sky places)."""
     g = pd.DataFrame(index=d.index)
     x, y = d["x"].to_numpy(np.float64), d["y"].to_numpy(np.float64)
     hi = C.VET_DETECTOR_PX - 1 - C.VET_EDGE_PX
     g["edge"] = (x < C.VET_EDGE_PX) | (x > hi) | (y < C.VET_EDGE_PX) | (y > hi)
-    hot = pixel_exposures(d, movers_dots) >= C.VET_HOT_MIN_EXP_MOVERS
+    h = pixel_exposures(d, movers_dots) >= C.VET_HOT_MIN_EXP_MOVERS if hot else np.zeros(len(d), bool)
     if free is not None:
-        hot |= pixel_exposures(d, free) >= C.VET_HOT_MIN_EXP_FREE
+        if hot:
+            h |= pixel_exposures(d, free) >= C.VET_HOT_MIN_EXP_FREE
         g["bad_column"] = column_dots(d, free) >= column_need(d, free)
     else:
         g["bad_column"] = False
-    g["hot_pixel"] = hot
+    g["hot_pixel"] = h
     fpk = d["fpk"].to_numpy(np.int64)
     g["masked_peak"] = (fpk & C.VET_PEAK_BITS) != 0
     size, star = d["size"].to_numpy(np.float64), star_size(d["det"].to_numpy(), d["snr"].to_numpy())
@@ -224,29 +386,58 @@ def flux_ratio_fail(d: pd.DataFrame) -> pd.Series:
     return bad.groupby(level="i").any()
 
 
+def flaw_gates(f: pd.DataFrame, n_dots: np.ndarray) -> dict[str, np.ndarray]:
+    """The reasons flaw_numbers decides (config, mover flaws): hot_pixel (a dot's pixel lit at other sky places in >=
+    VET_HOT_GATE_EXP exposures, or every dot's in >= VET_HOT_PROVEN_EXP: hot_pixel_proven), same_pixel, whole_pixel,
+    wide (every unsaturated dot, >= 2), cross_detector."""
+    hmax = f["hot_exposures_max"].to_numpy(np.float64)
+    nd = np.asarray(n_dots, np.int64)
+    return {"hot_pixel": (np.nan_to_num(hmax) >= C.VET_HOT_GATE_EXP) | hot_proven(f, nd),
+            "same_pixel": np.nan_to_num(f["same_pixel_px"].to_numpy(np.float64), nan=np.inf) <= C.VET_SAME_PIXEL_PX,
+            "whole_pixel": f["whole_dots"].to_numpy(np.int64) >= C.VET_WHOLE_GATE_DOTS,
+            "wide": (f["wide_dots"].to_numpy(np.int64) >= 2)
+            & (np.nan_to_num(f["wide_ratio_min"].to_numpy(np.float64)) >= C.VET_WIDE_RATIO),
+            "cross_detector": f["cross_detector"].to_numpy(bool)}
+
+
+def hot_proven(f: pd.DataFrame, n_dots: np.ndarray) -> np.ndarray:
+    """Every dot (>= 2) on a pixel lit at other sky places in >= VET_HOT_PROVEN_EXP exposures: real 0 of 6,125."""
+    return (np.nan_to_num(f["hot_exposures_min"].to_numpy(np.float64)) >= C.VET_HOT_PROVEN_EXP) & (np.asarray(n_dots) >= 2)
+
+
 def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: set | None,
-        catalogued: dict[str, np.ndarray] | None = None) -> tuple[pd.DataFrame, dict]:
+        catalogued: dict[str, np.ndarray] | None = None, flaws: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
     """Gates on the suspects s (rows of movers with the dot lists). Returns s with grade, reasons (list of gate names in
-    VET_GATES order) and one boolean column per gate (gate_<name>), and stats: per gate the suspects failing it, the
-    suspects whose first reason it is, and the grade counts. catalogued: the reasons decided outside, per suspect: the
-    catalogues (VET_CATALOGS: a source within 6″ at most 2 mag fainter; a catalogue left out was not checked) and the
-    strong warnings (bloom, halo, bright_star)."""
+    VET_GATES order), one boolean column per gate (gate_<name>) and the FLAW_COLUMNS (flaw_numbers; flaws: already
+    computed for s), and stats: per gate the suspects failing it, the suspects whose first reason it is, and the grade
+    counts. catalogued: the reasons decided outside, per suspect: the catalogues (VET_CATALOGS: a source within 6″ at
+    most 2 mag fainter; a catalogue left out was not checked), the strong warnings (bloom, halo, bright_star) and the
+    suspects' mover flaws (fixed_source, glow, unseen). hot_pixel: flaw_gates where the free dots have sky places, else
+    the old map (movers' dots in >= 3 exposures, free dots in >= 5, the same sky place included)."""
     s = s.copy().reset_index(drop=True)
     n = len(s)
     fail = {k: np.zeros(n, bool) for k in C.VET_GATES}
     st: dict = {"suspects_in": int(n), "dot_lists": bool(has_dot_lists(s)), "free_dots": None if free is None else int(len(free)),
                 "qa_photos": red is not None}
+    f = flaws.reset_index(drop=True) if flaws is not None else flaw_numbers(s, free)
+    away = free is not None and "ra" in free
+    st["hot_pixel_map"] = "other_sky" if away else "every_exposure"
     if n and not has_dot_lists(s):
         fail["not_vetted"][:] = True
     elif n:
         d = explode(s)
         nan_xy = ~(np.isfinite(d["x"].to_numpy()) & np.isfinite(d["y"].to_numpy()))
-        md = explode(movers) if has_dot_lists(movers) else d
-        g = dot_gates(d, md, free, red)
+        md = explode(movers) if has_dot_lists(movers) and not away else d
+        g = dot_gates(d, md, free, red, hot=not away)
         i = d["i"].to_numpy()
         for name, col in (("hot_pixel", "hot_pixel"), ("bad_column", "bad_column"), ("edge", "edge"),
                           ("masked_peak", "masked_peak"), ("sharp_outlier", "sharp_outlier"), ("very_sharp", "very_sharp")):
             fail[name] = np.bincount(i, weights=g[col].to_numpy(float), minlength=n) > 0
+        nd = np.bincount(i, minlength=n)
+        for name, hit in flaw_gates(f, nd).items():
+            if name == "hot_pixel" and not away:
+                continue
+            fail[name] = hit
         fail["not_vetted"] = np.bincount(i, weights=nan_xy.astype(float), minlength=n) > 0  # no pixel position for a dot
         fr = flux_ratio_fail(d)
         fail["flux_ratio"][fr.index[fr.to_numpy(bool)].to_numpy(np.int64)] = True
@@ -263,6 +454,8 @@ def vet(s: pd.DataFrame, movers: pd.DataFrame, free: pd.DataFrame | None, red: s
     s["reasons"] = reasons
     for k in C.VET_GATES:
         s[f"gate_{k}"] = fail[k]
+    for k in FLAW_COLUMNS:
+        s[k] = f[k].to_numpy()
     st["gates"] = {k: int(fail[k].sum()) for k in C.VET_GATES}
     st["first_reason"] = {k: int(sum(1 for r in reasons if r and r[0] == k)) for k in C.VET_GATES}
     st["grades"] = {g_: int(sum(1 for x in s["grade"] if x == g_)) for g_ in ("A", "B", "C")}

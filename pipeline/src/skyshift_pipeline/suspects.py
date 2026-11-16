@@ -490,19 +490,21 @@ def _num(v, nd: int = 2):
 
 
 class Warnings:
-    """Per row: warn codes (in order of adding, each once) and their numbers {code: {name: number}}; gates: the vetting
-    reasons some warnings carry when they are strong ({reason: bool per row}: bloom, halo, bright_star)."""
+    """Per row: warn codes (in order of adding, each once), their numbers {code: {name: number}} and the codes whose
+    check is stronger than a warning {code: "strong"} (the mover flaws, 16 Nov); gates: the vetting reasons some warnings
+    carry when they are strong ({reason: bool per row}: bloom, halo, bright_star, fixed_source, glow, unseen)."""
 
     def __init__(self, n: int):
         self.n = n
         self.codes: list[list[str]] = [[] for _ in range(n)]
         self.values: list[dict] = [{} for _ in range(n)]
+        self.levels: list[dict] = [{} for _ in range(n)]
         self.gates: dict[str, np.ndarray] = {}
 
     def gate(self, reason: str, hit: np.ndarray) -> None:
         self.gates[reason] = self.gates.get(reason, np.zeros(self.n, bool)) | np.asarray(hit, bool)
 
-    def add(self, i: int, code: str, values: dict | None = None) -> None:
+    def add(self, i: int, code: str, values: dict | None = None, level: str = "warn") -> None:
         if code not in self.codes[i]:
             self.codes[i].append(code)
         v = self.values[i].setdefault(code, {})
@@ -511,24 +513,34 @@ class Warnings:
                 x = int(x)
             if x is not None and (not isinstance(x, float) or np.isfinite(x)):
                 v[k] = x
+        if level == "strong":
+            self.levels[i][code] = "strong"
 
     def take(self, keep: np.ndarray) -> "Warnings":
         idx = np.flatnonzero(keep)
         w = Warnings(len(idx))
         w.codes = [self.codes[i] for i in idx]
         w.values = [self.values[i] for i in idx]
+        w.levels = [self.levels[i] for i in idx]
         w.gates = {k: v[idx] for k, v in self.gates.items()}
         return w
 
     def count(self, code: str) -> int:
         return int(sum(code in c for c in self.codes))
 
+    def count_strong(self, code: str) -> int:
+        return int(sum(lv.get(code) == "strong" for lv in self.levels))
+
 
 def warn_columns(w: Warnings) -> dict:
-    """The parquet columns: warn_codes (list of strings) and warn_values (JSON object string, {code: {name: number}})."""
+    """The parquet columns: warn_codes (list of strings), warn_values (JSON object string, {code: {name: number}}) and
+    warn_levels (JSON object string, {code: "strong"} for the codes whose check is strong, {} when none: every other
+    code is a warning)."""
     return {"warn_codes": [list(c) for c in w.codes],
             "warn_values": [json.dumps({k: v[k] for k in c}, separators=(",", ":"), sort_keys=False)
-                            for c, v in zip(w.codes, w.values)]}
+                            for c, v in zip(w.codes, w.values)],
+            "warn_levels": [json.dumps({k: lv[k] for k in c if k in lv}, separators=(",", ":"), sort_keys=False)
+                            for c, lv in zip(w.codes, w.levels)]}
 
 
 def mover_motion(m: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -700,6 +712,7 @@ def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str, vetting: dict | No
 
     graded = "grade" in s.columns
     warned = "warn_codes" in s.columns and "warn_values" in s.columns
+    leveled = warned and "warn_levels" in s.columns
     out = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "data_release": data_release,
@@ -714,6 +727,7 @@ def to_json(s: pd.DataFrame, zone: C.Zone, data_release: str, vetting: dict | No
                 "near_source_arcsec": num(getattr(r, "near_source_arcsec", np.nan), 1)} if graded else {}),
             **track(r),
             **({"warn_codes": [str(x) for x in r.warn_codes], "warn_values": json.loads(r.warn_values)} if warned else {}),
+            **({"warn_levels": json.loads(r.warn_levels)} if leveled else {}),
         } for r in s.itertuples()],
     }
     return out
@@ -798,10 +812,12 @@ def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None,
     a track faster than VET_A_FAST_ARCSEC_H also needs a recovered dot (recovered: load_recovered) or a suspect of the
     track with a detector partner (else it stays B: stats `fast_held`). Adds TRACK_COLUMNS: tracklet_id (-1 = on no
     track), the others NaN / null off a track; link's own rate_arcsec_h / pa_deg first go to session_* (keep_session_motion).
-    tr None: s unchanged but for those copies."""
+    A grade C whose reasons are all VET_TRACK_OVERRULES counts as B here: graded A, its reasons cleared (gate_* columns
+    keep what fired; stats `track_overruled`, column track_overruled). tr None: s unchanged but for those copies."""
     s = keep_session_motion(s)
     if tr is None or not len(s):
-        return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0, "fast_held": 0}
+        return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0, "fast_held": 0,
+                   "track_overruled": 0}
     j = pd.DataFrame({"mover_id": [str(x) for x in ids]}).merge(tr, on="mover_id", how="left")
     s = s.copy()
     tid = j["tracklet_id"].fillna(-1).astype(np.int64).to_numpy()
@@ -811,7 +827,10 @@ def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None,
     s["n_sessions"] = pd.array(np.where(on & np.isfinite(nsess), nsess, np.nan), dtype="Int16")
     for c in ("rate_arcsec_h", "pa_deg", "rate_sigma", "rate_snr"):
         s[c] = np.where(on, pd.to_numeric(j[c]).to_numpy(np.float64), np.nan)
-    a = ((s["grade"].to_numpy() == "B") & on & (np.nan_to_num(nsess, nan=0.0) >= C.VET_A_MIN_SESSIONS)
+    g = s["grade"].to_numpy()
+    over = np.array([g_ == "C" and bool(r) and set(r) <= set(C.VET_TRACK_OVERRULES)
+                     for g_, r in zip(g, s["reasons"] if "reasons" in s else [[]] * len(s))], bool)
+    a = (((g == "B") | over) & on & (np.nan_to_num(nsess, nan=0.0) >= C.VET_A_MIN_SESSIONS)
          & (np.nan_to_num(s["rate_snr"].to_numpy(np.float64), nan=-np.inf) >= C.VET_MOTION_SIGMA))
     fast = on & (np.nan_to_num(s["rate_arcsec_h"].to_numpy(np.float64), nan=0.0) > C.VET_A_FAST_ARCSEC_H)
     held = np.zeros(len(s), bool)
@@ -819,8 +838,13 @@ def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None,
         backed = {int(t) for t in tid[on & detector_partner(s)]} | {int(t) for t, n in (recovered or {}).items() if n > 0}
         held = a & fast & ~np.isin(tid, sorted(backed))
         a &= ~held
+    over &= a
     s.loc[a, "grade"] = "A"
-    return s, {"source": TRACKLETS_NAME, "on_track": int(on.sum()), "graded_a": int(a.sum()), "fast_held": int(held.sum())}
+    s["track_overruled"] = over
+    if over.any():
+        s["reasons"] = [[] if o else r for o, r in zip(over, s["reasons"])]
+    return s, {"source": TRACKLETS_NAME, "on_track": int(on.sum()), "graded_a": int(a.sum()), "fast_held": int(held.sum()),
+               "track_overruled": int(over.sum())}
 
 
 def gate_warnings(s: pd.DataFrame, w: Warnings) -> None:
@@ -845,32 +869,245 @@ def gate_warnings(s: pd.DataFrame, w: Warnings) -> None:
         w.add(int(i), "sharp", {"size_ratio": _num(num["size_ratio"][i], 2), "outlier_at_peak": int(so[i])})
     for i in np.flatnonzero(gate("flux_ratio")):
         w.add(int(i), "flux_jump", {"ratio": _num(num["flux_ratio"][i], 1)})
+    flaw_warnings(s, w)
+
+
+def flaw_warnings(s: pd.DataFrame, w: Warnings) -> None:
+    """Warnings with numbers for the mover flaws vet.flaw_numbers measures (its columns on s; config, mover flaws),
+    level strong where the flaw is a reason (gate_<name>): hot_pixel (a dot's pixel lit at other sky places in >=
+    VET_HOT_WARN_EXP exposures; strong from VET_HOT_GATE_EXP), hot_pixel_proven (every dot's: strong, a flaw),
+    same_pixel, whole_pixel (warning with 1 dot), wide (the median, or every dot: strong), cross_detector and
+    may_not_move (motion under VET_MOTION_WARN_SIGMA: a warning only)."""
+    if not len(s) or "hot_exposures_max" not in s:
+        return
+    nd = s["n_dots"].to_numpy(np.int64) if "n_dots" in s else np.zeros(len(s), np.int64)
+
+    def col(c):
+        return s[c].to_numpy(np.float64)
+
+    def gate(k):
+        return s[f"gate_{k}"].to_numpy(bool) if f"gate_{k}" in s else np.zeros(len(s), bool)
+
+    hmax, hmin = col("hot_exposures_max"), col("hot_exposures_min")
+    proven = V.hot_proven(s, nd)
+    for i in np.flatnonzero(np.nan_to_num(hmax) >= C.VET_HOT_WARN_EXP):
+        strong = hmax[i] >= C.VET_HOT_GATE_EXP or proven[i]
+        w.add(int(i), "hot_pixel", {"exposures_max": _num(hmax[i], 0), "exposures_min": _num(hmin[i], 0),
+                                    "n_dots": int(nd[i]), "away_arcsec": C.VET_HOT_AWAY_ARCSEC},
+              "strong" if strong else "warn")
+    for i in np.flatnonzero(proven):
+        w.add(int(i), "hot_pixel_proven", {"exposures_min": _num(hmin[i], 0), "n_dots": int(nd[i]),
+                                           "away_arcsec": C.VET_HOT_AWAY_ARCSEC}, "strong")
+    sp = col("same_pixel_px")
+    for i in np.flatnonzero(gate("same_pixel")):
+        w.add(int(i), "same_pixel", {"px": _num(sp[i], 2), "limit_px": C.VET_SAME_PIXEL_PX}, "strong")
+    wd = s["whole_dots"].to_numpy(np.int64)
+    for i in np.flatnonzero(wd >= 1):
+        w.add(int(i), "whole_pixel", {"dots": int(wd[i]), "n_dots": int(nd[i]), "sigma_px": C.LINK_WHOLE_PIXEL_SIGMA_PX},
+              "strong" if gate("whole_pixel")[i] else "warn")
+    med, mn, k = col("wide_ratio_med"), col("wide_ratio_min"), s["wide_dots"].to_numpy(np.int64)
+    gw = gate("wide")
+    for i in np.flatnonzero(gw | (np.nan_to_num(med) >= C.VET_WIDE_RATIO)):
+        w.add(int(i), "wide", {"ratio_med": _num(med[i], 2), "ratio_min": _num(mn[i], 2), "dots": int(k[i]),
+                               "limit": C.VET_WIDE_RATIO}, "strong" if gw[i] else "warn")
+    nexp = s["n_exposures"].to_numpy(np.int64) if "n_exposures" in s else np.zeros(len(s), np.int64)
+    for i in np.flatnonzero(gate("cross_detector")):
+        w.add(int(i), "cross_detector", {"exposures": int(nexp[i]), "n_dots": int(nd[i])}, "strong")
+    ms = col("motion_sigma")
+    rate = (pd.to_numeric(s["session_rate_arcsec_h"] if "session_rate_arcsec_h" in s else s["rate_arcsec_h"],
+                          errors="coerce").to_numpy(np.float64) if "rate_arcsec_h" in s else np.full(len(s), np.nan))
+    for i in np.flatnonzero(np.isfinite(ms) & (ms < C.VET_MOTION_WARN_SIGMA)):
+        w.add(int(i), "may_not_move", {"sigma": _num(ms[i], 1), "rate_arcsec_h": _num(rate[i], 1),
+                                       "rate_err_arcsec_h": _num(rate[i] / ms[i] if ms[i] > 0 else np.nan, 1)})
+
+
+def gaia_moved(ref: pd.DataFrame | None, mjd: np.ndarray) -> pd.DataFrame | None:
+    """The refcat's Gaia rows (ra, dec moved to the movers' median time, g_mag); None without them."""
+    if ref is None or not len(ref) or not len(mjd):
+        return None
+    g = ref[refcat_names(ref) == "gaia"].reset_index(drop=True)
+    if not len(g):
+        return None
+    from .refcat import move_to_epoch
+    ra, dec = move_to_epoch(g, float(np.median(mjd)))
+    return pd.DataFrame({"ra": np.asarray(ra, np.float64), "dec": np.asarray(dec, np.float64),
+                         "g_mag": g["g_mag"].to_numpy(np.float64) if "g_mag" in g else np.full(len(g), np.nan)})
+
+
+def blend_pairs(gaia: pd.DataFrame | None, ra: np.ndarray, dec: np.ndarray) -> list[dict | None]:
+    """Per position: two Gaia stars within VET_BLEND_PAIR_ARCSEC, >= VET_BLEND_APART_ARCSEC apart, their midpoint within
+    VET_BLEND_MID_ARCSEC of it ({sep1_arcsec, sep2_arcsec, apart_arcsec, g1_mag, g2_mag}; the closest midpoint), else
+    None: a dot there may be the two stars' blend."""
+    out: list[dict | None] = [None] * len(ra)
+    if gaia is None or not len(ra):
+        return out
+    tree = SkyTree(gaia["ra"].to_numpy(), gaia["dec"].to_numpy())
+    gra, gdec, gm = gaia["ra"].to_numpy(), gaia["dec"].to_numpy(), gaia["g_mag"].to_numpy()
+    for i, nb in enumerate(tree.query_radius(ra, dec, C.VET_BLEND_PAIR_ARCSEC)):
+        if len(nb) < 2:
+            continue
+        nb = np.asarray(nb)
+        cosd = np.cos(np.deg2rad(dec[i]))
+        e = ((gra[nb] - ra[i] + 180.0) % 360.0 - 180.0) * cosd * 3600.0
+        n = (gdec[nb] - dec[i]) * 3600.0
+        best = None
+        for a in range(nb.size):
+            for b in range(a + 1, nb.size):
+                mid = 0.5 * np.hypot(e[a] + e[b], n[a] + n[b])
+                apart = np.hypot(e[a] - e[b], n[a] - n[b])
+                if mid <= C.VET_BLEND_MID_ARCSEC and apart >= C.VET_BLEND_APART_ARCSEC and (best is None or mid < best[0]):
+                    best = (mid, a, b, apart)
+        if best is not None:
+            _, a, b, apart = best
+            out[i] = {"sep1_arcsec": _num(np.hypot(e[a], n[a]), 1), "sep2_arcsec": _num(np.hypot(e[b], n[b]), 1),
+                      "apart_arcsec": _num(apart, 1), "g1_mag": _num(gm[nb[a]], 1), "g2_mag": _num(gm[nb[b]], 1)}
+    return out
+
+
+def unseen_exposures(s: pd.DataFrame, photos: pd.DataFrame | None, zone: C.Zone) -> tuple[np.ndarray, np.ndarray]:
+    """(cover, unseen) per suspect of >= 2 exposures with a rate: link.exposure_coverage of its session WITHOUT the
+    exclusions near fixed sources and blends: the exposures whose photo holds its track (>= MOVER_COVER_EDGE_PX inside, in
+    the zone box) and those of them without its dots. -1 / -1 where not measured (one exposure, no rate, no dot lists,
+    no footprints)."""
+    from .link import exposure_coverage
+    from .sky import Footprint
+    n = len(s)
+    cover, unseen = np.full(n, -1, np.int64), np.full(n, -1, np.int64)
+    if (n == 0 or photos is None or "s_region" not in photos or "rate_arcsec_h" not in s or "session" not in s
+            or not V.has_dot_lists(s)):
+        return cover, unseen
+    rate = pd.to_numeric(s["session_rate_arcsec_h"] if "session_rate_arcsec_h" in s else s["rate_arcsec_h"],
+                         errors="coerce").to_numpy(np.float64)
+    pa = pd.to_numeric(s["session_pa_deg"] if "session_pa_deg" in s else s["pa_deg"], errors="coerce").to_numpy(np.float64) \
+        if ("pa_deg" in s or "session_pa_deg" in s) else np.full(n, np.nan)
+    nexp = s["n_exposures"].to_numpy(np.int64) if "n_exposures" in s else np.zeros(n, np.int64)
+    ok = np.flatnonzero((nexp >= 2) & np.isfinite(rate) & np.isfinite(pa))
+    if not ok.size:
+        return cover, unseen
+    c = s.iloc[ok][["session", "ra", "dec", "dot_mjd", "dot_det"]].reset_index(drop=True)
+    c["_vx"] = rate[ok] * np.sin(np.deg2rad(pa[ok]))
+    c["_vy"] = rate[ok] * np.cos(np.deg2rad(pa[ok]))
+    c["_t0"] = [float(np.mean(np.asarray(t, np.float64))) for t in c["dot_mjd"]]
+    c["_seen"] = [sorted(set(zip(np.asarray(t, np.float64).tolist(), np.asarray(d, np.int64).tolist())))
+                  for t, d in zip(c["dot_mjd"], c["dot_det"])]
+    p = photos[photos["session"].isin(set(c["session"].astype(np.int64)))].reset_index(drop=True)
+    if not len(p):
+        return cover, unseen
+    fps = [Footprint.from_s_region(x) for x in p["s_region"]]
+    cv, ms, _ = exposure_coverage(c, p, fps, None, None, zone)
+    cover[ok], unseen[ok] = cv, ms
+    return cover, unseen
+
+
+def mover_flaws(s: pd.DataFrame, fixed: pd.DataFrame, ref: pd.DataFrame | None, cats: dict[str, pd.DataFrame] | None,
+                photos: pd.DataFrame | None, zone: C.Zone, flaws: pd.DataFrame, w: Warnings) -> dict:
+    """The mover flaws decided here, at zone level (config, mover flaws), as warnings with numbers (w, level strong where
+    they are reasons) and reasons (w.gates): fixed_source (link's fixed source within VET_FIXED_NEAR_ARCSEC; strong when
+    as bright as the mover, or the motion is under VET_FIXED_STILL_SIGMA while the mover is not 1.5× brighter than it;
+    or a Gaia star within VET_GAIA_STILL_ARCSEC and motion under VET_GAIA_STILL_SIGMA), glow (one detector, no partner,
+    median size ratio >= VET_WIDE_RATIO, a Gaia G < VET_GLOW_G_MAG star within VET_GLOW_ARCSEC), unseen (unseen_exposures:
+    strong from VET_UNSEEN_GATE), blend (blend_pairs: a warning). flaws: vet.flaw_numbers of s. Returns counts."""
+    n = len(s)
+    st: dict = {}
+    if n == 0:
+        return st
+    ra, dec, mjd = s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64), s["mjd"].to_numpy(np.float64)
+    flux = s["flux_ujy"].to_numpy(np.float64)
+    ms = flaws["motion_sigma"].to_numpy(np.float64)
+    # fixed source at the spot
+    if len(fixed):
+        fsep, fidx = SkyTree(fixed["ra"].to_numpy(np.float64), fixed["dec"].to_numpy(np.float64)).nearest(ra, dec)
+        ok = np.isfinite(fsep) & (fidx >= 0)
+        j = np.where(ok, fidx, 0)
+        fflux = np.where(ok, fixed["flux_ujy"].to_numpy(np.float64)[j], np.nan) if "flux_ujy" in fixed else np.full(n, np.nan)
+        fsnr = np.where(ok, fixed["snr"].to_numpy(np.float64)[j], np.nan) if "snr" in fixed else np.full(n, np.nan)
+        fsep = np.where(ok, fsep, np.inf)
+    else:
+        fsep, fflux, fsnr = np.full(n, np.inf), np.full(n, np.nan), np.full(n, np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        fratio = np.where(flux > 0, fflux / flux, np.nan)
+    gaia = (cats or {}).get("gaia")
+    gsep = gaia["sep"].to_numpy(np.float64) if gaia is not None and len(gaia) == n else np.full(n, np.inf)
+    gmag = gaia["g_mag"].to_numpy(np.float64) if gaia is not None and len(gaia) == n and "g_mag" in gaia else np.full(n, np.nan)
+    near = fsep <= C.VET_FIXED_NEAR_ARCSEC
+    still = np.isfinite(ms) & (ms < C.VET_FIXED_STILL_SIGMA) & (np.nan_to_num(fratio) > C.VET_FIXED_STILL_RATIO)
+    on_gaia = (gsep <= C.VET_GAIA_STILL_ARCSEC) & np.isfinite(ms) & (ms < C.VET_GAIA_STILL_SIGMA)
+    strong = (near & ((np.nan_to_num(fratio) >= C.VET_FIXED_FLUX_RATIO) | still)) | on_gaia
+    for i in np.flatnonzero(near | on_gaia):
+        w.add(int(i), "fixed_source", {
+            "sep_arcsec": _num(fsep[i], 1) if near[i] else None, "flux_ratio": _num(fratio[i], 2) if near[i] else None,
+            "fixed_snr": _num(fsnr[i], 0) if near[i] else None,
+            "gaia_sep_arcsec": _num(gsep[i], 1) if on_gaia[i] else None, "gaia_g_mag": _num(gmag[i], 1) if on_gaia[i] else None,
+            "motion_sigma": _num(ms[i], 1)}, "strong" if strong[i] else "warn")
+    w.gate("fixed_source", strong)
+    st["fixed_source"] = {"warn": int((near | on_gaia).sum()), "strong": int(strong.sum())}
+    # glow of one detector near a very bright star
+    g = gaia_moved(ref, mjd)
+    one_det = np.array([len(str(x).split(",")) == 1 for x in s["detectors"]]) if "detectors" in s else \
+        np.array([len(set(np.asarray(v).tolist())) == 1 for v in s["dot_det"]]) if "dot_det" in s else np.zeros(n, bool)
+    paired = (pd.to_numeric(s["paired_exposures"], errors="coerce").fillna(0).to_numpy() >= 1) if "paired_exposures" in s \
+        else np.zeros(n, bool)
+    wide_med = flaws["wide_ratio_med"].to_numpy(np.float64)
+    glow = np.zeros(n, bool)
+    if g is not None:
+        b = g[g["g_mag"] < C.VET_GLOW_G_MAG]
+        bsep, bidx = SkyTree(b["ra"].to_numpy(), b["dec"].to_numpy()).nearest(ra, dec)
+        bg = np.where(bidx >= 0, b["g_mag"].to_numpy()[np.clip(bidx, 0, None)] if len(b) else np.nan, np.nan)
+        glow = one_det & ~paired & (np.nan_to_num(wide_med) >= C.VET_WIDE_RATIO) & (bsep <= C.VET_GLOW_ARCSEC)
+        for i in np.flatnonzero(glow):
+            w.add(int(i), "glow", {"star_g_mag": _num(bg[i], 1), "star_sep_arcsec": _num(bsep[i], 0),
+                                   "ratio_med": _num(wide_med[i], 2)}, "strong")
+    w.gate("glow", glow)
+    st["glow"] = int(glow.sum())
+    # unseen in exposures that photographed the track
+    cover, unseen = unseen_exposures(s, photos, zone)
+    for i in np.flatnonzero(unseen >= 1):
+        w.add(int(i), "unseen", {"exposures": int(unseen[i]), "cover": int(cover[i])},
+              "strong" if unseen[i] >= C.VET_UNSEEN_GATE else "warn")
+    w.gate("unseen", unseen >= C.VET_UNSEEN_GATE)
+    st["unseen"] = {"measured": int((cover >= 0).sum()), "warn": int((unseen >= 1).sum()),
+                    "strong": int((unseen >= C.VET_UNSEEN_GATE).sum())}
+    # two Gaia stars either side
+    bl = blend_pairs(g, ra, dec)
+    for i, v in enumerate(bl):
+        if v is not None:
+            w.add(i, "blend", v)
+    st["blend"] = int(sum(v is not None for v in bl))
+    return st
 
 
 def grade(store: Store, zone: C.Zone, s: pd.DataFrame, movers: pd.DataFrame, fixed: pd.DataFrame,
           ref: pd.DataFrame | None, cats: dict[str, pd.DataFrame] | None = None,
-          w: Warnings | None = None) -> tuple[pd.DataFrame, dict]:
+          w: Warnings | None = None, photos: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
     """vet.vet on the suspects s with the catalogue reasons (cats: catalogue_matches' tables; a catalogue left out was
-    not checked) and the warnings' gates (w.gates: bloom, halo, bright_star), near_source_arcsec from
-    the refcat and fixed sources, then grade A from tracklets (track_grades). w (row by row with s) gains the gates'
-    warnings (gate_warnings)."""
+    not checked), the mover flaws (vet.flaw_numbers, mover_flaws: photos for the coverage) and the warnings' gates
+    (w.gates: bloom, halo, bright_star, fixed_source, glow, unseen), near_source_arcsec from the refcat and fixed
+    sources, then grade A from tracklets (track_grades). w (row by row with s) gains the gates' warnings
+    (gate_warnings, flaw_warnings)."""
     t0 = time.time()
     w = w if w is not None else Warnings(len(s))
     ra, dec, mjd = s["ra"].to_numpy(np.float64), s["dec"].to_numpy(np.float64), s["mjd"].to_numpy(np.float64)
     seps = refcat_seps(ref, ra, dec, mjd)
     flux = s["flux_ujy"].to_numpy(np.float64) if len(s) else np.zeros(0)
+    free = V.load_free(store, zone) if len(s) else None
+    red = V.load_red(store, zone)
+    flaws = V.flaw_numbers(s.reset_index(drop=True), free)
+    fst = mover_flaws(s.reset_index(drop=True), fixed, ref, cats, photos, zone, flaws, w)
     extra = {k: v for k, v in catalogue_reasons(cats or {}, flux).items() if k in C.VET_GATES}
     for reason, hit in w.gates.items():
         if reason in C.VET_GATES and len(hit) == len(s):
             extra[reason] = hit
-    free = V.load_free(store, zone) if len(s) else None
-    red = V.load_red(store, zone)
-    s, st = V.vet(s, movers, free, red, extra)
+    s, st = V.vet(s, movers, free, red, extra, flaws)
+    st["mover_flaws"] = fst
     gate_warnings(s, w)
     s["near_source_arcsec"] = near_source(seps, fixed, ra, dec)
     tr = load_tracklets(store, zone) if len(s) else None
     rec = load_recovered(store, zone) if tr is not None else None
     s, st["tracklets"] = track_grades(s, mover_ids(zone, s) if len(s) else [], tr, rec)
+    over = s["track_overruled"].to_numpy(bool) if "track_overruled" in s else np.zeros(len(s), bool)
+    for i in np.flatnonzero(over):  # the track answers them: warnings, not strong checks
+        for k in C.VET_TRACK_OVERRULES:
+            w.levels[i].pop(k, None)
     st["grades"] = {g_: int((s["grade"] == g_).sum()) if len(s) else 0 for g_ in ("A", "B", "C")}
     st["catalogs_checked"] = sorted(k for k in (cats or {}) if k in C.VET_GATES)
     st["near_source"] = int(np.isfinite(s["near_source_arcsec"].to_numpy(np.float64)).sum())
@@ -899,7 +1136,7 @@ def run(store: Store, zone: C.Zone, pred: pd.DataFrame | None = None, allwise_re
     st["warn_catalogue"] = catalogue_warnings(cats, s["flux_ujy"].to_numpy(np.float64) if len(s) else np.zeros(0), w)
     s["gaia_checked"] = bool(source)
     s["catwise_checked"] = bool(info.get("wise"))
-    s, vst = grade(store, zone, s, movers, fixed, ref, cats, w)
+    s, vst = grade(store, zone, s, movers, fixed, ref, cats, w, photos)
     st["vetting"] = vst
     st["warnings"] = {c: w.count(c) for c in sorted({c for cs in w.codes for c in cs})}
     vetting = {"vetoes": ["mpc", "planets"],

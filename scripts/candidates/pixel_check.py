@@ -11,14 +11,18 @@ Checks (contract v3.23 codes; `hot_pixel`, `hot_pixel_proven`, `persistence_prov
 - faint_on_path (ok found / warn absent): forced photometry where its straight-line path predicts it in the other
   exposures of its detector (other sessions, and its own session's exposures without a dot), only where the path's
   1σ error is under PATH_MAX_SIGMA_PX; a small search within 2σ, calibrated by the same search at random places.
-- hot_pixel (strong, status flaw: every dot within ±1 px of one detector pixel while the sky moved; contract rule) /
-  hot_pixel_proven (the dot's pixel is as bright in the exposures just before and after, which look at other sky).
+- hot_pixel_proven (strong, status flaw): every dot within ±1 px of one detector pixel while the sky moved (contract
+  rule), or every dot's pixel as bright in the exposures just before and after, which look at other sky; hot_pixel
+  (warn): some dots' pixels only. A certain flaw always carries a code ending in _proven (contracts v3.24).
 - persistence (warn) / persistence_proven (strong): the same detector pixel saturated or ≥ 30× brighter in the
   exposures of that detector up to 30 min before (any field: found through the S3 listing).
 - sharp: each dot's √(a·b) (the pipeline's dot size) against the stars of similar S/N in the same rows of its photo.
 - one_photo: forced flux at each dot's sky place in the other exposures of its detector in the visit (other
-  sessions): a steady faint source there (it may be a star just under the cut) or nothing (core pixelcheck.one_photo),
-  with NASA's TRANSIENT bit next to the dot.
+  sessions): a steady faint source there (it may be a star just under the cut), a source the dot outshines (`brighter`:
+  ≥ 1.5× its light and ≥ 5σ more, as when an asteroid passes a star: ok), or nothing (core pixelcheck.one_photo), with
+  NASA's TRANSIENT bit next to the dot. "Same place, same brightness" numbers on every one_photo check and, for every
+  measured mover, check or not, in pixel.json's per-mover `one_photo` (at the place where the others see the most light):
+  flux_now_ujy, flux_other_ujy (± flux_other_err_ujy), ratio (other / now), diff_snr, verdict, det, photos, places.
 
 Pixels: small range reads of the public S3 copy (s3pixels.py): ~0.1 MB headers once per photo (cached), ~0.2–0.4 MB
 of rows per measurement. Measurements are cached (JSON lines keyed by photo and pixel place), so a rerun on a new
@@ -755,8 +759,8 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
         if sp["flaw"]:
             dd = next(iter(sp["per_det"]))
             p = sp["per_det"][dd]
-            checks.append(check(
-                "hot_pixel", "strong",
+            checks.append(check(  # certain: the flaw rule needs a code ending in _proven (contracts v3.24)
+                "hot_pixel_proven", "strong",
                 f"All {p['n']} of its D{dd} dots sit on the same detector pixel (within {fnum(max(p['dx'], p['dy']), 1)} px)"
                 f" although the sky under them moved {fnum(p['sky_arcsec'])}″: a hot pixel, not an object.",
                 f"In the Viewer's hours clock on D{dd}, step through its exposures: the dot stays at the same place on "
@@ -926,10 +930,14 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                         other_offset=[r.get("en", [np.nan, np.nan]) for r in oth])
         verdicts.append((d, v))
     metrics["one_photo"] = [_clean({k: v[k] for k in ("verdict", "n_other", "other_snr", "ratio", "limit_ratio",
-                                                       "transient_px", "offset_px")}) for _, v in verdicts]
+                                                       "transient_px", "offset_px", "own_flux_ujy", "other_flux_ujy",
+                                                       "diff_snr")}) for _, v in verdicts]
+    spot = same_spot(verdicts)
     if verdicts:
         steady = [(d, v) for d, v in verdicts if v["verdict"] == "steady"]
         tested = [(d, v) for d, v in verdicts if v["verdict"] not in ("too_few",)]
+        bright = [(d, v) for d, v in verdicts if v["verdict"] == "brighter"]
+        sv = spot_values(spot)
         if steady:
             d, v = max(steady, key=lambda q: q[1]["other_snr"])
             level = "strong" if len(steady) == len(verdicts) else "warn"
@@ -946,7 +954,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f"In the Viewer's hours clock on D{d['det']}, open other days of the visit at this place: something faint stays"
                 f" at the circle.",
                 dict(places=len(verdicts), steady_places=len(steady), photos=v["n_other"], fixed_flux_ujy=v["other_flux_ujy"],
-                     fixed_err_ujy=v["other_err_ujy"], ratio=v["ratio"])))
+                     fixed_err_ujy=v["other_err_ujy"], **sv)))
         elif any(v["verdict"] == "neighbour" for _, v in verdicts):
             nb = [(d, v) for d, v in verdicts if v["verdict"] == "neighbour"]
             d, v = max(nb, key=lambda q: q[1]["other_snr"])
@@ -959,7 +967,21 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f"In the Viewer's hours clock on D{d['det']}, compare the circle with other days of the visit: a source sits"
                 f" just beside it.",
                 dict(places=len(verdicts), neighbour_places=len(nb), photos=v["n_other"], fixed_flux_ujy=v["other_flux_ujy"],
-                     fixed_err_ujy=v["other_err_ujy"], offset_arcsec=v["offset_px"] * P.PIXEL_ARCSEC, ratio=v["ratio"])))
+                     fixed_err_ujy=v["other_err_ujy"], offset_arcsec=v["offset_px"] * P.PIXEL_ARCSEC, **sv)))
+        elif bright:
+            # a source sits at the spot, but the dot holds much more light than it (the vetting's "brighter now")
+            d, v = max(bright, key=lambda q: q[1]["other_snr"])  # = same_spot's place when it is one of them
+            checks.append(check(
+                "one_photo", "ok",
+                f"A fainter source sits at {'its places' if len(bright) > 1 else 'its place'} on other days ({v['n_other']}"
+                f" other D{d['det']} exposures measure {fnum(v['other_flux_ujy'])} ± {fnum(v['other_err_ujy'])} µJy there),"
+                f" but its own photo has {fnum(v['own_flux_ujy'])} µJy, {fnum(1.0 / v['ratio'], 1)}× as much and"
+                f" {fnum(v['diff_snr'])}σ more: something extra was there in that photo, as when a mover passes a star"
+                f" (or the source flared), not that source alone.",
+                f"In the Viewer's hours clock on D{d['det']}, compare the exposure of {when(d['mjd'])} with other days at the"
+                f" circle: the spot is clearly brighter then.",
+                dict(places=len(verdicts), brighter_places=len(bright), photos=v["n_other"], fixed_flux_ujy=v["other_flux_ujy"],
+                     fixed_err_ujy=v["other_err_ujy"], **sv)))
         elif tested:
             deep = [(d, v) for d, v in tested if v["verdict"] in ("flash", "moved", "cosmic_ray")]
             if deep:
@@ -973,7 +995,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                     f" in its own photo, so it is not a faint fixed star.",
                     "",
                     dict(places=len(verdicts), photos=n_ph, fixed_flux_ujy=v["other_flux_ujy"],
-                         fixed_err_ujy=v["other_err_ujy"], limit_ratio=v["limit_ratio"])))
+                         fixed_err_ujy=v["other_err_ujy"], limit_ratio=v["limit_ratio"], **sv)))
 
     # --- faint on the path ---
     pth = []
@@ -1097,7 +1119,34 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
             seen.add(c["code"])
             uniq.append(c)
     uniq.sort(key=lambda c: LEVEL_ORDER[c["level"]])
-    return {"checks": uniq, "status": status, "known_name": None, "metrics": metrics, "span": span, "dets": dets}
+    return {"checks": uniq, "status": status, "known_name": None, "metrics": metrics, "span": span, "dets": dets,
+            "one_photo": spot_summary(spot, len(verdicts))}
+
+
+def same_spot(verdicts: list) -> tuple | None:
+    """The (dot, one_photo result) of the place where the other exposures see the most light (largest other_snr),
+    among the measured places (not too_few); None when none."""
+    ok = [(d, v) for d, v in verdicts if v["verdict"] != "too_few" and np.isfinite(v.get("other_snr", np.nan))]
+    return max(ok, key=lambda q: q[1]["other_snr"]) if ok else None
+
+
+def spot_values(spot: tuple | None) -> dict:
+    """"Same place, same brightness": the dot's own flux now, the others' at its place, their ratio (others / now) and
+    the difference's S/N, at same_spot's place ({} when none)."""
+    if spot is None:
+        return {}
+    v = spot[1]
+    return dict(flux_now_ujy=v["own_flux_ujy"], flux_other_ujy=v["other_flux_ujy"], flux_other_err_ujy=v["other_err_ujy"],
+                ratio=v["ratio"], diff_snr=v["diff_snr"])
+
+
+def spot_summary(spot: tuple | None, places: int) -> dict | None:
+    """pixel.json's per-mover `one_photo` (every measured mover, check or not): spot_values with that place's verdict,
+    detector and number of other exposures, and the places measured."""
+    if spot is None:
+        return None
+    d, v = spot
+    return _clean(dict(verdict=v["verdict"], det=d["det"], photos=v["n_other"], places=places, **spot_values(spot)))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1214,7 +1263,8 @@ def main(argv=None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     doc_out = {"source": "pixel", "made": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "candidates_file": str(Path(a.candidates).resolve()),
-               "candidates": {k: {"checks": v["checks"], "status": v["status"], "known_name": None}
+               "candidates": {k: {"checks": v["checks"], "status": v["status"], "known_name": None,
+                                  **({"one_photo": v["one_photo"]} if v.get("one_photo") else {})}
                               for k, v in results.items()}}
     tmp = out.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc_out, ensure_ascii=False, indent=1, default=_json_default))
