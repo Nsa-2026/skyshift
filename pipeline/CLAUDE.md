@@ -90,6 +90,18 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~16 GB (was ~20 GB of columns,
   ~50 GB at a 16 KiB block, several hundred GB at gcsfs' default), of which sources' spectra 8.2 GB (flux_ujy/err_ujy
   whole: the candidates' rows touch ~80% of their pages), members ~2.3, dot flags ~2.4, refcat 1.7, classes 0.9.
+- Changes in known stars (16 Nov; changes.py, changes_step.py, changes_export.py; not a CLI step, not in `all`;
+  docs/watch-changes.md): `uv run python -m skyshift_pipeline.changes_step --zones a,b|all [--skip-done] [--drop-points]
+  --root gs://nasa-glazing-data [--out-root <dir>] --cache <dir>` reads a finished zone's lightcurves (11 of its columns,
+  ~57% of the file: 61 zones hold 99.5 GB, median 1.4 GB, ecl09 7.6 GB) in star chunks of `--chunk-points` (default
+  1 M; same output as one chunk, tested): peak RSS follows the chunk, not the zone (t_rwaur 10.8 M points: 1.5 GB at
+  1 M, 2.5 GB at 3 M; ecl09 ~300 M points estimated ≤ 5 GB: its crossids/sources/refcat reads add ~2–3 GB), crossids,
+  sources, fragments, refcat, orphans and photolist →
+  results/<zone>/changes.parquet + changes_report.json (brightness, colour, vanished/appeared, each with text, look,
+  checks; halves-null false-alarm rate). Gaia variability, and bright neighbours outside refcat's box, from ESA's
+  archive by source_id only (cached in --cache; down → variability unknown, `neighbours_unchecked`). Then
+  `uv run python -m skyshift_pipeline.changes_export --root gs://nasa-glazing-data --out ../web/public/data/changes.json`
+  merges every zone that has one into changes.json and the Atom feed changes.atom (next to it).
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,

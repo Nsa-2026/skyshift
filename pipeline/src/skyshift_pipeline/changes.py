@@ -124,7 +124,8 @@ def visit_table(points: pd.DataFrame, halves: bool = False) -> pd.DataFrame:
     rel, err = rel[ok], err[ok]
     if not rel.size:
         return pd.DataFrame({c: pd.Series(dtype="float64") for c in VISIT_COLUMNS})
-    lc, _ = pd.factorize(pd.MultiIndex.from_arrays([star, det, forced]))
+    sc, _ = pd.factorize(star)                                     # integer keys, not a MultiIndex of tuples (memory)
+    lc, _ = pd.factorize(sc.astype(np.int64) * 16 + det * 2 + forced)
     o = np.lexsort((mjd, vis, lc))
     star, det, forced, vis, mjd, rel, err, lc, sid, ref = (a[o] for a in (star, det, forced, vis, mjd, rel, err, lc, sid, ref))
     # sessions within (light curve, visit)
@@ -217,23 +218,52 @@ def visit_table_from_summary(summ: pd.DataFrame) -> pd.DataFrame:
     return out[ok & (out["n"].to_numpy() >= CHANGES_MIN_POINTS)].reset_index(drop=True)
 
 
+def zp_keys(vt: pd.DataFrame) -> np.ndarray:
+    """One int64 per row for its (detector, origin, visit, half): the zero point's group."""
+    forced = vt["origin"].astype(str).to_numpy() == "forced"
+    return ((vt["detector"].to_numpy(np.int64) * 2 + forced) * 65536 + vt["visit"].to_numpy(np.int64)) * 4 \
+        + (vt["half"].to_numpy(np.int64) + 1)
+
+
+def zero_point_table(keys: np.ndarray, means: np.ndarray, isref: np.ndarray) -> dict[int, tuple[float, int]]:
+    """{zp_keys value: (zero point, reference light curves)}: per group the median mean of the reference stars' light
+    curves (1 with fewer than 20). Any subset of rows that holds every reference row and every group gives the same
+    table (the step builds it from star chunks)."""
+    uniq, code = np.unique(np.asarray(keys, np.int64), return_inverse=True)
+    isref = np.asarray(isref, bool)
+    zp = group_median(code[isref], np.asarray(means, np.float64)[isref], len(uniq))
+    nref = np.bincount(code[isref], minlength=len(uniq))
+    zp = np.where(np.isfinite(zp) & (nref >= 20) & (zp > 0), zp, 1.0)
+    return {int(k): (float(zp[i]), int(nref[i])) for i, k in enumerate(uniq)}
+
+
+def apply_zero_points(vt: pd.DataFrame, table: dict[int, tuple[float, int]]) -> pd.DataFrame:
+    """Divide mean, err and median by their group's zero point (1 for a group not in the table)."""
+    vt = vt.copy()
+    uniq, code = np.unique(zp_keys(vt), return_inverse=True)
+    zp = np.array([table.get(int(k), (1.0, 0))[0] for k in uniq], np.float64)[code] if len(vt) else np.ones(0)
+    for c in ("mean", "err", "median"):
+        vt[c] = (vt[c].to_numpy(np.float64) / zp).astype(np.float32)
+    return vt
+
+
+def zero_point_rows(table: dict[int, tuple[float, int]]) -> list[dict]:
+    """The table as the report's rows (rounded), sorted by origin, detector, visit, half."""
+    rows = []
+    for k, (zp, n) in table.items():
+        dk, rest = divmod(k, 65536 * 4)
+        v, h = divmod(rest, 4)
+        rows.append({"detector": int(dk // 2), "origin": "forced" if dk % 2 else "dot", "visit": int(v), "half": int(h - 1),
+                     "zero_point": round(float(zp), 4), "ref_light_curves": int(n)})
+    return sorted(rows, key=lambda r: (r["origin"], r["detector"], r["visit"], r["half"]))
+
+
 def zero_points(vt: pd.DataFrame, ref_stars: np.ndarray) -> tuple[pd.DataFrame, list[dict]]:
     """Divide each (detector, origin, visit, half)'s means by the median mean of the reference stars' light curves
     there (a whole visit a little brighter or fainter in one detector is calibration, not the stars)."""
-    vt = vt.copy()
     isref = np.isin(vt["star"].to_numpy(np.int64), ref_stars)
-    key = pd.MultiIndex.from_arrays([vt["detector"].to_numpy(), vt["origin"].to_numpy(), vt["visit"].to_numpy(),
-                                     vt["half"].to_numpy()])
-    code, uniq = pd.factorize(key)
-    zp = group_median(code[isref], vt["mean"].to_numpy(np.float64)[isref], len(uniq))
-    nref = np.bincount(code[isref], minlength=len(uniq))
-    zp = np.where(np.isfinite(zp) & (nref >= 20) & (zp > 0), zp, 1.0)
-    vt["mean"] = (vt["mean"].to_numpy(np.float64) / zp[code]).astype(np.float32)
-    vt["err"] = (vt["err"].to_numpy(np.float64) / zp[code]).astype(np.float32)
-    vt["median"] = (vt["median"].to_numpy(np.float64) / zp[code]).astype(np.float32)
-    rows = [{"detector": int(d), "origin": str(o), "visit": int(v), "half": int(h), "zero_point": round(float(zp[i]), 4),
-             "ref_light_curves": int(nref[i])} for i, (d, o, v, h) in enumerate(uniq)]
-    return vt, sorted(rows, key=lambda r: (r["origin"], r["detector"], r["visit"], r["half"]))
+    table = zero_point_table(zp_keys(vt), vt["mean"].to_numpy(np.float64), isref)
+    return apply_zero_points(vt, table), zero_point_rows(table)
 
 
 # --- brightness change -------------------------------------------------------------------------------------------
@@ -689,6 +719,11 @@ def population(source_id: np.ndarray, ref_id: np.ndarray, ra: np.ndarray, dec: n
     return np.where(sid >= 0, "source", np.where(inside, "forced_inside", "forced_outside"))
 
 
+def _n_detectors(n: int) -> str:
+    """"1 other detector" / "2 other detectors"."""
+    return f"{n} other detector" + ("" if n == 1 else "s")
+
+
 def brightness_checks(r) -> list[dict]:
     """v3.23-style checks for one listed brightness alert row (fields used when present: agree, disagree, other_z,
     origin, survives_session_drop, gaia_variable, gaia_class, nb_sep, nb_dmag, sign_blend, sign_saturated).
@@ -707,43 +742,86 @@ def brightness_checks(r) -> list[dict]:
     dis = int(getattr(r, "disagree", 0) or 0)
     agr = int(getattr(r, "agree", 0) or 0)
     if dis:
-        add("detectors_disagree", "warn", f"{dis} other detector(s) changed the opposite way at >= "
-            f"{CHANGES_Z_CONFIRM:.0f}σ.", "Viewer, months clock: blink the same two visits in each detector.",
+        add("detectors_disagree", "warn", f"{_n_detectors(dis)} changed the opposite way (by at least "
+            f"{CHANGES_Z_CONFIRM:.0f}σ).", "Viewer, months clock: blink the same two visits in each detector.",
             {"disagreeing_detectors": dis})
     oz = getattr(r, "other_z", np.nan)
     if oz is not None and np.isfinite(oz) and np.sign(oz) != np.sign(r.z) and abs(oz) >= CHANGES_Z_CONFIRM:
         other = "forced photometry" if r.origin == "dot" else "its detections"
         add("origin_disagrees", "warn", f"In D{det} {other} says the opposite ({oz:+.1f}σ): the measurement, not "
             "the star, may have changed.", "", {"other_sigma": round(float(oz), 2)})
+    if agr:
+        add("other_detectors_agree", "ok", f"{_n_detectors(agr)} changed the same way (by at least "
+            f"{CHANGES_Z_CONFIRM:.0f}σ).", "", {"agreeing_detectors": agr})
+    return _sorted_checks(out + common_checks(r, det))
+
+
+# Gaia DR3 variability classes (vari_classifier_result.best_class_name) in plain words
+GAIA_CLASS_WORDS = {
+    "ECL": "eclipsing binary", "RR": "RR Lyrae pulsating star", "LPV": "long-period variable (a pulsating giant)",
+    "YSO": "young star", "RS": "RS CVn active binary", "CEP": "Cepheid", "DSCT|GDOR|SXPHE": "delta Scuti type pulsator",
+    "SOLAR_LIKE": "spotted Sun-like star", "S": "short-timescale variable", "AGN": "active galaxy nucleus",
+    "ACV|CP|MCP|ROAM|ROAP|SXARI": "chemically peculiar star", "BCEP": "beta Cephei pulsator", "BE|GCAS|SDOR|WR": "eruptive hot star",
+    "CV": "cataclysmic variable", "ELL": "ellipsoidal binary", "EP": "star with a transiting planet", "MICROLENSING": "microlensing event",
+    "RCB": "R CrB star", "SN": "supernova", "SPB": "slowly pulsating B star", "SDB": "pulsating hot subdwarf", "WD": "pulsating white dwarf",
+}
+
+
+def gaia_variable_text(cls: str) -> str:
+    """"Gaia already lists it as variable (DR3 class ECL: eclipsing binary)"; without a class just the first words."""
+    words = GAIA_CLASS_WORDS.get(cls, "")
+    return "Gaia already lists it as variable" + (f" (DR3 class {cls}{': ' + words if words else ''})" if cls else "")
+
+
+def common_checks(r, det: int) -> list[dict]:
+    """Checks every star kind shares (fields used when present: nb_sep, nb_dmag, neighbours_checked, sign_blend,
+    sign_saturated, gaia_variable, gaia_class)."""
+    out = []
+
+    def add(code, level, text, look="", values=None):
+        out.append({"code": code, "level": level, "text": text, "look": look, "values": values})
+
     nb, dm = getattr(r, "nb_sep", np.nan), getattr(r, "nb_dmag", np.nan)
     if nb is not None and np.isfinite(nb) and np.isfinite(dm) and dm < 0:
         add("bright_neighbour", "warn", f"A Gaia star {-dm:.1f} mag brighter sits {nb:.0f}″ away; its wings fall on "
             "this star differently when the telescope turns between visits.",
             f"Viewer, months clock, D{det}: does the neighbour's halo change shape between the visits?",
             {"sep_arcsec": round(float(nb), 1), "dmag": round(float(dm), 2)})
+    nc = getattr(r, "neighbours_checked", True)
+    if nc is not None and not (isinstance(nc, float) and math.isnan(nc)) and not bool(nc):
+        add("neighbours_unchecked", "warn", "Brighter Gaia neighbours within "
+            f"{CHANGES_NEIGHBOUR_ARCSEC:.0f}″ could not be checked: the star lies beyond the zone's catalogue and "
+            "Gaia's archive did not answer.", f"Viewer, months clock, D{det}: is a much brighter star right next to it?",
+            None)
     if bool(getattr(r, "sign_blend", False)):
         add("blend", "warn", "Two or more Gaia stars G < 19 within 8″ share its light.", "", None)
     if bool(getattr(r, "sign_saturated", False)):
         add("saturated", "warn", "Its core saturates in some photos: the brightness comes from the wings.", "", None)
-    if agr:
-        add("other_detectors_agree", "ok", f"{agr} other detector(s) changed the same way at >= "
-            f"{CHANGES_Z_CONFIRM:.0f}σ.", "", {"agreeing_detectors": agr})
     cls = str(getattr(r, "gaia_class", "") or "")
-    if bool(getattr(r, "gaia_variable", False)) or cls:
-        add("known_variable", "ok", "Gaia DR3 lists it as variable" + (f" (class {cls})" if cls else "") +
-            ": a known variable doing what it does.", "", {"gaia_class": cls or None})
+    gv = getattr(r, "gaia_variable", False)    # bool, or 1 / 0 / −1 (unknown: Gaia's archive did not answer)
+    if (gv is not None and not (isinstance(gv, float) and math.isnan(gv)) and int(gv) == 1) or cls:
+        add("known_variable", "ok", gaia_variable_text(cls) + ": a known variable doing what it does.", "",
+            {"gaia_class": cls or None})
+    return out
+
+
+def _sorted_checks(checks: list[dict]) -> list[dict]:
     order = {"strong": 0, "warn": 1, "ok": 2}
-    return sorted(out, key=lambda c: order[c["level"]])
+    return sorted(checks, key=lambda c: order[c["level"]])
 
 
-def colour_text(c, name: str, va: int, vb: int) -> tuple[str, str, dict]:
+def colour_text(c, name: str, va, vb: int) -> tuple[str, str, dict]:
+    """va: one visit or the history (a list of every earlier visit)."""
     redder = c.slope > 0
-    text =(f"{name} changed colour between visit {va} and visit {vb}: its brightness ratio after/before rises by "
+    vs = [int(v) for v in np.atleast_1d(va)]
+    before = f"visit {vs[0]}" if len(vs) == 1 else f"its earlier visits {vs[0]}–{vs[-1]} together"
+    text = (f"{name} changed colour between {before} and visit {vb}: its brightness ratio after/before rises by "
             f"{100 * c.d1_d6_change:+.0f}% from 0.9 µm (D1) to 4.7 µm (D6) ({abs(c.colour_z):.1f}σ, "
             f"{int(c.n_det_colour)} detectors): it became {'redder' if redder else 'bluer'}.")
-    look = (f"Viewer, months clock: blink visit {va} against visit {vb} in D1, then in D6; the change should be "
-            f"{'stronger in D1' if redder else 'stronger in D6'} than in the other.")
-    values = {"visit_a": va, "visit_b": vb, "d1_d6_change": round(float(c.d1_d6_change), 4),
+    hi, lo = ("D6", "D1") if redder else ("D1", "D6")
+    look = (f"Viewer, months clock: blink visit {vs[-1]} against visit {vb} in D1, then in D6; in visit {vb} it should "
+            f"gain more (or fade less) in {hi} than in {lo}, against the stars around it.")
+    values = {"visit_a": vs[0] if len(vs) == 1 else vs, "visit_b": vb, "d1_d6_change": round(float(c.d1_d6_change), 4),
               "sigma": round(float(c.colour_z), 2), "detectors": int(c.n_det_colour)}
     return text, look, values
 
