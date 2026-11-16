@@ -49,12 +49,13 @@ from scipy.spatial import cKDTree
 from skyshift_core import (SAT_BITS, background, build_mask, centroid, detect, open_level2, pixel_to_sky, propagate,
                            sky_to_pixel, ujy_per_mjysr)
 from skyshift_core.detect import APERTURE_R_PX as DETECT_APERTURE_R_PX
+from skyshift_core.flags import TRANSIENT
 from skyshift_core.glow import fit_glow
 from skyshift_core.level2 import EPSF
 
 from . import config as C
 from . import forced_sky, log
-from .psf import dot_positions, psf_photometry, residual_companions
+from .psf import dot_positions, gather, mf_at, mf_pass, psf_photometry, residual_companions
 from .sky import cell_of
 from .store import Store, dots_rel, photolist_rel, results_rel
 
@@ -78,17 +79,29 @@ DOT_V4_FALLBACK = {"x_psf": "x", "y_psf": "y", "ra_psf": "ra", "dec_psf": "dec",
 DOT_V4_DEFAULT = {"psf_pos_ok": False, "sep_flag": 0}
 # fixed_size_list<float32>[len(C.AP_RADII_PX)] columns, after the scalar ones (dots_arrow writes them)
 DOT_LIST_COLUMNS = ("flux_ap_ujy", "flux_ap_err_ujy")
+# extraction v2 (DetectSettings.v2; docs/extraction-v2.md): after the list columns, only in v2 files
+DOT_V2_COLUMNS = {
+    "snr_mf": "float32",            # ePSF-matched-filter S/N at the dot (largest over its 3 × 3 pixels)
+    "n_transient": "int8",          # pixels with FLAGS TRANSIENT (bit 0) within DOTS_TRANSIENT_R_PX (3 px)
+    "n_masked": "int8",             # masked pixels (contracts/flags.md mask) with centres within 2 px (the aperture)
+    "partner_flux_ujy": "float32",  # r = 2 px aperture at the dot's sky position in the simultaneous partner detector
+    "partner_err_ujy": "float32",   # (D1↔D4, D2↔D5, D3↔D6, same exposure); its 1σ × the partner's empirical factor
+}
 
 
-def empty_dots() -> pd.DataFrame:
+def empty_dots(v2: bool = False) -> pd.DataFrame:
     df = pd.DataFrame({c: pd.Series(dtype=t) for c, t in DOT_COLUMNS.items()})
     for c in DOT_LIST_COLUMNS:
         df[c] = pd.Series(dtype=object)
+    if v2:
+        for c, t in DOT_V2_COLUMNS.items():
+            df[c] = pd.Series(dtype=t)
     return df
 
 
 def as_dots(df: pd.DataFrame) -> pd.DataFrame:
-    """Columns in contract order and types; missing float columns become NaN (e.g. test frames)."""
+    """Columns in contract order and types; missing float columns become NaN (e.g. test frames). A v2 table
+    (any DOT_V2_COLUMNS present) keeps them after the list columns (missing partner columns NaN)."""
     df = df.copy()
     for c, t in DOT_COLUMNS.items():
         if c not in df and (c in DOT_V4_DEFAULT or DOT_V4_FALLBACK.get(c) in df):
@@ -102,6 +115,14 @@ def as_dots(df: pd.DataFrame) -> pd.DataFrame:
     for c in DOT_LIST_COLUMNS:
         out[c] = df[c] if c in df else pd.Series([np.full(n, np.nan, np.float32) for _ in range(len(df))],
                                                    index=df.index, dtype=object)
+    if any(c in df for c in DOT_V2_COLUMNS):
+        for c, t in DOT_V2_COLUMNS.items():
+            if c in df:
+                out[c] = df[c].astype(t)
+            elif t.startswith("float"):
+                out[c] = np.full(len(df), np.nan, t)
+            else:
+                out[c] = np.zeros(len(df), t)
     return out
 
 
@@ -355,27 +376,29 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
                thresh: float = C.DETECT_THRESH, min_snr: float = C.DOT_MIN_SNR,
                timing: dict | None = None, ctx: PhotoContext | None = None,
                deblend_cont: float = C.DOTS_DEBLEND_CONT, settings: C.DetectSettings | None = None,
-               counts: dict | None = None) -> pd.DataFrame:
+               counts: dict | None = None, extras: dict | None = None) -> pd.DataFrame:
     """The dot table of one opened Level 2 photo (or cutout). Uses l2.zodi and l2.epsf when present
     (else those columns are NaN). `timing`, if given, receives seconds per stage. deblend_cont: sep's
     (config.zone_dots gives the zone's); `settings` (config.zone_detect), when given, replaces it with every setting:
     fine detection v2 (contracts/dots.md) adds sep clean_param, the saturation guard and the ePSF second pass, whose
     dots (sep_flag SEP_FLAG_PSF_PASS) are measured on the residual; the glow model (settings.glow, 16 Nov) detects on
     IMAGE minus the bright stars' glow with the glow's noise (glow_dots). `counts`, if given, receives n_guard_dropped,
-    n_psf_pass and the glow's counts."""
+    n_psf_pass and the glow's counts. Extraction v2 (settings.v2) adds the matched-filter pass (its dots: sep_flag
+    SEP_FLAG_MF_PASS, measured on the residual), the v2 columns (DOT_V2_COLUMNS; partner columns NaN here) and puts
+    the peaks and the depth map in `extras` ("peaks", "mf_den") when given."""
     timing = {} if timing is None else timing
     counts = {} if counts is None else counts
     s = settings if settings is not None else C.DetectSettings(deblend_cont)
     if s.glow and getattr(l2, "flags", None) is not None:
-        return glow_dots(l2, obs_id, detector, session, visit, thresh, min_snr, timing, ctx, s, counts)
-    det, comp, ctx = _detections(l2, thresh, min_snr, timing, ctx, s, counts)
+        return glow_dots(l2, obs_id, detector, session, visit, thresh, min_snr, timing, ctx, s, counts, extras)
+    det, comp, ctx = _detections(l2, thresh, min_snr, timing, ctx, s, counts, extras)
     if det is None:
-        return empty_dots()
-    return _measure_all(l2, det, comp, ctx, obs_id, detector, session, visit, timing)
+        return empty_dots(s.v2)
+    return _measure_all(l2, det, comp, ctx, obs_id, detector, session, visit, timing, v2=s.v2)
 
 
 def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoContext | None, s: C.DetectSettings,
-                counts: dict) -> tuple[np.ndarray | None, tuple | None, PhotoContext | None]:
+                counts: dict, extras: dict | None = None) -> tuple[np.ndarray | None, tuple | None, PhotoContext | None]:
     """core.detect (+ the saturation guard and the ePSF second pass of fine detection v2) on l2.data.
     Returns (detections, (second-pass dots, their subtracted model) or None, the photo context); detections None
     when there is nothing at all."""
@@ -422,29 +445,65 @@ def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoConte
             timing["psf_pass_s"] = time.perf_counter() - t0
         elif s.psf_pass:
             counts["n_psf_pass"] = 0
+    if s.v2:
+        comp = _mf_pass(l2, det, comp, ctx, s, counts, extras, timing)
     if len(det) == 0 and not (comp is not None and len(comp[0])):
         return None, None, ctx
     return det, comp, ctx
 
 
+def _mf_pass(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, s: C.DetectSettings, counts: dict,
+             extras: dict | None, timing: dict) -> tuple | None:
+    """Extraction v2's matched-filter pass (psf.mf_pass) on the second pass's residual: its dots join the second
+    pass's (sep_flag SEP_FLAG_MF_PASS, measured on the residual); its peaks and depth map go to `extras`."""
+    t0 = time.perf_counter()
+    shape = ctx.sub.shape
+    model = comp[1] if comp is not None else None
+    resid = ctx.sub if model is None else np.where(ctx.bad, 0.0, ctx.sub - model)
+    noise = ctx.noise0 if model is None else np.sqrt(ctx.noise0 ** 2 + (C.PSF_PASS_MODEL_FRAC * model) ** 2)
+    xs = [np.asarray(det["x"], np.float64)] + ([np.asarray(comp[0]["x"], np.float64)] if comp is not None else [])
+    ys = [np.asarray(det["y"], np.float64)] + ([np.asarray(comp[0]["y"], np.float64)] if comp is not None else [])
+    flags = np.asarray(l2.flags) if l2.flags is not None else np.zeros(shape, np.int32)
+    dsat = sat_distance(flags) if s.sat_guard_px > 0 else None
+    prim_x = prim_y = None
+    if model is not None and len(det):
+        ix, iy = pixel_of(det["x"].astype(np.float64), det["y"].astype(np.float64), shape)
+        use = (det["snr"] >= C.PSF_PASS_PRIMARY_SNR) & ((ctx.f3[iy, ix] & SAT_BITS) == 0)
+        prim_x, prim_y = det["x"][use].astype(np.float64), det["y"][use].astype(np.float64)
+    mp = mf_pass(resid, noise, ctx.bad, getattr(l2, "epsf", None), np.concatenate(xs), np.concatenate(ys),
+                 primary_x=prim_x, primary_y=prim_y, sat_dist=dsat, sat_guard_px=s.sat_guard_px)
+    md = mp.dots.copy()
+    md["sep_flag"] = md["sep_flag"] | C.SEP_FLAG_MF_PASS
+    counts.update(mp.info)
+    if extras is not None:
+        extras["peaks"] = mp.peaks
+        extras["mf_den"] = mp.den
+    if comp is None:
+        comp = (md, np.zeros(shape)) if len(md) else None
+    elif len(md):
+        comp = (np.concatenate([comp[0], md]), comp[1])
+    timing["mf_pass_s"] = time.perf_counter() - t0
+    return comp
+
+
 def _measure_all(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, obs_id: str, detector: int, session: int,
                  visit: int, timing: dict, l2_own=None, ctx_own: PhotoContext | None = None,
-                 own: np.ndarray | None = None) -> pd.DataFrame:
+                 own: np.ndarray | None = None, v2: bool = False) -> pd.DataFrame:
     """The dot rows of detections `det` on l2 (and the second pass's on the residual), brightest flux_ujy first.
     `own` (glow): those rows are measured on l2_own with ctx_own instead (a bright star's own dot on IMAGE)."""
     if own is not None and own.any():
-        parts = [_measure_dots(l2_own, det[own], ctx_own, obs_id, detector, session, visit, {})]
+        parts = [_measure_dots(l2_own, det[own], ctx_own, obs_id, detector, session, visit, {}, v2)]
         if (~own).any():
-            parts.append(_measure_dots(l2, det[~own], ctx, obs_id, detector, session, visit, timing))
+            parts.append(_measure_dots(l2, det[~own], ctx, obs_id, detector, session, visit, timing, v2))
         df = pd.concat(parts, ignore_index=True)
     else:
-        df = _measure_dots(l2, det, ctx, obs_id, detector, session, visit, timing)
+        df = _measure_dots(l2, det, ctx, obs_id, detector, session, visit, timing, v2)
     if comp is not None and len(comp[0]):
         # measured on the residual: IMAGE minus the subtracted ePSF models of the brighter dots
         t0 = time.perf_counter()
         l2r = copy.copy(l2)
         l2r.data = (np.asarray(l2.data, np.float64) - comp[1]).astype(np.asarray(l2.data).dtype)
-        dfc = _measure_dots(l2r, comp[0], ctx, obs_id, detector, session, visit, {})
+        dfc = _measure_dots(l2r, comp[0], ctx, obs_id, detector, session, visit, {}, v2)
         df = pd.concat([df, dfc], ignore_index=True)
         timing["psf_pass_measure_s"] = time.perf_counter() - t0
     if own is not None or (comp is not None and len(comp[0])):
@@ -471,7 +530,7 @@ def glow_image(l2, ctx: PhotoContext, glow) -> object:
 
 
 def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: float, min_snr: float, timing: dict,
-              ctx: PhotoContext | None, s: C.DetectSettings, counts: dict) -> pd.DataFrame:
+              ctx: PhotoContext | None, s: C.DetectSettings, counts: dict, extras: dict | None = None) -> pd.DataFrame:
     """dots_table with the glow model (contracts/dots.md "Glow model"): core.glow.fit_glow models every saturated
     core and every peak >= GLOW_MIN_PEAK_SNR; detection (and the guard and second pass) runs on IMAGE minus the glow
     outside each star's own pixels, with the noise scaled by the glow's local scatter. Each modelled star's own dot
@@ -489,14 +548,15 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
     s0 = dataclasses.replace(s, glow=False)
     if not len(st):
         counts["n_glow_pieces"] = 0
-        det, comp, ctx0 = _detections(l2, thresh, min_snr, timing, ctx0, s0, counts)
-        return empty_dots() if det is None else _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit, timing)
+        det, comp, ctx0 = _detections(l2, thresh, min_snr, timing, ctx0, s0, counts, extras)
+        return empty_dots(s.v2) if det is None else _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit,
+                                                                timing, v2=s.v2)
     l2g = glow_image(l2, ctx0, gl)
     ctxg = photo_context(l2g, {})
-    det, comp, ctxg = _detections(l2g, thresh, min_snr, timing, ctxg, s0, counts)
+    det, comp, ctxg = _detections(l2g, thresh, min_snr, timing, ctxg, s0, counts, extras)
     if det is None:
         counts["n_glow_pieces"] = 0
-        return empty_dots()
+        return empty_dots(s.v2)
     own, piece = gl.own(det["x"], det["y"], C.GLOW_SELF_PX)
     n_piece = int(piece.sum())
     det, own = det[~piece], own[~piece]
@@ -507,7 +567,7 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         comp = (cd[~cpiece], comp[1])
     counts["n_glow_pieces"] = n_piece
     if len(det) == 0 and not (comp is not None and len(comp[0])):
-        return empty_dots()
+        return empty_dots(s.v2)
     if own.any():
         # the star's own aperture flux on IMAGE (detect's r = 2 px aperture on IMAGE minus the background, as without
         # the glow model), not on IMAGE minus the glow
@@ -518,12 +578,14 @@ def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: 
         det["flux"][own], det["flux_err"][own] = f, fe
         with np.errstate(divide="ignore", invalid="ignore"):
             det["snr"][own] = np.where(fe > 0, f / fe, 0.0)
-    return _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own)
+    return _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own,
+                        v2=s.v2)
 
 
 def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector: int, session: int, visit: int,
-                  timing: dict) -> pd.DataFrame:
-    """Everything dots_table measures for detections `det` (core.detect's dtype) on l2.data."""
+                  timing: dict, v2: bool = False) -> pd.DataFrame:
+    """Everything dots_table measures for detections `det` (core.detect's dtype) on l2.data; v2 adds the
+    DOT_V2_COLUMNS (partner columns NaN: process_photos fills them)."""
     data = np.asarray(l2.data)
     f3 = ctx.f3
     x, y = det["x"].astype(np.float64), det["y"].astype(np.float64)
@@ -555,8 +617,11 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
     pos_err = pos_err_arcsec(det["snr"])
     x_psf, y_psf, pos_err_psf, psf_ok = x, y, pos_err, np.zeros(x.size, bool)
     if C.DOTS_PSF_POSITION and getattr(l2, "epsf", None) is not None:  # saturated dots keep the wings centroid
+        fit = ~sat & (det["snr"] >= C.PSF_POS_MIN_SNR)
+        if v2:  # matched-filter dots (aperture S/N may be < 5) get the ePSF position too
+            fit |= ~sat & ((det["sep_flag"] & C.SEP_FLAG_MF_PASS) != 0)
         x_psf, y_psf, pos_err_psf, psf_ok = dot_positions(data, x, y, l2.epsf, noise=ctx.noise, bad=ctx.bad, pos_err=pos_err,
-                                                          fit=~sat & (det["snr"] >= C.PSF_POS_MIN_SNR))
+                                                          fit=fit)
     ra_psf, dec_psf = pixel_to_sky(l2.wcs, x_psf, y_psf)
     timing["psf_pos_s"] = time.perf_counter() - t0
     t0 = time.perf_counter()
@@ -601,7 +666,41 @@ def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector:
     }).astype(DOT_COLUMNS)
     df["flux_ap_ujy"] = list(apf.astype(np.float32))
     df["flux_ap_err_ujy"] = list(ape.astype(np.float32))
+    if v2:
+        t0 = time.perf_counter()
+        for c, v in v2_columns(l2, ctx, x, y).items():
+            df[c] = v
+        timing["v2_columns_s"] = time.perf_counter() - t0
     return df
+
+
+def _disc_count(mask: np.ndarray, x: np.ndarray, y: np.ndarray, r: float) -> np.ndarray:
+    """Pixels of a boolean map whose centres lie within r px of each (x, y)."""
+    h = int(np.ceil(r)) + 1
+    ix, iy = np.rint(x).astype(np.int64), np.rint(y).astype(np.int64)
+    v, inside = gather(np.asarray(mask, bool), ix, iy, h, fill=None)
+    k = np.arange(-h, h + 1)
+    dx = (ix - x)[:, None, None] + k[None, None, :]
+    dy = (iy - y)[:, None, None] + k[None, :, None]
+    near = (dx ** 2 + dy ** 2) <= r * r
+    return (v & inside & near).sum(axis=(1, 2))
+
+
+def v2_columns(l2, ctx: PhotoContext, x: np.ndarray, y: np.ndarray) -> dict:
+    """snr_mf, n_transient, n_masked of dots at (x, y) on l2.data (extraction v2); partner columns NaN."""
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    n = x.size
+    out = {"snr_mf": np.zeros(n, np.float32), "n_transient": np.zeros(n, np.int8), "n_masked": np.zeros(n, np.int8),
+           "partner_flux_ujy": np.full(n, np.nan, np.float32), "partner_err_ujy": np.full(n, np.nan, np.float32)}
+    if n == 0:
+        return out
+    sub = np.where(ctx.bad, 0.0, np.asarray(l2.data, np.float64) - ctx.bkg_level)
+    out["snr_mf"] = mf_at(sub, ctx.noise0, ctx.bad, x, y, getattr(l2, "epsf", None)).astype(np.float32)
+    if getattr(l2, "flags", None) is not None:
+        tr = (np.asarray(l2.flags).astype(np.int64) & TRANSIENT) != 0
+        out["n_transient"] = np.minimum(_disc_count(tr, x, y, C.DOTS_TRANSIENT_R_PX), 127).astype(np.int8)
+    out["n_masked"] = np.minimum(_disc_count(ctx.bad, x, y, DETECT_APERTURE_R_PX), 127).astype(np.int8)
+    return out
 
 
 # --- forced photometry at reference-catalogue positions ------------------------------------------
@@ -816,6 +915,9 @@ def detect_meta(deblend_cont: float = C.DOTS_DEBLEND_CONT, dots_dir: str = C.DOT
     n_psf_pass; the glow model adds glow, glow_config and n_glow_stars, n_glow_saturated, n_glow_extended,
     n_glow_pieces."""
     out = {"thresh": C.DETECT_THRESH, "min_snr": C.DOT_MIN_SNR, "deblend_cont": float(deblend_cont), "dots_dir": dots_dir}
+    if settings is not None and settings.v2:
+        out["v2"] = True
+        out["mf_pass_snr"] = C.MF_PASS_SNR
     if settings is not None and settings.glow:
         out["glow"] = True
         out["glow_config"] = {"r_max_px": C.GLOW_R_MAX_PX, "min_peak_snr": C.GLOW_MIN_PEAK_SNR,
@@ -883,6 +985,9 @@ def dots_arrow(df: pd.DataFrame, meta: dict | None = None):
     for c in DOT_LIST_COLUMNS:
         flat = np.stack(df[c].to_numpy()).astype(np.float32).ravel() if len(df) else np.zeros(0, np.float32)
         t = t.append_column(c, pa.FixedSizeListArray.from_arrays(pa.array(flat, pa.float32()), n))
+    for c, typ in DOT_V2_COLUMNS.items():
+        if c in df:
+            t = t.append_column(c, pa.array(df[c].to_numpy(typ), pa.from_numpy_dtype(np.dtype(typ))))
     md = dict(t.schema.metadata or {})
     if meta is not None:
         md[C.PHOTO_META_KEY.encode()] = json.dumps(_clean(meta), allow_nan=False).encode()
@@ -1056,14 +1161,26 @@ def _load_retrying(url: str, st: dict):
     return None
 
 
-def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: int, visit: int,
-                       zone: str | None, st: dict) -> dict:
-    """Everything after the read: dots, forced photometry, metadata, files. Never raises.
-    The zone's detection setting and folder come from config.zone_dots. In a folder other than the sky run's,
-    an existing forced/ file is kept (forced photometry doesn't depend on deblending; other zones read it)."""
+@dataclass
+class Pending:
+    """A measured photo not yet written (extraction v2 waits for its partner detector to fill partner_*)."""
+    rel: str
+    df: pd.DataFrame
+    meta: dict
+    st: dict
+    partner: "PartnerImage | None" = None
+    peaks: pd.DataFrame | None = None
+    peaks_rel: str | None = None
+
+
+def _measure(store: Store, l2, obs_id: str, detector: int, session: int, visit: int, zone: str | None,
+             st: dict) -> Pending | None:
+    """Everything after the read but the dot file's write: dots, forced photometry (written), metadata; v2 also the
+    peaks table and the partner image. None (st status "failed") on an error; never raises."""
     settings = C.zone_detect(zone)
     ddir, deblend = settings.folder, settings.deblend_cont
     counts: dict = {}
+    extras: dict = {}
     rel = dots_rel(obs_id, detector, ddir)
     try:
         if int(l2.detector) != int(detector):
@@ -1073,12 +1190,13 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
         ctx = None
         forced = None
         if bad_finast(finast):
-            df = empty_dots()  # bad astrometry: an empty file marks the photo done
+            df = empty_dots(settings.v2)  # bad astrometry: an empty file marks the photo done
             st["finast"] = str(finast)
         else:
             timing: dict = {}
             ctx = photo_context(l2, timing)
-            df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx, settings=settings, counts=counts)
+            df = dots_table(l2, obs_id, detector, session, visit, timing=timing, ctx=ctx, settings=settings, counts=counts,
+                            extras=extras)
         st["detect_s"] = round(time.time() - t0, 2)
         st["n_dots"] = int(len(df))
         ref, zobj, origin = forced_reference(store, l2, zone) if ctx is not None else (None, None, "")
@@ -1096,15 +1214,219 @@ def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: in
                 st["forced_bytes"] = _retry(lambda: _write(store, frel, ft))
         st["status"] = "done_finast" if "finast" in st else "done"
         meta = photo_meta_dict(l2, obs_id, detector, st, ctx, df, forced, detect_meta(deblend, ddir, settings, counts))
-        table = dots_arrow(df, meta)
+        out = Pending(rel, df, meta, st)
+        if settings.v2:
+            t0 = time.time()
+            out.partner = None if ctx is None else partner_image(l2, ctx)
+            meta.update(v2_meta(l2, ctx, extras))
+            if ctx is not None:
+                out.peaks = peaks_table(l2, ctx, extras.get("peaks"), df)
+                out.peaks_rel = peaks_rel(obs_id, detector, ddir)
+            st["v2_s"] = round(time.time() - t0, 2)
+        return out
+    except Exception as e:  # noqa: BLE001
+        st["status"] = "failed"
+        st["error"] = f"{type(e).__name__}: {e}"[:300]
+        return None
+
+
+def _finish(store: Store, p: Pending | None, st: dict) -> dict:
+    """Write a measured photo: the peaks file (v2), then the dot file (last: a dot file = photo fully done)."""
+    if p is None:
+        return st
+    try:
+        if p.peaks is not None:
+            pt = pa.Table.from_pandas(p.peaks, preserve_index=False)
+            st["peaks_bytes"] = _retry(lambda: _write(store, p.peaks_rel, pt))
+            st["n_peaks"] = int(len(p.peaks))
+        if "partner_flux_ujy" in p.df:
+            p.meta["n_partner"] = int(np.isfinite(p.df["partner_flux_ujy"].to_numpy(np.float64)).sum())
+        table = dots_arrow(p.df, p.meta)
         t0 = time.time()
-        st["bytes"] = _retry(lambda: _write(store, rel, table))  # last: a dot file = photo fully done
+        st["bytes"] = _retry(lambda: _write(store, p.rel, table))
         st["write_s"] = round(time.time() - t0, 2)
         st["error"] = ""
     except Exception as e:  # noqa: BLE001
         st["status"] = "failed"
         st["error"] = f"{type(e).__name__}: {e}"[:300]
     return st
+
+
+def _measure_and_write(store: Store, l2, obs_id: str, detector: int, session: int, visit: int,
+                       zone: str | None, st: dict) -> dict:
+    """Everything after the read: dots, forced photometry, metadata, files. Never raises.
+    The zone's detection setting and folder come from config.zone_dots. In a folder other than the sky run's,
+    an existing forced/ file is kept (forced photometry doesn't depend on deblending; other zones read it)."""
+    return _finish(store, _measure(store, l2, obs_id, detector, session, visit, zone, st), st)
+
+
+# --- extraction v2: peaks file, photo metadata, partner detector -------------------------------------------------------
+
+PEAK_COLUMNS = {"x": "float32", "y": "float32", "ra": "float64", "dec": "float64", "snr_mf": "float32",
+                "flux_mf_ujy": "float32", "flags": "int32", "n_transient": "int8", "why": "int8"}
+
+
+def peaks_rel(obs_id: str, det: int, folder: str) -> str:
+    """The peaks file of a v2 dot file: <folder>_peaks/<obs_id>D<det>.parquet."""
+    return f"{folder}_peaks/{obs_id}D{int(det)}.parquet"
+
+
+def peaks_table(l2, ctx: PhotoContext, peaks: dict | None, dots: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The matched filter's other peaks (psf.mf_pass): position, S/N, flux, flags (3 × 3 OR), TRANSIENT count, why;
+    none within MF_PASS_DEDUP_PX of a final dot (dots move a little when measured)."""
+    empty = pd.DataFrame({c: pd.Series(dtype=t) for c, t in PEAK_COLUMNS.items()})
+    if not peaks or len(peaks["x"]) == 0:
+        return empty
+    x, y = np.asarray(peaks["x"], np.float64), np.asarray(peaks["y"], np.float64)
+    ix, iy = np.asarray(peaks["ix"]), np.asarray(peaks["iy"])
+    keep = np.ones(x.size, bool)
+    if dots is not None and len(dots):
+        d, _ = cKDTree(dots[["x", "y"]].to_numpy(np.float64)).query(np.c_[x, y], k=1)
+        keep = d > C.MF_PASS_DEDUP_PX
+    if not keep.any():
+        return empty
+    x, y, ix, iy = x[keep], y[keep], ix[keep], iy[keep]
+    peaks = {k: np.asarray(v)[keep] for k, v in peaks.items()}
+    ra, dec = pixel_to_sky(l2.wcs, x, y)
+    ntr = np.zeros(x.size, np.int8)
+    if getattr(l2, "flags", None) is not None:
+        tr = (np.asarray(l2.flags).astype(np.int64) & TRANSIENT) != 0
+        ntr = np.minimum(_disc_count(tr, x, y, C.DOTS_TRANSIENT_R_PX), 127).astype(np.int8)
+    return pd.DataFrame({"x": x, "y": y, "ra": np.asarray(ra) % 360.0, "dec": dec, "snr_mf": peaks["snr_mf"],
+                         "flux_mf_ujy": np.asarray(peaks["flux"]) * ctx.conv, "flags": ctx.f3[iy, ix],
+                         "n_transient": ntr, "why": peaks["why"]}).astype(PEAK_COLUMNS)
+
+
+@dataclass
+class PartnerImage:
+    """What forced photometry in this photo needs, kept while its partner detector is measured."""
+    sub: np.ndarray        # IMAGE minus the background, bad pixels 0 (float32)
+    bad: np.ndarray
+    noise0: np.ndarray     # float32
+    wcs: object
+    conv: float
+    factor: float          # empirical / formal aperture noise (empirical_noise)
+
+
+def empirical_noise(ctx: PhotoContext, n: int = C.EMPIRICAL_NOISE_N, seed: int = C.EMPIRICAL_NOISE_SEED,
+                    r: float = DETECT_APERTURE_R_PX) -> dict:
+    """The r = 2 px aperture's real scatter: 1.4826 × MAD of the aperture sum (background map subtracted, as a dot's
+    flux_ujy) at n random places (seeded; >= 7 px inside, no masked pixel within 1 px), in µJy, and its ratio to the
+    median formal error there (VARIANCE / background rms; the pixel agent measured 2–3× in crowded fields)."""
+    ny, nx = ctx.sub.shape
+    if nx < 30 or ny < 30:
+        return {"n": 0, "sigma_ujy": None, "factor": None}
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(7, nx - 8, 4 * n)
+    y = rng.uniform(7, ny - 8, 4 * n)
+    near_bad = _disc_count(ctx.bad, x, y, 1.0) > 0
+    x, y = x[~near_bad][:n], y[~near_bad][:n]
+    if x.size < 20:
+        return {"n": int(x.size), "sigma_ujy": None, "factor": None}
+    f, e, _ = sep.sum_circle(np.ascontiguousarray(ctx.sub, np.float64), x, y, r, err=ctx.noise0,
+                             mask=np.ascontiguousarray(ctx.bad), subpix=5)
+    sig = _robust_sigma(np.asarray(f) * ctx.conv)
+    med = float(np.median(np.asarray(e) * ctx.conv))
+    return {"n": int(x.size), "r_px": r, "sigma_ujy": sig, "formal_median_ujy": med,
+            "factor": sig / med if med > 0 else None}
+
+
+def partner_image(l2, ctx: PhotoContext) -> PartnerImage:
+    emp = empirical_noise(ctx)
+    return PartnerImage(sub=ctx.sub.astype(np.float32), bad=np.asarray(ctx.bad, bool),
+                        noise0=ctx.noise0.astype(np.float32), wcs=l2.wcs, conv=float(ctx.conv),
+                        factor=float(emp["factor"]) if emp.get("factor") else 1.0)
+
+
+def partner_fluxes(df: pd.DataFrame, part: PartnerImage) -> tuple[np.ndarray, np.ndarray]:
+    """partner_flux_ujy, partner_err_ujy of dots `df` in the partner photo: r = 2 px aperture (background map
+    subtracted, bad pixels out: the same measurement as a dot's flux_ujy there) at each dot's sky position (ra_psf/
+    dec_psf where psf_pos_ok, else ra/dec); err = its formal 1σ × the partner's empirical factor. NaN outside the
+    partner photo (2 px margin) or with a masked pixel within 1 px of the position."""
+    n = len(df)
+    f, e = np.full(n, np.nan), np.full(n, np.nan)
+    if n == 0:
+        return f, e
+    ok = df["psf_pos_ok"].to_numpy(bool) if "psf_pos_ok" in df else np.zeros(n, bool)
+    ra = np.where(ok, df["ra_psf"].to_numpy(np.float64), df["ra"].to_numpy(np.float64))
+    dec = np.where(ok, df["dec_psf"].to_numpy(np.float64), df["dec"].to_numpy(np.float64))
+    x, y = sky_to_pixel(part.wcs, ra, dec)
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    ny, nx = part.sub.shape
+    ins = np.isfinite(x) & np.isfinite(y) & (x >= 2) & (x <= nx - 3) & (y >= 2) & (y <= ny - 3)
+    if not ins.any():
+        return f, e
+    k = np.flatnonzero(ins)
+    xs, ys = x[k], y[k]
+    fs, es, _ = sep.sum_circle(np.ascontiguousarray(part.sub, np.float64), xs, ys, DETECT_APERTURE_R_PX,
+                               err=np.ascontiguousarray(part.noise0, np.float64), mask=part.bad, subpix=5)
+    good = _disc_count(part.bad, xs, ys, 1.0) == 0
+    f[k] = np.where(good, fs * part.conv, np.nan)
+    e[k] = np.where(good, es * part.conv * part.factor, np.nan)
+    return f, e
+
+
+def fill_partners(a: Pending, b: Pending) -> None:
+    """Fill each photo's partner_* columns from the other (D1↔D4, D2↔D5, D3↔D6 of one exposure)."""
+    for p, q in ((a, b), (b, a)):
+        if q.partner is not None and len(p.df) and "partner_flux_ujy" in p.df:
+            f, e = partner_fluxes(p.df, q.partner)
+            p.df["partner_flux_ujy"], p.df["partner_err_ujy"] = f.astype(np.float32), e.astype(np.float32)
+            p.meta["partner"] = {"detector": int(q.meta.get("detector", 0)), "obs_id": q.meta.get("obs_id")}
+
+
+def sat_cores(flags, max_n: int = C.SAT_CORES_MAX) -> list:
+    """[[x, y, n_px], ...] of OVERFLOW/NONLINEAR clumps (8-connected; centre = mean pixel), largest first."""
+    from scipy import ndimage
+    if flags is None:
+        return []
+    sat = (np.asarray(flags).astype(np.int64) & SAT_BITS) != 0
+    if not sat.any():
+        return []
+    lab, n = ndimage.label(sat, structure=np.ones((3, 3), bool))
+    idx = np.arange(1, n + 1)
+    size = np.asarray(ndimage.sum(sat, lab, idx))
+    cy, cx = np.asarray(ndimage.center_of_mass(sat, lab, idx)).T
+    o = np.argsort(-size, kind="stable")[:max_n]
+    return [[round(float(cx[i]), 1), round(float(cy[i]), 1), int(size[i])] for i in o]
+
+
+def sky_jacobian(l2) -> list | None:
+    """[[dE/dx, dE/dy], [dN/dx, dN/dy]] in degrees per pixel at the photo centre (E = ΔRA·cos Dec, N = ΔDec): the
+    local CD matrix, MWIR x flip included. A dot's long axis theta_deg (pixel frame, from +x towards +y) points to
+    the sky position angle atan2(E, N) of J · (cos θ, sin θ)."""
+    wcs = getattr(l2, "wcs", None)
+    if wcs is None:
+        return None
+    ny, nx = np.shape(l2.data)
+    x0, y0 = (nx - 1) / 2.0, (ny - 1) / 2.0
+    ra, dec = pixel_to_sky(wcs, np.array([x0, x0 + 1.0, x0]), np.array([y0, y0, y0 + 1.0]))
+    c = np.cos(np.radians(dec[0]))
+    de = ((np.asarray(ra[1:]) - ra[0] + 180.0) % 360.0 - 180.0) * c
+    dn = np.asarray(dec[1:]) - dec[0]
+    return [[float(de[0]), float(de[1])], [float(dn[0]), float(dn[1])]]
+
+
+def v2_meta(l2, ctx: PhotoContext | None, extras: dict) -> dict:
+    """Photo metadata of extraction v2: noise and 5σ point-source depth grids, the empirical aperture noise, the
+    saturated cores, the sky orientation, the matched filter's settings."""
+    out: dict = {"extraction": 2,
+                 "mf": {"min_snr": C.MF_PASS_SNR, "peak_snr": C.MF_PEAK_SNR, "dedup_px": C.MF_PASS_DEDUP_PX,
+                        "kernel_half_px": C.MF_KERNEL_HALF, "sep_flag": C.SEP_FLAG_MF_PASS}}
+    out["sat_cores"] = sat_cores(getattr(l2, "flags", None))
+    out["sky_jacobian_deg_px"] = sky_jacobian(l2)
+    if ctx is None:
+        return out
+    out["aperture_noise"] = empirical_noise(ctx)
+    grids = {"n": C.PHOTO_META_GRID, "noise_mjysr": block_means(ctx.noise)}
+    den = extras.get("mf_den")
+    if den is not None:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            sig = np.where(den > 0, 1.0 / np.sqrt(den), np.nan) * ctx.conv
+        grids["depth5_ujy"] = block_means(5.0 * sig)
+        out["depth5_ujy_median"] = float(np.nanmedian(5.0 * sig)) if np.isfinite(sig).any() else None
+    out["grids_v2"] = grids
+    return out
 
 
 def process_photo(root: str, obs_id: str, detector: int, url: str, session: int = 0, visit: int = 0,
@@ -1121,16 +1443,43 @@ def process_photo(root: str, obs_id: str, detector: int, url: str, session: int 
     return _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st)
 
 
+def exposure_groups(todo: list, n: int) -> list[list]:
+    """Worker tasks of at least n photos (rows with .obs_id, in run order) that never split an exposure."""
+    groups: list[list] = []
+    cur: list = []
+    for r in todo:
+        if len(cur) >= n and r.obs_id != cur[-1].obs_id:
+            groups.append(cur)
+            cur = []
+        cur.append(r)
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def _pair_order(jobs: list) -> list:
+    """Extraction v2: each exposure's photos with partner detectors next to each other (D1, D4, D2, D5, D3, D6), the
+    exposures in their given order."""
+    first = {}
+    for k, j in enumerate(jobs):
+        first.setdefault(j[0], k)
+    return sorted(jobs, key=lambda j: (first[j[0]], (j[1] - 1) % 3, j[1]))
+
+
 def process_photos(root: str, photos: list[tuple], zone: str | None = None,
                    prefetch: bool | None = None) -> list[dict]:
     """process_photo for several photos (obs_id, detector, url, session, visit) in one worker, in order.
     With prefetch (default C.DOTS_PREFETCH), photo k + 1 is read in a background thread while photo k
     is measured, so the core doesn't sit idle waiting for the network. Same functions per photo, so
     the files are the same as process_photo's; at most two photos are in memory at once.
-    Returns one stats dict per photo (in order); never raises."""
+    Extraction v2 (config DOTS_V2): partner detectors of one exposure are measured one after the other and the first
+    is written after the second, each with partner_flux_ujy/partner_err_ujy from the other (a partner not in this
+    task, already done or failed leaves them NaN); one partner image (~50 MB) waits at most.
+    Returns one stats dict per photo (in processing order: v2 puts partners side by side); never raises."""
     prefetch = C.DOTS_PREFETCH if prefetch is None else prefetch
     store = _store(root)
-    ddir = C.zone_dots(zone)[0]
+    settings = C.zone_detect(zone)
+    ddir = settings.folder
     out: list[dict] = []
     jobs = []
     for obs_id, detector, url, session, visit in photos:
@@ -1139,20 +1488,49 @@ def process_photos(root: str, photos: list[tuple], zone: str | None = None,
             out.append(st)
         else:
             jobs.append((obs_id, int(detector), url, int(session), int(visit), st))
+    if settings.v2:
+        jobs = _pair_order(jobs)
+    held: list = []  # [(obs_id, detector, Pending)] waiting for its partner (v2)
+
+    def handle(k: int, l2) -> None:
+        obs_id, detector, url, session, visit, st = jobs[k]
+        if not settings.v2:
+            out.append(st if l2 is None else _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st))
+            return
+        p = None if l2 is None else _measure(store, l2, obs_id, detector, session, visit, zone, st)
+        partner = C.PARTNER_DETECTOR.get(detector)
+        if held and held[0][0] == obs_id and held[0][1] == partner:
+            _, _, q = held.pop()
+            if p is not None and q is not None:
+                fill_partners(q, p)
+            out.append(_finish(store, q, q.st) if q is not None else jobs[k - 1][5])
+            out.append(_finish(store, p, st))
+            return
+        while held:  # a held photo whose partner didn't come next
+            _, _, q = held.pop()
+            out.append(_finish(store, q, q.st))
+        nxt = jobs[k + 1] if k + 1 < len(jobs) else None
+        if p is not None and nxt is not None and nxt[0] == obs_id and nxt[1] == partner:
+            held.append((obs_id, detector, p))
+        else:
+            out.append(_finish(store, p, st))
+
     if not prefetch or len(jobs) < 2:
-        for obs_id, detector, url, session, visit, st in jobs:
-            l2 = _load_retrying(url, st)
-            out.append(st if l2 is None else _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st))
-        return out
-    with ThreadPoolExecutor(max_workers=1) as reader:
-        nxt = reader.submit(_load_retrying, jobs[0][2], jobs[0][5])
         for k, (obs_id, detector, url, session, visit, st) in enumerate(jobs):
-            t0 = time.time()
-            l2 = nxt.result()  # _load_retrying never raises
-            st["wait_s"] = round(time.time() - t0, 2)  # time this core waited for the read
-            nxt = reader.submit(_load_retrying, jobs[k + 1][2], jobs[k + 1][5]) if k + 1 < len(jobs) else None
-            out.append(st if l2 is None else _measure_and_write(store, l2, obs_id, detector, session, visit, zone, st))
-            del l2
+            handle(k, _load_retrying(url, st))
+    else:
+        with ThreadPoolExecutor(max_workers=1) as reader:
+            nxt = reader.submit(_load_retrying, jobs[0][2], jobs[0][5])
+            for k, (obs_id, detector, url, session, visit, st) in enumerate(jobs):
+                t0 = time.time()
+                l2 = nxt.result()  # _load_retrying never raises
+                st["wait_s"] = round(time.time() - t0, 2)  # time this core waited for the read
+                nxt = reader.submit(_load_retrying, jobs[k + 1][2], jobs[k + 1][5]) if k + 1 < len(jobs) else None
+                handle(k, l2)
+                del l2
+    while held:
+        _, _, q = held.pop()
+        out.append(_finish(store, q, q.st))
     return out
 
 
@@ -1207,6 +1585,8 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None) -> d
         with ProcessPoolExecutor(max_workers=max(1, workers), mp_context=ctx, initializer=log.setup) as ex:
             n = max(1, C.DOTS_TASK_PHOTOS)
             groups = [todo[i:i + n] for i in range(0, len(todo), n)]
+            if C.zone_detect(zone.name).v2:
+                groups = exposure_groups(todo, n)  # partner detectors in one task (partner_* columns)
             futs = [ex.submit(process_photos, store.root,
                               [(r.obs_id, int(r.detector), r.url, int(r.session), int(r.visit)) for r in g],
                               zone.name) for g in groups]

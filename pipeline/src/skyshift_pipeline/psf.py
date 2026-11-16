@@ -371,3 +371,251 @@ def residual_companions(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, x: 
         new = new[keep]
     info["n_kept"] = int(len(new))
     return Companions(new, model, info)
+
+
+# --- extraction v2: the ePSF-matched filter (docs/extraction-v2.md) --------------------------------------------------
+
+def _gauss_kernel(half: int, phase: tuple[float, float] = (0.0, 0.0)) -> np.ndarray:
+    """Fallback kernel without an ePSF: a Gaussian of the PSF's FWHM (1.22 px), sum 1, source at `phase` px from the
+    central pixel's centre."""
+    from skyshift_core.detect import PSF_SIGMA_PX
+    k = np.arange(-half, half + 1, dtype=np.float64)
+    g = np.exp(-0.5 * ((k[None, :] - phase[0]) ** 2 + (k[:, None] - phase[1]) ** 2) / PSF_SIGMA_PX ** 2)
+    return g / g.sum()
+
+
+def mf_phases(n: int = C.MF_PHASES) -> list[tuple[float, float]]:
+    """Sub-pixel source positions the matched filter tries: n per axis (1: the pixel centre; 2: also half a pixel
+    right / up / both). The PSF is undersampled (FWHM 1.22 px): a star on a pixel corner loses part of its S/N to a
+    pixel-centred kernel."""
+    o = [k / n for k in range(n)]
+    return [(a, b) for b in o for a in o]
+
+
+def mf_kernel(epsf, zone: int, half: int = C.MF_KERNEL_HALF, phase: tuple[float, float] = (0.0, 0.0)) -> np.ndarray:
+    """(2h+1)² ePSF (flux fractions per native pixel) of a source at `phase` (dx, dy) px from the central pixel's
+    centre, for one ePSF zone."""
+    if epsf is None or zone < 0:
+        return _gauss_kernel(half, phase)
+    k = np.arange(-half, half + 1, dtype=np.float64)
+    dx, dy = np.meshgrid(k - phase[0], k - phase[1])
+    return np.asarray(epsf.evaluate(dx, dy, np.full(dx.shape, int(zone))), np.float64)
+
+
+def _zone_grid(epsf, shape: tuple[int, int], group: int = C.MF_ZONE_GROUP) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(row edges, column edges, zone per rectangle) of the matched filter's kernel tiles: the ePSF zones (they tile
+    the detector in rows and columns, 21 × 21 on a full photo) merged `group` × `group`, each rectangle using the zone
+    at its centre (neighbouring zones' ePSFs differ by ~1%; one kernel per zone costs ~2× more). No ePSF: one tile,
+    zone -1."""
+    ny, nx = shape
+    if epsf is None:
+        return np.array([0, ny]), np.array([0, nx]), np.full((1, 1), -1)
+    xs, ys = np.arange(nx, dtype=np.float64), np.arange(ny, dtype=np.float64)
+    zc = epsf.zone(xs, np.full(nx, ny / 2.0))  # changes only at column boundaries
+    zr = epsf.zone(np.full(ny, nx / 2.0), ys)
+    g = max(1, int(group))
+    cb = np.r_[0, (np.flatnonzero(np.diff(zc)) + 1)[g - 1::g], nx]
+    rb = np.r_[0, (np.flatnonzero(np.diff(zr)) + 1)[g - 1::g], ny]
+    cb, rb = np.unique(cb), np.unique(rb)
+    cx, cy = (cb[:-1] + cb[1:] - 1) / 2.0, (rb[:-1] + rb[1:] - 1) / 2.0
+    X, Y = np.meshgrid(cx, cy)
+    return rb, cb, epsf.zone(X.ravel(), Y.ravel()).reshape(X.shape)
+
+
+def _zone_tiles(epsf, shape: tuple[int, int]) -> list[tuple[int, int, int, int, int]]:
+    """(y0, y1, x0, x1, zone) rectangles of _zone_grid."""
+    rb, cb, zg = _zone_grid(epsf, shape)
+    return [(int(rb[i]), int(rb[i + 1]), int(cb[j]), int(cb[j + 1]), int(zg[i, j]))
+            for i in range(len(rb) - 1) for j in range(len(cb) - 1)]
+
+
+def _weights(sub, noise, bad) -> tuple[np.ndarray, np.ndarray]:
+    nz = np.where(np.isfinite(noise), noise, 0.0)
+    w = np.where(np.asarray(bad, bool) | ~(nz > 0), 0.0, 1.0 / np.maximum(nz, 1e-30) ** 2)
+    return w, np.where(w > 0, np.asarray(sub, np.float64) * w, 0.0)
+
+
+def matched_filter(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, half: int = C.MF_KERNEL_HALF,
+                   phases: int = C.MF_PHASES) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Inverse-variance ePSF-matched filter for a point source on each pixel: (S/N, flux, Σ w·K², phase) maps. For
+    each sub-pixel phase (mf_phases), S/N = Σ w·d·K / √(Σ w·K²) and flux = Σ w·d·K / Σ w·K² over the (2h+1)² pixels
+    around the pixel, w = 1/noise² (0 on bad pixels), K = the ePSF of that pixel's zone with the source at that phase
+    (each zone's rectangle filtered with its own kernels); the maps keep the phase with the highest S/N (`phase` = its
+    index in mf_phases). Flux in the image's units summed over pixels (MJy/sr × px; × ujy_per_mjysr -> µJy). The
+    third map is Σ w·K² of the centred phase: 1/√ of it is a point source's flux 1σ there (the depth).
+    `sub`: background-subtracted image, bad pixels 0."""
+    from scipy import ndimage
+    w, sw = _weights(sub, noise, bad)
+    ny, nx = w.shape
+    snr = np.full((ny, nx), -np.inf)
+    flux, den0 = np.zeros((ny, nx)), np.zeros((ny, nx))
+    phase = np.zeros((ny, nx), np.int8)
+    tiles = _zone_tiles(epsf, (ny, nx))
+    for ip, ph in enumerate(mf_phases(phases)):
+        num, den = np.zeros((ny, nx)), np.zeros((ny, nx))
+        for y0, y1, x0, x1, z in tiles:
+            K = mf_kernel(epsf, z, half, ph)
+            ya, yb, xa, xb = max(0, y0 - half), min(ny, y1 + half), max(0, x0 - half), min(nx, x1 + half)
+            tn = ndimage.correlate(sw[ya:yb, xa:xb], K, mode="constant")
+            td = ndimage.correlate(w[ya:yb, xa:xb], K * K, mode="constant")
+            num[y0:y1, x0:x1] = tn[y0 - ya:y1 - ya, x0 - xa:x1 - xa]
+            den[y0:y1, x0:x1] = td[y0 - ya:y1 - ya, x0 - xa:x1 - xa]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = np.where(den > 0, num / np.sqrt(den), 0.0)
+            better = s > snr
+            snr = np.where(better, s, snr)
+            flux = np.where(better, np.where(den > 0, num / den, 0.0), flux)
+        phase[better] = ip
+        if ip == 0:
+            den0 = den
+    return snr, flux, den0, phase
+
+
+def mf_at(sub: np.ndarray, noise: np.ndarray, bad: np.ndarray, x: np.ndarray, y: np.ndarray, epsf,
+          half: int = C.MF_KERNEL_HALF, phases: int = C.MF_PHASES) -> np.ndarray:
+    """matched_filter's S/N at given positions without the whole map: the largest value over the 3 × 3 pixels around
+    each rounded (x, y) (the dots' column snr_mf). Same kernels and weights as matched_filter."""
+    x, y = np.asarray(x, np.float64), np.asarray(y, np.float64)
+    if x.size == 0:
+        return np.zeros(0)
+    w, sw = _weights(sub, noise, bad)
+    ny, nx = w.shape
+    ix = np.clip(np.rint(x).astype(np.int64), 0, nx - 1)
+    iy = np.clip(np.rint(y).astype(np.int64), 0, ny - 1)
+    rb, cb, zg = _zone_grid(epsf, (ny, nx))  # the same kernels as matched_filter
+    zone = zg[np.searchsorted(rb, iy, side="right") - 1, np.searchsorted(cb, ix, side="right") - 1]
+    m = 2 * half + 1
+    S, _ = gather(sw, ix, iy, half + 1, fill=0.0)
+    W, _ = gather(w, ix, iy, half + 1, fill=0.0)
+    best = np.full(x.size, -np.inf)
+    for ph in mf_phases(phases):
+        Ks = {int(z): mf_kernel(epsf, int(z), half, ph) for z in np.unique(zone)}
+        K = np.stack([Ks[int(z)] for z in zone])  # (N, m, m)
+        for oy in range(3):
+            for ox in range(3):
+                n = np.einsum("nij,nij->n", S[:, oy:oy + m, ox:ox + m], K)
+                d = np.einsum("nij,nij->n", W[:, oy:oy + m, ox:ox + m], K * K)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    best = np.maximum(best, np.where(d > 0, n / np.sqrt(d), 0.0))
+    return np.where(np.isfinite(best), best, 0.0)
+
+
+def mf_peaks(snr: np.ndarray, thresh: float, phase: np.ndarray | None = None,
+             phases: int = C.MF_PHASES) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Local maxima (3 × 3) of an S/N map at or above thresh: (x, y), the peak pixel (ix, iy) and its S/N. Position:
+    with a phase map (matched_filter, phases > 1) the pixel plus its best phase's offset; else refined by a parabola
+    through the peak and its neighbours along each axis (≤ 0.5 px)."""
+    from scipy import ndimage
+    mx = ndimage.maximum_filter(snr, size=3, mode="constant", cval=-np.inf)
+    iy, ix = np.nonzero((snr >= mx) & (snr >= thresh))
+    ny, nx = snr.shape
+    s0 = snr[iy, ix]
+
+    def _off(sm, sp):
+        d = sm - 2.0 * s0 + sp
+        with np.errstate(divide="ignore", invalid="ignore"):
+            o = np.where(d < 0, 0.5 * (sm - sp) / d, 0.0)
+        return np.clip(np.nan_to_num(o), -0.5, 0.5)
+
+    xm, xp = snr[iy, np.clip(ix - 1, 0, nx - 1)], snr[iy, np.clip(ix + 1, 0, nx - 1)]
+    ym, yp = snr[np.clip(iy - 1, 0, ny - 1), ix], snr[np.clip(iy + 1, 0, ny - 1), ix]
+    if phase is not None and phases > 1:
+        off = np.asarray(mf_phases(phases))[phase[iy, ix]]
+        return ix + off[:, 0], iy + off[:, 1], ix, iy, s0
+    x = ix + np.where((ix > 0) & (ix < nx - 1), _off(xm, xp), 0.0)
+    y = iy + np.where((iy > 0) & (iy < ny - 1), _off(ym, yp), 0.0)
+    return x, y, ix, iy, s0
+
+
+@dataclass
+class MFPass:
+    dots: np.ndarray        # new dots (core.detect's DETECTION_DTYPE), measured on the residual, sep_flag 0
+    snr_mf: np.ndarray      # their matched-filter S/N
+    peaks: dict             # the other peaks >= min_peak_snr: x, y, ix, iy, snr_mf, flux (image units × px), why
+    den: np.ndarray         # Σ w·K² map (matched_filter): 1/√den = a point source's flux 1σ (image units × px)
+    info: dict
+
+
+# `why` codes of the peaks file
+PEAK_BELOW = 0      # S/N between min_peak_snr and min_snr
+PEAK_GUARD = 1      # >= min_snr but within the saturation guard
+PEAK_MIRROR = 2     # >= min_snr but failed the mirror test beside a subtracted dot
+PEAK_EXCLUDED = 3   # >= min_snr but inside an excluded region (a glow star's own pixels)
+
+
+def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: np.ndarray, dot_y: np.ndarray, *,
+            primary_x: np.ndarray | None = None, primary_y: np.ndarray | None = None,
+            sat_dist: np.ndarray | None = None, sat_guard_px: float = 0.0, exclude: np.ndarray | None = None,
+            min_snr: float = C.MF_PASS_SNR, min_peak_snr: float = C.MF_PEAK_SNR,
+            dedup_px: float = C.MF_PASS_DEDUP_PX, r_px: float = C.PSF_PASS_R_PX,
+            mirror_r_px: float = C.PSF_PASS_MIRROR_R_PX, mirror_frac: float = C.PSF_PASS_MIRROR_FRAC,
+            mirror_sigma: float = C.PSF_PASS_MIRROR_SIGMA) -> MFPass:
+    """The matched-filter pass (extraction v2): faint point sources the aperture cut (S/N >= 5 in r = 2 px) leaves out.
+    resid: the image detection measured on minus its background (and minus the second pass's ePSF models), bad pixels
+    0; noise: its per-pixel 1σ (with the model term); (dot_x, dot_y): every dot already found. Peaks of the matched
+    filter's S/N map >= min_snr more than dedup_px from every dot become dots unless within sat_guard_px of a saturated
+    pixel (sat_dist), inside `exclude`, or, within r_px of a subtracted dot (primary_x, primary_y), failing the second
+    pass's mirror test. They are measured like core.detect's dots on resid (windowed centroid from the peak, r = 2 px
+    aperture) and kept when still > dedup_px from every dot. The other peaks >= min_peak_snr with no dot within
+    dedup_px go to `peaks` with the reason they are not dots."""
+    import sep
+    from scipy.spatial import cKDTree
+    from skyshift_core.detect import DETECTION_DTYPE, measure_objects
+
+    resid = np.ascontiguousarray(resid, dtype=np.float64)
+    noise = np.ascontiguousarray(np.where(np.isfinite(noise), noise, 0.0), dtype=np.float64)
+    bad = np.ascontiguousarray(bad, dtype=bool)
+    snr, flux, den, phase = matched_filter(resid, noise, bad, epsf)
+    x, y, ix, iy, s = mf_peaks(snr, min(min_snr, min_peak_snr), phase)
+    f = flux[iy, ix]
+    if len(x) and np.size(dot_x):
+        d, _ = cKDTree(np.c_[dot_x, dot_y]).query(np.c_[x, y], k=1)
+        far = d > dedup_px
+        x, y, ix, iy, s, f = x[far], y[far], ix[far], iy[far], s[far], f[far]
+    why = np.full(len(x), PEAK_BELOW, np.int8)
+    cand = s >= min_snr
+    if sat_guard_px > 0 and sat_dist is not None and len(x):
+        g = cand & (sat_dist[iy, ix] < sat_guard_px)
+        why[g], cand = PEAK_GUARD, cand & ~g
+    if exclude is not None and len(x):
+        g = cand & np.asarray(exclude, bool)[iy, ix]
+        why[g], cand = PEAK_EXCLUDED, cand & ~g
+    if primary_x is not None and np.size(primary_x) and cand.any():
+        px_, py_ = np.asarray(primary_x, np.float64), np.asarray(primary_y, np.float64)
+        dd, j = cKDTree(np.c_[px_, py_]).query(np.c_[x, y], k=1)
+        near = cand & (dd <= r_px)
+        if near.any():
+            k = np.flatnonzero(near)
+            mx, my = 2 * px_[j[k]] - x[k], 2 * py_[j[k]] - y[k]
+            fn, en, _ = sep.sum_circle(resid, x[k], y[k], mirror_r_px, err=noise, mask=bad, subpix=5)
+            fm, em, _ = sep.sum_circle(resid, mx, my, mirror_r_px, err=noise, mask=bad, subpix=5)
+            ok = (fm < mirror_frac * fn) & ((fn - fm) >= mirror_sigma * np.sqrt(en ** 2 + em ** 2))
+            why[k[~ok]] = PEAK_MIRROR
+            cand[k[~ok]] = False
+    info = {"n_mf_raw": int((s >= min_snr).sum())}
+    dots = np.zeros(0, dtype=DETECTION_DTYPE)
+    dsnr = np.zeros(0)
+    if cand.any():
+        objs = np.zeros(int(cand.sum()), dtype=[("x", "f8"), ("y", "f8"), ("xpeak", "i4"), ("ypeak", "i4"),
+                                                ("peak", "f8"), ("npix", "i4"), ("flag", "i4")])
+        objs["x"], objs["y"] = x[cand], y[cand]
+        objs["xpeak"], objs["ypeak"] = ix[cand], iy[cand]
+        objs["peak"] = resid[iy[cand], ix[cand]]
+        dots = measure_objects(resid, noise, bad, objs)
+        if len(dots) and np.size(dot_x):
+            d, _ = cKDTree(np.c_[dot_x, dot_y]).query(np.c_[dots["x"], dots["y"]], k=1)
+            dots = dots[d > dedup_px]
+        if len(dots):  # two peaks whose centroids converged on one source: keep the brighter (first)
+            drop = np.zeros(len(dots), bool)
+            for a, b in sorted(cKDTree(np.c_[dots["x"], dots["y"]]).query_pairs(dedup_px)):
+                if not drop[a]:
+                    drop[b] = True
+            dots = dots[~drop]
+        dsnr = mf_at(resid, noise, bad, dots["x"], dots["y"], epsf)
+    keep = ~cand
+    peaks = {"x": x[keep], "y": y[keep], "ix": ix[keep], "iy": iy[keep], "snr_mf": s[keep], "flux": f[keep],
+             "why": why[keep]}
+    info.update({"n_mf_pass": int(len(dots)), "n_peaks": int(keep.sum()),
+                 "n_peaks_guard": int((why == PEAK_GUARD).sum()), "n_peaks_mirror": int((why == PEAK_MIRROR).sum()),
+                 "n_peaks_excluded": int((why == PEAK_EXCLUDED).sum())})
+    return MFPass(dots, dsnr, peaks, den, info)
