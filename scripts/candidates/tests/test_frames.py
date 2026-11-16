@@ -35,6 +35,17 @@ def test_choose_top_scores_then_every_a_b_mover_never_c():
     assert "shape=15" in F.DEFAULT_TOP
 
 
+def test_choose_ab_top_keeps_only_the_best_open_a_b_movers():
+    cs = [cand("m1", score=0.9, grade="A", status="known"), cand("m2", score=0.8, grade="B"), cand("m3", score=0.7, grade="A"),
+          cand("m4", score=0.6, grade="B", status="open"), cand("m5", score=0.95, grade="C"), cand("m6", score=0.99),
+          cand("m7", score=0.5, grade="A", status="flaw"), cand("s1", kind="shape", score=0.4)]
+    # m1: known; m5: grade C; m6: no grade; m7: flaw. The mover count of --top is ignored.
+    got = [c["id"] for c in F.choose(cs, {"mover": 25, "shape": 1}, ab_top=2)]
+    assert got == ["s1", "m2", "m3"]
+    assert [c["id"] for c in F.choose(cs, {"mover": 25}, ab_top=10)] == ["m2", "m3", "m4"]
+    assert [c["id"] for c in F.choose(cs, {"mover": 25}, ab_top=0)] == []
+
+
 def test_own_times_from_the_why():
     two = cand("a", why="Seen at different places in 2 exposures 4.3 minutes apart, moving about 49″ an hour; ...")
     assert [round((t - 61000.0) / MIN, 2) for t in F.own_times(two)] == [-2.15, 2.15]
