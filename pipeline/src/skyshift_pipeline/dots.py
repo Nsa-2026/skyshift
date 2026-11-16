@@ -48,6 +48,8 @@ import sep
 from scipy.spatial import cKDTree
 from skyshift_core import (SAT_BITS, background, build_mask, centroid, detect, open_level2, pixel_to_sky, propagate,
                            sky_to_pixel, ujy_per_mjysr)
+from skyshift_core.detect import APERTURE_R_PX as DETECT_APERTURE_R_PX
+from skyshift_core.glow import fit_glow
 from skyshift_core.level2 import EPSF
 
 from . import config as C
@@ -358,18 +360,32 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
     (else those columns are NaN). `timing`, if given, receives seconds per stage. deblend_cont: sep's
     (config.zone_dots gives the zone's); `settings` (config.zone_detect), when given, replaces it with every setting:
     fine detection v2 (contracts/dots.md) adds sep clean_param, the saturation guard and the ePSF second pass, whose
-    dots (sep_flag SEP_FLAG_PSF_PASS) are measured on the residual. `counts`, if given, receives n_guard_dropped and
-    n_psf_pass."""
+    dots (sep_flag SEP_FLAG_PSF_PASS) are measured on the residual; the glow model (settings.glow, 16 Nov) detects on
+    IMAGE minus the bright stars' glow with the glow's noise (glow_dots). `counts`, if given, receives n_guard_dropped,
+    n_psf_pass and the glow's counts."""
     timing = {} if timing is None else timing
     counts = {} if counts is None else counts
     s = settings if settings is not None else C.DetectSettings(deblend_cont)
+    if s.glow and getattr(l2, "flags", None) is not None:
+        return glow_dots(l2, obs_id, detector, session, visit, thresh, min_snr, timing, ctx, s, counts)
+    det, comp, ctx = _detections(l2, thresh, min_snr, timing, ctx, s, counts)
+    if det is None:
+        return empty_dots()
+    return _measure_all(l2, det, comp, ctx, obs_id, detector, session, visit, timing)
+
+
+def _detections(l2, thresh: float, min_snr: float, timing: dict, ctx: PhotoContext | None, s: C.DetectSettings,
+                counts: dict) -> tuple[np.ndarray | None, tuple | None, PhotoContext | None]:
+    """core.detect (+ the saturation guard and the ePSF second pass of fine detection v2) on l2.data.
+    Returns (detections, (second-pass dots, their subtracted model) or None, the photo context); detections None
+    when there is nothing at all."""
     t0 = time.perf_counter()
     det = detect(l2.data, l2.flags, variance=l2.variance, thresh=thresh, deblend_cont=s.deblend_cont,
                  clean_param=s.clean_param, bkg=None if ctx is None else ctx.background)
     det = det[det["snr"] >= min_snr]  # keeps detect's order (brightest first): members.parquet relies on it
     timing["detect_s"] = time.perf_counter() - t0
     if len(det) == 0:
-        return empty_dots()
+        return None, None, ctx
     if ctx is None:
         ctx = photo_context(l2, timing)
     comp = None
@@ -407,8 +423,22 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
         elif s.psf_pass:
             counts["n_psf_pass"] = 0
     if len(det) == 0 and not (comp is not None and len(comp[0])):
-        return empty_dots()
-    df = _measure_dots(l2, det, ctx, obs_id, detector, session, visit, timing)
+        return None, None, ctx
+    return det, comp, ctx
+
+
+def _measure_all(l2, det: np.ndarray, comp: tuple | None, ctx: PhotoContext, obs_id: str, detector: int, session: int,
+                 visit: int, timing: dict, l2_own=None, ctx_own: PhotoContext | None = None,
+                 own: np.ndarray | None = None) -> pd.DataFrame:
+    """The dot rows of detections `det` on l2 (and the second pass's on the residual), brightest flux_ujy first.
+    `own` (glow): those rows are measured on l2_own with ctx_own instead (a bright star's own dot on IMAGE)."""
+    if own is not None and own.any():
+        parts = [_measure_dots(l2_own, det[own], ctx_own, obs_id, detector, session, visit, {})]
+        if (~own).any():
+            parts.append(_measure_dots(l2, det[~own], ctx, obs_id, detector, session, visit, timing))
+        df = pd.concat(parts, ignore_index=True)
+    else:
+        df = _measure_dots(l2, det, ctx, obs_id, detector, session, visit, timing)
     if comp is not None and len(comp[0]):
         # measured on the residual: IMAGE minus the subtracted ePSF models of the brighter dots
         t0 = time.perf_counter()
@@ -416,9 +446,79 @@ def dots_table(l2, obs_id: str, detector: int, session: int = 0, visit: int = 0,
         l2r.data = (np.asarray(l2.data, np.float64) - comp[1]).astype(np.asarray(l2.data).dtype)
         dfc = _measure_dots(l2r, comp[0], ctx, obs_id, detector, session, visit, {})
         df = pd.concat([df, dfc], ignore_index=True)
-        df = df.iloc[np.argsort(-df["flux_ujy"].to_numpy(np.float64), kind="stable")].reset_index(drop=True)
         timing["psf_pass_measure_s"] = time.perf_counter() - t0
+    if own is not None or (comp is not None and len(comp[0])):
+        df = df.iloc[np.argsort(-df["flux_ujy"].to_numpy(np.float64), kind="stable")].reset_index(drop=True)
     return df
+
+
+def glow_image(l2, ctx: PhotoContext, glow) -> object:
+    """A shallow copy of l2 for detection: IMAGE minus the bright stars' glow outside their own pixels
+    (core.glow.Glow.outside) and VARIANCE = (noise x k)^2 where the glow's noise factor k > 1 (noise = ctx.noise:
+    max(sqrt(VARIANCE), background rms), so detect's max(sqrt(VARIANCE), rms) is noise x k there)."""
+    model, k = glow.outside(C.GLOW_R_KEEP_PX)
+    out = copy.copy(l2)
+    data = np.asarray(l2.data)
+    out.data = (data.astype(np.float64) - model).astype(data.dtype)
+    up = k > 1.0
+    nk = np.square(np.where(np.isfinite(ctx.noise), ctx.noise, 0.0) * k)
+    if l2.variance is not None:
+        var = np.asarray(l2.variance)
+        out.variance = np.where(up, nk, var.astype(np.float64)).astype(var.dtype)
+    else:
+        out.variance = np.where(up, nk, 0.0).astype(np.float32)
+    return out
+
+
+def glow_dots(l2, obs_id: str, detector: int, session: int, visit: int, thresh: float, min_snr: float, timing: dict,
+              ctx: PhotoContext | None, s: C.DetectSettings, counts: dict) -> pd.DataFrame:
+    """dots_table with the glow model (contracts/dots.md "Glow model"): core.glow.fit_glow models every saturated
+    core and every peak >= GLOW_MIN_PEAK_SNR; detection (and the guard and second pass) runs on IMAGE minus the glow
+    outside each star's own pixels, with the noise scaled by the glow's local scatter. Each modelled star's own dot
+    (the detection nearest it within max(GLOW_SELF_PX, core radius + 1.5 px)) is measured on IMAGE as before; other
+    detections that close are pieces of it and dropped; the rest are measured on the glow-free image."""
+    t0 = time.perf_counter()
+    ctx0 = ctx if ctx is not None else photo_context(l2, timing)
+    gl = fit_glow(l2.data, l2.flags, ctx0.noise, epsf=getattr(l2, "epsf", None), r_max=C.GLOW_R_MAX_PX,
+                  min_peak_snr=C.GLOW_MIN_PEAK_SNR, max_stars=C.GLOW_MAX_STARS)
+    timing["glow_s"] = time.perf_counter() - t0
+    st = gl.stars
+    counts["n_glow_stars"] = int(len(st))
+    counts["n_glow_saturated"] = int(st["saturated"].sum()) if len(st) else 0
+    counts["n_glow_extended"] = int((st["r_glow"] > 0).sum()) if len(st) else 0
+    s0 = dataclasses.replace(s, glow=False)
+    if not len(st):
+        counts["n_glow_pieces"] = 0
+        det, comp, ctx0 = _detections(l2, thresh, min_snr, timing, ctx0, s0, counts)
+        return empty_dots() if det is None else _measure_all(l2, det, comp, ctx0, obs_id, detector, session, visit, timing)
+    l2g = glow_image(l2, ctx0, gl)
+    ctxg = photo_context(l2g, {})
+    det, comp, ctxg = _detections(l2g, thresh, min_snr, timing, ctxg, s0, counts)
+    if det is None:
+        counts["n_glow_pieces"] = 0
+        return empty_dots()
+    own, piece = gl.own(det["x"], det["y"], C.GLOW_SELF_PX)
+    n_piece = int(piece.sum())
+    det, own = det[~piece], own[~piece]
+    if comp is not None and len(comp[0]):
+        cd = comp[0]
+        cpiece = gl.near(cd["x"], cd["y"], C.GLOW_SELF_PX) >= 0
+        n_piece += int(cpiece.sum())
+        comp = (cd[~cpiece], comp[1])
+    counts["n_glow_pieces"] = n_piece
+    if len(det) == 0 and not (comp is not None and len(comp[0])):
+        return empty_dots()
+    if own.any():
+        # the star's own aperture flux on IMAGE (detect's r = 2 px aperture on IMAGE minus the background, as without
+        # the glow model), not on IMAGE minus the glow
+        det = det.copy()
+        f, fe, _ = sep.sum_circle(np.ascontiguousarray(ctx0.sub, np.float64), det["x"][own].astype(np.float64),
+                                  det["y"][own].astype(np.float64), DETECT_APERTURE_R_PX, err=ctx0.noise0,
+                                  mask=np.ascontiguousarray(ctx0.bad), subpix=5)
+        det["flux"][own], det["flux_err"][own] = f, fe
+        with np.errstate(divide="ignore", invalid="ignore"):
+            det["snr"][own] = np.where(fe > 0, f / fe, 0.0)
+    return _measure_all(l2g, det, comp, ctxg, obs_id, detector, session, visit, timing, l2_own=l2, ctx_own=ctx0, own=own)
 
 
 def _measure_dots(l2, det: np.ndarray, ctx: PhotoContext, obs_id: str, detector: int, session: int, visit: int,
@@ -713,9 +813,15 @@ def detect_meta(deblend_cont: float = C.DOTS_DEBLEND_CONT, dots_dir: str = C.DOT
     """The detection settings a dot file was made with (photo metadata `detect`): files made with another
     setting live in another folder, and this says which setting a file has. Fine detection v2 settings (clean_param,
     saturation guard, ePSF second pass) add clean_param, sat_guard_px, psf_pass and the counts n_guard_dropped,
-    n_psf_pass."""
+    n_psf_pass; the glow model adds glow, glow_config and n_glow_stars, n_glow_saturated, n_glow_extended,
+    n_glow_pieces."""
     out = {"thresh": C.DETECT_THRESH, "min_snr": C.DOT_MIN_SNR, "deblend_cont": float(deblend_cont), "dots_dir": dots_dir}
-    if settings is not None and (settings.clean_param != 1.0 or settings.sat_guard_px > 0 or settings.psf_pass):
+    if settings is not None and settings.glow:
+        out["glow"] = True
+        out["glow_config"] = {"r_max_px": C.GLOW_R_MAX_PX, "min_peak_snr": C.GLOW_MIN_PEAK_SNR,
+                              "max_stars": C.GLOW_MAX_STARS, "self_px": C.GLOW_SELF_PX, "r_keep_px": C.GLOW_R_KEEP_PX}
+    if settings is not None and (settings.clean_param != 1.0 or settings.sat_guard_px > 0 or settings.psf_pass
+                                 or settings.glow):
         out.update({"clean_param": float(settings.clean_param), "sat_guard_px": float(settings.sat_guard_px),
                     "psf_pass": bool(settings.psf_pass)})
         if settings.psf_pass:

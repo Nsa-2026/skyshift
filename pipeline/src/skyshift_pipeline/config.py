@@ -117,6 +117,8 @@ DOTS_FINE_CLEAN_PARAM = 3.0    # sep clean_param (1.0 = sep's default = the sky 
 DETECT_SAT_GUARD_PX = 6.0      # a dot the sky run's setting doesn't also find (within 1 px) is dropped this close to an
                                # OVERFLOW/NONLINEAR pixel; second-pass dots too
 DOTS_FINE_PSF_PASS = True      # the ePSF second pass (psf.residual_companions) for the fine zones
+DOTS_FINE_GLOW = True          # the glow model (core.glow; GLOW_* below) for the fine zones: folder suffix _glow
+DOTS_SKY_GLOW = False          # ... and for the sky run (off: dots/ stays as written; on: dots_glow/)
 # ePSF second pass: subtract the ePSF of every unsaturated dot with S/N >= PSF_PASS_PRIMARY_SNR (ePSF position, then
 # flux), run sep on the residual within PSF_PASS_R_PX of those dots (noise √(noise² + (PSF_PASS_MODEL_FRAC · model)²),
 # minarea PSF_PASS_MINAREA, deblend_cont PSF_PASS_DEBLEND_CONT), keep new dots > PSF_PASS_DEDUP_PX from every dot with
@@ -144,10 +146,11 @@ class DetectSettings:
     clean_param: float = 1.0
     sat_guard_px: float = 0.0
     psf_pass: bool = False
+    glow: bool = False
 
     @property
     def folder(self) -> str:
-        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass)
+        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass, self.glow)
 
     @property
     def is_sky(self) -> bool:
@@ -161,10 +164,11 @@ def _num(v: float) -> str:
     return f"{mant}e{int(exp)}"
 
 
-def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: float = 0.0, psf_pass: bool = False) -> str:
+def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: float = 0.0, psf_pass: bool = False,
+                 glow: bool = False) -> str:
     """The folder of dot files made with these settings: DOTS_DIR for the sky run's, else DOTS_DIR plus one part per
-    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf
-    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf)."""
+    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf, _glow
+    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf; with the glow model, 16 Nov: dots_deblend1e-4_cp3_g6_psf_glow)."""
     name = DOTS_DIR
     if float(deblend_cont) != float(DOTS_DEBLEND_CONT):
         name += f"_deblend{_num(deblend_cont)}"
@@ -174,14 +178,17 @@ def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: fl
         name += f"_g{float(sat_guard_px):g}"
     if psf_pass:
         name += "_psf"
+    if glow:
+        name += "_glow"
     return name
 
 
 def zone_detect(zone: str | None) -> DetectSettings:
     """The detection settings of the `dots` step for this zone (None: the sky run's)."""
     if zone in DOTS_FINE_ZONES:
-        return DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, DOTS_FINE_PSF_PASS)
-    return DetectSettings(DOTS_DEBLEND_CONT)
+        return DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, DOTS_FINE_PSF_PASS,
+                              DOTS_FINE_GLOW)
+    return DetectSettings(DOTS_DEBLEND_CONT, glow=DOTS_SKY_GLOW)
 
 
 def zone_dots(zone: str | None) -> tuple[str, float]:
@@ -1164,3 +1171,34 @@ STACK_ARTIFACT_RADIUS_ARCSEC = 60.0
 STACK_ARTIFACT_CORE_ARCSEC = 8.0
 STACK_ARTIFACT_RING_ARCSEC = (20.0, 30.0)
 STACK_TASK_PHOTOS = 8            # photos per worker task (one detector × visit, so the worker sums its own stack)
+# Glow model (16 Nov; core.glow): a bright star's wings and halo stay above the sky to ~25–30 px (Barnard's Star D1:
+# 0.5 MJy/sr at 10 px, 0.16 at 15–20 px, sky noise 0.04); detection cut them into "sources" (Barnard frames.json:
+# stack-only sources 20.8 / 6.4 / 6.7 / 5.0 per arcmin² per epoch within 30 / 30–60 / 60–90 / 90–120″ vs 1.4 at
+# 120–180″). Per photo: saturated cores and peaks >= GLOW_MIN_PEAK_SNR are modelled (ePSF where the unmasked wings
+# constrain it + polar medians of the rest out to GLOW_R_MAX_PX), subtracted, and the detection noise is scaled by the
+# residual's local scatter over the field's (noise factor k >= 1).
+GLOW_R_MAX_PX = 40.0
+GLOW_MIN_PEAK_SNR = 300.0
+GLOW_MAX_STARS = 400
+GLOW_R_KEEP_PX = 3.5           # each star's own pixels (beyond the ePSF's ±3.2 px; a saturated core + 1.5 px) stay as observed
+GLOW_SELF_PX = 2.0             # dots: a modelled star's own dot (nearest within max(this, core radius + 1) px) comes
+                               # from the unmodified image; residual dots that close are dropped
+# Stack: each photo block's glow (outside STACK_GLOW_R_KEEP_PX of each star: its ePSF fit sees it as observed) is
+# subtracted at load and its noise scaled by k; then each S/N map is divided by its own local scatter around bright
+# stars (holes with a bright rim, or peaks >= STACK_GLOW_MIN_SNR), polar bins of >= STACK_GLOW_BIN_MIN_PX grid px out to
+# STACK_GLOW_R_MAX_ARCSEC (the leftovers are coherent over a visit's photos: the formal noise underrates them).
+STACK_GLOW = True
+STACK_GLOW_R_KEEP_PX = 3.5
+STACK_GLOW_CORE_PAD_PX = None  # Glow.outside: STACK_GLOW_R_KEEP_PX for saturated stars too (their unmasked rim is modelled; rim_peaks stands for the star)
+STACK_GLOW_MIN_SNR = 300.0
+STACK_GLOW_RIM_ARCSEC = 12.0
+STACK_GLOW_HOLE_MAX_ARCSEC = 120.0
+STACK_GLOW_MERGE_ARCSEC = 20.0
+STACK_GLOW_R_MAX_ARCSEC = 250.0
+STACK_GLOW_BIN_MIN_PX = 300
+STACK_GLOW_RING_MIN_ARCSEC = 4.0
+GLOW_MAX_SECTORS = 12
+STACK_GLOW_HOLE_RIM_SNR = 100.0  # a hole with no Gaia star in it is a saturated star when its rim reaches this S/N
+STACK_GLOW_HOLE_MIN_ARCSEC = 4.0  # smaller holes (a few masked pixels) are not a saturated core
+STACK_GLOW_GAIA_G = 11.0         # Gaia stars this bright confirm a hole as a saturated star's core
+STACK_GLOW_PEAK_R_MAX_ARCSEC = 60.0  # an unsaturated bright peak's local scatter is measured this far out
