@@ -8,7 +8,8 @@ Pilot (12 deg², 990 photos = 352 exposures × detectors) on skyshift-test; hunt
 ## Run
 `uv run skyshift-pipeline <step> --zone pilot|hunt [--root gs://nasa-glazing-data | <dir>] [--workers N] [--limit N]`
 Steps in order: photolist, refcat, dots, known, link, spectra, crossid, calib, qa, classify, photoz, colours, lightcurves,
-fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order.
+fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects; `all` runs them in order
+(with `SKYSHIFT_SESSION_STACK=1` also `sessionstack` right after dots: cli.steps_for).
 - fragments (fragments.py, after crossid; tiled `all`: once on the merged tables after merge 2, before highpm, the dot
   files' flags from the slim mirror): from stored tables only (members → the dot files' `flags`/`flags_peak`, sources,
   fixed, crossids, refcat) tags each source, first that applies: `bright_fragment` (BLOOM on > 50% of its member dots,
@@ -40,11 +41,23 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   `new` compares with results/<zone>/sources.parquet, so run it after the zone's link/crossid on its dots folder. Two hunt
   boxes (0.24 deg²): CatWISE W1 16–17 found 45 → 1,387 of 1,613, Gaia pairs 6–15″ split 4 → 34 of 38; 14–16% of the
   sources have no catalogue entry, a quarter of those in `artifact_zone`. Every threshold is a STACK_* in config.py.
-- coadd (coadd.py, 16 Nov; a prototype, not a CLI step, used by no step): session coadds, simultaneous-pair maps
-  (sum, positive χ²) and shift-and-stack trial grids (physical: distance + own motion, parallax from Earth + SPHEREx)
-  on stack.py's matched-filter maps. Measured on 12 hunt strips (docs/session-stacks.md): N = 2/3/4 exposures
-  +0.40/+0.60/+0.73 mag (√N); the matched filter on one photo Gaia G50 +0.85 (D1) / +1.47 (D2) over the sky run's
-  dots; pairs add ~nothing for star colours; MWIR photos carry 70–330 unflagged dark holes each.
+- coadd (coadd.py, 16 Nov): the study's prototype functions (session coadds, pair maps, shift-and-stack trial grids;
+  docs/session-stacks.md §1–6) and the step `sessionstack` (§7; off unless env SKYSHIFT_SESSION_STACK=1 →
+  config.SESSION_STACK; `all` then runs it after dots; never changes another step's output when off). Per session ×
+  detector with >= 2 photos: v2's background, glow and MWIR dark-hole mask per photo; the middle photo's pixel frame,
+  the others added per 256-px tile by an integer shift with the sub-pixel phase in the ePSF kernel (inverse-variance
+  num/den, so the noise is honest); detect on S/N with v2's local significance and rim merging, threshold per session ×
+  detector where the map's negative peaks give 10/deg² (5–8σ); every stacked source ePSF-measured in each photo:
+  forced S/N, glitch_share / glitch (one photo carries it), a line through the photo positions (rate, PA,
+  motion_snr), ePSF position ra_psf/dec_psf. Writes session_stacks/<key>.parquet (+ _photos, _moving),
+  session_stacks/index/<zone>.parquet, results/<zone>/session_stack.json, and for SESSION_STACK_MAP_ZONES (hunt)
+  session_stacks_maps/<key>.npz (flux, err float16, ncov). Two hunt sessions × 6 detectors (4 photos): Gaia G50
+  +1.2–1.9 mag over the sky run's dots (D2 19.5, D3 19.4, D1 18.8); SWIR known asteroids V < 18.5 found 76% vs 34%;
+  ePSF positions 0.12–0.15″ rms vs Gaia; 6–17 s CPU per session × detector on a Mac core, ~1.2 GB per worker.
+  link reads the stacks only with the switch on: stack rows join the FoF (one dot per session; fixed sources too faint
+  for one photo → results/<zone>/stack_members.parquet; members.parquet keeps real dots), moving stack sources in no
+  fixed group give pseudo-dots (dot_row −1) to the pairing and its shuffled control. orphans takes stack-only fixed
+  sources as candidates and stack rows in every drift fit.
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -266,7 +279,7 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   Gaia-matched sources + S/N ≥ 30 and the merged raw spectra), qa (on the mirror), classify's stellar locus, the
   light-curve error model and bad photos (+ qa's red ones), astrometry's per-photo frame offsets and saturated-dot offsets; photoz/lightcurves/astrometry reports on the merged tables;
   tracklets (right after merge 1, next to calib), fragments (after merge 2), highpm, orphans, score and suspects run once on the merged tables
-  (tracks cross tiles; their 15′/2′ controls and orphans' 300–7200″ pairs need no border). link's nonfixed_dots.parquet is
+  (tracks cross tiles; their 15′/2′ controls and orphans' parallax-window pairs need no border). link's nonfixed_dots.parquet is
   merged like movers (owner: the dot's position).
 - Dot files are mirrored once into the work dir without flux_ap_ujy/flux_ap_err_ujy (TILE_SLIM_DOTS; unread by the
   combining steps, 3/4 of a full read); each tile reads every photo it overlaps. No mirror when the disk lacks room
@@ -278,15 +291,17 @@ SPHEREx looks ~90° from the Sun, so a planet at 70–1000 AU drifts 0.5–0.002
 fixed source seen in ONE visit; six months later it is 4,800″ (70 AU) to 390″ (1000 AU) away along ecliptic longitude.
 `orphans` (after highpm, once on the merged tables) lists single-visit sources with no Gaia/CatWISE/2MASS entry whose
 spot the other visit covered (>= 6 photos), minus bright-star fragments and the zone's 3′ edge; fits each one's drift
-from its member dots (projected column reads, ~900 dot files for the hunt); pairs orphans of the two visits 300–7,200″
-apart when one heliocentric distance r explains both positions with a bound orbit AND both measured drifts (Earth's
+from its member dots (projected column reads, ~900 dot files for the hunt); pairs orphans of two visits >= 20 days
+apart whose separation fits Earth's parallax between the two times for 40–1000 AU ± a bound orbit's own motion
+(pair_window; forward along that parallax, across it <= 0.4 × separation; was a fixed 300–7,200″ with an
+ecliptic-latitude cut, which lost every pole pair) when one heliocentric distance r explains both positions with a bound orbit AND both measured drifts (Earth's
 reflex at that r) AND the same-detector fluxes; and repeats the pairing 50× with the later visit shifted cyclically in
 its box: the mean is the chance expectation. results/<zone>/orphans.parquet (every candidate, `reason`, drift, `in_pair`,
 `track_in_zone`) and distant.json (passing pairs with distance, fluxes, positions, times; control counts; the depth
 and reach searched; `open` orphans). Can find: a planet detected (S/N >= 5) in >= 3 sessions of BOTH visits, with no
 catalogue entry within crossid's radius at either spot (~8% of the ecliptic sky is lost to CatWISE alone). Brightness:
 single-exposure depth AB ~17.4–17.7 (D1–D4), no stacking: a Neptune-size planet (albedo 0.4) to ~290 AU, an Earth
-much nearer (distant.json `reach_au_at_d2_depth`). Cannot find: anything fainter; movers > ~1″/h (score/suspects do
+much nearer (distant.json `reach_au_at_d2_depth`). Cannot find: anything fainter; movers > ~2.5″/h (score/suspects do
 those); a planet whose 70–100 AU fragments have < 3 sessions each; one blended with a star; a partner beyond the zone
 edge. Zone edge: the partner can be up to 2° away, so each drift-fitted orphan gets `track_in_zone` (share of its
 70–1000 AU parallax track inside the zone box less the 3′ margin); those < 1 are listed in distant.json `open` with the
@@ -296,6 +311,11 @@ predictions; tiles pass theirs) moving like an orphan (rate within 0.3″/h + 3�
 `known_name` (distant.json `known`, `known_a/b`): a recovered TNO validates the route, it is not dropped. Hunt (14 Nov
 tables): 447 orphans, 892 pairs tested, 1 passing vs 1.5 expected by chance (p 0.78), no known slow body bright enough.
 Table-level injection at the hunt's cadence (70–1000 AU, 3–20 dots per visit): 83–100 % recovered, r within ~2 %.
+16 Nov (rate max 1 → 2.5″/h, the parallax window, pairs >= 20 days; docs/session-stacks.md §7): hunt cadence 40 AU
+0 → 63%, 70–1000 AU unchanged (75–100%); ecliptic-pole cadence (t_nep, consecutive visits ~29 days apart) 0–1% → 60%
+(70 AU) … 100% (1000 AU); 40 AU at the pole still 0 (it drifts ~3.7″/h there). Chance on the hunt's real orphans:
+709 → 839 pairs tested, 1 passing vs 0.92 → 0.98 expected. Session stacks (switch on): stack-only fixed sources are
+candidates too (catalogue test against refcat/<zone>.parquet, drift from their stack rows, fluxes from them).
 The step never raises (errors go to its stats).
 
 ## Completeness (inject.py, step `completeness`): what "found nothing" means

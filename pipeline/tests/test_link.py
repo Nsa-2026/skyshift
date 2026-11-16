@@ -493,3 +493,79 @@ def test_off_star_member_dots_go_to_the_nonfixed_table():
     sid2[6] = -1  # an ordinary free dot: in_fixed False
     fd2 = nonfixed_dots_table(d, sid2, fixed, photos)
     assert fd2.set_index("dot_row")["in_fixed"].to_dict() == {5: True, 6: False}
+
+
+# --- session-stack rows (SESSION_STACK on) -------------------------------------------------------------------------
+def write_stack(store, key, obs_ids, rows, moving=None):
+    """One session's stack files in coadd's format: rows = [dict(stack_row, ra, dec, ...)] over SOURCE_COLUMNS
+    defaults; moving = per-photo rows (MOVING_COLUMNS) of its moving sources."""
+    from skyshift_pipeline import coadd as CO
+    base = {c: (False if d == "bool" else 0) for c, d in CO.SOURCE_COLUMNS.items()}
+    src = pd.DataFrame([{**base, "detector": 1, "n_exp": len(obs_ids), "n_exp_session": len(obs_ids), "snr": 5.0,
+                         "snr_mf": 5.5, "flux_ujy": 20.0, "pos_err_arcsec": 0.4, **r} for r in rows])
+    src = src.astype(CO.SOURCE_COLUMNS)[list(CO.SOURCE_COLUMNS)]
+    if moving is not None:
+        mv = pd.DataFrame([{**{c: 0 for c in CO.MOVING_COLUMNS}, "pos_ok": True, "flux_err_ujy": 4.0, **m} for m in moving])
+        store.write_bytes(CO.session_moving_rel(key), CO._parquet(mv[CO.MOVING_COLUMNS]))
+    store.write_bytes(CO.session_rel(key), CO._parquet(src, {"detector": 1, "obs_ids": list(obs_ids)}))
+
+
+def test_link_takes_session_stack_rows_only_when_switched_on(tmp_path, monkeypatch):
+    import json
+
+    from test_cli import dots_df
+
+    from skyshift_pipeline import coadd as CO
+    from skyshift_pipeline.cli import main
+    from skyshift_pipeline.photolist import add_sessions
+    from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel
+    store = Store(str(tmp_path))
+    faint, glitch, mov = (122.25, 16.12), (122.35, 16.18), (122.20, 16.22)
+    rows = [dict(obs_id=f"S{s}E{e}", detector=1, mjd=t(s, e), s_region=square(122.3, 16.15), collection="spherex_dr1",
+                 url="", s3_key="", size_bytes=1) for s in range(5) for e in range(2)]
+    photos = add_sessions(pd.DataFrame(rows))
+    store.write_parquet(photolist_rel("pilot"), photos)
+    for p in photos.itertuples():
+        store.write_parquet(dots_rel(p.obs_id, 1), dots_df(p.obs_id, 1, p.mjd, [STAR]))
+    idx = []
+    for s in range(5):
+        ids = [f"S{s}E0", f"S{s}E1"]
+        key = CO.session_key(ids, 1)
+        mjd = (t(s, 0) + t(s, 1)) / 2
+        srows = [dict(stack_row=0, ra=STAR[0], dec=STAR[1], ra_psf=STAR[0], dec_psf=STAR[1], snr=60.0, mjd=mjd),
+                 dict(stack_row=1, ra=faint[0] + 1e-5, dec=faint[1], ra_psf=faint[0], dec_psf=faint[1], mjd=mjd)]
+        moving = None
+        if s == 1:  # a one-photo glitch: never a link row
+            srows.append(dict(stack_row=2, ra=glitch[0], dec=glitch[1], ra_psf=np.nan, dec_psf=np.nan, glitch=True,
+                              glitch_share=0.95, mjd=mjd))
+        if s == 3:  # a mover too faint for one photo's dots: its photo positions become pseudo-dots
+            srows.append(dict(stack_row=3, ra=mov[0], dec=mov[1], ra_psf=mov[0], dec_psf=mov[1], motion_snr=8.0,
+                              rate_arcsec_h=60.0, mjd=mjd))
+            moving = [dict(stack_row=3, photo=e, obs_id=ids[e], mjd=t(s, e),
+                           ra=offset_radec(mov[0], mov[1], 2.1 * (e - 0.5), 0.0)[0], dec=mov[1], flux_ujy=20.0)
+                      for e in range(2)]
+        write_stack(store, key, ids, srows, moving)
+        idx += [dict(key=key, session=s + 1, visit=1, detector=1, obs_id=o, n_exp_session=2) for o in ids]
+    store.write_parquet(CO.index_rel("pilot"), pd.DataFrame(idx))
+
+    def run_link():
+        assert main(["link", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
+        out = {n: store.read_parquet(results_rel("pilot", f"{n}.parquet")) for n in ("fixed", "members", "movers")}
+        has = store.exists(results_rel("pilot", "stack_members.parquet"))
+        return out, has, json.loads((tmp_path / "results/pilot/summary.json").read_text())["steps"]["link"]
+
+    monkeypatch.setattr(C, "SESSION_STACK", False)
+    off, has_off, st_off = run_link()
+    assert len(off["fixed"]) == 1 and len(off["movers"]) == 0 and not has_off and "session_stack" not in st_off
+    monkeypatch.setattr(C, "SESSION_STACK", True)
+    on, has_on, st_on = run_link()
+    sm = store.read_parquet(results_rel("pilot", "stack_members.parquet"))
+    assert has_on and len(on["fixed"]) == 2
+    # the faint source: one fixed group of 5 stack rows and no real dot; the star's stack rows were its dots already
+    assert len(sm) == 5 and sm["source_id"].nunique() == 1 and (sm["stack_row"] == 1).all()
+    pd.testing.assert_frame_equal(on["members"], off["members"])  # members.parquet: real dots only, unchanged
+    ss = st_on["session_stack"]
+    assert ss["stack_rows_glitch"] == 1 and ss["stack_rows_dedup"] == 5 and ss["fixed_stack_only"] == 1
+    assert ss["stack_pseudo_dots_used"] == 2 and ss["movers_with_stack_dots"] == 1
+    assert len(on["movers"]) == 1 and int(on["movers"]["session"].iloc[0]) == 4
+    assert "with_stack_dots" in st_on["control"]

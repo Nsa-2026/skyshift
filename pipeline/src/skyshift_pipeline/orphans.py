@@ -16,7 +16,11 @@ fragments). Six months later Earth is on the other side of the Sun: the planet s
    √((ORPHANS_POS_ERR_SCALE · pos_err)² + ORPHANS_POS_FLOOR_ARCSEC²), errors × √χ²_ν when above 1, one refit without
    dots beyond ORPHANS_CLIP_SIGMA. `drift_ok`: rate within ORPHANS_DRIFT_NSIGMA of ORPHANS_RATE_MIN..MAX ″/h and
    rate error <= ORPHANS_DRIFT_MAX_ERR.
-3. Pairs (drift_ok orphans of two visits >= ORPHANS_MIN_DT_DAYS apart, ORPHANS_SEP_MIN..MAX_ARCSEC apart). Model, for
+3. Pairs (drift_ok orphans of two visits >= ORPHANS_MIN_DT_DAYS apart, separated by what a body at ORPHANS_WINDOW_AU can
+   move between their times: pair_window, the parallax of Earth's motion between the two times at the far and near
+   distance, less / plus the bound orbit's own motion, ± ORPHANS_WINDOW_TOL_ARCSEC; the offset forward along that
+   parallax, its part across it <= ORPHANS_WINDOW_PERP_FRAC × separation: near the ecliptic poles the parallax points any
+   way in ecliptic coordinates, so the old ecliptic-latitude cut lost those pairs). Model, for
    each heliocentric distance r of a log grid (ORPHANS_R_GRID_AU): the two observed directions from Earth (barycentric
    ephemeris; SPHEREx's 1e-4 AU offset is ignored) put the object at P_A and P_B with |P| = r; its velocity
    V = (P_B − P_A) / Δt must be bound (|V| <= ORPHANS_VMAX_FACTOR × 2π/√r AU/yr), and the sky drifts it predicts at
@@ -34,6 +38,12 @@ fragments). Six months later Earth is on the other side of the Sun: the planet s
    other visit covered the orphan's spot; `track_in_zone` = its share inside the zone box less the edge margin. A
    partner outside can't be found in this zone: distant.json lists those orphans as `open` with the track ends
    (70 and 1000 AU) for a later cross-zone pass.
+
+Session stacks (config SESSION_STACK and link's results/<zone>/stack_members.parquet; off or missing: unchanged): a
+fixed source made of session-stack rows only (too faint for one photo, so not in sources.parquet) is a candidate too:
+its visit and times from its stack rows, the catalogue test against refcat/<zone>.parquet (crossid's radii, proper
+motion to its time) since crossid never saw it, its detector fluxes from its stack rows. Every orphan's drift fit
+takes its stack rows as well (one position per session: the photos' ePSF fits; errors × ORPHANS_STACK_POS_ERR_SCALE).
 
 Writes results/<zone>/orphans.parquet and results/<zone>/distant.json. Never fails the run: an error is logged and
 returned in the step stats (the overnight `all` must reach score and suspects).
@@ -249,6 +259,98 @@ def bright_neighbour(ra, dec, sid, fixed: pd.DataFrame) -> np.ndarray:
     return out
 
 
+# --- session stacks (module doc, "Session stacks") ------------------------------------------------------------------
+def load_stack_members(store: Store, zone: C.Zone) -> pd.DataFrame | None:
+    """link's stack_members.parquet when SESSION_STACK is on and the file is there, else None."""
+    if not C.SESSION_STACK:
+        return None
+    from .link import STACK_MEMBERS_NAME
+    rel = results_rel(zone.name, STACK_MEMBERS_NAME)
+    try:
+        return store.read_parquet(rel) if store.exists(rel) else None
+    except Exception:  # noqa: BLE001
+        L.warning("orphans %s: %s unreadable; dots only", zone.name, STACK_MEMBERS_NAME)
+        return None
+
+
+def stack_only_sources(sm: pd.DataFrame, known_sids: np.ndarray, fixed: pd.DataFrame) -> pd.DataFrame:
+    """The fixed sources made of stack rows only (not in sources.parquet): source_id, ra, dec (link's), n_dots,
+    n_sessions, saturated False, mjd_mean, visit (-1 if seen in several)."""
+    cols = ["source_id", "ra", "dec", "n_dots", "n_sessions", "saturated", "mjd_mean", "visit"]
+    q = sm[~np.isin(sm["source_id"].to_numpy(np.int64), np.asarray(known_sids, np.int64))]
+    if not len(q):
+        return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
+    g = q.groupby("source_id").agg(mjd_mean=("mjd", "mean"), vmin=("visit", "min"), vmax=("visit", "max"),
+                                   n_dots=("mjd", "size"), n_sessions=("session", "nunique"))
+    g["visit"] = np.where(g["vmin"] == g["vmax"], g["vmin"], -1).astype(np.int64)
+    pos = fixed.set_index("source_id")[["ra", "dec"]].reindex(g.index)
+    out = pd.DataFrame({"source_id": g.index.to_numpy(np.int64), "ra": pos["ra"].to_numpy(np.float64),
+                        "dec": pos["dec"].to_numpy(np.float64), "n_dots": g["n_dots"].to_numpy(np.int64),
+                        "n_sessions": g["n_sessions"].to_numpy(np.int64), "saturated": False,
+                        "mjd_mean": g["mjd_mean"].to_numpy(np.float64), "visit": g["visit"].to_numpy(np.int64)})
+    return out[np.isfinite(out["ra"].to_numpy())].reset_index(drop=True)
+
+
+def refcat_matched(store: Store, zone: C.Zone, ra, dec, mjd) -> np.ndarray:
+    """True where a Gaia / CatWISE / 2MASS entry of refcat/<zone>.parquet (proper motion to mjd) lies within crossid's
+    radius (CROSSID_ARCSEC): the catalogue test of sources crossid never saw. No refcat: all False (and a warning)."""
+    from .refcat import refcat_rel
+    from .sky import offset_radec
+    ra, dec, mjd = (np.asarray(v, np.float64) for v in (ra, dec, mjd))
+    hit = np.zeros(len(ra), bool)
+    if not len(ra):
+        return hit
+    rel = refcat_rel(zone.name)
+    if not store.exists(rel):
+        L.warning("orphans %s: no refcat; stack-only sources are not checked against the catalogues", zone.name)
+        return hit
+    rc = store.read_parquet(rel, columns=["cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec"])
+    t = float(np.nanmedian(mjd))
+    for cat, r in C.CROSSID_ARCSEC.items():
+        c = rc[rc["cat"].astype(str).to_numpy() == cat]
+        if not len(c):
+            continue
+        yr = (t - c["epoch_mjd"].fillna(t).to_numpy(np.float64)) / 365.25
+        cr, cd = offset_radec(c["ra"].to_numpy(np.float64), c["dec"].to_numpy(np.float64),
+                              np.nan_to_num(c["pmra"].to_numpy(np.float64)) * yr / 1000.0,
+                              np.nan_to_num(c["pmdec"].to_numpy(np.float64)) * yr / 1000.0)
+        sep, _ = SkyTree(cr, cd).nearest(ra, dec)
+        hit |= sep <= r
+    return hit
+
+
+def stack_positions(sm: pd.DataFrame, sids: np.ndarray) -> pd.DataFrame:
+    """The stack rows of `sids` as member_positions rows (one position per session; errors × ORPHANS_STACK_POS_ERR_SCALE
+    / ORPHANS_POS_ERR_SCALE, so fit_drift's own scale leaves them at the stack scale; no error: 1″)."""
+    q = sm[np.isin(sm["source_id"].to_numpy(np.int64), np.asarray(sids, np.int64))]
+    pe = q["pos_err_arcsec"].to_numpy(np.float64)
+    pe = np.where(np.isfinite(pe) & (pe > 0), pe, 1.0) * C.ORPHANS_STACK_POS_ERR_SCALE / C.ORPHANS_POS_ERR_SCALE
+    out = pd.DataFrame({"source_id": q["source_id"].to_numpy(np.int64), "mjd": q["mjd"].to_numpy(np.float64),
+                        "ra": q["ra"].to_numpy(np.float64), "dec": q["dec"].to_numpy(np.float64), "pos_err_arcsec": pe,
+                        "snr": q["snr"].to_numpy(np.float64), "flux_ujy": q["flux_ujy"].to_numpy(np.float64),
+                        "ra_psf": np.nan, "dec_psf": np.nan, "pos_err_psf_arcsec": np.nan, "psf_pos_ok": False,
+                        "detector": q["detector"].to_numpy(np.int8), "session": q["session"].to_numpy(np.int64),
+                        "visit": q["visit"].to_numpy(np.int64), "stack": True})
+    return out
+
+
+def stack_detector_fluxes(sm: pd.DataFrame, sids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(N, 6) per detector: median flux of the source's stack rows and its relative error (1 / (median S/N × √n))."""
+    f = np.full((len(sids), NDET), np.nan)
+    rel = np.full((len(sids), NDET), np.nan)
+    q = sm[np.isin(sm["source_id"].to_numpy(np.int64), np.asarray(sids, np.int64))]
+    if not len(q):
+        return f, rel
+    row = {int(s): k for k, s in enumerate(sids)}
+    for (sid, det), g in q.groupby(["source_id", "detector"]):
+        k, d = row[int(sid)], int(det) - 1
+        if 0 <= d < NDET:
+            f[k, d] = float(np.median(g["flux_ujy"]))
+            snr = float(np.median(g["snr"]))
+            rel[k, d] = 1.0 / (snr * np.sqrt(len(g))) if snr > 0 else np.nan
+    return f, rel
+
+
 # --- 2. drift ------------------------------------------------------------------------------------------------------
 def member_positions(store: Store, zone: C.Zone, sids: np.ndarray, workers: int = 16) -> tuple[pd.DataFrame, dict]:
     """The member dots of `sids` with DOT_COLUMNS (projected column reads), detector, session, visit."""
@@ -405,13 +507,51 @@ def detector_flux_errors(spec: np.ndarray, err: np.ndarray | None) -> tuple[np.n
     return f, np.where(np.isfinite(rel) & (f > 0), rel, np.nan)
 
 
+def own_motion_arcsec(r_au, dt_days) -> np.ndarray:
+    """The most a bound body at heliocentric r can move across the sky in dt by itself (″): ORPHANS_VMAX_FACTOR ×
+    circular speed × dt over its nearest possible distance from Earth (r − 1 AU)."""
+    r = np.asarray(r_au, np.float64)
+    return vmax_au_yr(r) * np.abs(np.asarray(dt_days, np.float64)) / 365.25 / np.maximum(r - 1.0, 1e-3) * ARCSEC_PER_RAD
+
+
+def pair_window(ra, dec, mjd_a, mjd_b) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Per pair, the separation (″) a body at ORPHANS_WINDOW_AU (near, far) seen at (ra, dec, mjd_a) can have at mjd_b:
+    [parallax at far − own motion at far − tol, parallax at near + own motion at near + tol]. The parallax is Earth's
+    motion between the two times (partner_track); near the ecliptic poles visits ~30 days apart give 86–200″ at 1000 AU,
+    six months apart on the ecliptic ~390″ (the old fixed 300–7,200″ window lost the first). Also returns the unit
+    direction (east, north at A) of that parallax shift: every still body's partner lies on that great circle."""
+    near, far = C.ORPHANS_WINDOW_AU
+    ra, dec = np.asarray(ra, np.float64), np.asarray(dec, np.float64)
+    tr, td = partner_track(ra, dec, np.asarray(mjd_a, np.float64), np.asarray(mjd_b, np.float64), [near, far])
+    from .sky import angsep
+    s_near = angsep(ra, dec, tr[:, 0], td[:, 0]) * 3600.0
+    s_far = angsep(ra, dec, tr[:, 1], td[:, 1]) * 3600.0
+    dt = np.asarray(mjd_b, np.float64) - np.asarray(mjd_a, np.float64)
+    tol = C.ORPHANS_WINDOW_TOL_ARCSEC
+    lo = np.maximum(s_far - own_motion_arcsec(far, dt) - tol, 0.0)
+    hi = s_near + own_motion_arcsec(near, dt) + tol
+    pe, pn = tangent_offset_arcsec(ra, dec, tr[:, 0], td[:, 0])
+    norm = np.maximum(np.hypot(pe, pn), 1e-9)
+    return lo, hi, pe / norm, pn / norm
+
+
+def window_cap_arcsec(mjd) -> float:
+    """An upper bound of every pair_window's top for these times: Earth moves <= 2 AU, the body by itself vmax × span."""
+    mjd = np.asarray(mjd, np.float64)
+    near = C.ORPHANS_WINDOW_AU[0]
+    span = float(np.ptp(mjd)) if mjd.size else 0.0
+    return float(2.0 / max(near - 1.0, 1e-3) * ARCSEC_PER_RAD + own_motion_arcsec(near, span) + C.ORPHANS_WINDOW_TOL_ARCSEC)
+
+
 def candidate_pairs(ra, dec, visit, mjd) -> tuple[np.ndarray, np.ndarray]:
-    """Index pairs (i earlier, j later) of different visits >= ORPHANS_MIN_DT_DAYS apart, separation
-    ORPHANS_SEP_MIN..MAX, A→B latitude offset <= 0.4 × separation (generous: a bound orbit at 70 AU reaches 0.33)."""
+    """Index pairs (i earlier, j later) of different visits >= ORPHANS_MIN_DT_DAYS apart, separation inside
+    pair_window (parallax of a body at ORPHANS_WINDOW_AU between the two times ± its own motion), the A→B offset along
+    the parallax direction (forward) with its part across it <= ORPHANS_WINDOW_PERP_FRAC × separation (a bound orbit's
+    own motion; on the ecliptic this is the old ecliptic-latitude cut, near the poles it is not)."""
     if len(ra) < 2:
         return np.zeros(0, np.int64), np.zeros(0, np.int64)
     tree = SkyTree(ra, dec)
-    pr = tree.tree.query_pairs(chord(C.ORPHANS_SEP_MAX_ARCSEC), output_type="ndarray")
+    pr = tree.tree.query_pairs(chord(window_cap_arcsec(mjd)), output_type="ndarray")
     if not len(pr):
         return np.zeros(0, np.int64), np.zeros(0, np.int64)
     i, j = pr[:, 0], pr[:, 1]
@@ -419,9 +559,13 @@ def candidate_pairs(ra, dec, visit, mjd) -> tuple[np.ndarray, np.ndarray]:
     i, j = np.where(sw, j, i), np.where(sw, i, j)
     keep = (visit[i] != visit[j]) & ((mjd[j] - mjd[i]) >= C.ORPHANS_MIN_DT_DAYS)
     i, j = i[keep], j[keep]
-    dl, db = ecliptic_offset(ra[i], dec[i], ra[j], dec[j])
-    sep = np.hypot(dl, db)
-    keep = (sep >= C.ORPHANS_SEP_MIN_ARCSEC) & (sep <= C.ORPHANS_SEP_MAX_ARCSEC) & (np.abs(db) <= 0.4 * sep)
+    if not len(i):
+        return i, j
+    de, dn = tangent_offset_arcsec(ra[i], dec[i], ra[j], dec[j])
+    sep = np.hypot(de, dn)
+    lo, hi, ue, un = pair_window(ra[i], dec[i], mjd[i], mjd[j])
+    along, across = de * ue + dn * un, np.abs(dn * ue - de * un)
+    keep = (sep >= lo) & (sep <= hi) & (along > 0) & (across <= C.ORPHANS_WINDOW_PERP_FRAC * sep)
     return i[keep], j[keep]
 
 
@@ -546,6 +690,14 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
     sv = source_visits(store, zone)
     src = src.merge(sv.rename(columns={"mjd": "mjd_mean"}), on="source_id", how="left")
     src["visit"] = src["visit"].fillna(-1).astype(np.int64)
+    sm = load_stack_members(store, zone)
+    n_stack_only = 0
+    if sm is not None:  # fixed sources of stack rows only join as candidates (module doc, "Session stacks")
+        fx = store.read_parquet(results_rel(zone.name, "fixed.parquet"), columns=["source_id", "ra", "dec"])
+        so = stack_only_sources(sm, src["source_id"].to_numpy(np.int64), fx)
+        n_stack_only = len(so)
+        st["stack_only_sources"] = int(n_stack_only)
+        src = pd.concat([src.assign(stack_only=False), so.assign(stack_only=True)], ignore_index=True)
     single = src[src["visit"] >= 0].reset_index(drop=True)
     st["single_visit_sources"] = int(len(single))
     xrel = results_rel(zone.name, "crossids.parquet")
@@ -555,6 +707,14 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
     st["crossids"] = xid is not None
     sid = single["source_id"].to_numpy(np.int64)
     um = unmatched(xid, sid)
+    if sm is not None and "stack_only" in single:
+        so_m = single["stack_only"].to_numpy(bool)
+        if so_m.any():
+            hit = refcat_matched(store, zone, single["ra"].to_numpy()[so_m], single["dec"].to_numpy()[so_m],
+                                 single["mjd_mean"].to_numpy()[so_m])
+            um[so_m] = ~hit
+            st["stack_only_single_visit"] = int(so_m.sum())
+            st["stack_only_unmatched"] = int((~hit).sum())
     cand = single[um].reset_index(drop=True)
     st["unmatched"] = int(len(cand))
     photos = store.read_parquet(photolist_rel(zone.name), columns=["s_region", "visit", "mjd"])
@@ -584,6 +744,10 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
     # 2. drift from the clean orphans' member dots
     t1 = time.time()
     dots, dst = member_positions(store, zone, csid[clean], workers)
+    if sm is not None:
+        sp = stack_positions(sm, csid[clean])
+        dst["stack_rows"] = int(len(sp))
+        dots = pd.concat([dots.assign(stack=False), sp], ignore_index=True) if len(sp) else dots.assign(stack=False)
     if len(dots):
         cpos = cand.set_index("source_id")[["ra", "dec"]]
         q = cpos.reindex(dots["source_id"].to_numpy(np.int64))
@@ -599,7 +763,10 @@ def compute(store: Store, zone: C.Zone, workers: int = 16) -> tuple[pd.DataFrame
     out["drift_ok"] = out["fit_ok"].to_numpy() & drift_ok(out["rate"], out["rate_err"]) & (out["reason"].to_numpy() == "")
     st["drift_fitted"] = int(out["fit_ok"].sum())
     st["drift_ok"] = int(out["drift_ok"].sum())
-    st["depth_ab_snr5"] = depth_ab(dots)
+    is_stack = dots["stack"].to_numpy(bool) if "stack" in dots else np.zeros(len(dots), bool)
+    st["depth_ab_snr5"] = depth_ab(dots[~is_stack])
+    if sm is not None:
+        st["depth_ab_snr5_stack"] = depth_ab(dots[is_stack])
     # 5. partner track for the zone-edge check
     lo, hi, n = C.ORPHANS_TRACK_AU
     R = np.geomspace(lo, hi, int(n))
@@ -708,10 +875,17 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
         sp = pq.read_table(io.BytesIO(sraw), columns=cols,
                            filters=[("source_id", "in", o["source_id"].astype(np.int64).tolist())]).to_pandas()
         sp = sp.set_index("source_id").reindex(o["source_id"].to_numpy(np.int64))
-        spec = np.stack([np.asarray(x, np.float64) if x is not None else np.full(NDET * NCH_DET, np.nan) for x in sp["flux_ujy"]])
-        err = (np.stack([np.asarray(x, np.float64) if x is not None else np.full(NDET * NCH_DET, np.nan) for x in sp["err_ujy"]])
-               if "err_ujy" in sp else None)
+        def vec(x):  # a source with no row in sources.parquet (stack-only) reindexes to a NaN scalar
+            return np.asarray(x, np.float64) if np.ndim(x) == 1 else np.full(NDET * NCH_DET, np.nan)
+        spec = np.stack([vec(x) for x in sp["flux_ujy"]])
+        err = np.stack([vec(x) for x in sp["err_ujy"]]) if "err_ujy" in sp else None
         flux, frel = detector_flux_errors(spec, err)
+        sm = load_stack_members(store, zone) if "stack_only" in o else None
+        if sm is not None:  # stack-only sources have no spectrum: their stack rows' fluxes
+            so = o["stack_only"].fillna(False).to_numpy(bool)
+            if so.any():
+                f2, r2 = stack_detector_fluxes(sm, o["source_id"].to_numpy(np.int64)[so])
+                flux[so], frel[so] = f2, r2
         for k in range(NDET):
             o[f"flux_d{k + 1}_ujy"] = flux[:, k].astype(np.float32)
         pairs, controls, pst = pairs_and_controls(o, flux, frel)
@@ -759,7 +933,11 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
         "searched": {
             "what": "single-visit sources without Gaia/CatWISE/2MASS whose spot the other visit covered, paired across visits",
             "rate_arcsec_h": [C.ORPHANS_RATE_MIN, C.ORPHANS_RATE_MAX],
-            "sep_arcsec": [C.ORPHANS_SEP_MIN_ARCSEC, C.ORPHANS_SEP_MAX_ARCSEC],
+            "pair_window": {"au": list(C.ORPHANS_WINDOW_AU), "tol_arcsec": C.ORPHANS_WINDOW_TOL_ARCSEC,
+                            "min_dt_days": C.ORPHANS_MIN_DT_DAYS, "perp_frac": C.ORPHANS_WINDOW_PERP_FRAC,
+                            "rule": "parallax between the two times at the far / near distance -/+ the bound orbit's own "
+                                    "motion; offset forward along the parallax, across it <= perp_frac x separation"},
+            "session_stacks": st.get("stack_only_sources") is not None,
             "distance_grid_au": [C.ORPHANS_R_GRID_AU[0], C.ORPHANS_R_GRID_AU[1]],
             "orbit": f"bound: speed <= {C.ORPHANS_VMAX_FACTOR} x circular",
             "depth_ab_snr5": depth,
@@ -787,9 +965,11 @@ def _run(store: Store, zone: C.Zone, workers: int = 16, pred: pd.DataFrame | Non
                    "rate_arcsec_h": _r(x.rate, 4)} for x in known.head(C.ORPHANS_REPORT_MAX).itertuples()],
         "skipped": skipped,
         "limits": [
-            "within-visit drift up to 1 arcsec/h: faster objects are movers (score/suspects); below ~0.3 arcsec/h a planet chains "
-            "into one fixed source per visit, at 0.3-1 arcsec/h into fragments that need >= 3 sessions each",
-            "the object must be detected (S/N >= 5) in >= 3 sessions of each visit: single-exposure depth, no stacking",
+            f"within-visit drift up to {C.ORPHANS_RATE_MAX:g} arcsec/h: faster objects are movers (score/suspects); below ~0.3 "
+            "arcsec/h a planet chains into one fixed source per visit, faster into fragments that need >= 3 sessions each",
+            "the object must be detected (S/N >= 5) in >= 3 sessions of each visit: " + (
+                "single-exposure dots or session stacks" if st.get("stack_only_sources") is not None
+                else "single-exposure depth, no stacking"),
             "the partner of an orphan near the zone edge may lie in the next zone (see `open`); no cross-zone pass yet",
             "a catalogue entry within crossid's radius hides the object (CatWISE ~35k/deg2: ~8% of the sky near the ecliptic)",
             "positions are raw dots (no calib); errors scaled and floored (ORPHANS_POS_ERR_SCALE, ORPHANS_POS_FLOOR_ARCSEC)"],

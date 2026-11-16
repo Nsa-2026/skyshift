@@ -215,3 +215,78 @@ def test_orphans_tags_a_known_slow_body_but_not_a_passing_asteroid(tmp_path, rng
     rep = json.loads((tmp_path / f"results/{ZONE.name}/distant.json").read_text())
     assert rep["pairs"][0]["known_a"] == "(90377) Sedna" and rep["pairs"][0]["known_b"] is None
     assert [k["source_id"] for k in rep["known"]] == [101]
+
+
+# --- the pairing window (pair_window) and session-stack sources ---------------------------------------------------
+@pytest.mark.parametrize("t0", [60968.0, 61050.0, 61139.0, 61230.0])
+def test_pair_window_keeps_a_far_planet_near_the_ecliptic_pole(t0):
+    """Visits ~30 days apart near the pole: a 1000 AU planet moves 60–220″ (the old fixed window started at 300″), in
+    any direction in ecliptic coordinates (the old ecliptic-latitude cut dropped most); backwards or across: no pair."""
+    mjd = np.array([t0, t0 + 30.0])
+    ra, dec = planet_radec(1000.0, 125.0, mjd, beta_deg=88.5)
+    de, dn = tangent_offset_arcsec(ra[0], dec[0], ra[1:], dec[1:])
+    sep = float(np.hypot(de, dn)[0])
+    lo, hi, ue, un = O.pair_window(ra[:1], dec[:1], mjd[:1], mjd[1:])
+    assert 60 < sep < 220 and lo[0] <= sep <= hi[0] and abs(np.hypot(ue[0], un[0]) - 1) < 1e-9
+    i, j = O.candidate_pairs(ra, dec, np.array([1, 2]), mjd)
+    assert (i.tolist(), j.tolist()) == ([0], [1])
+    for e, n in ((-de[0], -dn[0]), (dn[0], -de[0])):  # backwards; at right angles
+        r2, d2 = offset_radec(ra[:1], dec[:1], np.array([e]), np.array([n]))
+        i, _ = O.candidate_pairs(np.r_[ra[:1], r2], np.r_[dec[:1], d2], np.array([1, 2]), mjd)
+        assert len(i) == 0
+
+
+@pytest.mark.parametrize("r_au", [40.0, 70.0, 1000.0])
+def test_pair_window_holds_the_hunt_cadence_from_40_to_1000_au(r_au):
+    mjd = np.array([T1 + 5, T2 + 5])
+    ra, dec = planet_radec(r_au, 125.0, mjd)
+    i, j = O.candidate_pairs(ra, dec, np.array([1, 2]), mjd)
+    assert (i.tolist(), j.tolist()) == ([0], [1])
+    # a 40 AU TNO drifts up to ~2.3″/h in a visit: inside drift_ok now (ORPHANS_RATE_MAX 2.5; was 1.0)
+    assert O.drift_ok(np.array([2.0]), np.array([0.02])).tolist() == [True]
+    assert O.drift_ok(np.array([3.5]), np.array([0.02])).tolist() == [False]
+    assert O.window_cap_arcsec(mjd) >= O.pair_window(ra[:1], dec[:1], mjd[:1], mjd[1:])[1][0]
+
+
+def test_orphans_pairs_a_planet_seen_only_in_session_stacks(tmp_path, rng, monkeypatch):
+    """A 600 AU planet too faint for one photo: link put its session-stack rows into fixed groups of one visit each
+    (stack_members.parquet), with no dots, no spectrum and no crossid row. With SESSION_STACK on it is an orphan in both
+    visits, its drift comes from the stack rows, and the pair passes; off, nothing changes."""
+    from skyshift_pipeline.link import STACK_MEMBER_COLUMNS, STACK_MEMBERS_NAME
+    store = make_zone(tmp_path, rng)
+    monkeypatch.setitem(C.ZONES, ZONE.name, ZONE)
+    monkeypatch.setattr(C, "ORPHANS_CONTROL_N", 10)
+    photos = store.read_parquet(photolist_rel(ZONE.name))
+    rows = []
+    for sid, visit in ((301, 1), (302, 2)):
+        for s, g in photos[photos["visit"] == visit].groupby("session"):
+            mjd = float(g["mjd"].mean())
+            ra, dec = planet_radec(600.0, 124.0, np.array([mjd]))
+            ra, dec = offset_radec(ra, dec, rng.normal(0, 0.2, 1), rng.normal(0, 0.2, 1))
+            for det, f in ((1, 40.0), (4, 30.0)):
+                rows.append(dict(source_id=sid, key=f"k{s}D{det}", stack_row=0, session=s, visit=visit, detector=det,
+                                 mjd=mjd, ra=ra[0], dec=dec[0], flux_ujy=f, snr=6.0, n_exp=2, pos_err_arcsec=0.2))
+    sm = pd.DataFrame(rows)[STACK_MEMBER_COLUMNS]
+    store.write_parquet(results_rel(ZONE.name, STACK_MEMBERS_NAME), sm)
+    fixed = store.read_parquet(results_rel(ZONE.name, "fixed.parquet"))
+    pos = sm.groupby("source_id")[["ra", "dec"]].mean()
+    store.write_parquet(results_rel(ZONE.name, "fixed.parquet"), pd.concat([fixed, pd.DataFrame({
+        "source_id": pos.index.to_numpy(), "ra": pos["ra"].to_numpy(), "dec": pos["dec"].to_numpy(), "snr": 6.0,
+        "n_sessions": 20, "n_dots": 0, "flux_ujy": 40.0})], ignore_index=True))
+
+    def run():
+        assert main(["orphans", "--zone", ZONE.name, "--root", str(tmp_path), "--workers", "2"]) == 0
+        o = store.read_parquet(results_rel(ZONE.name, "orphans.parquet")).set_index("source_id")
+        rep = json.loads((tmp_path / f"results/{ZONE.name}/distant.json").read_text())
+        return o, {(p["source_id_a"], p["source_id_b"]): p for p in rep["pairs"]}, rep
+
+    monkeypatch.setattr(C, "SESSION_STACK", False)
+    o, pairs, _ = run()
+    assert 301 not in o.index and list(pairs) == [(101, 102)]
+    monkeypatch.setattr(C, "SESSION_STACK", True)
+    o, pairs, rep = run()
+    assert o.loc[[301, 302], "stack_only"].all() and o.loc[[301, 302], "drift_ok"].all()
+    assert o.loc[[301, 302], "in_pair"].all() and (101, 102) in pairs
+    p = pairs[(301, 302)]
+    assert abs(p["distance_au"] / 600 - 1) < 0.1 and p["n_common_det"] == 2 and abs(p["flux_ratio"] - 1) < 0.05
+    assert rep["control"]["expected_chance_pairs"] < 0.5

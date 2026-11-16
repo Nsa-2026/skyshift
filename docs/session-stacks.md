@@ -5,6 +5,10 @@ step) with `pipeline/tests/test_coadd.py`. Every number below is measured on rea
 unless it says "estimate". Scripts and raw outputs stayed in the agent's scratch folder; the method is described here
 so it can be repeated.
 
+Sections 1–6 are the study. Section 7 (agent "sessionstack", 16 Nov evening, branch p1/session-stack-step) is the
+step built from it (`skyshift-pipeline sessionstack`, off unless `SKYSHIFT_SESSION_STACK=1`), link's use of its rows,
+the orphans changes, and what they measured on real hunt sessions.
+
 
 ## In plain words
 
@@ -391,8 +395,177 @@ Changes others own (proposed only, not made here):
 - **contracts**: a dot row from a session coadd needs `n_exp` (int8), `mjd` = session mean, and `glitch_share`
   (float16) — a contract change for P1.
 
+## 7. The session-stack step, built and measured (agent "sessionstack", 16 Nov)
+
+### In plain words
+
+1. **The step exists and is off by default.** `skyshift-pipeline sessionstack --zone <z>` stacks every session of
+   2+ photos per detector, detects on the stack, then measures each stacked source in every single photo. `all` runs
+   it right after `dots` only with `SKYSHIFT_SESSION_STACK=1`; with the switch off no other step reads its files and
+   every output is the same as before (tests: link and orphans run twice, off then on).
+2. **It sees 1.2–1.9 mag deeper than today's dots** (Gaia G50 per detector, two real hunt sessions of 4 photos, at
+   10 false sources per deg²): D2 19.5 and D3 19.4 instead of 17.8 and 17.6. That is 0.6–1.4 mag more than the
+   single-photo matched filter (extraction v2's new pass) at the same false-alarm rate.
+3. **Known asteroids:** of 109 isolated SWIR sightings with V < 18.5, the stack finds 83 (76%), the single-photo
+   matched filter in 2+ photos 63 (58%), today's dots in 2+ photos 37 (34%). At V 18–18.5 in D1: 8 of 17 vs none.
+4. **Moving things stay linkable.** Every stacked source is measured in each photo, so a fast mover keeps its
+   per-photo positions (rate within 5% of MPC's, median), and a cosmic-ray hit carried by one photo is flagged, not
+   hidden (glitch). Positions come from ePSF fits in the photos: 0.12–0.15″ rms against Gaia.
+5. **link and orphans accept the stack rows** (only with the switch on): a source too faint for any single photo
+   becomes a fixed source from its stack rows, and orphans can pair it. Orphans also gets the two changes the study
+   asked for: rate limit 1 → 2.5″/h (40 AU bodies: 0 → 63% recovered) and a pairing window from the parallax between
+   the two visits (ecliptic poles, visits a month apart: 0–1% → 60–100% recovered at 70–1000 AU). The chance level
+   stays at ~1 passing pair (0.92 → 0.98 expected on the hunt's real orphans).
+6. **Cost:** 6–17 s of CPU per session and detector on one Mac core (~3 core-hours for the hunt, ~420 for the sky).
+   Run as a separate step it reads every photo again (197 GB for the hunt: ~17 h on this Mac's link); fused into the
+   rerun's dots worker it reads nothing extra.
+
+### What runs
+
+`coadd.run` (step `sessionstack`; config `SESSION_STACK_*`):
+
+1. **Tasks:** per (session, detector) with ≥ `SESSION_STACK_MIN_EXP` (2) photos. Hunt: 915 tasks over 3,519 of its
+   3,692 photos (674 of 4 photos; 173 one-photo sessions are skipped).
+2. **Per photo:** extraction v2's background (dots.photo_context), the glow model subtracted (stack.glow_cut),
+   MWIR dark holes masked (`dark_holes`: the study's §6 item 2), saturated cores noted.
+3. **Common frame** = the middle photo's pixel grid. The other photos enter per 256-px tile by an integer pixel shift,
+   their sub-pixel phase going into the ePSF kernel (no resampling of the data, so the noise stays honest):
+   num = Σ w·d·K, den = Σ w·K² (inverse variance w, matched-filter kernel K). A pixel counts where ≥ 2 photos cover it.
+4. **Detection:** S/N = num/√den over its robust σ, v2's local significance around saturated holes and bright peaks,
+   hole rims merged into one peak. Threshold per session × detector: the level at which the map's own negative peaks
+   (hole rims excluded) give 10 per deg² (`SESSION_STACK_FA_PER_DEG2`), at least 5σ, at most 8σ.
+5. **Per-photo measurement** of every stacked source: ePSF flux and position (psf.psf_photometry, psf_position).
+   From those: forced S/N over the photos (`snr`), the share of S/N² in the strongest photo (`glitch_share`;
+   `glitch` when the other photos together are below 2σ), a weighted line through the photo positions (`rate_arcsec_h`,
+   `pa_deg`, `motion_snr`), and the line's mid-session point as the position (`ra_psf`, `dec_psf`, `pos_err_arcsec`).
+6. **Writes** `session_stacks/<key>.parquet` (one row per stacked source; metadata footer: threshold, false alarms,
+   depth, timing), `<key>_photos.parquet` (one row per source and photo), `<key>_moving.parquet` (per-photo sky
+   positions of the moving ones: what link reads), `session_stacks/index/<zone>.parquet` (key ↔ obs_id, so tiles and
+   other zones find the stacks), `results/<zone>/session_stack.json`; for `SESSION_STACK_MAP_ZONES` (hunt) also
+   `session_stacks_maps/<key>.npz` (matched-filter flux and error, float16; coverage, int8) for shift-and-stack later.
+   A session already written is skipped.
+
+**link** (`link.with_stack_rows`, `coadd.load_stack_rows`): the stack rows of the zone's photos, less glitches, rows
+near saturation and rows with a real dot of the same session and detector within 3″ (that dot is the source already),
+join the 4″ friends-of-friends as one dot per session (session-mean MJD, photo/exposure/dot_row −1). A fixed source
+needs ≥ 3 sessions as before, so a faint star seen only in stacks becomes a fixed source; its rows go to
+`results/<zone>/stack_members.parquet`; `members.parquet` keeps real dots only. A stacked source that moves (≥ 5σ,
+≥ 1″/h) and joins no fixed group gives its per-photo positions as pseudo-dots (dot_row −1) to the mover pairing;
+the shuffled-exposure control sees them too (`control.with_stack_dots`). Stats under `steps.link.session_stack`.
+
+**orphans**: `ORPHANS_RATE_MAX` 1 → 2.5″/h; the fixed 300–7,200″ / ≥ 60-day pairing replaced by `pair_window`
+(Earth's parallax between the two times at 1000 and 40 AU, less / plus a bound orbit's own motion, ± 30″; pairs
+≥ 20 days apart), and the ecliptic-latitude cut replaced by a cut along Earth's parallax direction (forward, the part
+across ≤ 0.4 × separation: at the poles the parallax points any way in ecliptic coordinates). With the switch on, a
+fixed source made only of stack rows is a candidate (catalogue test against refcat/<zone>.parquet, since crossid
+never saw it), its drift is fitted on its stack rows, and its fluxes come from them.
+
+### Measured: two hunt sessions × 6 detectors
+
+Sessions 72 and 81 of the hunt (2025W43, 4 photos each, 12.8 deg² per stack), the sky run's own dot files of those
+photos for "today", Gaia DR3 and the MPC predictions of the `known` cache.
+
+Depth, Gaia G50 (stack / single-photo matched filter at the stack's false-alarm rate / single-photo matched filter at
+5σ / today's dots):
+
+| | session 72 | session 81 |
+|---|---|---|
+| D1 | 18.75 / 18.14 / 18.45 / 17.52 | 18.80 / 17.99 / 18.12 / 16.95 |
+| D2 | 19.47 / 18.62 / 18.96 / 17.85 | 19.55 / 18.81 / 19.01 / 17.84 |
+| D3 | 19.30 / 18.44 / 18.94 / 17.55 | 19.45 / 18.55 / 18.91 / 17.67 |
+| D4 | 18.01 / 17.28 / 18.18 / 17.05 | 17.45 / 16.66 / 17.67 / 16.67 |
+| D5 | 16.41 / 15.20 / 15.95 / 15.28 | 16.60 / 15.18 / 15.90 / 15.19 |
+| D6 | 15.02 / 14.21 / 14.92 / 14.34 | 15.00 / 14.16 / 14.87 / 14.31 |
+
+False sources and thresholds (per deg²; negatives = the map's negative peaks, the false-alarm estimate):
+
+| | D1 | D2 | D3 | D4 | D5 | D6 |
+|---|---|---|---|---|---|---|
+| threshold (σ) | 5.7–6.0 | 5.0 | 5.0–5.7 | 8 (cap) | 5.3–5.9 | 7.7–8 |
+| negatives at the threshold | 10 | 5–6 | 9–10 | 26–27 | 10 | 10 |
+| negatives at 5σ | 16–21 | 5–6 | 9–13 | 46–48 | 13–16 | 18–19 |
+| sources at the threshold | 2,450–2,500 | 3,900–4,200 | 4,800–4,900 | 2,240–2,340 | 1,400–1,450 | 580–670 |
+| glitches flagged | 44–49 | 67–83 | 41–57 | 11–12 | 16–30 | 11–15 |
+| moving ≥ 5σ and ≥ 1″/h | 11–12 | 19–23 | 33–35 | 12–13 | 3–5 | 3–5 |
+| 5σ depth searched (AB) | 18.6–18.7 | 18.6–18.7 | 18.8 | 18.8 | 18.0 | 17.5 |
+
+D4 keeps 26 negatives per deg² even at the 8σ cap: dark holes the mask does not catch yet.
+
+Known asteroids (SWIR, MPC V < 18.5, no Gaia star G < 19 within 8″, matched within 4″): stack 83 of 109 (76%),
+single-photo matched filter in ≥ 2 photos 63 (58%), today's dots in ≥ 2 photos 37 (34%). D1 by V: < 17 10/10 vs
+9/10 (dots); 17–18 14/18 vs 7/18 (single-photo matched filter 12); 18–18.5 8/17 vs 0 (3); 18.5–19 5/27 vs 0. The misses
+are faint or sit where the photos only partly overlap. No found asteroid is flagged as a glitch; 51 of the 204
+found sightings move at ≥ 5σ inside the session, stack rate / MPC rate median 1.05 (10–90%: 0.86–1.34).
+
+Positions (Gaia stars S/N 20–300): the photos' ePSF fits 0.12–0.15″ rms, median offset ≤ 0.07″; the map peak alone
+0.7–0.88″ (a parabola on native pixels; 0.44″ bias even without noise, measured on synthetic stars). Static
+stars with a false ≥ 5σ motion and ≥ 1″/h: 35 of 20,852 Gaia stars in D1 (0.17%), 0.39% in D3.
+
+What link would get (session 72; rows after the glitch, near-saturation and 3″ dedup cuts, per deg²): D1 604, D2
+1,726, D3 1,581, D4 308, D5 479, D6 105; 97–99% of them have a catalogue entry within 3″ (faint real stars). Moving
+rows for the pseudo-dot route (all, of them known / catalogued / other): D1 23 (1/16/6), D2 72 (0/55/17), D3 110
+(1/84/25), D4 10 (0/5/5), D5 10 (0/6/4), D6 3 (0/2/1). So the pseudo-dot route adds few movers: faint asteroids
+rarely show a 5σ motion within one session. Their gain is the stack row itself, one per session, which tracklets'
+recovery could use (not built: below).
+
+Time and size on this Mac (one core per task, 2 workers): 14–17 s per SWIR session × detector, ~15 s D4, 6–8 s
+D5/D6, of which preparing the 4 photos (background, glow, holes) ~10 s, the stack 2.4 s, detection 0.9 s, the
+per-photo measurement 2.5 s; ~1.2 GB per worker. Reading the photos from S3 here: 35–50 s each at ~3 MB/s with 2 in
+parallel. Per session × detector: tables ~10 MB (sources 4–7 MB, per-photo rows ~5.5 MB, moving ~50 KB), maps ~16 MB.
+
+### Measured: orphans before → after (table-level injection, the shifted control)
+
+Bodies at heliocentric distance r with a random bound own motion, seen at real session times of the zone's photo
+list, 3–20 sessions per visit, positions ± 0.3″, drift fitted per visit; "before" = the old module and limits (rate
+≤ 1″/h, 300–7,200″, ≥ 60 days), "after" = this branch. Recovered = the pair passes.
+
+| r (AU) | hunt (visits 1 + 2, ~172 days) before → after | ecliptic pole (t_nep, consecutive visits, ~29 days) before → after |
+|---|---|---|
+| 40 | 0% → 63% | 0% → 0% |
+| 70 | 78% → 78% | 0% → 60% |
+| 100 | 75% → 75% | 0% → 72% |
+| 150 | 79% → 79% | 1% → 68% |
+| 300 | 92% → 92% | 0% → 83% |
+| 600 | 100% → 100% | 0% → 93% |
+| 1000 | 100% → 100% | 0% → 100% |
+
+150 bodies per distance in the hunt, 100 at the pole. Median separation at the pole: 2,500″ (40 AU) to 99″ (1000 AU);
+in the hunt 10,150″ to 408″. At the pole a 40 AU body drifts ~3.7″/h (Earth's whole velocity is across the line of
+sight there), above the new 2.5″/h. In the hunt 25% of the 40 AU bodies fail the pair model's drift χ² (all are
+inside the window): a visit-long straight line misfits Earth's turning reflex at 0.1–0.7″/h with the 0.005″/h
+floor; starting the distance grid at 30 AU instead of 40 changed 59% → 62% only.
+
+Chance level on the hunt's real orphans (14 Nov tables, 404 drift_ok both ways, 50 shifted controls): before 709
+pairs tested, 1 passing vs 0.92 expected; after 839 tested, 1 passing vs 0.98 expected.
+
+### Scale (CPU measured here, the rest estimates)
+
+| job | CPU | this Mac (2 workers) | 16-core PC | GCP spot n2-highcpu-64, us-east4 |
+|---|---|---|---|---|
+| hunt, 915 session × detector tasks, 3,519 photos | ~3 core-h | ~1.6 h CPU; ~17 h if it reads the photos itself (197 GB at ~3 MB/s) | ~12 min CPU (+ the read: ~17 h at 3 MB/s, ~1 h at 50 MB/s); 16 × 1.2 GB RAM | ~7 min CPU (~45 workers fit its 64 GB); reading 197 GB from us-east-1 ~35–70 min; ~€0.6–1.2, ~€0.1 fused |
+| whole sky (~495k photos, ~123k tasks) | ~420 core-h | – | ~26 h CPU; 28 TB read: only inside the rerun | ~16 VM-h ≈ €10–16 of CPU on top of the rerun; the read is the rerun's own |
+| stored | | | | hunt tables ~9 GB + maps ~15 GB; sky tables ~1.2 TB (≈ €12–25/month Nearline–Standard), no maps |
+
+### Where it sits in the combined rerun
+
+Order: photolist → refcat → **dots (v2)** → **sessionstack** → known → link (stack rows) → … → orphans (stack-only
+candidates) → …. Run separately, `sessionstack` reads every photo a second time; the real plan is to fuse it into the
+dots worker: group each worker's photos by session and detector (the rerun reads all six HDUs once), run `prepare` on
+the photo already in memory, and stack when the session's last photo is done. That is one extraction change
+(`extraction-needs`: dots/ owner); the step's code takes prepared cuts (`stack_session(cuts, task)`), so it needs no
+change for that. Turn the switch on for link and orphans only after the stacks of the zone exist.
+
 ## What is left
 
+- **Fuse into the dots worker** (above): today the step re-reads the photos.
+- **D4 dark holes** keep 26 negatives per deg² at the 8σ cap: the hole mask needs a second look in D4.
+- **Stack rows to tracklets' recovery:** moving faint asteroids rarely reach a 5σ in-session motion, so the pseudo-dot
+  route adds little; a stack row on a track's predicted path (nonfixed_dots) would.
+- **40 AU orphans in the hunt** (63%): a drift floor that grows with the rate (the reflex turns during a visit), then
+  the chance level again. At the poles 40 AU needs a rate limit of ~4″/h.
+- **Whole-sky storage**: the per-photo rows are half the 1.2 TB; keep only moving sources' rows if that is too much.
+- **Contract text** for session_stacks/ and stack_members.parquet is proposed in the PR, not in contracts/ yet.
+- The study's points below still hold where not done here.
 - The matched filter's depth is compared with the sky run's dots (real dot files on 5 strips; sep re-run on all 12),
   not with a matched-filter *extraction* (ePSF fits and forced photometry of its extra sources): positions and fluxes
   of the faint extra sources are not validated here.

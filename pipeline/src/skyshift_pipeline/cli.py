@@ -21,6 +21,13 @@ skyshift-pipeline s3index [--root ROOT] [--collections dr1,qr3] [--workers 64] [
   photolists/s3index/<dr1|qr3>/<period>.parquet + .json, then _complete.json. Resumable: done periods are skipped
   (their failed files are tried again) unless --force. photolist falls back to it when TAP fails.
 
+skyshift-pipeline sessionstack --zone ZONE [--root ROOT] [--workers N] [--limit N]
+  Session stacks (coadd.py; docs/session-stacks.md): each session's photos of one detector added on one grid, searched
+  with the ePSF-matched filter, every stacked source measured in each photo → session_stacks/<key>*.parquet (+ maps for
+  config SESSION_STACK_MAP_ZONES), session_stacks/index/<zone>.parquet, results/<zone>/session_stack.json. `all` runs it
+  right after dots only when SKYSHIFT_SESSION_STACK=1 (config SESSION_STACK), which also makes link use its rows.
+  --limit N: the first N session × detector tasks. At most SESSION_STACK_WORKERS_MAX processes.
+
 skyshift-pipeline stack --zone ZONE [--root ROOT] [--workers N] [--cache DIR] [--limit N]
   Not part of `all`: detect on per-visit stacks of the zone's photos, then a joint ePSF fit of every photo at all
   those sources (stack.py) → results/<zone>/stack_sources.parquet, stack_forced.parquet, stack.json. Reads the photos'
@@ -45,7 +52,8 @@ STEPS = ("photolist", "refcat", "dots", "known", "link", "spectra", "crossid", "
 ZONE_STEPS = ("completeness",)  # once per zone on its own sub-area, also in a tiled `all` (after the tiles)
 TILED_STEPS = tuple(s for s in STEPS[STEPS.index("link"):] if s not in ZONE_STEPS)  # what `all` runs per tile (tiles.py)
 TOOLS = ("mpc-orbits", "s3index")  # run by hand, never by `all`; no zone
-EXTRA_STEPS = ("stack",)  # zone steps run by hand, never by `all` (stack: the featured zones, config STACK_ZONES)
+EXTRA_STEPS = ("stack", "sessionstack")  # zone steps run by hand, never by `all` (stack: the featured zones, config
+# STACK_ZONES); sessionstack also runs in `all` right after dots when config SESSION_STACK is on (steps_for)
 L = log.get("cli")
 
 
@@ -96,6 +104,9 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
     if step == "stack":
         from . import stack
         return stack.run(store, zone, workers=args.workers, limit=args.limit, cache=args.cache)
+    if step == "sessionstack":
+        from . import coadd
+        return coadd.run(store, zone, workers=args.workers, limit=args.limit)
     if step == "completeness":
         from . import inject
         try:
@@ -104,6 +115,19 @@ def _run_step(step: str, store: Store, zone: C.Zone, args: argparse.Namespace) -
             L.exception("completeness %s failed; the zone's run goes on", zone.name)
             return {"error": repr(e)}
     raise ValueError(step)
+
+
+def steps_for(step: str, from_step: str | None = None, session_stack: bool | None = None) -> tuple[str, ...]:
+    """The steps one command runs: `all` (from from_step) in STEPS order, with sessionstack right after dots when
+    config SESSION_STACK is on; any other step alone."""
+    if step != "all":
+        return (step,)
+    steps = STEPS[STEPS.index(from_step):] if from_step else STEPS
+    on = C.SESSION_STACK if session_stack is None else session_stack
+    if on and "dots" in steps:
+        i = steps.index("dots") + 1
+        steps = (*steps[:i], "sessionstack", *steps[i:])
+    return tuple(steps)
 
 
 def step_dots_dir(store: Store, zone: C.Zone, step: str) -> str:
@@ -187,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         L.info("mpc-orbits: %s", known_mpc.refresh_orbits(store, force=args.force))
         return 0
     zone = C.ZONES[args.zone]
-    steps = (STEPS[STEPS.index(args.from_step):] if args.from_step else STEPS) if args.step == "all" else (args.step,)
+    steps = steps_for(args.step, args.from_step)
     grid = None
     if args.step == "all":
         from . import tiles

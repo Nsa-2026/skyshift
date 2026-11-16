@@ -54,7 +54,7 @@ import pyarrow.parquet as pq
 
 from . import config as C
 from . import log
-from .link import FREEDOTS_NAME, NONFIXED_DOTS_NAME
+from .link import FREEDOTS_NAME, NONFIXED_DOTS_NAME, STACK_MEMBERS_NAME
 from .sky import parse_polygon
 from .store import Store, dots_dir, dots_rel, photolist_rel, results_rel
 
@@ -426,6 +426,10 @@ def pass1(ctx: dict, tile: Tile) -> dict:
     own.write_parquet("owned_ids.parquet", pd.DataFrame({"source_id": owned}))
     m = ts.read_parquet(results_rel(tz.name, "members.parquet"))
     own.write_parquet("members.parquet", m[m["source_id"].isin(owned)])
+    srel = results_rel(tz.name, link.STACK_MEMBERS_NAME)
+    if ts.exists(srel):  # session-stack rows of fixed sources (SESSION_STACK only), owned with their source
+        sm = ts.read_parquet(srel)
+        own.write_parquet(link.STACK_MEMBERS_NAME, sm[sm["source_id"].isin(owned)])
     mv = ts.read_parquet(results_rel(tz.name, "movers.parquet"))
     if len(mv):
         mv = mv[tile.core.contains(mv["ra"].to_numpy(np.float64), mv["dec"].to_numpy(np.float64))]
@@ -1025,6 +1029,9 @@ class Run:
                "sources": _write(self.store, z, "sources.parquet", _concat(_read_parts(w, T, "sources.parquet"), ["source_id"])),
                "crossids": _write(self.store, z, "crossids.parquet", _concat(_read_parts(w, T, "crossids.parquet"), ["source_id"])),
                "cells_with_2_or_more_sources": int((cells > 1).sum()), "max_sources_per_cell": int(cells.max()) if len(cells) else 0}
+        smem = _read_parts(w, T, STACK_MEMBERS_NAME)
+        if smem:  # session-stack rows of fixed sources (link with SESSION_STACK on)
+            out["stack_members"] = _write(self.store, z, STACK_MEMBERS_NAME, _concat(smem, ["source_id", "key", "stack_row"]))
         from .spectra import channels
         self.store.write_json(results_rel(z.name, "channels.json"), channels())
         self._timed("merge1", t0)

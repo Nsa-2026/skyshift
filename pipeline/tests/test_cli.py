@@ -81,3 +81,12 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
     assert len(src) == 1 and src["source_id"].iloc[0] == fixed["source_id"].iloc[0]
     assert src["n_dots"].iloc[0] == 10 and src["n_sessions"].iloc[0] == 5 and src["detectors"].iloc[0] == 1
     assert len(json.loads((tmp_path / "results/pilot/channels.json").read_text())) == 102
+
+
+def test_all_runs_sessionstack_after_dots_only_when_switched_on():
+    from skyshift_pipeline.cli import STEPS, steps_for
+    assert steps_for("all", session_stack=False) == STEPS
+    on = steps_for("all", session_stack=True)
+    assert on[on.index("dots") + 1] == "sessionstack" and len(on) == len(STEPS) + 1
+    assert steps_for("all", "link", session_stack=True) == STEPS[STEPS.index("link"):]  # after dots: not rerun
+    assert steps_for("sessionstack") == ("sessionstack",) and steps_for("link", session_stack=True) == ("link",)
