@@ -50,6 +50,9 @@ export interface BlinkOptions {
   onPick(pick: DotPick): void;
   /** Current epoch changed (for the sky view and the card). */
   onEpoch?(epoch: { id: string; mjd_mid: number; det: Det; presentation?: BlinkPresentation }): void;
+  /** Hours, live (show() with `pages`): more exposures of the visit were added to the blink; the
+   *  response handed to show() with them (contracts/api.md v3.23 `page`). */
+  onFrames?(frames: FramesResponse): void;
   /**
    * The Viewer tab's plate (Alexandra's layout): SkyShift's measured circles start off and their
    * list is folded to one line that turns them on; Close-up/Wide field buttons; double-click zooms.
@@ -64,12 +67,14 @@ export interface BlinkOptions {
 }
 
 export interface BlinkHandle {
-  /** Show frames for this view. jsonUrl resolves epoch data_url. Preloads every epoch before playing. */
+  /** Show frames for this view. jsonUrl resolves epoch data_url. Preloads every epoch before playing.
+   *  pages: a live hours answer is page 0; more of its visit load behind it (contracts/api.md v3.23)
+   *  and join the blink without stopping it. Static files and other answers are unchanged. */
   show(
     view: View,
     frames: FramesResponse,
     jsonUrl: string,
-    options?: { singleDetector?: boolean },
+    options?: { singleDetector?: boolean; pages?: boolean },
   ): Promise<void>;
   /** Hours clock: has the shown photo a no-data part (past the detector's edge) worth filling? */
   needsFill?(): boolean;

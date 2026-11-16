@@ -442,6 +442,25 @@
 }
 
 /* ---- primary controls: one row under the strip ---------------------------------------- */
+/* Hours, live: how many photos of the visit are in the blink, and a button for more (pages.ts). */
+.bk-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
+  margin: var(--s1) 0 0;
+  padding-left: calc(40px + var(--s4));
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.bk-pages[hidden] {
+  display: none;
+}
+.bk .bk-pages-more {
+  min-height: 28px;
+  padding: 0 var(--s3);
+  font-size: 12px;
+}
 .bk-row {
   display: flex;
   flex-wrap: wrap;

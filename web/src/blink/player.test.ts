@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Det, Epoch, FramesResponse } from "../api/types";
 import type { View } from "../app/modules";
 import { mountBlink } from "./index";
+import { PAGE_RETRY_MS } from "./pages";
 
 const N = 8;
 const epoch = (id: string, det: Det, mjd: number): Epoch => ({
@@ -366,5 +367,117 @@ describe("blink player", () => {
     expect(onEpoch.mock.lastCall![0].presentation).toMatchObject({mode:'single-detector',detectors:[2],units:'MJy/sr'});
     expect(onEpoch.mock.lastCall![0].presentation.members[0].data_url).toContain('/derived-locked/');
     h.destroy();
+  });
+
+  describe("more photos of an hours visit (contracts v3.23 page)", () => {
+    const hv: View = { ...view, clock: "hours", fov: 20 };
+    const exp = (id: string, det: Det, mjd: number): Epoch => ({
+      ...epoch(id, det, mjd), kind: "exposure", mjd_start: mjd - 0.0007, mjd_end: mjd + 0.0007, n_exposures: 1,
+      data_url: `/api/data/k/frames/h20_${id}.bin`,
+    });
+    const T = 61021.2;
+    const page = (ids: [string, number][], more: boolean, det: Det = 2): FramesResponse => ({
+      ...frames, clock: "hours", epochs: ids.map(([id, dt]) => exp(`d${det}-${id}`, det, T + dt)), more, visit_exposures: 9,
+    });
+    const p0 = page([["a", 0], ["b", 0.0015], ["g", 10]], true);
+    const p1 = page([["c", 2], ["d", 2.0015], ["e", 6]], true);
+    const p2 = page([["f", 8], ["h", 12], ["i", 12.0015]], false);
+    const LIVE = "https://example.test/api/frames?ra=269.4462&dec=4.76883&clock=hours&fov=20&det=2";
+    /** /api/frames answers by detector and page; anything else is a frame's pixels. */
+    const serve = (pages: Record<string, FramesResponse | number>) =>
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const u = new URL(String(input), "https://example.test");
+        if (u.pathname === "/api/frames") {
+          const got = pages[`${u.searchParams.get("det")}:${u.searchParams.get("page") ?? 0}`] ?? 404;
+          return typeof got === "number"
+            ? new Response(JSON.stringify({ error: { code: got === 404 ? "not_found" : "upstream", message: "no" } }), { status: got })
+            : new Response(JSON.stringify(got), { headers: { "Content-Type": "application/json" } });
+        }
+        return new Response(new Uint16Array(N * N).fill(1000).buffer);
+      });
+    const text = () => el.querySelector(".bk-pages-n")!.textContent;
+    const more = () => el.querySelector<HTMLButtonElement>(".bk-pages-more")!;
+    const sub = () => el.querySelector(".bk-when-sub")!.textContent;
+    const main = () => el.querySelector(".bk-when-main")!.textContent;
+
+    it("shows page 0 at once, adds the visit's other pages in time order and keeps its place", async () => {
+      serve({ "2:1": p1, "2:2": p2 });
+      const onFrames = vi.fn();
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn(), onFrames });
+      await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      const at = main();
+      expect(sub()).toMatch(/^exposure 2 of 3$/);
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      expect(sub()).toBe("exposure 2 of 9"); // the same photo, among nine now
+      expect(main()).toBe(at);
+      expect(main()).toMatch(/^12 Dec 2025, \d\d:\d\d UTC$/); // a photo: its own date and time
+      expect(more().hidden).toBe(true); // the visit is complete
+      expect(el.querySelectorAll(".bk-ep")).toHaveLength(9);
+      expect(onFrames.mock.lastCall![0].epochs.map((e: Epoch) => e.id)).toEqual(
+        ["a", "b", "c", "d", "e", "f", "g", "h", "i"].map((x) => `d2-${x}`));
+      const asked = vi.mocked(fetch).mock.calls.map(([u]) => String(u)).filter((u) => u.includes("/api/frames?"));
+      expect(asked.filter((u) => u.includes("page=")).map((u) => new URL(u).searchParams.get("page"))).toEqual(["1", "2"]);
+      h.destroy();
+    });
+
+    it("asks a busy page (503) once more a few seconds later", async () => {
+      let busy = 0;
+      serve({ "2:1": p1, "2:2": p2 });
+      const ok = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) =>
+        String(input).includes("page=2") && !busy++ ? new Response(JSON.stringify({ error: { code: "upstream", message: "busy" } }), { status: 503 }) : ok(input, init));
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
+      await vi.waitFor(() => expect(text()).toBe("6 of 9 photos of this visit · loading more…"));
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"), { timeout: PAGE_RETRY_MS + 4000 });
+      expect(busy).toBe(2);
+      h.destroy();
+    }, PAGE_RETRY_MS + 8000);
+
+    it("offers More photos after a page fails, and static files never page", async () => {
+      serve({ "2:1": p1, "2:2": 502 });
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, p0, LIVE, { singleDetector: true, pages: true });
+      await vi.waitFor(() => expect(text()).toBe("6 of 9 photos of this visit · more did not load"));
+      expect(more().hidden).toBe(false);
+      serve({ "2:2": p2 });
+      more().click();
+      await vi.waitFor(() => expect(text()).toBe("9 of 9 photos of this visit"));
+      expect(more().hidden).toBe(true);
+      // the same field from a static file: no pages, no line
+      vi.mocked(fetch).mockClear();
+      await h.show(hv, { ...p0, more: undefined, visit_exposures: undefined }, "https://example.test/data/x/frames_hours_20.json",
+        { singleDetector: true, pages: true });
+      expect(el.querySelector<HTMLElement>(".bk-pages")!.hidden).toBe(true);
+      expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes("page="))).toBe(false);
+      h.destroy();
+    });
+
+    it("gives the partner detector the same pages on All wavelengths", async () => {
+      const q0 = page([["a", 0], ["b", 0.0015], ["g", 10]], true, 5);
+      const q1 = page([["c", 2], ["d", 2.0015], ["e", 6]], false, 5);
+      serve({ "2:1": { ...p1, more: false }, "5:0": q0, "5:1": q1 });
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(hv, p0, LIVE, { pages: true });
+      await vi.waitFor(() => expect(text()).toBe("6 of 9 photos of this visit"));
+      await vi.waitFor(() => expect(el.querySelector(".bk-det-label")!.textContent).toContain("D2 and D5"));
+      // every moment of the six combines both detectors (a lone D2 moment would blink colour as change)
+      for (let i = 0; i < 6; i++) {
+        expect(el.querySelector(".bk-det-label")!.textContent).toContain("D2 and D5");
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      }
+      expect(sub()).toMatch(/ of 6$/);
+      h.destroy();
+    });
+
+    it("dates a months visit by its weeks", async () => {
+      const h = mountBlink(el, { onViewChange: vi.fn(), onPick: vi.fn() });
+      await h.show(view, frames, "https://example.test/data/x/frames.json", { singleDetector: true });
+      // visit 1: MJD 60902-60914, 15-27 Aug 2025
+      expect(main()).toBe("15–27 Aug 2025");
+      expect(el.querySelector<HTMLElement>(".bk-when")!.title).toContain("median stack of 18 photos");
+      h.destroy();
+    });
   });
 });
