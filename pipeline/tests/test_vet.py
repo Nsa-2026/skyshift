@@ -130,7 +130,7 @@ def _run_zone(tmp_path) -> tuple[Store, C.Zone, pd.DataFrame]:
     store.write_parquet("refcat/pilot.parquet", pd.DataFrame([
         dict(cat="gaia", ra=130.0, dec=20.0, epoch_mjd=57388.5, pmra=0.0, pmdec=0.0),
         dict(cat="catwise", ra=130.1, dec=20.0, epoch_mjd=57170.0, pmra=np.nan, pmdec=np.nan),
-        dict(cat="tmass", ra=t3[0], dec=t3[1], epoch_mjd=51000.0, pmra=np.nan, pmdec=np.nan)]))
+        dict(cat="2mass", ra=t3[0], dec=t3[1], epoch_mjd=51000.0, pmra=np.nan, pmdec=np.nan)]))  # refcat.py writes `2mass`
     store.write_parquet(results_rel(z.name, C.VET_QA_NAME), pd.DataFrame({"obs_id": ["E9"], "detector": [4], "grade": ["red"],
                                                                          "reasons": ["test"]}))
     return store, z, m

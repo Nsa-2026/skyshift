@@ -183,16 +183,25 @@ def load_refcat(store: Store, zone: C.Zone) -> pd.DataFrame | None:
     return pd.read_parquet(buf, columns=[*REFCAT_COLUMNS, *mags])
 
 
+def refcat_names(r: pd.DataFrame) -> np.ndarray:
+    """The refcat's `cat` as gaia | catwise | tmass (motion_io.catalogue_of: `2mass` → tmass), any other name as it is."""
+    from .motion_io import catalogue_of
+    raw = r["cat"].astype(str).to_numpy()
+    k = catalogue_of(raw)
+    return np.where(k == "", raw, k).astype(object)
+
+
 def refcat_nearest(r: pd.DataFrame | None, ra: np.ndarray, dec: np.ndarray, mjd: np.ndarray) -> dict[str, pd.DataFrame]:
     """Per catalogue in the refcat (gaia, catwise, tmass, ...), each moved by proper motion to the movers' median time
     (the zone spans ~6 months: < 0.3″ error at 1″/yr): the nearest entry's `sep` (arcsec, inf if none) and its
-    REFCAT_MAGS (NaN where none). One row per position."""
-    from .refcat import move_to_epoch
+    REFCAT_MAGS (NaN where none). One row per position. Keys as motion_io.catalogue_of: refcat writes 2MASS as `2mass`
+    (until 16 Nov this looked for `tmass` only, so the 2MASS check never ran on a real refcat)."""
     out: dict[str, pd.DataFrame] = {}
     if r is None or len(ra) == 0:
         return out
+    from .refcat import move_to_epoch
     t = float(np.median(mjd))
-    for cat, c in r.groupby("cat"):
+    for cat, c in r.groupby(refcat_names(r)):
         c = c.reset_index(drop=True)
         cra, cdec = move_to_epoch(c, t)
         sep, idx = SkyTree(np.asarray(cra, np.float64), np.asarray(cdec, np.float64)).nearest(ra, dec)
@@ -354,7 +363,7 @@ def catalogue_matches(store: Store, zone: C.Zone, ra: np.ndarray, dec: np.ndarra
     out: dict[str, pd.DataFrame] = {}
     info: dict = {}
     near = refcat_nearest(ref, ra, dec, mjd) if ref is not None and n else {}
-    has = set(ref["cat"].astype(str)) if ref is not None else set()
+    has = set(refcat_names(ref)) if ref is not None and len(ref) else set()
     inf = pd.DataFrame({"sep": np.full(n, np.inf)})
     if ref is not None:
         out["gaia"] = near.get("gaia", inf)

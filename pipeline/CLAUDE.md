@@ -383,11 +383,15 @@ The step never raises (errors go to its stats).
   CatWISE 6″ (hunt) 28.5% vs 70%, within 2 mag 1.9% vs 64%; AllWISE 6″ 14–18% vs 60–71%, within 2 mag 1.3–2.0% vs
   59–64% (real asteroids' neighbours are p50 3.3 mag fainter than them, stars' own detections 1.1–1.6). Real asteroids
   kept through the suspects step (as if unknown) 55–66% → 100%, graded A/B 46–56% → 88–91%. Suspects (A/B/C) before →
-  after: hunt 23 (0/6/17) → 751 (0/15/736), ecl04 65 (2/23/40) → 773 (3/42/728), ecl08 62 (0/22/40) → 2,543 (0/88/2,455),
+  after: hunt 23 (0/6/17) → 751 (0/14/737), ecl04 65 (2/23/40) → 773 (3/42/728), ecl08 62 (0/22/40) → 2,543 (0/88/2,455),
   ecl11 330 (0/46/284) → 5,377 (0/143/5,234; 18 Jupiter movers of a pre-v3.18 table now cut). Catalogues: Gaia
   (G < 20), CatWISE2020, 2MASS from refcat/<zone>.parquet (moved to the movers' times; the services only if that file
-  is missing); AllWISE from S3 (cache/allwise/k5, w1mpro/w2mpro since 16 Nov: older ra/dec-only files are read again
-  unless SKYSHIFT_ALLWISE_REREAD_MAGS=0).
+  is missing; refcat writes 2MASS as `2mass`, which suspects looked up as `tmass` until 16 Nov, so 2MASS was never
+  checked: hunt now 228 suspects with the reason, 1 B → C); AllWISE from S3 (cache/allwise/k5, w1mpro/w2mpro since
+  16 Nov: older ra/dec-only files are read again unless SKYSHIFT_ALLWISE_REREAD_MAGS=0). No catalogue removes a mover:
+  even within 2″ and ≤ 2 mag WISE hits 0.1–0.5% of real asteroids (2″ alone 1.6–3.6%); the reason at 6″ + 2 mag hits
+  real vs rest: CatWISE 2.0 vs 64%, AllWISE 1.4–2.0 vs 59–64%, 2MASS 1.3 vs 30%, Gaia 0.2–0.7 vs 14–25% (4″ would
+  halve the real share but drop 3–6.5 points of the rest, which outnumbers the real ones 2–23× in the 4–6″ ring).
 - Vetting (vet.py, 14 Nov; config VET_*): every suspect gets `grade` and `reasons`. Gates on its own dots
   (link carries each mover's dots as lists dot_obs, dot_det, dot_x, dot_y, dot_flux, dot_snr, dot_size, dot_fpk, …) and on
   zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y; tiles merge it): hot_pixel (±1 px with
