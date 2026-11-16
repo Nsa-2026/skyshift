@@ -8,6 +8,9 @@ The tools run on this machine: --tool-workers N keeps N copies of vet.py loaded 
 itself needs, not 5-40 s of start-up) and caps how many tools run at once. Finished tool calls are cached on disk
 and reused by later runs with the same tools and data, so repeating a round costs almost no local work.
 
+--routes routes.json (from route.py) sends the findings marked hard to --hard-model at --hard-effort and the rest
+to --model at --effort; an "easy real" that the easy checker drops is checked again by the hard one.
+
 One finding per conversation by default. --per-agent N hands N findings (same kind and zone together) to one
 conversation, one after another; --reverse gives the same groups in reverse order, to measure what the earlier
 findings in a conversation do to the later ones.
@@ -115,6 +118,7 @@ TOOLS = {
 }
 DRAWS = {"packet", "session", "stamps", "spectrum"}  # these take --out and return pictures
 
+DROP_VERDICTS = ("static_source", "artifact", "no_source", "engine_claim_wrong")
 VERDICTS = ["real_mover_known", "real_mover_unknown", "static_source", "artifact", "no_source", "real_known", "real_other",
             "engine_claim_wrong", "unsure"]
 _S = {"type": "string"}
@@ -415,6 +419,7 @@ def vet_batch(client, findings: list[dict], a, run_dir: str, batch_no: int = 0) 
     def fresh() -> dict:
         return {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "requests": 0, "tool_calls": 0, "pictures": 0, "t0": time.time()}
 
+    model, effort = a.plan.get(findings[0]["id"], (a.model, a.effort)) if n == 1 else (a.model, a.effort)
     intro = "" if n == 1 else (f"You will get {n} findings, one after another. Judge each on its own evidence and submit its record; "
                                f"the next one arrives after that.\n\n")
     messages = [{"role": "user", "content": intro + ask(0)}]
@@ -426,9 +431,9 @@ def vet_batch(client, findings: list[dict], a, run_dir: str, batch_no: int = 0) 
         nonlocal k, usage, tools_used, nudges
         f = findings[k]
         usage["seconds"] = round(time.time() - usage.pop("t0"), 1)
-        usage["usd"] = round(cost_usd(a.model, usage), 5)
+        usage["usd"] = round(cost_usd(model, usage), 5)
         rec = {"id": f["id"], "kind": f["kind"], **(record or {"verdict": None, "error": err}), "tools_used": sorted(set(tools_used)),
-               "_tool_calls": tools_used, "_usage": usage, "_model": a.model, "_effort": a.effort,
+               "_tool_calls": tools_used, "_usage": usage, "_model": model, "_effort": effort, "_tier": a.routes.get(f["id"]),
                "_batch": batch_no, "_position": k + 1, "_per_agent": n}
         if record is not None:
             json.dump(rec, open(os.path.join(run_dir, "rec", f"{f['id']}.json"), "w"), indent=1)
@@ -439,11 +444,11 @@ def vet_batch(client, findings: list[dict], a, run_dir: str, batch_no: int = 0) 
     while k < n:
         try:
             resp = client.messages.create(
-                model=a.model, max_tokens=16000,
+                model=model, max_tokens=16000,
                 system=[{"type": "text", "text": a.system, "cache_control": {"type": "ephemeral"}}],
                 tools=a.tools, messages=messages,
                 thinking={"type": "adaptive", "display": "summarized"},
-                output_config={"effort": a.effort},
+                output_config={"effort": effort},
                 cache_control={"type": "ephemeral"},
             )
         except anthropic.RateLimitError as e:
@@ -506,7 +511,7 @@ def vet_batch(client, findings: list[dict], a, run_dir: str, batch_no: int = 0) 
         close(None, error or "the conversation ended early")
     os.makedirs(os.path.join(run_dir, "transcripts"), exist_ok=True)
     name = findings[0]["id"] if n == 1 else f"batch_{batch_no:03d}"
-    json.dump({"ids": [f["id"] for f in findings], "model": a.model, "effort": a.effort, "error": error, "messages": _plain(messages)},
+    json.dump({"ids": [f["id"] for f in findings], "model": model, "effort": effort, "error": error, "messages": _plain(messages)},
               open(os.path.join(run_dir, "transcripts", f"{name}.json"), "w"), indent=1, default=str)
     return out
 
@@ -521,11 +526,16 @@ def batches(todo: list[dict], per_agent: int, reverse: bool = False) -> list[lis
 
 
 def collect(run_dir: str, model: str) -> dict:
+    """Write records.json and usage.json from rec/. With routes, usage.json also splits the cost by tier."""
     recs = [json.load(open(p)) for p in sorted(glob.glob(os.path.join(run_dir, "rec", "*.json")))]
     json.dump(recs, open(os.path.join(run_dir, "records.json"), "w"), indent=1)
     tot = {k: sum(r["_usage"][k] for r in recs) for k in ("input", "output", "cache_read", "cache_write", "requests", "tool_calls", "pictures", "seconds", "usd")}
     tot["findings"] = len(recs)
-    json.dump({"model": model, "total": tot, "per_finding": {r["id"]: r["_usage"] for r in recs}},
+    tiers: dict = {}
+    for r in recs:
+        t = tiers.setdefault(f"{r.get('_tier') or 'all'} ({r.get('_model', model)} {r.get('_effort', '')})", {"findings": 0, "usd": 0.0})
+        t["findings"] += 1; t["usd"] = round(t["usd"] + r["_usage"]["usd"], 4)
+    json.dump({"model": model, "total": tot, "by_tier": tiers, "per_finding": {r["id"]: r["_usage"] for r in recs}},
               open(os.path.join(run_dir, "usage.json"), "w"), indent=1)
     return tot
 
@@ -538,6 +548,8 @@ def main():
     ap.add_argument("--per-agent", type=int, default=1, help="findings handed to one conversation, one after another")
     ap.add_argument("--reverse", action="store_true", help="with --per-agent: the same groups in reverse order")
     ap.add_argument("--hide-known", action="store_true", help="blind test: no known-body list, no engine grade, no site row")
+    ap.add_argument("--routes", help="routes.json from route.py: findings marked hard go to --hard-model / --hard-effort")
+    ap.add_argument("--hard-model"); ap.add_argument("--hard-effort", default="high")
     ap.add_argument("--tool-workers", type=int, default=6, help="tool workers that stay loaded (0 = start vet.py for every call)")
     ap.add_argument("--no-tool-cache", action="store_true", help="do not reuse tool answers of earlier runs (kept in <data>/../toolcache)")
     a = ap.parse_args()
@@ -555,6 +567,11 @@ def main():
     groups = batches(todo, a.per_agent, a.reverse)  # grouped before the done ones are left out, so a rerun keeps the groups
     groups = [g for g in ([f for f in g if not os.path.exists(os.path.join(run_dir, "rec", f"{f['id']}.json"))] for g in groups) if g]
     n_todo = sum(len(g) for g in groups)
+    a.routes = json.load(open(a.routes)) if a.routes else {}
+    hard = (a.hard_model or a.model, a.hard_effort)
+    a.plan = {i: hard for i, t in a.routes.items() if t == "hard"}  # everything else runs on --model / --effort
+    if a.routes and a.per_agent > 1:
+        ap.error("--routes needs one finding per agent")
     if a.hide_known:
         os.environ["SKYSHIFT_VET_HIDE_KNOWN"] = "1"  # the tools run as child processes and read it
     a.system, a.tools = system_prompt(a.hide_known), tool_defs()
@@ -566,7 +583,8 @@ def main():
         t0 = time.time()
         POOL = ToolPool(a.tool_workers, os.path.join(run_dir, "tools.log"))
         print(f"{a.tool_workers} tool workers loaded in {time.time() - t0:.0f} s", flush=True)
-    print(f"{name}: {n_todo} findings to vet with {a.model} at effort {a.effort}, {a.per_agent} per agent, {a.workers} agents at a time", flush=True)
+    print(f"{name}: {n_todo} findings to vet with {a.model} at effort {a.effort}, {a.per_agent} per agent, {a.workers} agents at a time"
+          + (f"; {sum(f['id'] in a.plan for g in groups for f in g)} hard ones go to {hard[0]} at effort {hard[1]}" if a.routes else ""), flush=True)
     lock, done, res = threading.Lock(), [0], []
 
     def report(r):
@@ -581,7 +599,14 @@ def main():
     def work(job):
         no, g = job
         try:
-            vet_batch(client, g, a, run_dir, no)
+            out = vet_batch(client, g, a, run_dir, no)
+            fid = g[0]["id"]
+            # an "easy real" that the easy checker drops is a surprise: the hard checker looks again, and its record stands
+            if len(g) == 1 and a.routes.get(fid) == "easy real" and out and out[0].get("verdict") in DROP_VERDICTS and fid not in a.plan:
+                os.makedirs(os.path.join(run_dir, "rec_first"), exist_ok=True)
+                os.replace(os.path.join(run_dir, "rec", f"{fid}.json"), os.path.join(run_dir, "rec_first", f"{fid}.json"))
+                a.plan[fid] = hard
+                vet_batch(client, g, a, run_dir, no)
         except Exception as e:  # noqa: BLE001
             print(f"  agent {no} broke: {repr(e)[:300]}", flush=True)
 
@@ -594,6 +619,9 @@ def main():
     print(f"{name}: {tot['findings']} records in {run_dir}; cost ${tot['usd']:.2f} "
           f"(input {tot['input']:,}, cache read {tot['cache_read']:,}, cache write {tot['cache_write']:,}, output {tot['output']:,} tokens); "
           f"{tot['tool_calls']} tool calls; failed: {failed or 'none'}")
+    if a.routes:
+        for k, v in json.load(open(os.path.join(run_dir, "usage.json")))["by_tier"].items():
+            print(f"  {k}: {v['findings']} findings, ${v['usd']:.2f} (${v['usd'] / max(1, v['findings']):.3f} each)")
 
 
 if __name__ == "__main__":

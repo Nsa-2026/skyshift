@@ -22,6 +22,8 @@ Run everything from `pipeline/` (its environment has all that is needed):
     python3 ../scripts/vet/triage.py <round dir> --runs RUN ...   # piles: likely real / open / likely junk (nothing deleted)
     uv run python ../scripts/vet/calibrate_warnings.py            # how often each packet warning fires on real movers
     uv run --with scikit-learn python ../scripts/vet/rb_score.py  # a learned real-or-bogus score from the tables (prototype)
+    uv run python ../scripts/vet/route.py <round dir> --scores scores.parquet   # easy or hard, before any model runs;
+                                                                  # then api_round.py --routes <round>/routes.json --hard-effort high
     uv run --with anthropic pytest ../scripts/vet/tests
 
 - Local data: env `SKYSHIFT_VET_DATA`, default `~/.cache/skyshift-vet/data` (`<zone>/*.parquet`, `candidates.json`).
@@ -53,3 +55,10 @@ Run everything from `pipeline/` (its environment has all that is needed):
   finished tool calls under `~/.cache/skyshift-vet/toolcache`, keyed by the tools' content and the blind switch.
 - Engine flaws found: docs/research/2026-11-16-engine-flaws-from-vetting.md. Every finding of round 1:
   docs/research/2026-11-16-vet-round1-findings.md.
+- Routing (`route.py`, `api_round.py --routes`): the learned score and the image-free warnings sort movers into easy
+  junk, easy real and hard before any model runs; easy ones go to Sonnet medium, hard ones to Sonnet high. On 119
+  movers with a known answer Sonnet medium made no wrong drop in the easy groups, and both real movers it wrongly
+  dropped were hard. Blind round: routed gives the same result as high for all (39 of 44 real kept, 5 open, none
+  dropped, 18 of 18 junk removed). On the junk-heavy mix of the To check list (56 of 64 easy) routed costs about $0.041
+  a mover against $0.076 for high everywhere. Sonnet high alone is the best single checker measured (better than Opus
+  medium: 39/5/0 against 35/9/0).

@@ -31,7 +31,7 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py), run a round through the Claude API (api_round.py, key from the environment),
-                   compare runs (compare_runs.py), blind rounds (make_scenarios.py), piles (triage.py), a learned score (rb_score.py)
+                   compare runs (compare_runs.py), blind rounds (make_scenarios.py), piles (triage.py), a learned score (rb_score.py), easy/hard routing (route.py)
                    and check which known bodies we saw (known_check.py). Read only; local data
                    in ~/.cache/skyshift-vet. Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.
                    Tests: cd pipeline && uv run pytest ../scripts/vet/tests
