@@ -381,3 +381,28 @@ def test_dot_numbers_and_gate_warnings():
     assert w.values[3]["sharp"] == {"size_ratio": ratio, "outlier_at_peak": 1}
     assert w.values[4]["flux_jump"] == {"ratio": 5.0}
     assert V.dot_numbers(s.drop(columns=list(V.DOT_LISTS)))["edge_px"].isna().all()
+
+
+def test_d2_ramp_rows_give_an_edge_warning_only_when_the_motion_rests_on_them():
+    """D2's last rows (y >= VET_D2_RAMP_Y, a background ramp): a warning when the mover's other dots span < 2 exposures
+    and < 2 detectors; never a reason, never for another detector or a mover held by other exposures."""
+    x = 1500.0
+    rows = [clean(0, det=2, y=2010.0),                                                  # D2 two exposures, one in the band
+            mover(1, [("E1", 2, x, 2010.0, 300.0, 8.0, 4.8, SOURCE), ("E2", 2, x + 3, 1895.0, 310.0, 8.0, 4.8, SOURCE),
+                      ("E3", 2, x + 6, 1780.0, 320.0, 8.0, 4.8, SOURCE)]),              # two more exposures hold it
+            mover(2, [("E1", 2, x, 2001.0, 300.0, 8.0, 4.8, SOURCE), ("E1", 5, x, 2001.0, 280.0, 8.0, 4.8, SOURCE)]),
+            clean(3, det=4, y=2010.0),                                                  # D4 has no ramp
+            clean(4, det=2, y=1970.0)]                                                  # above the band
+    s = pd.DataFrame(rows)
+    s.loc[2, "evidence"] = "two_detectors"
+    num = V.dot_numbers(s)
+    assert list(num["ramp_dots"]) == [1, 1, 1, 0, 0]
+    assert list(num["ramp_rests"]) == [True, False, True, False, False]
+    assert round(num["ramp_y"][0], 2) == 2010.37 and np.isnan(num["ramp_y"][3])
+    out, _ = V.vet(s, s, None, None, None)
+    assert "edge" not in ";".join(map(str, out["reasons"]))
+    w = S.Warnings(len(out))
+    S.gate_warnings(out, w)
+    assert [("edge" in c) for c in w.codes] == [True, False, True, False, False]
+    assert w.values[0]["edge"] == {"ramp_dots": 1, "ramp_y": 2010, "ramp_from_y": C.VET_D2_RAMP_Y, "ramp_detector": 2}
+    assert w.levels[0] == {} and w.values[2]["edge"]["ramp_y"] == 2001

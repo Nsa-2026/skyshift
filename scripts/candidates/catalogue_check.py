@@ -3,6 +3,7 @@
     cd pipeline && uv run python ../scripts/candidates/catalogue_check.py \\
         --candidates ../web/public/data/candidates.json \\
         --root gs://nasa-glazing-data --col-cache /Users/raducucu/skyshift-data/cache     # own magnitudes (optional)
+        [--highpm-root /Users/raducucu/skyshift-data]   # highpm's counterpart columns: a rerun's tables first
     # writes /Users/raducucu/skyshift-data/checks/catalogue.json (--out); answers cached in --cache
 
 Runs from pipeline/ (or server/ without --root): numpy, astropy, pyvo. Only IRSA is asked (no CDS): TAP queries with the
@@ -34,7 +35,12 @@ Checks (contracts/api.md v3.23 codes; `status` is never set: a catalogue can't m
   high_pm  catalogues_checked (no Gaia match only; proposed for high_pm, see the PR): a catalogue source where its motion
                               puts it at the catalogue's epoch → strong (catalogued star, not new); one at today's place
                               when the motion should have moved it ≥ STATIC_MIN_SHIFT → strong (a still star: the motion
-                              is likely fake); nothing at either → warn.
+                              is likely fake); nothing at either → warn. A CatWISE source that its OWN motion brings to
+                              today's place moves: never "still" (warn: the same star, CatWISE's motion not ours).
+                              Where highpm's table has its counterpart columns (#388; --highpm-root, --root), its deep
+                              check's verdict replaces this reading: a counterpart that lists the object (gaia_pm,
+                              gaia_position, catwise_pm, tmass_position, allwise_position) → strong, catalogued; gaia_still
+                              / allwise_still → strong, still; none → our own track test only, no still guess.
 High_pm rows with a Gaia match are not measured (the pipeline already matched them to Gaia's motion).
 
 Label rules for spectral `catalogues_checked` (the most important label decides; Vega magnitudes):
@@ -751,17 +757,80 @@ def shape_galaxy(s: Spot) -> dict | None:
 
 
 # --- high_pm without Gaia -----------------------------------------------------------------------------
-def highpm_checks(s: Spot, answers: dict) -> list[dict]:
+# highpm's counterpart (#388, pipeline highpm.COUNTERPARTS): what lists the object, from its deep check along our track
+# with the parallax leak allowed for. These replace our own reading where the table has them.
+COUNTERPART_LISTED = {"gaia_pm": "lists this star with the same motion",
+                      "gaia_position": "lists it without a motion",
+                      "catwise_pm": "lists the same motion",
+                      "tmass_position": "saw a star", "allwise_position": "saw it"}
+COUNTERPART_STILL = {"gaia_still": "lists a source without a motion", "allwise_still": "saw a source"}
+COUNTERPART_CATALOGUE = {"gaia": "Gaia DR3", "catwise": "CatWISE2020", "tmass": "2MASS", "2mass": "2MASS",
+                         "allwise": "AllWISE"}
+HIGHPM_COLUMNS = ["method", "source_id", "source_id_b", "counterpart", "counterpart_id", "counterpart_sep_arcsec",
+                  "counterpart_epoch_mjd"]
+
+
+def counterpart_name(kind: str, ref_id) -> str:
+    """'gaia:672055699133504768' → 'Gaia DR3 672055699133504768', '2mass:07464209+2000310' → '2MASS J07464209+2000310',
+    'allwise:J074642.10+200031.2' → 'AllWISE J074642.10+200031.2'; a bare CatWISE name (highpm's crossid) → 'CatWISE2020
+    <name>'; without an id, the catalogue of the counterpart kind."""
+    s = str(ref_id or "").strip()
+    cat, _, rest = s.partition(":")
+    if not rest:
+        rest, cat = s, kind.split("_")[0]
+    name = COUNTERPART_CATALOGUE.get(cat, cat)
+    if cat == "2mass":
+        rest = "" if rest.startswith("aw") else ("J" + rest if rest[:1].isdigit() else rest)
+    return f"{name} {rest}".strip()
+
+
+def counterpart_check(c: dict, hp: dict, pm: float, look: str) -> dict:
+    """The check from highpm's counterpart: strong either way (a catalogue lists the object, or saw a still source where
+    our motion says the object was not)."""
+    kind = str(hp.get("counterpart") or "")
+    who = counterpart_name(kind, hp.get("counterpart_id"))
+    sep, ep = num(hp.get("counterpart_sep_arcsec")), num(hp.get("counterpart_epoch_mjd"))
+    yr = 2000.0 + (ep - 51544.5) / 365.25 if math.isfinite(ep) else math.nan
+    at = f" in {math.floor(yr)}" if math.isfinite(yr) else ""   # the calendar year (AllWISE 2010.6: 2010)
+    off = f"{sep:.2f}″ from " if math.isfinite(sep) else "at "
+    vals = {"counterpart": kind, "counterpart_id": str(hp.get("counterpart_id") or "") or None,
+            "sep_arcsec": round(sep, 2) if math.isfinite(sep) else None,
+            "epoch_year": round(yr, 1) if math.isfinite(yr) else None, "pm_mas_yr": round(pm, 1)}
+    if kind in COUNTERPART_STILL:
+        shift = pm * abs(num(c["mjd"]) - ep) / 365.25 / 1000.0 if math.isfinite(ep) else math.nan
+        text = (f"{who} {COUNTERPART_STILL[kind]} {off}its place today{at}, when its motion ({pm:.0f} mas a year) puts "
+                + (f"it {shift:.0f}″ away" if math.isfinite(shift) else "it elsewhere")
+                + " (the pipeline's deep check): a still star, so the measured motion is likely not real.")
+        return check("catalogues_checked", "strong", text, look, {**vals, "expected_shift_arcsec":
+                                                                  round(shift, 1) if math.isfinite(shift) else None})
+    text = (f"{who} {COUNTERPART_LISTED[kind]} {off}where its motion ({pm:.0f} mas a year) puts it{at} (the pipeline's "
+            "deep check, which allows for the yearly parallax wobble): a catalogued star, not a new one"
+            + (" (Gaia gives it no motion)." if kind == "gaia_position" else "."))
+    return check("catalogues_checked", "strong", text, look, vals)
+
+
+def catwise_motion(r: dict) -> tuple[float, float]:
+    """(mas/yr, PA °) of a CatWISE row's own motion (its pmra is μα cos δ, arcsec/yr)."""
+    pmra, pmdec = num(r.get("pmra")), num(r.get("pmdec"))
+    return math.hypot(pmra, pmdec) * 1000.0, math.degrees(math.atan2(pmra, pmdec)) % 360.0
+
+
+def highpm_checks(s: Spot, answers: dict, hp: dict | None = None) -> list[dict]:
+    """hp: highpm's counterpart columns of this candidate's row (highpm_counterparts), None when its table has none."""
     c = s.c
     motion = cand_motion(c)
     if motion is None:
         return []
     still = Spot({**c, "kind": "spectral"}, answers)  # every row where the catalogue saw it, the candidate not moved
     pm = math.hypot(*motion)
-    track = [x for k in ("gaia", "catwise", "allwise", "tmass") for x in s.near.get(k, []) if x["sep"] <= ID_ARCSEC]
     det = det_words(c.get("det"))
     look = (f"On the months clock in {det}, blink the visits: a real moving star shifts by the same step each half year "
             f"along PA {num(c.get('pa_deg')):.0f}°; a still star doesn't move at all.")
+    cp = None if hp is None else str(hp.get("counterpart") or "")
+    if cp in COUNTERPART_LISTED or cp in COUNTERPART_STILL:   # highpm's deep check decided (#388)
+        return [counterpart_check(c, hp, pm, look)]
+    guess_still = cp is None or cp == "gaia_crossid"   # highpm's table says nothing (older table, or crossid's Gaia)
+    track = [x for k in ("gaia", "catwise", "allwise", "tmass") for x in s.near.get(k, []) if x["sep"] <= ID_ARCSEC]
     if track:
         x = min(track, key=lambda y: y["sep"])
         yr = 2000.0 + (row_epoch(x["cat"], x["row"]) - 51544.5) / 365.25
@@ -772,10 +841,14 @@ def highpm_checks(s: Spot, answers: dict) -> list[dict]:
                       look, {**row_values(x), "pm_mas_yr": round(pm, 1), "epoch_year": round(yr, 1),
                              "gaia_source_id": str(x["row"].get("source_id")) if x["cat"] == "gaia" else None,  # > 2^53
                              "gaia_without_motion": nopm})]
-    shifts = []
+    shifts, moving = [], []
     for k in ("catwise", "allwise", "tmass"):
         for x in still.near.get(k, []):
-            if x["sep"] <= ID_ARCSEC:
+            if x["sep"] > ID_ARCSEC:
+                continue
+            if k == "catwise" and catwise_moving(x["row"]):   # its own motion brought it here: it moves, it isn't still
+                moving.append(x)
+            elif guess_still:
                 shift = pm * abs(num(c["mjd"]) - row_epoch(k, x["row"])) / 365.25 / 1000.0
                 if shift >= STATIC_MIN_SHIFT:
                     shifts.append((x, shift))
@@ -786,12 +859,67 @@ def highpm_checks(s: Spot, answers: dict) -> list[dict]:
                       f"{describe(x, 'its place today')} in {yr:.0f}, when its motion would have put it {shift:.0f}″ away: "
                       f"a still star, so the measured motion is likely not real.", look,
                       {**row_values(x), "pm_mas_yr": round(pm, 1), "expected_shift_arcsec": round(shift, 1)})]
+    if moving:
+        x = min(moving, key=lambda y: y["sep"])
+        cpm, cpa = catwise_motion(x["row"])
+        err = num(c.get("pm_err_mas_yr"))
+        return [check("catalogues_checked", "warn",
+                      f"{describe(x, 'its place today')} once moved by CatWISE's own motion ({cpm:.0f} mas a year towards PA "
+                      f"{cpa:.0f}°); ours is {pm:.0f}" + (f" ± {err:.0f}" if math.isfinite(err) else "")
+                      + f" mas a year towards PA {num(c.get('pa_deg')):.0f}°: probably this star, catalogued with a "
+                      "different motion (CatWISE's motions of fast stars can be off, and so can a fit over two or three "
+                      "visits).", look,
+                      {**row_values(x), "pm_mas_yr": round(pm, 1), "catwise_pm_mas_yr": round(cpm, 1),
+                       "catwise_pa_deg": round(cpa, 1)})]
     nearest = s.any_within(QUERY_MAX_ARCSEC, ("gaia", "catwise", "allwise", "tmass"))
     tail = f" Nearest: {describe(nearest[0], 'its track')}." if nearest else ""
+    today = ", nor at today's place" if guess_still else ""
+    deep = ("" if guess_still else " The pipeline's deep check (Gaia at any brightness, CatWISE2020, AllWISE and 2MASS "
+            "along its track, the yearly parallax wobble allowed for) found no entry either.")
     return [check("catalogues_checked", "warn",
                   f"No catalogue (Gaia DR3 any brightness, CatWISE2020, AllWISE, 2MASS) lists it where its motion "
-                  f"({pm:.0f} mas a year) puts it at their epochs, nor at today's place.{tail}", look,
-                  {"pm_mas_yr": round(pm, 1)})]
+                  f"({pm:.0f} mas a year) puts it at their epochs{today}.{deep}{tail}", look, {"pm_mas_yr": round(pm, 1)})]
+
+
+def highpm_counterparts(cands: list[dict], roots: list[str]) -> dict[str, dict]:
+    """{high_pm candidate id: highpm's counterpart columns} from results/<zone>/highpm_candidates.parquet (#388), read from
+    the first root whose table has them (a local mirror holding a rerun's tables first, then the bucket); zones whose
+    tables predate #388 give nothing, and their candidates keep this script's own reading. Ids as the exporter makes them:
+    <zone>-pm-<source_id>, a pair <zone>-pm-<source_id>-<source_id_b>."""
+    want: dict[str, set[str]] = {}
+    for c in cands:
+        if c.get("kind") == "high_pm" and not c.get("gaia_match") and c.get("zone"):
+            want.setdefault(str(c["zone"]), set()).add(str(c["id"]))
+    out: dict[str, dict] = {}
+    if not want or not roots:
+        return out
+    import fsspec
+    import pyarrow.parquet as pq
+
+    for zone, ids in sorted(want.items()):
+        for root in roots:
+            try:
+                fs, base = fsspec.core.url_to_fs(str(root).rstrip("/"))
+                path = f"{base.rstrip('/')}/results/{zone}/highpm_candidates.parquet"
+                if not fs.exists(path):
+                    continue
+                with fs.open(path, "rb") as f:
+                    pf = pq.ParquetFile(f)
+                    names = set(pf.schema_arrow.names)
+                    if "counterpart" not in names:
+                        continue
+                    t = pf.read(columns=[x for x in HIGHPM_COLUMNS if x in names]).to_pylist()
+            except Exception as e:  # noqa: BLE001 - a missing filesystem or a bad file: this script's own reading
+                log.warning("highpm counterparts %s from %s: %s", zone, root, str(e)[:200])
+                continue
+            for r in t:
+                sid, sidb = int(r["source_id"]), int(r.get("source_id_b") if r.get("source_id_b") is not None else -1)
+                cid = f"{zone}-pm-{sid}" if str(r.get("method")) != "pair" else f"{zone}-pm-{sid}-{sidb}"
+                if cid in ids:
+                    out[cid] = {k: r.get(k) for k in HIGHPM_COLUMNS[3:]}
+            log.info("highpm counterparts %s: %d of %d candidates (from %s)", zone, sum(i in out for i in ids), len(ids), root)
+            break
+    return out
 
 
 # --- per candidate ------------------------------------------------------------------------------------
@@ -799,8 +927,9 @@ LEVEL_ORDER = {"strong": 0, "warn": 1, "ok": 2}
 
 
 def candidate_checks(c: dict, answers: dict[str, list[dict] | None], own: dict | None = None,
-                     density: dict | None = None) -> list[dict] | None:
-    """The checks of one candidate (None: not measured). `density`: its zone's catalogue densities (zone_density)."""
+                     density: dict | None = None, hp: dict | None = None) -> list[dict] | None:
+    """The checks of one candidate (None: not measured). `density`: its zone's catalogue densities (zone_density); `hp`:
+    a high_pm candidate's highpm counterpart columns (highpm_counterparts; None: its table has none)."""
     kind = c.get("kind")
     if kind == "high_pm" and c.get("gaia_match"):
         return None
@@ -812,7 +941,7 @@ def candidate_checks(c: dict, answers: dict[str, list[dict] | None], own: dict |
     elif kind == "shape":
         out = [shape_galaxy(s), bright_neighbour(s)]
     elif kind == "high_pm":
-        out = highpm_checks(s, answers)
+        out = highpm_checks(s, answers, hp)
     else:
         return None
     out = [x for x in out if x]
@@ -1032,16 +1161,19 @@ def own_magnitudes(cands: list[dict], root: str | None, col_cache: str | None, c
 
 # --- main -----------------------------------------------------------------------------------------------
 def run(cands_path: Path, out_path: Path | None, cache_dir: Path | None, root: str | None = None,
-        col_cache: str | None = None, kinds: tuple[str, ...] | None = None, query=irsa_crossmatch) -> dict:
+        col_cache: str | None = None, kinds: tuple[str, ...] | None = None, query=irsa_crossmatch,
+        highpm_roots: list[str] | None = None) -> dict:
+    """highpm_roots: where to look for results/<zone>/highpm_candidates.parquet before `root` (highpm_counterparts)."""
     doc = json.loads(Path(cands_path).read_text())
     cands = [c for c in doc["candidates"] if kinds is None or c["kind"] in kinds]
     cache = Cache(cache_dir)
     answers = fetch(cands, cache, query)
     own = own_magnitudes(cands, root, col_cache, cache)
     density = zone_density(cands, answers)
+    hp = highpm_counterparts(cands, [*(highpm_roots or []), *([root] if root else [])])
     res: dict[str, dict] = {}
     for c in cands:
-        ch = candidate_checks(c, answers[c["id"]], own.get(c["id"]), density.get(c.get("zone", "")))
+        ch = candidate_checks(c, answers[c["id"]], own.get(c["id"]), density.get(c.get("zone", "")), hp.get(c["id"]))
         if ch is None:
             continue
         res[c["id"]] = {"checks": ch, "status": None, "known_name": None}
@@ -1063,11 +1195,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", default=None, help="results root for our own magnitudes (e.g. gs://nasa-glazing-data); "
                                                  "without it, spectral checks use the catalogues and the export's flux only")
     ap.add_argument("--col-cache", default=None, help="the exporter's column-read cache folder (shared)")
+    ap.add_argument("--highpm-root", action="append", default=None,
+                    help="also look here for results/<zone>/highpm_candidates.parquet, before --root (repeatable; e.g. "
+                         "the local mirror after a highpm rerun): its counterpart columns (#388) replace this script's "
+                         "own still/moving reading of high_pm candidates")
     ap.add_argument("--kinds", default=None, help="comma list: only these kinds")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     kinds = tuple(k.strip() for k in a.kinds.split(",")) if a.kinds else None
-    out = run(Path(a.candidates), Path(a.out), Path(a.cache) if a.cache else None, a.root, a.col_cache, kinds)
+    out = run(Path(a.candidates), Path(a.out), Path(a.cache) if a.cache else None, a.root, a.col_cache, kinds,
+              highpm_roots=a.highpm_root)
     n = {}
     for v in out["candidates"].values():
         for ch in v["checks"]:

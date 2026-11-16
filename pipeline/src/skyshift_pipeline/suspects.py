@@ -862,6 +862,9 @@ def gate_warnings(s: pd.DataFrame, w: Warnings) -> None:
 
     for i in np.flatnonzero(gate("edge")):
         w.add(int(i), "edge", {"edge_px": _num(num["edge_px"][i], 1)})
+    for i in np.flatnonzero(num["ramp_rests"].to_numpy(bool)):   # D2's background ramp (config VET_D2_RAMP_Y): a warning
+        w.add(int(i), "edge", {"ramp_dots": int(num["ramp_dots"][i]), "ramp_y": _num(num["ramp_y"][i], 0),
+                               "ramp_from_y": C.VET_D2_RAMP_Y, "ramp_detector": C.VET_D2_RAMP_DET})
     for i in np.flatnonzero(num["persist_dots"].to_numpy() > 0):
         w.add(int(i), "persistence", {"dots_at_peak": int(num["persist_dots"][i]), "n_dots": int(nd[i])})
     so, vs = gate("sharp_outlier"), gate("very_sharp")

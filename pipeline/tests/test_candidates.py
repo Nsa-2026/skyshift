@@ -669,6 +669,14 @@ def test_movers_take_the_suspects_levels_and_name_an_overruled_track():
     assert by(w)["unseen"]["values"] == {"unseen_exposures": 2, "cover_exposures": 3}
     assert w["why"].startswith("Failed the vetting, most likely an artefact or a catalogued source: every dot is wider "
                                "than a star; exposures that photographed its path don't show it. Seen")
+    # since #394 a wide reason comes with a blend (warn_values wide.with_blend): `why` names both
+    s2 = s.iloc[[1]].copy()
+    s2["warn_values"] = json.dumps({"wide": {"ratio_med": 1.6, "ratio_min": 1.4, "dots": 3, "limit": 1.3, "with_blend": 1},
+                                    "unseen": {"exposures": 2, "cover": 3}})
+    (wb,) = K.movers(s2.reset_index(drop=True), "hunt", None)
+    assert wb["why"].startswith("Failed the vetting, most likely an artefact or a catalogued source: its dots are wider "
+                                "than a star and two Gaia stars sit either side of it (their blend); exposures")
+    assert by(wb)["wide"]["text"].startswith("Graded C for its width together with a blend")
     assert a["grade"] == "A" and by(a)["fixed_source"]["level"] == "warn" and by(a)["unseen"]["level"] == "warn"
     assert ("a track that outweighs what alone would fail the vetting (a fixed source or Gaia star is at its place; "
             "exposures that photographed its path don't show it; see the warnings)") in a["why"]

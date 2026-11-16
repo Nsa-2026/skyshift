@@ -216,7 +216,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   near its candidates (detect `near`, same drops); every dot whose windowed centroid fell back to its start point
   carries sep_flag 0x800 (core, all dot files). 36 full photos: negative-image dots per photo D1–D6 171/195/27/881/
   508/508 → 61/67/4/29/36/30; Gaia found −0.1 to −0.5% (plane D4 −5.7%), known asteroids 2 of 267 sightings fewer.
-  What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): a vet/suspects edge rule, no re-extraction.
+  What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): no re-extraction; suspects warn
+  `edge` (values ramp_dots, ramp_y, ramp_from_y, ramp_detector; config VET_D2_RAMP_*) when a mover's motion rests on
+  such a dot (its other dots < 2 exposures and < 2 detectors). 7 zones as if unknown: real 0.4% vs rest 0.3%: never a reason.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes

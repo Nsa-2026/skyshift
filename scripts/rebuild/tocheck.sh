@@ -531,7 +531,7 @@ step_d() {
   if ! stamp_done d.catalogue; then
     say "catalogue_check (IRSA catalogues at every candidate of candidates.json)" | tee -a "$LOGF"
     (cd "$REPO/pipeline" && "$PIPE_PY" ../scripts/candidates/catalogue_check.py --candidates "$exp" \
-        --out "$RUN/checks/catalogue.json" --cache "$DATA/cache/catalogue" --root "$BUCKET" \
+        --out "$RUN/checks/catalogue.json" --cache "$DATA/cache/catalogue" --highpm-root "$DATA" --root "$BUCKET" \
         --col-cache "$DATA/cache/export") 2>&1 | tee -a "$LOGF"
     stamp d.catalogue; rm -f "$RUN_STAMPS/d.merge"
   fi

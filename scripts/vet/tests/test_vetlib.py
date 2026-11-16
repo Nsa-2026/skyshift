@@ -101,7 +101,8 @@ def _engine(tmp_path, monkeypatch, blind=False):
     (tmp_path / "vet").mkdir()
     (tmp_path / "results" / "zz").mkdir(parents=True)
     px = {"candidates": {"zz-1-1": {"status": None, "known_name": None, "checks": [
-        {"code": "partner_seen", "level": "ok", "text": "D2 also measured it.", "values": {}}],
+        {"code": "partner_seen", "level": "ok", "text": "D2 also measured it.", "values": {}},
+        {"code": "wide", "level": "warn", "text": "2 of 2 dots are 1.4–1.5× as wide as the stars.", "values": {}}],
         "one_photo": {"verdict": "brighter", "det": 5, "photos": 5, "places": 3, "flux_now_ujy": 6400.8, "flux_other_ujy": 1733.0,
                       "flux_other_err_ujy": 89.0, "ratio": 0.27, "diff_snr": 23.7}}}}
     json.dump(px, open(tmp_path / "checks" / "pixel.json", "w"))
@@ -131,6 +132,7 @@ def test_engine_checks_show_numbers_rates_and_hide_known_bodies_when_blind(tmp_p
     assert "now 6,401 µJy, at other times 1,733 ± 89 µJy" in text and "3.7×" in text and "Verdict: brighter" in text
     assert "does NOT count against the mover" in text                      # an asteroid passing a star
     assert "[fires on 67% of real movers, 5% of junk]" in text and "Xyz" in text
+    assert "comet movers 94%: a comet's haze or a blend, so on its own it is no sign of junk]" in text  # wide (#394)
     assert "certain flaw" in "\n".join(V.engine_check_lines("zz-2-2"))     # checks made for a blind round are read from vet/
     assert "NOT AVAILABLE" in "\n".join(V.engine_check_lines("zz-9-9"))
     (tmp_path / "b").mkdir()

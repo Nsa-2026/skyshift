@@ -1070,6 +1070,16 @@ TILE_DISK_RESERVE_GB = 3.0     # the slim mirror is made only when the work dir'
 # free dot: obs_id, detector, x, y, ra, dec) for the zone-level hot-pixel and column maps.
 VET_DETECTOR_PX = 2040
 VET_EDGE_PX = 6.0              # a dot within 6 px of the detector edge (x or y < 6 or > 2033)
+# D2's last rows (docs/extraction-v2.md §12.2): a background ramp along y >= ~1975 of every D2 photo (hunt 0.4 → 3.6 MJy/sr
+# over 60 rows) that sep's 32 px background can't follow. Today's dot files: 2.3 free dots per D2 photo there against 1.0
+# in the other 59-row bands (7 zones, 16 Nov); v2's deeper search: 22–77 fakes per D2 photo there. Measured on 7 zones'
+# movers as if unknown (real = an MPC prediction within 5″, rest = no known body within 60″), a mover whose motion rests
+# on such a dot (its other dots: < 2 exposures and < 2 detectors): real asteroids 44 of 11,426 (0.4%), the rest 38 of
+# 11,993 (0.3%); any dot there: real 147 (1.3%), rest 43 (0.4%). So a warning (code `edge`, values ramp_*), never a reason.
+# A mover of ramp dots alone can't be made: the telescope steps the sky ~115 px in y between exposures (real D2 movers'
+# consecutive dots: p1 114.8 px), so no two exposures' dots both lie in these 59 rows (0 real, 0 rest).
+VET_D2_RAMP_DET = 2
+VET_D2_RAMP_Y = 1975.0
 VET_HOT_PX = 1.0               # same detector pixel: |Δx| and |Δy| <= 1 px
 VET_HOT_MIN_EXP_MOVERS = 3     # hot pixel: the zone's movers' dots on that pixel in >= 3 exposures ...
 VET_HOT_MIN_EXP_FREE = 5       # ... or its free dots in >= 5 (hunt: 133k free dots per detector, 0.29 per 3×3 px: >= 3 would
