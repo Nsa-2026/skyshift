@@ -222,6 +222,55 @@ def test_frames_without_mjd_keep_their_cache_key(client, monkeypatch):
     assert len(built) == 1
 
 
+def test_frames_page_hours_only_checked_and_in_the_key(client, monkeypatch):
+    """contracts/api.md v3.23: `page` with clock=hours (raw), passed to the engine when > 0 and part of
+    the cache key only then: page 0 keeps its key and its cached answer."""
+    built = []
+    monkeypatch.setattr(blink, "build_frames", lambda *a, cache=None, **kw: built.append(kw) or _frames_result())
+    old = app_mod._key("frames", ra=1.0, dec=2.0, fov=20.0, clock="hours", det=4,
+                       known=app_mod.known_mod.INDEX_KEY, measured=app_mod.measured_mod.VERSION)
+    stored = {**_frames_result().meta, "epochs": [], "clock": "hours", "more": True, "visit_exposures": 57}
+    app_mod._cache_put_json(f"frames/{old}/frames.json", stored)
+    p = {"ra": 1, "dec": 2, "clock": "hours", "det": 4}
+    assert client.get("/api/frames", params=p).json() == stored and built == []
+    assert client.get("/api/frames", params={**p, "page": 0}).json() == stored and built == []
+    assert client.get("/api/frames", params={**p, "page": 2}).status_code == 200
+    client.get("/api/frames", params={**p, "page": 2})  # cached
+    client.get("/api/frames", params={**p, "page": 3, "mjd": 61074.6})
+    assert built == [{"budget": built[0]["budget"], "page": 2},
+                     {"budget": built[1]["budget"], "mjd": 61074.6, "page": 3}]
+    for bad in ({**p, "page": -1}, {**p, "page": "x"}, {**p, "page": 41}, {**p, "clock": "months", "page": 1},
+                {**p, "view": "resid", "page": 1}):
+        _err(client.get("/api/frames", params=bad), 400, "bad_request")
+    assert len(built) == 2
+
+
+def test_cached_hours_answer_gains_page_info(client, cache, monkeypatch):
+    """A live hours answer cached before v3.23 has no `more`: it gains `more` and `visit_exposures`
+    from the search it was built from (its archive_checked day) and is stored with them; without that
+    search it is served unchanged."""
+    monkeypatch.setattr(blink, "build_frames", lambda *a, **kw: pytest.fail("rebuilt"))
+    asked = []
+
+    def page_info(ra, dec, fov, det, *, day, mjd=None, cache=None):
+        asked.append((ra, dec, fov, det, day, mjd))
+        return {"more": True, "visit_exposures": 55} if day == "2026-11-14" else None
+
+    monkeypatch.setattr(blink, "page_info", page_info)
+    key = app_mod._key("frames", ra=1.0, dec=2.0, fov=20.0, clock="hours", det=4,
+                       known=app_mod.known_mod.INDEX_KEY, measured=app_mod.measured_mod.VERSION)
+    stored = {**_frames_result().meta, "epochs": [], "clock": "hours"}
+    app_mod._cache_put_json(f"frames/{key}/frames.json", stored)
+    p = {"ra": 1, "dec": 2, "clock": "hours", "det": 4}
+    body = client.get("/api/frames", params=p).json()
+    assert body == {**stored, "more": True, "visit_exposures": 55}
+    assert asked == [(1.0, 2.0, 20.0, 4, "2026-11-14", None)]
+    assert client.get("/api/frames", params=p).json() == body and len(asked) == 1  # stored with them
+    gone = {**stored, "archive_checked": "2026-11-01"}
+    app_mod._cache_put_json(f"frames/{key}/frames.json", gone)
+    assert client.get("/api/frames", params=p).json() == gone
+
+
 def test_data_route_unknown_key(client):
     _err(client.get("/api/data/" + "0" * 32 + "/frames/x.bin"), 404, "not_found")
     _err(client.get("/api/data/notahash/frames/x.bin"), 404, "not_found")

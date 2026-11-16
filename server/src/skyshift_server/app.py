@@ -523,7 +523,8 @@ def resolve(q: str = "") -> JSONResponse:
 
 @app.get("/api/frames")
 async def frames(request: Request, ra: float, dec: float, fov: float | None = None, clock: str = "months",
-                 det: int = DET_DEFAULT, view: str = 'raw', mjd: float | None = None) -> JSONResponse:
+                 det: int = DET_DEFAULT, view: str = 'raw', mjd: float | None = None,
+                 page: int = 0) -> JSONResponse:
     ra, dec = _check_pos(ra, dec)
     if clock not in FOV_ALLOWED:
         raise bad_request("clock must be months or hours")
@@ -537,18 +538,53 @@ async def frames(request: Request, ra: float, dec: float, fov: float | None = No
     if view not in ('raw', 'resid', 'model', 'refdiff'):
         raise bad_request('view must be raw, resid, model or refdiff')
     mjd = _check_frames_mjd(mjd, clock, view)
+    _check_frames_page(page, clock, view)
     key = _key("frames", ra=ra, dec=dec, fov=fov, clock=clock, det=det, known=known_mod.INDEX_KEY,
                measured=measured_mod.VERSION, **({'view': view} if view != 'raw' else {}),
-               **({"mjd": mjd} if mjd is not None else {}))  # requests without mjd keep their keys
+               **({"mjd": mjd} if mjd is not None else {}),  # requests without mjd keep their keys
+               **({"page": page} if page else {}))  # page 0 keeps its key (contracts v3.23)
     cached = await run_in_threadpool(_cache_get_json, f"frames/{key}/frames.json")
     # a cached answer is rebuilt (its cutouts are cached) when a zone has since got results here
     if cached is not None and not await run_in_threadpool(_measured_stale, cached):
+        if clock == "hours" and view == "raw" and "more" not in cached:
+            cached = await run_in_threadpool(_with_page_info, key, cached, ra, dec, fov, det, mjd)
         return _json(cached)
     at = f" at MJD {mjd}" if mjd is not None else ""
+    pg = f" page {page}" if page else ""
     content, cache_control, *why = await _shared(
-        request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec}){at}",
-        lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget, view, mjd))
+        request, f"frames/{key}", f"frames {clock} {fov:g}' D{det} ({ra}, {dec}){at}{pg}",
+        lambda budget: _build_frames(key, ra, dec, fov, clock, det, budget, view, mjd, page))
     return _json(content, cache_control, why[0] if why else None)
+
+
+PAGE_MAX = 40  # /api/frames page: a visit has at most ~80 exposures of a detector, 6 a page
+
+
+def _check_frames_page(page: int, clock: str, view: str) -> None:
+    """GET /api/frames `page` (contracts/api.md v3.23): hours clock, raw view, 0 or more."""
+    if page < 0 or page > PAGE_MAX:
+        raise bad_request(f"page must be 0 to {PAGE_MAX}")
+    if page and clock != "hours":
+        raise bad_request("page works with clock=hours only")
+    if page and view != "raw":
+        raise bad_request("page works with view=raw only")
+
+
+def _with_page_info(key: str, cached: dict, ra: float, dec: float, fov: float, det: int,
+                    mjd: float | None) -> dict:
+    """A live hours page-0 answer cached before contracts v3.23 gains `more` and `visit_exposures`,
+    from the search it was built from (its archive_checked day; blink.page_info), and is stored again.
+    Unchanged when that search is gone or anything fails: readers then take `more` as false."""
+    try:
+        info = _call("blink", "page_info", ra, dec, fov, det, day=str(cached.get("archive_checked") or ""), mjd=mjd)
+    except Exception:  # noqa: BLE001 - never fail a cached answer over this
+        log.exception("page info failed for a cached hours answer")
+        return cached
+    if not isinstance(info, dict):
+        return cached
+    out = {**cached, **info}
+    _cache_put_json(f"frames/{key}/frames.json", out)
+    return out
 
 
 def _check_frames_mjd(mjd: float | None, clock: str, view: str) -> float | None:
@@ -575,11 +611,12 @@ def _measured_stale(cached: dict) -> bool:
 
 
 def _build_frames(key: str, ra: float, dec: float, fov: float, clock: str, det: int,
-                  budget: Budget, view: str = "raw", mjd: float | None = None) -> tuple[dict, str]:
+                  budget: Budget, view: str = "raw", mjd: float | None = None, page: int = 0) -> tuple[dict, str]:
     """(response JSON, Cache-Control) of a live frames build; caches a complete one whole."""
     try:
         result = _call("blink", "build_frames", ra, dec, fov, clock, det, budget=budget,
-                       **({"view": view} if view != "raw" else {}), **({"mjd": mjd} if mjd is not None else {}))
+                       **({"view": view} if view != "raw" else {}), **({"mjd": mjd} if mjd is not None else {}),
+                       **({"page": page} if page else {}))
     except ApiError as e:
         budget.cut(f"error {e.status}: {e.message[:120]}")
         raise
