@@ -255,6 +255,27 @@ SIMULTANEOUS_PAIRS = ((1, 4), (2, 5), (3, 6))
 PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN = 5.0  # two dots that each have a simultaneous partner also pair up to 3″ + this × Δt
                               # (fast movers, ~140–380″/h, step past the plain rule; their per-exposure D1+D4 pairs
                               # would otherwise be one-exposure candidates that MOVER_MAX_MISSED_FEW drops)
+# Fast movers without a detector partner (16 Nov; near-Earth asteroids glowing in D5/D6 alone, or too faint in the
+# partner): beyond the plain rule two dots of different exposures pair up to 3″ + this × Δt only when a dot of a third
+# exposure of the session lies within PAIR_FAST_LINE_ARCSEC of their constant-rate line at its time (a straight,
+# evenly spaced chain of >= 3 exposures). 15″/min = 900″/h: a trail of 28″ in 113 s, where the dots reach
+# MOVER_MAX_ELONG (elong × √(1 + L²/12σ²), σ = 3.2″). None = off. Injection (pilot centre, one detector only, 16 Nov):
+# movers found 146–250″/h 5% → 68%, 250–400 0 → 69%, 400–600 0 → 52%, 600–900 0 → 20%; slower bins unchanged.
+# Known asteroids (MPC): ecl08 146–400″/h 0 → 7 found (every one with a free dot), pilot 0 → 1.
+PAIR_FAST_RATE_ARCSEC_PER_MIN = 15.0
+PAIR_FAST_LINE_ARCSEC = 3.0
+# ... and above PAIR_FAST_TRAIL_MIN_ARCSEC_H the chain's dots must look trailed: median elong >= 1 + PAIR_FAST_TRAIL_FRAC ×
+# (√(1 + L²/12σ²) − 1), L = rate × PAIR_EXPOSURE_S (point-like dots: median elong 1.3 at S/N 5–10). ecl08 (crowded, b ~ 0°)
+# fast movers after the flux veto, real vs shuffled control: 146–250″/h 11 vs 0, 250–400 5 vs 3, 400–900 5 vs 5 without
+# this test, 3 vs 1 with it (0.5: 5 vs 5; 1.0: 2 vs 0). None = no trail test.
+PAIR_FAST_TRAIL_MIN_ARCSEC_H = 400.0
+PAIR_FAST_TRAIL_FRAC = 0.75
+PAIR_EXPOSURE_S = 113.0
+# Shuffled-exposure control (16 Nov; link stats `control`): the free dots, every dot and the footprints of each exposure
+# moved by its own offset (LINK_CONTROL_OFFSET_ARCSEC, directions spread evenly per session from a seeded random start,
+# so no two exposures of a session move together) and paired, covered and vetted like the real ones: no real object
+# links any more, chance pairs of unrelated dots stay. The movers it makes are the chance level. None = off.
+LINK_CONTROL_OFFSET_ARCSEC = 300.0
 MOVER_MAX_ELONG = 3.0         # dots longer than this (trails, cosmic rays) don't pair
 MOVER_MIN_COVER_SESSIONS = 3  # sessions whose footprints contain the candidate
 # Fixed groups: an asteroid at ~40″/h moves ~1.4″ per exposure, so the 4″ FoF chains its dots, and a track passing a
@@ -268,6 +289,12 @@ FIXED_RELEASE_ARCSEC = 6.0
 # s75: a 2,600 µJy asteroid chained into a 476 µJy star 3.4–4.8″ away), and the release made 85 uncatalogued fixed sources
 # on a 2.1 deg² box (wing fragments ~7.7″ from S/N ~370 stars, seen in a few of the star's sessions). So also released:
 FIXED_RELEASE_FLUX_RATIO = 3.0      # a dot >= this × its group's median flux in its detector (not saturated at the peak)
+# ... and (16 Nov, variable-safe) only when it also sits off the group (FIXED_RELEASE_SESSION_ARCSEC + _SIGMA × its σ from
+# the median) or the group's bright dots lie in one session and it sits > FIXED_RELEASE_FLUX_ONE_SESSION_ARCSEC off: a
+# variable star's bright state (Mira, young star) lies on the star over several sessions and stays one source; an
+# asteroid crossing a fainter star is one session, 2–5″ off (Alekto s75: 2.5–4.8″). False = the flux alone.
+FIXED_RELEASE_FLUX_SAFE = True
+FIXED_RELEASE_FLUX_ONE_SESSION_ARCSEC = 1.0
 FIXED_RELEASE_SESSION_ARCSEC = 2.0  # a session whose dots' mean is > this + FIXED_RELEASE_SESSION_SIGMA × the mean's σ from
 FIXED_RELEASE_SESSION_SIGMA = 3.0   # the median of the group's session means (those of its visit when it has >= 3 there)
 # ... and > this × the median offset of those sessions: a slow mover (0.02–0.2″/h, a distant planet) drifts through all
@@ -285,6 +312,14 @@ FIXED_RELEASE_CATALOG_ARCSEC = 2.5
 # A free dot >= this × the median flux, in its detector, of every fixed source within FIXED_VETO_ARCSEC (not saturated at
 # the peak) escapes the 6″ veto: an asteroid passing a fainter star. None = the plain veto.
 FIXED_VETO_BRIGHT_RATIO = 3.0
+# Star crossings (16 Nov): an asteroid passing within 4″ of a star is chained into its fixed group (hunt: 2.4% of known
+# V < 16 sightings, 10% at V 17–18; ecl08 5–24%). nonfixed_dots.parquet also lists (in_fixed) a group's member dots that
+# sit > FIXED_OFF_ARCSEC + FIXED_OFF_SIGMA × σ off its median in their photo, or are a second dot of the group in one photo
+# > FIXED_OFF_ARCSEC off, unless another session has such a dot within FIXED_OFF_REPEAT_ARCSEC (a neighbour, a wing piece).
+# tracklets recovers them only on a track's predicted path (TRACK_RECOVER_IN_FIXED). None = off.
+FIXED_OFF_ARCSEC = 1.5
+FIXED_OFF_SIGMA = 3.0
+FIXED_OFF_REPEAT_ARCSEC = 2.0
 # Mover vetting (link.vet_reason, after the session-coverage test; stats vetoed_<rule>; SKYSHIFT_MOVER_VET=off keeps
 # every candidate, with the columns). Hunt, 14 Nov: of 6,143 movers 4,464 were seen in two exposures and 4,045 of those
 # matched no MPC object; 209 of the 228 suspects were two-dot pairs. Known asteroids with V < 17 showed a dot in every
@@ -1115,6 +1150,15 @@ TRACK_NSIGMA = 4.0               # match radius = NSIGMA × prediction σ + curv
 TRACK_R_MIN_ARCSEC = 3.0
 TRACK_R_MAX_ARCSEC = 30.0
 TRACK_MIN_SESSIONS = 3           # a tracklet: movers in >= 3 sessions (2 sessions alone are any pair in the rate range)
+# Fast tracks (16 Nov; tracklets.fast_tracks): above TRACK_RATE_MAX_ARCSEC_H up to this, two movers of sessions <= 36 h
+# apart link when the chord between them agrees with both their own within-session velocities (a fast mover shows its
+# motion inside its session: 14″ per 2.1 min at 400″/h). None = off.
+TRACK_FAST_RATE_MAX_ARCSEC_H = 900.0    # link's fast pairing limit (PAIR_FAST_RATE_ARCSEC_PER_MIN × 60)
+TRACK_FAST_OWN_MIN_ARCSEC_H = 100.0     # a mover's own speed at least this ...
+TRACK_FAST_OWN_SNR = 4.0                # ... measured at >= this × its σ
+TRACK_FAST_VEL_FRAC = 0.3               # chord vs own velocity: within this × the speed or NSIGMA × σ, the larger
+TRACK_FAST_VEL_NSIGMA = 3.0
+TRACK_FAST_MIN_SESSIONS = 2
 TRACK_SHORT_MAX_SPAN_H = 36.0    # ... and with exactly 3, over at most this long (hunt control: chance 3-session tracks
                                  # all spanned 37-72 h, their third mover far out on the extrapolated path)
 TRACK_VISIT_MAX_S = 30.0         # time budget of one linking pass over a visit (hunt: ~1 s); then the weakest seeds are skipped
@@ -1127,6 +1171,7 @@ TRACK_RECOVER_EXT_H = 60.0       # sessions up to this far before the first / af
 TRACK_RECOVER_R_MIN_ARCSEC = 3.0
 TRACK_RECOVER_R_MAX_ARCSEC = 8.0
 TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
+TRACK_RECOVER_IN_FIXED = True    # also the fixed groups' member dots that sit off their star (link off_star_members)
 
 # --- stack (stack.py, 15 Nov night): detect on per-visit stacks, then a joint ePSF fit in every photo ---------------
 # Single photos (6.15″ px, FWHM 7.5″) miss sources below their limit, 8–15″ pairs and stars in a bright star's glow.
