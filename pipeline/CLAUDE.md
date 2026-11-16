@@ -282,6 +282,19 @@ The step never raises (errors go to its stats).
   within 30″); 2 exposures both with a detector pair may miss 1. `still`: a free dot at the mover's place (2″) in 2 other
   sessions, or in 1 in its detector within 2× its flux. Boxes b1–b3 (4.1 deg², hunt zone): V < 16 movers 51 → 55
   of 64, uncatalogued fixed fragments 176 → 55, movers 108 → 118. Changing these means rerunning link onward.
+- link relink fixes (16 Nov, p1/relink; config PAIR_FAST_*, FIXED_RELEASE_FLUX_SAFE, FIXED_OFF_*, LINK_CONTROL_OFFSET_ARCSEC):
+  fast movers without a detector partner pair beyond the plain rule up to 3″ + 15″/min × Δt (~900″/h) when a third
+  exposure's dot lies within 3″ of their constant-rate line (fast_triplets; kind 2; stats `movers_fast_rule`); above
+  400″/h the three dots' median elong must reach 1 + 0.75 × (the trail's expected stretch − 1). A bright dot (≥ 3×) is
+  released only when it also sits off the star (2″ + 3σ), or its group's bright dots are one session > 1″ off (a
+  variable star stays one source; Alekto still goes). nonfixed_dots.parquet adds the fixed groups' member dots that sit
+  off their star (`in_fixed`, near_fixed true; off_star_members) for tracklets' recovery on a track's path only.
+  summary `control`: the shuffled-exposure control (each exposure's dots and footprints moved 300″ in its own direction,
+  then paired, covered and vetted like the real ones): movers, two_exposures, two_detectors, fast (> 146″/h). The
+  two_detectors ones are real simultaneous pairs of one-exposure looks, not chance; chance = two_exposures.
+  Pilot (link columns of 990 photos, Mac): movers 348 → 350, control two_exposures 1 → 2, bright dots released
+  1,022 → 802; one-detector injections found 0–5% → 52–69% at 146–600″/h, 20% at 600–900; ecl08 free dots: 146–400″/h
+  known asteroids 0 → 7 (every one with a free dot).
 - link also writes members.parquet (source_id, obs_id, detector, dot_row = row in the dot file as written; dot
   files are never rewritten) and nonfixed_dots.parquet (every dot in no fixed group with elong ≤ 3, `near_fixed` within 6″
   of one; ~0.8 M rows, ~20 MB for the hunt) for tracklets' recovery. spectra: 102 channels (ours, 17 log-spaced per detector), MASK bits out, clipped
@@ -299,6 +312,12 @@ The step never raises (errors go to its stats).
   Hunt: 124 tracks (all known asteroids, none mixed), 1245 of 6143 movers; control (each session's movers moved
   0.5–1.5°) 0 tracks in 4 runs; recall at V < 16 90.4% → 94.7% (433/457), control 0; 0 of 228 suspects on a track.
   The rest of the misses: no dot (12), or a dot inside a star's fixed group (≤ 4″, not a free dot).
+  Fast tracks (16 Nov, TRACK_FAST_*): movers faster than 150″/h (to 900″/h) rarely give 3 sessions; two movers of
+  sessions ≤ 36 h apart link when the chord between them agrees with BOTH their own in-session velocities (link's rate
+  and PA, within 30% of the speed or 3σ): a 2-session track (stats `fast_tracks`, control `fast_tracks`). Recovery also
+  takes nonfixed_dots' `in_fixed` dots (a star crossing; TRACK_RECOVER_IN_FIXED; stats `recovered_in_fixed`), and the
+  control now moves every track 2′ to count chance recovered dots (control `recovered_dots`, `recovered_in_fixed`).
+  Pilot: recovered dots 50 → 55 (5 in a star's group), control 2 → 2 (0 in a group); V < 16 recall 85 → 86 of 90.
   score tells the two kinds of dot apart (members.parquet: a dot in a fixed source's group vs a free dot, the only kind
   link pairs): recall_units `dot_free`/`dot_fixed`/`miss`, recall.json `free_dot_share` and `misses`. Hunt (15 Nov
   tables, V < 16): dot_share 97.4% but free_dot_share 95.0%; misses no_dot 11, fixed_dot 11, free_dot 1; control

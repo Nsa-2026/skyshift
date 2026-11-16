@@ -147,9 +147,15 @@ def _not_saturated(dots: pd.DataFrame, idx: np.ndarray) -> np.ndarray:
     return (dots["flags_peak"].to_numpy(np.int64)[idx] & SAT_BITS) == 0
 
 
-def bright_members(dots: pd.DataFrame, lab: np.ndarray, cand: np.ndarray) -> np.ndarray:
+def bright_members(dots: pd.DataFrame, lab: np.ndarray, cand: np.ndarray, agg: pd.DataFrame | None = None,
+                   stats: dict | None = None) -> np.ndarray:
     """Dots of the would-be fixed groups (cand) with flux >= FIXED_RELEASE_FLUX_RATIO × their group's median flux in their
-    detector, not saturated at the peak: an asteroid chained into a fainter star (Alekto s75: 5.6× in D3)."""
+    detector, not saturated at the peak: an asteroid chained into a fainter star (Alekto s75: 5.6× in D3).
+    FIXED_RELEASE_FLUX_SAFE (agg: the groups' median ra, dec, index = label): only such a dot that also sits off the
+    group (> FIXED_RELEASE_SESSION_ARCSEC + FIXED_RELEASE_SESSION_SIGMA × its σ from the median), or whose group has its
+    bright dots in one session only and sits > FIXED_RELEASE_FLUX_ONE_SESSION_ARCSEC off: a variable star's bright state
+    lies on the star and lasts over sessions (a Mira, a young star), an asteroid crossing is one session 2–5″ off.
+    stats: receives release_bright_kept_variable (bright dots left in their group by that rule)."""
     out = np.zeros(lab.size, bool)
     if C.FIXED_RELEASE_FLUX_RATIO is None or "flux_ujy" not in dots or "detector" not in dots or not cand.any():
         return out
@@ -157,7 +163,20 @@ def bright_members(dots: pd.DataFrame, lab: np.ndarray, cand: np.ndarray) -> np.
     flux = dots["flux_ujy"].to_numpy(np.float64)[idx]
     key = lab[idx] * 8 + dots["detector"].to_numpy(np.int64)[idx]
     med = pd.Series(flux).groupby(key).transform("median").to_numpy(np.float64)
-    out[idx] = (med > 0) & (flux >= C.FIXED_RELEASE_FLUX_RATIO * med) & _not_saturated(dots, idx)
+    bright = (med > 0) & (flux >= C.FIXED_RELEASE_FLUX_RATIO * med) & _not_saturated(dots, idx)
+    if C.FIXED_RELEASE_FLUX_SAFE and agg is not None and bright.any():
+        b = idx[bright]
+        g = lab[b]
+        off = angsep(dots["ra"].to_numpy(np.float64)[b], dots["dec"].to_numpy(np.float64)[b],
+                     agg["ra"].reindex(g).to_numpy(), agg["dec"].reindex(g).to_numpy()) * 3600.0
+        sig = dot_sigma_arcsec(dots["snr"].to_numpy(np.float64)[b])
+        n_sess = pd.Series(dots["session"].to_numpy(np.int64)[b]).groupby(g).transform("nunique").to_numpy()
+        ok = (off > C.FIXED_RELEASE_SESSION_ARCSEC + C.FIXED_RELEASE_SESSION_SIGMA * sig) | (
+            (n_sess == 1) & (off > C.FIXED_RELEASE_FLUX_ONE_SESSION_ARCSEC))
+        if stats is not None:
+            stats["release_bright_kept_variable"] = int((~ok).sum())
+        bright[np.flatnonzero(bright)[~ok]] = False
+    out[idx] = bright
     return out
 
 
@@ -245,7 +264,7 @@ def release_far_members(dots: pd.DataFrame, lab: np.ndarray, refcat: pd.DataFram
     stats: a dict that receives the counts (release_*)."""
     lab = np.asarray(lab, np.int64)
     st = {"release_far_dots": 0, "release_bright_dots": 0, "release_offset_dots": 0, "release_groups_kept": 0,
-          "release_groups_undone": 0}
+          "release_groups_undone": 0, "release_bright_kept_variable": 0}
     if stats is not None:
         stats.update(st)
     if lab.size == 0 or C.FIXED_RELEASE_ARCSEC is None:
@@ -262,7 +281,7 @@ def release_far_members(dots: pd.DataFrame, lab: np.ndarray, refcat: pd.DataFram
     mdec = agg["dec"].reindex(lab[cand]).to_numpy()
     far = np.zeros(lab.size, dtype=bool)
     far[cand] = angsep(ra[cand], dec[cand], mra, mdec) * 3600.0 > C.FIXED_RELEASE_ARCSEC
-    bright = bright_members(dots, lab, cand)
+    bright = bright_members(dots, lab, cand, agg, st)
     offset = offset_sessions(dots, lab, cand, agg)
     loose = bright | offset  # never fixed again as a fragment group
     rel = far | loose
@@ -416,16 +435,59 @@ def freedots_table(free: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
 NONFIXED_DOTS_NAME = "nonfixed_dots.parquet"
 
 
+def off_star_members(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame) -> np.ndarray:
+    """Member dots of fixed groups that sit off their star in their photo (an asteroid crossing it, chained in by the 4″
+    FoF): more than FIXED_OFF_ARCSEC + FIXED_OFF_SIGMA × σ (dot_sigma_arcsec) from the group's median position, or a
+    second dot of the group in one photo (not the nearest) more than FIXED_OFF_ARCSEC off; not saturated at the peak, elong
+    <= MOVER_MAX_ELONG; minus those with another such dot of the group within FIXED_OFF_REPEAT_ARCSEC in another session
+    (a neighbour or a wing piece of the star: it stays put, an asteroid doesn't). tracklets recovers them only on a
+    track's predicted path. None (FIXED_OFF_ARCSEC) = none."""
+    out = np.zeros(len(dots), bool)
+    m = dot_sid >= 0
+    if C.FIXED_OFF_ARCSEC is None or not m.any() or not len(fixed):
+        return out
+    idx = np.flatnonzero(m)
+    sid = dot_sid[idx]
+    fs = fixed["source_id"].to_numpy(np.int64)
+    order_f = np.argsort(fs, kind="stable")
+    k = order_f[np.searchsorted(fs, sid, sorter=order_f)]
+    ra, dec = dots["ra"].to_numpy(np.float64)[idx], dots["dec"].to_numpy(np.float64)[idx]
+    off = angsep(ra, dec, fixed["ra"].to_numpy(np.float64)[k], fixed["dec"].to_numpy(np.float64)[k]) * 3600.0
+    far = off > C.FIXED_OFF_ARCSEC + C.FIXED_OFF_SIGMA * dot_sigma_arcsec(dots["snr"].to_numpy(np.float64)[idx])
+    second = np.zeros(idx.size, bool)
+    if "photo" in dots:
+        photo = dots["photo"].to_numpy(np.int64)[idx]
+        o = np.lexsort((off, photo, sid))
+        first = np.r_[True, (np.diff(sid[o]) != 0) | (np.diff(photo[o]) != 0)]
+        second[o[~first]] = True
+        second &= off > C.FIXED_OFF_ARCSEC
+    c = (far | second) & _not_saturated(dots, idx)
+    if "elong" in dots:
+        c &= ~(dots["elong"].to_numpy(np.float64)[idx] > C.MOVER_MAX_ELONG)
+    ci = np.flatnonzero(c)
+    if ci.size and C.FIXED_OFF_REPEAT_ARCSEC:
+        lab = fof_groups(ra[ci], dec[ci], C.FIXED_OFF_REPEAT_ARCSEC, min(C.FIXED_SNAP_ARCSEC, C.FIXED_OFF_REPEAT_ARCSEC / 2))
+        sess = dots["session"].to_numpy(np.int64)[idx[ci]]
+        n_sess = pd.Series(sess).groupby(lab).transform("nunique").to_numpy()
+        c[ci[n_sess > 1]] = False
+    out[idx[c]] = True
+    return out
+
+
 def nonfixed_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame, photos: pd.DataFrame) -> pd.DataFrame:
     """nonfixed_dots.parquet (for `tracklets`' recovery): every dot in no fixed group with elong <= MOVER_MAX_ELONG (the
-    mover dots included), `near_fixed` where within FIXED_VETO_ARCSEC of a fixed source; sorted by session, mjd, ra, dec."""
-    d = dots[dot_sid < 0]
+    mover dots included), `near_fixed` where within FIXED_VETO_ARCSEC of a fixed source; plus (16 Nov) the fixed groups'
+    member dots that sit off their star (off_star_members, `in_fixed` True, near_fixed True); sorted by session, mjd, ra,
+    dec."""
+    off = off_star_members(dots, dot_sid, fixed)
+    d = dots[(dot_sid < 0) | off]
+    in_fixed = off[(dot_sid < 0) | off]
     elong = d["elong"].to_numpy(np.float64)
-    d = d[~(elong > C.MOVER_MAX_ELONG)]
-    near = np.zeros(len(d), bool)
+    d, in_fixed = d[~(elong > C.MOVER_MAX_ELONG)], in_fixed[~(elong > C.MOVER_MAX_ELONG)]
+    near = in_fixed.copy()
     if len(fixed) and len(d):
         sep, _ = SkyTree(fixed["ra"].to_numpy(), fixed["dec"].to_numpy()).nearest(d["ra"].to_numpy(), d["dec"].to_numpy())
-        near = sep <= C.FIXED_VETO_ARCSEC
+        near |= sep <= C.FIXED_VETO_ARCSEC
     pos = photos.index.get_indexer(d["photo"].to_numpy())
     obs = pd.Categorical(photos["obs_id"].astype(str))
     out = pd.DataFrame({
@@ -436,15 +498,85 @@ def nonfixed_dots_table(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataF
         "snr": d["snr"].to_numpy(np.float32), "flux_ujy": d["flux_ujy"].to_numpy(np.float32),
         "flags": (d["flags"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
         "flags_peak": (d["flags_peak"].to_numpy(np.int64) & 0xFFFFFFFF).astype(np.uint32).view(np.int32),
-        "elong": d["elong"].to_numpy(np.float32), "near_fixed": near})
+        "elong": d["elong"].to_numpy(np.float32), "near_fixed": near, "in_fixed": in_fixed})
     return out.sort_values(["session", "mjd", "ra", "dec"], kind="stable").reset_index(drop=True)
+
+
+def fast_triplets(d: pd.DataFrame, known: np.ndarray) -> np.ndarray:
+    """Pairs (i, j) of dots in one session (row positions in d) beyond the plain rule that belong to a straight,
+    evenly spaced chain of >= 3 exposures: two dots of different exposures within PAIR_BASE_ARCSEC +
+    PAIR_FAST_RATE_ARCSEC_PER_MIN × Δt, and a dot of a third exposure within PAIR_FAST_LINE_ARCSEC of their constant-rate
+    line at that exposure's time; above PAIR_FAST_TRAIL_MIN_ARCSEC_H the three dots' median elong must also reach half the
+    trail's expected stretch (PAIR_FAST_TRAIL_FRAC). Each such triplet gives its three pairs. known: pairs already found
+    (sorted rows), left out. A fast mover without a detector partner (D5/D6 heat glow, or too faint in the partner) moves
+    5–35″ between exposures 2.1 min apart; two unrelated dots rarely line up with a third at the right spacing."""
+    from scipy.spatial import cKDTree
+    out = np.zeros((0, 2), np.int64)
+    if not C.PAIR_FAST_RATE_ARCSEC_PER_MIN or len(d) < 3:
+        return out
+    exp = d["exposure"].to_numpy(np.int64)
+    if np.unique(exp).size < 3:
+        return out
+    mjd = d["mjd"].to_numpy(np.float64)
+    ra, dec = d["ra"].to_numpy(np.float64), d["dec"].to_numpy(np.float64)
+    span_min = (mjd.max() - mjd.min()) * 1440.0
+    xyz = radec_to_xyz(ra, dec)
+    tree = cKDTree(xyz)
+    rmax = C.PAIR_BASE_ARCSEC + C.PAIR_FAST_RATE_ARCSEC_PER_MIN * span_min
+    pr = tree.query_pairs(chord(rmax), output_type="ndarray")
+    if not len(pr):
+        return out
+    i, k = pr[:, 0], pr[:, 1]
+    sep = angsep(ra[i], dec[i], ra[k], dec[k]) * 3600.0
+    dt_min = np.abs(mjd[k] - mjd[i]) * 1440.0
+    ok = (exp[i] != exp[k]) & (dt_min > 0) & (sep <= C.PAIR_BASE_ARCSEC + C.PAIR_FAST_RATE_ARCSEC_PER_MIN * dt_min)
+    ok &= sep > C.PAIR_BASE_ARCSEC + C.PAIR_RATE_ARCSEC_PER_MIN * dt_min  # the plain rule already pairs the rest
+    i, k = i[ok], k[ok]
+    if not i.size:
+        return out
+    # each exposure's time (D1–D6 share MJD-AVG; within 5 s = one exposure)
+    ue, first = np.unique(exp, return_index=True)
+    te = mjd[first]
+    # the line through i and k on the plane tangent at i (″ east, north), at every other exposure's time
+    cosd = np.cos(np.deg2rad(dec[i]))
+    vx = ((ra[k] - ra[i] + 180.0) % 360.0 - 180.0) * cosd * 3600.0 / (mjd[k] - mjd[i])
+    vy = (dec[k] - dec[i]) * 3600.0 / (mjd[k] - mjd[i])
+    # the trail test (PAIR_FAST_TRAIL_*): the elong the chain's dots must reach at the pair's rate (0: none)
+    need = np.zeros(i.size)
+    el = d["elong"].to_numpy(np.float64) if "elong" in d else None
+    if C.PAIR_FAST_TRAIL_MIN_ARCSEC_H is not None and el is not None:
+        rate_h = np.hypot(vx, vy) / 24.0
+        L = rate_h * C.PAIR_EXPOSURE_S / 3600.0
+        f = np.sqrt(1.0 + L ** 2 / (12.0 * C.PSF_SIGMA_ARCSEC ** 2))
+        need = np.where(rate_h > C.PAIR_FAST_TRAIL_MIN_ARCSEC_H, 1.0 + C.PAIR_FAST_TRAIL_FRAC * (f - 1.0), 0.0)
+    found = []
+    for e, t in zip(ue, te):
+        m = (exp[i] != e) & (exp[k] != e)
+        if not m.any():
+            continue
+        dtd = t - mjd[i[m]]
+        pra, pdec = offset_radec(ra[i[m]], dec[i[m]], vx[m] * dtd, vy[m] * dtd)
+        hits = tree.query_ball_point(radec_to_xyz(pra, pdec), chord(C.PAIR_FAST_LINE_ARCSEC))
+        for a, b, nd, h in zip(i[m], k[m], need[m], hits):
+            for j in h:
+                if exp[j] == e and (nd <= 0 or not np.nanmedian([el[a], el[j], el[b]]) < nd):
+                    found.extend(((a, j), (j, b), (a, b)))
+    if not found:
+        return out
+    f = np.unique(np.sort(np.asarray(found, np.int64), axis=1), axis=0)
+    if len(known):
+        kk = np.sort(known, axis=1)
+        have = set(map(tuple, kk.tolist()))
+        f = np.array([p for p in f.tolist() if tuple(p) not in have], np.int64).reshape(-1, 2)
+    return f
 
 
 def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Valid pairs (i, j) of dots in one session (row positions in d) and their kind
-    (0 = two exposures, 1 = simultaneous detectors). Two dots that each have a simultaneous partner
-    (a detector pair confirms each detection) also pair across exposures up to PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN:
-    fast movers (> ~140″/h) step too far between exposures for the plain rule."""
+    (0 = two exposures, 1 = simultaneous detectors, 2 = two exposures beyond the plain rule: fast). Two dots that each
+    have a simultaneous partner (a detector pair confirms each detection) also pair across exposures up to
+    PAIR_CONFIRMED_RATE_ARCSEC_PER_MIN, and any two dots up to PAIR_FAST_RATE_ARCSEC_PER_MIN as part of a straight
+    chain of >= 3 exposures (fast_triplets): fast movers (> ~140″/h) step too far between exposures for the plain rule."""
     n = len(d)
     if n < 2:
         return np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int8)
@@ -472,7 +604,7 @@ def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
     pairs = cKDTree(xyz).query_pairs(chord(rmax), output_type="ndarray")
     if len(pairs) == 0:
-        return np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int8)
+        pairs = np.zeros((0, 2), dtype=np.int64)
     two_exp, simul = judge(pairs, C.PAIR_RATE_ARCSEC_PER_MIN, None)
     keep = two_exp | simul
     out, kind = pairs[keep], np.where(two_exp[keep], 0, 1).astype(np.int8)
@@ -489,7 +621,11 @@ def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
             have = set(map(tuple, np.sort(out, axis=1).tolist()))
             new = np.array([p for p in fp.tolist() if tuple(p) not in have], dtype=np.int64).reshape(-1, 2)
             out = np.concatenate([out, new])
-            kind = np.concatenate([kind, np.zeros(len(new), np.int8)])
+            kind = np.concatenate([kind, np.full(len(new), 2, np.int8)])
+    tri = fast_triplets(d, out)
+    if len(tri):
+        out = np.concatenate([out, tri])
+        kind = np.concatenate([kind, np.full(len(tri), 2, np.int8)])
     return out, kind
 
 
@@ -693,6 +829,8 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
         _, lab = connected_components(g, directed=False)
         used = np.zeros(n, dtype=bool)
         used[pairs.ravel()] = True
+        fast = np.zeros(n, dtype=bool)  # a dot of a pair beyond the plain rule (kind 2)
+        fast[pairs[kind == 2].ravel()] = True
         idx = np.flatnonzero(used)
         idx = idx[np.argsort(lab[idx], kind="stable")]
         cuts = np.flatnonzero(np.diff(lab[idx])) + 1
@@ -719,6 +857,7 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
                 "flags": int(np.bitwise_or.reduce(fl[m])), "flags_peak_all": int(np.bitwise_and.reduce(fp[m])),
                 "exposures": exps, **_dot_lists(d, m, A, fp),
                 "_seen": sorted(set(zip(A["mjd"][m].astype(np.float64).tolist(), A["detector"][m].astype(np.int64).tolist()))),
+                "_fast": bool(fast[m].any()),
             })
     return pd.DataFrame(rows)
 
@@ -798,9 +937,20 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     (track positions outside it don't cover an exposure); None = no such test."""
     st: dict = {"dots": int(len(dots))}
     fixed, dot_sid = fixed_result if fixed_result is not None else fixed_groups(dots)
-    member = dot_sid >= 0
     st["fixed"] = int(len(fixed))
-    free = dots[~member]
+    free = free_dots(dots, dot_sid, fixed, st)
+    if free_out is not None:
+        free_out["free"] = free
+    movers, mst = movers_from_free(free, dots, photos, footprints, fixed, zone, exposure_names)
+    return fixed, movers, {**st, **mst}
+
+
+def free_dots(dots: pd.DataFrame, dot_sid: np.ndarray, fixed: pd.DataFrame, st: dict | None = None) -> pd.DataFrame:
+    """The dots movers are paired from: in no fixed group, not within FIXED_VETO_ARCSEC of a fixed source (unless
+    bright_near_fixed), elong <= MOVER_MAX_ELONG. st: receives dots_near_fixed_bright_kept, dots_near_fixed_dropped,
+    dots_free."""
+    st = {} if st is None else st
+    free = dots[dot_sid < 0]
     st["dots_near_fixed_bright_kept"] = 0
     if len(fixed) and len(free):
         ftree = SkyTree(fixed["ra"].to_numpy(), fixed["dec"].to_numpy())
@@ -813,12 +963,90 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     elong = free["elong"].to_numpy(np.float64)
     free = free[~(elong > C.MOVER_MAX_ELONG)]
     st["dots_free"] = int(len(free))
-    if free_out is not None:
-        free_out["free"] = free
+    return free
+
+
+def exposure_index(photos: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """(session, time in s, rank in its session) of every exposure of the photo list (D1–D6 share MJD-AVG: one exposure
+    per distinct second within a session), and per photo row its exposure's position in those arrays."""
+    key = pd.DataFrame({"s": photos["session"].to_numpy(np.int64), "t": np.round(photos["mjd"].to_numpy(np.float64) * 86400.0)})
+    u = key.drop_duplicates().sort_values(["s", "t"]).reset_index(drop=True)
+    u["rank"] = u.groupby("s").cumcount()
+    pos = pd.MultiIndex.from_frame(u[["s", "t"]]).get_indexer(pd.MultiIndex.from_frame(key))
+    return u["s"].to_numpy(np.int64), u["t"].to_numpy(np.float64), u["rank"].to_numpy(np.int64), pos
+
+
+def control_offsets(photos: pd.DataFrame, seed: int = C.CONTROL_SEED) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The shuffled-exposure control's offsets (″ east, north) per exposure (exposure_index's arrays): LINK_CONTROL_OFFSET_
+    ARCSEC long, directions spread evenly over each session's exposures (in time order) from a random start per session,
+    so two exposures of one session are >= 2 R sin(π/n) apart. Returns (session, time s, east, north)."""
+    s, t, rank, _ = exposure_index(photos)
+    R = float(C.LINK_CONTROL_OFFSET_ARCSEC or 0.0)
+    us, inv = np.unique(s, return_inverse=True)
+    n = np.bincount(inv)
+    phase = np.random.default_rng(seed).uniform(0.0, 2 * np.pi, us.size)
+    ang = phase[inv] + 2 * np.pi * rank / n[inv]
+    return s, t, R * np.sin(ang), R * np.cos(ang)
+
+
+def _shift_to_exposures(df: pd.DataFrame, s: np.ndarray, t: np.ndarray, de: np.ndarray, dn: np.ndarray) -> pd.DataFrame:
+    """df's positions moved by their exposure's offset (exposure = same session, time within 5 s)."""
+    if not len(df):
+        return df
+    key = pd.MultiIndex.from_arrays([s, t])
+    ds, dt = df["session"].to_numpy(np.int64), np.round(df["mjd"].to_numpy(np.float64) * 86400.0)
+    pos = key.get_indexer(pd.MultiIndex.from_arrays([ds, dt]))
+    if (pos < 0).any():  # a dot time rounded to another second than its photo's: the nearest exposure of its session
+        for i in np.flatnonzero(pos < 0):
+            c = np.flatnonzero(s == ds[i])
+            pos[i] = c[int(np.argmin(np.abs(t[c] - dt[i])))] if c.size else 0
+    ra, dec = offset_radec(df["ra"].to_numpy(np.float64), df["dec"].to_numpy(np.float64), de[pos], dn[pos])
+    return df.assign(ra=ra, dec=dec)
+
+
+def control_movers(free: pd.DataFrame, dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprint] | None,
+                   exposure_names: list[str] | None = None, zone: C.Zone | None = None) -> tuple[pd.DataFrame, dict]:
+    """The chance level of the mover stage (shuffled-exposure control): every exposure's free dots, all its dots (the
+    coverage's blend test) and its photos' footprints moved by control_offsets, then paired, covered and vetted as the
+    real ones (no zone box: shifted tracks may leave it; no fixed-source exclusion: the blend test sees the stars' dots).
+    No real object (moving or still) links across exposures any more; a simultaneous detector pair stays together.
+    Returns (control movers, their counts)."""
+    if C.LINK_CONTROL_OFFSET_ARCSEC is None or not len(free) or "mjd" not in photos:
+        return free.iloc[:0], {}
+    s, t, de, dn = control_offsets(photos)
+    f2 = _shift_to_exposures(free, s, t, de, dn)
+    d2 = _shift_to_exposures(dots, s, t, de, dn)
+    if footprints is None:
+        footprints = [Footprint.from_s_region(x) for x in photos["s_region"]]
+    _, _, _, ppos = exposure_index(photos)
+    fps = []
+    for fp, k in zip(footprints, ppos):
+        v = fp.vertices
+        r2, d2v = offset_radec(v[:, 0], v[:, 1], de[k], dn[k])
+        fps.append(Footprint(np.column_stack([r2, d2v])))
+    m, st = movers_from_free(f2, d2, photos, fps, None, None, exposure_names)
+    return m, st
+
+
+def control_counts(m: pd.DataFrame) -> dict:
+    """summary.json link `control`: the control's movers, by evidence and beyond the plain rule's rate (~146″/h)."""
+    if not len(m):
+        return {"movers": 0, "two_exposures": 0, "two_detectors": 0, "fast": 0}
+    plain = (C.PAIR_BASE_ARCSEC / 2.1 + C.PAIR_RATE_ARCSEC_PER_MIN) * 60.0  # ″/h at one exposure step (2.1 min)
+    r = m["rate_arcsec_h"].to_numpy(np.float64)
+    return {"movers": int(len(m)), "two_exposures": int((m["evidence"] == "two_exposures").sum()),
+            "two_detectors": int((m["evidence"] == "two_detectors").sum()), "fast": int((np.nan_to_num(r) > plain).sum())}
+
+
+def movers_from_free(free: pd.DataFrame, dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprint] | None,
+                     fixed: pd.DataFrame | None, zone: C.Zone | None,
+                     exposure_names: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
+    """Free dots -> movers (pairs chained per session, coverage, vet_reason) and counts."""
+    st: dict = {}
     cand = find_candidates(free)
     st["candidates"] = int(len(cand))
     if len(cand) == 0:
-        return fixed, cand, {**st, "movers": 0}
+        return cand, {**st, "movers": 0, "movers_fast_rule": 0}
     if footprints is None:
         footprints = [Footprint.from_s_region(s) for s in photos["s_region"]]
     cand["cover_sessions"] = sessions_covering(cand["ra"].to_numpy(), cand["dec"].to_numpy(), footprints, photos["session"].to_numpy())
@@ -837,7 +1065,8 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
         st[f"vetoed_{r}"] = int((reason == r).sum())
     if C.MOVER_VET:
         movers = movers[reason == ""].reset_index(drop=True)
-    movers = movers.drop(columns=["_vx", "_vy", "_t0", "_seen"])
+    st["movers_fast_rule"] = int(movers["_fast"].sum())  # paired beyond the plain rule (confirmed or 3-exposure chain)
+    movers = movers.drop(columns=["_vx", "_vy", "_t0", "_seen", "_fast"])
     names = exposure_names
     movers["obs_ids"] = [",".join(names[i] if names else str(i) for i in ex) for ex in movers.pop("exposures")]
     movers["dot_obs"] = [[names[i] if names else str(i) for i in ex] for ex in movers.pop("dot_exp")]
@@ -848,7 +1077,7 @@ def classify(dots: pd.DataFrame, photos: pd.DataFrame, footprints: list[Footprin
     st.update({"movers": int(len(movers)),
                "movers_two_exposures": int((movers["evidence"] == "two_exposures").sum()),
                "movers_two_detectors": int((movers["evidence"] == "two_detectors").sum())})
-    return fixed, movers, st
+    return movers, st
 
 
 REFCAT_COLUMNS = ["ra", "dec", "epoch_mjd", "pmra", "pmdec"]
@@ -887,6 +1116,12 @@ def run(store: Store, zone: C.Zone, workers: int = 16, keep: dict | None = None)
     fixed, movers, stats = classify(dots, photos, exposure_names=sorted(photos["obs_id"].unique()), fixed_result=fixed_result,
                                     free_out=free_out, zone=zone)
     stats.update(rst)
+    try:  # the chance level of the movers; never worth failing link for
+        cm, _ = control_movers(free_out.get("free", dots.iloc[:0]), dots, photos, None, None, zone)
+        stats["control"] = control_counts(cm)
+    except Exception as e:  # noqa: BLE001
+        L.exception("link %s: shuffled-exposure control failed", zone.name)
+        stats["control"] = {"error": repr(e)[:300]}
     measured, mst = member_mask(dots, fixed_result[1], fixed_result[0])
     members = members_table(dots, fixed_result[1], photos, keep=measured)
     freedots = freedots_table(free_out.get("free", dots.iloc[:0]), photos)

@@ -400,3 +400,96 @@ def test_track_leaving_the_zone_box_does_not_cover():
     assert len(movers) == 1 and movers["cover_exposures"].iloc[0] == 2, st
     _, movers, st = cls(d, p)
     assert len(movers) == 0 and st["vetoed_missed"] == 1
+
+
+def test_fast_mover_in_one_detector_links_on_a_three_exposure_line(monkeypatch):
+    """A 300″/h mover seen in one detector only (10.5″ per 2.1 min, beyond 3″ + 1″/min): three exposures on a straight,
+    evenly spaced line link (PAIR_FAST_RATE_ARCSEC_PER_MIN); two exposures, or three off the line, don't. Above
+    PAIR_FAST_TRAIL_MIN_ARCSEC_H (400″/h) the dots must look trailed: 600″/h with elong 2.6 links, with 1.1 doesn't."""
+    step = 300.0 * 2.1 / 60.0
+    sc = Scene(n_exp=3)
+    sc.track(122.0, 16.0, 2, step, [0, 1, 2])
+    sc.track(122.1, 16.1, 3, step, [0, 1])                               # two exposures only
+    for e, x in zip(range(3), (0.0, step, 3 * step)):                    # third dot 10.5″ off the line
+        sc.add(*offset_radec(122.2, 16.2, x, 0.0), 4, e)
+    sc.track(122.3, 16.0, 1, 2 * step, [0, 1, 2])                        # 600″/h, point-like dots
+    sc.track(122.3, 16.2, 0, 2 * step, [0, 1, 2], elong=2.6)             # 600″/h, trailed dots
+    _, movers, st = sc.run()
+    assert len(movers) == 2 and st["movers_fast_rule"] == 2, st
+    m = movers.sort_values("rate_arcsec_h")
+    assert (m["n_exposures"] == 3).all() and np.allclose(m["rate_arcsec_h"], [300.0, 600.0], rtol=1e-3)
+    assert m["dec"].iloc[1] == pytest.approx(16.2, abs=1e-3)
+    monkeypatch.setattr(C, "PAIR_FAST_TRAIL_MIN_ARCSEC_H", None)
+    assert len(sc.run()[1]) == 3
+    monkeypatch.setattr(C, "PAIR_FAST_RATE_ARCSEC_PER_MIN", None)
+    _, movers, st = sc.run()
+    assert len(movers) == 0 and st["movers_fast_rule"] == 0
+
+
+def test_shuffled_exposure_control_breaks_real_links():
+    """control_movers moves each exposure's dots (and footprints) 300″ in its own direction: real movers, slow or fast,
+    are not linked any more."""
+    from skyshift_pipeline.link import control_counts, control_movers, control_offsets, fixed_groups, free_dots
+    sc = Scene(n_exp=3).star(*STAR)
+    sc.track(122.0, 16.0, 2, 1.5, [0, 1, 2])
+    sc.track(122.0, 16.3, 1, 300.0 * 2.1 / 60.0, [0, 1, 2])
+    d, p = pd.DataFrame(sc.rows), pd.DataFrame(sc.photos)
+    _, movers, _ = classify(d, p)
+    assert len(movers) == 2
+    s, _, de, dn = control_offsets(p)
+    assert np.allclose(np.hypot(de, dn), C.LINK_CONTROL_OFFSET_ARCSEC) and len(s) == 15
+    for k in np.unique(s):  # the exposures of a session point in different directions
+        a = np.arctan2(de[s == k], dn[s == k])
+        assert np.unique(np.round(a, 6)).size == (s == k).sum()
+    fixed, sid = fixed_groups(d)
+    cm, _ = control_movers(free_dots(d, sid, fixed), d, p, None)
+    assert control_counts(cm)["two_exposures"] == 0 and control_counts(cm)["fast"] == 0
+
+
+def test_variable_star_bright_session_stays_in_its_group(monkeypatch):
+    """FIXED_RELEASE_FLUX_SAFE: a star 5× brighter for one session ON its position (a variable) keeps those dots in its
+    group (the Alekto case, 2.5–4″ off, is still released: test_bright_asteroid_chained_into_a_fainter_star)."""
+    from skyshift_pipeline.link import fixed_groups
+    sc = Scene().star(*STAR)
+    for e in range(2):
+        sc.rows[2 * 2 + e].update(flux_ujy=500.0)  # session 2 of the star: 5× (rows are session-major, 2 exposures each)
+    d = pd.DataFrame(sc.rows)
+    st: dict = {}
+    fixed, sid = fixed_groups(d, None, st)
+    assert len(fixed) == 1 and (sid >= 0).all() and st["release_bright_dots"] == 0 and st["release_bright_kept_variable"] == 2
+    assert len(sc.run()[1]) == 0
+    monkeypatch.setattr(C, "FIXED_RELEASE_FLUX_SAFE", False)
+    fixed, sid = fixed_groups(d, None, st)
+    assert st["release_bright_dots"] == 2 and (sid == -1).sum() == 2
+
+
+def test_off_star_member_dots_go_to_the_nonfixed_table():
+    """off_star_members: a member dot well off its star (an asteroid crossing it, chained in by the 4″ FoF) or a second dot
+    of the group in one photo > 1.5″ off; not saturated, not elongated, not repeated at one place in another session."""
+    from skyshift_core import SAT_BITS
+    from skyshift_pipeline.link import nonfixed_dots_table, off_star_members
+    rows = []
+    for s in range(5):  # the star, one photo per session
+        rows.append(dict(ra=STAR[0], dec=STAR[1], session=s + 1, photo=s, snr=200.0, flags_peak=0, elong=1.1))
+    near = offset_radec(*STAR, 2.5, 0.0)
+    rows.append(dict(ra=near[0], dec=near[1], session=3, photo=2, snr=20.0, flags_peak=0, elong=1.1))   # 5: second in photo
+    far = offset_radec(*STAR, 0.0, 3.8)
+    rows.append(dict(ra=far[0], dec=far[1], session=5, photo=6, snr=60.0, flags_peak=0, elong=1.1))    # 6: alone, 3.8″ off
+    wing = offset_radec(*STAR, -2.5, 0.0)
+    for s in (1, 4):                                                                                   # 7, 8: repeats
+        rows.append(dict(ra=wing[0], dec=wing[1], session=s + 1, photo=s, snr=20.0, flags_peak=0, elong=1.1))
+    sat = offset_radec(*STAR, 0.0, -3.0)                                                               # 9: saturated
+    rows.append(dict(ra=sat[0], dec=sat[1], session=2, photo=1, snr=20.0, flags_peak=int(SAT_BITS & -SAT_BITS), elong=1.1))
+    rows.append(dict(ra=near[0], dec=near[1] + 1 / 3600, session=4, photo=3, snr=20.0, flags_peak=0, elong=4.0))  # 10
+    d = pd.DataFrame(rows).assign(mjd=61000.0, visit=1, detector=1, flux_ujy=100.0, flags=0)
+    d["dot_row"] = np.arange(len(d), dtype=np.int32)
+    sid = np.full(len(d), 7)
+    fixed = pd.DataFrame({"source_id": [7], "ra": [STAR[0]], "dec": [STAR[1]]})
+    assert np.flatnonzero(off_star_members(d, sid, fixed)).tolist() == [5, 6]
+    photos = pd.DataFrame({"obs_id": [f"P{i}" for i in range(7)], "detector": 1})
+    fd = nonfixed_dots_table(d, sid, fixed, photos)
+    assert sorted(fd["dot_row"].tolist()) == [5, 6] and fd["in_fixed"].all() and fd["near_fixed"].all()
+    sid2 = sid.copy()
+    sid2[6] = -1  # an ordinary free dot: in_fixed False
+    fd2 = nonfixed_dots_table(d, sid2, fixed, photos)
+    assert fd2.set_index("dot_row")["in_fixed"].to_dict() == {5: True, 6: False}
