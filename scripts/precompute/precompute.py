@@ -31,6 +31,11 @@ results/<zone>/ and dots/ (server measured.py; SKYSHIFT_DATA_ROOT, default gs://
 by default the best zone covering the target (a target zone t_<slug> first). Once the target zones'
 results exist, `--measured-only` recomputes only `measured` (frames and frame files untouched):
     uv run python ../scripts/precompute/precompute.py --measured-only [--only barnard] [--zone t_barnard]
+
+`--steady-only` adds only the months shifts' `visits`, `chi2_nu`, `wobble_arcsec` and `steady` (contracts v3.21,
+measured.mark_steady) from each file's own detections, in every static months file with shifts (the star targets
+and /data/cand/), without the data bucket:
+    uv run python ../scripts/precompute/precompute.py --steady-only
 """
 
 from __future__ import annotations
@@ -414,6 +419,37 @@ def refresh_measured(slug: str, cache: Cache, zone: str | None = None) -> None:
     write_json(index_path, index)
 
 
+def refresh_steady(root: Path = OUT) -> dict[str, dict[str, int]]:
+    """contracts v3.21 in the static months files under root: measured.mark_steady on each file's shifts from its
+    own detections, epochs and gaia[] (the live server runs it before the detections' per-epoch cap; a static file
+    keeps its capped list, so a shift whose source was capped out reads `steady` null). Everything else is written
+    back as it was (same JSON layout); index.json `bytes` follows. Returns {file: {steady, unsteady, untested}}."""
+    out: dict[str, dict[str, int]] = {}
+    for path in sorted(root.rglob("frames*.json")):
+        text = path.read_text()
+        meta = json.loads(text)
+        m = meta.get("measured") or {}
+        if meta.get("clock") != "months" or not m.get("shifts"):
+            continue
+        measured.mark_steady(m["shifts"], m.get("detections") or [], meta.get("epochs") or [], meta.get("gaia"))
+        compact = not text.startswith("{\n")
+        new = json.dumps(clean(meta), allow_nan=False, **({"separators": (",", ":")} if compact else {"indent": 1}))
+        new += "\n" if text.endswith("\n") else ""
+        path.write_text(new)
+        index_path = path.parent / "index.json"
+        if index_path.exists() and path.name != "frames.json":
+            index = json.loads(index_path.read_text())
+            for entry in index.get("frames", []):
+                if entry.get("file") == path.name:
+                    entry["bytes"] += len(new) - len(text)
+                    write_json(index_path, index)
+        c = Counter("untested" if s.get("steady") is None else "steady" if s["steady"] else "unsteady"
+                    for s in m["shifts"])
+        out[str(path.relative_to(root))] = {k: c.get(k, 0) for k in ("steady", "unsteady", "untested")}
+        log.info("%s: shifts %s", path.relative_to(root), out[str(path.relative_to(root))])
+    return out
+
+
 def folder_bytes(folder: Path) -> int:
     return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
 
@@ -430,12 +466,17 @@ def main() -> int:
                     help="star targets: recompute only known[] of the existing frames files (MPC)")
     ap.add_argument("--measured-only", action="store_true",
                     help="star targets: recompute only `measured` of the existing frames files (results/<zone>/, dots/)")
+    ap.add_argument("--steady-only", action="store_true",
+                    help="static months files: add only the shifts' steady/wobble fields from their own detections")
     ap.add_argument("--zone", help="pipeline zone for the measured layer (default: the best one covering the target, "
                                    "a target zone t_<slug> first)")
     ap.add_argument("--cache", help="cache folder or gs:// (default: SKYSHIFT_CACHE or ~/.cache/skyshift)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
 
+    if a.steady_only:
+        refresh_steady()
+        return 0
     cache = Cache(a.cache)
     only = set(a.only.split(",")) if a.only else None
     sets = [] if a.sets == "none" else a.sets.split(",") if a.sets else DEFAULT_SETS
