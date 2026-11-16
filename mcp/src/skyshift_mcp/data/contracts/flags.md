@@ -39,3 +39,7 @@ The mask list removes about 2.1% of pixels. Per-image counts are in the IMAGE he
   ecl11): at the peak of at least one dot on 68% of them (56% of their dots), against 28% of the listed suspects. It
   marks a change between exposures, which is what a mover is: never mask it, and read it as a sign of motion, not a
   doubt (contracts/api.md v3.24, check `flag_outlier` `ok`).
+- Dark holes (16 Nov evening, contracts/api.md v3.26, contracts/dots.md "Extraction v2, second pass"): groups of 1–4
+  pixels more than 5σ below the sky with no FLAGS bit set, mostly cold pixels NASA's COLD bit misses (300–1,270 per MWIR
+  photo, 2–140 per SWIR photo, the same detector pixels week after week). Extraction v2 treats them as masked: set to NaN
+  before anything is measured, counted in a dot's `n_masked`. No FLAGS bit changes; files without v2 never mask them.
