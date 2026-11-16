@@ -1,6 +1,6 @@
 // The Review queue (#/review) and the suspect panel the Viewer shows for a candidate (#/c/<id>).
 import "./review.css";
 
-export { mountSuspect, suspectFrames, type SuspectFramesNote, type SuspectHandle, type SuspectOptions } from "./candidate";
+export { mountSuspect, suspectFrames, suspectWave, type SuspectFramesNote, type SuspectHandle, type SuspectOptions } from "./candidate";
 export { candidateView } from "./data";
 export { mountQueue, mountReview, type QueueHandle, type QueueOptions } from "./review";

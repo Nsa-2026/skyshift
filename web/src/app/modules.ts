@@ -92,6 +92,10 @@ export interface BlinkHandle {
   canCompare?(): boolean;
   /** Keep practice and derived images within one detector; preserve the normal viewing preference. */
   singleDetector?(locked: boolean): void;
+  /** The person's All-wavelengths preference, as if they pressed All (true) or a detector (false);
+   *  applied at the next show() or singleDetector(). Returns the preference before. An object to
+   *  check opens on its own detector this way and can still go to All. */
+  preferAllWave?(on: boolean): boolean;
   destroy(): void;
 }
 export type MountBlink = (el: HTMLElement, opts: BlinkOptions) => BlinkHandle;
