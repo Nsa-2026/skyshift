@@ -1,8 +1,9 @@
 # Extraction v2: what the one rerun of every photo must change and keep
 
 Owner: P1 (agent "extraction", 16 Nov 2026). Code: `pipeline/src/skyshift_pipeline/dots.py`, `psf.py`, `config.py`
-(`DOTS_V2`, `MF_*`), `core/src/skyshift_core/glow.py`. Tests: `pipeline/tests/test_extraction_v2.py`,
-`core/tests/test_glow.py`. Everything is behind one switch that is off: `SKYSHIFT_DOTS_V2=1` turns it on for every
+(`DOTS_V2`, `MF_*`, `HOLE_*`), `core/src/skyshift_core/glow.py`, `holes.py`; red forced targets `forced_sky.py`
+(second pass, §12). Tests: `pipeline/tests/test_extraction_v2.py`, `test_forced_sky.py`, `core/tests/test_glow.py`,
+`test_holes.py`, `test_detect.py`. Everything is behind one switch that is off: `SKYSHIFT_DOTS_V2=1` turns it on for every
 zone. Nothing that exists changes until then.
 
 The lead's rule: before the next photo extraction, find every problem so it never runs twice. The sky run read
@@ -21,10 +22,14 @@ gained on real photos, what it costs, and what later steps get from it.
 | 6 | **Peaks file** (`<folder>_peaks/`): every other matched-filter peak ≥ 4σ (S/N 4–5, and ≥ 5 peaks the guard, glow or mirror test refused) | Lets later steps ask "was there something here at 4σ?" without pixels | 306P's D3 image (S/N 4.4) is there and nowhere else | ~0.32 MB per photo |
 | 7 | **Photo metadata**: empirical aperture noise, 5σ depth grid (32 × 32), saturated cores, sky orientation (CD matrix), matched-filter settings; SPHEREx's position is already there | Forced tests need a believable σ; persistence and trail-direction tests become lookups | VARIANCE underrates the r = 2 px aperture's scatter 1.66× (dense D2 photo) | ~40 KB per photo |
 | 8 | **Partner detectors processed together** (D1↔D4, D2↔D5, D3↔D6 of one exposure: `process_photos` pairs them) | Fills #5's partner columns without a second read | — | none (memory: one held photo per worker) |
-| — | Not adopted: 2 × 2 sub-pixel kernel phases, a trail filter bank, a 3σ peaks file | Each found little and added 4–10× more noise peaks | see §3.3 | — |
+| 9 | **Dark-hole mask** (second pass, §12.1): unflagged 1–4 px groups > 5σ below the sky set to NaN first | MWIR cold pixels NASA's COLD mask misses (300–1,270 per photo) made fake dots on the negative image and pulled apertures down | Negative-image dots per photo D4–D6 508–881 → 29–36; fluxes next to a hole +11–14%; no star or asteroid lost | 0.26 s per photo |
+| 10 | **Matched-filter threshold per detector + block noise scale** (§12.2) | D1, D2 and MWIR made 5–20× D3's matched-filter noise dots (D2: its top rows); plane confusion | Matched-filter fakes per deg² 2–42 → 0.3–2.3, every detector at 5.0; Gaia found −0.1 to −0.5% (plane D4 −5.7%) | ~0.3 s |
+| 11 | **Red forced targets** (prep, §12.5): AllWISE red, Gaia-less sources as a second sky-wide forced layer | J (D1–D3) for brown-dwarf and red candidates | +2.2k–4.8k targets per photo (+7–58%) | one build, ~30 min |
+| 12 | **Centroid-fallback bit** (§12.7): sep_flag 0x800 when the windowed centroid failed or moved > 1 px | Vet guessed it from whole-pixel positions (2 such dots: 0.2% of real asteroids, 14% of the rest), which misses half | 0.6–2.2% of dots carry it | none |
+| — | Not adopted: 2 × 2 sub-pixel kernel phases, a trail filter bank, a 3σ peaks file; a faster glow fit (§12.4: no gain) | Each found little and added 4–10× more noise peaks | see §3.3 | — |
 
-Rerun cost (§8): ~1.6–2× the sky run per photo; for all ~495,000 photos about 9,000–11,000 vCPU-hours on GCP spot
-(~140–180 n2-highcpu-64 hours, ~$90–180 compute) and ~2.9 TB of dot files. Not feasible on this Mac (network).
+Rerun cost (§8, §12.8): ~1.5–1.9× the sky run per photo; for all ~495,000 photos about 8,500–10,500 vCPU-hours on GCP
+spot (~135–165 n2-highcpu-64 hours, ~$85–165 compute) and ~2.9 TB of dot files. Not feasible on this Mac (network).
 Possible on a PC with ≥ 1 Gbit/s and ≥ 16 cores in ~5–7 days.
 
 ## 2. How it was measured
@@ -288,9 +293,10 @@ extracted that way any more. If a sky-setting run happens anyway, turn it on.
 | TRANSIENT pixels next to each dot (pixel; withdrawn 16 Nov evening: weak test) | kept anyway, < 1 B per dot: `n_transient` (dots and peaks), never a veto (§3.1) |
 | Saturated cores per photo (pixel) | done: footer `sat_cores` |
 | SPHEREx's position per photo (known) | already in every footer since 14 Nov (X_SC … VZ_SC, MJD-AVG; PHOTO_META_HEADER_KEYS): `known` and known_check.py can read footers instead of headers today |
-| Forced targets from a full catalogue (catalogue) | prep step, not dots code: run `refcat` / `forced_sky` with CatWISE red Gaia-less sources before the rerun |
+| Forced targets from a full catalogue (catalogue) | done as a prep step: the red layer `forced_sky --red` (AllWISE red Gaia-less sources), read by `dots` next to the Gaia layer (§12.5) |
 | Photo's sky orientation (relink) | done: footer `sky_jacobian_deg_px` |
 | Streak detections above ~900″/h (relink) | the matched filter already finds 16 px trails (3,100″/h) at 53–95%; a trail bank was measured and rejected (§3.3); a line search on stored dots and peaks is the way for longer streaks (not built) |
+| Matched filter per detector, dark-hole mask, session coadds and maps (stacks) | §12.2, §12.1, §12.7 |
 
 ## 6. What later steps gain
 
@@ -317,12 +323,12 @@ Per photo the sky run cost ~41 vCPU-s on GCP (3,400 CPU-hours / 296,000 photos).
 to read (HTTPS, 56 MB) and ~3–6 s to detect (2.8 s in the sparse D6 footers; D6 is the cheapest detector on this Mac
 too, 2.4 of a 5.1 s mean), so ~17 s, i.e. ~2.4 vCPU per worker. v2 multiplies the detection part by ~3.7 and leaves
 the read alone: ~33 s per photo per worker → **~65–80 vCPU-s per photo** (1.6–2× the sky run; the low end if more
-workers hide the read).
+workers hide the read). After the second pass: **~62–76 vCPU-s** (the guard −5%; §12.8).
 
 | where | how | time | money |
 |---|---|---|---|
-| GCP spot, us-east4, n2-highcpu-64 (S3 us-east-1 is next door) | 495,000 × 65–80 vCPU-s ≈ 9,000–11,000 vCPU-h ≈ 140–180 machine-hours | 1 machine: 6–7.5 days; 4 machines: ~1.5–2 days (CPU quota permitting) | ~$90–180 compute at $0.6–1.0/h spot; S3 reads free (open data); GCS +~2.9 TB (~$29–58/month) |
-| Lead's PC (spec unknown; assume 16 Mac-class cores, 1 Gbit/s) | CPU: 18.7 s per photo per core (v2, mean over detectors) → ~3,100 photos/h; network: 56 MB per photo = 27.7 TB → 77 h at 100 MB/s | ~6.5 days CPU-bound if the line holds ≥ 0.5 Gbit/s; network-bound below that | electricity; then ~2.9 TB to upload to the bucket |
+| GCP spot, us-east4, n2-highcpu-64 (S3 us-east-1 is next door) | 495,000 × 62–76 vCPU-s ≈ 8,500–10,500 vCPU-h ≈ 135–165 machine-hours | 1 machine: 5.6–6.9 days; 4 machines: ~1.4–1.7 days (CPU quota permitting) | ~$85–165 compute at $0.6–1.0/h spot; S3 reads free (open data); GCS +~2.9 TB (~$29–58/month) |
+| Lead's PC (spec unknown; assume 16 Mac-class cores, 1 Gbit/s) | CPU: ~17.8 s per photo per core (v2 after §12, mean over detectors; idle-core timings of §12.4: 6.9–37 s) → ~3,200 photos/h; network: 56 MB per photo = 27.7 TB → 77 h at 100 MB/s | ~6.4 days CPU-bound if the line holds ≥ 0.5 Gbit/s; network-bound below that | electricity; then ~2.9 TB to upload to the bucket |
 | This Mac (4 processes, shared) | CPU ≤ 770 photos/h; network measured 0.15–4 MB/s = ≤ 260 photos/h | ≥ 80 days | not feasible |
 
 Before the full run, time 20 photos on one idle spot worker (all six detectors): it pins the cost to ±10%.
@@ -350,12 +356,200 @@ metadata keys, the folder).
 
 ## 11. Open
 
-- Partner columns were checked with tests (one exposure loaded as both partners), not on a real D1+D4 pair.
+- Partner columns: checked on real pairs in §12.3.
 - The trail line search for > 5,000″/h streaks (relink's request) is not built.
 - 2 × 2 kernel phases: +16 points at aperture S/N 3–4 for 4× the noise peaks; revisit only with a better noise model.
 - Timings are from a heavily shared Mac; a 20-photo timing on one idle GCP worker before the full run would pin
   the cost to ±10%.
-- Cheaper v2: the glow fit is a third of the CPU and the guard's extra sep run an eighth; both can be made faster
-  without changing results (fit only stars whose glow reaches beyond the ePSF; reuse the first pass's background).
+- Cheaper v2: the guard is now 1.4–2.4× faster with the same drops; the glow fit (~15–25% on an idle core) did not
+  get faster without changing results (§12.4).
+- D2's top rows (y ≥ ~1975) make 22–77 first-pass fake dots per D2 photo (a background ramp): an edge rule in
+  vet/suspects, no re-extraction (§12.2). D1 in the hunt photos: 58–100 first-pass negatives in the bottom ~330 rows.
+- Session coadds and per-session matched-filter maps (stacks agent) are not in v2 (§12.7).
 - The guard keeps only fine dots that the sky setting also finds within 6 px of saturation; the matched filter's
   peaks there go to the peaks file (why 1), so a real neighbour inside 6 px of a saturated core is not a dot.
+
+## 12. 16 Nov, second pass (agent "v2finish")
+
+The session-stacks study (docs/session-stacks.md) found three things wrong with v2 as merged: one matched-filter
+threshold for all detectors (D1 ~21 noise dots per deg² at 5σ against D2/D3's 0–3 there), MWIR photos with hundreds of
+unflagged dark holes that wrecked the negative-image control, and partner columns that had never met a real pair.
+On full photos the picture is wider: every detector but D3 made 5–20× D3's matched-filter noise dots (table in §12.2). This pass fixes them, measures the speed-ups proposed in
+§11, adds the red forced targets and settles the Gaia G < 21 question.
+
+**Photos.** 36 full photos, all six detectors of six exposures: hunt 2025W43_2A_0389_1 and _2 (ecliptic, RA 128°),
+ecl04 2025W34_1B_0173_1 and _2 (RA 54°), the Galactic plane 2025W38_2C_0423_4 (crowded: 30k forced Gaia targets per
+photo) and high latitude 2026W21_2A_0049_4 (empty: 6.8k). Each also run negated (−IMAGE, every dot fake; the hole mask
+and the matched filter's noise grid come from the positive photo, as a real run would compute them). Truth: isolated
+Gaia DR3 G < 20 stars moved to the photo time (~313,000 star-photo pairs per detector) and 3,544 known-asteroid
+positions (MPC orbits with kete from SPHEREx, hunt and ecl04). "Merged" below = v2 as merged in #370.
+
+### 12.1 Dark holes: masked (new, `DOTS_V2_HOLES`, core `skyshift_core.holes`)
+
+Unflagged single pixels far below the sky, mostly the same detector pixels week after week (cold pixels NASA's COLD
+mask misses; two D4 photos of different weeks and fields share 100–250 of them, consecutive exposures 80%). They are not
+tied to PERSIST or OUTLIER pixels (20% lie within 2 px of one, the field's share), so the stacks agent's first guess
+(next to PERSIST/OUTLIER, ≥ 3 pixels) would have missed most. Rule: on IMAGE minus its background, an 8-connected
+group of 1–4 pixels each more than 5σ (max(√VARIANCE, background rms)) below the sky is set to NaN before anything is
+measured; larger low areas are background structure and stay. Real light is never below the sky, so the rule cannot
+take a source's pixels; pure noise gives ~1 such pixel per photo.
+
+| | D1 | D2 | D3 | D4 | D5 | D6 |
+|---|---|---|---|---|---|---|
+| holes per photo (5σ) | 41–138 | 2–144 | 8–50 | 676–1,267 | 301–845 | 431–817 |
+| negative-image dots per photo, merged → now (all passes) | 171 → 61 | 195 → 67 | 27 → 4 | 881 → 29 | 508 → 36 | 508 → 30 |
+| … of them first-pass (sep) dots | 50 → 36 | 50 → 50 | 1 → 0 | 368 → 0.5 | 68 → 11 | 166 → 2.5 |
+
+7σ was tried first: it left two thirds of the matched-filter fakes, whose deepest pixel lay at −5 to −7σ (half of them
+a single pixel). 5σ removes 71–94% of them in every detector. Masked pixels within 1.5 px of a Gaia star: at the
+chance rate (the holes don't follow stars). Known asteroids: none lost (one V 19.7 sighting moved from matched-filter
+S/N 4.51 to 4.49, below 5 either way). Gaia stars found: +6 to +31 per detector over 36 photos. Fluxes: S/N > 10 dots
+with a hole in their aperture come out 11–14% brighter (the hole had pulled them down by that much, 2–3σ). Cost 0.26 s
+CPU per photo. Footer `dark_holes` {n_holes, n_px, depth_min_sigma, config}; `n_masked` counts them per dot.
+
+### 12.2 Matched-filter threshold per detector, and block normalisation
+
+The matched filter's S/N map has its own noise level, measured from its lower half (median − 15.87th percentile:
+sources are positive): `sigma_lo` per photo and per block of a 32 × 32 grid (footer `mf.sigma_grid`). In normal sky
+it is 1.00–1.05 (faint sources, not noise). Where it exceeds 1.1 (D2's top rows, crowded plane fields: 0.2–80% of a
+photo; plane D4 819 of 1,024 blocks) each peak's threshold is multiplied by its block's σ (`MF_PASS_NORMALISE` "block",
+`MF_SIGMA_MIN_SCALE` 1.1). Scaling every block (min 1.0) cut the fakes another 25% but lost 10 of 267 known-asteroid
+sightings at V 18–20 and 0.5–2.2% of the Gaia stars; above 1.1 it loses 2 sightings (both hunt D2) and 0.0–0.5% of the
+Gaia stars outside the plane.
+
+Then one target for every detector: the lowest threshold ≥ 5 whose negative images give ≤ 2.5 matched-filter dots per
+deg² (~30 per photo, what v2 was tuned to on its dense D2 photo, §3.3). With the hole mask and the block scale every
+detector meets it at 5.0, so `MF_PASS_SNR_DET` is 5.0 for all six (the per-detector switch stays for later tuning):
+
+| matched-filter dots per deg², negative images (36 photos) | D1 | D2 | D3 | D4 | D5 | D6 |
+|---|---|---|---|---|---|---|
+| merged (5.0, no holes, no scale) | 9.9 | 11.7 | 2.1 | 42 | 36 | 28 |
+| now, 5.0 | 2.1 | 1.2 | 0.3 | 2.3 | 2.0 | 2.2 |
+| now, 5.25 / 5.5 | 0.7 / 0.4 | 0.9 / 0.8 | 0.1 / 0.0 | 1.4 / 1.1 | 1.1 / 0.8 | 1.3 / 1.0 |
+
+| Gaia, merged → now (threshold 5.0) | D1 | D2 | D3 | D4 | D5 | D6 |
+|---|---|---|---|---|---|---|
+| G at 50% found | 18.27 → 18.26 | 18.74 → 18.73 | 18.72 → 18.71 | 17.78 → 17.73 | 16.19 → 16.19 | 15.25 → 15.25 |
+| stars found | −0.5% | −0.5% | −0.1% | −1.5% (plane −5.7%, elsewhere −0.2%) | −0.1% | −0.1% |
+
+Known asteroids, merged → now: V ≤ 18 99 of 140 → 99; V 18–19 49 → 49; V 19–20 39 → 38; V > 20 80 → 79 (chance
+level). Each 0.25 above 5.0 costs ~0.04 mag of G50 and 2% of the stars (more in MWIR): not worth a few fakes per
+photo when the first pass's own are 0–50 (below).
+
+**What is left on the negative images** is no longer the matched filter but the first (sep) pass, in two places:
+- **D2's top rows** (y ≥ ~1975 of every D2 photo, all four weeks and fields): a background ramp (hunt: 0.4 → 3.6
+  MJy/sr over 60 rows, scatter 30× the noise; high latitude 0.29 → 0.75) that sep's 32 px background can't follow.
+  98–100% of D2's first-pass negatives (22–77 per photo) and nearly all its matched-filter ones (hunt 0389_1: 69 of
+  72 at a flat 5.0; the block scale removes 15) are there. No re-extraction needed to deal with it: x, y and the detector are in every dot, so vet/suspects can treat
+  D2 y ≥ 1975 like the edge (proposed to the vet owner); the dots keep their row.
+- **D1 in the hunt photos**: 58–100 first-pass negatives per photo in the bottom ~330 rows (other fields 10–21); not
+  traced further.
+
+### 12.3 Partner columns on real pairs
+
+Four exposures (hunt 0389_1, ecl04 0173_1, plane 0423_4, high latitude 0049_4) and all six directions (D1→D4 …
+D6→D3): 900 dots per direction (a third with partner S/N ≥ 20, the rest at random), ~21,000 spots. At each spot, on
+the partner photo: the pixel agent's forced photometry (core `pixelcheck.forced_flux`: r = 2 px, annulus median
+4–7 px, × 1.033, error from random apertures), and the partner photo's own dot when one lies within 1 px.
+
+| 24 directions | result |
+|---|---|
+| partner columns finite | 91–98% of dots (the rest: partner spot off the photo or masked) |
+| partner / the partner photo's own dot, S/N ≥ 20 | 0.9999–1.0003 in all 24: the same measurement as that photo's `flux_ujy` |
+| forced / partner, S/N ≥ 20 | 1.024–1.031 (median 1.030): forced's × 1.033 aperture correction, less ~0.3% of the star's wing in its annulus (plane 1.024–1.029) |
+| forced − 1.033 × partner, S/N < 20 | −20 to −78 µJy outside the plane, −130 to −520 µJy in it: the zero point. Forced takes a local annulus (neighbours' light in crowded fields); partner takes the photo's background map, like every dot |
+| error, forced / partner: S/N < 5; 5–20; ≥ 20 | 0.78–1.23 (median 1.02); 0.73–1.18 (0.95); 0.23–0.64 (0.39). The partner error holds the source's own photon noise, the forced one only the sky's |
+| blank spots (no own dot, partner S/N < 3): robust σ of flux / error | partner 0.55–1.15 (median 0.89), forced 0.53–1.21 (0.98): partner errors are right to ~10% generous outside the plane, 20–45% generous in it; never too small |
+
+**Decision: keep the definition, no code change.** `partner_flux_ujy` / `partner_err_ujy` are the partner detector's
+flux at the dot's position on the same zero point and scale as its own dots' `flux_ujy` (no 1.033). Multiply by 1.033
+to compare with `pixelcheck`; at faint levels expect the zero-point offset above. The errors hold where the columns
+matter (a faint partner: is anything there?) and err on the safe side in crowded fields.
+
+### 12.4 Speed
+
+Old and new code alternating in one process on the same inputs (process time, 3 repetitions, median; 6 full
+photos). Separate runs on the shared Mac varied ±40% (an interleaved run-by-run benchmark could not tell the codes
+apart), so only this same-process comparison is used.
+
+| photo | glow fit, old / new (s) | saturation guard, old / new (s) | guard candidates / fine dots | same drops |
+|---|---|---|---|---|
+| plane D1 | 4.96 / 5.60 | 11.74 / 9.48 | 1,686 / 64,507 | yes (332) |
+| plane D4 | 6.39 / 5.96 | 9.01 / 6.62 | 4,885 / 57,918 | yes (857) |
+| hunt D2 | 4.01 / 4.61 | 3.87 / 1.99 | 647 / 31,056 | yes (73) |
+| hunt D5 | 1.85 / 1.87 | 0.80 / 0.39 | 473 / 10,236 | yes (39) |
+| ecl04 D4 | 5.04 / 5.84 | 3.43 / 2.36 | 1,967 / 27,561 | yes (188) |
+| high latitude D1 | 2.74 / 2.76 | 1.14 / 0.48 | 227 / 11,353 | yes (24) |
+
+- **Saturation guard: kept.** The sky setting's second sep run now measures only the objects whose peak lies within
+  2.5 px of a guard candidate (core `detect(near=...)`); a measured position always ends within 1 px of its peak, so the
+  rows within 1 px of a candidate, and the drops, are exactly the full run's (6 of 6 photos above; core test
+  `test_detect_near_is_the_subset_of_the_full_call`). 1.4–2.4× faster: −0.4 to −2.4 s per photo.
+- **Glow fit: no gain, not kept.** Computing every ring and sector median at once (grouped sorts, identical results)
+  measured the same as the loop: 1.8–6.4 s per photo either way. The profiler had inflated the loop's cost (Python
+  calls). The fit is ~15–25% of v2 on an idle core, not a third (that was wall time on the Mac at load 25–118). Faster
+  means fitting fewer stars, which changes results: not done.
+- **Identity.** With the hole mask and the block scale off, the new code wrote the same dots, peaks and footers as the
+  merged code on 36 of 36 photos (new footer keys aside; this run was before sep_flag 0x800, §12.7, which adds a bit
+  to 0.6–2.2% of dots and moves nothing).
+- **New costs.** Hole mask 0.26 s per photo (median), the S/N map's noise statistics and grid ~0.3 s.
+
+v2 per photo, process time on an idle core of this Mac (M5), the six photos above: merged 6.8–39.0 s (mean 20.8),
+now ~6.9–37.2 s (mean ~19.8): −5%, from the guard. The crowded plane photos cost 2× the ecliptic ones.
+
+### 12.5 Forced targets: the red layer (catalogue agent's request)
+
+`forced_sky --red` builds `refcat/sky/forced_red_n32/p<pixel>.parquet` + `_complete.json`, next to the Gaia layer and
+on its partitions (AllWISE's own healpix_k5 = nside 32 nested, read anonymously from NASA's S3, us-west-2, columns
+only): AllWISE sources with W1 ≤ 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3 and no forced Gaia target within 2″ (the catalogue
+agent's rule; brown-dwarf and red-object candidates), reddest first, ≤ 6,000 per partition, ref_id `allwise:<designation>`,
+epoch 2010.5 (AllWISE's), no proper motion. `dots` reads it with the Gaia layer once its manifest exists (forced origin
+`sky+red`; `SKYSHIFT_FORCED_SKY_RED=off` turns it off). Why AllWISE, not CatWISE: it is on S3 in the same partitions;
+CatWISE is only at IRSA's TAP (hours per zone, 14–15 Nov).
+
+Measured on the 54 partitions of the six test exposures: 52,756 rows (median 990 per partition, max 2,076, none at the
+cap), 30 KB per partition (the Gaia layer: 306 KB), 1.6 s per partition with 3 threads (S3 reads; 3.3 s CPU for all
+54). Forced targets per photo: Gaia 6.8k–29.7k, red +2.2k–4.8k: +7% (plane), +16–25% (ecliptic), +58% (high
+latitude). Whole sky: 12,288 partitions, ~23 GB of AllWISE column reads (free), ~12 M rows, ~0.4 GB; ~30 min with 32
+threads on a cloud machine (~6 h with 3 on a laptop). Forced photometry per target is negligible (§3.5), the forced
+files grow by the same 7–58%. Build it before the rerun; dots don't need a code change for it.
+
+**Not yet used downstream.** lightcurves ties a forced row to a source through crossids' Gaia, CatWISE and 2MASS
+ref_ids, so `allwise:` rows stay catalogue-only light curves (source_id −1) and `changes.name_of` calls them
+"source N". For classify's J − [4.6] they must be tied to the source by position (the forced row's ra, dec at the
+photo's time, within 3″) or by an AllWISE crossid: proposed to the lightcurves / crossid owner. The photometry is
+in the forced files either way, so the rerun need not wait for it.
+
+### 12.6 Gaia G < 21 in refcat (proposal: 704 of 1,161 "no Gaia" spectral candidates have Gaia G 20–21.9)
+
+Measured on four 1° tiles (hunt, ecl04, plane, bulge): rows +44–68%, ESA TAP time the same except the densest tile
+(12 → 20 s). Chance Gaia matches grow with it: at 6″ (suspects' veto, fragments) ecliptic 6.4–7.8% → 9.2–11.1%,
+plane 35% → 47%, high latitude 2.6% → 4.1%; at 3″ 1.6–2.0% → 2.4–2.9%. **Decision: REFCAT_GAIA_G_MAX stays 20 in this
+PR.** Dots and the forced list do not depend on it (forced is G < 17.5 + red), so it is not a reason to rerun anything;
+it can be raised whenever the zones' refcats are rebuilt, together with a G < 20 cut in the consumers whose radius
+would otherwise veto more by chance (suspects 6″, fragments 3″, link 2.5″, orphans): those are other owners' steps.
+
+### 12.7 extraction-needs.md, all of it
+
+| request | status |
+|---|---|
+| partner forced flux, empirical noise, saturated cores, sky orientation (pixel, relink) | in v2 (§5); partner checked on real pairs (§12.3) |
+| `n_transient` (pixel; withdrawn) | kept, never a veto (§5) |
+| SPHEREx position per photo (known) | in every footer since 14 Nov |
+| forced targets from a full catalogue (catalogue) | the red layer (§12.5) |
+| streaks > 900″/h (relink) | not built: a line search over stored dots and peaks, no pixels needed (§3.3) |
+| matched filter per detector, normalised by the map's σ (stacks) | done: block σ grid + per-detector thresholds (§12.2). "Per photo from its own negative peaks" can't be done in one pass (the negative image is a second run); the block grid is its stand-in |
+| MWIR dark-hole mask (stacks) | done, a different rule: single pixels, not next to PERSIST/OUTLIER (§12.1); count in the footer, per dot in `n_masked` |
+| session coadds per detector; session matched-filter maps for the hunt (stacks) | not in this PR: they change what a worker holds (a session's 2–5 exposures of a detector, not an exposure's six photos). The step exists on main (#383, `coadd`, behind `SKYSHIFT_SESSION_STACK`); sessionstack asks to run it inside the dots worker so each photo is read once. That is a worker change for the lead and the sessionstack agent, not a dots change: v2's per-photo files don't depend on it |
+| D4 dark holes not all caught (sessionstack: 26 negative peaks per deg² at 8σ in the session D4 map) | that is the session stack's own rule (`coadd.dark_holes`: ≥ 3 px below −10σ, the stacks agent's first guess), which misses the single −5 to −7σ pixels. The v2 rule (§12.1) takes D4's matched-filter fakes 42 → 2.3 per deg² at 5σ on full photos. Proposed to sessionstack: `coadd.prepare` calls core `skyshift_core.holes.dark_holes` with the `HOLE_*` settings (their file, not changed here) |
+| a flag when a dot's centroid fell back (moverflaws) | done: sep_flag bit **0x800** (core `SEP_FLAG_CENTROID_FALLBACK`), set by core `measure_objects` on every dot from now on (v2 and not, all passes). Real photos: 0.6–0.96% of dots (plane D1 2.2%), 1.2–5.4% at S/N 5–7. Half of the fallbacks are not on a whole pixel (sep's barycentre) and half of the whole-pixel dots are not fallbacks, so vet's guess and the bit differ |
+| freedots ra/dec; stack rows as tracklets' input (moverflaws, sessionstack) | nothing for the extraction |
+
+### 12.8 Rerun cost after this pass
+
+Per photo per worker on GCP (§8): read ~10.7 s (unchanged), detection ~3.7 × the sky run's ~3–6 s minus the guard's
+5% → ~31–32 s per photo per worker → **~62–76 vCPU-s per photo** (was 65–80). All ~495,000 photos: ~8,500–10,500
+vCPU-hours ≈ 135–165 n2-highcpu-64 hours, ~$85–165 spot compute, plus the red layer's one-off build (~30 min on one
+machine, free S3 reads). Dots and peaks bytes: −0.9% dots against merged v2 (fewer matched-filter fakes and
+structured-block dots), so ~2.9 TB stands. The 20-photo timing on an idle spot worker before the full run is still the
+way to pin it to ±10%.

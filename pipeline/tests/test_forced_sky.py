@@ -17,9 +17,9 @@ from conftest import CUTOUT
 
 @pytest.fixture(autouse=True)
 def _fresh_caches():
-    dots._SKY.clear(), dots._SKY_REF.clear(), dots._REFCAT.clear()
+    dots._SKY.clear(), dots._SKY_RED.clear(), dots._SKY_REF.clear(), dots._REFCAT.clear()
     yield
-    dots._SKY.clear(), dots._SKY_REF.clear(), dots._REFCAT.clear()
+    dots._SKY.clear(), dots._SKY_RED.clear(), dots._SKY_REF.clear(), dots._REFCAT.clear()
 
 
 # --- partitions ----------------------------------------------------------------------------------
@@ -219,3 +219,93 @@ def test_manifest_records_counts(tmp_path):
     forced_sky.build(store, workers=2, nside=1, max_per_deg2=None, tap=tap)
     man = json.loads((tmp_path / forced_sky.manifest_rel()).read_text())
     assert man["catalogues"] == ["gaia_dr3"] and man["gaia_g_max"] == C.FORCED_GAIA_G_MAX
+
+
+# --- the red layer (AllWISE red sources with no Gaia target) ---------------------------------------
+def _allwise(n=60, seed=5, ra0=10.0, dec0=5.0):
+    rng = np.random.default_rng(seed)
+    w1 = rng.uniform(10, 17, n)
+    return pd.DataFrame({"designation": [f"J{i:06d}" for i in range(n)], "ra": ra0 + rng.uniform(0, 0.5, n),
+                         "dec": dec0 + rng.uniform(0, 0.5, n), "w1mpro": w1, "w2mpro": w1 - rng.uniform(-0.5, 2.5, n),
+                         "w2snr": rng.uniform(1, 30, n)})
+
+
+def test_red_targets_rule_dedup_and_order():
+    aw = _allwise()
+    aw.loc[0, ["w1mpro", "w2mpro", "w2snr"]] = [12.0, 10.0, 20.0]  # red, bright, has a Gaia target 1" away
+    aw.loc[1, ["w1mpro", "w2mpro", "w2snr"]] = [12.0, 10.0, 2.0]   # red but W2 S/N < 3
+    aw.loc[2, ["w1mpro", "w2mpro", "w2snr"]] = [12.0, 11.7, 20.0]  # W1 - W2 = 0.3: not red
+    aw.loc[3, ["w1mpro", "w2mpro", "w2snr"]] = [16.2, 14.0, 20.0]  # W1 >= 16
+    aw.loc[4, ["w1mpro", "w2mpro", "w2snr"]] = [14.0, 10.0, 20.0]  # the reddest: first
+    gaia = pd.DataFrame({"ref_id": ["gaia:1", "gaia:2"],
+                         "ra": [aw.loc[0, "ra"] + 1.0 / 3600 / np.cos(np.deg2rad(aw.loc[0, "dec"])), 50.0],
+                         "dec": [aw.loc[0, "dec"], 50.0], "epoch_mjd": C.ALLWISE_EPOCH_MJD, "pmra": 0.0,
+                         "pmdec": 0.0, "parallax": np.nan}).astype(FORCED_COLUMNS)
+    df, st = forced_sky.red_targets(aw, gaia, cap=None)
+    ids = set(df["ref_id"])
+    assert "allwise:J000000" not in ids and "allwise:J000001" not in ids and "allwise:J000002" not in ids
+    assert "allwise:J000003" not in ids and df["ref_id"].iloc[0] == "allwise:J000004"
+    assert list(df.columns) == list(FORCED_COLUMNS) and (df["epoch_mjd"] == C.ALLWISE_EPOCH_MJD).all()
+    c = aw.set_index("designation").loc[[r.split(":")[1] for r in df["ref_id"]]]
+    assert ((c["w1mpro"] < 16) & (c["w1mpro"] - c["w2mpro"] >= 0.4) & (c["w2snr"] >= 3)).all()
+    assert np.all(np.diff((c["w1mpro"] - c["w2mpro"]).to_numpy()) <= 1e-12)  # reddest first
+    assert st["red"] == st["no_gaia_target"] + 1 and st["rows"] == len(df)
+    capped, st2 = forced_sky.red_targets(aw, gaia, cap=3)
+    assert len(capped) == 3 and st2["capped"] and list(capped["ref_id"]) == list(df["ref_id"][:3])
+
+
+def test_build_red_needs_the_gaia_layer_and_writes_its_manifest(tmp_path):
+    store = Store(str(tmp_path))
+    for p in range(12):  # nside 1: 12 partitions; the Gaia layer first
+        store.write_parquet(forced_sky.partition_rel(p), pd.DataFrame(
+            {c: pd.Series(dtype=t) for c, t in FORCED_COLUMNS.items()}))
+    reads = []
+
+    def reader(p):
+        reads.append(p)
+        return _allwise(seed=p)
+    out = forced_sky.build_red(store, workers=3, nside=1, reader=reader, limit=4)
+    assert out["built"] == 4 and "manifest" not in out
+    out = forced_sky.build_red(store, workers=3, nside=1, reader=reader)
+    assert out["built"] == 8 and len(reads) == 12 and out["manifest"]["catalogues"] == ["allwise"]
+    man = store.read_json(forced_sky.manifest_rel(C.FORCED_SKY_RED_DIR))
+    assert man["rows"] == sum(man["rows_per_partition"]) > 0
+    df = store.read_parquet(forced_sky.partition_rel(5, C.FORCED_SKY_RED_DIR))
+    assert df["ref_id"].str.startswith("allwise:").all()
+
+
+def test_dots_reads_the_red_layer_next_to_the_gaia_one(tmp_path, monkeypatch):
+    from skyshift_core import open_level2, pixel_to_sky
+    l2 = open_level2(CUTOUT)
+    t = _targets_in(l2)
+    store = Store(str(tmp_path))
+    _write_sky(store, t)
+    _complete(store, l2)
+    ny, nx = l2.data.shape
+    rng = np.random.default_rng(9)
+    ra, dec = pixel_to_sky(l2.wcs, rng.uniform(10, nx - 10, 40), rng.uniform(10, ny - 10, 40))
+    red = pd.DataFrame({"ref_id": [f"allwise:J{i}" for i in range(40)], "ra": ra, "dec": dec,
+                        "epoch_mjd": C.ALLWISE_EPOCH_MJD, "pmra": np.nan, "pmdec": np.nan,
+                        "parallax": np.nan}).astype(FORCED_COLUMNS)
+    pix = forced_sky.pixel_of(red["ra"], red["dec"])
+    for p in np.unique(pix):
+        store.write_parquet(forced_sky.partition_rel(p, C.FORCED_SKY_RED_DIR), red[pix == p].reset_index(drop=True))
+    ra0, dec0, r = dots.photo_cone(l2)
+    for p in forced_sky.partitions_for_cone(ra0, dec0, r):
+        if not store.exists(forced_sky.partition_rel(p, C.FORCED_SKY_RED_DIR)):
+            store.write_parquet(forced_sky.partition_rel(p, C.FORCED_SKY_RED_DIR), red.head(0))
+    # no red manifest yet: Gaia layer only
+    st, f = _forced_rows(tmp_path, None)
+    assert st["forced_from"] == "sky" and not f["ref_id"].str.startswith("allwise:").any()
+    store.write_json(forced_sky.manifest_rel(C.FORCED_SKY_RED_DIR), {"nside": C.FORCED_SKY_NSIDE})
+    dots._SKY_RED.clear(), dots._SKY_REF.clear()
+    (tmp_path / dots.dots_rel("2025W18_1B_0074_2", 1, C.zone_dots(None)[0])).unlink()
+    st2, f2 = _forced_rows(tmp_path, None)
+    assert st2["forced_from"] == "sky+red"
+    assert f2["ref_id"].str.startswith("allwise:").sum() == 40
+    assert set(f["ref_id"]) <= set(f2["ref_id"])
+    dots._SKY_RED.clear(), dots._SKY_REF.clear()
+    monkeypatch.setattr(C, "FORCED_SKY_RED_MODE", "off")
+    (tmp_path / dots.dots_rel("2025W18_1B_0074_2", 1, C.zone_dots(None)[0])).unlink()
+    st3, _ = _forced_rows(tmp_path, None)
+    assert st3["forced_from"] == "sky"
