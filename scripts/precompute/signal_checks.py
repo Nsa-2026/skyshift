@@ -310,6 +310,21 @@ def motion_vs(theirs: dict, ours: dict | None) -> str:
     return f"moving {t} toward {pa_words(theirs)} (ours {o} toward {pa_words(ours)})"
 
 
+def ours_values(kind: str, m: dict | None) -> dict:
+    """Check `values` keys, one meaning each (contract v3.25): `sep_arcsec` the nearest, `max_sep_arcsec` the farthest;
+    `rate_arcsec_h` (a slow mover's `rate_arcsec_yr`) and `pa_deg` ours; `body_rate_arcsec_h`, `body_pa_deg` a known
+    body's; `star_rate_arcsec_yr`, `star_pa_deg` a catalogued star's (vetting.ts oursValues, bodyValues)."""
+    if not m:
+        return {}
+    if kind == "slow":
+        return {"rate_arcsec_yr": fixed_num(m["arcsec_h"] * HOURS_PER_YEAR, 3), "pa_deg": js_round(m["pa_deg"])}
+    return {"rate_arcsec_h": fixed_num(m["arcsec_h"], 3), "pa_deg": js_round(m["pa_deg"])}
+
+
+def body_values(m: dict | None) -> dict:
+    return {"body_rate_arcsec_h": fixed_num(m["arcsec_h"], 3), "body_pa_deg": js_round(m["pa_deg"])} if m else {}
+
+
 def seen_when(t: dict, k: int) -> str:
     n = len(t["sightings"])
     return "" if n == 1 else f" at all {n} sightings" if k == n else f" at {k} of its {n} sightings"
@@ -406,9 +421,8 @@ def vet_signal(kind: str, t: dict | None, cats: dict, det: int, bodies_phrase: s
         if sure:
             status, known_name, known_kind = "known", sure["name"], "body"
             worst = max(x or 0 for x in sure["seps"])
-            vals = {"sep_arcsec": fixed_num(worst, 2), "sightings": n}
-            if sure["motion"]:
-                vals.update(rate_arcsec_h=fixed_num(sure["motion"]["arcsec_h"], 3), pa_deg=js_round(sure["motion"]["pa_deg"]))
+            vals = {"sep_arcsec": fixed_num(sure["nearest"], 2), "max_sep_arcsec": fixed_num(worst, 2), "sightings": n,
+                    **body_values(sure["motion"]), **ours_values(kind, t["motion"])}
             checks.append(check(
                 "known_body", "strong",
                 f"{put(sure['source'])} {sure['name']}{f' (V {to_fixed(sure['v'], 1)})' if sure['v'] is not None else ''} "
@@ -422,9 +436,8 @@ def vet_signal(kind: str, t: dict | None, cats: dict, det: int, bodies_phrase: s
                 why = f", {motion_vs(h['motion'], t['motion'])}"
             else:
                 why = ""
-            vals = {"sep_arcsec": fixed_num(h["nearest"], 2), "sightings": h["k"]}
-            if h["motion"]:
-                vals.update(rate_arcsec_h=fixed_num(h["motion"]["arcsec_h"], 3), pa_deg=js_round(h["motion"]["pa_deg"]))
+            vals = {"sep_arcsec": fixed_num(h["nearest"], 2), "sightings": h["k"],
+                    **body_values(h["motion"]), **ours_values(kind, t["motion"])}
             checks.append(check(
                 "known_nearby", "warn",
                 f"{put(h['source'])} {h['name']}{f' (V {to_fixed(h['v'], 1)})' if h['v'] is not None else ''} "
@@ -488,8 +501,9 @@ def vet_signal(kind: str, t: dict | None, cats: dict, det: int, bodies_phrase: s
                 f"{best['name']}{f' ({best['detail']})' if best['detail'] else ''} is within {arcsec(worst)} of it"
                 f"{seen_when(place, m)}, {motion_vs(best['motion'], t['motion'])}: this is that star's own catalogued motion",
                 f"Blink Months on D{det}: the star should step the same way each visit.",
-                {"sep_arcsec": fixed_num(worst, 2), "rate_arcsec_yr": fixed_num(best["motion"]["arcsec_h"] * HOURS_PER_YEAR, 3),
-                 "pa_deg": js_round(best["motion"]["pa_deg"])}))
+                {"sep_arcsec": fixed_num(best["nearest"], 2), "max_sep_arcsec": fixed_num(worst, 2),
+                 "star_rate_arcsec_yr": fixed_num(best["motion"]["arcsec_h"] * HOURS_PER_YEAR, 3),
+                 "star_pa_deg": js_round(best["motion"]["pa_deg"]), **ours_values(kind, t["motion"])}))
             return
         found[service] = True
         epoch = ("the star moved from 2016.0 with its catalogued motion" if service == "gaia"

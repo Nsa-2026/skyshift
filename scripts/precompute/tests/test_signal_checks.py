@@ -93,6 +93,11 @@ def test_a_body_within_10_arcsec_at_every_sighting_moving_our_way_is_certain():
     assert v["checks"][0]["code"] == "known_body" and v["checks"][0]["level"] == "strong"
     assert v["checks"][0]["text"].startswith("MPC orbits put 306P/LINEAR (V 18.5) within 5.0″ of it at all 3 sightings, moving ")
     assert S.category(v) == "body"
+    # Contract v3.25's values keys: the nearest and farthest, the body's motion and ours.
+    vals = v["checks"][0]["values"]
+    assert list(vals) == ["sep_arcsec", "max_sep_arcsec", "sightings", "body_rate_arcsec_h", "body_pa_deg", "rate_arcsec_h", "pa_deg"]
+    assert vals["sep_arcsec"] == pytest.approx(5, abs=0.05) and vals["max_sep_arcsec"] == pytest.approx(5, abs=0.05)
+    assert vals["rate_arcsec_h"] == pytest.approx(t["motion"]["arcsec_h"], abs=1e-3) and vals["pa_deg"] == S.js_round(t["motion"]["pa_deg"])
 
 
 def test_a_body_on_its_place_moving_another_way_is_only_not_ruled_out():
@@ -105,7 +110,9 @@ def test_a_body_on_its_place_moving_another_way_is_only_not_ruled_out():
     line = next(c for c in v["checks"] if c["code"] == "known_nearby")
     assert v["status"] == "open" and line["level"] == "warn"
     assert "within 30″ at all 3 sightings, but moving 30.0″/h toward PA 0° (ours 30.0″/h toward PA 90°)" in line["text"]
-    same = [rows[0], {**rows[1], "ra": t["sightings"][1]["ra"] + 30 * 24 * east, "dec": 0}]
+    assert line["values"] == {"sep_arcsec": 0, "sightings": 3, "body_rate_arcsec_h": 30, "body_pa_deg": 0,
+                              "rate_arcsec_h": 30, "pa_deg": 90}
+    same =[rows[0], {**rows[1], "ra": t["sightings"][1]["ra"] + 30 * 24 * east, "dec": 0}]
     assert S.vet_signal("fast", t, answered(mpc=S.session_bodies(same)), 2)["status"] == "known"
 
 
@@ -127,6 +134,10 @@ def test_eps_indi_b_is_the_slow_mover_a_gaia_star_moving_the_same_way():
     assert (v["status"], v["known_kind"], v["known_name"]) == ("known", "star", "Gaia DR3 6412596012146801152")
     assert "of it at all 4 sightings, moving 4.68″/yr toward PA 122° (ours 4.53″/yr toward PA 125°)" in v["checks"][0]["text"]
     assert v["checks"][0]["code"] == "known_star"
+    vals = v["checks"][0]["values"]
+    assert list(vals) == ["sep_arcsec", "max_sep_arcsec", "star_rate_arcsec_yr", "star_pa_deg", "rate_arcsec_yr", "pa_deg"]
+    assert vals["sep_arcsec"] <= vals["max_sep_arcsec"] < 1
+    assert (round(vals["star_rate_arcsec_yr"], 2), vals["star_pa_deg"], round(vals["rate_arcsec_yr"], 2), vals["pa_deg"]) == (4.68, 122, 4.53, 125)
 
 
 def test_a_star_on_it_moving_another_way_is_not_ruled_out():
