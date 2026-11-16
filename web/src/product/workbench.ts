@@ -137,7 +137,8 @@ export function mountWorkbench(host:HTMLElement, opts:{
     try {
       const result=await loadAnalysis(targetFor(selected),selected.det,signal);
       if(signal.aborted)return;
-      renderFindings($('.wb-findings-body'),result,opts.locate);
+      // Gaia, CatWISE and MPC checks of every signal start here and fill in without blocking the list.
+      void renderFindings($('.wb-findings-body'),result,opts.locate,{target:targetFor(selected),signal}).catch(()=>{});
       host.querySelectorAll('.candidate button').forEach(b=>b.classList.add('btn'));
     } catch(error) {
       if(signal.aborted)return;
