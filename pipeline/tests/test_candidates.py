@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from skyshift_core import tangent_deproject
 
+from skyshift_pipeline import candidate_checks as CK
 from skyshift_pipeline import candidates as K
 from skyshift_pipeline import config as C
 from skyshift_pipeline.config import ZONES
@@ -17,9 +18,9 @@ from skyshift_pipeline.store import Store, dots_rel, photolist_rel, results_rel
 
 TYPES = {"id": str, "kind": str, "ra": float, "dec": float, "mjd": float, "clock": str, "det": int, "zone": str,
          "zones": list, "gaia_match": bool, "catwise_match": bool, "galactic_b": float, "labels": list, "reasons": list,
-         "why": str, "flags": list}
+         "why": str, "flags": list, "status": str, "checks": list}
 NULLABLE = {"score": float, "snr": float, "flux_ujy": float, "rate_arcsec_h": float, "pm_mas_yr": float,
-            "pm_err_mas_yr": float, "pa_deg": float, "nearest_known_arcsec": float, "frames_url": str}
+            "pm_err_mas_yr": float, "pa_deg": float, "nearest_known_arcsec": float, "frames_url": str, "known_name": str}
 
 
 def test_record_flag_names():
@@ -36,21 +37,14 @@ def test_galactic_b_and_pa():
 
 
 def test_mover_score():
-    s = K.mover_score([20, 20, 20, 20, 20], [3, 3, 2, 3, 3], ["two_exposures"] * 3 + ["two_detectors", "two_exposures"],
-                      [np.nan, np.nan, np.nan, np.nan, 30.0], [0, 0, 0, 0, 0], [False] * 5)
+    """The base score (contracts/api.md): S/N term x evidence x known-object term x 0.1 for grade C; the cautions are the
+    checks' factors now (test_candidate_checks)."""
+    s = K.mover_score([20] * 5, ["two_exposures", "two_detectors", "two_exposures", "two_exposures", "two_exposures"],
+                      [np.nan, np.nan, 30.0, 165.0, np.nan], ["B", "B", "B", "B", "C"])
     base = 1 - np.exp(-20 / 15)
-    assert s[0] == pytest.approx(base)
-    assert s[2] == pytest.approx(base * 0.85)          # only two dots
-    assert s[3] == pytest.approx(base * 0.6)           # two detectors at one moment
-    assert s[4] == pytest.approx(base * 0.5)           # a known object predicted 30″ away
-    flagged = K.mover_score([20, 20, 20], [3] * 3, ["two_exposures"] * 3, [np.nan] * 3,
-                            [1 << 22, 1 << 0, 0], [False, False, True])
-    assert flagged == pytest.approx([base * 0.7, base * 0.8, base * 0.85])
-    # OUTLIER alone, OUTLIER + ghost, detector_excess, repeat_position
-    check = K.mover_score([20] * 4, [3] * 4, ["two_exposures"] * 4, [np.nan] * 4,
-                          [1 << 19, (1 << 19) | (1 << 22), 0, 0], [False] * 4, [False, False, True, False], [False, False, False, True])
-    assert check == pytest.approx([base * 0.6, base * 0.6 * 0.7, base * 0.6, base * 0.3])
-    assert K.mover_score([1000], [5], ["two_exposures"], [np.nan], [0], [False])[0] <= 1.0
+    assert s == pytest.approx([base, base * 0.6, base * 0.5, base * 0.75, base * 0.1])
+    assert K.mover_score([20], ["two_exposures"], [np.nan])[0] == pytest.approx(base)   # ungraded
+    assert K.mover_score([1000], ["two_exposures"], [np.nan])[0] <= 1.0
 
 
 def _suspects(rows):
@@ -401,7 +395,7 @@ def test_grade_a_movers_name_their_track(monkeypatch):
     assert a["grade"] == "A" and "motion_not_significant" not in a["reasons"]
     assert "followed over 3 sessions of its visit at 25.0″ an hour, 50σ" in a["why"]
     assert b["grade"] == "B" and "motion_not_significant" in b["reasons"] and "followed" not in b["why"]
-    assert a["score"] == pytest.approx(b["score"] / K.MOVER_NO_MOTION)
+    assert a["score"] == pytest.approx(b["score"] / CK.WARN_FACTOR)  # b: may_not_move (warn)
     assert a["rate_arcsec_h"] == 1.0 and a["pa_deg"] == 45.0  # contract: from its own dots
     assert K.mover_track(next(s.drop(columns=["n_sessions"]).itertuples())) is None  # no track columns: as before
 
@@ -488,7 +482,8 @@ def test_graded_c_movers_say_why_first():
 
 
 def test_edge_dot_lowers_the_score():
-    """A dot within VET_EDGE_PX of the detector edge: reason edge (once) and score × MOVER_EDGE, graded or not."""
+    """A dot within VET_EDGE_PX of the detector edge: reason edge (once) and the strong check `edge` (score ×
+    STRONG_FACTOR); on a grade C mover the C factor stands for its gates (no second factor)."""
     row = {"ra": 125.0, "dec": 20.0, "mjd": 61000.0, "det": 3, "detectors": "3", "visit": 1, "session": 1}
     s = _suspects([{**row, "id": "in", "dot_x": [500.0, 520.0], "dot_y": [800.0, 800.0]},
                    {**row, "id": "x0", "ra": 125.1, "dot_x": [3.0, 20.0], "dot_y": [800.0, 800.0]},
@@ -497,14 +492,15 @@ def test_edge_dot_lowers_the_score():
     a, x0, y1, nn = K.movers(s, "hunt", None)
     assert "edge" not in a["reasons"] and "edge" not in nn["reasons"] and nn["score"] == pytest.approx(a["score"])
     for m in (x0, y1):
-        assert m["reasons"].count("edge") == 1 and m["score"] == pytest.approx(a["score"] * K.MOVER_EDGE)
+        assert m["reasons"].count("edge") == 1 and m["score"] == pytest.approx(a["score"] * CK.STRONG_FACTOR)
+        assert [c["code"] for c in m["checks"]] == ["edge"] and m["checks"][0]["level"] == "strong"
         assert m["why"].startswith("Possibly an artefact: a dot is at the detector's edge. Seen")  # ungraded: no verdict
     s["grade"] = ["B", "C", "B", "B"]
     s["reasons"] = [np.array([], dtype=object), np.array(["edge"], dtype=object), np.array([], dtype=object),
                     np.array([], dtype=object)]
     a, x0, _, _ = K.movers(s, "hunt", None)
     assert x0["reasons"].count("edge") == 1  # the vetting's own edge gate: not listed twice
-    assert x0["score"] == pytest.approx(a["score"] * K.MOVER_EDGE * K.MOVER_GRADE_C)
+    assert x0["score"] == pytest.approx(a["score"] * K.MOVER_GRADE_C)
     assert K.edge_dot(next(s.drop(columns=["dot_x", "dot_y"]).itertuples())) is False  # no dot lists: no penalty
 
 

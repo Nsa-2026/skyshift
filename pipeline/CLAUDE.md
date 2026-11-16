@@ -46,6 +46,10 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   Reads only some columns (range reads), the dot files' `flags` and the movers' dots: ~0.4 GB from the bucket for the hunt.
   It drops movers near a planet itself (suspects tables written before the `planets` veto); `uv run skyshift-candidates
   --drop-planets ../web/public/data/candidates.json` applies only that to an existing export (reads no zone).
+  Checks (16 Nov, candidate_checks.py, contracts/api.md v3.23): every candidate gets status, known_name and checks
+  from what it already reads (plus the movers' dot `flags` and tracklets/fragments columns); a strong check × 0.3, a
+  warn × 0.95, nothing hidden. `--checks-dir DIR` merges other producers' side files (DIR/<source>.json) during the
+  export; `--merge-only IN.json --checks-dir DIR --out OUT.json` merges them into an existing file (reads no zone).
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,
