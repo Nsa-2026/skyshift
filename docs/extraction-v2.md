@@ -25,6 +25,7 @@ gained on real photos, what it costs, and what later steps get from it.
 | 9 | **Dark-hole mask** (second pass, §12.1): unflagged 1–4 px groups > 5σ below the sky set to NaN first | MWIR cold pixels NASA's COLD mask misses (300–1,270 per photo) made fake dots on the negative image and pulled apertures down | Negative-image dots per photo D4–D6 508–881 → 29–36; fluxes next to a hole +11–14%; no star or asteroid lost | 0.26 s per photo |
 | 10 | **Matched-filter threshold per detector + block noise scale** (§12.2) | D1, D2 and MWIR made 5–20× D3's matched-filter noise dots (D2: its top rows); plane confusion | Matched-filter fakes per deg² 2–42 → 0.3–2.3, every detector at 5.0; Gaia found −0.1 to −0.5% (plane D4 −5.7%) | ~0.3 s |
 | 11 | **Red forced targets** (prep, §12.5): AllWISE red, Gaia-less sources as a second sky-wide forced layer | J (D1–D3) for brown-dwarf and red candidates | +2.2k–4.8k targets per photo (+7–58%) | one build, ~30 min |
+| 12 | **Centroid-fallback bit** (§12.7): sep_flag 0x800 when the windowed centroid failed or moved > 1 px | Vet guessed it from whole-pixel positions (2 such dots: 0.2% of real asteroids, 14% of the rest), which misses half | 0.6–2.2% of dots carry it | none |
 | — | Not adopted: 2 × 2 sub-pixel kernel phases, a trail filter bank, a 3σ peaks file; a faster glow fit (§12.4: no gain) | Each found little and added 4–10× more noise peaks | see §3.3 | — |
 
 Rerun cost (§8, §12.8): ~1.5–1.9× the sky run per photo; for all ~495,000 photos about 8,500–10,500 vCPU-hours on GCP
@@ -489,7 +490,8 @@ apart), so only this same-process comparison is used.
   calls). The fit is ~15–25% of v2 on an idle core, not a third (that was wall time on the Mac at load 25–118). Faster
   means fitting fewer stars, which changes results: not done.
 - **Identity.** With the hole mask and the block scale off, the new code wrote the same dots, peaks and footers as the
-  merged code on 36 of 36 photos (new footer keys aside).
+  merged code on 36 of 36 photos (new footer keys aside; this run was before sep_flag 0x800, §12.7, which adds a bit
+  to 0.6–2.2% of dots and moves nothing).
 - **New costs.** Hole mask 0.26 s per photo (median), the S/N map's noise statistics and grid ~0.3 s.
 
 v2 per photo, process time on an idle core of this Mac (M5), the six photos above: merged 6.8–39.0 s (mean 20.8),
@@ -532,7 +534,10 @@ would otherwise veto more by chance (suspects 6″, fragments 3″, link 2.5″,
 | streaks > 900″/h (relink) | not built: a line search over stored dots and peaks, no pixels needed (§3.3) |
 | matched filter per detector, normalised by the map's σ (stacks) | done: block σ grid + per-detector thresholds (§12.2). "Per photo from its own negative peaks" can't be done in one pass (the negative image is a second run); the block grid is its stand-in |
 | MWIR dark-hole mask (stacks) | done, a different rule: single pixels, not next to PERSIST/OUTLIER (§12.1); count in the footer, per dot in `n_masked` |
-| session coadds per detector; session matched-filter maps for the hunt (stacks) | not in this PR: they change what a worker holds (a session's 2–5 exposures of a detector, not an exposure's six photos) and need link/tracklets to take coadd rows (agent "sessionstack"). v2's per-photo files don't depend on them; if the lead wants them in the same read, they are a separate stage of the same worker |
+| session coadds per detector; session matched-filter maps for the hunt (stacks) | not in this PR: they change what a worker holds (a session's 2–5 exposures of a detector, not an exposure's six photos). The step exists on main (#383, `coadd`, behind `SKYSHIFT_SESSION_STACK`); sessionstack asks to run it inside the dots worker so each photo is read once. That is a worker change for the lead and the sessionstack agent, not a dots change: v2's per-photo files don't depend on it |
+| D4 dark holes not all caught (sessionstack: 26 negative peaks per deg² at 8σ in the session D4 map) | that is the session stack's own rule (`coadd.dark_holes`: ≥ 3 px below −10σ, the stacks agent's first guess), which misses the single −5 to −7σ pixels. The v2 rule (§12.1) takes D4's matched-filter fakes 42 → 2.3 per deg² at 5σ on full photos. Proposed to sessionstack: `coadd.prepare` calls core `skyshift_core.holes.dark_holes` with the `HOLE_*` settings (their file, not changed here) |
+| a flag when a dot's centroid fell back (moverflaws) | done: sep_flag bit **0x800** (core `SEP_FLAG_CENTROID_FALLBACK`), set by core `measure_objects` on every dot from now on (v2 and not, all passes). Real photos: 0.6–0.96% of dots (plane D1 2.2%), 1.2–5.4% at S/N 5–7. Half of the fallbacks are not on a whole pixel (sep's barycentre) and half of the whole-pixel dots are not fallbacks, so vet's guess and the bit differ |
+| freedots ra/dec; stack rows as tracklets' input (moverflaws, sessionstack) | nothing for the extraction |
 
 ### 12.8 Rerun cost after this pass
 

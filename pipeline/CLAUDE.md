@@ -190,7 +190,8 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   (core holes; MWIR 300–1,270 per photo, footer `dark_holes`); the matched-filter threshold is per detector (all 5.0)
   × the S/N map's own σ in 32 × 32 blocks where it is > 1.1 (footer mf.sigma_grid, sigma_lo, n_neg); a photo with no
   first-pass dot still gets the matched-filter pass; the saturation guard measures only the sky setting's objects
-  near its candidates (detect `near`, same drops). 36 full photos: negative-image dots per photo D1–D6 171/195/27/881/
+  near its candidates (detect `near`, same drops); every dot whose windowed centroid fell back to its start point
+  carries sep_flag 0x800 (core, all dot files). 36 full photos: negative-image dots per photo D1–D6 171/195/27/881/
   508/508 → 61/67/4/29/36/30; Gaia found −0.1 to −0.5% (plane D4 −5.7%), known asteroids 2 of 267 sightings fewer.
   What is left is D2's top rows (y ≥ ~1975, a background ramp in every D2 photo): a vet/suspects edge rule, no re-extraction.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.

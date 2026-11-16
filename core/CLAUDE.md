@@ -21,6 +21,8 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   detection_snr(data, x, y) (PSF-matched S/N, noise measured on the frame), no_data_near(data, x, y, r)
   (missing sky, not a saturated core's hole). detect(near=(x, y, r)) measures only objects whose sep peak is within r
   of a point: exactly the full call's rows within r - 1 px (the pipeline's saturation guard, 16 Nov).
+  measure_objects ORs SEP_FLAG_CENTROID_FALLBACK (0x800) into sep_flag when the windowed centroid failed or moved > 1 px
+  from the peak, so x, y are its start point (sep's barycentre or the peak pixel; 0.6-2.2% of dots, 16 Nov).
 - astrometry: pixel_to_sky, sky_to_pixel, propagate (Gaia J2016.0 -> MJD, optional parallax),
   select_reference_stars, measure_shift (V2 + V3) -> ShiftResult.to_measure() = api `measure`.
   measure_shift's detection guard raises ShiftError(reason) unless one source is clearly seen in both

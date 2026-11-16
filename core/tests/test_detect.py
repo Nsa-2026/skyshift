@@ -139,3 +139,24 @@ def test_detect_near_is_the_subset_of_the_full_call(cutout_path):
         assert any(row == full[k] for k in np.flatnonzero(keep))
     none = detect(l2.data, l2.flags, variance=l2.variance, thresh=2.0, near=(np.array([]), np.array([]), 2.5))
     assert len(none) == 0
+
+
+def test_measure_objects_marks_a_centroid_that_fell_back():
+    """The windowed centroid starts at sep's peak; when it would move > 1 px (here a fake peak 3 px off a star) x, y stay
+    at the start point and the dot carries SEP_FLAG_CENTROID_FALLBACK; a good centroid does not."""
+    from skyshift_core.detect import DETECTION_DTYPE, SEP_FLAG_CENTROID_FALLBACK, measure_objects
+
+    sub = np.ascontiguousarray(gaussian_image((41, 41), [20.3], [19.6], [500.0], 0.52) + 0.0)
+    err = np.full(sub.shape, 0.05)
+    mm = np.zeros(sub.shape, bool)
+    objs = np.zeros(2, dtype=[("x", "f8"), ("y", "f8"), ("xpeak", "i4"), ("ypeak", "i4"), ("peak", "f8"),
+                              ("npix", "i4"), ("flag", "i2")])
+    objs["xpeak"], objs["ypeak"] = [20, 23], [20, 20]
+    objs["x"], objs["y"] = [20.2, 23.0], [19.7, 20.0]
+    objs["flag"] = [1, 0]
+    out = measure_objects(sub, err, mm, objs)
+    assert out.dtype == DETECTION_DTYPE
+    good = out[np.argmin(np.abs(out["x"] - 20.3))]
+    bad = out[np.argmin(np.abs(out["x"] - 23.0))]
+    assert abs(good["x"] - 20.3) < 0.05 and good["sep_flag"] == 1  # sep's own flag kept, no fallback bit
+    assert bad["x"] == 23.0 and bad["y"] == 20.0 and bad["sep_flag"] == SEP_FLAG_CENTROID_FALLBACK

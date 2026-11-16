@@ -396,3 +396,11 @@ def test_v2_runs_the_mf_pass_when_the_first_pass_finds_nothing(tmp_path, monkeyp
     assert seen and "n_mf_raw" in counts and "peaks" in extras
     assert list(v2.columns) == list(D.DOT_COLUMNS) + list(D.DOT_LIST_COLUMNS) + list(D.DOT_V2_COLUMNS)
     assert len(v2) >= 1 and ((v2.sep_flag & C.SEP_FLAG_MF_PASS) != 0).all()
+
+
+def test_centroid_fallback_bit_is_cores_and_clear_of_the_pass_bits():
+    from skyshift_core.detect import SEP_FLAG_CENTROID_FALLBACK
+
+    assert C.SEP_FLAG_CENTROID_FALLBACK == SEP_FLAG_CENTROID_FALLBACK
+    assert not SEP_FLAG_CENTROID_FALLBACK & (C.SEP_FLAG_PSF_PASS | C.SEP_FLAG_MF_PASS | 0xFF)
+    assert SEP_FLAG_CENTROID_FALLBACK <= np.iinfo(np.int16).max  # the dots column is int16

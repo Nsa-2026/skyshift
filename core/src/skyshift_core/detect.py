@@ -30,6 +30,10 @@ PSF_SIGMA_PX = 1.22 / 2.3548  # SPHEREx PSF FWHM 7.53" = 1.22 px
 # The largest hole a saturated core leaves in a stack (masked in every exposure): Barnard's Star's
 # is 5-7 px wide at 6.15"/px, under 40 px. A bigger no-data area is missing sky (no_data_near).
 MAX_HOLE_PX = 100
+# sep_flag bit (ours; sep's extract flags use 0x1-0x8, the pipeline 0x200 and 0x400): the windowed centroid failed or
+# moved > 1 px from sep's peak pixel, so x, y are its start point (sep's barycentre when within 1 px of the peak, else
+# the peak pixel itself, a whole pixel). Vet's whole-pixel guess (|x - round(x)| < 0.02) misses the barycentre case.
+SEP_FLAG_CENTROID_FALLBACK = 0x800
 
 DETECTION_DTYPE = np.dtype([
     ("x", "f8"), ("y", "f8"),  # windowed centroid, 0-based pixels
@@ -38,7 +42,7 @@ DETECTION_DTYPE = np.dtype([
     ("snr", "f8"),  # flux / flux_err
     ("peak", "f8"),  # peak above background, MJy/sr
     ("npix", "i4"),  # pixels above threshold
-    ("sep_flag", "i4"),  # sep extraction flags (merged, truncated, ...)
+    ("sep_flag", "i4"),  # sep extraction flags (merged, truncated, ...) | SEP_FLAG_CENTROID_FALLBACK
 ])
 
 
@@ -166,7 +170,7 @@ def measure_objects(sub: NDArray[np.float64], err: NDArray[np.float64], mm: NDAr
         out["snr"] = np.where(ferr > 0, flux / ferr, 0.0)
     out["peak"] = objs["peak"]
     out["npix"] = objs["npix"]
-    out["sep_flag"] = objs["flag"]
+    out["sep_flag"] = objs["flag"].astype(np.int32) | np.where(ok, 0, SEP_FLAG_CENTROID_FALLBACK)
     return np.sort(out, order="flux")[::-1]
 
 
