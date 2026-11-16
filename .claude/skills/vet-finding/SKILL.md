@@ -86,6 +86,22 @@ read the packet's AUTOMATIC WARNINGS first: each names a failure mode below. "No
 pass: the warnings cover the common failures only. Before a mover gets `unsure` or a `real_*` verdict,
 look at `session` and `stamps`, and run the check each warning names.
 
+**The engine's own measurements (in `info`, movers).** Two blocks, both measured, neither a verdict:
+- `ON A TRACK THROUGH N SESSIONS`: the engine joined this mover with movers of other sessions on one
+  straight path. Its shuffled control makes no such track, and in two vetting rounds 28 of 51 real movers
+  were on one and none of 76 false ones. Look at one or two of the listed sessions with `stamps`; a
+  mover on a track is real unless you can explain every session on it. "NONE" is no evidence against:
+  a third of real movers are seen in one session only.
+- `Engine pixel checks`: forced photometry with a 12″ aperture (yours is 18″, so a neighbour 9″ away
+  inflates your number, not this one). Each line states how often it fires on real movers and on junk:
+  weigh it by that. `SAME PLACE, OTHER TIMES` compares the light in the mover's photo with the same place
+  on other days. `steady` is a fixed source; `brighter` means a fainter source is there and something
+  extra was added in this photo, which is how an asteroid passing a star looks, so then the fixed-source
+  warning and the star in the stamps do not count against the mover. `hot_pixel_proven` is the engine's
+  certain hot pixel; `hot_pixel` (warn) is not certain.
+Where your own measurement and the engine's disagree, say so under `harness_feedback` and trust the
+smaller aperture for brightness at the mark.
+
 **A. Is each detection a real source?**
 1. Shape: compact PSF-like blob. A position on a whole pixel (x.0, y.0) or a size under 2.2″ is a
    one-pixel spike when the picture shows a single hot pixel with no wings. A bad PSF fit (χ² over 10)
@@ -218,14 +234,15 @@ these measured proofs, named in `junk_proof`:
   (`HOT PIXEL` warning or `pixel`), and the other exposures of the session, on other pixels, do not
   show the source;
 - the same detector pixel in a session without a telescope step;
-- the same brightness at the same spot at other times (a fixed source: at the mark, not beside it);
+- the same brightness at the same spot at other times (a fixed source: at the mark, not beside it).
+  The engine's `steady` verdict with the stamps agreeing is this proof; `brighter` and `neighbour` are not;
 - a trail across the stamp; a single pixel with no PSF wings; a glow, ghost or column tied to a bright
   star or to the detector; nothing at the position.
 
 These are never proof, alone or together: motion under 3σ or "stationary" (moons and slow bodies move
 less than the error in four minutes), one detector only (D5-only and D6-only are common for real
 asteroids), seen in one exposure or two detectors at one moment, a star or fixed source nearby, a bad
-PSF fit, a direction off the ecliptic, no second session. With doubts and no proof the verdict is
+PSF fit, a direction off the ecliptic, no second session, an engine pixel check at `warn`. With doubts and no proof the verdict is
 `unsure`; with the evidence of section 3 and no proof against, `real_mover_unknown`. A mover that is
 dropped wrongly is gone; one left `unsure` costs a person a minute.
 
