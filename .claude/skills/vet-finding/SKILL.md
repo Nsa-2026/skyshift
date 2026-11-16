@@ -8,9 +8,11 @@ You are an observational astronomer checking one finding of SkyShift's engine on
 Decide what it really is, find what the engine got wrong, and record exactly what you checked and what
 you could not check. A wrong "new discovery" costs more than a missed one: the default is doubt.
 
-Round 1 (100 findings, 16 Nov 2026) is the baseline: of 64 mover candidates none was a real unknown
-object (36 instrument artifacts, 24 fixed stars); 8 of 16 fast stars were real and confirmed against
-Gaia's 2016 positions; 7 of 15 "brown-dwarf-like" leads were galaxies or AGN.
+Round 1 (100 findings, 16 Nov 2026, checked four times over) is the baseline: of 64 mover candidates
+none was a real unknown object (42 instrument artifacts, 21 fixed stars, 1 open); 11 of 16 fast stars
+were real (9 with a Gaia position but no Gaia motion, 2 known brown dwarfs); 8 of 15
+"brown-dwarf-like" leads were AGN or galaxies. Real movers do exist in the data: thousands of known
+asteroids pass every test below, so do not treat "artifact" as the expected answer.
 
 ## 1. Tools
 
@@ -33,8 +35,17 @@ Dec as `--dec=-1.23`.
 | `track <id> [--days 3]` | Movers: where the fitted track puts it in the other sessions, whether a photo holds that spot, what we have there. |
 | `movers --zone Z --ra R --dec=D --mjd M` | Our movers of that session near a position. |
 
-`NOT AVAILABLE` or `TOOL ERROR` means the check was not done: record it under `could_not_check`,
-never as "nothing found". An empty catalogue list only counts for the catalogues the tool says it read.
+Which tools fit which kind:
+- mover: `info`, `packet` (always), then `session`, `stamps`, `pixel`, `dots`, `track`, `known`, `movers`, `catalog`.
+- high_pm (fast star): `info` (Gaia offset test, per-visit positions), `catalog` with `--pm` and `--mjd`, `spectrum`, `stamps`.
+- spectral: `info`, `spectrum`, `catalog`, `stamps`.
+- shape: `info` (the fitted companion against the catalogues), `stamps` with `--mark` at the companion, `catalog`.
+`packet`, `session`, `track`, `movers` are for movers only and `spectrum` is for fixed sources only. A tool
+that does not apply to the kind is not a missing check: do not call it and do not list it.
+
+`NOT AVAILABLE` or `TOOL ERROR` on a tool that does apply means the check was not done: record it under
+`could_not_check`, never as "nothing found". "Not measurable" is not "absent". An empty catalogue list
+only counts for the catalogues the tool says it read.
 
 ## 2. Facts you need
 
@@ -69,14 +80,18 @@ never as "nothing found". An empty catalogue list only counts for the catalogues
 ## 3. What a careful astronomer rules out, in order
 
 Do every check that applies. Stop early only when one check is decisive, and say which. For movers,
-read the packet's AUTOMATIC WARNINGS first: each names a failure mode below.
+read the packet's AUTOMATIC WARNINGS first: each names a failure mode below. "No warnings" is not a
+pass: the warnings cover the common failures only. Before a mover gets `unsure` or a `real_*` verdict,
+look at `session` and `stamps`, and run the check each warning names.
 
 **A. Is each detection a real source?**
 1. Shape: compact PSF-like blob. Size under 2.2″ or PSF-fit χ² over 10, or a position on a whole
    pixel (x.0, y.0), is a spike: in round 1 an artifact every time.
 2. Flags at the peak: any masked flag means the detection sits on bad pixels.
-3. Same detector pixel in different exposures (session without a telescope step): run `pixel`. A pixel
-   with detections in many exposures is hot.
+3. Hot pixels. The packet warns `HOT PIXEL` when a detection's detector pixel has detections in three or
+   more exposures of the zone. Two hot pixels one telescope step apart (about 115 or 230 px in y) land on
+   the same sky spot in consecutive exposures and look like a source seen twice. When all detections are
+   in one detector, or two share a pixel, run `pixel` on each.
 4. Paired detector at the same moment (session table): a source at S/N > 15 in D4 or D5 with nothing in
    D1 or D2 is a spike or hot pixel. D6-only is normal for faint asteroids (heat glow) and for very
    red objects.
@@ -130,13 +145,22 @@ read the packet's AUTOMATIC WARNINGS first: each names a failure mode below.
 3. For a known body: compare with the predicted V magnitude, roughly.
 
 **F. Fast stars (high_pm): the claim is a shift far below a pixel.** Images cannot confirm it; epochs can.
+0. A fast star looks fixed in our images: 2″/yr is a third of a pixel per year. Every fast star also
+   has a row in our fixed-source list, seen in many sessions; its position error is the error of the
+   mean, not a limit on motion. The fixed-source row, same-spot stamps and a quiet difference image
+   never count against a proper-motion claim. Only positions at different epochs decide: the per-visit
+   positions in `info`, and the older catalogues.
 1. `info` prints the Gaia offset test: a real fast star sits (motion × years) from its Gaia 2016.0
    position, along the motion. Size ratio near 1 and direction difference near 0 confirm it. A Gaia
    star at our position with a small proper motion refutes it. Gaia rows with **no proper motion**
    (position-only solutions) are exactly where the engine's match fails and our motion is new
    information.
 2. `catalog --pm PMRA,PMDEC --mjd M`: counterparts at the back-tracked 2016, 2010 (AllWISE) and 1999
-   spots, none at the control spot. Two epochs agreeing is strong confirmation.
+   spots, none at the control spot. Two epochs agreeing is strong confirmation. An object too red for
+   Gaia (W1−W2 above 1, or no light below 1 µm) has no Gaia epoch: then one AllWISE counterpart within
+   1″ of the back-tracked spot, with the brightness the spectrum predicts and a printed chance under 1%,
+   confirms the motion. `COMMON PROPER MOTION` (a Gaia star nearby with the same motion) confirms it too
+   and makes the finding that star's companion, which is then almost certainly catalogued.
 3. Pair-method candidates (two source ids): the engine matched two different sources, one per visit.
    `stamps --mark` both ends: both present in every visit means two fixed sources, not motion. Any
    claim over 10″/yr is this until proven otherwise.
@@ -159,21 +183,31 @@ read the packet's AUTOMATIC WARNINGS first: each names a failure mode below.
    sharply peaked spectrum comes from which wavelengths each visit sampled.
 5. Blending: two sources in one 6″ pixel make a composite spectrum.
 
-**H. Shape (elongated, possible pair).** Check both visits and several detectors (`stamps`) and the
-catalogues for a second source. A companion closer than about 1 px cannot be resolved by eye. The sky
+**H. Shape (elongated, possible pair).** `info` prints the fitted second object and every catalogue
+source within 4″ of it, AllWISE included: a catalogue source there means the companion is real and
+already listed. Compare separations between catalogue rows, never a row's offset from the star with
+the companion's separation. In `stamps --mark` at the companion, the ring values tell a companion from
+the star's halo: a companion stands above the ring median by 5 or more in every visit; a control mark
+must be at least 2 px (12″) from the centre and from any catalogue source. Check both visits and several
+detectors (`stamps`) and the catalogues for a second source. A companion closer than about 1 px cannot be resolved by eye. The sky
 rolls by about 180° between visits, so a steady position angle does not prove a real pair. A
 companion bright enough to matter at 5–12″ should be in Gaia or AllWISE; if it is not, suspect the
 PSF model or a bright star's halo along that direction.
 
 ## 4. Verdicts
 
-One of: `real_mover_known` (matches a known body), `real_mover_unknown` (passes every test, no known
-body: a tracklet to follow up, not yet a discovery), `static_source` (fixed star or galaxy),
-`artifact` (instrument effect: say which), `no_source`, `real_known` (a real non-mover whose engine
-property is right but which is already catalogued), `real_other` (a real and interesting non-mover:
-say what), `engine_claim_wrong` (the object is real but the engine's stated property is not),
-`unsure`. Give a confidence 0–1 and `interest`: `high` only when it survives every check you could
-run and is worth a human's time.
+Choose the verdict by the engine's claim, not by how interesting the object is:
+
+| Kind | The claim holds | The claim is false |
+|---|---|---|
+| mover | `real_mover_known` (matches a known body) or `real_mover_unknown` (passes every test, no known body: a tracklet to follow up, not yet a discovery) | `static_source` (a fixed star or galaxy), `artifact` (instrument effect: say which), `no_source` |
+| high_pm | `real_known` when a catalogue we read lists that motion (a Gaia or CatWISE proper motion, or a primary with the same motion); `real_other` when the motion is confirmed and no catalogue we read lists it ("motion new; novelty not checked") | `static_source` when it does not move (pair method: two fixed sources); `engine_claim_wrong` when it moves but the value is wrong by more than about half |
+| spectral, shape | `real_known` when any catalogue we read (Gaia, 2MASS, AllWISE, CatWISE) lists the object (for a shape: the second object); otherwise `real_other` | `engine_claim_wrong`, whatever the object is instead (an AGN called a brown dwarf; no second object). Never `static_source`. |
+
+`real_mover_*` are for movers only. A claim that is half right ("catalogues list one object" when AllWISE
+lists two) takes the "holds" verdict, with the wrong half under `engine_problems`. `unsure` when the
+deciding check could not be run. Say what the object is in `what_it_is`. Give a confidence 0–1 and
+`interest`: `high` only when it survives every check you could run and is worth a human's time.
 
 ## 5. The check record
 
