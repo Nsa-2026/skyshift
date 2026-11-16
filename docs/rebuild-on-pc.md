@@ -4,8 +4,8 @@
 > ~50 GB to a few GB.**
 
 What it does: completes the Gaia-only reference catalogues (CatWISE and 2MASS added, free), reruns `suspects` for every
-zone with the 16 Nov rule (remove only the certain), exports a new `candidates.json` (with `candidates-more/` for
-grade C), runs the check producers (known, catalogue, pixel), merges them, builds static frames for the 300 best open
+zone with the 16 Nov rule (remove only the certain), reruns crossid → classify → astrometry → highpm → shape per zone
+(PR #388's fixes), exports a new `candidates.json` (with `candidates-more/` for grade C), runs the check producers (known, catalogue, pixel), merges them, builds static frames for the 300 best open
 grade A/B movers, checks the result and opens a PR with the data. The orchestrator merges and deploys from main.
 Nothing runs on cloud machines; nothing in the bucket is deleted, and nothing is written there unless you ask (the
 optional uploads in (a0) and (h)).
@@ -14,11 +14,11 @@ One script does it: `scripts/rebuild/tocheck.sh`. It is resumable: after any sto
 
 | | |
 |---|---|
-| Download from the bucket | ~61 GB: ~10.5 GB mirrored (a) + ~50 GB read by column in the export (c) |
-| Bucket cost | ~$9 (~$0.13 per GB for Nearline + internet egress, plus ~$1 for ~1 M read requests); range $6–13 |
+| Download from the bucket | ~560 GB: ~10.5 GB mirrored (a) + ~519 GB for the PR #388 chain (m: every zone's dot files once, 502 GB, and its tables, 17 GB) + ~31 GB read by column in the export (c; a few GB after the slim reads). Optional (k): +57 GB |
+| Bucket cost | ~$75 (~$0.13 per GB for Nearline + internet egress, plus ~$1–2 for read requests); step m is ~$68 of it. Optional (k): +$7 |
 | Free downloads | AWS S3 (AllWISE for the refcats and suspects, NASA's photos for pixel checks), ESA Gaia, IRSA (catalogues, cutouts), MPC, JPL Horizons |
-| Time on a 16-core PC | ~6–16 h, mostly unattended (IRSA's speed decides most of it) |
-| Disk | ≥ 130 GB free |
+| Time on a 16-core PC | ~1–3 days, mostly unattended: step m (copy ~520 GB, then five steps per zone, one zone at a time) is most of it |
+| Disk | ≥ 200 GB free |
 
 ## 1. Quick start
 
@@ -30,7 +30,8 @@ tmux new -s rebuild                                  # keeps it running if the t
 scripts/rebuild/tocheck.sh --known-index             # the whole rebuild; it asks before each paid download
 ```
 
-Add `--upload-refcat` only when the orchestrator asks for the completed refcats in the bucket (section 5, a0).
+Add `--upload-refcat` only when the orchestrator asks for the completed refcats in the bucket (section 5, a0), and
+`--with-changes` only when the user has decided on step k (~$7; section 5, k).
 
 At the end it prints the PR link. Send the link to the orchestrator.
 
@@ -39,8 +40,9 @@ At the end it prints the PR link. Send the link to the orchestrator.
 - Ubuntu 22.04 or 24.04, or Windows 10/11 with Ubuntu 24.04 in WSL2. Ubuntu 20.04 does not work: kete's wheels need
   glibc 2.35.
 - 16 cores and 32 GB RAM are what the times below assume. 16 GB works with `--workers 2` (slower).
-- ≥ 130 GB free on an SSD: mirror ~11 GB, completed refcats and their tiles ~15–25 GB, export cache ~29 GB, AllWISE,
-  known and pixel caches a few GB each, the repo with node_modules ~2 GB, the new frames (~130 MB).
+- ≥ 200 GB free on an SSD: mirror ~11 GB, completed refcats and their tiles ~15–25 GB, step m's tables ~17 GB (kept) and
+  dot files ~35 GB at their peak (deleted as it goes), export cache ~29 GB, AllWISE, known and pixel caches a few GB
+  each, the repo with node_modules ~2 GB, the new frames (~130 MB).
 - A line of ≥ 100 Mbit/s. The setup step measures NASA S3 and prints it.
 
 ## 3. Setup (once)
@@ -142,7 +144,7 @@ several hours; it still works.
 
 - `--dry-run` first. It lists the bucket (free) and prints what each step would download, the GB, the $, the
   commands and the times. It changes nothing.
-- The script asks before each paid download (a and c). After a dry run you can add `--yes` for an unattended run.
+- The script asks before each paid download (a, m, c, and k when asked for). After a dry run you can add `--yes` for an unattended run.
 - A partial run (`--zones a,b`) stops after the checks (f): its export would drop the other zones from the site. Its
   mirror, suspects and export cache are reused by the full run.
 - After a stop it prints `STOPPED in step X`, the log and the cause. Fix the cause, run the same command again: finished
@@ -163,9 +165,11 @@ Options: `scripts/rebuild/tocheck.sh --help`.
 | a0 | complete the Gaia-only refcats (~60 zones) | ~25 GB AllWISE from AWS S3; Gaia from ESA only if G must go deeper | free | 1–3 h (3–8 h deeper Gaia) |
 | h | optional: the server's MPC index with every comet | MPC | free | 10–30 min |
 | b | `suspects` for 62 zones | local; AllWISE from NASA S3 | free | 20–60 min |
-| c | one export | ~50 GB from the bucket by column (range 30–80) | ~$6.6 + ~$1 requests | 0.5–2 h |
+| m | crossid → classify → astrometry → highpm → shape per zone (PR #388); **must finish before c** | 502 GB of dot files + 17 GB of tables from the bucket; ESA Gaia, IRSA (positions only) | ~$68 | copy 1.3 h at 1 Gbit/s (13 h at 100 Mbit/s) + compute, not measured: ~0.5–2 days |
+| c | one export | ~31 GB of dot-file flags from the bucket by column (the tables are local after m; a few GB after the slim reads) | ~$4 + ~$1 requests | 0.5–2 h |
 | d | known, catalogue, pixel checks; merge | MPC, IRSA, NASA S3 | free | 1–4 h |
 | e | site files, frames for the top 300 open A/B movers, fill | IRSA cutouts | free | 1–4 h |
+| k | off by default (`--with-changes`): changes in known stars, `changes.json` + `changes.atom` | ~57 GB of light curves from the bucket | ~$7 | ~1.5 h + the download |
 | f | checks; web tests and build | local | free | 10–20 min |
 | g | commit, push, PR | GitHub | free | 5–15 min |
 
@@ -240,6 +244,54 @@ ecl33n1 ecl34 ecl34n1 ecl35 ecl36 hunt pilot t_barnard t_epsindib t_rdra t_rwaur
 
 The dry run names them again from the bucket, so a zone added later is included.
 
+### (m) The PR #388 chain per zone (before the export)
+
+**This step must finish before the exporter (c) runs:** the export reads the tables it writes.
+
+PR #388 (main c0d685f) changed crossid (2MASS borrowed-motion radius), classify (brown_dwarf_like needs water; AllWISE
+colours veto AGN), astrometry and highpm (per-visit files; the deep counterpart check against Gaia position-only, 2MASS,
+AllWISE and CatWISE) and shape (AllWISE/Gaia neighbours from IRSA, offset floor, blocked splits). Their tables change
+only after a per-zone rerun of crossid → classify → astrometry → highpm → shape. No new extraction is needed. crossid
+also picks up the refcats (a0) completed.
+
+How it runs:
+
+- One zone at a time, in sky order. Each step is the pipeline's own code (`skyshift-pipeline <step>`, `python -m
+  skyshift_pipeline.shape`) through `rebuild.py motion`, on an overlay: the mirror first, the bucket only for anything
+  not copied (logged), every write into the mirror. Never a write to the bucket.
+- Untiled. The sky run tiled `all` on every zone over 30 deg² (hunt and most ecliptic zones), but single steps never
+  tile. The results match the tiled ones by design (pipeline/CLAUDE.md, Tiles); the memory of an untiled astrometry on
+  a ~95 deg² zone has not been measured (it holds the zone's member dots).
+- Resumable per zone and step (stamps `m.<zone>.<step>`). A zone whose refcat (a0) changes runs the chain again.
+
+What it reads from the bucket, per zone (`rebuild.py mplan` prints the table with each zone's files, GB and $):
+
+- `results/<zone>/sources.parquet`, `members.parquet`, `calib.json`, `calib_photos.parquet`, `fragments.parquet`,
+  `photoz.parquet`: 16.7 GB for the 62 zones. They are kept, so the export reads them locally.
+- Every photo's dot file, whole: `dots/<obs_id>D<det>.parquet` (`dots_deblend1e-4_cp3_g6_psf/` for the five featured
+  zones). classify reads the member dots' shape columns from whole files, and astrometry reads every row of each photo
+  (its Jacobian). Shape reads 8 columns of 38% of them. 1,800–6,200 files per zone, 1–31 GB; 502 GB in all, each file
+  copied once (zones share photos: 709 GB counted per zone). A file is deleted after the last zone that needs it, so the
+  disk holds at most ~34 GB of them.
+- Already in the mirror: `fixed.parquet`, `summary.json`, the photo list, the refcat (a).
+
+Measured on 16 Nov from the listing (`gcloud storage ls -l`) and the 62 zones' photo lists (30 MB): 519 GB, ~$67.5,
+plus ~300,000 read requests (~$0.30).
+
+Live queries, positions only (free):
+
+- classify: IRSA TAP, AllWISE (the brown_dwarf_like rows);
+- highpm: ESA Gaia DR3 TAP and IRSA TAP, CatWISE2020 and AllWISE (the candidates' positions and tracks back to each
+  catalogue's epoch);
+- shape: IRSA TAP, AllWISE and Gaia DR3 (the listed rows), and NASA's S3 photos by range reads (the two-source fit).
+
+Writes, in the mirror's `results/<zone>/`: crossids, classes, astrometry (+ `astrometry_visits`, `astrometry_report.json`),
+highpm_candidates (+ `highpm_visits`, `highpm_report.json`), shape_candidates (+ `shape_report.json`,
+`shape_fit_report.json`).
+
+Cheaper elsewhere: the same 519 GB read inside GCP (us-east4) cost only Nearline retrieval, ~$5. That needs a VM, which
+is the orchestrator's call.
+
 ### (c) One export
 
 `skyshift-candidates` for all zones in one run, through an overlay: the local mirror first (the new suspects tables
@@ -281,6 +333,20 @@ its whole visit live. Then `fill.py` for the hours frames' edge exposures, in ch
 Size in git: a mover's frame folder on main is ~0.44 MB (median of 19; at most 0.7 MB; ~0.14 MB once git compresses it).
 300 movers: ~130 MB in `cand/`, ~40–45 MB added to the repository, plus ~5 MB for the other kinds. Every A/B mover
 (697 on main today) would be ~300 MB. `--frames-top N` sets another number.
+
+### (k) Optional: changes in known stars (`--with-changes`)
+
+Off by default; the user decides on it separately. It needs PR #386 (the changes step) merged, plus the watch agent's
+chunking follow-up that makes the step memory-bounded. Until then `--with-changes` stops at (k) with a message.
+
+For each zone, in its own process (a zone that runs out of memory stops only itself and stays off the list):
+`python -m skyshift_pipeline.changes_step --zones <zone> --skip-done --drop-points --root gs://nasa-glazing-data
+--out-root ~/skyshift-data --cache ~/skyshift-data/cache/changes`. Then `changes_export` writes
+`web/public/data/changes.json` and `changes.atom`, which (g) commits.
+
+It reads 11 columns of the zones' `lightcurves.parquet` (99.5 GB in all): ~57 GB from the Nearline bucket, **~$7**,
+plus small tables. `--drop-points` deletes each copy after its zone (disk: the largest zone, ~4.3 GB). CPU ~1.5 h.
+Gaia (ESA) is asked by `source_id` only. It reads the bucket's tables, not the ones (a0) and (m) wrote on the PC.
 
 ### (f) Checks before publishing
 
@@ -324,6 +390,9 @@ again). Do it only when the orchestrator asks: Cloud Run then needs
   The bucket's cached Gaia tiles (`cache/refcat/<zone>/gaia_*`) keep their old depth even after `--upload-refcat`: the
   pipeline's tile key ignores G, so a cloud `refcat` run with a deeper limit must delete them first.
 - The bucket listing behind the plan is kept 12 h. A zone finished after it shows up with `--redo a`.
+- Step (m) runs untiled; its memory on a ~95 deg² zone is not measured. If a zone runs out of memory, the run stops
+  there; rerun with fewer other programs open (one zone at a time already).
+- Step (m) does not rerun fragments, orphans or link, which a full refcat also changes (catalogue agent's report).
 - Frames depend on IRSA. A slow IRSA stops (e); rerunning continues where it stopped.
 - cand/ holds frames for `--frames-top` movers (~0.44 MB each) and goes into git (main: 295 folders, 14 MB on 16 Nov).
 

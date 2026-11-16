@@ -217,3 +217,68 @@ def test_refcat_completes_a_gaia_only_refcat_and_step_a_keeps_it(tmp_path, monke
     assert st["state"] == "ok" and st["g_faintest"] > 20.9 and st["rows"]["catwise"] == 5 * len(ts)
     marker = json.loads((tmp_path / "refcat" / "pilot_catalogs.json").read_text())
     assert marker["rebuild_a0"]["gaia_g_max"] == 21.0 and marker["rebuild_a0"]["catwise_2mass"] == "kept"
+
+
+# ---- step m: the PR #388 chain on the mirror (offline)
+
+def _listing(work: Path, pattern: str, rows: list[tuple[str, int]]):
+    import hashlib
+    d = work / "plan" / "listing"
+    d.mkdir(parents=True, exist_ok=True)
+    text = "".join(f"{s:>12}  2026-11-16T00:00:00Z  {u}\n" for u, s in rows)
+    (d / f"ls-{hashlib.sha1(pattern.encode()).hexdigest()[:12]}.txt").write_text(text)
+
+
+def test_mplan_lists_tables_and_each_dot_file_once_and_mclean_keeps_shared_ones(tmp_path, capsys):
+    data, work = tmp_path / "data", tmp_path / "work"
+    for z, photos in (("ecl04", ["A", "B"]), ("ecl05", ["B", "C"])):
+        (data / "photolists" / "zones").mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"obs_id": photos, "detector": [1] * len(photos)}).to_parquet(data / "photolists" / "zones" / f"{z}.parquet")
+        (data / "results" / z).mkdir(parents=True)
+        (data / "results" / z / "summary.json").write_text(json.dumps({"steps": {"link": {"dots_dir": "dots"}}}))
+    _listing(work, f"{BUCKET}/results/**", [(f"{BUCKET}/results/{z}/{n}", 100) for z in ("ecl04", "ecl05")
+                                            for n in ("sources.parquet", "members.parquet", "calib.json", "movers.parquet")])
+    _listing(work, f"{BUCKET}/dots/*", [(f"{BUCKET}/dots/{o}D1.parquet", 1000) for o in "ABCD"])
+    R.cmd_mplan(Namespace(data=str(data), work=str(work), zones="ecl05,ecl04", zones_file=None))
+    plan = json.loads((work / "plan" / "motion_plan.json").read_text())
+    assert plan["zones"] == ["ecl04", "ecl05"]                         # sky order (RA)
+    assert plan["dots_bytes_unique"] == 3000 and plan["tables_bytes"] == 600   # B shared, copied once; movers not read
+    assert plan["per_zone"]["ecl04"]["dots_files"] == 2 and plan["per_zone"]["ecl04"]["exact"]
+    assert plan["dots_peak_bytes"] == 2000                              # A goes after ecl04, B stays for ecl05
+    rows = R.read_manifest(work, "motion_manifest.tsv")
+    assert sorted(r["local"] for r in rows if r["zone"] == "ecl04" and r["category"] == "mdots") == ["dots/AD1.parquet", "dots/BD1.parquet"]
+    for o in "ABC":
+        (data / "dots").mkdir(exist_ok=True)
+        (data / "dots" / f"{o}D1.parquet").write_bytes(b"x" * 1000)
+    stamps = tmp_path / "zones"
+    stamps.mkdir()
+    (stamps / "m.ecl04").write_text("done")
+    R.cmd_mclean(Namespace(data=str(data), work=str(work), stamps=str(stamps)))
+    assert sorted(p.name for p in (data / "dots").iterdir()) == ["BD1.parquet", "CD1.parquet"]   # B: ecl05 still needs it
+    (stamps / "m.ecl05").write_text("done")
+    R.cmd_mclean(Namespace(data=str(data), work=str(work), stamps=str(stamps)))
+    assert list((data / "dots").iterdir()) == []
+
+
+def test_motion_runs_the_pipeline_step_on_the_mirror_and_writes_only_there(tmp_path):
+    import numpy as np
+
+    from skyshift_pipeline import refcat
+    data = tmp_path / "data"
+    (data / "results" / "pilot").mkdir(parents=True)
+    (data / "photolists" / "zones").mkdir(parents=True)
+    (data / "refcat").mkdir()
+    ra, dec = np.array([121.0, 122.0, 123.0]), np.array([15.0, 16.0, 17.0])
+    pd.DataFrame({"source_id": [1, 2, 3], "ra": ra, "dec": dec}).to_parquet(data / "results" / "pilot" / "sources.parquet")
+    pd.DataFrame({"source_id": [1, 2, 3], "obs_id": ["o1"] * 3, "detector": [1] * 3, "dot_row": [0, 1, 2]}).to_parquet(
+        data / "results" / "pilot" / "members.parquet")
+    pd.DataFrame({"obs_id": ["o1"], "detector": [1], "mjd": [61000.0]}).to_parquet(data / "photolists" / "zones" / "pilot.parquet")
+    n = 3
+    refcat._finish({"ref_id": [f"gaia:{i}" for i in range(n)], "cat": ["gaia"] * n, "ra": ra + 1e-5, "dec": dec,
+                    "epoch_mjd": np.full(n, 57388.5), "g_mag": np.full(n, 15.0)}, n).to_parquet(data / "refcat" / "pilot.parquet")
+    rc = R.cmd_motion(Namespace(data=str(data), zone="pilot", step="crossid", bucket=BUCKET, workers=2, block=16384,
+                                offline=True))
+    assert rc == 0
+    x = pd.read_parquet(data / "results" / "pilot" / "crossids.parquet")
+    assert len(x) == 3 and (x["gaia_ref_id"] != "").all()
+    assert "crossid" in json.loads((data / "results" / "pilot" / "summary.json").read_text())["steps"]

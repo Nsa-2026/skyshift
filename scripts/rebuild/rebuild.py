@@ -157,6 +157,7 @@ def cmd_plan(a) -> int:
     many = len(zones) > 8
     rows: list[tuple[str, str, str, str, int]] = []  # category, zone, url, local rel, bytes
     export_tables: dict[str, int] = defaultdict(int)
+    export_files: list[tuple[str, int]] = []
     res = gls(f"{BUCKET}/results/**", ldir) if many else [x for z in zones for x in gls(f"{BUCKET}/results/{z}/*", ldir)]
     for url, size in res:
         parts = rel_of(url).split("/")
@@ -169,6 +170,7 @@ def cmd_plan(a) -> int:
             rows.append(("results", z, url, f"results/{z}/{RENAMED[name]}", size))
         elif name in EXPORT_TABLES:
             export_tables[z] += size
+            export_files.append((f"results/{z}/{name}", size))
     plist = {}
     for url, size in gls(f"{BUCKET}/photolists/zones/*.parquet", ldir):
         name = url.rsplit("/", 1)[1][:-len(".parquet")]
@@ -267,13 +269,14 @@ def cmd_plan(a) -> int:
               f"would be ~{exp['default_block_gb']:.0f} GB ({money(exp['default_block_gb'])})"),
               f"  disk for the export cache (--cache, keeps reruns free): ~{exp['cache_gb']:.0f} GB",
               "",
-              (f"Download in all: ~{todo / GB + exp['total_gb']:.0f} GB, ~{money(todo / GB + exp['total_gb'])}. "
+              (f"Steps a and c: ~{todo / GB + exp['total_gb']:.0f} GB, ~{money(todo / GB + exp['total_gb'])}. "
+              "Step m (mplan) and the optional k come on top. "
               "NASA S3 (pixels, AllWISE), IRSA, MPC and JPL are free.")]
     text = "\n".join(lines)
     (out / "summary.txt").write_text(text + "\n")
     (out / "plan.json").write_text(json.dumps(
         {"zones": order, "all_zones": allz, "partial": len(zones) != len(allz), "mirror_bytes": total,
-         "mirror_have": have, "mirror_todo": todo, "photos": photos, "export": exp}, indent=1))
+         "mirror_have": have, "mirror_todo": todo, "photos": photos, "export": {**exp, "files": export_files}}, indent=1))
     print(text)
     return 0
 
@@ -295,8 +298,8 @@ def export_estimate(photos: int, tables_bytes: int, ab_files: int = 0, pos_files
 
 # ------------------------------------------------------------------------------------------------ fetch
 
-def read_manifest(work: Path) -> list[dict]:
-    f = work / "plan" / "manifest.tsv"
+def read_manifest(work: Path, name: str = "manifest.tsv") -> list[dict]:
+    f = work / "plan" / name
     if not f.exists():
         fail(f"{f} is missing: run the plan first (tocheck.sh --dry-run, or step a)")
     lines = f.read_text().splitlines()
@@ -324,7 +327,7 @@ def _completed_here(p: Path) -> bool:
 
 def cmd_fetch(a) -> int:
     data, work = Path(a.data), Path(a.work)
-    want = [r for r in read_manifest(work) if r["zone"] == a.zone]
+    want = [r for r in read_manifest(work, a.manifest) if r["zone"] == a.zone]
     if not want:
         fail(f"nothing in the manifest for zone {a.zone!r}")
     todo = [r for r in want if not _ok(data / r["local"], int(r["bytes"]))]
@@ -365,7 +368,8 @@ def cmd_fetch(a) -> int:
     if bad:
         fail(f"{len(bad)} files missing or of the wrong size after the copy: {bad[:5]}; rerun to resume")
     if todo:
-        downloads_log(data, f"{'shared orbits + index' if a.zone == '*' else 'zone ' + a.zone} ({len(todo)} files)", nbytes)
+        what = "shared orbits + index" if a.zone == "*" else ("step m " if a.manifest != "manifest.tsv" else "") + "zone " + a.zone
+        downloads_log(data, f"{what} ({len(todo)} files)", nbytes)
         log(f"{a.zone}: {len(todo)} files, {nbytes / 1e6:.1f} MB in {dt:.0f} s ({nbytes / 1e6 / max(dt, 1e-3):.1f} MB/s)")
     else:
         log(f"{a.zone}: all {len(want)} files already here")
@@ -587,6 +591,222 @@ def cmd_upload_refcat(a) -> int:
     return 0
 
 
+# ------------------------------------------------------------------------------------------------ m: the PR #388 chain
+
+# PR #388 (16 Nov) changed crossid (2MASS borrowed-motion radius), classify (brown_dwarf_like water, AllWISE AGN veto),
+# astrometry (per-visit positions, astrometry_visits.parquet), highpm (deep counterpart check, highpm_visits.parquet) and
+# shape (IRSA neighbours, offset floor, blocked splits). Their tables only change after a per-zone rerun of this chain,
+# before the export (c). Step m runs it untiled per zone on the local mirror (single steps never tile; the sky run tiled
+# `all` only), the zone's inputs copied first, the outputs written locally, never to the bucket.
+MOTION_CHAIN = ("crossid", "classify", "astrometry", "highpm", "shape")
+# What the chain reads from results/<zone>/ besides the mirror of (a) (fixed, summary, photo list) and its own outputs
+# (crossids → classify, astrometry, highpm; classes → shape; astrometry + astrometry_visits → highpm):
+#   sources   crossid (ra, dec), classify (every column), highpm (+ flux_ujy spectra), shape
+#   members   crossid, classify, astrometry, highpm, shape (Store.read_parquet reads the whole file, whatever the columns)
+#   calib.json, calib_photos.parquet   astrometry (motion_io.member_dots: calibrated positions)
+#   fragments highpm, shape;  photoz  shape
+MOTION_TABLES = ("sources.parquet", "members.parquet", "calib.json", "calib_photos.parquet", "fragments.parquet",
+                 "photoz.parquet")
+# ... and the zone's dot files, whole: classify (load_shape_dots: whole file) and astrometry (motion_io.member_dots_raw:
+# whole file, every row for each photo's Jacobian) read every member photo's; shape reads 8 columns of 38% of them.
+MOTION_OUTPUTS = {"crossid": ("crossids.parquet",), "classify": ("classes.parquet",),
+                  "astrometry": ("astrometry.parquet", "astrometry_visits.parquet", "astrometry_report.json"),
+                  "highpm": ("highpm_candidates.parquet", "highpm_visits.parquet", "highpm_report.json"),
+                  "shape": ("shape_candidates.parquet", "shape_report.json", "shape_fit_report.json")}
+# Live queries (positions only, free): classify IRSA AllWISE (brown_dwarf_like rows); highpm ESA Gaia DR3 TAP + IRSA
+# CatWISE2020 and AllWISE (its candidates' tracks); shape IRSA AllWISE + Gaia DR3 (listed rows) and NASA's S3 photos
+# (range reads, the two-source fit of the listed rows).
+MOTION_QUERIES = ("classify: IRSA TAP AllWISE (brown_dwarf_like rows' positions)",
+                  "highpm: ESA Gaia DR3 TAP + IRSA TAP CatWISE2020 and AllWISE (candidates' positions and tracks)",
+                  "shape: IRSA TAP AllWISE + Gaia DR3 (listed rows' positions); NASA S3 range reads of their photos")
+
+
+def zone_dots_dir(data: Path, zone: str) -> tuple[str, bool]:
+    """(the dot-file folder the zone's link read, exact): results/<zone>/summary.json steps.link.dots_dir in the mirror,
+    else the pipeline config's folder for the zone."""
+    for name in ("summary.bucket.json", "summary.json"):
+        p = data / "results" / zone / name
+        if p.exists():
+            try:
+                d = (json.loads(p.read_text()).get("steps", {}).get("link") or {}).get("dots_dir")
+            except ValueError:
+                d = None
+            if d:
+                return str(d).strip("/"), True
+    try:
+        from skyshift_pipeline import config as C
+        return C.zone_dots(zone)[0].strip("/"), False
+    except Exception:  # noqa: BLE001  no pipeline env (a dry run before setup)
+        return "dots", False
+
+
+def motion_zone_order(zones: list[str]) -> list[str]:
+    """Zones along the sky (RA of the box centre, then Dec), so zones that share photos run one after the other and
+    the shared dot files leave the disk sooner."""
+    try:
+        from skyshift_pipeline import config as C
+        key = {z: ((C.ZONES[z].ra_min + C.ZONES[z].ra_max) / 2, (C.ZONES[z].dec_min + C.ZONES[z].dec_max) / 2)
+               for z in zones if z in C.ZONES}
+    except Exception:  # noqa: BLE001
+        key = {}
+    return sorted(zones, key=lambda z: (*key.get(z, (999.0, 0.0)), z))
+
+
+def motion_disk_peak(order: list[str], files: dict[str, set[str]], size: dict[str, int]) -> int:
+    """Largest bytes of dot files on disk at once when the zones run in `order`, one at a time, each file copied before
+    its first zone and deleted after its last."""
+    last = {}
+    for i, z in enumerate(order):
+        for f in files.get(z, ()):
+            last[f] = i
+    have: set[str] = set()
+    peak = 0
+    for i, z in enumerate(order):
+        have |= files.get(z, set())
+        peak = max(peak, sum(size[f] for f in have))
+        have = {f for f in have if last[f] > i}
+    return peak
+
+
+def cmd_mplan(a) -> int:
+    """Step m's plan: per zone the tables and dot files it copies from the bucket (exact when the zone's photo list and
+    summary are mirrored, else an estimate from the folder's mean file size), GB, $, the disk peak; motion_manifest.tsv."""
+    data, work = Path(a.data), Path(a.work)
+    ldir = work / "plan" / "listing"
+    zones = motion_zone_order(_zone_list(a))
+    res = {}
+    for url, size in gls(f"{BUCKET}/results/**", ldir):
+        parts = rel_of(url).split("/")
+        if len(parts) == 3 and parts[2] in MOTION_TABLES:
+            res[(parts[1], parts[2])] = (url, size)
+    folders: dict[str, dict[str, int]] = {}
+    rows: list[tuple[str, str, str, str, int]] = []
+    files: dict[str, set[str]] = {}
+    size: dict[str, int] = {}
+    per: dict[str, dict] = {}
+    for z in zones:
+        ddir, exact_dir = zone_dots_dir(data, z)
+        if ddir not in folders:
+            folders[ddir] = {rel_of(u).split("/", 1)[1]: s for u, s in gls(f"{BUCKET}/{ddir}/*", ldir)}
+        listing = folders[ddir]
+        mean = (sum(listing.values()) / len(listing)) if listing else DOT_FILE_MB * 1e6
+        t = {"tables_bytes": 0, "dots_files": 0, "dots_bytes": 0, "dots_missing": 0, "dots_dir": ddir, "exact": False,
+             "dir_from": "summary" if exact_dir else "config"}
+        for name in MOTION_TABLES:
+            if (z, name) in res:
+                url, s = res[(z, name)]
+                rows.append(("mtables", z, url, f"results/{z}/{name}", s))
+                t["tables_bytes"] += s
+        pl = data / "photolists" / "zones" / f"{z}.parquet"
+        if pl.exists():
+            import pandas as pd
+            p = pd.read_parquet(pl, columns=["obs_id", "detector"]).drop_duplicates()
+            names = {f"{o}D{int(d)}.parquet" for o, d in zip(p["obs_id"].astype(str), p["detector"])}
+            files[z] = set()
+            for n in sorted(names):
+                if n not in listing:
+                    t["dots_missing"] += 1
+                    continue
+                rel = f"{ddir}/{n}"
+                rows.append(("mdots", z, f"{BUCKET}/{rel}", rel, listing[n]))
+                files[z].add(rel)
+                size[rel] = listing[n]
+                t["dots_files"] += 1
+                t["dots_bytes"] += listing[n]
+            t["exact"] = True
+        else:
+            n, _ = photo_count(data, z, 0)
+            n = n or 0
+            t["dots_files"], t["dots_bytes"] = n, int(n * mean)
+        per[z] = t
+    out = work / "plan"
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / "motion_manifest.tsv", "w") as f:
+        f.write("category\tzone\turl\tlocal\tbytes\thave\n")
+        for cat, z, url, rel, s in rows:
+            f.write(f"{cat}\t{z}\t{url}\t{rel}\t{s}\t{int(_ok(data / rel, s))}\n")
+    uniq = sum(size.values()) + sum(t["dots_bytes"] for z, t in per.items() if z not in files)
+    tables = sum(t["tables_bytes"] for t in per.values())
+    have = sum(s for cat, z, url, rel, s in {r[3]: r for r in rows}.values() if _ok(data / rel, s))
+    peak = motion_disk_peak(zones, files, size) if files else 0
+    est = [z for z in zones if not per[z]["exact"]]
+    total = tables + uniq
+    plan = {"zones": zones, "per_zone": per, "tables_bytes": tables, "dots_bytes_unique": uniq, "have_bytes": have,
+            "total_bytes": total, "todo_bytes": max(0, total - have), "dots_peak_bytes": peak, "estimated_zones": est,
+            "queries": list(MOTION_QUERIES), "chain": list(MOTION_CHAIN)}
+    (out / "motion_plan.json").write_text(json.dumps(plan, indent=1))
+    print(f"(m) {' -> '.join(MOTION_CHAIN)} per zone, untiled, on the local mirror (PR #388); one zone at a time.")
+    print("  Reads from the bucket (gcloud storage cp, no-clobber), per zone:")
+    print(f"    results/<zone>/ {', '.join(MOTION_TABLES)} (kept: the export then reads them locally)")
+    print("    every photo's dot file <dots dir>/<obs_id>D<det>.parquet, whole (classify's shape dots and astrometry's member")
+    print("    dots read whole files); deleted after the last zone that needs it")
+    print("    already mirrored by (a): fixed.parquet, summary.json, photolists/zones/<zone>.parquet, refcat (a0)")
+    print(f"  {'zone':<10} {'dots dir':<28} {'dot files':>9} {'dots GB':>8} {'tables GB':>9}")
+    for z in zones:
+        t = per[z]
+        print(f"  {z:<10} {t['dots_dir']:<28} {t['dots_files']:>9,} {t['dots_bytes'] / GB:>8.2f} {t['tables_bytes'] / GB:>9.2f}"
+              f"{'' if t['exact'] else '  (estimate)'}{'' if t['dir_from'] == 'summary' else '  (folder from config)'}"
+              f"{'  ' + str(t['dots_missing']) + ' photos without a dot file' if t['dots_missing'] else ''}")
+    print(f"  total: tables {tables / GB:.1f} GB + dot files {uniq / GB:.1f} GB (each copied once; shared by zones: "
+          f"{sum(t['dots_bytes'] for t in per.values()) / GB:.1f} GB counted per zone) = {total / GB:.1f} GB, "
+          f"{money(total / GB)} at ${PRICE_PER_GB}/GB; already here {have / GB:.1f} GB")
+    if peak:
+        print(f"  disk: dot files at most {peak / GB:.0f} GB at once (zones in sky order); tables {tables / GB:.0f} GB kept")
+    if est:
+        print(f"  estimated (photo list not mirrored yet): {' '.join(est)}; exact after step a")
+    print("  Live queries (positions only, free): " + "; ".join(MOTION_QUERIES))
+    pj = out / "plan.json"
+    if pj.exists():  # the whole run with (m): its tables are local for the export, which then reads only dot-file flags
+        base = json.loads(pj.read_text())
+        a_gb, m_gb, c_gb = base["mirror_todo"] / GB, plan["todo_bytes"] / GB, base["export"]["flags_gb"]
+        print(f"  Download in all with (m): (a) {a_gb:.1f} + (m) {m_gb:.1f} + (c) ~{c_gb:.0f} GB (dot-file flags; the tables "
+              f"are local after m) = ~{a_gb + m_gb + c_gb:.0f} GB, ~{money(a_gb + m_gb + c_gb)}; optional (k) +57 GB, ~$7")
+    return 0
+
+
+def cmd_motion(a) -> int:
+    """Step m, one step of the chain for one zone: the pipeline's own code on an overlay (the mirror first, the bucket
+    read only for anything not copied; every write into the mirror)."""
+    store = make_overlay(a.data, a.bucket, a.block, a.offline, write_local=True)
+    t0 = time.time()
+    if a.step == "shape":
+        from skyshift_pipeline import shape
+        from skyshift_pipeline import store as pstore
+        pstore.Store = lambda root: store  # shape.main builds its Store from --root: hand it the overlay
+        out = Path(a.data) / "results" / a.zone
+        rc = int(shape.main(["--zone", a.zone, "--root", a.bucket, "--out", str(out), "--workers", str(a.workers)]) or 0)
+    else:
+        from skyshift_pipeline import cli
+        cli.Store = lambda root: store  # cli.main builds its Store from --root: hand it the overlay
+        rc = int(cli.main([a.step, "--zone", a.zone, "--root", a.bucket, "--workers", str(a.workers)]) or 0)
+    fs = store.fs
+    log(f"m {a.zone} {a.step}: exit {rc} in {time.time() - t0:.0f} s; bucket reads beyond the mirror: {fs.remote_files} files, "
+        f"{fs.remote_bytes / 1e6:.1f} MB whole + {fs.remote_opens} opened by column{': ' + ', '.join(fs.remote_names[:5]) if fs.remote_names else ''}")
+    missing = [n for n in MOTION_OUTPUTS[a.step] if not (Path(a.data) / "results" / a.zone / n).exists()]
+    if rc == 0 and missing and a.step != "shape":
+        fail(f"m {a.zone} {a.step}: {missing} not written")
+    return rc
+
+
+def cmd_mclean(a) -> int:
+    """Step m: delete the mirrored dot files no zone still to run needs (zones done: <stamps>/m.<zone>)."""
+    data, work, stamps = Path(a.data), Path(a.work), Path(a.stamps)
+    need: dict[str, set[str]] = defaultdict(set)
+    for r in read_manifest(work, "motion_manifest.tsv"):
+        if r["category"] == "mdots":
+            need[r["local"]].add(r["zone"])
+    n = nb = 0
+    for rel, zs in need.items():
+        if all((stamps / f"m.{z}").exists() for z in zs):
+            p = data / rel
+            if p.exists():
+                nb += p.stat().st_size
+                p.unlink()
+                n += 1
+    log(f"m: {n} dot files no zone still needs deleted ({nb / GB:.2f} GB)")
+    return 0
+
+
 # ------------------------------------------------------------------------------------------------ estimate
 
 def mover_files(data: Path, zone: str) -> tuple[int, int, int, dict]:
@@ -628,7 +848,12 @@ def cmd_estimate(a) -> int:
         old += [z] if q else []
         grades.update(g)
         photos += photo_count(data, z, 0)[0]
-    exp = export_estimate(photos, int(plan["export"]["tables_gb"] * GB), nab, npos)
+    files = plan["export"].get("files")
+    # tables already in the mirror (step m copies sources, members, fragments, photoz and writes crossids, classes,
+    # highpm_candidates, shape_candidates) are read locally
+    tables = (sum(s for rel, s in files if not (data / rel).exists()) if files is not None
+              else int(plan["export"]["tables_gb"] * GB))
+    exp = export_estimate(photos, tables, nab, npos)
     free = _free_gb(data)
     print(f"Suspects after (b): {nmov:,} movers in {len(zones)} zones; grades {dict(sorted(grades.items()))}")
     print(f"Export (c) reads from the bucket by column: tables {exp['tables_gb']:.1f} GB + flags (~{FIXED_PHOTO_SHARE:.0%} "
@@ -657,6 +882,17 @@ class _OverlayFS:
 
     def __init__(self, store):
         self.s = store
+        self.remote_files = self.remote_bytes = self.remote_opens = 0  # what was read beyond the mirror (step m logs it)
+        self.remote_names: list[str] = []
+
+    def _note(self, path: str, nbytes: int | None) -> None:
+        if nbytes is None:
+            self.remote_opens += 1
+        else:
+            self.remote_files += 1
+            self.remote_bytes += nbytes
+        if len(self.remote_names) < 20:
+            self.remote_names.append(str(path).rsplit("/", 2)[-2] + "/" + str(path).rsplit("/", 1)[-1])
 
     def _route(self, path: str):
         lp = self.s.local_of_path(path)
@@ -670,12 +906,17 @@ class _OverlayFS:
         if "r" not in mode or "+" in mode:
             raise PermissionError(f"the rebuild never writes to the bucket ({path})")
         fs, p = self._route(path)
-        return open(p, mode) if fs is None else fs.open(p, mode, **kw)
+        if fs is None:
+            return open(p, mode)
+        self._note(p, None)
+        return fs.open(p, mode, **kw)
 
     def cat_file(self, path, start=None, end=None, **kw):
         fs, p = self._route(path)
         if fs is not None:
-            return fs.cat_file(p, start=start, end=end, **kw)
+            out = fs.cat_file(p, start=start, end=end, **kw)
+            self._note(p, len(out))
+            return out
         with open(p, "rb") as f:
             size = os.path.getsize(p)
             s = 0 if start is None else (start if start >= 0 else max(0, size + start))
@@ -720,7 +961,8 @@ class _OverlayFS:
         raise AttributeError(f"overlay: fs.{name} is not supported (scripts/rebuild/rebuild.py _OverlayFS)")
 
 
-def make_overlay(local_root: str, bucket: str, block: int, offline: bool):
+def make_overlay(local_root: str, bucket: str, block: int, offline: bool, write_local: bool = False):
+    """The overlay store; write_local (step m): writes go into the mirror (local_root/<rel>), never to the bucket."""
     from skyshift_pipeline.store import Store
 
     class OverlayStore(Store):
@@ -756,7 +998,14 @@ def make_overlay(local_root: str, bucket: str, block: int, offline: bool):
             return self.fs.cat_file(self.path(rel))
 
         def write_bytes(self, rel: str, data: bytes) -> None:
-            raise PermissionError(f"the rebuild never writes to the bucket ({rel})")
+            if not write_local:
+                raise PermissionError(f"the rebuild never writes to the bucket ({rel})")
+            p = os.path.join(self.local_base, rel.lstrip("/"))
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            tmp = f"{p}.tmp-{os.getpid()}"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, p)
 
         def listdir(self, rel: str) -> list[str]:
             try:
@@ -1068,6 +1317,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--work", required=True)
     p.add_argument("--zone", required=True, help="a zone, or * for the shared orbit snapshots and index")
     p.add_argument("--check", action="store_true", help="copy nothing: list what is missing (exit 1 if anything)")
+    p.add_argument("--manifest", default="manifest.tsv", help="plan/<name>: manifest.tsv (a), motion_manifest.tsv (m)")
     p = sub.add_parser("estimate")
     p.add_argument("--data", required=True)
     p.add_argument("--work", required=True)
@@ -1091,6 +1341,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--expect-frames", action="store_true", help="stop when many of the top movers have no frames")
     p.add_argument("--frames-top", type=int, default=FRAMES_TOP, help=f"movers with static frames (default {FRAMES_TOP})")
     p.add_argument("--out", default=None)
+    p = sub.add_parser("mplan")
+    p.add_argument("--data", required=True)
+    p.add_argument("--work", required=True)
+    p.add_argument("--zones", default="")
+    p.add_argument("--zones-file", default=None)
+    p = sub.add_parser("motion")
+    p.add_argument("--data", required=True)
+    p.add_argument("--zone", required=True)
+    p.add_argument("--step", required=True, choices=MOTION_CHAIN)
+    p.add_argument("--bucket", default=BUCKET)
+    p.add_argument("--workers", type=int, default=os.cpu_count() or 4)
+    p.add_argument("--block", type=int, default=16384)
+    p.add_argument("--offline", action="store_true", help="never touch the bucket (tests)")
+    p = sub.add_parser("mclean")
+    p.add_argument("--data", required=True)
+    p.add_argument("--work", required=True)
+    p.add_argument("--stamps", required=True, help="the folder of the zone stamps m.<zone>")
     p = sub.add_parser("frames-check")
     p.add_argument("--data-dir", required=True)
     p.add_argument("--top", type=int, default=FRAMES_TOP)
@@ -1118,7 +1385,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_export(a, extra)
     return {"plan": cmd_plan, "fetch": cmd_fetch, "estimate": cmd_estimate, "combine": cmd_combine,
             "report": cmd_report, "fill-todo": cmd_fill_todo, "frames-check": cmd_frames_check,
-            "refcat-status": cmd_refcat_status, "refcat": cmd_refcat, "upload-refcat": cmd_upload_refcat}[a.cmd](a)
+            "refcat-status": cmd_refcat_status, "mplan": cmd_mplan, "motion": cmd_motion, "mclean": cmd_mclean, "refcat": cmd_refcat, "upload-refcat": cmd_upload_refcat}[a.cmd](a)
 
 
 if __name__ == "__main__":

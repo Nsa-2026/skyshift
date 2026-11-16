@@ -12,7 +12,8 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    promising candidates, web/public/data/cand/<id>/, and their frames_url in candidates.json.
                    candidates.json itself comes from the pipeline: cd pipeline && uv run skyshift-candidates.
                    known[] is MPC only (server known.py); `--known-only` recomputes just known[] of cand/*.
-                   The top of each kind, every grade A/B mover, never a grade C one. A mover's frames must
+                   The top of each kind, every grade A/B mover, never a grade C one (`--ab-top N`: movers only as
+                   the N best open A/B ones; the PC rebuild uses 300). A mover's frames must
                    show its own exposures (a partial search is retried once, then skipped).
                    catalogue_check.py (check producer `catalogue`, run from pipeline/): IRSA catalogues at every
                    candidate → ~/skyshift-data/checks/catalogue.json; answers cached per position (--cache).
@@ -35,12 +36,15 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    (check values and its `one_photo` entry). Writes ~/skyshift-data/checks/pixel.json; --validate
                    gives the hit rates on known asteroids, junk and faint stars (pixel_validate.py, into
                    ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.
-- rebuild/         P1. The To check rebuild on the lead's PC (docs/rebuild-on-pc.md): tocheck.sh runs mirror → suspects
-                   for every zone → one export → check producers → merge → frames → checks → PR, resumable (a stamp
-                   per step); `--dry-run` prints files, GB and $. rebuild.py (pipeline env): plan/fetch (gcloud storage,
-                   no-clobber), estimate, export (skyshift-candidates on an overlay: the local mirror first, the bucket by
-                   column with a 16 KiB read block; gcsfs' default 5 MiB block reads whole dot files: ~784 GB vs ~50 GB),
-                   combine, report, fill-todo. Never writes to the bucket except `--upload-known-index`.
+- rebuild/         P1. The To check rebuild on the lead's PC (docs/rebuild-on-pc.md): tocheck.sh runs mirror (a) → refcat
+                   completion (a0) → suspects (b) → PR #388's crossid…shape chain per zone (m, before the export) → one
+                   export (c) → check producers + merge (d) → frames for the top 300 open A/B movers (e) → optional
+                   changes (k, --with-changes) → checks (f) → PR (g), resumable (stamps per step and zone); `--dry-run`
+                   prints files, GB and $. rebuild.py (pipeline env): plan/fetch (gcloud storage, no-clobber), refcat,
+                   refcat-status, upload-refcat, mplan/motion/mclean (step m on a write-local overlay), estimate, export
+                   (skyshift-candidates on an overlay: the local mirror first, the bucket by column with a 16 KiB read
+                   block), combine, report, frames-check, fill-todo. Never deletes in the bucket; writes there only with
+                   `--upload-known-index` or `--upload-refcat` (old refcats copied to refcat/before-pc-rebuild/ first).
                    Tests: cd pipeline && uv run pytest ../scripts/rebuild/tests
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py), run a round through the Claude API (api_round.py, key from the environment),

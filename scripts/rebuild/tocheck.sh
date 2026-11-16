@@ -16,9 +16,13 @@
 #          --upload-known-index also copies it to the bucket (the ONLY bucket write, ~115 MB, never overwrites;
 #          after a finished run it uploads and changes nothing else)
 #   b      `skyshift-pipeline suspects` for every zone (16 Nov rule: remove only the certain), --workers zones at once
+#   m      PR #388: crossid -> classify -> astrometry -> highpm -> shape per zone, untiled, on the mirror (one zone at a
+#          time; each zone's tables and dot files copied first, dot files deleted after the last zone needing them).
+#          Must finish before the export (c)
 #   c      one export (skyshift-candidates): the mirror first, the rest of the bucket by column (small reads)
 #   d      check producers known (all movers), catalogue, pixel (To check movers only), then the merge
 #   e      web/public/data: candidates.json (+ candidates-more/), static frames and fill for the top 300 open A/B movers
+#   k      only with --with-changes (PR #386): the changes step per zone, each in its own process, then changes.json/.atom
 #   f      checks before publishing (counts, sizes, 306P, spot checks, before/after), web tests and build
 #   g      commit web/public/data on the branch, push, open a PR with gh (the orchestrator merges and deploys main)
 #
@@ -41,12 +45,13 @@ Options
   --allow-partial         let a partial run write web/public/data, build frames and open the PR anyway
   --workers N             zones at once in step b, frames at once in e (default: half the cores, at most RAM/4 GB)
   --data DIR              local mirror and work folder (default $SKYSHIFT_DATA or ~/skyshift-data)
-  --redo STEP             run STEP again (a, a0, h, b, c, d, e, f, g) and every step after it; --redo a lists the bucket again
+  --redo STEP             run STEP again (a, a0, h, b, m, c, d, e, k, f, g) and every step after it; --redo a lists the bucket again
   --only STEP             run only STEP (the steps before it must be done)
   --known-index           step h: rebuild the server's MPC known index with every comet (local; frames use it)
   --upload-known-index    also copy the index and orbit snapshots to the bucket (implies --known-index)
   --upload-refcat         after a0: the completed refcats to the bucket (~9-13 GB, ~$0.10-0.13/month; asks first)
   --frames-top N          static frames for the N best open A/B movers by score (default 300; ~0.45 MB each in git)
+  --with-changes          step k: changes in known stars (PR #386 + its chunking follow-up; ~57 GB, ~$7; off by default)
   --pixel-args "..."      extra arguments for pixel_check.py (e.g. "--limit 20" for a test)
   --export-args "..."     extra arguments for skyshift-candidates (e.g. a flag the split needs)
   --no-pr                 step g commits and pushes but opens no PR
@@ -59,7 +64,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATA="${SKYSHIFT_DATA:-$HOME/skyshift-data}"
 BUCKET="${SKYSHIFT_BUCKET:-gs://nasa-glazing-data}"
 DRY=0; ZONES=""; WORKERS=""; REDO=""; ONLY=""; KNOWN_INDEX=0; UPLOAD_INDEX=0; ALLOW_PARTIAL=0; NO_PR=0; YES=0
-PIXEL_ARGS=""; EXPORT_ARGS=""; OFFLINE_EXPORT=0; UPLOAD_REFCAT=0; FRAMES_TOP=300
+PIXEL_ARGS=""; EXPORT_ARGS=""; OFFLINE_EXPORT=0; UPLOAD_REFCAT=0; FRAMES_TOP=300; WITH_CHANGES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
@@ -74,6 +79,7 @@ while [ $# -gt 0 ]; do
     --known-index) KNOWN_INDEX=1 ;;
     --upload-known-index) UPLOAD_INDEX=1; KNOWN_INDEX=1 ;;
     --upload-refcat) UPLOAD_REFCAT=1 ;;
+    --with-changes) WITH_CHANGES=1 ;;
     --frames-top) FRAMES_TOP="$2"; shift ;;
     --frames-top=*) FRAMES_TOP="${1#*=}" ;;
     --allow-partial) ALLOW_PARTIAL=1 ;;
@@ -88,7 +94,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-STEPS=(a a0 h b c d e f g)
+STEPS=(a a0 h b m c d e k f g)
 case "$FRAMES_TOP" in ''|*[!0-9]*) echo "--frames-top: a number" >&2; exit 64 ;; esac
 case " ${STEPS[*]} " in *" ${REDO:-a} "*) ;; *) echo "--redo: one of ${STEPS[*]}" >&2; exit 64 ;; esac
 case " ${STEPS[*]} " in *" ${ONLY:-a} "*) ;; *) echo "--only: one of ${STEPS[*]}" >&2; exit 64 ;; esac
@@ -96,7 +102,7 @@ case " ${STEPS[*]} " in *" ${ONLY:-a} "*) ;; *) echo "--only: one of ${STEPS[*]}
 mkdir -p "$DATA"
 DATA="$(cd "$DATA" && pwd)"
 WORK="$DATA/rebuild"
-ZSTAMPS="$WORK/zones"            # a.<zone>, a0.<zone> (the G limit), b.<zone>: per zone, shared by every run
+ZSTAMPS="$WORK/zones"            # a.<zone>, a0.<zone> (the G limit), b.<zone>, m.<zone>[.<step>]: per zone, every run
 PIPE_PY="$REPO/pipeline/.venv/bin/python"
 SERVER_PY="$REPO/server/.venv/bin/python"
 export FSSPEC_GS='{"block_size": 16384}'  # gcsfs reads by column with small blocks (catalogue_check's own magnitudes)
@@ -134,6 +140,7 @@ default_workers() {
   echo "$w"
 }
 [ -n "$WORKERS" ] || WORKERS=$(default_workers)
+CORES=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 free_gb() { df -Pk "$DATA" | awk 'NR==2 {print int($4/1048576)}'; }
 
 # ------------------------------------------------------------------------------------------------ checks before anything
@@ -208,6 +215,12 @@ EOF
   fi
   cat <<EOF
   b      for each of ${#ZLIST[@]} zones, $WORKERS at once: skyshift-pipeline suspects --zone <zone> --root $DATA
+  m      for each zone, one at a time: rebuild.py fetch --manifest motion_manifest.tsv; rebuild.py motion --step
+         crossid, classify, astrometry, highpm, shape (the pipeline's code on the mirror, writes local); rebuild.py mclean
+EOF
+  { plan_py mplan --data "$DATA" --work "$WORK" --zones-file "$RUN/zones.txt" \
+      || echo "(mplan failed: see above; measured 16 Nov: ~502 GB of dot files + ~17 GB of tables, ~\$67)"; } | sed 's/^/         /'
+  cat <<EOF
   c      rebuild.py export (skyshift-candidates on the overlay) --cache $DATA/cache/export --out $RUN/export/candidates.json
   d      known_check.py (all movers, --mpchecker 30), catalogue_check.py (--root $BUCKET), pixel_check.py (To check movers)
          skyshift-candidates --merge-only <export> --checks-dir $RUN/checks --out $RUN/final/candidates.json (+ candidates-more/)
@@ -216,6 +229,16 @@ EOF
     cat <<EOF
   e      copy into web/public/data; frames.py --ab-top $FRAMES_TOP --parallel $fp --deadline 900; fill.py for new hours frames
          (static frames for the top $FRAMES_TOP open A/B movers by score: ~$(( FRAMES_TOP * 45 / 100 )) MB in cand/, ~$(( FRAMES_TOP * 14 / 100 )) MB in git)
+EOF
+    if [ "$WITH_CHANGES" = 1 ]; then
+      echo "  k      changes_step --zones <zone> --skip-done --drop-points (one process per zone), then changes_export"
+      echo "         -> web/public/data/changes.json + changes.atom. Reads ~57 GB of Nearline light curves (11 columns), ~\$7"
+      [ -f "$REPO/pipeline/src/skyshift_pipeline/changes_step.py" ] \
+        || echo "         NOT READY in this checkout: needs PR #386 merged (and its chunking follow-up)"
+    else
+      echo "  k      off (add --with-changes): changes in known stars, ~57 GB of Nearline light curves = ~\$7 (the user decides)"
+    fi
+    cat <<EOF
   f      rebuild.py report (counts, sizes, 306P, spot checks, before/after origin/main); cd web && npm ci && npm test && npm run build
   g      git commit web/public/data; git push; gh pr create$([ "$NO_PR" = 1 ] && echo " (skipped: --no-pr)")
 EOF
@@ -226,9 +249,11 @@ EOF
   cat <<EOF
 
 Time on a 16-core PC with ~100-1000 Mbit/s (estimates; docs/rebuild-on-pc.md, section 3):
-  a 10-40 min | a0 1-3 h (3-8 h if Gaia must go deeper) | h 10-30 min | b 20-60 min | c 0.5-2 h (download-bound)
-  d 1-4 h | e 1-4 h (IRSA-bound) | f 10-20 min | g 5-15 min
-Free disk now: $(free_gb) GB under $DATA (a full run needs ~130 GB: mirror ~11 GB, refcats ~25 GB, export cache, frames, the repo).
+  a 10-40 min | a0 1-3 h (3-8 h if Gaia must go deeper) | h 10-30 min | b 20-60 min
+  m ~520 GB to copy (1.3 h at 1 Gbit/s, 13 h at 100 Mbit/s) + the five steps, one zone at a time (not measured: ~0.5-2 days)
+  c 0.5-2 h (download-bound) | d 1-4 h | e 1-4 h (IRSA-bound) | k (--with-changes) ~1.5 h + 57 GB | f 10-20 min | g 5-15 min
+Free disk now: $(free_gb) GB under $DATA (a full run needs ~200 GB: mirror ~11 GB, refcats ~25 GB, step m's tables ~17 GB and
+dot files at their peak ~35 GB, export cache ~29 GB, frames, the repo).
 Nothing was downloaded or run.
 EOF
 }
@@ -247,7 +272,7 @@ clear_after() {  # a step ran again: the steps after it must too
 apply_redo() {
   [ -n "$REDO" ] || return 0
   rm -f "$RUN_STAMPS/$REDO" "$RUN_STAMPS/$REDO".*
-  case "$REDO" in a|a0|b) rm -f "$ZSTAMPS/$REDO".* ;; esac
+  case "$REDO" in a|a0|b|m) rm -f "$ZSTAMPS/$REDO".* ;; esac
   case "$REDO" in h) clear_after c ;; a0) clear_after h ;; *) clear_after "$REDO" ;; esac
   say "--redo $REDO: its stamps and those of the later steps removed"
 }
@@ -338,7 +363,9 @@ step_a0() {
     say "refcat $z" | tee -a "$LOGF"
     ( trap - ERR
       SKYSHIFT_REFCAT_S3_FIRST=1 rb refcat --data "$DATA" --zone "$z" > "$RUN_LOGS/a0.$z.log" 2>&1 || exit 1
-      if grep -q '"changed": true' "$RUN_LOGS/a0.$z.log"; then rm -f "$ZSTAMPS/b.$z"; fi   # suspects must run again there
+      if grep -q '"changed": true' "$RUN_LOGS/a0.$z.log"; then   # suspects and the m chain (crossid) run again there
+        rm -f "$ZSTAMPS/b.$z" "$ZSTAMPS/m.$z" "$ZSTAMPS/m.$z".*
+      fi
       echo "$gmax" > "$ZSTAMPS/a0.$z" ) &
     n=$((n + 1))
     if [ "$n" -ge "$par" ]; then wait -n || failed=1; n=$((n - 1)); [ "$failed" = 0 ] || break; fi
@@ -429,6 +456,37 @@ step_b() {
   say "b: suspects done for ${#ZLIST[@]} zones" | tee -a "$LOGF"
 }
 
+# ------------------------------------------------------------------------------------------------ m: the PR #388 chain
+step_m() {
+  step_log m "crossid -> classify -> astrometry -> highpm -> shape per zone (PR #388), untiled, on the mirror"
+  rb mplan --data "$DATA" --work "$WORK" --zones-file "$RUN/zones.txt" 2>&1 | tee -a "$LOGF"
+  local mp="$WORK/plan/motion_plan.json" gb need order=() z s
+  gb=$(python3 -c "import json,sys; print(round(json.load(open(sys.argv[1]))['todo_bytes']/1e9, 1))" "$mp")
+  need=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(int((d['dots_peak_bytes'] + d['tables_bytes'])/1e9) + 10)" "$mp")
+  [ "$(free_gb)" -gt "$need" ] || die "not enough disk for step m: ~$need GB (dot files at their peak + tables + 10), $(free_gb) GB free"
+  if [ "$(python3 -c "print(int($gb > 0))")" = 1 ]; then
+    confirm "Step m copies $gb GB from the bucket (~\$$(python3 -c "print(round($gb * 0.13, 2))")): the zones' dot files once, and their tables. Go?"
+  fi
+  mapfile -t order < <(python3 -c "import json,sys; print('\n'.join(json.load(open(sys.argv[1]))['zones']))" "$mp")
+  for z in "${order[@]}"; do   # one zone at a time: an untiled astrometry holds the zone's member dots in memory
+    [ -f "$ZSTAMPS/m.$z" ] && continue
+    say "m $z: copy its tables and dot files" | tee -a "$LOGF"
+    rb fetch --data "$DATA" --work "$WORK" --manifest motion_manifest.tsv --zone "$z" >> "$RUN_LOGS/m.$z.log" 2>&1 \
+      || die "the copy failed for $z (log $RUN_LOGS/m.$z.log); rerun to resume"
+    for s in crossid classify astrometry highpm shape; do
+      [ -f "$ZSTAMPS/m.$z.$s" ] && continue
+      say "m $z: $s" | tee -a "$LOGF"
+      rb motion --data "$DATA" --zone "$z" --step "$s" --workers "$CORES" >> "$RUN_LOGS/m.$z.log" 2>&1 \
+        || die "$s failed for $z (log $RUN_LOGS/m.$z.log); rerun: it resumes at $s"
+      date -u +%FT%TZ > "$ZSTAMPS/m.$z.$s"
+    done
+    date -u +%FT%TZ > "$ZSTAMPS/m.$z"
+    rb mclean --data "$DATA" --work "$WORK" --stamps "$ZSTAMPS" >> "$RUN_LOGS/m.$z.log" 2>&1 || true
+  done
+  grep -h 'bucket reads beyond' "$RUN_LOGS"/m.*.log >> "$LOGF" 2>/dev/null || true
+  say "m: the chain ran for ${#order[@]} zones; the export reads their new tables from the mirror" | tee -a "$LOGF"
+}
+
 # ------------------------------------------------------------------------------------------------ c: export
 step_c() {
   step_log c "one export from the mirror + the bucket by column"
@@ -437,7 +495,11 @@ step_c() {
   gb=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['total_gb'])" "$WORK/plan/export_estimate.json")
   confirm "The export reads ~$gb GB from the bucket (~\$$(python3 -c "print(round($gb * 0.13, 2))")); reruns read from the cache. Go?"
   mkdir -p "$DATA/cache/export"
-  rm -f "$DATA"/cache/export/results__*__suspects.*      # never a cached column read of an old suspects table
+  rm -f "$DATA"/cache/export/results__*__suspects.*      # never a cached column read of an old suspects table ...
+  local t                                                 # ... nor of a table step m wrote again
+  for t in crossids classes astrometry astrometry_visits highpm_candidates highpm_visits shape_candidates; do
+    rm -f "$DATA"/cache/export/results__*__"$t".parquet.*
+  done
   rm -rf "$RUN/export"; mkdir -p "$RUN/export"
   local zl off=()
   zl=$(IFS=,; echo "${ZLIST[*]}")
@@ -540,6 +602,24 @@ step_e() {
   say "e: web/public/data ready ($(du -sh "$dst/cand" | cut -f1) of frames)" | tee -a "$LOGF"
 }
 
+# ------------------------------------------------------------------------------------------------ k: changes in known stars
+step_k() {   # only with --with-changes; the lines of PR #386's description
+  step_log k "changes in known stars: per zone, then web/public/data/changes.json and changes.atom"
+  [ -f "$REPO/pipeline/src/skyshift_pipeline/changes_step.py" ] \
+    || die "--with-changes: step k needs PR #386 (the changes step) merged, and its chunking follow-up: update main"
+  confirm "The changes step reads ~57 GB of light curves from the bucket (~\$7); a stopped run resumes. Go?"
+  local z failed=()
+  mkdir -p "$DATA/cache/changes"
+  for z in "${ZLIST[@]}"; do   # one process per zone: a zone that runs out of memory stops only itself
+    (cd "$REPO/pipeline" && "$PIPE_PY" -m skyshift_pipeline.changes_step --zones "$z" --skip-done --drop-points \
+        --root "$BUCKET" --out-root "$DATA" --cache "$DATA/cache/changes") 2>&1 | tee -a "$LOGF" || failed+=("$z")
+  done
+  [ ${#failed[@]} -eq 0 ] || say "k: no changes for ${failed[*]} (see $LOGF); the other zones are listed" | tee -a "$LOGF"
+  (cd "$REPO/pipeline" && "$PIPE_PY" -m skyshift_pipeline.changes_export --root "$DATA" \
+      --out "$REPO/web/public/data/changes.json") 2>&1 | tee -a "$LOGF"
+  [ -s "$REPO/web/public/data/changes.json" ] || die "the changes export wrote no web/public/data/changes.json"
+}
+
 # ------------------------------------------------------------------------------------------------ f: checks
 step_f() {
   step_log f "checks before publishing"
@@ -562,6 +642,11 @@ step_g() {
   [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = "$br" ] || die "not on the rebuild branch $br"
   git -C "$REPO" add -A web/public/data/candidates.json web/public/data/cand
   [ -d "$REPO/web/public/data/candidates-more" ] && git -C "$REPO" add -A web/public/data/candidates-more
+  if [ "$WITH_CHANGES" = 1 ]; then
+    local f; for f in changes.json changes.atom; do
+      [ -f "$REPO/web/public/data/$f" ] && git -C "$REPO" add "web/public/data/$f"
+    done
+  fi
   local stat; stat=$(git -C "$REPO" diff --cached --shortstat)
   if [ -n "$stat" ]; then
     local msg="$RUN/reports/commit.txt"
@@ -641,10 +726,15 @@ main_flow() {
   if [ "$KNOWN_INDEX" = 1 ]; then run h step_h; fi
   if [ "$UPLOAD_INDEX" = 1 ] && want_step h; then upload_index; fi
   run b step_b
+  run m step_m
   run c step_c
   run d step_d
   if [ "$PUBLISH" = 1 ]; then run e step_e
   elif want_step e; then say "step e skipped: partial run (--zones); add --allow-partial to publish it"; fi
+  if [ "$WITH_CHANGES" = 1 ]; then
+    if [ "$PUBLISH" = 1 ]; then run k step_k
+    elif want_step k; then say "step k skipped: partial run (--zones)"; fi
+  fi
   run f step_f
   if [ "$PUBLISH" = 1 ]; then run g step_g
   elif want_step g; then say "step g skipped: partial run; the result is in $RUN/final, the report in $RUN/reports/check.md"; fi
