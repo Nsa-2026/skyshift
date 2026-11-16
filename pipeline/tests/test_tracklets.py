@@ -256,3 +256,60 @@ def test_recovery_marks_dots_from_inside_a_fixed_group():
     _, rec, st = T.build(m.drop(columns="truth"), photos, ZONE, fd)
     assert len(rec) == 1 and bool(rec["in_fixed"].iloc[0]) and st["recovered_in_fixed"] == 1
     assert st["control"]["recovered_in_fixed"] == 0
+
+
+# --- session stacks: free stack rows join the recovery (SESSION_STACK on) -----------------------------------------
+def stack_fd(m_ts, picks):
+    """nonfixed_dots rows as link writes them for session-stack rows: picks [(asteroid, session)] on their paths at the
+    session's mean time, plus one stack row far from any track."""
+    rows = []
+    for n, (k, s) in enumerate(picks):
+        th = m_ts[s - 1] + 2.1 / 60  # the photos' mean time (3 photos 2.1 min apart)
+        ra, dec = position(k, np.array([th]))
+        rows.append({"ra": ra[0] + 0.4 / 3600, "dec": dec[0] + 0.3 / 3600, "mjd": T0 + th / 24, "session": s,
+                     "stack_key": f"stack{s}", "stack_row": n})
+    rows.append({"ra": 122.9, "dec": 19.0, "mjd": T0 + (m_ts[9] + 2.1 / 60) / 24, "session": 10, "stack_key": "stack10",
+                 "stack_row": 9})
+    fd = pd.DataFrame(rows)
+    n = len(fd)
+    return fd.assign(session=fd["session"].astype(np.int32), visit=np.int16(1), obs_id="", detector=np.int8(1),
+                     dot_row=np.full(n, -1, np.int32), snr=np.float32(6.0), flux_ujy=np.float32(20.0), flags=np.int32(0),
+                     flags_peak=np.int32(0), elong=np.float32(1.0), near_fixed=False, in_fixed=False,
+                     stack_row=fd["stack_row"].astype(np.int32))
+
+
+def test_recovery_takes_session_stack_rows_where_the_track_does_not_smear(monkeypatch):
+    """A faint asteroid seen only in a session's stack (link's free stack rows in nonfixed_dots) joins its track as a
+    recovered dot at the session's mean time, with its stack key and row; where the track moves more than
+    TRACK_RECOVER_STACK_SMEAR_ARCSEC over the session (the stack smeared it), only real dots count."""
+    monkeypatch.setattr(C, "SESSION_STACK", True)
+    m, photos, ts = scene(drop={2: [10], 3: [12]})
+    fd = stack_fd(ts, [(2, 10), (3, 12)])  # 34″/h and 73″/h: 2.3″ and 5.1″ over a 4.2-min session
+    _, rec, st = T.build(m.drop(columns="truth"), photos, ZONE, fd)
+    assert list(rec.columns) == T.DOT_COLUMNS + T.STACK_DOT_COLUMNS
+    assert sorted(rec["stack_key"].tolist()) == ["stack10", "stack12"] and (rec["dot_row"] == -1).all()
+    assert (rec["obs_id"] == "").all() and (rec["sep_arcsec"] < 2.0).all()
+    assert st["nonfixed_stack_rows"] == 3 and st["recovered_stack_rows"] == 2
+    assert st["control"]["recovered_stack_rows"] == 0
+    monkeypatch.setattr(C, "TRACK_RECOVER_STACK_SMEAR_ARCSEC", 3.0)
+    _, rec, st = T.build(m.drop(columns="truth"), photos, ZONE, fd)
+    assert rec["stack_key"].tolist() == ["stack10"] and st["recovered_stack_rows"] == 1
+
+
+def test_load_free_dots_keeps_stack_rows_only_when_switched_on(tmp_path, monkeypatch):
+    m, photos, ts = scene()
+    real = pd.DataFrame({"ra": [121.0], "dec": [16.0], "mjd": [T0], "session": np.int32(1), "visit": np.int16(1),
+                         "obs_id": ["S1E0"], "detector": np.int8(1), "dot_row": np.int32(4), "snr": np.float32(7.0),
+                         "flux_ujy": np.float32(50.0), "flags": np.int32(0), "flags_peak": np.int32(0),
+                         "elong": np.float32(1.1), "near_fixed": False, "in_fixed": False, "stack_key": "",
+                         "stack_row": np.int32(-1)})
+    store = Store(str(tmp_path))
+    store.write_parquet(results_rel(ZONE.name, T.FREE_DOTS), pd.concat([real, stack_fd(ts, [(2, 10)])], ignore_index=True))
+    monkeypatch.setattr(C, "SESSION_STACK", False)
+    off = T.load_free_dots(store, ZONE)
+    assert len(off) == 1 and "stack_row" not in off and off["dot_row"].tolist() == [4]
+    _, rec, st = T.build(m.drop(columns="truth"), photos, ZONE, off)
+    assert list(rec.columns) == T.DOT_COLUMNS and "recovered_stack_rows" not in st  # switched off: as before
+    monkeypatch.setattr(C, "SESSION_STACK", True)
+    on = T.load_free_dots(store, ZONE)
+    assert len(on) == 3 and int(T.stack_rows(on).sum()) == 2
