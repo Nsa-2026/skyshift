@@ -152,7 +152,7 @@ def test_fixed_source_gaia_glow_and_blend():
     assert w.values[4]["fixed_source"] == {"gaia_sep_arcsec": 1.0, "gaia_g_mag": 17.0, "motion_sigma": 2.0}
     assert list(np.flatnonzero(w.gates["fixed_source"])) == [0, 2, 4] and st["fixed_source"] == {"warn": 5, "strong": 3}
     # g: one detector (D6), no partner, median 1.5× a star, a G 5 star 5′ away
-    assert w.codes[6] == ["glow"] and w.levels[6] == {"glow": "strong"} and w.values[6]["glow"]["star_sep_arcmin"] == 5.0
+    assert w.codes[6] == ["glow"] and w.levels[6] == {"glow": "strong"} and w.values[6]["glow"]["star_sep_arcsec"] == 300.0
     assert list(np.flatnonzero(w.gates["glow"])) == [6]
     # h: two Gaia stars 6″ either side: a blend warning
     assert w.codes[7] == ["blend"] and w.levels[7] == {} and w.values[7]["blend"]["apart_arcsec"] == 12.0

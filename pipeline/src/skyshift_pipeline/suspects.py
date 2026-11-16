@@ -1055,7 +1055,7 @@ def mover_flaws(s: pd.DataFrame, fixed: pd.DataFrame, ref: pd.DataFrame | None, 
         bg = np.where(bidx >= 0, b["g_mag"].to_numpy()[np.clip(bidx, 0, None)] if len(b) else np.nan, np.nan)
         glow = one_det & ~paired & (np.nan_to_num(wide_med) >= C.VET_WIDE_RATIO) & (bsep <= C.VET_GLOW_ARCSEC)
         for i in np.flatnonzero(glow):
-            w.add(int(i), "glow", {"star_g_mag": _num(bg[i], 1), "star_sep_arcmin": _num(bsep[i] / 60.0, 1),
+            w.add(int(i), "glow", {"star_g_mag": _num(bg[i], 1), "star_sep_arcsec": _num(bsep[i], 0),
                                    "ratio_med": _num(wide_med[i], 2)}, "strong")
     w.gate("glow", glow)
     st["glow"] = int(glow.sum())
