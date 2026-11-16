@@ -11,6 +11,10 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    The top of each kind, every grade A/B mover, never a grade C one. A mover's frames must
                    show its own exposures (a partial search is retried once, then skipped).
                    Tests: cd server && uv run pytest ../scripts/candidates/tests
+- vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
+                   rounds (make_round.py) and check which known bodies we saw (known_check.py). Read only; local data
+                   in ~/.cache/skyshift-vet. Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.
+                   Tests: cd pipeline && uv run pytest ../scripts/vet/tests
 - make_fixtures.py P1. Writes the synthetic examples in fixtures/api/: python3 -I scripts/make_fixtures.py
 - demo_check.py    Opens every featured target from /data plus three random coordinates
                    through /api on the live site and prints the time to first frame. Used by /demo-check.
