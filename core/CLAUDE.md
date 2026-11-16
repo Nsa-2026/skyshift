@@ -34,6 +34,11 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   core + pad; core_pad None = r_keep for all), near/own (a star's own detection vs its pieces). Callers: pipeline
   dots.glow_dots and stack.glow_cut / local_significance. Tests: tests/test_glow.py (synthetic saturated star + lumpy
   halo + faint stars).
+- motion: the months-clock motion model position(t) = p0 + μ·(t − t0) + ϖ·P(t). observer_xyz_au, parallax_factors
+  (Earth from astropy's built-in ephemeris + SPHEREx's offset; Earth alone is good to ϖ × 5e-5), gaia_prior, leak (the
+  parallax leak k and the free share), choose_mode (pm+gaia_plx, pm+plx, pm, pm_leak), visit_steadiness / unsteady
+  (POS_ERR_SCALE 1.6 on raw pos_err, VISIT_FLOOR_ARCSEC, UNSTEADY_CHI2_NU), fit_motion (one source) -> MotionFit.
+  The pipeline's astrometry step uses the same pieces in its batched fit.
 - photometry: pixel_solid_angle_sr, ujy_per_mjysr (from the WCS, ~889.7), aperture_photometry -> uJy.
 - known_index: known asteroids and comets near (ra, dec, r) at given MJDs, fast (live API). load_index(npz) is
   numpy only; candidates() = two-body coarse cut with per-object margins; known_near() = kete n-body on the

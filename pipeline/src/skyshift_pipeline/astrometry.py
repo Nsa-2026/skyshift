@@ -10,8 +10,20 @@ star's constant offset from Gaia; pos_err_arcsec where absent), and that constan
 pos_err_arcsec² − pos_err_rel_arcsec² over the source's dots, added to ra_err/dec_err only; Pe, Pn the parallax factors from the
 observer's barycentric position: the Earth's (astropy's built-in ephemeris) plus SPHEREx's geocentric
 offset (X_SC, Y_SC, Z_SC in km, from the dot files or the photo list, when present; < 1e-4 AU, so it
-barely matters). Parallax is fitted only with >= ASTRO_PARALLAX_MIN_VISITS visits; with two visits six
-months apart it is degenerate with the proper motion. One refit without dots beyond ASTRO_CLIP_SIGMA.
+barely matters). One refit without dots beyond ASTRO_CLIP_SIGMA.
+
+The motion model (16 Nov, skyshift_core.motion; column `fit`): with a Gaia DR3 match that has a parallax, ϖ is held at
+Gaia's through a prior with Gaia's error (`pm+gaia_plx`, ASTRO_GAIA_PLX_PRIOR): with two visits six months apart a fit
+without parallax measured μ + ϖ·k (hunt: k ≈ −4.1 mas/yr per mas in RA), so nearby stars got a fake extra motion. Without
+Gaia, ϖ is fitted only with >= 3 visits whose parallax factors are not a straight line in time (both seasons: `pm+plx`);
+else none (`pm`, or `pm_leak` when |k| > LEAK_SMALL). plx_leak_ra/dec = k, the fit's own weighted leak (in the zero-point
+frame). Steadiness: each visit's mean residual against the fit (error √(scale²/Σw + ASTRO_VISIT_FLOOR_ARCSEC²); scale
+ASTRO_VISIT_ERR_SCALE on calib's errors, _RAW on the dot files' own) gives visit_chi2_nu and wobble_arcsec (their
+1/error²-weighted RMS distance from the fit); `unsteady` when it exceeds
+core's UNSTEADY_CHI2_NU (the visits go out and back: blends, detector position, saturation).
+Hunt, two visits (16 Nov, from the 15 Nov tables, pm − ϖ_Gaia·k): leak slope −4.12 → −0.02 (RA), +0.81 → −0.18 (Dec)
+mas/yr per mas; Gaia stars at ϖ 20–50 mas |pull| > 3 17.6% → 0%. t_wise0855 (3 visits, refit): RA leak slope +1.38 →
++0.20; 5.7% of Gaia stars unsteady, their |pm − Gaia| median 358 vs 111 mas/yr.
 Errors are the formal ones, × √χ²_ν where χ²_ν is beyond its ASTRO_CHI2_INFLATE_P quantile for the source's
 degrees of freedom (√max(1, χ²_ν) everywhere inflated small-ν sources by chance: pulls 0.85 against Gaia). Vectorised: normal equations from bincounts, one batched
 5×5 solve; no loop per source.
@@ -71,6 +83,7 @@ import time
 
 import numpy as np
 import pandas as pd
+from skyshift_core import motion as M
 from skyshift_core import tangent_offset_arcsec
 from skyshift_core.astrometry import DAYS_PER_JYEAR
 
@@ -82,39 +95,18 @@ from .store import Store, results_rel
 
 L = log.get("astrometry")
 
-AU_KM = 149_597_870.7
+AU_KM = M.AU_KM
 COLUMNS = ["source_id", "ra", "dec", "epoch_mjd", "ra_err_arcsec", "dec_err_arcsec", "pmra", "pmdec", "pmra_err",
            "pmdec_err", "pm", "pm_snr", "parallax", "parallax_err", "fit", "n_dots", "n_used", "n_visits", "span_yr",
-           "chi2_nu", "snr_median", "frame_corrected"]
+           "chi2_nu", "snr_median", "frame_corrected", "plx_leak_ra", "plx_leak_dec", "visit_chi2_nu", "wobble_arcsec", "unsteady"]
 JAC_COLUMNS = ["jac_ex", "jac_ey", "jac_nx", "jac_ny"]  # ″ per pixel: east per x, east per y, north per x, north per y
 SAT_COLUMNS = ["detector", "depth_bin", "depth_min", "depth_max", "dx_px", "dy_px", "dx_err_px", "dy_err_px", "n",
                "applied"]
 
 
-def observer_xyz_au(mjd: np.ndarray, sc_km: np.ndarray | None = None) -> np.ndarray:
-    """(n, 3) barycentric ICRS position of the observer in AU: Earth + SPHEREx's geocentric offset."""
-    from astropy.coordinates import get_body_barycentric
-    from astropy.time import Time
-
-    mjd = np.asarray(mjd, np.float64)
-    out = np.zeros((mjd.size, 3))
-    fin = np.isfinite(mjd)
-    if fin.any():
-        u, inv = np.unique(np.round(mjd[fin], 6), return_inverse=True)
-        pos = get_body_barycentric("earth", Time(u, format="mjd", scale="utc"))
-        xyz = np.stack([pos.x.to_value("AU"), pos.y.to_value("AU"), pos.z.to_value("AU")], axis=1)
-        out[fin] = xyz[inv.ravel()]
-    if sc_km is not None:
-        sc = np.asarray(sc_km, np.float64)
-        out += np.where(np.isfinite(sc), sc, 0.0) / AU_KM
-    return out
-
-
-def parallax_factors(ra_deg, dec_deg, xyz_au) -> tuple[np.ndarray, np.ndarray]:
-    """(Pe, Pn): parallactic shift (east, north) per unit parallax for an observer at xyz_au."""
-    a, d = np.deg2rad(ra_deg), np.deg2rad(dec_deg)
-    X, Y, Z = xyz_au[:, 0], xyz_au[:, 1], xyz_au[:, 2]
-    return X * np.sin(a) - Y * np.cos(a), X * np.cos(a) * np.sin(d) + Y * np.sin(a) * np.sin(d) - Z * np.cos(d)
+# the observer and the parallax factors live in core (skyshift_core.motion); kept here under their old names
+observer_xyz_au = M.observer_xyz_au
+parallax_factors = M.parallax_factors
 
 
 def frame_refs(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.ndarray, dec0: np.ndarray,
@@ -181,8 +173,9 @@ def frame_offsets(d: pd.DataFrame, east: np.ndarray, north: np.ndarray, ra0: np.
     return fe, fn, st
 
 
-def _solve(s, N, w, t, east, north, Pe, Pn, use_plx):
-    """Batched normal equations → (params (N,5), cov (N,5,5))."""
+def _solve(s, N, w, t, east, north, Pe, Pn, use_plx, prior_val=None, prior_w=None):
+    """Batched normal equations → (params (N,5), cov (N,5,5)). prior_val, prior_w (N,): a parallax prior (″, 1/″²; weight
+    0 = none) on the sources that fit parallax (Gaia's: skyshift_core.motion.gaia_prior)."""
     def S(v):
         return np.bincount(s, w * v, N)
     one = np.ones_like(t)
@@ -196,6 +189,9 @@ def _solve(s, N, w, t, east, north, Pe, Pn, use_plx):
     A[:, 3, 4] = A[:, 4, 3] = S(t * Pn)
     A[:, 4, 4] = S(Pe * Pe + Pn * Pn)
     b = np.stack([S(east), S(north), S(t * east), S(t * north), S(Pe * east + Pn * north)], axis=1)
+    if prior_w is not None:
+        A[:, 4, 4] += prior_w
+        b[:, 4] += prior_w * prior_val
     nop = ~use_plx
     A[nop, 4, :] = 0.0
     A[nop, :, 4] = 0.0
@@ -752,9 +748,21 @@ def pixel_report(pix: dict | None, dots: int = 0, corrected: int = 0) -> dict:
     return out
 
 
+def gaia_parallax_prior(crossids: pd.DataFrame | None, sid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per source in sid: (value ″, weight 1/″²) of its Gaia DR3 parallax prior (crossids' match: gaia_parallax and
+    gaia_parallax_error; skyshift_core.motion.gaia_prior), weight 0 without one."""
+    n = len(sid)
+    if crossids is None or not len(crossids) or not {"gaia_parallax", "gaia_parallax_error"} <= set(crossids.columns):
+        return np.zeros(n), np.zeros(n)
+    x = crossids.drop_duplicates("source_id").set_index("source_id").reindex(np.asarray(sid, np.int64))
+    ok = x["gaia_ref_id"].fillna("").astype(str).to_numpy() != "" if "gaia_ref_id" in x else np.ones(n, bool)
+    v, w = M.gaia_prior(x["gaia_parallax"].to_numpy(np.float64), x["gaia_parallax_error"].to_numpy(np.float64))
+    return v, np.where(ok, w, 0.0)
+
+
 def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = True,
         offsets: pd.DataFrame | None = None, jac: pd.DataFrame | None = None,
-        sat: pd.DataFrame | None = None, pix: dict | None = None) -> tuple[pd.DataFrame, dict]:
+        sat: pd.DataFrame | None = None, pix: dict | None = None, diagnostics: bool = False) -> tuple[pd.DataFrame, dict]:
     """Member dots (source_id, ra, dec, mjd, pos_err_arcsec, visit, photo, snr, x/y/z_sc_km, flags_peak) → one row per
     fitted source (COLUMNS). offsets: per-photo frame offsets from photo_offsets (else measured on these dots).
     jac: photo_jacobians' table (None: no saturated-dot or pixel correction); sat: sat_offsets' table (None: measured on
@@ -806,7 +814,10 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         st.update({"unsaturated_dots": int(ui.size), "pixel_dots_corrected": int(((pe_ != 0) | (pn_ != 0)).sum())})
     Pe, Pn = parallax_factors(ra0[s], dec0[s], xyz)
     n_visits = count_distinct(s, d["visit"].to_numpy(np.int64), N)
-    use_plx = n_visits >= C.ASTRO_PARALLAX_MIN_VISITS
+    # the motion model's mode per source (skyshift_core.motion): Gaia's parallax as a prior, our own parallax (visits in
+    # both seasons), or none (then the leak k says how much parallax the pm holds)
+    prior_val, prior_w = gaia_parallax_prior(crossids, sid_u)
+    has_gaia = (prior_w > 0) & bool(C.ASTRO_GAIA_PLX_PRIOR)
     w = 1.0 / err ** 2
     keep0 = clean_mask(d, s, N, east, north) if C.ASTRO_CLEAN_DOTS else np.ones(len(d), bool)
     st["dots_cleaned"] = int((~keep0).sum())
@@ -821,9 +832,15 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         sw = np.bincount(s, wk, N)
         tref = np.bincount(s, wk * mjd, N) / np.maximum(sw, 1e-300)
         t = (mjd - tref[s]) / DAYS_PER_JYEAR
-        par, cov = _solve(s, N, wk, t, east, north, Pe, Pn, use_plx)
+        k_e, k_n, free = M.leak(s, N, wk, t, Pe, Pn, z if zp else None)
+        n_vis_used = count_distinct(s[keep], d["visit"].to_numpy(np.int64)[keep], N) if keep.any() else np.zeros(N, np.int64)
+        mode = M.choose_mode(has_gaia, n_vis_used, free, k_e, k_n)
+        use_plx = np.isin(mode, M.PARALLAX_MODES)
+        free_plx = mode == M.MODE_PLX  # a fitted parameter (Gaia's prior: known)
+        pw = np.where(has_gaia, prior_w, 0.0)
+        par, cov = _solve(s, N, wk, t, east, north, Pe, Pn, use_plx, prior_val, pw)
         n_used = np.bincount(s, keep, N)
-        npar = np.where(use_plx, 5, 4)
+        npar = np.where(free_plx, 5, 4)
         # the motion problem (pm, parallax): the plain fit, or with detector zero points removed (Frisch–Waugh)
         T, E, Nn, PE, PN, cv = t, east, north, Pe, Pn, cov
         if zp:
@@ -831,7 +848,7 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
             def dm(v):
                 return v - (np.bincount(z, wk * v, Z) / swz)[z]
             Tz, Ez, Nz, PEz, PNz = dm(t), dm(east), dm(north), dm(Pe), dm(Pn)
-            parz, covz = _solve(s, N, wk, Tz, Ez, Nz, PEz, PNz, use_plx)
+            parz, covz = _solve(s, N, wk, Tz, Ez, Nz, PEz, PNz, use_plx, prior_val, pw)
             okz = np.isfinite(parz[:, 2]) & np.isfinite(parz[:, 3])
             par[okz, 2:] = parz[okz, 2:]
             cv = np.where(okz[:, None, None], covz, cov)
@@ -841,7 +858,7 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
             zsrc = np.zeros(Z, np.int64)
             zsrc[z] = s
             n_zp = np.bincount(zsrc, np.bincount(z, keep, Z) > 0, N)  # zero points with used dots
-            npar = np.where(okz, 2 * n_zp + 2 + use_plx, npar)
+            npar = np.where(okz, 2 * n_zp + 2 + free_plx, npar)
         else:
             p0 = par[:, :2]
         pi = par[s]
@@ -854,7 +871,7 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
             infl = np.sqrt(np.maximum(1.0, chi2_nu))[s]
             keep = keep0 & (np.maximum(np.abs(re), np.abs(rn)) <= C.ASTRO_CLIP_SIGMA * err * infl)
     vis_d = d["visit"].to_numpy(np.int64)
-    mdof = motion_dof(s, N, keep, vis_d, use_plx, z if zp else None, okz if zp else None)
+    mdof = motion_dof(s, N, keep, vis_d, free_plx, z if zp else None, okz if zp else None)
     from scipy.stats import chi2 as chi2_dist
     dof = np.maximum(2 * n_used - npar, 1)
     excess = chi2_nu > chi2_dist.ppf(C.ASTRO_CHI2_INFLATE_P, dof) / dof
@@ -866,7 +883,7 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         # the formal errors × √max(1, χ²_ν) (no chance allowance: few sessions cannot show a correlated excess)
         sess = d["session"].to_numpy(np.int64) if "session" in d else np.arange(len(d), dtype=np.int64)
         cl = (s.astype(np.int64) << 32) | (sess & 0xFFFFFFFF)
-        cov_rob, n_sess = _cluster_cov(s, N, cl, wk, T, re, rn, PE, PN, cv, np.where(use_plx, 2.5, 2.0))
+        cov_rob, n_sess = _cluster_cov(s, N, cl, wk, T, re, rn, PE, PN, cv, np.where(free_plx, 2.5, 2.0))
         enough = n_sess >= C.ASTRO_ROBUST_MIN_SESSIONS
         var_few = var / scale[:, None] ** 2 * np.maximum(1.0, np.nan_to_num(chi2_nu, nan=1.0))[:, None]
         var = np.where(enough[:, None], np.fmax(var, np.einsum("nii->ni", cov_rob)), np.maximum(var, var_few))
@@ -876,10 +893,10 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         # where it beats its chance level (χ² quantile)
         det_ = d["detector"].to_numpy(np.int64) & 0xFF
         if zp:
-            cl, k_ = (s.astype(np.int64) << 8) | det_, np.where(use_plx, 1.5, 1.0)
+            cl, k_ = (s.astype(np.int64) << 8) | det_, np.where(free_plx, 1.5, 1.0)
         else:
             vis = d["visit"].to_numpy(np.int64) if "visit" in d else np.zeros(len(d), np.int64)
-            cl, k_ = (s.astype(np.int64) << 32) | ((vis & 0xFFFF) << 8) | det_, np.where(use_plx, 2.5, 2.0)
+            cl, k_ = (s.astype(np.int64) << 32) | ((vis & 0xFFFF) << 8) | det_, np.where(free_plx, 2.5, 2.0)
         cov_det, n_cl = _cluster_cov(s, N, cl, wk, T, re, rn, PE, PN, cv, k_)
         nu = np.maximum(n_cl - k_, 1.0)
         lim = chi2_dist.ppf(C.ASTRO_DETECTOR_ROBUST_P, nu) / nu
@@ -887,6 +904,12 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         excess_d = (vd > lim[:, None] * np.einsum("nii->ni", cv)) & (n_cl > k_ + 1)[:, None]
         var = np.where(excess_d, np.fmax(var, vd), var)
     sig = np.sqrt(var)
+    # steadiness over the visits: each visit's mean residual against the line (+ parallax), out and back = `unsteady`
+    raw_err = "pos_err_rel_arcsec" not in d or np.array_equal(err, d["pos_err_arcsec"].to_numpy(np.float64))  # no calib
+    visit_chi2_nu, _, wobble = M.visit_steadiness(
+        s, N, vis_d, wk, re, rn, 2 + free_plx.astype(np.int64), floor=C.ASTRO_VISIT_FLOOR_ARCSEC,
+        scale=C.ASTRO_VISIT_ERR_SCALE_RAW if raw_err else C.ASTRO_VISIT_ERR_SCALE)
+    unsteady = M.unsteady(visit_chi2_nu) if C.ASTRO_UNSTEADY else np.zeros(N, bool)
     extra = np.bincount(s, const2, N) / np.maximum(n_dots, 1)  # 0 without calib's floor_rel
     for j in (0, 1):
         sig[:, j] = np.where(extra > 0, np.sqrt(sig[:, j] ** 2 + extra), sig[:, j])
@@ -910,17 +933,24 @@ def fit(d: pd.DataFrame, crossids: pd.DataFrame | None = None, frame: bool = Tru
         "pm": pm.astype(np.float32), "pm_snr": pm_snr.astype(np.float32),
         "parallax": np.where(use_plx, par[:, 4] * 1000.0, np.nan).astype(np.float32),
         "parallax_err": np.where(use_plx, sig[:, 4] * 1000.0, np.nan).astype(np.float32),
-        "fit": np.where(use_plx, "pm+plx", "pm"),
+        "fit": mode,
         "n_dots": n_dots.astype(np.int32), "n_used": n_used.astype(np.int32), "n_visits": n_visits.astype(np.int16),
         "span_yr": span.astype(np.float32), "chi2_nu": chi2_nu.astype(np.float32),
         "snr_median": group_median(s, snr, N).astype(np.float32), "frame_corrected": corrected,
+        "plx_leak_ra": k_e.astype(np.float32), "plx_leak_dec": k_n.astype(np.float32),
+        "visit_chi2_nu": visit_chi2_nu.astype(np.float32), "wobble_arcsec": wobble.astype(np.float32),
+        "unsteady": unsteady,
         "motion_dof": mdof.astype(np.int32),  # not written (COLUMNS): the fit's own diagnostics
+        "plx_free": free.astype(np.float32),
     })
     good = (n_used >= C.ASTRO_MIN_DOTS) & np.isfinite(pmra) & (span > 0)  # used dots: clean_mask can leave 1 per visit
     few_dof = good & (mdof < C.ASTRO_MIN_MOTION_DOF)  # the zero points leave the motion (almost) no freedom
     good &= ~few_dof
     st.update({"sources_in": int(N), "fitted": int(good.sum()), "with_parallax": int((good & use_plx).sum()),
-               "dropped_motion_dof": int(few_dof.sum())})
+               "dropped_motion_dof": int(few_dof.sum()),
+               "modes": {m: int((good & (mode == m)).sum()) for m in M.MODES}, "unsteady": int((good & unsteady).sum())})
+    if diagnostics:
+        return out[good].reset_index(drop=True), st
     return out[good].reset_index(drop=True)[COLUMNS], st
 
 
@@ -964,6 +994,26 @@ def report(fit_tab: pd.DataFrame, crossids: pd.DataFrame | None) -> dict:
         m = (gg >= lo) & (gg < hi)
         out["by_gaia_g"].append({"g": [lo, hi], "pmra": _stats(dra[m], j["pmra_err"].to_numpy(np.float64)[m]),
                                  "pmdec": _stats(ddec[m], j["pmdec_err"].to_numpy(np.float64)[m])})
+    # the parallax leak left in our pm: weighted slope of (pm − Gaia's) against Gaia's parallax, stars with ϖ > 1 mas
+    # (two visits half a year apart and no parallax in the fit: ~ −4 to −6 mas/yr per mas in RA; with Gaia's prior ~0)
+    plx = j["gaia_parallax"].to_numpy(np.float64)
+    out["parallax_leak"] = {"stars": 0}
+    for ax, dv, ev in (("pmra", dra, j["pmra_err"].to_numpy(np.float64)), ("pmdec", ddec, j["pmdec_err"].to_numpy(np.float64))):
+        m = np.isfinite(dv) & np.isfinite(plx) & (plx > 1.0) & np.isfinite(ev) & (ev > 0)
+        if m.sum() >= 5:
+            sw = 1.0 / ev[m]
+            out["parallax_leak"][f"{ax}_per_mas"] = round(float(np.linalg.lstsq(np.c_[np.ones(m.sum()), plx[m]] * sw[:, None], dv[m] * sw,
+                                                                                rcond=None)[0][1]), 3)
+            out["parallax_leak"]["stars"] = int(m.sum())
+    if "fit" in j:
+        out["modes"] = {k: int(v) for k, v in j["fit"].value_counts().items()}
+    if "unsteady" in j:
+        u = j["unsteady"].fillna(False).to_numpy(bool)
+        pull = np.hypot(dra / j["pmra_err"].to_numpy(np.float64), ddec / j["pmdec_err"].to_numpy(np.float64))
+        out["unsteady"] = {"stars": int(u.sum()), "share": round(float(u.mean()), 4),
+                           "median_dpm_unsteady": round(float(np.nanmedian(np.hypot(dra, ddec)[u])), 1) if u.any() else None,
+                           "median_dpm_steady": round(float(np.nanmedian(np.hypot(dra, ddec)[~u])), 1) if (~u).any() else None,
+                           "pull_over_4_flagged": int((u & (pull > 4)).sum()), "pull_over_4": int((pull > 4).sum())}
     p = j[j["fit"] == "pm+plx"]
     if len(p):
         out["parallax"] = _stats((p["parallax"] - p["gaia_parallax"]).to_numpy(np.float64), p["parallax_err"].to_numpy(np.float64))
@@ -976,6 +1026,14 @@ def report(fit_tab: pd.DataFrame, crossids: pd.DataFrame | None) -> dict:
          "pmra_err": round(float(r.pmra_err), 1), "pmdec_err": round(float(r.pmdec_err), 1), "n_visits": int(r.n_visits)}
         for r in fast.head(50).itertuples()]
     return out
+
+
+def model_counts(tab: pd.DataFrame) -> dict:
+    """astrometry_report.json `modes` (rows per motion-model mode) and `unsteady` (rows), from the written table."""
+    if tab is None or not len(tab) or "fit" not in tab:
+        return {"modes": {}, "unsteady": 0}
+    return {"modes": {m: int((tab["fit"] == m).sum()) for m in M.MODES},
+            "unsteady": int(tab["unsteady"].fillna(False).astype(bool).sum()) if "unsteady" in tab else 0}
 
 
 def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
@@ -999,6 +1057,7 @@ def run(store: Store, zone: C.Zone, workers: int = 16) -> dict:
     store.write_parquet(results_rel(zone.name, "astrometry.parquet"), cor)
     rep = {"zone": zone.name, "frame_correction": {k: v for k, v in st_cor.items() if k.startswith(("photos", "frame"))},
            "fitted": st_cor.get("fitted", 0), "with_parallax": st_cor.get("with_parallax", 0),
+           **model_counts(cor),
            "spacecraft_position_dots": st_cor.get("spacecraft_position_dots", 0),
            "saturated_offsets": sat_report(sat, st_cor.get("saturated_dots", 0), st_cor.get("saturated_dots_corrected", 0)),
            "pixel_offsets": pixel_report(pix, st_cor.get("unsaturated_dots", 0), st_cor.get("pixel_dots_corrected", 0)),

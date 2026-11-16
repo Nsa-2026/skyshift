@@ -86,6 +86,13 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   fp_control 1 → 1, Gaia stars G 9–13 with a fake pm 18 → 14. Open: 6 of those 14 sit in the zone's SW corner
   (RA < 121, Dec < 15: 43 such stars; elsewhere 0.07%). Not the calib quadratics of photos that cover only a patch of the
   zone (604 of 3,552 photos have a coefficient > 2″; leaving their dots out: 6 → 4).
+- Motion model (16 Nov, skyshift_core.motion; astrometry `fit`, contracts/dots.md): Gaia's parallax as a prior
+  (`pm+gaia_plx`), our own with >= 3 visits in both seasons (`pm+plx`), else none (`pm`, or `pm_leak` with the leak k in
+  plx_leak_ra/dec); `unsteady` when the visits go out and back (visit_chi2_nu > 8; config ASTRO_GAIA_PLX_PRIOR, ASTRO_UNSTEADY,
+  ASTRO_VISIT_*). highpm: k = 0 for parallax fits, astrometry's own k otherwise (effective_leak); reason `unsteady`, never
+  vetted; column fit_mode; the exporter adds `parallax_fit`. Hunt (15 Nov tables, pm − ϖ_Gaia·k): leak −4.12 → −0.02
+  mas/yr per mas; Gaia stars at ϖ 20–50 mas with |pull| > 3 17.6% → 0%. t_wise0855 refit: 5.6% of Gaia stars unsteady,
+  |pm − Gaia| median 359 vs 115 mas/yr. Rerun: astrometry, highpm, then skyshift-candidates.
 - highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
   asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
   status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.

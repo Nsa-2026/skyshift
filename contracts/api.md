@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.20)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.22)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -21,7 +21,9 @@ v3.17: planets and their large moons (JPL Horizons) count as known bodies for mo
 v3.18: a mover near a planet is known whatever it is (moon, glare): the suspects' veto `planets`, no such mover in
 candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`;
 v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find;
-v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge).
+v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge;
+v3.21: months `shifts[]` say whether the motion is steady: `visits`, `chi2_nu`, `wobble_arcsec`, `steady`;
+v3.22: high_pm reasons `parallax_fit` and `unsteady`, from the pipeline's motion model).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -223,7 +225,9 @@ measured: { zone, stage, zone_box:{ra:[min,max], dec:[min,max]}, clock,
                       dots:[{ ra, dec, mjd, epoch_id }] }],
             shifts:[{ source_id, gaia_id|null, class, ra, dec, mjd_from, mjd_to, dt_yr,
                       dra_arcsec, ddec_arcsec, shift_arcsec, err_arcsec, pa_deg,
-                      pmra, pmdec, pm_err, pm_snr }] } | null
+                      pmra, pmdec, pm_err, pm_snr,
+                      visits?:[{ epoch_id, det, mjd, ra, dec, err_arcsec }],     # v3.21, optional
+                      chi2_nu?|null, wobble_arcsec?|null, steady?|null }] } | null
 measured_reason: "not_processed" | "processing" | "no_dots" | "unavailable" | null
 ```
 
@@ -294,7 +298,8 @@ in the hunt zone, real asteroids sit on it too) and OUTLIER (bit 19: 52% of MPC-
 **shifts[]** (months clock): sources in the field whose astrometric fit
 (`results/<zone>/astrometry.parquet`) has `pm_snr` ≥ 3, at most 300 (highest `pm_snr` first).
 Proper motion only (parallax not included: ≤ 1″ for Barnard's Star; `/api/object` `measure` has the
-full measurement).
+full measurement). v3.21: each shift is checked against its own visits in the response (computed before the
+per-epoch cap of `detections`): it is a motion only when `steady` is not false.
 
 | field | type | meaning |
 |---|---|---|
@@ -306,6 +311,10 @@ full measurement).
 | shift_arcsec, err_arcsec | float, arcsec | Length of the shift and its 1σ error per axis (pm error × dt_yr) |
 | pa_deg | float, deg | Direction, east of north, 0–360 |
 | pmra, pmdec, pm_err, pm_snr | float, mas/yr | The fit (pmra × cos dec), its 1σ error per axis, and pm / error |
+| visits | [object] | **v3.21.** The source's position in each visit epoch of this response where it has a detection, in time order (then by detector): `epoch_id`, `det`, `mjd` (the epoch's `mjd_mid`), `ra`, `dec` (deg, as its detection), `err_arcsec` (1σ per axis: the dots' raw pos_err model over the visit, √((1.4 × 3.2″ / snr)² + 0.25″² / n_dots) with the detection's `snr` and `n_dots`, × 1.6 because raw pos_err is 1.4–1.8× too small against Gaia). Compare positions within one detector only (colour offsets) |
+| chi2_nu | float or null | **v3.21.** χ²_ν of `visits` about the reported motion: a straight line of slope (pmra, pmdec) with one position zero point per detector; detectors with one visit here are left out; a Gaia star's parallax (`gaia[]`) is taken out of the positions first. Degrees of freedom 2 × (visits − detectors). null: no detector has two visits here |
+| wobble_arcsec | float or null | **v3.21.** RMS distance (″, 1/err²-weighted, corrected for the zero points) of `visits` from that line: how far the position goes back and forth between visits. null as `chi2_nu` |
+| steady | bool or null | **v3.21.** true: a steady motion, `chi2_nu` ≤ 3, or the motion still ≥ 5σ with the errors × √`chi2_nu` (a fast star whose saturated core scatters, e.g. Barnard's Star). false: its position wobbles between visits by about `wobble_arcsec`, within what SPHEREx can measure: not a motion; show no arrow and do not describe a step between two visits as one. null: not tested (as `chi2_nu`); read as before |
 
 **measured_reason**
 
@@ -650,7 +659,7 @@ candidate is a lead for a human, not a detection. From v3.12 the pipeline fits e
 Nothing is dropped for being doubtful (except high_pm, above): doubts become `reasons` and lower the `score`. The "check first"
 codes (show them as cautions): `known_object_near`, `motion_not_significant`, `bad_pixels_near`,
 `outlier_flag`, `detector_excess`, `repeat_position`, `gaia_unchecked`, `catwise_unchecked` and the vetting gates (mover);
-`short_span`, `few_dots`, `bad_fit`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
+`short_span`, `few_dots`, `bad_fit`, `unsteady`, `over_pm_cap`, `gaia_pm_disagrees`, `catwise_pm_disagrees`,
 `at_control_level`, `implausible_pm` (high_pm); `one_visit`, `class_galaxy` (shape); `blend` (high_pm, spectral,
 shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (either side of a pair) the pipeline's
 `fragments` step tagged `bright_fragment` is not listed at all: it is a piece of a saturated star's ring.
@@ -660,7 +669,7 @@ shape; v3.11). From v3.11 a high_pm, spectral or shape candidate whose source (e
 | kind | score |
 |---|---|
 | mover | (1 − e^(−snr/15)) × evidence (`two_exposures` 1, `two_detectors` 0.6) × 0.85 with only two dots × known term (1 with no known object within 600″, else 0.5 rising linearly to 1 between 30″ and 300″) × 0.6 with `outlier_flag` × 0.7 with another record-only flag × 0.8 with a masked pixel in a dot's 3×3 × 0.85 when the motion is not significant × 0.6 with `detector_excess` × 0.3 with `repeat_position` × 0.5 with a dot within 6 px of the detector edge (reason `edge`, added by the exporter too when the vetting didn't run) × 0.1 with `grade` C. "Motion not significant" uses the dots' pos_err × 1.6 |
-| high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level` 0.3; `implausible_pm` 0.01 (so these sort last) |
+| high_pm | e^(−s/0.2) × the vetting reasons' weights × 0.6 for a Gaia star (`status` gaia). s is the pipeline's own score, lower = better: 1/(pm/pm_err) for a fit, \|ln flux ratio\| + spectrum-shape rms for a pair. Weights: `short_span`, `few_dots`, `bad_fit` 0.5; `gaia_pm_disagrees`, `catwise_pm_disagrees` 0.4; `over_pm_cap`, `at_control_level`, `unsteady` (v3.22) 0.3; `implausible_pm` 0.01 (so these sort last) |
 | spectral | max over its labels of weight × (1 − e^(−σ/10)), σ = the band's significance. Weights: `brown_dwarf_like`, `ch4` 1; `h2o_ice`, `co2_ice`, `co_ice` 0.8; `h2o_vapour` 0.6; `co_23` 0.4; `pah_33` 0.3 |
 | shape | (1 − e^(−s/15)) × 0.8 with `one_visit`; s = significance of the stretch (\|mean excess ellipticity\| / its error; Rayleigh, P(> s) = e^(−s²/2) for noise) |
 
@@ -697,9 +706,11 @@ candidate they are those of its (first) source.
 | pm_pair | high_pm | Two sources each seen in one visit only, paired across visits (too fast to stay linked) |
 | vetted | high_pm | Passed every pipeline check |
 | catwise_pm_agrees | high_pm | CatWISE lists the same motion |
+| parallax_fit | high_pm | v3.22. The motion was fitted with the star's parallax taken out: Gaia's parallax (its `gaia_match`), or our own from visits in both seasons. Without it, two visits half a year apart can show a nearby star's parallax as extra motion |
 | short_span | high_pm | Its visits are too close in time for a motion |
 | few_dots | high_pm | Few detections (fewer than 20 dots) |
 | bad_fit | high_pm | The positions don't fit a straight line (blend or bad fit) |
+| unsteady | high_pm | v3.22. Its visits go out and back instead of along a line (needs three or more visits): a measurement problem (blend, detector position, saturation), not a motion. Such rows are never `vetted`, so in practice not exported |
 | over_pm_cap | high_pm | Faster than any known star (> 10.5″/yr) |
 | gaia_pm_disagrees | high_pm | Gaia lists a different motion for the star here: likely a mismatch |
 | catwise_pm_disagrees | high_pm | CatWISE lists a different motion for the source here: likely a mismatch |
@@ -1148,3 +1159,31 @@ cover that corner, chosen by scripts/candidates/fill.py. The site paints them on
 photo has no data, drawn as filled; they are not epochs of the blink and carry no `gaia`, `known` or
 `measured` (empty lists, `measured` absent). Readers that don't know the file need no change; without it the
 site may ask `/api/frames` (with the candidate's `mjd`) for the same purpose.
+
+## Changes in v3.21 (16 Nov 2026): steady motion or a wobble
+
+Additive, months clock only. A proper motion is a straight line at steady speed; parallax adds an out-and-back
+every six months of at most 0.55″ (Barnard's Star). On the five featured fields about 1 in 7 sources seen in 3 or
+more visits of one detector goes more than 1″ out and comes back (e.g. (0, 0) → (−1.15, +0.17) → (−0.34, +0.50)″):
+measurement scatter (blends whose brightest star changes with wavelength, the position on the detector,
+saturation), not motion. The pipeline's fit can still give such a source `pm_snr` ≥ 3, and the site described the
+last step between two visits as the motion.
+- `shifts[]` gain `visits` (the per-visit positions with a 1σ error), `chi2_nu` and `wobble_arcsec` (the visits
+  about the reported motion's straight line) and `steady` (section "shifts[]"). Thresholds: χ²_ν ≤ 3 (2 degrees of
+  freedom: 5% of honest cases above it; the pipeline's fake-pm tail had median χ²_ν 3.1 against 0.94 for its core),
+  or ≥ 5σ with the errors × √χ²_ν. Per-visit errors × 1.6 (the Gaia check of pos_err).
+- `steady: false` shifts stay in the list (not dropped) and in `pm_snr` order; readers show no arrow for them and
+  say the position wobbles by about `wobble_arcsec`. Shifts without the fields (older static files, or `steady`
+  null) read as before.
+- server measured.py `VERSION` 3 (cache key). The static twins get the fields from the files' own detections
+  (scripts/precompute `--steady-only`, no data bucket needed). fixtures/api/ has no shifts, so it is unchanged.
+
+## Changes in v3.22 (16 Nov 2026): the motion model's high_pm reasons
+
+Additive. The pipeline's astrometry now fits position(t) = p0 + μ·(t − t0) + ϖ·P(t) (contracts/dots.md `astrometry`:
+Gaia's parallax as a prior, our own with visits in both seasons, else none and the leak k recorded) and calls a source
+`unsteady` when its visits go out and back instead of along a line. candidates.json high_pm `reasons` gain
+`parallax_fit` (the motion has the parallax taken out; informational, weight 1) and `unsteady` (a "check first" code,
+weight 0.3; never on an exported row today, since unsteady rows are not vetted). `pm_mas_yr` of a high_pm fit is now
+free of the six-month parallax leak wherever Gaia has a parallax. No field changes; readers that ignore unknown reason
+codes need no change.
