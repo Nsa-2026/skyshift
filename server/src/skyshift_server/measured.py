@@ -10,7 +10,8 @@ contracts/dots.md) detected in the photos of the response. Read-only, from the d
     results/<zone>/crossids.parquet   linked sources (source_id, ra, dec) and their Gaia match
     results/<zone>/movers.parquet     movers (one session) -> tracks
     results/<zone>/suspects.parquet   unexplained movers, with grade/reasons once vetted
-    results/<zone>/astrometry.parquet fitted motions -> shifts (pm_snr >= 3 kept)
+    results/<zone>/astrometry.parquet fitted motions -> shifts (pm_snr >= 3 kept; steady when a straight line
+                                      fits the source's visit positions, mark_steady)
     results/<zone>/highpm_candidates.parquet  motions between visits -> months suspect/artifact
     dots/<obs_id>D<det>.parquet       the dots of each photo in the response (a few columns); a zone whose link
                                       read another folder (summary.json steps.link.dots_dir, e.g. dots_deblend1e-4/
@@ -49,7 +50,8 @@ from skyshift_core.planets import near_planets, planet_label
 
 log = logging.getLogger(__name__)
 
-VERSION = "2"  # part of the frames cache key (app.py); 2: planets known (v3.18), every photo of a visit
+VERSION = "3"  # part of the frames cache key (app.py); 2: planets known (v3.18), every photo of a visit;
+#   3: shifts[] steady / wobble_arcsec / visits (v3.21)
 DATA_ROOT = os.environ.get("SKYSHIFT_DATA_ROOT") or "gs://nasa-glazing-data"
 
 SOURCE_MATCH_ARCSEC = 4.0    # a dot belongs to a linked source within this (link's FoF radius)
@@ -956,6 +958,7 @@ def _assemble(loaded: Loaded, meta: dict, epoch_keys: dict[str, list[str]]) -> t
     else:
         dets = _months(loaded, meta, epochs, photos, F, T)
     shifts = _shifts(meta, epochs, F, T) if clock == "months" else []
+    mark_steady(shifts, dets, epochs, meta.get("gaia"))  # before the cap: every visit of the source counts
     if clock == "months" and T.companions:
         dets += _companion_dets(dets, epochs, T.companions)
     if T.frag is not None:
@@ -1365,6 +1368,113 @@ def _shifts(meta: dict, epochs: list[dict], F: _Field, T: Tables) -> list[dict]:
         })
     return out
 
+
+# --- is a shift a steady motion? (contracts/api.md v3.21) --------------------------------------
+# Proper motion is a straight line at steady speed. A source whose visit positions go out and come back (a blend
+# whose brightest star changes with wavelength, the detector position, saturation) can still get pm_snr >= 3 from
+# the pipeline's fit, so every shift is checked against its own visits in this response: the reported motion drawn
+# as a straight line (slope pmra, pmdec) with one position zero point per detector (colour offsets: positions are
+# compared within a detector only) must pass through every visit within its error.
+# Per-visit error: the dots contract's raw pos_err per dot, sqrt((1.4 x 3.2"/snr)^2 + 0.25"^2), over the visit's
+# n dots (snr = the detection's combined sqrt(sum snr^2)), x POS_ERR_SCALE. On the five featured fields (16 Nov) the
+# per-visit scatter of Gaia stars about their own mean is 0.96x the unscaled error at S/N 5-300 and 1.7x at S/N >
+# 1000 (saturated), so the scaled error is honest for the brightest stars and generous elsewhere.
+POS_ERR_SCALE = 1.6             # pos_err is 1.4-1.8x too small against Gaia (pilot, CLAUDE.md)
+VISIT_POS_A_ARCSEC = 1.4 * 3.2  # contracts/dots.md pos_err_arcsec: 1.4 x the PSF's sigma (3.2") / snr ...
+VISIT_POS_FLOOR_ARCSEC = 0.25   # ... and its floor per dot
+# chi2_nu above this: the visits do not lie on the line. With 2 degrees of freedom (two visits in one detector)
+# honest errors exceed it 5% of the time (exp(-3)); the pipeline's fake-pm tail had median chi2_nu 3.1 against 0.94
+# for its real core (pilot).
+STEADY_MAX_CHI2_NU = 3.0
+# ... unless the motion is far larger than the scatter: still >= this many sigma with the errors grown by
+# sqrt(chi2_nu) to match the scatter about the line. A fast star with a saturated core (Barnard's Star: 0.7" about a
+# 9.6" track, chi2_nu ~20) moves in a straight line to every eye.
+STEADY_FAST_SNR = 5.0
+
+
+def visit_error_arcsec(snr: float | None, n_dots: int | None) -> float:
+    """1-sigma per axis of one visit's position (a months detection), scaled by POS_ERR_SCALE."""
+    s = max(float(snr or 0.0), 1.0)
+    n = max(int(n_dots or 1), 1)
+    return POS_ERR_SCALE * math.sqrt((VISIT_POS_A_ARCSEC / s) ** 2 + VISIT_POS_FLOOR_ARCSEC ** 2 / n)
+
+
+def line_fit(det, t_yr, east, north, err, slope: tuple[float, float]) -> tuple[float, float, int, float] | None:
+    """How well the line with this slope (east, north in "/yr) goes through the points (east, north in ", t in yr,
+    1-sigma err per axis), one zero point per detector: (chi2_nu, wobble_arcsec, dof, motion_snr). Detectors with one
+    point measure nothing and are left out; None when no detector has two. wobble: the weighted RMS distance of the
+    points from the line, corrected for the zero points. motion_snr: the slope over its 1-sigma error from these
+    points, the errors grown by sqrt(chi2_nu) when that is above 1."""
+    det, t, e, n = (np.asarray(v) for v in (det, t_yr, east, north))
+    w = 1.0 / np.maximum(np.asarray(err, float), 1e-3) ** 2
+    ds, cnt = np.unique(det, return_counts=True)
+    keep = np.isin(det, ds[cnt >= 2])
+    det, t, e, n, w = det[keep], t[keep].astype(float), e[keep].astype(float), n[keep].astype(float), w[keep]
+    m = len(det) - len(np.unique(det))  # points minus zero points, per axis
+    if m < 1:
+        return None
+    re, rn, tc = e - slope[0] * t, n - slope[1] * t, t.copy()
+    for d in np.unique(det):
+        q = det == d
+        sw = w[q].sum()
+        re[q] -= (w[q] * re[q]).sum() / sw
+        rn[q] -= (w[q] * rn[q]).sum() / sw
+        tc[q] -= (w[q] * t[q]).sum() / sw
+    r2 = re * re + rn * rn
+    dof = 2 * m
+    chi2_nu = float((w * r2).sum()) / dof
+    wobble = math.sqrt(float((w * r2).sum() / w.sum()) * len(det) / m)
+    motion_snr = math.hypot(*slope) * math.sqrt(float((w * tc * tc).sum())) / math.sqrt(max(1.0, chi2_nu))
+    return chi2_nu, wobble, dof, motion_snr
+
+
+def mark_steady(shifts: list[dict], dets: list[dict], epochs: list[dict], gaia: list[dict] | None = None) -> None:
+    """Add `visits`, `chi2_nu`, `wobble_arcsec` and `steady` to each months shift (contracts/api.md v3.21), from the
+    source's detections in this response's visit epochs. A Gaia parallax (gaia[]) is taken out of the positions
+    first: the out-and-back of a nearby star (+-0.55" for Barnard's Star) is not a wobble. In place; never raises."""
+    if not shifts:
+        return
+    ep = {e["id"]: e for e in epochs if e.get("kind") == "visit" and e.get("mjd_mid") is not None}
+    plx = {str(g["id"]): float(g["parallax"]) for g in (gaia or [])
+           if g.get("id") is not None and g.get("parallax") is not None and float(g["parallax"]) > 0}
+    want = {s["source_id"] for s in shifts}
+    by: dict[int, list[dict]] = defaultdict(list)
+    for d in dets:
+        if d.get("source_id") in want and d.get("epoch_id") in ep and d.get("ra") is not None:
+            by[d["source_id"]].append(d)
+    for s in shifts:
+        pts = sorted(by.get(s["source_id"], ()), key=lambda d: (float(ep[d["epoch_id"]]["mjd_mid"]),
+                                                                 int(ep[d["epoch_id"]].get("det") or 0)))
+        s["visits"] = [{"epoch_id": d["epoch_id"], "det": int(ep[d["epoch_id"]].get("det") or 0),
+                        "mjd": _r(float(ep[d["epoch_id"]]["mjd_mid"]), 6), "ra": d["ra"], "dec": d["dec"],
+                        "err_arcsec": _r(visit_error_arcsec(d.get("snr"), d.get("n_dots")), 3)} for d in pts]
+        s["chi2_nu"] = s["wobble_arcsec"] = s["steady"] = None
+        if len(pts) < 2 or s.get("pmra") is None or s.get("pmdec") is None:
+            continue
+        try:
+            ra0, dec0 = float(s["ra"]), float(s["dec"])
+            ra = np.array([float(v["ra"]) for v in s["visits"]])
+            dec = np.array([float(v["dec"]) for v in s["visits"]])
+            mjd = np.array([float(v["mjd"]) for v in s["visits"]])
+            east = ((ra - ra0 + 180.0) % 360.0 - 180.0) * math.cos(math.radians(dec0)) * 3600.0
+            north = (dec - dec0) * 3600.0
+            p = plx.get(str(s.get("gaia_id"))) if s.get("gaia_id") else None
+            if p:
+                from skyshift_core import parallax_offset_arcsec
+
+                k = len(mjd)
+                pe, pn = parallax_offset_arcsec(np.full(k, ra0), np.full(k, dec0), np.full(k, p), mjd)
+                east, north = east - np.asarray(pe, float), north - np.asarray(pn, float)
+            fit = line_fit([v["det"] for v in s["visits"]], (mjd - float(s["mjd_from"])) / 365.25, east, north,
+                           [float(v["err_arcsec"]) for v in s["visits"]],
+                           (float(s["pmra"]) / 1000.0, float(s["pmdec"]) / 1000.0))
+        except Exception:  # noqa: BLE001
+            log.exception("measured: steadiness of %s failed", s.get("source_id"))
+            continue
+        if fit is not None:
+            chi2_nu, wobble, _, motion_snr = fit
+            s["chi2_nu"], s["wobble_arcsec"] = _r(chi2_nu, 2), _r(wobble, 3)
+            s["steady"] = bool(chi2_nu <= STEADY_MAX_CHI2_NU or motion_snr >= STEADY_FAST_SNR)
 
 # --- one call ---------------------------------------------------------------------------------
 

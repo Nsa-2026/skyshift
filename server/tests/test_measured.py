@@ -207,6 +207,10 @@ def test_months_per_visit_positions_classes_and_shifts(root):
     assert s["shift_arcsec"] == pytest.approx(5.0 * dt, abs=1e-3) and s["err_arcsec"] == pytest.approx(0.2 * dt, abs=1e-3)
     assert s["pa_deg"] == pytest.approx(math.degrees(math.atan2(4, -3)) % 360, abs=0.1)
     assert (s["ra"], s["dec"]) == (pytest.approx(S3[0], abs=1e-6), pytest.approx(S3[1], abs=1e-6))
+    # v3.21: its two visits lie on the reported motion's line (within the 0.5" ePSF offset): steady
+    assert [v["epoch_id"] for v in s["visits"]] == ["d2-v1", "d2-v2"]
+    assert s["visits"][0]["err_arcsec"] == pytest.approx(M.visit_error_arcsec(math.hypot(80, 70), 2), abs=1e-3)
+    assert s["steady"] is True and s["chi2_nu"] < M.STEADY_MAX_CHI2_NU and s["wobble_arcsec"] < 1
 
 
 def test_cap_keeps_the_interesting_classes_and_counts_everything(root, monkeypatch):
