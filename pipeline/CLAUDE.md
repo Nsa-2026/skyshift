@@ -55,6 +55,17 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   from what it already reads (plus the movers' dot `flags` and tracklets/fragments columns); a strong check × 0.3, a
   warn × 0.95, nothing hidden. `--checks-dir DIR` merges other producers' side files (DIR/<source>.json) during the
   export; `--merge-only IN.json --checks-dir DIR --out OUT.json` merges them into an existing file (reads no zone).
+  Less likely movers (v3.24): open grade C movers go to <out dir>/candidates-more/<zone>.json (index `more` in
+  candidates.json; split after the dedup and after any merge, so a C made known/flaw moves back; `--merge-only` reads
+  and writes the more files). A mover's rate/PA is link's in-session motion (session_rate_arcsec_h / session_pa_deg;
+  never the track's chord), its error from the dot lists' S/N (link.dot_sigma_arcsec): a suspects table with session_*
+  needs no dot positions at all, A/B movers read only their dots' `flags`, grade C nothing. Older tables: the dots'
+  positions are re-read and fitted by link's own rule (motion(): unweighted per-exposure line; until 16 Nov a weighted
+  fit gave ecl10-692050057552-87780103 28.8″/h on the site vs 11.1″/h in movers.parquet). On a track: `seen_again`
+  (ok; tracklet_id, sessions, recovered sessions, track vs session motion, the zone's tracklets/link controls);
+  `fast_held` (warn): a B track > 400″/h held from A. 16 Nov tables, 4 zones: candidates.json 290 A/B movers 0.62 MB,
+  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~20 GB, of which sources' spectra
+  (8.2 GB) and members (7.8 GB) for high_pm/spectral, refcat 1.7, classes 0.9; A/B movers' flags ~0.1 GB.
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,

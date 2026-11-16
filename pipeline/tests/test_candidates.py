@@ -107,6 +107,45 @@ def test_motion_and_match():
     assert K.match_mover(float(d["ra"].mean()) + 1.0 / 3600, float(d["dec"].mean()), float(d["mjd"].mean()), 2, near) is None
 
 
+def test_motion_is_links_rule():
+    """The rate shown is the movers table's for the same dots: one position per exposure, an unweighted line (link's
+    track_fit). ecl10-692050057552-87780103's three D6 dots (real, 16 Nov): link 11.1″/h; the fit weighted by pos_err
+    showed 28.8″/h on the site."""
+    from skyshift_pipeline import link
+
+    d = pd.DataFrame({"ra": [106.134295, 106.133700, 106.134160], "dec": [25.342603, 25.343914, 25.342787],
+                      "mjd": [60958.403390, 60958.404882, 60958.406375], "snr": [8.37, 7.12, 5.42],
+                      "pos_err_arcsec": [0.591, 0.677, 0.863], "detector": 6})
+    rate, err, pa = K.motion(d)
+    tf = link.track_fit(d["ra"], d["dec"], d["mjd"], [0, 1, 2], d["detector"], [1.0, 1.0, 1.0])
+    assert rate == pytest.approx(tf["rate_arcsec_h"], rel=1e-3) and pa == pytest.approx(tf["pa_deg"], abs=0.1)
+    assert rate == pytest.approx(11.1, abs=0.5) and err > rate     # and not significant: may_not_move
+    # a D1+D4 pair in one exposure is one position (their mean), as in link
+    two = pd.concat([d.iloc[:1].assign(detector=1), d.iloc[:1].assign(detector=4, ra=106.134305, mjd=60958.40339001),
+                     d.iloc[2:]], ignore_index=True)
+    tf2 = link.track_fit(two["ra"], two["dec"], two["mjd"], [0, 0, 2], two["detector"], [1.0, 1.0, 1.0])
+    assert K.motion(two)[0] == pytest.approx(tf2["rate_arcsec_h"], rel=1e-3)
+
+
+def test_table_motion():
+    """A suspect's own session motion from its row: session_* (16 Nov tables), link's rate_arcsec_h in tables without
+    track columns, nothing where rate_arcsec_h holds a track's chord and session_* is missing."""
+    new = pd.DataFrame({"rate_arcsec_h": [107.0], "pa_deg": [54.0], "tracklet_id": [3], "session_rate_arcsec_h": [101.0],
+                        "session_pa_deg": [80.0]})
+    old = pd.DataFrame({"rate_arcsec_h": [36.0], "pa_deg": [60.0]})
+    mid = pd.DataFrame({"rate_arcsec_h": [107.0], "pa_deg": [54.0], "tracklet_id": [3]})
+    assert [K.table_motion(next(t.itertuples())) for t in (new, old, mid)] == [(101.0, 80.0), (36.0, 60.0), (None, None)]
+    assert [bool(K.needs_positions(t)[0]) for t in (new, old, mid)] == [False, False, True]
+    # its error from the dot lists: each dot's σ from its S/N (link's model), one position per exposure, link's line
+    from skyshift_pipeline import link
+
+    row = next(pd.DataFrame({"dot_mjd": [[61000.0, 61000.0 + 2.1 / 1440]], "dot_snr": [[10.0, 10.0]]}).itertuples())
+    sig = float(link.dot_sigma_arcsec(np.array([10.0]))[0])
+    assert K.table_rate_err(row) == pytest.approx(np.sqrt(2) * sig / (2.1 / 60.0), rel=1e-6)
+    one = next(pd.DataFrame({"dot_mjd": [[61000.0, 61000.0 + 1e-8]], "dot_snr": [[10.0, 10.0]]}).itertuples())
+    assert K.table_rate_err(one) is None                     # D1+D4 of one exposure: no motion to measure
+
+
 def _hp(**kw):
     row = {"method": "fit", "status": "new", "source_id": 7, "source_id_b": -1, "ra": 125.0, "dec": 20.0, "mjd": 61050.0,
            "sep_arcsec": np.nan, "pmra": 0.0, "pmdec": 8780.0, "pm": 8780.0, "pm_err": 300.0, "red_ratio": 2.0,

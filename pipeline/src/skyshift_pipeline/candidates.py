@@ -238,11 +238,14 @@ def _pool_map(fn, items, workers: int):
         return list(ex.map(fn, items))
 
 
-def mover_dots(store: Store, susp: pd.DataFrame, workers: int = 32) -> pd.DataFrame:
+def mover_dots(store: Store, susp: pd.DataFrame, workers: int = 32, only: np.ndarray | None = None) -> pd.DataFrame:
     """Dots within MOVER_MATCH_RADIUS_ARCSEC of each suspect, from the photos it was seen in
-    (its obs_ids x detectors). Columns: sid (suspect row), obs_id, detector, ra, dec, mjd, snr, pos_err_arcsec."""
+    (its obs_ids x detectors). Columns: sid (suspect row), obs_id, detector, ra, dec, mjd, snr, pos_err_arcsec.
+    only: the rows to read for (bool per row; sid stays the row in susp)."""
     want: dict[tuple[str, int], list[int]] = {}
     for i, r in enumerate(susp.itertuples()):
+        if only is not None and not only[i]:
+            continue
         for o in str(r.obs_ids).split(","):
             for d in str(r.detectors).split(","):
                 if o and d:
@@ -319,25 +322,29 @@ def match_mover(ra: float, dec: float, mjd: float, n_dots: int, near: pd.DataFra
 
 
 def motion(dots: pd.DataFrame) -> tuple[float, float, float] | None:
-    """(rate ″/h, its 1σ error, position angle east of north) from a weighted straight-line fit of
-    position against time; None with fewer than two exposures. Times within 5 s are one exposure (as link: D1-D6 of one
-    exposure share MJD-AVG to milliseconds; until 16 Nov a D1+D4 pair's millisecond gap gave 0.4-10 million ″/h) and
-    each dot takes its exposure's mean time. Position errors are the dots' pos_err_arcsec × POS_ERR_SCALE (raw pos_err
-    is 1.4–1.8× too small against Gaia), 0.3″ × that where missing."""
-    t = dots["mjd"].to_numpy(np.float64) * 24.0
+    """(rate ″/h, its 1σ error, position angle east of north) of the dots, by link's own rule (link.track_fit): one
+    position per exposure (the mean of its dots), an unweighted least-squares line in time; None with fewer than two
+    exposures. So the rate shown is the movers table's for the same dots (until 16 Nov a fit weighted by pos_err gave
+    other numbers on noisy dots: ecl10-692050057552-87780103 28.8″/h on the site, 11.1″/h in movers.parquet). Times
+    within 5 s are one exposure (D1-D6 of one exposure share MJD-AVG to milliseconds; until 16 Nov a D1+D4 pair's
+    millisecond gap gave 0.4-10 million ″/h). The error propagates the dots' pos_err_arcsec × POS_ERR_SCALE (raw
+    pos_err is 1.4–1.8× too small against Gaia; 0.3″ × that where missing) through that line."""
     exp = CK.exposures_of(dots["mjd"].to_numpy(np.float64))
-    if np.unique(exp).size < 2:
+    ue, inv = np.unique(exp, return_inverse=True)
+    if ue.size < 2:
         return None
-    t = pd.Series(t).groupby(exp).transform("mean").to_numpy(np.float64)
     e, n = tangent_offset_arcsec(dots["ra"].mean(), dots["dec"].mean(), dots["ra"].to_numpy(), dots["dec"].to_numpy())
     err = dots["pos_err_arcsec"].to_numpy(np.float64) if "pos_err_arcsec" in dots else np.full(len(dots), 0.3)
     err = np.where(np.isfinite(err) & (err > 0), err, 0.3) * C.POS_ERR_SCALE
-    w = 1.0 / err**2
-    tm = np.sum(w * t) / np.sum(w)
-    stt = np.sum(w * (t - tm) ** 2)
-    ve = np.sum(w * (t - tm) * (e - np.sum(w * e) / np.sum(w))) / stt
-    vn = np.sum(w * (t - tm) * (n - np.sum(w * n) / np.sum(w))) / stt
-    sig = 1.0 / math.sqrt(stt)
+    cnt = np.bincount(inv).astype(np.float64)
+    te, ee, ne = (np.bincount(inv, v) / cnt for v in (dots["mjd"].to_numpy(np.float64) * 24.0, e, n))
+    se = np.sqrt(np.bincount(inv, err**2)) / cnt   # σ of each exposure's mean position, per axis
+    dt = te - te.mean()
+    stt = float(np.sum(dt**2))
+    if stt <= 0:
+        return None
+    ve, vn = float(np.sum(dt * (ee - ee.mean())) / stt), float(np.sum(dt * (ne - ne.mean())) / stt)
+    sig = float(math.sqrt(np.sum(dt**2 * se**2)) / stt)
     return float(math.hypot(ve, vn)), sig, float(pa_deg(ve, vn))
 
 
@@ -532,7 +539,7 @@ def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
               no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
               track: tuple[int, float, float] | None = None, grade: str | None = None,
-              vet_reasons: list[str] | None = None) -> str:
+              vet_reasons: list[str] | None = None, known: str | None = None) -> str:
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -545,10 +552,11 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         n, trate, snr = track
         sig = f", {snr:.0f}σ" if math.isfinite(snr) else ""
         seen += f"; followed over {n} sessions of its visit at {trate:.1f}″ an hour{sig}"
+    name = f" ({known})" if known else ""
     if nearest_known is None or not math.isfinite(nearest_known):
         known = "no known asteroid, comet, planet or moon was predicted within 10′"
     else:
-        known = f"the nearest known asteroid, comet, planet or moon was predicted {_fmt_dist(nearest_known)} away"
+        known = f"the nearest known asteroid, comet, planet or moon{name} was predicted {_fmt_dist(nearest_known)} away"
     if repeat is not None:
         known += (f", but another unexplained mover was seen {_fmt_dist(repeat[0])} from here {_fmt_days(repeat[1])} "
                   "apart, so it may be a fixed source")
@@ -588,6 +596,75 @@ def on_track(r) -> tuple[int, float, float] | None:
     return int(n), float(rate), snr
 
 
+def _fin(x) -> float | None:
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def table_motion(r) -> tuple[float | None, float | None]:
+    """(rate ″/h, PA °) of a suspect's own session from its row: session_rate_arcsec_h / session_pa_deg (link's motion,
+    which suspects keeps there since 16 Nov because a track's chord goes in rate_arcsec_h / pa_deg); link's
+    rate_arcsec_h / pa_deg in a table without track columns; else (None, None). Never a track's chord."""
+    if hasattr(r, "session_rate_arcsec_h"):
+        return _fin(r.session_rate_arcsec_h), _fin(getattr(r, "session_pa_deg", None))
+    if not hasattr(r, "tracklet_id"):
+        return _fin(getattr(r, "rate_arcsec_h", None)), _fin(getattr(r, "pa_deg", None))
+    return None, None
+
+
+def table_rate_err(r) -> float | None:
+    """1σ error (″/h) of link's in-session rate from the row's dot lists (dot_mjd, dot_snr): each dot's position σ from
+    its S/N (link.dot_sigma_arcsec: contracts/dots.md pos_err × LINK_POS_ERR_SCALE), one mean position per exposure,
+    the unweighted line of motion() and link; None under two exposures or without the lists."""
+    from .link import dot_sigma_arcsec
+
+    t = np.asarray(_list(getattr(r, "dot_mjd", None)), np.float64)
+    snr = np.asarray(_list(getattr(r, "dot_snr", None)), np.float64)
+    if t.size < 2 or t.size != snr.size or not np.isfinite(t).all():
+        return None
+    ue, inv = np.unique(CK.exposures_of(t), return_inverse=True)
+    if ue.size < 2:
+        return None
+    cnt = np.bincount(inv).astype(np.float64)
+    te = np.bincount(inv, t * 24.0) / cnt
+    se = np.sqrt(np.bincount(inv, dot_sigma_arcsec(snr) ** 2)) / cnt
+    dt = te - te.mean()
+    stt = float(np.sum(dt**2))
+    return float(math.sqrt(np.sum(dt**2 * se**2)) / stt) if stt > 0 else None
+
+
+def needs_positions(susp: pd.DataFrame) -> np.ndarray:
+    """Rows whose motion must come from their dots' positions (dot files' ra, dec, ...): those without link's
+    in-session motion in the table (table_motion; tables written before 16 Nov's session_* columns)."""
+    return np.array([table_motion(r)[0] is None for r in susp.itertuples()], bool)
+
+
+def fast_held(r) -> tuple[int, float] | None:
+    """(sessions, track rate ″/h) of a grade B suspect that suspects.track_grades held back from A (stats `fast_held`):
+    on a track of >= VET_A_MIN_SESSIONS sessions at >= VET_MOTION_SIGMA, faster than VET_A_FAST_ARCSEC_H, with no
+    recovered dot and no detector partner on the track (the only way such a B misses A); None otherwise."""
+    if getattr(r, "grade", None) != "B":
+        return None
+    tr = on_track(r)
+    if tr is None:
+        return None
+    n, rate, snr = tr
+    rs = _fin(getattr(r, "rate_snr", None))
+    snr = rs if rs is not None else snr
+    if n >= C.VET_A_MIN_SESSIONS and snr >= C.VET_MOTION_SIGMA and rate > C.VET_A_FAST_ARCSEC_H:
+        return n, rate
+    return None
+
+
+def known_name(r) -> str | None:
+    """The suspects' nearest_known_name (the body nearest_known_arcsec measures to); None without one."""
+    v = getattr(r, "nearest_known_name", None)
+    return str(v) if isinstance(v, str) and v.strip() else None
+
+
 def mover_facts(r, dots: pd.DataFrame | None, mo, no_motion: bool, track, ctx: dict, flags3,
                 gates: list[str], repeat, excess) -> dict:
     """The inputs of candidate_checks.mover_checks for one suspect row."""
@@ -612,11 +689,13 @@ def mover_facts(r, dots: pd.DataFrame | None, mo, no_motion: bool, track, ctx: d
         sep, j = tree.nearest(float(r.ra), float(r.dec))
         if j[0] >= 0 and sep[0] <= CK.BRIGHT_STAR_ARCSEC:
             bright = (float(g[j[0]]), float(sep[0]))
+    s_rate, s_pa = table_motion(r)
     return {
         "dots": dl, "flags": int(r.flags), "evidence": r.evidence, "n_exposures": int(r.n_exposures), "det": int(r.det),
         "grade": getattr(r, "grade", None), "gates": gates, "rate": rate, "rate_err": err, "pa": pa,
+        "session_rate": s_rate, "session_pa": s_pa, "fast_held": fast_held(r), "track_info": track_info(r, ctx),
         "no_motion": no_motion, "track": tr, "on_track": tr is not None, "visit": visit,
-        "nearest_known": float(nk) if nk is not None and pd.notna(nk) else None,
+        "nearest_known": float(nk) if nk is not None and pd.notna(nk) else None, "known_name": known_name(r),
         "near_source": float(ns) if ns is not None and pd.notna(ns) else None,
         "repeat": repeat, "excess": excess, "ref": ctx.get("motion_ref"), "control_tracks": ctx.get("control_tracks"),
         "partner_photos": ctx.get("photos"), "bright": bright,
@@ -641,9 +720,16 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             dots = match_mover(r.ra, r.dec, r.mjd, int(r.n_dots), near[near["sid"] == i])
         mo = motion(dots) if dots is not None else None
         rate, rate_err, pa = mo if mo else (None, None, None)
+        if mo is None:  # no dots read (the row has link's in-session motion, or grade C) or none matched
+            rate, pa = table_motion(r)
+            rate_err = table_rate_err(r) if rate is not None else None
         track = mover_track(r)  # grade A: its motion is shown over sessions, whatever its own dots say
-        no_motion = bool(track is None and mo is not None and rate < RATE_SIGMA_MIN * rate_err)
-        span_min = float((dots["mjd"].max() - dots["mjd"].min()) * 1440.0) if dots is not None else None
+        no_motion = bool(track is None and rate is not None and rate_err and rate < RATE_SIGMA_MIN * rate_err)
+        if dots is not None:
+            span_min = float((dots["mjd"].max() - dots["mjd"].min()) * 1440.0)
+        else:
+            tl = np.asarray(_list(getattr(r, "dot_mjd", None)), np.float64)
+            span_min = float(np.ptp(tl) * 1440.0) if tl.size >= 2 and np.isfinite(tl).all() else None
         nk = float(r.nearest_known_arcsec) if pd.notna(r.nearest_known_arcsec) else None
         f = int(r.flags) & 0xFFFFFFFF
         reasons = [r.evidence]
@@ -679,15 +765,16 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         if excess:
             d0 = int(r.det) if (int(r.det), visit) in cells else dets[0]
             cell = (d0, visit, cells.get((d0, visit), 0.0))
-        facts = mover_facts(r, dots, mo, no_motion, track, ctx, flags3[i] if flags3 is not None else None,
-                            vet_reasons, rep_, cell)
+        facts = mover_facts(r, dots, (rate, rate_err, pa) if rate is not None else None, no_motion, track, ctx,
+                            flags3[i] if flags3 is not None else None, vet_reasons, rep_, cell)
         c = {
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
             "zone": zone, "zones": [zone], "score": base, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
-            "gaia_match": False, "catwise_match": False, "labels": [], "reasons": reasons,
+            # a catalogue source within 6″ and at most 2 mag fainter (the suspects' reasons gaia, catwise): its own light
+            "gaia_match": "gaia" in vet_reasons, "catwise_match": "catwise" in vet_reasons, "labels": [], "reasons": reasons,
             "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track, grade,
-                             vet_reasons),
+                             vet_reasons, known_name(r)),
             "flags": record_flag_names(f), "_dets": dets, "_base": base,
             "checks": CK.mover_checks(facts),
         }
@@ -1147,12 +1234,62 @@ def zone_base(store: Store, zone: str, spectral_cap: int = SPECTRAL_CAP) -> dict
             "cells": cells, "repeats": reps, "galaxies": galaxies}
 
 
+TRACK_INFO_COLUMNS = ["mover_id", "tracklet_id", "n_sessions", "n_movers", "n_recovered_sessions", "span_h"]
+
+
+def zone_controls(steps: dict) -> dict | None:
+    """The zone's chance yardsticks for a track (summary.json steps): its real tracks, recovered dots and movers
+    (zone_*), tracklets' shuffled control (control_*: tracks, fast_tracks, movers_on_tracks; recovered_dots when every
+    track was also moved 2′, #367) and link's shuffled-exposure control (link_control_*: movers, two_exposures, fast;
+    #367). Keys present only when measured."""
+    tr, lk = steps.get("tracklets") or {}, steps.get("link") or {}
+    out: dict = {}
+    for k, v in (("zone_tracks", tr.get("tracks")), ("zone_recovered_dots", tr.get("recovered_dots")),
+                 ("zone_movers", lk.get("movers"))):
+        if isinstance(v, (int, float)):
+            out[k] = v
+    ctl = tr.get("control")
+    if isinstance(ctl, dict):
+        for k in ("tracks", "fast_tracks", "movers_on_tracks", "recovered_dots"):
+            if isinstance(ctl.get(k), (int, float)):
+                out[f"control_{k}"] = ctl[k]
+    lc = lk.get("control")
+    if isinstance(lc, dict) and "error" not in lc:
+        for k in ("movers", "two_exposures", "fast"):
+            if isinstance(lc.get(k), (int, float)):
+                out[f"link_control_{k}"] = lc[k]
+    return out or None
+
+
+def track_info(r, ctx: dict) -> dict | None:
+    """A suspect's tracklets track (tracklet_id >= 0) for the `seen_again` check: tracklet_id, n_sessions, n_movers,
+    n_recovered_sessions, span_h (tracklets.parquet via ctx tracks), the track's rate_arcsec_h / pa_deg / rate_snr,
+    link's in-session motion (session_rate_arcsec_h / session_pa_deg) and the zone's controls (zone_controls);
+    None off a track."""
+    tr = on_track(r)
+    if tr is None:
+        return None
+    s_rate, s_pa = table_motion(r)
+    out = {"tracklet_id": int(r.tracklet_id), "n_sessions": tr[0], "rate_arcsec_h": tr[1],
+           "pa_deg": _fin(getattr(r, "pa_deg", None)), "rate_snr": _fin(getattr(r, "rate_snr", None)),
+           "session_rate_arcsec_h": s_rate, "session_pa_deg": s_pa}
+    tt = ctx.get("tracks")
+    if tt is not None and str(r.id) in tt.index:
+        row = tt.loc[str(r.id)]
+        for k in ("n_movers", "n_recovered_sessions"):
+            v = _fin(row.get(k))
+            out[k] = int(v) if v is not None else None
+        out["span_h"] = _fin(row.get("span_h"))
+    return {**out, **(ctx.get("controls") or {})}
+
+
 def mover_context(store: Store, zone: str) -> dict:
     """The zone's facts the mover checks need (candidate_checks.mover_checks): motion_ref (its known asteroids' rates
     and directions per visit, tracklets.parquet rows on a track), control_tracks (summary.json's shuffled control),
     photos ((obs_id, detector) of the photo list: was the partner detector's photo taken), bright (Gaia stars brighter
     than BRIGHT_STAR_G from the refcat). Each is None when its file is missing."""
-    ctx: dict = {"motion_ref": None, "control_tracks": None, "photos": None, "bright": None}
+    ctx: dict = {"motion_ref": None, "control_tracks": None, "photos": None, "bright": None, "tracks": None,
+                 "controls": None}
     trel = results_rel(zone, "tracklets.parquet")
     try:
         if store.exists(trel):
@@ -1160,10 +1297,15 @@ def mover_context(store: Store, zone: str) -> dict:
             if len(t):
                 ctx["motion_ref"] = CK.zone_motion_ref(t["visit"].to_numpy(), t["tracklet_id"].to_numpy() >= 0,
                                                        t["rate_arcsec_h"].to_numpy(), t["pa_deg"].to_numpy())
+            tt = read_columns(store, trel, TRACK_INFO_COLUMNS)
+            tt = tt[tt["tracklet_id"].to_numpy() >= 0]
+            ctx["tracks"] = tt.drop_duplicates("mover_id").set_index("mover_id") if len(tt) else None
     except Exception as e:  # noqa: BLE001  (a malformed table only drops these checks)
-        L.warning("candidates %s: tracklets unreadable (%s): no fast / odd_direction checks", zone, e)
+        L.warning("candidates %s: tracklets unreadable (%s): no fast / odd_direction / seen_again values", zone, e)
     try:
-        ctl = store.read_json(results_rel(zone, "summary.json")).get("steps", {}).get("tracklets", {}).get("control")
+        steps = store.read_json(results_rel(zone, "summary.json")).get("steps", {})
+        ctx["controls"] = zone_controls(steps)
+        ctl = (steps.get("tracklets") or {}).get("control")
         ctx["control_tracks"] = int(ctl["tracks"]) if isinstance(ctl, dict) and "tracks" in ctl else None
     except (FileNotFoundError, ValueError, OSError, AttributeError, TypeError):
         pass
@@ -1361,12 +1503,17 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
         if ms:
             keep_ids = {c["id"] for c in ms}
             susp = b["suspects"][b["suspects"]["id"].isin(keep_ids)].reset_index(drop=True)
+            more = more_rows(susp)  # grade C: the suspects row alone, never their dot files
+            sd, sm = susp[~more].reset_index(drop=True), susp[more].reset_index(drop=True)
+            need = needs_positions(sd)  # A/B: positions only where the table lacks link's in-session motion
             t1 = time.time()
-            near = mover_dots(store, susp, workers)
-            flags3 = mover_dot_flags(store, susp, workers)
+            near = mover_dots(store, sd, workers, need) if need.any() else None
+            flags3 = mover_dot_flags(store, sd, workers) if len(sd) else None  # the dots' 3×3 flags (a small column)
             ctx = mover_context(store, z)
-            L.info("candidates %s: dots of %d movers in %.0f s", z, len(susp), time.time() - t1)
-            full = {c["id"]: c for c in movers(susp, z, near, b["cells"], b["repeats"], ctx, flags3)}
+            L.info("candidates %s: %d grade A/B movers (dot flags; positions for %d without an in-session motion) in "
+                   "%.0f s; %d grade C from the table alone", z, len(sd), int(need.sum()), time.time() - t1, len(sm))
+            full = {c["id"]: c for c in movers(sd, z, near, b["cells"], b["repeats"], ctx, flags3)
+                    + movers(sm, z, None, b["cells"], b["repeats"], ctx, None)}
             cands = [full.get(c["id"], c) if c["kind"] == "mover" else c for c in cands]
         fill_sources(store, z, cands, workers)
         fixed_facts(store, z, cands, b.get("galaxies") or set())
@@ -1403,6 +1550,80 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     }
 
 
+MORE_DIR = "candidates-more"   # next to candidates.json: <out dir>/candidates-more/<zone>.json
+MORE_GRADES = ("C",)           # movers of these grades go to the more files (unless status known or flaw)
+
+
+def more_rows(susp: pd.DataFrame) -> np.ndarray:
+    """Suspects rows whose movers go to the more files (grade C): built from the row alone, no dot file read."""
+    if "grade" not in susp or not len(susp):
+        return np.zeros(len(susp), bool)
+    return susp["grade"].astype(str).isin(MORE_GRADES).to_numpy()
+
+
+def in_more(c: dict) -> bool:
+    """A listed candidate that goes to its zone's more file: a grade C mover still open (a known or flaw one stays in
+    candidates.json, where the site shows what was resolved)."""
+    return c["kind"] == "mover" and c.get("grade") in MORE_GRADES and c.get("status", "open") == "open"
+
+
+def split_more(doc: dict) -> tuple[dict, dict[str, dict]]:
+    """candidates.json and its more files from one full document (contracts/api.md v3.24 "Less likely movers"): grade C
+    open movers go to {zone: more doc} (the same candidate objects in list order, i.e. by score; frames_url null); the
+    main file keeps the rest (known and flaw ones of any grade too), its `counts` count what it lists and `more`
+    indexes the files ({zone, kind, grade, count, url}, url relative to candidates.json; zones in `zones` order; a zone
+    with none has neither). The zones' dedup ran before (build), so an id is in exactly one file."""
+    head = {k: v for k, v in doc.items() if k not in ("candidates", "more", "counts")}
+    main, more = [], {}
+    for c in doc["candidates"]:
+        if in_more(c):
+            more.setdefault(c["zone"], []).append({**c, "frames_url": None})  # static frames: candidates.json's best
+        else:
+            main.append(c)
+    order = list(doc.get("zones") or [])
+    zones = [z for z in order if z in more] + sorted(z for z in more if z not in order)
+    index = [{"zone": z, "kind": "mover", "grade": "C", "count": len(more[z]), "url": f"{MORE_DIR}/{z}.json"}
+             for z in zones]
+    out = {**head, "counts": {k: sum(c["kind"] == k for c in main) for k in KINDS}, "more": index, "candidates": main}
+    files = {z: {"generated": doc.get("generated"), "data_release": doc.get("data_release"), "zone": z, "kind": "mover",
+                 "grade": "C", "count": len(more[z]), "candidates": more[z]} for z in zones}
+    return out, files
+
+
+def load_more(doc: dict, folder: Path) -> list[dict]:
+    """The candidates of an export's more files (doc['more'] urls, relative to folder: candidates.json's own); a
+    missing file is skipped with a warning (its candidates are then gone from a rewrite)."""
+    out = []
+    for e in doc.get("more") or []:
+        p = folder / str(e.get("url") or f"{MORE_DIR}/{e.get('zone')}.json")
+        if not p.exists():
+            L.warning("candidates: more file %s missing: its %s candidates are not merged", p, e.get("count"))
+            continue
+        out += json.loads(p.read_text())["candidates"]
+    return out
+
+
+def write_export(doc: dict, out: Path) -> dict[str, float]:
+    """Writes the full document as out (candidates.json) and out.parent/candidates-more/<zone>.json (split_more); a
+    more file of one of the doc's zones that no longer has any is removed. Returns {file name: MB}."""
+    main, files = split_more(doc)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(dumps(main))
+    sizes = {out.name: out.stat().st_size / 1e6}
+    folder = out.parent / MORE_DIR
+    if files:
+        folder.mkdir(parents=True, exist_ok=True)
+    for z, d in files.items():
+        p = folder / f"{z}.json"
+        p.write_text(dumps(d))
+        sizes[f"{MORE_DIR}/{p.name}"] = p.stat().st_size / 1e6
+    for z in doc.get("zones") or []:
+        p = folder / f"{z}.json"
+        if z not in files and p.exists():
+            p.unlink()
+    return sizes
+
+
 def finish(c: dict) -> dict:
     """The contract's fields in order, rounded; NaN -> null."""
     nd = {"ra": 6, "dec": 6, "mjd": 6, "score": 3, "snr": 1, "flux_ujy": 1, "rate_arcsec_h": 1, "pm_mas_yr": 1,
@@ -1426,11 +1647,12 @@ def finish(c: dict) -> dict:
     return out
 
 
-def merge_only_doc(doc: dict, checks_dir: Path) -> tuple[dict, dict]:
-    """An existing candidates.json with the side files of checks_dir merged (candidate_checks.merge_side_files): older
-    files gain status open, known_name null and checks []; scores re-weighed by the change in their checks' factors;
-    re-sorted (contract order); every other field as it was."""
-    cands = [dict(c) for c in doc["candidates"]]
+def merge_only_doc(doc: dict, checks_dir: Path, more: list[dict] | None = None) -> tuple[dict, dict]:
+    """An existing candidates.json (plus `more`: its more files' candidates, load_more) with the side files of
+    checks_dir merged (candidate_checks.merge_side_files): older files gain status open, known_name null and checks [];
+    scores re-weighed by the change in their checks' factors; re-sorted (contract order); every other field as it was.
+    Returns the full document (write_export splits it again: a grade C mover made known or flaw moves to the main file)."""
+    cands = [dict(c) for c in list(doc["candidates"]) + list(more or [])]
     for c in cands:
         c.setdefault("status", "open")
         c.setdefault("known_name", None)
@@ -1438,7 +1660,9 @@ def merge_only_doc(doc: dict, checks_dir: Path) -> tuple[dict, dict]:
     st = CK.merge_side_files(cands, CK.load_side_files(checks_dir))
     order = {z: i for i, z in enumerate(doc.get("zones") or [])}
     cands.sort(key=sort_key(order))
-    return {**doc, "candidates": [finish(c) for c in cands]}, st
+    head = {k: v for k, v in doc.items() if k != "more"}
+    return {**head, "counts": {k: sum(c["kind"] == k for c in cands) for k in KINDS},
+            "candidates": [finish(c) for c in cands]}, st
 
 
 def dumps(doc: dict) -> str:
@@ -1488,12 +1712,14 @@ def main(argv: list[str] | None = None) -> int:
     if a.merge_only:
         if not a.checks_dir:
             ap.error("--merge-only needs --checks-dir")
-        doc, st = merge_only_doc(json.loads(Path(a.merge_only).read_text()), Path(a.checks_dir))
+        src = Path(a.merge_only)
+        doc = json.loads(src.read_text())
+        doc, st = merge_only_doc(doc, Path(a.checks_dir), load_more(doc, src.parent))
         out = Path(a.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(dumps(doc))
-        L.info("merged %s into %s -> %s: %s; status %s", a.checks_dir, a.merge_only, out, st,
-               {s: sum(c["status"] == s for c in doc["candidates"]) for s in CK.STATUSES})
+        sizes = write_export(doc, out)
+        L.info("merged %s into %s (and its more files) -> %s: %s; status %s; files %s", a.checks_dir, src, out, st,
+               {s: sum(c["status"] == s for c in doc["candidates"]) for s in CK.STATUSES},
+               {k: round(v, 2) for k, v in sizes.items()})
         return 0
     if a.drop_planets:
         path = Path(a.drop_planets)
@@ -1510,11 +1736,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     out = Path(a.out)
     doc = build(store, zones, out.parent, a.workers, a.spectral_cap, Path(a.checks_dir) if a.checks_dir else None)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(dumps(doc))
-    L.info("wrote %s: %s, zones %s, %.2f MB", out, doc["counts"], doc["zones"], out.stat().st_size / 1e6)
+    sizes = write_export(doc, out)
+    L.info("wrote %s: %s, zones %s, %.2f MB; more files (grade C movers) %d, %.2f MB", out, doc["counts"], doc["zones"],
+           sizes[out.name], len(sizes) - 1, sum(v for k, v in sizes.items() if k != out.name))
     if a.fixture:
-        Path(a.fixture).write_text(json.dumps(sample(doc), ensure_ascii=False, indent=1, allow_nan=False) + "\n")
+        Path(a.fixture).write_text(json.dumps(sample(split_more(doc)[0]), ensure_ascii=False, indent=1,
+                                              allow_nan=False) + "\n")
     return 0
 
 

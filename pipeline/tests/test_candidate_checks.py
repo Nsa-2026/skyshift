@@ -190,21 +190,62 @@ def test_fast_and_odd_direction():
     some = CK.mover_checks(_mover(pa=105.0 + 60.0, ref=_ref(spread=80.0)))
     assert some[0]["values"]["known_like_it"] == int((_ref(spread=80.0)[1]["dpa"] >= some[0]["values"]["dpa_deg"]).sum())
     on = _mover(rate=q + 40, rate_err=5.0, pa=220.0, ref=ref, track=(3, q + 40, 20.0), on_track=True)
-    assert codes(CK.mover_checks(on)) == {"odd_direction": "warn", "fast": "warn", "chance_tracks": "ok"}
+    assert codes(CK.mover_checks(on)) == {"odd_direction": "warn", "fast": "warn", "seen_again": "ok",
+                                          "chance_tracks": "ok"}
+    # a rate without an error (a grade C row: link's in-session motion, no dots read) still gets fast / odd_direction
+    noerr = CK.mover_checks(_mover(rate=q + 40, rate_err=None, pa=220.0, ref=ref))
+    assert codes(noerr) == {"odd_direction": "strong", "fast": "warn"}
+    assert next(c for c in noerr if c["code"] == "fast")["text"].startswith(f"Moves {q + 40:.0f}″ an hour; 99% of the")
     # motion not significant: no direction claim
     assert codes(CK.mover_checks(_mover(pa=220.0, ref=ref, no_motion=True))) == {"may_not_move": "warn"}
     # too few known asteroids in the zone: nothing to compare with
     assert codes(CK.mover_checks(_mover(rate=500.0, pa=220.0, ref=_ref(n=10)))) == {}
 
 
-def test_chance_tracks():
-    m = _mover(track=(4, 25.0, 12.0), on_track=True, control_tracks=0)
-    (c,) = CK.mover_checks(m)
-    assert (c["code"], c["level"]) == ("chance_tracks", "ok")
-    assert c["text"].startswith("Followed over 4 sessions of its visit at 25.0″ an hour, 12σ; the zone's shuffled control")
+TRACK_INFO = {"tracklet_id": 86, "n_sessions": 4, "n_movers": 4, "n_recovered_sessions": 2, "span_h": 30.2,
+              "rate_arcsec_h": 25.0, "pa_deg": 60.0, "rate_snr": 12.0, "session_rate_arcsec_h": 27.0,
+              "session_pa_deg": 70.0, "zone_tracks": 217, "zone_recovered_dots": 641, "control_tracks": 0,
+              "control_recovered_dots": 3}
+
+
+def test_seen_again_and_chance_tracks():
+    """A mover on a track was found again in other sessions: `seen_again` ok with the track and the zone's controls;
+    chance_tracks (contract v3.24) ok when the shuffled control made no track, warn when it made some."""
+    m = _mover(track=(4, 25.0, 12.0), on_track=True, control_tracks=0, track_info=TRACK_INFO)
+    ch = CK.mover_checks(m)
+    assert codes(ch) == {"seen_again": "ok", "chance_tracks": "ok"}
+    c = next(x for x in ch if x["code"] == "seen_again")
+    assert next(x for x in ch if x["code"] == "chance_tracks")["text"].startswith(
+        "Followed over 4 sessions of its visit at 25.0″ an hour, 12σ; the zone's shuffled control")
+    assert c["text"] == ("Seen again: followed over 4 sessions of its visit (4 movers, and dots found again along its "
+                         "path in 2 more sessions) over 30 hours at 25.0″ an hour towards PA 60°, 12σ; within its own "
+                         "session 27″ an hour towards PA 70°. In this zone the same search with the sessions shuffled "
+                         "made no tracks (against 217 real ones) and tracks moved 2′ off found 3 chance dots along "
+                         "their paths (against 641 on the real paths). A real object turns up again along one smooth "
+                         "path; chance specks rarely do.")
+    v = c["values"]
+    assert (v["tracklet_id"], v["sessions"], v["n_recovered_sessions"], v["track_rate_arcsec_h"], v["track_pa_deg"],
+            v["session_rate_arcsec_h"], v["control_tracks"], v["control_recovered_dots"]) == (86, 4, 2, 25.0, 60.0,
+                                                                                              27.0, 0, 3)
+    assert CK.factor({"kind": "mover", "grade": "A", "checks": [c]}) == 1.0
     m = _mover(track=(3, 25.0, 12.0), on_track=True, control_tracks=1)
-    assert codes(CK.mover_checks(m)) == {"chance_tracks": "warn"}
-    assert codes(CK.mover_checks(_mover(track=(3, 25.0, 12.0), on_track=True, control_tracks=None))) == {}
+    assert codes(CK.mover_checks(m)) == {"seen_again": "ok", "chance_tracks": "warn"}
+    (bare,) = CK.mover_checks(_mover(track=(3, 25.0, 12.0), on_track=True, control_tracks=None))
+    assert bare["text"] == ("Seen again: followed over 3 sessions of its visit at 25.0″ an hour, 12σ. A real object "
+                            "turns up again along one smooth path; chance specks rarely do.")
+
+
+def test_fast_held():
+    """A grade B track faster than 400″/h that suspects.track_grades kept at B (no recovered dot, no partner)."""
+    m = _mover(track=(2, 520.0, 9.0), on_track=True, control_tracks=None, fast_held=(2, 520.0), ref=_ref(n=10))
+    c = {x["code"]: x for x in CK.mover_checks(m)}
+    assert c["fast_held"]["level"] == "warn" and c["fast_held"]["values"]["limit_arcsec_h"] == 400.0
+    assert c["fast_held"]["text"].startswith("Followed over 2 sessions at 520″ an hour, faster than 400″ an hour, where "
+                                             "tracks of 2 sessions also join up glitches of one detector")
+    row = {"grade": "B", "tracklet_id": 3, "n_sessions": 2, "rate_arcsec_h": 520.0, "rate_sigma": 50.0, "rate_snr": 10.4}
+    rows = pd.DataFrame([row, {**row, "rate_arcsec_h": 300.0}, {**row, "grade": "A"}, {**row, "rate_snr": 4.0},
+                         {**row, "tracklet_id": -1}])
+    assert [K.fast_held(r) for r in rows.itertuples()] == [(2, 520.0), None, None, None, None]
 
 
 # --- brightness and place ---------------------------------------------------------------------------------------
@@ -293,9 +334,9 @@ def test_suspects_new_tables():
                                            "asteroids pass such fainter neighbours often, but the dot may also be that "
                                            "source.")
     assert c["catalogue_star"]["values"]["sep_arcsec"] == 5.6 and c["catalogue_star"]["values"]["gaia_g_mag"] == 16.73
-    assert c["known_nearby"]["text"] == ("A known body (V 19.4) was predicted 25″ away, moving 41″ an hour towards PA "
-                                         "111°; this one moves 36″ an hour towards PA 100°: if the motions agree, it is "
-                                         "that object a little off its predicted place.")
+    assert c["known_nearby"]["text"] == ("A known body at V 19.4 was predicted 25″ away, moving 41″ an hour towards PA "
+                                         "111°; this one moves 36″ an hour towards PA 100° within its session: the "
+                                         "motions agree, so it is probably that body a little off its predicted place.")
     assert c["persistence"]["text"].startswith("PERSIST (an afterimage of a bright star seen earlier on the same pixels) "
                                                "is set at the peak of 1 of its 3 dots")
     assert c["flag_bloom"]["text"] == ("BLOOM (charge spilling out of a saturated star) is set around at least one of its "
@@ -316,6 +357,40 @@ def test_suspects_new_tables():
     assert c["flag_halo"]["text"].startswith("HALO (the glow around a bright star) is set at the peak of every one of its")
     assert c["bright_star"]["text"].startswith("A bright fixed source (S/N ≥ 100) lies 11″ away")
     assert CK.factor({"kind": "mover", "grade": "C", "reasons": ["gaia", "halo", "bright_star"], "checks": g}) == 1.0
+
+
+def test_known_nearby_uses_session_motion_and_name():
+    """Known bodies are compared on the in-session motion (the suspects' own numbers, else session_rate_arcsec_h /
+    session_pa_deg), never a track's chord; the suspects' nearest_known_name names the body; values under the v3.24
+    follow-up's keys (rate_arcsec_h, pa_deg: ours; body_rate_arcsec_h, body_pa_deg: the body's)."""
+    w = {"known_nearby": {"sep_arcsec": 16.8, "known_rate_arcsec_h": 44.5, "known_pa_deg": 126, "known_v_mag": 20.5,
+                          "rate_arcsec_h": 59.4, "pa_deg": 356}}
+    m = _mover(warn=w, nearest_known=16.8, known_name="(64868)", rate=107.0, pa=54.0, session_rate=98.0, session_pa=80.0)
+    c = {x["code"]: x for x in CK.mover_checks(m)}["known_nearby"]
+    assert c["text"] == ("A known body, (64868) at V 20.5, was predicted 17″ away, moving 44″ an hour towards PA 126°; "
+                         "this one moves 59″ an hour towards PA 356° within its session: a different motion, so probably "
+                         "not that body.")
+    v = c["values"]
+    assert (v["name"], v["v"], v["body_rate_arcsec_h"], v["body_pa_deg"], v["rate_arcsec_h"], v["pa_deg"]) == \
+        ("(64868)", 20.5, 44.5, 126, 59.4, 356)
+    assert v["rate_ratio"] == pytest.approx(59.4 / 44.5, abs=1e-3) and v["dpa_deg"] == 130.0
+    assert "known_rate_arcsec_h" not in v and "known_v_mag" not in v
+    # older warn_values without our motion: the row's session motion, not the exporter's rate
+    old = {"known_nearby": {k: x for k, x in w["known_nearby"].items() if k not in ("rate_arcsec_h", "pa_deg")}}
+    c = {x["code"]: x for x in CK.mover_checks({**m, "warn": old})}["known_nearby"]
+    assert c["values"]["rate_arcsec_h"] == 98.0 and "moves 98″ an hour towards PA 80° within its session" in c["text"]
+    # 2MASS Ks under the contract's key
+    tm = CK.mover_checks(_mover(warn={"catalogue_star": {"sep_arcsec": 4.0, "tmass_sep_arcsec": 4.0, "tmass_k_mag": 13.1}}))
+    assert tm[0]["values"]["tmass_ks_mag"] == 13.1 and "tmass_k_mag" not in tm[0]["values"]
+    # the suspects could not measure ours (null): no comparison
+    unmeasured = {"known_nearby": {**w["known_nearby"], "rate_arcsec_h": None, "pa_deg": None}}
+    c = {x["code"]: x for x in CK.mover_checks({**m, "warn": unmeasured})}["known_nearby"]
+    assert c["text"].endswith("its own motion could not be compared; if it moves alike, it is that body a little off its "
+                              "place.")
+    # the exporter's own known_nearby (no suspects warning) names the body too
+    (own,) = CK.mover_checks(_mover(nearest_known=45.0, known_name="Sadanori"))
+    assert own["text"].startswith("A known asteroid, comet, planet or moon, Sadanori, was predicted 45″ away")
+    assert own["values"] == {"sep_arcsec": 45.0, "name": "Sadanori"}
 
 
 def test_suspect_warning_columns():
@@ -430,6 +505,29 @@ def test_merge_rules(tmp_path):
     assert [x["code"] for x in a["checks"]] == ["one_detector", "partner_seen"] and again["pixel"]["merged"] == 3
 
 
+def test_merge_known_body_and_gate_levels():
+    """v3.24: a producer's known_body replaces the exporter's known_nearby (and adds no factor); a producer's check of a
+    mover's own failed gate (hot_pixel, sharp) replaces the gate's only when at least as strong."""
+    own_kn = CK.check("known_nearby", "warn", "exporter's", "", {"sep_arcsec": 12.0})
+    gate = CK.check("hot_pixel", "strong", "gate", "")
+    sharp = CK.check("sharp", "strong", "gate sharp", "")
+    c = _cand("m", grade="C", reasons=["hot_pixel", "sharp_outlier"], checks=[own_kn, gate, sharp], score=0.05)
+    known = {"checks": [{"code": "known_body", "level": "strong", "text": "it is (1) Ceres", "look": "",
+                         "values": {"name": "(1) Ceres"}}], "status": "known", "known_name": "(1) Ceres"}
+    pixel = {"checks": [{"code": "hot_pixel", "level": "warn", "text": "pixel's", "look": "", "values": None},
+                        {"code": "sharp", "level": "strong", "text": "pixel's sharp", "look": "", "values": None}]}
+    CK.merge_one(c, [("known", known), ("pixel", pixel)])
+    by = {x["code"]: x for x in c["checks"]}
+    assert set(by) == {"known_body", "hot_pixel", "sharp"} and (c["status"], c["known_name"]) == ("known", "(1) Ceres")
+    assert by["hot_pixel"]["text"] == "gate" and by["sharp"]["text"] == "pixel's sharp"
+    assert c["score"] == pytest.approx(0.05)
+    # not a gate of this mover: the producer's measurement replaces the exporter's check whatever its level
+    b = _cand("b", checks=[CK.check("hot_pixel", "strong", "exporter's", "")], score=0.3)
+    CK.merge_one(b, [("pixel", pixel)])
+    assert {x["code"]: x["text"] for x in b["checks"]}["hot_pixel"] == "pixel's"
+    assert b["score"] == pytest.approx(0.3 / 0.3 * 0.95 * 0.3)
+
+
 def test_merge_producers_disagree_and_bad_files(tmp_path):
     cs = [_cand("a")]
     _side(tmp_path, "aa", {"a": {"checks": [{"code": "x", "level": "warn", "text": "aa"}]}})
@@ -487,3 +585,85 @@ def test_merge_only_cli(tmp_path):
     assert h1["score"] == pytest.approx(0.24) and h1["checks"][0]["values"] == {"ratio": 1.9}
     assert new["candidates"][0]["status"] == "open" and new["candidates"][0]["checks"] == []
     assert new["counts"] == doc["counts"] and list(h1) == list(K.FIELDS)
+
+
+# --- grade C movers in per-zone more files ------------------------------------------------------------------------
+def test_split_more():
+    """candidates.json keeps A/B movers, every other kind and known/flaw entries; open grade C movers go to
+    candidates-more/<zone>.json, indexed by `more`; counts count what the main file lists."""
+    cs = [_cand("h-a", grade="A"), _cand("h-b"), _cand("h-c1", grade="C", frames_url="cand/h-c1/frames.json"),
+          _cand("h-c2", grade="C", status="known", known_name="(1) Ceres"), _cand("h-c3", grade="C", status="flaw"),
+          _cand("e-c1", grade="C", zone="ecl04"), _cand("h-hp", kind="high_pm")]
+    doc = {"generated": "g", "data_release": "DR1", "zones": ["hunt", "ecl04"], "counts": {}, "candidates": cs}
+    main, files = K.split_more(doc)
+    assert [c["id"] for c in main["candidates"]] == ["h-a", "h-b", "h-c2", "h-c3", "h-hp"]
+    assert main["counts"] == {"mover": 4, "high_pm": 1, "spectral": 0, "shape": 0}
+    assert main["more"] == [{"zone": "hunt", "kind": "mover", "grade": "C", "count": 1, "url": "candidates-more/hunt.json"},
+                            {"zone": "ecl04", "kind": "mover", "grade": "C", "count": 1,
+                             "url": "candidates-more/ecl04.json"}]
+    assert list(main)[:5] == ["generated", "data_release", "zones", "counts", "more"]
+    assert files["hunt"] == {"generated": "g", "data_release": "DR1", "zone": "hunt", "kind": "mover", "grade": "C",
+                             "count": 1, "candidates": [{**cs[2], "frames_url": None}]}   # static frames: main file only
+    assert json.loads(K.dumps(files["ecl04"]))["candidates"] == [cs[5]]
+
+
+def test_grade_c_movers_from_the_table_alone(tmp_path, monkeypatch):
+    """A whole export: grade C movers read no dot file (rate from link's in-session motion), go to the more file;
+    --merge-only merges side files into the more files too, and a C mover made known moves to candidates.json."""
+    from test_candidates import _write, _zone_files
+
+    from skyshift_pipeline.store import Store, results_rel
+
+    store = Store(str(tmp_path / "bucket"))
+    _zone_files(store, "hunt", 125.0, 20.0, with_extra_mover=True)
+    s = store.read_parquet(results_rel("hunt", "suspects.parquet"))
+    s["grade"], s["reasons"] = ["B", "C"], [[], ["gaia"]]
+    s["evidence"] = "two_exposures"
+    s["session_rate_arcsec_h"], s["session_pa_deg"] = [np.nan, 55.0], [np.nan, 200.0]  # B: no in-session motion
+    _write(store, results_rel("hunt", "suspects.parquet"), s)
+    seen = []
+    real = K.mover_dots
+
+    def spy(st, susp, w=32, only=None):
+        seen.append([i for i, k in zip(susp["id"], only if only is not None else [True] * len(susp)) if k])
+        return real(st, susp, w, only)
+
+    monkeypatch.setattr(K, "mover_dots", spy)
+    doc = K.build(store, ["hunt"])
+    assert seen == [["hunt-1-2"]]           # B without link's motion: its dots' positions; the grade C row's never
+    c = next(c for c in doc["candidates"] if c["id"] == "hunt-5-6")
+    assert (c["grade"], c["rate_arcsec_h"], c["pa_deg"], c["gaia_match"], c["catwise_match"]) == ("C", 55.0, 200.0,
+                                                                                                 True, False)
+    b = next(c for c in doc["candidates"] if c["id"] == "hunt-1-2")
+    assert b["rate_arcsec_h"] == pytest.approx(36.0, abs=0.1) and not b["gaia_match"]
+    # with link's in-session motion in the table, a B mover reads no positions either (its dot flags only)
+    s2 = s.assign(session_rate_arcsec_h=[36.4, 55.0], session_pa_deg=[61.0, 200.0])
+    _write(store, results_rel("hunt", "suspects.parquet"), s2)
+    seen.clear()
+    b2 = next(c for c in K.build(store, ["hunt"])["candidates"] if c["id"] == "hunt-1-2")
+    assert seen == [] and (b2["rate_arcsec_h"], b2["pa_deg"]) == (36.4, 61.0)
+    _write(store, results_rel("hunt", "suspects.parquet"), s)
+    out = tmp_path / "data" / "candidates.json"
+    sizes = K.write_export(doc, out)
+    assert set(sizes) == {"candidates.json", "candidates-more/hunt.json"}
+    main = json.loads(out.read_text())
+    assert [c["id"] for c in main["candidates"] if c["kind"] == "mover"] == ["hunt-1-2"] and main["counts"]["mover"] == 1
+    assert main["more"] == [{"zone": "hunt", "kind": "mover", "grade": "C", "count": 1,
+                             "url": "candidates-more/hunt.json"}]
+    more = json.loads((out.parent / "candidates-more" / "hunt.json").read_text())
+    assert [x["id"] for x in more["candidates"]] == ["hunt-5-6"] and list(more["candidates"][0]) == list(K.FIELDS)
+    # a producer's check on a more-file candidate is merged there
+    sides = tmp_path / "checks"
+    sides.mkdir()
+    _side(sides, "pixel", {"hunt-5-6": {"checks": [{"code": "one_detector", "level": "strong", "text": "D4 alone",
+                                                    "look": "D1", "values": {"ratio": 1.9}}]}})
+    assert K.main(["--merge-only", str(out), "--checks-dir", str(sides), "--out", str(out)]) == 0
+    more = json.loads((out.parent / "candidates-more" / "hunt.json").read_text())
+    assert next(x for x in more["candidates"][0]["checks"] if x["code"] == "one_detector")["text"] == "D4 alone"
+    assert json.loads(out.read_text())["more"][0]["count"] == 1
+    # made known: it moves to candidates.json and the zone's more file goes
+    _side(sides, "known", {"hunt-5-6": {"checks": [], "status": "known", "known_name": "(1) Ceres"}})
+    assert K.main(["--merge-only", str(out), "--checks-dir", str(sides), "--out", str(out)]) == 0
+    main = json.loads(out.read_text())
+    assert {c["id"] for c in main["candidates"] if c["kind"] == "mover"} == {"hunt-1-2", "hunt-5-6"}
+    assert main["more"] == [] and not (out.parent / "candidates-more" / "hunt.json").exists()

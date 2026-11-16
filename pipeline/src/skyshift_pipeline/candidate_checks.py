@@ -14,8 +14,13 @@ tracklets tracks (real moving objects, nearly all known asteroids; the shuffled 
 Check producers outside the exporter (scripts/candidates/<name>_check.py) write side files
 {source, made, candidates_file, candidates: {id: {checks, status, known_name}}}; merge_side_files folds them in:
 a producer's check replaces the exporter's check with the same code (among producers the stronger level wins, then the
-first source by name), status known > flaw > open, a strong check whose code ends in `_proven` makes it a flaw, and a
-known-vs-flaw conflict adds a warn check `status_conflict`.
+first source by name; a producer's `known_body` also replaces the exporter's `known_nearby`; the check of one of a
+mover's own failed vetting gates stays when the producer's of that code is weaker), status known > flaw > open, a strong
+check whose code ends in `_proven` makes it a flaw, and a known-vs-flaw conflict adds a warn check `status_conflict`.
+
+values keys (contracts/api.md v3.24 and its follow-up in PR #369): known_nearby / known_body `rate_arcsec_h`, `pa_deg`
+are ours (in-session), `body_rate_arcsec_h`, `body_pa_deg`, `v`, `name` the body's, `sep_arcsec` the nearest and
+`max_sep_arcsec` the farthest separation; a 2MASS Ks magnitude is `ks_mag` (`tmass_ks_mag` with the catalogue prefix).
 """
 
 from __future__ import annotations
@@ -55,6 +60,7 @@ FLUX_JUMP_GATE = 4.0          # the vetting's flux_ratio gate (config VET_FLUX_R
 ODD_DPA_DEG = 45.0            # odd_direction: more than this from the visit's median direction (known: 0-1.5% of them)
 MIN_REF_TRACKS = 30           # fewer track movers in a visit: use the zone's pooled visits
 FAST_QUANTILE = 0.99          # fast: faster than this share of the visit's known asteroids
+FAST_HELD_ARCSEC_H = 400.0    # fast_held: config VET_A_FAST_ARCSEC_H (suspects.track_grades keeps such a track's B at B)
 PARTNER_EDGE_PX = 15.0        # the partner detector covers a dot this far inside the frame (pairs sit ~71″ = 12 px apart)
 DETECTOR_PX = 2040
 EDGE_PX = 6.0                 # config VET_EDGE_PX
@@ -119,13 +125,20 @@ def counted_elsewhere(cand: dict, chk: dict) -> bool:
     """True where the candidate's own score formula already counts this check (no second factor)."""
     kind, code = cand.get("kind"), chk["code"]
     if kind == "mover":
-        if code == "known_nearby":       # the known-object term (0.5 at 30″ rising to 1 at 300″)
+        if code in ("known_nearby", "known_body"):  # the known-object term (0.5 at 30″ rising to 1 at 300″)
             return True
         # grade C's x 0.1 stands for its failed gates (in `reasons`): their checks add nothing more
         return cand.get("grade") == "C" and any(GATE_CODES.get(r) == code for r in cand.get("reasons") or [])
     if kind == "high_pm":
         return HIGHPM_COUNTED.get(code) in set(cand.get("reasons") or [])
     return False
+
+
+def gate_codes(cand: dict) -> set[str]:
+    """The check codes of a mover's own failed vetting gates (its `reasons`, GATE_CODES); empty for other kinds."""
+    if cand.get("kind") != "mover":
+        return set()
+    return {GATE_CODES[r] for r in cand.get("reasons") or [] if r in GATE_CODES}
 
 
 def factor(cand: dict, checks: list[dict] | None = None) -> float:
@@ -185,10 +198,12 @@ def mover_checks(m: dict) -> list[dict]:
     """Every exporter check of one mover. m holds (missing keys = not known):
     dots: {det, x, y, mjd, flux, snr, size, fpk, obs (lists, one entry per dot), flags3 (3x3 flags per dot or None)},
     flags (the OR of the dots' 3x3 flags), evidence, n_exposures, det, grade, gates (failed vet gates),
-    rate, rate_err, pa (its own dots' fit; None without), no_motion, track (sessions, rate, rate/sigma) or None,
-    on_track, nearest_known, near_source, repeat (sep ″, days) or None, excess (det, visit, ratio) or None,
-    visit, ref (zone_motion_ref) or None, control_tracks (the zone's shuffled-control tracks, None unknown),
-    partner_photos (set of (obs_id, det) photographed, None unknown), bright (G, sep ″) or None,
+    rate, rate_err, pa (its own dots' fit, else link's in-session motion with rate_err None; None without),
+    session_rate, session_pa (the suspects row's in-session motion; known bodies are compared on it), no_motion,
+    track (sessions, rate, rate/sigma) or None, on_track, fast_held (sessions, track rate) or None, nearest_known,
+    known_name (the suspects' nearest_known_name), near_source, repeat (sep ″, days) or None, excess (det, visit,
+    ratio) or None, visit, ref (zone_motion_ref) or None, control_tracks (the zone's shuffled-control tracks, None
+    unknown), partner_photos (set of (obs_id, det) photographed, None unknown), bright (G, sep ″) or None,
     star_size (per dot, the detector's stellar size at its S/N) or None, warn (the suspects' warn_codes ->
     values) or None."""
     out: list[dict] = []
@@ -379,6 +394,7 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
         ns, trate, tsnr = track
         ctl = m.get("control_tracks")
         sig = f", {tsnr:.0f}σ" if tsnr is not None and math.isfinite(tsnr) else ""
+        out.append(_seen_again(m.get("track_info") or {}, ns, trate, sig, ctl, main))
         if ctl is None:
             pass
         elif ctl == 0:
@@ -397,8 +413,19 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                 f"mixed up) also made {ctl} track{'s' if ctl != 1 else ''}, so chance tracks happen here.",
                 f"Step through the sessions of its visit in D{main}: check every session's dot, not only the first.",
                 {"sessions": ns, "rate_arcsec_h": trate, "control_tracks": ctl}))
+    fh = m.get("fast_held")
+    if fh is not None:
+        ns, trate = fh
+        out.append(check(
+            "fast_held", "warn",
+            f"Followed over {ns} sessions at {trate:.0f}″ an hour, faster than {FAST_HELD_ARCSEC_H:.0f}″ an hour, where "
+            "tracks of 2 sessions also join up glitches of one detector; no dot found again along its path and no "
+            "partner detector backs it, so it stays grade B instead of A.",
+            f"Switch the Viewer between D{main} and D{SIMULTANEOUS.get(main, main)} at the same exposure, then step "
+            "through its sessions: a real fast mover shows in both detectors and keeps to one line.",
+            {"sessions": ns, "rate_arcsec_h": trate, "limit_arcsec_h": FAST_HELD_ARCSEC_H}))
     ref = m.get("ref") or {}
-    if rate is None or not err or m.get("no_motion"):
+    if rate is None or m.get("no_motion"):
         return out
     v = m.get("visit")
     r = ref.get(v) if v in ref and ref[v]["n"] >= MIN_REF_TRACKS else ref.get("all")
@@ -407,9 +434,10 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
     faster = int((r["rates"] >= rate).sum())
     fast = rate > r["rate_q"]
     if fast:
+        pm = f" ± {err:.0f}" if err else ""
         out.append(check(
             "fast", "warn",
-            f"Moves {rate:.0f} ± {err:.0f}″ an hour; {pct(FAST_QUANTILE)} of the {r['n']:,} known asteroids followed in "
+            f"Moves {rate:.0f}{pm}″ an hour; {pct(FAST_QUANTILE)} of the {r['n']:,} known asteroids followed in "
             f"this visit move slower than {r['rate_q']:.0f}″ an hour (fastest {r['rate_max']:.0f}).",
             f"Blink D{main} on the hours clock: a real fast mover makes long, even steps along a straight line.",
             {"rate_arcsec_h": rate, "rate_err_arcsec_h": err, "known_quantile_arcsec_h": r["rate_q"],
@@ -434,6 +462,40 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
         "asteroids in the field.",
         {"pa_deg": pa, "dpa_deg": dpa, "visit_pa_deg": pa_med, "known_n": rv["n"], "known_like_it": both}))
     return out
+
+
+def _seen_again(ti: dict, ns: int, trate: float, sig: str, ctl, main: int) -> dict:
+    """`seen_again` (ok): the mover is on a tracklets track, i.e. found again in other sessions of its visit, the
+    strongest sign for a real moving object; values: the track (track_info) and the zone's controls."""
+    f = {k: _fin(v) for k, v in ti.items()}
+    nm, nrec, span = f.get("n_movers"), f.get("n_recovered_sessions"), f.get("span_h")
+    tpa, srate, spa = f.get("pa_deg"), f.get("session_rate_arcsec_h"), f.get("session_pa_deg")
+    text = (f"Seen again: followed over {ns} sessions of its visit"
+            + (f" ({int(nm)} movers" + (f", and dots found again along its path in {int(nrec)} more session"
+                                         f"{'s' if int(nrec) != 1 else ''}" if nrec else "") + ")" if nm else "")
+            + (f" over {span:.0f} hours" if span else "")
+            + f" at {trate:.1f}″ an hour" + (f" towards PA {tpa:.0f}°" if tpa is not None else "") + sig
+            + (f"; within its own session {srate:.0f}″ an hour" + (f" towards PA {spa:.0f}°" if spa is not None else "")
+               if srate is not None else "") + ".")
+    cparts = []
+    if ctl is not None:
+        cparts.append(f"the same search with the sessions shuffled made {'no' if ctl == 0 else ctl} "
+                      f"track{'s' if ctl != 1 else ''}" + (f" (against {int(f['zone_tracks']):,} real ones)"
+                                                          if f.get("zone_tracks") else ""))
+    crec = f.get("control_recovered_dots")
+    if crec is not None:
+        cparts.append(f"tracks moved 2′ off found {int(crec)} chance dot{'s' if int(crec) != 1 else ''} along their "
+                      "paths" + (f" (against {int(f['zone_recovered_dots']):,} on the real paths)"
+                                 if f.get("zone_recovered_dots") else ""))
+    if cparts:
+        text += " In this zone " + " and ".join(cparts) + "."
+    text += " A real object turns up again along one smooth path; chance specks rarely do."
+    ren = {"rate_arcsec_h": "track_rate_arcsec_h", "pa_deg": "track_pa_deg", "n_sessions": "sessions"}
+    vals = {"sessions": ns, "track_rate_arcsec_h": trate, "control_tracks": ctl,
+            **{ren.get(k, k): v for k, v in ti.items() if v is not None}}
+    return check("seen_again", "ok", text,
+                 f"Step through the sessions of its visit in D{main} on the hours clock: the dot should turn up "
+                 "along one smooth path.", vals)
 
 
 def _flux_checks(m, d, det, exp, n, main, gates) -> list[dict]:
@@ -465,13 +527,14 @@ def _flux_checks(m, d, det, exp, n, main, gates) -> list[dict]:
 def _place_checks(m, d, det, exp, n, main, gates) -> list[dict]:
     out = []
     nk = m.get("nearest_known")
+    name = m.get("known_name") or None
     if nk is not None and math.isfinite(nk) and nk <= 120.0:
         out.append(check(
             "known_nearby", "warn",
-            f"A known asteroid, comet, planet or moon was predicted {dist(nk)} away at that time: it may be that object, "
-            "a little off its predicted place.",
+            f"A known asteroid, comet, planet or moon{f', {name},' if name else ''} was predicted {dist(nk)} away at "
+            "that time: it may be that object, a little off its predicted place.",
             "Blink the hours clock and compare its motion with the known object's predicted path.",
-            {"sep_arcsec": nk}))
+            {"sep_arcsec": nk, **({"name": name} if name else {})}))
     rep = m.get("repeat")
     if rep is not None:
         sep, dd = rep
@@ -618,7 +681,7 @@ def _gate_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                          f"Compare with the same spot in another session of D{main}.", None))
     cats = [c for c in CATALOG_REASONS if c in g]
     if cats:
-        cw = dict((m.get("warn") or {}).get("catalogue_star") or {})
+        cw = {RENAME_VALUES.get(k, k): x for k, x in ((m.get("warn") or {}).get("catalogue_star") or {}).items()}
         names = [CATALOG_REASONS[c] for c in cats]
         sep, fm = _fin(cw.get("sep_arcsec")), _fin(cw.get("fainter_mag"))
         text = (f"{' and '.join(names)} list{'s' if len(names) == 1 else ''} a source "
@@ -638,6 +701,30 @@ def _fin(v) -> float | None:
 
 
 SUSPECTS_TEXT_WINS = ("catalogue_star", "bright_star", "known_nearby")  # their numbers say more than the exporter's
+RENAME_VALUES = {"tmass_k_mag": "tmass_ks_mag"}  # the suspects' warn_values keys under the contract's (2MASS Ks: ks_mag)
+KNOWN_RATE_TOL = 0.5          # known_nearby "the motions agree": config SUSPECT_KNOWN_RATE_TOL ...
+KNOWN_PA_TOL_DEG = 45.0       # ... and SUSPECT_KNOWN_PA_TOL_DEG (the suspects' moving-alike cut without its 3σ terms)
+
+
+def _known_values(v: dict, m: dict) -> dict:
+    """The suspects' known_nearby warn_values under the v3.24 follow-up's keys (the `known` producer's too): name (the
+    suspects' nearest_known_name), v, sep_arcsec, body_rate_arcsec_h, body_pa_deg (the body's), rate_arcsec_h, pa_deg
+    (ours), rate_ratio (ours / the body's), dpa_deg. Ours is the in-session motion, never a track's chord: the suspects'
+    own (their values, null when not measured), else the row's session_rate_arcsec_h / session_pa_deg (m session_rate,
+    session_pa), else the exporter's fit of its dots (m rate, pa)."""
+    if "rate_arcsec_h" in v or "pa_deg" in v:
+        rate, pa = _fin(v.get("rate_arcsec_h")), _fin(v.get("pa_deg"))
+    elif _fin(m.get("session_rate")) is not None:
+        rate, pa = _fin(m.get("session_rate")), _fin(m.get("session_pa"))
+    else:
+        rate, pa = _fin(m.get("rate")), _fin(m.get("pa"))
+    kr, kpa = _fin(v.get("known_rate_arcsec_h")), _fin(v.get("known_pa_deg"))
+    ratio = rate / kr if rate is not None and kr else None
+    dpa = float(abs((pa - kpa + 180.0) % 360.0 - 180.0)) if pa is not None and kpa is not None else None
+    out = {"name": m.get("known_name") or None, "v": _fin(v.get("known_v_mag")), "sep_arcsec": _fin(v.get("sep_arcsec")),
+           "body_rate_arcsec_h": kr, "body_pa_deg": kpa, "rate_arcsec_h": rate, "pa_deg": pa, "rate_ratio": ratio,
+           "dpa_deg": dpa}
+    return {k: x for k, x in out.items() if x is not None}
 
 
 def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
@@ -673,17 +760,25 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
                  "spikes can make dots; real asteroids have one within 30″ 1–7% of the time, the unexplained movers "
                  "18–43%."),
                 f"Blink D{main} on the hours clock and check whether the dot sits on the bright source's ring or spike.")
-    if code == "known_nearby":
-        sep = f.get("sep_arcsec")
+    if code == "known_nearby":   # v: already under the known producer's keys (_known_values)
+        k = {"rate_ratio": None, "dpa_deg": None, **v}
+        sep = _fin(k.get("sep_arcsec"))
         if sep is None:
             return None
-        kr, kpa, kv = f.get("known_rate_arcsec_h"), f.get("known_pa_deg"), f.get("known_v_mag")
-        rate, pa = _fin(m.get("rate")), _fin(m.get("pa"))
-        text = (f"A known body{f' (V {kv:.1f})' if kv is not None else ''} was predicted {dist(sep)} away"
-                + (f", moving {kr:.0f}″ an hour towards PA {kpa:.0f}°" if kr is not None and kpa is not None else "")
-                + (f"; this one moves {rate:.0f}″ an hour towards PA {pa:.0f}°" if rate is not None and pa is not None
-                   else "")
-                + ": if the motions agree, it is that object a little off its predicted place.")
+        kr, kpa, kv = _fin(k.get("body_rate_arcsec_h")), _fin(k.get("body_pa_deg")), _fin(k.get("v"))
+        rate, pa = _fin(k.get("rate_arcsec_h")), _fin(k.get("pa_deg"))
+        name, at_v = k.get("name"), (f" at V {kv:.1f}" if kv is not None else "")
+        who = f", {name}{at_v}," if name else at_v
+        text = (f"A known body{who} was predicted {dist(sep)} away"
+                + (f", moving {kr:.0f}″ an hour towards PA {kpa:.0f}°" if kr is not None and kpa is not None else ""))
+        if rate is not None and pa is not None and kr is not None and kpa is not None:
+            alike = k["rate_ratio"] is not None and abs(k["rate_ratio"] - 1.0) <= KNOWN_RATE_TOL \
+                and k["dpa_deg"] <= KNOWN_PA_TOL_DEG
+            text += (f"; this one moves {rate:.0f}″ an hour towards PA {pa:.0f}° within its session"
+                     + (": the motions agree, so it is probably that body a little off its predicted place."
+                        if alike else ": a different motion, so probably not that body."))
+        else:
+            text += ": its own motion could not be compared; if it moves alike, it is that body a little off its place."
         return text, "Blink the hours clock and compare its steps with the known body's predicted path."
     if code == "persistence":
         k, n = f.get("dots_at_peak"), f.get("n_dots")
@@ -721,6 +816,9 @@ def _suspects_warnings(m: dict, out: list[dict]) -> list[dict]:
     main = int(m.get("det") or 2)
     for code, vals in w.items():
         vals = {k: _clean(x) for k, x in (vals if isinstance(vals, dict) else {}).items()}
+        if code == "known_nearby":
+            vals = _known_values(vals, m)
+        vals = {RENAME_VALUES.get(k, k): x for k, x in vals.items()}
         words = _warn_text(code, vals, m)
         if code in have:
             c = have[code]
@@ -940,7 +1038,18 @@ def merge_one(cand: dict, entries: list[tuple[str, dict]]) -> dict:
             prev = by_code.get(c["code"])
             if prev is None or LEVELS.index(c["level"]) < LEVELS.index(prev["level"]):
                 by_code[c["code"]] = c
-    checks = [by_code.pop(c["code"]) if c["code"] in by_code else c for c in old]
+    if "known_body" in by_code and "known_nearby" not in by_code:
+        old = [c for c in old if c["code"] != "known_nearby"]  # v3.24: a certain known body replaces our known_nearby
+    gates = gate_codes(cand)
+    checks = []
+    for c in old:
+        new = by_code.pop(c["code"], None)
+        if new is None:
+            checks.append(c)
+        elif c["code"] in gates and LEVELS.index(c["level"]) < LEVELS.index(new["level"]):
+            checks.append(c)        # a vetting gate's check outranks a weaker measurement of the same code
+        else:
+            checks.append(new)
     checks += list(by_code.values())
     known = [(src, str(e.get("known_name") or "")) for src, e in entries if e.get("status") == "known"]
     flaws = [src for src, e in entries if e.get("status") == "flaw"]
