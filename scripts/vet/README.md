@@ -27,6 +27,10 @@ Run everything from `pipeline/` (its environment has all that is needed):
     uv run --with anthropic pytest ../scripts/vet/tests
 
 - Local data: env `SKYSHIFT_VET_DATA`, default `~/.cache/skyshift-vet/data` (`<zone>/*.parquet`, `candidates.json`).
+- The engine's own checks: env `SKYSHIFT_VET_ENGINE`, default `~/skyshift-data` (`off` hides them). `info` prints, for a mover,
+  the track through other sessions (`results/<zone>/tracklets.parquet`) and the pixel checks of `scripts/candidates/pixel_check.py`
+  (`checks/pixel.json`; `vet/pixel*.json` for blind rounds), each with the share of real movers and junk it fires on.
+  `checks/known.json` and `checks/catalogue.json` are shown too, never in a blind run. A drop of a mover on a track is asked about once.
   `--lite` skips the movers and the known-body predictions (4–6 minutes per zone); enough for fast stars,
   spectral leads and shapes.
 - Images are never stored: every stamp is cut from the photo on NASA's public S3 copy (about 1 s each), so any

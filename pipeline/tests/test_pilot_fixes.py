@@ -228,15 +228,16 @@ def test_pairs_are_tested_against_the_control():
     # a control as busy as the real sky: the pair is at the control level, not "new"
     busy = HP.pair_vs_control(real["sep_arcsec"].to_numpy(), [np.array([15.0, 25.0])] * 4)
     out = HP.compute(src, fps, None, None, busy)
-    assert len(out) == 1 and not out.iloc[0]["vetted"] and out.iloc[0]["reason"] == "at_control_level"
+    # (the planted pair moves 60″/yr: over the 10.5″/yr cap since 16 Nov, for pairs too)
+    assert len(out) == 1 and not out.iloc[0]["vetted"] and out.iloc[0]["reason"] == "over_pm_cap,at_control_level"
     # many real pairs in a bin where the control has none: they beat it
     many = np.full(6, 35.0)
     quiet = HP.pair_vs_control(many, [np.zeros(0)] * 4)
     b = [x for x in quiet if x["sep_arcsec"] == [30.0, 60.0]][0]
     assert b["real"] == 6 and b["control_mean"] == 0 and b["beats_control"]
-    assert HP.compute(src, fps, None, None, quiet).iloc[0]["vetted"]
+    assert HP.compute(src, fps, None, None, quiet).iloc[0]["reason"] == "over_pm_cap"
     # without a control the pair is not judged on it
-    assert HP.compute(src, fps, None, None).iloc[0]["reason"] == ""
+    assert HP.compute(src, fps, None, None).iloc[0]["reason"] == "over_pm_cap"
 
 
 def test_control_uses_the_same_coverage_cut():

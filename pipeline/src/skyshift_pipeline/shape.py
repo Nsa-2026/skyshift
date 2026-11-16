@@ -34,6 +34,12 @@ not there); the SHAPE_CAP most significant. Review (15 Nov) of the first 49: 34 
 10 with a catalogued neighbour along the stretch (2MASS at 7–13″, Gaia or CatWISE at 15–25″); 5 left.
 The checks (shape_report.json): the rate at which held-out single Gaia stars fire and the recall and PA on Gaia pairs
 3–10″ apart, at the rule's and at the list's threshold.
+Then (16 Nov) IRSA is asked about the listed rows only (irsa_catalogues: AllWISE, and Gaia at any G, which refcat cuts
+at G 20): another entry of either within SHAPE_NEIGHBOUR_ARCSEC (catalogue_neighbours) makes the reason
+`catalogue_neighbour` instead of `one_catalogue_source`, names it in `why` and scores the row × SHAPE_NEIGHBOUR_WEIGHT;
+the row stays listed. The fit gets those entries too (with_irsa). Vetting round 1: 4 of the 5 hunt rows had an AllWISE
+neighbour 2.4–10.2″ away that refcat lacks (AllWISE isn't in it; CatWISE merged them). IRSA failing: as before,
+catalogue_checked false.
 
 Honest limit (hunt, 14 Nov): the stretch is real signal, but faint uncatalogued neighbours are common in this
 field, so isolated single Gaia stars fire too (4% at s ≥ 6 against 77% of Gaia pairs; 0.17% at s ≥ 20 against 21%).
@@ -484,7 +490,7 @@ def shape_reasons(row) -> list[str]:
         out.append("steady_pa")
     if row.get("one_visit"):
         out.append("one_visit")
-    out.append("one_catalogue_source")
+    out.append("catalogue_neighbour" if row.get("catalogue_neighbour") else "one_catalogue_source")
     if row.get("class") == "galaxy":
         out.append("class_galaxy")
     return out
@@ -492,12 +498,149 @@ def shape_reasons(row) -> list[str]:
 
 def shape_why(row) -> str:
     pa = float(row["pa_deg"])
-    head = (f"Looks like two objects here but the catalogues list one: the image is stretched along PA {pa:.0f}° "
-            f"({row['sig']:.1f}σ over {int(row['n_dots'])} detections)")
+    nb = row.get("catalogue_neighbour") or ""
+    stretch = f"the image is stretched along PA {pa:.0f}° ({row['sig']:.1f}σ over {int(row['n_dots'])} detections)"
+    head = (stretch[0].upper() + stretch[1:]) if nb else "Looks like two objects here but the catalogues list one: " + stretch
     arms = ", the same way in the short- and long-wavelength detectors" if row.get("steady_pa") else ""
+    if nb:
+        tail = f"; but the catalogues list a second object here: {nb}, which may be all it is."
+    else:
+        tail = "; worth a look."
     if row.get("one_visit"):
-        return head + " in one visit only, as if something passed by" + arms + "; worth a look."
-    return head + arms + "; worth a look."
+        return head + " in one visit only, as if something passed by" + arms + tail
+    return head + arms + tail
+
+
+# --- AllWISE and faint Gaia (IRSA): the catalogues the selection's refcat leaves out --------------
+SHAPE_IRSA_TIMEOUT_S = 90.0
+SHAPE_IRSA_RADIUS_ARCSEC = 25.0  # the query: SHAPE_NEIGHBOUR_ARCSEC, and the fit's companions (≤ 21″) + 3″ (shape_fit)
+SHAPE_DISTINCT_ARCSEC = 1.0    # one catalogue's entry this far from the object's own is another object
+SHAPE_NEIGHBOUR_WEIGHT = 0.3   # score × this with a catalogue_neighbour (kept listed: a lead, not certain)
+SHAPE_ALLWISE_EPOCH_MJD = 55400.0  # AllWISE's mean epoch (2010.5): no motions
+IRSA_GAIA_SELECT = "g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.phot_g_mean_mag"
+
+
+def irsa_tap(adql: str, uploads: dict):
+    """IRSA TAP with an uploaded table (crossid.irsa_tap), asked twice (16 Nov: a 502 on gaia_dr3_source, the same query
+    answered at once on the second try); tests replace it."""
+    import time
+
+    from .crossid import irsa_tap as tap
+
+    try:
+        return tap(adql, uploads, SHAPE_IRSA_TIMEOUT_S)
+    except Exception:  # noqa: BLE001
+        time.sleep(5)
+        return tap(adql, uploads, SHAPE_IRSA_TIMEOUT_S)
+
+
+def irsa_catalogues(ra, dec, radius_arcsec: float = SHAPE_IRSA_RADIUS_ARCSEC, tap=None) -> pd.DataFrame:
+    """AllWISE (allwise_p3as_psd) and Gaia DR3 at any G (IRSA gaia_dr3_source; refcat stops at G 20) within radius ″ of
+    each position, two queries for all of them, in refcat's columns (ref_id, cat "allwise"/"gaia", ra, dec, epoch_mjd,
+    pmra, pmdec, g_mag, w1_mag, w2_mag) plus `i` (the position's row). Raises when IRSA fails."""
+    from astropy.table import Table
+
+    from .crossid import allwise_near
+
+    tap = tap or irsa_tap
+    ra, dec = np.atleast_1d(np.asarray(ra, np.float64)), np.atleast_1d(np.asarray(dec, np.float64))
+    cols = ["i", "ref_id", "cat", "ra", "dec", "epoch_mjd", "pmra", "pmdec", "g_mag", "w1_mag", "w2_mag"]
+    if not len(ra):
+        return pd.DataFrame({c: [] for c in cols})
+    aw = allwise_near(ra, dec, radius_arcsec, tap=tap)
+    aw = pd.DataFrame({"i": aw["i"].to_numpy(np.int64), "ref_id": "allwise:" + aw["designation"].astype(str),
+                       "cat": "allwise", "ra": aw["ra"].to_numpy(np.float64), "dec": aw["dec"].to_numpy(np.float64),
+                       "epoch_mjd": SHAPE_ALLWISE_EPOCH_MJD, "pmra": np.nan, "pmdec": np.nan, "g_mag": np.nan,
+                       "w1_mag": pd.to_numeric(aw["w1mpro"], errors="coerce").to_numpy(np.float64),
+                       "w2_mag": pd.to_numeric(aw["w2mpro"], errors="coerce").to_numpy(np.float64)})
+    u = Table({"i": np.arange(len(ra)), "ra": ra, "dec": dec, "r": np.full(len(ra), radius_arcsec / 3600.0)})
+    t = tap(f"SELECT u.i, {IRSA_GAIA_SELECT} FROM gaia_dr3_source g, TAP_UPLOAD.u u "
+            "WHERE 1=CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', u.ra, u.dec, u.r))", {"u": u})
+    g = t.to_pandas() if hasattr(t, "to_pandas") else pd.DataFrame(t)
+    g.columns = [c.lower() for c in g.columns]
+
+    def num(c):
+        return pd.to_numeric(g[c], errors="coerce").to_numpy(np.float64) if c in g else np.full(len(g), np.nan)
+
+    g = pd.DataFrame({"i": g["i"].to_numpy(np.int64) if len(g) else np.zeros(0, np.int64),
+                      "ref_id": ["gaia:" + str(int(s)) for s in g["source_id"]] if len(g) else [], "cat": "gaia",
+                      "ra": num("ra"), "dec": num("dec"), "epoch_mjd": 57388.5, "pmra": num("pmra"), "pmdec": num("pmdec"),
+                      "g_mag": num("phot_g_mean_mag"), "w1_mag": np.nan, "w2_mag": np.nan})
+    return pd.concat([x for x in (aw[cols], g[cols]) if len(x)] or [pd.DataFrame({c: [] for c in cols})],
+                     ignore_index=True)
+
+
+def catalogue_neighbours(c: pd.DataFrame, extra: pd.DataFrame | None) -> pd.DataFrame:
+    """c with the IRSA neighbours of each row (extra: irsa_catalogues of c's positions, None = IRSA not asked or
+    failed): per catalogue (AllWISE, Gaia at any G), the object's own entry is its brightest within
+    SHAPE_PRIMARY_ARCSEC and every other entry within SHAPE_NEIGHBOUR_ARCSEC at least SHAPE_DISTINCT_ARCSEC from it is
+    a neighbour (moved to the row's mjd; any magnitude, as SHAPE_NEIGHBOUR_DMAG for refcat's). Columns
+    catalogue_checked, catalogue_neighbours (count), catalogue_neighbour (words per catalogue: the neighbour along the
+    stretch (SHAPE_PA_TOL_DEG, either side) else the nearest; "" = none), catalogue_neighbour_sep_arcsec and
+    catalogue_neighbour_pa_deg (the nearer of those)."""
+    from skyshift_core import tangent_offset_arcsec
+
+    from .shape_fit import CAT_WORDS, compass
+
+    c = c.copy()
+    n = len(c)
+    words, cnt = [""] * n, np.zeros(n, np.int64)
+    sep_o, pa_o = np.full(n, np.nan), np.full(n, np.nan)
+    if extra is not None and len(extra):
+        ra, dec = c["ra"].to_numpy(np.float64), c["dec"].to_numpy(np.float64)
+        mjd = pd.to_numeric(c["mjd"], errors="coerce").fillna(61000.0).to_numpy(np.float64) if "mjd" in c else np.full(n, 61000.0)
+        spa = pd.to_numeric(c["pa_deg"], errors="coerce").to_numpy(np.float64) if "pa_deg" in c else np.full(n, np.nan)
+        for k in range(n):
+            parts, best = [], None
+            for cat in ("allwise", "gaia"):
+                x = extra[(extra["i"].to_numpy() == k) & (extra["cat"].astype(str).to_numpy() == cat)]
+                if not len(x):
+                    continue
+                dt = (mjd[k] - x["epoch_mjd"].to_numpy(np.float64)) / 365.25
+                xd = x["dec"].to_numpy(np.float64)
+                e, nn = tangent_offset_arcsec(
+                    ra[k], dec[k], x["ra"].to_numpy(np.float64)
+                    + np.nan_to_num(x["pmra"].to_numpy(np.float64)) * dt / 3.6e6 / np.cos(np.radians(xd)),
+                    xd + np.nan_to_num(x["pmdec"].to_numpy(np.float64)) * dt / 3.6e6)
+                s = np.hypot(e, nn)
+                name, band, col = CAT_WORDS[cat]
+                m = x[col].to_numpy(np.float64)
+                near = np.flatnonzero(s <= SHAPE_PRIMARY_ARCSEC)
+                own = near[np.argmin(np.where(np.isfinite(m[near]), m[near], 99.0))] if len(near) else -1
+                nb = (s <= SHAPE_NEIGHBOUR_ARCSEC) & (np.arange(len(x)) != own)
+                if own >= 0:
+                    nb &= np.hypot(e - e[own], nn - nn[own]) >= SHAPE_DISTINCT_ARCSEC
+                j = np.flatnonzero(nb)
+                if not len(j):
+                    continue
+                cnt[k] += len(j)
+                pa = np.degrees(np.arctan2(e[j], nn[j])) % 360.0
+                along = (pa_diff(pa, np.full(len(j), spa[k])) <= SHAPE_PA_TOL_DEG) if np.isfinite(spa[k]) else np.zeros(len(j), bool)
+                q = int(np.lexsort((s[j], ~along))[0])
+                mag = f" {band} {m[j[q]]:.1f}" if np.isfinite(m[j[q]]) else ""
+                parts.append(f"{name}{mag} {s[j[q]]:.1f}″ {compass(pa[q])}" + (", along the stretch" if along[q] else ""))
+                if best is None or s[j[q]] < best[0]:
+                    best = (float(s[j[q]]), float(pa[q]))
+            words[k] = "; ".join(parts)
+            if best:
+                sep_o[k], pa_o[k] = best
+    c["catalogue_checked"] = extra is not None
+    c["catalogue_neighbours"] = cnt
+    c["catalogue_neighbour"] = words
+    c["catalogue_neighbour_sep_arcsec"] = sep_o
+    c["catalogue_neighbour_pa_deg"] = pa_o
+    return c
+
+
+def with_irsa(refcat: pd.DataFrame, extra: pd.DataFrame | None) -> pd.DataFrame:
+    """refcat plus irsa_catalogues' entries (Gaia entries refcat already has left out) for the two-source fit:
+    close_second sees the faint Gaia star and catalogued_at the AllWISE companion refcat lacks."""
+    if extra is None or not len(extra):
+        return refcat
+    have = set(refcat["ref_id"].astype(str)) if "ref_id" in refcat else set()
+    x = extra.drop(columns=["i"]).drop_duplicates("ref_id")
+    x = x[~x["ref_id"].astype(str).isin(have)]
+    return pd.concat([refcat, x], ignore_index=True) if len(x) else refcat
 
 
 # --- the run -----------------------------------------------------------------------------------------
@@ -700,15 +843,24 @@ def stats_from_sources(sources: pd.DataFrame) -> pd.DataFrame:
 def candidate_table(c: pd.DataFrame, stats: pd.DataFrame) -> pd.DataFrame:
     """shape_candidates.parquet, what candidates.py exports: one row per candidate."""
     c = c.merge(stats, on="source_id", how="left")
+    if "catalogue_neighbour" not in c:  # IRSA not asked (catalogue_neighbours): the refcat-only claim, as before
+        c = catalogue_neighbours(c, None)
     rows = c.to_dict("records")
+    nb = c["catalogue_neighbour"].astype(str).to_numpy() != ""
     return pd.DataFrame({
         "source_id": c["source_id"].to_numpy(np.int64), "ra": c["ra"].to_numpy(), "dec": c["dec"].to_numpy(),
         "mjd": c["mjd"].to_numpy(), "det": c["det"].to_numpy(), "snr": c["snr"].to_numpy(), "flux_ujy": c["flux_ujy"].to_numpy(),
-        "score": shape_score(c["sig"], c["one_visit"]), "sig": c["sig"].to_numpy(), "excess": c["excess"].to_numpy(),
+        "score": shape_score(c["sig"], c["one_visit"]) * np.where(nb, SHAPE_NEIGHBOUR_WEIGHT, 1.0),
+        "sig": c["sig"].to_numpy(), "excess": c["excess"].to_numpy(),
         "pa_deg": c["pa_deg"].to_numpy(), "n_dots": c["n_dots"].to_numpy(), "steady_pa": c["steady_pa"].to_numpy(bool),
         "one_visit": c["one_visit"].to_numpy(bool), "gaia_match": np.isfinite(c["gaia_g"].to_numpy(np.float64)),
         "gaia_g": c["gaia_g"].to_numpy(), "ruwe": c["ruwe"].to_numpy(), "catwise_match": c["catwise_match"].to_numpy(bool),
         "reasons": [",".join(shape_reasons(r)) for r in rows], "why": [shape_why(r) for r in rows], "flags": "",
+        "catalogue_checked": c["catalogue_checked"].to_numpy(bool),
+        "catalogue_neighbour": c["catalogue_neighbour"].astype(str).to_numpy(),
+        "catalogue_neighbours": c["catalogue_neighbours"].to_numpy(np.int64),
+        "catalogue_neighbour_sep_arcsec": c["catalogue_neighbour_sep_arcsec"].to_numpy(np.float64),
+        "catalogue_neighbour_pa_deg": c["catalogue_neighbour_pa_deg"].to_numpy(np.float64),
     })
 
 
@@ -831,12 +983,20 @@ def main(argv: list[str] | None = None) -> int:
     chk_list = checks(t, sel["list_sig_min"]) if len(c) else None
     chk_by_sig = {f"sig>={s:g}": {k: checks(t, s)[k] for k in ("single_fire_rate",)} | {"pair_recall": checks(t, s)["pairs"]["dG<=1"]["recall"]}
                   for s in (5, 6, 10, 15, 20, 30)}
+    try:  # AllWISE and Gaia at any G around the listed rows (IRSA): a neighbour there makes the reason catalogue_neighbour
+        extra = irsa_catalogues(c["ra"], c["dec"]) if len(c) else None
+        sel["irsa"] = {"checked": extra is not None, "entries": 0 if extra is None else len(extra)}
+    except Exception as e:  # noqa: BLE001  IRSA down: the refcat-only claim, catalogue_checked false
+        extra = None
+        sel["irsa"] = {"checked": False, "error": repr(e)}
+    c = catalogue_neighbours(c, extra)
+    sel["catalogue_neighbour"] = int((c["catalogue_neighbour"] != "").sum())
     out = candidate_table(c, stats_from_sources(sources[sources["source_id"].isin(c["source_id"])]))
     fit_info = None
     if not a.no_fit:  # one ePSF against two on each candidate's pixels (shape_fit.py): new columns, `why` names a companion
         from . import shape_fit
 
-        out, fit_info = shape_fit.run(store, a.zone, out, a.tables, refcat=refcat, workers=a.workers)
+        out, fit_info = shape_fit.run(store, a.zone, out, a.tables, refcat=with_irsa(refcat, extra), workers=a.workers)
     rule = {k: (str(v) if isinstance(v, tuple) or (isinstance(v, float) and not math.isfinite(v)) else v)
             for k, v in globals().items() if k.startswith("SHAPE_") and isinstance(v, (int, float, tuple))}
     report = {"zone": a.zone, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "measure": info, "checks": chk,

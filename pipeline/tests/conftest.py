@@ -28,16 +28,23 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def _offline_deep_gaia(monkeypatch):
-    """highpm's deep Gaia check (ESA TAP) never goes online in tests: it sees a failing service unless a test gives
-    its own `tap` (or SKYSHIFT_NETWORK=1)."""
+    """highpm's deep checks (ESA Gaia TAP, IRSA CatWISE/AllWISE TAP), classify's AllWISE colours and shape's IRSA
+    neighbours never go online in tests: they see a failing service unless a test gives its own `tap` / `irsa` (or
+    SKYSHIFT_NETWORK=1)."""
     if os.environ.get("SKYSHIFT_NETWORK") == "1":
         return
 
     def offline(adql: str):
         raise ConnectionError("offline test: no ESA TAP")
 
-    from skyshift_pipeline import highpm
+    def offline_irsa(adql: str, uploads=None):
+        raise ConnectionError("offline test: no IRSA TAP")
+
+    from skyshift_pipeline import classify, highpm, shape
     monkeypatch.setattr(highpm, "deep_gaia_tap", offline)
+    monkeypatch.setattr(highpm, "deep_irsa_tap", offline_irsa)
+    monkeypatch.setattr(classify, "allwise_tap", offline_irsa)
+    monkeypatch.setattr(shape, "irsa_tap", offline_irsa)
 
 
 @pytest.fixture(autouse=True)

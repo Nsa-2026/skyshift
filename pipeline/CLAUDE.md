@@ -114,6 +114,11 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   entries ~4 mag fainter (real, named via `companion_catalog`). Hunt: 4 of 5 split (5–12″, 0.8–1.9 mag fainter,
   Δχ² 12k–38k, none moves; #5's companion is a 2MASS entry); ~4 min per candidate on a loaded laptop. Columns
   `companion_*` (contracts/dots.md); server measured.py draws a split companion (reason `split_by_fit`).
+  16 Nov (vetting round 1): IRSA AllWISE and Gaia at any G around the listed rows: another entry within 15″ → reason
+  `catalogue_neighbour` (named in `why`, score × 0.3, kept listed; hunt 5 of 5, e.g. AllWISE W1 14.7 10.2″ S of
+  #63975007456300); the fit gets them too (catalogued_at names AllWISE companions). A visit's offset error has a 0.25″
+  floor (companion_move_sigma 6–10 → 0.8–1.7 on the hunt's fixed companions); two catalogued objects 1–4.5″ apart
+  within 2.5 mag block the split (`companion_blocked`: #64104007282900's NW "companion" mirrored the SE neighbours).
 - crossid, colours, lightcurves, astrometry, highpm use only stored tables (members → dots, sources, refcat/<zone>.parquet
   or refcat/<zone>_forced.parquet, forced/), never photos; a missing refcat or forced/ gives a warning and empty matches.
 - astrometry (14 Nov night, ASTRO_SAT_OFFSET): saturated dots sit ~0.01–0.06 px off the star along −x (fixed in pixels,
@@ -140,6 +145,16 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
 - highpm: CatWISE's pm of a saturated W1 < 8 source checks nothing. Before a vetted row counts as `new`, the deep check
   asks ESA Gaia TAP (no magnitude cut, along our motion back to 2016) and refcat's 2MASS (back to ~2000): a match makes it
   status `gaia` or `2mass`; a failed query keeps `new` (report deep_check.deep_gaia_checked false). Tests stub the query.
+  16 Nov (vetting round 1): catalogue entries without a motion (Gaia position-only, 2MASS, AllWISE from IRSA) count
+  when they lie on our track at their own epoch (counterpart `gaia_position` / `tmass_position` / `allwise_position`,
+  status gaia / 2mass / allwise, still vetted: they list the star, ours is the motion); a CatWISE motion found along
+  the track that agrees counts too (its disagreement doesn't: it splits fast movers). One sitting where we are now,
+  that our motion says we had left: reason `gaia_still` / `allwise_still` (never vetted; a NaN Gaia pm is no longer 0).
+  Columns counterpart, counterpart_id, counterpart_sep_arcsec, counterpart_epoch_mjd say what lists the object.
+  Pairs are capped at HIGHPM_FIT_MAX_PM_MAS_YR too (`over_pm_cap`: all 7 vetted pairs of 61 zones, 23–115″/yr, real ≈
+  control). highpm_visits.parquet: each fit's per-visit positions (astrometry_visits.parquet, line + parallax + the
+  visit's mean residual, errors √(scale²/Σw + floor²)), each pair's two ends. 61 zones' stored tables, live: the 28
+  vetted `new` fits all have a counterpart (17 Gaia position-only 0.1–0.6″ off the track, 2 Gaia pm, 9 CatWISE + 2MASS).
 - Fit cut (14 Nov night): astrometry writes a fit only with >= ASTRO_MIN_MOTION_DOF (8) degrees of freedom left for the
   motion after the detector zero points (detectors seen in both visits; astrometry.motion_dof): hunt 287,695 → 277,276
   fits, Gaia stars with a fake pm 214 → 149, no fast Gaia star lost. highpm: unconfirmed fits from 4.5σ (fp_control
@@ -440,8 +455,8 @@ The step never raises (errors go to its stats).
   halve the real share but drop 3–6.5 points of the rest, which outnumbers the real ones 2–23× in the 4–6″ ring).
 - Vetting (vet.py, 14 Nov; config VET_*): every suspect gets `grade` and `reasons`. Gates on its own dots
   (link carries each mover's dots as lists dot_obs, dot_det, dot_x, dot_y, dot_flux, dot_snr, dot_size, dot_fpk, …) and on
-  zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y; tiles merge it): hot_pixel (±1 px with
-  movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure, and
+  zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y, ra, dec; tiles merge it): hot_pixel
+  (±1 px, free dots at other sky places in ≥ 5 exposures; see mover flaws below), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure, and
   more than chance at that photo's free-dot density, Poisson tail ≤ 0.1%: ecliptic photos hold p90 500–780 free dots,
   where ≥ 3 alone hit 9–12% of the real asteroids and as much junk; now 0.1–0.5% vs 0–9%), edge
   (6 px), masked_peak, sharp_outlier (√(a·b) < 0.7 × stellar at that S/N with OUTLIER; OUTLIER alone never: 52% of real
@@ -459,6 +474,21 @@ The step never raises (errors go to its stats).
   tracklets.parquet changes nothing (stats vetting.tracklets). candidates.py lists A first and names the track in `why`.
   Gates run on the suspects only, never before pairing: recall is unchanged. completeness' vs_recall compares the
   synthetic movers with recall.json `recall_movers` (movers alone) when present.
+- Mover flaws (16 Nov, p1/mover-flaws; docs/research/2026-11-16-engine-flaws-from-vetting.md; config "mover flaws" has
+  every threshold with its real vs rest share): vet.flaw_numbers per suspect (FLAW_COLUMNS in suspects.parquet) and
+  suspects.mover_flaws. Reasons (grade C, strong check): hot_pixel (free dots on the dot's pixel at other sky places
+  > 30″ away in ≥ 5 exposures; repeats at one sky place are a source, e.g. Europa), hot_pixel_proven (every dot on such a
+  pixel, ≥ 3: real 0 of 6,125), same_pixel (two exposures within 1 px: a session without the telescope step), whole_pixel
+  (≥ 2 dots on a whole pixel), wide (every unsaturated dot ≥ 1.3× a star), cross_detector (no detector sees two
+  exposures: D1 then D4 is colour), fixed_source (link's fixed source within 9.5″ at least as bright as the mover, or
+  the mover under 1.5× the source and motion < 2σ; a Gaia star within 2″ and motion < 3σ), glow (one detector, broad, G < 7 within 10′), unseen (≥ 2 of
+  its session's exposures hold its track but not it, counted without link's star/blend exclusions). Warnings with
+  numbers: their weaker forms, may_not_move (motion < 3σ: real 22.6% vs rest 26.8%, never a grade) and blend (between
+  two Gaia stars). `warn_levels` (JSON {code: "strong"}) next to warn_codes. Motion σ (vet.motion_sigma; link's
+  motion_snr too) gives a whole-pixel dot 0.3 px more error. A grade-A track overrules fixed_source, unseen, wide,
+  whole_pixel, cross_detector and glow (VET_TRACK_OVERRULES: kept as warnings). Hunt + ecl04 + ecl08 + ecl11 as if
+  unknown (main → branch): real kept 98.7% → 98.7%, real A/B 89.0% → 88.3%, real A 67.8% → 67.9%, rest A/B 3.0% → 0.8%
+  (288 listed → 74), hot_pixel_proven on 337 rest, 0 real.
 
 ## Facts
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.
@@ -504,6 +534,12 @@ The step never raises (errors go to its stats).
   Rerun per zone: spectra, classify, photoz, then shape and candidates (no re-extraction, no recombine).
 - `brown_dwarf_like`: methane or water seen, red (J − [4.6] AB > −0.5), and missing or very faint in Gaia.
   A lead for a human to check, not a discovery; `bd_evidence` says which bands fired.
+  16 Nov: water is required where the spectrum could show it (H2O depth error ≤ BD_WATER_TESTABLE_ERR; methane alone
+  only where it can't: a Y dwarf), and AllWISE colours veto AGN (W2 − W3 ≥ 2.5 at W3 S/N ≥ 5 and W1 − W2 < 2; IRSA, the
+  labelled rows only; columns bd_veto `no_water`/`agn_colours`, allwise_w2_w3). On the 165 labels of the catalogue
+  check: 136 methane-only (catalogued galaxies, AGN colours) → off, the 22 dwarfs with a Gaia parallax all kept.
+  crossid: a 2MASS match moved by a borrowed pm allows CROSSID_PM_REL_TOL of the move along it (hunt: +381 matches,
+  23 at ≥ 100 mas/yr, e.g. 2MASSW J0825+2115).
 - `mag_ab_*`: brightness from our own spectrum in J, H, K, 3.5 and 4.6 µm windows (AB).
 - `photoz.parquet` → `z_best` with a 68% range `z_lo`–`z_hi`: a rough distance for galaxies from the shape of their
   102-channel spectrum (the 1.6 µm stellar bump, PAH and line features shifting red). Trust it when `good` is true.

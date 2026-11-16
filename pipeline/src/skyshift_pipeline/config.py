@@ -503,6 +503,8 @@ REFCAT_FALLBACK_REL = "refcat/{zone}_forced.parquet"  # the forced-photometry ta
 FORCED_DIR = "forced"                    # forced/<obs_id>D<det>.parquet
 CROSSID_ARCSEC = {"gaia": 2.5, "catwise": 3.0, "tmass": 3.0}  # match radius per catalogue
 CROSSID_SLACK_ARCSEC = 2.0     # extra search radius before the per-source epoch refinement
+CROSSID_PM_REL_TOL = 0.3       # 2MASS moved by a borrowed pm: this share of the move more along it (16 Nov: CatWISE's pm
+                               # put the L7.5 dwarf 2MASSW J0825+2115 4.4″ short of its 2MASS entry over 27 yr)
 # colours: simultaneous pairs only (same obs_id), so variability cancels
 COLOUR_MIN_PAIRS = 1           # simultaneous dot pairs needed for a colour
 # lightcurves: compare within a detector, normalised by the source's own spectrum
@@ -657,6 +659,16 @@ BD_H2O_MIN_DEPTH = 0.15
 BD_MIN_J_M46_AB = -0.5         # J_AB − [4.6]_AB above this is "red" (≈ J − W2 > 1.9 Vega; A0 star −2.4, M dwarfs ~ −1.4)
 BD_GAIA_FAINT_G = 19.0         # Gaia G fainter than this counts as faint
 BD_MIN_G_J_AB = 3.5            # ... or G − J_AB above this (L/T dwarfs are very red in G − J)
+# 16 Nov (165 brown_dwarf_like labels against the catalogue check; vetting round 1: 8 of 15 brown-dwarf leads are AGN):
+# 136 had methane (ch4_33) and no water: all catalogued galaxies or AGN colours (W2 − W3 median 3.9–4.2), none of the
+# 22 ultracool dwarfs with a Gaia parallax, which all show both water bands. So water is required where it can be seen:
+BD_WATER_TESTABLE_ERR = 0.1    # an H2O index measured to this depth error (a 0.5-deep L/T band at >= 5σ) must show water;
+                               # where neither can (a Y dwarf, faint at 1.4–1.9 µm) methane alone still counts
+BD_AGN_VETO = True             # and AllWISE colours (IRSA, the brown_dwarf_like rows only) veto AGN and dusty galaxies:
+BD_AGN_W2_W3 = 2.5             # W2 − W3 >= this (165 labels: AGN/galaxies median 3.9, dwarfs 0.5; max dwarf 1.1) ...
+BD_AGN_W3_SNR = 5.0            # ... with W3 detected at this S/N ...
+BD_AGN_MAX_W1_W2 = 2.0         # ... and W1 − W2 under this (late T and Y dwarfs: W1 − W2 > 2, and W3-bright)
+BD_ALLWISE_ARCSEC = 3.0        # the nearest AllWISE entry this close is the source's
 
 # --- photoz: template photometric redshifts (photoz.py) -------------------------------------
 PHOTOZ_TEMPLATES = "eazy_fsps_qsf12_v3_rest_0p3_5p2um.csv"  # pipeline/data/, see its README
@@ -891,7 +903,20 @@ HIGHPM_DEEP_MATCH_ARCSEC = 3.0 # a deep Gaia source is our object when its own m
                                # a 2MASS source (refcat) when our motion (less such a leak) puts us this close at its epoch
 HIGHPM_DEEP_TMASS_MAX_DMAG = 1.5  # ... and its J (AB) is within this of our D2 flux (AB), where both are known
 HIGHPM_DEEP_BATCH = 20         # rows per ESA query (two circles each)
-HIGHPM_DEEP_TIMEOUT_S = 60     # per ESA request; a failure keeps the rows "new" (report deep_gaia_checked false)
+HIGHPM_DEEP_TIMEOUT_S = 60     # per ESA / IRSA request; a failure keeps the rows "new" (report deep_*_checked false)
+# 16 Nov (vetting round 1: 9 real fast stars have a Gaia DR3 position-only source 3–5″ back along the track, Gliese 570 D
+# an AllWISE one 30″ back; a fixed pair end got status gaia from a still G 21 position-only source): catalogue entries with
+# no motion of their own are compared at their own epoch with our track (highpm._track_verdicts): on the track within
+# hypot(HIGHPM_DEEP_MATCH_ARCSEC, 2 × our pm error × Δt) and not at our position → a counterpart; at our position (within
+# HIGHPM_DEEP_STILL_ARCSEC) while our track, whatever the leak, is >= HIGHPM_DEEP_STILL_ARCSEC + max(HIGHPM_DEEP_MATCH_ARCSEC,
+# 3 × pm error × Δt) away → the source was there before us: reason gaia_still / allwise_still (only with no counterpart).
+# Measured on the 28 vetted `new` fits of the 61 zones' stored tables (live ESA/IRSA, leak k from the photo lists): all
+# 28 have one: 17 a Gaia position-only source on the track (0.08–0.62″ off), 2 Gaia with an agreeing pm, 9 an agreeing
+# CatWISE motion and 2MASS on the track; new 28 → 0, every one stays vetted (Gaia lists the star, not its motion).
+HIGHPM_DEEP_STILL_ARCSEC = 1.5
+HIGHPM_DEEP_ALLWISE_MJD = 55400.0   # AllWISE positions: mean W1 epoch (w1mjdmean, 55200–55600); the query's centre ...
+HIGHPM_DEEP_ALLWISE_PAD_YR = 0.6    # ... widened by our motion over this long
+HIGHPM_DEEP_IRSA_ROWS = 200         # rows per IRSA query (CatWISE2020, AllWISE: an uploaded table of circles)
 HIGHPM_STILL_PM_MAX = 30.0     # FP control: Gaia-5p stars slower than this (mas/yr) ...
 HIGHPM_STILL_PLX_MAX = 5.0     # ... and nearer than 200 pc no more: their pm + leak < ~50 mas/yr, i.e. still for us
 HIGHPM_PAIR_SEP_BINS = (3.0, 10.0, 30.0, 60.0, 120.0)  # pairs are tested against the control per separation bin (″)
@@ -1055,9 +1080,77 @@ VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks
 VET_A_FAST_ARCSEC_H = 400.0
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
-VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
-             "red_photo", "bloom", "halo", "bright_star", "gaia", "catwise", "2mass", "allwise")
+VET_GATES = ("not_vetted", "hot_pixel", "same_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp",
+             "flux_ratio", "red_photo", "whole_pixel", "wide", "glow", "cross_detector", "unseen", "fixed_source", "bloom",
+             "halo", "bright_star", "gaia", "catwise", "2mass", "allwise")
 VET_CATALOGS = ("gaia", "catwise", "2mass", "allwise")  # the catalogue reasons among VET_GATES
+
+# --- mover flaws (16 Nov, p1/mover-flaws; docs/research/2026-11-16-engine-flaws-from-vetting.md) -----------------------
+# Each separator measured on every mover of hunt, ecl04, ecl08, ecl11: real = an MPC prediction within 5″ (6,125), rest =
+# no known body within 60″ (9,465), listed = the rest graded A/B before (288). "real a% / rest b%" = the share it hits.
+# A reason (grade C, a strong check) only where real <= ~1% and rest >= 10× that; else a warning with its numbers;
+# `*_proven` (status flaw) only where no real asteroid is hit and the physics is certain. Nothing here removes a mover.
+# hot pixel: free dots (freedots.parquet) on the same detector pixel (±VET_HOT_PX) in other exposures, counted only at sky
+# places > VET_HOT_AWAY_ARCSEC from the dot (a source repeating at one sky place is the sky, e.g. Europa; repeats there:
+# real 0 / rest 0 at >= 3). Warning: a dot's pixel holds >= VET_HOT_WARN_EXP (real 1.2% / rest 11.1%); reason hot_pixel:
+# >= VET_HOT_GATE_EXP (0.8 / 9.5; the old gate counting every exposure, movers' >= 3 or free >= 5: 1.0 / 10.2);
+# hot_pixel_proven: EVERY dot (>= 2) on such a pixel with >= VET_HOT_PROVEN_EXP (0 of 6,125 / 3.6%; >= 2: 0 / 4.4).
+VET_HOT_AWAY_ARCSEC = 30.0
+VET_HOT_WARN_EXP = 3
+VET_HOT_GATE_EXP = 5
+VET_HOT_PROVEN_EXP = 3
+# same_pixel: dots of two exposures within VET_SAME_PIXEL_PX of one detector pixel (x and y). The telescope steps ~706″
+# (115 px) between exposures, so only a session without that step (ecl17 session 201: 0.8″) gives it, and there every
+# hot pixel stays on one sky spot; a real mover then also moved < 1 px. Real 0 / rest 0 in the four zones; 9 of ecl17's
+# vetted junk (round 1). Reason (a step-less hot pixel is not provable from the dots alone).
+VET_SAME_PIXEL_PX = 1.0
+# whole_pixel: a dot whose x and y both lie within VET_WHOLE_PX of a whole pixel (a centroid fallback): reason with >=
+# VET_WHOLE_GATE_DOTS such dots (real 0.2% / rest 14.2%), warning with 1 (3.6 / 24.8). link gives such a dot a position
+# error of at least LINK_WHOLE_PIXEL_SIGMA_PX (motion_snr; vet's motion_sigma likewise).
+VET_WHOLE_PX = 0.02
+VET_WHOLE_GATE_DOTS = 2
+LINK_WHOLE_PIXEL_SIGMA_PX = 0.3
+# wide: dot √(a·b) / the detector's stellar size at its S/N (VET_STAR_SIZE_ARCSEC), unsaturated dots only (OVERFLOW or
+# NONLINEAR at the peak: a saturated asteroid is wide too). Reason: every such dot (>= 2) >= VET_WIDE_RATIO (real 0.9% /
+# rest 20.1%: real ones are V 5–7 saturated or trailed); warning: their median >= it (2.5 / 29.5).
+VET_WIDE_RATIO = 1.3
+VET_SAT_BITS = (1 << 1) | (1 << 15)  # OVERFLOW, NONLINEAR (contracts/flags.md)
+# glow: a broad glow of one detector near a very bright star: one detector, no simultaneous partner, median size ratio >=
+# VET_WIDE_RATIO and a Gaia star of G < VET_GLOW_G_MAG within VET_GLOW_ARCSEC (real 1 of 6,125 / rest 2.0%; round 1:
+# 11 D5/D6 glows 5.9–7.3″ wide, G 2.9–6.3 within 7.5′). Reason.
+VET_GLOW_G_MAG = 7.0
+VET_GLOW_ARCSEC = 600.0
+# cross_detector: >= 2 exposures and no detector holds dots of two of them (D1 then D4: colour read as motion). Reason
+# (real 0.5% / rest 8.3%; 26 of the 28 real ones in a simultaneous pair).
+# fixed_source: link's fixed source (fixed.parquet) within VET_FIXED_NEAR_ARCSEC of the mover (link drops dots within
+# FIXED_VETO_ARCSEC only; a blend's centroid lands 6.2–9.4″ off). Warning (real 5.7% / rest 29.0%). Reason when the
+# source's flux >= VET_FIXED_FLUX_RATIO × the mover's (0.4 / 23.4), or the mover's motion < VET_FIXED_STILL_SIGMA while it
+# is under 1 / VET_FIXED_STILL_RATIO × the source (0.3 / 11.1; brighter than 1.5× it, the dot holds more than the source:
+# Seraphina passing a star 3″ away at 1.9σ), or a Gaia star (moved to the date) within VET_GAIA_STILL_ARCSEC and motion
+# < VET_GAIA_STILL_SIGMA (0.1 / 7.6). Motion: vet.motion_sigma (link's rate over its error from the dots' S/N).
+VET_FIXED_NEAR_ARCSEC = 9.5
+VET_FIXED_FLUX_RATIO = 1.0
+VET_FIXED_STILL_SIGMA = 2.0
+VET_FIXED_STILL_RATIO = 0.67
+VET_GAIA_STILL_ARCSEC = 2.0
+VET_GAIA_STILL_SIGMA = 3.0
+# may_not_move: motion under VET_MOTION_WARN_SIGMA: real 22.6% / rest 26.8% (24–32% / 61–71% per zone among movers with a
+# measured rate): a warning with the numbers, never a grade (two exposures 2 minutes apart rarely show 3σ).
+VET_MOTION_WARN_SIGMA = 3.0
+# unseen: exposures of the mover's session whose photo holds its track (>= MOVER_COVER_EDGE_PX inside, in the zone box)
+# but show none of its dots, counted WITHOUT link's exclusions near fixed sources and blends (the coverage undercount:
+# link's missed_exposures stayed 0 with 4–8 exposures on the track). Movers of >= 2 exposures. Reason >= VET_UNSEEN_GATE
+# (real 0.7% / rest 21.2%), warning 1 (8.5 / 32.3).
+VET_UNSEEN_GATE = 2
+# blend: two Gaia stars (G < 20, moved to the date) within VET_BLEND_PAIR_ARCSEC of the mover, >= VET_BLEND_APART_ARCSEC
+# apart, their midpoint within VET_BLEND_MID_ARCSEC of it: its dot may be their blend. Warning (real 0.3% / rest 2.5%).
+VET_BLEND_PAIR_ARCSEC = 12.0
+VET_BLEND_APART_ARCSEC = 10.0
+VET_BLEND_MID_ARCSEC = 2.0
+# A track overrules the single-session separators: a suspect that track_grades would grade A (a track over >= 2 sessions,
+# motion >= 5σ; the shuffled control makes 0 tracks) keeps A when its only reasons are these; they stay as warnings.
+# Without it 64 of the four zones' 4,154 grade A real asteroids fell to C, and 0 rest or 5–60″ movers held A.
+VET_TRACK_OVERRULES = ("fixed_source", "unseen", "wide", "whole_pixel", "cross_detector", "glow")
 
 # --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
 # NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against
