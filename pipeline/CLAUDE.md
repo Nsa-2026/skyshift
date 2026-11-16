@@ -120,6 +120,14 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   folder of 15 Nov stays as written. Cost: a full photo's dots ~2× the sky run's time (a second sep run for the guard,
   the residual pass). Deblend test (43 hunt photos + R Dra): pairs 2–3 px 9% → 81%, known asteroids next to a brighter
   star 4 → 14 of 17, R Dra D4 glow neighbours 0 → 3 of 4; ~12–50 fake dots per 21,900, mostly near G < 10 stars.
+  Glow model (16 Nov, contracts/dots.md "Glow model"; DetectSettings.glow, config GLOW_*, DOTS_FINE_GLOW true,
+  DOTS_SKY_GLOW false): dots.glow_dots fits skyshift_core.glow on the photo, detects (guard and second pass too) on
+  IMAGE minus the glow with noise × k, keeps each modelled star's nearest detection as its own dot (aperture flux on
+  IMAGE), drops the other detections within max(GLOW_SELF_PX, core + 1.5 px) as pieces; folder suffix `_glow`
+  (fine zones: dots_deblend1e-4_cp3_g6_psf_glow/); metadata `detect.glow`, `glow_config`, n_glow_*. stack: load_cut
+  subtracts each block's glow (glow_cut; STACK_GLOW), every S/N map gets a local noise factor around Gaia-confirmed
+  saturated holes and S/N ≥ STACK_GLOW_MIN_SNR peaks (local_significance; peaks found on snr, kept on snr / k), and a
+  hole's rim peaks become one peak at the star (rim_peaks). Cost: ~3–5 s per photo for the fit (400 stars).
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes

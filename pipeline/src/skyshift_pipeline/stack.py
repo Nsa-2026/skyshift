@@ -56,6 +56,7 @@ from scipy.sparse.linalg import LinearOperator, cg, spsolve
 from scipy.spatial import cKDTree
 from skyshift_core.astrometry import propagate
 from skyshift_core.detect import background, build_mask
+from skyshift_core.glow import fit_glow, noise_factor
 from skyshift_core.level2 import _FSSPEC_KWARGS, EPSF
 from skyshift_core.photometry import ujy_per_mjysr
 
@@ -269,14 +270,35 @@ class Cut:
         return 1.0 / np.square(self.noise.astype(np.float64))  # 0 where bad (noise inf)
 
 
-def load_cut(cache: str, obs_id: str, det: int) -> Cut:
+def load_cut(cache: str, obs_id: str, det: int, glow: bool | None = None) -> Cut:
+    """A cached photo block. With the glow model (C.STACK_GLOW, 16 Nov): the bright stars' wings and halo beyond
+    STACK_GLOW_R_KEEP_PX (core.glow) are subtracted from `sub` and the noise is scaled by the glow's noise factor,
+    so the stacks hold no glow and weigh its leftovers honestly; each star's own pixels (its ePSF fit) are as
+    observed. The cache holds the photo as read; the model is made at load (the same in every pass)."""
     with np.load(cut_path(cache, obs_id, det)) as z:
         meta = json.loads(str(z["meta"]))
         hdr = fits.Header.fromstring(str(z["header"]))
         sub, noise, flags = z["sub"], z["noise"], z["flags"]
     (h, w), x0, y0 = meta["shape"], meta["x0"], meta["y0"]
     wcs = _celestial_wcs(hdr)[y0:y0 + h, x0:x0 + w]
-    return Cut(meta, sub, noise, flags, wcs, load_epsf(cache, meta["epsf"]).shifted(x0, y0))
+    epsf = load_epsf(cache, meta["epsf"]).shifted(x0, y0)
+    if C.STACK_GLOW if glow is None else glow:
+        sub, noise = glow_cut(sub, noise, flags, epsf)
+    return Cut(meta, sub, noise, flags, wcs, epsf)
+
+
+def glow_cut(sub: np.ndarray, noise: np.ndarray, flags: np.ndarray, epsf: EPSF) -> tuple[np.ndarray, np.ndarray]:
+    """(sub, noise) of a block with its bright stars' glow out (core.glow.fit_glow on the background-subtracted block,
+    outside STACK_GLOW_R_KEEP_PX of each unsaturated star; a saturated star's rim beyond its masked core goes too)."""
+    g = fit_glow(sub, flags, noise, epsf=epsf, subtract_background=False, r_max=C.GLOW_R_MAX_PX,
+                 min_peak_snr=C.GLOW_MIN_PEAK_SNR, max_stars=C.GLOW_MAX_STARS)
+    if not len(g.stars):
+        return sub, noise
+    model, k = g.outside(C.STACK_GLOW_R_KEEP_PX, C.STACK_GLOW_CORE_PAD_PX)
+    bad = ~np.isfinite(noise)
+    sub2 = np.where(bad, 0.0, sub.astype(np.float64) - model).astype(np.float32)
+    noise2 = np.where(bad, np.inf, noise.astype(np.float64) * k).astype(np.float32)
+    return sub2, noise2
 
 
 def grid_coords(cut: Cut, grid: Grid, step: int = 16) -> tuple[np.ndarray, np.ndarray]:
@@ -578,6 +600,12 @@ class Map:
     flux: np.ndarray   # MJy/sr·px (the ePSF's normalisation): × conv for µJy
     ok: np.ndarray     # searched: enough photos
     sigma: float       # the raw map's noise (the resampling's correlation)
+    k: np.ndarray | None = None  # local noise factor around bright stars (local_significance); None = 1
+
+    @property
+    def sig(self) -> np.ndarray:
+        """The S/N against the local noise: snr / k (snr where no k)."""
+        return self.snr if self.k is None else self.snr / self.k
 
 
 def snr_map(name: str, acc: Acc, K: np.ndarray) -> Map:
@@ -662,11 +690,113 @@ def inflate(resid: Map, x: np.ndarray, y: np.ndarray, F: np.ndarray, Ferr: np.nd
     return Map(resid.name, np.nan_to_num(snr), resid.flux, resid.ok, resid.sigma)
 
 
+def bright_centres(m: Map, pix: float = C.STACK_PIX_ARCSEC,
+                   gaia_xy: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Bright stars on a map: (x, y, r_min) in grid px. A saturated star's core is masked in every photo, so its
+    stack has a hole (not searched, ok false; STACK_GLOW_HOLE_MIN_ARCSEC to STACK_GLOW_HOLE_MAX_ARCSEC in radius, not
+    on the map's edge): it counts when a Gaia star of gaia_xy (G <= STACK_GLOW_GAIA_G at the map's epoch) lies inside
+    it (+ 2 px; the centre is then that star's position) or its rim (STACK_GLOW_RIM_ARCSEC) reaches S/N
+    STACK_GLOW_HOLE_RIM_SNR; r_min = the hole's radius. An unsaturated one is a peak >= STACK_GLOW_MIN_SNR (local maximum
+    over STACK_GLOW_MERGE_ARCSEC) outside the holes; r_min 0."""
+    ny, nx = m.snr.shape
+    xs, ys, rs = [], [], []
+    rim = C.STACK_GLOW_RIM_ARCSEC / pix
+    gx, gy = (np.zeros(0), np.zeros(0)) if gaia_xy is None else (np.asarray(gaia_xy[0], float), np.asarray(gaia_xy[1], float))
+    lab, n = ndimage.label(~m.ok, structure=np.ones((3, 3), bool))
+    if n:
+        edge = np.zeros(n + 1, bool)
+        edge[np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]])] = True
+        sizes = np.bincount(lab.ravel(), minlength=n + 1)
+        hmax = (C.STACK_GLOW_HOLE_MAX_ARCSEC / pix) ** 2
+        for i, sl in enumerate(ndimage.find_objects(lab), start=1):
+            if sl is None or edge[i] or sizes[i] > hmax:
+                continue
+            yy, xx = np.nonzero(lab[sl] == i)
+            cy, cx = yy.mean() + sl[0].start, xx.mean() + sl[1].start
+            r0 = float(np.max(np.hypot(yy + sl[0].start - cy, xx + sl[1].start - cx))) + 0.5
+            if r0 < C.STACK_GLOW_HOLE_MIN_ARCSEC / pix:
+                continue
+            dg = np.hypot(gx - cx, gy - cy) if gx.size else np.zeros(0)
+            star = bool(dg.size) and bool(np.any(dg <= r0 + 2.0))
+            if star:
+                j = int(np.argmin(dg))
+                cx, cy = float(gx[j]), float(gy[j])
+            else:
+                y0, y1 = max(int(cy - r0 - rim), 0), min(int(cy + r0 + rim) + 1, ny)
+                x0, x1 = max(int(cx - r0 - rim), 0), min(int(cx + r0 + rim) + 1, nx)
+                box = np.where(m.ok[y0:y1, x0:x1], m.snr[y0:y1, x0:x1], -np.inf)
+                star = box.size > 0 and float(np.max(box)) >= C.STACK_GLOW_HOLE_RIM_SNR
+            if star:
+                xs.append(cx), ys.append(cy), rs.append(r0)
+    w = max(3, int(round(C.STACK_GLOW_MERGE_ARCSEC / pix)) | 1)
+    s = np.where(m.ok, m.snr, -np.inf)
+    pk = (s == ndimage.maximum_filter(s, size=w, mode="constant", cval=-np.inf)) & (s >= C.STACK_GLOW_MIN_SNR)
+    iy, ix = np.nonzero(pk)
+    for x, y in zip(ix.astype(float), iy.astype(float)):
+        if any(np.hypot(x - a, y - b) <= r + rim for a, b, r in zip(xs, ys, rs)):
+            continue
+        xs.append(x), ys.append(y), rs.append(0.0)
+    return np.asarray(xs, float), np.asarray(ys, float), np.asarray(rs, float)
+
+
+_NO_CENTRES = (np.zeros(0), np.zeros(0), np.zeros(0))
+
+
+def local_significance(m: Map, pix: float = C.STACK_PIX_ARCSEC,
+                       gaia_xy: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[Map, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """The map's S/N over its own local scatter around bright stars (core.glow.noise_factor on the S/N map: robust
+    scatter in polar bins over the map's, >= 1; to STACK_GLOW_R_MAX_ARCSEC around a saturated star's hole,
+    STACK_GLOW_PEAK_R_MAX_ARCSEC around a bright peak): a bright star's glow leftovers are coherent over a visit's
+    photos, so the stack's formal noise underrates them. An unsaturated star's own peak (within STACK_GLOW_R_KEEP_PX
+    native px) is left as it is; a saturated one's hole rim is scaled too (rim_peaks then replaces its pieces by the
+    star). Returns (map, bright centres (x, y, hole radius) from bright_centres)."""
+    if not C.STACK_GLOW or not m.ok.any():
+        return m, _NO_CENTRES
+    x, y, r0 = bright_centres(m, pix, gaia_xy)
+    if x.size == 0:
+        return m, _NO_CENTRES
+    z = np.where(m.ok, m.snr, np.nan)
+    k = np.ones(z.shape)
+    hole = r0 > 0
+    keep = C.STACK_GLOW_R_KEEP_PX * C.STACK_NATIVE_PIX_ARCSEC / pix
+    for sel, rmin, rmax in ((hole, r0, C.STACK_GLOW_R_MAX_ARCSEC), (~hole, np.full(x.size, keep), C.STACK_GLOW_PEAK_R_MAX_ARCSEC)):
+        if not sel.any():
+            continue
+        kk, _, _ = noise_factor(z, x[sel], y[sel], rmin[sel], rmax / pix, bin_min_px=C.STACK_GLOW_BIN_MIN_PX,
+                                max_sectors=C.GLOW_MAX_SECTORS, min_width=C.STACK_GLOW_RING_MIN_ARCSEC / pix,
+                                r_keep=rmin[sel])
+        k = np.maximum(k, kk)
+    return Map(m.name, m.snr, m.flux, m.ok, m.sigma, k), (x, y, r0)
+
+
+def rim_peaks(pk: pd.DataFrame, m: Map, centres: tuple[np.ndarray, np.ndarray, np.ndarray],
+              pix: float = C.STACK_PIX_ARCSEC) -> pd.DataFrame:
+    """A saturated star's hole rim is its own wings, cut into peaks by the misfit and the mask's edge: peaks within
+    the hole radius + STACK_GLOW_RIM_ARCSEC of a hole centre are replaced by one peak at the centre (the star; S/N the
+    rim's highest)."""
+    x, y, r0 = centres
+    hole = r0 > 0
+    if not hole.any() or not C.STACK_GLOW:
+        return pk
+    x, y, r0 = x[hole], y[hole], r0[hole]
+    rim = C.STACK_GLOW_RIM_ARCSEC / pix
+    drop = np.zeros(len(pk), bool)
+    add = []
+    for cx, cy, r in zip(x, y, r0):
+        near = np.hypot(pk["x"].to_numpy(float) - cx, pk["y"].to_numpy(float) - cy) <= r + rim if len(pk) else drop
+        snr = float(pk["snr"].to_numpy(float)[near].max()) if near.any() else C.STACK_GLOW_MIN_SNR
+        drop |= near
+        add.append((cx, cy, snr, m.name))
+    out = pk[~drop]
+    extra = pd.DataFrame(add, columns=["x", "y", "snr", "map"])
+    return extra if out.empty else pd.concat([out, extra], ignore_index=True)
+
+
 def combine(name: str, maps: list[Map]) -> Map | None:
     maps = [m for m in maps if m is not None]
     if not maps:
         return None
-    s = sum(np.where(m.ok, m.snr, 0.0) for m in maps)
+    s = sum(np.where(m.ok, m.sig, 0.0) for m in maps)
     n = sum(m.ok.astype(np.int32) for m in maps)
     with np.errstate(divide="ignore", invalid="ignore"):
         snr = np.where(n > 0, s / np.sqrt(n), 0.0)
@@ -674,9 +804,11 @@ def combine(name: str, maps: list[Map]) -> Map | None:
 
 
 def peaks(m: Map, thresh: float = C.STACK_DETECT_SNR, edge: int = C.STACK_EDGE_PX) -> pd.DataFrame:
+    """Local maxima of the S/N map whose S/N against the local noise (m.sig) is >= thresh; `snr` is that. The maxima
+    are taken on snr itself: a noise factor that varies across a source never makes a shoulder a peak."""
     s = m.snr
     mx = ndimage.maximum_filter(np.where(m.ok, s, -np.inf), size=3, mode="constant", cval=-np.inf)
-    pk = (s == mx) & (s >= thresh) & m.ok
+    pk = (s == mx) & (m.sig >= thresh) & m.ok
     pk[:edge, :] = pk[-edge:, :] = False
     pk[:, :edge] = pk[:, -edge:] = False
     iy, ix = np.nonzero(pk)
@@ -687,7 +819,7 @@ def peaks(m: Map, thresh: float = C.STACK_DETECT_SNR, edge: int = C.STACK_EDGE_P
     with np.errstate(divide="ignore", invalid="ignore"):
         ddx = np.clip(np.nan_to_num(0.5 * (l - r) / (l - 2 * c + r)), -0.5, 0.5)
         ddy = np.clip(np.nan_to_num(0.5 * (dn - up) / (dn - 2 * c + up)), -0.5, 0.5)
-    return pd.DataFrame({"x": ix + ddx, "y": iy + ddy, "snr": c, "map": m.name})
+    return pd.DataFrame({"x": ix + ddx, "y": iy + ddy, "snr": m.sig[iy, ix], "map": m.name})
 
 
 def merge_peaks(pk: pd.DataFrame, r_px: float) -> pd.DataFrame:
@@ -802,11 +934,16 @@ def run_pass(ex, cache: str, grid: Grid, metas: list[dict], src: Sources | None,
 
 
 def detect(accs: dict[tuple[int, int], Acc], kernels: dict[int, np.ndarray], grid: Grid,
-           first: dict | None = None, src_xy: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[pd.DataFrame, dict]:
+           first: dict | None = None, src_xy: tuple[np.ndarray, np.ndarray] | None = None,
+           bright: dict | None = None) -> tuple[pd.DataFrame, dict]:
     """Peaks of every stack's S/N map, its visit's all-wavelength map and the all-visit map. For residual stacks
     pass `first` (the first pass's maps) and the sources' grid positions: their fluxes there scale the leftovers
-    (inflate) that count as noise."""
+    (inflate) that count as noise. Every map's S/N is then taken against its local scatter around bright stars
+    (local_significance; `bright`: {visit or "all": grid (x, y) of the Gaia stars G <= STACK_GLOW_GAIA_G at that
+    epoch}) and a saturated star's rim peaks become the star (rim_peaks)."""
+    bright = bright or {}
     maps: dict[str, Map] = {}
+    centres: dict[str, tuple] = {}
     for (v, d), acc in sorted(accs.items()):
         m = snr_map(f"v{v}d{d}", acc, kernels[d])
         if first is not None and src_xy is not None and m.name in first:
@@ -818,18 +955,31 @@ def detect(accs: dict[tuple[int, int], Acc], kernels: dict[int, np.ndarray], gri
             with np.errstate(divide="ignore", invalid="ignore"):
                 Ferr = np.abs(F / f0.snr[iy, ix])
             m = inflate(m, x, y, F, Ferr)
-        maps[m.name] = m
+        maps[m.name], centres[m.name] = local_significance(m, grid.pix, bright.get(v))
     visits = sorted({v for v, _ in accs})
     for v in visits:
         m = combine(f"v{v}", [maps[f"v{v}d{d}"] for vv, d in accs if vv == v])
         if m is not None:
-            maps[m.name] = m
+            maps[m.name], centres[m.name] = local_significance(m, grid.pix, bright.get(v))
     if len(visits) > 1:
         m = combine("all", [maps[f"v{v}d{d}"] for v, d in accs])
         if m is not None:
-            maps["all"] = m
-    pk = pd.concat([peaks(m) for m in maps.values()], ignore_index=True)
+            maps["all"], centres["all"] = local_significance(m, grid.pix, bright.get("all"))
+    pk = pd.concat([rim_peaks(peaks(m), m, centres[k], grid.pix) for k, m in maps.items()], ignore_index=True)
     return merge_peaks(pk, C.STACK_MERGE_ARCSEC / grid.pix), maps
+
+
+def bright_gaia_xy(gaia: pd.DataFrame, grid: Grid, visit_mjd: dict, mean_mjd: float) -> dict:
+    """{visit: (x, y), "all": (x, y)}: grid positions of the Gaia stars G <= STACK_GLOW_GAIA_G at each visit's epoch
+    (local_significance: which holes are saturated stars)."""
+    if gaia.empty or "g_mag" not in gaia:
+        return {}
+    b = gaia[gaia["g_mag"].to_numpy(float) <= C.STACK_GLOW_GAIA_G]
+    out = {}
+    for key, mjd in list(visit_mjd.items()) + [("all", mean_mjd)]:
+        ra, dec = _at_epoch(b, mjd)
+        out[key] = grid.xy(ra, dec)
+    return out
 
 
 def _gaia_sources(src_ra, src_dec, mjd: float, gaia: pd.DataFrame, ra0: float, dec0: float):
@@ -1006,10 +1156,11 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None, cach
         rc = _refcat(store, zone)
         gaia = rc[rc["cat"] == "gaia"].reset_index(drop=True) if not rc.empty else pd.DataFrame()
 
+        bright = bright_gaia_xy(gaia, grid, visit_mjd, mean_mjd)
         # pass 1: stacks → peaks
         t0 = time.time()
         accs, _ = run_pass(ex, cache, grid, metas, None, "stack")
-        cand, maps = detect(accs, kernels, grid)
+        cand, maps = detect(accs, kernels, grid, bright=bright)
         cand["pass"] = 1
         timing["pass1_s"] = time.time() - t0
         if keep_cache:
@@ -1028,7 +1179,7 @@ def run(store: Store, zone: C.Zone, workers: int, limit: int | None = None, cach
             src_ra, src_dec = np.where(g, src_ra, ra2), np.where(g, src_dec, dec2)
             keep = dedupe_close(src_ra, src_dec, cand["snr_peak"].to_numpy(float), grid, C.STACK_DEDUPE_ARCSEC)
             src_ra, src_dec, cand = src_ra[keep], src_dec[keep], cand[keep].reset_index(drop=True)
-            new, resid_maps = detect(accs_r, kernels, grid, first=maps, src_xy=grid.xy(src_ra, src_dec))
+            new, resid_maps = detect(accs_r, kernels, grid, first=maps, src_xy=grid.xy(src_ra, src_dec), bright=bright)
             if keep_cache:
                 save_maps(os.path.join(cache, f"maps_pass{p + 2}.npz"), accs_r, resid_maps, grid)
             if not new.empty:
@@ -1122,7 +1273,7 @@ def save_maps(path: str, accs: dict, maps: dict, grid: Grid) -> None:
         with np.errstate(divide="ignore", invalid="ignore"):
             out[f"img_v{v}d{d}"] = np.where(a.w > 0, a.s / a.w, np.nan).astype(np.float32)
     for k, m in maps.items():
-        out[f"snr_{k}"] = m.snr.astype(np.float32)
+        out[f"snr_{k}"] = m.sig.astype(np.float32)
     _atomic_save(path, **out)
 
 
