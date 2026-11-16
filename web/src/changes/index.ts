@@ -8,6 +8,7 @@ import type { MountPage, PageContext, PageHandle } from '../app/modules';
 import {
   followedElsewhere,
   parseChangesFile,
+  roundedFollows,
   starKey,
   visible,
   type Change,
@@ -114,6 +115,8 @@ export function mountChangesWith(el: HTMLElement, ctx: PageContext, deps: Change
 
   const ready = load(ctl.signal).then((d) => {
     data = d;
+    // follows saved under a rounded Gaia id (before v3.27) move to the star's exact key
+    if (data) for (const [old, now] of roundedFollows(data.changes, watch.keys())) { watch.toggle(old); watch.toggle(now); }
     loaded = true;
     draw();
   }).catch((e) => {
