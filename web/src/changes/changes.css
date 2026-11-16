@@ -1,0 +1,198 @@
+/* Changes (#/changes): known stars that changed between SPHEREx visits. Lightbox rules (web/DESIGN.md): quiet ink
+   on glass, space instead of boxes, capsule controls; colour is never the only cue (every mark has words). */
+.ch {
+  display: grid;
+  gap: var(--s5);
+  max-width: 980px;
+  padding: var(--s5) 0 var(--s7);
+}
+
+.ch-head {
+  display: grid;
+  gap: var(--s3);
+}
+.ch-title {
+  font-size: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem);
+  font-weight: 720;
+  font-variation-settings: "wdth" 108;
+  letter-spacing: -0.02em;
+}
+.ch-lede {
+  max-width: 64ch;
+  color: var(--ink-2);
+}
+.ch-feed {
+  max-width: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.ch-feed-link {
+  font-weight: 600;
+}
+
+.ch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+.ch-note,
+.ch-loading {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+
+.ch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--hair);
+}
+.ch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s2) var(--s4);
+  align-items: start;
+  padding: var(--s4) var(--s2);
+  border-bottom: 1px solid var(--hair);
+  scroll-margin-top: var(--s7);
+}
+.ch-row.is-target {
+  background: var(--sheet);
+  box-shadow: inset 3px 0 0 var(--pencil-red);
+}
+.ch-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ch-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--s3);
+  color: var(--ink);
+  text-decoration: none;
+}
+.ch-open:hover .ch-headline,
+.ch-open:focus-visible .ch-headline {
+  text-decoration: underline;
+}
+.ch-name {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.ch-headline {
+  font-size: var(--step-1);
+  font-weight: 650;
+  font-variation-settings: "wdth" 104;
+  color: var(--pencil-blue);
+}
+.ch-nums {
+  max-width: none;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.ch-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--s2);
+  max-width: none;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+}
+.ch-tags > span {
+  padding: 1px var(--s2);
+  border-radius: var(--radius-ctl);
+  background: var(--sheet-2);
+}
+.ch-tags > .ch-kind {
+  background: transparent;
+  border: 1px solid var(--hair-strong);
+  color: var(--ink);
+  font-weight: 600;
+}
+.ch-tags > .ch-var {
+  background: transparent;
+  border: 1px dashed var(--pencil-violet);
+  color: var(--pencil-violet);
+  font-weight: 600;
+}
+.ch-text {
+  max-width: 78ch;
+}
+.ch-look {
+  max-width: 78ch;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+.ch-checks {
+  font-size: var(--step--1);
+}
+.ch-checks summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  width: fit-content;
+}
+.ch-checks ul {
+  display: grid;
+  gap: 6px;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ch-check {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: var(--s2);
+  max-width: 82ch;
+}
+.ch-level {
+  font-weight: 650;
+  color: var(--ink-2);
+}
+.ch-check.is-strong .ch-level {
+  color: var(--warn);
+}
+.ch-check.is-ok .ch-level {
+  color: var(--pass);
+}
+.ch-look-inline {
+  color: var(--ink-2);
+}
+.ch-viewer {
+  width: fit-content;
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.ch-follow {
+  min-width: 7.5rem;
+}
+.ch-follow[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--glass);
+  border-color: var(--ink);
+}
+
+.ch-empty {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s5) var(--s4);
+  border-radius: var(--radius-panel);
+  background: var(--sheet);
+  color: var(--ink-2);
+}
+
+@media (max-width: 560px) {
+  .ch-row {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--s4) 0;
+  }
+  .ch-follow {
+    justify-self: start;
+  }
+  .ch-check {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
