@@ -96,11 +96,11 @@ function framesWith(opts: { partner?: boolean; partnerDetection?: boolean } = {}
 }
 
 describe("the suspect panel's description", () => {
-  it("says what the ecl04 mover did, that D3 saw nothing, and what to watch for", () => {
+  it("says what the ecl04 mover did, that its dots are all in D6, and what to watch for", () => {
     const a = aboutCandidate(ecl04, framesWith());
     expect(a.said).toEqual([
       "Moved 11″ in D6 over 6.4 minutes (4 photos), about 105″ an hour.",
-      "D3 photographed the same spot at the same moments and saw nothing there: it is either very red (an asteroid glowing by its own heat) or an artefact of D6.",
+      "All its dots are in D6; D3 sees the same sky at the same moments. Seen in D6 alone is typical of an asteroid or comet glowing by its own heat, but it can also be a flaw of D6.",
     ]);
     expect(a.watch).toBe(
       "Watch for: NASA marked these pixels as unusual (OUTLIER); D6 had more unexplained movers than usual in that visit.",
@@ -113,17 +113,29 @@ describe("the suspect panel's description", () => {
 
   it("lets the partner's measured layer decide when its exposures are in the frames", () => {
     expect(partnerSaw(ecl04, framesWith({ partner: true }))).toBe("no");
+    expect(aboutCandidate(ecl04, framesWith({ partner: true })).said[1]).toBe(
+      "D3 photographed the same spot at the same moments and saw nothing there: seen in D6 alone is typical of an asteroid or comet glowing by its own heat, but it can also be a flaw of D6.",
+    );
     expect(partnerSaw(ecl04, framesWith({ partner: true, partnerDetection: true }))).toBe("yes");
     expect(aboutCandidate(ecl04, framesWith({ partner: true, partnerDetection: true })).said[1]).toBe(
       "D3 saw it too at the same moment: real light, not a flaw of one detector.",
     );
-    // Without two_exposures and without the partner's frames: nothing is claimed.
-    const bare = { ...ecl04, reasons: ["outlier_flag"] };
-    expect(partnerSaw(bare, framesWith())).toBe("unknown");
-    expect(aboutCandidate(bare, framesWith()).said).toHaveLength(1);
+    // Without its track or the partner's frames, the evidence alone claims nothing.
+    expect(partnerSaw(ecl04, null)).toBe("unknown");
+    expect(aboutCandidate(ecl04).said).toHaveLength(1);
   });
 
-  it("a short-wavelength mover: the partner's silence is common, not a warning", () => {
+  it("a mover seen in D4 alone: rare for a real asteroid, so a flaw of D4 is more likely", () => {
+    const d4 = { ...ecl04, det: 4 as const };
+    const f = framesWith();
+    f.measured!.tracks[0].dots = f.measured!.tracks[0].dots.map((d) => ({ ...d, epoch_id: d.epoch_id.replace(/^d6-/, "d4-") }));
+    expect(partnerSaw(d4, f)).toBe("own");
+    expect(aboutCandidate(d4, f).said[1]).toBe(
+      "All its dots are in D4; D1 sees the same sky at the same moments. Seen in D4 alone is rare for a real asteroid (their heat glow starts in D5), so a flaw of D4 is more likely.",
+    );
+  });
+
+  it("a short-wavelength mover without its frames: no claim about the partner", () => {
     const c = cand("hunt-665380068525-88045793", {
       kind: "mover",
       clock: "hours",
@@ -131,10 +143,7 @@ describe("the suspect panel's description", () => {
       reasons: ["two_exposures", "motion_not_significant"],
     });
     const a = aboutCandidate(c);
-    expect(a.said).toEqual([
-      "Seen at different places in D2 photos minutes apart.",
-      "D5 photographed the same spot at the same moments and saw nothing there, which is common: asteroids are fainter for SPHEREx at 3.8–4.4 µm.",
-    ]);
+    expect(a.said).toEqual(["Seen at different places in D2 photos minutes apart."]);
     expect(a.watch).toBe("Watch for: the shift is within its position errors, so it may not move at all.");
   });
 

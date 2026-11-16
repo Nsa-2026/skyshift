@@ -2,8 +2,8 @@
 // lines at the top of the suspect panel (#/c/<id>). Built only from the candidate's own fields and
 // reasons (contracts/api.md, candidates.json) and, once loaded, the measured layer of its frames
 // (the mover's track, a moving star's fitted shift, the partner detector's detections). Pure.
-import type { Candidate, Det, FramesResponse, MeasuredTrack, SkyPos } from "../api/types";
-import { DETECTORS, SAME_MOMENT, sepArcsec } from "../app/astro";
+import type { Candidate, FramesResponse, MeasuredTrack, SkyPos } from "../api/types";
+import { SAME_MOMENT, sepArcsec } from "../app/astro";
 import { paWord } from "../card/format";
 import { arcsecH, arcsecYr } from "./text";
 
@@ -22,11 +22,6 @@ const PARTNER_ARCSEC = 6;
 const SHIFT_ARCSEC = 6;
 
 const ok = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
-const um = (d: number) => {
-  const r = DETECTORS[d as Det];
-  return r ? `${r.min}–${r.max} µm` : "";
-};
-const mwir = (d: number) => d >= 4;
 
 /** Arcsec with sensible digits: 0.42″, 3.1″, 11″. */
 export function arcsecText(a: number): string {
@@ -58,12 +53,15 @@ function moments(t: MeasuredTrack): { mjd: number; at: SkyPos }[] {
 
 /**
  * Did the simultaneous partner detector see the mover? "yes" (two_detectors, or a partner detection
- * at the track's place at one of its moments), "no", or "unknown". With the partner's exposures in
- * the frames, their measured layer decides. Without them, evidence two_exposures counts as "no": the
- * pipeline pairs a partner's dot of the same moment into the mover, and two_exposures movers are
- * single-detector in practice (every suspect in suspects.json has one dot per exposure).
+ * at the track's place at one of its moments); "no" only when the partner's exposures are in the
+ * frames and their measured layer has nothing there; "own" when the partner wasn't looked at but every
+ * dot of the track is in the candidate's own detector (the pipeline pairs a partner's dot of the same
+ * moment into the mover, so none of ≥ 5σ was linked); else "unknown". Evidence alone claims nothing.
  */
-export function partnerSaw(c: Pick<Candidate, "id" | "det" | "reasons">, f: FramesResponse | null | undefined): "yes" | "no" | "unknown" {
+export function partnerSaw(
+  c: Pick<Candidate, "id" | "det" | "reasons">,
+  f: FramesResponse | null | undefined,
+): "yes" | "no" | "own" | "unknown" {
   if (c.reasons.includes("two_detectors")) return "yes";
   const partner = SAME_MOMENT[c.det];
   const t = trackOf(c, f);
@@ -75,7 +73,17 @@ export function partnerSaw(c: Pick<Candidate, "id" | "det" | "reasons">, f: Fram
       return seen ? "yes" : "no";
     }
   }
-  return c.reasons.includes("two_exposures") ? "no" : "unknown";
+  if (t?.dots.length && t.dots.every((d) => d.epoch_id?.startsWith(`d${c.det}-`))) return "own";
+  return "unknown";
+}
+
+/** What the partner's silence means for a mover seen in `det` alone. Real asteroids glow by their own
+ *  heat in D5–D6 and can show there alone; seen in D4 alone, they are rare (hunt, ecl04, ecl08: 1, 8
+ *  and 1 known asteroids against ~200 junk movers a zone), so a flaw of D4 is more likely. */
+function aloneMeans(det: number): string {
+  if (det >= 5) return `typical of an asteroid or comet glowing by its own heat, but it can also be a flaw of D${det}`;
+  if (det === 4) return "rare for a real asteroid (their heat glow starts in D5), so a flaw of D4 is more likely";
+  return "";
 }
 
 // ---- cautions ----------------------------------------------------------------------------------
@@ -219,12 +227,11 @@ function mover(c: Candidate, f: FramesResponse | null | undefined): string[] {
   } else if (rate) out.push(`Moves ${rate} in ${D}.`);
   else out.push(`Seen at different places in ${D} photos minutes apart.`);
   const saw = partnerSaw(c, f);
+  const means = aloneMeans(c.det);
   if (saw === "no" && P) {
-    out.push(
-      mwir(c.det)
-        ? `D${P} photographed the same spot at the same moments and saw nothing there: it is either very red (an asteroid glowing by its own heat) or an artefact of ${D}.`
-        : `D${P} photographed the same spot at the same moments and saw nothing there, which is common: asteroids are fainter for SPHEREx at ${um(P)}.`,
-    );
+    out.push(`D${P} photographed the same spot at the same moments and saw nothing there${means ? `: seen in ${D} alone is ${means}` : ""}.`);
+  } else if (saw === "own" && P) {
+    out.push(`All its dots are in ${D}; D${P} sees the same sky at the same moments${means ? `. Seen in ${D} alone is ${means}` : ""}.`);
   } else if (saw === "yes" && P) out.push(`D${P} saw it too at the same moment: real light, not a flaw of one detector.`);
   return out;
 }
