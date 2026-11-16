@@ -24,7 +24,7 @@ Checks (contract v3.23 codes; `hot_pixel`, `hot_pixel_proven`, `persistence_prov
   ≥ 1.5× its light and ≥ 5σ more, as when an asteroid passes a star: ok), or nothing (core pixelcheck.one_photo), with
   NASA's TRANSIENT bit next to the dot. "Same place, same brightness" numbers on every one_photo check and, for every
   measured mover, check or not, in pixel.json's per-mover `one_photo` (at the place where the others see the most light):
-  flux_now_ujy, flux_other_ujy (± flux_other_err_ujy), ratio (other / now), diff_snr, verdict, det, photos, places.
+  flux_now_ujy, flux_other_ujy (± flux_other_err_ujy), other_ratio (other / now; v3.27, was `ratio`), diff_snr, verdict, det, photos, places.
 
 Pixels: small range reads of the public S3 copy (s3pixels.py): ~0.1 MB headers once per photo (cached), ~0.2–0.4 MB
 of rows per measurement. Measurements are cached (JSON lines keyed by photo and pixel place), so a rerun on a new
@@ -63,6 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import s3pixels as S3  # noqa: E402
 from skyshift_core import detect  # noqa: E402
 from skyshift_core import pixelcheck as P  # noqa: E402
+from skyshift_core.photometry import APERTURE_CORRECTION  # noqa: E402
 from skyshift_core.flags import PERSIST  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -294,7 +295,10 @@ def dots_of(row) -> list[dict]:
     out = []
     for o, d, x, y, t, f, s, z, fp in zip(col("dot_obs"), col("dot_det"), col("dot_x"), col("dot_y"), col("dot_mjd"),
                                           col("dot_flux"), col("dot_snr"), col("dot_size"), col("dot_fpk", 0)):
-        out.append(dict(obs=str(o), det=int(d), x=float(x), y=float(y), mjd=float(t), flux=float(f), snr=float(s),
+        # flux on the forced measurements' scale (v3.27): the dot list holds the r = 2 px aperture flux, the forced
+        # fluxes here are total fluxes (× 1.033, skyshift_core.photometry.APERTURE_CORRECTION)
+        out.append(dict(obs=str(o), det=int(d), x=float(x), y=float(y), mjd=float(t), flux=float(f) * APERTURE_CORRECTION,
+                        snr=float(s),
                         size=float(z), fpk=int(fp) & 0xFFFFFFFF))
     return sorted(out, key=lambda q: (q["mjd"], q["det"]))
 
@@ -526,7 +530,10 @@ class Mover:
         self.zone = zone
         self.cand = cand or {}
         self.dots = dots_of(row)
-        self.rate = _f(row.get("rate_arcsec_h") if hasattr(row, "get") else None)
+        # the mover's own in-session rate (link's session_rate_arcsec_h): suspects.parquet's rate_arcsec_h is the
+        # track's on a track (v3.27; older tables without the column keep rate_arcsec_h)
+        rate = _f(row.get("session_rate_arcsec_h")) if hasattr(row, "get") else np.nan
+        self.rate = rate if np.isfinite(rate) else _f(row.get("rate_arcsec_h") if hasattr(row, "get") else None)
         self.evidence = str(row.get("evidence", "")) if hasattr(row, "get") else ""
         self.plan: dict[str, list] = defaultdict(list)  # purpose -> [(url, key, info)]
         self.fit = None
@@ -781,7 +788,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f" although the sky under them moved {fnum(p['sky_arcsec'])}″: a hot pixel, not an object.",
                 f"In the Viewer's hours clock on D{dd}, step through its exposures: the dot stays at the same place on "
                 f"the photo while the stars jump with the pointing.",
-                dict(det=dd, dx_px=p["dx"], dy_px=p["dy"], sky_arcsec=p["sky_arcsec"], dots=p["n"])))
+                dict(detector=dd, dx_px=p["dx"], dy_px=p["dy"], sky_arcsec=p["sky_arcsec"], hot_dots=p["n"])))
             status = "flaw"
 
     # --- partner detector ---
@@ -841,7 +848,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f" against {fnum(own_flux)} µJy in D{det} (D{max(det, pdet)}/D{min(det, pdet)} {ratio_txt(pc['ratio'])};"
                 f" known asteroids {fnum(pc['known_lo'], 2)}–{fnum(pc['known_hi'], 1)}): real light, not a glitch of one detector.",
                 f"In the Viewer's hours clock, switch to D{pdet} at {t_look}: a faint dot at the circle.",
-                dict(partner_flux_ujy=f, partner_err_ujy=e, flux_ujy=own_flux, ratio=pc["ratio"], photos=n,
+                dict(partner_flux_ujy=f, partner_err_ujy=e, flux_ujy=own_flux, colour_ratio=pc["ratio"], photos=n,
                      known_lo=pc["known_lo"], known_hi=pc["known_hi"])))
         elif pc["verdict"] in ("red", "blue", "normal"):
             alone_d4 = det == 4 and all(d["det"] == 4 for d in m.dots)
@@ -875,7 +882,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
         metrics["size_ratio"] = ratios
         worst_d, worst = min(sr, key=lambda q: q[1]["size_ratio"])
         n_sharp = sum(1 for x in ratios if x < P.SHARP_RATIO)
-        vals = dict(size_ratio_min=float(min(ratios)), size_ratio_max=float(max(ratios)), dots=len(ratios),
+        vals = dict(size_ratio_min=float(min(ratios)), size_ratio_max=float(max(ratios)), measured_dots=len(ratios),
                     sharp_dots=n_sharp, size_arcsec=worst["size_arcsec"])
         if n_sharp:
             level = "strong" if all(x < SHARP_STRONG for x in ratios) and len(ratios) >= 2 else "warn"
@@ -911,7 +918,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f" than a star of its brightness: a comet's haze, or two faint things blended.",
                 f"Look at the plate in the Viewer's hours clock on D{widest_d['det']}, exposure of {when(widest_d['mjd'])}:"
                 f" a comet shows a fuzzy head, sometimes a tail; a blend splits into two points in other exposures.",
-                dict(size_ratio_min=float(min(wides)), size_ratio_max=float(max(wides)), dots=len(wides),
+                dict(size_ratio_min=float(min(wides)), size_ratio_max=float(max(wides)), measured_dots=len(wides),
                      wide_dots=n_wide, size_arcsec=own[id(widest_d)]["size_arcsec"], trail_factor=round(tf, 3),
                      saturated_dots=len(sr) - len(wr))))
     # trail: only where a 113 s exposure would stretch a point by >= TRAIL_MIN_STRETCH (rate >~ 270″/h); below that the
@@ -1048,7 +1055,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f" exposures (best {fnum(r['best_snr'], 1)}σ, {fnum(r['best_flux'])} µJy against {fnum(own_flux)} µJy).",
                 f"In the Viewer's hours clock on D{dpath}, the exposure of {when(it['mjd'])}: a faint smudge"
                 f" {fnum(math.hypot(r['best_dx'], r['best_dy']) * P.PIXEL_ARCSEC)}″ from where the arrow points.",
-                dict(photos=ps["n"], found=ps["n_found"], best_snr=r["best_snr"], flux_ujy=own_flux)))
+                dict(photos_measured=ps["n"], found=ps["n_found"], best_snr=r["best_snr"], flux_ujy=own_flux)))
         elif ps["verdict"] == "absent":
             checks.append(check(
                 "faint_on_path", "warn",
@@ -1057,7 +1064,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
                 f" in its own photos).",
                 f"In the Viewer's hours clock on D{dpath}, the exposures of {when(times[0])} to {hhmm(times[-1])}:"
                 f" nothing on the arrow's line.",
-                dict(photos=ps["n_should"], found=0, flux_ujy=own_flux, path_flux_ujy=ps["should_flux_ujy"],
+                dict(photos_should_show=ps["n_should"], found=0, flux_ujy=own_flux, path_flux_ujy=ps["should_flux_ujy"],
                      path_err_ujy=ps["should_err_ujy"])))
 
     # --- pixel history: persistence and hot pixel ---
@@ -1109,7 +1116,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
             f" other sky: a hot pixel.",
             f"In the Viewer's hours clock on D{d['det']}, step to the exposures before and after {when(d['mjd'])}: a dot"
             f" stays at the same place on the photo while the stars jump.",
-            dict(dots=len(hot_dots), photos=n_ph, flux_ujy=d["flux"], pixel_flux_ujy=float(np.median([r["flux"] for r in g])))))
+            dict(hot_dots=len(hot_dots), photos=n_ph, flux_ujy=d["flux"], pixel_flux_ujy=float(np.median([r["flux"] for r in g])))))
         if level == "strong":
             status = "flaw"
     if pers_dots:
@@ -1129,7 +1136,7 @@ def evaluate(m: Mover, res: dict[str, dict], extra: dict[str, dict] | None = Non
             f" image (persistence).",
             f"In the Viewer's hours clock on D{d['det']}, step to the exposure just before {when(d['mjd'])}: a bright star"
             f" sat on the photo where the dot later appears.",
-            dict(dots=len(pers_dots), flux_ujy=d["flux"], prev_flux_ujy=pr["max_prev_flux"], minutes=dt_min,
+            dict(persist_dots=len(pers_dots), flux_ujy=d["flux"], prev_flux_ujy=pr["max_prev_flux"], minutes=dt_min,
                  saturated=pr["saturated"])))
         if sat_all:
             status = "flaw"
@@ -1160,7 +1167,7 @@ def spot_values(spot: tuple | None) -> dict:
         return {}
     v = spot[1]
     return dict(flux_now_ujy=v["own_flux_ujy"], flux_other_ujy=v["other_flux_ujy"], flux_other_err_ujy=v["other_err_ujy"],
-                ratio=v["ratio"], diff_snr=v["diff_snr"])
+                other_ratio=v["ratio"], diff_snr=v["diff_snr"])
 
 
 def spot_summary(spot: tuple | None, places: int) -> dict | None:

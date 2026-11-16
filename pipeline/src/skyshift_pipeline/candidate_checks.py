@@ -243,7 +243,7 @@ def _flag_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                     f"objects: {pct(REF['outlier_peak_any'])} of known asteroids have it on a dot (the list: 28%).",
                     f"Blink D{main} between its exposures on the hours clock: the dot should step to a new place, "
                     "not blink on and off in one spot.",
-                    {"dots_peak": peak, "dots": n, "known_share": REF["outlier_peak_any"]}))
+                    {"dots_peak": peak, "n_dots": n, "known_share": REF["outlier_peak_any"]}))
             continue
         gated = code[5:] in gates      # the suspects' bloom / halo reason: the bit at every dot's peak
         if not anyf and not gated:
@@ -261,7 +261,7 @@ def _flag_checks(m, d, det, exp, n, main, gates) -> list[dict]:
         look = (f"Blink D{main} on the hours clock and look for a bright star nearby: light from a star stays put "
                 "next to it while a real mover crosses the field.")
         out.append(check(code, "strong" if every else "warn", text, look,
-                         {"dots_flagged": k3, "dots_peak": peak, "dots": n, "known_share": ref}))
+                         {"dots_flagged": k3, "dots_peak": peak, "n_dots": n, "known_share": ref}))
     return out
 
 
@@ -525,7 +525,7 @@ def _flux_checks(m, d, det, exp, n, main, gates) -> list[dict]:
         f"Its D{wd} brightness changes {rtxt} between exposures; known asteroids change less than {FLUX_JUMP}× "
         "(98% of them)" + (": a cosmic-ray hit paired with a fainter speck looks like this." if gate else "."),
         f"Blink D{wd} between its exposures: is one dot much brighter or sharper than the others?",
-        {"ratio": worst if math.isfinite(worst) else None, "detector": wd, "known_max_ratio": FLUX_JUMP}))
+        {"flux_ratio_max": worst if math.isfinite(worst) else None, "detector": wd, "known_max_ratio": FLUX_JUMP}))
     return out
 
 
@@ -559,14 +559,14 @@ def _place_checks(m, d, det, exp, n, main, gates) -> list[dict]:
             f"In visit {v} D{dd} has {ratio:.1f}× this zone's usual share of unexplained movers per mover, most of "
             "them glitches; this says nothing about this object itself.",
             f"Look at the same exposure in D{SIMULTANEOUS.get(dd, dd)}: glitches stay in one detector.",
-            {"detector": dd, "visit": v, "ratio": ratio}))
+            {"detector": dd, "visit": v, "excess_ratio": ratio}))
     ns = m.get("near_source")
     if ns is not None and math.isfinite(ns) and not (set(CATALOG_REASONS) & set(gates)):
         out.append(check(
             "catalogue_star", "warn",
             f"A catalogued or fixed source lies {arcsec(ns)} away: the dot may be its wing or a blend with it.",
             "Blink this spot on the months clock: if a source sits there in other visits, the dot may be part of it.",
-            {"sep_arcsec": ns}))
+            {"near_source_arcsec": ns}))
     br = m.get("bright")
     bw = (m.get("warn") or {}).get("bright_star") or {}
     if "bright_star" in gates:     # the suspects' strong form: a bright fixed source within 15″
@@ -584,7 +584,7 @@ def _place_checks(m, d, det, exp, n, main, gates) -> list[dict]:
             "bright_star", "warn",
             f"A G {g:.1f} star lies {dist(sep)} away: bright stars make ghosts, halos and spikes that can look like dots.",
             f"Blink D{main} on the hours clock and check whether the dot sits on a spike or ring of that star.",
-            {"g_mag": g, "sep_arcsec": sep}))
+            {"gaia_g_mag": g, "gaia_sep_arcsec": sep}))
     x, y = np.asarray(d.get("x", []), np.float64), np.asarray(d.get("y", []), np.float64)
     if x.size == n and n:
         hot = _same_pixel(det, x, y, exp)
@@ -661,7 +661,7 @@ def _gate_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                  "edge" if px is not None else "A dot sits at the detector's edge")
                 + ", where stars cut off by the frame make fake dots.",
                 f"In D{dd}, check whether the dot is cut by the frame's edge.",
-                {"edge_px": px, "dots": k} if px is not None else None))
+                {"edge_px": px, "edge_dots": k} if px is not None else None))
     if "masked_peak" in g:
         fpk = np.asarray(d.get("fpk", []), np.int64) & 0xFFFFFFFF
         bits = sorted({b for v in fpk for b in PEAK_BIT_WORDS if b not in (1, 15) and (int(v) >> b) & 1})
@@ -680,7 +680,7 @@ def _gate_checks(m, d, det, exp, n, main, gates) -> list[dict]:
             text = (f"Its sharpest dot (D{int(det[i])}, S/N {float(np.asarray(d['snr'])[i]):.0f}) is {size[i]:.1f}″ across, "
                     f"{ratio[i]:.2f}× a star's size at that S/N: sharper than the telescope can focus light from the "
                     "sky (a cosmic ray?).")
-            vals = {"size_arcsec": size[i], "star_size_arcsec": star[i], "ratio": ratio[i]}
+            vals = {"size_arcsec": size[i], "star_size_arcsec": star[i], "size_ratio": ratio[i]}
         else:
             text = "A dot is sharper than the telescope can focus light from the sky (a cosmic ray?)."
             vals = None
@@ -718,7 +718,16 @@ RENAME_VALUES = {"tmass_k_mag": "tmass_ks_mag"}  # the suspects' warn_values key
 # per code: a suspects' key whose name means something else in another check (one meaning per values key, v3.25):
 # unseen's `exposures` are the exposures that missed it (elsewhere: the mover's own exposures), `cover` link's
 # cover_exposures (contract v3.26 proposal)
-RENAME_CODE_VALUES = {"unseen": {"exposures": "unseen_exposures", "cover": "cover_exposures"}}
+# v3.27: the suspects step writes the new names itself; the map reads suspects tables written before it
+RENAME_CODE_VALUES = {"unseen": {"exposures": "unseen_exposures", "cover": "cover_exposures"},
+                      "flux_jump": {"ratio": "flux_ratio_max"},
+                      "whole_pixel": {"dots": "whole_dots"},
+                      "wide": {"ratio_med": "size_ratio_med", "ratio_min": "size_ratio_min", "dots": "wide_dots",
+                               "limit": "limit_ratio", "trail": "trail_factor"},
+                      "glow": {"ratio_med": "size_ratio_med"},
+                      "persistence": {"dots_at_peak": "dots_peak"},
+                      **{c: {"dots_at_peak": "dots_peak"} for c in ("flag_bloom", "flag_halo", "flag_ghost",
+                                                                    "flag_crosstalk", "flag_outlier")}}
 EXPORTER_VALUES_WIN = ("may_not_move",)  # the exporter's text quotes its own fit: its numbers stay in the values
 KNOWN_RATE_TOL = 0.5          # known_nearby "the motions agree": config SUSPECT_KNOWN_RATE_TOL ...
 KNOWN_PA_TOL_DEG = 45.0       # ... and SUSPECT_KNOWN_PA_TOL_DEG (the suspects' moving-alike cut without its 3σ terms)
@@ -799,14 +808,14 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
             text += ": its own motion could not be compared; if it moves alike, it is that body a little off its place."
         return text, "Blink the hours clock and compare its steps with the known body's predicted path."
     if code == "persistence":
-        k, n = f.get("dots_at_peak"), f.get("n_dots")
+        k, n = f.get("dots_peak"), f.get("n_dots")
         return ("PERSIST (an afterimage of a bright star seen earlier on the same pixels) is set at the peak of "
                 + (f"{count(int(k), int(n))}" if k is not None and n else "a dot")
                 + ": the dot may be left-over charge, not light from the sky.",
                 f"Step back one exposure in D{main}: a bright star on these pixels just before explains an afterimage.")
     if code in FLAG_WORDS:
         name, what = FLAG_WORDS[code]
-        k = f.get("dots_at_peak")
+        k = f.get("dots_peak")
         return (f"{name} ({what}) is set around at least one of its dots"
                 + (f", at the peak of {int(k)}" if k else "") + ".",
                 f"Blink D{main} on the hours clock and look for a bright star nearby.")
@@ -828,11 +837,11 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
                  "can focus light from the sky (a cosmic ray?)."),
                 (f"Zoom in on D{main} on the hours clock: a cosmic ray is a tight speck, a real object is as soft as "
                  "the stars."))
-    if code == "wide" and (f.get("ratio_med") is not None or f.get("ratio_min") is not None):
-        lo, med = f.get("ratio_min"), f.get("ratio_med")
+    if code == "wide" and (f.get("size_ratio_med") is not None or f.get("size_ratio_min") is not None):
+        lo, med = f.get("size_ratio_min"), f.get("size_ratio_med")
         nums = (f"{lo:.2f}–{med:.2f}×" if lo is not None and med is not None and med > lo + 0.005
                 else f"{(med if med is not None else lo):.2f}×")
-        trail = f" (its own trail allowed for: × {f['trail']:.2f})" if f.get("trail") else ""
+        trail = f" (its own trail allowed for: × {f['trail_factor']:.2f})" if f.get("trail_factor") else ""
         if "wide" in (m.get("gates") or []):   # a vetting reason: since #394 only together with a blend (VET_WIDE_WITH)
             return _wide_graded(nums, trail, f, m, main)
         blend = (" Two Gaia stars sit either side of it, so a blend is the likelier answer here."
@@ -841,8 +850,8 @@ def _warn_text(code: str, v: dict, m: dict) -> tuple[str, str] | None:
                  f" blended.{blend}"),
                 (f"Look at the plate in D{main} on the hours clock: a comet shows a fuzzy head, sometimes a tail; a"
                  " blend splits into two points in other exposures."))
-    if code == "flux_jump" and f.get("ratio") is not None:
-        return ((f"Its brightness changes {f['ratio']:.1f}× between exposures in one detector; known asteroids "
+    if code == "flux_jump" and f.get("flux_ratio_max") is not None:
+        return ((f"Its brightness changes {f['flux_ratio_max']:.1f}× between exposures in one detector; known asteroids "
                  f"change less than {FLUX_JUMP}×."),
                 f"Blink D{main} between its exposures: is one dot much brighter than the others?")
     return _flaw_text(code, f, main)
@@ -893,16 +902,16 @@ def _flaw_text(code: str, f: dict, main: int) -> tuple[str, str] | None:
                  + (f" ({px:.2f} px apart)" if px is not None else "")
                  + ": only a session without the telescope's step does that, and there a hot pixel stays on one spot "
                    "of the sky like a source."), step)
-    if code == "whole_pixel" and f.get("dots") is not None:
-        k, nd = int(f["dots"]), f.get("n_dots")
+    if code == "whole_pixel" and f.get("whole_dots") is not None:
+        k, nd = int(f["whole_dots"]), f.get("n_dots")
         return ((f"{k}{f' of its {nd:.0f}' if nd is not None else ''} dot{'s sit' if k != 1 else ' sits'} exactly on a "
                  "whole pixel (x and y within 0.02 px): the detection fell back to the brightest pixel instead of "
                  "measuring a centre, so the place is good to a pixel only (2 or more such dots: real asteroids 0.2%, "
                  "the unexplained movers 14.2%)."),
                 f"Zoom in on D{main} on the hours clock: does the dot look like a star-like blur or a single lit pixel?")
-    if code == "wide" and f.get("ratio_med") is not None:
-        mn = f.get("ratio_min")
-        return ((f"Its dots are {f['ratio_med']:.2f}× as wide as a star at their S/N (median"
+    if code == "wide" and f.get("size_ratio_med") is not None:
+        mn = f.get("size_ratio_min")
+        return ((f"Its dots are {f['size_ratio_med']:.2f}× as wide as a star at their S/N (median"
                  + (f"; the narrowest {mn:.2f}×" if mn is not None else "")
                  + "): a blur or glow rather than a point of light (every dot 1.3× or more: real asteroids 0.9%, the "
                    "unexplained movers 20.1%)."),
@@ -931,7 +940,7 @@ def _flaw_text(code: str, f: dict, main: int) -> tuple[str, str] | None:
         return (text[0].upper() + text[1:],
                 "Blink this spot on the months clock: a source that is there in other visits explains the dot.")
     if code == "glow":
-        g, sep, r = f.get("star_g_mag"), f.get("star_sep_arcsec"), f.get("ratio_med")
+        g, sep, r = f.get("star_g_mag"), f.get("star_sep_arcsec"), f.get("size_ratio_med")
         return (("Seen in one detector only, with no partner, "
                  + (f"{r:.2f}× as wide as a star, " if r is not None else "broad, ")
                  + (f"{dist(sep)} from a G {g:.1f} star" if sep is not None and g is not None else "near a very bright star")
@@ -1062,7 +1071,7 @@ def _blend(b: tuple, level: str, det: int, what: str) -> dict:
            + f": the 7.5″ image may merge them, so {what}.")
     return check("blend", level, txt[0].upper() + txt[1:],
                  f"Zoom in on D{det} on the months clock: two stars side by side look like one stretched blob.",
-                 {"sep_arcsec": sep, "dg_mag": dg, "gaia_stars": k})
+                 {"apart_arcsec": sep, "dg_mag": dg, "gaia_stars": k})   # v3.27: the two stars from each other
 
 
 # --- spectral ------------------------------------------------------------------------------------------------------

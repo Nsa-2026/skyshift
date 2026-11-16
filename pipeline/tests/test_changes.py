@@ -214,6 +214,12 @@ def test_new_sources_appeared_vanished():
     # fragment, known asteroid, drifting, three dots (MWIR glitches) and one detector alone are out
     assert n.index.tolist() == [1, 2]
     assert n.loc[1, "kind"] == "appeared" and n.loc[2, "kind"] == "vanished"
+    # the direction comes from the two visits compared, not from "is it the last visit": a source seen only in the
+    # middle visit 2 of 3 whose other (covering) visit is 1 appeared; one whose other visit is 3 vanished
+    mid = pd.DataFrame({"source_id": [8, 9], "visit": [2, 2], "other_visit": [1, 3], "reason": ["", ""],
+                        "n_dots": [20, 20], "rate": [0.0, 0.0], "rate_err": [0.01, 0.01]})
+    m = CH.new_sources(mid, last_visit=3).set_index("source_id")
+    assert m.loc[8, "kind"] == "appeared" and m.loc[9, "kind"] == "vanished"
 
 
 def test_texts_carry_the_numbers():

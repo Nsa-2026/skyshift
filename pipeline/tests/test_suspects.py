@@ -47,7 +47,7 @@ def test_select_removes_only_certain_known_and_warns_the_rest():
     assert codes == {0: ["known_nearby"], 1: [], 2: ["bright_star"], 3: ["flag_ghost"]}
     assert vals[0]["known_nearby"] == {"sep_arcsec": 20.0, "known_rate_arcsec_h": 40.0, "known_pa_deg": 180, "known_v_mag": 19.5}
     assert vals[2]["bright_star"] == {"sep_arcsec": 10.0, "star_snr": 500, "star_ab_mag": 12.2, "star_flux_ratio": 500.0}
-    assert vals[3]["flag_ghost"] == {"dots_at_peak": 0, "n_dots": 2}
+    assert vals[3]["flag_ghost"] == {"dots_peak": 0, "n_dots": 2}
     assert list(s.loc[s["cell"] == 0, "nearest_known_name"]) == ["Y"]
     # the bright star at 10″ (within 15″) is also a reason; no bloom/halo at every dot's peak
     assert dict(zip(s["cell"], w.gates["bright_star"])) == {0: False, 1: False, 2: True, 3: False}
@@ -102,8 +102,8 @@ def test_flag_warnings_count_dots_at_peak():
     w = S.Warnings(len(m))
     out = S.flag_warnings(m, w)
     assert out == {"flag_bloom": 1, "flag_halo": 1, "flag_ghost": 1, "flag_crosstalk": 1}
-    assert w.codes[0] == ["flag_bloom", "flag_halo"] and w.values[0]["flag_bloom"] == {"dots_at_peak": 1, "n_dots": 2}
-    assert w.values[0]["flag_halo"] == {"dots_at_peak": 0, "n_dots": 2} and w.codes[1] == ["flag_crosstalk"]
+    assert w.codes[0] == ["flag_bloom", "flag_halo"] and w.values[0]["flag_bloom"] == {"dots_peak": 1, "n_dots": 2}
+    assert w.values[0]["flag_halo"] == {"dots_peak": 0, "n_dots": 2} and w.codes[1] == ["flag_crosstalk"]
     assert w.codes[3] == ["flag_ghost"]
     # a reason only where the bit is at every dot's peak (flags_peak_all): BLOOM on mover 2's two peaks
     m.loc[2, "flags"] = 1 << 26

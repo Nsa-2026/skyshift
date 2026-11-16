@@ -25,7 +25,8 @@ HERE = Path(__file__).resolve().parent
 SITE_DATA = HERE.parent.parent / "web" / "public" / "data"
 OUT = SITE_DATA / "distant.json"
 BEYOND_CHANCE_P = 0.01  # contracts/api.md: beyond_chance when poisson_p < this
-DESIGN_AU = [70.0, 1000.0]  # the distances the step is built for (pipeline config ORPHANS_TRACK_AU)
+DESIGN_AU = [70.0, 1000.0]  # runs before v3.26 (#383): a fixed separation window built for 70–1000 AU
+# v3.27: a run with `searched.pair_window` says itself what it searched (40–1000 AU since #383)
 PAIR_KEYS = ("source_id_a", "source_id_b", "visit_a", "visit_b", "ra_a", "dec_a", "mjd_a", "ra_b", "dec_b", "mjd_b",
              "sep_arcsec", "dlon_arcsec", "dlat_arcsec", "distance_au")
 PAIR_MORE = ("flux_ratio", "n_common_det", "n_dots_a", "n_dots_b", "snr_a", "snr_b", "p", "known_a", "known_b")
@@ -72,6 +73,14 @@ def injection_block(inj: dict | None) -> dict | None:
             "distance_err_median_frac": _num(inj.get("distance_err_median_frac"))}
 
 
+def searched_au(s: dict) -> list[float]:
+    """The distances the step's pairing searched: its pair window's AU (v3.26 runs: 40–1000), else the old design range."""
+    au = (s.get("pair_window") or {}).get("au")
+    if isinstance(au, (list, tuple)) and len(au) == 2 and all(_num(x) is not None for x in au):
+        return [float(au[0]), float(au[1])]
+    return list(DESIGN_AU)
+
+
 def build(run: dict, injection: dict | None, generated: str, data_release: str) -> dict:
     """The contract's distant.json from the step's distant.json and the injection summary."""
     s, c = run.get("searched") or {}, run.get("counts") or {}
@@ -86,8 +95,10 @@ def build(run: dict, injection: dict | None, generated: str, data_release: str) 
     return {
         "generated": generated, "data_release": data_release, "zone": run.get("zone"), "zone_box": box,
         "run_created": run.get("created"),
-        "searched": {"distance_au": list(DESIGN_AU), "sep_arcsec": s.get("sep_arcsec"),
-                     "rate_arcsec_h": s.get("rate_arcsec_h"), "pair_min_p": s.get("pair_min_p")},
+        "searched": {"distance_au": searched_au(s), "sep_arcsec": s.get("sep_arcsec"),
+                     "rate_arcsec_h": s.get("rate_arcsec_h"), "pair_min_p": s.get("pair_min_p"),
+                     **({"pair_window": s["pair_window"]} if s.get("pair_window") else {}),
+                     **({"session_stacks": bool(s["session_stacks"])} if "session_stacks" in s else {})},
         "counts": {"single_visit_sources": c.get("single_visit_sources"), "uncatalogued": c.get("unmatched"),
                    "covered": c.get("unmatched_covered"), "orphans": c.get("orphans"),
                    "dropped": c.get("reasons") or {}, "drift_ok": c.get("drift_ok"), "pairs_tested": c.get("pairs_tested"),

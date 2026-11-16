@@ -207,7 +207,7 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   `DOTS_FINE_ZONES` (the five featured targets): `DOTS_FINE_DEBLEND_CONT` (1e-4) finds stars in a bright star's glow
   (R Dra D4: 3 of 4 Gaia neighbours at 92–162″, none at 0.005). Their photos also lie in ecliptic zones and dot files are
   never rewritten, so those zones write `dots_deblend1e-4/<obs_id>D<det>.parquet` (config.zone_dots; a new value gets a
-  new folder) and keep any existing forced/ file. `dots` and `link` use the zone's folder; link records it in
+  new folder) and keep any existing forced/ file (extraction v2 rewrites it: hole mask, red layer; stats forced_replaced). `dots` and `link` use the zone's folder; link records it in
   summary.json `steps.link.dots_dir`, and every later step, skyshift-candidates, shape and server measured.py read that
   folder (store.dots_dir, set per step by the CLI), so members.dot_row always points into the files it was made from.
   Each dot file's metadata says which setting made it (`detect`: thresh, min_snr, deblend_cont, dots_dir).
@@ -261,7 +261,7 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   ESA TAP sync, brightest 8,221 per partition) and _complete.json last; resumable. dots uses it for every photo's whole
   footprint once _complete.json exists, else refcat/<zone>_forced.parquet (SKYSHIFT_FORCED_SKY=off forces the zone list).
   `--red` (16 Nov) builds the red layer refcat/sky/forced_red_n32/ on the same partitions from AllWISE on S3 (nasa-irsa-wise,
-  healpix_k5, anonymous): W1 ≤ 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3, no forced Gaia target within 2″, ≤ 6,000 per partition,
+  healpix_k5, anonymous): W1 < 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3, no forced Gaia target within 2″, ≤ 6,000 per partition,
   ref_id `allwise:<designation>`, epoch 2010.5; needs the Gaia layer first. dots adds it once its _complete.json exists
   (origin `sky+red`; SKYSHIFT_FORCED_SKY_RED=off: never). 54 partitions: median 990 rows, 30 KB, 1.6 s each (3 threads);
   forced targets per photo +7% (plane) to +58% (high latitude).

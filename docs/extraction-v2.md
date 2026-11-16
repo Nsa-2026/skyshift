@@ -200,7 +200,9 @@ why (0 = S/N 4–5, 1 = refused by the saturation guard, 2 = refused by the mirr
 the file would be mostly noise; the depth grid already answers "how bright could it have been here" anywhere. Not
 adopted.
 
-**Forced photometry at catalogue positions**: kept as is (forced/, Gaia G < 17.5, the sky list), unchanged by v2.
+**Forced photometry at catalogue positions**: the same method (forced/, Gaia G < 17.5, the sky list). The v2 rerun
+rewrites each photo's forced/ file (17 Nov fix: before, an existing file was kept, so the hole mask and the red layer
+reached only photos without one): it is measured on the hole-masked image and holds the red layer's targets (§12.5).
 Add CatWISE's red Gaia-less sources to the forced list in the prep (catalogue agent; §5).
 
 **Size per photo** (Parquet as written):
@@ -501,7 +503,7 @@ now ~6.9–37.2 s (mean ~19.8): −5%, from the guard. The crowded plane photos 
 
 `forced_sky --red` builds `refcat/sky/forced_red_n32/p<pixel>.parquet` + `_complete.json`, next to the Gaia layer and
 on its partitions (AllWISE's own healpix_k5 = nside 32 nested, read anonymously from NASA's S3, us-west-2, columns
-only): AllWISE sources with W1 ≤ 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3 and no forced Gaia target within 2″ (the catalogue
+only): AllWISE sources with W1 < 16, W1 − W2 ≥ 0.4, W2 S/N ≥ 3 and no forced Gaia target within 2″ (the catalogue
 agent's rule; brown-dwarf and red-object candidates), reddest first, ≤ 6,000 per partition, ref_id `allwise:<designation>`,
 epoch 2010.5 (AllWISE's), no proper motion. `dots` reads it with the Gaia layer once its manifest exists (forced origin
 `sky+red`; `SKYSHIFT_FORCED_SKY_RED=off` turns it off). Why AllWISE, not CatWISE: it is on S3 in the same partitions;
@@ -512,7 +514,8 @@ cap), 30 KB per partition (the Gaia layer: 306 KB), 1.6 s per partition with 3 t
 54). Forced targets per photo: Gaia 6.8k–29.7k, red +2.2k–4.8k: +7% (plane), +16–25% (ecliptic), +58% (high
 latitude). Whole sky: 12,288 partitions, ~23 GB of AllWISE column reads (free), ~12 M rows, ~0.4 GB; ~30 min with 32
 threads on a cloud machine (~6 h with 3 on a laptop). Forced photometry per target is negligible (§3.5), the forced
-files grow by the same 7–58%. Build it before the rerun; dots don't need a code change for it.
+files grow by the same 7–58%. Build it before the rerun. Under DOTS_V2, `dots` rewrites an existing forced/ file
+(stats `forced_replaced`); without v2 a re-extraction into another dots folder keeps it (`forced_kept`).
 
 **Not yet used downstream.** lightcurves ties a forced row to a source through crossids' Gaia, CatWISE and 2MASS
 ref_ids, so `allwise:` rows stay catalogue-only light curves (source_id −1) and `changes.name_of` calls them

@@ -193,7 +193,7 @@ def test_unseen_counts_exposures_near_stars_too():
     w = S.Warnings(1)
     flaws = pd.DataFrame({"motion_sigma": [5.0], "wide_ratio_med": [1.0]})
     S.mover_flaws(s, pd.DataFrame(columns=["ra", "dec", "snr", "flux_ujy"]), None, None, photos, C.ZONES["pilot"], flaws, w)
-    assert w.codes[0] == ["unseen"] and w.levels[0] == {"unseen": "strong"} and w.values[0]["unseen"] == {"exposures": 2, "cover": 4}
+    assert w.codes[0] == ["unseen"] and w.levels[0] == {"unseen": "strong"} and w.values[0]["unseen"] == {"unseen_exposures": 2, "cover_exposures": 4}
     # one exposure missed: a warning; a one-exposure mover is not measured
     cover, unseen = S.unseen_exposures(s, photos.iloc[:3], C.ZONES["pilot"])
     assert unseen[0] == 1
@@ -212,7 +212,7 @@ def test_run_writes_warn_levels_and_new_reasons(tmp_path, monkeypatch):
     by = {x["cell"]: x for x in j["suspects"]}
     # wide alone: kept B with a warning (a comet's haze or a blend), never a reason
     assert by[1]["grade"] != "C" and "wide" not in by[1]["reasons"] and "wide" in by[1]["warn_codes"]
-    assert by[1]["warn_levels"] == {} and by[1]["warn_values"]["wide"]["ratio_min"] == 1.46
+    assert by[1]["warn_levels"] == {} and by[1]["warn_values"]["wide"]["size_ratio_min"] == 1.46
     assert by[2]["warn_levels"] == {} and j["gates"]["wide"] == 0
     p = store.read_parquet("results/pilot/suspects.parquet")
     assert set(V.FLAW_COLUMNS) <= set(p.columns) and "warn_levels" in p
@@ -236,7 +236,7 @@ def test_a_track_overrules_the_single_session_separators(tmp_path, monkeypatch):
     j = store.read_json("results/pilot/suspects.json")
     by = {x["cell"]: x for x in j["suspects"]}
     assert by[1]["grade"] == "A" and by[1]["reasons"] == [] and by[1]["warn_levels"] == {}
-    assert "wide" in by[1]["warn_codes"] and by[1]["warn_values"]["wide"]["ratio_min"] == 1.46
+    assert "wide" in by[1]["warn_codes"] and by[1]["warn_values"]["wide"]["size_ratio_min"] == 1.46
     assert st["vetting"]["tracklets"]["track_overruled"] == 0  # wide alone is no reason any more: nothing to overrule
     kept_c = [x for x in j["suspects"] if x["grade"] == "C"]
     assert kept_c and all(set(x["reasons"]) - set(C.VET_TRACK_OVERRULES) for x in kept_c)

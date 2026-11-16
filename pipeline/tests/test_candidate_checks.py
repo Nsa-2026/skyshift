@@ -89,7 +89,7 @@ def test_outlier_is_a_sign_for_it():
     assert c["code"] == "flag_outlier" and c["level"] == "ok"
     assert c["text"] == ("NASA's change check (OUTLIER) marks the peak of 2 of its 3 dots, as it does for most moving "
                          "objects: 68% of known asteroids have it on a dot (the list: 28%).")
-    assert c["values"] == {"dots_peak": 2, "dots": 3, "known_share": 0.68}
+    assert c["values"] == {"dots_peak": 2, "n_dots": 3, "known_share": 0.68}
     assert CK.factor({"kind": "mover", "checks": [c]}) == 1.0
 
 
@@ -99,7 +99,7 @@ def test_halo_warn_and_every_peak_strong():
     assert c["code"] == "flag_halo" and c["level"] == "warn"
     assert c["text"] == ("HALO (the glow around a bright star) is set around 2 of its 3 dots, at the peak of 1; known "
                          "asteroids carry it 22% of the time, but almost never at the peak.")
-    assert c["values"] == {"dots_flagged": 2, "dots_peak": 1, "dots": 3, "known_share": 0.22}
+    assert c["values"] == {"dots_flagged": 2, "dots_peak": 1, "n_dots": 3, "known_share": 0.22}
     assert "bright star nearby" in c["look"] and c["look"].startswith("Blink D2")
     every = CK.mover_checks(_mover(flags=1 << 22, dots={"flags3": [1 << 22] * 3, "fpk": [1 << 22] * 3}))
     assert codes(every) == {"flag_ghost": "strong"}
@@ -319,6 +319,30 @@ def test_suspects_warnings():
                                         "18–43%.")
     assert c["new_code"]["text"] == "Kept with a warning from the suspects step (new code: ratio 1.5)."
     assert all(x["level"] == "warn" for x in ch)
+
+
+def test_values_keys_keep_one_meaning():
+    """v3.27: the exporter's numbers and the suspects' never share a key with two meanings in one check, and suspects
+    tables written before v3.27 are read under the new names."""
+    m = _mover(excess=(4, 2, 1.6), near_source=7.5, bright=(8.9, 48.0), dots={"flux": [900.0, 100.0, 600.0]},
+               warn={"bright_star": {"sep_arcsec": 25.0, "star_snr": 300},
+                     "catalogue_star": {"sep_arcsec": 4.2, "gaia_sep_arcsec": 4.2, "fainter_mag": 3.1},
+                     "flux_jump": {"ratio": 9.0},                          # before v3.27
+                     "unseen": {"exposures": 2, "cover": 4},               # before v3.27
+                     "wide": {"ratio_med": 1.5, "ratio_min": 1.4, "dots": 3, "limit": 1.3, "trail": 1.2},
+                     "persistence": {"dots_at_peak": 1, "n_dots": 3}})
+    v = {x["code"]: x["values"] for x in CK.mover_checks(m)}
+    assert v["bright_star"]["gaia_g_mag"] == 8.9 and v["bright_star"]["gaia_sep_arcsec"] == 48.0
+    assert v["bright_star"]["sep_arcsec"] == 25.0                            # the suspects' fixed source
+    assert v["catalogue_star"]["near_source_arcsec"] == 7.5 and v["catalogue_star"]["sep_arcsec"] == 4.2
+    assert v["detector_excess"]["excess_ratio"] == 1.6 and "ratio" not in v["detector_excess"]
+    assert v["flux_jump"]["flux_ratio_max"] == 9.0 and "ratio" not in v["flux_jump"]
+    assert v["unseen"] == {"unseen_exposures": 2, "cover_exposures": 4}
+    assert v["wide"] == {"size_ratio_med": 1.5, "size_ratio_min": 1.4, "wide_dots": 3, "limit_ratio": 1.3,
+                         "trail_factor": 1.2}
+    assert v["persistence"] == {"dots_peak": 1, "n_dots": 3}
+    hb = CK.highpm_checks({"reasons": [], "blend": (4.1, 0.8, 2), "gaia_match": False})
+    assert hb[0]["code"] == "blend" and hb[0]["values"] == {"apart_arcsec": 4.1, "dg_mag": 0.8, "gaia_stars": 2}
 
 
 def test_suspects_new_tables():

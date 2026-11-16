@@ -83,7 +83,8 @@ L = log.get("highpm")
 COLUMNS = ["method", "status", "source_id", "source_id_b", "ra", "dec", "ra_b", "dec_b", "mjd", "mjd_b", "visit", "visit_b",
            "sep_arcsec", "pmra", "pmdec", "pm", "pm_err", "flux_ratio", "shape_rms", "n_common_det", "red_ratio",
            "gaia_ref_id", "gaia_id", "catwise_name", "catwise_pm_agree", "score", "vetted", "reason", "fit_mode",
-           "counterpart", "counterpart_id", "counterpart_sep_arcsec", "counterpart_epoch_mjd"]
+           "counterpart", "counterpart_id", "counterpart_sep_arcsec", "counterpart_epoch_mjd",
+           "counterpart_offset_now_arcsec"]
 REASONS = ("short_span", "few_dots", "few_sessions", "bad_fit", "over_pm_cap", "gaia_pm_disagrees",
            "catwise_pm_disagrees", "unchecked", "at_control_level", "gaia_slow", "unsteady", "gaia_still", "allwise_still")
 # counterpart: what lists our object. compute: gaia_pm (crossid Gaia match with its own pm), gaia_crossid (crossid Gaia
@@ -518,6 +519,9 @@ def compute(src: pd.DataFrame, footprints_by_visit, crossids: pd.DataFrame | Non
     out["counterpart_id"] = np.where(has_g, gref, np.where(agree, cw, "")).astype(str)
     out["counterpart_sep_arcsec"] = np.where(has_g, g_sep, np.where(agree, cw_sep, np.nan)).astype(np.float32)
     out["counterpart_epoch_mjd"] = np.where(has_g | agree, out["mjd"].to_numpy(np.float64), np.nan)
+    # v3.27: the deep check's entry's distance from our place now (its track test's `now`); crossid's matches are at
+    # our epoch, so counterpart_sep_arcsec already is that distance there
+    out["counterpart_offset_now_arcsec"] = np.full(len(out), np.nan, np.float32)
     confirmed = g_has & ~gaia_dis
     # CatWISE judges only where Gaia has no motion to compare (Gaia: parallax known, far smaller errors)
     out = vet(out, gaia_dis, cw_dis & ~g_has, pair_bins, confirmed=confirmed, checked=g_has | cw_has,
@@ -973,7 +977,7 @@ def deep_check(cands: pd.DataFrame, vstats: pd.DataFrame | None, refcat: pd.Data
     for c, fill in (("counterpart", ""), ("counterpart_id", "")):
         if c not in cands:
             cands[c] = fill
-    for c in ("counterpart_sep_arcsec", "counterpart_epoch_mjd"):
+    for c in ("counterpart_sep_arcsec", "counterpart_epoch_mjd", "counterpart_offset_now_arcsec"):
         if c not in cands:
             cands[c] = np.nan
     rows = cands.iloc[idx].reset_index(drop=True)
@@ -1004,6 +1008,7 @@ def deep_check(cands: pd.DataFrame, vstats: pd.DataFrame | None, refcat: pd.Data
     agree = np.array(cands["catwise_pm_agree"], dtype=bool)
     csep = np.array(cands["counterpart_sep_arcsec"], dtype=np.float64)
     cep = np.array(cands["counterpart_epoch_mjd"], dtype=np.float64)
+    cnow = np.array(cands["counterpart_offset_now_arcsec"], dtype=np.float64)
 
     def add_reason(k, why):
         col["reason"][k] = why if not col["reason"][k] else f"{col['reason'][k]},{why}"
@@ -1011,6 +1016,9 @@ def deep_check(cands: pd.DataFrame, vstats: pd.DataFrame | None, refcat: pd.Data
     def counterpart(k, kind, m):
         col["counterpart"][k], col["counterpart_id"][k] = kind, m["ref_id"]
         csep[k], cep[k] = m.get("sep_arcsec", np.nan), m.get("epoch_mjd", np.nan)
+        # v3.27: for the still kinds counterpart_sep_arcsec is the distance from our TRACK at the entry's epoch
+        # (>= 4.5″); the distance from where the object is now has its own column
+        cnow[k] = m.get("offset_now_arcsec", np.nan)
 
     for i, k in enumerate(idx):
         g, cw, aw, t = gm[i], cwm[i], awm[i], tmm[i]
@@ -1069,6 +1077,7 @@ def deep_check(cands: pd.DataFrame, vstats: pd.DataFrame | None, refcat: pd.Data
         cands[c] = v.astype(str)
     cands["gaia_id"], cands["catwise_pm_agree"] = gid, agree
     cands["counterpart_sep_arcsec"], cands["counterpart_epoch_mjd"] = csep.astype(np.float32), cep
+    cands["counterpart_offset_now_arcsec"] = cnow.astype(np.float32)
     cands["vetted"] = cands["reason"].to_numpy(object) == ""
     return _ordered(cands), rep
 

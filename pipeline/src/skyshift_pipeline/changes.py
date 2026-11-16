@@ -647,7 +647,14 @@ def new_sources(orph: pd.DataFrame, last_visit: int, snr: pd.Series | None = Non
         bits = detectors.reindex(o["source_id"].to_numpy()).fillna(0).to_numpy(np.int64)
         o["n_detectors"] = np.array([int(b).bit_count() for b in bits], np.int8)
         o = o[o["n_detectors"].to_numpy() >= CHANGES_NEW_MIN_DETECTORS]
-    o["kind"] = np.where(o["visit"].to_numpy() == last_visit, "appeared", "vanished")
+    # The direction from the two visits compared: seen in a later visit than the other (covering) visit → appeared,
+    # in an earlier one → vanished. orphans' other_visit is the covering visit seen most, which can be earlier than a
+    # middle visit (before v3.27 such a source became "vanished … gone in visit N", N the visit it was seen in).
+    # Without other_visit: appeared only in the zone's last visit.
+    vis = o["visit"].to_numpy(np.float64)
+    ov = o["other_visit"].to_numpy(np.float64) if "other_visit" in o else np.full(len(o), np.nan)
+    later = np.where(np.isfinite(ov), vis > ov, vis == last_visit)
+    o["kind"] = np.where(later, "appeared", "vanished")
     return o.reset_index(drop=True)
 
 
@@ -796,7 +803,7 @@ def common_checks(r, det: int) -> list[dict]:
         add("bright_neighbour", "warn", f"A Gaia star {-dm:.1f} mag brighter sits {nb:.0f}″ away; its wings fall on "
             "this star differently when the telescope turns between visits.",
             f"Viewer, months clock, D{det}: does the neighbour's halo change shape between the visits?",
-            {"sep_arcsec": round(float(nb), 1), "dmag": round(float(dm), 2)})
+            {"neighbour_sep_arcsec": round(float(nb), 1), "dmag": round(float(dm), 2)})
     nc = getattr(r, "neighbours_checked", True)
     if nc is not None and not (isinstance(nc, float) and math.isnan(nc)) and not bool(nc):
         add("neighbours_unchecked", "warn", "Brighter Gaia neighbours within "
@@ -831,8 +838,10 @@ def colour_text(c, name: str, va, vb: int) -> tuple[str, str, dict]:
     hi, lo = ("D6", "D1") if redder else ("D1", "D6")
     look = (f"Viewer, months clock: blink visit {vs[-1]} against visit {vb} in D1, then in D6; in visit {vb} it should "
             f"gain more (or fade less) in {hi} than in {lo}, against the stars around it.")
-    values = {"visit_a": vs[0] if len(vs) == 1 else vs, "visit_b": vb, "d1_d6_change": round(float(c.d1_d6_change), 4),
-              "sigma": round(float(c.colour_z), 2), "detectors": int(c.n_det_colour)}
+    # v3.27, one meaning per key: the visits are the row's visits_before / visit_after; the row's `sigma` and
+    # `detectors` are the brightness σ and the list of detectors
+    values = {"d1_d6_change": round(float(c.d1_d6_change), 4), "colour_sigma": round(float(c.colour_z), 2),
+              "n_detectors": int(c.n_det_colour)}
     return text, look, values
 
 

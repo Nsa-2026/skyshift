@@ -583,8 +583,11 @@ def mf_noise_stats(snr: np.ndarray, den: np.ndarray, min_snr: float, step: int =
     from scipy import ndimage
     ok = den > 0
     sg, med = _sigma_lo(snr[ok][::step])
-    if not np.isfinite(sg):
-        return {"sigma_lo": float("nan"), "median": float("nan"), "n_neg": 0}
+    if not np.isfinite(sg):    # too few data pixels (< ~700: a photo mostly masked or off the chip)
+        out = {"sigma_lo": float("nan"), "median": float("nan"), "n_neg": 0}
+        if grid:               # every block NaN: mf_pass's block mode then keeps min_snr (scale 1)
+            out["sigma_grid"] = np.full((int(C.MF_SIGMA_GRID),) * 2, np.nan)
+        return out
     neg = np.where(ok & np.isfinite(snr), -snr, -np.inf)
     mx = ndimage.maximum_filter(neg, size=3, mode="constant", cval=-np.inf)
     n_neg = int(((neg >= mx) & (neg >= min_snr)).sum())
@@ -628,7 +631,7 @@ def mf_pass(resid: np.ndarray, noise: np.ndarray, bad: np.ndarray, epsf, dot_x: 
     scale_grid = None
     if normalise == "photo" and np.isfinite(stats["sigma_lo"]):
         min_snr = min_snr * max(1.0, stats["sigma_lo"])
-    elif normalise == "block":
+    elif normalise == "block" and stats.get("sigma_grid") is not None:
         g = np.nan_to_num(stats["sigma_grid"], nan=1.0)
         scale_grid = np.where(g > C.MF_SIGMA_MIN_SCALE, g, 1.0)
     stats["min_snr_used"] = float(min_snr)

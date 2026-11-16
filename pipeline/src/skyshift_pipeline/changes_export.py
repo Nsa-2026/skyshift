@@ -112,7 +112,7 @@ def entry(r) -> dict:
     star = kind in ("brightness", "colour")
     return {
         "id": str(r["id"]), "kind": kind, "zone": str(r["zone"]), "zones": [str(r["zone"])],
-        "name": str(r["name"]), "gaia_id": gid if gid > 0 else None, "ref_id": str(r["ref_id"]) or None,
+        "name": str(r["name"]), "gaia_id": str(gid) if gid > 0 else None, "ref_id": str(r["ref_id"]) or None,
         "source_id": sid if sid >= 0 else None, "ra": _num(r["ra"], 6), "dec": _num(r["dec"], 6),
         "g_mag": _num(r["g_mag"], 2), "det": int(r["detector"]), "clock": "months",
         "measured": ("own" if r["population"] == "source" else "forced") if star else "own",

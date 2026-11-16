@@ -610,7 +610,8 @@ def hot_pixel_certain(m: pd.DataFrame) -> np.ndarray:
 
 def flag_warnings(m: pd.DataFrame, w: Warnings) -> dict:
     """flag_bloom, flag_halo, flag_ghost (GHOST, GHOST_FPA, GHOST_EXT), flag_crosstalk: NASA's record-only bit in the
-    3×3 of any of the mover's dots (`flags`). Values: dots_at_peak (dots with the bit at their peak pixel), n_dots.
+    3×3 of any of the mover's dots (`flags`). Values: dots_peak (dots with the bit at their peak pixel; v3.27, was
+    dots_at_peak), n_dots.
     The bits of SUSPECT_PEAK_ALL_GATES at every dot's peak (`flags_peak_all`) are also vetting reasons (w.gates: bloom,
     halo). Returns {code: movers}."""
     f = m["flags"].to_numpy(np.int64) & 0xFFFFFFFF
@@ -622,7 +623,7 @@ def flag_warnings(m: pd.DataFrame, w: Warnings) -> dict:
         hit = np.flatnonzero((f & bits) != 0)
         for i in hit:
             pk = np.asarray(fpk[i], np.int64) & 0xFFFFFFFF if fpk[i] is not None else np.zeros(0, np.int64)
-            w.add(int(i), code, {"dots_at_peak": int(((pk & bits) != 0).sum()), "n_dots": int(nd[i])})
+            w.add(int(i), code, {"dots_peak": int(((pk & bits) != 0).sum()), "n_dots": int(nd[i])})
         out[code] = int(hit.size)
     for reason, bit in C.SUSPECT_PEAK_ALL_GATES.items():
         w.gate(reason, (fpa & bit) != 0)
@@ -849,8 +850,8 @@ def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None,
 
 def gate_warnings(s: pd.DataFrame, w: Warnings) -> None:
     """Warnings with numbers for the vetting gates that have a check code (contracts/api.md v3.23): edge (edge_px),
-    persistence (PERSIST at a dot's peak, one of masked_peak's bits: dots_at_peak), sharp (sharp_outlier or very_sharp:
-    the smallest size_ratio to a star, outlier_at_peak), flux_jump (flux_ratio: the largest ratio within a detector).
+    persistence (PERSIST at a dot's peak, one of masked_peak's bits: dots_peak), sharp (sharp_outlier or very_sharp:
+    the smallest size_ratio to a star, outlier_at_peak), flux_jump (flux_ratio_max: the largest ratio within a detector).
     The other gates (hot_pixel, bad_column, masked_peak, red_photo, not_vetted) are in `reasons` only."""
     if not len(s):
         return
@@ -866,12 +867,12 @@ def gate_warnings(s: pd.DataFrame, w: Warnings) -> None:
         w.add(int(i), "edge", {"ramp_dots": int(num["ramp_dots"][i]), "ramp_y": _num(num["ramp_y"][i], 0),
                                "ramp_from_y": C.VET_D2_RAMP_Y, "ramp_detector": C.VET_D2_RAMP_DET})
     for i in np.flatnonzero(num["persist_dots"].to_numpy() > 0):
-        w.add(int(i), "persistence", {"dots_at_peak": int(num["persist_dots"][i]), "n_dots": int(nd[i])})
+        w.add(int(i), "persistence", {"dots_peak": int(num["persist_dots"][i]), "n_dots": int(nd[i])})
     so, vs = gate("sharp_outlier"), gate("very_sharp")
     for i in np.flatnonzero(so | vs):
         w.add(int(i), "sharp", {"size_ratio": _num(num["size_ratio"][i], 2), "outlier_at_peak": int(so[i])})
     for i in np.flatnonzero(gate("flux_ratio")):
-        w.add(int(i), "flux_jump", {"ratio": _num(num["flux_ratio"][i], 1)})
+        w.add(int(i), "flux_jump", {"flux_ratio_max": _num(num["flux_ratio"][i], 1)})
     flaw_warnings(s, w)
 
 
@@ -906,14 +907,15 @@ def flaw_warnings(s: pd.DataFrame, w: Warnings) -> None:
         w.add(int(i), "same_pixel", {"px": _num(sp[i], 2), "limit_px": C.VET_SAME_PIXEL_PX}, "strong")
     wd = s["whole_dots"].to_numpy(np.int64)
     for i in np.flatnonzero(wd >= 1):
-        w.add(int(i), "whole_pixel", {"dots": int(wd[i]), "n_dots": int(nd[i]), "sigma_px": C.LINK_WHOLE_PIXEL_SIGMA_PX},
+        w.add(int(i), "whole_pixel", {"whole_dots": int(wd[i]), "n_dots": int(nd[i]), "sigma_px": C.LINK_WHOLE_PIXEL_SIGMA_PX},
               "strong" if gate("whole_pixel")[i] else "warn")
     med, mn, k = col("wide_ratio_med"), col("wide_ratio_min"), s["wide_dots"].to_numpy(np.int64)
     tr = col("wide_trail") if "wide_trail" in s else np.ones(len(s))
     gw = gate("wide")  # with a blend only (mover_flaws); every dot or the median wide alone: a warning
     for i in np.flatnonzero(gw | V.wide_every(s) | (np.nan_to_num(med) >= C.VET_WIDE_RATIO)):
-        w.add(int(i), "wide", {"ratio_med": _num(med[i], 2), "ratio_min": _num(mn[i], 2), "dots": int(k[i]),
-                               "limit": C.VET_WIDE_RATIO, "trail": _num(tr[i], 2) if tr[i] > 1.005 else None,
+        # v3.27: the pixel producer's names (size_ratio_*, trail_factor); the limit is a ratio
+        w.add(int(i), "wide", {"size_ratio_med": _num(med[i], 2), "size_ratio_min": _num(mn[i], 2), "wide_dots": int(k[i]),
+                               "limit_ratio": C.VET_WIDE_RATIO, "trail_factor": _num(tr[i], 2) if tr[i] > 1.005 else None,
                                "with_blend": 1 if gw[i] else None}, "strong" if gw[i] else "warn")
     nexp = s["n_exposures"].to_numpy(np.int64) if "n_exposures" in s else np.zeros(len(s), np.int64)
     for i in np.flatnonzero(gate("cross_detector")):
@@ -1062,13 +1064,13 @@ def mover_flaws(s: pd.DataFrame, fixed: pd.DataFrame, ref: pd.DataFrame | None, 
         glow = one_det & ~paired & (np.nan_to_num(wide_med) >= C.VET_WIDE_RATIO) & (bsep <= C.VET_GLOW_ARCSEC)
         for i in np.flatnonzero(glow):
             w.add(int(i), "glow", {"star_g_mag": _num(bg[i], 1), "star_sep_arcsec": _num(bsep[i], 0),
-                                   "ratio_med": _num(wide_med[i], 2)}, "strong")
+                                   "size_ratio_med": _num(wide_med[i], 2)}, "strong")
     w.gate("glow", glow)
     st["glow"] = int(glow.sum())
     # unseen in exposures that photographed the track
     cover, unseen = unseen_exposures(s, photos, zone)
     for i in np.flatnonzero(unseen >= 1):
-        w.add(int(i), "unseen", {"exposures": int(unseen[i]), "cover": int(cover[i])},
+        w.add(int(i), "unseen", {"unseen_exposures": int(unseen[i]), "cover_exposures": int(cover[i])},
               "strong" if unseen[i] >= C.VET_UNSEEN_GATE else "warn")
     w.gate("unseen", unseen >= C.VET_UNSEEN_GATE)
     st["unseen"] = {"measured": int((cover >= 0).sum()), "warn": int((unseen >= 1).sum()),

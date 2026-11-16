@@ -377,9 +377,9 @@ def test_dot_numbers_and_gate_warnings():
     w = S.Warnings(len(out))
     S.gate_warnings(out, w)
     assert w.codes == [[], ["edge"], ["persistence"], ["sharp"], ["flux_jump"]]
-    assert w.values[1]["edge"] == {"edge_px": 3.0} and w.values[2]["persistence"] == {"dots_at_peak": 1, "n_dots": 2}
+    assert w.values[1]["edge"] == {"edge_px": 3.0} and w.values[2]["persistence"] == {"dots_peak": 1, "n_dots": 2}
     assert w.values[3]["sharp"] == {"size_ratio": ratio, "outlier_at_peak": 1}
-    assert w.values[4]["flux_jump"] == {"ratio": 5.0}
+    assert w.values[4]["flux_jump"] == {"flux_ratio_max": 5.0}
     assert V.dot_numbers(s.drop(columns=list(V.DOT_LISTS)))["edge_px"].isna().all()
 
 
