@@ -514,6 +514,12 @@ latitude). Whole sky: 12,288 partitions, ~23 GB of AllWISE column reads (free), 
 threads on a cloud machine (~6 h with 3 on a laptop). Forced photometry per target is negligible (§3.5), the forced
 files grow by the same 7–58%. Build it before the rerun; dots don't need a code change for it.
 
+**Not yet used downstream.** lightcurves ties a forced row to a source through crossids' Gaia, CatWISE and 2MASS
+ref_ids, so `allwise:` rows stay catalogue-only light curves (source_id −1) and `changes.name_of` calls them
+"source N". For classify's J − [4.6] they must be tied to the source by position (the forced row's ra, dec at the
+photo's time, within 3″) or by an AllWISE crossid: proposed to the lightcurves / crossid owner. The photometry is
+in the forced files either way, so the rerun need not wait for it.
+
 ### 12.6 Gaia G < 21 in refcat (proposal: 704 of 1,161 "no Gaia" spectral candidates have Gaia G 20–21.9)
 
 Measured on four 1° tiles (hunt, ecl04, plane, bulge): rows +44–68%, ESA TAP time the same except the densest tile
