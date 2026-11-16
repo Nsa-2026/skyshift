@@ -26,12 +26,15 @@ def cand(cid, grade="B", reasons=("two_exposures",), status=None, kind="mover"):
     return c
 
 
-def test_select_movers_follows_the_sites_to_check_rule():
+def test_select_movers_takes_open_a_and_b():
     doc = {"candidates": [cand("a"), cand("b", grade="C"), cand("c", reasons=("motion_not_significant",)),
                           cand("d", grade="A", reasons=("motion_not_significant",)), cand("e", status="known"),
-                          cand("f", kind="spectral")]}
-    assert [c["id"] for c in PC.select_movers(doc, "tocheck")] == ["a", "d"]
-    assert [c["id"] for c in PC.select_movers(doc, "open")] == ["a", "b", "c", "d"]
+                          cand("f", kind="spectral"), cand("g", status="flaw"), cand("h", grade=None),
+                          cand("i", grade="A", status="open")]}
+    # A or B whatever their reasons (motion_not_significant is a warning, not the old To-check rule); open only
+    assert [c["id"] for c in PC.select_movers(doc, "ab")] == ["a", "c", "d", "i"]
+    assert PC.select_movers(doc, "tocheck") == PC.select_movers(doc, "ab")
+    assert [c["id"] for c in PC.select_movers(doc, "open")] == ["a", "b", "c", "d", "h", "i"]
 
 
 def test_in_polygon_and_tangent():

@@ -61,7 +61,12 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
-  Reads only some columns (range reads), the dot files' `flags` and the movers' dots: ~0.4 GB from the bucket for the hunt.
+  Reads only some columns, the dot files' `flags` and the movers' dots, by exact byte ranges (parquet_rows.py,
+  16 Nov): read_table fetches the footer (its first 4 KiB when every column read is a plain number) and the column
+  chunks, never gcsfs' 5 MiB read-ahead (which took ~1.5 MB per dot file for a ~2 KB flags chunk); members.parquet
+  only the pages that hold the zone's high_pm/spectral ids (read_rows; `--full-reads` reads whole columns; the cache key
+  of a page read adds `.rows-<hash of the ids>`); fragments two columns. Hunt 5.3 → 0.32 GB (3,138 dot files 4.8 GB →
+  30 MB, ~9.6 KB and 3–4 requests each; members 112 → 35 MB), ecl04 8.3 → 0.23 GB; outputs byte-identical.
   It drops movers near a planet itself (suspects tables written before the `planets` veto); `uv run skyshift-candidates
   --drop-planets ../web/public/data/candidates.json` applies only that to an existing export (reads no zone).
   Checks (16 Nov, candidate_checks.py, contracts/api.md v3.23): every candidate gets status, known_name and checks
@@ -77,8 +82,9 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   fit gave ecl10-692050057552-87780103 28.8″/h on the site vs 11.1″/h in movers.parquet). On a track: `seen_again`
   (ok; tracklet_id, sessions, recovered sessions, track vs session motion, the zone's tracklets/link controls);
   `fast_held` (warn): a B track > 400″/h held from A. 16 Nov tables, 4 zones: candidates.json 290 A/B movers 0.62 MB,
-  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~20 GB, of which sources' spectra
-  (8.2 GB) and members (7.8 GB) for high_pm/spectral, refcat 1.7, classes 0.9; A/B movers' flags ~0.1 GB.
+  more files 9,154 C 24.4 MB (1.6 MB gzip); one full export of all 62 zones reads ~16 GB (was ~20 GB of columns,
+  ~50 GB at a 16 KiB block, several hundred GB at gcsfs' default), of which sources' spectra 8.2 GB (flux_ujy/err_ujy
+  whole: the candidates' rows touch ~80% of their pages), members ~2.3, dot flags ~2.4, refcat 1.7, classes 0.9.
 - Shape candidates (kind `shape`, "one object or two?"; shape.py, not a CLI step): `uv run python -m skyshift_pipeline.shape
   --zone hunt [--tables <dir>] [--out <dir>]` reads 38% of the zone's photos' member dots (8 shape columns, ~0.6 GB),
   writes results/<zone>/shape_candidates.parquet + shape_report.json (false alarms on held-out single Gaia stars,
