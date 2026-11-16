@@ -777,13 +777,29 @@ def detector_partner(s: pd.DataFrame) -> np.ndarray:
     return out
 
 
+def keep_session_motion(s: pd.DataFrame) -> pd.DataFrame:
+    """link's in-session motion (the mover's own exposures: rate_arcsec_h, pa_deg) copied to session_rate_arcsec_h and
+    session_pa_deg, because track_grades puts the track's motion in rate_arcsec_h / pa_deg (NaN off a track). Matching a
+    known body to a suspect needs the in-session pair: a track's chord differs (306P: 107″/h at 54° over its track,
+    98–105″/h at 76–86° within one session). s unchanged without rate_arcsec_h or when already copied."""
+    if "rate_arcsec_h" not in s or "session_rate_arcsec_h" in s:
+        return s
+    s = s.copy()
+    s["session_rate_arcsec_h"] = pd.to_numeric(s["rate_arcsec_h"], errors="coerce").to_numpy(np.float64)
+    s["session_pa_deg"] = (pd.to_numeric(s["pa_deg"], errors="coerce").to_numpy(np.float64) if "pa_deg" in s
+                           else np.full(len(s), np.nan))
+    return s
+
+
 def track_grades(s: pd.DataFrame, ids, tr: pd.DataFrame | None,
                  recovered: dict[int, int] | None = None) -> tuple[pd.DataFrame, dict]:
     """Joins each graded suspect (ids: its suspect id, row by row) to its tracklets row (tr: load_tracklets) and sets
     grade A where the grade is B, tracklet_id >= 0, n_sessions >= VET_A_MIN_SESSIONS and rate_snr >= VET_MOTION_SIGMA;
     a track faster than VET_A_FAST_ARCSEC_H also needs a recovered dot (recovered: load_recovered) or a suspect of the
     track with a detector partner (else it stays B: stats `fast_held`). Adds TRACK_COLUMNS: tracklet_id (-1 = on no
-    track), the others NaN / null off a track. tr None: s unchanged."""
+    track), the others NaN / null off a track; link's own rate_arcsec_h / pa_deg first go to session_* (keep_session_motion).
+    tr None: s unchanged but for those copies."""
+    s = keep_session_motion(s)
     if tr is None or not len(s):
         return s, {"source": None if tr is None else TRACKLETS_NAME, "on_track": 0, "graded_a": 0, "fast_held": 0}
     j = pd.DataFrame({"mover_id": [str(x) for x in ids]}).merge(tr, on="mover_id", how="left")

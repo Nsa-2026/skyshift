@@ -195,7 +195,7 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   pass force_download (an `mpc-orbits` snapshot was otherwise kete's older copy).
 - V (16 Nov): the cache keeps objects to MPC_V_STORE (23; was MPC_V_MAX 21, which dropped faint known asteroids and NEOs
   glowing in D5–D6). kete's work is the same at any cut. Position-only matching still uses V < MPC_V_MAX or no V
-  (known.brighter: the suspects' 30″ cut, nearest_known_arcsec); a body of any brightness removes a mover only when
+  (known.brighter: the suspects' 5″ place cut and 30″ moving-alike cut, nearest_known_arcsec); a body of any brightness removes a mover only when
   it is certain (known.certain_known: within KNOWN_CERTAIN_ARCSEC 10″ at every dot's time, rate within 20%, direction
   within 15°; contracts/api.md v3.23 `status` known; summary `cut_known_certain_only`). score keeps its own V cuts,
   orphans its rate-matched one. Caches written before keep V < 21: delete cache/mpc/<zone>/ and rerun `known` for faint ones.
@@ -362,9 +362,9 @@ The step never raises (errors go to its stats).
   Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
   stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over nonfixed_dots (not suspects' freedots.parquet: that one
   has pixel x, y and no near-fixed dots, for vet's hot-pixel maps).
-- suspects (16 Nov: only the certain is removed; config SUSPECT_*): a known body (MPC, Horizons; same session) within
-  5″ of the mover at its time, or within 30″ moving at our measured rate (50% or 3σ) and direction (45° or 3σ)
-  (`cut_known`; our motion from 2–6 exposures over minutes scatters too much to overrule the place: a 20% / 15° test
+- suspects (16 Nov: only the certain is removed; config SUSPECT_*): a known body (MPC, Horizons; same session; V < 21
+  or no V) within 5″ of the mover at its time, or within 30″ moving at our measured in-session rate (50% or 3σ) and
+  direction (45° or 3σ), or one of any V that known.certain_known is sure of (`cut_known`, `cut_known_certain_only`; our motion from 2–6 exposures over minutes scatters too much to overrule the place: a 20% / 15° test
   would have kept 32% of ecl04's 1,911 movers within 5″ of an MPC prediction); a planet at its time
   (skyshift_core.planets: Mars 60′, Jupiter 80′, Saturn 45′, Uranus 5′, Neptune 3′: the planet, its moons, its glare;
   `cut_planet`, veto `planets`; 15 Nov: 131 of the 1,885 movers listed in candidates.json, e.g. Iapetus ×17); a hot
@@ -407,7 +407,9 @@ The step never raises (errors go to its stats).
   VET_A_FAST_ARCSEC_H = 400″/h also needs a recovered dot in tracklet_dots.parquet that is not `in_fixed`, or a suspect
   of the track with a detector partner (paired_exposures ≥ 1), else B, stats `fast_held`: fast 2-session tracks link
   single-detector artefacts, e.g. hunt's one fast track, a D6-only artefact fading 12–22×). Suspects on a track
-  carry its n_sessions, rate_arcsec_h, pa_deg, rate_sigma (suspects.json; null off a track); a missing or unreadable
+  carry its n_sessions, rate_arcsec_h, pa_deg, rate_sigma (suspects.json; null off a track; the parquet keeps link's
+  in-session motion as session_rate_arcsec_h / session_pa_deg: match known bodies on those, not on the track's chord,
+  e.g. 306P 107″/h at 54° over its track vs 98–105″/h at 76–86° in a session); a missing or unreadable
   tracklets.parquet changes nothing (stats vetting.tracklets). candidates.py lists A first and names the track in `why`.
   Gates run on the suspects only, never before pairing: recall is unchanged. completeness' vs_recall compares the
   synthetic movers with recall.json `recall_movers` (movers alone) when present.

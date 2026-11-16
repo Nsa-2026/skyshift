@@ -276,6 +276,18 @@ def test_fast_track_needs_a_recovered_dot_or_a_detector_partner_for_a():
     assert list(out2["grade"]) == ["B", "B", "A", "A", "B", "A"] and st2["fast_held"] == 3
 
 
+def test_track_grades_keep_the_in_session_motion():
+    """rate_arcsec_h / pa_deg become the track's (NaN off a track); link's own motion stays in session_*."""
+    s = pd.DataFrame({"grade": ["B", "B"], "rate_arcsec_h": [100.0, 5.0], "pa_deg": [80.0, 10.0]})
+    tr = pd.DataFrame({"mover_id": ["m0"], "tracklet_id": [0], "n_sessions": [3], "rate_arcsec_h": [107.0], "pa_deg": [54.0],
+                       "rate_sigma": [1.0], "rate_snr": [50.0]})
+    out, _ = S.track_grades(s, ["m0", "m1"], tr)
+    assert out["rate_arcsec_h"].tolist()[0] == 107.0 and np.isnan(out["rate_arcsec_h"][1])
+    assert out["session_rate_arcsec_h"].tolist() == [100.0, 5.0] and out["session_pa_deg"].tolist() == [80.0, 10.0]
+    same, _ = S.track_grades(s, ["m0", "m1"], None)
+    assert same["session_rate_arcsec_h"].tolist() == [100.0, 5.0] and same["rate_arcsec_h"].tolist() == [100.0, 5.0]
+
+
 def test_load_recovered_leaves_out_dots_inside_a_star(tmp_path):
     store = Store(str(tmp_path))
     z = C.ZONES["pilot"]
