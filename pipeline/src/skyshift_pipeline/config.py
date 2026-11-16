@@ -137,6 +137,33 @@ PSF_PASS_MIRROR_R_PX = 1.5
 PSF_PASS_MIRROR_FRAC = 0.5
 PSF_PASS_MIRROR_SIGMA = 3.0
 SEP_FLAG_PSF_PASS = 0x200      # sep_flag bit of a dot found by the second pass (sep's own flags use bits 0x1–0x80)
+# Extraction v2 (16 Nov; docs/extraction-v2.md): the settings of the one combined rerun of every photo. Off until that
+# rerun (DOTS_V2, env SKYSHIFT_DOTS_V2=1): every zone then uses DOTS_V2_SETTINGS (fine detection v2 + glow + the matched-filter pass and the
+# v2 columns, peaks file and photo metadata), folder dots_deblend1e-4_cp3_g6_psf_glow_v2/. Measured on ecl04 D2
+# (2025W34_1B_0173_1D2, full frame) and 256-row bands of ecl04 / hunt photos: see docs/extraction-v2.md.
+DOTS_V2 = os.environ.get("SKYSHIFT_DOTS_V2", "0") == "1"   # env SKYSHIFT_DOTS_V2=1 turns it on
+# Matched-filter pass: the ePSF-matched filter (inverse-variance weighted, ePSF of the pixel's zone, source centred on
+# the pixel) on the residual of the second pass (IMAGE minus its background and the ePSF models of the S/N >= 10 dots;
+# noise √(noise² + (PSF_PASS_MODEL_FRAC · model)²)). A local maximum (3 × 3) of its S/N >= MF_PASS_SNR, more than
+# MF_PASS_DEDUP_PX from every dot, outside the saturation guard and a glow star's own pixels, and passing the mirror test
+# when it lies within PSF_PASS_R_PX of a subtracted dot, is a dot (sep_flag SEP_FLAG_MF_PASS), measured on the residual.
+# Its aperture snr may be < DOT_MIN_SNR (MF S/N ≈ 1.5 × aperture S/N at S/N 5–7). Every dot gets snr_mf.
+MF_PASS_SNR = 5.0
+MF_PASS_DEDUP_PX = 1.0
+MF_KERNEL_HALF = 3             # ePSF kernel (2h+1)² px
+MF_PHASES = 1                  # sub-pixel source positions per axis (2: 4 kernels per tile; on ecl04 D2 Gaia at aperture
+                               # S/N 3–4 64 → 80% found, but 4× the noise peaks (negative image, >= 5: 30 → 131): off)
+MF_ZONE_GROUP = 3              # ePSF zones merged 3 × 3 per kernel tile (21 × 21 zones per photo -> 7 × 7 tiles)
+SEP_FLAG_MF_PASS = 0x400
+# Peaks file (v2): every other local maximum of the same S/N map >= MF_PEAK_SNR with no dot within MF_PASS_DEDUP_PX
+# (S/N 4–5, and the >= 5 peaks the guard / glow / mirror test refused): <folder>_peaks/<obs_id>D<det>.parquet.
+MF_PEAK_SNR = 4.0
+DOTS_TRANSIENT_R_PX = 3.0      # v2 column n_transient: TRANSIENT pixels within this radius of the dot
+EMPIRICAL_NOISE_N = 400        # v2 photo metadata: r = 2 px forced aperture at this many random places ...
+EMPIRICAL_NOISE_MIN_SEP_PX = 8.0  # ... at least this far from every dot
+EMPIRICAL_NOISE_SEED = 0
+PARTNER_DETECTOR = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # exposed at the same moment (CLAUDE.md)
+SAT_CORES_MAX = 1000           # v2 photo metadata: OVERFLOW/NONLINEAR clumps listed (largest first)
 
 
 @dataclass(frozen=True)
@@ -147,10 +174,11 @@ class DetectSettings:
     sat_guard_px: float = 0.0
     psf_pass: bool = False
     glow: bool = False
+    v2: bool = False               # extraction v2: matched-filter pass, v2 columns, peaks file, v2 metadata
 
     @property
     def folder(self) -> str:
-        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass, self.glow)
+        return dots_dir_for(self.deblend_cont, self.clean_param, self.sat_guard_px, self.psf_pass, self.glow, self.v2)
 
     @property
     def is_sky(self) -> bool:
@@ -165,10 +193,11 @@ def _num(v: float) -> str:
 
 
 def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: float = 0.0, psf_pass: bool = False,
-                 glow: bool = False) -> str:
+                 glow: bool = False, v2: bool = False) -> str:
     """The folder of dot files made with these settings: DOTS_DIR for the sky run's, else DOTS_DIR plus one part per
-    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf, _glow
-    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf; with the glow model, 16 Nov: dots_deblend1e-4_cp3_g6_psf_glow)."""
+    setting that differs: _deblend<v> (1e-4 -> dots_deblend1e-4), _cp<clean_param>, _g<guard px>, _psf, _glow, _v2
+    (the fine zones' v2: dots_deblend1e-4_cp3_g6_psf; with the glow model, 16 Nov: dots_deblend1e-4_cp3_g6_psf_glow;
+    extraction v2: dots_deblend1e-4_cp3_g6_psf_glow_v2)."""
     name = DOTS_DIR
     if float(deblend_cont) != float(DOTS_DEBLEND_CONT):
         name += f"_deblend{_num(deblend_cont)}"
@@ -180,11 +209,18 @@ def dots_dir_for(deblend_cont: float, clean_param: float = 1.0, sat_guard_px: fl
         name += "_psf"
     if glow:
         name += "_glow"
+    if v2:
+        name += "_v2"
     return name
 
 
+DOTS_V2_SETTINGS = DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, True, True, True)
+
+
 def zone_detect(zone: str | None) -> DetectSettings:
-    """The detection settings of the `dots` step for this zone (None: the sky run's)."""
+    """The detection settings of the `dots` step for this zone (None: the sky run's); DOTS_V2: extraction v2 for all."""
+    if DOTS_V2:
+        return DOTS_V2_SETTINGS
     if zone in DOTS_FINE_ZONES:
         return DetectSettings(DOTS_FINE_DEBLEND_CONT, DOTS_FINE_CLEAN_PARAM, DETECT_SAT_GUARD_PX, DOTS_FINE_PSF_PASS,
                               DOTS_FINE_GLOW)

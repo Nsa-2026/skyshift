@@ -27,7 +27,8 @@ Shared science code, imported by server/ and pipeline/. No web or cloud code her
   + 3 sigma of each other (or of the predicted motion). Reasons: not_found, not_detected, edge,
   different_sources.
 - glow (16 Nov): a bright star's glow modelled before detection. bright_stars (saturated cores: masked blobs with
-  OVERFLOW/NONLINEAR; unsaturated peaks >= GLOW_MIN_PEAK_SNR), fit_glow -> Glow (model, k, stars): per star its ePSF
+  OVERFLOW/NONLINEAR, only mask pixels within GLOW_CORE_REACH_PX 6 of a saturated one: a STREAK through one saturated
+  pixel once made a 135 px core that ate every dot within 840″; unsaturated peaks >= GLOW_MIN_PEAK_SNR), fit_glow -> Glow (model, k, stars): per star its ePSF
   (pixel centres, wing pixels) + radial profile (narrow-ring medians) x angular modulation (wide-ring sector medians)
   to the last ring >= 0.15 x pixel noise; k = robust scatter of r = 2 px aperture sums of the residual in polar bins over
   the frame's (noise_factor, aperture_z). Glow.outside (model, k with each star's own pixels left: r_keep, saturated

@@ -128,6 +128,15 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   subtracts each block's glow (glow_cut; STACK_GLOW), every S/N map gets a local noise factor around Gaia-confirmed
   saturated holes and S/N ≥ STACK_GLOW_MIN_SNR peaks (local_significance; peaks found on snr, kept on snr / k), and a
   hole's rim peaks become one peak at the star (rim_peaks). Cost: ~3–5 s per photo for the fit (400 stars).
+  Extraction v2 (16 Nov, docs/extraction-v2.md; off until the one rerun of every photo: env SKYSHIFT_DOTS_V2=1 →
+  config.DOTS_V2, every zone DOTS_V2_SETTINGS, folder dots_deblend1e-4_cp3_g6_psf_glow_v2/): fine v2 + glow + a
+  matched-filter pass (psf.mf_pass: ePSF-matched filter, inverse-variance, on the second pass's residual; peaks
+  >= MF_PASS_SNR 5 with no dot within 1 px become dots, sep_flag 0x400, measured on the residual), columns snr_mf,
+  n_transient, n_masked, partner_flux_ujy/err (D1↔D4, D2↔D5, D3↔D6 of one exposure measured together:
+  process_photos/exposure_groups), the peaks file <folder>_peaks/ (matched-filter peaks >= 4 not made dots, `why`),
+  footer keys aperture_noise, grids_v2 (noise, 5σ depth), sat_cores, sky_jacobian_deg_px, mf. Bands of 68 photos:
+  isolated Gaia at aperture S/N 5–5.5 found 33% (sky) → 85%, known asteroids V 17–18 16% → 53%, negative-image
+  fakes 21 → 65 of 43k dots; ~3.7× the sky setting's detection CPU (glow a third of it), ~1.9× the bytes.
 - classify and photoz read only sources.parquet (+ optional dot shape columns, crossids, refcat); never photos.
   photoz queries SDSS DR17 once per zone (cached in cache/sdss/<zone>.parquet); a network failure only skips the report.
 - refcat: Gaia DR3 (G<20), CatWISE2020, 2MASS PSC over zone + 0.1° in 1° tiles (cache/refcat/<zone>/), writes
