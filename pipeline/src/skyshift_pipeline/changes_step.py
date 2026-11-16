@@ -25,6 +25,17 @@ ranks them below the unexpected changes.
 Gaia DR3 (positions of forced-only stars beyond the zone's catalogue, G, variability flag and class, neighbours
 beyond the catalogue) comes from ESA's archive by primary key only (GaiaLookup, cached in --cache); a failure leaves
 `gaia_variable` unknown and adds the check `neighbours_unchecked` where it mattered. Nothing else goes online.
+
+Known bodies (brightness and colour, 16 Nov): the known asteroids and comets (MPC orbits moved with kete from SPHEREx)
+and planets and moons (JPL Horizons) of the `known` step's per-session files (cache/mpc/<zone>/, cache/planets/<zone>/
+under --known-root, default --root; nothing else is asked) that came within CHANGES_KNOWN_ARCSEC (2 × the PSF's FWHM,
+15″) of a listed star at their closest during an exposure of the compared visits (a planet itself: its moons' and
+glare's reach, skyshift_core.planets.RADIUS_ARCSEC). The listing rule runs again on the star's points without the
+sessions they passed in (listing_without; with nothing left out it gives the listing back exactly): a change that goes
+is not listed and is counted in changes_report.json `dropped_known_body` (brightness.known_bodies.dropped_changes says
+which body, when and how close); one that stays gets the check `known_body_passed` (warn) with the body, the UTC time,
+the separation and the sessions to blink on the hours clock. Appeared / vanished come from orphans, which already
+leave out sources a known body explains.
 """
 
 from __future__ import annotations
@@ -70,6 +81,14 @@ CHANGES_GHOST_G = 11.0
 CHANGES_GAIA_NEIGHBOUR_G = 18.0          # GaiaLookup.around: neighbours this bright (a 2.5 mag brighter one of a G 20.5)
 CHANGES_CHUNK_POINTS = 1_000_000         # star chunks of about this many points (t_rwaur: 1.5 GB peak at 1 M, 2.5 GB at 3 M)
 CHANGES_OTHERS_Z = 2.0                   # other detectors named in the text from this many sigma
+# known bodies on a change (MPC asteroids and comets moved with kete, JPL Horizons planets and moons: the `known` step's
+# per-session files, never another source)
+CHANGES_KNOWN_ARCSEC = 2.0 * 7.53        # a body this close to the star (2 × the PSF's FWHM) during an exposure ...
+CHANGES_KNOWN_EXPOSURE_S = 113.0         # ... at its closest within the exposure (its photo-time place ± half of this,
+                                         # moved at its rate)
+CHANGES_KNOWN_SESSION_PAD_D = 1.0 / 1440  # ... spoils its whole session for that star: the session's photo times ± 1 min
+CHANGES_KNOWN_SHOW = 3                   # sessions named in the check's look line
+PHOTO_COLUMNS = ["obs_id", "detector", "mjd", "session", "visit", "s_region"]
 
 # changes.parquet: one row per listed change
 CHANGE_COLUMNS: dict[str, str] = {
@@ -303,7 +322,7 @@ class GaiaLookup:
 
 # --- who each star is --------------------------------------------------------------------------------------------
 def catwise_position(name: str) -> tuple[float, float]:
-    """RA, Dec (deg) from a CatWISE designation "J081628.26+142456.2" (NaN when it isn't one)."""
+    """RA, Dec (deg) from a CatWISE or AllWISE designation "J081628.26+142456.2" (NaN when it isn't one)."""
     m = re.search(r"J(\d\d)(\d\d)(\d\d(?:\.\d+)?)([+-])(\d\d)(\d\d)(\d\d(?:\.\d+)?)", name)
     if not m:
         return float("nan"), float("nan")
@@ -328,7 +347,7 @@ def display_name(gaia_id: int, ref_id: str, source_id: int) -> str:
     if gaia_id is not None and int(gaia_id) > 0:
         return f"Gaia DR3 {int(gaia_id)}"
     ref = str(ref_id or "")
-    for pre, label in (("gaia:", "Gaia DR3"), ("catwise:", "CatWISE"), ("2mass:", "2MASS"), ("allwise:", "AllWISE")):
+    for pre, label in CH.CATALOGUE_LABELS:
         if ref.startswith(pre):
             return f"{label} {ref[len(pre):]}"
     return f"SPHEREx source {int(source_id)}"
@@ -407,7 +426,9 @@ def star_info(stars: pd.DataFrame, zone: C.Zone, xid: pd.DataFrame | None, src: 
         if sp is not None and len(sp):
             sp = sp.drop_duplicates("source_id").set_index("source_id").reindex(gid[miss])
             ra[miss], dec[miss] = sp["ra"].to_numpy(np.float64), sp["dec"].to_numpy(np.float64)
-    cw_only = (~own) & np.char.startswith(ref.astype(str), "catwise:") & ~np.isfinite(ra)
+    # CatWISE, and the red forced layer's AllWISE rows (ref allwise:<designation>, 16 Nov), from the designation
+    wise = np.char.startswith(ref.astype(str), "catwise:") | np.char.startswith(ref.astype(str), "allwise:")
+    cw_only = (~own) & wise & ~np.isfinite(ra)
     for i in np.flatnonzero(cw_only):
         ra[i], dec[i] = catwise_position(ref[i])
     box = (zone.ra_min, zone.ra_max, zone.dec_min, zone.dec_max)
@@ -620,8 +641,320 @@ def _zp_table(parts: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> dict:
     return CH.zero_point_table(keys, means, np.arange(keys.size) < nref)
 
 
+# --- known bodies on a change ----------------------------------------------------------------------------------------
+class KnownFiles:
+    """The `known` step's per-session files of a store (cache/mpc/<zone>/: MPC asteroids and comets moved with kete
+    from SPHEREx; cache/planets/<zone>/: JPL Horizons planets and moons; known.py). A remote store's files are kept in
+    `cache` after their first read, so a rerun reads nothing; bytes_read counts what came from a remote store."""
+
+    def __init__(self, store: Store, cache: Path | None = None):
+        self.store = store
+        self.cache = None if store.local else cache
+        self.bytes_read = 0
+
+    def listdir(self, rel: str) -> list[str]:
+        return self.store.listdir(rel)
+
+    def read_json(self, rel: str):
+        p = self.cache / rel if self.cache is not None else None
+        if p is not None and p.exists():
+            return json.loads(p.read_bytes())
+        raw = self.store.read_bytes(rel)
+        self.bytes_read += 0 if self.store.local else len(raw)
+        if p is not None:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = p.with_name(f"{p.name}.tmp{id(raw)}")
+            tmp.write_bytes(raw)
+            tmp.replace(p)
+        return json.loads(raw)
+
+
+def body_name(name, number) -> str:
+    """"(948) Jucunda" for a named numbered asteroid; else the cache's own name ("(31351)", "C/2025 R2", "Titan")."""
+    n = str(name)
+    num = pd.to_numeric(pd.Series([number]), errors="coerce").iloc[0]
+    return f"({int(num)}) {n}" if np.isfinite(num) and not n.startswith("(") else n
+
+
+def body_kind(cls, name) -> str:
+    """planet, moon, comet or asteroid (the cache's `class`: MPC orbit classes such as "MBA", "Comet P", or Horizons'
+    planet / moon)."""
+    c = str(cls or "")
+    if c in ("planet", "moon"):
+        return c
+    if c.startswith("Comet") or re.match(r"^(\d+[PDCXI]|[PDCXI])[/-]", str(name)):
+        return "comet"
+    return "asteroid"
+
+
+def known_predictions(files: KnownFiles, zone: str, photos: pd.DataFrame, stars: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """The cached known bodies near the stars (stars: ra, dec) in each photo that holds one, from the zone's MPC (kete)
+    and JPL Horizons session files: name, number, class, v, dra_arcsec_h, ddec_arcsec_h, ra, dec (its place at the
+    photo's time), obs_id, detector, mjd, session. Near: within what passages() can use (CHANGES_KNOWN_ARCSEC plus
+    its motion in half an exposure, a planet its reach) + 1″ of the nearest star. photos: the photo list (whole
+    sessions: a session's file is named by its first photo). Only the sessions that hold a star are read; the report
+    counts them and those without a file."""
+    from scipy.spatial import cKDTree
+    from skyshift_core.planets import RADIUS_ARCSEC
+
+    from .known import OBJ_KEYS, SOURCES, cache_dir, run_rel
+    from .sky import Footprint
+
+    z = C.ZONES[zone]
+    ra, dec = stars["ra"].to_numpy(np.float64), stars["dec"].to_numpy(np.float64)
+    holds = np.array([bool(Footprint.from_s_region(s).contains(ra, dec).any()) for s in photos["s_region"]], bool)
+    tree = cKDTree(CH._unit(ra, dec))
+    half_h = CHANGES_KNOWN_EXPOSURE_S / 2.0 / 3600.0
+    want = photos.loc[holds, ["obs_id", "detector", "mjd", "session"]].astype({"detector": np.int64})
+    sessions = sorted({int(s) for s in want["session"]})
+    rep: dict = {"photos_holding_a_star": int(holds.sum()), "sessions": len(sessions), "files_read": {}, "files_missing": {}}
+    parts = []
+    groups = [(s, g) for s, g in photos[photos["session"].isin(sessions)].groupby("session", sort=True)]
+    for source in SOURCES:
+        have = set(files.listdir(cache_dir(z, source)))
+        n_read = n_miss = 0
+        for s, g in groups:
+            rel = run_rel(z, g, source)
+            if rel.rsplit("/", 1)[1] not in have:
+                n_miss += 1
+                continue
+            d = files.read_json(rel)
+            n_read += 1
+            per = pd.DataFrame(d.get("per_photo") or {}, columns=["obs_id", "detector", "name", "ra", "dec"])
+            if per.empty:
+                continue
+            per["detector"] = per["detector"].astype(np.int64)
+            per = per.merge(want[want["session"] == s].drop(columns="session"), on=["obs_id", "detector"])
+            if per.empty:
+                continue
+            o = pd.DataFrame({k: d["objects"][k] for k in OBJ_KEYS}).drop_duplicates("name").drop(columns=["ra", "dec"])
+            per = per.merge(o, on="name", how="left")
+            pra, pdec = (pd.to_numeric(per[c], errors="coerce").to_numpy(np.float64) for c in ("ra", "dec"))
+            fin = np.isfinite(pra) & np.isfinite(pdec)
+            chord = np.full(len(per), np.inf)
+            if fin.any():
+                chord[fin] = tree.query(CH._unit(pra[fin], pdec[fin]))[0]
+            sep = np.degrees(2.0 * np.arcsin(np.clip(chord / 2.0, 0.0, 1.0))) * 3600.0
+            rate = np.hypot(*(pd.to_numeric(per[c], errors="coerce").fillna(0.0).to_numpy(np.float64)
+                              for c in ("dra_arcsec_h", "ddec_arcsec_h")))
+            planet = per["class"].astype(str).to_numpy() == "planet"
+            reach = np.where(planet, [RADIUS_ARCSEC.get(str(n), CHANGES_KNOWN_ARCSEC) for n in per["name"]],
+                             CHANGES_KNOWN_ARCSEC + rate * half_h)
+            per = per[sep <= reach + 1.0]
+            if len(per):
+                parts.append(per.assign(session=int(s)))
+        rep["files_read"][source], rep["files_missing"][source] = n_read, n_miss
+    cols = ["name", "number", "class", "v", "dra_arcsec_h", "ddec_arcsec_h", "ra", "dec", "obs_id", "detector", "mjd",
+            "session"]
+    if not parts:
+        return pd.DataFrame(columns=cols), {**rep, "predictions": 0}
+    pred = pd.concat(parts, ignore_index=True)[cols]
+    for c in ("ra", "dec", "v", "dra_arcsec_h", "ddec_arcsec_h"):
+        pred[c] = pd.to_numeric(pred[c], errors="coerce")
+    pred[["dra_arcsec_h", "ddec_arcsec_h"]] = pred[["dra_arcsec_h", "ddec_arcsec_h"]].fillna(0.0)
+    rep["predictions"] = len(pred)
+    return pred, rep
+
+
+def passages(stars: pd.DataFrame, pred: pd.DataFrame) -> dict[int, list[dict]]:
+    """Per star (stars: star, ra, dec): every known body that came within reach of it during an exposure: within
+    CHANGES_KNOWN_ARCSEC at its closest in the exposure (its photo-time place ± CHANGES_KNOWN_EXPOSURE_S / 2 along its
+    rate), a planet itself within its moons' and glare's reach (skyshift_core.planets.RADIUS_ARCSEC). One passage per
+    body and session, the closest: name, kind, v, session, mjd (the closest moment), sep_arcsec, radius_arcsec,
+    detector, obs_id; sorted by time."""
+    from skyshift_core.planets import RADIUS_ARCSEC
+
+    out: dict[int, list[dict]] = {}
+    if pred is None or not len(pred) or not len(stars):
+        return out
+    pra, pdec = pred["ra"].to_numpy(np.float64), pred["dec"].to_numpy(np.float64)
+    ve = pred["dra_arcsec_h"].to_numpy(np.float64) / 3600.0      # ″/s, east (dRA·cos dec) and north
+    vn = pred["ddec_arcsec_h"].to_numpy(np.float64) / 3600.0
+    v2 = ve * ve + vn * vn
+    names = pred["name"].astype(str).to_numpy()
+    cls = pred["class"].fillna("").astype(str).to_numpy()
+    radius = np.array([RADIUS_ARCSEC.get(n, CHANGES_KNOWN_ARCSEC) if c == "planet" else CHANGES_KNOWN_ARCSEC
+                       for n, c in zip(names, cls)], np.float64)
+    half = CHANGES_KNOWN_EXPOSURE_S / 2.0
+    for star, sra, sdec in zip(stars["star"].to_numpy(np.int64), stars["ra"].to_numpy(np.float64),
+                               stars["dec"].to_numpy(np.float64)):
+        dx = ((pra - sra + 180.0) % 360.0 - 180.0) * math.cos(math.radians(sdec)) * 3600.0   # body − star, ″
+        dy = (pdec - sdec) * 3600.0
+        with np.errstate(invalid="ignore", divide="ignore"):
+            t = np.clip(np.where(v2 > 0, -(dx * ve + dy * vn) / v2, 0.0), -half, half)
+        sep = np.hypot(dx + ve * t, dy + vn * t)
+        best: dict[tuple, dict] = {}
+        for j in np.flatnonzero(sep <= radius):
+            key = (names[j], int(pred["session"].iat[j]))
+            if key in best and sep[j] >= best[key]["sep_arcsec"]:
+                continue
+            p = pred.iloc[j]
+            v = float(p["v"]) if np.isfinite(p["v"]) else None
+            best[key] = {"name": body_name(p["name"], p["number"]), "kind": body_kind(p["class"], p["name"]),
+                         "v": None if v is None else round(v, 1), "session": int(p["session"]),
+                         "mjd": float(p["mjd"]) + float(t[j]) / 86400.0, "sep_arcsec": float(sep[j]),
+                         "radius_arcsec": float(radius[j]), "detector": int(p["detector"]), "obs_id": str(p["obs_id"])}
+        if best:
+            out[int(star)] = sorted(best.values(), key=lambda d: d["mjd"])
+    return out
+
+
+def session_windows(photos: pd.DataFrame, sessions) -> list[tuple[float, float]]:
+    """The sessions' time spans (their photos' times ± CHANGES_KNOWN_SESSION_PAD_D)."""
+    x = photos[photos["session"].isin(list(sessions))].groupby("session")["mjd"].agg(["min", "max"])
+    return [(float(a) - CHANGES_KNOWN_SESSION_PAD_D, float(b) + CHANGES_KNOWN_SESSION_PAD_D) for a, b in x.to_numpy()]
+
+
+def listing_without(points: pd.DataFrame, star: int, windows: list[tuple[float, float]], table: dict, floors: dict,
+                    zps: list[dict], before: dict, after: dict, visit_a, visit_b: int, det: int) -> dict:
+    """The listing rule again on one star's points without those inside the time windows, with the zone's zero points
+    and floors (as when it was listed): `brightness` (the alert and the one-session test), `colour` (the colour
+    alert), and the change's own detector's `sigma` and `change_frac` and the `colour_sigma` without them. With no
+    window it gives the listed numbers back."""
+    sk = CH.star_keys(points["source_id"].to_numpy(np.int64), points["ref_id"].to_numpy(dtype=object))
+    p = points[sk == int(star)]
+    t = p["mjd"].to_numpy(np.float64)
+    out = np.zeros(t.size, bool)
+    for a, b in windows:
+        out |= (t >= a) & (t <= b)
+    res = {"brightness": False, "colour": False, "sigma": None, "change_frac": None, "colour_sigma": None,
+           "points_left_out": int(out.sum()),
+           "points_left_out_det": int((out & (p["detector"].to_numpy() == int(det))).sum())}
+    p = p[~out]
+    vt = CH.visit_table(p) if len(p) else None
+    if vt is None or not len(vt):
+        return res
+    pr = CH.pairs(CH.apply_zero_points(vt, table), before, after)
+    if not len(pr):
+        return res
+    best = CH.best_per_detector(CH.apply_floor(pr, floors))
+    d = best[best["detector"].to_numpy() == int(det)]
+    if len(d):
+        res["sigma"], res["change_frac"] = _f(float(d["z"].iloc[0]), 2), _f(float(d["frac"].iloc[0]), 4)
+    sb, sc = CH.star_brightness(best), CH.star_colour(best)
+    if len(sb) and bool(sb["alert"].iloc[0]):
+        al = sb.iloc[[0]].reset_index(drop=True)
+        al["visit_a"] = [visit_a]
+        al["visit_b"] = int(visit_b)
+        res["brightness"] = bool(CH.survives_session_drop(p, al, floors, zps)[0])
+    if len(sc):
+        res["colour"] = bool(sc["colour_alert"].iloc[0])
+        res["colour_sigma"] = _f(float(sc["colour_z"].iloc[0]), 2)
+    return res
+
+
+def _sep_words(sep: float) -> str:
+    return f"{sep:.0f}″" if sep < 120.0 else f"{sep / 60.0:.0f}′"
+
+
+def known_body_check(det: int, was: float, passes: list[dict], res: dict, colour: bool) -> tuple[bool, dict]:
+    """(stays, the check `known_body_passed`) for one listed change (its detector, its sigma as listed: the brightness
+    change's, or the colour change's) whose star known bodies passed (`passages`); res: listing_without without their
+    sessions."""
+    stays = bool(res["colour"] if colour else res["brightness"])
+    p = min(passes, key=lambda d: d["sep_arcsec"])
+    sessions = sorted({d["session"] for d in passes})
+    ns = len(sessions)
+    k = len(passes) - 1
+    vtxt = f" (V {p['v']:.1f})" if p["v"] is not None else ""
+    more = f", and {k} more time{'s' if k > 1 else ''}" if k else ""
+    reach = "" if p["radius_arcsec"] <= CHANGES_KNOWN_ARCSEC else f" (its moons and glare reach {_sep_words(p['radius_arcsec'])})"
+    head = (f"A known {p['kind']}, {p['name']}{vtxt}, passed {_sep_words(p['sep_arcsec'])} from the star on "
+            f"{CH.mjd_utc(p['mjd'])}{reach}{more}.")
+    who = "it" if len({d["name"] for d in passes}) == 1 else "they"
+    sess = f"the session {who} passed in" if ns == 1 else f"the {ns} sessions {who} passed in"
+    if colour:
+        now, what = res["colour_sigma"], "the colour change"
+    else:
+        now, what = res["sigma"], f"the D{int(det)} change"
+    if now is None:
+        tail = f"Without {sess}, {what} can no longer be measured."
+    elif not colour and res["points_left_out_det"] == 0 and stays:
+        tail = f"{sess[0].upper()}{sess[1:]} held none of its D{int(det)} measurements, so {what} stays as it is."
+    else:
+        tail = f"Without {sess}, {what} {'stays' if stays else 'goes'}: {now:+.1f}σ (was {float(was):+.1f}σ)."
+    firsts = []
+    for s in sessions:
+        q = min((d for d in passes if d["session"] == s), key=lambda d: d["sep_arcsec"])
+        firsts.append(q)
+    shown = sorted(firsts, key=lambda d: d["sep_arcsec"])[:CHANGES_KNOWN_SHOW]
+    rest = ns - len(shown)
+    when = " and ".join(CH.mjd_utc(d["mjd"]) for d in sorted(shown, key=lambda d: d["mjd"]))
+    look = (f"Viewer, hours clock, D{p['detector']}: blink the session{'s' if len(shown) > 1 else ''} of {when}"
+            + (f" (and {rest} more)" if rest else "") + "; see whether a moving dot crosses the star.")
+    values = {"name": p["name"], "body": p["kind"], "v": p["v"], "sep_arcsec": round(p["sep_arcsec"], 1),
+              "mjd": round(p["mjd"], 5), "utc": CH.mjd_utc(p["mjd"]), "det": p["detector"], "obs_id": p["obs_id"],
+              "radius_arcsec": round(p["radius_arcsec"], 1), "passages": len(passes), "sessions_left_out": ns,
+              "points_left_out": res["points_left_out"], "points_left_out_det": res["points_left_out_det"],
+              "sigma": _f(was, 2),
+              "sigma_without": now, "stays": stays,
+              "times": [{"name": d["name"], "body": d["kind"], "mjd": round(d["mjd"], 5), "utc": CH.mjd_utc(d["mjd"]),
+                         "sep_arcsec": round(d["sep_arcsec"], 1), "det": d["detector"]} for d in passes[:20]]}
+    return stays, {"code": "known_body_passed", "level": "warn", "text": f"{head} {tail}", "look": look, "values": values}
+
+
+def known_body_changes(zone: str, cand: pd.DataFrame, is_b: np.ndarray, is_c: np.ndarray, sc_alert: pd.DataFrame,
+                       pts: Points, photos: pd.DataFrame | None, known: KnownFiles | None, visits: list[int],
+                       table: dict, floors: dict, zps: list[dict], before: dict, after: dict) -> tuple[dict[int, dict], dict]:
+    """The known-body check on the listed brightness and colour changes (is_b, is_c: changed in place). For each, the
+    known asteroids, comets, planets and moons that passed its star in a photo of the compared visits (passages); the
+    listing rule again without those sessions (listing_without): a change that goes is not listed (the report's
+    `dropped`, with what passed), one that stays gets the check `known_body_passed` (warn). Returns the checks by
+    star and the report."""
+    rep: dict = {"checked": False, "radius_arcsec": round(CHANGES_KNOWN_ARCSEC, 2), "warned": 0, "dropped": 0}
+    idx = np.flatnonzero(is_b | is_c)
+    if known is None:
+        return {}, {**rep, "why": "not asked (--no-known)"}
+    if photos is None or not {"obs_id", "detector", "mjd", "session", "visit", "s_region"} <= set(photos.columns):
+        return {}, {**rep, "why": "no photo list with sessions and footprints"}
+    if not idx.size:
+        return {}, {**rep, "checked": True, "why": "nothing listed"}
+    look = cand.iloc[idx]
+    look = look[np.isfinite(look["ra"].to_numpy(np.float64)) & np.isfinite(look["dec"].to_numpy(np.float64))]
+    stars = look[["star", "ra", "dec"]].reset_index(drop=True)
+    try:
+        pred, prep = known_predictions(known, zone, photos[photos["visit"].isin(visits)], stars)
+    except Exception as e:  # noqa: BLE001  unreadable files: the report says so, the changes stay as measured
+        return {}, {**rep, "why": f"{type(e).__name__}: {str(e)[:200]}"}
+    rep.update({"checked": True, **prep})
+    if prep["sessions"] and not sum(prep["files_read"].values()):
+        return {}, {**rep, "checked": False, "why": "no session files of the `known` step for these sessions"}
+    pas = passages(stars, pred)
+    rep["stars_with_passage"] = len(pas)
+    extra: dict[int, dict] = {}
+    dropped: list[dict] = []
+    hit = [i for i in idx if int(cand["star"].iat[i]) in pas]
+    if hit:
+        h = cand.iloc[hit]
+        kp = pts.of(set(h.loc[h["source_id"] >= 0, "source_id"].astype(np.int64)),
+                    set(h.loc[h["source_id"] < 0, "ref_id"].astype(str)))
+        for i in hit:
+            r = cand.iloc[i]
+            star, colour = int(r["star"]), not bool(is_b[i])
+            ps = pas[star]
+            res = listing_without(kp, star, session_windows(photos, {d["session"] for d in ps}), table, floors, zps,
+                                  before, after, r["visit_a"], int(r["visit_b"]), int(r["detector"]))
+            was = float(sc_alert.loc[star, "colour_z"]) if colour else float(r["z"])
+            stays, chk = known_body_check(int(r["detector"]), was, ps, res, colour)
+            if stays:
+                extra[star] = chk
+                continue
+            is_b[i] = is_c[i] = False
+            v = chk["values"]
+            dropped.append({"id": f"{zone}-ch-{r['slug']}", "star": str(r["name"]), "change": "colour" if colour else "brightness",
+                            "body": v["name"], "body_kind": v["body"], "utc": v["utc"], "sep_arcsec": v["sep_arcsec"],
+                            "sessions_left_out": v["sessions_left_out"], "sigma": v["sigma"],
+                            "sigma_without": v["sigma_without"], "text": chk["text"]})
+    rep.update({"warned": len(extra), "dropped": len(dropped), "dropped_changes": dropped,
+                "bytes_read": int(known.bytes_read)})
+    L.info("changes %s: known bodies passed %d listed stars: %d warned, %d not listed", zone, len(hit), len(extra),
+           len(dropped))
+    return extra, rep
+
+
 def brightness_changes(zone: str, pts: Points, xid, src, frag, refcat, gaia: GaiaLookup, sky_positions=None,
-                       with_null: bool = True, chunk_points: int = CHANGES_CHUNK_POINTS, workdir: Path | None = None) -> tuple[list[dict], dict]:
+                       with_null: bool = True, chunk_points: int = CHANGES_CHUNK_POINTS, workdir: Path | None = None,
+                       photos: pd.DataFrame | None = None, known: KnownFiles | None = None) -> tuple[list[dict], dict]:
     """Rows of kind brightness and colour for one zone's light-curve points, and the report. The points are split by
     star into chunks of ~chunk_points (star_chunks); zero points and floors come from every chunk (exact: the same
     numbers as one chunk), each chunk is measured alone, so memory follows chunk_points, not the zone."""
@@ -632,12 +965,14 @@ def brightness_changes(zone: str, pts: Points, xid, src, frag, refcat, gaia: Gai
         Path(workdir).mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="skyshift-changes-chunks-", dir=workdir))
     try:
-        return _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, with_null, chunk_points, tmp)
+        return _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, with_null, chunk_points, tmp,
+                                   photos, known)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, with_null, chunk_points, tmp):
+def _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, with_null, chunk_points, tmp,
+                        photos=None, known=None):
     z = C.ZONES[zone]
     t0 = time.time()
     chunks = star_chunks(pts.path, chunk_points, tmp)
@@ -738,6 +1073,9 @@ def _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, 
         np.nan_to_num(cand["nb_dmag"].to_numpy(np.float64), nan=99.0) <= CH.CHANGES_NEIGHBOUR_DMAG)
     is_b = cand["alert"].to_numpy(bool) & cand["survives_session_drop"].to_numpy(bool) & listable
     is_c = cand["star"].isin(sc_alert.index).to_numpy() & listable & ~is_b
+    # known bodies: a change that goes without the sessions a known body passed in is not listed; one that stays is warned
+    extra, rep["known_bodies"] = known_body_changes(zone, cand, is_b, is_c, sc_alert, pts, photos, known, visits, table,
+                                                    floors, zps, before, after)
     pops = cand["population"].value_counts().to_dict()
     rep.update({
         "alerts_by_population": {str(k): int(v) for k, v in cand[cand["alert"]]["population"].value_counts().items()},
@@ -773,6 +1111,8 @@ def _brightness_changes(zone, pts, xid, src, frag, refcat, gaia, sky_positions, 
             kind = "colour"
             text, look, values = CH.colour_text(col, r["name"], rr["visit_a"], last)
             checks = CH._sorted_checks(CH.common_checks(rr, det))
+        if star in extra:
+            checks = CH._sorted_checks(checks + [extra[star]])
         values = {**values, "other_detectors": [{"det": d, "change_frac": round(f, 4), "sigma": round(zz, 2)} for d, f, zz in oth]}
         rows.append({
             "id": f"{zone}-ch-{r['slug']}", "zone": zone, "kind": kind, "star": star,
@@ -916,14 +1256,17 @@ def new_source_changes(zone: str, orph: pd.DataFrame | None, src: pd.DataFrame |
 
 # --- the step --------------------------------------------------------------------------------------------------------
 def run(store: Store, zone: str, *, cache: Path | None = None, out: Store | None = None, gaia: GaiaLookup | None = None,
-        with_null: bool = True, keep_points: bool = True, chunk_points: int = CHANGES_CHUNK_POINTS) -> dict:
+        with_null: bool = True, keep_points: bool = True, chunk_points: int = CHANGES_CHUNK_POINTS,
+        known_store: Store | None = None, check_known: bool = True) -> dict:
     """results/<zone>/changes.parquet (CHANGE_COLUMNS) and changes_report.json, written to `out` (default the store).
     A zone without lightcurves.parquet gets appeared / vanished only (the report says so). keep_points False: the
-    light-curve copy is deleted after the zone (the small reads and Gaia's answers stay in `cache`)."""
+    light-curve copy is deleted after the zone (the small reads and Gaia's answers stay in `cache`). known_store: where
+    the `known` step's session files are (cache/mpc/<zone>/, cache/planets/<zone>/; default the store); check_known
+    False skips the known-body check."""
     t0 = time.time()
     rd = Reader(store, cache, keep_points)
     gaia = gaia or GaiaLookup(cache / "gaia" if cache else None)
-    rep: dict = {"zone": zone, "made": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    rep: dict = {"zone": zone, "made": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "dropped_known_body": 0,
                  "thresholds": {k: v for k, v in vars(CH).items() if k.startswith("CHANGES_")} |
                  {k: v for k, v in globals().items() if k.startswith("CHANGES_")}}
     xid = rd(results_rel(zone, "crossids.parquet"), XID_COLUMNS)
@@ -933,13 +1276,16 @@ def run(store: Store, zone: str, *, cache: Path | None = None, out: Store | None
     rows: list[dict] = []
     last = None
     lp = rd.local(results_rel(zone, "lightcurves.parquet"), POINT_COLUMNS)
+    known = KnownFiles(known_store or store, cache / "known" if cache else None) if check_known else None
     if lp is None:
         rep["brightness"] = {"skipped": "no lightcurves.parquet"}
     else:
+        photos = rd(photolist_rel(zone), PHOTO_COLUMNS) if check_known else None
         b, brep = brightness_changes(zone, Points(lp), xid, src, frag, refcat, gaia, sky_forced_positions(rd), with_null,
-                                     chunk_points=chunk_points, workdir=cache)
+                                     chunk_points=chunk_points, workdir=cache, photos=photos, known=known)
         rows += b
         rep["brightness"] = brep
+        rep["dropped_known_body"] = int((brep.get("known_bodies") or {}).get("dropped", 0))
         last = (brep.get("visits") or [None])[-1]
     rd.cleanup()
     if last is None:
@@ -993,6 +1339,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--chunk-points", type=int, default=CHANGES_CHUNK_POINTS,
                     help="light-curve points per star chunk (memory follows this, not the zone; default %(default)s)")
     ap.add_argument("--no-null", action="store_true", help="skip the halves null (the report's false-alarm rate)")
+    ap.add_argument("--known-root", help="where the `known` step's cache/mpc/<zone>/ and cache/planets/<zone>/ are "
+                    "(default --root; a local mirror reads nothing from the bucket)")
+    ap.add_argument("--no-known", action="store_true", help="skip the known-body check (asteroids, comets, planets, moons)")
     a = ap.parse_args(argv)
     log.setup()
     store = Store(a.root)
@@ -1006,7 +1355,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             run(store, z, cache=cache, out=out, gaia=GaiaLookup(cache / "gaia" if cache else None, enabled=not a.no_gaia),
-                with_null=not a.no_null, keep_points=not a.drop_points, chunk_points=a.chunk_points)
+                with_null=not a.no_null, keep_points=not a.drop_points, chunk_points=a.chunk_points,
+                known_store=Store(a.known_root) if a.known_root else None, check_known=not a.no_known)
         except Exception:  # noqa: BLE001  one zone's failure doesn't stop the others
             L.exception("changes %s failed", z)
             bad += 1

@@ -659,17 +659,27 @@ def mjd_date(mjd: float) -> str:
     return Time(mjd, format="mjd").to_value("iso", subfmt="date")
 
 
+def mjd_utc(mjd: float) -> str:
+    """"2025-10-21 14:32 UTC" (MJD is UTC here: MJD-AVG)."""
+    if mjd is None or not np.isfinite(mjd):
+        return "?"
+    t = pd.Timestamp("1858-11-17") + pd.Timedelta(days=float(mjd))
+    return t.round("min").strftime("%Y-%m-%d %H:%M") + " UTC"
+
+
+CATALOGUE_LABELS = (("gaia:", "Gaia DR3"), ("catwise:", "CatWISE"), ("2mass:", "2MASS"), ("allwise:", "AllWISE"))
+
+
 def name_of(row) -> str:
+    """"Gaia DR3 N", "CatWISE J…", "2MASS J…", "AllWISE J…" (the red forced layer's ref `allwise:<designation>`), else
+    "source N"."""
     ref = str(getattr(row, "ref_id", "") or "")
     gid = getattr(row, "gaia_id", None)
     if gid is not None and np.isfinite(gid) and int(gid) > 0:
         return f"Gaia DR3 {int(gid)}"
-    if ref.startswith("gaia:"):
-        return f"Gaia DR3 {ref.split(':', 1)[1]}"
-    if ref.startswith("catwise:"):
-        return f"CatWISE {ref.split(':', 1)[1]}"
-    if ref.startswith("2mass:"):
-        return f"2MASS {ref.split(':', 1)[1]}"
+    for pre, label in CATALOGUE_LABELS:
+        if ref.startswith(pre):
+            return f"{label} {ref[len(pre):]}"
     return f"source {int(row.source_id)}"
 
 

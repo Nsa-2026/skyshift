@@ -264,6 +264,13 @@ is a watch list kept in the browser plus a public Atom feed (A + B above: no acc
   182,580 stars watched; false alarms from the halves null 0.12–0.33 per 1,000 stars. Brightness: the prototype listed
   72 (pilot 18, t_rwaur 37, t_rdra 17), the step 66 (18, 35, 13): bright neighbours are now also checked outside
   refcat's box, through Gaia (t_rdra: 6 alerts dropped for a neighbour, 4 for one session).
+- Known bodies (16 Nov, branch p1/changes-known-bodies): every listed brightness or colour change is checked against
+  the `known` step's session files (MPC asteroids and comets with kete, JPL Horizons planets and moons). A body within
+  15″ (2 × FWHM) of the star during an exposure of the compared visits: the listing rule runs again without those
+  sessions; a change that goes is not listed (changes_report.json `dropped_known_body`), one that stays gets the check
+  `known_body_passed` (warn: body, UTC time, separation, sessions to blink on the hours clock). Sample: 1 of 68 warned
+  ((17051) Oflynn, V 19.1, 9″ from Gaia DR3 156329976283479040 on 2026-03-06, in a session without D3 points), 0
+  dropped; t_rdra and t_rwaur have no Horizons files (their `known` ran before 15 Nov), and no planet came within 14°.
 
 ## What goes into the combined rerun
 

@@ -215,3 +215,169 @@ def test_star_chunks_give_the_same_changes(tmp_path):
     pd.testing.assert_frame_equal(dfs[0], dfs[1])
     drop = {"chunks", "chunk_points"}
     assert {k: v for k, v in reps[0].items() if k not in drop} == {k: v for k, v in reps[1].items() if k not in drop}
+
+
+# --- known bodies on a change (asteroids, comets, planets, moons from the `known` step's session files) ---------------
+PARTIAL = 10                            # source 10 fades to 0.7 in D2 and D3 in sessions 0–2 of visit 2 only
+ALLWISE = "allwise:J080000.00+150000.0"  # a red-layer forced row outside the box (RA 120.0°, Dec +15.0°)
+
+
+def _mjd(v, k, j):
+    return 61000.0 + 180.0 * (v - 1) + 1.0 * k + j * 2.1 / 1440.0
+
+
+def _square(ra0, dec0, half):
+    v = [(ra0 - half, dec0 - half), (ra0 + half, dec0 - half), (ra0 + half, dec0 + half), (ra0 - half, dec0 + half)]
+    return "POLYGON ICRS " + " ".join(f"{a} {b}" for a, b in v)
+
+
+def _zone_known(root, bodies=True) -> Store:
+    """_zone plus a partial change (source 10), an AllWISE forced star, the photo list (2 visits × 4 sessions × 3
+    exposures × 6 detectors, footprints over the box) and the `known` step's session files: an asteroid 6″ from source
+    8 in one session of visit 2 (its change stays), a comet 5″ from source 10 in the three sessions that carry its
+    change (it goes), a second asteroid 25″ from source 8 (too far)."""
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline.known import run_rel
+
+    st = _zone(root)
+    pts = st.read_parquet("results/pilot/lightcurves.parquet")
+    k_of = np.round(pts["mjd"].to_numpy() - 61000.0 - 180.0 * (pts["visit"].to_numpy() - 1)).astype(int)
+    m = ((pts["source_id"].to_numpy() == PARTIAL) & (pts["visit"].to_numpy() == 2) & (k_of <= 2)
+         & pts["detector"].isin([2, 3]).to_numpy())
+    pts.loc[m, "rel_flux"] *= 0.7
+    rows = []
+    _lc(rows, -1, ALLWISE, "forced", {1: 1.5, 2: 1.5})
+    pts = pd.concat([pts, pd.DataFrame(rows, columns=ST.POINT_COLUMNS)], ignore_index=True)
+    st.write_parquet("results/pilot/lightcurves.parquet", pts)
+    ph = pd.DataFrame([(f"V{v}K{k}E{j}", d, _mjd(v, k, j), (v - 1) * 4 + k, v, _square(122.3, 16.15, 2.5))
+                       for v in (1, 2) for k in range(4) for j in range(3) for d in range(1, 7)],
+                      columns=ST.PHOTO_COLUMNS)
+    st.write_parquet("photolists/zones/pilot.parquet", ph)
+    if not bodies:
+        return st
+    xid = st.read_parquet("results/pilot/crossids.parquet").set_index("source_id")
+    z = C.ZONES["pilot"]
+    near = {(2, 1): [("Ceres", 1, "MBA", 7.0, PARTIAL - 2, 6.0)], (2, 2): [("Pallas", 2, "MBA", 8.0, PARTIAL - 2, 25.0)]}
+    for k in range(3):
+        near.setdefault((2, k), []).append(("C/2025 X1", None, "Comet C", None, PARTIAL, 5.0))
+    for (v, s), g in ph.groupby(["visit", "session"], sort=True):
+        objs = {c: [] for c in ("name", "number", "ra", "dec", "v", "dra_arcsec_h", "ddec_arcsec_h", "class")}
+        per = {c: [] for c in ("obs_id", "detector", "name", "ra", "dec")}
+        for name, num, cls, vmag, sid, east in near.get((v, s - 4 * (v - 1)), []):
+            ra = xid.at[sid, "ra"] + east / 3600.0 / np.cos(np.radians(xid.at[sid, "dec"]))
+            for c, x in zip(objs, (name, num, ra, xid.at[sid, "dec"], vmag, 0.0, 0.0, cls)):
+                objs[c].append(x)
+            for r in g[g["detector"] == 2].itertuples():
+                for c, x in zip(per, (r.obs_id, 2, name, ra, xid.at[sid, "dec"])):
+                    per[c].append(x)
+        st.write_json(run_rel(z, g, "mpc"), {"zone": "pilot", "session": int(s), "objects": objs, "per_photo": per})
+    return st
+
+
+def test_known_body_passed_warns_or_drops_the_change(tmp_path):
+    plain = _zone_known(tmp_path / "plain", bodies=False)
+    ST.run(plain, "pilot", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False)
+    before = set(plain.read_parquet("results/pilot/changes.parquet")["id"])
+    assert {f"pilot-ch-gaia{VAR_ID}", f"pilot-ch-gaia{1_000_000 + PARTIAL}"} <= before
+
+    st = _zone_known(tmp_path / "known")
+    rep = ST.run(st, "pilot", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False)
+    by = st.read_parquet("results/pilot/changes.parquet").set_index("id")
+    assert set(by.index) == before - {f"pilot-ch-gaia{1_000_000 + PARTIAL}"}       # the comet carried source 10's change
+    kb = rep["brightness"]["known_bodies"]
+    assert rep["dropped_known_body"] == 1 and kb["dropped"] == 1 and kb["warned"] == 1 and kb["checked"]
+    d = kb["dropped_changes"][0]
+    assert d["id"] == f"pilot-ch-gaia{1_000_000 + PARTIAL}" and d["body"] == "C/2025 X1" and d["body_kind"] == "comet"
+    assert d["sessions_left_out"] == 3 and d["sep_arcsec"] == pytest.approx(5.0, abs=0.1)
+    assert kb["files_read"]["mpc"] == 8 and kb["files_missing"]["planets"] == 8
+    c = next(x for x in json.loads(by.loc[f"pilot-ch-gaia{VAR_ID}", "checks"]) if x["code"] == "known_body_passed")
+    assert c["level"] == "warn" and c["values"]["stays"] and c["values"]["sessions_left_out"] == 1
+    assert c["text"].startswith("A known asteroid, (1) Ceres (V 7.0), passed 6″ from the star on 2026-05-21 00:00 UTC")
+    assert "Without the session it passed in, the D" in c["text"] and "change stays" in c["text"]
+    assert c["look"] == ("Viewer, hours clock, D2: blink the session of 2026-05-21 00:00 UTC; see whether a moving dot "
+                         "crosses the star.")
+    assert c["values"]["passages"] == 1 and c["values"]["utc"] == "2026-05-21 00:00 UTC"     # Pallas at 25″ is no passage
+    others = [x for i, r in by.iterrows() if i != f"pilot-ch-gaia{VAR_ID}" for x in json.loads(r["checks"])]
+    assert not any(x["code"] == "known_body_passed" for x in others)
+
+
+def test_known_check_off_or_without_files_changes_nothing(tmp_path):
+    st = _zone_known(tmp_path, bodies=False)
+    for kw in ({}, {"check_known": False}):
+        rep = ST.run(st, "pilot", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False, **kw)
+        kb = rep["brightness"]["known_bodies"]
+        assert rep["dropped_known_body"] == 0 and kb["warned"] == 0 and not kb["checked"]
+        if kw:
+            assert kb["why"].startswith("not asked")
+        else:                               # no session files: said so, not "checked"
+            assert kb["files_missing"] == {"mpc": 8, "planets": 8} and "no session files" in kb["why"]
+
+
+def test_known_files_from_a_remote_root_are_read_once(tmp_path):
+    st = _zone_known(tmp_path / "root")
+    st.local = False                    # as the bucket: the session files are kept in the cache
+    reps = [ST.run(st, "pilot", cache=tmp_path / "cache", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False)
+            for _ in range(2)]
+    kbs = [r["brightness"]["known_bodies"] for r in reps]
+    assert kbs[0]["bytes_read"] > 0 and kbs[1]["bytes_read"] == 0
+    assert kbs[0]["dropped_changes"] == kbs[1]["dropped_changes"] and reps[1]["dropped_known_body"] == 1
+    assert len(list((tmp_path / "cache" / "known" / "cache" / "mpc" / "pilot").glob("run_*.json"))) == 8
+
+
+def test_no_session_left_out_keeps_every_change(tmp_path, monkeypatch):
+    """listing_without with nothing left out gives the listed changes back: a passage in a session that doesn't exist
+    warns on every listed star and drops none."""
+    st = _zone_known(tmp_path)
+    fake = {"name": "(9) Metis", "kind": "asteroid", "v": 9.0, "session": -1, "mjd": 61180.0, "sep_arcsec": 3.0,
+            "radius_arcsec": ST.CHANGES_KNOWN_ARCSEC, "detector": 2, "obs_id": "X"}
+    monkeypatch.setattr(ST, "passages", lambda stars, pred: {int(s): [fake] for s in stars["star"]})
+    rep = ST.run(st, "pilot", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False)
+    kb = rep["brightness"]["known_bodies"]
+    listed = rep["brightness"]["listed_brightness"] + rep["brightness"]["listed_colour"]
+    assert kb["dropped"] == 0 and kb["warned"] == listed >= 3
+    df = st.read_parquet("results/pilot/changes.parquet")
+    for r in df[df["kind"] == "brightness"].itertuples():
+        c = next(x for x in json.loads(r.checks) if x["code"] == "known_body_passed")
+        assert c["values"]["points_left_out"] == 0 and c["values"]["sigma_without"] == pytest.approx(r.sigma, abs=0.01)
+
+
+def test_passages_closest_in_the_exposure_and_planet_reach():
+    stars = pd.DataFrame({"star": [1], "ra": [100.0], "dec": [0.0]})
+    pred = pd.DataFrame({
+        "name": ["Fast", "Slow", "Jupiter", "Io"], "number": [123, None, None, None],
+        "class": ["NEO", "MBA", "planet", "moon"], "v": [16.0, 20.0, None, 5.0],
+        # Fast: 30″ west at mid-exposure, 2,000″/h east: it crosses the star within the exposure (±56.5 s: ±31″)
+        "dra_arcsec_h": [2000.0, 0.0, 10.0, 30.0], "ddec_arcsec_h": [0.0, 0.0, 0.0, 0.0],
+        "ra": [100.0 - 30 / 3600, 100.0 + 20 / 3600, 100.0 + 0.5, 100.0 + 0.5], "dec": [0.0, 0.0, 0.0, 0.0],
+        "obs_id": "O", "detector": [1, 1, 2, 2], "mjd": 61000.0, "session": [4, 4, 4, 4]})
+    got = {p["name"]: p for p in ST.passages(stars, pred)[1]}
+    assert set(got) == {"(123) Fast", "Jupiter"}          # Slow at 20″ and Io at 30′ are too far; Jupiter's reach is 80′
+    f = got["(123) Fast"]
+    assert f["sep_arcsec"] < 0.5 and f["kind"] == "asteroid"
+    assert f["mjd"] == pytest.approx(61000.0 + 54.0 / 86400, abs=1e-5)
+    assert got["Jupiter"]["kind"] == "planet" and got["Jupiter"]["radius_arcsec"] == 80 * 60.0
+
+
+def test_names_of_bodies_and_catalogue_rows():
+    from skyshift_pipeline import changes as CH
+
+    assert ST.body_name("Jucunda", 948) == "(948) Jucunda" and ST.body_name("(31351)", 31351) == "(31351)"
+    assert ST.body_name("C/2025 R2", None) == "C/2025 R2"
+    assert ST.body_kind("Comet P", "509P/Catalina") == "comet" and ST.body_kind("moon", "Titan") == "moon"
+    assert ST.body_kind("MBA", "Jucunda") == "asteroid" and ST.body_kind(None, "306P/LINEAR") == "comet"
+    row = pd.Series({"ref_id": ALLWISE, "gaia_id": -1, "source_id": -1})
+    assert CH.name_of(row) == "AllWISE J080000.00+150000.0"
+    assert CH.name_of(pd.Series({"ref_id": "", "gaia_id": -1, "source_id": 7})) == "source 7"
+    assert ST.display_name(-1, ALLWISE, -1) == "AllWISE J080000.00+150000.0"
+    assert ST.ref_slug(-1, ALLWISE, -1) == "allwiseJ080000.00+150000.0"
+    assert CH.mjd_utc(61105.22981) == "2026-03-06 05:31 UTC" and CH.mjd_utc(float("nan")) == "?"
+
+
+def test_allwise_forced_row_is_listed_by_its_designation(tmp_path):
+    st = _zone_known(tmp_path, bodies=False)
+    ST.run(st, "pilot", gaia=ST.GaiaLookup(None, tap=FakeGaia()), with_null=False)
+    by = st.read_parquet("results/pilot/changes.parquet").set_index("id")
+    a = by.loc["pilot-ch-allwiseJ080000.00+150000.0"]
+    assert a["name"] == "AllWISE J080000.00+150000.0" and a["population"] == "forced_outside"
+    assert a["ra"] == pytest.approx(120.0) and a["dec"] == pytest.approx(15.0) and a["ref_id"] == ALLWISE
+    assert a["text"].startswith("AllWISE J080000.00+150000.0 went from")
