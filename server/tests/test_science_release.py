@@ -50,6 +50,14 @@ def test_published_signals_are_checked_before_they_are_published():
                 levels = [c['level'] for c in candidate['checks']]
                 assert levels and levels == sorted(levels, key=['strong', 'warn', 'ok'].index)
                 assert all(c['text'] and isinstance(c['look'], str) for c in candidate['checks'])
+                for c in candidate['checks']:   # contracts v3.25 values keys: one meaning each
+                    values = c['values'] or {}
+                    if c['code'] in ('known_body', 'known_star'):
+                        assert values['sep_arcsec'] <= values['max_sep_arcsec'], path
+                    if c['code'] == 'known_star':
+                        assert {'star_rate_arcsec_yr', 'star_pa_deg', 'rate_arcsec_yr', 'pa_deg'} <= set(values), path
+                    if c['code'] in ('known_body', 'known_nearby'):
+                        assert ('body_rate_arcsec_h' in values) == ('body_pa_deg' in values), path
 
 
 def test_published_layers_keep_their_grid_and_do_not_invent_coverage():

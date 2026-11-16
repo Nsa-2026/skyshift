@@ -160,6 +160,17 @@ function motionVs(theirs: Motion, ours: Motion | null) {
   const [t, o] = rates(theirs.arcsec_h, ours.arcsec_h);
   return `moving ${t} toward ${pa(theirs)} (ours ${o} toward ${pa(ours)})`;
 }
+/** Check `values` keys, one meaning each (contract v3.25): `sep_arcsec` the nearest, `max_sep_arcsec` the farthest;
+ *  `rate_arcsec_h` (a slow mover's `rate_arcsec_yr`) and `pa_deg` ours; `body_rate_arcsec_h`, `body_pa_deg` a known
+ *  body's; `star_rate_arcsec_yr`, `star_pa_deg` a catalogued star's. Files written before it (#375) put the body's or
+ *  the star's motion in `rate_*`/`pa_deg` and the farthest in `sep_arcsec`; nothing here reads those numbers back. */
+function oursValues(kind: SignalKind, m: Motion | null): Record<string, number> {
+  if (!m) return {};
+  return kind === 'slow' ? {rate_arcsec_yr:+(m.arcsec_h * HOURS_PER_YEAR).toFixed(3), pa_deg:Math.round(m.pa_deg)}
+    : {rate_arcsec_h:+m.arcsec_h.toFixed(3), pa_deg:Math.round(m.pa_deg)};
+}
+const bodyValues = (m: Motion | null): Record<string, number> =>
+  m ? {body_rate_arcsec_h:+m.arcsec_h.toFixed(3), body_pa_deg:Math.round(m.pa_deg)} : {};
 function seenWhen(t: Track, k: number) {
   const n = t.sightings.length;
   return n === 1 ? '' : k === n ? ` at all ${n} sightings` : ` at ${k} of its ${n} sightings`;
@@ -243,7 +254,7 @@ export function vetSignal(kind: SignalKind, t: Track | null, cats: Catalogues, d
       checks.push({code:'known_body', level:'strong',
         text:`MPC orbits put ${sure.name}${sure.v !== null ? ` (V ${sure.v.toFixed(1)})` : ''} within ${arcsec(worst)} of it${seenWhen(t, n)}${sure.motion ? `, ${motionVs(sure.motion, t.motion)}` : ''}`,
         look:lookFor(kind, det, 'body', first, sure.name),
-        values:{sep_arcsec:+worst.toFixed(2), sightings:n, ...(sure.motion ? {rate_arcsec_h:+sure.motion.arcsec_h.toFixed(3), pa_deg:Math.round(sure.motion.pa_deg)} : {})}});
+        values:{sep_arcsec:+sure.nearest.toFixed(2), max_sep_arcsec:+worst.toFixed(2), sightings:n, ...bodyValues(sure.motion), ...oursValues(kind, t.motion)}});
     }
     // Once certain, other bodies passing by add nothing to check.
     for (const h of sure ? [] : hits.slice(0, 2)) {
@@ -252,7 +263,7 @@ export function vetSignal(kind: SignalKind, t: Track | null, cats: Catalogues, d
       checks.push({code:'known_nearby', level:'warn',
         text:`MPC orbits put ${h.name}${h.v !== null ? ` (V ${h.v.toFixed(1)})` : ''} ${arcsec(h.nearest)} from it on ${dateLabel(h.nearestAt)}${within(t, h.k, BODY_NEAR)}${why}`,
         look:lookFor(kind, det, 'body', h.nearestAt, h.name),
-        values:{sep_arcsec:+h.nearest.toFixed(2), sightings:h.k, ...(h.motion ? {rate_arcsec_h:+h.motion.arcsec_h.toFixed(3), pa_deg:Math.round(h.motion.pa_deg)} : {})}});
+        values:{sep_arcsec:+h.nearest.toFixed(2), sightings:h.k, ...bodyValues(h.motion), ...oursValues(kind, t.motion)}});
     }
     if (missed) checks.push({code:'catalogue_unchecked', level:'warn', text:`MPC orbits were not checked at ${n === 1 ? 'its sighting' : `${missed} of its ${n} sightings`}: the known-object index doesn't reach ${n === 1 ? 'that time' : 'those times'}`, look:'', values:{sightings:missed}});
     if (!hits.length && !missed) clean.push('mpc');
@@ -292,7 +303,8 @@ export function vetSignal(kind: SignalKind, t: Track | null, cats: Catalogues, d
       checks.push({code:'known_star', level:'strong',
         text:`${best.name}${best.detail ? ` (${best.detail})` : ''} is within ${arcsec(Math.max(...best.seps))} of it${seenWhen(place, m)}, ${motionVs(best.motion, t.motion)}: this is that star's own catalogued motion`,
         look:`Blink Months on D${det}: the star should step the same way each visit.`,
-        values:{sep_arcsec:+Math.max(...best.seps).toFixed(2), rate_arcsec_yr:+(best.motion.arcsec_h * HOURS_PER_YEAR).toFixed(3), pa_deg:Math.round(best.motion.pa_deg)}});
+        values:{sep_arcsec:+best.nearest.toFixed(2), max_sep_arcsec:+Math.max(...best.seps).toFixed(2),
+          star_rate_arcsec_yr:+(best.motion.arcsec_h * HOURS_PER_YEAR).toFixed(3), star_pa_deg:Math.round(best.motion.pa_deg), ...oursValues(kind, t.motion)}});
       return;
     }
     found[service] = true;

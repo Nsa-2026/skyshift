@@ -4,7 +4,7 @@ import {describe,expect,it} from 'vitest';
 import type {Analysis,Candidate} from '../api/science-client';
 import type {GaiaStar,KnownPrediction} from '../api/catalogues';
 import {candidateRows} from './evidence';
-import {category,checkSummary,gaiaAt,precomputedVerdict,signalTrack,vetSignal,type Catalogues,type ScienceFrame,type Track,type Verdict} from './vetting';
+import {category,checkSummary,gaiaAt,precomputedVerdict,signalTrack,vetSignal,type Catalogues,type Check,type ScienceFrame,type Track,type Verdict} from './vetting';
 
 const read=<T,>(slug:string,file:string)=>JSON.parse(readFileSync(join(__dirname,`../../public/science-data/${slug}/${file}.json`),'utf8')) as T;
 const none=():Catalogues=>({gaia:{state:'ok',rows:[]},catwise:{state:'ok',rows:[]},mpc:{state:'ok',rows:[]}});
@@ -55,6 +55,11 @@ describe('the contract\'s rule for a known body (v3.23)',()=>{
     expect(v.checks[0]).toMatchObject({code:'known_body',level:'strong'});
     expect(v.checks[0].text).toMatch(/306P\/LINEAR \(V 18\.5\) within 5\.0″ of it at all 3 sightings, moving .*″\/day toward PA \d+° \(ours .*″\/day toward PA \d+°\)/);
     expect(category(v)).toBe('body');
+    // Contract v3.25's values keys: the nearest and farthest, the body's motion and ours.
+    const vals=v.checks[0].values!;
+    expect(Object.keys(vals)).toEqual(['sep_arcsec','max_sep_arcsec','sightings','body_rate_arcsec_h','body_pa_deg','rate_arcsec_h','pa_deg']);
+    expect(vals.sep_arcsec).toBeCloseTo(5,1);expect(vals.max_sep_arcsec).toBeCloseTo(5,1);expect(vals.sightings).toBe(3);
+    expect(vals.rate_arcsec_h).toBeCloseTo(t.motion!.arcsec_h,3);expect(vals.pa_deg).toBe(Math.round(t.motion!.pa_deg));
   });
   it('only can\'t rule it out when the place matches but the direction is off by more than 15°',()=>{
     // Three exposures in one session, 30″/h due east; the body sits on every one of them but its next
@@ -68,6 +73,7 @@ describe('the contract\'s rule for a known body (v3.23)',()=>{
     const line=v.checks.find(c=>c.code==='known_nearby')!;
     expect(line.level).toBe('warn');
     expect(line.text).toMatch(/within 30″ at all 3 sightings, but moving 30\.0″\/h toward PA 0° \(ours 30\.0″\/h toward PA 90°\)/);
+    expect(line.values).toEqual({sep_arcsec:0,sightings:3,body_rate_arcsec_h:30,body_pa_deg:0,rate_arcsec_h:30,pa_deg:90});
     // The same body moving east is certain.
     const same=[rows[0],{...rows[1],ra:t.sightings[1].ra+east(30*24),dec:0}];
     expect(vetSignal('fast',t,answered({mpc:{state:'ok',rows:same}}),2).status).toBe('known');
@@ -96,6 +102,10 @@ describe('catalogue stars',()=>{
     const v=vetSignal('slow',signalTrack('slow',eps.slow_movers[0],f,2),answered({gaia:{state:'ok',rows:[epsIndiB,far.gaia]}}),2);
     expect(v).toMatchObject({status:'known',known_kind:'star',known_name:'Gaia DR3 6412596012146801152'});
     expect(v.checks[0].text).toMatch(/within 0\.\d″ of it at all 4 sightings, moving 4\.68″\/yr toward PA 122° \(ours 4\.53″\/yr toward PA 125°\)/);
+    const vals=v.checks[0].values!;
+    expect(Object.keys(vals)).toEqual(['sep_arcsec','max_sep_arcsec','star_rate_arcsec_yr','star_pa_deg','rate_arcsec_yr','pa_deg']);
+    expect(vals.sep_arcsec).toBeLessThanOrEqual(vals.max_sep_arcsec as number);expect(vals.max_sep_arcsec).toBeLessThan(1);
+    expect(vals).toMatchObject({star_rate_arcsec_yr:expect.closeTo(4.68,2),star_pa_deg:122,rate_arcsec_yr:expect.closeTo(4.53,2),pa_deg:125});
   });
   it('can\'t rule out a star that sits on it but moves another way',()=>{
     const still={...epsIndiB,pmra:0,pmdec:0,...gaiaAt(epsIndiB,61062.8)};
@@ -204,6 +214,15 @@ describe('checks written before the list was published',()=>{
     expect(category(v)).toBe('catwise');
     // Only `known` is listed apart; any other status reads as open.
     expect(precomputedVerdict({ra:1,dec:1,status:'x',p_false:null,check_status:'flaw',checks:[]} as Candidate)!.status).toBe('open');
+  });
+  it('reads files written before contract v3.25\'s values keys (#375) the same way',()=>{
+    // #375 wrote the star's motion in rate_arcsec_yr / pa_deg and the farthest in sep_arcsec: the verdict uses none of them.
+    const old={ra:1,dec:1,status:'unvetted',p_false:null,check_status:'known',known_name:'Gaia DR3 6412596012146801152',checks:[
+      {code:'known_star',level:'strong',text:'Gaia DR3 6412596012146801152 (G 18.0) is within 0.8″ of it',look:'',values:{sep_arcsec:0.8,rate_arcsec_yr:4.68,pa_deg:122}}]} as Candidate;
+    const now={...old,checks:[{...(old as Candidate&{checks:Check[]}).checks[0],values:{sep_arcsec:0.3,max_sep_arcsec:0.8,star_rate_arcsec_yr:4.68,star_pa_deg:122,rate_arcsec_yr:4.53,pa_deg:125}}]} as Candidate;
+    const [a,b]=[precomputedVerdict(old)!,precomputedVerdict(now)!];
+    expect({...a,checks:[]}).toEqual({...b,checks:[]});
+    expect(category(a)).toBe('star');
   });
   it('the summary says the checks were done before publishing',()=>{
     const v=precomputedVerdict({ra:1,dec:1,status:'x',p_false:null,check_status:'known',known_name:'Gaia DR3 1',checks:[{code:'known_star',level:'strong',text:'t',look:'',values:null}]} as Candidate)!;
