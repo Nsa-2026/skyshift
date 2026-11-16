@@ -114,7 +114,9 @@ HIGHPM_SCORE_SCALE = 0.2       # quality = exp(-pipeline score / this); the pipe
 HIGHPM_REASON_WEIGHT = {"short_span": 0.5, "few_dots": 0.5, "bad_fit": 0.5, "unsteady": 0.3, "over_pm_cap": 0.3,
                         "gaia_pm_disagrees": 0.4, "catwise_pm_disagrees": 0.4, "at_control_level": 0.3,
                         "implausible_pm": 0.01}  # implausible_pm: to the bottom of the list
-HIGHPM_KNOWN_STAR = 0.6        # status "gaia" or "2mass" (highpm's deep check): a catalogued star
+HIGHPM_KNOWN_STAR = 0.6        # status "gaia", "2mass" or "allwise" (highpm's deep check): a catalogued star
+HIGHPM_KNOWN_STATUS = ("gaia", "2mass", "allwise")
+HIGHPM_GAIA_MATCH = ("gaia_pm", "gaia_position")  # counterparts that are Gaia's entry for this object (#388)
 SPECTRAL_SIG_SCALE = 10.0
 SPECTRAL_WEIGHT = {"brown_dwarf_like": 1.0, "ch4": 1.0, "h2o_ice": 0.8, "co2_ice": 0.8, "co_ice": 0.8,
                    "h2o_vapour": 0.6, "co_23": 0.4, "pah_33": 0.3}
@@ -143,9 +145,9 @@ REASONS = {
               *C.VET_GATES),  # the suspects' failed vetting gates (vet.py, contracts/api.md suspects.json)
     "high_pm": ("pm_fit", "pm_pair", "vetted", "catwise_pm_agrees", "parallax_fit", "short_span", "few_dots", "bad_fit",
                 "unsteady", "over_pm_cap", "gaia_pm_disagrees", "catwise_pm_disagrees", "at_control_level", "implausible_pm",
-                "blend"),
+                "blend", "gaia_still", "allwise_still"),
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable", "blend"),
-    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "class_galaxy", "blend"),
+    "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "catalogue_neighbour", "class_galaxy", "blend"),
 }
 FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
@@ -538,7 +540,13 @@ VET_TEXT = {"not_vetted": "it could not be vetted (no data on its dots)", "hot_p
             # the suspects' strong warnings (16 Nov), when its tables carry them
             "gaia": "a Gaia DR3 source lies within 6″", "catwise": "a CatWISE2020 source lies within 6″",
             "bloom": "BLOOM is set at every dot's peak", "halo": "HALO is set at every dot's peak",
-            "bright_star": "a bright fixed source lies within 15″"}
+            "bright_star": "a bright fixed source lies within 15″",
+            # the mover flaws (16 Nov, #385)
+            "same_pixel": "dots of two exposures sit on one detector pixel",
+            "whole_pixel": "its dots sit exactly on whole pixels (no measured centre)",
+            "wide": "every dot is wider than a star", "cross_detector": "it changes detector between exposures",
+            "fixed_source": "a fixed source or Gaia star is at its place", "glow": "it is glow from a very bright star",
+            "unseen": "exposures that photographed its path don't show it"}
 
 
 def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
@@ -554,7 +562,9 @@ def vet_text(grade: str | None, vet_reasons: list[str]) -> str:
 def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: list[int], rate: float | None,
               no_motion: bool, nearest_known: float | None, repeat: tuple[float, float] | None = None,
               track: tuple[int, float, float] | None = None, grade: str | None = None,
-              vet_reasons: list[str] | None = None, known: str | None = None) -> str:
+              vet_reasons: list[str] | None = None, known: str | None = None,
+              overruled_by_track: list[str] | None = None) -> str:
+    """overruled_by_track: the reasons its grade-A track outweighed (suspects' track_overruled; they stay warnings)."""
     if evidence == "two_detectors":
         seen = f"Seen by detectors D{dets[0]} and D{dets[-1]} at the same moment, in one exposure only"
     else:
@@ -567,6 +577,9 @@ def mover_why(evidence: str, n_exposures: int, span_min: float | None, dets: lis
         n, trate, snr = track
         sig = f", {snr:.0f}σ" if math.isfinite(snr) else ""
         seen += f"; followed over {n} sessions of its visit at {trate:.1f}″ an hour{sig}"
+    if overruled_by_track:
+        seen += (", a track that outweighs what alone would fail the vetting ("
+                 + "; ".join(VET_TEXT.get(x, x.replace("_", " ")) for x in overruled_by_track) + "; see the warnings)")
     name = f" ({known})" if known else ""
     if nearest_known is None or not math.isfinite(nearest_known):
         known = "no known asteroid, comet, planet or moon was predicted within 10′"
@@ -597,6 +610,24 @@ def suspect_warnings(r) -> dict[str, dict]:
     except ValueError:
         vals = {}
     return {str(c): (vals.get(str(c)) if isinstance(vals.get(str(c)), dict) else {}) for c in codes}
+
+
+def suspect_levels(r) -> dict[str, str]:
+    """The suspects' `warn_levels` (JSON {code: "strong"}, #385) of one row; {} when absent (every code a warning)."""
+    raw = getattr(r, "warn_levels", None)
+    try:
+        lv = json.loads(raw) if isinstance(raw, str) and raw else (raw if isinstance(raw, dict) else {})
+    except ValueError:
+        lv = {}
+    return {str(k): str(v) for k, v in lv.items()} if isinstance(lv, dict) else {}
+
+
+def overruled(r) -> list[str]:
+    """The reasons a grade-A track overruled on this suspect (suspects.track_grades, column track_overruled: its reasons
+    were cleared, the gate_<name> columns keep what fired), in VET_TRACK_OVERRULES order; [] otherwise."""
+    if not bool(getattr(r, "track_overruled", False) or False):
+        return []
+    return [k for k in C.VET_TRACK_OVERRULES if bool(getattr(r, f"gate_{k}", False) or False)]
 
 
 def on_track(r) -> tuple[int, float, float] | None:
@@ -716,7 +747,7 @@ def mover_facts(r, dots: pd.DataFrame | None, mo, no_motion: bool, track, ctx: d
         "partner_photos": ctx.get("photos"), "bright": bright,
         "star_size": star_size(np.asarray(dl["det"], np.int64), np.asarray(dl["snr"], np.float64))
         if "snr" in dl and "det" in dl and n else None,
-        "warn": suspect_warnings(r),
+        "warn": suspect_warnings(r), "warn_levels": suspect_levels(r),
     }
 
 
@@ -789,7 +820,7 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             # a catalogue source within 6″ and at most 2 mag fainter (the suspects' reasons gaia, catwise): its own light
             "gaia_match": "gaia" in vet_reasons, "catwise_match": "catwise" in vet_reasons, "labels": [], "reasons": reasons,
             "why": mover_why(r.evidence, int(r.n_exposures), span_min, dets, rate, no_motion, nk, rep_, track, grade,
-                             vet_reasons, known_name(r)),
+                             vet_reasons, known_name(r), overruled(r)),
             "flags": record_flag_names(f), "_dets": dets, "_base": base,
             "checks": CK.mover_checks(facts),
         }
@@ -865,10 +896,11 @@ def highpm_score(pipeline_score, reasons: list[list[str]], status) -> np.ndarray
     """score = exp(-pipeline score / 0.2) x product of the vetting reasons' weights x 0.6 for a Gaia star.
     The pipeline score is lower = better: 1 / (pm / pm_err) for a fit, |ln flux ratio| + spectrum-shape rms
     for a pair. Weights: short_span, few_dots, bad_fit 0.5; over_pm_cap, at_control_level 0.3;
-    gaia_pm_disagrees, catwise_pm_disagrees 0.4; implausible_pm 0.01 (always last)."""
+    gaia_pm_disagrees, catwise_pm_disagrees 0.4; implausible_pm 0.01 (always last). A known star: status in
+    HIGHPM_KNOWN_STATUS."""
     q = np.exp(-np.nan_to_num(np.asarray(pipeline_score, np.float64), nan=1.0) / HIGHPM_SCORE_SCALE)
     w = np.array([np.prod([HIGHPM_REASON_WEIGHT.get(x, 1.0) for x in rs]) if rs else 1.0 for rs in reasons])
-    known = np.where(np.isin(np.asarray(status, dtype=object), ["gaia", "2mass"]), HIGHPM_KNOWN_STAR, 1.0)
+    known = np.where(np.isin(np.asarray(status, dtype=object), HIGHPM_KNOWN_STATUS), HIGHPM_KNOWN_STAR, 1.0)
     return _clip01(q * w * known)
 
 
@@ -887,6 +919,67 @@ CAUTION_TEXT = {
 }
 
 
+REF_CATALOG_NAMES = {"gaia": "Gaia DR3", "catwise": "CatWISE2020", "2mass": "2MASS", "allwise": "AllWISE"}
+
+
+def counterpart_name(ref_id) -> str:
+    """A refcat / deep-check ref_id in words: gaia:123 → Gaia DR3 123, 2mass:08251958+2115521 → 2MASS J08251958+2115521,
+    allwise:J082519.58+211552.1 → AllWISE J082519.58+211552.1; a 2MASS key from AllWISE (2mass:aw…) → 2MASS."""
+    s = str(ref_id or "").strip()
+    cat, _, rest = s.partition(":")
+    if not rest:
+        return s
+    if cat == "2mass":
+        if rest.startswith("aw"):
+            return "2MASS"
+        rest = ("J" + rest) if rest[:1].isdigit() else rest
+    return f"{REF_CATALOG_NAMES.get(cat, cat)} {rest}"
+
+
+def _year(mjd) -> str | None:
+    """The calendar year of an MJD (Gaia DR3's 57388.0 → 2016, AllWISE's 55400 → 2010)."""
+    import datetime as dt
+
+    v = _fin(mjd)
+    return str((dt.datetime(1858, 11, 17) + dt.timedelta(days=v)).year) if v is not None else None
+
+
+def counterpart_tail(r, vetted: bool) -> str | None:
+    """The why's catalogue clause from highpm's counterpart (#388): which entry lists the object, its id
+    (counterpart_id) and how far it is from our track at the entry's epoch (counterpart_sep_arcsec,
+    counterpart_epoch_mjd); None without a counterpart."""
+    cp = str(getattr(r, "counterpart", "") or "")
+    if not cp:
+        return None
+    who = counterpart_name(getattr(r, "counterpart_id", ""))
+    sep = _fin(getattr(r, "counterpart_sep_arcsec", None))
+    yr = _year(getattr(r, "counterpart_epoch_mjd", None))
+    off = f"{sep:.1f}″ from " if sep is not None else "at "
+    then = f" in {yr}" if yr else ""
+    away = f" ({sep:.1f}″ away)" if sep is not None else ""
+    if cp == "gaia_pm":
+        return (f"; {who or 'Gaia'}{away} lists this star with the same motion, a known nearby star that shows the "
+                "method works" if vetted else f"; {who or 'Gaia'}{away} lists a star here")
+    if cp == "gaia_position":
+        return (f"; {who or 'Gaia'} lists it without a motion, {off}where this motion puts it{then}: a known source "
+                "whose motion Gaia doesn't give")
+    if cp == "gaia_crossid":
+        return f"; {who or 'Gaia'}{away} lists a source here without a motion, not this motion"
+    if cp == "gaia_still":
+        return (f"; {who or 'Gaia'} lists a source without a motion where this one is now{away}, while this motion puts "
+                "it elsewhere in 2016: probably a still star, not a mover")
+    if cp == "catwise_pm":
+        return f"; {who or 'CatWISE'}{away} lists the same motion"
+    if cp == "tmass_position":
+        return f"; {who or '2MASS'} saw a star {off}where this motion puts it{then}, so it is a known star"
+    if cp == "allwise_position":
+        return f"; {who or 'AllWISE'} saw it {off}where this motion puts it{then}, so it is a known source"
+    if cp == "allwise_still":
+        return (f"; {who or 'AllWISE'} saw a source where this one is now{away}{then}, while this motion puts it "
+                "elsewhere then: probably a still source, not a mover")
+    return None
+
+
 def highpm_why(r, reasons: list[str]) -> str:
     move = (f"Moves {_pm_text(r.pm)} a year between visits" if r.method == "fit"
             else f"Seen {_fmt_arcsec(float(r.sep_arcsec))} apart in two visits ({_pm_text(r.pm)} a year), with matching brightness")
@@ -897,6 +990,9 @@ def highpm_why(r, reasons: list[str]) -> str:
         tail = ", but Gaia lists a different motion for the star here — likely a mismatch, worth a look"
     elif "catwise_pm_disagrees" in reasons:
         tail = ", but CatWISE lists a different motion for the source here — likely a mismatch, worth a look"
+    elif hasattr(r, "counterpart"):          # highpm tables from 16 Nov (#388): what lists the object
+        tail = counterpart_tail(r, "vetted" in reasons) or (
+            "; CatWISE lists the same motion" if "catwise_pm_agrees" in reasons else "; no catalogue lists this motion")
     elif r.status == "gaia":
         tail = ("; Gaia lists this star with the same motion, a known nearby star that shows the method works"
                 if "vetted" in reasons else "; Gaia lists a star here")
@@ -909,6 +1005,14 @@ def highpm_why(r, reasons: list[str]) -> str:
     if cautions and "gaia_pm_disagrees" not in reasons and "catwise_pm_disagrees" not in reasons:
         tail += f", but {cautions[0]}"
     return move + tail + "."
+
+
+def highpm_gaia_match(r) -> bool:
+    """Gaia lists this object: counterpart gaia_pm or gaia_position (#388; a gaia_crossid or gaia_still entry is a
+    source without our motion); tables before it: status gaia."""
+    if hasattr(r, "counterpart"):
+        return str(r.counterpart or "") in HIGHPM_GAIA_MATCH
+    return r.status == "gaia"
 
 
 def high_pms(h: pd.DataFrame, zone: str, cls_labels: dict[int, list[str]]) -> list[dict]:
@@ -927,10 +1031,11 @@ def high_pms(h: pd.DataFrame, zone: str, cls_labels: dict[int, list[str]]) -> li
             "id": cid, "kind": "high_pm", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "months", "det": None,
             "zone": zone, "zones": [zone], "score": float(sc), "snr": None, "flux_ujy": None, "rate_arcsec_h": None,
             "pm_mas_yr": r.pm, "pm_err_mas_yr": r.pm_err, "pa_deg": float(pa_deg(r.pmra, r.pmdec)),
-            "nearest_known_arcsec": None, "gaia_match": r.status == "gaia", "catwise_match": bool(str(r.catwise_name or "")),
+            "nearest_known_arcsec": None, "gaia_match": highpm_gaia_match(r), "catwise_match": bool(str(r.catwise_name or "")),
             "labels": sorted(labels, key=LABELS.index), "reasons": rs, "why": highpm_why(r, rs), "flags": [],
             "_sources": [sid] + ([int(r.source_id_b)] if r.method == "pair" and r.source_id_b >= 0 else []),
             "_method": r.method, "_fit_mode": str(getattr(r, "fit_mode", "") or ""),
+            "_counterpart": str(getattr(r, "counterpart", "") or ""),
             "_n_common_det": (int(r.n_common_det) if r.method == "pair" and pd.notna(getattr(r, "n_common_det", None))
                               else None),
         })
@@ -1156,6 +1261,13 @@ def spectral_why(row: dict, labels: list[str]) -> str:
             ": what a brown dwarf would look like, a lead to check"
     elif "red" in labels and cls != "galaxy":
         text += ", with red colours"
+    veto = str(row.get("bd_veto") or "")   # classify (#388): why a would-be brown dwarf isn't one
+    if veto == "agn_colours":
+        w23 = _fin(row.get("allwise_w2_w3"))
+        text += (", but its AllWISE colours are an active galaxy's" + (f" (W2 − W3 = {w23:.1f})" if w23 is not None else "")
+                 + ", so not a brown dwarf")
+    elif veto == "no_water":
+        text += ", but no water shows where its spectrum could show it, so not a brown dwarf"
     return text + "."
 
 
@@ -1205,8 +1317,8 @@ def shape_candidates(store: Store, zone: str) -> list[dict]:
 
 
 # --- zones -------------------------------------------------------------------------------------------
-CLASS_COLUMNS = ["source_id", "class", "labels", "brown_dwarf_like", "bd_evidence", "j_m46_ab", "gaia_sep_arcsec",
-                 "gaia_g", "gaia_bp_rp", "gaia_parallax", "gaia_parallax_error",
+CLASS_COLUMNS = ["source_id", "class", "labels", "brown_dwarf_like", "bd_evidence", "bd_veto", "allwise_w2_w3", "j_m46_ab",
+                 "gaia_sep_arcsec", "gaia_g", "gaia_bp_rp", "gaia_parallax", "gaia_parallax_error",
                  *[f"label_{x}" for x in LABEL_BANDS],
                  *sorted({f"{b}_sig" for bands in LABEL_BANDS.values() for b, _ in bands})]
 
@@ -1459,7 +1571,8 @@ def fixed_checks(c: dict) -> list[dict]:
         return CK.highpm_checks({"reasons": c["reasons"], "pm": c.get("pm_mas_yr"), "method": c.get("_method"),
                                  "fit_mode": c.get("_fit_mode"), "saturated": c.get("_saturated"),
                                  "n_dots": c.get("_n_dots"), "blend": c.get("_blend"), "det": c.get("det"),
-                                 "gaia_match": c.get("gaia_match"), "n_common_det": c.get("_n_common_det")})
+                                 "gaia_match": c.get("gaia_match"), "n_common_det": c.get("_n_common_det"),
+                                 "counterpart": c.get("_counterpart")})
     if c["kind"] == "spectral":
         return CK.spectral_checks({"labels": c["labels"], "pah_sig": c.get("_pah_sig"), "ice_neighbours": c.get("_ice_n"),
                                    "n_channels": c.get("_n_channels"), "bright": c.get("_bright"),
