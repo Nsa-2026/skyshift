@@ -61,8 +61,8 @@ def test_link_score_suspects_end_to_end(tmp_path, monkeypatch):
                     per_photo[k].append(v)
         store.write_json(run_rel(zone, g), {"mjd": float(g["mjd"].iloc[0]), "objects": objs, "per_photo": per_photo})
 
-    monkeypatch.setattr(S, "gaia_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
-    monkeypatch.setattr(S, "catwise_near", lambda ra, dec, *a, **k: (np.zeros(len(ra), bool), "test"))
+    monkeypatch.setattr(S, "gaia_seps", lambda ra, dec, *a, **k: (np.full(len(ra), np.inf), "test"))
+    monkeypatch.setattr(S, "catwise_seps", lambda ra, dec, *a, **k: (np.full(len(ra), np.inf), "test"))
     for step in ("link", "spectra", "score", "suspects"):
         assert main([step, "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
 

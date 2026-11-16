@@ -362,18 +362,41 @@ The step never raises (errors go to its stats).
   Safe by design: a failure writes empty tables (score then counts movers only), each linking pass over a visit
   stops after TRACK_VISIT_MAX_S keeping the strongest seeds, and link never fails over nonfixed_dots (not suspects' freedots.parquet: that one
   has pixel x, y and no near-fixed dots, for vet's hot-pixel maps).
-- suspects: no known object within 30″ (same session), not near a planet at its time (skyshift_core.planets: Mars 60′,
-  Jupiter 80′, Saturn 45′, Uranus 5′, Neptune 3′: the planet, its moons, its glare; summary `cut_planet`, veto
-  `planets`; 15 Nov: 131 of the 1,885 movers listed in candidates.json, 54 of the 56 grade A, e.g. Iapetus ×17, Oberon
-  ×17, Himalia ×13), no ghost/crosstalk/halo/bloom bit, SOURCE not at every dot's peak,
-  no bright fixed source within 30″, no Gaia DR3 within 6″, no CatWISE2020 within 6″ (from refcat/<zone>.parquet;
-  the services only if that file is missing: 50-circle ESA batches took 30+ min for 30k movers).
-- Vetting (vet.py, 14 Nov; config VET_*): after those cuts every suspect gets `grade` and `reasons`. Gates on its own dots
+- suspects (16 Nov: only the certain is removed; config SUSPECT_*): a known body (MPC, Horizons; same session) within
+  5″ of the mover at its time, or within 30″ moving at our measured rate (50% or 3σ) and direction (45° or 3σ)
+  (`cut_known`; our motion from 2–6 exposures over minutes scatters too much to overrule the place: a 20% / 15° test
+  would have kept 32% of ecl04's 1,911 movers within 5″ of an MPC prediction); a planet at its time
+  (skyshift_core.planets: Mars 60′, Jupiter 80′, Saturn 45′, Uranus 5′, Neptune 3′: the planet, its moons, its glare;
+  `cut_planet`, veto `planets`; 15 Nov: 131 of the 1,885 movers listed in candidates.json, e.g. Iapetus ×17); a hot
+  pixel: in one detector every dot of ≥ 2 exposures within 1 px of their median pixel while the sky moved ≥ 3 px
+  (`cut_hot_pixel`; 0 in hunt/ecl04/ecl08/ecl11: the dither moves the sky ~115 px between exposures, link never
+  pairs those). Everything else stays, with `warn_codes` (list, contracts/api.md v3.23 check codes) and `warn_values`
+  (JSON {code: {name: number}}): known_nearby, flag_bloom/flag_halo/flag_ghost/flag_crosstalk (any dot's 3×3),
+  bright_star (a fixed source S/N ≥ 100 within 30″), catalogue_star (SOURCE at every dot's peak; Gaia, CatWISE2020,
+  AllWISE, 2MASS within 6″ with their magnitudes and `fainter_mag`), edge, persistence, sharp, flux_jump. The exporter
+  turns them into `checks`. The strong forms are vetting reasons (grade C, ranked last, never removed): `bloom`/`halo`
+  (the bit at every dot's peak), `bright_star` (within 15″), `gaia`/`catwise`/`2mass`/`allwise` (within 6″ and at most
+  2 mag fainter than the mover, AB; a fainter one is a chance neighbour). Measured on every mover of hunt, ecl04, ecl08,
+  ecl11 (real = an MPC prediction within 5″, rest = no known body within 60″), share hit real vs rest: HALO in a 3×3
+  20–22% vs 20–24% (the old cut's biggest loss, no use), at every peak 0% vs 3–6%; BLOOM 3×3 0–0.5% vs 3–20%; bright
+  source 30″ 1–7% vs 18–43%, 15″ 0.2–1.2% vs 11–34%; Gaia 6″ 2–16% vs 21–70%, within 2 mag 0.2–1.5% vs 14–45%;
+  CatWISE 6″ (hunt) 28.5% vs 70%, within 2 mag 1.9% vs 64%; AllWISE 6″ 14–18% vs 60–71%, within 2 mag 1.3–2.0% vs
+  59–64% (real asteroids' neighbours are p50 3.3 mag fainter than them, stars' own detections 1.1–1.6). Real asteroids
+  kept through the suspects step (as if unknown) 55–66% → 100%, graded A/B 46–56% → 88–91%. Suspects (A/B/C) before →
+  after: hunt 23 (0/6/17) → 751 (0/15/736), ecl04 65 (2/23/40) → 773 (3/42/728), ecl08 62 (0/22/40) → 2,543 (0/88/2,455),
+  ecl11 330 (0/46/284) → 5,377 (0/143/5,234; 18 Jupiter movers of a pre-v3.18 table now cut). Catalogues: Gaia
+  (G < 20), CatWISE2020, 2MASS from refcat/<zone>.parquet (moved to the movers' times; the services only if that file
+  is missing); AllWISE from S3 (cache/allwise/k5, w1mpro/w2mpro since 16 Nov: older ra/dec-only files are read again
+  unless SKYSHIFT_ALLWISE_REREAD_MAGS=0).
+- Vetting (vet.py, 14 Nov; config VET_*): every suspect gets `grade` and `reasons`. Gates on its own dots
   (link carries each mover's dots as lists dot_obs, dot_det, dot_x, dot_y, dot_flux, dot_snr, dot_size, dot_fpk, …) and on
   zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y; tiles merge it): hot_pixel (±1 px with
-  movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure), edge
+  movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure, and
+  more than chance at that photo's free-dot density, Poisson tail ≤ 0.1%: ecliptic photos hold p90 500–780 free dots,
+  where ≥ 3 alone hit 9–12% of the real asteroids and as much junk; now 0.1–0.5% vs 0–9%), edge
   (6 px), masked_peak, sharp_outlier (√(a·b) < 0.7 × stellar at that S/N with OUTLIER; OUTLIER alone never: 52% of real
-  asteroids), flux_ratio (> 4× within a detector), red_photo (qa_photos.parquet, if present), 2mass (refcat, 6″).
+  asteroids), flux_ratio (> 4× within a detector), red_photo (qa_photos.parquet, if present), and the strong warnings
+  and catalogues above (bloom, halo, bright_star, gaia, catwise, 2mass, allwise).
   C = any reason (kept in the file), B = none, A = candidate mover: on a track over ≥2 sessions with motion ≥5σ, no
   catalogue or known match (suspects.track_grades after vet: B, and its tracklets.parquet row, joined on suspect id =
   mover_id, has tracklet_id ≥ 0, n_sessions ≥ VET_A_MIN_SESSIONS, rate_snr ≥ VET_MOTION_SIGMA). Suspects on a track
