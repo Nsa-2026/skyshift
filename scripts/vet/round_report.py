@@ -86,7 +86,7 @@ def main():
     for (rule, v), c in sorted(cross.items()):
         print(f"  rule {rule:8s} -> agent {v:20s} {c}")
     print("\nSurvivors (a real unknown mover, a real other object, or interest medium/high):")
-    surv = [r for i, r in R.items() if "truth" not in F[i] and (r.get("verdict") in ("real_mover_unknown", "real_other") or r.get("interest") in ("medium", "high"))]
+    surv = [r for i, r in R.items() if "truth" not in F[i] and (r.get("verdict") in ("real_mover_unknown", "real_other", "real_known") or r.get("interest") in ("medium", "high"))]
     for r in sorted(surv, key=lambda r: ({"high": 0, "medium": 1}.get(r.get("interest"), 2), -float(r.get("confidence") or 0))):
         print(f"  {r['id']}  {r.get('kind')}  {r.get('verdict')}  conf {r.get('confidence')}  interest {r.get('interest')}\n      {str(r.get('what_it_is', ''))[:230]}")
     print("\nEngine problems named (count of findings, by theme):")

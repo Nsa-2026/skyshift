@@ -44,3 +44,36 @@ def test_ap_snr_finds_a_source_and_reports_masked():
 
 def test_fmt_dt_units():
     assert V.fmt_dt(0.035) == "+2.1 min" and V.fmt_dt(-11.3) == "-11.3 h" and V.fmt_dt(24 * 172) == "+172 d"
+
+
+def test_numbers_verdict_hot_pixel_on_a_fixed_star_is_not_a_mover():
+    # round 1, ecl05-679040028059: other times at +27..+32, a pixel hit kept the difference high
+    assert V.numbers_verdict({"det": [37, 89], "dif": [20, 54], "ref": [27, 32, 30, 29]}) == "unclear"
+
+
+def _dot(n, det, x, y, mjd, snr=20.0, size=3.5, chi2=1.0):
+    return {"n": n, "det": det, "x": x, "y": y, "mjd": mjd, "snr": snr, "size": size, "chi2": chi2, "obs": f"o{n}", "flux": 1.0, "fpk": 0}
+
+
+def test_warnings_name_the_round_1_failure_modes():
+    dots = [_dot(1, 4, 1361.0, 66.0, 61017.0052, size=2.0, chi2=12.0), _dot(2, 4, 1361.0, 66.0, 61017.0067)]
+    rows = [{"mjd": 61017.0052, "det": 1, "dot": None, "snr": 0.2, "px": (1359.1, 77.3)},
+            {"mjd": 61017.0052, "det": 4, "dot": dots[0], "snr": 63.0, "px": (1361.0, 66.1)},
+            {"mjd": 61017.0067, "det": 1, "dot": None, "snr": 1.0, "px": (1359.2, 77.2)},
+            {"mjd": 61017.0067, "det": 4, "dot": dots[1], "snr": 59.0, "px": (1361.0, 65.9)}]
+    W = " ".join(V.warnings_for(None, dots, rows, {"ref": [3, 1, 0, -2], "_motion_sigma": 1.2}, None))
+    for key in ("WHOLE-PIXEL POSITION", "SAME DETECTOR PIXEL", "NOT STAR-LIKE", "PAIRED DETECTOR EMPTY", "ONE DETECTOR ONLY",
+                "NO TELESCOPE STEP", "STATIONARY"):
+        assert key in W, key
+    assert "SOURCE AT OTHER TIMES" not in W
+    assert V.session_steps(rows) and max(V.session_steps(rows)) < 1
+
+
+def test_warnings_gap_between_detections():
+    dots = [_dot(1, 6, 100.3, 500.2, 61000.0000), _dot(2, 6, 100.4, 155.1, 61000.0045)]
+    rows = [{"mjd": 61000.0000, "det": 6, "dot": dots[0], "snr": 20.0, "px": (100.3, 500.2)},
+            {"mjd": 61000.0015, "det": 6, "dot": None, "snr": 0.5, "px": (100.3, 385.0)},
+            {"mjd": 61000.0030, "det": 6, "dot": None, "snr": 1.0, "px": (100.3, 270.0)},
+            {"mjd": 61000.0045, "det": 6, "dot": dots[1], "snr": 18.0, "px": (100.4, 155.1)}]
+    W = " ".join(V.warnings_for(None, dots, rows, {"ref": [0, 1]}, None))
+    assert "GAP BETWEEN DETECTIONS" in W and "NO TELESCOPE STEP" not in W

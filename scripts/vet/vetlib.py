@@ -124,13 +124,45 @@ def read_stamp(url: str, gra, gdec, dots_xy=None, tries: int = 3) -> dict:
     return {"error": repr(last)[:200]}
 
 
-def covering(photos: pd.DataFrame, ra: float, dec: float, det: int | None = None) -> pd.DataFrame:
-    """Photos whose footprint holds the whole grid around (ra, dec)."""
+def covering(photos: pd.DataFrame, ra: float, dec: float, det: int | None = None, whole_grid: bool = True) -> pd.DataFrame:
+    """Photos whose footprint holds the whole grid around (ra, dec); whole_grid=False: the spot itself, 3 px inside
+    (stamps then show the part outside the photo as no data)."""
     p = photos if det is None else photos[photos.detector == det]
     p = p[angsep(ra, dec, p.s_ra.to_numpy(float), p.s_dec.to_numpy(float)) < 3.0]
-    half = (N * SCALE / 2 + 30) / 3600.0
+    half = (N * SCALE / 2 + 30) / 3600.0 if whole_grid else 3 * SCALE / 3600.0
     ok = np.array([Footprint.from_s_region(s).edge_distance_deg(ra, dec) > half for s in p.s_region], bool) if len(p) else []
     return p[ok].copy()
+
+
+_WAVE: dict = {}
+
+
+def wavelength_um(photos: pd.DataFrame, det: int, x: float, y: float) -> float:
+    """Central wavelength (um) seen by pixel (x, y) of a detector. The filter is fixed to the detector, so one photo's
+    WCS-WAVE table serves every exposure; cached in <data>/_wave/D<det>.pkl. NaN when it cannot be read."""
+    import pickle
+    if det not in _WAVE:
+        p = DATA / "_wave" / f"D{det}.pkl"
+        try:
+            if p.exists():
+                _WAVE[det] = pickle.load(open(p, "rb"))
+            else:
+                from skyshift_core.level2 import WaveTable
+                url = photos[photos.detector == det].url.iloc[0]
+                with fits.open(url, use_fsspec=True, fsspec_kwargs=_FSSPEC_KWARGS, lazy_load_hdus=True, memmap=False) as h:
+                    _WAVE[det] = WaveTable.from_hdus(h["IMAGE"].header, h["WCS-WAVE"].data)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                pickle.dump(_WAVE[det], open(p, "wb"))
+        except Exception:  # noqa: BLE001
+            _WAVE[det] = None
+    w = _WAVE[det]
+    try:
+        return float(w.wavelength(float(x), float(y))) if w is not None and np.isfinite(x) and np.isfinite(y) else float("nan")
+    except Exception:  # noqa: BLE001
+        return float("nan")
+
+
+PAIRED = {1: 4, 4: 1, 2: 5, 5: 2, 3: 6, 6: 3}  # detectors exposed at the same moment
 
 
 def bgsub(a):
@@ -252,12 +284,138 @@ def numbers_verdict(measured: dict) -> str:
     m1, m2, m3 = float(np.median(r1)), float(np.median(r2)), float(np.median(r3))
     if m3 >= 5 and m2 < 0.5 * m1:
         return "static"
-    if m2 >= 5 and m2 >= 0.5 * m1 and m3 < 0.5 * m1:
+    # round 1: a hot pixel on a fixed star keeps the difference high; a source at other times nearly as bright as the
+    # faintest detection is not a clean mover
+    if m2 >= 5 and m2 >= 0.5 * m1 and m3 < 0.5 * m1 and not (m3 >= 5 and m3 >= 0.6 * min(r1)):
         return "mover"
     return "unclear"
 
 
-def build_packet(mv, photos: pd.DataFrame, out_png: str, mode: str = "full", ctx: dict | None = None, pool=None) -> dict:
+def session_rows(mv, photos: pd.DataFrame, pool=None, max_rows: int = 18) -> list[dict]:
+    """Every exposure of the mover's session whose photo holds the spot (all detectors, time order): the aperture S/N
+    at the fitted track position, the engine detection if any, the detector pixel of the spot and its wavelength."""
+    p = covering(photos[photos.session == mv.session], mv.ra, mv.dec, whole_grid=False).sort_values(["mjd", "detector"])
+    dots = mover_dots(mv)
+    have = {(d["obs"], d["det"]): d for d in dots}
+    if len(p) > max_rows:
+        own = p[[(o, d) in have for o, d in zip(p.obs_id, p.detector)]]
+        rest = p.drop(own.index)
+        keep = set(own.detector) | {PAIRED[d] for d in own.detector}
+        rest = rest[rest.detector.isin(keep)] if len(own) else rest
+        p = pd.concat([own, rest.head(max(0, max_rows - len(own)))]).sort_values(["mjd", "detector"])
+    gra, gdec = grid(mv.ra, mv.dec)
+    run = pool.map if pool is not None else map
+    stamps = list(run(lambda r: read_stamp(r.url, gra, gdec, [(have[(r.obs_id, r.detector)]["x"], have[(r.obs_id, r.detector)]["y"])]
+                                           if (r.obs_id, r.detector) in have else None), p.itertuples()))
+    rate, pa = _g(mv, "rate_arcsec_h"), _g(mv, "pa_deg")
+    vx = rate * math.sin(math.radians(pa)) if np.isfinite(rate) else 0.0
+    vy = rate * math.cos(math.radians(pa)) if np.isfinite(rate) else 0.0
+    rows = []
+    for r, s in zip(p.itertuples(), stamps):
+        im = bgsub(s["data"]) if "data" in s else np.full((N, N), np.nan)
+        dt_h = (r.mjd - float(mv.mjd)) * 24
+        gx, gy = C0 - vx * dt_h / SCALE, C0 + vy * dt_h / SCALE
+        cp = s.get("centre_px", (np.nan, np.nan))
+        d = have.get((r.obs_id, r.detector))
+        dot_g = to_grid(mv.ra, mv.dec, s["dots"][0][0], s["dots"][0][1]) if d and s.get("dots") else None
+        rows.append({"mjd": float(r.mjd), "det": int(r.detector), "obs": r.obs_id, "dot": d, "img": im, "track_g": (gx, gy),
+                     "dot_g": dot_g, "snr": ap_snr(im, sig(im), [(gx, gy)]), "px": cp,
+                     "um": wavelength_um(photos, int(r.detector), cp[0], cp[1]), "error": s.get("error")})
+    return rows
+
+
+def session_steps(rows: list[dict]) -> list[float]:
+    """Shift of the spot on the detector (px) between consecutive exposures, per detector."""
+    out = []
+    for det in {r["det"] for r in rows}:
+        rr = sorted([r for r in rows if r["det"] == det], key=lambda r: r["mjd"])
+        out += [math.hypot(a["px"][0] - b["px"][0], a["px"][1] - b["px"][1]) for a, b in zip(rr, rr[1:])
+                if np.isfinite(a["px"][0]) and np.isfinite(b["px"][0])]
+    return out
+
+
+def warnings_for(mv, dots, rows, measured, ctx) -> list[str]:
+    """Automatic warnings from the numbers (round 1: these settled most movers at a glance)."""
+    W = []
+    ex = {}
+    for d in dots:
+        ex.setdefault(round(d["mjd"] * 1440, 1), []).append(d)
+    for d in dots:
+        if abs(d["x"] - round(d["x"])) < 0.02 and abs(d["y"] - round(d["y"])) < 0.02:
+            W.append(f"WHOLE-PIXEL POSITION: detection #{d['n']} is at pixel {d['x']:.1f},{d['y']:.1f} exactly: the centroid fell back to "
+                     f"the peak pixel (one-pixel spike or a failed fit).")
+    seen = set()
+    for a in dots:
+        for b in dots:
+            if a["n"] < b["n"] and a["det"] == b["det"] and abs(a["mjd"] - b["mjd"]) > 1e-4 and \
+                    abs(a["x"] - b["x"]) < 0.6 and abs(a["y"] - b["y"]) < 0.6 and (a["n"], b["n"]) not in seen:
+                seen.add((a["n"], b["n"]))
+                W.append(f"SAME DETECTOR PIXEL: detections #{a['n']} and #{b['n']} sit on D{a['det']} pixel {a['x']:.1f},{a['y']:.1f} in different "
+                         f"exposures: the telescope did not step between them, so a hot pixel stays on one sky spot and looks like a source.")
+    sharp = [d for d in dots if d["size"] < 2.2 or d["chi2"] > 10]
+    if sharp:
+        W.append("NOT STAR-LIKE: " + ", ".join(f"#{d['n']} (size {d['size']:.1f}\", PSF-fit χ² {d['chi2']:.0f})" for d in sharp) +
+                 ": sharper than a star (size < 2.2\") or a bad PSF fit (χ² > 10); in round 1 these were artifacts every time.")
+    broad = [d for d in dots if d["size"] > 5.8]
+    if broad:
+        W.append("BROAD: " + ", ".join(f"#{d['n']} ({d['size']:.1f}\")" for d in broad) + ": wider than a star: a blend, a diffuse glow or a streak.")
+    if rows:
+        own_dets = {d["det"] for d in dots}
+        t = sorted({round(r["mjd"] * 1440, 1) for r in rows})
+        tdet = sorted(ex)
+        gaps = [r for r in rows if r["det"] in own_dets and r["dot"] is None and tdet and tdet[0] < round(r["mjd"] * 1440, 1) < tdet[-1]]
+        if gaps:
+            W.append("GAP BETWEEN DETECTIONS: " + "; ".join(f"D{r['det']} at {fmt_dt((r['mjd'] - dots[0]['mjd']) * 24)} shows {fs(r['snr'])} at the track"
+                                                           for r in gaps) + " with no engine detection: a real source does not vanish in the middle.")
+        miss = [r for r in rows if r["det"] in own_dets and r["dot"] is None and np.isfinite(r["snr"]) and r["snr"] < 3]
+        if miss and not gaps:
+            W.append(f"NOT SEEN in {len(miss)} exposure(s) of the same detector(s) in this session (S/N < 3 at the track).")
+        for d in dots:
+            pr = [r for r in rows if r["det"] == PAIRED[d["det"]] and abs(r["mjd"] - d["mjd"]) < 2e-4]
+            if pr and np.isfinite(pr[0]["snr"]) and pr[0]["snr"] < 3 and d["snr"] > 15:
+                W.append(f"PAIRED DETECTOR EMPTY: #{d['n']} is S/N {d['snr']:.0f} in D{d['det']} but D{pr[0]['det']}, exposed at the same moment, "
+                         f"shows {fs(pr[0]['snr'])} at the spot (cosmic rays and hot pixels hit one detector only; a very red or blue source can do this too).")
+        if len(own_dets) == 1 and not any(r["dot"] is not None and r["det"] != next(iter(own_dets)) for r in rows):
+            W.append(f"ONE DETECTOR ONLY: every detection is in D{next(iter(own_dets))}. D6-only is common for real asteroids (heat glow); "
+                     f"D4-only or D5-only with nothing in D1/D2 was junk in round 1.")
+        steps = session_steps(rows)
+        if steps and max(steps) < 3:
+            W.append("NO TELESCOPE STEP in this session: the spot stays on the same detector pixels, so detector defects cannot be told from the sky here.")
+    if len(ex) >= 2 and measured.get("_motion_sigma") is not None and measured["_motion_sigma"] < 2:
+        W.append(f"STATIONARY within the errors: the positions agree to {measured['_motion_sigma']:.1f}σ over the session.")
+    r3 = [v for v in measured.get("ref", []) if np.isfinite(v)]
+    if len(r3) >= 2 and np.median(r3) >= 5:
+        W.append(f"SOURCE AT OTHER TIMES: median S/N {np.median(r3):.0f} at the marks in other sessions and visits: a fixed source is here.")
+    if ctx:
+        fx, ref = ctx.get("fixed"), ctx.get("refcat")
+        if fx is not None:
+            sep = angsep(mv.ra, mv.dec, fx.ra.to_numpy(float), fx.dec.to_numpy(float)) * 3600
+            near = np.sort(sep[sep <= 12])
+            if len(near) >= 1 and near[0] <= 9.5:
+                W.append(f"FIXED SOURCE {near[0]:.1f}\" away (1.5 px): the engine's veto radius is 6\"; in round 1 movers 6-9\" from a fixed source were that source.")
+        if ref is not None:
+            g = ref[ref["cat"] == "gaia"]
+            g = g[np.abs(g.dec - mv.dec) < 15 / 3600.0]
+            if len(g):
+                gra, gdec = move_to_epoch(g, float(mv.mjd))
+                e, n = offsets_arcsec(mv.ra, mv.dec, np.asarray(gra), np.asarray(gdec))
+                k = np.hypot(e, n) <= 12
+                if k.sum() >= 2:
+                    ee, nn = e[k], n[k]
+                    for i in range(len(ee)):
+                        for j in range(i + 1, len(ee)):
+                            if math.hypot(ee[i] + ee[j], nn[i] + nn[j]) < 4 and math.hypot(ee[i] - ee[j], nn[i] - nn[j]) > 10:
+                                W.append(f"BETWEEN TWO STARS: Gaia stars {math.hypot(ee[i], nn[i]):.1f}\" and {math.hypot(ee[j], nn[j]):.1f}\" away on "
+                                         f"opposite sides: an unresolved blend measured as its own source.")
+                                break
+                        else:
+                            continue
+                        break
+    return W
+
+
+def build_packet(mv, photos: pd.DataFrame, out_png: str, mode: str = "full", ctx: dict | None = None, pool=None,
+                 session: bool = True) -> dict:
     """One PNG + text for a mover row (movers.parquet). ctx: refcat, pred, fixed, grade, why (full mode).
     Rows: 1 detections; 2 detection minus the median of other times; 3 the same spot at other times."""
     gra, gdec = grid(mv.ra, mv.dec)
@@ -352,12 +510,20 @@ def build_packet(mv, photos: pd.DataFrame, out_png: str, mode: str = "full", ctx
     fig.subplots_adjust(left=0.035, right=0.995, top=0.93, bottom=0.01, wspace=0.06, hspace=0.28)
     fig.savefig(out_png, dpi=100, facecolor="white")
     plt.close(fig)
-    return {"text": packet_text(mv, dots, ref_dt, mode, ctx, measured, keys), "measured": measured,
-            "numbers": numbers_verdict(measured), "errors": errors, "dots": dots,
+    rows = []
+    if session:
+        try:
+            rows = session_rows(mv, photos, pool)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"session rows: {e!r}"[:200])
+    for d in dots:
+        d["um"] = wavelength_um(photos, d["det"], d["x"], d["y"])
+    return {"text": packet_text(mv, dots, ref_dt, mode, ctx, measured, keys, rows), "measured": measured,
+            "numbers": numbers_verdict(measured), "errors": errors, "dots": dots, "session_rows": rows,
             "n_det_panels": len(det_p), "n_ref_panels": len(ref_p)}
 
 
-def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys) -> str:
+def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys, rows=None) -> str:
     span_h = (dots[-1]["mjd"] - dots[0]["mjd"]) * 24
     L = []
     dl = sorted({d["det"] for d in dots})
@@ -386,6 +552,7 @@ def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys) -> str:
             return float(np.mean(e)), float(np.mean(n)), s
         e1, n1, s1 = mean_pos(ex[k[0]]); e2, n2, s2 = mean_pos(ex[k[-1]])
         moved = math.hypot(e2 - e1, n2 - n1)
+        measured["_motion_sigma"] = moved / math.hypot(s1, s2)
         L.append(f"Position change, first to last exposure: {moved:.1f}\" = {moved / SCALE:.2f} px; that is {moved / math.hypot(s1, s2):.1f} times its "
                  f"uncertainty (below ~3 the change could be noise; a slow real asteroid can also be below 3 over a few minutes).")
     if np.isfinite(_g(mv, "line_resid_arcsec")):
@@ -399,22 +566,24 @@ def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys) -> str:
         L.append(f"Sessions that imaged this spot in total: {int(_g(mv, 'cover_sessions'))}.")
     L.append("")
     L.append("Detections (numbers match the image). size = sqrt(a*b) in arcsec (stars: about 3-4\" at good S/N; the PSF FWHM is 7.5\" = 1.2 px):")
-    L.append(" #  time      det  pixel x,y in its photo   offset from centre E\",N\"   flux µJy   S/N   size \"  PSF-fit χ²  pixel flags at the peak")
+    L.append(" #  time      det  λ µm   pixel x,y in its photo   offset from centre E\",N\"   flux µJy   S/N   size \"  PSF-fit χ²  pixel flags at the peak")
     for d in dots:
         off = ""
         if "ra" in d:
             e, n = offsets_arcsec(mv.ra, mv.dec, d["ra"], d["dec"])
             off = f"{float(e):+6.1f},{float(n):+6.1f}"
-        L.append(f"{d['n']:2d}  {fmt_dt((d['mjd'] - dots[0]['mjd']) * 24):>9s}  D{d['det']}  {d['x']:7.1f},{d['y']:7.1f}"
+        L.append(f"{d['n']:2d}  {fmt_dt((d['mjd'] - dots[0]['mjd']) * 24):>9s}  D{d['det']}  {d.get('um', float('nan')):5.3f}  {d['x']:7.1f},{d['y']:7.1f}"
                  f"          {off:>15s}        {d['flux']:8.0f}  {d['snr']:5.1f}  {d['size']:5.2f}   {d['chi2']:7.2f}     "
                  f"{', '.join(flag_names(d['fpk'])) or '-'}")
-    same_px = {}
-    for d in dots:
-        same_px.setdefault((d["det"], round(d["x"], 1), round(d["y"], 1)), []).append(d["n"])
-    for (dd, x, y), ns in same_px.items():
-        if len(ns) >= 2:
-            L.append(f"Note: detections {', '.join(map(str, ns))} are at exactly the same detector pixel (D{dd} x={x}, y={y}) in different "
-                     f"exposures. Positions on whole or identical pixels point to a one-pixel spike (hot pixel or detector defect).")
+    if rows:
+        L.append("")
+        L.append("Every exposure of this session over the spot (S/N in a 1.5 px aperture at the fitted track position; λ = wavelength there):")
+        L.append("  time       det  λ µm   engine detection     S/N at track   pixel x,y of the spot")
+        for r in rows:
+            d = r["dot"]
+            L.append(f"  {fmt_dt((r['mjd'] - dots[0]['mjd']) * 24):>9s}  D{r['det']}  {r['um']:5.3f}  "
+                     f"{('#' + str(d['n']) + ' S/N ' + format(d['snr'], '.0f')) if d else 'none':18s}  {fs(r['snr']):>8s}       "
+                     f"{r['px'][0]:7.1f},{r['px'][1]:7.1f}{'  READ ERROR' if r.get('error') else ''}")
     L.append("")
     f = lambda vs: ", ".join("masked" if not np.isfinite(v) else f"{v:+.0f}" for v in vs)  # noqa: E731
     L.append("Measured at the marks (aperture S/N, radius 1.5 px = 9\"; also in each panel title):")
@@ -422,7 +591,12 @@ def packet_text(mv, dots, ref_dt, mode, ctx, measured, keys) -> str:
     L.append("  row 2 detection - other times: " + (f(measured["dif"]) or "no reference"))
     L.append("  row 3 other times: " + (f(measured["ref"]) or "none") + "   (times: " + ", ".join(fmt_dt(x) for x in ref_dt) + ")")
     L.append(f"  numeric rule on these: {numbers_verdict(measured)}  (static = a source is there at other times and the difference keeps "
-             f"< half the signal; mover = difference keeps >= half and other times are empty)")
+             f"< half the signal; mover = difference keeps >= half and other times are empty; the rule cannot see artifacts: "
+             f"in round 1 every candidate it called mover was a hot pixel, a streak or a glow)")
+    W = warnings_for(mv, dots, rows or [], measured, ctx if mode == "full" else None)
+    L.append("")
+    L.append("AUTOMATIC WARNINGS: " + ("none" if not W else ""))
+    L += [f"  ! {w}" for w in W]
     if mode == "full" and ctx:
         L.append("")
         L += context_lines(mv.ra, mv.dec, float(mv.mjd), int(mv.session) if "session" in mv else None, ctx)
@@ -455,6 +629,69 @@ def context_lines(ra, dec, mjd, session, ctx) -> list[str]:
                  ("; ".join(f"{r['name']} ({r['class']}, V={r['v']:.1f}, {r['rate']:.0f}\"/h PA {r['pa']:.0f}°) {r['sep']:.0f}\" away"
                             for r in known_near(pred, ra, dec, mjd, session)[:3]) or "none"))
     return L
+
+
+_S3 = None
+AW_COLS = ["designation", "ra", "dec", "w1mpro", "w1sigmpro", "w2mpro", "w2sigmpro", "w3mpro", "j_m_2mass", "h_m_2mass",
+           "k_m_2mass", "r_2mass", "pa_2mass", "ext_flg", "cc_flags"]
+
+
+def allwise_near(ra: float, dec: float, radius_arcsec: float) -> pd.DataFrame | None:
+    """AllWISE sources (epoch about 2010.5, Vega magnitudes, with their 2MASS match within 3") around a position, from
+    NASA's public S3 copy; each sky tile (1.8 deg) is cached in <data>/_allwise/. None when S3 cannot be read."""
+    global _S3
+    import pyarrow.fs as pafs
+    import pyarrow.parquet as pq
+    from skyshift_pipeline import config as C
+    from skyshift_pipeline.suspects import allwise_key, allwise_pixels
+    try:
+        parts = []
+        for pix in allwise_pixels(np.array([ra]), np.array([dec]), radius_arcsec):
+            p = DATA / "_allwise" / f"p{int(pix):05d}.parquet"
+            if not p.exists():
+                if _S3 is None:
+                    _S3 = pafs.S3FileSystem(anonymous=True, region=C.ALLWISE_S3_REGION, connect_timeout=60, request_timeout=120)
+                t = pq.read_table(f"{C.ALLWISE_S3_BUCKET}/{allwise_key(int(pix))}", filesystem=_S3, columns=AW_COLS)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                pq.write_table(t, p)
+            parts.append(pd.read_parquet(p))
+        c = pd.concat(parts, ignore_index=True)
+    except Exception:  # noqa: BLE001
+        return None
+    c = c[np.abs(c.dec - dec) < radius_arcsec / 3600.0]
+    sep = angsep(ra, dec, c.ra.to_numpy(float), c.dec.to_numpy(float)) * 3600
+    return c.assign(sep=sep)[sep <= radius_arcsec].sort_values("sep")
+
+
+def gaia_offset_test(zone: str, ra: float, dec: float, mjd: float, pmra: float, pmdec: float) -> str:
+    """For a claimed proper motion (mas/yr): is there a Gaia DR3 star where this one was in 2016.0? Compares the offset
+    from the nearest Gaia 2016 position with motion x years (round 1: 8 fast stars confirmed this way; their Gaia rows
+    have no proper motion, which is why the engine's Gaia match by position and motion failed)."""
+    ref = table(zone, "refcat")
+    if ref is None:
+        return "Gaia offset test: NOT AVAILABLE (no local reference catalogue)."
+    g = ref[(ref["cat"] == "gaia") & (np.abs(ref.dec - dec) < 60 / 3600.0)]
+    pm = math.hypot(pmra, pmdec) / 1000.0
+    yrs = (mjd - 57388.5) / 365.25
+    if not len(g) or pm <= 0:
+        return f"Gaia offset test: no Gaia star within 60\" (a star moving {pm:.2f}\"/yr was {pm * yrs:.1f}\" away in 2016.0)."
+    sep = angsep(ra, dec, g.ra.to_numpy(float), g.dec.to_numpy(float)) * 3600
+    out = []
+    for j in np.argsort(sep)[:3]:
+        if sep[j] > max(30.0, 2.5 * pm * yrs):
+            break
+        q = g.iloc[int(j)]
+        e, n = offsets_arcsec(q.ra, q.dec, ra, dec)  # from the Gaia 2016.0 position to ours
+        size, opa = float(math.hypot(e, n)), float(math.degrees(math.atan2(e, n)) % 360)
+        pa = math.degrees(math.atan2(pmra, pmdec)) % 360
+        has = "no proper motion in Gaia DR3 (position-only solution)" if pd.isna(q.pmra) else f"Gaia pm ({q.pmra:+.0f}, {q.pmdec:+.0f}) mas/yr"
+        out.append(f"  Gaia G={q.g_mag:.1f}, {has}: our position is {size:.1f}\" from its 2016.0 position toward PA {opa:.0f}°; "
+                   f"that is {size / yrs:.2f}\"/yr over {yrs:.1f} yr. Claimed {pm:.2f}\"/yr toward PA {pa:.0f}°: "
+                   f"size ratio {size / yrs / pm:.2f}, direction difference {(opa - pa + 180) % 360 - 180:+.0f}°.")
+    if not out:
+        return f"Gaia offset test: no Gaia star within {max(30.0, 2.5 * pm * yrs):.0f}\" (a star moving {pm:.2f}\"/yr was {pm * yrs:.1f}\" away in 2016.0)."
+    return ("Gaia offset test (a real fast star sits motion x years from its Gaia 2016.0 position: ratio near 1 and direction "
+            "difference near 0 confirm the motion; a Gaia star AT our position with a small motion refutes it):\n" + "\n".join(out))
 
 
 def known_near(pred: pd.DataFrame, ra, dec, mjd, session, radius_arcsec: float = 600.0) -> list[dict]:
