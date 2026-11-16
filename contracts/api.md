@@ -1,4 +1,4 @@
-# contracts/api.md: endpoints, static twins, visits, Firestore (v3.22)
+# contracts/api.md: endpoints, static twins, visits, Firestore (v3.23)
 
 Owner: P1. Implemented by server/ and scripts/precompute/ (P2). Read by web/src/api (P3) and
 web/src/blink, web/src/vote (P4). Version 3, 14 Nov 2026 (changes from v2 at the end; v3: P1's answers to the P2 engine PR:
@@ -23,7 +23,8 @@ candidates.json, measured class `known` named `Saturn` or `a moon of Saturn`;
 v3.19: optional `mjd` on `/api/frames` for the hours clock: the visit and the whole session of a find;
 v3.20: optional `/data/cand/<id>/fill.json`, exposures that only fill the plate's empty edge;
 v3.21: months `shifts[]` say whether the motion is steady: `visits`, `chi2_nu`, `wobble_arcsec`, `steady`;
-v3.22: high_pm reasons `parallax_fit` and `unsteady`, from the pipeline's motion model).
+v3.22: high_pm reasons `parallax_fit` and `unsteady`, from the pipeline's motion model;
+v3.23: candidates' `status`, `known_name` and `checks` (what can't be ruled out, and what to look at); `/api/frames` hours `page`).
 
 Static first: the site reads `/data/<slug>/` before it calls `/api/`. The static files have the
 same shapes as the API, so if front and back don't meet, the static format is the contract.
@@ -136,6 +137,7 @@ Blink frames for one spot on one clock and one detector.
 | det | 1–6 | 2 | Detector |
 | mjd | float, MJD (UTC) | none | v3.19, `clock=hours` only. A time, e.g. a mover's find (candidates.json `mjd`): the visit that holds it, with the session nearest it whole. Without it: as before. Rules below |
 | view | `raw` / `model` / `resid` / `refdiff` | `raw` | v3.8, science workspace only. Not `raw`: a derived layer (below), same response shape |
+| page | int ≥ 0 | 0 | v3.23, `clock=hours`, live only. 0: as before. k ≥ 1: more exposures of the same visit and `det` (with the same `mjd`, the same visit), at most 6 a page, none already in an earlier page, spread over the visit's sessions not yet shown (whole sessions, full-field ones first). Same grid as page 0. Rules below |
 
 **Live caps.** A cold `/api/frames` call must fit in Cloud Run's 60 s, so the live API uses fewer
 exposures than the static files. The static twins (scripts/precompute) use all of them.
@@ -201,6 +203,8 @@ Response fields:
 | known | Known objects predicted at an epoch's `mjd_mid`; `epoch_id` is that epoch's `id`. `v` is the V magnitude, or null. `source`: `mpc` (Minor Planet Center orbits propagated with kete, from SPHEREx's own position when the photo header gives it), `most` (IRSA MOST), `irsa-3i` (IRSA's 3I/ATLAS photo list) |
 | data_release | Collections searched, e.g. `"DR1+QR3"` |
 | archive_checked | Date of the IRSA search, `YYYY-MM-DD` |
+| more | v3.23, live hours only: true when a further `page` has exposures of this visit. Absent otherwise (read as false) |
+| visit_exposures | v3.23, live hours only: exposures of `det` in the shown visit that hold the centre (all pages together). Absent otherwise (read as null) |
 | measured | **Optional** (v3.3). What SkyShift's own pipeline measured in this field, below; `null` when nothing is measured here (`measured_reason` says why). Files and answers without it: not computed, read as `null` |
 | measured_reason | **Optional** (v3.3). Why `measured` is null, a code below; `null` when `measured` is set |
 
@@ -577,7 +581,8 @@ web tests still use; it predates `zones` and the high_pm id rule).
   candidates:[{ id, kind:"mover"|"high_pm"|"spectral"|"shape", ra, dec, mjd, clock:"hours"|"months", det, zone, zones,
                 score, snr, flux_ujy, rate_arcsec_h, pm_mas_yr, pm_err_mas_yr, pa_deg,
                 nearest_known_arcsec, gaia_match, catwise_match, galactic_b,
-                labels:[label…], reasons:[code…], why, flags:[flag…], frames_url|null }] }
+                labels:[label…], reasons:[code…], why, flags:[flag…], frames_url|null,
+                status, known_name, checks:[{ code, level, text, look, values }] }] }      # v3.23
 ```
 
 | field | type | meaning |
@@ -616,6 +621,31 @@ Each candidate: every field is present; a missing value is `null`, never omitted
 | why | string | One plain English sentence: why it is on the list (examples below) |
 | flags | [string] | Artefact flags near it (contracts/flags.md record-only bits), lower case: `outlier`, `crosstalk`, `ghost`, `ghost_fpa`, `ghost_ext`, `bloom`, `halo`. mover: any of its dots' 3×3 `flags`; high_pm, spectral: set on ≥ 25% of the source's dots (either source of a pair); shape: [] (dots with these flags are not used, and a source with them on ≥ 25% of its dots is not listed) |
 | frames_url | string or null | Static blink frames, resolved against the URL of candidates.json like `data_url` (`new URL(frames_url, jsonUrl)`): `cand/<id>/frames.json`, a `GET /api/frames` response whose `data_url`s resolve against that file. null: call `/api/frames?ra=&dec=&clock=&fov=&det=` live |
+| status | string | v3.23. `open`: to check. `known`: certainly a known body: an MPC asteroid or comet, or a JPL Horizons planet or moon, predicted within 10″ of every dot's time and place (movers) with its rate within 20% and direction within 15° when both have one; its name in `known_name`. `flaw`: certainly the instrument: every dot of a mover on the same detector pixel (±1 px) although the sky moved under it (a hot pixel), or another flaw named in `checks` with level `strong` and code ending `_proven`. Nothing is deleted for a status: the site lists `known` and `flaw` apart from `open`. Older files lack it: read as `open` |
+| known_name | string or null | v3.23. `status` `known`: the body's MPC designation or name, e.g. `306P/LINEAR`, `(161055) 2002 JV46`, `Iapetus`. Else null |
+| checks | [object] | v3.23. What could make it something else, measured, each with exactly what to look at. Sorted `strong`, `warn`, then `ok`; [] when none. Older files lack it: read as []. Fields below |
+
+**checks** (v3.23): one object per thing to check.
+
+| field | type | meaning |
+|---|---|---|
+| code | string | What is checked, from the vocabulary below; new codes may appear: show `text` and `look` as given |
+| level | string | `strong`: a measured sign it is not new or not real (it lowers `score`; nothing is hidden for it). `warn`: can't be ruled out, look. `ok`: a measured sign for it (e.g. the partner detector saw it too) |
+| text | string | What was measured, one plain sentence with the numbers: "D3 measured 76 ± 41 µJy at its place, against 1,795 in D6 (ratio 0.04; known asteroids here: 0.03–3)" |
+| look | string | Exactly what a person should look at in the Viewer, one plain sentence, or "" |
+| values | object or null | The numbers in `text`, keyed by name (units in the key: `flux_ujy`, `ratio`, `sep_arcsec`, `rate_arcsec_h`, `photos`…), for filters; null when none |
+
+Codes (v3.23; the exporter's tests hold the rules and texts). mover: `known_nearby` (a known body near it,
+with its rate and direction against ours), `one_detector` (the simultaneous partner photographed the spot and
+measured little: its flux or limit against the known-asteroid range; D4 alone is `strong`), `partner_seen`
+(`ok`), `fast`, `odd_direction` (against the visit's common asteroid motion), `two_photos` (no straight-line
+check), `may_not_move`, `flux_jump`, `bright_star`, `flag_outlier`, `flag_crosstalk`, `flag_ghost`, `flag_bloom`,
+`flag_halo`, `persistence`, `sharp` (narrower than the stars around it), `trail`, `repeat_position`, `edge`,
+`catalogue_star` (a catalogue source within 6″ that may or may not be it), `detector_excess`, `chance_tracks`
+(the zone's shuffled-session control), `faint_on_path` (signal below the 5σ cut on its predicted path: `ok` when
+found). high_pm: `gaia_disagrees`, `parallax_leak`, `few_dots`, `saturated`, `blend`, `impossible_motion`,
+`one_detector_shift`. spectral: `catalogues_checked` (which catalogues were searched), `pah_only`,
+`behind_cloud`, `few_channels`, `bright_neighbour`, `blend`, `no_j`. shape: `blend`, `bright_neighbour`, `galaxy`.
 
 **Static frames** (`/data/cand/<id>/`, scripts/candidates/frames.py) exist for the highest-scoring of
 each kind (default 25 movers, 20 high_pm, 15 spectral; under 150 MB in all). mover: hours clock, 20′
@@ -1187,3 +1217,14 @@ Gaia's parallax as a prior, our own with visits in both seasons, else none and t
 weight 0.3; never on an exported row today, since unsteady rows are not vetted). `pm_mas_yr` of a high_pm fit is now
 free of the six-month parallax leak wherever Gaia has a parallax. No field changes; readers that ignore unknown reason
 codes need no change.
+
+## Changes in v3.23 (16 Nov 2026): what to check, certain matches listed apart, more hours photos
+
+- candidates.json: every candidate gains `status` (`open`, `known`, `flaw`), `known_name` and `checks`
+  (section candidates.json). Policy: nothing is removed unless it is certain; a certain known body or flaw is
+  listed apart, everything else stays and `strong` checks lower its `score`. Additive: readers that don't know
+  the fields ignore them (older files: `open`, null, []).
+- `GET /api/frames` takes `page` with `clock=hours` (live only): more exposures of the same visit, 6 a page, so
+  the site can show the first answer at once and load the rest behind it. The response gains `more` (bool: a
+  further page has exposures) and `visit_exposures` (int: exposures of `det` in the shown visit); both absent
+  in static twins and older answers (read as false and null). Page 0 is unchanged and keeps its cache key.
