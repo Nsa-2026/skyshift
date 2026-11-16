@@ -17,6 +17,7 @@ SOURCE = 1 << 21
 def mover(k, dots, ra=None, dec=15.0, session=3, snr=10.0):
     """A mover row with dot lists. dots: list of (obs, det, x, y, flux, snr, size, fpk)."""
     obs, det, x, y, flux, dsnr, size, fpk = (list(c) for c in zip(*dots))
+    y = [v + 0.37 if float(v).is_integer() else v for v in y]  # a measured centroid, not a whole pixel (whole_pixel)
     return dict(ra=121.0 + 0.05 * k if ra is None else ra, dec=dec, mjd=61000.3 + k / 1440, det=det[0], session=session,
                 visit=1, evidence="two_exposures", n_dots=len(dots), snr=snr, flux_ujy=float(np.median(flux)), flags=0,
                 flags_peak_all=0, cell=k, dot_obs=obs, dot_det=np.array(det, np.int8), dot_x=np.array(x, np.float32),
@@ -149,10 +150,13 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     assert [x["grade"] for x in j["suspects"]] == ["B", "B", "C", "C"]
     assert [x["snr"] for x in j["suspects"]] == [20.0, 9.0, 50.0, 30.0]  # by grade, then S/N
     assert [x["reasons"] for x in j["suspects"]] == [[], [], ["edge"], ["2mass"]]
-    assert [x["warn_codes"] for x in j["suspects"]] == [[], [], ["edge"], ["catalogue_star"]]
+    # cell 1 has link's fixed source 8″ away (no flux in the table): a fixed_source warning, not a reason
+    assert [x["warn_codes"] for x in j["suspects"]] == [[], ["fixed_source"], ["edge"], ["catalogue_star"]]
+    assert j["suspects"][1]["warn_values"] == {"fixed_source": {"sep_arcsec": 8.0, "fixed_snr": 20}}
+    assert all(x["warn_levels"] == {} for x in j["suspects"])
     assert j["suspects"][2]["warn_values"] == {"edge": {"edge_px": 3.0}}
     assert j["suspects"][3]["warn_values"]["catalogue_star"]["tmass_sep_arcsec"] == 4.0
-    assert j["warnings"] == {"catalogue_star": 1, "edge": 1}
+    assert j["warnings"] == {"catalogue_star": 1, "edge": 1, "fixed_source": 1}
     near = {x["cell"]: x["near_source_arcsec"] for x in j["suspects"]}
     assert near[1] == 8.0 and near[3] == 4.0 and near[2] is None
     assert j["grades"] == {"A": 0, "B": 2, "C": 2} and j["gates"]["edge"] == 1
@@ -160,7 +164,7 @@ def test_run_writes_grades_vetoes_and_ranks(tmp_path, monkeypatch):
     assert list(p["grade"]) == ["B", "B", "C", "C"] and "dot_x" in p and "gate_2mass" in p
     # no tracklets.parquet: no track fields, nothing graded A
     assert "tracklet_id" not in p and all("rate_arcsec_h" not in x for x in j["suspects"])
-    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0, "fast_held": 0}
+    assert st["vetting"]["tracklets"] == {"source": None, "on_track": 0, "graded_a": 0, "fast_held": 0, "track_overruled": 0}
 
 
 def test_run_catalogue_reason_only_for_a_source_as_bright_as_the_mover(tmp_path, monkeypatch):
@@ -209,7 +213,8 @@ def test_run_grades_a_from_tracklets(tmp_path, monkeypatch):
     store.write_parquet(results_rel(z.name, "tracklets.parquet"), _tracklets(z, m))
     st = S.run(store, z, pred=NO_PRED)
     assert st["vetting"]["grades"] == {"A": 1, "B": 1, "C": 2}
-    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1, "fast_held": 0}
+    assert st["vetting"]["tracklets"] == {"source": "tracklets.parquet", "on_track": 3, "graded_a": 1, "fast_held": 0,
+                                          "track_overruled": 0}
     j = store.read_json(results_rel(z.name, "suspects.json"))
     assert j["grades"] == {"A": 1, "B": 1, "C": 2}
     assert [(x["cell"], x["grade"]) for x in j["suspects"]] == [(1, "A"), (2, "B"), (0, "C"), (3, "C")]  # A leads
@@ -248,7 +253,7 @@ def test_track_grades_rule():
                        "rate_arcsec_h": 10.0, "pa_deg": 0.0, "rate_sigma": 2.0, "rate_snr": [5.0, 9.0, 4.99, np.nan, 9.0]})
     out, st = S.track_grades(s, ids, tr)
     assert list(out["grade"]) == ["A", "B", "B", "B", "C", "B"]
-    assert st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1, "fast_held": 0}
+    assert st == {"source": "tracklets.parquet", "on_track": 4, "graded_a": 1, "fast_held": 0, "track_overruled": 0}
     assert list(out["tracklet_id"]) == [0, 1, 2, -1, 3, -1] and out["rate_arcsec_h"].isna().tolist() == [False] * 3 + [True, False, True]
     same, st0 = S.track_grades(s, ids, None)
     assert same is s and st0["graded_a"] == 0
@@ -363,7 +368,7 @@ def test_dot_numbers_and_gate_warnings():
             clean(4, flux=(100.0, 500.0))]
     s = pd.DataFrame(rows)
     num = V.dot_numbers(s)
-    assert num["edge_px"][1] == 3.0 and num["edge_px"][0] == 885.0
+    assert num["edge_px"][1] == 3.0 and round(num["edge_px"][0], 2) == 885.37
     assert list(num["persist_dots"]) == [0, 0, 1, 0, 0]
     ratio = round(2.0 / C.VET_STAR_SIZE_ARCSEC[4][1], 2)
     assert round(num["size_ratio"][3], 2) == ratio

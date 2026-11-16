@@ -50,6 +50,7 @@ from . import log
 from .refcat import refcat_rel
 from .sky import Footprint, SkyTree, angsep, cell_of, chord, fof_groups, offset_radec, radec_to_xyz, sessions_covering
 from .store import Store, dots_dir, dots_rel, photolist_rel, results_rel
+from .vet import dot_sigma, whole_pixel
 
 L = log.get("link")
 
@@ -629,13 +630,14 @@ def pair_candidates(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return out, kind
 
 
-def track_fit(ra, dec, mjd, exposure, detector, flux, snr=None) -> dict:
+def track_fit(ra, dec, mjd, exposure, detector, flux, snr=None, whole=None) -> dict:
     """A candidate's straight-line motion from its dots: one position per exposure (mean of its dots), a
     least-squares line in time. rate_arcsec_h / pa_deg (east of north) NaN with one exposure; line_resid_arcsec =
     the largest distance of an exposure's position from the line (NaN under 3 exposures); flux_ratio = the
     largest max/min flux among one detector's dots (1 if no detector has two); dup_dots = dots beyond one per
     (exposure, detector); motion_snr (two exposures, with snr): the distance between the two exposures' positions over
-    its σ (dot_sigma_arcsec), else NaN. `_vx`, `_vy` (″/h east, north) and `_t0` (mean MJD) let classify place the
+    its σ (dot_sigma_arcsec; whole: per dot, a whole-pixel centroid, whose rounding LINK_WHOLE_PIXEL_SIGMA_PX adds in
+    quadrature, vet.dot_sigma), else NaN. `_vx`, `_vy` (″/h east, north) and `_t0` (mean MJD) let classify place the
     track in every photo of the session."""
     ra = np.asarray(ra, np.float64)
     dec = np.asarray(dec, np.float64)
@@ -650,7 +652,7 @@ def track_fit(ra, dec, mjd, exposure, detector, flux, snr=None) -> dict:
     out = {"rate_arcsec_h": np.nan, "pa_deg": np.nan, "line_resid_arcsec": np.nan, "motion_snr": np.nan,
            "_vx": 0.0, "_vy": 0.0, "_t0": t0}
     if ue.size == 2 and snr is not None:
-        se = np.sqrt(np.bincount(inv, dot_sigma_arcsec(snr) ** 2)) / cnt  # σ of each exposure's mean position
+        se = np.sqrt(np.bincount(inv, dot_sigma(snr, whole) ** 2)) / cnt  # σ of each exposure's mean position
         out["motion_snr"] = float(np.hypot(xe[1] - xe[0], ye[1] - ye[0]) / max(float(np.hypot(*se)), 1e-9))
     if ue.size >= 2 and np.ptp(te) > 0:
         tm = te.mean()
@@ -835,13 +837,14 @@ def find_candidates(dots: pd.DataFrame) -> pd.DataFrame:
         idx = idx[np.argsort(lab[idx], kind="stable")]
         cuts = np.flatnonzero(np.diff(lab[idx])) + 1
         A = {c: d[c].to_numpy() for c in ("ra", "dec", "mjd", "visit", "exposure", "detector", "snr", "flux_ujy")}
+        has_xy = "x" in d and "y" in d
         fl = d["flags"].to_numpy(np.int64) & 0xFFFFFFFF
         fp = d["flags_peak"].to_numpy(np.int64) & 0xFFFFFFFF
         for m in np.split(idx, cuts):
             k = m[int(np.argmax(A["snr"][m]))]
             exps = sorted(set(A["exposure"][m].tolist()))
             tr = track_fit(A["ra"][m], A["dec"][m], A["mjd"][m], A["exposure"][m], A["detector"][m], A["flux_ujy"][m],
-                           A["snr"][m])
+                           A["snr"][m], whole_pixel(d["x"].to_numpy()[m], d["y"].to_numpy()[m]) if has_xy else None)
             dets_by_exp: dict = {}
             for e_, d_ in zip(A["exposure"][m].tolist(), A["detector"][m].astype(int).tolist()):
                 dets_by_exp.setdefault(e_, set()).add(d_)

@@ -119,6 +119,17 @@ def test_one_photo_verdicts():
     assert v["verdict"] == "neighbour" and v["offset_px"] == pytest.approx(np.hypot(1.5, 0.1))
     noisy = np.random.default_rng(2).normal(0, 0.8, (n, 2))  # a source at the place: offsets scatter around 0
     assert P.one_photo(900.0, 150.0, np.full(n, 400.0), err, other_offset=noisy)["verdict"] == "steady"
+    # the steady case: 900 ± 150 now against 400 ± 35: 2.2× but only 3.2σ apart: steady, with the numbers
+    v = P.one_photo(900.0, 150.0, np.full(n, 400.0), err)
+    assert v["diff_ujy"] == pytest.approx(500.0) and v["diff_snr"] == pytest.approx(500 / np.hypot(150, 100 / np.sqrt(8)))
+    # an asteroid passing a star: 3000 ± 100 now against 400 ± 35 at other times: 7.5×, 24σ apart: brighter, also
+    # where the star's light is centred beside the place (Erato: a star 8.8″ away)
+    v = P.one_photo(3000.0, 100.0, np.full(n, 400.0), err)
+    assert v["verdict"] == "brighter" and v["diff_snr"] > 20
+    assert P.one_photo(3000.0, 100.0, np.full(n, 400.0), err, other_offset=off)["verdict"] == "brighter"
+    # 1.4× the source, though 8σ apart: not brighter (the source alone, a little variable or mismeasured)
+    assert P.one_photo(2800.0, 100.0, np.full(n, 2000.0), err)["verdict"] == "steady"
+    assert np.isnan(P.one_photo(900.0, 150.0, nothing[:0], err[:0])["diff_snr"])
 
 
 def test_path_summary():

@@ -21,6 +21,7 @@ Numbers and their origin are next to each constant; the validation is in scripts
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -329,6 +330,11 @@ SHARP_RATIO = 0.7  # narrower than 0.7 × the stars of similar S/N (vet's sharp 
 MIN_OTHERS = 2
 TRANSIENT_R_PX = 3.0
 NEIGHBOUR_PX = 0.8  # steady light whose centroid sits ≥ 0.8 px (5″) from the place: a neighbour's light spilling in
+# brighter: a source sits at the spot, but the circled dot holds >= 1.5 × its light and the difference itself is >= 5σ
+# (the vetting rule "brighter now", 16 Nov): something extra is there in that photo, e.g. an asteroid passing 3″ from
+# a star (Seraphina) or 8.8″ (Erato). A faint star's lucky photo can't do it: at S/N 5–8 a 1.5× excess is < 3.5σ.
+BRIGHTER_RATIO = 1.0 / 1.5
+BRIGHTER_SNR = 5.0
 
 
 def transient_pixels(flags: ArrayLike, x: float, y: float, r: float = TRANSIENT_R_PX) -> int:
@@ -344,7 +350,9 @@ def one_photo(own_flux: float, own_err: float, other_flux: ArrayLike, other_err:
               size_ratio: float = np.nan, transient_px: int | None = None, moved: bool | None = None,
               other_offset: ArrayLike | None = None) -> dict:
     """What a dot circled in one photo is, from forced photometry at the same sky place in the other exposures of the
-    same detector (core-api-onephoto.md). Verdicts, first match: `too_few` (< MIN_OTHERS usable others), `steady`
+    same detector (core-api-onephoto.md). Verdicts, first match: `too_few` (< MIN_OTHERS usable others), `brighter`
+    (others together ≥ STEADY_SNR σ: a source is there, but own ≥ 1 / BRIGHTER_RATIO × theirs and the difference
+    ≥ BRIGHTER_SNR σ: something extra in this photo), `steady`
     (others together ≥ STEADY_SNR σ at ≥ STEADY_RATIO × own: a faint fixed source) or `neighbour` (the same, but the
     light in the others is centred ≥ NEIGHBOUR_PX away: other_offset = per other exposure the (east, north) offset of
     its light centroid from the place in one sky frame, in pixels of 6.152″; their flux-weighted mean vector: a star
@@ -352,7 +360,8 @@ def one_photo(own_flux: float, own_err: float, other_flux: ArrayLike, other_err:
     below UNCLEAR_LIMIT × own), `cosmic_ray` (nothing there and sharper than SHARP_RATIO × stars), `moved` (nothing
     there, a dot nearby in the next/previous exposure), else `flash`. transient_px (NASA's TRANSIENT pixels next to it)
     is reported but decides nothing: it sits beside 12% of real asteroids' dots (a moving source changes a pixel's
-    ramp during the exposure) and 21% of junk dots (validation, 16 Nov)."""
+    ramp during the exposure) and 21% of junk dots (validation, 16 Nov). Also: diff_ujy = own − others, diff_snr = that
+    over √(own_err² + others' err²) (NaN without others)."""
     f, e, n = combine(other_flux, other_err)
     fo = np.asarray(other_flux, np.float64)
     eo = np.asarray(other_err, np.float64)
@@ -364,7 +373,11 @@ def one_photo(own_flux: float, own_err: float, other_flux: ArrayLike, other_err:
                ratio=float(f / own_flux) if n and own_flux > 0 else np.nan,
                limit_ratio=float((max(f, 0.0) + 3.0 * e) / own_flux) if n and own_flux > 0 else np.nan,
                size_ratio=float(size_ratio) if size_ratio is not None else np.nan,
-               transient_px=transient_px, moved=moved, offset_px=np.nan)
+               transient_px=transient_px, moved=moved, offset_px=np.nan, diff_ujy=np.nan, diff_snr=np.nan)
+    if n and np.isfinite(own_flux):
+        de = math.hypot(float(own_err) if own_err is not None and np.isfinite(own_err) else 0.0, float(e))
+        res["diff_ujy"] = float(own_flux - f)
+        res["diff_snr"] = float((own_flux - f) / de) if de > 0 else np.nan
     if other_offset is not None and len(other_offset):
         oo = np.asarray(other_offset, np.float64).reshape(-1, 2)
         sel = okm & np.isfinite(oo).all(axis=1) & (fo > 0)
@@ -373,6 +386,8 @@ def one_photo(own_flux: float, own_err: float, other_flux: ArrayLike, other_err:
             res["offset_px"] = float(np.hypot(v[0], v[1]))
     if n < MIN_OTHERS or not own_flux > 0:
         res["verdict"] = "too_few"
+    elif res["other_snr"] >= STEADY_SNR and res["ratio"] <= BRIGHTER_RATIO and res["diff_snr"] >= BRIGHTER_SNR:
+        res["verdict"] = "brighter"
     elif res["other_snr"] >= STEADY_SNR and res["ratio"] >= STEADY_RATIO:
         res["verdict"] = "neighbour" if res["offset_px"] >= NEIGHBOUR_PX else "steady"
     elif res["limit_ratio"] >= UNCLEAR_LIMIT:

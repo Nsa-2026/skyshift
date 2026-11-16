@@ -28,7 +28,11 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    Tests: cd pipeline && uv run pytest ../scripts/candidates/tests/test_known_check.py
                    pixel_check.py (P1, 16 Nov): check producer for movers (contracts v3.23 `checks`), measured in
                    NASA's photos by small S3 range reads (s3pixels.py): partner detector, faint on the path, hot
-                   pixel, persistence, sharp, wide, one-photo. Writes ~/skyshift-data/checks/pixel.json; --validate
+                   pixel, persistence, sharp, wide, one-photo. A dot on one detector pixel in every exposure is
+                   hot_pixel_proven (status flaw); hot_pixel is the uncertain code. One-photo: the mover's spot in its
+                   other photos; `brighter` (own ≥ 1.5× and ≥ 5σ over the other photos: an asteroid passing a star,
+                   e.g. Seraphina, Erato) keeps it open; every mover gets flux_now_ujy, flux_other_ujy, ratio, diff_snr
+                   (check values and its `one_photo` entry). Writes ~/skyshift-data/checks/pixel.json; --validate
                    gives the hit rates on known asteroids, junk and faint stars (pixel_validate.py, into
                    ~/skyshift-data/cache/pixel/validation.json). Cache: ~/skyshift-data/cache/pixel. Run from server/.
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent

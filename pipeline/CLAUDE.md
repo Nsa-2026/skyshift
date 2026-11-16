@@ -409,8 +409,8 @@ The step never raises (errors go to its stats).
   halve the real share but drop 3–6.5 points of the rest, which outnumbers the real ones 2–23× in the 4–6″ ring).
 - Vetting (vet.py, 14 Nov; config VET_*): every suspect gets `grade` and `reasons`. Gates on its own dots
   (link carries each mover's dots as lists dot_obs, dot_det, dot_x, dot_y, dot_flux, dot_snr, dot_size, dot_fpk, …) and on
-  zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y; tiles merge it): hot_pixel (±1 px with
-  movers' dots in ≥ 3 exposures or free dots in ≥ 5), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure, and
+  zone maps from freedots.parquet (link: every free dot's obs_id, detector, x, y, ra, dec; tiles merge it): hot_pixel
+  (±1 px, free dots at other sky places in ≥ 5 exposures; see mover flaws below), bad_column (≥ 3 free dots within ±0.5 px in x, one exposure, and
   more than chance at that photo's free-dot density, Poisson tail ≤ 0.1%: ecliptic photos hold p90 500–780 free dots,
   where ≥ 3 alone hit 9–12% of the real asteroids and as much junk; now 0.1–0.5% vs 0–9%), edge
   (6 px), masked_peak, sharp_outlier (√(a·b) < 0.7 × stellar at that S/N with OUTLIER; OUTLIER alone never: 52% of real
@@ -428,6 +428,21 @@ The step never raises (errors go to its stats).
   tracklets.parquet changes nothing (stats vetting.tracklets). candidates.py lists A first and names the track in `why`.
   Gates run on the suspects only, never before pairing: recall is unchanged. completeness' vs_recall compares the
   synthetic movers with recall.json `recall_movers` (movers alone) when present.
+- Mover flaws (16 Nov, p1/mover-flaws; docs/research/2026-11-16-engine-flaws-from-vetting.md; config "mover flaws" has
+  every threshold with its real vs rest share): vet.flaw_numbers per suspect (FLAW_COLUMNS in suspects.parquet) and
+  suspects.mover_flaws. Reasons (grade C, strong check): hot_pixel (free dots on the dot's pixel at other sky places
+  > 30″ away in ≥ 5 exposures; repeats at one sky place are a source, e.g. Europa), hot_pixel_proven (every dot on such a
+  pixel, ≥ 3: real 0 of 6,125), same_pixel (two exposures within 1 px: a session without the telescope step), whole_pixel
+  (≥ 2 dots on a whole pixel), wide (every unsaturated dot ≥ 1.3× a star), cross_detector (no detector sees two
+  exposures: D1 then D4 is colour), fixed_source (link's fixed source within 9.5″ at least as bright as the mover, or
+  the mover under 1.5× the source and motion < 2σ; a Gaia star within 2″ and motion < 3σ), glow (one detector, broad, G < 7 within 10′), unseen (≥ 2 of
+  its session's exposures hold its track but not it, counted without link's star/blend exclusions). Warnings with
+  numbers: their weaker forms, may_not_move (motion < 3σ: real 22.6% vs rest 26.8%, never a grade) and blend (between
+  two Gaia stars). `warn_levels` (JSON {code: "strong"}) next to warn_codes. Motion σ (vet.motion_sigma; link's
+  motion_snr too) gives a whole-pixel dot 0.3 px more error. A grade-A track overrules fixed_source, unseen, wide,
+  whole_pixel, cross_detector and glow (VET_TRACK_OVERRULES: kept as warnings). Hunt + ecl04 + ecl08 + ecl11 as if
+  unknown (main → branch): real kept 98.7% → 98.7%, real A/B 89.0% → 88.3%, real A 67.8% → 67.9%, rest A/B 3.0% → 0.8%
+  (288 listed → 74), hot_pixel_proven on 337 rest, 0 real.
 
 ## Facts
 - S3 key: TAP spherex.obscore has no usable cloud_access; spherex.artifact.uri = 'ibe/data/spherex/' + S3 key.

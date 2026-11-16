@@ -1055,9 +1055,77 @@ VET_A_MIN_SESSIONS = 2         # ... and movers in >= this many sessions (tracks
 VET_A_FAST_ARCSEC_H = 400.0
 VET_GRADE_RANK = {"A": 0, "B": 1, "C": 2}
 # reasons are listed in this order; not_vetted = the movers table has no dot lists (link before 14 Nov evening)
-VET_GATES = ("not_vetted", "hot_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp", "flux_ratio",
-             "red_photo", "bloom", "halo", "bright_star", "gaia", "catwise", "2mass", "allwise")
+VET_GATES = ("not_vetted", "hot_pixel", "same_pixel", "bad_column", "edge", "masked_peak", "sharp_outlier", "very_sharp",
+             "flux_ratio", "red_photo", "whole_pixel", "wide", "glow", "cross_detector", "unseen", "fixed_source", "bloom",
+             "halo", "bright_star", "gaia", "catwise", "2mass", "allwise")
 VET_CATALOGS = ("gaia", "catwise", "2mass", "allwise")  # the catalogue reasons among VET_GATES
+
+# --- mover flaws (16 Nov, p1/mover-flaws; docs/research/2026-11-16-engine-flaws-from-vetting.md) -----------------------
+# Each separator measured on every mover of hunt, ecl04, ecl08, ecl11: real = an MPC prediction within 5″ (6,125), rest =
+# no known body within 60″ (9,465), listed = the rest graded A/B before (288). "real a% / rest b%" = the share it hits.
+# A reason (grade C, a strong check) only where real <= ~1% and rest >= 10× that; else a warning with its numbers;
+# `*_proven` (status flaw) only where no real asteroid is hit and the physics is certain. Nothing here removes a mover.
+# hot pixel: free dots (freedots.parquet) on the same detector pixel (±VET_HOT_PX) in other exposures, counted only at sky
+# places > VET_HOT_AWAY_ARCSEC from the dot (a source repeating at one sky place is the sky, e.g. Europa; repeats there:
+# real 0 / rest 0 at >= 3). Warning: a dot's pixel holds >= VET_HOT_WARN_EXP (real 1.2% / rest 11.1%); reason hot_pixel:
+# >= VET_HOT_GATE_EXP (0.8 / 9.5; the old gate counting every exposure, movers' >= 3 or free >= 5: 1.0 / 10.2);
+# hot_pixel_proven: EVERY dot (>= 2) on such a pixel with >= VET_HOT_PROVEN_EXP (0 of 6,125 / 3.6%; >= 2: 0 / 4.4).
+VET_HOT_AWAY_ARCSEC = 30.0
+VET_HOT_WARN_EXP = 3
+VET_HOT_GATE_EXP = 5
+VET_HOT_PROVEN_EXP = 3
+# same_pixel: dots of two exposures within VET_SAME_PIXEL_PX of one detector pixel (x and y). The telescope steps ~706″
+# (115 px) between exposures, so only a session without that step (ecl17 session 201: 0.8″) gives it, and there every
+# hot pixel stays on one sky spot; a real mover then also moved < 1 px. Real 0 / rest 0 in the four zones; 9 of ecl17's
+# vetted junk (round 1). Reason (a step-less hot pixel is not provable from the dots alone).
+VET_SAME_PIXEL_PX = 1.0
+# whole_pixel: a dot whose x and y both lie within VET_WHOLE_PX of a whole pixel (a centroid fallback): reason with >=
+# VET_WHOLE_GATE_DOTS such dots (real 0.2% / rest 14.2%), warning with 1 (3.6 / 24.8). link gives such a dot a position
+# error of at least LINK_WHOLE_PIXEL_SIGMA_PX (motion_snr; vet's motion_sigma likewise).
+VET_WHOLE_PX = 0.02
+VET_WHOLE_GATE_DOTS = 2
+LINK_WHOLE_PIXEL_SIGMA_PX = 0.3
+# wide: dot √(a·b) / the detector's stellar size at its S/N (VET_STAR_SIZE_ARCSEC), unsaturated dots only (OVERFLOW or
+# NONLINEAR at the peak: a saturated asteroid is wide too). Reason: every such dot (>= 2) >= VET_WIDE_RATIO (real 0.9% /
+# rest 20.1%: real ones are V 5–7 saturated or trailed); warning: their median >= it (2.5 / 29.5).
+VET_WIDE_RATIO = 1.3
+VET_SAT_BITS = (1 << 1) | (1 << 15)  # OVERFLOW, NONLINEAR (contracts/flags.md)
+# glow: a broad glow of one detector near a very bright star: one detector, no simultaneous partner, median size ratio >=
+# VET_WIDE_RATIO and a Gaia star of G < VET_GLOW_G_MAG within VET_GLOW_ARCSEC (real 1 of 6,125 / rest 2.0%; round 1:
+# 11 D5/D6 glows 5.9–7.3″ wide, G 2.9–6.3 within 7.5′). Reason.
+VET_GLOW_G_MAG = 7.0
+VET_GLOW_ARCSEC = 600.0
+# cross_detector: >= 2 exposures and no detector holds dots of two of them (D1 then D4: colour read as motion). Reason
+# (real 0.5% / rest 8.3%; 26 of the 28 real ones in a simultaneous pair).
+# fixed_source: link's fixed source (fixed.parquet) within VET_FIXED_NEAR_ARCSEC of the mover (link drops dots within
+# FIXED_VETO_ARCSEC only; a blend's centroid lands 6.2–9.4″ off). Warning (real 5.7% / rest 29.0%). Reason when the
+# source's flux >= VET_FIXED_FLUX_RATIO × the mover's (0.4 / 23.4), or the mover's motion < VET_FIXED_STILL_SIGMA while it
+# is under 1 / VET_FIXED_STILL_RATIO × the source (0.3 / 11.1; brighter than 1.5× it, the dot holds more than the source:
+# Seraphina passing a star 3″ away at 1.9σ), or a Gaia star (moved to the date) within VET_GAIA_STILL_ARCSEC and motion
+# < VET_GAIA_STILL_SIGMA (0.1 / 7.6). Motion: vet.motion_sigma (link's rate over its error from the dots' S/N).
+VET_FIXED_NEAR_ARCSEC = 9.5
+VET_FIXED_FLUX_RATIO = 1.0
+VET_FIXED_STILL_SIGMA = 2.0
+VET_FIXED_STILL_RATIO = 0.67
+VET_GAIA_STILL_ARCSEC = 2.0
+VET_GAIA_STILL_SIGMA = 3.0
+# may_not_move: motion under VET_MOTION_WARN_SIGMA: real 22.6% / rest 26.8% (24–32% / 61–71% per zone among movers with a
+# measured rate): a warning with the numbers, never a grade (two exposures 2 minutes apart rarely show 3σ).
+VET_MOTION_WARN_SIGMA = 3.0
+# unseen: exposures of the mover's session whose photo holds its track (>= MOVER_COVER_EDGE_PX inside, in the zone box)
+# but show none of its dots, counted WITHOUT link's exclusions near fixed sources and blends (the coverage undercount:
+# link's missed_exposures stayed 0 with 4–8 exposures on the track). Movers of >= 2 exposures. Reason >= VET_UNSEEN_GATE
+# (real 0.7% / rest 21.2%), warning 1 (8.5 / 32.3).
+VET_UNSEEN_GATE = 2
+# blend: two Gaia stars (G < 20, moved to the date) within VET_BLEND_PAIR_ARCSEC of the mover, >= VET_BLEND_APART_ARCSEC
+# apart, their midpoint within VET_BLEND_MID_ARCSEC of it: its dot may be their blend. Warning (real 0.3% / rest 2.5%).
+VET_BLEND_PAIR_ARCSEC = 12.0
+VET_BLEND_APART_ARCSEC = 10.0
+VET_BLEND_MID_ARCSEC = 2.0
+# A track overrules the single-session separators: a suspect that track_grades would grade A (a track over >= 2 sessions,
+# motion >= 5σ; the shuffled control makes 0 tracks) keeps A when its only reasons are these; they stay as warnings.
+# Without it 64 of the four zones' 4,154 grade A real asteroids fell to C, and 0 rest or 5–60″ movers held A.
+VET_TRACK_OVERRULES = ("fixed_source", "unseen", "wide", "whole_pixel", "cross_detector", "glow")
 
 # --- qa: a grade per photo (qa.py; results/<zone>/qa_photos.parquet, qa.json) ------------------------------------
 # NASA's header QA passes every photo (FINAST 0, L1/L2DQAFLG "Pass" on the bad ones too), so qa grades each photo against

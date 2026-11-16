@@ -147,7 +147,9 @@ def test_d6_alone_red_is_only_a_warning():
 def test_same_pixel_while_the_sky_moved_is_a_flaw():
     m = mover_with([4, 4], [500.2, 500.6], [800.0, 800.4], [T0, T0 + 2.1 * MIN], [10.0, 10.2], [5.0, 5.0])
     ev = PC.evaluate(m, own_res(m))
-    assert ev["status"] == "flaw" and ("hot_pixel", "strong") in codes(ev)
+    # certain: the contract's flaw rule needs a code ending in _proven (v3.24); hot_pixel stays the uncertain one
+    assert ev["status"] == "flaw" and ("hot_pixel_proven", "strong") in codes(ev)
+    assert not any(c["code"] == "hot_pixel" for c in ev["checks"])
 
 
 def test_sharp_and_one_photo_steady():
@@ -163,14 +165,56 @@ def test_sharp_and_one_photo_steady():
     assert ("one_photo", "strong") in codes(ev)
     one = next(c for c in ev["checks"] if c["code"] == "one_photo")
     assert one["values"]["steady_places"] == 2
-    # nothing at its places on other days: ok
+    # "same place, same brightness": 500 ± 60 now against 250 ± 37 at the place on other days, 3.6σ apart
+    v = one["values"]
+    assert v["flux_now_ujy"] == 500.0 and round(v["flux_other_ujy"]) == 250 and round(v["ratio"], 2) == 0.5
+    assert round(v["diff_snr"], 1) == round(250 / np.hypot(60, 90 / np.sqrt(6)), 1)
+    assert ev["one_photo"]["verdict"] == "steady" and ev["one_photo"]["flux_now_ujy"] == 500.0
+    # nothing at its places on other days: ok, with the same numbers
     for k in list(res):
         if k.startswith("s"):
             res[k] = dict(flux=5.0, err=90.0, snr=0.05, masked=False)
     ev = PC.evaluate(m, res)
     assert ("one_photo", "ok") in codes(ev)
+    assert next(c for c in ev["checks"] if c["code"] == "one_photo")["values"]["flux_now_ujy"] == 500.0
     assert [c["level"] for c in ev["checks"]] == sorted((c["level"] for c in ev["checks"]),
                                                         key=PC.LEVEL_ORDER.get)
+
+
+def test_an_asteroid_passing_a_star_is_brighter_not_steady():
+    """Seraphina (ecl05-636180034101-87934733, a star 3″ away) and Erato (ecl05-641820031188-88225904, 8.8″): the
+    others see the star at the place, but the dot holds about twice its light, many σ more: one_photo ok with the
+    numbers, status open."""
+    m = mover_with([5, 5], [500.0, 501.0], [800.0, 685.0], [T0, T0 + 2.1 * MIN], [10.0, 10.0005], [5.0, 5.0],
+                   flux=6000.0)
+    res = own_res(m, flux=6000.0, err=200.0)
+    for i, d in enumerate(m.dots):
+        for j in range(6):
+            k = f"s{i}{j}"
+            m.plan["static"].append(dict(url=f"s{j}", ra=d["ra"], dec=d["dec"], dot=d, det=5, key=k))
+            res[k] = dict(flux=2900.0, err=150.0, snr=19.3, masked=False)
+    ev = PC.evaluate(m, res)
+    one = next(c for c in ev["checks"] if c["code"] == "one_photo")
+    assert one["level"] == "ok" and ev["status"] is None and "2.1× as much" in one["text"]
+    v = one["values"]
+    assert v["brighter_places"] == 2 and round(v["ratio"], 2) == 0.48 and v["diff_snr"] > 10
+    assert ev["one_photo"]["verdict"] == "brighter" and round(ev["one_photo"]["flux_other_ujy"]) == 2900
+    # the star's light centred 1.4 px (8.8″) beside the place on other days (Erato): still brighter, not "neighbour"
+    for it in m.plan["static"]:
+        it["jac"] = [[1.0, 0.0], [0.0, 1.0]]
+        res[it["key"]] = res[it["key"]] | {"dx": 1.4, "dy": 0.0}
+    one = next(c for c in PC.evaluate(m, res)["checks"] if c["code"] == "one_photo")
+    assert one["level"] == "ok" and one["values"]["brighter_places"] == 2
+    # the star alone (the dot only 1.2× its light): its neighbour's light again (warn), and strong where it is centred
+    # on the place
+    for k in list(res):
+        if k.startswith("s"):
+            res[k] = res[k] | {"flux": 5000.0}
+    assert ("one_photo", "warn") in codes(PC.evaluate(m, res))
+    for k in list(res):
+        if k.startswith("s"):
+            res[k] = res[k] | {"dx": 0.0}
+    assert ("one_photo", "strong") in codes(PC.evaluate(m, res))
 
 
 def test_persistence_behind_a_saturated_star():
@@ -242,7 +286,7 @@ def test_main_writes_the_producer_format(tmp_path, monkeypatch):
     cj = tmp_path / "candidates.json"
     cj.write_text(json.dumps({"candidates": [cand("m1"), cand("m2")]}))
     fake = {"m1": {"checks": [PC.check("sharp", "ok", "t", "", None)], "status": None, "known_name": None,
-                   "metrics": {}}}
+                   "metrics": {}, "one_photo": None}}
     monkeypatch.setattr(PC, "run", lambda movers, tables, meas: {m.id: fake[m.id] for m in movers})
     assert PC.main(["--candidates", str(cj), "--root", str(root)]) == 0
     out = json.loads((root / "checks" / "pixel.json").read_text())
