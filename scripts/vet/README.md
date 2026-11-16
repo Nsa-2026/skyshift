@@ -66,3 +66,13 @@ Run everything from `pipeline/` (its environment has all that is needed):
   dropped, 18 of 18 junk removed). On the junk-heavy mix of the To check list (56 of 64 easy) routed costs about $0.041
   a mover against $0.076 for high everywhere. Sonnet high alone is the best single checker measured (better than Opus
   medium: 39/5/0 against 35/9/0).
+
+## Publishing the verdicts on the site
+
+`publish_checks.py <round> --out ~/skyshift-data/checks/ai.json` turns the checkers' records into a check producer's side
+file (contracts/api.md, Side files): one `ai_review` check per finding (ok real, warn open, strong every checker drops it)
+and `ai_fake_proven` (strong, so status `flaw`: listed apart, never deleted) when no checker keeps it and two drop it at
+confidence ≥ 0.8, a mover's latest one with a named proof. A strong catalogue check (`catalogue.json`) marks an AI "real,
+not catalogued" as catalogued. The exporter merges it with the other producers:
+`skyshift-candidates --merge-only web/public/data/candidates.json --checks-dir <dir> --out <dir>/candidates.json`.
+
