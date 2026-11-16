@@ -34,6 +34,24 @@ def test_published_science_serves_five_fields_without_local_cache(monkeypatch):
         assert all(candidate['p_false'] is None for candidate in analysis['cold_candidates'])
 
 
+def test_published_signals_are_checked_before_they_are_published():
+    """scripts/precompute/signal_checks.py wrote every signal's catalogue checks into the file (served unchanged by
+    /api/analysis above): a regenerated analysis.json without them must be checked again before it ships."""
+    root = app._repo_root() / 'web/public/science-data'
+    for path in sorted(root.glob('*/analysis*.json')):
+        analysis = json.loads(path.read_text())
+        assert set(analysis['catalogue_checks']['sources']) == {'gaia', 'catwise', 'mpc'}, path
+        assert not any('vetoes have not been run' in w for w in analysis['warnings'])
+        for key in ('slow_movers', 'fast_movers', 'cold_candidates'):
+            for candidate in analysis[key]:
+                assert candidate['status'] in ('unvetted', 'single_visit', 'persistent', 'artifact_warning')
+                assert candidate['check_status'] in ('open', 'known')
+                assert (candidate['known_name'] is not None) == (candidate['check_status'] == 'known')
+                levels = [c['level'] for c in candidate['checks']]
+                assert levels and levels == sorted(levels, key=['strong', 'warn', 'ok'].index)
+                assert all(c['text'] and isinstance(c['look'], str) for c in candidate['checks'])
+
+
 def test_published_layers_keep_their_grid_and_do_not_invent_coverage():
     root = app._repo_root() / 'web/public/science-data'
     for path in sorted(root.glob('*/model.json')):

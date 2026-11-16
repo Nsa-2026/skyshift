@@ -4,6 +4,10 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
 - validate/        P1. V1–V11, write web/public/data/validation.json (contracts/api.md).
 - precompute/      P2. Calls build_blink() from server/ for the featured targets and writes
                    web/public/data/<slug>/ (frames.json, object.json, frame files).
+                   signal_checks.py (run from pipeline/, needs known_check.py): every signal of
+                   web/public/science-data/<slug>/analysis*.json checked against Gaia, CatWISE and every MPC asteroid
+                   and comet before it is published (the Viewer's vetting.ts rules); rerun after a new analysis.json.
+                   Tests: cd pipeline && uv run pytest ../scripts/precompute/tests
 - candidates/      P1. frames.py (run from server/, like precompute): static blink frames for the most
                    promising candidates, web/public/data/cand/<id>/, and their frames_url in candidates.json.
                    candidates.json itself comes from the pipeline: cd pipeline && uv run skyshift-candidates.
