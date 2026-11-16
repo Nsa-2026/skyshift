@@ -225,8 +225,11 @@ MPC_COMETS_ALL_URL = "https://minorplanetcenter.net/Extended_Files/allcometels.j
 MPC_ALLCOMETS_MIN_JD = 2457023.5     # 2015-01-01
 MPC_V_MAX = 21.0                     # the 30″ position-only known cut (suspects) and nearest_known_arcsec use objects brighter
                                      # than this (or without V: comets, planets); score uses V < 16 to 18
-MPC_V_STORE = 25.0                   # the cache keeps objects to this V (16 Nov; was MPC_V_MAX): fainter known asteroids and
-                                     # NEOs glowing in D5–D6 are flagged by the certain rule below, never by position alone
+MPC_V_STORE = 23.0                   # the cache keeps objects to this V (16 Nov; was MPC_V_MAX): fainter known asteroids and
+                                     # NEOs glowing in D5–D6 are flagged by the certain rule below, never by position alone.
+                                     # Rows per photo vs V < 21: x2.5 at 22, x5.1 at 23, x8.9 at 25 (1,754 movers, 16 Nov); the
+                                     # faintest body SPHEREx put on a mover was V 21.3 (an NEO), so 23 leaves 1.7 mag; the check
+                                     # producer scripts/candidates/known_check.py matches near candidates with no V cut at all
 MPC_G_DEFAULT = 0.15                 # H-G slope when the MPC has none
 # Certain known body (contracts/api.md v3.23 `status` known): predicted within KNOWN_CERTAIN_ARCSEC of every dot's time and
 # place, its on-sky rate within KNOWN_RATE_TOL (fraction) of ours and its direction within KNOWN_PA_TOL_DEG when both move.

@@ -12,7 +12,9 @@ HTTPS from the photo list's url and cached; the Earth's centre when a header can
   newest cometels snapshot, completed with allcometels.json.gz when it predates 16 Nov: cometels.json.gz lacks every comet
   the MPC hasn't moved to its current epoch, 306P/LINEAR among them). skyshift_core.known_index finds the orbits that can
   be within reach (two-body cut with measured per-orbit margins; its index is built once over the candidates' time span
-  and cached), kete moves those with n-body physics and light time to each dot's time: positions and rates.
+  and cached; the server's index of the same mpcorb snapshot, <root>/cache/mpc/known_index/, gives the asteroids ever
+  brighter than V 21.5, so only the fainter ones and the comets are built), kete moves those with n-body physics and
+  light time to each dot's time: positions and rates.
 - JPL Horizons, only for planets and their moons, only for movers within a planet system's reach (SYSTEMS below:
   Jupiter's outer moons wander ~3° from it; the exporter already drops movers within 80′ of Jupiter); geocentric tables
   (≤ 2.4″ from SPHEREx at Jupiter and beyond).
@@ -22,6 +24,8 @@ dots' own mean and fitted motion, so a dot is at most its position error off it.
 Each mover gets one `known_nearby` check:
 - status `known` + known_name when a body is CERTAIN by the contract's rule (known.judge: within 10″ at every dot's time,
   rate within 20% and direction within 15° when both move), level `strong`;
+- level `strong`, status open, when a body is within ON_DOTS_ARCSEC (2″) at every one of >= 2 dot times but its
+  motion misses the rule (a 2-dot mover's rate from dots 2 minutes apart is good to only ~±30″/h);
 - level `warn` when the nearest body within 2′ (config KNOWN_NEARBY_ARCSEC) is not certain;
 - level `ok` when no known body was predicted within 2′ at any of its times.
 high_pm: a high_pm source is one fixed source in >= 3 sessions of each visit (or two such sources, 3–120″ apart, six
@@ -46,6 +50,7 @@ import math
 import os
 import re
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -66,9 +71,13 @@ NEARBY = C.KNOWN_NEARBY_ARCSEC
 CHUNK_DAYS = 2.0            # movers within this many days share one kete run
 CHUNK_MAX = 400             # ... at most this many movers
 HEADER_WORKERS = 8
-INDEX_MARGIN_DAYS = 3.0     # the index covers the candidates' times ± this
+INDEX_MARGIN_DAYS = 3.0     # the index covers the candidates' times ± this ...
+INDEX_BLOCK_DAYS = 30.0     # ... widened to whole blocks of this from known_index.MJD_LO (a stable cache key)
+INDEX_PART_ROWS = 250_000   # asteroids per build part (~0.4 GB each)
 HIGHPM_SLOW_ARCSEC_H = 1.0  # high_pm: only a body slower than this could sit on a fixed source for a session
 HIGHPM_NEAR_ARCSEC = 10.0
+ON_DOTS_ARCSEC = 2.0        # a body this close at every one of >= 2 dot times is on our dots (level strong, status open
+                            # when the motion misses the certain rule: a few-minute arc measures a rough motion)
 SLOW_Q_AU = 8.0             # high_pm: orbits with a perihelion beyond this (the only bodies that can move < 1″/h)
 MPC_PAUSE_S = 8.0
 MPCHECK_URL = "https://minorplanetcenter.net/cgi-bin/mpcheck.cgi"
@@ -135,18 +144,90 @@ def mover_times(store: Store, movers: list[dict]) -> dict[str, dict]:
     return out
 
 
+SC_KEYS = (*KM.SC_POS, *KM.SC_VEL)
+HEADER_BYTES = 12_288   # DR1: the IMAGE header starts at 2,880 B and holds X_SC..VZ_SC at ~7.7–8.2 KB (END at 26.4 KB)
+_http = threading.local()
+
+
+def header_sc(raw: bytes) -> dict:
+    """X_SC..VZ_SC from the first IMAGE extension header found in `raw` (the file's first bytes); keys missing when the
+    bytes stop before them."""
+    out, inside = {}, False
+    for i in range(0, len(raw) - 79, 80):
+        card = raw[i:i + 80].decode("ascii", "replace")
+        key = card[:8].strip()
+        if key == "XTENSION":
+            if inside:
+                break
+            inside = "IMAGE" in card[10:30]
+        elif inside and key == "END":
+            break
+        elif inside and key in SC_KEYS and card[8:10] == "= " and key not in out:
+            out[key] = KM._num(card[10:].split("/")[0].strip())
+    return out
+
+
+def read_sc(url: str) -> dict:
+    """SPHEREx's place from one ranged read of the photo's first HEADER_BYTES (one round trip instead of
+    known_mpc.read_observer's size query and 256 KB block); that full reader when the bytes fall short."""
+    import requests
+
+    s = getattr(_http, "s", None)
+    if s is None:
+        s = _http.s = requests.Session()
+    for attempt in range(1, C.NET_RETRIES + 1):
+        try:
+            r = s.get(url, headers={"Range": f"bytes=0-{HEADER_BYTES - 1}"}, timeout=60)
+            r.raise_for_status()
+            got = header_sc(r.content)
+            if all(got.get(k) is not None for k in SC_KEYS):
+                return got
+            break
+        except Exception:  # noqa: BLE001
+            time.sleep(2 * attempt)
+    return KM.read_observer(url)
+
+
+def pipeline_observers(store: Store, want: dict[str, str]) -> dict[str, dict]:
+    """SPHEREx's place per exposure from the pipeline's own known step (cache/mpc/<zone>/run_*.json `observers`, the
+    same IMAGE header keys) where those files are already in the root: no read at all."""
+    out: dict[str, dict] = {}
+    for zone in sorted(set(want.values())):
+        d = Path(store.root) / "cache" / "mpc" / zone
+        if not d.is_dir():
+            continue
+        for f in d.glob("run_*.json"):
+            try:
+                obs = json.loads(f.read_text()).get("observers") or {}
+            except (OSError, ValueError):
+                continue
+            for o, v in obs.items():
+                if o in want and v.get("observer") == "spacecraft" and all(v.get(k) is not None for k in SC_KEYS):
+                    out[o] = {"mjd_avg": v.get("mjd_avg"), **{k: v[k] for k in SC_KEYS}}
+    return out
+
+
 def observers(store: Store, cache: Path, want: dict[str, str]) -> dict[str, dict]:
-    """obs_id -> {mjd_avg, X_SC..VZ_SC} from the photo's IMAGE header (known_mpc.read_observer), cached."""
+    """obs_id (exposure) -> X_SC..VZ_SC: the pipeline's session caches where present, else the photo's IMAGE header
+    (read_sc), cached in observers.parquet (saved every few hundred reads, so an interrupted run keeps its work)."""
     f = cache / "observers.parquet"
-    have = pd.read_parquet(f) if f.exists() else pd.DataFrame(columns=["obs_id", "mjd_avg", *KM.SC_POS, *KM.SC_VEL])
+    cols = ["obs_id", "mjd_avg", *SC_KEYS]
+    have = pd.read_parquet(f) if f.exists() else pd.DataFrame(columns=cols)
     done = set(have["obs_id"])
     todo = sorted(o for o in want if o not in done)
     if todo:
+        cache.mkdir(parents=True, exist_ok=True)
+        seed = pipeline_observers(store, {o: want[o] for o in todo})
+        if seed:
+            have = pd.concat([have, pd.DataFrame([{"obs_id": o, **v} for o, v in seed.items()]).reindex(columns=cols)],
+                             ignore_index=True)
+            have.to_parquet(f, index=False)
+            todo = [o for o in todo if o not in seed]
         urls: dict[str, str] = {}
         for zone in sorted(set(want[o] for o in todo)):
             p = store.read_parquet(photolist_rel(zone))
             urls.update(dict(zip(p["obs_id"], p["url"])))
-        log(f"IMAGE headers: {len(todo)} photos to read ({len(done)} cached)")
+        log(f"IMAGE headers: {len(todo)} photos to read ({len(done)} cached, {len(seed)} from the pipeline's known step)")
         t0 = time.time()
 
         def one(o):
@@ -154,18 +235,18 @@ def observers(store: Store, cache: Path, want: dict[str, str]) -> dict[str, dict
             if not u:
                 return {"obs_id": o}
             try:
-                return {"obs_id": o, **KM.read_observer(u)}
+                return {"obs_id": o, **read_sc(u)}
             except Exception as e:  # noqa: BLE001
                 log(f"no header for {o}: {str(e)[:80]}")
                 return {"obs_id": o}
 
+        step = 300
         with ThreadPoolExecutor(HEADER_WORKERS) as ex:
-            rows = list(ex.map(one, todo))
-        new = pd.DataFrame(rows).reindex(columns=have.columns)
-        have = pd.concat([have, new], ignore_index=True) if len(have) else new
-        cache.mkdir(parents=True, exist_ok=True)
-        have.to_parquet(f, index=False)
-        log(f"IMAGE headers read in {time.time() - t0:.0f} s")
+            for i in range(0, len(todo), step):
+                rows = list(ex.map(one, todo[i:i + step]))
+                have = pd.concat([have, pd.DataFrame(rows).reindex(columns=cols)], ignore_index=True)
+                have.to_parquet(f, index=False)
+                log(f"IMAGE headers: {min(i + step, len(todo))}/{len(todo)} in {time.time() - t0:.0f} s")
     out = {}
     for r in have.to_dict("records"):
         ok = all(r.get(k) is not None and np.isfinite(r.get(k)) for k in (*KM.SC_POS, *KM.SC_VEL))
@@ -204,19 +285,90 @@ def orbits(store: Store, cache: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     return ast, com, label
 
 
-def index(cache: Path, ast: pd.DataFrame, com: pd.DataFrame, label: str, mjd_lo: float, mjd_hi: float) -> KI.KnownIndex:
-    """skyshift_core.known_index over [mjd_lo, mjd_hi] with no brightness cut, built once and cached."""
-    lo, hi = math.floor(mjd_lo - INDEX_MARGIN_DAYS), math.ceil(mjd_hi + INDEX_MARGIN_DAYS)
+ROW_KEYS = ("q", "e", "inc", "node", "argp", "tp", "epoch", "h", "g", "comet", "err_deg", "always")
+
+
+def index_span(mjd_lo: float, mjd_hi: float) -> tuple[int, int]:
+    """The index's time range: the candidates' times ± INDEX_MARGIN_DAYS, widened to whole INDEX_BLOCK_DAYS blocks from
+    known_index.MJD_LO so a slightly different export reuses the cached index."""
+    b, z = INDEX_BLOCK_DAYS, KI.MJD_LO
+    return int(z + b * math.floor((mjd_lo - INDEX_MARGIN_DAYS - z) / b)), int(z + b * math.ceil((mjd_hi + INDEX_MARGIN_DAYS - z) / b))
+
+
+def base_index(path: str | None, local_root: str, ast_file: str, lo: float, hi: float) -> KI.KnownIndex | None:
+    """The server's index (asteroids ever brighter than V 21.5 + kete's comets; core known_index main; in the bucket at
+    cache/mpc/known_index/) when it was built from the same mpcorb snapshot and covers [lo, hi]: its asteroids' measured
+    margins are reused as they are. `path`, else the newest <local_root>/cache/mpc/known_index/known_index_*.npz."""
+    cands = [Path(path)] if path else sorted(Path(local_root, "cache/mpc/known_index").glob("known_index_*.npz"))
+    for p in reversed(cands):
+        try:
+            b = KI.load_index(str(p))
+        except (OSError, ValueError) as e:
+            log(f"base index {p}: unreadable ({e})")
+            continue
+        if b.meta["snapshot"].split(" + ")[0] == ast_file and b.mjd_lo <= lo and b.mjd_hi >= hi:
+            return b
+        log(f"base index {p.name}: {b.meta['snapshot']} {b.mjd_lo:.0f}–{b.mjd_hi:.0f} does not fit {ast_file} {lo}–{hi}")
+    return None
+
+
+def merge_index(parts: list[dict], snapshot: str, lo: float, hi: float) -> dict:
+    """One index from several (rows concatenated; names re-packed)."""
+    names = []
+    for p in parts:
+        o, b = p["name_off"], p["name_blob"]
+        names += [b[o[i]:o[i + 1]].tobytes().decode("utf-8") for i in range(len(o) - 1)]
+    blob, off = KI._pack_names(names)
+    return {"version": np.array(KI.INDEX_VERSION), "snapshot": np.array(snapshot),
+            "built": np.array(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+            "mjd_lo": np.array(float(lo)), "mjd_hi": np.array(float(hi)), "v_keep": np.array(np.inf),
+            **{k: np.concatenate([np.asarray(p[k]) for p in parts]) for k in ROW_KEYS}, "name_blob": blob, "name_off": off}
+
+
+def index(cache: Path, ast: pd.DataFrame, com: pd.DataFrame, label: str, mjd_lo: float, mjd_hi: float,
+          base_path: str | None = None, local_root: str = DEFAULT_ROOT) -> KI.KnownIndex:
+    """skyshift_core.known_index with no brightness cut over the candidates' span, built once and cached. With the
+    server's index of the same mpcorb snapshot (base_index), only what it leaves out is built: asteroids never brighter
+    than V 21.5 and every comet (the merged list), in parts of INDEX_PART_ROWS (memory; each part is cached, so an
+    interrupted build resumes)."""
+    lo, hi = index_span(mjd_lo, mjd_hi)
     f = cache / f"index_{_sha(label, lo, hi, KI.INDEX_VERSION)}.npz"
-    if not f.exists():
-        log(f"building the known index (all V) for MJD {lo}–{hi}: ~10–40 min, once")
-        t0 = time.time()
-        data = KI.build_index(ast, com, snapshot=label, mjd_lo=lo, mjd_hi=hi, v_keep=None, log=log)
-        cache.mkdir(parents=True, exist_ok=True)
-        tmp = f.with_suffix(".tmp.npz")
-        KI.save_index(str(tmp), data)
-        tmp.replace(f)
-        log(f"index built in {time.time() - t0:.0f} s: {f.name}")
+    if f.exists():
+        return KI.load_index(str(f))
+    cache.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    base = base_index(base_path, local_root, label.split(" + ")[0], lo, hi)
+    parts: list[dict] = []
+    if base is not None:
+        b = base.data
+        keep = ~b["comet"].astype(bool)
+        bn = index_names(base)
+        parts.append({**{k: b[k][keep] for k in ROW_KEYS}, **dict(zip(("name_blob", "name_off"), KI._pack_names(bn[keep])))})
+        names = KI.orbit_arrays(ast)["name"]
+        rest = ast[~np.isin(names.astype(str), bn[keep].astype(str))].reset_index(drop=True)
+        if len(rest) == 0:
+            rest = ast.iloc[:1]  # build_index needs one asteroid beside the comets (a duplicate row is harmless)
+        log(f"base index {base.meta['snapshot']} ({base.meta['built']}): {int(keep.sum())} asteroids reused; "
+            f"building {len(rest)} fainter asteroids + {len(com)} comets for MJD {lo}–{hi}")
+    else:
+        rest = ast
+        log(f"building the known index (all V) for {len(rest)} asteroids + {len(com)} comets, MJD {lo}–{hi}: "
+            f"~10–40 min (unloaded laptop), once")
+    for k, i in enumerate(range(0, max(len(rest), 1), INDEX_PART_ROWS)):
+        pf = cache / f"{f.stem}_part{k}.npz"
+        if not pf.exists():
+            data = KI.build_index(rest.iloc[i:i + INDEX_PART_ROWS], com if k == 0 else None, snapshot=label,
+                                  mjd_lo=lo, mjd_hi=hi, v_keep=None, log=log)
+            KI.save_index(str(pf.with_suffix(".tmp.npz")), data)
+            pf.with_suffix(".tmp.npz").replace(pf)
+        with np.load(pf, allow_pickle=False) as z:
+            parts.append({k2: z[k2] for k2 in (*ROW_KEYS, "name_blob", "name_off")})
+        log(f"index part {k}: {len(parts[-1]['q'])} rows ({time.time() - t0:.0f} s so far)")
+    KI.save_index(str(f.with_suffix(".tmp.npz")), merge_index(parts, label, lo, hi))
+    f.with_suffix(".tmp.npz").replace(f)
+    for pf in cache.glob(f"{f.stem}_part*.npz"):
+        pf.unlink()
+    log(f"index built in {time.time() - t0:.0f} s: {f.name}")
     return KI.load_index(str(f))
 
 
@@ -458,6 +610,10 @@ def mover_check(c: dict, it: dict, bs: list[dict], n_ast: int, n_com: int) -> di
                      f"(MPC orbits of {n_ast:,} asteroids at any brightness and {n_com:,} comets, seen from SPHEREx)."),
             "look": "", "values": {**base, "sep_arcsec": None}}], "status": None, "known_name": None}
     b = bs[0]
+    close = [x for x in bs if np.isfinite(x["sep_max"]) and x["sep_max"] <= ON_DOTS_ARCSEC]
+    on_dots = not b["certain"] and it["from_dots"] and nt >= 2 and bool(close)
+    if on_dots:
+        b = min(close, key=lambda x: x["sep_max"])
     vals = {**base, "name": b["name"], "body": b["kind"], "v": _r(b["v"], 1),
             "sep_arcsec": _r(b["sep_min"]), "sep_max_arcsec": _r(b["sep_max"]) if np.isfinite(b["sep_max"]) else None,
             "rate_arcsec_h": _r(b["rate"]), "pa_deg": _r(b["pa"], 0),
@@ -473,6 +629,7 @@ def mover_check(c: dict, it: dict, bs: list[dict], n_ast: int, n_com: int) -> di
                      f"known {b['kind']}."),
             "values": vals}], "status": "known", "known_name": b["name"]}
     where = _dir(b["east"], b["north"])
+    off = f"{b['sep_min']:.1f}″" if b["sep_min"] < 10 else f"{b['sep_min']:.0f}″"
     why = []
     if not np.isfinite(b["sep_max"]):
         why.append("it is not within 2′ at every dot time")
@@ -482,11 +639,21 @@ def mover_check(c: dict, it: dict, bs: list[dict], n_ast: int, n_com: int) -> di
         why.append("the speeds differ")
     if b["dpa"] is not None and b["dpa"] > C.KNOWN_PA_TOL_DEG:
         why.append(f"the directions differ by {b['dpa']:.0f}°")
+    if on_dots:
+        span = (max(it["times"]) - min(it["times"])) * 1440.0
+        return {"checks": [{
+            "code": "known_nearby", "level": "strong",
+            "text": (f"The known {_what(b)} was predicted {np.nanmin(b['seps']):.1f}–{b['sep_max']:.1f}″ from each of its "
+                     f"{nt} dot times, {theirs}; {ours}. Its place fits our dots; only the motion misses the certain rule "
+                     f"({', '.join(why) or 'see the numbers'}), and dots {span:.0f} minutes apart measure a motion roughly."),
+            "look": (f"On the hours clock in D{det}, step through its exposures: very likely the known {b['kind']} "
+                     f"{b['name']}; a second moving dot near its path would mean ours is something else."),
+            "values": vals}], "status": None, "known_name": None}
     return {"checks": [{
         "code": "known_nearby", "level": "warn",
-        "text": (f"The known {_what(b)} was predicted {b['sep_min']:.0f}″ to the {where} of it, {theirs}; {ours}. "
+        "text": (f"The known {_what(b)} was predicted {off} to the {where} of it, {theirs}; {ours}. "
                  f"Not a certain match: {', '.join(why) or 'see the numbers'}."),
-        "look": (f"On the hours clock in D{det}, step through its exposures and look {b['sep_min']:.0f}″ to the {where}: "
+        "look": (f"On the hours clock in D{det}, step through its exposures and look {off} to the {where}: "
                  f"if a second moving dot runs there, that is {b['name']} and ours is something else; if not, ours may be "
                  f"{b['name']} slightly off its predicted place."),
         "values": vals}], "status": None, "known_name": None}
@@ -699,6 +866,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-highpm", action="store_true")
     ap.add_argument("--mpchecker", type=int, default=0, help="cross-check the N highest-scoring open movers with MPChecker")
     ap.add_argument("--mpchecker-out", default=None)
+    ap.add_argument("--base-index", default=None, help="the server's known index to reuse (default: the newest "
+                    "<root>/cache/mpc/known_index/known_index_*.npz of the same mpcorb snapshot, if any)")
     a = ap.parse_args(argv)
     root = a.root
     local_root = DEFAULT_ROOT if root.startswith("gs://") else root
@@ -718,7 +887,7 @@ def main(argv: list[str] | None = None) -> int:
     hitems = highpm_items(hpm)
     all_t = [t for it in items + hitems for t in it["times"]]
     ast, com, label = orbits(store, cache)
-    idx = index(cache, ast, com, label, min(all_t), max(all_t))
+    idx = index(cache, ast, com, label, min(all_t), max(all_t), a.base_index, local_root)
     names, comet = index_names(idx), idx.comet
     n_ast, n_com = int(len(idx.ast_rows)), int(len(idx.comet_rows))
     full = full_names(ast)

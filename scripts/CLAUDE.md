@@ -17,8 +17,9 @@ Shared scripts. Run with uv run, except make_fixtures.py (stdlib only).
                    candidates.json against MPC asteroids (all V) and comets (cometels + allcometels) at its dots'
                    times from SPHEREx (kete via skyshift_core.known_index), Horizons planets/moons near a planet
                    → <root>/checks/known.json (`known_nearby`, status known when certain); `--mpchecker N` cross-checks
-                   the top N open movers with MPC's MPChecker. Cache: <root>/cache/known_check (the all-V index takes
-                   ~10–40 min once). Tests: cd pipeline && uv run pytest ../scripts/candidates/tests/test_known_check.py
+                   the top N open movers with MPC's MPChecker. Cache: <root>/cache/known_check. The all-V index is
+                   built once; it reuses the server's index in <root>/cache/mpc/known_index/ when present.
+                   Tests: cd pipeline && uv run pytest ../scripts/candidates/tests/test_known_check.py
 - vet/             P1. Vet one finding against the photos, catalogues and known bodies (vet.py tools), build agent
                    rounds (make_round.py) and check which known bodies we saw (known_check.py). Read only; local data
                    in ~/.cache/skyshift-vet. Checklist: .claude/skills/vet-finding. Run from pipeline/, see vet/README.md.

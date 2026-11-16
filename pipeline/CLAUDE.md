@@ -179,12 +179,16 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   reached; elsewhere it is used as it is and the summary says `comets_complete: false`. The MPC orbit of 306P puts it
   0.5–1.5″ from all 8 of its ecl04 dots, seen from SPHEREx. kete keeps its own copy of every download, so the fetchers
   pass force_download (an `mpc-orbits` snapshot was otherwise kete's older copy).
-- V (16 Nov): the cache keeps objects to MPC_V_STORE (25; was MPC_V_MAX 21, which dropped faint known asteroids and NEOs
+- V (16 Nov): the cache keeps objects to MPC_V_STORE (23; was MPC_V_MAX 21, which dropped faint known asteroids and NEOs
   glowing in D5–D6). kete's work is the same at any cut. Position-only matching still uses V < MPC_V_MAX or no V
   (known.brighter: the suspects' 30″ cut, nearest_known_arcsec); a body of any brightness removes a mover only when
   it is certain (known.certain_known: within KNOWN_CERTAIN_ARCSEC 10″ at every dot's time, rate within 20%, direction
   within 15°; contracts/api.md v3.23 `status` known; summary `cut_known_certain_only`). score keeps its own V cuts,
   orphans its rate-matched one. Caches written before keep V < 21: delete cache/mpc/<zone>/ and rerun `known` for faint ones.
+  Cost (measured 16 Nov): rows per photo ×5.1 against V < 21 (×8.9 at V 25, why 23: the faintest body SPHEREx put on a
+  mover was an NEO at V 21.3), so ecl04's cache would grow from 129 MB to ~0.66 GB and load_predictions from 70 s to ~6 min
+  on a loaded laptop; certain_known takes 9 s for ecl04's 3,248 movers. Matching near candidates with no V cut at all
+  is scripts/candidates/known_check.py's job.
 - `known` then adds the planets and their large moons (known_planets.py, 15 Nov; config PLANET_SYSTEMS), which MPC
   orbits don't hold: on 15 Nov 11 of the 22 movers with static frames were Iapetus (×6), Titan, Rhea, Hyperion,
   Titania or Uranus, each within 0.4″ of JPL Horizons. Horizons (geocentric: ≤ 2.3″ off at Jupiter, far inside

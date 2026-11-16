@@ -16,7 +16,7 @@ History: #64 compared MPC with SkyBoT on the pilot (docs/research/2026-11-14-mpc
 - Each photo is a kete SpherexCmos field: its s_region corners pushed out by MPC_FOV_PAD_DEG (the exact
   footprint cut stays in load_predictions). One kete.fov_state_check per visit propagates every
   object once with n-body physics across all that visit's photos and corrects for light time.
-- V from H and G (MPC_G_DEFAULT when missing) with kete's H-G model; fainter than MPC_V_STORE (25) is dropped. The
+- V from H and G (MPC_G_DEFAULT when missing) with kete's H-G model; fainter than MPC_V_STORE (23) is dropped. The
   cache kept V < MPC_V_MAX (21) before 16 Nov; consumers still apply that cut where they match by position alone
   (known.brighter), and match fainter objects only by place, rate and direction (known.certain_known).
 - Comets (16 Nov): cometels.json.gz holds only comets at the MPC's current epoch; allcometels.json.gz adds the rest

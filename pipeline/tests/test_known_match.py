@@ -1,6 +1,6 @@
 """known.py's mover ↔ known body rule (contracts/api.md v3.23 `status` known) and the suspects' known cut that uses it:
 a known body of ANY brightness removes a mover only when it is certain (place at every dot, rate, direction);
-by position alone (30″) only bodies brighter than MPC_V_MAX, as before the cache kept V ≤ 25."""
+by position alone (30″) only bodies brighter than MPC_V_MAX, as before the cache kept V ≤ 23."""
 
 import numpy as np
 import pandas as pd

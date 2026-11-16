@@ -60,7 +60,8 @@ def _items():
 
 @pytest.fixture(scope="module")
 def idx(tmp_path_factory):
-    return KC.index(tmp_path_factory.mktemp("idx"), CERES.copy(), _comets(), "test", 60905.0, 60908.0)
+    d = tmp_path_factory.mktemp("idx")
+    return KC.index(d, CERES.copy(), _comets(), "test", 60905.0, 60908.0, None, str(d))
 
 
 def test_306P_is_predicted_on_every_ecl04_dot_and_both_movers_are_known(idx):
@@ -108,6 +109,12 @@ def test_mover_check_levels_and_texts():
     assert "D2" in warn["look"] and warn["values"]["name"] == "2019 XY1" and warn["values"]["sep_arcsec"] == 30.0
     sure = KC.mover_check(c, it, [_body(seps=(1.0, 2.0), rate=32.0, pa=82.0, certain=True, ratio=1.03, dpa=2.0)], 1, 1)
     assert sure["status"] == "known" and sure["known_name"] == "2019 XY1" and sure["checks"][0]["level"] == "strong"
+    on = KC.mover_check(c, it, [_body(), _body(name="2024 YE7", seps=(0.5, 1.3), rate=45.0, pa=110.0, ratio=1.45, dpa=30.0)],
+                        1, 1)
+    assert on["status"] is None and on["checks"][0]["level"] == "strong" and on["checks"][0]["values"]["name"] == "2024 YE7"
+    assert "0.5–1.3″" in on["checks"][0]["text"] and "the speeds differ" in on["checks"][0]["text"]
+    one = KC.mover_check(c, {"times": [1.0], "from_dots": True}, [_body(seps=(0.5,), rate=45.0, ratio=1.45)], 1, 1)
+    assert one["checks"][0]["level"] == "warn" and "0.5″" in one["checks"][0]["text"]  # one dot time: not enough
     moon = KC.mover_check(c, it, [_body(name="Carme", kind="moon", seps=(3.0, 3.0), certain=True)], 1, 1)
     assert moon["known_name"] == "Carme" and "the moon Carme (JPL Horizons" in moon["checks"][0]["text"]
 
@@ -173,6 +180,63 @@ def test_parse_mpcheck_and_name_keys():
     assert rows[0]["rate_e"] == 86 and rows[2]["rate_e"] == 0 and rows[1]["v"] == 21.5
     assert "(480640)" in KC._keys("(480640) 2015 NR12") and "Franzthaler" in KC._keys("(6212) Franzthaler")
     assert KC._sexa(44.92999, 21.75381) == ("02 59 43.20", "+21 45 13.7")
+
+
+def test_header_sc_reads_the_image_header_and_seeds_from_the_pipeline_cache(tmp_path):
+    from astropy.io import fits
+    sc = dict(zip(SC, DOTS[0][4]))
+    image = fits.ImageHDU(np.zeros((2, 2), np.float32), name="IMAGE")
+    for k, v in sc.items():
+        image.header[k] = v
+    raw = (fits.PrimaryHDU().header.tostring() + image.header.tostring()).encode("ascii")
+    assert KC.header_sc(raw) == pytest.approx(sc)
+    assert set(KC.header_sc(raw[:2880 + 80 * 8])) < set(SC)  # cut short: keys missing (then the full reader is used)
+    d = tmp_path / "cache" / "mpc" / "ecl04"
+    d.mkdir(parents=True)
+    obs = {DOTS[0][0]: {"mjd_avg": DOTS[0][1], **sc, "observer": "spacecraft"},
+           DOTS[1][0]: {"mjd_avg": DOTS[1][1], **{k: None for k in SC}, "observer": "geocentre"}}
+    (d / "run_x.json").write_text(json.dumps({"observers": obs}))
+    from skyshift_pipeline.store import Store
+    got = KC.pipeline_observers(Store(str(tmp_path)), {DOTS[0][0]: "ecl04", DOTS[1][0]: "ecl04", "other": "ecl04"})
+    assert set(got) == {DOTS[0][0]} and got[DOTS[0][0]]["X_SC"] == sc["X_SC"]
+
+
+def test_index_reuses_the_server_index_and_builds_only_the_rest(tmp_path, monkeypatch):
+    """Asteroids in the server's index (same mpcorb snapshot) keep its margins; fainter asteroids and every comet are
+    built (here by a stand-in for build_index), in parts that are merged, cached and removed."""
+    from skyshift_core import known_index as KI
+    calls = []
+
+    def fake_build(asteroids, comets=None, *, snapshot="", mjd_lo=0.0, mjd_hi=0.0, v_keep=None, err=0.5, **kw):
+        calls.append((len(asteroids), 0 if comets is None else len(comets)))
+        el = KI.orbit_arrays(asteroids, comets)
+        n = len(el["q"])
+        blob, off = KI._pack_names(el["name"])
+        return {"version": np.array(KI.INDEX_VERSION), "snapshot": np.array(snapshot), "built": np.array("x"),
+                "mjd_lo": np.array(float(mjd_lo)), "mjd_hi": np.array(float(mjd_hi)), "v_keep": np.array(21.5),
+                **{k: el[k] for k in ("q", "e", "inc", "node", "argp", "tp", "epoch", "h", "g", "comet")},
+                "err_deg": np.full(n, err, np.float32), "always": np.zeros(n, bool), "name_blob": blob, "name_off": off}
+
+    base_dir = tmp_path / "cache" / "mpc" / "known_index"
+    base_dir.mkdir(parents=True)
+    KI.save_index(str(base_dir / "known_index_2026-11-14.npz"),
+                  fake_build(CERES, KM.comet_table([]), snapshot="mpcorb_2026-11-14.parquet + cometels_2026-11-14.parquet",
+                             mjd_lo=KI.MJD_LO, mjd_hi=KI.MJD_HI, err=0.01))
+    calls.clear()
+    monkeypatch.setattr(KI, "build_index", fake_build)
+    ast = pd.concat([CERES, CERES.assign(desig="2099 AA", name=None, peri_dist=2.0)], ignore_index=True)
+    label = "mpcorb_2026-11-14.parquet + cometels_2026-11-16.parquet"
+    cache = tmp_path / "kc"
+    idx = KC.index(cache, ast, _comets(), label, 60905.0, 60908.0, None, str(tmp_path))
+    assert calls == [(1, 1)]  # only 2099 AA and 306P were built
+    names = list(KC.index_names(idx))
+    assert sorted(names) == ["2099 AA", "306P/LINEAR", "Ceres"]
+    err = dict(zip(names, idx.data["err_deg"]))
+    assert err["Ceres"] == pytest.approx(0.01) and err["2099 AA"] == pytest.approx(0.5)
+    assert idx.mjd_lo <= 60902 and idx.mjd_hi >= 60911 and idx.meta["v_keep"] == np.inf
+    assert [p.name for p in cache.glob("*_part*.npz")] == []
+    KC.index(cache, ast, _comets(), label, 60905.0, 60908.0, None, str(tmp_path))
+    assert calls == [(1, 1)]  # cached
 
 
 def _root(tmp: Path) -> Path:

@@ -105,7 +105,7 @@ def load_predictions(store: Store, photos: pd.DataFrame, zone: C.Zone, sources: 
 
 def brighter(pred: pd.DataFrame, v_max: float = C.MPC_V_MAX) -> pd.DataFrame:
     """The predictions a position-only match may use: V < v_max, or no V (comets, planets, moons). The cache keeps
-    objects to MPC_V_STORE (25) since 16 Nov; before, to MPC_V_MAX (21), so old caches pass unchanged."""
+    objects to MPC_V_STORE (23) since 16 Nov; before, to MPC_V_MAX (21), so old caches pass unchanged."""
     if len(pred) == 0 or "v" not in pred:
         return pred
     v = pd.to_numeric(pred["v"], errors="coerce").to_numpy(np.float64)
