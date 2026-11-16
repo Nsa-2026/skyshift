@@ -41,7 +41,10 @@ or a high_pm reason excepted). `--checks-dir DIR` merges the producers' side fil
 Grade A (suspects.py: on a tracklets track over >= 2 sessions at >= 5σ) leads; its `why` names the track and it never
 gets motion_not_significant (its own one-session dots may not show the motion; the track does).
 `score` (0-1, higher = more promising) is defined per kind in mover_score, highpm_score and
-spectral_score (formulas also in contracts/api.md). frames_url is set for candidates whose static frames
+spectral_score (formulas also in contracts/api.md). Movers also get `rb_score` (rb_score.py: a learned real-or-bogus
+score from the suspects row; null for slow and wide movers), and as the last step (after any side files) the open
+movers of each tier (status, grade, a strong check, motion_not_significant) take that tier's scores in rb_score order;
+exempt ones keep theirs (rb_score.reorder: ranking only, no grade or status changes, nothing removed). frames_url is set for candidates whose static frames
 exist next to the output (cand/<id>/frames.json, written by scripts/candidates/frames.py).
 """
 
@@ -64,6 +67,7 @@ from skyshift_core.motion import PARALLAX_MODES
 from skyshift_core.planets import near_planets
 
 from . import candidate_checks as CK
+from . import rb_score as RB
 from . import config as C
 from . import log
 from .sky import SkyTree, angsep
@@ -149,9 +153,9 @@ REASONS = {
     "spectral": ("no_gaia", "gaia_nearby", "class_star", "class_galaxy", "class_unsure", "variable", "blend"),
     "shape": ("elongated", "steady_pa", "one_visit", "one_catalogue_source", "catalogue_neighbour", "class_galaxy", "blend"),
 }
-FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
+FIELDS = ("id", "kind", "ra", "dec", "mjd", "clock", "det", "zone", "zones", "score", "rb_score", "grade", "snr", "flux_ujy", "rate_arcsec_h",
           "pm_mas_yr", "pm_err_mas_yr", "pa_deg", "nearest_known_arcsec", "gaia_match", "catwise_match",
-          "galactic_b", "labels", "reasons", "why", "flags", "frames_url", "status", "known_name", "checks")  # v3.23
+          "galactic_b", "labels", "reasons", "why", "flags", "frames_url", "status", "known_name", "checks")  # v3.23 (+ rb_score)
 
 
 # --- small helpers ------------------------------------------------------------------------------
@@ -760,6 +764,7 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
     whole zone, so they stay right when `susp` is a subset. ctx: the zone's facts for the checks (zone_base: motion_ref,
     control_tracks, photos, bright); flags3: mover_dot_flags of susp (None: not read)."""
     cells, repeats, ctx = cells or {}, repeats or {}, ctx or {}
+    rbs = mover_rb(susp)
     out = []
     for i, r in enumerate(susp.itertuples()):
         dets = sorted(int(x) for x in str(r.detectors).split(",") if x)
@@ -815,12 +820,17 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
             cell = (d0, visit, cells.get((d0, visit), 0.0))
         facts = mover_facts(r, dots, (rate, rate_err, pa) if rate is not None else None, no_motion, track, ctx,
                             flags3[i] if flags3 is not None else None, vet_reasons, rep_, cell)
+        tr_ = on_track(r)  # a track's rate beats two exposures' (slow: rb_score null, the existing order)
+        slow = RB.is_slow(tr_[1], tr_[1] / tr_[2]) if tr_ and tr_[2] > 0 else \
+            RB.is_slow(rate, rate_err, int(r.n_exposures))
+        wide = "wide" in vet_reasons or "wide" in facts["warn"]
         why_reasons = vet_reasons
         if "wide" in vet_reasons and (facts["warn"].get("wide") or {}).get("with_blend"):
             why_reasons = ["wide_blend" if x == "wide" else x for x in vet_reasons]
         c = {
             "id": r.id, "kind": "mover", "ra": r.ra, "dec": r.dec, "mjd": r.mjd, "clock": "hours", "det": int(r.det),
-            "zone": zone, "zones": [zone], "score": base, "grade": grade, "snr": r.snr, "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
+            "zone": zone, "zones": [zone], "score": base, "grade": grade, "snr": r.snr,
+            "rb_score": None if slow or wide or not np.isfinite(rbs[i]) else float(rbs[i]), "flux_ujy": r.flux_ujy, "rate_arcsec_h": rate,
             "pm_mas_yr": None, "pm_err_mas_yr": None, "pa_deg": pa, "nearest_known_arcsec": nk,
             # a catalogue source within 6″ and at most 2 mag fainter (the suspects' reasons gaia, catwise): its own light
             "gaia_match": "gaia" in vet_reasons, "catwise_match": "catwise" in vet_reasons, "labels": [], "reasons": reasons,
@@ -832,6 +842,16 @@ def movers(susp: pd.DataFrame, zone: str, near: pd.DataFrame | None,
         set_status(c)
         out.append(c)
     return out
+
+
+def mover_rb(susp: pd.DataFrame) -> np.ndarray:
+    """rb_score per suspects row (rb_score.score_rows; NaN without dot lists). A missing or stale model file gives NaN
+    for all, with a warning: the list then keeps the existing order."""
+    try:
+        return RB.score_rows(susp)
+    except (OSError, ValueError, KeyError) as e:
+        L.warning("candidates: no rb_score (%s): movers keep the existing order", e)
+        return np.full(len(susp), np.nan)
 
 
 def set_status(c: dict) -> dict:
@@ -1666,6 +1686,7 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
     if checks_dir is not None:
         L.info("candidates: side files merged from %s: %s", checks_dir,
                CK.merge_side_files(kept, CK.load_side_files(checks_dir)))
+    L.info("candidates: rb_score order inside each tier: %s", RB.reorder(kept))
     order = {z: i for i, z in enumerate(used_zones)}
     kept.sort(key=sort_key(order))
     ids = [c["id"] for c in kept]
@@ -1760,7 +1781,7 @@ def write_export(doc: dict, out: Path) -> dict[str, float]:
 
 def finish(c: dict) -> dict:
     """The contract's fields in order, rounded; NaN -> null."""
-    nd = {"ra": 6, "dec": 6, "mjd": 6, "score": 3, "snr": 1, "flux_ujy": 1, "rate_arcsec_h": 1, "pm_mas_yr": 1,
+    nd = {"ra": 6, "dec": 6, "mjd": 6, "score": 3, "rb_score": 3, "snr": 1, "flux_ujy": 1, "rate_arcsec_h": 1, "pm_mas_yr": 1,
           "pm_err_mas_yr": 1, "pa_deg": 1, "nearest_known_arcsec": 1, "galactic_b": 3}
     out = {}
     for k in FIELDS:
@@ -1792,6 +1813,7 @@ def merge_only_doc(doc: dict, checks_dir: Path, more: list[dict] | None = None) 
         c.setdefault("known_name", None)
         c["checks"] = [dict(x) for x in (c.get("checks") or [])]
     st = CK.merge_side_files(cands, CK.load_side_files(checks_dir))
+    st["rb_score"] = RB.reorder(cands)  # after the merge: a check may have moved a mover to another tier
     order = {z: i for i, z in enumerate(doc.get("zones") or [])}
     cands.sort(key=sort_key(order))
     head = {k: v for k, v in doc.items() if k != "more"}
