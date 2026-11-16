@@ -71,6 +71,9 @@ import {
   shiftVerdict,
   summarize,
   trackDotsFor,
+  visitPath,
+  wobbles,
+  wobbleWords,
   type Arrow,
   type MeasuredItem,
   type TrackExtras,
@@ -1583,6 +1586,7 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
           hits.push({ X: a.pts[0].X, Y: a.pts[0].Y, r: 8, html });
           hits.push({ X: a.pts[a.pts.length - 1].X, Y: a.pts[a.pts.length - 1].Y, r: 8, html });
         });
+      drawVisitPaths(m, det, toS, vp, inView, stroke, space, words);
     }
 
     // This epoch's circles, as big as their sources look; pieces of a bright star stay off the plate.
@@ -1685,6 +1689,64 @@ export const mountBlink: MountBlink = (el: HTMLElement, opts: BlinkOptions): Bli
         stroke(pen("--ink"), k ? 1.5 : 2, k ? 0.8 : 0.95);
       });
     }
+  }
+
+  /**
+   * contracts v3.21: a shift's measured position in each visit of this detector, joined in time
+   * order, each with its 1σ error circle (measured.ts visitPath): for the list entry in focus, and
+   * with Advanced on for every shift. A steady motion reads as beads on a line; a wobble (dashed)
+   * goes out and comes back. Magnified about the visits' mean when small, with its factor ("×10").
+   */
+  function drawVisitPaths(
+    m: Measured,
+    det: number,
+    toS: (p: SkyPos) => { X: number; Y: number },
+    vp: VP,
+    inView: (p: { X: number; Y: number }, m?: number) => boolean,
+    stroke: (col: string, w: number, a?: number) => void,
+    space: LabelSpace,
+    words: Word[],
+  ) {
+    if (!ctx || !F) return;
+    const inFocus = measItems.find((x) => x.key === (focusItem ?? pinned))?.shift;
+    const pxPerArcsec = vp.s / F.pixel_arcsec;
+    m.shifts.forEach((s, i) => {
+      if (i !== inFocus && !getDetails()) return;
+      const grade = sourceGrade.get(s.source_id);
+      if (opts.viewer && greyed(s.class, grade)) return;
+      // the all-wavelengths plate: the detector with the most visits (positions compare within one only)
+      // a shift with an arrow: the arrow's scale, so one motion is drawn at one scale
+      const p = visitPath(s, waveGroups.size ? null : det, toS, pxPerArcsec, shiftArrows.get(i)?.factor);
+      if (!p || !p.pts.some((q) => inView(q))) return;
+      const col = pen(greyed(s.class, grade) ? "--m-artifact" : classInfo(s.class).token);
+      ctx.save();
+      if (wobbles(s)) ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      p.pts.forEach((q, k) => (k ? ctx.lineTo(q.X, q.Y) : ctx.moveTo(q.X, q.Y)));
+      stroke(col, 1.4, 0.95);
+      ctx.restore();
+      p.pts.forEach((q, k) => {
+        ring(ctx, q.X, q.Y, p.r[k]);
+        pencil(ctx, col, 0.8, 0.4);
+        ctx.beginPath();
+        ctx.arc(q.X, q.Y, 2.2, 0, Math.PI * 2);
+        ctx.save();
+        ctx.fillStyle = col;
+        ctx.fill();
+        ctx.restore();
+        // The one in focus numbers its visits, so out and back reads in time order.
+        if (i === inFocus)
+          words.push({ text: String(k + 1), at: { X: q.X, Y: q.Y, r: 2.2 }, color: col, font: `600 9.5px ${fontFamily}`, gap: 2, prio: 2 });
+      });
+      space.addPath(p.pts);
+      const last = p.pts[p.pts.length - 1];
+      if (p.factor > 1)
+        words.push({ text: `×${p.factor}`, at: { X: last.X, Y: last.Y, r: p.r[p.r.length - 1] }, color: col, font: `600 10.5px ${fontFamily}`, gap: 3, prio: 1 });
+      const what = `${wobbles(s) ? wobbleWords(s) : "Its position in each visit, joined in time order."} D${p.det}, ${p.pts.length} visits.`;
+      const scale = p.factor > 1 ? ` Drawn ${p.factor} times larger, about the visits' mean.` : "";
+      const html = `<span class="bk-mtag" data-cls="${s.class}">${esc(describeShift(s, grade))}</span> <span class="bk-val">${esc(what + scale)}</span>`;
+      for (const q of p.pts) hits.push({ X: q.X, Y: q.Y, r: 6, html });
+    });
   }
 
   /** The zone's box, dashed, when the field reaches past it: outside it nothing is linked. */
