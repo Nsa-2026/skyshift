@@ -405,14 +405,14 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
                 "here.",
                 f"Step through the sessions of its visit in D{main} on the hours clock: the dot should keep moving "
                 "along one smooth path.",
-                {"sessions": ns, "rate_arcsec_h": trate, "control_tracks": 0}))
+                {"sessions": ns, "track_rate_arcsec_h": trate, "control_tracks": 0}))
         else:
             out.append(check(
                 "chance_tracks", "warn",
                 f"Followed over {ns} sessions at {trate:.1f}″ an hour{sig}, but the zone's shuffled control (sessions "
                 f"mixed up) also made {ctl} track{'s' if ctl != 1 else ''}, so chance tracks happen here.",
                 f"Step through the sessions of its visit in D{main}: check every session's dot, not only the first.",
-                {"sessions": ns, "rate_arcsec_h": trate, "control_tracks": ctl}))
+                {"sessions": ns, "track_rate_arcsec_h": trate, "control_tracks": ctl}))
     fh = m.get("fast_held")
     if fh is not None:
         ns, trate = fh
@@ -423,7 +423,7 @@ def _motion_checks(m, d, det, exp, n, main, gates) -> list[dict]:
             "partner detector backs it, so it stays grade B instead of A.",
             f"Switch the Viewer between D{main} and D{SIMULTANEOUS.get(main, main)} at the same exposure, then step "
             "through its sessions: a real fast mover shows in both detectors and keeps to one line.",
-            {"sessions": ns, "rate_arcsec_h": trate, "limit_arcsec_h": FAST_HELD_ARCSEC_H}))
+            {"sessions": ns, "track_rate_arcsec_h": trate, "limit_arcsec_h": FAST_HELD_ARCSEC_H}))
     ref = m.get("ref") or {}
     if rate is None or m.get("no_motion"):
         return out

@@ -74,6 +74,7 @@ L = log.get("candidates")
 
 KINDS = ("mover", "high_pm", "spectral", "shape")
 CACHE_DIR: Path | None = None  # --cache: column reads kept on disk between runs
+SLIM_READS = True  # members.parquet: only the pages holding the candidates' rows (parquet_rows); --full-reads: off
 REPO =Path(__file__).resolve().parents[3]
 DEFAULT_OUT = REPO / "web" / "public" / "data" / "candidates.json"
 
@@ -197,29 +198,42 @@ def _fmt_dist(arcsec: float) -> str:
 
 # --- reading the bucket ---------------------------------------------------------------------------
 def read_columns(store: Store, rel: str, columns: list[str], ids: np.ndarray | None = None,
-                 id_col: str = "source_id") -> pd.DataFrame:
+                 id_col: str = "source_id", by_pages: bool = False) -> pd.DataFrame:
     """Some columns of a parquet file, read with range requests (Store.read_parquet reads whole files).
-    ids: keep only rows whose id_col is in it."""
+    ids: keep only rows whose id_col is in it. by_pages (with ids, SLIM_READS): read only the pages that hold those
+    rows (parquet_rows; members.parquet), unless the whole columns are already in the cache; same result."""
     import hashlib
 
-    import pyarrow.parquet as pq
-
-    key = None
+    key = skey = None
     if CACHE_DIR is not None:
         h = hashlib.sha1(f"{store.root}|{rel}|{','.join(columns)}".encode()).hexdigest()[:16]
         key = CACHE_DIR / f"{rel.replace('/', '__')}.{h}.parquet"
+        if by_pages and ids is not None:
+            hi = hashlib.sha1(np.unique(np.asarray(ids, np.int64)).tobytes()).hexdigest()[:16]
+            skey = CACHE_DIR / f"{rel.replace('/', '__')}.{h}.rows-{hi}.parquet"
+    df = None
     if key is not None and key.exists():
         df = pd.read_parquet(key)
-    else:
-        with store.fs.open(store.path(rel), "rb") as f:
-            pf = pq.ParquetFile(f)
-            have = set(pf.schema_arrow.names)
-            t = pf.read(columns=[c for c in columns if c in have])
+    elif skey is not None and skey.exists():
+        df = pd.read_parquet(skey)
+    elif by_pages and ids is not None and SLIM_READS:
+        from . import parquet_rows
+
+        df = parquet_rows.read_rows(store.fs, store.path(rel), columns, ids, id_col)
+        if df is not None and skey is not None:
+            skey.parent.mkdir(parents=True, exist_ok=True)
+            tmp = skey.with_suffix(f".tmp{id(df)}")
+            df.to_parquet(tmp, index=False)
+            tmp.replace(skey)
+    if df is None:
+        from . import parquet_rows
+
+        t = parquet_rows.read_table(store.fs, store.path(rel), columns)  # exact ranges: no 5 MiB read-ahead
         df = t.to_pandas()
         if key is not None:
             key.parent.mkdir(parents=True, exist_ok=True)
             tmp = key.with_suffix(f".tmp{id(df)}")
-            t.to_pandas().to_parquet(tmp, index=False)
+            df.to_parquet(tmp, index=False)
             tmp.replace(key)
     if ids is not None:
         df = df[df[id_col].isin(np.asarray(ids))]
@@ -387,7 +401,8 @@ def _opt(x, kind=float):
 def member_info(store: Store, zone: str, ids: np.ndarray, workers: int = 32) -> pd.DataFrame:
     """Per source: mean MJD of its dots (photo list) and the OR / share of record-only flag bits over its
     dots (dot files' `flags`, the 3×3 OR around each dot). Columns: source_id, mjd, n_dots, flag_<bit> share."""
-    m = read_columns(store, results_rel(zone, "members.parquet"), ["source_id", "obs_id", "detector", "dot_row"], ids)
+    m = read_columns(store, results_rel(zone, "members.parquet"), ["source_id", "obs_id", "detector", "dot_row"], ids,
+                     by_pages=True)
     p = read_columns(store, photolist_rel(zone), ["obs_id", "detector", "mjd"])
     p["detector"] = p["detector"].astype(np.int64)
     m["detector"] = m["detector"].astype(np.int64)
@@ -1480,7 +1495,8 @@ def build(store: Store, zones: list[str], frames_root: Path | None = None, worke
                    sum(planets.values()), planets)
         cands += shape_candidates(store, z)
         from . import fragments  # results/<zone>/fragments.parquet: bright_fragment, duplicate never listed; blend: a reason
-        cands, fst = fragments.apply_candidates(cands, fragments.load(store, z))
+        tags = fragments.load(store, z, read=lambda rel, columns: read_columns(store, rel, columns))
+        cands, fst = fragments.apply_candidates(cands, tags)
         if fst["applied"]:
             L.info("candidates %s: fragments tags: %s", z, fst)
         # spectral positions are needed for the dedupe: read them now (cheap)
@@ -1700,6 +1716,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--spectral-cap", type=int, default=SPECTRAL_CAP)
     ap.add_argument("--workers", type=int, default=32)
     ap.add_argument("--cache", help="folder that keeps the column reads (dot files, sources) between runs")
+    ap.add_argument("--full-reads", action="store_true",
+                    help="read members.parquet's whole columns, not only the pages holding the candidates' rows")
     ap.add_argument("--drop-planets", metavar="JSON",
                     help="only remove the movers near a planet from this existing candidates.json, in place (counts "
                          "updated, nothing else changed); reads no zone")
@@ -1727,8 +1745,9 @@ def main(argv: list[str] | None = None) -> int:
         path.write_text(dumps(doc))
         L.info("dropped %d movers near a planet from %s: %s; counts now %s", sum(by.values()), path, by, doc["counts"])
         return 0
-    global CACHE_DIR
+    global CACHE_DIR, SLIM_READS
     CACHE_DIR = Path(a.cache) if a.cache else None
+    SLIM_READS = not a.full_reads
     store = Store(a.root)
     zones = a.zones.split(",") if a.zones else finished_zones(store)
     if not zones:
@@ -1739,6 +1758,10 @@ def main(argv: list[str] | None = None) -> int:
     sizes = write_export(doc, out)
     L.info("wrote %s: %s, zones %s, %.2f MB; more files (grade C movers) %d, %.2f MB", out, doc["counts"], doc["zones"],
            sizes[out.name], len(sizes) - 1, sum(v for k, v in sizes.items() if k != out.name))
+    from .parquet_rows import STATS
+    L.info("parquet reads (not from --cache): %d files by columns, %d by pages (their whole columns %.1f MB); %.1f MB "
+           "in %d range requests", STATS["tables"], STATS["files"], STATS["full_bytes"] / 1e6, STATS["bytes"] / 1e6,
+           STATS["requests"])
     if a.fixture:
         Path(a.fixture).write_text(json.dumps(sample(split_more(doc)[0]), ensure_ascii=False, indent=1,
                                               allow_nan=False) + "\n")

@@ -215,8 +215,10 @@ def test_seen_again_and_chance_tracks():
     ch = CK.mover_checks(m)
     assert codes(ch) == {"seen_again": "ok", "chance_tracks": "ok"}
     c = next(x for x in ch if x["code"] == "seen_again")
-    assert next(x for x in ch if x["code"] == "chance_tracks")["text"].startswith(
-        "Followed over 4 sessions of its visit at 25.0″ an hour, 12σ; the zone's shuffled control")
+    ct = next(x for x in ch if x["code"] == "chance_tracks")
+    assert ct["text"].startswith("Followed over 4 sessions of its visit at 25.0″ an hour, 12σ; the zone's shuffled control")
+    # v3.25 follow-up: the track's rate is track_rate_arcsec_h in all three track checks (rate_arcsec_h is ours)
+    assert ct["values"] == {"sessions": 4, "track_rate_arcsec_h": 25.0, "control_tracks": 0}
     assert c["text"] == ("Seen again: followed over 4 sessions of its visit (4 movers, and dots found again along its "
                          "path in 2 more sessions) over 30 hours at 25.0″ an hour towards PA 60°, 12σ; within its own "
                          "session 27″ an hour towards PA 70°. In this zone the same search with the sessions shuffled "
@@ -239,7 +241,8 @@ def test_fast_held():
     """A grade B track faster than 400″/h that suspects.track_grades kept at B (no recovered dot, no partner)."""
     m = _mover(track=(2, 520.0, 9.0), on_track=True, control_tracks=None, fast_held=(2, 520.0), ref=_ref(n=10))
     c = {x["code"]: x for x in CK.mover_checks(m)}
-    assert c["fast_held"]["level"] == "warn" and c["fast_held"]["values"]["limit_arcsec_h"] == 400.0
+    assert c["fast_held"]["level"] == "warn"
+    assert c["fast_held"]["values"] == {"sessions": 2, "track_rate_arcsec_h": 520.0, "limit_arcsec_h": 400.0}
     assert c["fast_held"]["text"].startswith("Followed over 2 sessions at 520″ an hour, faster than 400″ an hour, where "
                                              "tracks of 2 sessions also join up glitches of one detector")
     row = {"grade": "B", "tracklet_id": 3, "n_sessions": 2, "rate_arcsec_h": 520.0, "rate_sigma": 50.0, "rate_snr": 10.4}
