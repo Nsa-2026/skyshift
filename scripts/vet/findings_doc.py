@@ -109,13 +109,13 @@ def write(c: dict, names: list[str], main: str, out: str) -> None:
          "",
          "## The checkers compared", "",
          "The same findings went to each checker. \"Same side\" means both keep, both drop, or both leave it open.", "",
-         f"| Checker | Records | Controls right | Same verdict as {RUN_LABEL.get(main, main)} | Same side | Cost | Tool calls per finding | Time per finding |",
-         "|---|---:|---:|---:|---:|---:|---:|---:|"]
+         f"| Checker | Records | Controls right | Same verdict as {RUN_LABEL.get(main, main)} | Same side | Cost | Tool calls per finding |",
+         "|---|---:|---:|---:|---:|---:|---:|"]
     for n in names:
         s, u = stats[n], stats[n]["usage"]
         agree = ("-", "-") if n == main else (f"{s['same_verdict']}/{s['compared']}", f"{s['same_side']}/{s['compared']}")
         L.append(f"| {RUN_LABEL.get(n, n)} | {s['records']} | {s['controls_ok']}/{s['controls']} | {agree[0]} | {agree[1]} | "
-                 + (f"${u['usd']:.2f} | {u['tool_calls'] / max(1, s['records']):.1f} | {u['seconds'] / max(1, s['records']):.0f} s |" if u else "- | - | - |"))
+                 + (f"${u['usd']:.2f} | {u['tool_calls'] / max(1, s['records']):.1f} |" if u else "- | - |"))
     L += ["", "## All findings at a glance", "", "| Finding | Kind | Result | Checkers on the same side |", "|---|---|---|---:|"]
     title = {"good_new": "Good: worth a look", "good_known": "Good: already known", "open": "Possible", "mistake": "Engine mistake", "control": "Control"}
     for g in ("good_new", "good_known", "open", "mistake", "control"):
