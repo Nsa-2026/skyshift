@@ -1306,6 +1306,10 @@ ORPHANS_RATE_MAX = 2.5             # ″/h: 40 AU TNOs drift 0.003–2.3″/h in
 ORPHANS_DRIFT_NSIGMA = 3.0         # drift_ok: the rate is within this many sigma of [RATE_MIN, RATE_MAX] ...
 ORPHANS_DRIFT_MAX_ERR = 0.1        # ... and measured to better than this (″/h; otherwise anything is "consistent")
 ORPHANS_DRIFT_FLOOR = 0.005        # ″/h added in quadrature to drift errors in the pair model (straight-line motion, r grid)
+ORPHANS_DRIFT_FLOOR_REL = 0.2      # ... and this × the measured rate (orphans.drift_sigma): a straight line through a 5–17
+                                   # day visit misses Earth's turning reflex (its direction turns ~1°/day) in proportion to
+                                   # the drift. Hunt injection 40 AU 61% → 89%, 70–300 AU 77–91% → 98–99%; the shifted
+                                   # control 0.98 → 1.02 pairs (0.3: 1.2). orphans.parquet `rate_max`: see orphans.rate_max_at
 ORPHANS_WINDOW_AU = (40.0, 1000.0) # pair separation window (orphans.pair_window): what a body between these distances can
                                    # move between the two times (Earth's parallax ± its own bound motion). Was a fixed
                                    # 300–7,200″, which lost 1000 AU near the ecliptic poles (visits ~30 days apart: 86–200″).
@@ -1417,6 +1421,9 @@ TRACK_RECOVER_R_MIN_ARCSEC = 3.0
 TRACK_RECOVER_R_MAX_ARCSEC = 8.0
 TRACK_RECOVER_NEAR_FIXED = True  # also dots 4-6″ from a fixed source (link's veto zone; not in its group)
 TRACK_RECOVER_IN_FIXED = True    # also the fixed groups' member dots that sit off their star (link off_star_members)
+TRACK_RECOVER_STACK_SMEAR_ARCSEC = 7.5  # session stacks on: a stack row (link puts the free ones in nonfixed_dots) is
+                                 # recovered only where the track moves less than this over the session's photos (one
+                                 # PSF FWHM, 7.53″; 4 photos span 6.3 min: up to ~70″/h); a stack aligns the static sky
 
 # --- stack (stack.py, 15 Nov night): detect on per-visit stacks, then a joint ePSF fit in every photo ---------------
 # Single photos (6.15″ px, FWHM 7.5″) miss sources below their limit, 8–15″ pairs and stars in a bright star's glow.

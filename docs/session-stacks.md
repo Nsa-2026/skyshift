@@ -555,14 +555,77 @@ the photo already in memory, and stack when the session's last photo is done. Th
 (`extraction-needs`: dots/ owner); the step's code takes prepared cuts (`stack_session(cuts, task)`), so it needs no
 change for that. Turn the switch on for link and orphans only after the stacks of the zone exist.
 
+### Round 2 (16 Nov evening): orphans limits, stack rows in tracklets' recovery
+
+**orphans, drift limit per position** (`orphans.rate_max_at`, column `rate_max` in orphans.parquet): drift_ok takes
+`ORPHANS_RATE_MAX` (2.5″/h) or, where it is more, what a bound body at the window's near distance (40 AU) can drift
+at that spot and time: (Earth's velocity across the line of sight + the bound orbit's speed) / 39 AU. That is
+~4.6″/h at the ecliptic poles (a 40 AU body drifts ~3.7″/h there) and 2.5 on the hunt's ecliptic. distant.json
+`searched.rate_arcsec_h` gives the zone's largest limit.
+
+**orphans, drift floor that grows with the rate** (`orphans.drift_sigma`, `ORPHANS_DRIFT_FLOOR_REL` 0.2): each drift
+component's error in the pair model is the fit's error, 0.005″/h and 0.2 × the measured rate in quadrature. A straight
+line through a 5–17 day visit misses Earth's turning reflex (its direction turns ~1°/day) in proportion to the drift;
+with the fixed floor alone 25% of the hunt's 40 AU bodies failed the drift χ².
+
+Measured as in round 1 (table-level injection, the same bodies for both; before = main after #383):
+
+| r (AU) | hunt (visits 1 + 2) before → after | ecliptic pole (t_nep, consecutive visits ~29 days) before → after |
+|---|---|---|
+| 40 | 61% → 89% | 0% → 96% |
+| 70 | 77% → 98% | 66% → 99% |
+| 100 | 81% → 98% | 67% → 100% |
+| 150 | 79% → 98% | 78% → 100% |
+| 300 | 91% → 99% | 81% → 100% |
+| 600 | 98% → 100% | 95% → 99% |
+| 1000 | 100% → 100% | 97% → 97% |
+
+150 bodies per distance in the hunt, 100 at the pole. Chance level (50 shifted controls on real orphans): hunt 839
+pairs tested, 1 passing, 0.98 → 1.02 expected; t_rdra (a pole zone at ecliptic latitude ~81°, 7 visits; t_nep has no
+link run) 99 pairs tested, 0 passing, 0 → 0 expected. The floor was scanned at 0, 0.03, 0.05, 0.1, 0.15, 0.2 and 0.3:
+the hunt's 40 AU recovery rises 61 → 63 → 73 → 84 → 86 → 89 → 91%, the hunt's control stays 0.98 up to 0.1, then
+1.00, 1.02 and 1.20 expected passing pairs; 0.2 is the last step before the control moves. scripts/validate's
+distant_injection uses the same per-position limit.
+
+**tracklets, stack rows in the recovery** (switch on): link writes every stack row in no fixed group into
+nonfixed_dots.parquet (obs_id "", dot_row −1, the session-mean mjd, `stack_key` and `stack_row`; the real dots get ""
+and −1; `near_fixed` as for dots). tracklets recovers them like dots at the track's predicted position, but only
+where the track moves less than `TRACK_RECOVER_STACK_SMEAR_ARCSEC` (7.5″, one PSF FWHM) over the session's photos:
+a stack aligns the static sky, so a faster object is smeared in it (4 photos span 6.3 min: up to ~70″/h; the fast
+tracks never take stack rows, so suspects' fast-track rule is unchanged). tracklet_dots.parquet then has
+`stack_key` / `stack_row` too; score counts a known sighting found by a recovered stack row like any recovered dot.
+Stats: `steps.tracklets.nonfixed_stack_rows`, `recovered_stack_rows`, `control.recovered_stack_rows`;
+`steps.link.session_stack.nonfixed_stack_rows(_near_fixed)`. Switched off, both tables and stats are as before.
+
+Measured on 8 real hunt sessions of visit 2 (203, 211, 225, 229, 234, 238, 242, 250: the sessions with the most
+known asteroids missed next to a track of the same object), SWIR only (21 stacks of 3–4 photos, 83 photos from S3).
+Stack rows as link would get them (`coadd.load_stack_rows` with the sky run's dot files: 317k rows after the glitch,
+near-saturation and 3″ dedup cuts). Their fixed-group membership, which link decides with every session's stacks, is
+approximated: within 4″ of a hunt fixed source (130k), of a Gaia star (185k) or repeated in ≥ 3 of the 8 sessions
+(378); 1,827 stay free. Tracks: today's tracklets code on the hunt's movers. Known asteroids: the 15 Nov hunt run's
+recall_units (movers + recovered real dots) before; plus a recovered stack row within 12″ after.
+
+| known units in the 8 sessions | n | found before → after | score's control (moved 2′) |
+|---|---|---|---|
+| V < 16 | 37 | 35 → 36 (94.6% → 97.3%) | 0 → 0 |
+| V 16–17 | 16 | 12 → 14 (75% → 88%) | 0 → 0 |
+| V 17–18 | 111 | 44 → 47 (40% → 42%) | 0 → 0 |
+| all V < 18 | 164 | 91 → 97 (55.5% → 59.1%) | 0 → 0 |
+
+tracklets: 7 stack rows recovered on tracks (6 tracks), all of them known asteroids; the control (every track moved
+2′) recovered 0. The 6 new units had no dot at all (5) or only a star's dot (1). Of the 57 units missed next to a
+track of the same object: 6 recovered; 19 have a real dot within 3″ in that session and detector (so no stack row:
+that dot exists but recovery did not take it, a real-dot gap, not a stack one); 16 are not in the stack within 6″;
+10 are free stack rows a track did not reach; 4 sit within 4″ of a Gaia star (the membership proxy); 2 are flagged
+glitch or near saturation. A whole-zone measurement needs the combined rerun (every session stacked, link deciding
+membership).
+
 ## What is left
 
 - **Fuse into the dots worker** (above): today the step re-reads the photos.
 - **D4 dark holes** keep 26 negatives per deg² at the 8σ cap: the hole mask needs a second look in D4.
-- **Stack rows to tracklets' recovery:** moving faint asteroids rarely reach a 5σ in-session motion, so the pseudo-dot
-  route adds little; a stack row on a track's predicted path (nonfixed_dots) would.
-- **40 AU orphans in the hunt** (63%): a drift floor that grows with the rate (the reflex turns during a visit), then
-  the chance level again. At the poles 40 AU needs a rate limit of ~4″/h.
+- **Stack rows in tracklets' recovery** and the **orphans limits**: done in round 2 (above); measured on 8 hunt
+  sessions in SWIR only, with fixed-group membership approximated. The combined rerun measures them on whole zones.
 - **Whole-sky storage**: the per-photo rows are half the 1.2 TB; keep only moving sources' rows if that is too much.
 - **Contract text** for session_stacks/ and stack_members.parquet is proposed in the PR, not in contracts/ yet.
 - The study's points below still hold where not done here.

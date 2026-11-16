@@ -550,7 +550,8 @@ def test_link_takes_session_stack_rows_only_when_switched_on(tmp_path, monkeypat
 
     def run_link():
         assert main(["link", "--zone", "pilot", "--root", str(tmp_path), "--workers", "2"]) == 0
-        out = {n: store.read_parquet(results_rel("pilot", f"{n}.parquet")) for n in ("fixed", "members", "movers")}
+        out = {n: store.read_parquet(results_rel("pilot", f"{n}.parquet"))
+               for n in ("fixed", "members", "movers", "nonfixed_dots")}
         has = store.exists(results_rel("pilot", "stack_members.parquet"))
         return out, has, json.loads((tmp_path / "results/pilot/summary.json").read_text())["steps"]["link"]
 
@@ -569,3 +570,11 @@ def test_link_takes_session_stack_rows_only_when_switched_on(tmp_path, monkeypat
     assert ss["stack_pseudo_dots_used"] == 2 and ss["movers_with_stack_dots"] == 1
     assert len(on["movers"]) == 1 and int(on["movers"]["session"].iloc[0]) == 4
     assert "with_stack_dots" in st_on["control"]
+    # nonfixed_dots (tracklets' recovery): the free stack row (the mover's; the faint source is a fixed group) joins
+    # the real dots as obs_id "", dot_row −1 with its stack key and row; switched off, the table has no stack columns
+    assert "stack_row" not in off["nonfixed_dots"]
+    nf = on["nonfixed_dots"]
+    stk = nf[nf["stack_row"] >= 0]
+    assert len(stk) == 1 and int(stk["stack_row"].iloc[0]) == 3 and int(stk["session"].iloc[0]) == 4
+    assert stk["obs_id"].iloc[0] == "" and int(stk["dot_row"].iloc[0]) == -1 and stk["stack_key"].iloc[0] != ""
+    assert (nf.loc[nf["stack_row"] < 0, "stack_key"] == "").all() and ss["nonfixed_stack_rows"] == 1

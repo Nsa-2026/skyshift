@@ -57,7 +57,12 @@ fragments, astrometry, highpm, orphans, tracklets, score, completeness, suspects
   link reads the stacks only with the switch on: stack rows join the FoF (one dot per session; fixed sources too faint
   for one photo → results/<zone>/stack_members.parquet; members.parquet keeps real dots), moving stack sources in no
   fixed group give pseudo-dots (dot_row −1) to the pairing and its shuffled control. orphans takes stack-only fixed
-  sources as candidates and stack rows in every drift fit.
+  sources as candidates and stack rows in every drift fit. Every stack row in no fixed group also goes into
+  nonfixed_dots.parquet (obs_id "", dot_row −1, session-mean mjd, `stack_key`/`stack_row`; real dots "" / −1), and
+  tracklets recovers it on a track's predicted path where the track moves < TRACK_RECOVER_STACK_SMEAR_ARCSEC (7.5″)
+  over the session (tracklet_dots then has stack_key/stack_row; stats recovered_stack_rows, control too). 8 hunt
+  sessions, SWIR stacks: known units V < 18 found 91 → 97 of 164 (V < 16 35 → 36 of 37), control 0 → 0, 7 stack rows
+  recovered on tracks vs 0 with the tracks moved 2′ (docs/session-stacks.md §7 round 2).
 - Candidates for the site (contracts/api.md, candidates.json): `uv run skyshift-candidates [--zones hunt,pilot]
   [--cache <dir>]` reads results/ of every finished zone (largest first) and writes ../web/public/data/candidates.json;
   then `cd ../server && uv run python ../scripts/candidates/frames.py` adds static frames for the top ones.
@@ -331,6 +336,11 @@ Table-level injection at the hunt's cadence (70–1000 AU, 3–20 dots per visit
 (70 AU) … 100% (1000 AU); 40 AU at the pole still 0 (it drifts ~3.7″/h there). Chance on the hunt's real orphans:
 709 → 839 pairs tested, 1 passing vs 0.92 → 0.98 expected. Session stacks (switch on): stack-only fixed sources are
 candidates too (catalogue test against refcat/<zone>.parquet, drift from their stack rows, fluxes from them).
+16 Nov round 2: drift_ok's limit is per orphan (`rate_max`, rate_max_at: 2.5″/h, or what a 40 AU bound body can
+drift at that spot and time, ~4.6″/h at the ecliptic poles), and the pair model's drift error adds
+ORPHANS_DRIFT_FLOOR_REL (0.2) × the rate (drift_sigma: a visit-long straight line misses Earth's turning reflex).
+Hunt cadence 40 AU 61 → 89%, 70–300 AU 77–91 → 98–99%; pole cadence 40 AU 0 → 96%, 70–1000 AU 66–97 → 97–100%;
+chance 0.98 → 1.02 expected (hunt), 0 → 0 (t_rdra). docs/session-stacks.md §7 round 2.
 The step never raises (errors go to its stats).
 
 ## Completeness (inject.py, step `completeness`): what "found nothing" means

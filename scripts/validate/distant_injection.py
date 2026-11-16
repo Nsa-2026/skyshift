@@ -115,7 +115,7 @@ def run(root: str, zone_name: str, seed: int = SEED, tries: int = TRIES) -> dict
             f = O.fit_drift(d)
             f = f[f.source_id.isin([10_000 * k + v for k in meta for v in (1, 2)])]
             f["visit"] = np.where(f.source_id % 10 == 1, 1, 2)
-            f["drift_ok"] = f.fit_ok & O.drift_ok(f.rate, f.rate_err)
+            f["drift_ok"] = f.fit_ok & O.drift_ok(f.rate, f.rate_err, O.rate_max_at(f.ra, f.dec, f.mjd))
             cols = ["source_id", "ra", "dec", "mjd", "visit", "drift_e", "drift_n", "drift_e_err", "drift_n_err"]
             both = pd.concat([real[cols], f[f.drift_ok][cols]], ignore_index=True)
             ninj = int(f.drift_ok.sum())
