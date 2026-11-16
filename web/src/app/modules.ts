@@ -74,8 +74,9 @@ export interface BlinkHandle {
   /** Hours clock: has the shown photo a no-data part (past the detector's edge) worth filling? */
   needsFill?(): boolean;
   /** Exposures used only to fill the plate's no-data edge on the hours clock, never blinked
-   *  (data_url resolved against url). Replaces earlier ones; show() clears them. */
-  fill?(sources: { epoch: Epoch; url: string }[]): void;
+   *  (data_url resolved against url). Replaces earlier ones; show() clears them. Resolves once they
+   *  are painted (or could not be loaded). */
+  fill?(sources: { epoch: Epoch; url: string }[]): Promise<void>;
   /** Loading or error state while app fetches frames. message null clears it. */
   status(kind: "loading" | "error" | "idle", message?: string): void;
   highlight?(pos:SkyPos|null):void;
