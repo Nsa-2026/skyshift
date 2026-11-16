@@ -38,11 +38,17 @@ export function headHtml(d: ChangesFile | null): string {
   const watched = stars
     ? `SkyShift watches every star it measures (${plural(stars, 'star')} in ${plural(zones, 'zone')} so far)`
     : 'SkyShift watches every star it measures';
+  const names = d?.watched.map((w) => w.zone) ?? [];
+  const allSky = names.some((z) => /^(ecl|hunt)/.test(z));
+  const scope = zones && !allSky
+    ? `${plural(zones, 'featured field')} watched so far; the whole sky after the next rebuild.`
+    : '';
   return html`<header class="ch-head">
     <h1 class="ch-title">Changes in known stars</h1>
     <p class="ch-lede">${esc(watched)} and lists the ones whose brightness or colour changed between NASA SPHEREx
       visits about six months apart.${fa ? ` The same rules fire on ${esc(fa)} when nothing changed.` : ''}
       Stars Gaia already lists as variable are marked and come after the unexpected ones.</p>
+    ${scope ? html`<p class="ch-scope">${esc(scope)}</p>` : ''}
     <p class="ch-feed"><a class="ch-feed-link" href="${FEED_URL}" type="application/atom+xml">Subscribe to the feed (Atom)</a>
       <span aria-hidden="true">·</span> Follow a star with ☆: your list stays in this browser, with no account.</p>
   </header>`;

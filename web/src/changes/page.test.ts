@@ -50,6 +50,7 @@ describe('Changes page', () => {
     expect(last.querySelector('.ch-var')!.textContent).toMatch(/^Gaia already lists it as variable/);
     expect(el.querySelector<HTMLAnchorElement>('.ch-feed-link')!.getAttribute('href')).toBe('/data/changes.atom');
     expect(el.querySelector('.ch-lede')!.textContent).toContain('182,580 stars in 3 zones');
+    expect(el.querySelector('.ch-scope')!.textContent).toBe('3 featured fields watched so far; the whole sky after the next rebuild.');
     const follow = first.querySelector<HTMLButtonElement>('button[data-follow]')!;
     expect(follow.getAttribute('aria-pressed')).toBe('false');
   });
