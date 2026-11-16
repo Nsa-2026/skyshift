@@ -378,7 +378,8 @@ export function summarize(m: Measured, gaia?: GaiaStar[], opts: SummarizeOptions
     // Only the shifts the plate draws an arrow for "moved": the rest are weak or Gaia disagrees.
     const G = gaiaById(gaia);
     const moved = m.shifts.filter((s) => shiftVerdict(s, G).draw);
-    const weak = m.shifts.length - moved.length;
+    const wobbly = m.shifts.filter((s) => shiftVerdict(s, G).why === "wobble");
+    const weak = m.shifts.length - moved.length - wobbly.length;
     const by = (c: MeasuredClass) => moved.filter((s) => s.class === c).length;
     if (by("star")) parts.push(plural(by("star"), "Gaia star"));
     if (by("suspect")) {
@@ -402,7 +403,7 @@ export function summarize(m: Measured, gaia?: GaiaStar[], opts: SummarizeOptions
     const weakNote = weak
       ? `${weak.toLocaleString("en-GB")} weaker ${weak === 1 ? "shift is" : "shifts are"} neither counted nor drawn: under ${SHIFT_MIN_SNR}σ, or Gaia measures a different motion.`
       : "";
-    rest = [weakNote, r.length ? `Of the sources, ${listJoin(r)}.` : ""].filter(Boolean).join(" ");
+    rest = [wobbleNote(wobbly), weakNote, r.length ? `Of the sources, ${listJoin(r)}.` : ""].filter(Boolean).join(" ");
   }
 
   const notes: string[] = [stageNote(m)];
@@ -482,11 +483,43 @@ export function detectionNumbers(d: MeasuredDetection): string {
   return `S/N ${num(d.snr, d.snr >= 10 ? 0 : 1)}, ${flux} µJy${dots}`;
 }
 
-/** "Gaia star moved 0.42″ ± 0.08″ in 1.0 yr". */
+/**
+ * "Gaia star moved 0.42″ ± 0.08″ in 1.0 yr": the fitted motion over the whole span, first visit to
+ * last, never one step between two visits. A wobble (v3.21 `steady: false`) is not a motion: "Gaia
+ * star: no steady motion".
+ */
 export function describeShift(s: MeasuredShift, grade?: string | null): string {
   const name = classInfo(s.class).name;
   const who = s.class === "star" ? "Gaia star" : s.class === "other" ? "Source without Gaia" : grade ? `${name}, grade ${grade},` : name;
+  if (wobbles(s)) return `${who.replace(/,$/, "")}: no steady motion`;
   return `${who} moved ${arcsec(s.shift_arcsec)} ± ${arcsec(s.err_arcsec)} in ${num(s.dt_yr, 1)} yr`;
+}
+
+/** v3.21: the server found its visits off any straight line: a wobble, not a motion. */
+export const wobbles = (s: Pick<MeasuredShift, "steady">): boolean => s.steady === false;
+
+/** A wobble's size in words: "0.8″" (two decimals under 0.1″). */
+export const wobbleArcsec = (x: number): string => `${num(x, x < 0.1 ? 2 : 1)}″`;
+
+/**
+ * One sentence for a wobble: "Its position wobbles by about 0.8″ between visits, within what
+ * SPHEREx can measure: no steady motion." With `numbers`, the fit's χ²_ν too.
+ */
+export function wobbleWords(s: Pick<MeasuredShift, "wobble_arcsec" | "chi2_nu">, numbers = false): string {
+  const by = s.wobble_arcsec != null ? ` by about ${wobbleArcsec(s.wobble_arcsec)}` : "";
+  const chi = numbers && s.chi2_nu != null ? ` (χ²/dof ${num(s.chi2_nu, 1)} about a straight line)` : "";
+  return `Its position wobbles${by} between visits${chi}, within what SPHEREx can measure: no steady motion.`;
+}
+
+/** The summary's sentence for the shifts that wobble ("" when none). */
+export function wobbleNote(ws: Pick<MeasuredShift, "wobble_arcsec">[]): string {
+  if (!ws.length) return "";
+  const max = Math.max(...ws.map((s) => s.wobble_arcsec ?? 0));
+  const n = ws.length;
+  const by = max > 0 ? ` by up to ${wobbleArcsec(max)}` : "";
+  return n === 1
+    ? `1 more source's position wobbles between visits${by}, within what SPHEREx can measure: not counted as motion.`
+    : `${n.toLocaleString("en-GB")} more sources' positions wobble between visits${by}, within what SPHEREx can measure: not counted as motion.`;
 }
 
 /** "420 ± 80 mas/yr, 5.3σ, towards 172°". */
@@ -549,6 +582,70 @@ export function motionArrow(pts: Pt[], along?: Pt): Arrow | null {
   return { pts: pts.map((p) => ({ X: p0.X + (p.X - p0.X) * k, Y: p0.Y + (p.Y - p0.Y) * k })), factor: k, end: last };
 }
 
+/** A visit path at least this long (screen px) is drawn to scale; a shorter one is magnified. */
+export const VISIT_PATH_MIN_PX = 30;
+/** Smallest radius of a visit's error circle on screen, px. */
+export const VISIT_ERR_MIN_PX = 1.5;
+/** A magnified path never blows its error circles up past this radius (px): a source that barely
+ *  moves next to its errors stays small, as it should. */
+export const VISIT_ERR_MAX_PX = 20;
+const PATH_FACTORS = [1, ...STRETCH.filter((k) => k <= 100)];
+
+export interface VisitPath {
+  /** The detector whose visits these are. */
+  det: number;
+  /** One screen point per visit of that detector, in time order, joined by the path. */
+  pts: Pt[];
+  /** Each visit's 1σ error circle, screen px (× factor). */
+  r: number[];
+  /** 1: to scale; more: magnified that many times about the visits' mean ("×10" beside it). */
+  factor: number;
+  epochs: string[];
+}
+
+/**
+ * A shift's measured position in each visit of one detector (contracts v3.21 `visits`), joined in
+ * time order, each with its error circle: a steady motion reads as a line of beads, a wobble as a
+ * path that goes out and comes back. Positions are compared within one detector only (another
+ * detector's offset is colour, not motion): `det`, or with null (the all-wavelengths plate) the
+ * detector with the most visits (then the smallest errors). Magnified about the visits' mean by a
+ * plain factor (×2 … ×100) when the path would be under VISIT_PATH_MIN_PX, but never so far that an
+ * error circle passes VISIT_ERR_MAX_PX. `fixed`: that factor instead (the shift's own arrow's, so one
+ * motion is drawn at one scale). null with fewer than two visits.
+ */
+export function visitPath(
+  s: Pick<MeasuredShift, "visits">,
+  det: number | null,
+  toS: (p: { ra: number; dec: number }) => Pt,
+  pxPerArcsec: number,
+  fixed?: number,
+): VisitPath | null {
+  const all = s.visits ?? [];
+  if (det == null) {
+    const by = new Map<number, number[]>();
+    for (const v of all) by.set(v.det, [...(by.get(v.det) ?? []), v.err_arcsec]);
+    const mean = (xs: number[]) => xs.reduce((t, x) => t + x, 0) / xs.length;
+    det = [...by].sort((a, b) => b[1].length - a[1].length || mean(a[1]) - mean(b[1]))[0]?.[0] ?? 0;
+  }
+  const vs = all.filter((v) => v.det === det).sort((a, b) => a.mjd - b.mjd);
+  if (vs.length < 2) return null;
+  const raw = vs.map((v) => toS(v));
+  const c = { X: raw.reduce((t, p) => t + p.X, 0) / raw.length, Y: raw.reduce((t, p) => t + p.Y, 0) / raw.length };
+  let extent = 0;
+  for (const p of raw) for (const q of raw) extent = Math.max(extent, Math.hypot(p.X - q.X, p.Y - q.Y));
+  const errPx = Math.max(...vs.map((v) => v.err_arcsec)) * pxPerArcsec;
+  const need = extent < VISIT_PATH_MIN_PX && extent > 1e-3 ? (PATH_FACTORS.find((k) => extent * k >= VISIT_PATH_MIN_PX) ?? 100) : 1;
+  const cap = [...PATH_FACTORS].reverse().find((k) => errPx * k <= VISIT_ERR_MAX_PX) ?? 1;
+  const factor = fixed ?? Math.max(1, Math.min(need, cap));
+  return {
+    det,
+    pts: raw.map((p) => ({ X: c.X + (p.X - c.X) * factor, Y: c.Y + (p.Y - c.Y) * factor })),
+    r: vs.map((v) => Math.max(VISIT_ERR_MIN_PX, v.err_arcsec * pxPerArcsec * factor)),
+    factor,
+    epochs: vs.map((v) => v.epoch_id),
+  };
+}
+
 /** Where a fitted shift puts its source at `mjd`: its position at mjd_from moved by the proper motion. */
 export function shiftAt(s: Pick<MeasuredShift, "ra" | "dec" | "pmra" | "pmdec" | "mjd_from">, mjd: number): { ra: number; dec: number } {
   const yr = (mjd - s.mjd_from) / 365.25;
@@ -561,13 +658,16 @@ export const SHIFT_MIN_SNR = 5;
 /** …with our errors scaled up like this before comparing with Gaia (pos_err is 1.4–1.8× too small, CLAUDE.md). */
 export const ERR_SCALE = 1.6;
 
-export type ShiftWhy = "gaia_agrees" | "significant" | "gaia_disagrees" | "weak" | "artifact";
+export type ShiftWhy = "gaia_agrees" | "significant" | "gaia_disagrees" | "weak" | "artifact" | "wobble";
 
 export interface ShiftVerdict {
   draw: boolean;
   why: ShiftWhy;
   /** Gaia's proper motion for the star, mas/yr, when known. */
   gaiaPm?: number;
+  /** why "wobble": how far its visits stray from a straight line, arcsec, and the fit's χ²/dof. */
+  wobble?: number | null;
+  chi2?: number | null;
 }
 
 /**
@@ -575,8 +675,11 @@ export interface ShiftVerdict {
  * far more precise: drawn when Gaia measures a motion we could see (3σ of ours) and ours agrees
  * within 3σ (errors × 1.6); not drawn when it disagrees, as a saturated star's fake westward shift
  * does. Without a Gaia motion: drawn at 5σ or more, unless the checks called it an artefact.
+ * Never drawn when its visits wobble about any straight line (v3.21 `steady: false`): out and back
+ * is measurement scatter, not motion.
  */
 export function shiftVerdict(s: MeasuredShift, gaia?: Map<string, GaiaStar>): ShiftVerdict {
+  if (wobbles(s)) return { draw: false, why: "wobble", wobble: s.wobble_arcsec, chi2: s.chi2_nu };
   const g = s.gaia_id ? gaia?.get(s.gaia_id) : undefined;
   if (g && g.pmra != null && g.pmdec != null) {
     const gaiaPm = Math.hypot(g.pmra, g.pmdec);
@@ -597,10 +700,14 @@ export function verdictWords(v: ShiftVerdict): string {
       return `Not on the plate: Gaia measures ${num(v.gaiaPm ?? 0)} mas/yr for this star.`;
     case "artifact":
       return "Not on the plate: our checks set it aside.";
+    case "wobble":
+      return `No arrow: ${lower(wobbleWords({ wobble_arcsec: v.wobble, chi2_nu: v.chi2 }, true))}`;
     default:
       return `Not on the plate: under ${SHIFT_MIN_SNR}σ.`;
   }
 }
+
+const lower = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
 export const gaiaById = (gaia: GaiaStar[] | null | undefined): Map<string, GaiaStar> => new Map((gaia ?? []).map((g) => [g.id, g]));
 
@@ -619,7 +726,8 @@ export function arrowNote(clock: "hours" | "months"): string {
   return clock === "hours"
     ? `Arrows join each mover's dots in time order, to scale. ${stretched}`
     : `Arrows run from where we measured a source in the first visit to where we measured it in the last, to scale. ` +
-        `Only shifts of ${SHIFT_MIN_SNR}σ or more, or that Gaia's own motion confirms, get one; the rest are in the list. ${stretched}`;
+        `Only shifts of ${SHIFT_MIN_SNR}σ or more, or that Gaia's own motion confirms, get one; the rest are in the list. ` +
+        `A source whose position wobbles between visits instead of moving in a straight line gets none. ${stretched}`;
 }
 
 /** Offset (arcsec, east and north) between two positions, small-angle. */
@@ -729,6 +837,8 @@ export function plainVerdict(v: ShiftVerdict): string {
     }
     case "artifact":
       return "No arrow on the plate: our checks set it aside.";
+    case "wobble":
+      return wobbleWords({ wobble_arcsec: v.wobble, chi2_nu: v.chi2 });
     default:
       return "No arrow on the plate: too small to be sure.";
   }
@@ -736,7 +846,15 @@ export function plainVerdict(v: ShiftVerdict): string {
 
 /** A shift in plain words: its direction, and why it has no arrow when it has none. */
 export function plainShiftWords(s: MeasuredShift, v?: ShiftVerdict): string {
-  return [`Towards the ${compass(s.pa_deg)}.`, v ? plainVerdict(v) : ""].filter(Boolean).join(" ");
+  if (wobbles(s)) return wobbleWords(s);
+  return [steadyWords(s), v ? plainVerdict(v) : ""].filter(Boolean).join(" ");
+}
+
+/** "Towards the north, in a straight line from its first visit to its last." A shift the
+ *  server didn't test (older files): "Towards the north." */
+export function steadyWords(s: MeasuredShift): string {
+  if (s.steady !== true) return `Towards the ${compass(s.pa_deg)}.`;
+  return `Towards the ${compass(s.pa_deg)}, in a straight line from its first visit to its last.`;
 }
 
 const ITEM_ORDER: MeasuredClass[] = ["suspect", "known", "mover", "artifact", "star", "other"];
@@ -862,14 +980,20 @@ export function listItems(m: Measured, epochDet: Map<string, number>, det: numbe
         if (w) notes.push(`${w[0].toUpperCase()}${w.slice(1)}.`);
       }
       if (!v.draw) notes.push(verdictWords(v));
+      const wobble = v.why === "wobble";
       items.push({
         key: `s:${s.source_id}`,
         cls: s.class,
         grade,
         label: describeShift(s, grade),
+        // A wobble has no direction: no "towards", and the fit's numbers only as what the fit said.
         numbers: plain
-          ? [`Towards the ${compass(s.pa_deg)}.`, ...notes.filter((x) => !x.startsWith("Not on the plate")), plainVerdict(v)].filter(Boolean).join(" ")
-          : [shiftNumbers(s) + (notes.length ? "." : ""), ...notes].join(" "),
+          ? wobble
+            ? [...notes.filter((x) => !x.startsWith("No arrow")), plainVerdict(v)].join(" ")
+            : [steadyWords(s), ...notes.filter((x) => !x.startsWith("Not on the plate")), plainVerdict(v)].filter(Boolean).join(" ")
+          : wobble
+            ? [...notes, `The fit over all its dots said ${shiftNumbers(s)}.`].join(" ")
+            : [shiftNumbers(s) + (notes.length ? "." : ""), ...notes].join(" "),
         at: {},
         pos: { ra: s.ra, dec: s.dec },
         epochs: [],
@@ -926,6 +1050,8 @@ export function moreLine(items: MeasuredItem[], clock: Measured["clock"]): strin
   if (clock === "hours") return `${plural(n, "lone dot")}, not paired into a mover`;
   if (more.every((it) => it.shift != null && it.why === "weak"))
     return `${plural(n, "smaller shift")}, too small to be sure`;
+  if (more.every((it) => it.shift != null && it.why === "wobble"))
+    return `${plural(n, "source")} whose position wobbles between visits: not motion`;
   if (more.every((it) => it.shift != null)) return `${n.toLocaleString("en-GB")} more ${n === 1 ? "shift" : "shifts"} we can't be sure of`;
   return `${n.toLocaleString("en-GB")} more we can't be sure of`;
 }

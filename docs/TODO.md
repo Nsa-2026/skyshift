@@ -27,6 +27,12 @@ test_calib psf test (a thread pool's shared `+=` counter lost a photo: spectra 8
 
 - [ ] Redeploy Cloud Run with #164. Until then the live API keeps the 5″ blend rule, and WISE 0855's visit 3 is back
   only in the static files.
+- [ ] **P1/P2: class a blend of Gaia stars as `star`, not `other`.** The 4″ crossid misses a source whose centroid
+  falls between two Gaia stars, so it reads `other` ("Source Gaia doesn't list") while its own `blend_gaia_ids` name
+  them (RW Aurigae months, visit 1: a G 17.8 pair 9″ apart). The blink now draws such a source as those Gaia stars
+  (display only, `web/src/blink/layout.ts` `sourceGaia`: the server's blend list, or a G ≤ 18 star within 3.75″).
+  The contract's class rule (contracts/api.md, `measured`) and the exporter should do the same, so the counts,
+  the list and the MCP server agree with the plate.
 
 ## Branches without a PR to main
 

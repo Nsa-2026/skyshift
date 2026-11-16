@@ -36,6 +36,9 @@ import {
   plainVerdict,
   viewerShows,
   withoutArtefacts,
+  wobbleWords,
+  plainShiftWords,
+  visitPath,
 } from "./measured";
 
 const hours = hoursJson as unknown as FramesResponse;
@@ -555,5 +558,72 @@ describe("without artefacts (the Viewer and the To check plates)", () => {
     const all = [summarize(m, months.gaia, { artefacts: false }), summarize({ ...m, truncated: true }, months.gaia, { artefacts: false })];
     expect(all.map((x) => [x.lead, x.rest, ...x.notes].join(" ")).join(" ")).not.toMatch(/artefact/i);
     expect(listItems(m, detOf(months), 2, months.gaia).some((i) => i.cls === "artifact")).toBe(false);
+  });
+});
+
+describe("steady motion or a wobble (contracts v3.21)", () => {
+  const G = gaiaById(months.gaia);
+  const base = M.shifts[0];
+  // The site owner's star: (0, 0) → (−1.15, +0.17) → (−0.34, +0.50)″, which the old panel called a motion.
+  const wobbly = { ...base, gaia_id: null, class: "other" as const, pm_snr: 9, pa_deg: 90, steady: false, wobble_arcsec: 0.8, chi2_nu: 12.4 };
+  it("never draws or counts a wobble, whatever its σ", () => {
+    expect(shiftVerdict(wobbly, G)).toMatchObject({ draw: false, why: "wobble", wobble: 0.8 });
+    const m: Measured = { ...M, shifts: [wobbly] };
+    const sum = summarize(m, months.gaia);
+    expect(sum.lead).toMatch(/none moved measurably between visits/);
+    expect(sum.rest).toMatch(/1 more source's position wobbles between visits by up to 0\.8″, within what SPHEREx can measure: not counted as motion\./);
+    const it0 = listItems(m, detOf(months), 2, months.gaia)[0];
+    expect(it0).toMatchObject({ counted: false, why: "wobble", undrawn: true });
+    expect(moreLine([it0], "months")).toBe("1 source whose position wobbles between visits: not motion");
+  });
+  it("says a wobble in plain words, with no direction and no step between two visits", () => {
+    const want = "Its position wobbles by about 0.8″ between visits, within what SPHEREx can measure: no steady motion.";
+    expect(wobbleWords(wobbly)).toBe(want);
+    expect(plainShiftWords(wobbly)).toBe(want);
+    expect(describeShift(wobbly)).toBe("Source without Gaia: no steady motion");
+    const plain = listItems({ ...M, shifts: [wobbly] }, detOf(months), 2, months.gaia, true)[0];
+    expect(plain.label).not.toMatch(/moved|towards/i);
+    expect(plain.numbers).toBe(want);
+    const full = listItems({ ...M, shifts: [wobbly] }, detOf(months), 2, months.gaia)[0];
+    expect(full.numbers).toMatch(/^No arrow: its position wobbles by about 0\.8″ between visits \(χ²\/dof 12\.4 about a straight line\)/);
+    expect(full.numbers).toMatch(/The fit over all its dots said .* mas\/yr/);
+  });
+  it("draws each visit of this detector, in time order, magnified when small", () => {
+    // 1 px per arcsec on screen; RA grows to the left (east), as on the sky
+    const toS = (p: { ra: number; dec: number }) => ({ X: -p.ra * 3600, Y: -p.dec * 3600 });
+    const at = (e: number, n: number) => ({ ra: e / 3600, dec: n / 3600 });
+    const visits = [
+      { epoch_id: "d2-v3", det: 2, mjd: 61200, ...at(-0.34, 0.5), err_arcsec: 0.3 },
+      { epoch_id: "d2-v1", det: 2, mjd: 60800, ...at(0, 0), err_arcsec: 0.3 },
+      { epoch_id: "d5-v1", det: 5, mjd: 60800, ...at(3, 3), err_arcsec: 0.3 },
+      { epoch_id: "d2-v2", det: 2, mjd: 61000, ...at(-1.15, 0.17), err_arcsec: 0.3 },
+    ];
+    const p = visitPath({ visits }, 2, toS, 1)!;
+    expect(p.epochs).toEqual(["d2-v1", "d2-v2", "d2-v3"]); // time order, D5 (another colour) left out
+    expect(p.factor).toBe(50); // 1.16″ = 1.16 px: × 50 makes it 58 px (× 20: 23, under 30)
+    expect(p.r).toEqual([15, 15, 15].map((x) => expect.closeTo(x, 6)));
+    // out and back: the middle bead is the farthest west (screen right), the last comes back
+    expect(p.pts[1].X).toBeGreaterThan(p.pts[2].X);
+    expect(p.pts[2].X).toBeGreaterThan(p.pts[0].X);
+    expect(visitPath({ visits: visits.slice(0, 1) }, 2, toS, 1)).toBeNull();
+    expect(visitPath({}, 2, toS, 1)).toBeNull();
+    // the all-wavelengths plate (det null): the detector with the most visits
+    expect(visitPath({ visits }, null, toS, 1)!.det).toBe(2);
+    // errors cap the magnification: 2″ errors at 1 px/″ allow ×10 at most (20 px circles)
+    const noisy = visits.map((v) => ({ ...v, err_arcsec: 2 }));
+    expect(visitPath({ visits: noisy }, 2, toS, 1)!.factor).toBe(10);
+    // a shift with an arrow keeps the arrow's scale
+    expect(visitPath({ visits }, 2, toS, 1, 1)!.factor).toBe(1);
+    // a long steady track stays to scale
+    const far = visits.map((v, i) => ({ ...v, ...at(0, 10 * i) }));
+    expect(visitPath({ visits: far }, 2, toS, 1)!.factor).toBe(1);
+  });
+  it("a steady shift says its net motion over the whole span", () => {
+    const steady = { ...base, steady: true, wobble_arcsec: 0.65, chi2_nu: 18.3 };
+    expect(shiftVerdict(steady, G).draw).toBe(true);
+    expect(plainShiftWords(steady)).toMatch(/^Towards the [a-z-]+, in a straight line from its first visit to its last\.$/);
+    expect(describeShift(steady)).toMatch(/^Gaia star moved [\d.]+″ ± [\d.]+″ in [\d.]+ yr$/);
+    // not tested (older files, or a single visit per detector): as before
+    expect(plainShiftWords({ ...base, steady: null })).toBe(`Towards the ${compass(base.pa_deg)}.`);
   });
 });
