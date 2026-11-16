@@ -287,3 +287,58 @@ describe("an object to check opens on its own detector", () => {
     }).not.toThrow();
   });
 });
+
+describe("the file's checks in the suspect panel (contracts/api.md v3.23)", () => {
+  const oneDetector = {
+    code: "one_detector",
+    level: "strong" as const,
+    text: "D3 measured 76 ± 41 µJy at its place, against 1,795 in D6 (ratio 0.04; known asteroids here: 0.03–3)",
+    look: "Hours, D3 and D6: in D3, at the same moments, the spot stays empty",
+    values: { flux_ujy: 76, ratio: 0.04 },
+  };
+  const outlier = { code: "flag_outlier", level: "warn" as const, text: "NASA marked 3 of 9 pixels OUTLIER in photo 2", look: "", values: null };
+  const seen = { code: "partner_seen", level: "ok" as const, text: "D5 saw it too", look: "Hours, D5", values: null };
+  const withChecks = { ...ecl04, status: "open" as const, known_name: null, checks: [seen, outlier, oneDetector] };
+
+  it("replaces the guessed “Watch for” line with the checks, strong first", () => {
+    const a = aboutCandidate(withChecks);
+    expect(a.watch).toBe("");
+    expect(a.checks.map((k) => k.code)).toEqual(["one_detector", "flag_outlier", "partner_seen"]);
+  });
+
+  it("lets a measured partner check replace the guess about the partner detector", () => {
+    const f = framesWith({ partner: true });
+    expect(aboutCandidate(ecl04, f).said).toHaveLength(2);
+    expect(aboutCandidate(withChecks, f).said).toEqual([aboutCandidate(ecl04, f).said[0]]);
+  });
+
+  it("keeps today's text without checks (older files, or none measured)", () => {
+    expect(aboutCandidate({ ...ecl04, checks: [] }).watch).toBe(aboutCandidate(ecl04).watch);
+    expect(aboutCandidate(ecl04).watch).toMatch(/^Watch for: /);
+    expect(aboutCandidate(ecl04).checks).toEqual([]);
+  });
+
+  it("shows each check marked in words, with what was measured and what to look at", () => {
+    const html = aboutHtml(withChecks);
+    expect(html).not.toContain("sp-about-watch");
+    const el = document.createElement("div");
+    el.innerHTML = html;
+    expect(el.querySelector(".sp-checks-h")?.textContent).toBe("What to check");
+    const items = [...el.querySelectorAll(".ck")];
+    expect(items.map((li) => li.querySelector(".ck-level")!.textContent)).toEqual(["Sign against:", "Can't rule out:", "Sign for:"]);
+    expect(items[0].querySelector(".ck-text")?.textContent).toBe(`${oneDetector.text}.`);
+    expect(items[0].querySelector(".ck-look")?.textContent).toBe(`Look: ${oneDetector.look}.`);
+    expect(items[1].querySelector(".ck-look")).toBeNull();
+  });
+
+  it("says first what a known body or an instrument flaw certainly is", () => {
+    const el = document.createElement("div");
+    el.innerHTML = aboutHtml({ ...withChecks, status: "known", known_name: "306P/LINEAR" });
+    expect(el.querySelector(".ck-status .ck-status-head")?.textContent).toBe("Known body: 306P/LINEAR");
+    expect(el.querySelector(".ck-status")?.textContent).toContain("Listed apart, not deleted.");
+    el.innerHTML = aboutHtml({ ...withChecks, status: "flaw" });
+    expect(el.querySelector(".ck-status-head")?.textContent).toBe("Instrument flaw");
+    el.innerHTML = aboutHtml(ecl04);
+    expect(el.querySelector(".ck-status, .sp-checks")).toBeNull();
+  });
+});

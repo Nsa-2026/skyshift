@@ -1,0 +1,156 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC, for web tests and screenshots only: a small candidates.json in contracts/api.md v3.24 shape, with status, known_name, checks and more (the Less likely files: checks.more-<zone>.fixture.json) (texts and numbers made up in the contract's style). Never copy it into web/public/data/ and never show it as real data.",
+  "generated": "2026-11-16T12:00:00Z",
+  "data_release": "DR1+QR3",
+  "zones": ["hunt", "ecl04"],
+  "counts": { "mover": 8, "high_pm": 3, "spectral": 1, "shape": 1 },
+  "more": [
+    { "zone": "hunt", "kind": "mover", "grade": "C", "count": 3, "url": "candidates-more/hunt.json" },
+    { "zone": "ecl04", "kind": "mover", "grade": "C", "count": 2, "url": "candidates-more/ecl04.json" }
+  ],
+  "candidates": [
+    {
+      "id": "hunt-664250069368-87801613", "kind": "mover", "ra": 123.599449, "dec": 20.709591, "mjd": 60973.34207, "clock": "hours", "det": 2,
+      "zone": "hunt", "zones": ["hunt"], "grade": "A", "score": 0.94, "snr": 42.0, "flux_ujy": 1120.4, "rate_arcsec_h": 37.9,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 103.1, "nearest_known_arcsec": 532.8, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 27.133, "labels": [], "reasons": ["two_exposures"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 3 exposures over 4.3 minutes, moving about 38″ an hour; the nearest known asteroid or comet was predicted 8.9′ away.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "partner_seen", "level": "ok", "text": "D5 measured 640 ± 90 µJy at its place at the same moments, against 1,120 in D2 (ratio 0.57; known asteroids here: 0.03–3)", "look": "Hours, D5: the same dot steps along with it in the photos taken with D2's", "values": { "flux_ujy": 640, "ratio": 0.57 } },
+        { "code": "odd_direction", "level": "warn", "text": "It moves toward 103°, while the visit's known asteroids move toward 245° ± 20°", "look": "Hours, D2: check the dot steps the same way in every photo, not back and forth", "values": { "pa_deg": 103.1 } }
+      ]
+    },
+    {
+      "id": "hunt-664250077777-87801640", "kind": "mover", "ra": 123.84112, "dec": 20.33321, "mjd": 60973.35102, "clock": "hours", "det": 6,
+      "zone": "hunt", "zones": ["hunt"], "grade": "B", "score": 0.71, "snr": 18.3, "flux_ujy": 1795.0, "rate_arcsec_h": 52.4,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 251.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 26.9, "labels": [], "reasons": ["two_exposures"], "flags": ["outlier"], "frames_url": null,
+      "why": "Seen at different places in 2 exposures 2.1 minutes apart, with no known asteroid nearby.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "two_photos", "level": "warn", "text": "Seen in 2 photos 2.1 minutes apart: two dots always line up, so its path can't be checked", "look": "Hours, D6: look for a third dot along the same line in the next session", "values": { "photos": 2 } },
+        { "code": "flag_outlier", "level": "ok", "text": "NASA marked OUTLIER at the peak of 1 of its 2 dots, as for 68% of known asteroids: a sign it moved", "look": "", "values": { "dots_peak": 1, "dots": 2, "known_share": 0.68 } },
+        { "code": "one_detector", "level": "ok", "text": "D3 measured 410 ± 60 µJy at its place, against 1,795 in D6 (ratio 0.23; known asteroids here: 0.03–3)", "look": "Hours, D3: a faint dot at the same place in the same photos", "values": { "flux_ujy": 410, "ratio": 0.23 } }
+      ]
+    },
+    {
+      "id": "hunt-664250081234-87801655", "kind": "mover", "ra": 124.01233, "dec": 19.98711, "mjd": 60973.36011, "clock": "hours", "det": 4,
+      "zone": "hunt", "zones": ["hunt"], "grade": "B", "score": 0.22, "snr": 11.2, "flux_ujy": 1795.0, "rate_arcsec_h": 64.0,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 12.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 26.4, "labels": [], "reasons": ["two_exposures"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 2 exposures 2.1 minutes apart, with no known asteroid nearby.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "one_detector", "level": "strong", "text": "D1 measured 76 ± 41 µJy at its place, against 1,795 in D4 (ratio 0.04; known asteroids here: 0.03–3), and D4 alone is rare for a real asteroid", "look": "Hours, D1 and D4: in D1, at the same moments, the spot stays empty", "values": { "flux_ujy": 76, "ratio": 0.04 } },
+        { "code": "two_photos", "level": "warn", "text": "Seen in 2 photos 2.1 minutes apart: two dots always line up, so its path can't be checked", "look": "Hours, D4: look for a third dot along the same line in the next session", "values": { "photos": 2 } }
+      ]
+    },
+    {
+      "id": "ecl04-701100223344-88001122", "kind": "mover", "ra": 181.20211, "dec": -1.40017, "mjd": 61012.20412, "clock": "hours", "det": 5,
+      "zone": "ecl04", "zones": ["ecl04"], "grade": "B", "score": 0.31, "snr": 22.0, "flux_ujy": 980.0, "rate_arcsec_h": 39.1,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 109.0, "nearest_known_arcsec": 14.2, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 59.8, "labels": [], "reasons": ["two_exposures", "known_object_near"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 4 exposures over 6.4 minutes, moving about 39″ an hour; a known asteroid was predicted 14″ away.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "known_nearby", "level": "warn", "text": "(4512) Sinuhe was predicted 14″ away, moving 41″ an hour toward 112°; this moves 39″ an hour toward 109°", "look": "Hours, D5: the violet double circle marks Sinuhe; if it sits on the dot in every photo, it's that asteroid", "values": { "sep_arcsec": 14.2, "rate_arcsec_h": 41.0 } }
+      ]
+    },
+    {
+      "id": "ecl04-701100229999-88001190", "kind": "mover", "ra": 181.90311, "dec": -1.20555, "mjd": 61012.25001, "clock": "hours", "det": 6,
+      "zone": "ecl04", "zones": ["ecl04"], "grade": "A", "score": 0.88, "snr": 64.0, "flux_ujy": 5300.0, "rate_arcsec_h": 61.2,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 243.0, "nearest_known_arcsec": 2.1, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 59.9, "labels": [], "reasons": ["two_exposures", "known_object_near"], "flags": [], "frames_url": null,
+      "why": "On a track over 5 sessions, moving about 61″ an hour toward the south-west.",
+      "status": "known", "known_name": "306P/LINEAR",
+      "checks": [
+        { "code": "known_body", "level": "strong", "text": "306P/LINEAR was predicted within 2.1″ at every one of its 14 dots, moving 63″ an hour toward 241°; this moves 61″ an hour toward 243°", "look": "Hours, D6: the violet double circle sits on the dot in every photo", "values": { "sep_arcsec": 2.1, "rate_arcsec_h": 63.0 } }
+      ]
+    },
+    {
+      "id": "ecl04-701100231111-88001201", "kind": "mover", "ra": 182.31002, "dec": -0.90013, "mjd": 61012.29001, "clock": "hours", "det": 3,
+      "zone": "ecl04", "zones": ["ecl04"], "grade": "A", "score": 0.85, "snr": 210.0, "flux_ujy": 88000.0, "rate_arcsec_h": 12.4,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 98.0, "nearest_known_arcsec": 0.8, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 60.2, "labels": [], "reasons": ["two_exposures", "known_object_near"], "flags": [], "frames_url": null,
+      "why": "On a track over 7 sessions, moving about 12″ an hour toward the east.",
+      "status": "known", "known_name": "Iapetus",
+      "checks": [
+        { "code": "known_body", "level": "strong", "text": "Iapetus (a moon of Saturn) was predicted within 0.8″ at every one of its 21 dots, moving 12.6″ an hour toward 97°", "look": "Hours, D3: the violet double circle sits on the dot in every photo", "values": { "sep_arcsec": 0.8, "rate_arcsec_h": 12.6 } }
+      ]
+    },
+    {
+      "id": "hunt-664250099999-87801700", "kind": "mover", "ra": 122.90001, "dec": 21.10002, "mjd": 60973.40001, "clock": "hours", "det": 3,
+      "zone": "hunt", "zones": ["hunt"], "grade": "B", "score": 0.05, "snr": 9.1, "flux_ujy": 310.0, "rate_arcsec_h": 31.0,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 74.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 27.4, "labels": [], "reasons": ["two_exposures"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 5 exposures over 8.4 minutes, moving about 31″ an hour.",
+      "status": "flaw", "known_name": null,
+      "checks": [
+        { "code": "hot_pixel_proven", "level": "strong", "text": "All 5 dots sit on D3 pixel (1021, 388) ± 1 while the sky moved 31″ under it", "look": "Hours, D3: the dot keeps its place on the detector while the stars around it shift", "values": { "photos": 5 } }
+      ]
+    },
+    {
+      "id": "hunt-664250055555-87801599", "kind": "mover", "ra": 123.33301, "dec": 20.50013, "mjd": 60973.31001, "clock": "hours", "det": 1,
+      "zone": "hunt", "zones": ["hunt"], "grade": "B", "score": 0.6, "snr": 15.0, "flux_ujy": 220.0, "rate_arcsec_h": 28.0,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 260.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 27.0, "labels": [], "reasons": ["two_exposures"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 3 exposures over 4.2 minutes, moving about 28″ an hour.",
+      "status": "open", "known_name": null, "checks": []
+    },
+    {
+      "id": "hunt-pm-65039007407911", "kind": "high_pm", "ra": 130.117492, "dec": 18.399174, "mjd": 61058.352201, "clock": "months", "det": 2,
+      "zone": "hunt", "zones": ["hunt"], "grade": null, "score": 0.9, "snr": 120.6, "flux_ujy": 4824.3, "rate_arcsec_h": null,
+      "pm_mas_yr": 610.2, "pm_err_mas_yr": 41.8, "pa_deg": 150.9, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": true,
+      "galactic_b": 32.053, "labels": ["red"], "reasons": ["pm_fit", "few_dots"], "flags": [], "frames_url": null,
+      "why": "Moves 0.61″ a year between visits, and Gaia lists no star here.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "few_dots", "level": "warn", "text": "Its motion was fitted on 14 dots; 20 or more pin a motion down", "look": "Months, D2: blink the visits and check the star steps the same way each time", "values": { "dots": 14 } }
+      ]
+    },
+    {
+      "id": "hunt-pm-65039007500022", "kind": "high_pm", "ra": 129.51001, "dec": 18.80012, "mjd": 61058.30001, "clock": "months", "det": 2,
+      "zone": "hunt", "zones": ["hunt"], "grade": null, "score": 0.35, "snr": 300.1, "flux_ujy": 9100.0, "rate_arcsec_h": null,
+      "pm_mas_yr": 410.0, "pm_err_mas_yr": 160.0, "pa_deg": 20.0, "nearest_known_arcsec": null, "gaia_match": true, "catwise_match": false,
+      "galactic_b": 32.4, "labels": [], "reasons": ["pm_fit", "gaia_pm_disagrees"], "flags": [], "frames_url": null,
+      "why": "Moves 0.41″ a year between visits; Gaia lists a star here with a different motion.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "gaia_disagrees", "level": "strong", "text": "Gaia DR3 lists a star 1.2″ away moving 12 mas a year; we measured 410 ± 160 mas a year", "look": "Months, D2: if the star stays put between visits, the motion is a measuring error", "values": { "sep_arcsec": 1.2 } }
+      ]
+    },
+    {
+      "id": "hunt-pm-65039007600033", "kind": "high_pm", "ra": 129.11001, "dec": 18.10012, "mjd": 61058.31001, "clock": "months", "det": 2,
+      "zone": "hunt", "zones": ["hunt"], "grade": null, "score": 0.7, "snr": 90.1, "flux_ujy": 2100.0, "rate_arcsec_h": null,
+      "pm_mas_yr": 290.0, "pm_err_mas_yr": 30.0, "pa_deg": 200.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 32.1, "labels": [], "reasons": ["pm_fit"], "flags": [], "frames_url": null,
+      "why": "Moves 0.29″ a year between visits, and Gaia lists no star here.",
+      "status": "open", "known_name": null, "checks": []
+    },
+    {
+      "id": "hunt-sp-65039007700044", "kind": "spectral", "ra": 128.71001, "dec": 19.40012, "mjd": 61058.32001, "clock": "months", "det": 3,
+      "zone": "hunt", "zones": ["hunt"], "grade": null, "score": 0.66, "snr": 48.0, "flux_ujy": 820.0, "rate_arcsec_h": null,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": null, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": true,
+      "galactic_b": 31.7, "labels": ["pah_33"], "reasons": ["class_galaxy"], "flags": [], "frames_url": null,
+      "why": "Its spectrum shows the 3.3 µm glow of a star-forming galaxy.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "pah_only", "level": "warn", "text": "Only the 3.3 µm band stands out (S/N 6.1); nothing else in its spectrum does", "look": "Months, D3 and D4: compare the spot's brightness in D4 with D3", "values": null },
+        { "code": "catalogues_checked", "level": "ok", "text": "Gaia DR3, CatWISE2020 and 2MASS were searched: CatWISE lists one source within 6″", "look": "", "values": null }
+      ]
+    },
+    {
+      "id": "hunt-sh-65039007800055", "kind": "shape", "ra": 128.31001, "dec": 19.80012, "mjd": 61058.33001, "clock": "months", "det": 2,
+      "zone": "hunt", "zones": ["hunt"], "grade": null, "score": 0.5, "snr": 140.0, "flux_ujy": 3200.0, "rate_arcsec_h": null,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 44.0, "nearest_known_arcsec": null, "gaia_match": true, "catwise_match": true,
+      "galactic_b": 31.2, "labels": [], "reasons": ["elongated", "steady_pa"], "flags": [], "frames_url": null,
+      "why": "Its image is stretched like two objects side by side, but Gaia and CatWISE list only one.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "bright_neighbour", "level": "strong", "text": "A star 40 times brighter sits 18″ away, along the stretch", "look": "Months, D2: the stretch points at the bright star; a halo looks the same", "values": { "sep_arcsec": 18 } }
+      ]
+    }
+  ]
+}

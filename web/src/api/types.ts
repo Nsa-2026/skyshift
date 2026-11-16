@@ -405,6 +405,31 @@ export interface Candidate {
   frames_url: string | null;
   /** Movers: the vetting grade (added 14 Nov). null or absent: not graded (other kinds, older exports). */
   grade?: Grade | null;
+  /** v3.23: open (to check), known (certainly a known body) or flaw (certainly the instrument).
+   *  Absent in older files: read as open (./checks.ts statusOf). */
+  status?: CandidateStatus;
+  /** v3.23: the known body's name when status is known, else null. */
+  known_name?: string | null;
+  /** v3.23: what could make it something else, measured, and what to look at. Absent: []. */
+  checks?: CandidateCheck[];
+}
+
+/** contracts/api.md v3.23, candidates.json `status`. */
+export type CandidateStatus = "open" | "known" | "flaw";
+
+/** strong: a measured sign against it; warn: can't be ruled out; ok: a measured sign for it. */
+export type CheckLevel = "strong" | "warn" | "ok";
+
+/** contracts/api.md v3.23, candidates.json `checks`. Words and order: ./checks.ts. */
+export interface CandidateCheck {
+  code: string;
+  level: CheckLevel;
+  /** What was measured, one plain sentence with the numbers. */
+  text: string;
+  /** Exactly what to look at in the Viewer, or "". */
+  look: string;
+  /** The numbers in `text`, keyed by name with units in the key; null when none. */
+  values: Record<string, unknown> | null;
 }
 
 export interface CandidatesResponse {
@@ -413,6 +438,31 @@ export interface CandidatesResponse {
   zones: string[];
   /** Files written before the shape kind (api v3.7) have no `shape` key: read it as 0. */
   counts: Record<Exclude<CandidateKind, "shape">, number> & { shape?: number };
+  candidates: Candidate[];
+  /** v3.24: the Less likely files, one per zone that has any (today a zone's open grade C movers).
+   *  Absent in older files: read as [] (every candidate is in this file). Reader: ./more.ts. */
+  more?: CandidatesMore[];
+}
+
+/** contracts/api.md v3.24, candidates.json `more`: one zone's Less likely file. */
+export interface CandidatesMore {
+  zone: string;
+  kind: CandidateKind;
+  grade: Grade | null;
+  /** The file's `candidates` length. */
+  count: number;
+  /** `candidates-more/<zone>.json`, resolved against the URL of candidates.json. */
+  url: string;
+}
+
+/** contracts/api.md v3.24, /data/candidates-more/<zone>.json: the same candidate objects as candidates.json. */
+export interface CandidatesMoreFile {
+  generated: string;
+  data_release: string;
+  zone: string;
+  kind: CandidateKind;
+  grade: Grade | null;
+  count: number;
   candidates: Candidate[];
 }
 

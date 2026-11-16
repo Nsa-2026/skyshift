@@ -1,0 +1,86 @@
+/* The checks a candidate carries (contracts/api.md v3.23) and its status, on the To check list and in the
+   Viewer's suspect panel (./checks.ts). The words carry the level; the colours only repeat them.
+   Inks: against = --warn, can't rule out = a darker amber than --partial (AA on --glass), for = --pass. */
+.ck-list {
+  --ck-strong: var(--warn);
+  --ck-warn: #8a5000;
+  --ck-ok: var(--pass);
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  max-width: 68ch;
+  font-size: var(--step--1);
+  line-height: 1.42;
+}
+.ck {
+  display: block;
+  padding-left: 10px;
+  border-left: 2px solid var(--ck-warn);
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.ck.is-strong { border-left-color: var(--ck-strong); }
+.ck.is-ok { border-left-color: var(--ck-ok); }
+.ck-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  font-weight: 650;
+  font-variation-settings: "wdth" 92;
+  white-space: nowrap;
+  color: var(--ck-warn);
+}
+.ck.is-strong .ck-level { color: var(--ck-strong); }
+.ck.is-ok .ck-level { color: var(--ck-ok); }
+.ck-mark {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  overflow: visible;
+}
+.ck-mark circle {
+  fill: currentColor;
+}
+.ck-mark path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ck.is-warn .ck-mark circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.ck.is-warn .ck-mark path {
+  stroke: currentColor;
+}
+.ck-look {
+  display: block;
+  margin-top: 1px;
+  color: var(--ink-2);
+}
+.ck-look-k {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Known body or instrument flaw: what it certainly is. */
+.ck-status {
+  margin: 0;
+  max-width: 68ch;
+  line-height: 1.42;
+  color: var(--ink-2);
+}
+.ck-status-head {
+  color: var(--ink);
+  font-weight: 650;
+}
+.ck-status.is-known .ck-status-head { color: var(--pencil-violet); }
+.ck-name {
+  font-variant-numeric: tabular-nums;
+}

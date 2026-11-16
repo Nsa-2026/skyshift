@@ -2,7 +2,9 @@ import { candidateFramesUrl } from "../api/client";
 // Data for the review pages: the candidate list, each candidate's frames (static frames_url
 // first, then the live API) with a small preload cache, and the vote store.
 import { ApiFailure, epochsFor, loadCandidates, loadFrames, loadSuspects } from "../api/client";
+import { checksOf, knownNameOf, statusOf } from "../api/checks";
 import { gradeOf } from "../api/grades";
+import { loadMore, loadedMore, moreOf, moreTotal, openedMore, setMoreOpen } from "../api/more";
 import type { Candidate, CandidateKind, CandidatesResponse, Det, FramesResponse, LoadedFrames, Suspect } from "../api/types";
 import type { View } from "../app/modules";
 import { safeStorage, type KV } from "../vote/model";
@@ -57,6 +59,9 @@ export function toCandidate(x: unknown): Candidate | null {
     frames_url: typeof o.frames_url === "string" && o.frames_url ? o.frames_url : null,
     // The vetting grade, only when the file has one (older exports: not vetted yet, never B).
     ...(gradeOf(o) ? { grade: gradeOf(o) } : {}),
+    // v3.23, only when the file has them (older files: open, no name, no checks).
+    ...(o.status !== undefined ? { status: statusOf(o), known_name: knownNameOf(o) } : {}),
+    ...(Array.isArray(o.checks) ? { checks: checksOf(o) } : {}),
   };
 }
 
@@ -66,6 +71,54 @@ export function toCandidateSet(data: CandidatesResponse, sample: boolean): Candi
     .map(toCandidate)
     .filter((c): c is Candidate => c !== null && !seen.has(c.id) && !!seen.add(c.id));
   return { data, candidates, sample };
+}
+
+// ---- the Less likely files (contracts/api.md v3.24 `more`) --------------------------------------
+
+const setIds = new WeakMap<CandidateSet, Set<string>>();
+const converted = new WeakMap<object, Candidate | null>();
+
+/**
+ * The candidates of the Less likely files on the list (opened on To check, or by a link to one of
+ * theirs), read like candidates.json's. An id is in one file only; one already in the set is skipped.
+ */
+export function moreCandidates(set: CandidateSet): Candidate[] {
+  let have = setIds.get(set);
+  if (!have) setIds.set(set, (have = new Set(set.candidates.map((c) => c.id))));
+  const seen = new Set<string>();
+  const out: Candidate[] = [];
+  for (const raw of loadedMore(openedMore(moreOf(set.data)))) {
+    let c = converted.get(raw);
+    if (c === undefined) converted.set(raw, (c = toCandidate(raw)));
+    if (c && !have.has(c.id) && !seen.has(c.id)) {
+      seen.add(c.id);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/** Over this many Less likely candidates in all, an id that names no zone isn't looked for in every file. */
+export const MORE_SEARCH_MAX = 5000;
+
+/**
+ * A candidate by id: in candidates.json, else in a Less likely file. Only the files of the zone its
+ * id starts with are read (every file only when the id names none and they are small), and the file
+ * that holds it goes on the list. null when no file has it, or the file can't be read.
+ */
+export async function findCandidate(set: CandidateSet, id: string): Promise<Candidate | null> {
+  const hit = set.candidates.find((c) => c.id === id) ?? moreCandidates(set).find((c) => c.id === id);
+  if (hit) return hit;
+  const entries = moreOf(set.data);
+  const zone = entries.filter((e) => id.startsWith(`${e.zone}-`));
+  const order = zone.length ? zone : moreTotal(entries) <= MORE_SEARCH_MAX ? entries : [];
+  for (const e of order) {
+    const rows = await loadMore(e).catch(() => null);
+    if (!rows?.some((r) => r.id === id)) continue;
+    setMoreOpen(e, true);
+    return moreCandidates(set).find((c) => c.id === id) ?? null;
+  }
+  return null;
 }
 
 let setPromise: Promise<CandidateSet | null> | null = null;

@@ -1,0 +1,48 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC, for web tests and screenshots only: one zone's Less likely file (/data/candidates-more/hunt.json) in contracts/api.md v3.24 shape, named by checks.fixture.json `more`. Texts and numbers made up in the contract's style. Never copy it into web/public/data/ and never show it as real data.",
+  "generated": "2026-11-16T12:00:00Z",
+  "data_release": "DR1+QR3",
+  "zone": "hunt",
+  "kind": "mover",
+  "grade": "C",
+  "count": 3,
+  "candidates": [
+    {
+      "id": "hunt-664250090001-87801720", "kind": "mover", "ra": 123.41201, "dec": 20.61104, "mjd": 60973.37202, "clock": "hours", "det": 2,
+      "zone": "hunt", "zones": ["hunt"], "grade": "C", "score": 0.12, "snr": 13.4, "flux_ujy": 410.2, "rate_arcsec_h": 33.0,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 241.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": true,
+      "galactic_b": 27.0, "labels": [], "reasons": ["two_exposures", "catwise"], "flags": [], "frames_url": null,
+      "why": "Seen at different places in 2 exposures 2.1 minutes apart; a CatWISE source sits 2.4″ from its first dot.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "two_photos", "level": "warn", "text": "Seen in 2 photos 2.1 minutes apart: two dots always line up, so its path can't be checked", "look": "Hours, D2: look for a third dot along the same line in the next session", "values": { "exposures": 2, "minutes": 2.1 } },
+        { "code": "catalogue_star", "level": "strong", "text": "A CatWISE2020 source (W1 15.8) sits 2.4″ from its first dot: the two dots may be that star and a noise peak", "look": "Hours, D2: if the first dot stays put in the other sessions, it's the star", "values": { "catalogs": "catwise", "sep_arcsec": 2.4 } }
+      ]
+    },
+    {
+      "id": "hunt-664250090002-87801731", "kind": "mover", "ra": 123.70114, "dec": 20.10233, "mjd": 60973.38001, "clock": "hours", "det": 6,
+      "zone": "hunt", "zones": ["hunt"], "grade": "C", "score": 0.09, "snr": 10.8, "flux_ujy": 1310.0, "rate_arcsec_h": 47.5,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 250.2, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 26.7, "labels": [], "reasons": ["two_exposures", "edge"], "flags": ["outlier"], "frames_url": null,
+      "why": "Seen at different places in 3 exposures over 4.2 minutes, close to the edge of the photo.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "flag_outlier", "level": "ok", "text": "NASA marked OUTLIER at the peak of 2 of its 3 dots, as for 68% of known asteroids: a sign it moved", "look": "", "values": { "dots_peak": 2, "dots": 3, "known_share": 0.68 } },
+        { "code": "edge", "level": "strong", "text": "Its third dot is 4 px from the photo's edge, where the pipeline's dots are least reliable", "look": "Hours, D6, photo 3: the dot sits at the very edge of the frame", "values": { "edge_px": 4, "dots": 1 } }
+      ]
+    },
+    {
+      "id": "hunt-664250090003-87801745", "kind": "mover", "ra": 124.21007, "dec": 19.80014, "mjd": 60973.39001, "clock": "hours", "det": 3,
+      "zone": "hunt", "zones": ["hunt"], "grade": "C", "score": 0.06, "snr": 9.6, "flux_ujy": 380.0, "rate_arcsec_h": 29.4,
+      "pm_mas_yr": null, "pm_err_mas_yr": null, "pa_deg": 98.0, "nearest_known_arcsec": null, "gaia_match": false, "catwise_match": false,
+      "galactic_b": 26.2, "labels": [], "reasons": ["two_exposures", "masked_peak"], "flags": ["persist"], "frames_url": null,
+      "why": "Seen at different places in 2 exposures 2.1 minutes apart; NASA masked the peak of one dot.",
+      "status": "open", "known_name": null,
+      "checks": [
+        { "code": "persistence", "level": "warn", "text": "PERSIST at the peak of 1 of its 2 dots: a bright star may have left its mark on those pixels", "look": "Hours, D3: an earlier photo with a bright star on the same pixels", "values": { "dots_at_peak": 1, "n_dots": 2 } },
+        { "code": "masked_peak", "level": "strong", "text": "NASA masked the peak pixel of its second dot (PERSIST)", "look": "Hours, D3, photo 2: the dot's centre is a flagged pixel", "values": { "bits": "PERSIST" } }
+      ]
+    }
+  ]
+}

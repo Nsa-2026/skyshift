@@ -1,6 +1,7 @@
 // Review and Candidate pages: the pure parts. Consensus (DESIGN.md "Votes and consensus"), the
 // review queue's order, the Discover filter read from its URL, keyboard mapping and URL parsing.
 // No DOM, no Firebase, so tests are cheap.
+import { statusOf } from "../api/checks";
 import { gradeOf, gradeRank, leadRank, votable } from "../api/grades";
 import type { Candidate } from "../api/types";
 import { ANSWERS, CONSENSUS, consensus as agreed, emptyCounts, total, type Answer, type Counts } from "../vote/model";
@@ -135,6 +136,8 @@ export interface ListFilter {
   hideDoubts: boolean;
   hideCautions: boolean;
   hideMine: boolean;
+  /** Which list: to check (open), or the certain matches listed apart (known, flaw); contracts v3.23. */
+  status: "open" | "known" | "flaw";
   ranges: Partial<Record<RangeKey, Range>>;
   sort: Sort;
 }
@@ -173,6 +176,7 @@ export function parseFilter(query: string): ListFilter {
     hideDoubts: p.get("doubts") === "hide",
     hideCautions: p.get("cautions") === "hide",
     hideMine: p.get("mine") === "hide",
+    status: statusOf({ status: p.get("status") }),
     ranges,
     sort: sort && SORTS.includes(sort) ? sort : "promising",
   };
@@ -248,6 +252,7 @@ export function applyFilter(
     if (f.hideDoubts && c.reasons.some((r) => DOUBT_CODES.includes(r))) return false;
     if (f.hideCautions && c.flags.length) return false;
     if (f.hideMine && votedFor(c.id)) return false;
+    if (statusOf(c) !== f.status) return false;
     for (const key of RANGE_KEYS) {
       const r = f.ranges[key];
       if (!r) continue;

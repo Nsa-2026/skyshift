@@ -1,7 +1,23 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { _resetMoreForTests } from "../api/more";
 import type { Epoch, FramesResponse } from "../api/types";
 import { embedCode, shareUrl } from "./candidate";
-import { OWN_GAP_DAYS, candidateFrames, candidateView, findGap, focusFrames, gapText, liveMjd, toCandidate, toCandidateSet } from "./data";
+import checked from "./checks.fixture.json";
+import moreEcl04 from "./checks.more-ecl04.fixture.json";
+import moreHunt from "./checks.more-hunt.fixture.json";
+import {
+  OWN_GAP_DAYS,
+  candidateFrames,
+  candidateView,
+  findCandidate,
+  findGap,
+  focusFrames,
+  gapText,
+  liveMjd,
+  moreCandidates,
+  toCandidate,
+  toCandidateSet,
+} from "./data";
 import { cand } from "./testkit";
 
 function epoch(id: string, mjd: number, det: 1 | 2 | 3 | 4 | 5 | 6 = 3): Epoch {
@@ -62,6 +78,88 @@ describe("toCandidate", () => {
     );
     expect(set.candidates.map((c) => [c.id, c.kind])).toEqual([["a", "mover"]]);
     expect(set.sample).toBe(true);
+  });
+
+  it("carries v3.23's status, known_name and checks when the file has them, and adds nothing when it doesn't", () => {
+    const c = toCandidate({
+      id: "k", kind: "mover", ra: 1, dec: 2, status: "known", known_name: "306P/LINEAR",
+      checks: [{ code: "edge", level: "warn", text: "Near the edge" }, { code: "known_body", level: "strong", text: "306P was predicted 2″ away", look: "Hours, D6" }],
+    });
+    expect(c).toMatchObject({ status: "known", known_name: "306P/LINEAR" });
+    expect(c?.checks?.map((k) => k.code)).toEqual(["known_body", "edge"]);
+    const old = toCandidate({ id: "o", kind: "mover", ra: 1, dec: 2 })!;
+    expect(["status", "known_name", "checks"].filter((k) => k in old)).toEqual([]);
+  });
+});
+
+describe("the Viewer's Previous and Next for a candidate listed apart", () => {
+  it("steps through the known bodies, never the objects to check", async () => {
+    const { listFor } = await import("./list");
+    const rows = [
+      { id: "o1", kind: "mover", ra: 1, dec: 2, score: 0.9, checks: [] },
+      { id: "k1", kind: "mover", ra: 1, dec: 2, score: 0.8, status: "known", known_name: "Iapetus", checks: [] },
+      { id: "o2", kind: "mover", ra: 1, dec: 2, score: 0.7, status: "open", checks: [] },
+      { id: "k2", kind: "mover", ra: 1, dec: 2, score: 0.6, status: "known", known_name: "(4512) Sinuhe", checks: [] },
+    ].map((r) => toCandidate(r)!);
+    const ids = async (q: string) => (await listFor(rows, q, new Map(), () => null)).map((c) => c.id);
+    expect(await ids("show=all")).toEqual(["o1", "o2"]);
+    expect(await ids("show=all&status=known")).toEqual(["k1", "k2"]);
+  });
+});
+
+describe("a Less likely candidate in the Viewer (contracts/api.md v3.24 `more`)", () => {
+  const fetchMock = vi.fn();
+  const files: Record<string, unknown> = { "/data/candidates-more/hunt.json": moreHunt, "/data/candidates-more/ecl04.json": moreEcl04 };
+  beforeEach(() => {
+    _resetMoreForTests();
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (url: string) => {
+      const body = files[new URL(url).pathname];
+      return body ? new Response(JSON.stringify(body)) : new Response("", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const set = () => toCandidateSet(structuredClone(checked) as never, false);
+  const read = () => fetchMock.mock.calls.map(([u]) => new URL(u as string).pathname);
+
+  it("is found in its zone's file, read only for it, which then joins Previous and Next", async () => {
+    const s = set();
+    expect(await findCandidate(s, "hunt-664250069368-87801613")).toMatchObject({ grade: "A" });
+    expect(read()).toEqual([]);
+    expect(moreCandidates(s)).toEqual([]);
+    const c = await findCandidate(s, "hunt-664250090002-87801731");
+    expect(c).toMatchObject({ id: "hunt-664250090002-87801731", grade: "C", status: "open", frames_url: null });
+    expect(c?.checks?.map((k) => k.level)).toEqual(["strong", "ok"]);
+    expect(read()).toEqual(["/data/candidates-more/hunt.json"]);
+    expect(moreCandidates(s).map((x) => x.id)).toEqual(moreHunt.candidates.map((x) => x.id));
+    // Read once: the next one of that zone costs nothing.
+    await findCandidate(s, "hunt-664250090003-87801745");
+    expect(read()).toHaveLength(1);
+    // Its place in the list to check: after the rest, under Less likely.
+    const { listFor } = await import("./list");
+    const ids = (await listFor([...s.candidates, ...moreCandidates(s)], "", new Map(), () => null)).map((x) => x.id);
+    expect(ids.slice(-5)).toEqual([
+      "hunt-664250081234-87801655",
+      "hunt-664250090001-87801720",
+      "hunt-664250090002-87801731",
+      "hunt-664250090003-87801745",
+      "hunt-sh-65039007800055",
+    ]);
+  });
+
+  it("reads only the zone its id names; an id naming none looks in every file when they're small", async () => {
+    const s = set();
+    expect(await findCandidate(s, "ecl04-000000000000-00000000")).toBeNull();
+    expect(read()).toEqual(["/data/candidates-more/ecl04.json"]);
+    expect(await findCandidate(s, "nowhere")).toBeNull();
+    expect(read()).toEqual(["/data/candidates-more/ecl04.json", "/data/candidates-more/hunt.json"]);
+  });
+
+  it("an older list without `more` reads nothing", async () => {
+    const s = toCandidateSet({ candidates: [{ id: "a", kind: "mover", ra: 1, dec: 2 }] } as never, false);
+    expect(await findCandidate(s, "hunt-664250090002-87801731")).toBeNull();
+    expect(read()).toEqual([]);
   });
 });
 

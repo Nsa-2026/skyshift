@@ -10,13 +10,16 @@ import type { TrackMarks, View } from "../app/modules";
 import { emptyCounts, shiftCounts, type Answer, type Counts } from "../vote/model";
 import { VOTED_EVENT, type VotedDetail } from "../vote/store";
 import { Ballot } from "./ballot";
-import { OWN_GAP_DAYS, candidateSet, findGap, focusFrames, framesFor, gapText, suspectFor, votes, type CandidateSet, type Votes } from "./data";
+import { OWN_GAP_DAYS, candidateSet, findCandidate, findGap, focusFrames, framesFor, gapText, moreCandidates, suspectFor, votes, type CandidateSet, type Votes } from "./data";
 import { LIST_HASH, keyAction, neighbours, parseCandidateParam } from "./model";
 import { listFor, queryNeedsCounts } from "./list";
 import { lastDiscoverHash, lastDiscoverQuery, trackDiscover } from "./nav";
 import { SAMPLE_NOTE, castVote, fillNearSource, gradeHtml, headHtml, motionHtml, visible } from "./parts";
 import { candidateMarks } from "./track";
 import { aboutCandidate } from "./about";
+import { checksHtml, statusHtml } from "./checks";
+import { moreOf } from "../api/more";
+import { STATUS_TEXT, statusOf } from "../api/checks";
 import { KIND_TEXT, SITE, esc, kindName } from "./text";
 
 const html = String.raw;
@@ -55,12 +58,15 @@ export function noVoteHtml(c: Candidate): string {
   </section>`;
 }
 
-/** What this object did, in which detector, and what could make it an artefact (src/review/about). */
+/** What this object did, in which detector, and what could make it an artefact (src/review/about).
+ *  A known body or an instrument flaw says so first; the file's checks (v3.23) replace "Watch for". */
 export function aboutHtml(c: Candidate, frames?: FramesResponse | null): string {
   const a = aboutCandidate(c, frames);
   return html`<div class="sp-about">
+    ${statusHtml(c)}
     <p class="sp-about-said">${esc(a.said.join(" "))}</p>
     ${a.watch ? html`<p class="sp-about-watch">${esc(a.watch)}</p>` : ""}
+    ${a.checks.length ? html`<section class="sp-checks" aria-labelledby="sp-checks-h"><p class="sp-checks-h" id="sp-checks-h" role="heading" aria-level="3">What to check</p>${checksHtml(c)}</section>` : ""}
   </div>`;
 }
 
@@ -319,10 +325,12 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
 
   async function renderNav(c: Candidate, query: string) {
     const q = query || lastDiscoverQuery();
+    // candidates.json's, and the Less likely files on the list (v3.24 `more`).
+    const pool = set ? [...set.candidates, ...moreCandidates(set)] : [];
     let all = new Map<string, Counts>();
     if (queryNeedsCounts(q) && v && set) {
       try {
-        all = await v.api.countsFor(set.candidates.map((x) => x.id));
+        all = await v.api.countsFor(pool.map((x) => x.id));
       } catch {
         all = new Map();
       }
@@ -331,11 +339,13 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     const api = v.api;
     // This candidate stays in its list after a vote, even when the list hides "mine".
     const votedFor = (id: string) => (id === c.id ? null : api.myVote(id));
-    let items = await listFor(set.candidates, q, all, votedFor);
+    let items = await listFor(pool, q, all, votedFor);
     let inList = true;
+    const status = statusOf(c);
     if (!items.some((x) => x.id === c.id)) {
-      // Not in the list: step through everything, including the groups the list sets aside by default.
-      items = await listFor(set.candidates, "show=all", all, votedFor);
+      // Not in the list: step through everything of its status (to check, known bodies or flaws),
+      // including the groups the list sets aside by default.
+      items = await listFor(pool, status === "open" ? "show=all" : `show=all&status=${status}`, all, votedFor);
       inList = false;
     }
     if (cand !== c) return;
@@ -350,7 +360,9 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     link(prevEl, prev);
     link(nextEl, next);
     countEl.textContent =
-      index >= 0 ? `${(index + 1).toLocaleString("en-GB")} of ${items.length.toLocaleString("en-GB")} ${inList && q ? "in your filtered list" : "by pipeline score"}` : "";
+      index >= 0
+        ? `${(index + 1).toLocaleString("en-GB")} of ${items.length.toLocaleString("en-GB")} ${inList && q ? "in your filtered list" : status === "open" ? "by pipeline score" : `${STATUS_TEXT[status].many} listed apart`}`
+        : "";
     backEl.href = lastDiscoverHash();
   }
 
@@ -385,14 +397,16 @@ export function mountSuspect(el: HTMLElement, opts: SuspectOptions): SuspectHand
     if (t !== token || !active) return;
     sampleEl.hidden = !set?.sample;
     sampleEl.textContent = set?.sample ? SAMPLE_NOTE : "";
-    if (!set || !set.candidates.length) {
+    if (!set || (!set.candidates.length && !moreOf(set.data).length)) {
       showEmpty(
         "No objects to check are published yet",
         html`<p>The pipeline's first list is on its way. Meanwhile, the <a href="#/candidates/one=1">practice round</a> and the featured targets work now.</p>`,
       );
       return;
     }
-    const c = set.candidates.find((x) => x.id === id);
+    // Not in candidates.json: a Less likely file may hold it (read only for such a link).
+    const c = await findCandidate(set, id);
+    if (t !== token || !active) return;
     if (!c) {
       showEmpty(
         "This object isn't in the current list",
